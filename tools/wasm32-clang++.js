@@ -103,5 +103,14 @@ const args = process.argv
   .slice(2)
   .filter((a) => !a.startsWith("--target=") && a !== "-target");
 
+// Disable C++ exceptions and RTTI so the compiled object files do not
+// reference exception-ABI symbols (__cxa_throw, __cxa_allocate_exception,
+// _ZTVN10__cxxabiv1…, _ZTI* typeinfos, etc.) that are unavailable when
+// linking as wasm32-unknown-unknown without a C++ runtime.
+// Clipper2 is pure computation; if it ever calls a path that would throw
+// (e.g. std::vector capacity overflow), the WASI SDK translates this to
+// std::terminate/abort — acceptable behaviour inside a WASM sandbox.
+args.push("-fno-exceptions", "-fno-rtti");
+
 const result = spawnSync(WASI_CLANGPP, args, { stdio: "inherit" });
 process.exit(result.status ?? 1);
