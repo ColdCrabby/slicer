@@ -123,3 +123,12 @@ pub unsafe extern "C" fn cpp_operator_delete_sized(ptr: *mut u8, size: usize) {
 pub unsafe extern "C" fn cpp_libcpp_verbose_abort(_fmt: *const u8, _va: usize) {
     core::arch::wasm32::unreachable();
 }
+
+// ─── std::nothrow ─────────────────────────────────────────────────────────
+// `std::nothrow` is a global tag object of type `std::nothrow_t` used as the
+// second argument to `operator new(size_t, std::nothrow_t const&)`.  It is an
+// empty struct so any static byte serves as a valid definition.  Without this
+// symbol the linker fails with "undefined symbol: _ZSt7nothrow" when Clipper2
+// calls `new (std::nothrow) T(…)`.
+#[no_mangle]
+pub static _ZSt7nothrow: u8 = 0;
