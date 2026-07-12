@@ -49,7 +49,7 @@
 /// | [`MESH_LOAD`] | STL file read + mesh parsing |
 /// | [`MESH_ANALYSIS`] | AABB / volume / surface-area computation |
 /// | [`SLICING`] | Triangle–plane intersection → `Vec<SliceLayer>` |
-/// | [`ARACHNE_WALLS`] | Variable-width perimeter bead generation |
+/// | [`WALL_GENERATION`] | Perimeter (wall) bead generation |
 /// | [`INFILL_REGION_SNAPSHOT`] | Pre-strip infill interior region snapshot |
 /// | [`WALL_RESTRICTIONS`] | Single-wall first/top-layer restriction pass |
 /// | [`INTERIOR_REGIONS`] | Per-layer interior region computation for surfaces |
@@ -66,8 +66,8 @@ pub mod phases {
     pub const MESH_ANALYSIS: &str = "mesh_analysis";
     /// Triangle–plane intersection and layer contour extraction phase.
     pub const SLICING: &str = "slicing";
-    /// Variable-width perimeter bead generation (Arachne algorithm).
-    pub const ARACHNE_WALLS: &str = "arachne_walls";
+    /// Perimeter (wall) bead generation (classic or Arachne generator).
+    pub const WALL_GENERATION: &str = "wall_generation";
     /// Snapshot of infill interior regions taken before wall stripping.
     pub const INFILL_REGION_SNAPSHOT: &str = "infill_region_snapshot";
     /// Single-wall restriction pass for first and top layers.

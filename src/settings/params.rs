@@ -338,6 +338,50 @@ impl SeamPosition {
     }
 }
 
+/// Which wall (perimeter) generation algorithm to use.
+///
+/// Mirrors the "Wall generator" choice offered by PrusaSlicer / OrcaSlicer /
+/// Bambu Studio: a robust classic offset generator, or the Arachne
+/// variable-width generator.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum WallGenerator {
+    /// Classic fixed-width concentric perimeters with thin-wall gap fill.
+    ///
+    /// Deterministic, fast, and dependency-free.  Produces `wall_count`
+    /// constant-width beads per shell plus a variable-width residual bead in
+    /// any narrow space that remains.  This is the default and matches the
+    /// approach the mature slicers ship as their "Classic" wall generator.
+    #[default]
+    Classic,
+    /// Arachne variable-width extrusion (skeletal trapezoidation).
+    ///
+    /// **Not yet implemented — selecting this generator currently panics.**  It
+    /// is reserved for the medial-axis-based generator (Kuipers et al. 2020)
+    /// used by CuraEngine / PrusaSlicer / OrcaSlicer as their "Arachne" mode.
+    Arachne,
+}
+
+impl WallGenerator {
+    /// Parse a generator name from a CLI argument or config string
+    /// (case-insensitive, hyphens and underscores both accepted).
+    pub fn parse(s: &str) -> Option<Self> {
+        match s.to_lowercase().replace('-', "_").as_str() {
+            "classic" | "offset" | "offsets" => Some(Self::Classic),
+            "arachne" | "vwe" => Some(Self::Arachne),
+            _ => None,
+        }
+    }
+
+    /// Canonical name for emitting back into config / G-code comments.
+    pub fn name(self) -> &'static str {
+        match self {
+            Self::Classic => "classic",
+            Self::Arachne => "arachne",
+        }
+    }
+}
+
 /// Parameters that control how a model is sliced and printed.
 ///
 /// All dimensional values are in millimeters; speeds in mm/s;
@@ -350,6 +394,16 @@ pub struct SlicingParams {
 Smaller values produce finer detail but increase print time.
 **Typical:** 0.05–0.35 mm.", extend("x-group" = "Layer"))]
     pub layer_height: f64,
+
+    #[schemars(description = "Wall (perimeter) generation algorithm.
+
+Supported values:
+- `classic` — fixed-width concentric perimeters with thin-wall gap fill (default, fast, robust).
+- `arachne` — variable-width extrusion (**not yet implemented — selecting it will fail**).
+
+**Default:** `classic`.", extend("x-group" = "Walls"))]
+    #[serde(default = "SlicingParams::default_wall_generator")]
+    pub wall_generator: WallGenerator,
 
     #[schemars(description = "Number of perimeter (wall) beads per layer.
 
@@ -810,6 +864,7 @@ impl Default for SlicingParams {
     fn default() -> Self {
         Self {
             layer_height: 0.2,
+            wall_generator: Self::default_wall_generator(),
             wall_count: Self::default_wall_count(),
             wall_line_width_min: Self::default_wall_line_width_min(),
             wall_line_width_max: Self::default_wall_line_width_max(),
@@ -859,6 +914,10 @@ impl Default for SlicingParams {
 }
 
 impl SlicingParams {
+    fn default_wall_generator() -> WallGenerator {
+        WallGenerator::Classic
+    }
+
     fn default_wall_count() -> usize {
         3
     }

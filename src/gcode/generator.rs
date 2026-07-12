@@ -321,7 +321,7 @@ impl GcodeGenerator {
              ; nozzle_temp: {} °C\n\
              ; bed_temp: {} °C\n\
              ; print_speed: {} mm/s | perimeter: {} | infill: {} | bridge: {} | first_layer: {}\n\
-             ; wall_count: {} walls (Arachne VWE)\n\
+             ; wall_count: {} walls ({} generator)\n\
              ; infill_density: {:.0}%\n\
              ; ---\n",
             self.dialect.flavor_name(),
@@ -334,6 +334,7 @@ impl GcodeGenerator {
             params.bridge_speed,
             params.first_layer_speed,
             params.wall_count,
+            params.wall_generator.name(),
             params.infill_density * 100.0,
         );
 
@@ -489,7 +490,7 @@ impl GcodeGenerator {
 
                 // Emit ;TYPE: / ;WIDTH: annotation when the role OR extrusion
                 // width changes.  This ensures slicers / post-processors always
-                // see an up-to-date WIDTH comment before each Arachne bead.
+                // see an up-to-date WIDTH comment before each wall bead.
                 if self.marker_config.enabled {
                     let role_changed = last_role != Some(role);
                     let width_changed =
@@ -1420,7 +1421,7 @@ mod tests {
             "missing print_speed"
         );
         assert!(
-            gcode.contains("; wall_count: 3 walls (Arachne VWE)"),
+            gcode.contains("; wall_count: 3 walls (classic generator)"),
             "missing wall_count"
         );
         assert!(

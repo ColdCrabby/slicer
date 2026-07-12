@@ -13,8 +13,8 @@ use super::walls::{apply_single_wall_restrictions, classify_overhang_perimeters}
 /// Central entry point for the complete slicing pipeline.
 ///
 /// This function processes a mesh through the entire slicing pipeline, including
-/// basic slicing, top/bottom surface generation, and Arachne variable-width
-/// perimeter generation.  All pipeline progress is reported through `logger`
+/// basic slicing, top/bottom surface generation, and wall (perimeter) bead
+/// generation.  All pipeline progress is reported through `logger`
 /// so that CLI and WebSocket callers receive the same verbosity and information.
 ///
 /// # Arguments
@@ -23,7 +23,7 @@ use super::walls::{apply_single_wall_restrictions, classify_overhang_perimeters}
 /// * `logger` - Pipeline logger; use [`NullLogger`] when logging is not needed
 ///
 /// # Returns
-/// A `Vec<SliceLayer>` with all processing applied (Arachne walls, surfaces, etc.).
+/// A `Vec<SliceLayer>` with all processing applied (walls, surfaces, etc.).
 ///
 /// # Example
 /// ```
@@ -54,27 +54,28 @@ pub fn process_mesh(
         return layers;
     }
 
-    // Generate Arachne walls FIRST from the raw mesh contours
+    // Generate walls FIRST from the raw mesh contours
     logger.log_debug(&format!(
-        "generating Arachne walls (wall_count: {}, nozzle: {}mm)",
-        params.wall_count, params.nozzle_diameter_mm
+        "generating walls (generator: {}, wall_count: {}, nozzle: {}mm)",
+        params.wall_generator.name(),
+        params.wall_count,
+        params.nozzle_diameter_mm
     ));
-    let arachne_params = crate::arachne::ArachneParams::from_slicing_params(params);
-    let t_arachne = PhaseTimer::start(phases::ARACHNE_WALLS, logger);
-    let arachne_timings = crate::arachne::generate_arachne_walls(&mut layers, &arachne_params);
-    t_arachne.finish();
+    let t_walls = PhaseTimer::start(phases::WALL_GENERATION, logger);
+    let wall_timings = crate::walls::generate_walls(&mut layers, params);
+    t_walls.finish();
     logger.log_debug(&format!(
-        "arachne sub-timings (CPU total across threads): collapse_depth {} ms, bead_shrinks {} ms",
-        arachne_timings.collapse_depth_ms, arachne_timings.bead_shrink_ms,
+        "wall sub-timings (CPU total across threads): collapse_depth {} ms, bead_shrinks {} ms",
+        wall_timings.collapse_depth_ms, wall_timings.bead_shrink_ms,
     ));
-    logger.log_debug("Arachne wall generation complete");
+    logger.log_debug("wall generation complete");
 
     if logger.is_cancelled() {
         logger.log_info("slice cancelled after wall generation phase");
         return layers;
     }
 
-    // Pre-compute infill interior regions while all Arachne walls are still
+    // Pre-compute infill interior regions while all walls are still
     // present.  These are passed to add_infill_to_layers so that the
     // subsequent apply_single_wall_restrictions step (which strips inner walls
     // from certain layers) cannot accidentally expand the infill boundary into
@@ -421,7 +422,7 @@ pub fn process_mesh(
 /// at every major stage into `debug`.  The returned `Vec<SliceLayer>` is
 /// identical to what `process_mesh` would produce.
 ///
-/// Because Arachne is run sequentially in debug mode (to allow in-order
+/// Because walls are generated sequentially in debug mode (to allow in-order
 /// snapshot capture), this function is **significantly slower** than
 /// `process_mesh` on large models.  Use it only for debugging.
 ///
@@ -429,10 +430,10 @@ pub fn process_mesh(
 ///
 /// | Stage | When |
 /// |---|---|
-/// | `RawContours` | After `slice_mesh`, before Arachne |
-/// | `ArachneNormalisedInput` | Per layer: EvenOdd-union result fed to Arachne |
-/// | `ArachneInflateStep { bead_k }` | Per layer / per bead: each `shrink` intermediate |
-/// | `ArachneBeads` | Per layer: final bead centerlines |
+/// | `RawContours` | After `slice_mesh`, before wall generation |
+/// | `WallNormalisedInput` | Per layer: EvenOdd-union result fed to the generator |
+/// | `WallOffsetStep { bead_k }` | Per layer / per bead: each `shrink` intermediate |
+/// | `WallBeads` | Per layer: final bead centerlines |
 /// | `InteriorRegion` | Per layer: inside-wall region for infill/surfaces |
 /// | `SolidSurface` | Per layer: `layer.solid_regions` after surface generation |
 /// | `Infill` | Per layer: infill + surface fill paths |
@@ -462,11 +463,10 @@ pub fn process_mesh_debug(
         return layers;
     }
 
-    // Arachne — sequential, with debug snapshots captured per layer.
-    logger.log_debug("generating Arachne walls (debug mode, sequential)");
-    let arachne_params = crate::arachne::ArachneParams::from_slicing_params(params);
-    crate::arachne::generate_arachne_walls_debug(&mut layers, &arachne_params, debug);
-    logger.log_debug("Arachne wall generation complete");
+    // Walls — sequential, with debug snapshots captured per layer.
+    logger.log_debug("generating walls (debug mode, sequential)");
+    crate::walls::generate_walls_debug(&mut layers, params, debug);
+    logger.log_debug("wall generation complete");
 
     if logger.is_cancelled() {
         return layers;

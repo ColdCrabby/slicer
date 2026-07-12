@@ -12,8 +12,6 @@
 //! - User-friendly CLI layer for command-line usage
 
 #[cfg(any(not(target_arch = "wasm32"), feature = "web-slicer"))]
-pub mod arachne;
-#[cfg(any(not(target_arch = "wasm32"), feature = "web-slicer"))]
 pub mod core;
 #[cfg(any(not(target_arch = "wasm32"), feature = "web-slicer"))]
 pub mod gcode;
@@ -25,6 +23,8 @@ pub mod orient;
 pub mod scene;
 #[cfg(any(not(target_arch = "wasm32"), feature = "web-slicer"))]
 pub mod settings;
+#[cfg(any(not(target_arch = "wasm32"), feature = "web-slicer"))]
+pub mod walls;
 
 #[cfg(target_arch = "wasm32")]
 pub mod gcode_viewer;
