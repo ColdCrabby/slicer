@@ -1,15 +1,45 @@
-<table class="shortcuts">
-  <tbody>
-    @for (item of shortcuts; track item.actionId) {
-      <tr class="shortcuts__row">
-        <td class="shortcuts__desc">{{ item.displayDescription }}</td>
-        <td class="shortcuts__action-id">
-          <code>{{ item.actionId }}</code>
-        </td>
-        <td class="shortcuts__key">
-          <kbd>{{ item.displayText }}</kbd>
-        </td>
-      </tr>
-    }
-  </tbody>
-</table>
+@for (section of sections; track section.title + (section.scope ?? '')) {
+  <section
+    class="shortcuts-section"
+    [class.shortcuts-section--other-platform]="!isCurrentPlatform(section.scope)"
+  >
+    <header class="shortcuts-section__header">
+      <h3 class="shortcuts-section__title">{{ section.title }}</h3>
+      @if (section.scope === 'mac') {
+        <nexus-badge [variant]="isMac ? 'info' : 'default'">
+          macOS
+          @if (isMac) {
+            <span class="shortcuts-section__badge-hint"> · Your platform</span>
+          }
+        </nexus-badge>
+      } @else if (section.scope === 'non-mac') {
+        <nexus-badge [variant]="!isMac ? 'info' : 'default'">
+          Windows / Linux
+          @if (!isMac) {
+            <span class="shortcuts-section__badge-hint"> · Your platform</span>
+          }
+        </nexus-badge>
+      }
+    </header>
+    <table class="shortcuts">
+      <tbody>
+        @for (row of section.rows; track row.actionId) {
+          <tr class="shortcuts__row">
+            <td class="shortcuts__desc">{{ row.displayDescription }}</td>
+            <td class="shortcuts__action-id">
+              <code>{{ row.actionId }}</code>
+            </td>
+            <td class="shortcuts__key">
+              @for (part of row.displayParts; track $index; let last = $last) {
+                <kbd>{{ part }}</kbd>
+                @if (!last) {
+                  <span class="shortcuts__or">or</span>
+                }
+              }
+            </td>
+          </tr>
+        }
+      </tbody>
+    </table>
+  </section>
+}

@@ -1,3 +1,47 @@
+.shortcuts-section {
+  margin: 0 0 18px;
+
+  &:last-child {
+    margin-bottom: 0;
+  }
+
+  // Dim the section that describes the other platform. Content stays
+  // readable (0.55 opacity) so users can still learn cross-platform
+  // conventions, but visually secondary to their current-platform block.
+  &--other-platform {
+    opacity: 0.55;
+
+    // The header itself stays fully opaque so the platform badge remains
+    // legible — the dimming only applies to the table rows.
+    .shortcuts-section__header {
+      opacity: 0.85;
+    }
+  }
+}
+
+.shortcuts-section__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 0 10px 6px;
+  margin: 0 0 4px;
+  border-bottom: 1px solid var(--color-border, #2e3640);
+}
+
+.shortcuts-section__title {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--color-text-primary, #f5f6f8);
+  letter-spacing: 0.02em;
+}
+
+.shortcuts-section__badge-hint {
+  opacity: 0.75;
+  font-weight: 500;
+}
+
 .shortcuts {
   width: 100%;
   border-collapse: collapse;
@@ -46,6 +90,14 @@
 .shortcuts__key {
   text-align: right;
   white-space: nowrap;
+}
+
+.shortcuts__or {
+  display: inline-block;
+  margin: 0 6px;
+  font-size: 11px;
+  color: var(--color-text-tertiary, #888c98);
+  text-transform: lowercase;
 }
 
 kbd {

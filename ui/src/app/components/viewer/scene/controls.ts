@@ -22,10 +22,46 @@ const AUTOSCROLL_ACCEL_REF_PX = 100;
 const AUTOSCROLL_ACCEL_EXPONENT = 4;
 const AUTOSCROLL_MAX_FACTOR_PER_FRAME = 4;
 
+// --- Mac trackpad tuning (Shapr3D-style two-finger gestures) --------------
+// Two-finger swipe pans 1:1 with pixel deltas (grab feel).
+// Option + swipe orbits at ~0.34° per pixel (200 px = ~68°).
+// Pinch (ctrlKey wheel event synthesised by macOS) zooms toward the cursor.
+//
+// Pinch zoom uses a direct exponential model:
+//     factor = exp(clamp(deltaY, ±MAX) * RATE)
+// The per-event clamp is essential because Chrome/Safari pinch deltas vary
+// wildly (5–50 px per event) — an unclamped exponential turns big-delta
+// events into runaway zooms. To make pinch feel faster/slower, adjust RATE:
+//     0.005 = gentle       0.01 = balanced       0.02 = aggressive
+const MAC_ORBIT_RAD_PER_PIXEL = 0.006;
+const MAC_PINCH_ZOOM_RATE = 0.01;
+const MAC_PINCH_ZOOM_MAX_DELTA = 50;
+
 interface AutoscrollState {
   pointerId: number;
   anchorY: number;
   currentY: number;
+}
+
+/**
+ * True on macOS (laptop trackpad, Magic Trackpad, Magic Mouse). Detected once
+ * at construction and cached — the platform does not change at runtime. Used
+ * to switch the wheel handler into Shapr3D-style trackpad mode (pan by
+ * default, pinch to zoom, ⌥ + swipe to orbit).
+ */
+function isMacPlatform(): boolean {
+  if (typeof navigator === 'undefined') {
+    return false;
+  }
+  const uaData = navigator as Navigator & { userAgentData?: { platform?: string } };
+  const platform = uaData.userAgentData?.platform ?? navigator.platform ?? '';
+  const userAgent = navigator.userAgent ?? '';
+  // iPadOS reports "MacIntel" but is a touch device — the trackpad wheel
+  // model does not apply there (touch handlers run instead).
+  if (platform === 'MacIntel' && navigator.maxTouchPoints > 1) {
+    return false;
+  }
+  return /^Mac/i.test(platform) || /Mac OS X/i.test(userAgent);
 }
 
 /**
@@ -44,6 +80,8 @@ export class SceneControls {
   private autoscroll: AutoscrollState | null = null;
   private readonly raycaster = new Raycaster();
   private readonly ndcScratch = new Vector2();
+  private readonly isMac = isMacPlatform();
+  private readonly wheelHandler: (event: WheelEvent) => void;
 
   /**
    * @param cancelDragCallback  Called when a two-finger gesture begins so
@@ -55,6 +93,12 @@ export class SceneControls {
     private readonly renderer: WebGLRenderer,
     private readonly cancelDragCallback: () => void,
   ) {
+    // Wheel dispatch is platform-specific. On macOS the wheel channel carries
+    // trackpad gestures (two-finger swipe, pinch, ⌥+swipe) and must be
+    // interpreted per modifier; on Windows/Linux it is a mouse wheel and only
+    // needs zoom.
+    this.wheelHandler = this.isMac ? this.onWheelMac : this.onWheel;
+
     this.installOrbitInertia();
     this.installTouchOrbitTuning();
     this.installCustomTwoFingerControls();
@@ -202,7 +246,7 @@ export class SceneControls {
   dispose(): void {
     this.uninstallAutoscrollZoom();
     this.uninstallRendererPointerListeners();
-    this.renderer.domElement.removeEventListener('wheel', this.onWheel, { capture: true });
+    this.renderer.domElement.removeEventListener('wheel', this.wheelHandler, { capture: true });
   }
 
   // -------------------------------------------------------------------------
@@ -216,9 +260,13 @@ export class SceneControls {
    * wheel handling entirely with a capture-phase listener that directly
    * moves the camera, then stops propagation so OrbitControls never sees
    * the event.
+   *
+   * On macOS the wheel channel also carries trackpad gestures (two-finger
+   * swipe, pinch, ⌥+swipe), so a modifier-aware dispatcher
+   * ({@link onWheelMac}) is installed instead of the plain zoom handler.
    */
   private installAlwaysOnWheelZoom(): void {
-    this.renderer.domElement.addEventListener('wheel', this.onWheel, {
+    this.renderer.domElement.addEventListener('wheel', this.wheelHandler, {
       passive: false,
       capture: true,
     });
@@ -266,6 +314,100 @@ export class SceneControls {
     const f = newDist / oldDist;
     this.camera.position.copy(target).add(offset.multiplyScalar(f));
   };
+
+  // -------------------------------------------------------------------------
+  // macOS trackpad wheel dispatch (Shapr3D-style)
+  // -------------------------------------------------------------------------
+
+  /**
+   * On macOS the `wheel` channel carries every two-finger trackpad gesture,
+   * distinguished only by modifier flags. This dispatcher routes each event
+   * to the matching camera operation instead of unconditionally zooming.
+   *
+   * | Modifier                 | Gesture on trackpad          | Action           |
+   * | ------------------------ | ---------------------------- | ---------------- |
+   * | `ctrlKey` (synthesised)  | Pinch                        | Zoom to cursor   |
+   * | `altKey` (⌥ Option)      | Two-finger swipe + Option    | Orbit            |
+   * | none                     | Two-finger swipe             | Pan (grab feel)  |
+   *
+   * `ctrlKey` is set by macOS itself when a pinch gesture is in progress —
+   * it does not require the user to press Control. Real Ctrl+scroll on an
+   * external mouse also lands here and is treated as pinch, which matches
+   * every native macOS app.
+   */
+  private onWheelMac = (event: WheelEvent): void => {
+    if (!this.controls.enabled || this.autoscroll !== null) {
+      return;
+    }
+    event.preventDefault();
+    event.stopImmediatePropagation();
+
+    if (event.ctrlKey) {
+      // Trackpad pinch (or Ctrl+scroll) — zoom toward the cursor.
+      // Direct exponential: positive deltaY (pinch close) → factor > 1 →
+      // zoom out; negative deltaY (pinch open) → factor < 1 → zoom in.
+      // The per-event clamp keeps a single large-delta event from causing
+      // a runaway zoom in the middle of an otherwise-smooth pinch.
+      if (!this.controls.enableZoom) {
+        return;
+      }
+      const clamped = Math.max(
+        -MAC_PINCH_ZOOM_MAX_DELTA,
+        Math.min(MAC_PINCH_ZOOM_MAX_DELTA, event.deltaY),
+      );
+      const factor = Math.exp(clamped * MAC_PINCH_ZOOM_RATE);
+      this.applyTouchDolly(factor, event.clientX, event.clientY);
+      return;
+    }
+
+    if (event.altKey) {
+      // ⌥ + two-finger swipe — orbit.
+      this.applyWheelOrbit(event.deltaX, event.deltaY);
+      return;
+    }
+
+    // Two-finger swipe — pan with grab feel (scene follows fingers).
+    // Reuses the touch pan helper so pixel deltas map 1:1 to world
+    // translation at the current zoom distance.
+    this.applyTouchPan(event.deltaX, event.deltaY);
+  };
+
+  /**
+   * Orbit the camera around `controls.target` by a screen-space pixel delta.
+   * Used by the macOS wheel handler for ⌥+two-finger swipe. Mirrors the
+   * Z-up spherical math in {@link SceneCamera.orbitBy} to stay consistent
+   * with keyboard-driven orbit and to avoid touching `camera.up`.
+   */
+  private applyWheelOrbit(dxPx: number, dyPx: number): void {
+    if (dxPx === 0 && dyPx === 0) {
+      return;
+    }
+    const target = this.controls.target;
+    const offset = this.camera.position.clone().sub(target);
+    const r = offset.length();
+    if (r < 1e-6) {
+      return;
+    }
+    const dAz = dxPx * MAC_ORBIT_RAD_PER_PIXEL;
+    const dPol = dyPx * MAC_ORBIT_RAD_PER_PIXEL;
+
+    // Z-up spherical: phi = angle from +Z, theta = azimuth around +Z.
+    const phi = Math.acos(Math.max(-1, Math.min(1, offset.z / r)));
+    const theta = Math.atan2(offset.y, offset.x);
+    const newTheta = theta - dAz;
+    // Clamp phi away from the poles to prevent lookAt degeneracy.
+    const eps = 0.01;
+    const newPhi = Math.max(eps, Math.min(Math.PI - eps, phi - dPol));
+
+    const sinPhi = Math.sin(newPhi);
+    offset.set(
+      r * sinPhi * Math.cos(newTheta),
+      r * sinPhi * Math.sin(newTheta),
+      r * Math.cos(newPhi),
+    );
+    this.camera.position.copy(target).add(offset);
+    this.controls.update();
+  }
 
   // -------------------------------------------------------------------------
   // Orbit inertia

@@ -38,6 +38,15 @@ export class KeyboardShortcuts {
   private readonly slicer = inject(Slicer);
   private readonly gcodePreview = inject(GcodePreview);
 
+  /**
+   * True when running on macOS desktop/laptop (not iPadOS). Consumers use
+   * this to decide which viewport-navigation model applies — kept in sync
+   * with the trackpad gesture branch in {@link SceneControls}. iPadOS is
+   * excluded because it uses the touch pointer path, not the trackpad
+   * wheel path.
+   */
+  readonly isMac = detectMac();
+
   private readonly shortcuts: ParsedShortcutConfig[] = [
     {
       actionId: 'undo',
@@ -300,4 +309,24 @@ export class KeyboardShortcuts {
       this.gcodePreview.setLayerMax(current - 1);
     }
   }
+}
+
+/**
+ * Module-scoped helper used to initialise {@link KeyboardShortcuts.isMac}.
+ * Kept as a plain function (not a class method) so the field initialiser
+ * can call it before `this` is available in the constructor.
+ */
+function detectMac(): boolean {
+  if (typeof navigator === 'undefined') {
+    return false;
+  }
+  const uaData = navigator as Navigator & { userAgentData?: { platform?: string } };
+  const platform = uaData.userAgentData?.platform ?? navigator.platform ?? '';
+  const userAgent = navigator.userAgent ?? '';
+  // iPadOS reports "MacIntel" but is a touch device — the trackpad wheel
+  // model does not apply there (touch pointer handlers run instead).
+  if (platform === 'MacIntel' && navigator.maxTouchPoints > 1) {
+    return false;
+  }
+  return /^Mac/i.test(platform) || /Mac OS X/i.test(userAgent);
 }

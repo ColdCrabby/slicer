@@ -24,17 +24,22 @@ Before building or running, ensure you have:
 
 ### Required
 
-- **Rust 1.70+** — [Install](https://rustup.rs/)
+- **Rust 1.70+ via [rustup](https://rustup.rs/)** — the Homebrew `rust` package is **not supported**; it ships without the `wasm32-unknown-unknown` standard library and can't add targets. If you have it installed, run `brew uninstall rust` first, then install rustup.
 - **Node.js 20+** and **pnpm 9+** — [Node](https://nodejs.org/), then `npm install -g pnpm`
 
-### For WASM builds (browser slicer, cloud UI)
+### For WASM builds (self-hosted UI, browser slicer, desktop)
 
-Add the WebAssembly target and install wasm-pack:
+All three modes need the WASM scene bindings. Add the target and install a matching `wasm-bindgen-cli`:
 
 ```bash
 rustup target add wasm32-unknown-unknown
-cargo install wasm-pack
+
+# Match the wasm-bindgen version pinned in Cargo.lock — mismatched CLI
+# versions silently produce broken bindings.
+cargo install wasm-bindgen-cli --version "$(grep -A1 '^name = "wasm-bindgen"$' Cargo.lock | tail -1 | cut -d'"' -f2)" --locked
 ```
+
+> Only needed if you build the standalone in-browser bundle yourself: `cargo install wasm-pack`. The `pnpm hydrate` scripts do not use it.
 
 ### For desktop app builds
 
@@ -58,15 +63,40 @@ cargo install tauri-cli --version "^2"
 
 ```bash
 # Slice an STL to G-code
-cargo run --release -- slice --input model.stl --output output.gcode
-
-# Run the WebSocket + UI server (default port 5201)
-cargo run --release -- serve
+cargo run -- slice --input model.stl --output output.gcode
 
 # Inspect or edit persisted settings
-cargo run --release -- settings show
-cargo run --release -- settings set layer_height 0.15
+cargo run -- settings show
+cargo run -- settings set layer_height 0.15
 ```
+
+To run the WebSocket + UI server (`cargo run -- serve`), see **[First-time setup](#first-time-setup-self-hosted-ui)** below — the UI must be built before the server can serve it.
+
+---
+
+## First-time setup (self-hosted UI)
+
+After cloning, run these once in order. Skipping any step means the next one fails with confusing errors.
+
+```bash
+# 1. Install deps (Rust + Node prerequisites above must already be in place)
+pnpm install
+
+# 2. Build WASM scene bindings + generate JSON schemas + TS types
+#    Populates ui/src/generated/ — without this, `pnpm ui:build` fails with
+#    "Cannot find module '../../generated/scene-wasm/scene_engine'".
+pnpm run hydrate
+
+# 3. Build the Angular UI
+#    Produces ui/dist/slicer-ui/browser — without this, `cargo run -- serve`
+#    fails with "UI directory not found: ./ui/dist/slicer-ui/browser".
+pnpm run ui:build
+
+# 4. Start the server (serves the UI at http://localhost:5201/)
+cargo run -- serve
+```
+
+For iterative UI work, use the dev-server flow in [Self-hosted web UI](#self-hosted-web-ui) below (skips step 3, hot-reloads Angular).
 
 ---
 
@@ -159,13 +189,20 @@ Full reference → [Settings](src/settings/README.md) · [Config (TOML)](src/con
 
 ## Self-hosted web UI
 
-```bash
-# 1. Build WASM scene bindings
-pnpm run hydrate            # wasm-pack + schema/type gen
+Production flow (server serves the built UI on a single port):
 
-# 2. Start dev servers (both must run)
-pnpm run ui:dev             # Angular dev server → http://localhost:4200
-cargo run --release -- serve # WebSocket/HTTP server → http://localhost:5201
+```bash
+pnpm run hydrate             # once (or when Rust bindings/schemas change)
+pnpm run ui:build            # once (or after UI changes)
+cargo run --release -- serve # http://localhost:5201/
+```
+
+Dev flow (Angular hot-reload, backend runs separately — both must be running):
+
+```bash
+pnpm run hydrate             # once (or when Rust bindings/schemas change)
+pnpm run ui:dev              # Angular dev server → http://localhost:4200
+cargo run -- serve           # WebSocket/HTTP server  → http://localhost:5201
 ```
 
 The UI sends slicing jobs to the local server. Scene management runs in the browser for instant feedback.
@@ -252,23 +289,24 @@ make build-release  build-windows  build-macos  build-wasm
 
 ## Troubleshooting Setup
 
-**`wasm32-unknown-unknown` target not found?**
+**`cargo run -- serve` fails with `UI directory not found: ./ui/dist/slicer-ui/browser`?**
+Build the UI first: `pnpm run hydrate && pnpm run ui:build`. See [First-time setup](#first-time-setup-self-hosted-ui).
+
+**`pnpm ui:build` fails with `Cannot find module '../../generated/scene-wasm/scene_engine'` (or `.../slicer-engine-ws-*-message-v1`)?**
+You skipped `pnpm run hydrate`. Run it, then retry the build.
+
+**`wasm32-unknown-unknown` target not found / `error[E0463]: can't find crate for 'core'`?**
+Either the target isn't installed (`rustup target add wasm32-unknown-unknown`) **or** you're on Homebrew Rust, which can't add targets. Run `brew uninstall rust` and install [rustup](https://rustup.rs/).
+
+**`wasm-bindgen` command not found?**
+Install the CLI at the exact version pinned in `Cargo.lock` (mismatched versions produce silently broken bindings):
 
 ```bash
-rustup target add wasm32-unknown-unknown
+cargo install wasm-bindgen-cli --version "$(grep -A1 '^name = "wasm-bindgen"$' Cargo.lock | tail -1 | cut -d'"' -f2)" --locked
 ```
 
 **`wasm-pack` command not found?**
-
-```bash
-cargo install wasm-pack
-```
-
-**`wasm-bindgen` command not found?**
-
-```bash
-cargo install wasm-bindgen-cli
-```
+Only needed for the standalone `wasm-pack build` invocation — the `pnpm hydrate` scripts don't use it. If you actually need it: `cargo install wasm-pack`.
 
 **pnpm hydrate fails with C++ compilation errors?**
 Install the C++ toolchain for your platform (see Prerequisites above), then retry.
