@@ -23,10 +23,12 @@ Every mode uses the same slicing engine, so results are identical regardless of 
 Before building or running, ensure you have:
 
 ### Required
+
 - **Rust 1.70+** — [Install](https://rustup.rs/)
 - **Node.js 20+** and **pnpm 9+** — [Node](https://nodejs.org/), then `npm install -g pnpm`
 
 ### For WASM builds (browser slicer, cloud UI)
+
 Add the WebAssembly target and install wasm-pack:
 
 ```bash
@@ -35,6 +37,7 @@ cargo install wasm-pack
 ```
 
 ### For desktop app builds
+
 Install Tauri CLI (choose one):
 
 ```bash
@@ -43,6 +46,7 @@ cargo install tauri-cli --version "^2"
 ```
 
 ### Optional
+
 - **C++ toolchain** (clang++ or MSVC) — needed only for full WASM builds with polygon clipping support
   - Linux: `sudo apt install build-essential clang`
   - macOS: `xcode-select --install` (Xcode Command Line Tools)
@@ -210,11 +214,13 @@ The desktop app automatically uses the bundled native engine for slicing, giving
 ## Building
 
 ### Native (your host platform)
+
 ```bash
 cargo build --release                   # Single command — that's it
 ```
 
 ### Cross-platform
+
 ```bash
 cargo build --release --target x86_64-pc-windows-msvc       # Windows
 cargo build --release --target x86_64-apple-darwin          # macOS Intel
@@ -222,6 +228,7 @@ cargo build --release --target aarch64-apple-darwin         # macOS ARM
 ```
 
 ### WebAssembly (browser slicer)
+
 Requires: `rustup target add wasm32-unknown-unknown` and `cargo install wasm-pack`
 
 ```bash
@@ -236,6 +243,7 @@ pnpm run hydrate:web-slicer    # Full WASM slicer (includes polygon clipping)
 ```
 
 ### Using Makefile (Linux/macOS)
+
 ```bash
 make build-release  build-windows  build-macos  build-wasm
 ```
@@ -245,16 +253,19 @@ make build-release  build-windows  build-macos  build-wasm
 ## Troubleshooting Setup
 
 **`wasm32-unknown-unknown` target not found?**
+
 ```bash
 rustup target add wasm32-unknown-unknown
 ```
 
 **`wasm-pack` command not found?**
+
 ```bash
 cargo install wasm-pack
 ```
 
 **`wasm-bindgen` command not found?**
+
 ```bash
 cargo install wasm-bindgen-cli
 ```
@@ -275,12 +286,6 @@ sea-orm-cli migrate generate "my_migration" -d src/db       # scaffold DB migrat
 ```
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for workflow, [AGENTS.md](AGENTS.md) for AI-agent guidance, and [ARCHITECTURE.md](ARCHITECTURE.md) for the long-form architecture overview (also rendered on the [docs site](https://max-scopp.github.io/slicer-engine/docs/guide/architecture)).
-
----
-
-## Features
-
-STL / OBJ / 3MF input · Variable-width walls (Arachne) · Infill patterns (rectilinear, grid, honeycomb, gyroid, TPMS-D) · G-code output for Marlin and Klipper printers · Custom start/end G-code · Per-object settings overrides · Layered config file with sensible defaults · Run in the browser, on the desktop, or self-hosted · Cross-platform (Windows, macOS, Linux).
 
 ---
 
