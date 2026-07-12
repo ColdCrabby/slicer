@@ -136,10 +136,10 @@ jobs:
           user_message = f"""Review this PR for documentation impact and produce precise edits.
 
           ## Changed files
-          {json.dumps([{{"file": f["filename"], "status": f["status"], "patch": f["patch"]}} for f in changed], indent=2)}
+          {json.dumps([{"file": f["filename"], "status": f["status"], "patch": f["patch"]} for f in changed], indent=2)}
 
           ## Current documentation (excerpts)
-          {json.dumps({{k: v for k, v in docs.items()}}, indent=2)}
+          {json.dumps({k: v for k, v in docs.items()}, indent=2)}
 
           Respond ONLY with a JSON object matching this exact schema — no markdown fences:
           {{
@@ -163,24 +163,24 @@ jobs:
           {"- This is a fork PR so edits will NOT be committed — describe them in the comment instead." if is_fork else "- Edits will be committed to the PR branch automatically."}
           """
 
-          payload = json.dumps({{
+          payload = json.dumps({
               "model": "gpt-4o",
-              "response_format": {{"type": "json_object"}},
+              "response_format": {"type": "json_object"},
               "messages": [
-                  {{"role": "system", "content": system_prompt}},
-                  {{"role": "user",   "content": user_message}},
+                  {"role": "system", "content": system_prompt},
+                  {"role": "user",   "content": user_message},
               ],
               "max_tokens": 3000,
               "temperature": 0.1,
-          }}).encode()
+          }).encode()
 
           req = urllib.request.Request(
               "https://models.inference.ai.azure.com/chat/completions",
               data=payload,
-              headers={{
+              headers={
                   "Content-Type":  "application/json",
-                  "Authorization": f"Bearer {{os.environ['GITHUB_TOKEN']}}",
-              }},
+                  "Authorization": f"Bearer {os.environ['GITHUB_TOKEN']}",
+              },
           )
           with urllib.request.urlopen(req, timeout=90) as resp:
               result = json.loads(resp.read())
@@ -201,13 +201,13 @@ jobs:
                           if old in new_content:
                               new_content = new_content.replace(old, new, 1)
                           else:
-                              failed.append(f"{{path}}: substring not found")
+                              failed.append(f"{path}: substring not found")
                       if new_content != content:
                           with open(path, "w") as fh:
                               fh.write(new_content)
                           applied.append(path)
                   except Exception as e:
-                      failed.append(f"{{path}}: {{e}}")
+                      failed.append(f"{path}: {e}")
 
           # Build PR comment
           lines = [
@@ -217,11 +217,11 @@ jobs:
               analysis.get("comment", ""),
           ]
           if applied:
-              lines += ["", "**Auto-committed:** " + ", ".join(f"`{{p}}`" for p in applied)]
+              lines += ["", "**Auto-committed:** " + ", ".join(f"`{p}`" for p in applied)]
           if failed:
-              lines += ["", "**Could not apply:**"] + [f"- {{f}}" for f in failed]
+              lines += ["", "**Could not apply:**"] + [f"- {f}" for f in failed]
           if analysis.get("remaining_gaps"):
-              lines += ["", f"**Remaining gaps:** {{analysis['remaining_gaps']}}"]
+              lines += ["", f"**Remaining gaps:** {analysis['remaining_gaps']}"]
           lines += [
               "",
               "---",
@@ -234,7 +234,7 @@ jobs:
           with open("doc_sync_changed.txt", "w") as fh:
               fh.write("true" if applied else "false")
 
-          print(f"Applied: {{applied or 'none'}} | Failed: {{failed or 'none'}}")
+          print(f"Applied: {applied or 'none'} | Failed: {failed or 'none'}")
           PYEOF
 
       # Commit and push only for same-repo PRs
