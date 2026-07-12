@@ -160,7 +160,7 @@ export default withMermaid(
       "A high-performance 3D model slicer engine written in Rust, powered by Clipper2.",
     lastUpdated: true,
     cleanUrls: true,
-    base: "/slicer-engine/docs/",
+    base: "/docs/",
 
     themeConfig: {
       search: {

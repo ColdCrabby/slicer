@@ -70,7 +70,7 @@ jobs:
         run: pnpm run hydrate:web-slicer
 
       - name: Build UI (web-slicer)
-        run: pnpm --filter slicer-ui exec ng build --configuration web-slicer --base-href /slicer-engine/
+        run: pnpm --filter slicer-ui exec ng build --configuration web-slicer --base-href /
 
       - name: Build with VitePress
         run: pnpm --filter slicer-engine-docs docs:build
@@ -90,6 +90,7 @@ jobs:
 
           cp -R docs/.vitepress/dist/. _site/docs/
           touch _site/.nojekyll
+          echo 'slicer.maxscopp.de' > _site/CNAME
 
       - name: Setup Pages
         uses: actions/configure-pages@v5

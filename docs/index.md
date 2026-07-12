@@ -8,7 +8,7 @@ hero:
   actions:
     - theme: brand
       text: Try Online — slice in your browser
-      link: https://max-scopp.github.io/slicer-engine/
+      link: https://slicer.maxscopp.de/
     - theme: alt
       text: Get Started
       link: /guide/
@@ -21,7 +21,7 @@ hero:
 
 features:
   - title: Runs entirely in your browser
-    details: The web-slicer build compiles the full slicing pipeline — Arachne walls, infill, G-code — to WebAssembly. Drop in an STL, OBJ, or 3MF and get G-code back. No server, no install. Try it at max-scopp.github.io/slicer-engine/.
+    details: The web-slicer build compiles the full slicing pipeline — Arachne walls, infill, G-code — to WebAssembly. Drop in an STL, OBJ, or 3MF and get G-code back. No server, no install. Try it at slicer.maxscopp.de.
   - title: One engine, four surfaces
     details: The same Rust core powers the CLI, the WebSocket server, the Angular UI via WebAssembly, and a native Tauri desktop app. No drift, no second source of truth — previews and final output agree by construction.
   - title: Clipper2 under the hood

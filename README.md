@@ -1,20 +1,20 @@
 # Slicer Engine
 
-🌐 **[Try the online slicer](https://max-scopp.github.io/slicer-engine/)** → no install, no account, works right now.
+🌐 **[Try the online slicer](https://slicer.maxscopp.de/)** → no install, no account, works right now.
 
 **Slice your 3D models instantly — in your browser, on your desktop, or on your own server. Your workflow, your choice.**
 
 Drop in an STL, OBJ, or 3MF and get print-ready G-code in seconds. One engine, three ways to run it:
 
-|                    | Where it runs                             | Setup                                                                   |
-| ------------------ | ----------------------------------------- | ----------------------------------------------------------------------- |
-| 🌐 **Web**         | Fully in your browser — nothing installed | None — [just open the link](https://max-scopp.github.io/slicer-engine/) |
-| 🖥️ **Desktop**     | Native app, runs entirely on your machine | Download & run                                                          |
-| ☁️ **Self-hosted** | Host it yourself, share with your team    | `cargo run -- serve`                                                    |
+|                    | Where it runs                             | Setup                                                    |
+| ------------------ | ----------------------------------------- | -------------------------------------------------------- |
+| 🌐 **Web**         | Fully in your browser — nothing installed | None — [just open the link](https://slicer.maxscopp.de/) |
+| 🖥️ **Desktop**     | Native app, runs entirely on your machine | Download & run                                           |
+| ☁️ **Self-hosted** | Host it yourself, share with your team    | `cargo run -- serve`                                     |
 
 Every mode uses the same slicing engine, so results are identical regardless of how you run it. In the browser, your files never leave your machine.
 
-📖 **Full documentation: [https://max-scopp.github.io/slicer-engine/docs/](https://max-scopp.github.io/slicer-engine/docs/)** — architecture, module guides, and contributor docs.
+📖 **Full documentation: [https://slicer.maxscopp.de/docs/](https://slicer.maxscopp.de/docs/)** — architecture, module guides, and contributor docs.
 
 ---
 
@@ -174,7 +174,7 @@ The UI sends slicing jobs to the local server. Scene management runs in the brow
 
 ## Browser slicer (no server needed)
 
-> **Live demo:** [https://max-scopp.github.io/slicer-engine/](https://max-scopp.github.io/slicer-engine/) — slice in your browser, no backend required.
+> **Live demo:** [https://slicer.maxscopp.de/](https://slicer.maxscopp.de/) — slice in your browser, no backend required.
 
 The full slicing pipeline runs in-browser. Building this locally requires a wasm-capable C++ toolchain (`clang++`) for the polygon clipping library.
 
@@ -285,7 +285,7 @@ pnpm --filter slicer-engine-docs docs:dev                   # live docs site
 sea-orm-cli migrate generate "my_migration" -d src/db       # scaffold DB migration
 ```
 
-See [CONTRIBUTING.md](CONTRIBUTING.md) for workflow, [AGENTS.md](AGENTS.md) for AI-agent guidance, and [ARCHITECTURE.md](ARCHITECTURE.md) for the long-form architecture overview (also rendered on the [docs site](https://max-scopp.github.io/slicer-engine/docs/guide/architecture)).
+See [CONTRIBUTING.md](CONTRIBUTING.md) for workflow, [AGENTS.md](AGENTS.md) for AI-agent guidance, and [ARCHITECTURE.md](ARCHITECTURE.md) for the long-form architecture overview (also rendered on the [docs site](https://slicer.maxscopp.de/docs/guide/architecture)).
 
 ---
 
@@ -309,4 +309,4 @@ All rights reserved until an official license is decided. No use, reproduction, 
 
 ## Support
 
-[Issues](https://github.com/max-scopp/slicer-engine/issues) · [Discussions](https://github.com/max-scopp/slicer-engine/discussions) · [Contributing](CONTRIBUTING.md) · [Documentation site](https://max-scopp.github.io/slicer-engine/docs/)
+[Issues](https://github.com/max-scopp/slicer-engine/issues) · [Discussions](https://github.com/max-scopp/slicer-engine/discussions) · [Contributing](CONTRIBUTING.md) · [Documentation site](https://slicer.maxscopp.de/docs/)
