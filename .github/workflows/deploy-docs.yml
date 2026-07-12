@@ -90,7 +90,6 @@ jobs:
 
           cp -R docs/.vitepress/dist/. _site/docs/
           touch _site/.nojekyll
-          echo 'slicer.maxscopp.de' > _site/CNAME
 
       - name: Setup Pages
         uses: actions/configure-pages@v5
