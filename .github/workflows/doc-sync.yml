@@ -1,0 +1,298 @@
+name: Documentation Sync
+
+on:
+  pull_request:
+    types: [opened, synchronize, ready_for_review]
+  issue_comment:
+    types: [created]
+
+concurrency:
+  group: doc-sync-${{ github.event.pull_request.number || github.event.issue.number }}
+  cancel-in-progress: true
+
+jobs:
+  review:
+    name: 📝 Documentation Review
+    runs-on: ubuntu-latest
+
+    # Automatic: any non-draft PR, but NOT when the bot itself pushed the commit
+    #            (prevents the auto-commit from re-triggering the workflow).
+    # Manual:   comment on a PR containing /doc-sync, /docs, 📝, or 🔄
+    if: >-
+      (github.event_name == 'pull_request' &&
+       !github.event.pull_request.draft &&
+       github.actor != 'github-actions[bot]') ||
+      (github.event_name == 'issue_comment' &&
+       github.event.issue.pull_request != null &&
+       (contains(github.event.comment.body, '/doc-sync') ||
+        contains(github.event.comment.body, '/docs') ||
+        contains(github.event.comment.body, '📝') ||
+        contains(github.event.comment.body, '🔄')))
+
+    permissions:
+      contents: write        # needed to commit and push doc fixes
+      pull-requests: write
+      issues: write
+
+    steps:
+      - name: Acknowledge trigger
+        if: github.event_name == 'issue_comment'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            await github.rest.reactions.createForIssueComment({
+              owner: context.repo.owner,
+              repo:  context.repo.repo,
+              comment_id: context.payload.comment.id,
+              content: '+1',
+            });
+
+      # Resolve PR number, head branch, and whether this is a fork PR.
+      # Fork PRs are read-only for GITHUB_TOKEN — we skip the commit step for them.
+      - name: Resolve PR metadata
+        id: meta
+        uses: actions/github-script@v7
+        with:
+          script: |
+            let pr;
+            if (context.eventName === 'pull_request') {
+              pr = context.payload.pull_request;
+            } else {
+              const { data } = await github.rest.pulls.get({
+                owner:       context.repo.owner,
+                repo:        context.repo.repo,
+                pull_number: context.payload.issue.number,
+              });
+              pr = data;
+            }
+            const isFork = pr.head.repo.full_name !== pr.base.repo.full_name;
+            core.setOutput('pr_number', String(pr.number));
+            core.setOutput('branch',    pr.head.ref);
+            core.setOutput('is_fork',   String(isFork));
+
+      - uses: actions/checkout@v4
+        with:
+          ref:         ${{ steps.meta.outputs.branch }}
+          token:       ${{ secrets.GITHUB_TOKEN }}
+          fetch-depth: 0
+
+      - name: Collect PR diff
+        id: diff
+        uses: actions/github-script@v7
+        env:
+          PR_NUMBER: ${{ steps.meta.outputs.pr_number }}
+        with:
+          result-encoding: string
+          script: |
+            const files = await github.paginate(github.rest.pulls.listFiles, {
+              owner:       context.repo.owner,
+              repo:        context.repo.repo,
+              pull_number: Number(process.env.PR_NUMBER),
+            });
+            return JSON.stringify(
+              files.map(f => ({
+                filename:  f.filename,
+                status:    f.status,
+                additions: f.additions,
+                deletions: f.deletions,
+                patch:     (f.patch || '').slice(0, 800),
+              }))
+            );
+
+      # ── AI analysis + edit generation ─────────────────────────────────────
+      # Uses GitHub Models API (GITHUB_TOKEN — no extra secrets needed).
+      # Returns JSON with search/replace pairs so we can apply precise edits
+      # without rewriting entire files.
+      - name: Analyse and generate edits
+        env:
+          GITHUB_TOKEN:  ${{ secrets.GITHUB_TOKEN }}
+          CHANGED_FILES: ${{ steps.diff.outputs.result }}
+          IS_FORK:       ${{ steps.meta.outputs.is_fork }}
+        run: |
+          python3 - <<'PYEOF'
+          import json, os, re, urllib.request
+
+          # Load agent instructions as system prompt (strip YAML frontmatter)
+          try:
+              with open(".github/agents/docs-sync.agent.md") as fh:
+                  raw = fh.read()
+              system_prompt = re.sub(r"^---\n.*?\n---\n?", "", raw, flags=re.DOTALL).strip()
+          except Exception:
+              system_prompt = "You are a documentation review agent."
+
+          # Read key docs for context
+          changed = json.loads(os.environ["CHANGED_FILES"])
+          is_fork = os.environ.get("IS_FORK", "false").lower() == "true"
+          docs = {}
+          for path in ["README.md", "AGENTS.md", "ARCHITECTURE.md"] + [
+              f["filename"] for f in changed if f["filename"].endswith(".md")
+          ]:
+              try:
+                  with open(path) as fh:
+                      docs[path] = fh.read()[:2500]
+              except Exception:
+                  pass
+
+          user_message = f"""Review this PR for documentation impact and produce precise edits.
+
+          ## Changed files
+          {json.dumps([{{"file": f["filename"], "status": f["status"], "patch": f["patch"]}} for f in changed], indent=2)}
+
+          ## Current documentation (excerpts)
+          {json.dumps({{k: v for k, v in docs.items()}}, indent=2)}
+
+          Respond ONLY with a JSON object matching this exact schema — no markdown fences:
+          {{
+            "needs_changes": true,
+            "comment": "brief markdown PR comment (under 250 words) summarising what was auto-committed and what remains",
+            "edits": [
+              {{
+                "file": "relative/path/to/doc.md",
+                "replacements": [
+                  {{ "old": "exact verbatim substring of the file to replace", "new": "replacement text" }}
+                ]
+              }}
+            ],
+            "remaining_gaps": "anything that couldn't be fixed automatically, or empty string"
+          }}
+
+          Rules:
+          - "old" must be a short, exact verbatim match — one paragraph at most.
+          - Only include files shown in the excerpts above.
+          - If nothing needs changing, set needs_changes=false and edits=[].
+          {"- This is a fork PR so edits will NOT be committed — describe them in the comment instead." if is_fork else "- Edits will be committed to the PR branch automatically."}
+          """
+
+          payload = json.dumps({{
+              "model": "gpt-4o",
+              "response_format": {{"type": "json_object"}},
+              "messages": [
+                  {{"role": "system", "content": system_prompt}},
+                  {{"role": "user",   "content": user_message}},
+              ],
+              "max_tokens": 3000,
+              "temperature": 0.1,
+          }}).encode()
+
+          req = urllib.request.Request(
+              "https://models.inference.ai.azure.com/chat/completions",
+              data=payload,
+              headers={{
+                  "Content-Type":  "application/json",
+                  "Authorization": f"Bearer {{os.environ['GITHUB_TOKEN']}}",
+              }},
+          )
+          with urllib.request.urlopen(req, timeout=90) as resp:
+              result = json.loads(resp.read())
+
+          analysis = json.loads(result["choices"][0]["message"]["content"])
+
+          # Apply edits (skip for fork PRs — GITHUB_TOKEN is read-only on forks)
+          applied, failed = [], []
+          if not is_fork:
+              for edit in analysis.get("edits", []):
+                  path = edit["file"]
+                  try:
+                      with open(path) as fh:
+                          content = fh.read()
+                      new_content = content
+                      for r in edit.get("replacements", []):
+                          old, new = r["old"], r["new"]
+                          if old in new_content:
+                              new_content = new_content.replace(old, new, 1)
+                          else:
+                              failed.append(f"{{path}}: substring not found")
+                      if new_content != content:
+                          with open(path, "w") as fh:
+                              fh.write(new_content)
+                          applied.append(path)
+                  except Exception as e:
+                      failed.append(f"{{path}}: {{e}}")
+
+          # Build PR comment
+          lines = [
+              "<!-- doc-sync-review -->",
+              "## 📝 Documentation Sync",
+              "",
+              analysis.get("comment", ""),
+          ]
+          if applied:
+              lines += ["", "**Auto-committed:** " + ", ".join(f"`{{p}}`" for p in applied)]
+          if failed:
+              lines += ["", "**Could not apply:**"] + [f"- {{f}}" for f in failed]
+          if analysis.get("remaining_gaps"):
+              lines += ["", f"**Remaining gaps:** {{analysis['remaining_gaps']}}"]
+          lines += [
+              "",
+              "---",
+              "<sub>💬 Re-trigger: comment `/doc-sync` or react with 📝 🔄</sub>",
+          ]
+
+          with open("doc_sync_comment.md", "w") as fh:
+              fh.write("\n".join(lines))
+
+          with open("doc_sync_changed.txt", "w") as fh:
+              fh.write("true" if applied else "false")
+
+          print(f"Applied: {{applied or 'none'}} | Failed: {{failed or 'none'}}")
+          PYEOF
+
+      # Commit and push only for same-repo PRs
+      - name: Commit documentation changes
+        if: steps.meta.outputs.is_fork == 'false'
+        run: |
+          if [ "$(cat doc_sync_changed.txt)" = "true" ]; then
+            git config user.name  "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add -- '*.md'
+            git commit -m "docs: sync documentation with PR changes [auto]"
+            git push
+          else
+            echo "No documentation changes to commit."
+          fi
+
+      - name: Post or update review comment
+        uses: actions/github-script@v7
+        env:
+          PR_NUMBER: ${{ steps.meta.outputs.pr_number }}
+        with:
+          script: |
+            const fs     = require('fs');
+            const body   = fs.readFileSync('doc_sync_comment.md', 'utf8');
+            const prNum  = Number(process.env.PR_NUMBER);
+            const marker = '<!-- doc-sync-review -->';
+
+            const { data: comments } = await github.rest.issues.listComments({
+              owner:        context.repo.owner,
+              repo:         context.repo.repo,
+              issue_number: prNum,
+            });
+            const existing = comments.find(c => c.body.includes(marker));
+
+            if (existing) {
+              await github.rest.issues.updateComment({
+                owner:      context.repo.owner,
+                repo:       context.repo.repo,
+                comment_id: existing.id,
+                body,
+              });
+            } else {
+              await github.rest.issues.createComment({
+                owner:        context.repo.owner,
+                repo:         context.repo.repo,
+                issue_number: prNum,
+                body,
+              });
+            }
+
+      - name: Mark trigger comment done
+        if: github.event_name == 'issue_comment'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            await github.rest.reactions.createForIssueComment({
+              owner:      context.repo.owner,
+              repo:       context.repo.repo,
+              comment_id: context.payload.comment.id,
+              content:    'rocket',
+            });
