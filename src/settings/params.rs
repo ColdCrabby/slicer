@@ -354,11 +354,13 @@ pub enum WallGenerator {
     /// approach the mature slicers ship as their "Classic" wall generator.
     #[default]
     Classic,
-    /// Arachne variable-width extrusion (skeletal trapezoidation).
+    /// Arachne-style medial-axis variable-width walls.
     ///
-    /// **Not yet implemented — selecting this generator currently panics.**  It
-    /// is reserved for the medial-axis-based generator (Kuipers et al. 2020)
-    /// used by CuraEngine / PrusaSlicer / OrcaSlicer as their "Arachne" mode.
+    /// Concentric perimeter loops whose count adapts to the local wall
+    /// thickness, plus variable-width beads that follow the medial axis to fill
+    /// thin features (engraved text, tapering ribs) a fixed-width perimeter
+    /// cannot.  Based on the medial-axis approach of Kuipers et al. (2020) used
+    /// by CuraEngine / PrusaSlicer / OrcaSlicer.
     Arachne,
 }
 
@@ -398,8 +400,8 @@ Smaller values produce finer detail but increase print time.
     #[schemars(description = "Wall (perimeter) generation algorithm.
 
 Supported values:
-- `classic` — fixed-width concentric perimeters with thin-wall gap fill (default, fast, robust).
-- `arachne` — variable-width extrusion (**not yet implemented — selecting it will fail**).
+- `classic` — fixed-width concentric perimeters with thin-wall gap fill (fast, robust).
+- `arachne` — medial-axis variable-width walls that better fill thin features (engraved text, tapering ribs).
 
 **Default:** `classic`.", extend("x-group" = "Walls"))]
     #[serde(default = "SlicingParams::default_wall_generator")]

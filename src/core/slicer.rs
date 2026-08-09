@@ -4,6 +4,14 @@ use crate::mesh::types::{Mesh, Vertex};
 
 use super::types::{ExtrusionRole, SliceLayer};
 
+/// Vertical offset (mm) added to every layer's sampling plane so it never
+/// coincides with a model's horizontal faces.  See the note at the sampling
+/// call in [`slice_mesh`]: intersecting exactly through a flat deck/floor makes
+/// many vertices land on the plane at once and yields a degenerate,
+/// order-dependent cross-section.  ~1 µm is far below any printable feature yet
+/// large enough to clear f32 vertex quantisation.
+const SLICE_EPSILON: f64 = 1e-3;
+
 /// Interpolate the XY intersection point of a triangle edge with a Z plane.
 ///
 /// Given two vertices `a` and `b` that straddle the plane `z`, returns the XY
@@ -79,7 +87,15 @@ pub fn slice_mesh(mesh: &Mesh, layer_height: f64) -> Vec<SliceLayer> {
 
     let mut z = first_z;
     while z < z_max {
-        let segments = collect_segments(mesh, z);
+        // Sample the cross-section a hair above the nominal layer plane.  A
+        // model's horizontal faces (decks, floors) frequently sit *exactly* on a
+        // layer plane; intersecting straight through such a face makes hundreds
+        // of vertices land on the plane at once, and the resulting cross-section
+        // is degenerate and precision/order-dependent — the source of a phantom,
+        // left/right-asymmetric island on the 3DBenchy cabin deck.  A ~1 µm
+        // offset makes every vertex fall strictly above or below the plane
+        // without measurably moving the contour.
+        let segments = collect_segments(mesh, z + SLICE_EPSILON);
         let contours = chain_segments(segments);
 
         let mut layer = SliceLayer::new(z);
@@ -98,123 +114,131 @@ pub fn slice_mesh(mesh: &Mesh, layer_height: f64) -> Vec<SliceLayer> {
     layers
 }
 
-/// Collect all XY line segments produced by intersecting `mesh` with the
-/// horizontal plane at height `z`.
+/// Collect the XY line segments produced by intersecting `mesh` with the
+/// horizontal plane at height `z`, **oriented** by triangle winding.
+///
+/// Each crossed triangle contributes one directed segment `enter → exit`, where
+/// `enter` is the intersection on the edge running from below the plane to
+/// on/above it and `exit` the edge running from on/above back to below.  Because
+/// every segment is emitted in this consistent direction, [`chain_segments`] can
+/// trace a contour by simply following the segment whose start matches the
+/// current segment's end — a deterministic walk that cannot mis-turn where
+/// several segments meet, unlike a coordinate-matched greedy search.
+///
+/// A vertex exactly on the plane counts as *above* (`z_coord ≥ z`); a triangle
+/// that merely grazes the plane at a single vertex therefore collapses to a
+/// zero-length segment (dropped in [`chain_segments`]) instead of a spurious
+/// stub, and each grazing *edge* is emitted once, by the triangle below it.
 fn collect_segments(mesh: &Mesh, z: f64) -> Vec<[(f64, f64); 2]> {
     let mut segments = Vec::new();
 
     for face in &mesh.faces {
         let [v0, v1, v2] = face.vertices;
 
-        // Signed heights relative to the slice plane
-        let h0 = v0.z - z;
-        let h1 = v1.z - z;
-        let h2 = v2.z - z;
-
-        // Classify each vertex: true = above or on plane (≥ 0), false = below
-        let a0 = h0 >= 0.0;
-        let a1 = h1 >= 0.0;
-        let a2 = h2 >= 0.0;
-
-        // Skip triangles entirely on one side of the plane
-        if a0 == a1 && a1 == a2 {
-            continue;
+        let mut enter: Option<(f64, f64)> = None;
+        let mut exit: Option<(f64, f64)> = None;
+        for (a, b) in [(v0, v1), (v1, v2), (v2, v0)] {
+            let below_a = a.z < z;
+            let below_b = b.z < z;
+            if below_a && !below_b {
+                enter = Some(edge_intersect(a, b, z));
+            } else if below_b && !below_a {
+                exit = Some(edge_intersect(a, b, z));
+            }
         }
 
-        // Find the two edges that cross the plane
-        let mut pts: Vec<(f64, f64)> = Vec::with_capacity(2);
-
-        if a0 != a1 {
-            pts.push(edge_intersect(v0, v1, z));
-        }
-        if a1 != a2 {
-            pts.push(edge_intersect(v1, v2, z));
-        }
-        if a2 != a0 {
-            pts.push(edge_intersect(v2, v0, z));
-        }
-
-        if pts.len() == 2 {
-            segments.push([pts[0], pts[1]]);
+        if let (Some(enter), Some(exit)) = (enter, exit) {
+            segments.push([enter, exit]);
         }
     }
 
     segments
 }
 
-/// Chain unordered line segments into closed contour polygons.
+/// Chain **oriented** line segments into closed contour polygons.
 ///
-/// Each segment endpoint is rounded to 4 decimal places (≈ 0.1 mm / 100 µm)
-/// before being used as a map key, which handles the small floating-point
-/// differences that can arise between adjacent triangles.
+/// [`collect_segments`] emits every segment directed `start → end` by triangle
+/// winding, so a contour is traced deterministically: the next segment is the
+/// (unused) one whose start coincides with the current segment's end.  Endpoints
+/// are snapped to a 0.1 µm grid (`SCALE`) before comparison to absorb the tiny
+/// floating-point differences between adjacent triangles.
+///
+/// Zero-length segments — produced by near-horizontal triangles grazing the
+/// plane — are dropped up front.  Where a cross-section *self-touches* (a pinch
+/// point whose rounded key is shared by more than one segment, e.g. two cabin
+/// lobes meeting at a corner), the next segment is chosen as the **straightest
+/// continuation** (smallest turn) rather than by list order.  Both make the
+/// walk order-independent: the old coordinate-matched greedy chainer treated
+/// grazing stubs and pinch junctions as real and mis-turned into phantom loops
+/// whose resolution flipped with the face order — the source of the spurious,
+/// left/right-asymmetric triangular island beside the 3DBenchy cabin.
 fn chain_segments(segments: Vec<[(f64, f64); 2]>) -> Vec<Vec<(f64, f64)>> {
     if segments.is_empty() {
         return Vec::new();
     }
 
-    // Represent coordinates as (i64, i64) keyed at 10 000× precision (0.1 mm)
+    // Represent coordinates as (i64, i64) keyed at 10 000× precision (0.1 µm).
     const SCALE: f64 = 10_000.0;
     let key = |p: (f64, f64)| -> (i64, i64) {
         ((p.0 * SCALE).round() as i64, (p.1 * SCALE).round() as i64)
     };
 
-    // Build adjacency: endpoint → segment index
-    let mut endpoint_map: std::collections::HashMap<(i64, i64), Vec<usize>> =
+    // Drop zero-length (grazing) segments, then index the rest by start key.
+    let segments: Vec<[(f64, f64); 2]> = segments
+        .into_iter()
+        .filter(|s| key(s[0]) != key(s[1]))
+        .collect();
+
+    let mut start_map: std::collections::HashMap<(i64, i64), Vec<usize>> =
         std::collections::HashMap::new();
     for (i, seg) in segments.iter().enumerate() {
-        endpoint_map.entry(key(seg[0])).or_default().push(i);
-        endpoint_map.entry(key(seg[1])).or_default().push(i);
+        start_map.entry(key(seg[0])).or_default().push(i);
     }
 
     let mut used = vec![false; segments.len()];
     let mut contours: Vec<Vec<(f64, f64)>> = Vec::new();
 
-    for start in 0..segments.len() {
-        if used[start] {
+    for s0 in 0..segments.len() {
+        if used[s0] {
             continue;
         }
 
         let mut chain: Vec<(f64, f64)> = Vec::new();
-        let mut current_seg = start;
-        let mut last_point = segments[start][0];
-
+        let mut current = s0;
         loop {
-            if used[current_seg] {
+            if used[current] {
                 break;
             }
-            used[current_seg] = true;
+            used[current] = true;
+            let [a, b] = segments[current];
+            chain.push(a);
 
-            let [p0, p1] = segments[current_seg];
-            // Determine which endpoint continues from `last_point`.
-            // If neither matches (degenerate topology), use p1 as a fallback.
-            let next_point = if key(p0) == key(last_point) {
-                p1
-            } else if key(p1) == key(last_point) {
-                p0
-            } else {
-                // Disconnected segment: start a new sub-chain from p0
-                p1
-            };
-            chain.push(last_point);
-            last_point = next_point;
-
-            // Follow the chain: find an adjacent unused segment
-            let candidates = endpoint_map
-                .get(&key(last_point))
-                .cloned()
-                .unwrap_or_default();
-            let mut found = false;
-            for &cand in &candidates {
-                if !used[cand] {
-                    current_seg = cand;
-                    found = true;
-                    break;
+            // Among unused segments starting where this one ends, follow the
+            // straightest (smallest-turn) continuation.  With a single candidate
+            // this is just "the next segment"; at a self-touch it keeps the walk
+            // on the same contour instead of hopping across the pinch.
+            let din = (b.0 - a.0, b.1 - a.1);
+            let mut next: Option<usize> = None;
+            let mut best_turn = f64::INFINITY;
+            if let Some(cands) = start_map.get(&key(b)) {
+                for &i in cands {
+                    if used[i] {
+                        continue;
+                    }
+                    let [c0, c1] = segments[i];
+                    let dout = (c1.0 - c0.0, c1.1 - c0.1);
+                    let cross = din.0 * dout.1 - din.1 * dout.0;
+                    let dot = din.0 * dout.0 + din.1 * dout.1;
+                    let turn = cross.atan2(dot).abs();
+                    if turn < best_turn {
+                        best_turn = turn;
+                        next = Some(i);
+                    }
                 }
             }
-            if !found {
-                // Close or terminate the chain
-                chain.push(last_point);
-                break;
+            match next {
+                Some(n) => current = n,
+                None => break,
             }
         }
 
