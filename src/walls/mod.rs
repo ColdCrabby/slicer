@@ -31,12 +31,6 @@ use crate::settings::params::{SlicingParams, WallGenerator};
 /// Replaces the raw `OuterWall` / `InnerWall` contours produced by
 /// [`crate::core::slice_mesh`] with generated beads.  Dispatches on
 /// [`SlicingParams::wall_generator`].
-///
-/// # Panics
-///
-/// Panics with an "unimplemented" message when
-/// [`WallGenerator::Arachne`] is selected — the Arachne generator is not yet
-/// implemented.  Select [`WallGenerator::Classic`] (the default).
 pub fn generate_walls(layers: &mut [SliceLayer], params: &SlicingParams) -> WallTimings {
     let wall_params = WallParams::from_slicing_params(params);
     match params.wall_generator {
@@ -48,12 +42,8 @@ pub fn generate_walls(layers: &mut [SliceLayer], params: &SlicingParams) -> Wall
 /// Debug-mode counterpart to [`generate_walls`].
 ///
 /// Runs the selected generator sequentially (no `rayon`) so intermediate
-/// geometry can be captured into `debug` for visual inspection.
-///
-/// # Panics
-///
-/// Same as [`generate_walls`]: panics when [`WallGenerator::Arachne`] is
-/// selected.
+/// geometry can be captured into `debug` for visual inspection.  The Arachne
+/// generator does not yet emit debug snapshots (it runs normally).
 #[cfg(not(target_arch = "wasm32"))]
 pub fn generate_walls_debug(
     layers: &mut [SliceLayer],
@@ -66,5 +56,51 @@ pub fn generate_walls_debug(
             classic::generate_classic_walls_debug(layers, &wall_params, debug)
         }
         WallGenerator::Arachne => arachne::generate_arachne_walls(layers, &wall_params),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::core::ExtrusionRole;
+    use crate::settings::params::WallGenerator;
+    use clipper2::Path;
+
+    fn square_layer() -> SliceLayer {
+        let mut layer = SliceLayer::new(0.2);
+        let sq: Path = vec![(0.0, 0.0), (20.0, 0.0), (20.0, 20.0), (0.0, 20.0)].into();
+        layer.paths.push(sq);
+        layer.path_roles.push(ExtrusionRole::OuterWall);
+        layer.path_widths.push(None);
+        layer
+    }
+
+    #[test]
+    fn classic_is_the_default_generator() {
+        assert_eq!(
+            SlicingParams::default().wall_generator,
+            WallGenerator::Classic
+        );
+    }
+
+    #[test]
+    fn dispatch_routes_to_each_generator_without_panicking() {
+        for generator in [WallGenerator::Classic, WallGenerator::Arachne] {
+            let params = SlicingParams {
+                wall_generator: generator,
+                ..SlicingParams::default()
+            };
+            let mut layers = vec![square_layer()];
+            let _ = generate_walls(&mut layers, &params);
+            assert!(
+                !layers[0].paths.is_empty(),
+                "{generator:?} must produce wall paths"
+            );
+            assert_eq!(
+                layers[0].role_for_path(0),
+                ExtrusionRole::OuterWall,
+                "{generator:?} first path must be the outer wall"
+            );
+        }
     }
 }
