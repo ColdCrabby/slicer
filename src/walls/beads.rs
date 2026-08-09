@@ -1,14 +1,14 @@
-//! Core Arachne bead computation and helper functions.
+//! Core classic-wall bead computation and helper functions.
 
 use std::sync::atomic::{AtomicU64, Ordering};
 
 use clipper2::*;
 
-use super::types::{ArachneParams, Bead};
+use super::types::{Bead, WallParams};
 
 // ── Per-run timing accumulators (CPU time Σ across all worker threads) ────────
-pub static ARACHNE_COLLAPSE_NS: AtomicU64 = AtomicU64::new(0);
-pub static ARACHNE_BEAD_SHRINK_NS: AtomicU64 = AtomicU64::new(0);
+pub static CLASSIC_COLLAPSE_NS: AtomicU64 = AtomicU64::new(0);
+pub static CLASSIC_BEAD_SHRINK_NS: AtomicU64 = AtomicU64::new(0);
 
 /// Inward-offset helper: shrink `input` by `depth` and simplify.
 /// Uses `JoinType::Round` to produce smooth bead centerline corners.
@@ -86,7 +86,7 @@ pub fn narrow_collapse_search(input: &Paths, mut lo: f64, mut hi: f64, tol: f64)
     lo
 }
 
-/// Compute Arachne beads for the given polygon set.
+/// Compute classic beads for the given polygon set.
 ///
 /// Returns beads ordered from the outermost wall inward.
 ///
@@ -110,7 +110,7 @@ pub fn narrow_collapse_search(input: &Paths, mut lo: f64, mut hi: f64, tol: f64)
 /// search at all.  Total Clipper calls = `wall_count` (vs the old 17+N).
 /// **Geometry-limited** case: `wall_count` fit tests + 4 narrow probes + 1
 /// residual `shrink` ≈ 8 calls (vs the old 17+N+1).
-pub fn compute_arachne_beads(input: &Paths, params: &ArachneParams) -> Vec<Bead> {
+pub fn compute_classic_beads(input: &Paths, params: &WallParams) -> Vec<Bead> {
     let d = params.nozzle_diameter_mm;
     let min_w = params.wall_line_width_min_mm;
     let max_w = params.wall_line_width_max_mm;
@@ -148,7 +148,7 @@ pub fn compute_arachne_beads(input: &Paths, params: &ArachneParams) -> Vec<Bead>
         let t = std::time::Instant::now();
         let paths = shrink(input, depth, tol);
         #[cfg(not(target_arch = "wasm32"))]
-        ARACHNE_BEAD_SHRINK_NS.fetch_add(t.elapsed().as_nanos() as u64, Ordering::Relaxed);
+        CLASSIC_BEAD_SHRINK_NS.fetch_add(t.elapsed().as_nanos() as u64, Ordering::Relaxed);
         if paths.is_empty() {
             first_miss_depth = depth;
             break;
@@ -211,7 +211,7 @@ pub fn compute_arachne_beads(input: &Paths, params: &ArachneParams) -> Vec<Bead>
         let t = std::time::Instant::now();
         let paths = shrink(input, center_depth, tol);
         #[cfg(not(target_arch = "wasm32"))]
-        ARACHNE_BEAD_SHRINK_NS.fetch_add(t.elapsed().as_nanos() as u64, Ordering::Relaxed);
+        CLASSIC_BEAD_SHRINK_NS.fetch_add(t.elapsed().as_nanos() as u64, Ordering::Relaxed);
         let kept = drop_degenerate_beads(paths, min_bead_area);
         for p in kept.iter() {
             beads.push(Bead {
@@ -256,7 +256,7 @@ pub fn compute_arachne_beads(input: &Paths, params: &ArachneParams) -> Vec<Bead>
             let t = std::time::Instant::now();
             let paths = shrink(input, new_depth, tol);
             #[cfg(not(target_arch = "wasm32"))]
-            ARACHNE_BEAD_SHRINK_NS.fetch_add(t.elapsed().as_nanos() as u64, Ordering::Relaxed);
+            CLASSIC_BEAD_SHRINK_NS.fetch_add(t.elapsed().as_nanos() as u64, Ordering::Relaxed);
             let kept = drop_degenerate_beads(paths, min_bead_area);
             for p in kept.iter() {
                 beads.push(Bead {
@@ -271,20 +271,20 @@ pub fn compute_arachne_beads(input: &Paths, params: &ArachneParams) -> Vec<Bead>
     beads
 }
 
-/// Debug variant of [`compute_arachne_beads`].
+/// Debug variant of [`compute_classic_beads`].
 ///
 /// Behaves identically to the production function but additionally records
 /// every intermediate `shrink` result into `inflate_steps` so that the
-/// caller can convert them into `DebugStage::ArachneInflateStep` records.
+/// caller can convert them into `DebugStage::WallOffsetStep` records.
 ///
 /// Each entry in `inflate_steps` is `(bead_k, paths)` where `bead_k` is the
 /// zero-based bead index (outermost = 0) and `paths` is the raw Clipper2
 /// output of `shrink` at that depth — including both successful fits and the
 /// final geometry-limited miss.
 #[cfg(not(target_arch = "wasm32"))]
-pub fn compute_arachne_beads_debug(
+pub fn compute_classic_beads_debug(
     input: &Paths,
-    params: &ArachneParams,
+    params: &WallParams,
     inflate_steps: &mut Vec<(usize, Paths)>,
 ) -> Vec<Bead> {
     let d = params.nozzle_diameter_mm;
@@ -389,8 +389,8 @@ mod tests {
     use super::*;
     use crate::settings::params::SlicingParams;
 
-    fn default_params() -> ArachneParams {
-        ArachneParams::from_slicing_params(&SlicingParams::default())
+    fn default_params() -> WallParams {
+        WallParams::from_slicing_params(&SlicingParams::default())
     }
 
     fn square_paths(side: f64) -> Paths {
@@ -400,7 +400,7 @@ mod tests {
     }
 
     // Compatibility shim: `find_collapse_depth` was inlined into
-    // `compute_arachne_beads` (now using `narrow_collapse_search`).  Re-expose
+    // `compute_classic_beads` (now using `narrow_collapse_search`).  Re-expose
     // the same logic here with a full-range binary search so existing test
     // assertions remain valid.
     fn find_collapse_depth(input: &Paths) -> f64 {
@@ -468,7 +468,7 @@ mod tests {
         );
     }
 
-    // ── compute_arachne_beads ─────────────────────────────────────────────────
+    // ── compute_classic_beads ─────────────────────────────────────────────────
 
     #[test]
     fn test_thick_wall_produces_standard_beads() {
@@ -477,7 +477,7 @@ mod tests {
         // geometry-limited, so NO residual bead should be placed inside the polygon.
         let paths = square_paths(20.0);
         let params = default_params();
-        let beads = compute_arachne_beads(&paths, &params);
+        let beads = compute_classic_beads(&paths, &params);
         assert_eq!(
             beads.len(),
             3,
@@ -504,7 +504,7 @@ mod tests {
         let rect: Path = vec![(0.0, 0.0), (10.0, 0.0), (10.0, 0.4), (0.0, 0.4)].into();
         let paths = Paths::new(vec![rect]);
         let params = default_params();
-        let beads = compute_arachne_beads(&paths, &params);
+        let beads = compute_classic_beads(&paths, &params);
 
         assert!(
             !beads.is_empty(),
@@ -528,7 +528,7 @@ mod tests {
         let rect: Path = vec![(0.0, 0.0), (10.0, 0.0), (10.0, 0.2), (0.0, 0.2)].into();
         let paths = Paths::new(vec![rect]);
         let params = default_params();
-        let beads = compute_arachne_beads(&paths, &params);
+        let beads = compute_classic_beads(&paths, &params);
         assert!(
             beads.is_empty(),
             "0.2mm wall (< min_w=0.34mm) should produce no beads, got {}",

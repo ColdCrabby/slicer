@@ -1,10 +1,11 @@
-//! Arachne variable-width perimeter (wall) generator.
+//! Classic fixed-width perimeter (wall) generator with thin-wall gap fill.
 //!
-//! This module implements the Arachne algorithm for variable-width extrusion
-//! (VWE) toolpath generation.  Instead of fixed-width perimeter lines, Arachne
-//! approximates the medial axis of each shell polygon using successive inward
-//! Clipper2 offsets and emits paths whose extrusion width varies per bead to
-//! match the local wall thickness.
+//! This is the default wall generator.  Rather than a medial-axis skeleton
+//! (that is the not-yet-implemented [`super::arachne`] generator), it places a
+//! small number of concentric constant-width beads via successive inward
+//! Clipper2 offsets, then fills any narrow space that remains with a single
+//! variable-width residual bead.  It is deterministic, fast, dependency-free,
+//! and mirrors the "Classic" wall generator shipped by PrusaSlicer / OrcaSlicer.
 //!
 //! ## Algorithm overview
 //!
@@ -26,100 +27,88 @@
 //!
 //! ## Reference
 //!
-//! Kuipers et al. (2020) — *Arachne: Arc-based Toolpath Generation for FDM 3D
-//! Printing*.  See also Cura `SkeletalTrapezoidation` and OrcaSlicer
-//! `libslic3r/Arachne/`.
-
-mod beads;
-mod types;
+//! This offset-plus-gap-fill approach predates Arachne and descends from
+//! Slic3r's `PerimeterGenerator` + `MedialAxis`.
 
 use std::sync::atomic::Ordering;
 
 use clipper2::*;
 
+#[cfg(not(target_arch = "wasm32"))]
+use super::beads::compute_classic_beads_debug;
+use super::beads::{compute_classic_beads, CLASSIC_BEAD_SHRINK_NS, CLASSIC_COLLAPSE_NS};
+use super::types::{WallParams, WallTimings};
 use crate::core::{ExtrusionRole, SliceLayer};
 
-// Re-export public types
-pub use beads::compute_arachne_beads;
-#[cfg(not(target_arch = "wasm32"))]
-pub use beads::compute_arachne_beads_debug;
-pub use types::{ArachneParams, ArachneSubTimings, Bead};
-
-// ── Per-run timing accumulators (CPU time Σ across all worker threads) ────────
-use beads::{ARACHNE_BEAD_SHRINK_NS, ARACHNE_COLLAPSE_NS};
-
-/// Generate Arachne variable-width wall paths for every layer.
+/// Generate classic variable-width wall paths for every layer.
 ///
 /// Replaces the raw mesh-contour [`ExtrusionRole::OuterWall`] paths in each
-/// layer with properly generated variable-width perimeter beads.  All
-/// non-perimeter paths (top/bottom surface infill, sparse infill, etc.) are
-/// preserved in their original order after the new wall paths.
+/// layer with generated perimeter beads.  All non-perimeter paths (top/bottom
+/// surface infill, sparse infill, etc.) are preserved in their original order
+/// after the new wall paths.
 ///
 /// # Arguments
 ///
 /// * `layers` – mutable slice layers produced by [`crate::core::slice_mesh`]
 ///   (after surface generation).
-/// * `params` – resolved Arachne parameters.
-pub fn generate_arachne_walls(
-    layers: &mut [SliceLayer],
-    params: &ArachneParams,
-) -> ArachneSubTimings {
-    ARACHNE_COLLAPSE_NS.store(0, Ordering::Relaxed);
-    ARACHNE_BEAD_SHRINK_NS.store(0, Ordering::Relaxed);
+/// * `params` – resolved wall parameters.
+pub fn generate_classic_walls(layers: &mut [SliceLayer], params: &WallParams) -> WallTimings {
+    CLASSIC_COLLAPSE_NS.store(0, Ordering::Relaxed);
+    CLASSIC_BEAD_SHRINK_NS.store(0, Ordering::Relaxed);
     #[cfg(not(target_arch = "wasm32"))]
     {
         use rayon::prelude::*;
         layers
             .par_iter_mut()
-            .for_each(|layer| generate_arachne_walls_for_layer(layer, params));
+            .for_each(|layer| generate_classic_walls_for_layer(layer, params));
     }
     #[cfg(target_arch = "wasm32")]
     for layer in layers.iter_mut() {
-        generate_arachne_walls_for_layer(layer, params);
+        generate_classic_walls_for_layer(layer, params);
     }
-    ArachneSubTimings {
-        collapse_depth_ms: ARACHNE_COLLAPSE_NS.load(Ordering::Relaxed) / 1_000_000,
-        bead_shrink_ms: ARACHNE_BEAD_SHRINK_NS.load(Ordering::Relaxed) / 1_000_000,
+    WallTimings {
+        collapse_depth_ms: CLASSIC_COLLAPSE_NS.load(Ordering::Relaxed) / 1_000_000,
+        bead_shrink_ms: CLASSIC_BEAD_SHRINK_NS.load(Ordering::Relaxed) / 1_000_000,
     }
 }
 
 // ── Private helpers ───────────────────────────────────────────────────────────
 
-/// Generate Arachne walls for every layer, capturing intermediate geometry for
+/// Generate classic walls for every layer, capturing intermediate geometry for
 /// visual debugging.
 ///
-/// This is the debug-mode counterpart to [`generate_arachne_walls`].  It runs
+/// This is the debug-mode counterpart to [`generate_classic_walls`].  It runs
 /// **sequentially** (not in parallel) so that intermediate Clipper2 results can
 /// be pushed into `debug` without any synchronisation overhead.
 ///
 /// For each layer the following snapshots are recorded in `debug`:
 ///
-/// * [`DebugStage::ArachneNormalisedInput`] — the EvenOdd-union-normalised
+/// * [`DebugStage::WallNormalisedInput`] — the EvenOdd-union-normalised
 ///   perimeter contours fed to the bead algorithm.
-/// * [`DebugStage::ArachneInflateStep`] — every intermediate `shrink` result
+/// * [`DebugStage::WallOffsetStep`] — every intermediate `shrink` result
 ///   at each bead depth, keyed by `bead_k`.
-/// * [`DebugStage::ArachneBeads`] — the final bead centerline paths.
+/// * [`DebugStage::WallBeads`] — the final bead centerline paths.
 #[cfg(not(target_arch = "wasm32"))]
-pub fn generate_arachne_walls_debug(
+pub fn generate_classic_walls_debug(
     layers: &mut [SliceLayer],
-    params: &ArachneParams,
+    params: &WallParams,
     debug: &mut crate::debug::DebugGeometry,
-) -> ArachneSubTimings {
-    ARACHNE_COLLAPSE_NS.store(0, Ordering::Relaxed);
-    ARACHNE_BEAD_SHRINK_NS.store(0, Ordering::Relaxed);
+) -> WallTimings {
+    CLASSIC_COLLAPSE_NS.store(0, Ordering::Relaxed);
+    CLASSIC_BEAD_SHRINK_NS.store(0, Ordering::Relaxed);
 
     for (layer_index, layer) in layers.iter_mut().enumerate() {
-        generate_arachne_walls_for_layer_debug(layer, params, layer_index, debug);
+        generate_classic_walls_for_layer_debug(layer, params, layer_index, debug);
     }
 
-    ArachneSubTimings {
-        collapse_depth_ms: ARACHNE_COLLAPSE_NS.load(Ordering::Relaxed) / 1_000_000,
-        bead_shrink_ms: ARACHNE_BEAD_SHRINK_NS.load(Ordering::Relaxed) / 1_000_000,
+    WallTimings {
+        collapse_depth_ms: CLASSIC_COLLAPSE_NS.load(Ordering::Relaxed) / 1_000_000,
+        bead_shrink_ms: CLASSIC_BEAD_SHRINK_NS.load(Ordering::Relaxed) / 1_000_000,
     }
 }
 
-/// Replace the perimeter paths in a single layer with Arachne beads.
-fn generate_arachne_walls_for_layer(layer: &mut SliceLayer, params: &ArachneParams) {
+/// Replace the perimeter paths in a single layer with classic beads.
+fn generate_classic_walls_for_layer(layer: &mut SliceLayer, params: &WallParams) {
     // Collect raw perimeter contours (closed mesh cross-section loops).
     let raw_perimeters: Vec<Path> = layer
         .paths
@@ -148,7 +137,7 @@ fn generate_arachne_walls_for_layer(layer: &mut SliceLayer, params: &ArachnePara
         .map(|(i, p)| (p.clone(), layer.role_for_path(i), layer.width_for_path(i)))
         .collect();
 
-    // Compute Arachne beads from the raw contours.
+    // Compute classic beads from the raw contours.
     //
     // The raw contours produced by `chain_segments` have **arbitrary winding**
     // (CCW or CW depending on triangle orientation in the input mesh) and may
@@ -157,10 +146,10 @@ fn generate_arachne_walls_for_layer(layer: &mut SliceLayer, params: &ArachnePara
     // `inflate(-d, ...)` produces fragmented, self-intersecting output:
     // hundreds of tiny "bead" loops per layer that swamp the G-code with
     // useless retract/travel pairs and visually appear as missing/skipped
-    // perimeters when rendered.  See bug investigation in `examples/diag_arachne.rs`.
+    // perimeters when rendered.
     //
     // Fix: normalise the input topology with a Clipper2 EvenOdd union before
-    // running Arachne.  EvenOdd is winding-independent and resolves overlaps,
+    // computing beads.  EvenOdd is winding-independent and resolves overlaps,
     // yielding the canonical Clipper2 representation (CCW outer rings, CW
     // holes).  All subsequent `inflate` calls then behave correctly.
     let normalised = union(
@@ -169,9 +158,9 @@ fn generate_arachne_walls_for_layer(layer: &mut SliceLayer, params: &ArachnePara
         FillRule::EvenOdd,
     )
     .unwrap_or_default();
-    let beads = compute_arachne_beads(&normalised, params);
+    let beads = compute_classic_beads(&normalised, params);
 
-    // Rebuild the layer: Arachne wall beads first, then non-perimeter paths.
+    // Rebuild the layer: wall beads first, then non-perimeter paths.
     layer.paths = Paths::new(vec![]);
     layer.path_roles = Vec::new();
     layer.path_widths = Vec::new();
@@ -194,11 +183,11 @@ fn generate_arachne_walls_for_layer(layer: &mut SliceLayer, params: &ArachnePara
     }
 }
 
-/// Debug variant of [`generate_arachne_walls_for_layer`].
+/// Debug variant of [`generate_classic_walls_for_layer`].
 #[cfg(not(target_arch = "wasm32"))]
-fn generate_arachne_walls_for_layer_debug(
+fn generate_classic_walls_for_layer_debug(
     layer: &mut SliceLayer,
-    params: &ArachneParams,
+    params: &WallParams,
     layer_index: usize,
     debug: &mut crate::debug::DebugGeometry,
 ) {
@@ -236,29 +225,29 @@ fn generate_arachne_walls_for_layer_debug(
     .unwrap_or_default();
 
     debug.push(
-        crate::debug::DebugStage::ArachneNormalisedInput,
+        crate::debug::DebugStage::WallNormalisedInput,
         layer_index,
         layer.z,
         normalised.clone(),
     );
 
     let mut inflate_steps: Vec<(usize, Paths)> = Vec::new();
-    let beads = compute_arachne_beads_debug(&normalised, params, &mut inflate_steps);
+    let beads = compute_classic_beads_debug(&normalised, params, &mut inflate_steps);
 
     for (bead_k, paths) in inflate_steps {
         debug.push(
-            crate::debug::DebugStage::ArachneInflateStep { bead_k },
+            crate::debug::DebugStage::WallOffsetStep { bead_k },
             layer_index,
             layer.z,
             paths,
         );
     }
 
-    // Collect final bead paths for the ArachneBeads snapshot.
+    // Collect final bead paths for the WallBeads snapshot.
     let bead_paths: Vec<Path> = beads.iter().map(|b| b.path.clone()).collect();
     if !bead_paths.is_empty() {
         debug.push(
-            crate::debug::DebugStage::ArachneBeads,
+            crate::debug::DebugStage::WallBeads,
             layer_index,
             layer.z,
             Paths::new(bead_paths),
@@ -294,10 +283,10 @@ mod tests {
     use super::*;
     use crate::settings::params::SlicingParams;
 
-    // ── generate_arachne_walls_for_layer ─────────────────────────────────────
+    // ── generate_classic_walls_for_layer ─────────────────────────────────────
 
     #[test]
-    fn test_arachne_replaces_raw_perimeter_paths() {
+    fn test_classic_replaces_raw_perimeter_paths() {
         let mut layer = SliceLayer::new(0.2);
         // Add a 10×10 square as a raw perimeter.
         let sq: Path = vec![(0.0, 0.0), (10.0, 0.0), (10.0, 10.0), (0.0, 10.0)].into();
@@ -305,12 +294,12 @@ mod tests {
         layer.path_roles.push(ExtrusionRole::OuterWall);
         layer.path_widths.push(None);
 
-        let params = ArachneParams::from_slicing_params(&SlicingParams::default());
-        generate_arachne_walls_for_layer(&mut layer, &params);
+        let params = WallParams::from_slicing_params(&SlicingParams::default());
+        generate_classic_walls_for_layer(&mut layer, &params);
 
         assert!(
             !layer.paths.is_empty(),
-            "layer should have paths after Arachne"
+            "layer should have paths after wall generation"
         );
         // First path should be OuterWall, rest should be InnerWall.
         assert_eq!(
@@ -332,12 +321,12 @@ mod tests {
             "path_widths should have one entry per path"
         );
         for w in &layer.path_widths {
-            assert!(w.is_some(), "Arachne paths must have an explicit width set");
+            assert!(w.is_some(), "wall paths must have an explicit width set");
         }
     }
 
     #[test]
-    fn test_arachne_preserves_non_perimeter_paths() {
+    fn test_classic_preserves_non_perimeter_paths() {
         let mut layer = SliceLayer::new(0.2);
 
         // A perimeter path.
@@ -351,8 +340,8 @@ mod tests {
         layer.path_roles.push(ExtrusionRole::TopSurface);
         layer.path_widths.push(None);
 
-        let params = ArachneParams::from_slicing_params(&SlicingParams::default());
-        generate_arachne_walls_for_layer(&mut layer, &params);
+        let params = WallParams::from_slicing_params(&SlicingParams::default());
+        generate_classic_walls_for_layer(&mut layer, &params);
 
         let top_count = (0..layer.paths.len())
             .filter(|&i| layer.role_for_path(i) == ExtrusionRole::TopSurface)
@@ -361,9 +350,9 @@ mod tests {
     }
 
     #[test]
-    fn test_generate_arachne_walls_all_layers() {
+    fn test_generate_classic_walls_all_layers() {
         let params = SlicingParams::default();
-        let arachne_params = ArachneParams::from_slicing_params(&params);
+        let wall_params = WallParams::from_slicing_params(&params);
 
         // Build two layers with a simple square perimeter each.
         let mut layers: Vec<SliceLayer> = (0..2)
@@ -377,12 +366,12 @@ mod tests {
             })
             .collect();
 
-        generate_arachne_walls(&mut layers, &arachne_params);
+        generate_classic_walls(&mut layers, &wall_params);
 
         for layer in &layers {
             assert!(
                 !layer.paths.is_empty(),
-                "every layer should have at least one path after Arachne"
+                "every layer should have at least one path after wall generation"
             );
         }
     }

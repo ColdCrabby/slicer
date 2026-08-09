@@ -315,7 +315,7 @@ async fn handle_slice(
     let gcode_output_path = work_dir.join(format!("{}.gcode", uuid));
     let gcode_output_path_clone = gcode_output_path.clone();
 
-    tokio::task::spawn_blocking(move || {
+    let slice_handle = tokio::task::spawn_blocking(move || {
         /// Serializes `msg` to JSON; returns a hard-coded error frame on failure.
         fn to_json(msg: &ServerMessage) -> String {
             serde_json::to_string(msg).unwrap_or_else(|_| {
@@ -402,6 +402,27 @@ async fn handle_slice(
         if session.text(msg_str).await.is_err() {
             break;
         }
+    }
+
+    // If the blocking task panicked the channel closes silently — the UI
+    // would hang forever with no response. Detect the panic and send an
+    // error frame so the client can surface a meaningful message.
+    if let Err(join_err) = slice_handle.await {
+        let panic_msg = if join_err.is_panic() {
+            let payload = join_err.into_panic();
+            payload
+                .downcast_ref::<String>()
+                .cloned()
+                .or_else(|| payload.downcast_ref::<&str>().map(|s| s.to_string()))
+                .unwrap_or_else(|| "unknown panic".to_string())
+        } else {
+            join_err.to_string()
+        };
+        let _ = send_msg(
+            session,
+            &ServerMessage::error(format!("Slicing failed unexpectedly: {panic_msg}")),
+        )
+        .await;
     }
 
     // Update database with G-code file info

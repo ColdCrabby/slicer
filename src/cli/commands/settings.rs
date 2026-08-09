@@ -476,6 +476,7 @@ impl EmitPayload for ShowResult<'_> {
         let mut lines = vec![
             "Global Settings:".to_string(),
             format!("  layer_height: {} mm", p.layer_height),
+            format!("  wall_generator: {}", p.wall_generator.name()),
             format!("  wall_count: {} walls", p.wall_count),
             format!("  wall_line_width_min: {} × nozzle", p.wall_line_width_min),
             format!("  wall_line_width_max: {} × nozzle", p.wall_line_width_max),

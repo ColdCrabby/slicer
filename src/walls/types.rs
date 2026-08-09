@@ -1,12 +1,13 @@
-//! Core data types for Arachne wall generation.
+//! Core data types shared by the wall generators.
 
 use crate::settings::params::SlicingParams;
 use clipper2::Path;
 
-/// Resolved Arachne parameters with all values in absolute mm.
+/// Resolved wall parameters with all values in absolute mm.
 ///
-/// Constructed from [`SlicingParams`] via [`ArachneParams::from_slicing_params`].
-pub struct ArachneParams {
+/// Constructed from [`SlicingParams`] via [`WallParams::from_slicing_params`].
+/// Shared by every wall generator ([`super::classic`], [`super::arachne`]).
+pub struct WallParams {
     /// Nozzle diameter in mm.
     pub nozzle_diameter_mm: f64,
     /// Maximum number of perimeter beads per shell.
@@ -19,8 +20,8 @@ pub struct ArachneParams {
     pub wall_distribution_count: usize,
 }
 
-impl ArachneParams {
-    /// Build [`ArachneParams`] from the slicing-parameter bag.
+impl WallParams {
+    /// Build [`WallParams`] from the slicing-parameter bag.
     pub fn from_slicing_params(params: &SlicingParams) -> Self {
         let d = params.nozzle_diameter_mm;
         Self {
@@ -33,7 +34,7 @@ impl ArachneParams {
     }
 }
 
-/// A single computed extrusion bead produced by the Arachne generator.
+/// A single computed extrusion bead produced by a wall generator.
 pub struct Bead {
     /// Centerline path (a closed polygon offset inward from the shell boundary).
     pub path: Path,
@@ -43,12 +44,12 @@ pub struct Bead {
     pub is_outer: bool,
 }
 
-/// Sub-phase timing breakdown for [`crate::arachne::generate_arachne_walls`].
+/// Sub-phase timing breakdown for [`crate::walls::generate_walls`].
 ///
 /// All times are the **sum of CPU time across all rayon worker threads**; they
 /// will be larger than the wall-clock duration of the phase on multi-core machines.
 /// The ratio of the two counters reveals where the per-island cost is concentrated.
-pub struct ArachneSubTimings {
+pub struct WallTimings {
     /// Total CPU time (all threads) spent inside collapse depth calculation.
     pub collapse_depth_ms: u64,
     /// Total CPU time (all threads) spent in bead-centerline [`shrink`](super::beads::shrink) calls.

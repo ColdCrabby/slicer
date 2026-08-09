@@ -8,14 +8,15 @@ pub enum DebugStage {
     /// Raw mesh cross-section contours produced by `slice_mesh`, before any
     /// further processing.
     RawContours,
-    /// The Clipper2 EvenOdd-union-normalised contours fed into Arachne — the
-    /// input after winding is resolved but before any beads are placed.
-    ArachneNormalisedInput,
+    /// The Clipper2 EvenOdd-union-normalised contours fed into the wall
+    /// generator — the input after winding is resolved but before any beads
+    /// are placed.
+    WallNormalisedInput,
     /// One inward-offset (`shrink`) intermediate produced while placing bead
     /// number `bead_k` (0-based, outermost first).
-    ArachneInflateStep { bead_k: usize },
-    /// Final Arachne bead centerline paths after the full bead algorithm.
-    ArachneBeads,
+    WallOffsetStep { bead_k: usize },
+    /// Final wall bead centerline paths after the full bead algorithm.
+    WallBeads,
     /// Interior region (inside the innermost wall) for infill/surface placement.
     InteriorRegion,
     /// Solid top/bottom surface regions (`layer.solid_regions`).
@@ -29,9 +30,9 @@ impl DebugStage {
     pub fn id(&self) -> String {
         match self {
             Self::RawContours => "raw_contours".to_string(),
-            Self::ArachneNormalisedInput => "arachne_norm_input".to_string(),
-            Self::ArachneInflateStep { bead_k } => format!("arachne_inflate_k{}", bead_k),
-            Self::ArachneBeads => "arachne_beads".to_string(),
+            Self::WallNormalisedInput => "wall_norm_input".to_string(),
+            Self::WallOffsetStep { bead_k } => format!("wall_offset_k{}", bead_k),
+            Self::WallBeads => "wall_beads".to_string(),
             Self::InteriorRegion => "interior_region".to_string(),
             Self::SolidSurface => "solid_surface".to_string(),
             Self::Infill => "infill".to_string(),
@@ -42,11 +43,11 @@ impl DebugStage {
     pub fn label(&self) -> String {
         match self {
             Self::RawContours => "Raw contours".to_string(),
-            Self::ArachneNormalisedInput => "Arachne normalised input".to_string(),
-            Self::ArachneInflateStep { bead_k } => {
-                format!("Arachne inflate (bead {})", bead_k)
+            Self::WallNormalisedInput => "Wall normalised input".to_string(),
+            Self::WallOffsetStep { bead_k } => {
+                format!("Wall offset (bead {})", bead_k)
             }
-            Self::ArachneBeads => "Arachne beads".to_string(),
+            Self::WallBeads => "Wall beads".to_string(),
             Self::InteriorRegion => "Interior region".to_string(),
             Self::SolidSurface => "Solid surface".to_string(),
             Self::Infill => "Infill".to_string(),
@@ -57,9 +58,9 @@ impl DebugStage {
     pub fn svg_color(&self) -> &'static str {
         match self {
             Self::RawContours => "#888888",
-            Self::ArachneNormalisedInput => "#ff8800",
-            Self::ArachneInflateStep { .. } => "#ffdd00",
-            Self::ArachneBeads => "#2266ff",
+            Self::WallNormalisedInput => "#ff8800",
+            Self::WallOffsetStep { .. } => "#ffdd00",
+            Self::WallBeads => "#2266ff",
             Self::InteriorRegion => "#22bb44",
             Self::SolidSurface => "#cc22cc",
             Self::Infill => "#ee2222",
