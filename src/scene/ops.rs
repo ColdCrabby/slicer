@@ -379,8 +379,7 @@ impl SceneState {
                         self.get_mut(id).unwrap().transform = new_t;
                         // Drop to floor after rotation.
                         let world = self.get(id).unwrap().world_aabb();
-                        self.get_mut(id).unwrap().transform.translation[2] -=
-                            world.min.z as f32;
+                        self.get_mut(id).unwrap().transform.translation[2] -= world.min.z as f32;
                     }
                 }
 
@@ -760,13 +759,15 @@ mod tests {
     fn arrange_on_bed_undo_restores_transforms() {
         let mut s = SceneState::new(small_bed());
         let ids: Vec<ObjectId> = (0..2)
-            .map(|i| s.add_mesh(format!("c{i}"), cube_mesh([f64::from(i) * 5.0, 0.0, 0.0], 10.0)))
+            .map(|i| {
+                s.add_mesh(
+                    format!("c{i}"),
+                    cube_mesh([f64::from(i) * 5.0, 0.0, 0.0], 10.0),
+                )
+            })
             .collect();
 
-        let pre: Vec<_> = ids
-            .iter()
-            .map(|&id| s.get(id).unwrap().transform)
-            .collect();
+        let pre: Vec<_> = ids.iter().map(|&id| s.get(id).unwrap().transform).collect();
 
         let receipt = s
             .apply(SceneOp::ArrangeOnBed {

@@ -17,12 +17,13 @@
 //!
 //! ## Scope
 //!
-//! The outer loops are constant width; continuous per-vertex width variation of
-//! *every* bead (full skeletal trapezoidation) is the documented next step.
-//! Selecting [`WallGenerator::Arachne`](crate::settings::params::WallGenerator)
-//! runs this generator; the pure-Rust dependency stack compiles to wasm, so no
-//! fallback to Classic is required (a Voronoi build error degrades gracefully
-//! to the offset loops alone).
+//! [`generate_arachne_walls`] lays constant-width offset loops plus variable-
+//! width medial gap fill.  [`generate_arachne_walk_walls`]
+//! ([`WallGenerator::ArachneWalk`](crate::settings::params::WallGenerator)) adds
+//! the full skeletal-trapezoidation walk: every bead of a thin island takes a
+//! per-vertex width from the local wall thickness.  The pure-Rust dependency
+//! stack compiles to wasm, so no fallback to Classic is required (a Voronoi
+//! build error degrades gracefully to the offset loops alone).
 //!
 //! [arachne-paper]: https://dl.acm.org/doi/10.1145/3386569.3392408
 
@@ -30,5 +31,7 @@ mod beading;
 mod generate;
 mod skeleton;
 mod voronoi;
+mod walk;
 
 pub use generate::generate_arachne_walls;
+pub use walk::generate_arachne_walk_walls;

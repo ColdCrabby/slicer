@@ -89,7 +89,11 @@ pub fn pack_footprints(
         for shelf in &mut shelves {
             // Gap before this object: spacing if the shelf already has objects,
             // otherwise no gap (first object starts at x = 0).
-            let gap = if shelf.x_cursor > 0.0 { spacing_mm } else { 0.0 };
+            let gap = if shelf.x_cursor > 0.0 {
+                spacing_mm
+            } else {
+                0.0
+            };
             let x_start = shelf.x_cursor + gap;
             if x_start + w <= bed.width {
                 result[idx].x = x_start;

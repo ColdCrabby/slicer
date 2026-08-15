@@ -16,6 +16,13 @@ use crate::settings::params::{LifecycleMarkerConfig, SlicingParams};
 /// WIDTH comments for floating-point rounding differences between beads.
 const WIDTH_EPSILON: f64 = 1e-6;
 
+/// Per-vertex width deviation (mm) below which a vertex may be dropped by the
+/// width-aware path simplification.  Keeps the taper of variable-width beads
+/// (Arachne walk, gap fill, overlap compensation) while still collapsing their
+/// long constant-width runs, so they no longer emit at full Voronoi/Clipper
+/// resolution.
+const WIDTH_SIMPLIFY_TOL_MM: f64 = 0.02;
+
 /// Estimate the print time for a layer in seconds.
 ///
 /// Sums the total XY move distance for all paths in the layer and divides by
@@ -287,6 +294,20 @@ impl GcodeGenerator {
                     fallback
                 }
             }
+            ExtrusionRole::GapFill => {
+                // Gap fill is a wall-family feature: fall back to perimeter
+                // speed, then print speed.
+                let s = if params.gap_fill_speed > 0.0 {
+                    params.gap_fill_speed
+                } else {
+                    params.perimeter_speed
+                };
+                if s > 0.0 {
+                    s * 60.0
+                } else {
+                    fallback
+                }
+            }
             _ => fallback,
         }
     }
@@ -468,19 +489,43 @@ impl GcodeGenerator {
                 let width_mm = layer
                     .width_for_path(path_idx)
                     .unwrap_or_else(|| role.default_width_mm());
+                // Per-vertex widths (variable-width beads) taper the flow along
+                // the path; `None` keeps the constant `width_mm`.
+                let raw_vertex_widths = layer.vertex_widths_for_path(path_idx);
 
                 // Resolve per-role print speed.
                 let speed_mm_min = Self::effective_speed_mm_min(role, is_first_layer, params);
 
-                // Apply Ramer-Douglas-Peucker simplification when a tolerance is set.
-                // `douglas_peucker` always preserves the first and last point, so a
-                // path with >= 2 raw points will always yield >= 2 simplified points.
-                let points: Vec<(f64, f64)> = if params.path_tolerance > 0.0 && raw_points.len() > 2
-                {
-                    crate::gcode::simplify::douglas_peucker(&raw_points, params.path_tolerance)
-                } else {
-                    raw_points
-                };
+                // Apply Ramer-Douglas-Peucker simplification when a tolerance is
+                // set.  Constant-width paths use the plain pass; variable-width
+                // beads use the width-aware pass so `points` and their widths stay
+                // aligned (and long constant-width runs still collapse), instead
+                // of being emitted at full resolution.
+                let (points, vertex_widths): (Vec<(f64, f64)>, Option<Vec<f64>>) =
+                    match raw_vertex_widths {
+                        Some(vw)
+                            if params.path_tolerance > 0.0
+                                && raw_points.len() > 2
+                                && vw.len() == raw_points.len() =>
+                        {
+                            let (p, w) = crate::gcode::simplify::douglas_peucker_with_widths(
+                                &raw_points,
+                                &vw,
+                                params.path_tolerance,
+                                WIDTH_SIMPLIFY_TOL_MM,
+                            );
+                            (p, Some(w))
+                        }
+                        Some(vw) => (raw_points, Some(vw)),
+                        None if params.path_tolerance > 0.0 && raw_points.len() > 2 => (
+                            crate::gcode::simplify::douglas_peucker(
+                                &raw_points,
+                                params.path_tolerance,
+                            ),
+                            None,
+                        ),
+                        None => (raw_points, None),
+                    };
 
                 // Guard against future algorithm changes that might produce degenerate paths.
                 debug_assert!(
@@ -754,8 +799,16 @@ impl GcodeGenerator {
                     last_pos = Some((start_x, start_y));
                 } else {
                     // Normal printing (no coasting)
+                    // Per-segment width: variable-width beads taper between
+                    // vertices; constant-width paths fall back to `width_mm`.
+                    let seg_width = |j: usize| -> f64 {
+                        match &vertex_widths {
+                            Some(vw) if j + 1 < vw.len() => 0.5 * (vw[j] + vw[j + 1]),
+                            _ => width_mm,
+                        }
+                    };
                     let mut prev = points[0];
-                    for &(x, y) in points.iter().skip(1) {
+                    for (i, &(x, y)) in points.iter().enumerate().skip(1) {
                         let dx = x - prev.0;
                         let dy = y - prev.1;
                         let len = (dx * dx + dy * dy).sqrt();
@@ -766,7 +819,7 @@ impl GcodeGenerator {
                         e_total += extrusion_for_move(
                             len,
                             params.layer_height,
-                            width_mm,
+                            seg_width(i - 1),
                             params.filament_diameter_mm,
                         );
                         out.push_str(&format!(
@@ -1240,6 +1293,62 @@ mod tests {
         assert!(
             gcode.contains(";WIDTH:0.40mm"),
             ";WIDTH: annotation must be present"
+        );
+    }
+
+    #[test]
+    fn per_vertex_widths_taper_extrusion_flow() {
+        use clipper2::Path;
+        // An open bead with an asymmetric width taper: the second segment is
+        // 0.6 mm wide vs 0.4 mm for the first, so it must extrude 1.5x the
+        // filament of the first over the same 5 mm length.
+        let mut layer = SliceLayer::new(0.2);
+        let bead: Path = vec![(0.0, 0.0), (5.0, 0.0), (10.0, 0.0)].into();
+        layer.paths.push(bead);
+        layer.path_roles.push(crate::core::ExtrusionRole::InnerWall);
+        layer.path_widths.push(Some(0.5));
+        layer.path_vertex_widths.push(Some(vec![0.4, 0.4, 0.8]));
+        layer.path_is_open.push(true);
+
+        let gcode =
+            GcodeGenerator::new(GcodeFlavor::Marlin).generate(&[layer], &SlicingParams::default());
+
+        let e: Vec<f64> = gcode
+            .lines()
+            .filter(|l| l.starts_with("G1") && l.contains('X') && l.contains('E'))
+            .filter_map(|l| {
+                l.split_whitespace()
+                    .find_map(|t| t.strip_prefix('E').and_then(|v| v.parse::<f64>().ok()))
+            })
+            .collect();
+        assert_eq!(e.len(), 2, "expected two extrude moves, got {e:?}");
+        let d0 = e[0];
+        let d1 = e[1] - e[0];
+        assert!(d0 > 0.0 && d1 > 0.0, "both segments must extrude");
+        let ratio = d1 / d0;
+        assert!(
+            (ratio - 1.5).abs() < 1e-3,
+            "tapered segment should extrude 1.5x the first (got {ratio:.4})"
+        );
+    }
+
+    #[test]
+    fn gap_fill_role_emits_orca_type_label() {
+        use clipper2::Path;
+        // A GapFill path must annotate as OrcaSlicer's `;TYPE:Gap infill` so
+        // previews and post-processors classify it correctly.
+        let mut layer = SliceLayer::new(0.2);
+        let bead: Path = vec![(0.0, 0.0), (5.0, 0.0)].into();
+        layer.paths.push(bead);
+        layer.path_roles.push(crate::core::ExtrusionRole::GapFill);
+        layer.path_widths.push(Some(0.45));
+        layer.path_is_open.push(true);
+
+        let gcode =
+            GcodeGenerator::new(GcodeFlavor::Marlin).generate(&[layer], &SlicingParams::default());
+        assert!(
+            gcode.contains(";TYPE:Gap infill"),
+            "gap fill must emit the OrcaSlicer ;TYPE:Gap infill label:\n{gcode}"
         );
     }
 

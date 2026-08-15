@@ -134,6 +134,43 @@ impl Skeleton {
 
         chains
     }
+
+    /// Prune medial *leaf* edges that dive toward the boundary — the spurs a
+    /// convex vertex grows in the segment Voronoi — so the walk sees clean
+    /// degree-2 spines instead of a junction-riddled graph.
+    ///
+    /// A leaf edge (one endpoint of degree 1) is dropped when the leaf node's
+    /// radius is below `ratio` × its interior neighbour's radius: a real spine or
+    /// blunt feature tip keeps a comparable radius at both ends (ratio ≈ 1),
+    /// whereas a spur collapses toward the boundary.  Pruning repeats to a fixed
+    /// point, since removing one spur can expose the next.  Orphaned nodes are
+    /// harmless — [`Self::chains`] only visits nodes that still carry an edge.
+    pub fn prune_boundary_spurs(mut self, ratio: f64) -> Skeleton {
+        loop {
+            let mut degree = vec![0usize; self.nodes.len()];
+            for e in &self.edges {
+                degree[e.a] += 1;
+                degree[e.b] += 1;
+            }
+            let nodes = &self.nodes;
+            let before = self.edges.len();
+            self.edges.retain(|e| {
+                let (leaf, inner) = if degree[e.a] == 1 && degree[e.b] >= 2 {
+                    (e.a, e.b)
+                } else if degree[e.b] == 1 && degree[e.a] >= 2 {
+                    (e.b, e.a)
+                } else {
+                    return true; // spine, cycle, or lone edge — keep
+                };
+                let r_inner = nodes[inner].radius;
+                !(r_inner > 1e-9 && nodes[leaf].radius / r_inner < ratio)
+            });
+            if self.edges.len() == before {
+                break;
+            }
+        }
+        self
+    }
 }
 
 /// Build the interior medial-axis skeleton from a polygon set and its Voronoi
@@ -146,6 +183,9 @@ impl Skeleton {
 /// `0..nodes.len()` range.
 pub fn build_skeleton(paths: &Paths, diagram: &Diagram, offset: [f64; 2]) -> Skeleton {
     let verts = diagram.vertices();
+    // Extract each contour's points once; the radius and point-in-polygon tests
+    // below run per node and would otherwise rebuild these Vecs on every call.
+    let rings = to_point_rings(paths);
 
     // 1. Collect interior, primary, finite edges as raw diagram-vertex pairs.
     let mut raw_edges: Vec<(usize, usize)> = Vec::new();
@@ -169,7 +209,7 @@ pub fn build_skeleton(paths: &Paths, diagram: &Diagram, offset: [f64; 2]) -> Ske
         }
         let mx = (verts[i0].x() + verts[i1].x()) / 2.0 / VORONOI_SCALE + offset[0];
         let my = (verts[i0].y() + verts[i1].y()) / 2.0 / VORONOI_SCALE + offset[1];
-        if !point_inside(paths, mx, my) {
+        if !point_inside(&rings, mx, my) {
             continue; // exterior edge or inside a hole
         }
         raw_edges.push((i0, i1));
@@ -181,12 +221,21 @@ pub fn build_skeleton(paths: &Paths, diagram: &Diagram, offset: [f64; 2]) -> Ske
     let mut edges: Vec<SkeletonEdge> = Vec::new();
 
     for (i0, i1) in raw_edges {
-        let a = intern_node(i0, verts, paths, offset, &mut nodes, &mut remap);
-        let b = intern_node(i1, verts, paths, offset, &mut nodes, &mut remap);
+        let a = intern_node(i0, verts, &rings, offset, &mut nodes, &mut remap);
+        let b = intern_node(i1, verts, &rings, offset, &mut nodes, &mut remap);
         edges.push(SkeletonEdge { a, b });
     }
 
     Skeleton { nodes, edges }
+}
+
+/// Extract each contour's vertices as an owned `(f64, f64)` ring, once, so the
+/// per-node radius and point-in-polygon tests do not re-collect them.
+fn to_point_rings(paths: &Paths) -> Vec<Vec<(f64, f64)>> {
+    paths
+        .iter()
+        .map(|p| p.iter().map(|q| (q.x(), q.y())).collect())
+        .collect()
 }
 
 /// Intern diagram vertex `i` as a compact skeleton node, computing its radius
@@ -194,7 +243,7 @@ pub fn build_skeleton(paths: &Paths, diagram: &Diagram, offset: [f64; 2]) -> Ske
 fn intern_node(
     i: usize,
     verts: &[boostvoronoi::prelude::Vertex],
-    paths: &Paths,
+    rings: &[Vec<(f64, f64)>],
     offset: [f64; 2],
     nodes: &mut Vec<SkeletonNode>,
     remap: &mut HashMap<usize, usize>,
@@ -205,7 +254,7 @@ fn intern_node(
         nodes.push(SkeletonNode {
             x,
             y,
-            radius: dist_to_boundary(paths, x, y),
+            radius: dist_to_boundary(rings, x, y),
         });
         nodes.len() - 1
     })
@@ -216,10 +265,9 @@ fn intern_node(
 /// Winding-independent, so it is correct for Clipper2 EvenOdd output: a point
 /// inside the outer ring but also inside a hole is toggled twice and reported
 /// as outside the material.
-fn point_inside(paths: &Paths, x: f64, y: f64) -> bool {
+fn point_inside(rings: &[Vec<(f64, f64)>], x: f64, y: f64) -> bool {
     let mut inside = false;
-    for path in paths.iter() {
-        let pts: Vec<(f64, f64)> = path.iter().map(|p| (p.x(), p.y())).collect();
+    for pts in rings {
         let n = pts.len();
         if n < 3 {
             continue;
@@ -237,11 +285,10 @@ fn point_inside(paths: &Paths, x: f64, y: f64) -> bool {
     inside
 }
 
-/// Minimum distance from `(x, y)` to any boundary edge in `paths` (mm).
-fn dist_to_boundary(paths: &Paths, x: f64, y: f64) -> f64 {
+/// Minimum distance from `(x, y)` to any boundary edge in `rings` (mm).
+fn dist_to_boundary(rings: &[Vec<(f64, f64)>], x: f64, y: f64) -> f64 {
     let mut best = f64::INFINITY;
-    for path in paths.iter() {
-        let pts: Vec<(f64, f64)> = path.iter().map(|p| (p.x(), p.y())).collect();
+    for pts in rings {
         let n = pts.len();
         if n < 2 {
             continue;

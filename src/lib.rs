@@ -14,6 +14,8 @@
 #[cfg(any(not(target_arch = "wasm32"), feature = "web-slicer"))]
 pub mod core;
 #[cfg(any(not(target_arch = "wasm32"), feature = "web-slicer"))]
+pub mod flow;
+#[cfg(any(not(target_arch = "wasm32"), feature = "web-slicer"))]
 pub mod gcode;
 #[cfg(any(not(target_arch = "wasm32"), feature = "web-slicer"))]
 pub mod infill;

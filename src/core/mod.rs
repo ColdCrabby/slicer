@@ -198,6 +198,7 @@ mod tests {
         assert_eq!(ExtrusionRole::Bridge.type_name(), "Bridge");
         assert_eq!(ExtrusionRole::TopSurface.type_name(), "Top surface");
         assert_eq!(ExtrusionRole::BottomSurface.type_name(), "Bottom surface");
+        assert_eq!(ExtrusionRole::GapFill.type_name(), "Gap infill");
         assert_eq!(ExtrusionRole::Support.type_name(), "Support material");
         assert_eq!(ExtrusionRole::Skirt.type_name(), "Skirt");
     }
@@ -709,7 +710,14 @@ mod tests {
     fn test_add_solid_infill_for_region_empty_region() {
         let mut layer = SliceLayer::new(1.0);
         let empty: Paths = Paths::new(vec![]);
-        add_solid_infill_for_region(&mut layer, &empty, ExtrusionRole::TopSurface, 0.2, 45.0, 0.0);
+        add_solid_infill_for_region(
+            &mut layer,
+            &empty,
+            ExtrusionRole::TopSurface,
+            0.2,
+            45.0,
+            0.0,
+        );
         // Should handle empty region gracefully – no paths added
         assert!(layer.paths.is_empty());
     }

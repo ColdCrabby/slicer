@@ -8,7 +8,8 @@
 //! | [`WallGenerator`] | Module | Status |
 //! | --- | --- | --- |
 //! | `Classic` | [`classic`] | Fixed-width concentric offsets + thin-wall gap fill (default) |
-//! | `Arachne` | [`arachne`] | Variable-width skeletal trapezoidation — **not yet implemented (panics)** |
+//! | `Arachne` | [`arachne`] | Medial-axis offset loops + variable-width gap fill |
+//! | `ArachneWalk` | [`arachne`] | Skeletal-trapezoidation walk with per-vertex bead widths (opt-in) |
 //!
 //! Both generators emit the same output shape — the layer's `OuterWall` /
 //! `InnerWall` contours are replaced with bead paths and per-path widths, and
@@ -36,14 +37,16 @@ pub fn generate_walls(layers: &mut [SliceLayer], params: &SlicingParams) -> Wall
     match params.wall_generator {
         WallGenerator::Classic => classic::generate_classic_walls(layers, &wall_params),
         WallGenerator::Arachne => arachne::generate_arachne_walls(layers, &wall_params),
+        WallGenerator::ArachneWalk => arachne::generate_arachne_walk_walls(layers, &wall_params),
     }
 }
 
 /// Debug-mode counterpart to [`generate_walls`].
 ///
 /// Runs the selected generator sequentially (no `rayon`) so intermediate
-/// geometry can be captured into `debug` for visual inspection.  The Arachne
-/// generator does not yet emit debug snapshots (it runs normally).
+/// geometry can be captured into `debug` for visual inspection.  Only the
+/// classic generator captures debug snapshots; the Arachne variants run
+/// normally.
 #[cfg(not(target_arch = "wasm32"))]
 pub fn generate_walls_debug(
     layers: &mut [SliceLayer],
@@ -56,6 +59,7 @@ pub fn generate_walls_debug(
             classic::generate_classic_walls_debug(layers, &wall_params, debug)
         }
         WallGenerator::Arachne => arachne::generate_arachne_walls(layers, &wall_params),
+        WallGenerator::ArachneWalk => arachne::generate_arachne_walk_walls(layers, &wall_params),
     }
 }
 
@@ -72,6 +76,8 @@ mod tests {
         layer.paths.push(sq);
         layer.path_roles.push(ExtrusionRole::OuterWall);
         layer.path_widths.push(None);
+        layer.path_vertex_widths.push(None);
+        layer.path_is_open.push(false);
         layer
     }
 
@@ -85,7 +91,11 @@ mod tests {
 
     #[test]
     fn dispatch_routes_to_each_generator_without_panicking() {
-        for generator in [WallGenerator::Classic, WallGenerator::Arachne] {
+        for generator in [
+            WallGenerator::Classic,
+            WallGenerator::Arachne,
+            WallGenerator::ArachneWalk,
+        ] {
             let params = SlicingParams {
                 wall_generator: generator,
                 ..SlicingParams::default()

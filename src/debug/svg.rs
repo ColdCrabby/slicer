@@ -47,10 +47,7 @@ fn build_layer_svg(records: &[&DebugPath]) -> anyhow::Result<String> {
     let z = records.first().map(|r| r.z).unwrap_or(0.0);
 
     let mut svg = String::new();
-    writeln!(
-        svg,
-        r#"<?xml version="1.0" encoding="UTF-8"?>"#
-    )?;
+    writeln!(svg, r#"<?xml version="1.0" encoding="UTF-8"?>"#)?;
     writeln!(
         svg,
         r#"<svg xmlns="http://www.w3.org/2000/svg" xmlns:inkscape="http://www.inkscape.org/namespaces/inkscape" viewBox="{:.4} {:.4} {:.4} {:.4}">"#,
@@ -77,10 +74,7 @@ fn build_layer_svg(records: &[&DebugPath]) -> anyhow::Result<String> {
     // Group records by stage id
     let mut by_stage: BTreeMap<String, Vec<&DebugPath>> = BTreeMap::new();
     for record in records {
-        by_stage
-            .entry(record.stage.id())
-            .or_default()
-            .push(record);
+        by_stage.entry(record.stage.id()).or_default().push(record);
     }
 
     // Emit groups in encounter order

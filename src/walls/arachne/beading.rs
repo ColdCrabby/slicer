@@ -14,7 +14,8 @@
 //! This is a self-contained, deterministic function of `t` and the resolved
 //! [`WallParams`]; it holds no geometry.  The skeleton walk (Phase 2c) samples
 //! it along each medial edge and reconstructs continuous variable-width loops,
-//! smoothing count changes over [`WallParams::wall_transition_length_mm`].
+//! de-noising count changes shorter than
+//! [`WallParams::wall_transition_filter_distance_mm`].
 //!
 //! ## Strategy (clean-room, principled)
 //!
@@ -33,10 +34,9 @@
 //! Exact CuraEngine parity is **not** a goal; a monotonic, gap-free-where-
 //! possible, deterministic layout is.
 
-// Reserved for the full skeletal-trapezoidation walk (continuous per-vertex
-// bead widths). The current medial generator ([`super::generate`]) uses a
-// simpler offset-plus-gap-fill scheme and does not yet consume the full
-// beading layout, so these items are exercised only by unit tests for now.
+// Some `Beading` fields (`left_over`, `thickness`, `bead_count`) are part of the
+// layout contract but not read in every build configuration (only by the walk's
+// callers and the unit tests); keep them without a dead-code warning.
 #![allow(dead_code)]
 
 use crate::walls::WallParams;
@@ -88,9 +88,19 @@ impl BeadingConfig {
         n
     }
 
-    /// Compute the full bead layout for a wall of thickness `t` (mm).
+    /// Compute the full bead layout for a wall of thickness `t` (mm), choosing
+    /// the bead count with [`Self::optimal_bead_count`].
     pub fn compute(&self, t: f64) -> Beading {
-        let n = self.optimal_bead_count(t);
+        self.layout(t, self.optimal_bead_count(t))
+    }
+
+    /// Lay out `n` beads across a wall of thickness `t` (mm).
+    ///
+    /// Unlike [`Self::compute`], the count `n` is supplied by the caller — the
+    /// skeleton walk picks it per node and then de-noises it, so the layout must
+    /// honour that choice rather than re-deriving the optimum.  `n == 0` yields
+    /// an empty beading whose whole thickness is left over (infill).
+    pub fn layout(&self, t: f64, n: usize) -> Beading {
         if n == 0 {
             return Beading {
                 bead_count: 0,

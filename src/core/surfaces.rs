@@ -216,10 +216,14 @@ fn compute_wall_bead_footprint(layer: &SliceLayer, nozzle_diameter_mm: f64) -> P
         // Only true wall extrusions consume area we'd otherwise want to
         // bridge over.  `OverhangPerimeter` is included because the
         // overhang post-pass relabels in-air wall arcs, and bridges still
-        // must not overlap them.
+        // must not overlap them; `GapFill` deposits material inside the wall
+        // band and must likewise not be bridged over.
         if !matches!(
             role,
-            ExtrusionRole::OuterWall | ExtrusionRole::InnerWall | ExtrusionRole::OverhangPerimeter
+            ExtrusionRole::OuterWall
+                | ExtrusionRole::InnerWall
+                | ExtrusionRole::OverhangPerimeter
+                | ExtrusionRole::GapFill
         ) {
             continue;
         }
@@ -508,6 +512,8 @@ pub(crate) fn clip_walls_against_bridge_region(layer: &mut SliceLayer, bridge_re
     layer.path_roles = new_roles;
     layer.path_widths = new_widths;
     layer.path_is_open = new_is_open;
+    // Bridge-split arcs drop per-vertex widths; scalar width is used.
+    layer.path_vertex_widths = Vec::new();
 }
 
 /// Add bridge infill for an unsupported `region` to a layer.
@@ -1516,9 +1522,7 @@ pub fn generate_top_bottom_surfaces_with_interior(
         // supported by a deeper neighbour so they did not enter the bridge
         // candidate region at all) remain in `unsupported_regions` and
         // continue to drive overhang classification as before.
-        let unsupported_for_overhang = if raw_unsupported.is_empty() {
-            raw_unsupported
-        } else if bridge_region.is_empty() {
+        let unsupported_for_overhang = if raw_unsupported.is_empty() || bridge_region.is_empty() {
             raw_unsupported
         } else {
             difference(raw_unsupported, bridge_region.clone(), FillRule::EvenOdd)
@@ -1612,6 +1616,7 @@ fn trim_surfaces_to_walls(layers: &mut [SliceLayer], overlap_percent: f64, nozzl
             let mut new_paths = Paths::new(vec![]);
             let mut new_roles = Vec::new();
             let mut new_widths = Vec::new();
+            let mut new_vwidths = Vec::new();
 
             for (i, path) in layer.paths.iter().enumerate() {
                 let role = layer.role_for_path(i);
@@ -1620,12 +1625,14 @@ fn trim_surfaces_to_walls(layers: &mut [SliceLayer], overlap_percent: f64, nozzl
                     new_paths.push(path.clone());
                     new_roles.push(role);
                     new_widths.push(layer.width_for_path(i));
+                    new_vwidths.push(layer.vertex_widths_for_path(i));
                 }
             }
 
             layer.paths = new_paths;
             layer.path_roles = new_roles;
             layer.path_widths = new_widths;
+            layer.path_vertex_widths = new_vwidths;
             continue;
         }
 
@@ -1633,6 +1640,7 @@ fn trim_surfaces_to_walls(layers: &mut [SliceLayer], overlap_percent: f64, nozzl
         let mut new_paths = Paths::new(vec![]);
         let mut new_roles = Vec::new();
         let mut new_widths = Vec::new();
+        let mut new_vwidths = Vec::new();
 
         for (i, path) in layer.paths.iter().enumerate() {
             let role = layer.role_for_path(i);
@@ -1647,18 +1655,21 @@ fn trim_surfaces_to_walls(layers: &mut [SliceLayer], overlap_percent: f64, nozzl
                     new_paths.push(p.clone());
                     new_roles.push(role);
                     new_widths.push(layer.width_for_path(i));
+                    new_vwidths.push(None);
                 }
             } else {
                 // Keep non-surface paths as-is (including walls).
                 new_paths.push(path.clone());
                 new_roles.push(role);
                 new_widths.push(layer.width_for_path(i));
+                new_vwidths.push(layer.vertex_widths_for_path(i));
             }
         }
 
         layer.paths = new_paths;
         layer.path_roles = new_roles;
         layer.path_widths = new_widths;
+        layer.path_vertex_widths = new_vwidths;
     }
 }
 

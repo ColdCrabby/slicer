@@ -362,6 +362,17 @@ pub enum WallGenerator {
     /// cannot.  Based on the medial-axis approach of Kuipers et al. (2020) used
     /// by CuraEngine / PrusaSlicer / OrcaSlicer.
     Arachne,
+    /// Experimental skeletal-trapezoidation walk (full Arachne, opt-in).
+    ///
+    /// Evolves [`Self::Arachne`] with a directed half-edge medial-axis graph
+    /// (discretised parabolic edges) and a rib walk that assigns each bead a
+    /// *per-vertex* width from the **local** wall thickness, so a wall that
+    /// varies in thickness around its perimeter gets correctly-sized beads at
+    /// every point instead of one uniform residual.  Thin regions the offset
+    /// loops cannot cover are walked directly; the offset-loop path from
+    /// [`Self::Arachne`] remains the per-layer fallback whenever the Voronoi
+    /// build fails.  Opt-in while the junction-connection walk matures.
+    ArachneWalk,
 }
 
 impl WallGenerator {
@@ -371,6 +382,7 @@ impl WallGenerator {
         match s.to_lowercase().replace('-', "_").as_str() {
             "classic" | "offset" | "offsets" => Some(Self::Classic),
             "arachne" | "vwe" => Some(Self::Arachne),
+            "arachne_walk" | "walk" | "vww" => Some(Self::ArachneWalk),
             _ => None,
         }
     }
@@ -380,6 +392,7 @@ impl WallGenerator {
         match self {
             Self::Classic => "classic",
             Self::Arachne => "arachne",
+            Self::ArachneWalk => "arachne_walk",
         }
     }
 }
@@ -402,6 +415,7 @@ Smaller values produce finer detail but increase print time.
 Supported values:
 - `classic` — fixed-width concentric perimeters with thin-wall gap fill (fast, robust).
 - `arachne` — medial-axis variable-width walls that better fill thin features (engraved text, tapering ribs).
+- `arachne_walk` — experimental full skeletal-trapezoidation walk with per-vertex bead widths (opt-in).
 
 **Default:** `classic`.", extend("x-group" = "Walls"))]
     #[serde(default = "SlicingParams::default_wall_generator")]
@@ -463,6 +477,29 @@ are widened proportionally to fill the gap.
 **Typical:** 1–2.", extend("x-group" = "Walls"))]
     #[serde(default = "SlicingParams::default_wall_distribution_count")]
     pub wall_distribution_count: usize,
+
+    #[schemars(
+        description = "Minimum medial-axis angle (degrees) at which a bead-count transition may occur.
+
+Arachne-walk only.  A bead is added or removed along the medial axis only where
+the local branch angle exceeds this, so ribs are not placed on near-parallel
+edges where the count is ambiguous.
+**Typical:** 5–20°.",
+        extend("x-group" = "Walls")
+    )]
+    #[serde(default = "SlicingParams::default_wall_transition_angle")]
+    pub wall_transition_angle: f64,
+
+    #[schemars(
+        description = "Minimum spacing (mm) between adjacent bead-count transitions.
+
+Arachne-walk only.  Transitions closer together than this are merged, de-noising
+rapid count flip-flops along a faceted or slightly-tapering wall.
+**Typical:** 0.05–0.3 mm.",
+        extend("x-group" = "Walls")
+    )]
+    #[serde(default = "SlicingParams::default_wall_transition_filter_distance")]
+    pub wall_transition_filter_distance: f64,
 
     #[schemars(description = "Where to place the seam (start/end point) of each closed perimeter loop.
 
@@ -611,6 +648,46 @@ Set to `0` to fall back to `print_speed`.
     )]
     #[serde(default = "SlicingParams::default_top_surface_speed")]
     pub top_surface_speed: f64,
+
+    #[schemars(
+        description = "Speed for gap-fill (thin-wall medial) extrusions in mm/s.
+
+Gap fill lays narrow, variable-width beads into spaces too thin for a full
+perimeter.  A slower speed keeps pressure stable in these short, narrow moves.
+Set to `0` to fall back to `perimeter_speed` (then `print_speed`).
+**Typical:** 20–40 mm/s.",
+        extend("x-group" = "Speed")
+    )]
+    #[serde(default = "SlicingParams::default_gap_fill_speed")]
+    pub gap_fill_speed: f64,
+
+    #[schemars(
+        description = "Minimum length in mm for a gap-fill bead to be kept.
+
+Gap-fill beads shorter than this are dropped to avoid stringy sub-millimetre
+dribbles the medial pass finds along faceted boundaries.  Set to `0` to use the
+automatic default (2 × nozzle diameter).
+**Typical:** 0.4–1.0 mm.",
+        extend("x-group" = "Walls")
+    )]
+    #[serde(default = "SlicingParams::default_gap_fill_min_length_mm")]
+    pub gap_fill_min_length_mm: f64,
+
+    #[schemars(
+        description = "Wall overlap flow compensation strength (0.0–1.0).
+
+Where wall beads run closer than their combined width — tight slots, ~180°
+hairpins, acute concave corners — a bead would deposit material into space an
+adjacent bead already filled (over-extrusion, blobs).  This scales extrusion
+*down* across the overlap so the total deposited volume stays correct.  `0.0`
+disables it; `1.0` fully compensates.  Applies to the Arachne wall generators
+(`arachne`, `arachne_walk`); Classic fills thin residual via bead-width
+distribution instead.
+**Default:** 1.0.",
+        extend("x-group" = "Walls")
+    )]
+    #[serde(default = "SlicingParams::default_wall_overlap_compensation")]
+    pub wall_overlap_compensation: f64,
 
     #[schemars(
         description = "Speed for all extrusions on the first layer in mm/s.
@@ -873,6 +950,8 @@ impl Default for SlicingParams {
             wall_transition_threshold: Self::default_wall_transition_threshold(),
             wall_transition_length: Self::default_wall_transition_length(),
             wall_distribution_count: Self::default_wall_distribution_count(),
+            wall_transition_angle: Self::default_wall_transition_angle(),
+            wall_transition_filter_distance: Self::default_wall_transition_filter_distance(),
             seam_position: Self::default_seam_position(),
             infill_density: 0.2,
             infill_pattern: Self::default_infill_pattern(),
@@ -886,6 +965,9 @@ impl Default for SlicingParams {
             bridge_noise_filter_mm: Self::default_bridge_noise_filter_mm(),
             bridge_anchor_mm: Self::default_bridge_anchor_mm(),
             top_surface_speed: Self::default_top_surface_speed(),
+            gap_fill_speed: Self::default_gap_fill_speed(),
+            gap_fill_min_length_mm: Self::default_gap_fill_min_length_mm(),
+            wall_overlap_compensation: Self::default_wall_overlap_compensation(),
             first_layer_speed: Self::default_first_layer_speed(),
             fan_speed: Self::default_fan_speed(),
             bridge_fan_speed: Self::default_bridge_fan_speed(),
@@ -944,6 +1026,14 @@ impl SlicingParams {
         1
     }
 
+    fn default_wall_transition_angle() -> f64 {
+        10.0
+    }
+
+    fn default_wall_transition_filter_distance() -> f64 {
+        0.1
+    }
+
     fn default_seam_position() -> SeamPosition {
         SeamPosition::Nearest
     }
@@ -994,6 +1084,18 @@ impl SlicingParams {
 
     fn default_top_surface_speed() -> f64 {
         40.0
+    }
+
+    fn default_gap_fill_speed() -> f64 {
+        0.0
+    }
+
+    fn default_gap_fill_min_length_mm() -> f64 {
+        0.0
+    }
+
+    fn default_wall_overlap_compensation() -> f64 {
+        1.0
     }
 
     fn default_first_layer_speed() -> f64 {

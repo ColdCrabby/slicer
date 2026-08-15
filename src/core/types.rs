@@ -27,6 +27,9 @@ pub enum ExtrusionRole {
     TopSurface,
     /// Solid bottom-surface infill.
     BottomSurface,
+    /// Variable-width gap fill: thin-wall medial beads laid into spaces too
+    /// narrow for a full perimeter. Emitted as OrcaSlicer `;TYPE:Gap infill`.
+    GapFill,
     /// Support structure material.
     Support,
     /// Skirt or brim line.
@@ -48,6 +51,7 @@ impl ExtrusionRole {
             Self::Bridge => "Bridge",
             Self::TopSurface => "Top surface",
             Self::BottomSurface => "Bottom surface",
+            Self::GapFill => "Gap infill",
             Self::Support => "Support material",
             Self::Skirt => "Skirt",
         }
@@ -65,6 +69,7 @@ impl ExtrusionRole {
             | Self::Bridge
             | Self::TopSurface
             | Self::BottomSurface => 0.4,
+            Self::GapFill => 0.4,
             Self::Support => 0.4,
             Self::Skirt => 0.4,
         }
@@ -89,6 +94,14 @@ pub struct SliceLayer {
     /// use the role's default width ([`ExtrusionRole::default_width_mm`]).
     /// This is set by the Arachne variable-width perimeter generator.
     pub path_widths: Vec<Option<f64>>,
+    /// Per-path **per-vertex** extrusion width overrides in mm.
+    ///
+    /// `path_vertex_widths[i]`, when `Some`, holds one width per vertex of
+    /// `paths[i]` (same length and order); the width of the segment between two
+    /// vertices is the mean of its endpoints.  `None` (or a short vector) falls
+    /// back to the scalar [`SliceLayer::path_widths`] entry.  Set by the Arachne
+    /// medial gap-fill beads so their width tapers along the bead.
+    pub path_vertex_widths: Vec<Option<Vec<f64>>>,
     /// The union of top and bottom solid-surface regions on this layer.
     ///
     /// Populated by [`generate_top_bottom_surfaces`] and used by
@@ -130,6 +143,7 @@ impl SliceLayer {
             paths: Paths::default(),
             path_roles: Vec::new(),
             path_widths: Vec::new(),
+            path_vertex_widths: Vec::new(),
             solid_regions: Paths::default(),
             unsupported_regions: Paths::default(),
             path_is_open: Vec::new(),
@@ -150,6 +164,14 @@ impl SliceLayer {
     /// role's default width via [`ExtrusionRole::default_width_mm`].
     pub fn width_for_path(&self, i: usize) -> Option<f64> {
         self.path_widths.get(i).copied().flatten()
+    }
+
+    /// Return the per-vertex widths for path index `i`, if any.
+    ///
+    /// `None` when unset or the index is out of range; callers then fall back
+    /// to [`SliceLayer::width_for_path`].
+    pub fn vertex_widths_for_path(&self, i: usize) -> Option<Vec<f64>> {
+        self.path_vertex_widths.get(i).cloned().flatten()
     }
 
     /// Returns `true` when path index `i` is an open arc (a sub-segment

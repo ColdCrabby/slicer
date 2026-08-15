@@ -24,17 +24,25 @@ The mature slicers (PrusaSlicer, OrcaSlicer, Bambu Studio, CuraEngine) all ship
   trapezoidation (Kuipers et al. 2020). Beads taper continuously along their
   length with graded bead-count transitions.
 
-This module mirrors that choice. **Classic is implemented and is the default.**
-**Arachne is a stub that panics** — it is reserved for the real
-skeletal-trapezoidation generator (see the non-goals below).
+This module mirrors that choice, with the Arachne side delivered in two stages:
+
+- **`Classic`** — implemented and the **default**.
+- **`Arachne`** — medial-axis **offset loops** (constant-`d` perimeters whose
+  count adapts locally) plus **variable-width medial gap fill** of the residual.
+- **`ArachneWalk`** — opt-in **skeletal-trapezoidation walk**: every bead gets a
+  *per-vertex* width from the **local** wall thickness, so uneven / tapering
+  walls are correctly sized at each point. Thin islands are walked; thick ones
+  fall back to `Arachne`'s offset loops. See [arachne/walk.rs](arachne/walk.rs).
 
 ```mermaid
 flowchart LR
   P[SlicingParams.wall_generator] --> D{generate_walls}
   D -->|Classic| C[classic.rs]
-  D -->|Arachne| A[arachne.rs — unimplemented!]
-  C --> B[Vec&lt;Bead&gt;]
-  A -.panics.-> X((abort))
+  D -->|Arachne| A[arachne offset loops<br/>+ medial gap fill]
+  D -->|ArachneWalk| W[arachne walk<br/>per-vertex widths]
+  C --> B[beads]
+  A --> B
+  W --> B
 ```
 
 ---
@@ -49,8 +57,9 @@ flowchart LR
 | [`Bead`](types.rs)               | One emitted bead: closed centerline `Path` + extrusion `width_mm` + `is_outer` flag.                                               |
 | [`WallTimings`](types.rs)        | CPU-time breakdown (collapse search vs. bead shrinks).                                                                             |
 
-Selecting the generator: set `wall_generator = "classic"` (default) or
-`"arachne"` in the settings / config JSON, or via the schema-driven UI dropdown.
+Selecting the generator: set `wall_generator = "classic"` (default), `"arachne"`,
+or `"arachne_walk"` in the settings / config, or via the schema-driven UI
+dropdown.
 
 ---
 

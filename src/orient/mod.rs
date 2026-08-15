@@ -28,10 +28,9 @@
 //!    for the winner, then optionally compose with a preferred Z-rotation.
 
 mod candidates;
-pub mod pack;
 mod geometry;
+pub mod pack;
 mod types;
-
 
 pub use types::{ArrangeOptions, AutoOrientOptions};
 
@@ -187,22 +186,28 @@ mod tests {
     /// 10 × 10 × 10 mm axis-aligned cube with outward-facing normals.
     fn cube_mesh() -> Mesh {
         let v = [
-            Vertex::new(0.0, 0.0, 0.0),   // 0 bottom corners
-            Vertex::new(10.0, 0.0, 0.0),  // 1
-            Vertex::new(10.0, 10.0, 0.0), // 2
-            Vertex::new(0.0, 10.0, 0.0),  // 3
-            Vertex::new(0.0, 0.0, 10.0),  // 4 top corners
-            Vertex::new(10.0, 0.0, 10.0), // 5
-            Vertex::new(10.0, 10.0, 10.0),// 6
-            Vertex::new(0.0, 10.0, 10.0), // 7
+            Vertex::new(0.0, 0.0, 0.0),    // 0 bottom corners
+            Vertex::new(10.0, 0.0, 0.0),   // 1
+            Vertex::new(10.0, 10.0, 0.0),  // 2
+            Vertex::new(0.0, 10.0, 0.0),   // 3
+            Vertex::new(0.0, 0.0, 10.0),   // 4 top corners
+            Vertex::new(10.0, 0.0, 10.0),  // 5
+            Vertex::new(10.0, 10.0, 10.0), // 6
+            Vertex::new(0.0, 10.0, 10.0),  // 7
         ];
         let idx: [[usize; 3]; 12] = [
-            [0, 2, 1], [0, 3, 2], // bottom −Z
-            [4, 5, 6], [4, 6, 7], // top +Z
-            [0, 1, 5], [0, 5, 4], // front −Y
-            [2, 3, 7], [2, 7, 6], // back +Y
-            [0, 4, 7], [0, 7, 3], // left −X
-            [1, 2, 6], [1, 6, 5], // right +X
+            [0, 2, 1],
+            [0, 3, 2], // bottom −Z
+            [4, 5, 6],
+            [4, 6, 7], // top +Z
+            [0, 1, 5],
+            [0, 5, 4], // front −Y
+            [2, 3, 7],
+            [2, 7, 6], // back +Y
+            [0, 4, 7],
+            [0, 7, 3], // left −X
+            [1, 2, 6],
+            [1, 6, 5], // right +X
         ];
         Mesh {
             vertices: v.to_vec(),
@@ -227,12 +232,18 @@ mod tests {
             Vertex::new(0.0, 5.0, 50.0), // 7
         ];
         let idx: [[usize; 3]; 12] = [
-            [0, 2, 1], [0, 3, 2], // bottom
-            [4, 5, 6], [4, 6, 7], // top
-            [0, 1, 5], [0, 5, 4], // front
-            [2, 3, 7], [2, 7, 6], // back
-            [0, 4, 7], [0, 7, 3], // left
-            [1, 2, 6], [1, 6, 5], // right
+            [0, 2, 1],
+            [0, 3, 2], // bottom
+            [4, 5, 6],
+            [4, 6, 7], // top
+            [0, 1, 5],
+            [0, 5, 4], // front
+            [2, 3, 7],
+            [2, 7, 6], // back
+            [0, 4, 7],
+            [0, 7, 3], // left
+            [1, 2, 6],
+            [1, 6, 5], // right
         ];
         Mesh {
             vertices: v.to_vec(),
@@ -406,8 +417,7 @@ mod tests {
         let q_no = auto_orient(&mesh, &opts_no_rot);
         let q_z45 = auto_orient(&mesh, &opts_z45);
         // The two results should differ (the Z rotation changes the quaternion).
-        let dot = (q_no.x * q_z45.x + q_no.y * q_z45.y + q_no.z * q_z45.z + q_no.w * q_z45.w)
-            .abs();
+        let dot = (q_no.x * q_z45.x + q_no.y * q_z45.y + q_no.z * q_z45.z + q_no.w * q_z45.w).abs();
         assert!(
             dot < 0.999,
             "preferred_z_rotation should change the quaternion (dot={dot})"

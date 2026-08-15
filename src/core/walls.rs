@@ -166,6 +166,8 @@ fn remove_inner_walls_for_islands(layer: &mut SliceLayer, strip_outer_indices: &
     let mut new_paths = Paths::new(vec![]);
     let mut new_roles = Vec::new();
     let mut new_widths = Vec::new();
+    let mut new_vwidths = Vec::new();
+    let mut new_is_open = Vec::new();
 
     for (i, path) in layer.paths.iter().enumerate() {
         let role = layer.role_for_path(i);
@@ -175,12 +177,16 @@ fn remove_inner_walls_for_islands(layer: &mut SliceLayer, strip_outer_indices: &
             new_paths.push(path.clone());
             new_roles.push(role);
             new_widths.push(layer.width_for_path(i));
+            new_vwidths.push(layer.vertex_widths_for_path(i));
+            new_is_open.push(layer.is_path_open(i));
         }
     }
 
     layer.paths = new_paths;
     layer.path_roles = new_roles;
     layer.path_widths = new_widths;
+    layer.path_vertex_widths = new_vwidths;
+    layer.path_is_open = new_is_open;
 }
 
 /// Remove all inner walls from a layer, keeping outer walls and other paths.
@@ -188,6 +194,8 @@ fn remove_inner_walls_from_layer(layer: &mut SliceLayer) {
     let mut new_paths = Paths::new(vec![]);
     let mut new_roles = Vec::new();
     let mut new_widths = Vec::new();
+    let mut new_vwidths = Vec::new();
+    let mut new_is_open = Vec::new();
 
     for (i, path) in layer.paths.iter().enumerate() {
         let role = layer.role_for_path(i);
@@ -195,12 +203,16 @@ fn remove_inner_walls_from_layer(layer: &mut SliceLayer) {
             new_paths.push(path.clone());
             new_roles.push(role);
             new_widths.push(layer.width_for_path(i));
+            new_vwidths.push(layer.vertex_widths_for_path(i));
+            new_is_open.push(layer.is_path_open(i));
         }
     }
 
     layer.paths = new_paths;
     layer.path_roles = new_roles;
     layer.path_widths = new_widths;
+    layer.path_vertex_widths = new_vwidths;
+    layer.path_is_open = new_is_open;
 }
 
 /// Classify wall paths whose centerline crosses unsupported air as
@@ -265,6 +277,7 @@ pub(crate) fn classify_overhang_perimeters(layers: &mut [SliceLayer], _nozzle_di
     // parallel on native targets, then apply them serially.  On the Benchy
     // this drops the phase from ~430 ms to a few tens of ms on a multi-core
     // host.
+    #[allow(clippy::type_complexity)]
     let process_layer =
         |layer: &SliceLayer| -> Option<(Paths, Vec<ExtrusionRole>, Vec<Option<f64>>, Vec<bool>)> {
             if layer.unsupported_regions.is_empty() {
@@ -495,12 +508,14 @@ pub(crate) fn classify_overhang_perimeters(layers: &mut [SliceLayer], _nozzle_di
     #[cfg(target_arch = "wasm32")]
     let results: Vec<Option<_>> = layers.iter().map(process_layer).collect();
 
-    for (layer, result) in layers.iter_mut().zip(results.into_iter()) {
+    for (layer, result) in layers.iter_mut().zip(results) {
         if let Some((new_paths, new_roles, new_widths, new_is_open)) = result {
             layer.paths = new_paths;
             layer.path_roles = new_roles;
             layer.path_widths = new_widths;
             layer.path_is_open = new_is_open;
+            // Overhang-split arcs drop per-vertex widths; scalar width is used.
+            layer.path_vertex_widths = Vec::new();
         }
     }
 }
@@ -730,16 +745,12 @@ fn collapse_short_runs(
 
         // Flip the victim run's edges to the opposite status.
         let new_status = !runs[v].2;
-        for k in runs[v].0..runs[v].1 {
-            edge_air[k] = new_status;
-        }
+        edge_air[runs[v].0..runs[v].1].fill(new_status);
         // If we merged the cyclic pair into one logical run, flip *both* halves.
         if let Some((a, b, _)) = cyclic_pair {
             if v == a || v == b {
                 let other = if v == a { b } else { a };
-                for k in runs[other].0..runs[other].1 {
-                    edge_air[k] = new_status;
-                }
+                edge_air[runs[other].0..runs[other].1].fill(new_status);
             }
         }
     }
