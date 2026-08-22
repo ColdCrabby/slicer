@@ -16,6 +16,19 @@ use crate::settings::params::{LifecycleMarkerConfig, SlicingParams};
 /// WIDTH comments for floating-point rounding differences between beads.
 const WIDTH_EPSILON: f64 = 1e-6;
 
+/// Per-vertex width deviation (mm) below which a vertex may be dropped by the
+/// width-aware path simplification.  Keeps the taper of variable-width beads
+/// (Arachne walk, gap fill, overlap compensation) while still collapsing their
+/// long constant-width runs, so they no longer emit at full Voronoi/Clipper
+/// resolution.
+const WIDTH_SIMPLIFY_TOL_MM: f64 = 0.02;
+
+/// Width step (mm) at which a variable-width bead re-emits a `;WIDTH:` marker
+/// mid-path, so viewers/post-processors render the actual (flow-compensated)
+/// bead width rather than the nominal scalar.  Coarse enough (0.05 mm) to keep
+/// the marker count \u2014 and G-code size \u2014 bounded, fine enough to show the taper.
+const WIDTH_MARKER_STEP_MM: f64 = 0.05;
+
 /// Estimate the print time for a layer in seconds.
 ///
 /// Sums the total XY move distance for all paths in the layer and divides by
@@ -287,6 +300,20 @@ impl GcodeGenerator {
                     fallback
                 }
             }
+            ExtrusionRole::GapFill => {
+                // Gap fill is a wall-family feature: fall back to perimeter
+                // speed, then print speed.
+                let s = if params.gap_fill_speed > 0.0 {
+                    params.gap_fill_speed
+                } else {
+                    params.perimeter_speed
+                };
+                if s > 0.0 {
+                    s * 60.0
+                } else {
+                    fallback
+                }
+            }
             _ => fallback,
         }
     }
@@ -381,6 +408,12 @@ impl GcodeGenerator {
                 out.push_str(&render_marker(height_marker, &z_str, &height_str, "", ""));
                 out.push('\n');
 
+                // Per-layer print-time estimate for the viewer's "Layer Time" mode.
+                out.push_str(&format!(
+                    ";LAYER_TIME:{:.1}\n",
+                    estimate_layer_time(layer, params.print_speed)
+                ));
+
                 let before_lc = self
                     .marker_config
                     .before_layer_change
@@ -468,19 +501,43 @@ impl GcodeGenerator {
                 let width_mm = layer
                     .width_for_path(path_idx)
                     .unwrap_or_else(|| role.default_width_mm());
+                // Per-vertex widths (variable-width beads) taper the flow along
+                // the path; `None` keeps the constant `width_mm`.
+                let raw_vertex_widths = layer.vertex_widths_for_path(path_idx);
 
                 // Resolve per-role print speed.
                 let speed_mm_min = Self::effective_speed_mm_min(role, is_first_layer, params);
 
-                // Apply Ramer-Douglas-Peucker simplification when a tolerance is set.
-                // `douglas_peucker` always preserves the first and last point, so a
-                // path with >= 2 raw points will always yield >= 2 simplified points.
-                let points: Vec<(f64, f64)> = if params.path_tolerance > 0.0 && raw_points.len() > 2
-                {
-                    crate::gcode::simplify::douglas_peucker(&raw_points, params.path_tolerance)
-                } else {
-                    raw_points
-                };
+                // Apply Ramer-Douglas-Peucker simplification when a tolerance is
+                // set.  Constant-width paths use the plain pass; variable-width
+                // beads use the width-aware pass so `points` and their widths stay
+                // aligned (and long constant-width runs still collapse), instead
+                // of being emitted at full resolution.
+                let (points, vertex_widths): (Vec<(f64, f64)>, Option<Vec<f64>>) =
+                    match raw_vertex_widths {
+                        Some(vw)
+                            if params.path_tolerance > 0.0
+                                && raw_points.len() > 2
+                                && vw.len() == raw_points.len() =>
+                        {
+                            let (p, w) = crate::gcode::simplify::douglas_peucker_with_widths(
+                                &raw_points,
+                                &vw,
+                                params.path_tolerance,
+                                WIDTH_SIMPLIFY_TOL_MM,
+                            );
+                            (p, Some(w))
+                        }
+                        Some(vw) => (raw_points, Some(vw)),
+                        None if params.path_tolerance > 0.0 && raw_points.len() > 2 => (
+                            crate::gcode::simplify::douglas_peucker(
+                                &raw_points,
+                                params.path_tolerance,
+                            ),
+                            None,
+                        ),
+                        None => (raw_points, None),
+                    };
 
                 // Guard against future algorithm changes that might produce degenerate paths.
                 debug_assert!(
@@ -491,14 +548,23 @@ impl GcodeGenerator {
                 // Emit ;TYPE: / ;WIDTH: annotation when the role OR extrusion
                 // width changes.  This ensures slicers / post-processors always
                 // see an up-to-date WIDTH comment before each wall bead.
+                //
+                // For variable-width beads the header advertises the *first*
+                // segment's width (not the scalar mean), and the per-segment
+                // loop below re-emits `;WIDTH:` as the width steps — so a viewer
+                // renders the real, flow-compensated bead profile.
+                let header_width = match &vertex_widths {
+                    Some(vw) if vw.len() >= 2 => 0.5 * (vw[0] + vw[1]),
+                    _ => width_mm,
+                };
                 if self.marker_config.enabled {
                     let role_changed = last_role != Some(role);
                     let width_changed =
-                        last_width.is_none_or(|w| (w - width_mm).abs() > WIDTH_EPSILON);
+                        last_width.is_none_or(|w| (w - header_width).abs() > WIDTH_EPSILON);
 
                     if role_changed || width_changed {
                         let type_name = role.type_name();
-                        let width_str = format!("{:.2}", width_mm);
+                        let width_str = format!("{:.2}", header_width);
 
                         let type_ann = self
                             .marker_config
@@ -529,7 +595,7 @@ impl GcodeGenerator {
                         out.push('\n');
 
                         last_role = Some(role);
-                        last_width = Some(width_mm);
+                        last_width = Some(header_width);
                     }
                 }
 
@@ -754,8 +820,29 @@ impl GcodeGenerator {
                     last_pos = Some((start_x, start_y));
                 } else {
                     // Normal printing (no coasting)
+                    // Per-segment width: variable-width beads taper between
+                    // vertices; constant-width paths fall back to `width_mm`.
+                    let seg_width = |j: usize| -> f64 {
+                        match &vertex_widths {
+                            Some(vw) if j + 1 < vw.len() => 0.5 * (vw[j] + vw[j + 1]),
+                            _ => width_mm,
+                        }
+                    };
+                    // Volumetric-flow cap for variable-width beads: a bead wider
+                    // than the nozzle would over-run the hotend melt rate at the
+                    // nominal feedrate and under-extrude, so it never squeezes
+                    // into the gap.  Slow it in proportion to width so mm³/s
+                    // holds at the nozzle-width rate — "extrude more, move slower".
+                    let nozzle = params.nozzle_diameter_mm;
+                    let seg_speed = |sw: f64| -> f64 {
+                        if vertex_widths.is_some() && nozzle > 0.0 && sw > nozzle {
+                            speed_mm_min * (nozzle / sw)
+                        } else {
+                            speed_mm_min
+                        }
+                    };
                     let mut prev = points[0];
-                    for &(x, y) in points.iter().skip(1) {
+                    for (i, &(x, y)) in points.iter().enumerate().skip(1) {
                         let dx = x - prev.0;
                         let dy = y - prev.1;
                         let len = (dx * dx + dy * dy).sqrt();
@@ -763,15 +850,39 @@ impl GcodeGenerator {
                             prev = (x, y);
                             continue;
                         }
+                        let sw = seg_width(i - 1);
+                        // Variable-width beads: re-emit ;WIDTH: as the width
+                        // steps so the viewer renders the compensated (thinner)
+                        // bead where walls overlap, not the nominal width.
+                        if self.marker_config.enabled
+                            && vertex_widths.is_some()
+                            && last_width.is_none_or(|w| (w - sw).abs() > WIDTH_MARKER_STEP_MM)
+                        {
+                            let width_str = format!("{:.2}", sw);
+                            let width_ann = self
+                                .marker_config
+                                .width_annotation
+                                .as_deref()
+                                .unwrap_or(";WIDTH:{width}mm");
+                            out.push_str(&render_marker(
+                                width_ann,
+                                &z_str,
+                                &height_str,
+                                role.type_name(),
+                                &width_str,
+                            ));
+                            out.push('\n');
+                            last_width = Some(sw);
+                        }
                         e_total += extrusion_for_move(
                             len,
                             params.layer_height,
-                            width_mm,
+                            sw,
                             params.filament_diameter_mm,
                         );
                         out.push_str(&format!(
                             "{}\n",
-                            self.dialect.move_extrude(x, y, e_total, speed_mm_min)
+                            self.dialect.move_extrude(x, y, e_total, seg_speed(sw))
                         ));
                         prev = (x, y);
                     }
@@ -1208,6 +1319,17 @@ mod tests {
     }
 
     #[test]
+    fn test_layer_time_marker_emitted() {
+        let layer = SliceLayer::new(0.2);
+        let gcode =
+            GcodeGenerator::new(GcodeFlavor::Marlin).generate(&[layer], &SlicingParams::default());
+        assert!(
+            gcode.contains(";LAYER_TIME:"),
+            ";LAYER_TIME: marker must be present for the viewer's Layer Time mode"
+        );
+    }
+
+    #[test]
     fn test_lifecycle_markers_disabled_emits_legacy_comment() {
         let layer = SliceLayer::new(0.2);
         let gcode = GcodeGenerator::new(GcodeFlavor::Marlin)
@@ -1240,6 +1362,62 @@ mod tests {
         assert!(
             gcode.contains(";WIDTH:0.40mm"),
             ";WIDTH: annotation must be present"
+        );
+    }
+
+    #[test]
+    fn per_vertex_widths_taper_extrusion_flow() {
+        use clipper2::Path;
+        // An open bead with an asymmetric width taper: the second segment is
+        // 0.6 mm wide vs 0.4 mm for the first, so it must extrude 1.5x the
+        // filament of the first over the same 5 mm length.
+        let mut layer = SliceLayer::new(0.2);
+        let bead: Path = vec![(0.0, 0.0), (5.0, 0.0), (10.0, 0.0)].into();
+        layer.paths.push(bead);
+        layer.path_roles.push(crate::core::ExtrusionRole::InnerWall);
+        layer.path_widths.push(Some(0.5));
+        layer.path_vertex_widths.push(Some(vec![0.4, 0.4, 0.8]));
+        layer.path_is_open.push(true);
+
+        let gcode =
+            GcodeGenerator::new(GcodeFlavor::Marlin).generate(&[layer], &SlicingParams::default());
+
+        let e: Vec<f64> = gcode
+            .lines()
+            .filter(|l| l.starts_with("G1") && l.contains('X') && l.contains('E'))
+            .filter_map(|l| {
+                l.split_whitespace()
+                    .find_map(|t| t.strip_prefix('E').and_then(|v| v.parse::<f64>().ok()))
+            })
+            .collect();
+        assert_eq!(e.len(), 2, "expected two extrude moves, got {e:?}");
+        let d0 = e[0];
+        let d1 = e[1] - e[0];
+        assert!(d0 > 0.0 && d1 > 0.0, "both segments must extrude");
+        let ratio = d1 / d0;
+        assert!(
+            (ratio - 1.5).abs() < 1e-3,
+            "tapered segment should extrude 1.5x the first (got {ratio:.4})"
+        );
+    }
+
+    #[test]
+    fn gap_fill_role_emits_orca_type_label() {
+        use clipper2::Path;
+        // A GapFill path must annotate as OrcaSlicer's `;TYPE:Gap infill` so
+        // previews and post-processors classify it correctly.
+        let mut layer = SliceLayer::new(0.2);
+        let bead: Path = vec![(0.0, 0.0), (5.0, 0.0)].into();
+        layer.paths.push(bead);
+        layer.path_roles.push(crate::core::ExtrusionRole::GapFill);
+        layer.path_widths.push(Some(0.45));
+        layer.path_is_open.push(true);
+
+        let gcode =
+            GcodeGenerator::new(GcodeFlavor::Marlin).generate(&[layer], &SlicingParams::default());
+        assert!(
+            gcode.contains(";TYPE:Gap infill"),
+            "gap fill must emit the OrcaSlicer ;TYPE:Gap infill label:\n{gcode}"
         );
     }
 
@@ -1421,7 +1599,7 @@ mod tests {
             "missing print_speed"
         );
         assert!(
-            gcode.contains("; wall_count: 3 walls (classic generator)"),
+            gcode.contains("; wall_count: 3 walls (arachne generator)"),
             "missing wall_count"
         );
         assert!(

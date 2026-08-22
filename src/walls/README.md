@@ -24,17 +24,28 @@ The mature slicers (PrusaSlicer, OrcaSlicer, Bambu Studio, CuraEngine) all ship
   trapezoidation (Kuipers et al. 2020). Beads taper continuously along their
   length with graded bead-count transitions.
 
-This module mirrors that choice. **Classic is implemented and is the default.**
-**Arachne is a stub that panics** — it is reserved for the real
-skeletal-trapezoidation generator (see the non-goals below).
+This module ships both, selected per slice:
+
+- **`Arachne`** — the **default**. Medial-axis **offset loops** (constant-`d`
+  perimeters whose count adapts locally) plus **variable-width medial gap fill**
+  of the residual. Each **inner** loop is offset from the *morphologically
+  opened* remaining region (`open(region, d)`), so a loop can never trace a
+  sub-`2d` neck on top of itself — the coincident-bead seam that reads as
+  over-extrusion. Those necks fall through to the variable-width medial gap fill
+  instead. Overlap is resolved by geometry, not by post-hoc flow compensation
+  (`wall_overlap_compensation` is **off by default**; see
+  [flow](../flow/mod.rs)).
+- **`Classic`** — fixed-width concentric perimeters plus a thin-wall gap fill.
+  Deterministic, fast, dependency-free. Descends from Slic3r's
+  `PerimeterGenerator` + `MedialAxis`.
 
 ```mermaid
 flowchart LR
   P[SlicingParams.wall_generator] --> D{generate_walls}
+  D -->|Arachne| A[arachne offset loops<br/>+ medial gap fill]
   D -->|Classic| C[classic.rs]
-  D -->|Arachne| A[arachne.rs — unimplemented!]
-  C --> B[Vec&lt;Bead&gt;]
-  A -.panics.-> X((abort))
+  A --> B[beads]
+  C --> B
 ```
 
 ---
@@ -49,8 +60,8 @@ flowchart LR
 | [`Bead`](types.rs)               | One emitted bead: closed centerline `Path` + extrusion `width_mm` + `is_outer` flag.                                               |
 | [`WallTimings`](types.rs)        | CPU-time breakdown (collapse search vs. bead shrinks).                                                                             |
 
-Selecting the generator: set `wall_generator = "classic"` (default) or
-`"arachne"` in the settings / config JSON, or via the schema-driven UI dropdown.
+Selecting the generator: set `wall_generator = "arachne"` (default) or
+`"classic"` in the settings / config, or via the schema-driven UI dropdown.
 
 ---
 
@@ -150,11 +161,14 @@ input path CCW.
 
 ## Non-goals (deliberately not done here)
 
-- **Arachne is not implemented.** [`arachne.rs`](arachne.rs) panics. The real
-  generator needs a segment-Voronoi medial axis, continuous per-length width,
-  and graded bead-count transitions — a separate, larger effort. The
+- **No continuously variable-width _outer_ walls.** Arachne varies the wall
+  *count* locally and fills the thin residual with a variable-width medial bead,
+  but the main perimeter loops themselves stay constant width `d`. A
+  skeletal-trapezoidation *walk* that gives every bead a per-vertex width was
+  prototyped (`ArachneWalk`) and removed: it fragmented walls into open runs that
+  broke overhang / speed / flow classification for marginal benefit. The
   `wall_transition_threshold` / `wall_transition_length` params exist for it but
-  are not yet consumed.
+  are not consumed.
 - **No medial-axis gap fill in Classic.** The thin-wall residual is a single
   offset bead, not a true medial-axis fill (that also needs a Voronoi).
 - **No parallel placement path outside this module.** Walls are generated only

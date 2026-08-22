@@ -124,39 +124,103 @@ fn generate_arachne_walls_for_layer(layer: &mut SliceLayer, params: &WallParams)
     let mut new_paths = Paths::new(vec![]);
     let mut new_roles: Vec<ExtrusionRole> = Vec::new();
     let mut new_widths: Vec<Option<f64>> = Vec::new();
+    let mut new_vwidths: Vec<Option<Vec<f64>>> = Vec::new();
     let mut new_open: Vec<bool> = Vec::new();
 
-    // ── Concentric loops ─────────────────────────────────────────────────────
-    // Emit perimeter loops exactly like the classic generator (same offsets,
-    // sharp corners preserved), collecting each centerline so we can compute
-    // what the loops actually cover.
-    let mut loop_centerlines: Vec<Path> = Vec::new();
-    let mut last = normalised.clone();
-    for _k in 0..params.wall_count {
-        let inset = simplify(
-            inflate(
-                last.clone(),
-                -0.5 * d,
-                JoinType::Round,
-                EndType::Polygon,
-                2.0,
-            ),
+    // Offset loops + residual medial gap-fill, evaluated per island so a thick
+    // infill core on one island cannot suppress a thin gap on another.  The
+    // shared helper opens each inner ring's source region so a loop never traces
+    // a sub-2·d neck on top of itself; those necks fall through to medial fill.
+    for island in split_islands(&normalised) {
+        let loops = emit_offset_loops(
+            &island,
+            params,
             tol,
-            false,
+            &mut new_paths,
+            &mut new_roles,
+            &mut new_widths,
+            &mut new_vwidths,
+            &mut new_open,
         );
-        if inset.is_empty() {
-            break;
-        }
-        let k = loop_centerlines.is_empty();
+        emit_residual_medial_fill(
+            &island,
+            &loops,
+            params,
+            &mut new_paths,
+            &mut new_roles,
+            &mut new_widths,
+            &mut new_vwidths,
+            &mut new_open,
+        );
+    }
+
+    // ── Non-perimeter paths, unchanged and in order ──────────────────────────
+    for (path, role, width, open) in non_perimeter {
+        new_paths.push(path);
+        new_roles.push(role);
+        new_widths.push(width);
+        new_vwidths.push(None);
+        new_open.push(open);
+    }
+
+    layer.paths = new_paths;
+    layer.path_roles = new_roles;
+    layer.path_widths = new_widths;
+    layer.path_vertex_widths = new_vwidths;
+    layer.path_is_open = new_open;
+}
+
+/// Emit up to `wall_count` concentric constant-width (`d`) perimeter loops for
+/// one island (holes included), returning each loop centerline so the caller can
+/// derive the residual the loops leave behind.  The first ring is tagged
+/// [`ExtrusionRole::OuterWall`]; deeper rings are [`ExtrusionRole::InnerWall`].
+#[allow(clippy::too_many_arguments)]
+fn emit_offset_loops(
+    island: &Paths,
+    params: &WallParams,
+    tol: f64,
+    paths: &mut Paths,
+    roles: &mut Vec<ExtrusionRole>,
+    widths: &mut Vec<Option<f64>>,
+    vwidths: &mut Vec<Option<Vec<f64>>>,
+    open: &mut Vec<bool>,
+) -> Vec<Path> {
+    let d = params.nozzle_diameter_mm;
+    let mut loop_centerlines: Vec<Path> = Vec::new();
+    let mut last = island.clone();
+    for k in 0..params.wall_count {
+        let is_outer = k == 0;
+        // Inner loops are offset from the *opened* remaining region.  A full loop
+        // in a neck thinner than 2·d would trace both surfaces on top of itself —
+        // the coincident inner beads that render as an over-extruded seam.
+        // Opening drops that neck so the loop closes cleanly around it, leaving
+        // the neck to the variable-width medial fill: the single-bead-in-a-thin-
+        // feature behaviour of a proper Arachne pass.  The outer ring is never
+        // opened so the perimeter keeps tracing the model surface exactly.
+        let base = if is_outer {
+            last.clone()
+        } else {
+            morph_open(&last, d, tol)
+        };
+        let inset = if base.is_empty() {
+            Paths::new(vec![])
+        } else {
+            simplify(
+                inflate(base, -0.5 * d, JoinType::Round, EndType::Polygon, 2.0),
+                tol,
+                false,
+            )
+        };
         for p in inset.iter() {
-            new_paths.push(p.clone());
-            new_roles.push(if k {
+            paths.push(p.clone());
+            roles.push(if is_outer {
                 ExtrusionRole::OuterWall
             } else {
                 ExtrusionRole::InnerWall
             });
-            new_widths.push(Some(d));
-            new_open.push(false);
+            widths.push(Some(d));
+            vwidths.push(None);
+            open.push(false);
             loop_centerlines.push(p.clone());
         }
         last = simplify(
@@ -168,17 +232,48 @@ fn generate_arachne_walls_for_layer(layer: &mut SliceLayer, params: &WallParams)
             break;
         }
     }
+    loop_centerlines
+}
 
-    // ── Residual medial fill from actual loop coverage ───────────────────────
-    // The material a loop lays down is a `d`-wide band about its centerline.
-    // Whatever the union of those bands does NOT cover is the true residual —
-    // an enclosed thin gap between the innermost walls (e.g. the centre of the
-    // Benchy cargo-box wall).  Deriving it from coverage (rather than the eroded
-    // `last`) avoids the dead zone where the onion-peel emits degenerate sliver
-    // loops into a thin band instead of leaving it to be filled.  Evaluated per
-    // island so a thick infill core cannot suppress a thin gap elsewhere.
+/// Morphological opening by radius `r`: erode then dilate, dropping features
+/// narrower than `2·r` while leaving thicker regions (their convex corners
+/// rounded by `r`) intact.  Used to keep an inner offset loop out of the necks
+/// where it would otherwise trace both surfaces on top of itself.
+fn morph_open(paths: &Paths, r: f64, tol: f64) -> Paths {
+    let eroded = inflate(paths.clone(), -r, JoinType::Round, EndType::Polygon, 2.0);
+    if eroded.is_empty() {
+        return Paths::new(vec![]);
+    }
+    simplify(
+        inflate(eroded, r, JoinType::Round, EndType::Polygon, 2.0),
+        tol,
+        false,
+    )
+}
+
+/// Fill the residual an island's offset `loops` leave uncovered with medial
+/// gap-fill beads.
+///
+/// The material a loop deposits is a `d`-wide band about its centerline; the
+/// union of those bands is the covered area, and the island's material minus
+/// that union is the true thin residual (an enclosed gap between the innermost
+/// walls).  Deriving coverage from the centerlines — rather than the eroded
+/// offset polygon — avoids the dead zone where the onion-peel emits degenerate
+/// sliver loops into a thin band instead of leaving it to be filled.
+#[allow(clippy::too_many_arguments)]
+fn emit_residual_medial_fill(
+    island: &Paths,
+    loops: &[Path],
+    params: &WallParams,
+    paths: &mut Paths,
+    roles: &mut Vec<ExtrusionRole>,
+    widths: &mut Vec<Option<f64>>,
+    vwidths: &mut Vec<Option<Vec<f64>>>,
+    open: &mut Vec<bool>,
+) {
+    let d = params.nozzle_diameter_mm;
     let mut covered = Paths::new(vec![]);
-    for lp in &loop_centerlines {
+    for lp in loops {
         let band = inflate(
             Paths::new(vec![lp.clone()]),
             0.5 * d,
@@ -188,30 +283,10 @@ fn generate_arachne_walls_for_layer(layer: &mut SliceLayer, params: &WallParams)
         );
         covered = union(covered.clone(), band, FillRule::NonZero).unwrap_or(covered);
     }
-    let uncovered = difference(normalised, covered, FillRule::NonZero).unwrap_or_default();
-    for island in split_islands(&uncovered) {
-        medial_fill(
-            &island,
-            params,
-            &mut new_paths,
-            &mut new_roles,
-            &mut new_widths,
-            &mut new_open,
-        );
+    let uncovered = difference(island.clone(), covered, FillRule::NonZero).unwrap_or_default();
+    for sub in split_islands(&uncovered) {
+        medial_fill(&sub, params, paths, roles, widths, vwidths, open);
     }
-
-    // ── Non-perimeter paths, unchanged and in order ──────────────────────────
-    for (path, role, width, open) in non_perimeter {
-        new_paths.push(path);
-        new_roles.push(role);
-        new_widths.push(width);
-        new_open.push(open);
-    }
-
-    layer.paths = new_paths;
-    layer.path_roles = new_roles;
-    layer.path_widths = new_widths;
-    layer.path_is_open = new_open;
 }
 
 /// Build the Voronoi diagram, catching both the crate's `Err` results and its
@@ -260,6 +335,11 @@ fn polyline_len(pts: &[(f64, f64)]) -> f64 {
         .sum()
 }
 
+/// Spur-prune ratio for medial gap fill: drop a leaf medial edge whose boundary
+/// end collapses below this fraction of its interior neighbour's radius, so
+/// faceting spurs don't shatter a gap spine.
+const GAP_SPUR_PRUNE_RATIO: f64 = 0.6;
+
 /// Medial-fill a (thin) region: emit variable-width open beads along its medial
 /// axis wherever the local thickness (2·radius) is a printable `[min, max]`
 /// width.  Thicker sub-regions get no bead — they are left for infill — and
@@ -274,42 +354,47 @@ fn medial_fill(
     paths: &mut Paths,
     roles: &mut Vec<ExtrusionRole>,
     widths: &mut Vec<Option<f64>>,
+    vwidths: &mut Vec<Option<Vec<f64>>>,
     open: &mut Vec<bool>,
 ) {
     if region.is_empty() {
         return;
     }
-    // Fill only regions that are thin *everywhere* — a genuine thin feature or a
-    // narrow residual gap that a single bead can span.  A thicker region is
-    // infill (or needs another wall); medial-filling it would spray a spurious
-    // bead along every contour where the thickness lands in range, flooding the
-    // layer.  The single-bead ceiling is `gap_max` (2× nozzle): a 0.4 mm nozzle
-    // can lay a ~0.8 mm line, so a residual up to that is closed with one
-    // appropriately-sized bead rather than left as a void.  If eroding by half
-    // `gap_max` leaves anything, the region has a thick core → skip.
-    let gap_max = 2.5 * params.nozzle_diameter_mm;
-    let thick_core = inflate(
-        region.clone(),
-        -0.5 * gap_max,
-        JoinType::Round,
-        EndType::Polygon,
-        2.0,
-    );
-    if !thick_core.is_empty() {
-        return;
-    }
+    // Skeletonise the whole residual and let `emit_medial_beads` decide, per
+    // node, what is thin enough to fill: a bead is laid only where the local
+    // thickness is a printable width (`≤ gap_max`), so a thick infill cavity in
+    // the same island contributes no bead while a thin neck opening into it is
+    // still filled as ONE continuous run.  An earlier version split the thin
+    // shell off first (an erode/dilate difference); that shredded every gap into
+    // thousands of sub-millimetre stubs which then had to be dropped as noise —
+    // reopening the very gaps it was meant to close.  Skeletonising the residual
+    // whole keeps each gap a single continuous chain that a modest `min_len`
+    // cleanly separates from the short spurs a cavity boundary throws off.
     let Some((diagram, offset)) = build_voronoi_safe(region) else {
         return;
     };
-    let skel = build_skeleton(region, &diagram, offset);
+    // Prune the boundary spurs a segment Voronoi grows at every facet vertex, so
+    // a gap becomes one continuous degree-2 spine rather than a burst of stubs
+    // that `min_len` must either drop (reopening the gap) or emit (bead noise).
+    let skel = build_skeleton(region, &diagram, offset).prune_boundary_spurs(GAP_SPUR_PRUNE_RATIO);
     for chain in skel.chains() {
-        emit_medial_beads(&chain, &skel.nodes, params, paths, roles, widths, open);
+        emit_medial_beads(
+            &chain,
+            &skel.nodes,
+            params,
+            paths,
+            roles,
+            widths,
+            vwidths,
+            open,
+        );
     }
 }
 
 /// Walk one medial chain, emitting each maximal run of printable-thickness nodes
-/// as an open variable-width bead (per-run width = mean local thickness, clamped
-/// to `[min, max]`).
+/// as an open [`ExtrusionRole::GapFill`] bead whose **per-vertex** width is the
+/// local gap thickness (clamped to `[min, gap_max]`), so the bead tapers with
+/// the gap instead of carrying a single averaged width.
 #[allow(clippy::too_many_arguments)]
 fn emit_medial_beads(
     chain: &[usize],
@@ -318,16 +403,26 @@ fn emit_medial_beads(
     paths: &mut Paths,
     roles: &mut Vec<ExtrusionRole>,
     widths: &mut Vec<Option<f64>>,
+    vwidths: &mut Vec<Option<Vec<f64>>>,
     open: &mut Vec<bool>,
 ) {
     // A single bead may span up to 2.5× the nozzle diameter; the gap bead's
     // width is the actual local thickness so the residual is filled exactly.
-    // Runs shorter than `min_len` are dropped: a real gap (e.g. a box-wall ring)
-    // runs for millimetres, whereas the coverage `difference` leaves sub-mm
-    // slivers along faceted boundaries that would otherwise become bead noise.
+    // Runs shorter than `min_len` are dropped as faceting noise; the spur prune
+    // in `medial_fill` already collapsed most stubs, so `min_len` only trims the
+    // few that survive.  `0` selects an automatic floor of one nozzle diameter —
+    // low enough to still close the medium gaps a 2×-nozzle floor abandoned.
     let min_w = params.wall_line_width_min_mm;
+    // Fill residuals up to 2.5·d, but never lay a bead wider than the configured
+    // max line width — a single gap bead at 2.5·d over-extrudes far past what the
+    // user asked for (visible as blobs / dimensional bulge, especially layer 1).
+    let max_w = params.wall_line_width_max_mm;
     let gap_max = 2.5 * params.nozzle_diameter_mm;
-    let min_len = 2.0 * params.nozzle_diameter_mm;
+    let min_len = if params.gap_fill_min_length_mm > 0.0 {
+        params.gap_fill_min_length_mm
+    } else {
+        params.nozzle_diameter_mm
+    };
     let mut run: Vec<(f64, f64)> = Vec::new();
     let mut run_w: Vec<f64> = Vec::new();
 
@@ -336,13 +431,19 @@ fn emit_medial_beads(
                  paths: &mut Paths,
                  roles: &mut Vec<ExtrusionRole>,
                  widths: &mut Vec<Option<f64>>,
+                 vwidths: &mut Vec<Option<Vec<f64>>>,
                  open: &mut Vec<bool>| {
         if run.len() >= 2 && polyline_len(run) >= min_len {
-            let mean = run_w.iter().sum::<f64>() / run_w.len() as f64;
+            // Per-vertex width = local gap thickness, clamped to a printable
+            // width; the scalar width is the run mean for callers that ignore
+            // the per-vertex array.
+            let vw: Vec<f64> = run_w.iter().map(|t| t.clamp(min_w, max_w)).collect();
+            let mean = vw.iter().sum::<f64>() / vw.len() as f64;
             let path: Path = std::mem::take(run).into();
             paths.push(path);
-            roles.push(ExtrusionRole::InnerWall);
-            widths.push(Some(mean.clamp(min_w, gap_max)));
+            roles.push(ExtrusionRole::GapFill);
+            widths.push(Some(mean));
+            vwidths.push(Some(vw));
             open.push(true);
         }
         run.clear();
@@ -355,10 +456,10 @@ fn emit_medial_beads(
             run.push((nodes[i].x, nodes[i].y));
             run_w.push(t);
         } else {
-            flush(&mut run, &mut run_w, paths, roles, widths, open);
+            flush(&mut run, &mut run_w, paths, roles, widths, vwidths, open);
         }
     }
-    flush(&mut run, &mut run_w, paths, roles, widths, open);
+    flush(&mut run, &mut run_w, paths, roles, widths, vwidths, open);
 }
 
 #[cfg(test)]

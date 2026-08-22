@@ -128,6 +128,117 @@ fn max_perpendicular_distance(points: &[(f64, f64)]) -> (f64, usize) {
     (max_dist, max_idx)
 }
 
+/// Width-aware Ramer-Douglas-Peucker for variable-width beads.
+///
+/// Simplifies a polyline that carries a per-vertex extrusion width, keeping a
+/// vertex when **either** its geometry deviates from the chord by more than
+/// `tolerance` (mm) **or** its width deviates from the linear width interpolation
+/// between the kept endpoints by more than `width_tolerance` (mm).  This lets a
+/// straight run that merely *tapers* keep the vertices where the taper starts
+/// and ends, so per-vertex-width beads (Arachne walk, gap fill, overlap
+/// compensation) can be simplified instead of emitted at full Voronoi/Clipper
+/// resolution.
+///
+/// Returns aligned `(points, widths)`; endpoints are always kept.  Falls back to
+/// the unchanged input when lengths disagree, the polyline is trivial, or
+/// `tolerance <= 0`.
+pub fn douglas_peucker_with_widths(
+    points: &[(f64, f64)],
+    widths: &[f64],
+    tolerance: f64,
+    width_tolerance: f64,
+) -> (Vec<(f64, f64)>, Vec<f64>) {
+    let n = points.len();
+    if n < 3 || widths.len() != n || tolerance <= 0.0 {
+        return (points.to_vec(), widths.to_vec());
+    }
+    let mut keep = vec![false; n];
+    keep[0] = true;
+    keep[n - 1] = true;
+    rdp_widths(
+        points,
+        widths,
+        0,
+        n - 1,
+        tolerance,
+        width_tolerance.max(1e-6),
+        &mut keep,
+    );
+
+    let mut op = Vec::with_capacity(n);
+    let mut ow = Vec::with_capacity(n);
+    for i in 0..n {
+        if keep[i] {
+            op.push(points[i]);
+            ow.push(widths[i]);
+        }
+    }
+    (op, ow)
+}
+
+/// Recursive width-aware RDP over the index range `[a, b]`, flagging kept
+/// vertices.  Splits at the interior vertex whose combined (geometry vs. width)
+/// deviation, each normalised by its own tolerance, is greatest — provided it
+/// exceeds tolerance.
+fn rdp_widths(
+    points: &[(f64, f64)],
+    widths: &[f64],
+    a: usize,
+    b: usize,
+    tol: f64,
+    wtol: f64,
+    keep: &mut [bool],
+) {
+    if b <= a + 1 {
+        return;
+    }
+    let (xa, ya) = points[a];
+    let (xb, yb) = points[b];
+    let dx = xb - xa;
+    let dy = yb - ya;
+    let chord_len_sq = dx * dx + dy * dy;
+
+    // Arc-length parameter along [a, b] for width interpolation.
+    let mut cum = 0.0;
+    let mut prev = points[a];
+    let mut arc = vec![0.0; b - a + 1];
+    for k in (a + 1)..=b {
+        cum += ((points[k].0 - prev.0).powi(2) + (points[k].1 - prev.1).powi(2)).sqrt();
+        arc[k - a] = cum;
+        prev = points[k];
+    }
+    let total = cum;
+    let (wa, wb) = (widths[a], widths[b]);
+
+    let mut best_score = 1.0;
+    let mut best_idx = 0;
+    for i in (a + 1)..b {
+        let (px, py) = points[i];
+        let gdev = if chord_len_sq < 1e-12 {
+            ((px - xa).powi(2) + (py - ya).powi(2)).sqrt()
+        } else {
+            ((xa - px) * dy - (ya - py) * dx).abs() / chord_len_sq.sqrt()
+        };
+        let t = if total > 1e-12 {
+            arc[i - a] / total
+        } else {
+            0.0
+        };
+        let wdev = (widths[i] - (wa + (wb - wa) * t)).abs();
+        let score = (gdev / tol).max(wdev / wtol);
+        if score > best_score {
+            best_score = score;
+            best_idx = i;
+        }
+    }
+
+    if best_idx > 0 {
+        keep[best_idx] = true;
+        rdp_widths(points, widths, a, best_idx, tol, wtol, keep);
+        rdp_widths(points, widths, best_idx, b, tol, wtol, keep);
+    }
+}
+
 // ── Tests ──────────────────────────────────────────────────────────────────────
 
 #[cfg(test)]
@@ -149,6 +260,37 @@ mod tests {
     fn test_two_points_returned_unchanged() {
         let pts = vec![(0.0_f64, 0.0), (5.0, 5.0)];
         assert_eq!(douglas_peucker(&pts, 0.05), pts);
+    }
+
+    #[test]
+    fn width_aware_collapses_straight_constant_width_run() {
+        // Collinear, constant width → collapses to the two endpoints.
+        let pts = vec![
+            (0.0_f64, 0.0),
+            (1.0, 0.0),
+            (2.0, 0.0),
+            (3.0, 0.0),
+            (4.0, 0.0),
+        ];
+        let w = vec![0.4; 5];
+        let (sp, sw) = douglas_peucker_with_widths(&pts, &w, 0.01, 0.02);
+        assert_eq!(sp, vec![(0.0, 0.0), (4.0, 0.0)]);
+        assert_eq!(sw, vec![0.4, 0.4]);
+    }
+
+    #[test]
+    fn width_aware_keeps_taper_vertices_on_straight_run() {
+        // Geometrically straight, with a multi-vertex width dip (an overlap
+        // pocket): the dip must survive while the flat ends collapse.
+        let pts: Vec<(f64, f64)> = (0..9).map(|i| (i as f64, 0.0)).collect();
+        let w = vec![0.4, 0.4, 0.4, 0.30, 0.30, 0.30, 0.4, 0.4, 0.4];
+        let (sp, sw) = douglas_peucker_with_widths(&pts, &w, 0.01, 0.02);
+        assert_eq!(sp.len(), sw.len(), "points and widths stay aligned");
+        assert!(
+            sw.iter().any(|&x| (x - 0.30).abs() < 1e-9),
+            "the dip width must be preserved, got {sw:?}"
+        );
+        assert!(sp.len() < 9, "flat ends should collapse, got {sp:?}");
     }
 
     #[test]

@@ -15,12 +15,13 @@ import {
 } from '@angular/core';
 import { BufferAttribute, BufferGeometry, Matrix4, Mesh, MeshPhongMaterial } from 'three';
 import { AppTheme } from '../../services/app-theme';
-import { GcodePreview } from '../../services/gcode-preview';
+import { GcodePreview, ROLE_LABELS, scalarChannelFor } from '../../services/gcode-preview';
 import { ObjectTracker } from '../../services/object-tracker';
 import { PrintArea } from '../../services/print-area';
 import { SceneCommand } from '../../services/scene-command/scene-command';
 import { SceneEngine } from '../../services/scene-engine';
 import { ViewerControl } from '../../services/viewer-control';
+import { GcodeHoverProbe, type GcodeHoverHit } from './gcode-hover';
 import { GcodeOrchestrator } from './gcode-orchestrator';
 import type { GizmoDelta } from './gizmo';
 import { ViewerScene } from './scene';
@@ -91,8 +92,14 @@ export class Viewer {
   private readonly progressSegments = signal(0);
   private readonly errorMessage = signal<string>('');
 
+  /** Inspector readout for the extrusion under the cursor (G-code scalar views). */
+  readonly hoverInfo = this.gcodePreview.hoverInfo;
+  /** Role display labels for the hover tooltip. */
+  protected readonly roleLabels = ROLE_LABELS;
+
   private scene: ViewerScene | null = null;
   private gcode: GcodeOrchestrator | null = null;
+  private gcodeHover: GcodeHoverProbe | null = null;
   private currentAbort: AbortController | null = null;
   private loadToken = 0;
   /** SceneObject ids registered for the currently-loaded source. */
@@ -124,6 +131,8 @@ export class Viewer {
 
     this.destroyRef.onDestroy(() => {
       this.cancelInFlightLoad();
+      this.gcodeHover?.dispose();
+      this.gcodeHover = null;
       this.gcode?.dispose();
       this.gcode = null;
       this.scene?.dispose();
@@ -154,6 +163,12 @@ export class Viewer {
       this.scene?.setObjectMode(mode);
     });
 
+    // React to the trackpad two-finger gesture preference (Shapr3D-style).
+    effect(() => {
+      const gesture = this.viewerControl.trackpadTwoFingerGesture();
+      this.scene?.setTwoFingerGesture(gesture);
+    });
+
     // React to reset requests from the toolbar.
     effect(() => {
       const tick = this.viewerControl.resetTick();
@@ -171,6 +186,15 @@ export class Viewer {
         return;
       }
       this.scene?.animateToDirection(req.direction, req.up);
+    });
+
+    // React to roll requests (viewport-cube roll buttons).
+    effect(() => {
+      const req = this.viewerControl.rollRequest();
+      if (!req) {
+        return;
+      }
+      this.scene?.rollBy(req.radians);
     });
 
     // Mirror the print-area configuration into the scene so the bed grid
@@ -249,10 +273,26 @@ export class Viewer {
       this.gcode?.applyHiddenRoles(hidden);
     });
 
-    // React to theme changes — update all material colors without rebuilding geometry.
+    // React to theme, view-mode, scalar-range, fan-selection, or legend
+    // hover-band changes — recolor all layers in place without rebuilding.
     effect(() => {
+      const mode = this.gcodePreview.effectiveViewMode();
       const colors = this.gcodePreview.roleColors();
-      this.gcode?.updateColors(colors);
+      const range = this.gcodePreview.activeRange();
+      const fan = this.gcodePreview.selectedFan();
+      const band = this.gcodePreview.hoverBand();
+      this.gcode?.applyView(colors, scalarChannelFor(mode), range, fan, band);
+    });
+
+    // The hover-inspect probe is only meaningful in the G-code scalar views.
+    effect(() => {
+      const active =
+        this.mode() === 'gcode' &&
+        scalarChannelFor(this.gcodePreview.effectiveViewMode()) !== null;
+      this.gcodeHover?.setEnabled(active);
+      if (!active) {
+        this.gcodePreview.setHoverInfo(null);
+      }
     });
 
     // Build (or rebuild) the layer graph when the parsed handle becomes
@@ -277,6 +317,57 @@ export class Viewer {
   // `handleGizmoDelta` / `handleGizmoEnd` / `handleFacePicked` which
   // dispatch one WASM op per selected object id.
   // ---------------------------------------------------------------------------
+
+  /**
+   * Map a hover hit to the active channel value and publish it for the
+   * inspector tooltip + legend tick, or clear the readout when nothing
+   * extrudable is under the cursor.
+   */
+  private onGcodeHover(hit: GcodeHoverHit | null): void {
+    if (!hit) {
+      this.gcodePreview.setHoverInfo(null);
+      return;
+    }
+    const mode = this.gcodePreview.effectiveViewMode();
+    const channel = scalarChannelFor(mode);
+    if (!channel) {
+      this.gcodePreview.setHoverInfo(null);
+      return;
+    }
+
+    const rs = hit.ref.roleSegments;
+    const i = hit.instanceId;
+    const width = rs.widths?.[i] ?? 0;
+    const height = rs.heights?.[i] ?? 0;
+    const speed = rs.speeds?.[i] ?? 0;
+    const value =
+      channel.scope === 'segment'
+        ? channel.extract(width, height, speed)
+        : channel.extractLayer(hit.ref.meta, this.gcodePreview.selectedFan());
+    if (value === null) {
+      this.gcodePreview.setHoverInfo(null);
+      return;
+    }
+
+    const range = this.gcodePreview.activeRange();
+    const span = range.max - range.min;
+    const t = span > 0 ? Math.min(1, Math.max(0, (value - range.min) / span)) : 0.5;
+    const rect = this.elementRef.nativeElement.getBoundingClientRect();
+    this.gcodePreview.setHoverInfo({
+      channelId: mode,
+      value,
+      valueLabel: channel.format(value),
+      role: rs.role,
+      layerIndex: hit.ref.layerIndex,
+      z: hit.ref.z,
+      width,
+      height,
+      speed,
+      t,
+      x: hit.clientX - rect.left,
+      y: hit.clientY - rect.top,
+    });
+  }
 
   private handleSelect(stringId: string, _additive: boolean): void {
     const id = parseWasmId(stringId);
@@ -412,7 +503,19 @@ export class Viewer {
     // whatever view / object mode the user already had selected.
     this.scene.setObjectMode(this.viewerControl.objectMode());
     this.scene.setView(this.viewerControl.view());
+    this.scene.setTwoFingerGesture(this.viewerControl.trackpadTwoFingerGesture());
     this.gcode = new GcodeOrchestrator(this.scene.contentRoot);
+    // Hover-inspect probe for the G-code scalar views: raycasts the visible
+    // layer meshes and reports the extrusion value under the cursor.
+    this.gcodeHover = new GcodeHoverProbe(
+      this.scene.renderer.domElement,
+      this.scene.camera,
+      () => this.gcode?.hoverableMeshes() ?? [],
+      (hit) => this.onGcodeHover(hit),
+    );
+    this.gcodeHover.setEnabled(
+      this.mode() === 'gcode' && scalarChannelFor(this.gcodePreview.effectiveViewMode()) !== null,
+    );
     // Seed the bed grid from the current print-area configuration.
     this.scene.setPrintArea(this.printArea.config());
     // Trigger initial source application now that the scene exists.
@@ -653,6 +756,11 @@ export class Viewer {
     const max = untracked(() => this.gcodePreview.layerMax());
     const progress = untracked(() => this.gcodePreview.segmentProgress());
     const hidden = untracked(() => this.gcodePreview.hiddenRoles());
+    const mode = untracked(() => this.gcodePreview.effectiveViewMode());
+    const range = untracked(() => this.gcodePreview.activeRange());
+    const fan = untracked(() => this.gcodePreview.selectedFan());
+    const band = untracked(() => this.gcodePreview.hoverBand());
+    gcode.applyView(colors, scalarChannelFor(mode), range, fan, band);
     gcode.showRange(min, max);
     gcode.applyProgress(max, progress);
     gcode.applyHiddenRoles(hidden);

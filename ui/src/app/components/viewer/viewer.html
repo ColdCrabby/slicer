@@ -1,4 +1,15 @@
 <div class="viewer-host" #host></div>
+@if (hoverInfo(); as h) {
+  <div class="gcode-tooltip" [style.left.px]="h.x" [style.top.px]="h.y">
+    <div class="gcode-tooltip-value">{{ h.valueLabel }}</div>
+    <div class="gcode-tooltip-meta">
+      {{ roleLabels[h.role] }} · Layer {{ h.layerIndex }} · Z{{ h.z.toFixed(2) }}
+    </div>
+    <div class="gcode-tooltip-sub">
+      w {{ h.width.toFixed(2) }} · h {{ h.height.toFixed(2) }} · {{ h.speed.toFixed(0) }} mm/s
+    </div>
+  </div>
+}
 <div class="viewer-bottom">
   @if (fps() > 0) {
     <div class="viewer-fps">{{ fps() }} FPS</div>

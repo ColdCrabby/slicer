@@ -1,5 +1,6 @@
-import { ChangeDetectionStrategy, Component, inject } from '@angular/core';
+import { ChangeDetectionStrategy, Component, computed, inject } from '@angular/core';
 import { KeyboardShortcuts } from '../../services/keyboard-shortcuts/keyboard-shortcuts';
+import { ViewerControl, type TwoFingerGesture } from '../../services/viewer-control';
 import { Badge } from '../badge/badge';
 
 /**
@@ -35,9 +36,15 @@ interface DisplaySection {
 })
 export class KeyboardShortcutsPanel {
   private readonly keyboardShortcuts = inject(KeyboardShortcuts);
+  private readonly viewerControl = inject(ViewerControl);
 
   readonly isMac = this.keyboardShortcuts.isMac;
-  readonly sections: DisplaySection[] = this.buildSections();
+
+  /** Current bare-two-finger-swipe action, reflected in the gesture rows. */
+  readonly twoFingerGesture = this.viewerControl.trackpadTwoFingerGesture;
+
+  /** Rebuilt reactively so the orbit/pan rows track the gesture preference. */
+  readonly sections = computed<DisplaySection[]>(() => this.buildSections());
 
   /**
    * True when the given section describes the user's current platform.
@@ -51,7 +58,13 @@ export class KeyboardShortcutsPanel {
     return scope === 'mac' ? this.isMac : !this.isMac;
   }
 
+  /** Change the two-finger swipe action (persists + updates the live viewer). */
+  setTwoFingerGesture(gesture: TwoFingerGesture): void {
+    this.viewerControl.setTrackpadTwoFingerGesture(gesture);
+  }
+
   private buildSections(): DisplaySection[] {
+    const twoFingerPans = this.viewerControl.trackpadTwoFingerGesture() === 'pan';
     const actionRows: DisplayRow[] = this.keyboardShortcuts.getAll().map((s) => ({
       actionId: s.actionId,
       displayDescription: s.displayDescription,
@@ -67,12 +80,16 @@ export class KeyboardShortcutsPanel {
           {
             actionId: 'orbit',
             displayDescription: 'Orbit around target',
-            displayParts: ['Click + drag', '⌥ + Two-finger swipe'],
+            displayParts: twoFingerPans
+              ? ['Click + drag', '⌥ + Two-finger swipe']
+              : ['Click + drag', 'Two-finger swipe'],
           },
           {
             actionId: 'pan',
             displayDescription: 'Pan camera',
-            displayParts: ['Two-finger swipe', 'Right-click + drag'],
+            displayParts: twoFingerPans
+              ? ['Two-finger swipe', 'Right-click + drag']
+              : ['⌥ + Two-finger swipe', 'Right-click + drag'],
           },
           {
             actionId: 'zoom',

@@ -2,21 +2,27 @@ import {
   ChangeDetectionStrategy,
   Component,
   DestroyRef,
-  ElementRef,
+  type ElementRef,
   afterNextRender,
   inject,
+  signal,
   viewChild,
 } from '@angular/core';
 import {
-  BoxGeometry,
+  BufferGeometry,
   CanvasTexture,
+  Color,
   ConeGeometry,
   CylinderGeometry,
+  DoubleSide,
+  Float32BufferAttribute,
   Group,
   LinearFilter,
+  Matrix4,
   Mesh,
   MeshBasicMaterial,
   PerspectiveCamera,
+  PlaneGeometry,
   Raycaster,
   Scene,
   Sprite,
@@ -28,68 +34,80 @@ import {
 import { ViewerControl } from '../../services/viewer-control';
 
 /**
- * Mapping from a BoxGeometry material index to the look direction (target →
- * camera, in world space) and up vector that the main viewer camera should
- * adopt when the user clicks that face. The Z-up scene convention is:
+ * The scene is Z-up. The six cardinal look directions (target → camera) map to
+ * named faces:
  *  - +X = RIGHT, -X = LEFT
  *  - +Y = BACK,  -Y = FRONT
  *  - +Z = TOP,   -Z = BOTTOM
+ * Every snapped view keeps the camera up as world Z (0,0,1) — the main camera
+ * (see `SceneCamera.animateToDirection`) nudges pure Top/Bottom looks a hair
+ * off the pole rather than flipping up sideways, so resuming an orbit from any
+ * face/edge/corner feels identical.
  */
-interface FaceSpec {
-  label: string;
+const WORLD_UP = new Vector3(0, 0, 1);
+
+/** The six cardinal axes — reused for faces, arrow snapping, and face-on detection. */
+const CARDINALS: readonly Vector3[] = [
+  new Vector3(1, 0, 0),
+  new Vector3(-1, 0, 0),
+  new Vector3(0, 1, 0),
+  new Vector3(0, -1, 0),
+  new Vector3(0, 0, 1),
+  new Vector3(0, 0, -1),
+];
+
+/**
+ * A view counts as "looking straight at a face" (which reveals the four rotate
+ * arrows) when the camera direction is within this angle of a cardinal axis.
+ */
+const FACE_ON_COS = Math.cos((9 * Math.PI) / 180);
+
+/** Clickable region of the cube. */
+type ZoneKind = 'face' | 'edge' | 'corner';
+
+/** Per-mesh metadata attached to every clickable zone via `userData`. */
+interface ZoneUserData {
+  kind: ZoneKind;
+  /** Stable identity used to track hover across theme rebuilds. */
+  key: string;
+  /** Unit look direction (target → camera) this zone snaps the camera to. */
   direction: Vector3;
-  up: Vector3;
-  /**
-   * Rotation (radians) applied to the face label canvas so the text reads
-   * upright when the camera is snapped to face that side with the
-   * corresponding `up` vector. Required because BoxGeometry's per-face UV
-   * tangent frames don't align with the world Z-up convention used by the
-   * scene, so unrotated text would appear sideways or upside-down on the
-   * ±X / +Y / -Z faces.
-   */
-  textRotation: number;
+  /** Face label (faces only). */
+  label?: string;
+  /** Base / hover tint for bevel facets (edges + corners). */
+  baseColor?: Color;
+  hoverColor?: Color;
+  baseOpacity?: number;
+  hoverOpacity?: number;
 }
 
-const FACE_SPECS: readonly FaceSpec[] = [
-  {
-    label: 'RIGHT',
-    direction: new Vector3(1, 0, 0),
-    up: new Vector3(0, 0, 1),
-    textRotation: -Math.PI / 2,
-  },
-  {
-    label: 'LEFT',
-    direction: new Vector3(-1, 0, 0),
-    up: new Vector3(0, 0, 1),
-    textRotation: Math.PI / 2,
-  },
-  {
-    label: 'BACK',
-    direction: new Vector3(0, 1, 0),
-    up: new Vector3(0, 0, 1),
-    textRotation: Math.PI,
-  },
-  {
-    label: 'FRONT',
-    direction: new Vector3(0, -1, 0),
-    up: new Vector3(0, 0, 1),
-    textRotation: 0,
-  },
-  {
-    label: 'TOP',
-    direction: new Vector3(0, 0, 1),
-    up: new Vector3(0, 1, 0),
-    textRotation: 0,
-  },
-  {
-    label: 'BOTTOM',
-    direction: new Vector3(0, 0, -1),
-    up: new Vector3(0, 1, 0),
-    textRotation: Math.PI,
-  },
+/** Static definition of one labelled face tile. */
+interface FaceDef {
+  label: string;
+  normal: Vector3;
+  /** World direction that should appear "up" on the face texture. */
+  faceUp: Vector3;
+}
+
+const FACE_DEFS: readonly FaceDef[] = [
+  { label: 'RIGHT', normal: new Vector3(1, 0, 0), faceUp: new Vector3(0, 0, 1) },
+  { label: 'LEFT', normal: new Vector3(-1, 0, 0), faceUp: new Vector3(0, 0, 1) },
+  { label: 'BACK', normal: new Vector3(0, 1, 0), faceUp: new Vector3(0, 0, 1) },
+  { label: 'FRONT', normal: new Vector3(0, -1, 0), faceUp: new Vector3(0, 0, 1) },
+  { label: 'TOP', normal: new Vector3(0, 0, 1), faceUp: new Vector3(0, 1, 0) },
+  { label: 'BOTTOM', normal: new Vector3(0, 0, -1), faceUp: new Vector3(0, -1, 0) },
 ];
 
 const CUBE_SIZE = 1;
+const HALF = CUBE_SIZE / 2;
+// Chamfer inset: how far each flat face tile is pulled back from the raw cube
+// edge. The reclaimed border becomes the bevelled edge + corner facets. Kept
+// thin so the faces dominate and the edge/corner hotspots read as slim bevels
+// rather than large panels.
+const CHAMFER = 0.1;
+// Half-extent of a face tile (the flat, labelled square).
+const FACE_HALF = HALF - CHAMFER;
+
 // Half-extent of the cube's bounding sphere — guarantees the cube fits no
 // matter how it is rotated (corner distance from center is sqrt(3)/2 * size).
 const CUBE_HALF_EXTENT = (CUBE_SIZE * Math.sqrt(3)) / 2;
@@ -97,7 +115,7 @@ const CUBE_HALF_EXTENT = (CUBE_SIZE * Math.sqrt(3)) / 2;
 // strictly needed for the cube alone so the dimensional-guide axes (which
 // run along the three cube edges meeting at the -X/-Y/-Z corner) and their
 // X/Y/Z end labels stay fully on-screen at every camera orientation.
-const FRUSTUM_PADDING = 1.55;
+const FRUSTUM_PADDING = 1.6;
 
 // RGB axes gizmo — colour convention matches the main scene's
 // `buildAxesGizmo` (X = red, Y = green, Z = blue) so the orientation cube
@@ -132,7 +150,11 @@ const AXIS_LABEL_SIZE = 0.26;
 // along the back edges shows clearly through the front faces, high enough
 // that the face labels (FRONT / BACK / TOP / etc.) and themed border still
 // read as a solid clickable button.
-const CUBE_FACE_OPACITY = 0.85;
+const CUBE_FACE_OPACITY = 0.9;
+// Bevel facets (edges + corners) sit a touch more solid than the faces so the
+// faceting reads, and brighten to the primary colour on hover.
+const BEVEL_OPACITY = 0.92;
+const BEVEL_HOVER_OPACITY = 0.98;
 // Distance from the camera to the cube. Arbitrary for an orthographic camera
 // — only direction matters — but kept large enough to stay well inside the
 // near/far range.
@@ -144,25 +166,60 @@ const DRAG_SENSITIVITY = 0.01;
 const CLICK_DRAG_THRESHOLD = 4;
 
 /**
- * Small Fusion-360-style viewport cube. Renders a labelled cube whose
- * orientation mirrors the main viewer camera. Click a face to snap the main
- * camera to look from that direction; click-and-drag the cube to orbit the
- * main camera freely.
+ * Traditional ViewCube-style orientation widget. Renders a chamfered, labelled
+ * cube (six faces, twelve edge bevels, eight corner bevels) whose orientation
+ * mirrors the main viewer camera. Click a face / edge / corner to snap the main
+ * camera to that orthographic / isometric view; click-and-drag the cube to orbit
+ * freely. When the camera looks straight at a face, four arrows appear that step
+ * the view 90° to the neighbouring faces.
  */
 @Component({
   selector: 'nexus-viewport-cube',
   standalone: true,
-  template: `<canvas #canvas class="cube-canvas"></canvas>`,
+  template: `
+    <canvas #canvas class="cube-canvas"></canvas>
+    @if (faceOn()) {
+      <div class="roll-buttons">
+        <button
+          type="button"
+          class="roll-btn roll-ccw"
+          aria-label="Roll view counter-clockwise"
+          (click)="roll('ccw')"
+        >
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <path
+              d="M15.55 5.55 11 1v3.07C7.06 4.56 4 7.92 4 12s3.05 7.44 7 7.93v-2.02c-2.84-.48-5-2.94-5-5.91s2.16-5.43 5-5.91V10l4.55-4.45zM19.93 11c-.17-1.39-.72-2.73-1.62-3.89l-1.42 1.42c.54.75.88 1.6 1.02 2.47h2.02zM13 17.9v2.02c1.39-.17 2.74-.71 3.9-1.61l-1.44-1.44c-.75.54-1.59.89-2.46 1.03zm3.89-2.42 1.42 1.41c.9-1.16 1.45-2.5 1.62-3.89h-2.02c-.14.87-.48 1.72-1.02 2.48z"
+            />
+          </svg>
+        </button>
+        <button
+          type="button"
+          class="roll-btn roll-cw"
+          aria-label="Roll view clockwise"
+          (click)="roll('cw')"
+        >
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <path
+              d="M15.55 5.55 11 1v3.07C7.06 4.56 4 7.92 4 12s3.05 7.44 7 7.93v-2.02c-2.84-.48-5-2.94-5-5.91s2.16-5.43 5-5.91V10l4.55-4.45zM19.93 11c-.17-1.39-.72-2.73-1.62-3.89l-1.42 1.42c.54.75.88 1.6 1.02 2.47h2.02zM13 17.9v2.02c1.39-.17 2.74-.71 3.9-1.61l-1.44-1.44c-.75.54-1.59.89-2.46 1.03zm3.89-2.42 1.42 1.41c.9-1.16 1.45-2.5 1.62-3.89h-2.02c-.14.87-.48 1.72-1.02 2.48z"
+            />
+          </svg>
+        </button>
+      </div>
+    }
+  `,
   styles: [
     `
       :host {
         display: block;
+        position: relative;
         width: 96px;
         height: 96px;
         background: transparent;
         pointer-events: auto;
         user-select: none;
         touch-action: none;
+        /* Let the roll buttons overhang the cube silhouette. */
+        overflow: visible;
       }
       .cube-canvas {
         display: block;
@@ -174,6 +231,61 @@ const CLICK_DRAG_THRESHOLD = 4;
       .cube-canvas.is-dragging {
         cursor: grabbing;
       }
+      .roll-buttons {
+        position: absolute;
+        inset: 0;
+        pointer-events: none;
+      }
+      .roll-btn {
+        position: absolute;
+        top: -9px;
+        display: grid;
+        place-items: center;
+        width: 27px;
+        height: 27px;
+        padding: 0;
+        border: 1px solid var(--color-border);
+        border-radius: 999px;
+        background: color-mix(in srgb, var(--color-surface) 82%, transparent);
+        color: var(--color-text-secondary);
+        box-shadow: 0 1px 4px rgba(0, 0, 0, 0.2);
+        cursor: pointer;
+        pointer-events: auto;
+        touch-action: manipulation;
+        transition:
+          color var(--transition-fast, 0.15s),
+          border-color var(--transition-fast, 0.15s),
+          background var(--transition-fast, 0.15s),
+          box-shadow var(--transition-fast, 0.15s);
+      }
+      .roll-btn svg {
+        width: 16px;
+        height: 16px;
+        fill: currentColor;
+      }
+      .roll-btn:hover {
+        color: var(--color-primary);
+        border-color: var(--color-primary);
+        background: var(--color-surface);
+        box-shadow: 0 2px 6px rgba(0, 0, 0, 0.24);
+      }
+      .roll-btn:active {
+        background: var(--color-surface-hover);
+      }
+      .roll-btn:focus-visible {
+        outline: 2px solid var(--color-focus-ring, var(--color-primary));
+        outline-offset: 1px;
+      }
+      .roll-ccw {
+        left: -9px;
+      }
+      /* Mirror the same rotate glyph so the two buttons read as opposite spins. */
+      .roll-cw {
+        right: -9px;
+      }
+      .roll-cw svg {
+        transform: scaleX(-1);
+      }
     `,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -183,14 +295,18 @@ export class ViewportCube {
   private readonly viewerControl = inject(ViewerControl);
   private readonly destroyRef = inject(DestroyRef);
 
+  /** True while the camera looks straight at a face — reveals the rotate arrows. */
+  protected readonly faceOn = signal(false);
+
   private renderer: WebGLRenderer | null = null;
   private scene: Scene | null = null;
   private camera: PerspectiveCamera | null = null;
-  private cube: Mesh | null = null;
+  private cubeGroup: Group | null = null;
+  private zones: Mesh[] = [];
   private axesGizmo: Group | null = null;
   private raycaster = new Raycaster();
   private rafHandle = 0;
-  private hoveredFace = -1;
+  private hoveredKey: string | null = null;
   private resizeObserver: ResizeObserver | null = null;
   private themeObserver: MutationObserver | null = null;
 
@@ -219,16 +335,11 @@ export class ViewportCube {
       cancelAnimationFrame(this.rafHandle);
       this.resizeObserver?.disconnect();
       this.themeObserver?.disconnect();
-      this.cube?.geometry.dispose();
-      if (this.cube) {
-        const mats = this.cube.material as MeshBasicMaterial[];
-        for (const m of mats) {
-          m.map?.dispose();
-          m.dispose();
-        }
+      if (this.cubeGroup) {
+        disposeGroup(this.cubeGroup);
       }
       if (this.axesGizmo) {
-        disposeAxesGizmo(this.axesGizmo);
+        disposeGroup(this.axesGizmo);
       }
       this.renderer?.dispose();
     });
@@ -265,23 +376,7 @@ export class ViewportCube {
     this.camera.position.set(0, 0, CUBE_DISTANCE);
     this.camera.lookAt(0, 0, 0);
 
-    const materials = FACE_SPECS.map(
-      (face) =>
-        new MeshBasicMaterial({
-          map: makeFaceTexture(face.label, false, readPalette(), face.textRotation),
-          // Semi-transparent so the RGB axis gizmo running along the cube's
-          // back edges remains visible through the front faces \u2014 a tinted
-          // glass effect that keeps the orientation guides readable from
-          // every angle without forcing the gizmo above the cube in z-order.
-          transparent: true,
-          opacity: CUBE_FACE_OPACITY,
-          depthWrite: false,
-        }),
-    );
-
-    const geometry = new BoxGeometry(CUBE_SIZE, CUBE_SIZE, CUBE_SIZE);
-    this.cube = new Mesh(geometry, materials);
-    this.scene.add(this.cube);
+    this.buildCube();
 
     this.axesGizmo = buildAxesGizmo();
     this.scene.add(this.axesGizmo);
@@ -299,7 +394,7 @@ export class ViewportCube {
     // Re-paint face textures whenever the global theme changes so the cube
     // always picks up the current `--color-surface` / `--color-text-primary`
     // / `--color-border` tokens (matching the toolbar buttons).
-    this.themeObserver = new MutationObserver(() => this.refreshFaceTextures());
+    this.themeObserver = new MutationObserver(() => this.refreshTheme());
     this.themeObserver.observe(document.documentElement, {
       attributes: true,
       attributeFilter: ['class', 'style'],
@@ -308,24 +403,60 @@ export class ViewportCube {
     this.tick();
   }
 
-  /** Rebuild every face texture, preserving the current hover state. */
-  private refreshFaceTextures(): void {
-    if (!this.cube) {
+  /** (Re)build the chamfered cube — faces, edge bevels, corner bevels. */
+  private buildCube(): void {
+    if (!this.scene) {
       return;
     }
-    const materials = this.cube.material as MeshBasicMaterial[];
-    const palette = readPalette();
-    for (let i = 0; i < materials.length; i++) {
-      materials[i].map?.dispose();
-      materials[i].map = makeFaceTexture(
-        FACE_SPECS[i].label,
-        i === this.hoveredFace,
-        palette,
-        FACE_SPECS[i].textRotation,
-      );
-      materials[i].needsUpdate = true;
+    if (this.cubeGroup) {
+      this.scene.remove(this.cubeGroup);
+      disposeGroup(this.cubeGroup);
+    }
+    const { group, zones } = buildViewCube(readPalette());
+    this.cubeGroup = group;
+    this.zones = zones;
+    this.scene.add(group);
+    if (this.hoveredKey) {
+      const mesh = this.zoneByKey(this.hoveredKey);
+      if (mesh) {
+        applyZoneHover(mesh, true);
+      }
     }
     this.needsRender = true;
+  }
+
+  /**
+   * Repaint face textures + bevel tints when the theme changes, without
+   * rebuilding geometry (theme mutations can fire often; geometry churn would
+   * be wasteful).
+   */
+  private refreshTheme(): void {
+    const palette = readPalette();
+    const bevelBase = cssColor(palette.border);
+    const bevelHover = cssColor(palette.primary);
+    for (const mesh of this.zones) {
+      const ud = mesh.userData as ZoneUserData;
+      const mat = mesh.material as MeshBasicMaterial;
+      const hovered = ud.key === this.hoveredKey;
+      if (ud.kind === 'face') {
+        mat.map?.dispose();
+        mat.map = makeFaceTexture(ud.label ?? '', hovered, palette);
+        mat.needsUpdate = true;
+      } else {
+        ud.baseColor = bevelBase.clone();
+        ud.hoverColor = bevelHover.clone();
+        mat.color.copy(hovered ? ud.hoverColor : ud.baseColor);
+        mat.opacity = hovered
+          ? (ud.hoverOpacity ?? BEVEL_HOVER_OPACITY)
+          : (ud.baseOpacity ?? BEVEL_OPACITY);
+        mat.needsUpdate = true;
+      }
+    }
+    this.needsRender = true;
+  }
+
+  private zoneByKey(key: string): Mesh | undefined {
+    return this.zones.find((z) => (z.userData as ZoneUserData).key === key);
   }
 
   private resize(): void {
@@ -343,7 +474,7 @@ export class ViewportCube {
 
   private tick = (): void => {
     this.rafHandle = requestAnimationFrame(this.tick);
-    if (!this.renderer || !this.scene || !this.camera || !this.cube) {
+    if (!this.renderer || !this.scene || !this.camera || !this.cubeGroup) {
       return;
     }
     // Mirror the main viewer's camera orientation: place our fixed-distance
@@ -354,6 +485,7 @@ export class ViewportCube {
     // iPads where this would otherwise run a second WebGL pipeline at the
     // display refresh rate.
     const state = this.viewerControl.cameraState;
+    this.updateFaceOn(state.direction);
     if (
       !this.lastRenderedDirection.equals(state.direction) ||
       !this.lastRenderedUp.equals(state.up) ||
@@ -403,6 +535,7 @@ export class ViewportCube {
     this.dragStart.set(event.clientX, event.clientY);
     this.dragLast.copy(this.dragStart);
     canvas.classList.add('is-dragging');
+    canvas.style.cursor = 'grabbing';
   };
 
   private onPointerMove = (event: PointerEvent): void => {
@@ -417,7 +550,7 @@ export class ViewportCube {
       ) {
         this.dragMoved = true;
         // Cancel any face hover styling once a drag begins.
-        this.setHover(-1);
+        this.setHover(null);
       }
       if (this.dragMoved) {
         // dx > 0 = drag right → positive azimuth → camera orbits CCW from above → RIGHT face shown.
@@ -428,10 +561,7 @@ export class ViewportCube {
       return;
     }
     // Hover highlighting only when not dragging.
-    const face = this.pickFace(event);
-    if (face !== this.hoveredFace) {
-      this.setHover(face);
-    }
+    this.setHover(this.pickZone(event));
   };
 
   private onPointerUp = (event: PointerEvent): void => {
@@ -449,55 +579,45 @@ export class ViewportCube {
     this.dragMoved = false;
 
     if (!wasDrag) {
-      const face = this.pickFace(event);
-      if (face >= 0) {
-        const spec = FACE_SPECS[face];
-        this.viewerControl.lookFrom(spec.direction, spec.up);
+      const mesh = this.pickZone(event);
+      if (mesh) {
+        const ud = mesh.userData as ZoneUserData;
+        this.viewerControl.lookFrom(ud.direction, WORLD_UP);
       }
     }
+    canvas.style.cursor = this.pickZone(event) ? 'pointer' : 'grab';
   };
 
   private onPointerLeave = (): void => {
     if (!this.dragging) {
-      this.setHover(-1);
+      this.setHover(null);
     }
   };
 
-  private setHover(face: number): void {
-    if (!this.cube || face === this.hoveredFace) {
+  private setHover(mesh: Mesh | null): void {
+    const key = mesh ? (mesh.userData as ZoneUserData).key : null;
+    if (key === this.hoveredKey) {
       return;
     }
-    const materials = this.cube.material as MeshBasicMaterial[];
-    const palette = readPalette();
-    if (this.hoveredFace >= 0) {
-      const prev = materials[this.hoveredFace];
-      prev.map?.dispose();
-      prev.map = makeFaceTexture(
-        FACE_SPECS[this.hoveredFace].label,
-        false,
-        palette,
-        FACE_SPECS[this.hoveredFace].textRotation,
-      );
-      prev.needsUpdate = true;
+    if (this.hoveredKey) {
+      const prev = this.zoneByKey(this.hoveredKey);
+      if (prev) {
+        applyZoneHover(prev, false);
+      }
     }
-    if (face >= 0) {
-      const next = materials[face];
-      next.map?.dispose();
-      next.map = makeFaceTexture(
-        FACE_SPECS[face].label,
-        true,
-        palette,
-        FACE_SPECS[face].textRotation,
-      );
-      next.needsUpdate = true;
+    if (mesh) {
+      applyZoneHover(mesh, true);
     }
-    this.hoveredFace = face;
+    this.hoveredKey = key;
+    if (!this.dragging) {
+      this.canvasRef().nativeElement.style.cursor = mesh ? 'pointer' : 'grab';
+    }
     this.needsRender = true;
   }
 
-  private pickFace(event: PointerEvent): number {
-    if (!this.camera || !this.cube) {
-      return -1;
+  private pickZone(event: PointerEvent): Mesh | null {
+    if (!this.camera || this.zones.length === 0) {
+      return null;
     }
     const canvas = this.canvasRef().nativeElement;
     const rect = canvas.getBoundingClientRect();
@@ -506,11 +626,33 @@ export class ViewportCube {
       -((event.clientY - rect.top) / rect.height) * 2 + 1,
     );
     this.raycaster.setFromCamera(ndc, this.camera);
-    const hits = this.raycaster.intersectObject(this.cube, false);
-    if (hits.length === 0 || hits[0].face == null) {
-      return -1;
+    const hits = this.raycaster.intersectObjects(this.zones, false);
+    return hits.length > 0 ? (hits[0].object as Mesh) : null;
+  }
+
+  /** Toggle the rotate arrows when the camera looks (nearly) straight at a face. */
+  private updateFaceOn(direction: Vector3): void {
+    let best = -Infinity;
+    for (const c of CARDINALS) {
+      const d = direction.dot(c);
+      if (d > best) {
+        best = d;
+      }
     }
-    return hits[0].face.materialIndex;
+    const on = best >= FACE_ON_COS;
+    if (on !== this.faceOn()) {
+      this.faceOn.set(on);
+    }
+  }
+
+  /**
+   * Roll the view 90° about its own axis. `cw` rolls the model clockwise on
+   * screen, `ccw` counter-clockwise. Orbiting afterwards stays consistent
+   * because the main orbit works in the camera-up frame.
+   */
+  protected roll(direction: 'cw' | 'ccw'): void {
+    const quarter = Math.PI / 2;
+    this.viewerControl.roll(direction === 'cw' ? -quarter : quarter);
   }
 }
 
@@ -551,12 +693,7 @@ function readPalette(): CubePalette {
  * standard themed button: surface fill, rounded inner tile, themed border,
  * primary-tinted hover state, themed label text.
  */
-function makeFaceTexture(
-  label: string,
-  hovered: boolean,
-  palette: CubePalette,
-  textRotation: number,
-): CanvasTexture {
+function makeFaceTexture(label: string, hovered: boolean, palette: CubePalette): CanvasTexture {
   const size = 256;
   const canvas = document.createElement('canvas');
   canvas.width = size;
@@ -573,7 +710,7 @@ function makeFaceTexture(
 
   // Inner rounded tile mimics the button visual: small inset, themed border,
   // primary-tinted background on hover (matching the button :hover token).
-  const inset = 14;
+  const inset = 10;
   const x = inset;
   const y = inset;
   const w = size - inset * 2;
@@ -583,32 +720,30 @@ function makeFaceTexture(
   ctx.fillStyle = hovered ? palette.primaryLight : palette.surfaceHover;
   ctx.fill();
 
-  drawRoundedRect(ctx, x + 0.5, y + 0.5, w - 1, h - 1, palette.cornerRadius);
-  ctx.lineWidth = 2;
-  ctx.strokeStyle = palette.border;
+  // Hovered tiles get a bolder, primary-coloured outline so the highlight is
+  // unmistakable against the neighbouring faces.
+  const lineWidth = hovered ? 4 : 2;
+  drawRoundedRect(
+    ctx,
+    x + lineWidth / 2,
+    y + lineWidth / 2,
+    w - lineWidth,
+    h - lineWidth,
+    palette.cornerRadius,
+  );
+  ctx.lineWidth = lineWidth;
+  ctx.strokeStyle = hovered ? palette.primary : palette.border;
   ctx.stroke();
 
   ctx.fillStyle = hovered ? palette.primary : palette.text;
-  // Monospace so every face label has identical letter geometry, which keeps
-  // the cube reading like a uniform button grid even when the labels rotate
-  // per-face. Bumped a notch above the previous Inter size for legibility at
-  // the small canvas-texture footprint.
+  // Monospace so every face label has identical letter geometry, keeping the
+  // cube reading like a uniform button grid.
   ctx.font = '700 64px "JetBrains Mono", "Fira Code", "SF Mono", Consolas, ui-monospace, monospace';
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
-  // Rotate around the canvas centre so the label reads upright when this
-  // face is viewed head-on with the scene's Z-up convention. BoxGeometry's
-  // per-face UV tangent frames don't all align with world Z-up, so without
-  // this correction ±X / +Y / -Z labels would appear sideways or upside-down.
-  if (textRotation !== 0) {
-    ctx.save();
-    ctx.translate(size / 2, size / 2);
-    ctx.rotate(textRotation);
-    ctx.fillText(label, 0, 0);
-    ctx.restore();
-  } else {
-    ctx.fillText(label, size / 2, size / 2);
-  }
+  // Face-tile orientation (which world direction is "up") is baked into the
+  // plane's basis in `buildFaceTile`, so the label is always drawn upright.
+  ctx.fillText(label, size / 2, size / 2);
 
   const tex = new CanvasTexture(canvas);
   tex.minFilter = LinearFilter;
@@ -768,16 +903,16 @@ function makeAxisLabelTexture(label: string, color: number): CanvasTexture {
   return tex;
 }
 
-/** Recursively dispose every Mesh / Sprite resource owned by the gizmo. */
-function disposeAxesGizmo(root: Group): void {
+/** Recursively dispose every Mesh / Sprite resource (geometry, material, map). */
+function disposeGroup(root: Group): void {
   root.traverse((obj) => {
     if (obj instanceof Mesh) {
       obj.geometry.dispose();
-      const mat = obj.material as MeshBasicMaterial | MeshBasicMaterial[];
-      if (Array.isArray(mat)) {
-        for (const m of mat) m.dispose();
-      } else {
-        mat.dispose();
+      const mats = Array.isArray(obj.material) ? obj.material : [obj.material];
+      for (const m of mats) {
+        const mm = m as MeshBasicMaterial;
+        mm.map?.dispose();
+        mm.dispose();
       }
     } else if (obj instanceof Sprite) {
       const mat = obj.material;
@@ -786,3 +921,197 @@ function disposeAxesGizmo(root: Group): void {
     }
   });
 }
+
+// ---------------------------------------------------------------------------
+// ViewCube geometry — a chamfered cube of 26 clickable zones
+// ---------------------------------------------------------------------------
+
+/**
+ * Build the full chamfered ViewCube: 6 labelled face tiles, 12 edge bevels and
+ * 8 corner bevels. Each returned mesh carries {@link ZoneUserData} describing
+ * the view it snaps to and how it highlights on hover.
+ */
+function buildViewCube(palette: CubePalette): { group: Group; zones: Mesh[] } {
+  const group = new Group();
+  const zones: Mesh[] = [];
+  const bevelBase = cssColor(palette.border);
+  const bevelHover = cssColor(palette.primary);
+
+  // --- Faces (6) ---
+  for (const def of FACE_DEFS) {
+    const mesh = buildFaceTile(def, makeFaceTexture(def.label, false, palette));
+    mesh.userData = {
+      kind: 'face',
+      key: `face:${def.label}`,
+      direction: def.normal.clone().normalize(),
+      label: def.label,
+    } satisfies ZoneUserData;
+    zones.push(mesh);
+    group.add(mesh);
+  }
+
+  // --- Edge bevels (12) ---
+  for (const [a, b] of edgePairs()) {
+    const c = new Vector3().crossVectors(a, b).normalize();
+    const q1 = a.clone().multiplyScalar(HALF).addScaledVector(b, FACE_HALF).addScaledVector(c, -FACE_HALF);
+    const q2 = a.clone().multiplyScalar(HALF).addScaledVector(b, FACE_HALF).addScaledVector(c, FACE_HALF);
+    const q3 = a.clone().multiplyScalar(FACE_HALF).addScaledVector(b, HALF).addScaledVector(c, FACE_HALF);
+    const q4 = a.clone().multiplyScalar(FACE_HALF).addScaledVector(b, HALF).addScaledVector(c, -FACE_HALF);
+    const mesh = bevelMesh(quadGeometry(q1, q2, q3, q4), bevelBase);
+    mesh.userData = {
+      kind: 'edge',
+      key: edgeKey(a, b),
+      direction: a.clone().add(b).normalize(),
+      baseColor: bevelBase.clone(),
+      hoverColor: bevelHover.clone(),
+      baseOpacity: BEVEL_OPACITY,
+      hoverOpacity: BEVEL_HOVER_OPACITY,
+    } satisfies ZoneUserData;
+    zones.push(mesh);
+    group.add(mesh);
+  }
+
+  // --- Corner bevels (8) ---
+  for (const s of cornerSigns()) {
+    const v1 = new Vector3(s.x * HALF, s.y * FACE_HALF, s.z * FACE_HALF);
+    const v2 = new Vector3(s.x * FACE_HALF, s.y * HALF, s.z * FACE_HALF);
+    const v3 = new Vector3(s.x * FACE_HALF, s.y * FACE_HALF, s.z * HALF);
+    const mesh = bevelMesh(triGeometry(v1, v2, v3), bevelBase);
+    mesh.userData = {
+      kind: 'corner',
+      key: `corner:${s.x}${s.y}${s.z}`,
+      direction: new Vector3(s.x, s.y, s.z).normalize(),
+      baseColor: bevelBase.clone(),
+      hoverColor: bevelHover.clone(),
+      baseOpacity: BEVEL_OPACITY,
+      hoverOpacity: BEVEL_HOVER_OPACITY,
+    } satisfies ZoneUserData;
+    zones.push(mesh);
+    group.add(mesh);
+  }
+
+  return { group, zones };
+}
+
+/** Apply / remove the hover highlight for a single zone mesh. */
+function applyZoneHover(mesh: Mesh, hovered: boolean): void {
+  const ud = mesh.userData as ZoneUserData;
+  const mat = mesh.material as MeshBasicMaterial;
+  if (ud.kind === 'face') {
+    mat.map?.dispose();
+    mat.map = makeFaceTexture(ud.label ?? '', hovered, readPalette());
+    mat.needsUpdate = true;
+  } else {
+    mat.color.copy(hovered ? (ud.hoverColor ?? mat.color) : (ud.baseColor ?? mat.color));
+    mat.opacity = hovered
+      ? (ud.hoverOpacity ?? BEVEL_HOVER_OPACITY)
+      : (ud.baseOpacity ?? BEVEL_OPACITY);
+    mat.needsUpdate = true;
+  }
+}
+
+/**
+ * Build one labelled face tile: an inset square in the cube face plane, rotated
+ * so its texture "up" (local +Y) aligns with `def.faceUp` and its front (local
+ * +Z) points outward along `def.normal` — never mirrored.
+ */
+function buildFaceTile(def: FaceDef, texture: CanvasTexture): Mesh {
+  const geo = new PlaneGeometry(2 * FACE_HALF, 2 * FACE_HALF);
+  const mat = new MeshBasicMaterial({
+    map: texture,
+    transparent: true,
+    opacity: CUBE_FACE_OPACITY,
+    depthWrite: false,
+  });
+  const mesh = new Mesh(geo, mat);
+  const zAxis = def.normal.clone().normalize();
+  const yAxis = def.faceUp.clone().normalize();
+  const xAxis = new Vector3().crossVectors(yAxis, zAxis).normalize();
+  const yOrtho = new Vector3().crossVectors(zAxis, xAxis).normalize();
+  mesh.quaternion.setFromRotationMatrix(new Matrix4().makeBasis(xAxis, yOrtho, zAxis));
+  mesh.position.copy(def.normal).multiplyScalar(HALF);
+  return mesh;
+}
+
+/** Two-triangle quad from four coplanar corners (double-sided; winding-agnostic). */
+function quadGeometry(a: Vector3, b: Vector3, c: Vector3, d: Vector3): BufferGeometry {
+  const geo = new BufferGeometry();
+  // prettier-ignore
+  const p = new Float32Array([
+    a.x, a.y, a.z, b.x, b.y, b.z, c.x, c.y, c.z,
+    a.x, a.y, a.z, c.x, c.y, c.z, d.x, d.y, d.z,
+  ]);
+  geo.setAttribute('position', new Float32BufferAttribute(p, 3));
+  return geo;
+}
+
+/** Single triangle from three corners. */
+function triGeometry(a: Vector3, b: Vector3, c: Vector3): BufferGeometry {
+  const geo = new BufferGeometry();
+  // prettier-ignore
+  const p = new Float32Array([a.x, a.y, a.z, b.x, b.y, b.z, c.x, c.y, c.z]);
+  geo.setAttribute('position', new Float32BufferAttribute(p, 3));
+  return geo;
+}
+
+/** A translucent, double-sided bevel facet used for edges and corners. */
+function bevelMesh(geometry: BufferGeometry, color: Color): Mesh {
+  return new Mesh(
+    geometry,
+    new MeshBasicMaterial({
+      color: color.clone(),
+      transparent: true,
+      opacity: BEVEL_OPACITY,
+      depthWrite: false,
+      side: DoubleSide,
+    }),
+  );
+}
+
+/** The 12 unordered pairs of perpendicular cardinal axes (one per cube edge). */
+function edgePairs(): [Vector3, Vector3][] {
+  const pairs: [Vector3, Vector3][] = [];
+  for (let i = 0; i < CARDINALS.length; i++) {
+    for (let j = i + 1; j < CARDINALS.length; j++) {
+      if (Math.abs(CARDINALS[i].dot(CARDINALS[j])) < 1e-6) {
+        pairs.push([CARDINALS[i].clone(), CARDINALS[j].clone()]);
+      }
+    }
+  }
+  return pairs;
+}
+
+/** The 8 corner sign triples (±1, ±1, ±1). */
+function cornerSigns(): { x: number; y: number; z: number }[] {
+  const signs: { x: number; y: number; z: number }[] = [];
+  for (const x of [-1, 1]) {
+    for (const y of [-1, 1]) {
+      for (const z of [-1, 1]) {
+        signs.push({ x, y, z });
+      }
+    }
+  }
+  return signs;
+}
+
+/** Order-independent identity for the edge shared by two cardinal axes. */
+function edgeKey(a: Vector3, b: Vector3): string {
+  const k = (v: Vector3): string => `${v.x},${v.y},${v.z}`;
+  return `edge:${[k(a), k(b)].sort().join('|')}`;
+}
+
+/** Resolve any CSS colour string (incl. 8-digit hex / rgba) to a Three.Color. */
+function cssColor(css: string): Color {
+  const canvas = document.createElement('canvas');
+  canvas.width = 1;
+  canvas.height = 1;
+  const ctx = canvas.getContext('2d');
+  if (!ctx) {
+    return new Color(0x808080);
+  }
+  ctx.fillStyle = css;
+  ctx.fillRect(0, 0, 1, 1);
+  const [r, g, b] = ctx.getImageData(0, 0, 1, 1).data;
+  return new Color(r / 255, g / 255, b / 255);
+}
+

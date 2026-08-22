@@ -13,6 +13,36 @@
   inset: 0;
 }
 
+.gcode-tooltip {
+  position: absolute;
+  transform: translate(14px, 14px);
+  pointer-events: none;
+  z-index: 10;
+  padding: 5px 8px;
+  border-radius: var(--radius-md, 6px);
+  background: rgba(0, 0, 0, 0.72);
+  backdrop-filter: blur(6px);
+  box-shadow: var(--shadow-md, 0 2px 8px rgba(0, 0, 0, 0.4));
+  color: #f0f0f0;
+  font:
+    11px/1.35 ui-monospace,
+    monospace;
+  white-space: nowrap;
+}
+
+.gcode-tooltip-value {
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.gcode-tooltip-meta {
+  color: #c8cfda;
+}
+
+.gcode-tooltip-sub {
+  color: #9aa4b2;
+}
+
 .viewer-bottom {
   position: absolute;
   bottom: 10px;

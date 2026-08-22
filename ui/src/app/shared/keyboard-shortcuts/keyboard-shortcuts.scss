@@ -42,6 +42,67 @@
   font-weight: 500;
 }
 
+.two-finger-pref {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+  padding: 10px 10px 4px;
+}
+
+.two-finger-pref__label {
+  font-size: 13px;
+  color: var(--color-text-secondary, #d4d6db);
+}
+
+.two-finger-pref__options {
+  display: inline-flex;
+  border: 1px solid var(--color-border, #2e3640);
+  border-radius: var(--radius-sm, 4px);
+  overflow: hidden;
+}
+
+.two-finger-pref__option {
+  appearance: none;
+  margin: 0;
+  padding: 4px 14px;
+  border: 0;
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  color: var(--color-text-secondary, #d4d6db);
+  background: var(--color-bg-tertiary, #24272e);
+  transition:
+    background 0.12s ease,
+    color 0.12s ease;
+
+  & + & {
+    border-left: 1px solid var(--color-border, #2e3640);
+  }
+
+  &:hover {
+    color: var(--color-text-primary, #f5f6f8);
+  }
+
+  &--active {
+    color: #fff;
+    background: var(--color-primary, #7c84f5);
+  }
+}
+
+.two-finger-pref__hint {
+  flex-basis: 100%;
+  margin: 0;
+  font-size: 11px;
+  line-height: 1.4;
+  color: var(--color-text-tertiary, #888c98);
+
+  strong {
+    color: var(--color-text-secondary, #d4d6db);
+    font-weight: 600;
+  }
+}
+
 .shortcuts {
   width: 100%;
   border-collapse: collapse;

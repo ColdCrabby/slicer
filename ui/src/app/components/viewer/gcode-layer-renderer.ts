@@ -4,6 +4,7 @@ import {
   Color,
   CylinderGeometry,
   Group,
+  InstancedBufferAttribute,
   InstancedMesh,
   LineBasicMaterial,
   LineSegments,
@@ -14,10 +15,16 @@ import {
 } from 'three';
 import type { GcodeLayerBuffer } from '../../../generated/scene-wasm/scene_engine';
 import {
+  FLOATS_PER_SEGMENT,
   ROLE_COLORS_DARK,
   ROLE_ORDER,
+  SPEED_OFFSET,
+  sampleSpeedColor,
+  type ColorChannel,
+  type LayerScalarMeta,
   type RoleColorPalette,
   type RoleName,
+  type ScalarRange,
 } from '../../services/gcode-preview';
 
 // -- Shared types -------------------------------------------------------------
@@ -29,6 +36,20 @@ export interface RoleSegments {
   lines?: LineSegments;
   /** Number of line segments */
   count: number;
+  /**
+   * Per-segment extrusion width, height and speed (length === `count`).
+   * Present only for extrusion roles (not travel or seam) so scalar view modes
+   * can recolor via a {@link ScalarChannel} without re-reading the WASM buffer.
+   */
+  widths?: Float32Array;
+  heights?: Float32Array;
+  speeds?: Float32Array;
+  /**
+   * Per-instance opacity attributes (segment cylinders and their joints) used
+   * to fade out-of-band extrusions while hovering the legend. `1` = opaque.
+   */
+  meshOpacity?: InstancedBufferAttribute;
+  jointsOpacity?: InstancedBufferAttribute;
 }
 
 export interface LayerInfo {
@@ -38,6 +59,8 @@ export interface LayerInfo {
   totalSegments: number;
   roleSegments: RoleSegments[];
   blockLayout: { role: RoleName; count: number }[];
+  /** Per-layer machine state for the fan / temperature / layer-time views. */
+  meta: LayerScalarMeta;
 }
 
 // -- Layer builder ------------------------------------------------------------
@@ -47,6 +70,47 @@ interface LayerBuild {
   totalSegments: number;
   roleSegments: RoleSegments[];
   blockLayout: { role: RoleName; count: number }[];
+  meta: LayerScalarMeta;
+}
+
+/** Read the per-layer machine-state metadata out of a WASM layer buffer. */
+function readLayerMeta(buf: GcodeLayerBuffer): LayerScalarMeta {
+  const fans = new Map<string, number>();
+  const fanCount = buf.fanCount();
+  for (let i = 0; i < fanCount; i++) {
+    fans.set(buf.fanKey(i), buf.fanSpeed(i));
+  }
+  return {
+    nozzleTemp: buf.nozzleTemp(),
+    tool: buf.tool,
+    layerTimeS: buf.layerTimeS(),
+    fans,
+  };
+}
+
+/** Back-reference stashed on each cylinder InstancedMesh for hover lookup. */
+export interface GcodeInstanceRef {
+  roleSegments: RoleSegments;
+  layerIndex: number;
+  z: number;
+  meta: LayerScalarMeta;
+}
+
+/** `userData` key under which the {@link GcodeInstanceRef} is stored. */
+export const GCODE_REF_KEY = 'gcodeRef';
+
+/** Tag every cylinder mesh of a layer so a raycast `instanceId` maps to a value. */
+export function tagInstanceRefs(info: LayerInfo): void {
+  for (const rs of info.roleSegments) {
+    if (rs.mesh) {
+      rs.mesh.userData[GCODE_REF_KEY] = {
+        roleSegments: rs,
+        layerIndex: info.index,
+        z: info.z,
+        meta: info.meta,
+      } satisfies GcodeInstanceRef;
+    }
+  }
 }
 
 const ROLE_ID_TO_NAME: Record<number, RoleName> = {
@@ -69,6 +133,12 @@ const _p0 = new Vector3();
 const _p1 = new Vector3();
 const _mid = new Vector3();
 
+/** Brightness multiplier applied to extrusions outside the legend hover-band. */
+const OUT_OF_BAND_DIM = 0.16;
+
+/** Opacity applied to extrusions outside the legend hover-band (see-through). */
+const OUT_OF_BAND_ALPHA = 0.12;
+
 // Reusable geometries. We will scale instances.
 const segmentGeometry = new CylinderGeometry(0.5, 0.5, 1, 8, 1, false);
 segmentGeometry.rotateX(Math.PI / 2); // Align along Z
@@ -77,6 +147,28 @@ const jointGeometry = new SphereGeometry(0.5, 8, 8);
 // Seam dots are rendered as larger spheres.  We keep a dedicated geometry so
 // they can be rendered independently of the normal joint spheres.
 const seamDotGeometry = new SphereGeometry(0.5, 10, 10);
+
+/**
+ * Inject a per-instance opacity (`aOpacity`) multiply into a standard material
+ * so individual extrusions can fade independently — Three.js `InstancedMesh`
+ * has per-instance color but no per-instance alpha out of the box.
+ */
+function installInstanceOpacity(material: MeshStandardMaterial): void {
+  material.onBeforeCompile = (shader) => {
+    shader.vertexShader =
+      'attribute float aOpacity;\nvarying float vOpacity;\n' +
+      shader.vertexShader.replace(
+        '#include <begin_vertex>',
+        '#include <begin_vertex>\n  vOpacity = aOpacity;',
+      );
+    shader.fragmentShader =
+      'varying float vOpacity;\n' +
+      shader.fragmentShader.replace(
+        '#include <dithering_fragment>',
+        '#include <dithering_fragment>\n  gl_FragColor.a *= vOpacity;',
+      );
+  };
+}
 
 export function buildLayerGroup(
   buf: GcodeLayerBuffer,
@@ -110,7 +202,7 @@ export function buildLayerGroup(
     const dataLen = buf.blockData(b).length;
     if (dataLen === 0) continue;
 
-    const count = dataLen / 8;
+    const count = dataLen / FLOATS_PER_SEGMENT;
     const role = ROLE_ID_TO_NAME[roleId] || 'other';
 
     roleTotals[role] += count;
@@ -150,8 +242,21 @@ export function buildLayerGroup(
       roleSegmentsMap[role] = { role, joints: dots, count };
     } else {
       const material = new MeshStandardMaterial({ color, roughness: 0.6 });
-      const mesh = new InstancedMesh(segmentGeometry, material, count);
-      const joints = new InstancedMesh(jointGeometry, material, count * 2);
+      installInstanceOpacity(material);
+
+      // Per-mesh geometry clones so each carries its own per-instance opacity
+      // attribute (instanced attributes can't be shared across meshes).
+      const segGeom = segmentGeometry.clone();
+      const jointGeom = jointGeometry.clone();
+      const meshOpacity = new InstancedBufferAttribute(new Float32Array(count).fill(1), 1);
+      const jointsOpacity = new InstancedBufferAttribute(new Float32Array(count * 2).fill(1), 1);
+      meshOpacity.setUsage(35044 /* THREE.DynamicDrawUsage */);
+      jointsOpacity.setUsage(35044 /* THREE.DynamicDrawUsage */);
+      segGeom.setAttribute('aOpacity', meshOpacity);
+      jointGeom.setAttribute('aOpacity', jointsOpacity);
+
+      const mesh = new InstancedMesh(segGeom, material, count);
+      const joints = new InstancedMesh(jointGeom, material, count * 2);
       mesh.instanceMatrix.setUsage(35044 /* THREE.DynamicDrawUsage */);
       joints.instanceMatrix.setUsage(35044 /* THREE.DynamicDrawUsage */);
 
@@ -160,7 +265,17 @@ export function buildLayerGroup(
       group.add(mesh);
       group.add(joints);
 
-      roleSegmentsMap[role] = { role, mesh, joints, count };
+      roleSegmentsMap[role] = {
+        role,
+        mesh,
+        joints,
+        count,
+        widths: new Float32Array(count),
+        heights: new Float32Array(count),
+        speeds: new Float32Array(count),
+        meshOpacity,
+        jointsOpacity,
+      };
     }
   }
 
@@ -184,7 +299,7 @@ export function buildLayerGroup(
     const data = buf.blockData(b);
     if (data.length === 0) continue;
 
-    const count = data.length / 8;
+    const count = data.length / FLOATS_PER_SEGMENT;
     const roleId = buf.blockRole(b);
     const role = ROLE_ID_TO_NAME[roleId] || 'other';
 
@@ -197,7 +312,7 @@ export function buildLayerGroup(
       const pts = (rs.lines!.geometry.getAttribute('position') as BufferAttribute)
         .array as Float32Array;
       for (let i = 0; i < count; i++) {
-        const off = i * 8;
+        const off = i * FLOATS_PER_SEGMENT;
         const pOff = (baseOffset + i) * 6;
         pts[pOff] = data[off];
         pts[pOff + 1] = data[off + 1];
@@ -214,7 +329,7 @@ export function buildLayerGroup(
       const dots = rs.joints!;
       for (let i = 0; i < count; i++) {
         const globalI = baseOffset + i;
-        const offset = i * 8;
+        const offset = i * FLOATS_PER_SEGMENT;
         const dotSize = data[offset + 6] || 0.6; // 0.6 = SEAM_DOT_RADIUS in parser.rs
         _dummy.position.set(data[offset], data[offset + 1], data[offset + 2]);
         _dummy.rotation.set(0, 0, 0);
@@ -229,12 +344,15 @@ export function buildLayerGroup(
 
       for (let i = 0; i < count; i++) {
         const globalI = baseOffset + i;
-        const offset = i * 8;
+        const offset = i * FLOATS_PER_SEGMENT;
 
         _p0.set(data[offset], data[offset + 1], data[offset + 2]);
         _p1.set(data[offset + 3], data[offset + 4], data[offset + 5]);
         const width = data[offset + 6] || 0.4;
         const height = data[offset + 7] || 0.2;
+        if (rs.widths) rs.widths[globalI] = width;
+        if (rs.heights) rs.heights[globalI] = height;
+        if (rs.speeds) rs.speeds[globalI] = data[offset + SPEED_OFFSET];
 
         const length = _p0.distanceTo(_p1);
         _mid.addVectors(_p0, _p1).multiplyScalar(0.5);
@@ -266,7 +384,7 @@ export function buildLayerGroup(
 
   const roleSegments: RoleSegments[] = Object.values(roleSegmentsMap) as RoleSegments[];
 
-  return { group, totalSegments, roleSegments, blockLayout };
+  return { group, totalSegments, roleSegments, blockLayout, meta: readLayerMeta(buf) };
 }
 
 export function disposeLayerGroup(group: Group): void {
@@ -283,24 +401,150 @@ export function disposeLayerGroup(group: Group): void {
 }
 
 /**
- * Update the material colors of all built layers to match a new palette.
- * Called when the application theme changes; no geometry is rebuilt.
+ * Recolor all built layers for the current view mode without rebuilding any
+ * geometry. Called when the theme, view mode, scalar range, selected fan, or
+ * legend hover-band changes.
+ *
+ * - `channel === null` (category): every segment takes its role color.
+ * - a *segment* channel: extrusion segments are colored per-instance by the
+ *   channel value (speed, flow, width, height).
+ * - a *layer* channel (fan / temperature / layer time): every segment in a
+ *   layer shares one color derived from that layer's value; layers with no
+ *   data for the channel fall back to their role color.
+ * When `band` is set, values outside `[band.lo, band.hi]` are dimmed so the
+ * legend-hovered range stands out. Travel and seam markers always keep their
+ * role color.
  */
-export function updateLayerColors(layers: LayerInfo[], colors: RoleColorPalette): void {
+export function updateViewColors(
+  layers: LayerInfo[],
+  colors: RoleColorPalette,
+  channel: ColorChannel | null,
+  range: ScalarRange,
+  fanKey: string | null,
+  band: { lo: number; hi: number } | null = null,
+): void {
+  const span = range.max - range.min;
   const c = new Color();
+  const bandActive = band !== null;
+  const outOfBand = (v: number): boolean => band !== null && (v < band.lo || v > band.hi);
   for (const info of layers) {
+    // Per-layer channels resolve to a single value shared by every segment.
+    const layerValue =
+      channel && channel.scope === 'layer' ? channel.extractLayer(info.meta, fanKey) : null;
+
     for (const rs of info.roleSegments) {
-      c.set(colors[rs.role]);
-      if (rs.mesh) {
-        (rs.mesh.material as MeshStandardMaterial).color.copy(c);
+      if (rs.role === 'travel') {
+        if (rs.lines) (rs.lines.material as LineBasicMaterial).color.set(colors.travel);
+        continue;
       }
-      if (rs.joints) {
-        (rs.joints.material as MeshStandardMaterial).color.copy(c);
+      if (rs.role === 'seam') {
+        if (rs.joints) (rs.joints.material as MeshStandardMaterial).color.set(colors.seam);
+        continue;
       }
-      if (rs.lines) {
-        (rs.lines.material as LineBasicMaterial).color.copy(c);
+
+      const { mesh, joints, widths, heights, speeds, count } = rs;
+
+      if (channel && channel.scope === 'segment' && mesh && widths && heights && speeds) {
+        // Per-instance color; keep the material white so it shows unmodulated.
+        (mesh.material as MeshStandardMaterial).color.set(0xffffff);
+        ensureInstanceColor(mesh, count);
+        if (joints) {
+          (joints.material as MeshStandardMaterial).color.set(0xffffff);
+          ensureInstanceColor(joints, count * 2);
+        }
+        const meshAlpha = rs.meshOpacity?.array as Float32Array | undefined;
+        const jointAlpha = rs.jointsOpacity?.array as Float32Array | undefined;
+        for (let i = 0; i < count; i++) {
+          const value = channel.extract(widths[i], heights[i], speeds[i]);
+          const t = span > 0 ? (value - range.min) / span : 0.5;
+          c.set(sampleSpeedColor(t));
+          const dim = outOfBand(value);
+          if (dim) c.multiplyScalar(OUT_OF_BAND_DIM);
+          mesh.setColorAt(i, c);
+          const alpha = bandActive && dim ? OUT_OF_BAND_ALPHA : 1;
+          if (meshAlpha) meshAlpha[i] = alpha;
+          if (joints) {
+            joints.setColorAt(i * 2, c);
+            joints.setColorAt(i * 2 + 1, c);
+          }
+          if (jointAlpha) {
+            jointAlpha[i * 2] = alpha;
+            jointAlpha[i * 2 + 1] = alpha;
+          }
+        }
+        if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
+        if (joints?.instanceColor) joints.instanceColor.needsUpdate = true;
+        if (rs.meshOpacity) rs.meshOpacity.needsUpdate = true;
+        if (rs.jointsOpacity) rs.jointsOpacity.needsUpdate = true;
+        applyMeshTransparency(rs, bandActive);
+      } else if (channel && channel.scope === 'layer' && layerValue !== null) {
+        // One constant color for the whole layer via the shared material.
+        const t = span > 0 ? (layerValue - range.min) / span : 0.5;
+        const dim = outOfBand(layerValue);
+        c.set(sampleSpeedColor(t));
+        if (dim) c.multiplyScalar(OUT_OF_BAND_DIM);
+        if (mesh) {
+          (mesh.material as MeshStandardMaterial).color.copy(c);
+          resetInstanceColor(mesh);
+        }
+        if (joints) {
+          (joints.material as MeshStandardMaterial).color.copy(c);
+          resetInstanceColor(joints);
+        }
+        fillOpacity(rs.meshOpacity, bandActive && dim ? OUT_OF_BAND_ALPHA : 1);
+        fillOpacity(rs.jointsOpacity, bandActive && dim ? OUT_OF_BAND_ALPHA : 1);
+        applyMeshTransparency(rs, bandActive);
+      } else {
+        // Category, or a layer channel with no data here: role color, and
+        // neutralize any leftover per-instance scalar tint / transparency.
+        c.set(colors[rs.role]);
+        if (mesh) {
+          (mesh.material as MeshStandardMaterial).color.copy(c);
+          resetInstanceColor(mesh);
+        }
+        if (joints) {
+          (joints.material as MeshStandardMaterial).color.copy(c);
+          resetInstanceColor(joints);
+        }
+        applyMeshTransparency(rs, false);
       }
     }
+  }
+}
+
+/** Allocate a full-capacity white instance-color buffer if one is missing. */
+function ensureInstanceColor(mesh: InstancedMesh, capacity: number): void {
+  if (!mesh.instanceColor || mesh.instanceColor.count < capacity) {
+    mesh.instanceColor = new InstancedBufferAttribute(new Float32Array(capacity * 3).fill(1), 3);
+  }
+}
+
+/** Reset every instance color back to white so material color shows through. */
+function resetInstanceColor(mesh: InstancedMesh): void {
+  const attr = mesh.instanceColor;
+  if (!attr) return;
+  (attr.array as Float32Array).fill(1);
+  attr.needsUpdate = true;
+}
+
+/** Fill a per-instance opacity attribute with a single value. */
+function fillOpacity(attr: InstancedBufferAttribute | undefined, value: number): void {
+  if (!attr) return;
+  (attr.array as Float32Array).fill(value);
+  attr.needsUpdate = true;
+}
+
+/**
+ * Move a role's shared material in/out of the transparent pass. `depthWrite` is
+ * disabled while transparent so faded out-of-band extrusions don't occlude the
+ * in-band ones behind them; non-band stays fully opaque (no regression).
+ */
+function applyMeshTransparency(rs: RoleSegments, transparent: boolean): void {
+  const material = (rs.mesh?.material ?? rs.joints?.material) as MeshStandardMaterial | undefined;
+  if (!material) return;
+  material.depthWrite = !transparent;
+  if (material.transparent !== transparent) {
+    material.transparent = transparent;
   }
 }
 

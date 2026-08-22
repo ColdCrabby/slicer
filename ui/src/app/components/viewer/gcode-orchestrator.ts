@@ -1,9 +1,11 @@
-import type { Group } from 'three';
+import type { Group, InstancedMesh } from 'three';
 import type { GcodeLayerBuffer } from '../../../generated/scene-wasm/scene_engine';
 import {
   ROLE_COLORS_DARK,
+  type ColorChannel,
   type RoleColorPalette,
   type RoleName,
+  type ScalarRange,
 } from '../../services/gcode-preview';
 import {
   applyHiddenRoles,
@@ -11,7 +13,8 @@ import {
   buildLayerGroup,
   disposeLayerGroup,
   type LayerInfo,
-  updateLayerColors,
+  tagInstanceRefs,
+  updateViewColors,
 } from './gcode-layer-renderer';
 
 /**
@@ -47,6 +50,26 @@ export class GcodeOrchestrator {
   }
 
   /**
+   * Cylinder meshes of currently-visible layers/roles, for the hover probe's
+   * raycast. Skips hidden layers, hidden roles, and empty draw ranges so the
+   * raycast only considers what the user can actually see.
+   */
+  hoverableMeshes(): InstancedMesh[] {
+    const out: InstancedMesh[] = [];
+    for (const info of this.layers) {
+      if (!info.group.visible) {
+        continue;
+      }
+      for (const rs of info.roleSegments) {
+        if (rs.mesh?.visible && rs.mesh.count > 0) {
+          out.push(rs.mesh);
+        }
+      }
+    }
+    return out;
+  }
+
+  /**
    * Build Three.js line-segment groups for every layer in the handle and
    * add them to the content root.  Any previously built layers are disposed
    * first.
@@ -70,8 +93,10 @@ export class GcodeOrchestrator {
         totalSegments: built.totalSegments,
         roleSegments: built.roleSegments,
         blockLayout: built.blockLayout,
+        meta: built.meta,
       };
       this.layers.push(info);
+      tagInstanceRefs(info);
       this.contentRoot.add(built.group);
       total += built.totalSegments;
     }
@@ -102,11 +127,18 @@ export class GcodeOrchestrator {
   }
 
   /**
-   * Update all material colors to match a new palette.
-   * Call this when the application theme changes.
+   * Recolor all layers for the current view mode (category, a segment scalar,
+   * or a per-layer scalar) and palette. Call this when the theme, view mode,
+   * scalar range, selected fan, or legend hover-band changes.
    */
-  updateColors(colors: RoleColorPalette): void {
-    updateLayerColors(this.layers, colors);
+  applyView(
+    colors: RoleColorPalette,
+    channel: ColorChannel | null,
+    range: ScalarRange,
+    fanKey: string | null,
+    band: { lo: number; hi: number } | null = null,
+  ): void {
+    updateViewColors(this.layers, colors, channel, range, fanKey, band);
   }
 
   /**

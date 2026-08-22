@@ -46,6 +46,14 @@ fn union_or_first(a: Paths, b: Paths) -> Paths {
 /// Standard extrusion width is typically 1.2× layer height for solid infill.
 const SOLID_INFILL_EXTRUSION_WIDTH_MULTIPLIER: f64 = 1.2;
 
+/// Solid top/bottom surface islands below this area (mm²) are dropped.  They are
+/// the thin wall-covered slivers Arachne's per-island-*average* interior
+/// estimate leaves over a locally-thin taper (e.g. the aft hull-tip rim): the
+/// perimeters already cover them, and classic emits none there.  Dropping a
+/// whole such island cannot open a wall-zone void (the walls fill it), unlike
+/// pulling a large surface back off its wall bond.
+const SURFACE_MIN_ISLAND_MM2: f64 = 2.0;
+
 /// Maximum horizontal gap (as a multiple of `line_spacing`) allowed when
 /// connecting the end of one scan-line segment to the nearest end of the next
 /// scan-line segment in the serpentine chaining pass.
@@ -194,6 +202,10 @@ fn morphological_open(paths: Paths, radius_mm: f64) -> Paths {
 /// build plate that wall extrusions actually consume.  Used by bridge
 /// detection to avoid placing bridge infill on top of existing walls
 /// (Benchy rear-deck overhang regression).
+/// Physical bead footprint of every **wall** path (OuterWall / InnerWall /
+/// OverhangPerimeter / GapFill) — the build-plate area those extrusions consume.
+/// Bridge detection and solid top/bottom surfaces subtract this so nothing is
+/// deposited on top of an existing wall or gap-fill bead.
 fn compute_wall_bead_footprint(layer: &SliceLayer, nozzle_diameter_mm: f64) -> Paths {
     // Group wall paths by (is_open, radius-bucket) so we can run **one**
     // `inflate` call per group instead of one per path.  Clipper2's `inflate`
@@ -216,10 +228,14 @@ fn compute_wall_bead_footprint(layer: &SliceLayer, nozzle_diameter_mm: f64) -> P
         // Only true wall extrusions consume area we'd otherwise want to
         // bridge over.  `OverhangPerimeter` is included because the
         // overhang post-pass relabels in-air wall arcs, and bridges still
-        // must not overlap them.
+        // must not overlap them; `GapFill` deposits material inside the wall
+        // band and must likewise not be bridged over.
         if !matches!(
             role,
-            ExtrusionRole::OuterWall | ExtrusionRole::InnerWall | ExtrusionRole::OverhangPerimeter
+            ExtrusionRole::OuterWall
+                | ExtrusionRole::InnerWall
+                | ExtrusionRole::OverhangPerimeter
+                | ExtrusionRole::GapFill
         ) {
             continue;
         }
@@ -273,6 +289,109 @@ fn compute_wall_bead_footprint(layer: &SliceLayer, nozzle_diameter_mm: f64) -> P
         };
     }
     acc
+}
+
+/// Physical bead footprint of only the **gap-fill** beads on a layer, each
+/// variable-width centerline inflated by its half-width.
+///
+/// Sparse infill subtracts this so it abuts — never re-extrudes over — the
+/// Arachne gap fill (which the wall-inset infill region calculation does not
+/// otherwise account for).  Gap-fill beads number in the tens per layer, so a
+/// per-path inflate + union is ample.
+pub(super) fn compute_gap_fill_footprint(layer: &SliceLayer, nozzle_diameter_mm: f64) -> Paths {
+    let default_radius = nozzle_diameter_mm * 0.5;
+    let mut acc = Paths::new(vec![]);
+    for (i, path) in layer.paths.iter().enumerate() {
+        if layer.role_for_path(i) != ExtrusionRole::GapFill {
+            continue;
+        }
+        let radius = layer
+            .width_for_path(i)
+            .map(|w| w * 0.5)
+            .unwrap_or(default_radius);
+        if radius <= 1e-6 {
+            continue;
+        }
+        // Gap fill is emitted as open polylines; round caps span both sides.
+        let end_type = if layer.is_path_open(i) {
+            EndType::Round
+        } else {
+            EndType::Joined
+        };
+        let fp = clipper2::inflate(
+            Paths::new(vec![path.clone()]),
+            radius,
+            JoinType::Round,
+            end_type,
+            2.0,
+        );
+        if fp.is_empty() {
+            continue;
+        }
+        acc = if acc.is_empty() {
+            fp
+        } else {
+            union(acc, fp, FillRule::NonZero).unwrap_or_default()
+        };
+    }
+    acc
+}
+
+/// Remove `GapFill` beads that fall inside a solid-surface region.
+///
+/// Arachne emits medial gap fill over *every* thin residual its offset loops
+/// leave — including thin necks deep inside the solid interior.  On a solid
+/// layer the top/bottom surface fills that interior densely, so a gap bead
+/// there is redundant; since the surface is generated in full first, the bead
+/// would otherwise sit as a scattered variable-width island on the uniform
+/// surface (the isolated dashes visible across the Benchy first layer).
+///
+/// Fill priority is **solid surface > gap fill > sparse infill**: a bead whose
+/// majority of vertices lie inside `solid_regions` (even-odd test) loses to the
+/// surface and is dropped; gap fill in sparse zones and thin ribs (outside
+/// `solid_regions`) is kept, because sparse infill would skip those sub-nozzle
+/// channels.  Runs after surface generation, before sparse infill.
+pub(super) fn prune_redundant_gap_fill(layers: &mut [SliceLayer]) {
+    for layer in layers.iter_mut() {
+        if layer.solid_regions.is_empty() || !layer.path_roles.contains(&ExtrusionRole::GapFill) {
+            continue;
+        }
+
+        let mut new_paths = Paths::new(vec![]);
+        let mut new_roles = Vec::new();
+        let mut new_widths = Vec::new();
+        let mut new_vwidths = Vec::new();
+        let mut new_is_open = Vec::new();
+
+        for (i, path) in layer.paths.iter().enumerate() {
+            let role = layer.role_for_path(i);
+            let redundant = role == ExtrusionRole::GapFill && {
+                let mut total = 0_usize;
+                let mut inside = 0_usize;
+                for p in path.iter() {
+                    total += 1;
+                    if vertex_inside_or_on_paths_eo(p.x(), p.y(), &layer.solid_regions) {
+                        inside += 1;
+                    }
+                }
+                total > 0 && inside * 2 > total
+            };
+            if redundant {
+                continue;
+            }
+            new_paths.push(path.clone());
+            new_roles.push(role);
+            new_widths.push(layer.width_for_path(i));
+            new_vwidths.push(layer.vertex_widths_for_path(i));
+            new_is_open.push(layer.is_path_open(i));
+        }
+
+        layer.paths = new_paths;
+        layer.path_roles = new_roles;
+        layer.path_widths = new_widths;
+        layer.path_vertex_widths = new_vwidths;
+        layer.path_is_open = new_is_open;
+    }
 }
 
 /// Drop sub-paths whose absolute signed area is below `min_area_mm2`.
@@ -508,6 +627,8 @@ pub(crate) fn clip_walls_against_bridge_region(layer: &mut SliceLayer, bridge_re
     layer.path_roles = new_roles;
     layer.path_widths = new_widths;
     layer.path_is_open = new_is_open;
+    // Bridge-split arcs drop per-vertex widths; scalar width is used.
+    layer.path_vertex_widths = Vec::new();
 }
 
 /// Add bridge infill for an unsupported `region` to a layer.
@@ -1296,10 +1417,39 @@ pub fn generate_top_bottom_surfaces_with_interior(
                     }
                 };
 
+                // Minimum bridge depth: a candidate unsupported by layer i-1
+                // but still supported two layers down is a 1-layer-deep recess
+                // (e.g. the hull-bottom debossed text) resting on that material
+                // — not a real span.  Bridging it double-extrudes its solid fill
+                // against the surrounding bottom surface at every edge.  Keep
+                // only the part also unsupported two layers below; the bed
+                // (i < 2) counts as support.
+                let deepen = |raw: Paths| -> Paths {
+                    if i < 2 || raw.is_empty() {
+                        return Paths::new(vec![]);
+                    }
+                    let below2 = &perimeters[i - 2];
+                    if below2.is_empty() {
+                        return raw;
+                    }
+                    let env2 = inflate(
+                        below2.clone(),
+                        nozzle_diameter_mm * 0.5,
+                        JoinType::Round,
+                        EndType::Polygon,
+                        2.0,
+                    );
+                    if env2.is_empty() {
+                        raw
+                    } else {
+                        difference(raw, env2, FillRule::EvenOdd).unwrap_or_default()
+                    }
+                };
+
                 if prev_perimeter.is_empty() {
                     // Nothing below at all → entire region is candidate bridge.
                     let raw = region.clone();
-                    let opened = morphological_open(raw, bridge_noise_filter_mm);
+                    let opened = morphological_open(deepen(raw), bridge_noise_filter_mm);
                     let big = filter_small_islands(&opened, bridge_min_area_mm2);
                     let void_only = clip_to_void(big);
                     let anchored = expand_to_anchor(void_only, anchor_bounds, bridge_anchor_mm);
@@ -1345,8 +1495,9 @@ pub fn generate_top_bottom_surfaces_with_interior(
                         difference(region.clone(), bridge_support_envelope, FillRule::EvenOdd)
                             .unwrap_or_default()
                     };
-                    // Step 1 — morphological opening (noise filter).
-                    let opened = morphological_open(raw, bridge_noise_filter_mm);
+                    // Step 1 — minimum-depth gate (drop 1-layer recesses), then
+                    // morphological opening (noise filter).
+                    let opened = morphological_open(deepen(raw), bridge_noise_filter_mm);
                     // Step 2 — drop islands below the area threshold.
                     let big = filter_small_islands(&opened, bridge_min_area_mm2);
                     // Step 2.5 — keep only the void inside the wall band
@@ -1460,6 +1611,17 @@ pub fn generate_top_bottom_surfaces_with_interior(
             }
         }
 
+        // Drop tiny solid-surface islands (< `SURFACE_MIN_ISLAND_MM2`): the thin
+        // top-surface rims Arachne's loose interior estimate leaves over a
+        // wall-covered taper, which the perimeters already cover.  The surface
+        // is filled in full — redundant gap-fill beads sitting inside it are
+        // removed afterwards by `prune_redundant_gap_fill`, so the solid infill
+        // stays continuous instead of weaving around scattered beads.
+        let (bottom_region, top_region) = {
+            let clean = |r: Paths| filter_small_islands(&r, SURFACE_MIN_ISLAND_MM2);
+            (clean(bottom_region), clean(top_region))
+        };
+
         if !bottom_region.is_empty() {
             #[cfg(not(target_arch = "wasm32"))]
             let t = Instant::now();
@@ -1516,9 +1678,7 @@ pub fn generate_top_bottom_surfaces_with_interior(
         // supported by a deeper neighbour so they did not enter the bridge
         // candidate region at all) remain in `unsupported_regions` and
         // continue to drive overhang classification as before.
-        let unsupported_for_overhang = if raw_unsupported.is_empty() {
-            raw_unsupported
-        } else if bridge_region.is_empty() {
+        let unsupported_for_overhang = if raw_unsupported.is_empty() || bridge_region.is_empty() {
             raw_unsupported
         } else {
             difference(raw_unsupported, bridge_region.clone(), FillRule::EvenOdd)
@@ -1612,6 +1772,7 @@ fn trim_surfaces_to_walls(layers: &mut [SliceLayer], overlap_percent: f64, nozzl
             let mut new_paths = Paths::new(vec![]);
             let mut new_roles = Vec::new();
             let mut new_widths = Vec::new();
+            let mut new_vwidths = Vec::new();
 
             for (i, path) in layer.paths.iter().enumerate() {
                 let role = layer.role_for_path(i);
@@ -1620,12 +1781,14 @@ fn trim_surfaces_to_walls(layers: &mut [SliceLayer], overlap_percent: f64, nozzl
                     new_paths.push(path.clone());
                     new_roles.push(role);
                     new_widths.push(layer.width_for_path(i));
+                    new_vwidths.push(layer.vertex_widths_for_path(i));
                 }
             }
 
             layer.paths = new_paths;
             layer.path_roles = new_roles;
             layer.path_widths = new_widths;
+            layer.path_vertex_widths = new_vwidths;
             continue;
         }
 
@@ -1633,6 +1796,7 @@ fn trim_surfaces_to_walls(layers: &mut [SliceLayer], overlap_percent: f64, nozzl
         let mut new_paths = Paths::new(vec![]);
         let mut new_roles = Vec::new();
         let mut new_widths = Vec::new();
+        let mut new_vwidths = Vec::new();
 
         for (i, path) in layer.paths.iter().enumerate() {
             let role = layer.role_for_path(i);
@@ -1647,18 +1811,21 @@ fn trim_surfaces_to_walls(layers: &mut [SliceLayer], overlap_percent: f64, nozzl
                     new_paths.push(p.clone());
                     new_roles.push(role);
                     new_widths.push(layer.width_for_path(i));
+                    new_vwidths.push(None);
                 }
             } else {
                 // Keep non-surface paths as-is (including walls).
                 new_paths.push(path.clone());
                 new_roles.push(role);
                 new_widths.push(layer.width_for_path(i));
+                new_vwidths.push(layer.vertex_widths_for_path(i));
             }
         }
 
         layer.paths = new_paths;
         layer.path_roles = new_roles;
         layer.path_widths = new_widths;
+        layer.path_vertex_widths = new_vwidths;
     }
 }
 

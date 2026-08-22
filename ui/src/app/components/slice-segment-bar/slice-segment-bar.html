@@ -1,5 +1,37 @@
 @if (preview.gcodeHandle() !== null) {
   <div class="segment-bar" (pointerdown)="$event.stopPropagation()">
+    <!-- ── View-mode selector ── -->
+    <div class="mode-row">
+      <label class="mode-label" for="gcode-view-mode">Color by</label>
+      <select
+        id="gcode-view-mode"
+        class="mode-select"
+        [value]="preview.effectiveViewMode()"
+        (change)="onModeChange($event)"
+      >
+        @for (mode of viewModes(); track mode) {
+          <option [value]="mode">{{ viewModeLabels[mode] }}</option>
+        }
+      </select>
+    </div>
+
+    @if (showFanSelector()) {
+      <!-- ── Fan sub-selector (multi-fan printers) ── -->
+      <div class="mode-row">
+        <label class="mode-label" for="gcode-fan-select">Fan</label>
+        <select
+          id="gcode-fan-select"
+          class="mode-select"
+          [value]="preview.selectedFan()"
+          (change)="onFanChange($event)"
+        >
+          @for (fan of fans(); track fan.key) {
+            <option [value]="fan.key">{{ fan.label }}</option>
+          }
+        </select>
+      </div>
+    }
+
     <!-- ── Nozzle / segment scrub ── -->
     <div class="scrub-row">
       <span class="scrub-label">Layer progress</span>
@@ -16,21 +48,51 @@
       </div>
     </div>
 
-    <!-- ── Role legend ── -->
-    <div class="legend">
-      @for (role of roleOrder; track role) {
-        <button
-          type="button"
-          class="role-badge"
-          [class.hidden]="preview.hiddenRoles().has(role)"
-          [style.--role-color]="roleCss()[role]"
-          (click)="toggleRole(role)"
-          [title]="(preview.hiddenRoles().has(role) ? 'Show ' : 'Hide ') + roleLabels[role]"
-        >
-          <span class="role-swatch"></span>
-          <span class="role-name">{{ roleLabels[role] }}</span>
-        </button>
+    @if (activeChannel(); as channel) {
+      @if (isUniform()) {
+        <!-- ── Uniform value (span ≈ 0): no misleading gradient ── -->
+        <div class="scalar-legend uniform">
+          <span class="scalar-swatch" [style.background]="uniformSwatchCss"></span>
+          <span class="scalar-label">{{ uniformLabel() }} · constant</span>
+        </div>
+      } @else {
+        <!-- ── Scalar legend ── -->
+        <div class="scalar-legend">
+          <span class="scalar-label">{{ scalarMinLabel() }}</span>
+          <div
+            class="scalar-gradient"
+            [style.background]="scalarGradient"
+            (pointermove)="onGradientMove($event)"
+            (pointerleave)="onGradientLeave()"
+          >
+            @if (hoverTickPct() !== null) {
+              <span class="scalar-tick" [style.left.%]="hoverTickPct() ?? 0"></span>
+            }
+            @if (scrub(); as s) {
+              <span class="scalar-scrub-tick" [style.left.%]="s.pct"></span>
+              <span class="scalar-scrub-readout" [style.left.%]="s.pct">{{ s.label }}</span>
+            }
+          </div>
+          <span class="scalar-label">{{ scalarMaxLabel() }}</span>
+        </div>
       }
-    </div>
+    } @else {
+      <!-- ── Role legend ── -->
+      <div class="legend">
+        @for (role of roleOrder; track role) {
+          <button
+            type="button"
+            class="role-badge"
+            [class.hidden]="preview.hiddenRoles().has(role)"
+            [style.--role-color]="roleCss()[role]"
+            (click)="toggleRole(role)"
+            [title]="(preview.hiddenRoles().has(role) ? 'Show ' : 'Hide ') + roleLabels[role]"
+          >
+            <span class="role-swatch"></span>
+            <span class="role-name">{{ roleLabels[role] }}</span>
+          </button>
+        }
+      </div>
+    }
   </div>
 }

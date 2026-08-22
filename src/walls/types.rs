@@ -18,13 +18,9 @@ pub struct WallParams {
     pub wall_line_width_max_mm: f64,
     /// Number of innermost beads that may absorb residual width variation.
     pub wall_distribution_count: usize,
-    /// Extra thickness (fraction of nozzle diameter) beyond a bead count's
-    /// optimum before an additional bead is introduced.  Used only by the
-    /// Arachne generator's beading strategy.
-    pub wall_transition_threshold: f64,
-    /// Distance (mm) over which a bead-count transition is smoothed.  Used only
-    /// by the Arachne generator when walking the skeleton.
-    pub wall_transition_length_mm: f64,
+    /// Minimum medial gap-fill run length in mm; shorter runs are dropped as
+    /// faceting noise.  `0` keeps every run that spans at least one segment.
+    pub gap_fill_min_length_mm: f64,
 }
 
 impl WallParams {
@@ -37,8 +33,7 @@ impl WallParams {
             wall_line_width_min_mm: params.wall_line_width_min * d,
             wall_line_width_max_mm: params.wall_line_width_max * d,
             wall_distribution_count: params.wall_distribution_count,
-            wall_transition_threshold: params.wall_transition_threshold,
-            wall_transition_length_mm: params.wall_transition_length,
+            gap_fill_min_length_mm: params.gap_fill_min_length_mm,
         }
     }
 }

@@ -1,6 +1,7 @@
-import { Injectable, signal } from '@angular/core';
+import { inject, Injectable, signal } from '@angular/core';
 import { Vector3 } from 'three';
 import type { ViewerMode } from '../components/viewer';
+import { BrowserStorage } from './browser-storage';
 
 export type ViewerView = 'perspective' | 'ortho';
 /**
@@ -12,6 +13,16 @@ export type ViewerView = 'perspective' | 'ortho';
 export type ObjectMode = 'none' | 'translate' | 'rotate' | 'scale' | 'pullToFloor';
 
 /**
+ * Which camera action a bare two-finger trackpad swipe performs on macOS.
+ * `'orbit'` (default) matches Shapr3D; `'pan'` lets the user pan without
+ * holding ⌥ (orbit then moves to ⌥ + swipe). Windows/Linux are unaffected
+ * — their trackpad wheel path only zooms.
+ */
+export type TwoFingerGesture = 'orbit' | 'pan';
+
+const TWO_FINGER_GESTURE_KEY = 'nexus.viewer.trackpadTwoFingerGesture';
+
+/**
  * Shared state between the 3D-view toolbar and the viewer component.
  *
  * The toolbar lives in the layout shell and the viewer in the routed page,
@@ -20,6 +31,17 @@ export type ObjectMode = 'none' | 'translate' | 'rotate' | 'scale' | 'pullToFloo
  */
 @Injectable({ providedIn: 'root' })
 export class ViewerControl {
+  private readonly storage = inject(BrowserStorage);
+
+  /**
+   * macOS trackpad two-finger swipe action. Persisted to localStorage so the
+   * choice survives reloads. The viewer pushes it into the Three.js
+   * SceneControls; it is changed from the Keyboard Shortcuts dialog. Offers a
+   * keyboard-free pan alternative: set it to `'pan'` and two-finger swipe
+   * pans (orbit then requires ⌥).
+   */
+  readonly trackpadTwoFingerGesture = signal<TwoFingerGesture>(this.readTwoFingerGesture());
+
   /** Currently selected camera view preset. */
   readonly view = signal<ViewerView>('perspective');
 
@@ -75,6 +97,14 @@ export class ViewerControl {
   private lookTick = 0;
 
   /**
+   * Pending request to roll the camera about its view axis by `radians`
+   * (animated). Emitted by the viewport-cube's roll buttons; consumed by the
+   * viewer. The `tick` disambiguates repeated rolls in the same direction.
+   */
+  readonly rollRequest = signal<{ radians: number; tick: number } | null>(null);
+  private rollTick = 0;
+
+  /**
    * Direct callback for high-frequency incremental orbit deltas (radians).
    * Set by the viewer; invoked by the viewport-cube gizmo while the user
    * drags it. Bypasses signal/effect overhead.
@@ -85,6 +115,16 @@ export class ViewerControl {
   reset(): void {
     this.view.set('perspective');
     this.resetTick.update((v) => v + 1);
+  }
+
+  /** Update the two-finger swipe preference and persist it to localStorage. */
+  setTrackpadTwoFingerGesture(gesture: TwoFingerGesture): void {
+    this.trackpadTwoFingerGesture.set(gesture);
+    this.storage.write(TWO_FINGER_GESTURE_KEY, gesture);
+  }
+
+  private readTwoFingerGesture(): TwoFingerGesture {
+    return this.storage.get(TWO_FINGER_GESTURE_KEY)() === 'pan' ? 'pan' : 'orbit';
   }
 
   /**
@@ -99,5 +139,11 @@ export class ViewerControl {
       up: up.clone().normalize(),
       tick: this.lookTick,
     });
+  }
+
+  /** Ask the viewer to roll the camera about its view axis by `radians`. */
+  roll(radians: number): void {
+    this.rollTick += 1;
+    this.rollRequest.set({ radians, tick: this.rollTick });
   }
 }

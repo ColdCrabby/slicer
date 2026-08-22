@@ -486,6 +486,15 @@ impl EmitPayload for ShowResult<'_> {
             ),
             format!("  wall_transition_length: {} mm", p.wall_transition_length),
             format!("  wall_distribution_count: {}", p.wall_distribution_count),
+            format!("  wall_transition_angle: {}°", p.wall_transition_angle),
+            format!(
+                "  wall_transition_filter_distance: {} mm",
+                p.wall_transition_filter_distance
+            ),
+            format!(
+                "  wall_overlap_compensation: {}",
+                p.wall_overlap_compensation
+            ),
             format!("  infill_density: {:.0}%", p.infill_density * 100.0),
             format!("  print_speed: {} mm/s (fallback)", p.print_speed),
             format!("  perimeter_speed: {} mm/s", p.perimeter_speed),

@@ -109,6 +109,31 @@ pub(super) struct Block {
 pub(super) struct InternalLayer {
     pub(super) z: f32,
     pub(super) blocks: Vec<Block>,
+    /// Per-layer machine state (fan speeds, nozzle temp, active tool, layer
+    /// time) captured for the non-geometric "Color by" view modes.
+    pub(super) meta: LayerMeta,
+}
+
+/// Sticky machine state active during a layer, snapshotted for the viewer's
+/// per-layer color channels (fan / temperature / tool / layer time).
+#[derive(Debug, Clone, Default)]
+pub(super) struct LayerMeta {
+    /// Nozzle target temperature in °C, if a `M104`/`M109` was seen.
+    pub(super) nozzle_temp: Option<f32>,
+    /// Active tool/extruder index (`T0` by default).
+    pub(super) tool: u32,
+    /// Layer print time in seconds, if a `;LAYER_TIME:` marker was seen.
+    pub(super) layer_time_s: Option<f32>,
+    /// Per-fan speeds active on this layer, in first-seen order.
+    pub(super) fans: Vec<FanSample>,
+}
+
+/// One fan's speed on a layer. `key` is a stable correlation id across layers
+/// (`"P0"`, `"P2"`, or a Klipper fan name); `speed` is a `0.0..=1.0` fraction.
+#[derive(Debug, Clone)]
+pub(super) struct FanSample {
+    pub(super) key: String,
+    pub(super) speed: f32,
 }
 
 impl InternalLayer {
@@ -120,9 +145,11 @@ impl InternalLayer {
         Self {
             z,
             blocks: Vec::new(),
+            meta: LayerMeta::default(),
         }
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub(super) fn push_segment(
         &mut self,
         role: Role,
@@ -134,8 +161,9 @@ impl InternalLayer {
         z1: f32,
         width: f32,
         height: f32,
+        speed: f32,
     ) {
-        let segment_data = [x0, y0, z0, x1, y1, z1, width, height];
+        let segment_data = [x0, y0, z0, x1, y1, z1, width, height, speed];
         if let Some(last) = self.blocks.last_mut() {
             if last.role == role {
                 last.data.extend_from_slice(&segment_data);

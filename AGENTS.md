@@ -266,6 +266,12 @@ This section records hard-won understanding of how the slicing pipeline works an
 why specific design decisions were made. Read this before touching anything in
 [src/core/](src/core/) or [src/arachne/mod.rs](src/arachne/mod.rs).
 
+**Validate, don't guess.** [tools/gcode-analysis/](tools/gcode-analysis/README.md)
+measures sliced G-code directly — wall overlap (`coincident.py`), unfilled
+wall-zone gaps (`voids.py`), length-weighted bead widths (`widthdist.py`), and
+capsule/gap renders (`render.py`, `zoom.py`). Compare a change against the
+`classic` generator (the trusted reference) before claiming a fix.
+
 ### Pipeline Execution Order
 
 ```
@@ -398,6 +404,7 @@ infill within the ring.
 - [README.md](README.md) - User guide and feature overview
 - [SETUP_COMPLETE.md](SETUP_COMPLETE.md) - Initial setup record
 - [architecture-cli-layer-1.md](plan/architecture-cli-layer-1.md) - CLI layer implementation plan
+- [tools/gcode-analysis/](tools/gcode-analysis/README.md) - G-code quality diagnostics (wall overlap, unfilled gaps, bead widths, render/zoom)
 - [Clipper2 Documentation](https://github.com/AngusJohnson/Clipper2) - Polygon clipping reference
 
 ---

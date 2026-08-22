@@ -7,8 +7,8 @@
 //!
 //! | [`WallGenerator`] | Module | Status |
 //! | --- | --- | --- |
-//! | `Classic` | [`classic`] | Fixed-width concentric offsets + thin-wall gap fill (default) |
-//! | `Arachne` | [`arachne`] | Variable-width skeletal trapezoidation — **not yet implemented (panics)** |
+//! | `Classic` | [`classic`] | Fixed-width concentric offsets + thin-wall gap fill |
+//! | `Arachne` | [`arachne`] | Medial-axis offset loops + variable-width gap fill (default) |
 //!
 //! Both generators emit the same output shape — the layer's `OuterWall` /
 //! `InnerWall` contours are replaced with bead paths and per-path widths, and
@@ -42,8 +42,9 @@ pub fn generate_walls(layers: &mut [SliceLayer], params: &SlicingParams) -> Wall
 /// Debug-mode counterpart to [`generate_walls`].
 ///
 /// Runs the selected generator sequentially (no `rayon`) so intermediate
-/// geometry can be captured into `debug` for visual inspection.  The Arachne
-/// generator does not yet emit debug snapshots (it runs normally).
+/// geometry can be captured into `debug` for visual inspection.  Only the
+/// classic generator captures debug snapshots; the Arachne generator runs
+/// normally.
 #[cfg(not(target_arch = "wasm32"))]
 pub fn generate_walls_debug(
     layers: &mut [SliceLayer],
@@ -72,14 +73,16 @@ mod tests {
         layer.paths.push(sq);
         layer.path_roles.push(ExtrusionRole::OuterWall);
         layer.path_widths.push(None);
+        layer.path_vertex_widths.push(None);
+        layer.path_is_open.push(false);
         layer
     }
 
     #[test]
-    fn classic_is_the_default_generator() {
+    fn arachne_is_the_default_generator() {
         assert_eq!(
             SlicingParams::default().wall_generator,
-            WallGenerator::Classic
+            WallGenerator::Arachne
         );
     }
 

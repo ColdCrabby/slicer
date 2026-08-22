@@ -6,7 +6,9 @@ use crate::settings::params::{SeamPosition, SlicingParams};
 
 use super::infill::{add_infill_to_layers, calculate_interior_region};
 use super::slicer::slice_mesh;
-use super::surfaces::{generate_top_bottom_surfaces_with_interior, SurfaceConfig};
+use super::surfaces::{
+    generate_top_bottom_surfaces_with_interior, prune_redundant_gap_fill, SurfaceConfig,
+};
 use super::types::{ExtrusionRole, SliceLayer};
 use super::walls::{apply_single_wall_restrictions, classify_overhang_perimeters};
 
@@ -217,6 +219,13 @@ pub fn process_mesh(
         let t_overhang = PhaseTimer::start("Overhang Perimeter Classification", logger);
         classify_overhang_perimeters(&mut layers, params.nozzle_diameter_mm);
         t_overhang.finish();
+
+        // Drop gap-fill beads that land inside a solid surface: the solid infill
+        // covers them, so they'd otherwise sit as scattered variable-width
+        // islands on the uniform surface.  Genuine gap fill in sparse zones and
+        // thin ribs (outside solid_regions) is preserved.
+        logger.log_debug("pruning redundant gap fill inside solid surfaces");
+        prune_redundant_gap_fill(&mut layers);
     }
 
     // Add infill
@@ -256,6 +265,7 @@ pub fn process_mesh(
         let mut ordered_paths = clipper2::Paths::default();
         let mut ordered_roles = Vec::with_capacity(path_count);
         let mut ordered_widths = Vec::with_capacity(path_count);
+        let mut ordered_vertex_widths: Vec<Option<Vec<f64>>> = Vec::with_capacity(path_count);
         let mut ordered_is_open = Vec::with_capacity(path_count);
 
         let mut current_pos = (0.0, 0.0);
@@ -402,6 +412,20 @@ pub fn process_mesh(
                 ordered_paths.push(final_path);
                 ordered_roles.push(layer.role_for_path(best_path_idx));
                 ordered_widths.push(layer.width_for_path(best_path_idx));
+                // Reorder any per-vertex widths with the same rotation/reversal
+                // applied to the path vertices above.
+                ordered_vertex_widths.push(layer.vertex_widths_for_path(best_path_idx).map(|vw| {
+                    let n = vw.len();
+                    if best_is_closed && best_seam_vertex != 0 && n > 0 {
+                        (0..n).map(|k| vw[(best_seam_vertex + k) % n]).collect()
+                    } else if best_reverse {
+                        let mut r = vw;
+                        r.reverse();
+                        r
+                    } else {
+                        vw
+                    }
+                }));
                 ordered_is_open.push(layer.is_path_open(best_path_idx));
             }
         }
@@ -409,9 +433,17 @@ pub fn process_mesh(
         layer.paths = ordered_paths;
         layer.path_roles = ordered_roles;
         layer.path_widths = ordered_widths;
+        layer.path_vertex_widths = ordered_vertex_widths;
         layer.path_is_open = ordered_is_open;
     }
     t_tsp.finish();
+
+    // Wall overlap flow compensation — scale extrusion down where wall beads
+    // overlap (tight slots, hairpins, acute concave corners).  Runs last so the
+    // per-vertex widths it writes align with the final ordered/seamed geometry.
+    let t_flow = PhaseTimer::start("Flow Compensation", logger);
+    crate::flow::compensate(&mut layers, params);
+    t_flow.finish();
 
     layers
 }
@@ -595,6 +627,8 @@ pub fn process_mesh_debug(
         debug.len(),
         layers.len()
     ));
+
+    crate::flow::compensate(&mut layers, params);
 
     layers
 }
