@@ -279,6 +279,54 @@ fn compute_wall_bead_footprint(layer: &SliceLayer, nozzle_diameter_mm: f64) -> P
     acc
 }
 
+/// Physical bead footprint of only the **gap-fill** beads on a layer, each
+/// variable-width centerline inflated by its half-width.
+///
+/// Sparse infill and top/bottom solid surfaces subtract this so they abut —
+/// never re-extrude over — the Arachne gap fill (which the wall-inset infill /
+/// surface region calculation does not otherwise account for).  Gap-fill beads
+/// number in the tens per layer, so a per-path inflate + union is ample (no
+/// need for the width-bucketing [`compute_wall_bead_footprint`] uses for the
+/// thousands of wall beads).
+pub(super) fn compute_gap_fill_footprint(layer: &SliceLayer, nozzle_diameter_mm: f64) -> Paths {
+    let default_radius = nozzle_diameter_mm * 0.5;
+    let mut acc = Paths::new(vec![]);
+    for (i, path) in layer.paths.iter().enumerate() {
+        if layer.role_for_path(i) != ExtrusionRole::GapFill {
+            continue;
+        }
+        let radius = layer
+            .width_for_path(i)
+            .map(|w| w * 0.5)
+            .unwrap_or(default_radius);
+        if radius <= 1e-6 {
+            continue;
+        }
+        // Gap fill is emitted as open polylines; round caps span both sides.
+        let end_type = if layer.is_path_open(i) {
+            EndType::Round
+        } else {
+            EndType::Joined
+        };
+        let fp = clipper2::inflate(
+            Paths::new(vec![path.clone()]),
+            radius,
+            JoinType::Round,
+            end_type,
+            2.0,
+        );
+        if fp.is_empty() {
+            continue;
+        }
+        acc = if acc.is_empty() {
+            fp
+        } else {
+            union(acc, fp, FillRule::NonZero).unwrap_or_default()
+        };
+    }
+    acc
+}
+
 /// Drop sub-paths whose absolute signed area is below `min_area_mm2`.
 ///
 /// `Paths::signed_area()` would only sum the whole set; we filter individually.
@@ -1465,6 +1513,24 @@ pub fn generate_top_bottom_surfaces_with_interior(
                 infill_ns += t.elapsed().as_nanos();
             }
         }
+
+        // Subtract the gap-fill bead footprint so solid surfaces abut — never
+        // over-print — the variable-width Arachne gap fill.
+        let (bottom_region, top_region) = {
+            let gap_fp = compute_gap_fill_footprint(&layers[i], nozzle_diameter_mm);
+            if gap_fp.is_empty() {
+                (bottom_region, top_region)
+            } else {
+                let sub = |r: Paths| {
+                    if r.is_empty() {
+                        r
+                    } else {
+                        difference(r, gap_fp.clone(), FillRule::EvenOdd).unwrap_or_default()
+                    }
+                };
+                (sub(bottom_region), sub(top_region))
+            }
+        };
 
         if !bottom_region.is_empty() {
             #[cfg(not(target_arch = "wasm32"))]

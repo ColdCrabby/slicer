@@ -11,8 +11,6 @@ import math
 import numpy as np
 from collections import deque
 
-PATH = sys.argv[1]
-TARGET = int(sys.argv[2]) if len(sys.argv) > 2 else 60
 RES = 0.08  # mm/cell
 NOZ = 0.40
 GAP_MAX = 2.5 * NOZ  # 1.0 mm: voids thinner than this are wall-zone gaps
@@ -129,11 +127,13 @@ def fill_holes(cov):
 
 
 def main():
-    layers = parse_layers(PATH)
-    if TARGET >= len(layers):
+    path = sys.argv[1] if len(sys.argv) > 1 else "arachne.gcode"
+    target = int(sys.argv[2]) if len(sys.argv) > 2 else 60
+    layers = parse_layers(path)
+    if target >= len(layers):
         print("layer out of range", len(layers))
         return
-    segs = layers[TARGET]
+    segs = layers[target]
     xs = [s[0] for s in segs] + [s[2] for s in segs]
     ys = [s[1] for s in segs] + [s[3] for s in segs]
     ox, oy = min(xs) - 2, min(ys) - 2
@@ -158,7 +158,7 @@ def main():
     wall_gap = thin_voids & near_wall & ~near_inf
 
     ca = RES * RES
-    print(f"layer {TARGET}: thin void {thin_voids.sum()*ca:6.2f}mm^2 | "
+    print(f"layer {target}: thin void {thin_voids.sum()*ca:6.2f}mm^2 | "
           f"WALL-ZONE gap {wall_gap.sum()*ca:6.2f}mm^2")
 
     # connected components of wall_gap: are these few long gaps or many short?

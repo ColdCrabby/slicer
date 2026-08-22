@@ -214,6 +214,19 @@ pub fn add_infill_to_layers(
             infill_area
         };
 
+        // Subtract the gap-fill bead footprint so sparse infill abuts — never
+        // re-extrudes over — the variable-width Arachne gap fill.
+        let gap_fp = super::surfaces::compute_gap_fill_footprint(layer, nozzle_diameter_mm);
+        let infill_area = if gap_fp.is_empty() {
+            infill_area
+        } else {
+            let remaining = difference(infill_area, gap_fp, FillRule::Positive).unwrap_or_default();
+            if remaining.is_empty() {
+                return None;
+            }
+            remaining
+        };
+
         let base_angle_rad = infill_base_angle.to_radians();
         let angle_offset = if layer_idx.is_multiple_of(2) {
             base_angle_rad

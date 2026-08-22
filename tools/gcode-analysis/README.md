@@ -35,6 +35,7 @@ printf '[slicing]\nwall_generator = "classic"\n' > /tmp/classic.toml
 | `widthdist.py` | **Length-weighted** extrusion-width histogram per role (marker-count stats over-weight short shed corners). | `widthdist.py <gcode> [wall\|gap\|all]` |
 | `render.py` | Two generators side-by-side, red = wall-zone gap. Best for locating gaps. | `render.py <gcodeA> [layer=60] [gcodeB] [out.png]` |
 | `zoom.py` | Zoomed region drawing every bead as a filled capsule at its **actual `;WIDTH:`**, so you can see whether gap-fill beads truly span their gap. | `zoom.py <gcode> [layer] [cx] [cy] [half] [out.png]` |
+| `overlap.py` | **Cross-role double-extrusion**: pairwise footprint intersection between every role pair, with a ¼-nozzle-eroded **BODY** column that strips the expected boundary seam and leaves genuine bead-on-bead overlap (e.g. sparse infill re-extruding over a gap-fill bead). | `overlap.py <gcode> [layer\|all]` |
 
 ### Examples
 
@@ -52,7 +53,18 @@ python3 tools/gcode-analysis/widthdist.py /tmp/arachne.gcode wall
 # Locate the gaps (red) side-by-side, then zoom into one at (x,y) with a ±3mm window
 python3 tools/gcode-analysis/render.py /tmp/arachne.gcode 60 /tmp/classic.gcode /tmp/layer60.png
 python3 tools/gcode-analysis/zoom.py  /tmp/arachne.gcode 60 -11.5 -1 3.5 /tmp/hull.png
+
+# Which roles double-extrude over each other (e.g. infill over gap fill)? Compare to classic.
+python3 tools/gcode-analysis/overlap.py /tmp/arachne.gcode all
+python3 tools/gcode-analysis/overlap.py /tmp/classic.gcode all
 ```
+
+> **Reading `overlap.py`.** Wall×surface and wall×infill body-overlap is largely
+> the *designed* `infill_overlap_percent` bond and shows up in **both**
+> generators — the signal is the **arachne − classic delta** and any
+> **gap-fill** pair (`Gap infill × …`), which is pure Arachne and should be near
+> zero. A large `Gap infill × Sparse infill` means the infill region was not
+> clipped against the gap-fill footprint.
 
 ## Example output
 
