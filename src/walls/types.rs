@@ -25,6 +25,9 @@ pub struct WallParams {
     /// Minimum spacing (mm) between adjacent bead-count transitions; shorter
     /// count spikes are de-noised by the Arachne-walk count smoother.
     pub wall_transition_filter_distance_mm: f64,
+    /// Minimum medial gap-fill run length in mm; shorter runs are dropped as
+    /// faceting noise.  `0` keeps every run that spans at least one segment.
+    pub gap_fill_min_length_mm: f64,
 }
 
 impl WallParams {
@@ -39,6 +42,7 @@ impl WallParams {
             wall_distribution_count: params.wall_distribution_count,
             wall_transition_threshold: params.wall_transition_threshold,
             wall_transition_filter_distance_mm: params.wall_transition_filter_distance,
+            gap_fill_min_length_mm: params.gap_fill_min_length_mm,
         }
     }
 }

@@ -666,7 +666,7 @@ Set to `0` to fall back to `perimeter_speed` (then `print_speed`).
 
 Gap-fill beads shorter than this are dropped to avoid stringy sub-millimetre
 dribbles the medial pass finds along faceted boundaries.  Set to `0` to use the
-automatic default (2 × nozzle diameter).
+automatic default (one nozzle diameter).
 **Typical:** 0.4–1.0 mm.",
         extend("x-group" = "Walls")
     )]
@@ -680,10 +680,14 @@ Where wall beads run closer than their combined width — tight slots, ~180°
 hairpins, acute concave corners — a bead would deposit material into space an
 adjacent bead already filled (over-extrusion, blobs).  This scales extrusion
 *down* across the overlap so the total deposited volume stays correct.  `0.0`
-disables it; `1.0` fully compensates.  Applies to the Arachne wall generators
-(`arachne`, `arachne_walk`); Classic fills thin residual via bead-width
-distribution instead.
-**Default:** 1.0.",
+disables it; `1.0` fully compensates.
+
+The Arachne generators already place non-overlapping beads (overlap is removed in
+the coverage/beading step and gap fill lives in the *uncovered* residual), so
+compensation is unnecessary there and **off by default** — enabling it would
+shed clean walls that abut gap fill at nominal spacing.  Raise it only for a
+generator that emits genuinely overlapping walls.
+**Default:** 0.0.",
         extend("x-group" = "Walls")
     )]
     #[serde(default = "SlicingParams::default_wall_overlap_compensation")]
@@ -1095,7 +1099,7 @@ impl SlicingParams {
     }
 
     fn default_wall_overlap_compensation() -> f64 {
-        1.0
+        0.0
     }
 
     fn default_first_layer_speed() -> f64 {

@@ -127,73 +127,24 @@ fn generate_arachne_walls_for_layer(layer: &mut SliceLayer, params: &WallParams)
     let mut new_vwidths: Vec<Option<Vec<f64>>> = Vec::new();
     let mut new_open: Vec<bool> = Vec::new();
 
-    // ── Concentric loops ─────────────────────────────────────────────────────
-    // Emit perimeter loops exactly like the classic generator (same offsets,
-    // sharp corners preserved), collecting each centerline so we can compute
-    // what the loops actually cover.
-    let mut loop_centerlines: Vec<Path> = Vec::new();
-    let mut last = normalised.clone();
-    for _k in 0..params.wall_count {
-        let inset = simplify(
-            inflate(
-                last.clone(),
-                -0.5 * d,
-                JoinType::Round,
-                EndType::Polygon,
-                2.0,
-            ),
-            tol,
-            false,
-        );
-        if inset.is_empty() {
-            break;
-        }
-        let k = loop_centerlines.is_empty();
-        for p in inset.iter() {
-            new_paths.push(p.clone());
-            new_roles.push(if k {
-                ExtrusionRole::OuterWall
-            } else {
-                ExtrusionRole::InnerWall
-            });
-            new_widths.push(Some(d));
-            new_vwidths.push(None);
-            new_open.push(false);
-            loop_centerlines.push(p.clone());
-        }
-        last = simplify(
-            inflate(last, -d, JoinType::Round, EndType::Polygon, 2.0),
-            tol,
-            false,
-        );
-        if last.is_empty() {
-            break;
-        }
-    }
-
-    // ── Residual medial fill from actual loop coverage ───────────────────────
-    // The material a loop lays down is a `d`-wide band about its centerline.
-    // Whatever the union of those bands does NOT cover is the true residual —
-    // an enclosed thin gap between the innermost walls (e.g. the centre of the
-    // Benchy cargo-box wall).  Deriving it from coverage (rather than the eroded
-    // `last`) avoids the dead zone where the onion-peel emits degenerate sliver
-    // loops into a thin band instead of leaving it to be filled.  Evaluated per
-    // island so a thick infill core cannot suppress a thin gap elsewhere.
-    let mut covered = Paths::new(vec![]);
-    for lp in &loop_centerlines {
-        let band = inflate(
-            Paths::new(vec![lp.clone()]),
-            0.5 * d,
-            JoinType::Round,
-            EndType::Joined,
-            2.0,
-        );
-        covered = union(covered.clone(), band, FillRule::NonZero).unwrap_or(covered);
-    }
-    let uncovered = difference(normalised, covered, FillRule::NonZero).unwrap_or_default();
-    for island in split_islands(&uncovered) {
-        medial_fill(
+    // Offset loops + residual medial gap-fill, evaluated per island so a thick
+    // infill core on one island cannot suppress a thin gap on another.  The
+    // shared helper opens each inner ring's source region so a loop never traces
+    // a sub-2·d neck on top of itself; those necks fall through to medial fill.
+    for island in split_islands(&normalised) {
+        let loops = emit_offset_loops(
             &island,
+            params,
+            tol,
+            &mut new_paths,
+            &mut new_roles,
+            &mut new_widths,
+            &mut new_vwidths,
+            &mut new_open,
+        );
+        emit_residual_medial_fill(
+            &island,
+            &loops,
             params,
             &mut new_paths,
             &mut new_roles,
@@ -237,22 +188,29 @@ pub(super) fn emit_offset_loops(
     let d = params.nozzle_diameter_mm;
     let mut loop_centerlines: Vec<Path> = Vec::new();
     let mut last = island.clone();
-    for _k in 0..params.wall_count {
-        let inset = simplify(
-            inflate(
-                last.clone(),
-                -0.5 * d,
-                JoinType::Round,
-                EndType::Polygon,
-                2.0,
-            ),
-            tol,
-            false,
-        );
-        if inset.is_empty() {
-            break;
-        }
-        let is_outer = loop_centerlines.is_empty();
+    for k in 0..params.wall_count {
+        let is_outer = k == 0;
+        // Inner loops are offset from the *opened* remaining region.  A full loop
+        // in a neck thinner than 2·d would trace both surfaces on top of itself —
+        // the coincident inner beads that render as an over-extruded seam.
+        // Opening drops that neck so the loop closes cleanly around it, leaving
+        // the neck to the variable-width medial fill: the single-bead-in-a-thin-
+        // feature behaviour of a proper Arachne pass.  The outer ring is never
+        // opened so the perimeter keeps tracing the model surface exactly.
+        let base = if is_outer {
+            last.clone()
+        } else {
+            morph_open(&last, d, tol)
+        };
+        let inset = if base.is_empty() {
+            Paths::new(vec![])
+        } else {
+            simplify(
+                inflate(base, -0.5 * d, JoinType::Round, EndType::Polygon, 2.0),
+                tol,
+                false,
+            )
+        };
         for p in inset.iter() {
             paths.push(p.clone());
             roles.push(if is_outer {
@@ -275,6 +233,22 @@ pub(super) fn emit_offset_loops(
         }
     }
     loop_centerlines
+}
+
+/// Morphological opening by radius `r`: erode then dilate, dropping features
+/// narrower than `2·r` while leaving thicker regions (their convex corners
+/// rounded by `r`) intact.  Used to keep an inner offset loop out of the necks
+/// where it would otherwise trace both surfaces on top of itself.
+fn morph_open(paths: &Paths, r: f64, tol: f64) -> Paths {
+    let eroded = inflate(paths.clone(), -r, JoinType::Round, EndType::Polygon, 2.0);
+    if eroded.is_empty() {
+        return Paths::new(vec![]);
+    }
+    simplify(
+        inflate(eroded, r, JoinType::Round, EndType::Polygon, 2.0),
+        tol,
+        false,
+    )
 }
 
 /// Fill the residual an island's offset `loops` leave uncovered with medial
@@ -361,6 +335,11 @@ fn polyline_len(pts: &[(f64, f64)]) -> f64 {
         .sum()
 }
 
+/// Spur-prune ratio for medial gap fill (same basis as the Arachne walk): drop a
+/// leaf medial edge whose boundary end collapses below this fraction of its
+/// interior neighbour's radius, so faceting spurs don't shatter a gap spine.
+const GAP_SPUR_PRUNE_RATIO: f64 = 0.6;
+
 /// Medial-fill a (thin) region: emit variable-width open beads along its medial
 /// axis wherever the local thickness (2·radius) is a printable `[min, max]`
 /// width.  Thicker sub-regions get no bead — they are left for infill — and
@@ -381,29 +360,23 @@ fn medial_fill(
     if region.is_empty() {
         return;
     }
-    // Fill only regions that are thin *everywhere* — a genuine thin feature or a
-    // narrow residual gap that a single bead can span.  A thicker region is
-    // infill (or needs another wall); medial-filling it would spray a spurious
-    // bead along every contour where the thickness lands in range, flooding the
-    // layer.  The single-bead ceiling is `gap_max` (2.5× nozzle): a 0.4 mm nozzle
-    // can lay a ~1 mm line, so a residual up to that is closed with one
-    // appropriately-sized bead rather than left as a void.  If eroding by half
-    // `gap_max` leaves anything, the region has a thick core → skip.
-    let gap_max = 2.5 * params.nozzle_diameter_mm;
-    let thick_core = inflate(
-        region.clone(),
-        -0.5 * gap_max,
-        JoinType::Round,
-        EndType::Polygon,
-        2.0,
-    );
-    if !thick_core.is_empty() {
-        return;
-    }
+    // Skeletonise the whole residual and let `emit_medial_beads` decide, per
+    // node, what is thin enough to fill: a bead is laid only where the local
+    // thickness is a printable width (`≤ gap_max`), so a thick infill cavity in
+    // the same island contributes no bead while a thin neck opening into it is
+    // still filled as ONE continuous run.  An earlier version split the thin
+    // shell off first (an erode/dilate difference); that shredded every gap into
+    // thousands of sub-millimetre stubs which then had to be dropped as noise —
+    // reopening the very gaps it was meant to close.  Skeletonising the residual
+    // whole keeps each gap a single continuous chain that a modest `min_len`
+    // cleanly separates from the short spurs a cavity boundary throws off.
     let Some((diagram, offset)) = build_voronoi_safe(region) else {
         return;
     };
-    let skel = build_skeleton(region, &diagram, offset);
+    // Prune the boundary spurs a segment Voronoi grows at every facet vertex, so
+    // a gap becomes one continuous degree-2 spine rather than a burst of stubs
+    // that `min_len` must either drop (reopening the gap) or emit (bead noise).
+    let skel = build_skeleton(region, &diagram, offset).prune_boundary_spurs(GAP_SPUR_PRUNE_RATIO);
     for chain in skel.chains() {
         emit_medial_beads(
             &chain,
@@ -435,12 +408,17 @@ fn emit_medial_beads(
 ) {
     // A single bead may span up to 2.5× the nozzle diameter; the gap bead's
     // width is the actual local thickness so the residual is filled exactly.
-    // Runs shorter than `min_len` are dropped: a real gap (e.g. a box-wall ring)
-    // runs for millimetres, whereas the coverage `difference` leaves sub-mm
-    // slivers along faceted boundaries that would otherwise become bead noise.
+    // Runs shorter than `min_len` are dropped as faceting noise; the spur prune
+    // in `medial_fill` already collapsed most stubs, so `min_len` only trims the
+    // few that survive.  `0` selects an automatic floor of one nozzle diameter —
+    // low enough to still close the medium gaps a 2×-nozzle floor abandoned.
     let min_w = params.wall_line_width_min_mm;
     let gap_max = 2.5 * params.nozzle_diameter_mm;
-    let min_len = 2.0 * params.nozzle_diameter_mm;
+    let min_len = if params.gap_fill_min_length_mm > 0.0 {
+        params.gap_fill_min_length_mm
+    } else {
+        params.nozzle_diameter_mm
+    };
     let mut run: Vec<(f64, f64)> = Vec::new();
     let mut run_w: Vec<f64> = Vec::new();
 

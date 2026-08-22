@@ -29,6 +29,13 @@ This module mirrors that choice, with the Arachne side delivered in two stages:
 - **`Classic`** — implemented and the **default**.
 - **`Arachne`** — medial-axis **offset loops** (constant-`d` perimeters whose
   count adapts locally) plus **variable-width medial gap fill** of the residual.
+  Each **inner** loop is offset from the *morphologically opened* remaining
+  region (`open(region, d)`), so a loop can never trace a sub-`2d` neck on top of
+  itself — the coincident-bead seam that reads as over-extrusion. Those necks
+  fall through to the variable-width medial gap fill instead. Overlap is resolved
+  by geometry, not by post-hoc flow compensation
+  (`wall_overlap_compensation` is **off by default**; see
+  [flow](../flow/mod.rs) and `plan/architecture-arachne-flow-1.md` §7).
 - **`ArachneWalk`** — opt-in **skeletal-trapezoidation walk**: every bead gets a
   *per-vertex* width from the **local** wall thickness, so uneven / tapering
   walls are correctly sized at each point. Thin islands are walked; thick ones

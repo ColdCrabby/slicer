@@ -23,6 +23,12 @@ const WIDTH_EPSILON: f64 = 1e-6;
 /// resolution.
 const WIDTH_SIMPLIFY_TOL_MM: f64 = 0.02;
 
+/// Width step (mm) at which a variable-width bead re-emits a `;WIDTH:` marker
+/// mid-path, so viewers/post-processors render the actual (flow-compensated)
+/// bead width rather than the nominal scalar.  Coarse enough (0.05 mm) to keep
+/// the marker count \u2014 and G-code size \u2014 bounded, fine enough to show the taper.
+const WIDTH_MARKER_STEP_MM: f64 = 0.05;
+
 /// Estimate the print time for a layer in seconds.
 ///
 /// Sums the total XY move distance for all paths in the layer and divides by
@@ -536,14 +542,23 @@ impl GcodeGenerator {
                 // Emit ;TYPE: / ;WIDTH: annotation when the role OR extrusion
                 // width changes.  This ensures slicers / post-processors always
                 // see an up-to-date WIDTH comment before each wall bead.
+                //
+                // For variable-width beads the header advertises the *first*
+                // segment's width (not the scalar mean), and the per-segment
+                // loop below re-emits `;WIDTH:` as the width steps — so a viewer
+                // renders the real, flow-compensated bead profile.
+                let header_width = match &vertex_widths {
+                    Some(vw) if vw.len() >= 2 => 0.5 * (vw[0] + vw[1]),
+                    _ => width_mm,
+                };
                 if self.marker_config.enabled {
                     let role_changed = last_role != Some(role);
                     let width_changed =
-                        last_width.is_none_or(|w| (w - width_mm).abs() > WIDTH_EPSILON);
+                        last_width.is_none_or(|w| (w - header_width).abs() > WIDTH_EPSILON);
 
                     if role_changed || width_changed {
                         let type_name = role.type_name();
-                        let width_str = format!("{:.2}", width_mm);
+                        let width_str = format!("{:.2}", header_width);
 
                         let type_ann = self
                             .marker_config
@@ -574,7 +589,7 @@ impl GcodeGenerator {
                         out.push('\n');
 
                         last_role = Some(role);
-                        last_width = Some(width_mm);
+                        last_width = Some(header_width);
                     }
                 }
 
@@ -816,10 +831,34 @@ impl GcodeGenerator {
                             prev = (x, y);
                             continue;
                         }
+                        let sw = seg_width(i - 1);
+                        // Variable-width beads: re-emit ;WIDTH: as the width
+                        // steps so the viewer renders the compensated (thinner)
+                        // bead where walls overlap, not the nominal width.
+                        if self.marker_config.enabled
+                            && vertex_widths.is_some()
+                            && last_width.is_none_or(|w| (w - sw).abs() > WIDTH_MARKER_STEP_MM)
+                        {
+                            let width_str = format!("{:.2}", sw);
+                            let width_ann = self
+                                .marker_config
+                                .width_annotation
+                                .as_deref()
+                                .unwrap_or(";WIDTH:{width}mm");
+                            out.push_str(&render_marker(
+                                width_ann,
+                                &z_str,
+                                &height_str,
+                                role.type_name(),
+                                &width_str,
+                            ));
+                            out.push('\n');
+                            last_width = Some(sw);
+                        }
                         e_total += extrusion_for_move(
                             len,
                             params.layer_height,
-                            seg_width(i - 1),
+                            sw,
                             params.filament_diameter_mm,
                         );
                         out.push_str(&format!(
