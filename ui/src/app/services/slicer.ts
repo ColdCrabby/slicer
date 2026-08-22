@@ -121,6 +121,13 @@ export class Slicer {
   /** Resolved download URL for the last completed slice, or `null` when none. */
   readonly gcodeDownloadUrl = signal<string | null>(null);
 
+  /**
+   * Object IDs (stringified) of the scene captured for the most recent slice.
+   * Consumers compare successive sets to tell a resliced scene (shared ids)
+   * from a brand-new one (fully disjoint ids).
+   */
+  readonly slicedObjectIds = signal<readonly string[]>([]);
+
   /** Name of the pipeline phase currently executing, or `null` when idle. */
   readonly currentPhase = signal<string | null>(null);
   private objectUrl: string | null = null;
@@ -393,6 +400,10 @@ export class Slicer {
         settings: this.settings() as unknown as Record<string, unknown>,
       });
 
+      // Record which objects this slice was produced from so the viewer can
+      // preserve its layer/progress/coloring when the same scene is resliced.
+      this.slicedObjectIds.set(scene.objects.map((object) => object.id));
+
       const preview = await this.orchestrator.getPreviewSource(result.sliceId);
       if (preview.kind === 'download-url') {
         this.setDownloadUrl(preview.url);
@@ -442,6 +453,7 @@ export class Slicer {
     this.phaseTimings.set([]);
     this.currentPhase.set(null);
     this.setDownloadUrl(null);
+    this.slicedObjectIds.set([]);
   }
 
   getHistory(): Promise<RuntimeHistorySession[]> {

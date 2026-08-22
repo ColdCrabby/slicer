@@ -1,4 +1,4 @@
-import { Injectable, computed, effect, inject, signal } from '@angular/core';
+import { Injectable, computed, effect, inject, signal, untracked } from '@angular/core';
 import init, { GcodeHandle } from '../../generated/scene-wasm/scene_engine';
 import { AppTheme } from './app-theme';
 import { Slicer } from './slicer';
@@ -216,6 +216,9 @@ export class GcodePreview {
   private readonly slicer = inject(Slicer);
   private readonly appTheme = inject(AppTheme);
 
+  /** Object-id set of the previously loaded slice, for scene-change detection. */
+  #lastSlicedObjectIds: ReadonlySet<string> | null = null;
+
   /** Parsed handle — `null` until a slice download URL is available. */
   readonly gcodeHandle = signal<GcodeHandle | null>(null);
 
@@ -319,8 +322,44 @@ export class GcodePreview {
 
   // ── Private ──────────────────────────────────────────────────────────────
 
+  /**
+   * A reslice is the *same* scene when it shares at least one object id with
+   * the previous slice. Moving, adding or removing objects keeps some ids (ids
+   * are monotonic and never reused), so only a fully disjoint set — a brand-new
+   * scene — returns `false`.
+   */
+  #isSameScene(current: ReadonlySet<string>): boolean {
+    const prev = this.#lastSlicedObjectIds;
+    if (!prev || prev.size === 0 || current.size === 0) {
+      return false;
+    }
+    for (const id of current) {
+      if (prev.has(id)) {
+        return true;
+      }
+    }
+    return false;
+  }
+
   async #loadFromUrl(url: string): Promise<void> {
     this.loading.set(true);
+
+    // Decide — without subscribing this reactive context to the signals read
+    // here — whether this reslice is the same scene as the last, and snapshot
+    // the outgoing layer position so it can be carried across the reslice.
+    const carry = untracked(() => {
+      const prevCount = this.layerCount();
+      const prevMax = this.layerMax();
+      const sceneIds = new Set(this.slicer.slicedObjectIds());
+      const sameScene = this.#isSameScene(sceneIds);
+      this.#lastSlicedObjectIds = sceneIds;
+      return {
+        sameScene,
+        prevMax,
+        wasAtTop: prevCount === 0 || prevMax >= prevCount - 1,
+      };
+    });
+
     this.gcodeHandle.set(null);
     try {
       await init({ module_or_path: 'scene_engine_bg.wasm' });
@@ -330,11 +369,22 @@ export class GcodePreview {
       const count = handle.layerCount();
       this.speedRange.set(computeSpeedRange(handle));
       this.gcodeHandle.set(handle);
-      this.layerMax.set(Math.max(0, count - 1));
-      this.segmentProgress.set(1);
-      this.hiddenRoles.set(new Set<RoleName>());
-      this.showAllLayers.set(true);
-      this.viewMode.set('category');
+
+      if (carry.sameScene) {
+        // Same scene resliced (objects moved / added / removed): keep the
+        // user's current layer, progress, coloring mode and role toggles. If
+        // they were viewing the whole model (top layer), stay pinned to the
+        // new top even when the layer count changed.
+        const layer = carry.wasAtTop ? count - 1 : Math.min(carry.prevMax, count - 1);
+        this.layerMax.set(Math.max(0, layer));
+      } else {
+        // Brand-new scene: reset the viewer to its defaults.
+        this.layerMax.set(Math.max(0, count - 1));
+        this.segmentProgress.set(1);
+        this.hiddenRoles.set(new Set<RoleName>());
+        this.showAllLayers.set(true);
+        this.viewMode.set('category');
+      }
     } catch (error) {
       console.error('[GcodePreview] Failed to load gcode:', error);
     } finally {
