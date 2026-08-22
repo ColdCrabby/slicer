@@ -10,6 +10,17 @@ fn seam_dot_radius(layer_height_mm: f32) -> f32 {
     (diameter * 0.5).max(MIN_SEAM_DOT_RADIUS_MM)
 }
 
+/// Parse the leading real number from a marker value, tolerating the unit suffix
+/// the generator appends (e.g. `WIDTH:0.8mm`).  A bare `parse::<f32>()` rejects
+/// the `mm`, which silently pinned every bead to the default width.
+fn parse_leading_f32(value: &str) -> Option<f32> {
+    let value = value.trim();
+    let end = value
+        .find(|c: char| !(c.is_ascii_digit() || c == '.' || c == '-' || c == '+'))
+        .unwrap_or(value.len());
+    value[..end].parse::<f32>().ok()
+}
+
 /// Parse `bytes` as UTF-8 GCode and return one [`InternalLayer`] per detected
 /// layer change, plus any segments that appear before the first layer marker
 /// in layer 0.
@@ -194,11 +205,11 @@ pub(super) fn process_comment(
             }
         }
     } else if let Some(width_val) = trimmed.strip_prefix("WIDTH:") {
-        if let Ok(w) = width_val.parse::<f32>() {
+        if let Some(w) = parse_leading_f32(width_val) {
             *width = w;
         }
     } else if let Some(height_val) = trimmed.strip_prefix("HEIGHT:") {
-        if let Ok(h) = height_val.parse::<f32>() {
+        if let Some(h) = parse_leading_f32(height_val) {
             *height = h;
         }
     } else if let Some(height_val) = trimmed.strip_prefix("LAYER_HEIGHT:") {
@@ -275,6 +286,35 @@ G1 X20 Y10 Z0.4 E7.0
             zs.iter().any(|&z| (z - 0.2).abs() < 0.01),
             "expected z=0.2 layer, got {:?}",
             zs
+        );
+    }
+
+    #[test]
+    fn width_marker_with_mm_suffix_is_parsed() {
+        // Regression: the generator emits `;WIDTH:0.8mm`; a bare `parse::<f32>()`
+        // rejected the `mm` suffix and pinned every bead to the 0.4 default,
+        // hiding the variable-width gap fill so wide gaps looked unfilled.
+        assert!((parse_leading_f32("0.8mm").unwrap() - 0.8).abs() < 1e-6);
+        assert!((parse_leading_f32("0.42mm").unwrap() - 0.42).abs() < 1e-6);
+        assert!((parse_leading_f32("0.4").unwrap() - 0.4).abs() < 1e-6);
+        assert!(parse_leading_f32("mm").is_none());
+
+        let gcode = "\
+;TYPE:Outer wall
+;WIDTH:0.80mm
+G1 X0 Y0 Z0.2 E0 F1800
+G1 X10 Y0 Z0.2 E1.0
+";
+        let layers = parse_gcode_bytes(gcode.as_bytes());
+        let w = layers
+            .iter()
+            .flat_map(|l| &l.blocks)
+            .find(|b| b.role == Role::OuterWall)
+            .map(|b| b.data[6])
+            .expect("outer-wall segment");
+        assert!(
+            (w - 0.8).abs() < 1e-6,
+            "segment width should come from the mm-suffixed marker, got {w}"
         );
     }
 

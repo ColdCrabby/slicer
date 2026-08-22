@@ -822,6 +822,19 @@ impl GcodeGenerator {
                             _ => width_mm,
                         }
                     };
+                    // Volumetric-flow cap for variable-width beads: a bead wider
+                    // than the nozzle would over-run the hotend melt rate at the
+                    // nominal feedrate and under-extrude, so it never squeezes
+                    // into the gap.  Slow it in proportion to width so mm³/s
+                    // holds at the nozzle-width rate — "extrude more, move slower".
+                    let nozzle = params.nozzle_diameter_mm;
+                    let seg_speed = |sw: f64| -> f64 {
+                        if vertex_widths.is_some() && nozzle > 0.0 && sw > nozzle {
+                            speed_mm_min * (nozzle / sw)
+                        } else {
+                            speed_mm_min
+                        }
+                    };
                     let mut prev = points[0];
                     for (i, &(x, y)) in points.iter().enumerate().skip(1) {
                         let dx = x - prev.0;
@@ -863,7 +876,7 @@ impl GcodeGenerator {
                         );
                         out.push_str(&format!(
                             "{}\n",
-                            self.dialect.move_extrude(x, y, e_total, speed_mm_min)
+                            self.dialect.move_extrude(x, y, e_total, seg_speed(sw))
                         ));
                         prev = (x, y);
                     }
