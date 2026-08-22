@@ -34,7 +34,7 @@ This module ships both, selected per slice:
   over-extrusion. Those necks fall through to the variable-width medial gap fill
   instead. Overlap is resolved by geometry, not by post-hoc flow compensation
   (`wall_overlap_compensation` is **off by default**; see
-  [flow](../flow/mod.rs) and `plan/architecture-arachne-flow-1.md` §7).
+  [flow](../flow/mod.rs)).
 - **`Classic`** — fixed-width concentric perimeters plus a thin-wall gap fill.
   Deterministic, fast, dependency-free. Descends from Slic3r's
   `PerimeterGenerator` + `MedialAxis`.
@@ -168,7 +168,7 @@ input path CCW.
   prototyped (`ArachneWalk`) and removed: it fragmented walls into open runs that
   broke overhang / speed / flow classification for marginal benefit. The
   `wall_transition_threshold` / `wall_transition_length` params exist for it but
-  are not consumed. See `plan/architecture-arachne-walk-1.md`.
+  are not consumed.
 - **No medial-axis gap fill in Classic.** The thin-wall residual is a single
   offset bead, not a true medial-axis fill (that also needs a Voronoi).
 - **No parallel placement path outside this module.** Walls are generated only
