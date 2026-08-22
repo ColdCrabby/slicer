@@ -49,12 +49,33 @@
     </div>
 
     @if (activeChannel(); as channel) {
-      <!-- ── Scalar legend ── -->
-      <div class="scalar-legend">
-        <span class="scalar-label">{{ scalarMinLabel() }}</span>
-        <div class="scalar-gradient" [style.background]="scalarGradient"></div>
-        <span class="scalar-label">{{ scalarMaxLabel() }}</span>
-      </div>
+      @if (isUniform()) {
+        <!-- ── Uniform value (span ≈ 0): no misleading gradient ── -->
+        <div class="scalar-legend uniform">
+          <span class="scalar-swatch" [style.background]="uniformSwatchCss"></span>
+          <span class="scalar-label">{{ uniformLabel() }} · constant</span>
+        </div>
+      } @else {
+        <!-- ── Scalar legend ── -->
+        <div class="scalar-legend">
+          <span class="scalar-label">{{ scalarMinLabel() }}</span>
+          <div
+            class="scalar-gradient"
+            [style.background]="scalarGradient"
+            (pointermove)="onGradientMove($event)"
+            (pointerleave)="onGradientLeave()"
+          >
+            @if (hoverTickPct() !== null) {
+              <span class="scalar-tick" [style.left.%]="hoverTickPct() ?? 0"></span>
+            }
+            @if (scrub(); as s) {
+              <span class="scalar-scrub-tick" [style.left.%]="s.pct"></span>
+              <span class="scalar-scrub-readout" [style.left.%]="s.pct">{{ s.label }}</span>
+            }
+          </div>
+          <span class="scalar-label">{{ scalarMaxLabel() }}</span>
+        </div>
+      }
     } @else {
       <!-- ── Role legend ── -->
       <div class="legend">

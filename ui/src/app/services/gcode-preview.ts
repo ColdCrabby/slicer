@@ -482,6 +482,24 @@ function scanModel(handle: GcodeHandle): ModelScan {
   };
 }
 
+/** Live hover readout for the G-code inspector tooltip and legend tick. */
+export interface GcodeHoverInfo {
+  channelId: GcodeViewMode;
+  value: number;
+  valueLabel: string;
+  role: RoleName;
+  layerIndex: number;
+  z: number;
+  width: number;
+  height: number;
+  speed: number;
+  /** Normalized position on the active gradient, `[0, 1]`. */
+  t: number;
+  /** Viewer-host-relative pointer position (px) for tooltip placement. */
+  x: number;
+  y: number;
+}
+
 // ── Service ───────────────────────────────────────────────────────────────────
 
 /**
@@ -557,6 +575,15 @@ export class GcodePreview {
 
   /** Selected fan key for the fan-speed view (first discovered fan by default). */
   readonly selectedFan = signal<string | null>(null);
+
+  /** Live inspector readout for the extrusion under the cursor (or `null`). */
+  readonly hoverInfo = signal<GcodeHoverInfo | null>(null);
+
+  /**
+   * Value band (in active-channel units) to spotlight while hovering the
+   * legend; out-of-band extrusions dim so the matching ones stand out.
+   */
+  readonly hoverBand = signal<{ lo: number; hi: number } | null>(null);
 
   /**
    * View modes actually available for the loaded model: segment scalars are
@@ -650,6 +677,14 @@ export class GcodePreview {
     this.selectedFan.set(key);
   }
 
+  setHoverInfo(info: GcodeHoverInfo | null): void {
+    this.hoverInfo.set(info);
+  }
+
+  setHoverBand(band: { lo: number; hi: number } | null): void {
+    this.hoverBand.set(band);
+  }
+
   // ── Private ──────────────────────────────────────────────────────────────
 
   /**
@@ -691,6 +726,8 @@ export class GcodePreview {
     });
 
     this.gcodeHandle.set(null);
+    this.hoverInfo.set(null);
+    this.hoverBand.set(null);
     try {
       await init({ module_or_path: 'scene_engine_bg.wasm' });
       const response = await fetch(url);
