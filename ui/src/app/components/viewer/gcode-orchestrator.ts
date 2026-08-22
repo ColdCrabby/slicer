@@ -2,10 +2,10 @@ import type { Group } from 'three';
 import type { GcodeLayerBuffer } from '../../../generated/scene-wasm/scene_engine';
 import {
   ROLE_COLORS_DARK,
-  type GcodeViewMode,
+  type ColorChannel,
   type RoleColorPalette,
   type RoleName,
-  type SpeedRange,
+  type ScalarRange,
 } from '../../services/gcode-preview';
 import {
   applyHiddenRoles,
@@ -72,6 +72,7 @@ export class GcodeOrchestrator {
         totalSegments: built.totalSegments,
         roleSegments: built.roleSegments,
         blockLayout: built.blockLayout,
+        meta: built.meta,
       };
       this.layers.push(info);
       this.contentRoot.add(built.group);
@@ -104,11 +105,17 @@ export class GcodeOrchestrator {
   }
 
   /**
-   * Recolor all layers for the current view mode (category or speed) and
-   * palette. Call this when the theme, view mode, or speed range changes.
+   * Recolor all layers for the current view mode (category, a segment scalar,
+   * or a per-layer scalar) and palette. Call this when the theme, view mode,
+   * scalar range, or selected fan changes.
    */
-  applyView(mode: GcodeViewMode, colors: RoleColorPalette, speedRange: SpeedRange): void {
-    updateViewColors(this.layers, mode, colors, speedRange);
+  applyView(
+    colors: RoleColorPalette,
+    channel: ColorChannel | null,
+    range: ScalarRange,
+    fanKey: string | null,
+  ): void {
+    updateViewColors(this.layers, colors, channel, range, fanKey);
   }
 
   /**

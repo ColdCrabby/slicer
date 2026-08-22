@@ -9,11 +9,28 @@
         [value]="preview.viewMode()"
         (change)="onModeChange($event)"
       >
-        @for (mode of viewModes; track mode) {
+        @for (mode of viewModes(); track mode) {
           <option [value]="mode">{{ viewModeLabels[mode] }}</option>
         }
       </select>
     </div>
+
+    @if (showFanSelector()) {
+      <!-- ── Fan sub-selector (multi-fan printers) ── -->
+      <div class="mode-row">
+        <label class="mode-label" for="gcode-fan-select">Fan</label>
+        <select
+          id="gcode-fan-select"
+          class="mode-select"
+          [value]="preview.selectedFan()"
+          (change)="onFanChange($event)"
+        >
+          @for (fan of fans(); track fan.key) {
+            <option [value]="fan.key">{{ fan.label }}</option>
+          }
+        </select>
+      </div>
+    }
 
     <!-- ── Nozzle / segment scrub ── -->
     <div class="scrub-row">
@@ -31,12 +48,12 @@
       </div>
     </div>
 
-    @if (preview.viewMode() === 'speed') {
-      <!-- ── Speed legend ── -->
-      <div class="speed-legend">
-        <span class="speed-label">{{ speedMinLabel() }}</span>
-        <div class="speed-gradient" [style.background]="speedGradient"></div>
-        <span class="speed-label">{{ speedMaxLabel() }}</span>
+    @if (activeChannel(); as channel) {
+      <!-- ── Scalar legend ── -->
+      <div class="scalar-legend">
+        <span class="scalar-label">{{ scalarMinLabel() }}</span>
+        <div class="scalar-gradient" [style.background]="scalarGradient"></div>
+        <span class="scalar-label">{{ scalarMaxLabel() }}</span>
       </div>
     } @else {
       <!-- ── Role legend ── -->

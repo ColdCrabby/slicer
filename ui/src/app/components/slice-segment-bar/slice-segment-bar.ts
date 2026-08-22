@@ -6,6 +6,7 @@ import {
   ROLE_LABELS,
   ROLE_ORDER,
   type RoleName,
+  scalarChannelFor,
   speedGradientCss,
   VIEW_MODE_LABELS,
 } from '../../services/gcode-preview';
@@ -25,16 +26,33 @@ export class SliceSegmentBar {
   protected readonly roleLabels = ROLE_LABELS;
   protected readonly roleOrder: readonly RoleName[] = ROLE_ORDER;
 
-  /** View-mode dropdown options and their labels. */
-  protected readonly viewModes: readonly GcodeViewMode[] = ['category', 'speed'];
+  /** View-mode dropdown options (filtered to what the model actually has). */
+  protected readonly viewModes = this.preview.availableViewModes;
   protected readonly viewModeLabels = VIEW_MODE_LABELS;
 
-  /** Static CSS gradient mirroring the speed color ramp (slow → fast). */
-  protected readonly speedGradient = speedGradientCss();
+  /** Fans discovered in the model, for the secondary fan selector. */
+  protected readonly fans = this.preview.discoveredFans;
 
-  /** Formatted min/max labels for the speed legend. */
-  protected readonly speedMinLabel = computed(() => formatSpeed(this.preview.speedRange().min));
-  protected readonly speedMaxLabel = computed(() => formatSpeed(this.preview.speedRange().max));
+  /** Show the fan sub-selector only in fan mode with more than one fan. */
+  protected readonly showFanSelector = computed(
+    () => this.preview.viewMode() === 'fan' && this.preview.discoveredFans().length > 1,
+  );
+
+  /** Static CSS gradient mirroring the scalar color ramp (low → high). */
+  protected readonly scalarGradient = speedGradientCss();
+
+  /** Descriptor of the active scalar channel, or `null` in category mode. */
+  protected readonly activeChannel = computed(() => scalarChannelFor(this.preview.viewMode()));
+
+  /** Formatted min/max labels for the active scalar channel's legend. */
+  protected readonly scalarMinLabel = computed(() => {
+    const ch = this.activeChannel();
+    return ch ? ch.format(this.preview.activeRange().min) : '';
+  });
+  protected readonly scalarMaxLabel = computed(() => {
+    const ch = this.activeChannel();
+    return ch ? ch.format(this.preview.activeRange().max) : '';
+  });
 
   /** Total move segments in the current top layer derived from its geometry buffers. */
   protected readonly layerSegmentCount = computed(() => {
@@ -91,9 +109,8 @@ export class SliceSegmentBar {
   protected onModeChange(event: Event): void {
     this.preview.setViewMode((event.target as HTMLSelectElement).value as GcodeViewMode);
   }
-}
 
-/** Render a speed value (mm/s) for the legend, or a dash when unknown. */
-function formatSpeed(value: number): string {
-  return value > 0 ? `${Math.round(value)} mm/s` : '—';
+  protected onFanChange(event: Event): void {
+    this.preview.setSelectedFan((event.target as HTMLSelectElement).value);
+  }
 }

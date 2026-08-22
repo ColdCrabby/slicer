@@ -1,4 +1,4 @@
-use super::types::{InternalLayer, Role};
+use super::types::{FanSample, InternalLayer, Role};
 
 /// Oversize seam dots so they remain readable against overlapping extrusion
 /// paths without having to hide other roles.
@@ -19,6 +19,48 @@ fn parse_leading_f32(value: &str) -> Option<f32> {
         .find(|c: char| !(c.is_ascii_digit() || c == '.' || c == '-' || c == '+'))
         .unwrap_or(value.len());
     value[..end].parse::<f32>().ok()
+}
+
+/// Sticky machine state threaded through the parse so each layer can snapshot
+/// the fan / temperature / tool values that were active while it printed.
+///
+/// Fan/temp/tool commands (`M104`, `M106`, `T0`, …) are sticky in G-code — a
+/// value set on one layer persists until changed — so new layers inherit the
+/// current state and per-layer view modes (fan speed, temperature, tool) read
+/// it back without re-scanning.
+#[derive(Clone, Default)]
+struct Sticky {
+    nozzle_temp: Option<f32>,
+    tool: u32,
+    /// Fan speeds keyed by a stable id (`"P0"`, `"P2"`, or a Klipper fan name),
+    /// in first-seen order. Speed is a `0.0..=1.0` fraction.
+    fans: Vec<(String, f32)>,
+}
+
+impl Sticky {
+    /// Update (or insert) the speed for a fan key, preserving first-seen order.
+    fn set_fan(&mut self, key: &str, speed: f32) {
+        if let Some(entry) = self.fans.iter_mut().find(|(k, _)| k == key) {
+            entry.1 = speed;
+        } else {
+            self.fans.push((key.to_string(), speed));
+        }
+    }
+
+    /// Copy the current sticky state into a layer's metadata, leaving the
+    /// layer's own per-layer fields (such as `layer_time_s`) untouched.
+    fn seed(&self, layer: &mut InternalLayer) {
+        layer.meta.nozzle_temp = self.nozzle_temp;
+        layer.meta.tool = self.tool;
+        layer.meta.fans = self
+            .fans
+            .iter()
+            .map(|(k, v)| FanSample {
+                key: k.clone(),
+                speed: *v,
+            })
+            .collect();
+    }
 }
 
 /// Parse `bytes` as UTF-8 GCode and return one [`InternalLayer`] per detected
@@ -43,6 +85,10 @@ pub(super) fn parse_gcode_bytes(bytes: &[u8]) -> Vec<InternalLayer> {
     let mut absolute_e = true;
     let mut role = Role::Travel;
 
+    // Sticky fan / temperature / tool state, snapshotted into each layer's meta
+    // for the non-geometric view modes.
+    let mut sticky = Sticky::default();
+
     // When true we prefer `;LAYER_CHANGE` comments for layer detection.
     // When false we fall back to Z-change detection (for slicers that don't
     // emit our markers).
@@ -62,6 +108,7 @@ pub(super) fn parse_gcode_bytes(bytes: &[u8]) -> Vec<InternalLayer> {
                     &mut width,
                     &mut height,
                     z,
+                    &sticky,
                 );
                 raw_line[..pos].trim()
             }
@@ -161,7 +208,9 @@ pub(super) fn parse_gcode_bytes(bytes: &[u8]) -> Vec<InternalLayer> {
 
                 // Z-change layer boundary (fallback when no ;LAYER_CHANGE).
                 if !seen_layer_change_comment && (new_z - prev_z).abs() > 1e-6 && new_z > prev_z {
-                    let finished = std::mem::replace(&mut current, InternalLayer::new(new_z));
+                    let mut next = InternalLayer::new(new_z);
+                    sticky.seed(&mut next);
+                    let finished = std::mem::replace(&mut current, next);
                     layers.push(finished);
                 }
 
@@ -187,7 +236,69 @@ pub(super) fn parse_gcode_bytes(bytes: &[u8]) -> Vec<InternalLayer> {
                     );
                 }
             }
-            _ => {} // G28, G4, M104, M109, T0, etc. — ignore
+            // ── Non-geometric state for the fan / temperature / tool views ──
+            "M104" | "M109" => {
+                for param in parts {
+                    if let Some(rest) = param.strip_prefix(['S', 's']) {
+                        if let Ok(v) = rest.parse::<f32>() {
+                            sticky.nozzle_temp = Some(v);
+                            sticky.seed(&mut current);
+                        }
+                    }
+                }
+            }
+            "M106" => {
+                // Marlin part-cooling: `M106 P<n> S<0-255>` (P defaults to 0).
+                let mut fan_index: u32 = 0;
+                let mut raw: f32 = 0.0;
+                for param in parts {
+                    match param.split_at(1) {
+                        ("P" | "p", rest) => fan_index = rest.parse().unwrap_or(0),
+                        ("S" | "s", rest) => raw = rest.parse().unwrap_or(0.0),
+                        _ => {}
+                    }
+                }
+                sticky.set_fan(&format!("P{fan_index}"), (raw / 255.0).clamp(0.0, 1.0));
+                sticky.seed(&mut current);
+            }
+            "M107" => {
+                // Fan off; honour an optional `P<n>` selector.
+                let mut fan_index: u32 = 0;
+                for param in parts {
+                    if let Some(rest) = param.strip_prefix(['P', 'p']) {
+                        fan_index = rest.parse().unwrap_or(0);
+                    }
+                }
+                sticky.set_fan(&format!("P{fan_index}"), 0.0);
+                sticky.seed(&mut current);
+            }
+            "SET_FAN_SPEED" => {
+                // Klipper: `SET_FAN_SPEED FAN=<name> SPEED=<0-1>`.
+                let mut name: Option<&str> = None;
+                let mut speed: f32 = 0.0;
+                for param in parts {
+                    if let Some(v) = strip_prefix_ci(param, "fan=") {
+                        name = Some(v);
+                    } else if let Some(v) = strip_prefix_ci(param, "speed=") {
+                        speed = v.parse().unwrap_or(0.0);
+                    }
+                }
+                if let Some(name) = name {
+                    sticky.set_fan(name, speed.clamp(0.0, 1.0));
+                    sticky.seed(&mut current);
+                }
+            }
+            tool_cmd
+                if tool_cmd.len() > 1
+                    && tool_cmd.starts_with('T')
+                    && tool_cmd[1..].bytes().all(|b| b.is_ascii_digit()) =>
+            {
+                if let Ok(n) = tool_cmd[1..].parse::<u32>() {
+                    sticky.tool = n;
+                    sticky.seed(&mut current);
+                }
+            }
+            _ => {} // G28, G4, M140, etc. — ignore
         }
     }
 
@@ -195,8 +306,18 @@ pub(super) fn parse_gcode_bytes(bytes: &[u8]) -> Vec<InternalLayer> {
     layers
 }
 
+/// Case-insensitive `strip_prefix` for ASCII G-code parameter keys.
+fn strip_prefix_ci<'a>(value: &'a str, prefix: &str) -> Option<&'a str> {
+    if value.len() >= prefix.len() && value[..prefix.len()].eq_ignore_ascii_case(prefix) {
+        Some(&value[prefix.len()..])
+    } else {
+        None
+    }
+}
+
 /// Handle a `;` comment line, mutating parser state as needed.
-pub(super) fn process_comment(
+#[allow(clippy::too_many_arguments)]
+fn process_comment(
     comment: &str,
     role: &mut Role,
     layers: &mut Vec<InternalLayer>,
@@ -205,6 +326,7 @@ pub(super) fn process_comment(
     width: &mut f32,
     height: &mut f32,
     current_z: f32,
+    sticky: &Sticky,
 ) {
     let trimmed = comment.trim();
 
@@ -213,7 +335,9 @@ pub(super) fn process_comment(
     {
         *seen_layer_change_comment = true;
         if !current.is_empty() {
-            let finished = std::mem::replace(current, InternalLayer::new(current_z));
+            let mut next = InternalLayer::new(current_z);
+            sticky.seed(&mut next);
+            let finished = std::mem::replace(current, next);
             layers.push(finished);
         }
         // Do not reset current.z here if it is empty, because a preceding ;Z:
@@ -238,6 +362,10 @@ pub(super) fn process_comment(
     } else if let Some(height_val) = trimmed.strip_prefix("LAYER_HEIGHT:") {
         if let Ok(h) = height_val.parse::<f32>() {
             *height = h;
+        }
+    } else if let Some(time_val) = trimmed.strip_prefix("LAYER_TIME:") {
+        if let Some(t) = parse_leading_f32(time_val) {
+            current.meta.layer_time_s = Some(t);
         }
     }
 }
@@ -470,5 +598,171 @@ G1 X15 Y5 Z0.2 E2.0
 ";
         let layers = parse_gcode_bytes(gcode);
         assert!(has_role(&layers, Role::Skirt), "expected Skirt role");
+    }
+
+    /// Return the first layer that carries any extrusion geometry.
+    fn first_printed_layer(layers: &[InternalLayer]) -> &InternalLayer {
+        layers
+            .iter()
+            .find(|l| !l.is_empty())
+            .expect("expected at least one printed layer")
+    }
+
+    fn fan_speed(layer: &InternalLayer, key: &str) -> Option<f32> {
+        layer
+            .meta
+            .fans
+            .iter()
+            .find(|f| f.key == key)
+            .map(|f| f.speed)
+    }
+
+    /// Marlin `M106 P<n> S<0-255>` is captured as a 0..1 fraction under key `P<n>`.
+    #[test]
+    fn marlin_fan_speed_is_captured_as_fraction() {
+        let gcode = b"
+;LAYER_CHANGE
+;Z:0.200
+M106 P0 S255
+M106 P2 S127
+;TYPE:Outer wall
+G1 X0 Y0 Z0.2 E0 F1800
+G1 X10 Y0 Z0.2 E1.0
+";
+        let layers = parse_gcode_bytes(gcode);
+        let layer = first_printed_layer(&layers);
+        assert!(
+            (fan_speed(layer, "P0").expect("P0 fan") - 1.0).abs() < 1e-4,
+            "M106 P0 S255 should be full speed"
+        );
+        assert!(
+            (fan_speed(layer, "P2").expect("P2 fan") - 127.0 / 255.0).abs() < 1e-4,
+            "M106 P2 S127 should be ~0.498"
+        );
+    }
+
+    /// `M106 S<v>` without an explicit `P` targets the part-cooling fan `P0`.
+    #[test]
+    fn marlin_fan_without_p_defaults_to_p0() {
+        let gcode = b"
+;LAYER_CHANGE
+;Z:0.200
+M106 S204
+;TYPE:Outer wall
+G1 X0 Y0 Z0.2 E0 F1800
+G1 X10 Y0 Z0.2 E1.0
+";
+        let layers = parse_gcode_bytes(gcode);
+        let layer = first_printed_layer(&layers);
+        assert!((fan_speed(layer, "P0").expect("P0 fan") - 204.0 / 255.0).abs() < 1e-4);
+    }
+
+    /// `M107` turns the (optionally P-selected) fan off.
+    #[test]
+    fn marlin_fan_off_sets_zero() {
+        let gcode = b"
+;LAYER_CHANGE
+;Z:0.200
+M106 P0 S255
+M107
+;TYPE:Outer wall
+G1 X0 Y0 Z0.2 E0 F1800
+G1 X10 Y0 Z0.2 E1.0
+";
+        let layers = parse_gcode_bytes(gcode);
+        let layer = first_printed_layer(&layers);
+        assert_eq!(fan_speed(layer, "P0"), Some(0.0));
+    }
+
+    /// Klipper `SET_FAN_SPEED FAN=<name> SPEED=<0-1>` is captured under the name.
+    #[test]
+    fn klipper_fan_speed_is_captured() {
+        let gcode = b"
+;LAYER_CHANGE
+;Z:0.200
+SET_FAN_SPEED FAN=fan SPEED=0.5000
+SET_FAN_SPEED FAN=fan_chamber SPEED=0.2500
+;TYPE:Outer wall
+G1 X0 Y0 Z0.2 E0 F1800
+G1 X10 Y0 Z0.2 E1.0
+";
+        let layers = parse_gcode_bytes(gcode);
+        let layer = first_printed_layer(&layers);
+        assert!((fan_speed(layer, "fan").expect("fan") - 0.5).abs() < 1e-4);
+        assert!((fan_speed(layer, "fan_chamber").expect("chamber") - 0.25).abs() < 1e-4);
+    }
+
+    /// Nozzle temperature is captured from `M104`/`M109`.
+    #[test]
+    fn nozzle_temperature_is_captured() {
+        let gcode = b"
+M109 S210
+;LAYER_CHANGE
+;Z:0.200
+;TYPE:Outer wall
+G1 X0 Y0 Z0.2 E0 F1800
+G1 X10 Y0 Z0.2 E1.0
+";
+        let layers = parse_gcode_bytes(gcode);
+        let layer = first_printed_layer(&layers);
+        assert_eq!(layer.meta.nozzle_temp, Some(210.0));
+    }
+
+    /// Active tool index is captured from `T<n>` commands.
+    #[test]
+    fn active_tool_is_captured() {
+        let gcode = b"
+;LAYER_CHANGE
+;Z:0.200
+T1
+;TYPE:Outer wall
+G1 X0 Y0 Z0.2 E0 F1800
+G1 X10 Y0 Z0.2 E1.0
+";
+        let layers = parse_gcode_bytes(gcode);
+        let layer = first_printed_layer(&layers);
+        assert_eq!(layer.meta.tool, 1);
+    }
+
+    /// Sticky fan/temperature state persists to later layers without re-emission.
+    #[test]
+    fn sticky_state_persists_across_layers() {
+        let gcode = b"
+M104 S215
+;LAYER_CHANGE
+;Z:0.200
+M106 P0 S255
+;TYPE:Outer wall
+G1 X0 Y0 Z0.2 E0 F1800
+G1 X10 Y0 Z0.2 E1.0
+;LAYER_CHANGE
+;Z:0.400
+;TYPE:Outer wall
+G1 X0 Y0 Z0.4 E2.0 F1800
+G1 X10 Y0 Z0.4 E3.0
+";
+        let layers = parse_gcode_bytes(gcode);
+        // The second printed layer never re-emits temp or fan, but inherits both.
+        let printed: Vec<&InternalLayer> = layers.iter().filter(|l| !l.is_empty()).collect();
+        assert!(printed.len() >= 2, "expected two printed layers");
+        let last = printed[printed.len() - 1];
+        assert_eq!(last.meta.nozzle_temp, Some(215.0));
+        assert_eq!(fan_speed(last, "P0"), Some(1.0));
+    }
+
+    /// `;LAYER_TIME:` markers populate the per-layer time.
+    #[test]
+    fn layer_time_marker_is_captured() {
+        let gcode = b"
+;LAYER_CHANGE
+;Z:0.200
+;LAYER_TIME:12.5
+;TYPE:Outer wall
+G1 X0 Y0 Z0.2 E0 F1800
+G1 X10 Y0 Z0.2 E1.0
+";
+        let layers = parse_gcode_bytes(gcode);
+        let layer = first_printed_layer(&layers);
+        assert_eq!(layer.meta.layer_time_s, Some(12.5));
     }
 }

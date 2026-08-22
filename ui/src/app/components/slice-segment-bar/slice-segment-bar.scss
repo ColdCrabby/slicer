@@ -194,22 +194,22 @@
   white-space: nowrap;
 }
 
-// ── Speed legend ────────────────────────────────────────────────────────────────
+// ── Scalar legend ────────────────────────────────────────────────────────────
 
-.speed-legend {
+.scalar-legend {
   display: flex;
   align-items: center;
   gap: var(--spacing-sm);
 }
 
-.speed-gradient {
+.scalar-gradient {
   flex: 1;
   height: 10px;
   border-radius: 5px;
   border: 1px solid var(--color-border);
 }
 
-.speed-label {
+.scalar-label {
   font-size: 10px;
   font-family: ui-monospace, monospace;
   color: var(--color-text-tertiary);

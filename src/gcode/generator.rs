@@ -408,6 +408,12 @@ impl GcodeGenerator {
                 out.push_str(&render_marker(height_marker, &z_str, &height_str, "", ""));
                 out.push('\n');
 
+                // Per-layer print-time estimate for the viewer's "Layer Time" mode.
+                out.push_str(&format!(
+                    ";LAYER_TIME:{:.1}\n",
+                    estimate_layer_time(layer, params.print_speed)
+                ));
+
                 let before_lc = self
                     .marker_config
                     .before_layer_change
@@ -1310,6 +1316,17 @@ mod tests {
             ";AFTER_LAYER_CHANGE must be present"
         );
         assert!(gcode.contains("G92 E0"), "extruder reset must be present");
+    }
+
+    #[test]
+    fn test_layer_time_marker_emitted() {
+        let layer = SliceLayer::new(0.2);
+        let gcode =
+            GcodeGenerator::new(GcodeFlavor::Marlin).generate(&[layer], &SlicingParams::default());
+        assert!(
+            gcode.contains(";LAYER_TIME:"),
+            ";LAYER_TIME: marker must be present for the viewer's Layer Time mode"
+        );
     }
 
     #[test]

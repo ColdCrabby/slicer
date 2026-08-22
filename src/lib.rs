@@ -28,7 +28,8 @@ pub mod settings;
 #[cfg(any(not(target_arch = "wasm32"), feature = "web-slicer"))]
 pub mod walls;
 
-#[cfg(target_arch = "wasm32")]
+// The G-code viewer's parser/types are platform-independent and unit-tested on
+// the host; only its wasm-bindgen surface (in `wasm.rs`) is gated to wasm32.
 pub mod gcode_viewer;
 
 // Provide C++ operator new/delete and __libcpp_verbose_abort so the linker

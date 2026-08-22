@@ -15,7 +15,7 @@ import {
 } from '@angular/core';
 import { BufferAttribute, BufferGeometry, Matrix4, Mesh, MeshPhongMaterial } from 'three';
 import { AppTheme } from '../../services/app-theme';
-import { GcodePreview } from '../../services/gcode-preview';
+import { GcodePreview, scalarChannelFor } from '../../services/gcode-preview';
 import { ObjectTracker } from '../../services/object-tracker';
 import { PrintArea } from '../../services/print-area';
 import { SceneCommand } from '../../services/scene-command/scene-command';
@@ -249,13 +249,14 @@ export class Viewer {
       this.gcode?.applyHiddenRoles(hidden);
     });
 
-    // React to theme, view-mode, or speed-range changes — recolor all layers
-    // in place without rebuilding geometry.
+    // React to theme, view-mode, scalar-range, or fan-selection changes —
+    // recolor all layers in place without rebuilding geometry.
     effect(() => {
       const mode = this.gcodePreview.viewMode();
       const colors = this.gcodePreview.roleColors();
-      const range = this.gcodePreview.speedRange();
-      this.gcode?.applyView(mode, colors, range);
+      const range = this.gcodePreview.activeRange();
+      const fan = this.gcodePreview.selectedFan();
+      this.gcode?.applyView(colors, scalarChannelFor(mode), range, fan);
     });
 
     // Build (or rebuild) the layer graph when the parsed handle becomes
@@ -657,8 +658,9 @@ export class Viewer {
     const progress = untracked(() => this.gcodePreview.segmentProgress());
     const hidden = untracked(() => this.gcodePreview.hiddenRoles());
     const mode = untracked(() => this.gcodePreview.viewMode());
-    const range = untracked(() => this.gcodePreview.speedRange());
-    gcode.applyView(mode, colors, range);
+    const range = untracked(() => this.gcodePreview.activeRange());
+    const fan = untracked(() => this.gcodePreview.selectedFan());
+    gcode.applyView(colors, scalarChannelFor(mode), range, fan);
     gcode.showRange(min, max);
     gcode.applyProgress(max, progress);
     gcode.applyHiddenRoles(hidden);
