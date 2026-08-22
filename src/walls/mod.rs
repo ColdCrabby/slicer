@@ -7,9 +7,8 @@
 //!
 //! | [`WallGenerator`] | Module | Status |
 //! | --- | --- | --- |
-//! | `Classic` | [`classic`] | Fixed-width concentric offsets + thin-wall gap fill (default) |
-//! | `Arachne` | [`arachne`] | Medial-axis offset loops + variable-width gap fill |
-//! | `ArachneWalk` | [`arachne`] | Skeletal-trapezoidation walk with per-vertex bead widths (opt-in) |
+//! | `Classic` | [`classic`] | Fixed-width concentric offsets + thin-wall gap fill |
+//! | `Arachne` | [`arachne`] | Medial-axis offset loops + variable-width gap fill (default) |
 //!
 //! Both generators emit the same output shape — the layer's `OuterWall` /
 //! `InnerWall` contours are replaced with bead paths and per-path widths, and
@@ -37,7 +36,6 @@ pub fn generate_walls(layers: &mut [SliceLayer], params: &SlicingParams) -> Wall
     match params.wall_generator {
         WallGenerator::Classic => classic::generate_classic_walls(layers, &wall_params),
         WallGenerator::Arachne => arachne::generate_arachne_walls(layers, &wall_params),
-        WallGenerator::ArachneWalk => arachne::generate_arachne_walk_walls(layers, &wall_params),
     }
 }
 
@@ -45,7 +43,7 @@ pub fn generate_walls(layers: &mut [SliceLayer], params: &SlicingParams) -> Wall
 ///
 /// Runs the selected generator sequentially (no `rayon`) so intermediate
 /// geometry can be captured into `debug` for visual inspection.  Only the
-/// classic generator captures debug snapshots; the Arachne variants run
+/// classic generator captures debug snapshots; the Arachne generator runs
 /// normally.
 #[cfg(not(target_arch = "wasm32"))]
 pub fn generate_walls_debug(
@@ -59,7 +57,6 @@ pub fn generate_walls_debug(
             classic::generate_classic_walls_debug(layers, &wall_params, debug)
         }
         WallGenerator::Arachne => arachne::generate_arachne_walls(layers, &wall_params),
-        WallGenerator::ArachneWalk => arachne::generate_arachne_walk_walls(layers, &wall_params),
     }
 }
 
@@ -82,20 +79,16 @@ mod tests {
     }
 
     #[test]
-    fn classic_is_the_default_generator() {
+    fn arachne_is_the_default_generator() {
         assert_eq!(
             SlicingParams::default().wall_generator,
-            WallGenerator::Classic
+            WallGenerator::Arachne
         );
     }
 
     #[test]
     fn dispatch_routes_to_each_generator_without_panicking() {
-        for generator in [
-            WallGenerator::Classic,
-            WallGenerator::Arachne,
-            WallGenerator::ArachneWalk,
-        ] {
+        for generator in [WallGenerator::Classic, WallGenerator::Arachne] {
             let params = SlicingParams {
                 wall_generator: generator,
                 ..SlicingParams::default()

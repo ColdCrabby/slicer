@@ -350,9 +350,8 @@ pub enum WallGenerator {
     ///
     /// Deterministic, fast, and dependency-free.  Produces `wall_count`
     /// constant-width beads per shell plus a variable-width residual bead in
-    /// any narrow space that remains.  This is the default and matches the
-    /// approach the mature slicers ship as their "Classic" wall generator.
-    #[default]
+    /// any narrow space that remains.  Matches the approach the mature slicers
+    /// ship as their "Classic" wall generator.
     Classic,
     /// Arachne-style medial-axis variable-width walls.
     ///
@@ -360,19 +359,9 @@ pub enum WallGenerator {
     /// thickness, plus variable-width beads that follow the medial axis to fill
     /// thin features (engraved text, tapering ribs) a fixed-width perimeter
     /// cannot.  Based on the medial-axis approach of Kuipers et al. (2020) used
-    /// by CuraEngine / PrusaSlicer / OrcaSlicer.
+    /// by CuraEngine / PrusaSlicer / OrcaSlicer.  This is the default.
+    #[default]
     Arachne,
-    /// Experimental skeletal-trapezoidation walk (full Arachne, opt-in).
-    ///
-    /// Evolves [`Self::Arachne`] with a directed half-edge medial-axis graph
-    /// (discretised parabolic edges) and a rib walk that assigns each bead a
-    /// *per-vertex* width from the **local** wall thickness, so a wall that
-    /// varies in thickness around its perimeter gets correctly-sized beads at
-    /// every point instead of one uniform residual.  Thin regions the offset
-    /// loops cannot cover are walked directly; the offset-loop path from
-    /// [`Self::Arachne`] remains the per-layer fallback whenever the Voronoi
-    /// build fails.  Opt-in while the junction-connection walk matures.
-    ArachneWalk,
 }
 
 impl WallGenerator {
@@ -382,7 +371,6 @@ impl WallGenerator {
         match s.to_lowercase().replace('-', "_").as_str() {
             "classic" | "offset" | "offsets" => Some(Self::Classic),
             "arachne" | "vwe" => Some(Self::Arachne),
-            "arachne_walk" | "walk" | "vww" => Some(Self::ArachneWalk),
             _ => None,
         }
     }
@@ -392,7 +380,6 @@ impl WallGenerator {
         match self {
             Self::Classic => "classic",
             Self::Arachne => "arachne",
-            Self::ArachneWalk => "arachne_walk",
         }
     }
 }
@@ -415,9 +402,8 @@ Smaller values produce finer detail but increase print time.
 Supported values:
 - `classic` — fixed-width concentric perimeters with thin-wall gap fill (fast, robust).
 - `arachne` — medial-axis variable-width walls that better fill thin features (engraved text, tapering ribs).
-- `arachne_walk` — experimental full skeletal-trapezoidation walk with per-vertex bead widths (opt-in).
 
-**Default:** `classic`.", extend("x-group" = "Walls"))]
+**Default:** `arachne`.", extend("x-group" = "Walls"))]
     #[serde(default = "SlicingParams::default_wall_generator")]
     pub wall_generator: WallGenerator,
 
@@ -1003,7 +989,7 @@ impl Default for SlicingParams {
 
 impl SlicingParams {
     fn default_wall_generator() -> WallGenerator {
-        WallGenerator::Classic
+        WallGenerator::Arachne
     }
 
     fn default_wall_count() -> usize {

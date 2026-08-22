@@ -136,8 +136,8 @@ impl Skeleton {
     }
 
     /// Prune medial *leaf* edges that dive toward the boundary — the spurs a
-    /// convex vertex grows in the segment Voronoi — so the walk sees clean
-    /// degree-2 spines instead of a junction-riddled graph.
+    /// convex vertex grows in the segment Voronoi — so the gap-fill spine reads
+    /// as clean degree-2 chains instead of a junction-riddled graph.
     ///
     /// A leaf edge (one endpoint of degree 1) is dropped when the leaf node's
     /// radius is below `ratio` × its interior neighbour's radius: a real spine or

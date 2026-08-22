@@ -1599,7 +1599,7 @@ mod tests {
             "missing print_speed"
         );
         assert!(
-            gcode.contains("; wall_count: 3 walls (classic generator)"),
+            gcode.contains("; wall_count: 3 walls (arachne generator)"),
             "missing wall_count"
         );
         assert!(

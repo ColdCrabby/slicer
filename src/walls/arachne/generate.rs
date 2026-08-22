@@ -175,7 +175,7 @@ fn generate_arachne_walls_for_layer(layer: &mut SliceLayer, params: &WallParams)
 /// derive the residual the loops leave behind.  The first ring is tagged
 /// [`ExtrusionRole::OuterWall`]; deeper rings are [`ExtrusionRole::InnerWall`].
 #[allow(clippy::too_many_arguments)]
-pub(super) fn emit_offset_loops(
+fn emit_offset_loops(
     island: &Paths,
     params: &WallParams,
     tol: f64,
@@ -261,7 +261,7 @@ fn morph_open(paths: &Paths, r: f64, tol: f64) -> Paths {
 /// offset polygon — avoids the dead zone where the onion-peel emits degenerate
 /// sliver loops into a thin band instead of leaving it to be filled.
 #[allow(clippy::too_many_arguments)]
-pub(super) fn emit_residual_medial_fill(
+fn emit_residual_medial_fill(
     island: &Paths,
     loops: &[Path],
     params: &WallParams,
@@ -295,7 +295,7 @@ pub(super) fn emit_residual_medial_fill(
 ///
 /// On `wasm32` (`panic = abort`) `catch_unwind` cannot intercept a panic; the
 /// input sanitisation in [`build_segment_voronoi`] is the defence there.
-pub(super) fn build_voronoi_safe(paths: &Paths) -> Option<(Diagram, [f64; 2])> {
+fn build_voronoi_safe(paths: &Paths) -> Option<(Diagram, [f64; 2])> {
     std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
         build_segment_voronoi(paths)
     }))
@@ -310,7 +310,7 @@ pub(super) fn build_voronoi_safe(paths: &Paths) -> Option<(Diagram, [f64; 2])> {
 /// each outer with its contained holes lets the caller reason about one island
 /// at a time — essential so a thick infill core does not suppress medial fill
 /// of an unrelated thin gap elsewhere on the layer.
-pub(super) fn split_islands(paths: &Paths) -> Vec<Paths> {
+fn split_islands(paths: &Paths) -> Vec<Paths> {
     let contours: Vec<Path> = paths.iter().cloned().collect();
     let holes: Vec<&Path> = contours.iter().filter(|p| p.signed_area() < 0.0).collect();
     contours
@@ -335,9 +335,9 @@ fn polyline_len(pts: &[(f64, f64)]) -> f64 {
         .sum()
 }
 
-/// Spur-prune ratio for medial gap fill (same basis as the Arachne walk): drop a
-/// leaf medial edge whose boundary end collapses below this fraction of its
-/// interior neighbour's radius, so faceting spurs don't shatter a gap spine.
+/// Spur-prune ratio for medial gap fill: drop a leaf medial edge whose boundary
+/// end collapses below this fraction of its interior neighbour's radius, so
+/// faceting spurs don't shatter a gap spine.
 const GAP_SPUR_PRUNE_RATIO: f64 = 0.6;
 
 /// Medial-fill a (thin) region: emit variable-width open beads along its medial
