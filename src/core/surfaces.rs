@@ -46,6 +46,14 @@ fn union_or_first(a: Paths, b: Paths) -> Paths {
 /// Standard extrusion width is typically 1.2× layer height for solid infill.
 const SOLID_INFILL_EXTRUSION_WIDTH_MULTIPLIER: f64 = 1.2;
 
+/// Solid top/bottom surface islands below this area (mm²) are dropped.  They are
+/// the thin wall-covered slivers Arachne's per-island-*average* interior
+/// estimate leaves over a locally-thin taper (e.g. the aft hull-tip rim): the
+/// perimeters already cover them, and classic emits none there.  Dropping a
+/// whole such island cannot open a wall-zone void (the walls fill it), unlike
+/// pulling a large surface back off its wall bond.
+const SURFACE_MIN_ISLAND_MM2: f64 = 2.0;
+
 /// Maximum horizontal gap (as a multiple of `line_spacing`) allowed when
 /// connecting the end of one scan-line segment to the nearest end of the next
 /// scan-line segment in the serpentine chaining pass.
@@ -194,6 +202,10 @@ fn morphological_open(paths: Paths, radius_mm: f64) -> Paths {
 /// build plate that wall extrusions actually consume.  Used by bridge
 /// detection to avoid placing bridge infill on top of existing walls
 /// (Benchy rear-deck overhang regression).
+/// Physical bead footprint of every **wall** path (OuterWall / InnerWall /
+/// OverhangPerimeter / GapFill) — the build-plate area those extrusions consume.
+/// Bridge detection and solid top/bottom surfaces subtract this so nothing is
+/// deposited on top of an existing wall or gap-fill bead.
 fn compute_wall_bead_footprint(layer: &SliceLayer, nozzle_diameter_mm: f64) -> Paths {
     // Group wall paths by (is_open, radius-bucket) so we can run **one**
     // `inflate` call per group instead of one per path.  Clipper2's `inflate`
@@ -282,12 +294,10 @@ fn compute_wall_bead_footprint(layer: &SliceLayer, nozzle_diameter_mm: f64) -> P
 /// Physical bead footprint of only the **gap-fill** beads on a layer, each
 /// variable-width centerline inflated by its half-width.
 ///
-/// Sparse infill and top/bottom solid surfaces subtract this so they abut —
-/// never re-extrude over — the Arachne gap fill (which the wall-inset infill /
-/// surface region calculation does not otherwise account for).  Gap-fill beads
-/// number in the tens per layer, so a per-path inflate + union is ample (no
-/// need for the width-bucketing [`compute_wall_bead_footprint`] uses for the
-/// thousands of wall beads).
+/// Sparse infill subtracts this so it abuts — never re-extrudes over — the
+/// Arachne gap fill (which the wall-inset infill region calculation does not
+/// otherwise account for).  Gap-fill beads number in the tens per layer, so a
+/// per-path inflate + union is ample.
 pub(super) fn compute_gap_fill_footprint(layer: &SliceLayer, nozzle_diameter_mm: f64) -> Paths {
     let default_radius = nozzle_diameter_mm * 0.5;
     let mut acc = Paths::new(vec![]);
@@ -1514,22 +1524,23 @@ pub fn generate_top_bottom_surfaces_with_interior(
             }
         }
 
-        // Subtract the gap-fill bead footprint so solid surfaces abut — never
-        // over-print — the variable-width Arachne gap fill.
+        // Clean the solid-surface regions: subtract the gap-fill footprint so
+        // they abut — never over-print — the gap fill, then drop tiny islands
+        // (< `SURFACE_MIN_ISLAND_MM2`).  Those slivers are the thin top-surface
+        // rims Arachne's loose interior estimate leaves over a wall-covered
+        // taper; the perimeters already cover them.  Large surfaces are
+        // untouched, so their wall bond is preserved.
         let (bottom_region, top_region) = {
             let gap_fp = compute_gap_fill_footprint(&layers[i], nozzle_diameter_mm);
-            if gap_fp.is_empty() {
-                (bottom_region, top_region)
-            } else {
-                let sub = |r: Paths| {
-                    if r.is_empty() {
-                        r
-                    } else {
-                        difference(r, gap_fp.clone(), FillRule::EvenOdd).unwrap_or_default()
-                    }
+            let clean = |r: Paths| {
+                let r = if gap_fp.is_empty() {
+                    r
+                } else {
+                    difference(r, gap_fp.clone(), FillRule::EvenOdd).unwrap_or_default()
                 };
-                (sub(bottom_region), sub(top_region))
-            }
+                filter_small_islands(&r, SURFACE_MIN_ISLAND_MM2)
+            };
+            (clean(bottom_region), clean(top_region))
         };
 
         if !bottom_region.is_empty() {

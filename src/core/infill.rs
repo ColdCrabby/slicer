@@ -215,7 +215,9 @@ pub fn add_infill_to_layers(
         };
 
         // Subtract the gap-fill bead footprint so sparse infill abuts — never
-        // re-extrudes over — the variable-width Arachne gap fill.
+        // re-extrudes over — the variable-width Arachne gap fill.  (Walls are
+        // already excluded by the interior-region inset; over-print of *inner*
+        // walls at locally-thick spots is a separate, anchor-sensitive concern.)
         let gap_fp = super::surfaces::compute_gap_fill_footprint(layer, nozzle_diameter_mm);
         let infill_area = if gap_fp.is_empty() {
             infill_area
