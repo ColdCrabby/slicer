@@ -337,7 +337,9 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for workflow, [AGENTS.md](AGENTS.md) for 
 
 ## Implementation notes
 
-Built on proven approaches from established slicers, but written from scratch in Rust. AI tools assist with development and problem-solving; all AI-generated code is reviewed and approved by human maintainers before merge.
+This is primarily an AI-driven project. I don't have the deep, intricate domain knowledge that slicer internals demand, so most of the code is written by AI tools working from proven approaches in established slicers, rebuilt from scratch in Rust.
+
+It also doubles as a playground for probing the limits of AI: how it copes with a large, complex codebase over the long term, and how far genuinely hard problems can be guided toward the expected result without the person steering it holding that deep understanding themselves.
 
 ---
 
