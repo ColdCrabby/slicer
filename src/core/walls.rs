@@ -1035,28 +1035,32 @@ mod tests {
         layer1.path_roles.push(ExtrusionRole::OuterWall);
 
         let mut layers = vec![layer0, layer1];
+        // Duplicate the support layer so the outward-step ring is a genuine ≥2
+        // layer overhang, not a 1-layer recess the min-depth gate suppresses.
+        let dup = layers[0].clone();
+        layers.insert(0, dup);
         generate_top_bottom_surfaces(&mut layers, 0, 1, 0.2, 45.0);
         classify_overhang_perimeters(&mut layers, 0.4);
 
         // Bridge infill must exist: the unsupported ring is filled with bridge lines.
         assert!(
-            layers[1].path_roles.contains(&ExtrusionRole::Bridge),
+            layers[2].path_roles.contains(&ExtrusionRole::Bridge),
             "Bridge infill must be generated for the ring-shaped unsupported area; \
              roles={:?}",
-            layers[1].path_roles
+            layers[2].path_roles
         );
         // No OverhangPerimeter must exist: the outer hull path was clipped because
         // its vertices sat exactly on the bridge zone outer boundary (IsOn).
         // Keeping the hull as OverhangPerimeter would cause it to be extruded first,
         // then bridge infill would extrude on top — double-extrusion.
         assert!(
-            !layers[1]
+            !layers[2]
                 .path_roles
                 .contains(&ExtrusionRole::OverhangPerimeter),
             "Outer hull must be clipped (not OverhangPerimeter) when it coincides \
              with the bridge zone boundary — double-extrusion prevention; \
              roles={:?}",
-            layers[1].path_roles
+            layers[2].path_roles
         );
     }
 }

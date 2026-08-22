@@ -1107,10 +1107,14 @@ mod tests {
         layer1.path_roles.push(ExtrusionRole::OuterWall);
 
         let mut layers = vec![layer0, layer1];
+        // Duplicate the support layer so the unsupported span is ≥2 layers deep
+        // (a genuine bridge, not a 1-layer recess the min-depth gate suppresses).
+        let dup = layers[0].clone();
+        layers.insert(0, dup);
         // Use 1 bottom layer to trigger surface detection
         generate_top_bottom_surfaces(&mut layers, 0, 1, 0.2, 45.0);
 
-        let layer1 = &layers[1];
+        let layer1 = &layers[2];
         let has_bridge = layer1.path_roles.contains(&ExtrusionRole::Bridge);
 
         assert!(
@@ -1217,6 +1221,9 @@ mod tests {
         let expected_width = nozzle_diameter_mm * bridge_flow_ratio; // 0.32 mm
 
         let mut layers = vec![layer0, layer1];
+        // Duplicate the support layer so the bridge spans ≥2 layers (genuine).
+        let dup = layers[0].clone();
+        layers.insert(0, dup);
         generate_top_bottom_surfaces_with_interior(
             &mut layers,
             &SurfaceConfig {
@@ -1235,12 +1242,12 @@ mod tests {
         );
 
         // Find all bridge paths and check their stored widths
-        let bridge_widths: Vec<Option<f64>> = layers[1]
+        let bridge_widths: Vec<Option<f64>> = layers[2]
             .path_roles
             .iter()
             .enumerate()
             .filter(|(_, r)| **r == ExtrusionRole::Bridge)
-            .map(|(i, _)| layers[1].path_widths.get(i).copied().flatten())
+            .map(|(i, _)| layers[2].path_widths.get(i).copied().flatten())
             .collect();
 
         assert!(
@@ -1537,6 +1544,10 @@ mod tests {
         layer1.path_roles.push(ExtrusionRole::OuterWall);
 
         let mut layers = vec![layer0, layer1];
+        // Duplicate the support layer so the two genuine bridge halves span ≥2
+        // layers (not a 1-layer recess the min-depth gate suppresses).
+        let dup = layers[0].clone();
+        layers.insert(0, dup);
 
         // A 0.5 mm opening filter is easily larger than the 0.1mm-wide
         // sub-pixel artefacts but smaller than the genuine 4.95mm-wide
@@ -1560,7 +1571,7 @@ mod tests {
 
         // Both genuine bridge halves (≈4.95×10 each = 49.5mm² each) must
         // survive the 0.5mm opening filter.
-        let bridge_count = layers[1]
+        let bridge_count = layers[2]
             .path_roles
             .iter()
             .filter(|r| **r == ExtrusionRole::Bridge)
@@ -1612,14 +1623,18 @@ mod tests {
             min_infill_extrusion_mm: 0.0,
         };
 
+        let dup = layers_no_anchor[0].clone();
+        layers_no_anchor.insert(0, dup);
+        let dup = layers_anchor[0].clone();
+        layers_anchor.insert(0, dup);
         generate_top_bottom_surfaces_with_interior(&mut layers_no_anchor, &cfg(0.0), None);
         generate_top_bottom_surfaces_with_interior(&mut layers_anchor, &cfg(2.0), None);
 
-        // The anchored bridge region must enclose more layer-1 area than the
-        // un-anchored one (it bites 2mm into the supported strip on the left).
+        // The anchored bridge region must enclose more area than the un-anchored
+        // one (it bites 2mm into the supported strip on the left).
         let bridge_area = |layers: &[SliceLayer]| -> f64 {
             // solid_regions includes Bridge by design.
-            layers[1].solid_regions.signed_area().abs()
+            layers[2].solid_regions.signed_area().abs()
         };
         let no_anchor = bridge_area(&layers_no_anchor);
         let with_anchor = bridge_area(&layers_anchor);
@@ -1686,7 +1701,13 @@ mod tests {
                 (6.0, 6.0),
                 (6.0, 4.0_f64),
             ])]);
-        let interior_regions = vec![interior_layer0, interior_layer1];
+        let mut interior_regions = vec![interior_layer0, interior_layer1];
+        // Deepen the porthole to ≥2 layers (duplicate the holed layer and its
+        // interior) so the closure is a genuine bridge, not a 1-layer recess.
+        let dup = layers[0].clone();
+        layers.insert(0, dup);
+        let idup = interior_regions[0].clone();
+        interior_regions.insert(0, idup);
 
         generate_top_bottom_surfaces_with_interior(
             &mut layers,
@@ -1705,12 +1726,12 @@ mod tests {
             Some(&interior_regions),
         );
 
-        let has_bridge = layers[1].path_roles.contains(&ExtrusionRole::Bridge);
+        let has_bridge = layers[2].path_roles.contains(&ExtrusionRole::Bridge);
         assert!(
             has_bridge,
             "Porthole closure (bridge in wall zone) must be detected as Bridge even when \
              interior_regions does not overlap the bridge area. roles={:?}",
-            layers[1].path_roles
+            layers[2].path_roles
         );
     }
 
@@ -1860,6 +1881,9 @@ mod tests {
         layer1.path_roles.push(ExtrusionRole::OuterWall);
 
         let mut layers = vec![layer0, layer1];
+        // Deepen the porthole to ≥2 layers so the closure is a genuine bridge.
+        let dup = layers[0].clone();
+        layers.insert(0, dup);
 
         generate_top_bottom_surfaces_with_interior(
             &mut layers,
@@ -1878,12 +1902,12 @@ mod tests {
             None,
         );
 
-        // Bridge infill must have been generated on layer 1.
+        // Bridge infill must have been generated on the closing layer.
         assert!(
-            layers[1].path_roles.contains(&ExtrusionRole::Bridge),
+            layers[2].path_roles.contains(&ExtrusionRole::Bridge),
             "Bridge must be detected at the porthole closing layer; \
              roles={:?}",
-            layers[1].path_roles
+            layers[2].path_roles
         );
 
         // Now classify overhang perimeters (uses unsupported_regions set above).
@@ -1896,16 +1920,16 @@ mod tests {
         // be reclassified as OverhangPerimeter and double-extruded by the bridge.
         //
         // For this simple geometry the outer hull vertices are far from the
-        // porthole bridge zone, so no OverhangPerimeter should appear on layer 1
-        // at all.
+        // porthole bridge zone, so no OverhangPerimeter should appear on the
+        // closing layer at all.
         assert!(
-            !layers[1]
+            !layers[2]
                 .path_roles
                 .contains(&ExtrusionRole::OverhangPerimeter),
             "No OverhangPerimeter must exist on the bridge closing layer; \
              double-extrusion with bridge infill would result. \
              roles={:?}",
-            layers[1].path_roles
+            layers[2].path_roles
         );
     }
 
@@ -1957,6 +1981,9 @@ mod tests {
         layer1.path_roles.push(ExtrusionRole::InnerWall);
 
         let mut layers = vec![layer0, layer1];
+        // Deepen the hole to ≥2 layers so the closure is a genuine bridge.
+        let dup = layers[0].clone();
+        layers.insert(0, dup);
 
         generate_top_bottom_surfaces_with_interior(
             &mut layers,
@@ -1976,9 +2003,9 @@ mod tests {
         );
 
         assert!(
-            layers[1].path_roles.contains(&ExtrusionRole::Bridge),
+            layers[2].path_roles.contains(&ExtrusionRole::Bridge),
             "Bridge must be detected at the hole closing layer; roles={:?}",
-            layers[1].path_roles
+            layers[2].path_roles
         );
 
         classify_overhang_perimeters(&mut layers, 0.4);
@@ -1986,13 +2013,13 @@ mod tests {
         // CRITICAL: no OverhangPerimeter on the bridge layer.  Any such arc
         // would overlap the bridge infill and produce double extrusion.
         assert!(
-            !layers[1]
+            !layers[2]
                 .path_roles
                 .contains(&ExtrusionRole::OverhangPerimeter),
             "OverhangPerimeter must not coexist with Bridge in the same zone; \
              this is the Benchy layer-172 double-extrusion regression. \
              roles={:?}",
-            layers[1].path_roles
+            layers[2].path_roles
         );
     }
 

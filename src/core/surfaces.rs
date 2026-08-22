@@ -337,6 +337,63 @@ pub(super) fn compute_gap_fill_footprint(layer: &SliceLayer, nozzle_diameter_mm:
     acc
 }
 
+/// Remove `GapFill` beads that fall inside a solid-surface region.
+///
+/// Arachne emits medial gap fill over *every* thin residual its offset loops
+/// leave — including thin necks deep inside the solid interior.  On a solid
+/// layer the top/bottom surface fills that interior densely, so a gap bead
+/// there is redundant; since the surface is generated in full first, the bead
+/// would otherwise sit as a scattered variable-width island on the uniform
+/// surface (the isolated dashes visible across the Benchy first layer).
+///
+/// Fill priority is **solid surface > gap fill > sparse infill**: a bead whose
+/// majority of vertices lie inside `solid_regions` (even-odd test) loses to the
+/// surface and is dropped; gap fill in sparse zones and thin ribs (outside
+/// `solid_regions`) is kept, because sparse infill would skip those sub-nozzle
+/// channels.  Runs after surface generation, before sparse infill.
+pub(super) fn prune_redundant_gap_fill(layers: &mut [SliceLayer]) {
+    for layer in layers.iter_mut() {
+        if layer.solid_regions.is_empty() || !layer.path_roles.contains(&ExtrusionRole::GapFill) {
+            continue;
+        }
+
+        let mut new_paths = Paths::new(vec![]);
+        let mut new_roles = Vec::new();
+        let mut new_widths = Vec::new();
+        let mut new_vwidths = Vec::new();
+        let mut new_is_open = Vec::new();
+
+        for (i, path) in layer.paths.iter().enumerate() {
+            let role = layer.role_for_path(i);
+            let redundant = role == ExtrusionRole::GapFill && {
+                let mut total = 0_usize;
+                let mut inside = 0_usize;
+                for p in path.iter() {
+                    total += 1;
+                    if vertex_inside_or_on_paths_eo(p.x(), p.y(), &layer.solid_regions) {
+                        inside += 1;
+                    }
+                }
+                total > 0 && inside * 2 > total
+            };
+            if redundant {
+                continue;
+            }
+            new_paths.push(path.clone());
+            new_roles.push(role);
+            new_widths.push(layer.width_for_path(i));
+            new_vwidths.push(layer.vertex_widths_for_path(i));
+            new_is_open.push(layer.is_path_open(i));
+        }
+
+        layer.paths = new_paths;
+        layer.path_roles = new_roles;
+        layer.path_widths = new_widths;
+        layer.path_vertex_widths = new_vwidths;
+        layer.path_is_open = new_is_open;
+    }
+}
+
 /// Drop sub-paths whose absolute signed area is below `min_area_mm2`.
 ///
 /// `Paths::signed_area()` would only sum the whole set; we filter individually.
@@ -1360,10 +1417,39 @@ pub fn generate_top_bottom_surfaces_with_interior(
                     }
                 };
 
+                // Minimum bridge depth: a candidate unsupported by layer i-1
+                // but still supported two layers down is a 1-layer-deep recess
+                // (e.g. the hull-bottom debossed text) resting on that material
+                // — not a real span.  Bridging it double-extrudes its solid fill
+                // against the surrounding bottom surface at every edge.  Keep
+                // only the part also unsupported two layers below; the bed
+                // (i < 2) counts as support.
+                let deepen = |raw: Paths| -> Paths {
+                    if i < 2 || raw.is_empty() {
+                        return Paths::new(vec![]);
+                    }
+                    let below2 = &perimeters[i - 2];
+                    if below2.is_empty() {
+                        return raw;
+                    }
+                    let env2 = inflate(
+                        below2.clone(),
+                        nozzle_diameter_mm * 0.5,
+                        JoinType::Round,
+                        EndType::Polygon,
+                        2.0,
+                    );
+                    if env2.is_empty() {
+                        raw
+                    } else {
+                        difference(raw, env2, FillRule::EvenOdd).unwrap_or_default()
+                    }
+                };
+
                 if prev_perimeter.is_empty() {
                     // Nothing below at all → entire region is candidate bridge.
                     let raw = region.clone();
-                    let opened = morphological_open(raw, bridge_noise_filter_mm);
+                    let opened = morphological_open(deepen(raw), bridge_noise_filter_mm);
                     let big = filter_small_islands(&opened, bridge_min_area_mm2);
                     let void_only = clip_to_void(big);
                     let anchored = expand_to_anchor(void_only, anchor_bounds, bridge_anchor_mm);
@@ -1409,8 +1495,9 @@ pub fn generate_top_bottom_surfaces_with_interior(
                         difference(region.clone(), bridge_support_envelope, FillRule::EvenOdd)
                             .unwrap_or_default()
                     };
-                    // Step 1 — morphological opening (noise filter).
-                    let opened = morphological_open(raw, bridge_noise_filter_mm);
+                    // Step 1 — minimum-depth gate (drop 1-layer recesses), then
+                    // morphological opening (noise filter).
+                    let opened = morphological_open(deepen(raw), bridge_noise_filter_mm);
                     // Step 2 — drop islands below the area threshold.
                     let big = filter_small_islands(&opened, bridge_min_area_mm2);
                     // Step 2.5 — keep only the void inside the wall band
@@ -1524,22 +1611,14 @@ pub fn generate_top_bottom_surfaces_with_interior(
             }
         }
 
-        // Clean the solid-surface regions: subtract the gap-fill footprint so
-        // they abut — never over-print — the gap fill, then drop tiny islands
-        // (< `SURFACE_MIN_ISLAND_MM2`).  Those slivers are the thin top-surface
-        // rims Arachne's loose interior estimate leaves over a wall-covered
-        // taper; the perimeters already cover them.  Large surfaces are
-        // untouched, so their wall bond is preserved.
+        // Drop tiny solid-surface islands (< `SURFACE_MIN_ISLAND_MM2`): the thin
+        // top-surface rims Arachne's loose interior estimate leaves over a
+        // wall-covered taper, which the perimeters already cover.  The surface
+        // is filled in full — redundant gap-fill beads sitting inside it are
+        // removed afterwards by `prune_redundant_gap_fill`, so the solid infill
+        // stays continuous instead of weaving around scattered beads.
         let (bottom_region, top_region) = {
-            let gap_fp = compute_gap_fill_footprint(&layers[i], nozzle_diameter_mm);
-            let clean = |r: Paths| {
-                let r = if gap_fp.is_empty() {
-                    r
-                } else {
-                    difference(r, gap_fp.clone(), FillRule::EvenOdd).unwrap_or_default()
-                };
-                filter_small_islands(&r, SURFACE_MIN_ISLAND_MM2)
-            };
+            let clean = |r: Paths| filter_small_islands(&r, SURFACE_MIN_ISLAND_MM2);
             (clean(bottom_region), clean(top_region))
         };
 

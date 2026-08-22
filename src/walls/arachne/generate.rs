@@ -413,6 +413,10 @@ fn emit_medial_beads(
     // few that survive.  `0` selects an automatic floor of one nozzle diameter —
     // low enough to still close the medium gaps a 2×-nozzle floor abandoned.
     let min_w = params.wall_line_width_min_mm;
+    // Fill residuals up to 2.5·d, but never lay a bead wider than the configured
+    // max line width — a single gap bead at 2.5·d over-extrudes far past what the
+    // user asked for (visible as blobs / dimensional bulge, especially layer 1).
+    let max_w = params.wall_line_width_max_mm;
     let gap_max = 2.5 * params.nozzle_diameter_mm;
     let min_len = if params.gap_fill_min_length_mm > 0.0 {
         params.gap_fill_min_length_mm
@@ -433,7 +437,7 @@ fn emit_medial_beads(
             // Per-vertex width = local gap thickness, clamped to a printable
             // width; the scalar width is the run mean for callers that ignore
             // the per-vertex array.
-            let vw: Vec<f64> = run_w.iter().map(|t| t.clamp(min_w, gap_max)).collect();
+            let vw: Vec<f64> = run_w.iter().map(|t| t.clamp(min_w, max_w)).collect();
             let mean = vw.iter().sum::<f64>() / vw.len() as f64;
             let path: Path = std::mem::take(run).into();
             paths.push(path);

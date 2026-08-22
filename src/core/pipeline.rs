@@ -6,7 +6,9 @@ use crate::settings::params::{SeamPosition, SlicingParams};
 
 use super::infill::{add_infill_to_layers, calculate_interior_region};
 use super::slicer::slice_mesh;
-use super::surfaces::{generate_top_bottom_surfaces_with_interior, SurfaceConfig};
+use super::surfaces::{
+    generate_top_bottom_surfaces_with_interior, prune_redundant_gap_fill, SurfaceConfig,
+};
 use super::types::{ExtrusionRole, SliceLayer};
 use super::walls::{apply_single_wall_restrictions, classify_overhang_perimeters};
 
@@ -217,6 +219,13 @@ pub fn process_mesh(
         let t_overhang = PhaseTimer::start("Overhang Perimeter Classification", logger);
         classify_overhang_perimeters(&mut layers, params.nozzle_diameter_mm);
         t_overhang.finish();
+
+        // Drop gap-fill beads that land inside a solid surface: the solid infill
+        // covers them, so they'd otherwise sit as scattered variable-width
+        // islands on the uniform surface.  Genuine gap fill in sparse zones and
+        // thin ribs (outside solid_regions) is preserved.
+        logger.log_debug("pruning redundant gap fill inside solid surfaces");
+        prune_redundant_gap_fill(&mut layers);
     }
 
     // Add infill
