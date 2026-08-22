@@ -36,14 +36,16 @@ export class SliceSegmentBar {
 
   /** Show the fan sub-selector only in fan mode with more than one fan. */
   protected readonly showFanSelector = computed(
-    () => this.preview.viewMode() === 'fan' && this.preview.discoveredFans().length > 1,
+    () => this.preview.effectiveViewMode() === 'fan' && this.preview.discoveredFans().length > 1,
   );
 
   /** Static CSS gradient mirroring the scalar color ramp (low → high). */
   protected readonly scalarGradient = speedGradientCss();
 
   /** Descriptor of the active scalar channel, or `null` in category mode. */
-  protected readonly activeChannel = computed(() => scalarChannelFor(this.preview.viewMode()));
+  protected readonly activeChannel = computed(() =>
+    scalarChannelFor(this.preview.effectiveViewMode()),
+  );
 
   /**
    * `true` when the active channel has effectively one value across the whole
@@ -83,7 +85,7 @@ export class SliceSegmentBar {
    */
   protected readonly hoverTickPct = computed<number | null>(() => {
     const h = this.preview.hoverInfo();
-    if (!h || h.channelId !== this.preview.viewMode()) {
+    if (!h || h.channelId !== this.preview.effectiveViewMode()) {
       return null;
     }
     return h.t * 100;

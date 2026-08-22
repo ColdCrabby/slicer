@@ -599,10 +599,23 @@ export class GcodePreview {
     });
   });
 
+  /**
+   * The mode actually shown, derived from the user's choice clamped to what the
+   * current model supports. This is the **single source of truth** every
+   * consumer (dropdown, legend, 3D recolor) reads, so they can never disagree —
+   * if a reslice drops the data behind the chosen mode it gracefully falls back
+   * to `category` here rather than being imperatively reset elsewhere. The raw
+   * `viewMode` is preserved so the mode auto-restores when the data returns.
+   */
+  readonly effectiveViewMode = computed<GcodeViewMode>(() => {
+    const mode = this.viewMode();
+    return this.availableViewModes().includes(mode) ? mode : 'category';
+  });
+
   /** Range of the active scalar channel; `{0,0}` for the categorical mode. */
   readonly activeRange = computed<ScalarRange>(() => {
     const scan = this.modelScan();
-    switch (this.viewMode()) {
+    switch (this.effectiveViewMode()) {
       case 'category':
         return { min: 0, max: 0 };
       case 'fan': {
@@ -614,7 +627,7 @@ export class GcodePreview {
       case 'layerTime':
         return scan.layerTime;
       default:
-        return scan.segmentRanges[this.viewMode() as SegmentViewMode];
+        return scan.segmentRanges[this.effectiveViewMode() as SegmentViewMode];
     }
   });
 
@@ -746,22 +759,22 @@ export class GcodePreview {
         const layer = carry.wasAtTop ? count - 1 : Math.min(carry.prevMax, count - 1);
         this.layerMax.set(Math.max(0, layer));
       } else {
-        // Brand-new scene: reset the viewer to its defaults.
+        // Brand-new scene: reset the viewer to its defaults. The coloring mode
+        // is intentionally *not* reset here — `effectiveViewMode` clamps it to
+        // what the model supports, so it stays consistent (and sticky) without
+        // an imperative reset that would race the reactive rebuild.
         this.layerMax.set(Math.max(0, count - 1));
         this.segmentProgress.set(1);
         this.hiddenRoles.set(new Set<RoleName>());
         this.showAllLayers.set(true);
-        this.viewMode.set('category');
       }
 
-      // Re-validate the fan selection and the active mode against the new scan:
-      // a reslice may drop the previously selected fan or a whole channel.
+      // Re-validate the fan selection against the new scan (a reslice may drop
+      // the previously selected fan). The active *mode* needs no re-validation:
+      // `effectiveViewMode` derives it from `availableViewModes`.
       const fan = this.selectedFan();
       if (fan === null || !scan.fans.some((f) => f.key === fan)) {
         this.selectedFan.set(scan.fans[0]?.key ?? null);
-      }
-      if (!this.availableViewModes().includes(this.viewMode())) {
-        this.viewMode.set('category');
       }
     } catch (error) {
       console.error('[GcodePreview] Failed to load gcode:', error);

@@ -261,7 +261,7 @@ export class Viewer {
     // React to theme, view-mode, scalar-range, fan-selection, or legend
     // hover-band changes — recolor all layers in place without rebuilding.
     effect(() => {
-      const mode = this.gcodePreview.viewMode();
+      const mode = this.gcodePreview.effectiveViewMode();
       const colors = this.gcodePreview.roleColors();
       const range = this.gcodePreview.activeRange();
       const fan = this.gcodePreview.selectedFan();
@@ -272,7 +272,8 @@ export class Viewer {
     // The hover-inspect probe is only meaningful in the G-code scalar views.
     effect(() => {
       const active =
-        this.mode() === 'gcode' && scalarChannelFor(this.gcodePreview.viewMode()) !== null;
+        this.mode() === 'gcode' &&
+        scalarChannelFor(this.gcodePreview.effectiveViewMode()) !== null;
       this.gcodeHover?.setEnabled(active);
       if (!active) {
         this.gcodePreview.setHoverInfo(null);
@@ -312,7 +313,7 @@ export class Viewer {
       this.gcodePreview.setHoverInfo(null);
       return;
     }
-    const mode = this.gcodePreview.viewMode();
+    const mode = this.gcodePreview.effectiveViewMode();
     const channel = scalarChannelFor(mode);
     if (!channel) {
       this.gcodePreview.setHoverInfo(null);
@@ -497,7 +498,7 @@ export class Viewer {
       (hit) => this.onGcodeHover(hit),
     );
     this.gcodeHover.setEnabled(
-      this.mode() === 'gcode' && scalarChannelFor(this.gcodePreview.viewMode()) !== null,
+      this.mode() === 'gcode' && scalarChannelFor(this.gcodePreview.effectiveViewMode()) !== null,
     );
     // Seed the bed grid from the current print-area configuration.
     this.scene.setPrintArea(this.printArea.config());
@@ -739,7 +740,7 @@ export class Viewer {
     const max = untracked(() => this.gcodePreview.layerMax());
     const progress = untracked(() => this.gcodePreview.segmentProgress());
     const hidden = untracked(() => this.gcodePreview.hiddenRoles());
-    const mode = untracked(() => this.gcodePreview.viewMode());
+    const mode = untracked(() => this.gcodePreview.effectiveViewMode());
     const range = untracked(() => this.gcodePreview.activeRange());
     const fan = untracked(() => this.gcodePreview.selectedFan());
     const band = untracked(() => this.gcodePreview.hoverBand());

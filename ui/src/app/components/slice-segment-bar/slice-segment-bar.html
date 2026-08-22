@@ -6,7 +6,7 @@
       <select
         id="gcode-view-mode"
         class="mode-select"
-        [value]="preview.viewMode()"
+        [value]="preview.effectiveViewMode()"
         (change)="onModeChange($event)"
       >
         @for (mode of viewModes(); track mode) {
