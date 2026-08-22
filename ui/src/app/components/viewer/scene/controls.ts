@@ -23,8 +23,8 @@ const AUTOSCROLL_ACCEL_EXPONENT = 4;
 const AUTOSCROLL_MAX_FACTOR_PER_FRAME = 4;
 
 // --- Mac trackpad tuning (Shapr3D-style two-finger gestures) --------------
-// Two-finger swipe pans 1:1 with pixel deltas (grab feel).
-// Option + swipe orbits at ~0.34° per pixel (200 px = ~68°).
+// Two-finger swipe orbits at ~0.34° per pixel (200 px = ~68°).
+// Option + swipe pans 1:1 with pixel deltas (grab feel).
 // Pinch (ctrlKey wheel event synthesised by macOS) zooms toward the cursor.
 //
 // Pinch zoom uses a direct exponential model:
@@ -46,8 +46,8 @@ interface AutoscrollState {
 /**
  * True on macOS (laptop trackpad, Magic Trackpad, Magic Mouse). Detected once
  * at construction and cached — the platform does not change at runtime. Used
- * to switch the wheel handler into Shapr3D-style trackpad mode (pan by
- * default, pinch to zoom, ⌥ + swipe to orbit).
+ * to switch the wheel handler into Shapr3D-style trackpad mode (orbit by
+ * default, pinch to zoom, ⌥ + swipe to pan).
  */
 function isMacPlatform(): boolean {
   if (typeof navigator === 'undefined') {
@@ -84,6 +84,13 @@ export class SceneControls {
   private readonly wheelHandler: (event: WheelEvent) => void;
 
   /**
+   * Action a bare two-finger trackpad swipe performs on macOS. Mirrors
+   * `ViewerControl.trackpadTwoFingerGesture`; ⌥ + swipe always does the
+   * opposite. Default matches Shapr3D (orbit).
+   */
+  private twoFingerGesture: 'orbit' | 'pan' = 'orbit';
+
+  /**
    * @param cancelDragCallback  Called when a two-finger gesture begins so
    *   any in-flight single-finger selection drag can be abandoned cleanly.
    */
@@ -113,6 +120,11 @@ export class SceneControls {
 
   hasAutoscroll(): boolean {
     return this.autoscroll !== null;
+  }
+
+  /** Set the macOS bare-two-finger-swipe action (orbit or pan). */
+  setTwoFingerGesture(gesture: 'orbit' | 'pan'): void {
+    this.twoFingerGesture = gesture;
   }
 
   applyOrbitInertia(dt: number): void {
@@ -324,11 +336,15 @@ export class SceneControls {
    * distinguished only by modifier flags. This dispatcher routes each event
    * to the matching camera operation instead of unconditionally zooming.
    *
-   * | Modifier                 | Gesture on trackpad          | Action           |
-   * | ------------------------ | ---------------------------- | ---------------- |
-   * | `ctrlKey` (synthesised)  | Pinch                        | Zoom to cursor   |
-   * | `altKey` (⌥ Option)      | Two-finger swipe + Option    | Orbit            |
-   * | none                     | Two-finger swipe             | Pan (grab feel)  |
+   * | Modifier                 | Gesture on trackpad          | Action              |
+   * | ------------------------ | ---------------------------- | ------------------- |
+   * | `ctrlKey` (synthesised)  | Pinch                        | Zoom to cursor      |
+   * | none                     | Two-finger swipe             | Primary (orbit/pan) |
+   * | `altKey` (⌥ Option)      | Two-finger swipe + Option    | The other one       |
+   *
+   * The bare-swipe action is user-configurable via {@link setTwoFingerGesture}
+   * (default orbit, Shapr3D-style); ⌥ always performs the opposite, so pan is
+   * always reachable without the keyboard once the preference is set to pan.
    *
    * `ctrlKey` is set by macOS itself when a pinch gesture is in progress —
    * it does not require the user to press Control. Real Ctrl+scroll on an
@@ -360,23 +376,23 @@ export class SceneControls {
       return;
     }
 
-    if (event.altKey) {
-      // ⌥ + two-finger swipe — orbit.
+    // The bare two-finger swipe performs the user's chosen primary gesture
+    // (orbit by default, or pan); holding ⌥ performs the other one. Pan uses
+    // the touch-pan helper so pixel deltas map 1:1 to world translation
+    // (grab feel — the scene follows the fingers).
+    const wantOrbit = this.twoFingerGesture === 'orbit' ? !event.altKey : event.altKey;
+    if (wantOrbit) {
       this.applyWheelOrbit(event.deltaX, event.deltaY);
-      return;
+    } else {
+      this.applyTouchPan(event.deltaX, event.deltaY);
     }
-
-    // Two-finger swipe — pan with grab feel (scene follows fingers).
-    // Reuses the touch pan helper so pixel deltas map 1:1 to world
-    // translation at the current zoom distance.
-    this.applyTouchPan(event.deltaX, event.deltaY);
   };
 
   /**
    * Orbit the camera around `controls.target` by a screen-space pixel delta.
-   * Used by the macOS wheel handler for ⌥+two-finger swipe. Mirrors the
-   * Z-up spherical math in {@link SceneCamera.orbitBy} to stay consistent
-   * with keyboard-driven orbit and to avoid touching `camera.up`.
+   * Used by the macOS wheel handler for a bare two-finger swipe. Works in the
+   * current camera-up frame (reducing to Z-up spherical when level) so it stays
+   * consistent with {@link SceneCamera.orbitBy} and with a rolled view.
    */
   private applyWheelOrbit(dxPx: number, dyPx: number): void {
     if (dxPx === 0 && dyPx === 0) {
@@ -391,20 +407,25 @@ export class SceneControls {
     const dAz = dxPx * MAC_ORBIT_RAD_PER_PIXEL;
     const dPol = dyPx * MAC_ORBIT_RAD_PER_PIXEL;
 
-    // Z-up spherical: phi = angle from +Z, theta = azimuth around +Z.
-    const phi = Math.acos(Math.max(-1, Math.min(1, offset.z / r)));
-    const theta = Math.atan2(offset.y, offset.x);
+    // Orbit in the camera-up frame: phi = angle from +up, theta = azimuth
+    // around +up. Reduces to Z-up spherical when up = (0,0,1).
+    const up = this.camera.up.clone().normalize();
+    const helper = Math.abs(up.y) < 0.99 ? new Vector3(0, 1, 0) : new Vector3(1, 0, 0);
+    const e1 = new Vector3().crossVectors(helper, up).normalize();
+    const e2 = new Vector3().crossVectors(up, e1);
+    const phi = Math.atan2(Math.hypot(offset.dot(e1), offset.dot(e2)), offset.dot(up));
+    const theta = Math.atan2(offset.dot(e2), offset.dot(e1));
     const newTheta = theta - dAz;
     // Clamp phi away from the poles to prevent lookAt degeneracy.
     const eps = 0.01;
     const newPhi = Math.max(eps, Math.min(Math.PI - eps, phi - dPol));
 
     const sinPhi = Math.sin(newPhi);
-    offset.set(
-      r * sinPhi * Math.cos(newTheta),
-      r * sinPhi * Math.sin(newTheta),
-      r * Math.cos(newPhi),
-    );
+    offset
+      .copy(up)
+      .multiplyScalar(r * Math.cos(newPhi))
+      .addScaledVector(e1, r * sinPhi * Math.cos(newTheta))
+      .addScaledVector(e2, r * sinPhi * Math.sin(newTheta));
     this.camera.position.copy(target).add(offset);
     this.controls.update();
   }

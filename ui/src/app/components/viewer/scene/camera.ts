@@ -13,6 +13,13 @@ export const INITIAL_CAMERA_UP = new Vector3(0, 0, 1);
 export const INITIAL_PERSPECTIVE_FOV = PERSPECTIVE_FOV;
 const CAMERA_NEAR = 0.1;
 const CAMERA_FAR = 1_000_000;
+const UNIT_X = new Vector3(1, 0, 0);
+const UNIT_Y = new Vector3(0, 1, 0);
+// A pure top/bottom (±Z) look is degenerate under world Z-up because the view
+// axis is parallel to `up`. We snap to a hair off the pole instead of flipping
+// `up` sideways, which keeps the orbit frame identical to every side view. ~1°
+// is imperceptible yet sits comfortably above OrbitControls' polar clamp.
+const POLE_NUDGE_RAD = 0.02;
 
 interface CameraAnimation {
   startTime: number;
@@ -102,11 +109,34 @@ export class SceneCamera {
   animateToDirection(direction: Vector3, up: Vector3): void {
     const target = this.controls.target.clone();
     const distance = Math.max(this.camera.position.distanceTo(target), 1);
-    const dir = direction.clone().normalize();
+    // Express every snapped view in the scene's stable world Z-up frame so that
+    // resuming an orbit afterwards feels identical no matter which face/edge/
+    // corner was clicked. A pure ±Z look is degenerate under Z-up (view axis ∥
+    // up), so nudge it just off the pole — preserving the *current* azimuth —
+    // instead of flipping `up` sideways. The sideways-up was what made orbiting
+    // after a Top/Bottom click behave completely differently from the sides.
+    let dir = direction.clone().normalize();
+    let resolvedUp = up.clone().normalize();
+    if (Math.abs(dir.dot(INITIAL_CAMERA_UP)) > 1 - 1e-4) {
+      const offset = this.camera.position.clone().sub(target);
+      const rawTheta = offset.x === 0 && offset.y === 0 ? 0 : Math.atan2(offset.y, offset.x);
+      // Snap the azimuth to a right angle so the Top/Bottom view lands square
+      // (face edges parallel to the screen) instead of inheriting whatever
+      // arbitrary heading the camera happened to have.
+      const theta = Math.round(rawTheta / (Math.PI / 2)) * (Math.PI / 2);
+      const sign = dir.z >= 0 ? 1 : -1;
+      const sinEps = Math.sin(POLE_NUDGE_RAD);
+      dir = new Vector3(
+        sinEps * Math.cos(theta),
+        sinEps * Math.sin(theta),
+        sign * Math.cos(POLE_NUDGE_RAD),
+      ).normalize();
+      resolvedUp = INITIAL_CAMERA_UP.clone();
+    }
     this.animateToPose({
       position: target.clone().addScaledVector(dir, distance),
       target,
-      up: up.clone().normalize(),
+      up: resolvedUp,
       fov: this.camera.fov,
     });
   }
@@ -121,29 +151,51 @@ export class SceneCamera {
       return;
     }
 
-    // Work in Z-up spherical coordinates to avoid gimbal lock and holonomy.
-    // phi = angle from +Z (0 = top, PI = bottom), theta = azimuth around Z.
-    const phi = Math.acos(Math.max(-1, Math.min(1, offset.z / r)));
-    const theta = Math.atan2(offset.y, offset.x);
+    // Orbit in the frame defined by the current camera up so the gesture is
+    // consistent whether the view is level (up = world Z) or rolled. Reduces
+    // exactly to Z-up spherical when up = (0,0,1). We intentionally do not touch
+    // camera.up — OrbitControls.update() derives the orientation from it.
+    const up = this.camera.up.clone().normalize();
+    const helper = Math.abs(up.y) < 0.99 ? UNIT_Y : UNIT_X;
+    const e1 = new Vector3().crossVectors(helper, up).normalize();
+    const e2 = new Vector3().crossVectors(up, e1);
+    const axial = offset.dot(up);
+    const rho = Math.hypot(offset.dot(e1), offset.dot(e2));
+    const phi = Math.atan2(rho, axial); // angle from +up
+    const theta = Math.atan2(offset.dot(e2), offset.dot(e1));
 
     const newTheta = theta - azimuth;
     // Clamp phi away from the poles to prevent lookAt degeneracy and flicker.
     const eps = 0.01;
     const newPhi = Math.max(eps, Math.min(Math.PI - eps, phi - polar));
-
     const sinPhi = Math.sin(newPhi);
-    offset.set(
-      r * sinPhi * Math.cos(newTheta),
-      r * sinPhi * Math.sin(newTheta),
-      r * Math.cos(newPhi),
-    );
+
+    offset
+      .copy(up)
+      .multiplyScalar(r * Math.cos(newPhi))
+      .addScaledVector(e1, r * sinPhi * Math.cos(newTheta))
+      .addScaledVector(e2, r * sinPhi * Math.sin(newTheta));
 
     this.camera.position.copy(target).add(offset);
-    // Do NOT touch camera.up here. OrbitControls' own lookAt call inside
-    // update() uses the scene's stable Z-up (0,0,1) to compute a roll-free
-    // orientation. Setting camera.up to a derived vector here fights with
-    // OrbitControls every frame and causes the left-right tilt.
     this.controls.update();
+  }
+
+  /**
+   * Roll the view about its own axis by `radians` (animated). Rotating up about
+   * the view direction rolls the on-screen image; subsequent orbiting stays
+   * consistent because orbitBy works in the camera-up frame.
+   */
+  rollBy(radians: number): void {
+    const target = this.controls.target.clone();
+    const offset = this.camera.position.clone().sub(target);
+    const dir = offset.lengthSq() > 1e-6 ? offset.clone().normalize() : DEFAULT_VIEW_DIR.clone();
+    const up = this.camera.up.clone().normalize().applyAxisAngle(dir, radians).normalize();
+    this.animateToPose({
+      position: this.camera.position.clone(),
+      target,
+      up,
+      fov: this.camera.fov,
+    });
   }
 
   /** Advance an in-flight camera animation one frame. Returns true while animating. */

@@ -163,6 +163,12 @@ export class Viewer {
       this.scene?.setObjectMode(mode);
     });
 
+    // React to the trackpad two-finger gesture preference (Shapr3D-style).
+    effect(() => {
+      const gesture = this.viewerControl.trackpadTwoFingerGesture();
+      this.scene?.setTwoFingerGesture(gesture);
+    });
+
     // React to reset requests from the toolbar.
     effect(() => {
       const tick = this.viewerControl.resetTick();
@@ -180,6 +186,15 @@ export class Viewer {
         return;
       }
       this.scene?.animateToDirection(req.direction, req.up);
+    });
+
+    // React to roll requests (viewport-cube roll buttons).
+    effect(() => {
+      const req = this.viewerControl.rollRequest();
+      if (!req) {
+        return;
+      }
+      this.scene?.rollBy(req.radians);
     });
 
     // Mirror the print-area configuration into the scene so the bed grid
@@ -488,6 +503,7 @@ export class Viewer {
     // whatever view / object mode the user already had selected.
     this.scene.setObjectMode(this.viewerControl.objectMode());
     this.scene.setView(this.viewerControl.view());
+    this.scene.setTwoFingerGesture(this.viewerControl.trackpadTwoFingerGesture());
     this.gcode = new GcodeOrchestrator(this.scene.contentRoot);
     // Hover-inspect probe for the G-code scalar views: raycasts the visible
     // layer meshes and reports the extrusion value under the cursor.

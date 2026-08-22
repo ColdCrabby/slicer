@@ -13,7 +13,7 @@ import {
 } from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import type { PrintAreaConfig } from '../../../services/print-area';
-import type { ObjectMode } from '../../../services/viewer-control';
+import type { ObjectMode, TwoFingerGesture } from '../../../services/viewer-control';
 import { GizmoManager } from '../gizmo';
 import { INITIAL_CAMERA_UP, INITIAL_PERSPECTIVE_FOV, SceneCamera } from './camera';
 import { SceneControls } from './controls';
@@ -236,8 +236,17 @@ export class ViewerScene {
     this._camera.orbitBy(azimuth, polar);
   }
 
+  rollBy(radians: number): void {
+    this._camera.rollBy(radians);
+  }
+
   setObjectMode(mode: ObjectMode): void {
     this._selection.setObjectMode(mode);
+  }
+
+  /** macOS bare-two-finger-swipe action (orbit or pan). */
+  setTwoFingerGesture(gesture: TwoFingerGesture): void {
+    this._controls.setTwoFingerGesture(gesture);
   }
 
   dispose(): void {

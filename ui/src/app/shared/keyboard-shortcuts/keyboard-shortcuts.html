@@ -1,4 +1,4 @@
-@for (section of sections; track section.title + (section.scope ?? '')) {
+@for (section of sections(); track section.title + (section.scope ?? '')) {
   <section
     class="shortcuts-section"
     [class.shortcuts-section--other-platform]="!isCurrentPlatform(section.scope)"
@@ -21,6 +21,40 @@
         </nexus-badge>
       }
     </header>
+    @if (section.scope === 'mac' && isMac) {
+      <div class="two-finger-pref">
+        <span class="two-finger-pref__label">Two-finger swipe</span>
+        <div class="two-finger-pref__options" role="group" aria-label="Two-finger swipe action">
+          <button
+            type="button"
+            class="two-finger-pref__option"
+            [class.two-finger-pref__option--active]="twoFingerGesture() === 'orbit'"
+            [attr.aria-pressed]="twoFingerGesture() === 'orbit'"
+            (click)="setTwoFingerGesture('orbit')"
+          >
+            Orbit
+          </button>
+          <button
+            type="button"
+            class="two-finger-pref__option"
+            [class.two-finger-pref__option--active]="twoFingerGesture() === 'pan'"
+            [attr.aria-pressed]="twoFingerGesture() === 'pan'"
+            (click)="setTwoFingerGesture('pan')"
+          >
+            Pan
+          </button>
+        </div>
+        <p class="two-finger-pref__hint">
+          @if (twoFingerGesture() === 'orbit') {
+            Two fingers <strong>orbit</strong>. To <strong>pan</strong> without the keyboard,
+            press and drag with two fingers (or ⌥ + two-finger swipe). Pinch to zoom.
+          } @else {
+            Two fingers <strong>pan</strong>. To <strong>orbit</strong> without the keyboard,
+            press and drag with one finger (or ⌥ + two-finger swipe). Pinch to zoom.
+          }
+        </p>
+      </div>
+    }
     <table class="shortcuts">
       <tbody>
         @for (row of section.rows; track row.actionId) {
