@@ -14,8 +14,9 @@
 //!                   → Three.js LineSegments
 //! ```
 //!
-//! Each `Float32Array` holds flat line-segment pairs:
-//! `[x0, y0, z0,  x1, y1, z1,  …]`  (6 floats per segment).
+//! Each `Float32Array` holds flat line-segment records:
+//! `[x0, y0, z0,  x1, y1, z1,  width, height, speed,  …]`  (9 floats per
+//! segment, where `speed` is the extrusion feedrate in mm/s).
 
 mod parser;
 mod types;

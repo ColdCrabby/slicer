@@ -103,6 +103,103 @@ export const ROLE_ORDER: readonly RoleName[] = [
   'other',
 ] as const;
 
+// ── Segment buffer layout ───────────────────────────────────────────────────
+
+/**
+ * Number of `f32`s per line-segment record in a `GcodeLayerBuffer` block:
+ * `[x0, y0, z0, x1, y1, z1, width, height, speed]`. Kept in one place so the
+ * WASM buffer stride and every TypeScript reader stay in sync.
+ */
+export const FLOATS_PER_SEGMENT = 9;
+
+/** Byte offset (in floats) of the per-segment extrusion speed (mm/s). */
+export const SPEED_OFFSET = 8;
+
+// ── View mode + speed coloring ──────────────────────────────────────────────
+
+/**
+ * How the viewer colors extrusion segments.
+ * - `category` (default): by extrusion role — outer wall, infill, and so on.
+ * - `speed`: by extrusion feedrate, mapped through {@link SPEED_GRADIENT_STOPS}.
+ */
+export type GcodeViewMode = 'category' | 'speed';
+
+/** Human-readable labels for the view-mode dropdown. */
+export const VIEW_MODE_LABELS: Record<GcodeViewMode, string> = {
+  category: 'Categories',
+  speed: 'Speed',
+};
+
+/** Extrusion-speed range (mm/s) of the current model, slow → fast. */
+export interface SpeedRange {
+  min: number;
+  max: number;
+}
+
+/**
+ * Slow → fast color ramp for the speed view (blue → cyan → green → amber → red).
+ * Shared by the 3D renderer (`sampleSpeedColor`) and the legend gradient
+ * (`speedGradientCss`) so both stay identical.
+ */
+export const SPEED_GRADIENT_STOPS: readonly number[] = [
+  0x3b4cc0, 0x00b4d8, 0x2dc937, 0xf9c80e, 0xe63946,
+] as const;
+
+/** Sample the speed ramp at `t` ∈ [0, 1], returning a packed `0xRRGGBB` color. */
+export function sampleSpeedColor(t: number): number {
+  const stops = SPEED_GRADIENT_STOPS;
+  const clamped = Math.min(1, Math.max(0, Number.isFinite(t) ? t : 0));
+  const scaled = clamped * (stops.length - 1);
+  const i = Math.min(stops.length - 2, Math.floor(scaled));
+  const f = scaled - i;
+  const c0 = stops[i];
+  const c1 = stops[i + 1];
+  const lerp = (a: number, b: number) => Math.round(a + (b - a) * f);
+  const r = lerp((c0 >> 16) & 0xff, (c1 >> 16) & 0xff);
+  const g = lerp((c0 >> 8) & 0xff, (c1 >> 8) & 0xff);
+  const b = lerp(c0 & 0xff, c1 & 0xff);
+  return (r << 16) | (g << 8) | b;
+}
+
+/** CSS `linear-gradient(...)` mirroring the speed ramp; `to right` = slow → fast. */
+export function speedGradientCss(direction = 'to right'): string {
+  const n = SPEED_GRADIENT_STOPS.length;
+  const stops = SPEED_GRADIENT_STOPS.map(
+    (c, i) => `#${c.toString(16).padStart(6, '0')} ${((i / (n - 1)) * 100).toFixed(0)}%`,
+  );
+  return `linear-gradient(${direction}, ${stops.join(', ')})`;
+}
+
+// Role ids that are not extrusions and so are excluded from the speed range.
+const TRAVEL_ROLE_ID = 5;
+const SEAM_ROLE_ID = 10;
+
+/** Scan every extruding segment of a parsed handle for its min/max speed (mm/s). */
+function computeSpeedRange(handle: GcodeHandle): SpeedRange {
+  let min = Infinity;
+  let max = 0;
+  const layerCount = handle.layerCount();
+  for (let li = 0; li < layerCount; li++) {
+    const layer = handle.getLayer(li);
+    const blockCount = layer.blocksCount();
+    for (let b = 0; b < blockCount; b++) {
+      const roleId = layer.blockRole(b);
+      if (roleId === TRAVEL_ROLE_ID || roleId === SEAM_ROLE_ID) {
+        continue;
+      }
+      const data = layer.blockData(b);
+      for (let o = SPEED_OFFSET; o < data.length; o += FLOATS_PER_SEGMENT) {
+        const s = data[o];
+        if (s > 0) {
+          if (s < min) min = s;
+          if (s > max) max = s;
+        }
+      }
+    }
+  }
+  return Number.isFinite(min) ? { min, max } : { min: 0, max: 0 };
+}
+
 // ── Service ───────────────────────────────────────────────────────────────────
 
 /**
@@ -164,6 +261,12 @@ export class GcodePreview {
   /** Set of roles to hide in the viewer. */
   readonly hiddenRoles = signal<ReadonlySet<RoleName>>(new Set<RoleName>());
 
+  /** Active coloring mode: role categories (default) or extrusion speed. */
+  readonly viewMode = signal<GcodeViewMode>('category');
+
+  /** Extrusion-speed range (mm/s) of the loaded model, for the speed legend. */
+  readonly speedRange = signal<SpeedRange>({ min: 0, max: 0 });
+
   constructor() {
     // React to every new download URL produced by the slicer service.
     effect(() => {
@@ -210,6 +313,10 @@ export class GcodePreview {
     this.showAllLayers.set(!this.showAllLayers());
   }
 
+  setViewMode(mode: GcodeViewMode): void {
+    this.viewMode.set(mode);
+  }
+
   // ── Private ──────────────────────────────────────────────────────────────
 
   async #loadFromUrl(url: string): Promise<void> {
@@ -221,11 +328,13 @@ export class GcodePreview {
       const buffer = await response.arrayBuffer();
       const handle = GcodeHandle.parse(new Uint8Array(buffer));
       const count = handle.layerCount();
+      this.speedRange.set(computeSpeedRange(handle));
       this.gcodeHandle.set(handle);
       this.layerMax.set(Math.max(0, count - 1));
       this.segmentProgress.set(1);
       this.hiddenRoles.set(new Set<RoleName>());
       this.showAllLayers.set(true);
+      this.viewMode.set('category');
     } catch (error) {
       console.error('[GcodePreview] Failed to load gcode:', error);
     } finally {

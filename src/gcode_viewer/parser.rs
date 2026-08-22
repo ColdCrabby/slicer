@@ -34,6 +34,9 @@ pub(super) fn parse_gcode_bytes(bytes: &[u8]) -> Vec<InternalLayer> {
     let mut y: f32 = 0.0;
     let mut z: f32 = 0.0;
     let mut e: f32 = 0.0;
+    // Feedrate (mm/min) is sticky across moves, exactly like the position
+    // registers, so we track it as parser state and update it on any G0/G1 `F`.
+    let mut feedrate: f32 = 0.0;
     let mut width: f32 = 0.4;
     let mut height: f32 = 0.2;
     let mut absolute_xyz = true;
@@ -77,7 +80,18 @@ pub(super) fn parse_gcode_bytes(bytes: &[u8]) -> Vec<InternalLayer> {
                 // Emit a degenerate (zero-length) segment at the current nozzle
                 // position.  The viewer renders Seam blocks as white dot spheres.
                 let seam_radius = seam_dot_radius(height);
-                current.push_segment(Role::Seam, x, y, z, x, y, z, seam_radius, seam_radius);
+                current.push_segment(
+                    Role::Seam,
+                    x,
+                    y,
+                    z,
+                    x,
+                    y,
+                    z,
+                    seam_radius,
+                    seam_radius,
+                    feedrate / 60.0,
+                );
             }
         }
 
@@ -121,6 +135,7 @@ pub(super) fn parse_gcode_bytes(bytes: &[u8]) -> Vec<InternalLayer> {
                 let mut new_y = y;
                 let mut new_z = z;
                 let mut new_e = e;
+                let mut new_f = feedrate;
                 let mut has_e = false;
 
                 for param in parts {
@@ -139,6 +154,7 @@ pub(super) fn parse_gcode_bytes(bytes: &[u8]) -> Vec<InternalLayer> {
                             has_e = true;
                             new_e = if absolute_e { val } else { e + val };
                         }
+                        "F" => new_f = val,
                         _ => {}
                     }
                 }
@@ -153,15 +169,22 @@ pub(super) fn parse_gcode_bytes(bytes: &[u8]) -> Vec<InternalLayer> {
                 y = new_y;
                 z = new_z;
                 e = new_e;
+                feedrate = new_f;
 
                 let is_extruding = has_e && (new_e - prev_e) > 1e-7;
                 let seg_role = if is_extruding { role } else { Role::Travel };
+
+                // Convert the mm/min feedrate to mm/s so the viewer can label
+                // the speed gradient in the units printers are configured in.
+                let speed = feedrate / 60.0;
 
                 let moved = (x - prev_x).abs() > 1e-6
                     || (y - prev_y).abs() > 1e-6
                     || (z - prev_z).abs() > 1e-6;
                 if moved {
-                    current.push_segment(seg_role, prev_x, prev_y, prev_z, x, y, z, width, height);
+                    current.push_segment(
+                        seg_role, prev_x, prev_y, prev_z, x, y, z, width, height, speed,
+                    );
                 }
             }
             _ => {} // G28, G4, M104, M109, T0, etc. — ignore
@@ -315,6 +338,52 @@ G1 X10 Y0 Z0.2 E1.0
         assert!(
             (w - 0.8).abs() < 1e-6,
             "segment width should come from the mm-suffixed marker, got {w}"
+        );
+    }
+
+    #[test]
+    fn feedrate_is_captured_as_mm_per_second() {
+        // `F` is emitted in mm/min; the viewer wants mm/s, so a move at
+        // F1800 must land as 30 mm/s in the segment's speed slot (index 8).
+        let gcode = "\
+;TYPE:Outer wall
+G1 X0 Y0 Z0.2 E0 F1800
+G1 X10 Y0 Z0.2 E1.0
+";
+        let layers = parse_gcode_bytes(gcode.as_bytes());
+        let speed = layers
+            .iter()
+            .flat_map(|l| &l.blocks)
+            .find(|b| b.role == Role::OuterWall)
+            .map(|b| b.data[8])
+            .expect("outer-wall segment");
+        assert!(
+            (speed - 30.0).abs() < 1e-4,
+            "F1800 should be 30 mm/s, got {speed}"
+        );
+    }
+
+    #[test]
+    fn feedrate_persists_across_moves_without_f() {
+        // A move that omits `F` inherits the last commanded feedrate, so both
+        // extruding segments below must report the same 40 mm/s (F2400).
+        let gcode = "\
+;TYPE:Infill
+G1 X0 Y0 Z0.2 E0 F2400
+G1 X10 Y0 Z0.2 E1.0
+G1 X10 Y10 Z0.2 E2.0
+";
+        let layers = parse_gcode_bytes(gcode.as_bytes());
+        let speeds: Vec<f32> = layers
+            .iter()
+            .flat_map(|l| &l.blocks)
+            .filter(|b| b.role == Role::Infill)
+            .flat_map(|b| b.data.chunks_exact(9).map(|c| c[8]))
+            .collect();
+        assert!(!speeds.is_empty(), "expected infill segments");
+        assert!(
+            speeds.iter().all(|&s| (s - 40.0).abs() < 1e-4),
+            "all infill segments should be 40 mm/s, got {speeds:?}"
         );
     }
 

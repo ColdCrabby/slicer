@@ -1,9 +1,13 @@
 import { ChangeDetectionStrategy, Component, computed, inject } from '@angular/core';
 import {
+  FLOATS_PER_SEGMENT,
   GcodePreview,
+  type GcodeViewMode,
   ROLE_LABELS,
   ROLE_ORDER,
   type RoleName,
+  speedGradientCss,
+  VIEW_MODE_LABELS,
 } from '../../services/gcode-preview';
 
 @Component({
@@ -21,6 +25,17 @@ export class SliceSegmentBar {
   protected readonly roleLabels = ROLE_LABELS;
   protected readonly roleOrder: readonly RoleName[] = ROLE_ORDER;
 
+  /** View-mode dropdown options and their labels. */
+  protected readonly viewModes: readonly GcodeViewMode[] = ['category', 'speed'];
+  protected readonly viewModeLabels = VIEW_MODE_LABELS;
+
+  /** Static CSS gradient mirroring the speed color ramp (slow → fast). */
+  protected readonly speedGradient = speedGradientCss();
+
+  /** Formatted min/max labels for the speed legend. */
+  protected readonly speedMinLabel = computed(() => formatSpeed(this.preview.speedRange().min));
+  protected readonly speedMaxLabel = computed(() => formatSpeed(this.preview.speedRange().max));
+
   /** Total move segments in the current top layer derived from its geometry buffers. */
   protected readonly layerSegmentCount = computed(() => {
     const handle = this.preview.gcodeHandle();
@@ -28,13 +43,12 @@ export class SliceSegmentBar {
       return 0;
     }
     const layer = handle.getLayer(this.preview.layerMax());
-    const floatsPerSegment = 8;
     let totalFloats = 0;
     const blocksCount = layer.blocksCount();
     for (let i = 0; i < blocksCount; i++) {
       totalFloats += layer.blockData(i).length;
     }
-    return totalFloats / floatsPerSegment;
+    return totalFloats / FLOATS_PER_SEGMENT;
   });
 
   /** Segment slider integer value derived from the fractional signal and real segment count. */
@@ -73,4 +87,13 @@ export class SliceSegmentBar {
   protected toggleRole(role: RoleName): void {
     this.preview.toggleRole(role);
   }
+
+  protected onModeChange(event: Event): void {
+    this.preview.setViewMode((event.target as HTMLSelectElement).value as GcodeViewMode);
+  }
+}
+
+/** Render a speed value (mm/s) for the legend, or a dash when unknown. */
+function formatSpeed(value: number): string {
+  return value > 0 ? `${Math.round(value)} mm/s` : '—';
 }

@@ -2,8 +2,10 @@ import type { Group } from 'three';
 import type { GcodeLayerBuffer } from '../../../generated/scene-wasm/scene_engine';
 import {
   ROLE_COLORS_DARK,
+  type GcodeViewMode,
   type RoleColorPalette,
   type RoleName,
+  type SpeedRange,
 } from '../../services/gcode-preview';
 import {
   applyHiddenRoles,
@@ -11,7 +13,7 @@ import {
   buildLayerGroup,
   disposeLayerGroup,
   type LayerInfo,
-  updateLayerColors,
+  updateViewColors,
 } from './gcode-layer-renderer';
 
 /**
@@ -102,11 +104,11 @@ export class GcodeOrchestrator {
   }
 
   /**
-   * Update all material colors to match a new palette.
-   * Call this when the application theme changes.
+   * Recolor all layers for the current view mode (category or speed) and
+   * palette. Call this when the theme, view mode, or speed range changes.
    */
-  updateColors(colors: RoleColorPalette): void {
-    updateLayerColors(this.layers, colors);
+  applyView(mode: GcodeViewMode, colors: RoleColorPalette, speedRange: SpeedRange): void {
+    updateViewColors(this.layers, mode, colors, speedRange);
   }
 
   /**

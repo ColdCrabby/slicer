@@ -249,10 +249,13 @@ export class Viewer {
       this.gcode?.applyHiddenRoles(hidden);
     });
 
-    // React to theme changes — update all material colors without rebuilding geometry.
+    // React to theme, view-mode, or speed-range changes — recolor all layers
+    // in place without rebuilding geometry.
     effect(() => {
+      const mode = this.gcodePreview.viewMode();
       const colors = this.gcodePreview.roleColors();
-      this.gcode?.updateColors(colors);
+      const range = this.gcodePreview.speedRange();
+      this.gcode?.applyView(mode, colors, range);
     });
 
     // Build (or rebuild) the layer graph when the parsed handle becomes
@@ -653,6 +656,9 @@ export class Viewer {
     const max = untracked(() => this.gcodePreview.layerMax());
     const progress = untracked(() => this.gcodePreview.segmentProgress());
     const hidden = untracked(() => this.gcodePreview.hiddenRoles());
+    const mode = untracked(() => this.gcodePreview.viewMode());
+    const range = untracked(() => this.gcodePreview.speedRange());
+    gcode.applyView(mode, colors, range);
     gcode.showRange(min, max);
     gcode.applyProgress(max, progress);
     gcode.applyHiddenRoles(hidden);

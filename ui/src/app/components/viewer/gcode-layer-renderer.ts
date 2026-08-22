@@ -4,6 +4,7 @@ import {
   Color,
   CylinderGeometry,
   Group,
+  InstancedBufferAttribute,
   InstancedMesh,
   LineBasicMaterial,
   LineSegments,
@@ -14,10 +15,15 @@ import {
 } from 'three';
 import type { GcodeLayerBuffer } from '../../../generated/scene-wasm/scene_engine';
 import {
+  FLOATS_PER_SEGMENT,
   ROLE_COLORS_DARK,
   ROLE_ORDER,
+  SPEED_OFFSET,
+  sampleSpeedColor,
+  type GcodeViewMode,
   type RoleColorPalette,
   type RoleName,
+  type SpeedRange,
 } from '../../services/gcode-preview';
 
 // -- Shared types -------------------------------------------------------------
@@ -29,6 +35,12 @@ export interface RoleSegments {
   lines?: LineSegments;
   /** Number of line segments */
   count: number;
+  /**
+   * Per-segment extrusion speed (mm/s), length === `count`. Present only for
+   * extrusion roles (not travel or seam) so the speed view can recolor without
+   * re-reading the WASM buffer.
+   */
+  speeds?: Float32Array;
 }
 
 export interface LayerInfo {
@@ -110,7 +122,7 @@ export function buildLayerGroup(
     const dataLen = buf.blockData(b).length;
     if (dataLen === 0) continue;
 
-    const count = dataLen / 8;
+    const count = dataLen / FLOATS_PER_SEGMENT;
     const role = ROLE_ID_TO_NAME[roleId] || 'other';
 
     roleTotals[role] += count;
@@ -160,7 +172,7 @@ export function buildLayerGroup(
       group.add(mesh);
       group.add(joints);
 
-      roleSegmentsMap[role] = { role, mesh, joints, count };
+      roleSegmentsMap[role] = { role, mesh, joints, count, speeds: new Float32Array(count) };
     }
   }
 
@@ -184,7 +196,7 @@ export function buildLayerGroup(
     const data = buf.blockData(b);
     if (data.length === 0) continue;
 
-    const count = data.length / 8;
+    const count = data.length / FLOATS_PER_SEGMENT;
     const roleId = buf.blockRole(b);
     const role = ROLE_ID_TO_NAME[roleId] || 'other';
 
@@ -197,7 +209,7 @@ export function buildLayerGroup(
       const pts = (rs.lines!.geometry.getAttribute('position') as BufferAttribute)
         .array as Float32Array;
       for (let i = 0; i < count; i++) {
-        const off = i * 8;
+        const off = i * FLOATS_PER_SEGMENT;
         const pOff = (baseOffset + i) * 6;
         pts[pOff] = data[off];
         pts[pOff + 1] = data[off + 1];
@@ -214,7 +226,7 @@ export function buildLayerGroup(
       const dots = rs.joints!;
       for (let i = 0; i < count; i++) {
         const globalI = baseOffset + i;
-        const offset = i * 8;
+        const offset = i * FLOATS_PER_SEGMENT;
         const dotSize = data[offset + 6] || 0.6; // 0.6 = SEAM_DOT_RADIUS in parser.rs
         _dummy.position.set(data[offset], data[offset + 1], data[offset + 2]);
         _dummy.rotation.set(0, 0, 0);
@@ -229,12 +241,13 @@ export function buildLayerGroup(
 
       for (let i = 0; i < count; i++) {
         const globalI = baseOffset + i;
-        const offset = i * 8;
+        const offset = i * FLOATS_PER_SEGMENT;
 
         _p0.set(data[offset], data[offset + 1], data[offset + 2]);
         _p1.set(data[offset + 3], data[offset + 4], data[offset + 5]);
         const width = data[offset + 6] || 0.4;
         const height = data[offset + 7] || 0.2;
+        if (rs.speeds) rs.speeds[globalI] = data[offset + SPEED_OFFSET];
 
         const length = _p0.distanceTo(_p1);
         _mid.addVectors(_p0, _p1).multiplyScalar(0.5);
@@ -283,25 +296,84 @@ export function disposeLayerGroup(group: Group): void {
 }
 
 /**
- * Update the material colors of all built layers to match a new palette.
- * Called when the application theme changes; no geometry is rebuilt.
+ * Recolor all built layers for the current view mode without rebuilding any
+ * geometry. Called when the theme, view mode, or speed range changes.
+ *
+ * - `category`: every segment takes its role color (via the shared material).
+ * - `speed`: extrusion segments are colored per-instance by their feedrate,
+ *   mapped through the shared speed ramp. Travel and seam markers always keep
+ *   their role color — they are not part of the speed gradient.
  */
-export function updateLayerColors(layers: LayerInfo[], colors: RoleColorPalette): void {
+export function updateViewColors(
+  layers: LayerInfo[],
+  mode: GcodeViewMode,
+  colors: RoleColorPalette,
+  speedRange: SpeedRange,
+): void {
+  const span = speedRange.max - speedRange.min;
   const c = new Color();
   for (const info of layers) {
     for (const rs of info.roleSegments) {
-      c.set(colors[rs.role]);
-      if (rs.mesh) {
-        (rs.mesh.material as MeshStandardMaterial).color.copy(c);
+      if (rs.role === 'travel') {
+        if (rs.lines) (rs.lines.material as LineBasicMaterial).color.set(colors.travel);
+        continue;
       }
-      if (rs.joints) {
-        (rs.joints.material as MeshStandardMaterial).color.copy(c);
+      if (rs.role === 'seam') {
+        if (rs.joints) (rs.joints.material as MeshStandardMaterial).color.set(colors.seam);
+        continue;
       }
-      if (rs.lines) {
-        (rs.lines.material as LineBasicMaterial).color.copy(c);
+
+      const { mesh, joints, speeds, count } = rs;
+      if (mode === 'speed' && mesh && speeds) {
+        // Drive color through per-instance colors; keep the material white so
+        // the instance color shows through unmodulated.
+        (mesh.material as MeshStandardMaterial).color.set(0xffffff);
+        ensureInstanceColor(mesh, count);
+        if (joints) {
+          (joints.material as MeshStandardMaterial).color.set(0xffffff);
+          ensureInstanceColor(joints, count * 2);
+        }
+        for (let i = 0; i < count; i++) {
+          const t = span > 0 ? (speeds[i] - speedRange.min) / span : 0.5;
+          c.set(sampleSpeedColor(t));
+          mesh.setColorAt(i, c);
+          if (joints) {
+            joints.setColorAt(i * 2, c);
+            joints.setColorAt(i * 2 + 1, c);
+          }
+        }
+        if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
+        if (joints?.instanceColor) joints.instanceColor.needsUpdate = true;
+      } else {
+        // Category mode: role color via the material; neutralize any leftover
+        // speed tint so the role color renders unmodulated.
+        c.set(colors[rs.role]);
+        if (mesh) {
+          (mesh.material as MeshStandardMaterial).color.copy(c);
+          resetInstanceColor(mesh);
+        }
+        if (joints) {
+          (joints.material as MeshStandardMaterial).color.copy(c);
+          resetInstanceColor(joints);
+        }
       }
     }
   }
+}
+
+/** Allocate a full-capacity white instance-color buffer if one is missing. */
+function ensureInstanceColor(mesh: InstancedMesh, capacity: number): void {
+  if (!mesh.instanceColor || mesh.instanceColor.count < capacity) {
+    mesh.instanceColor = new InstancedBufferAttribute(new Float32Array(capacity * 3).fill(1), 3);
+  }
+}
+
+/** Reset every instance color back to white so material color shows through. */
+function resetInstanceColor(mesh: InstancedMesh): void {
+  const attr = mesh.instanceColor;
+  if (!attr) return;
+  (attr.array as Float32Array).fill(1);
+  attr.needsUpdate = true;
 }
 
 export function showLayerRange(

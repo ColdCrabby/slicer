@@ -1,5 +1,20 @@
 @if (preview.gcodeHandle() !== null) {
   <div class="segment-bar" (pointerdown)="$event.stopPropagation()">
+    <!-- ── View-mode selector ── -->
+    <div class="mode-row">
+      <label class="mode-label" for="gcode-view-mode">Color by</label>
+      <select
+        id="gcode-view-mode"
+        class="mode-select"
+        [value]="preview.viewMode()"
+        (change)="onModeChange($event)"
+      >
+        @for (mode of viewModes; track mode) {
+          <option [value]="mode">{{ viewModeLabels[mode] }}</option>
+        }
+      </select>
+    </div>
+
     <!-- ── Nozzle / segment scrub ── -->
     <div class="scrub-row">
       <span class="scrub-label">Layer progress</span>
@@ -16,21 +31,30 @@
       </div>
     </div>
 
-    <!-- ── Role legend ── -->
-    <div class="legend">
-      @for (role of roleOrder; track role) {
-        <button
-          type="button"
-          class="role-badge"
-          [class.hidden]="preview.hiddenRoles().has(role)"
-          [style.--role-color]="roleCss()[role]"
-          (click)="toggleRole(role)"
-          [title]="(preview.hiddenRoles().has(role) ? 'Show ' : 'Hide ') + roleLabels[role]"
-        >
-          <span class="role-swatch"></span>
-          <span class="role-name">{{ roleLabels[role] }}</span>
-        </button>
-      }
-    </div>
+    @if (preview.viewMode() === 'speed') {
+      <!-- ── Speed legend ── -->
+      <div class="speed-legend">
+        <span class="speed-label">{{ speedMinLabel() }}</span>
+        <div class="speed-gradient" [style.background]="speedGradient"></div>
+        <span class="speed-label">{{ speedMaxLabel() }}</span>
+      </div>
+    } @else {
+      <!-- ── Role legend ── -->
+      <div class="legend">
+        @for (role of roleOrder; track role) {
+          <button
+            type="button"
+            class="role-badge"
+            [class.hidden]="preview.hiddenRoles().has(role)"
+            [style.--role-color]="roleCss()[role]"
+            (click)="toggleRole(role)"
+            [title]="(preview.hiddenRoles().has(role) ? 'Show ' : 'Hide ') + roleLabels[role]"
+          >
+            <span class="role-swatch"></span>
+            <span class="role-name">{{ roleLabels[role] }}</span>
+          </button>
+        }
+      </div>
+    }
   </div>
 }
