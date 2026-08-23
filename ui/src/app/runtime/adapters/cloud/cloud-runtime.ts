@@ -221,7 +221,7 @@ export class CloudRuntime implements RuntimePort {
   private handleMessage(msg: ServerMessage): void {
     switch (msg.type) {
       case 'Connected':
-        this.bus.emit({ type: 'connected', mode: 'cloud' });
+        this.bus.emit({ type: 'connected', mode: 'cloud', serverVersion: msg.version });
         this.bus.emit({
           type: 'log',
           level: 'info',

@@ -34,6 +34,17 @@ export class AppVersion {
   readonly whatsNew = signal<ChangelogEntry[]>([]);
 
   /**
+   * True when the server announced a release version that differs from the one
+   * baked into the running UI bundle — i.e. the app was redeployed while this
+   * tab kept an old build alive. Surfaced by the reload prompt so the user can
+   * pick up the new version without knowing to hard-refresh themselves.
+   */
+  readonly updateAvailable = signal(false);
+
+  /** The newer server version that triggered {@link updateAvailable}, if any. */
+  readonly serverVersion = signal<string | null>(null);
+
+  /**
    * Ensure {@link info} is populated, loading it from the WASM bundle on first
    * call. Safe to call from any component that wants to display the running
    * version; subsequent calls are no-ops. Failures are logged, not thrown.
@@ -93,6 +104,51 @@ export class AppVersion {
       content: WhatsNewPanel,
       preferredWidth: '640px',
     });
+  }
+
+  /**
+   * Compare the version the server announced on (re)connect against the version
+   * baked into the running UI bundle. When a real release differs from what this
+   * tab is running, flag {@link updateAvailable} so the reload prompt appears.
+   *
+   * Only fires for release↔release mismatches: development builds (either side)
+   * have an unstable `"development"` version and are never nagged. Safe to call
+   * on every reconnect — failures are logged, not thrown.
+   */
+  async reportServerVersion(serverVersion: string | undefined): Promise<void> {
+    if (!serverVersion || !isReleaseVersion(serverVersion)) {
+      return;
+    }
+
+    await this.loadInfo();
+    const running = this.info();
+
+    // Can't compare without our own version, and never nag development builds.
+    if (!running || !running.is_release || !isReleaseVersion(running.version)) {
+      return;
+    }
+
+    if (running.version === serverVersion) {
+      return;
+    }
+
+    this.log.info(
+      `Server is on ${serverVersion} but this UI is running ${running.version} — a reload is needed`,
+    );
+    this.serverVersion.set(serverVersion);
+    this.updateAvailable.set(true);
+  }
+
+  /**
+   * Force a fresh load of the app, bypassing the browser cache so the newly
+   * deployed bundle is fetched instead of the stale one this tab holds.
+   */
+  reloadForUpdate(): void {
+    // A cache-busting query param guarantees the document (and thus its module
+    // graph) is re-fetched even behind an over-eager HTTP cache.
+    const url = new URL(window.location.href);
+    url.searchParams.set('_v', Date.now().toString(36));
+    window.location.replace(url.toString());
   }
 
   /**

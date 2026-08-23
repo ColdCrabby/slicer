@@ -1,6 +1,7 @@
 import { Component, inject } from '@angular/core';
 import { RouterOutlet } from '@angular/router';
 import { NotificationCenter } from './components/notification-center/notification-center';
+import { UpdateBanner } from './components/update-banner/update-banner';
 import { AppVersion } from './services/app-version';
 import { WasmPerformanceNotice } from './services/wasm-performance-notice';
 import { DialogOutlet } from './shared/dialog/dialog-outlet';
@@ -8,7 +9,7 @@ import { DialogOutlet } from './shared/dialog/dialog-outlet';
 @Component({
   selector: 'nexus-root',
   standalone: true,
-  imports: [RouterOutlet, NotificationCenter, DialogOutlet],
+  imports: [RouterOutlet, NotificationCenter, UpdateBanner, DialogOutlet],
   templateUrl: './app.html',
   styleUrl: './app.scss',
 })
