@@ -1,6 +1,7 @@
 import { Component, inject } from '@angular/core';
 import { RouterOutlet } from '@angular/router';
 import { NotificationCenter } from './components/notification-center/notification-center';
+import { UpdateBanner } from './components/update-banner/update-banner';
 import { AppVersion } from './services/app-version';
 import { WasmPerformanceNotice } from './services/wasm-performance-notice';
 import { DialogOutlet } from './shared/dialog/dialog-outlet';
@@ -8,7 +9,7 @@ import { DialogOutlet } from './shared/dialog/dialog-outlet';
 @Component({
   selector: 'nexus-root',
   standalone: true,
-  imports: [RouterOutlet, NotificationCenter, DialogOutlet],
+  imports: [RouterOutlet, NotificationCenter, UpdateBanner, DialogOutlet],
   templateUrl: './app.html',
   styleUrl: './app.scss',
 })
@@ -24,5 +25,9 @@ export class App {
     // On the WASM web build only, remind the user once per session that
     // in-browser slicing trades performance for zero install.
     this.wasmPerfNotice.maybeShow();
+
+    // Watch for a newer static deployment (Pages/web runtime) so a stale tab
+    // gets a reload prompt even though there's no server to announce a version.
+    this.appVersion.startUpdateWatch();
   }
 }

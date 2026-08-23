@@ -1,7 +1,7 @@
 import { RuntimeError } from './runtime-errors';
 
 export type RuntimeEvent =
-  | { type: 'connected'; mode: 'native' | 'cloud' | 'web' }
+  | { type: 'connected'; mode: 'native' | 'cloud' | 'web'; serverVersion?: string }
   | { type: 'phase-start'; sliceId: string; phase: string }
   | { type: 'phase-end'; sliceId: string; phase: string; elapsedMs?: number }
   | { type: 'progress'; sliceId: string; currentLayer: number; totalLayers: number }

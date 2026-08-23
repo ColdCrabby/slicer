@@ -1,4 +1,6 @@
 import { inject, Injectable, signal } from '@angular/core';
+import { DOCUMENT } from '@angular/common';
+import { environment } from '../../environments/environment';
 import { WhatsNewPanel } from '../components/whats-new/whats-new-panel';
 import { AppInfo, ChangelogEntry, SceneEngine } from './scene-engine';
 import { BrowserStorage } from './browser-storage';
@@ -7,6 +9,25 @@ import { Logger } from './logger';
 
 /** localStorage key holding the last release version the user has seen. */
 const LAST_SEEN_KEY = 'slicer:last-seen-version';
+
+/**
+ * Static manifest published next to the bundle at deploy time (see the Pages
+ * workflow). Its `sha` is the git commit the deployment was built from — the
+ * same value baked into the running bundle via `appInfo().git_sha`.
+ */
+interface DeployManifest {
+  sha: string;
+  version?: string;
+}
+
+/** Path (relative to the app base href) of the deploy manifest. */
+const DEPLOY_MANIFEST_PATH = 'version.json';
+
+/** Minimum gap between deploy-manifest network checks, to avoid hammering. */
+const DEPLOY_CHECK_THROTTLE_MS = 60_000;
+
+/** How often to poll the deploy manifest for a tab that stays visible. */
+const DEPLOY_POLL_INTERVAL_MS = 15 * 60_000;
 
 /**
  * Owns the app's version identity and the "What's New" upgrade experience.
@@ -26,12 +47,40 @@ export class AppVersion {
   private readonly storage = inject(BrowserStorage);
   private readonly dialog = inject(Dialog);
   private readonly log = inject(Logger).scope('AppVersion');
+  private readonly document = inject(DOCUMENT);
+
+  /** Guards {@link startUpdateWatch} against installing duplicate listeners. */
+  private watchStarted = false;
+
+  /** Timestamp of the last deploy-manifest fetch, for throttling. */
+  private lastDeployCheck = 0;
 
   /** Build-time version metadata, populated after {@link checkForNewVersion}. */
   readonly info = signal<AppInfo | null>(null);
 
   /** Changelog sections to render in the What's New dialog body. */
   readonly whatsNew = signal<ChangelogEntry[]>([]);
+
+  /**
+   * True when a newer build has been detected than the one this tab is running
+   * — the app was (re)deployed while this tab kept an old bundle alive.
+   * Surfaced by the reload prompt so the user can pick up the new version
+   * without knowing to hard-refresh themselves.
+   *
+   * Two independent detectors set this: {@link reportServerVersion} (cloud/WS
+   * deployments, from the server's announced version) and
+   * {@link checkDeployedVersion} (static/Pages deployments, from a published
+   * `version.json`). Either is sufficient.
+   */
+  readonly updateAvailable = signal(false);
+
+  /**
+   * A human-friendly label for the newer version that triggered
+   * {@link updateAvailable}, when one is known and looks like a real release.
+   * Stays `null` for untagged/development deploys (whose only reliable
+   * difference is the git SHA, not a version string).
+   */
+  readonly serverVersion = signal<string | null>(null);
 
   /**
    * Ensure {@link info} is populated, loading it from the WASM bundle on first
@@ -93,6 +142,138 @@ export class AppVersion {
       content: WhatsNewPanel,
       preferredWidth: '640px',
     });
+  }
+
+  /**
+   * Compare the version the server announced on (re)connect against the version
+   * baked into the running UI bundle. When a real release differs from what this
+   * tab is running, flag {@link updateAvailable} so the reload prompt appears.
+   *
+   * Only fires for release↔release mismatches: development builds (either side)
+   * have an unstable `"development"` version and are never nagged. Safe to call
+   * on every reconnect — failures are logged, not thrown.
+   */
+  async reportServerVersion(serverVersion: string | undefined): Promise<void> {
+    if (!serverVersion || !isReleaseVersion(serverVersion)) {
+      return;
+    }
+
+    await this.loadInfo();
+    const running = this.info();
+
+    // Can't compare without our own version, and never nag development builds.
+    if (!running || !running.is_release || !isReleaseVersion(running.version)) {
+      return;
+    }
+
+    if (running.version === serverVersion) {
+      return;
+    }
+
+    this.log.info(
+      `Server is on ${serverVersion} but this UI is running ${running.version} — a reload is needed`,
+    );
+    this.serverVersion.set(serverVersion);
+    this.updateAvailable.set(true);
+  }
+
+  /**
+   * Force a fresh load of the app, bypassing the browser cache so the newly
+   * deployed bundle is fetched instead of the stale one this tab holds.
+   */
+  reloadForUpdate(): void {
+    // A cache-busting query param guarantees the document (and thus its module
+    // graph) is re-fetched even behind an over-eager HTTP cache.
+    const url = new URL(window.location.href);
+    url.searchParams.set('_v', Date.now().toString(36));
+    window.location.replace(url.toString());
+  }
+
+  /**
+   * Begin watching for a newer static deployment (Pages/`web` runtime).
+   *
+   * There is no server to announce a version in `web` mode — the bundle and the
+   * WASM slicer are the same set of static files. Instead the deployment
+   * publishes a `version.json` whose git SHA is re-fetched here and compared to
+   * the SHA baked into the running bundle. A mismatch means a newer build has
+   * gone live while this tab stayed open.
+   *
+   * Checks run once now and again whenever the tab regains visibility (the
+   * moment a user returns to a long-idle tab), throttled to one network hit per
+   * minute. Idempotent and a no-op outside `web` mode. Safe to call at startup.
+   */
+  startUpdateWatch(): void {
+    if (this.watchStarted || environment.runtimeMode !== 'web') {
+      return;
+    }
+    this.watchStarted = true;
+
+    void this.checkDeployedVersion();
+
+    this.document.addEventListener('visibilitychange', () => {
+      if (this.document.visibilityState === 'visible') {
+        void this.checkDeployedVersion();
+      }
+    });
+
+    // Also poll on a slow timer so a tab that stays visible for hours still
+    // notices a deploy. The per-check throttle keeps this cheap.
+    setInterval(() => void this.checkDeployedVersion(), DEPLOY_POLL_INTERVAL_MS);
+  }
+
+  /**
+   * Fetch the deploy manifest and flag {@link updateAvailable} when its git SHA
+   * differs from the running bundle's. Throttled and completely silent on
+   * failure — a missing/unreachable manifest (local dev, non-Pages hosting)
+   * simply means "no update information", never an error.
+   */
+  async checkDeployedVersion(): Promise<void> {
+    if (this.updateAvailable()) {
+      return; // Already prompting — nothing more to learn.
+    }
+
+    const now = Date.now();
+    if (now - this.lastDeployCheck < DEPLOY_CHECK_THROTTLE_MS) {
+      return;
+    }
+    this.lastDeployCheck = now;
+
+    await this.loadInfo();
+    const runningSha = this.info()?.git_sha;
+    if (!runningSha || runningSha === 'unknown') {
+      return; // Nothing trustworthy to compare against.
+    }
+
+    const manifest = await this.fetchDeployManifest();
+    if (!manifest?.sha || manifest.sha === runningSha) {
+      return;
+    }
+
+    this.log.info(
+      `Deployed build ${manifest.sha} differs from running ${runningSha} — a reload is needed`,
+    );
+    const label = manifest.version?.replace(/^v/, '');
+    this.serverVersion.set(label && isReleaseVersion(label) ? label : null);
+    this.updateAvailable.set(true);
+  }
+
+  /**
+   * Fetch and parse the deploy manifest, bypassing the HTTP cache so a stale
+   * tab still sees the freshly deployed file. Returns `null` on any failure.
+   */
+  private async fetchDeployManifest(): Promise<DeployManifest | null> {
+    try {
+      const url = new URL(DEPLOY_MANIFEST_PATH, this.document.baseURI);
+      url.searchParams.set('_', Date.now().toString(36));
+      const res = await fetch(url.toString(), { cache: 'no-store' });
+      if (!res.ok) {
+        return null;
+      }
+      const data = (await res.json()) as Partial<DeployManifest>;
+      return typeof data?.sha === 'string' ? { sha: data.sha, version: data.version } : null;
+    } catch {
+      return null;
+    }
   }
 
   /**

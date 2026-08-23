@@ -1,8 +1,6 @@
 <button
   type="button"
   class="trigger"
-  cdkOverlayOrigin
-  #trigger="cdkOverlayOrigin"
   #triggerEl
   [class.is-open]="open()"
   [class.is-placeholder]="!selected()"
@@ -26,16 +24,7 @@
   <nexus-icon name="nav-arrow-down" class="chevron" aria-hidden="true" />
 </button>
 
-<ng-template
-  cdkConnectedOverlay
-  [cdkConnectedOverlayOrigin]="trigger"
-  [cdkConnectedOverlayOpen]="open()"
-  [cdkConnectedOverlayPositions]="positions"
-  [cdkConnectedOverlayWidth]="menuWidth()"
-  [cdkConnectedOverlayViewportMargin]="8"
-  (overlayOutsideClick)="close()"
-  (detach)="close()"
->
+<ng-template #menuTpl>
   <div class="popover" role="listbox">
     @for (opt of options(); track opt.value; let i = $index) {
       <button

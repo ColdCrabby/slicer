@@ -1,15 +1,17 @@
-import { CdkConnectedOverlay, CdkOverlayOrigin } from '@angular/cdk/overlay';
-import type { ConnectedPosition } from '@angular/cdk/overlay';
 import {
   ChangeDetectionStrategy,
   Component,
+  DestroyRef,
   computed,
+  inject,
   input,
   output,
   signal,
   viewChild,
 } from '@angular/core';
-import type { ElementRef } from '@angular/core';
+import type { ElementRef, TemplateRef } from '@angular/core';
+import { FloatingService } from '../../shared/floating';
+import type { FloatingRef } from '../../shared/floating';
 import { Icon } from '../../shared/icon/icon';
 
 export interface SelectOption {
@@ -23,9 +25,10 @@ export interface SelectOption {
 /**
  * Design-system dropdown. A custom listbox whose menu is styled to the Nexus
  * surface tokens and can show a secondary description per option. The menu is
- * rendered in a CDK connected overlay (body-level) so it is never clipped by
- * scrolling or `overflow: hidden` ancestors — solid surface, border + shadow,
- * no blur. Controlled: parent owns `value`.
+ * rendered through the shared FloatingService (body-level) so it is never
+ * clipped by scrolling or `overflow: hidden` ancestors, flips/shifts to stay
+ * on-screen, and fits its height to the available space. Controlled: parent
+ * owns `value`.
  *
  * ```html
  * <nexus-select [options]="patterns" [value]="pattern()"
@@ -35,7 +38,7 @@ export interface SelectOption {
 @Component({
   selector: 'nexus-select',
   standalone: true,
-  imports: [Icon, CdkOverlayOrigin, CdkConnectedOverlay],
+  imports: [Icon],
   changeDetection: ChangeDetectionStrategy.OnPush,
   templateUrl: './select.html',
   styleUrl: './select.scss',
@@ -45,6 +48,10 @@ export interface SelectOption {
 })
 export class Select {
   private readonly triggerEl = viewChild.required<ElementRef<HTMLElement>>('triggerEl');
+  private readonly menuTpl = viewChild.required<TemplateRef<unknown>>('menuTpl');
+
+  private readonly floating = inject(FloatingService);
+  private floatingRef: FloatingRef | null = null;
 
   readonly options = input<readonly SelectOption[]>([]);
   readonly value = input<string | null>(null);
@@ -56,16 +63,14 @@ export class Select {
 
   protected readonly open = signal(false);
   protected readonly activeIndex = signal(-1);
-  protected readonly menuWidth = signal(0);
-
-  protected readonly positions: ConnectedPosition[] = [
-    { originX: 'start', originY: 'bottom', overlayX: 'start', overlayY: 'top', offsetY: 4 },
-    { originX: 'start', originY: 'top', overlayX: 'start', overlayY: 'bottom', offsetY: -4 },
-  ];
 
   protected readonly selected = computed(
     () => this.options().find((o) => o.value === this.value()) ?? null,
   );
+
+  constructor() {
+    inject(DestroyRef).onDestroy(() => this.closeMenu());
+  }
 
   protected toggle(): void {
     if (this.disabled()) return;
@@ -75,13 +80,39 @@ export class Select {
   protected openMenu(): void {
     const current = this.options().findIndex((o) => o.value === this.value());
     this.activeIndex.set(current === -1 ? 0 : current);
-    this.menuWidth.set(this.triggerEl().nativeElement.offsetWidth);
     this.open.set(true);
+
+    const trigger = this.triggerEl().nativeElement;
+    this.floatingRef = this.floating.openTemplate(
+      this.menuTpl(),
+      {},
+      {
+        reference: trigger,
+        interactive: true,
+        panelClass: 'nexus-floating--fit',
+        originElement: trigger,
+        options: {
+          placement: 'bottom-start',
+          offset: 4,
+          padding: 8,
+          size: true,
+          matchReferenceWidth: true,
+        },
+        onOutsidePointer: () => this.close(),
+        onEscape: () => this.close(),
+      },
+    );
   }
 
   protected close(): void {
     this.open.set(false);
     this.activeIndex.set(-1);
+    this.closeMenu();
+  }
+
+  private closeMenu(): void {
+    this.floatingRef?.close();
+    this.floatingRef = null;
   }
 
   protected pick(opt: SelectOption): void {

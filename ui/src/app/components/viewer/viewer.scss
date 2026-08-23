@@ -14,10 +14,8 @@
 }
 
 .gcode-tooltip {
-  position: absolute;
-  transform: translate(14px, 14px);
-  pointer-events: none;
   z-index: 10;
+  pointer-events: none;
   padding: 6px 9px;
   border-radius: var(--radius-md);
   background: var(--color-surface);

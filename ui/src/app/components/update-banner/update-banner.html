@@ -1,0 +1,16 @@
+@if (visible()) {
+  <div class="update-banner" role="status" aria-live="polite" animate.enter="banner-enter">
+    <nexus-icon class="update-banner__icon" name="restart" />
+    <div class="update-banner__content">
+      <span class="update-banner__title">A new version is available</span>
+      <span class="update-banner__message">
+        @if (serverVersion(); as version) {
+          Version {{ version }} is ready. Reload to get the latest improvements.
+        } @else {
+          Reload to get the latest improvements.
+        }
+      </span>
+    </div>
+    <button type="button" class="update-banner__action" (click)="reload()">Reload</button>
+  </div>
+}
