@@ -19,10 +19,3 @@
     </nexus-card>
   </div>
 </main>
-
-@if (editorPanelVisible()) {
-  <nexus-card class="code-editor-panel" visualSize="large">
-    <nexus-code-editor [content]="snapshotJson()" language="json" [readOnly]="true" />
-    <nexus-code-editor [content]="sliceParamsJson()" language="json" [readOnly]="true" />
-  </nexus-card>
-}

@@ -22,21 +22,6 @@
   box-shadow: var(--shadow-sm);
 }
 
-/* Flatten the nested projection radio card and split it off with a hairline. */
-.view-group .button-radio-group {
-  display: inline-flex;
-  align-items: center;
-  gap: 2px;
-  padding: 0 3px 0 0;
-  margin: 0 3px 0 0;
-
-  background: transparent;
-  border: none;
-  border-right: 1px solid var(--color-border-light);
-  border-radius: 0;
-  box-shadow: none;
-}
-
 /* ── Unified icon buttons (loose actions + radio segments) ──────────────── */
 
 .reset-view-button,
