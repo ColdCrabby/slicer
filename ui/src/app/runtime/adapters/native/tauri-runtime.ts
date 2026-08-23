@@ -2,7 +2,7 @@ import { convertFileSrc, invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import { appCacheDir, join } from '@tauri-apps/api/path';
 import { open } from '@tauri-apps/plugin-dialog';
-import { readFile, writeFile } from '@tauri-apps/plugin-fs';
+import { mkdir, readFile, writeFile } from '@tauri-apps/plugin-fs';
 
 import { SceneEngine, SceneOp } from '../../../services/scene-engine';
 import { RuntimeHistorySession } from '../../domain/history-models';
@@ -297,6 +297,11 @@ export class TauriRuntime implements RuntimePort {
       throw new Error(`Cannot cache '${model.fileName}': no bytes available`);
     }
     const dir = await appCacheDir();
+    // The app cache directory is not guaranteed to exist yet — the fs plugin's
+    // writeFile does not create parent directories, so a missing cache dir
+    // surfaces later as a confusing "No such file or directory" when Rust
+    // tries to read the model path. Create it up front (idempotent).
+    await mkdir(dir, { recursive: true });
     const path = await join(dir, model.fileName);
     await writeFile(path, model.bytes);
     return path;
