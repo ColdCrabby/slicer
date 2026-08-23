@@ -8,7 +8,10 @@
       [attr.aria-label]="hasSelection() ? 'Clear label filter' : null"
       (click)="clear.emit()"
     >
-      <nexus-icon [name]="hasSelection() ? 'xmark' : 'filter'" />
+      <nexus-icon name="filter" class="fb__lead-filter" />
+      @if (hasSelection()) {
+        <span class="fb__lead-badge"><nexus-icon name="xmark" /></span>
+      }
     </button>
     <div class="fb__chips">
       @for (label of store.items(); track label.id) {

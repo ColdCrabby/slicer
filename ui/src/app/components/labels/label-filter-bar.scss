@@ -10,6 +10,7 @@
 }
 
 .fb__lead {
+  position: relative;
   flex: none;
   display: inline-grid;
   place-items: center;
@@ -25,6 +26,7 @@
 
   &.is-clearable {
     cursor: pointer;
+    color: var(--color-text-secondary);
 
     &:hover {
       background: var(--color-surface-hover);
@@ -35,6 +37,26 @@
   &:disabled {
     cursor: default;
   }
+}
+
+.fb__lead-badge {
+  position: absolute;
+  right: -2px;
+  bottom: -2px;
+  display: inline-grid;
+  place-items: center;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: var(--color-danger);
+  color: #fff;
+  // Punch the badge out of the funnel so the two glyphs read as one icon.
+  box-shadow: 0 0 0 2px var(--color-bg-primary);
+  --icon-size: 8px;
+}
+
+.fb__lead:hover .fb__lead-badge {
+  box-shadow: 0 0 0 2px var(--color-surface-hover);
 }
 
 .fb__chips {
