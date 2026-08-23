@@ -54,6 +54,7 @@ export class SettingsPanel {
   protected readonly contractTabs: SegmentOption[] = SETTING_CONTRACTS.map((contract) => ({
     value: contract.id,
     label: contract.label,
+    icon: contract.icon,
     description: `${contract.label} settings`,
   }));
 
