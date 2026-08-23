@@ -1,4 +1,3 @@
-$collapsed-width: 56px;
 $transition-duration: 200ms;
 $transition-easing: ease;
 
@@ -7,18 +6,23 @@ $transition-easing: ease;
   flex-shrink: 0;
 
   width: var(--sidebar-w, 280px);
-  transition: width $transition-duration $transition-easing;
+  z-index: 25;
 
   display: flex;
   flex-direction: column;
-  overflow: hidden;
+  overflow: visible;
+  background: transparent;
 
-  background: var(--color-bg-secondary);
-  border-right: 1px solid var(--color-border);
+  transition: width $transition-duration $transition-easing;
 
-  // Collapsed but not hovered/pinned: rail-only width.
+  // Hidden and hover-peek both stay out of layout flow (the panel overlays the
+  // scene); only an explicit pin/dock reserves horizontal space.
+  &.is-collapsed:not(.is-pinned-open) {
+    width: 0;
+  }
+
   &.is-collapsed:not(.is-expanded) {
-    width: $collapsed-width;
+    pointer-events: none;
   }
 
   // Disable width transition while dragging so resize feels instant.
@@ -27,97 +31,100 @@ $transition-easing: ease;
   }
 }
 
-.sidebar-header {
-  position: sticky;
-  top: 0;
-  z-index: 100;
-  flex-shrink: 0;
-
-  // Pin header to the expanded width so its contents don't reflow during the
-  // width animation. Mirrors the same technique used on .sidebar-content-inner.
-  min-width: var(--sidebar-w, 280px);
+// The panel is a fixed-width absolute layer. Because it slides via transform
+// (not host width), its content never reflows while the host width animates or
+// is dragged, and it can travel fully back behind the nav rail when hidden.
+.sidebar-panel {
+  position: absolute;
+  inset: 0;
+  width: var(--sidebar-w, 280px);
 
   display: flex;
-  align-items: center;
-  justify-content: space-between;
-
-  padding: 16px;
-  border-bottom: 1px solid var(--color-border);
+  flex-direction: column;
+  min-height: 0;
 
   background: var(--color-bg-secondary);
+  border-right: 1px solid var(--color-border-light);
+  box-shadow: var(--shadow-sm);
 
-  // Tighten header padding when collapsed to just frame the logo.
+  transform: translateX(0);
+  transition:
+    transform $transition-duration $transition-easing,
+    visibility 0s linear 0s;
+
+  // Slide fully behind the nav rail (which masks it via a higher z-index) so
+  // the reveal always originates at the rail edge, never from mid-panel.
   :host.is-collapsed:not(.is-expanded) & {
-    min-width: $collapsed-width;
-    justify-content: start;
+    transform: translateX(-100%);
+    visibility: hidden;
+    pointer-events: none;
+    transition:
+      transform $transition-duration $transition-easing,
+      visibility 0s linear $transition-duration;
   }
 }
 
-.sidebar-header-actions {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
+// Dock/undock affordance rendered as a tab that sits *behind* the panel: its
+// inner edge tucks under the panel so the panel masks the seam and any shadow
+// bleed, leaving only a rounded nub peeking out on the right.
+.sidebar-pin {
+  position: absolute;
+  top: 50%;
+  left: var(--sidebar-w, 280px);
+  // Flat left edge flush against the panel's right edge so it reads as glued.
+  transform: translate(0, -50%);
 
-.sidebar-heading {
-  display: flex;
-  align-items: center;
-  gap: var(--spacing-sm);
-  min-width: 0;
-  color: var(--color-text-primary);
-}
-
-.sidebar-heading-icon {
-  display: grid;
-  place-items: center;
-  flex: none;
-  width: 28px;
-  height: 28px;
-  border-radius: var(--radius-sm);
-  background: var(--accent-soft);
-  color: var(--accent);
-  --icon-size: 18px;
-}
-
-.sidebar-heading-label {
-  font-size: var(--font-size-md);
-  font-weight: var(--font-weight-semibold);
-  white-space: nowrap;
-}
-
-.collapse-toggle {
-  display: flex;
+  display: inline-flex;
   align-items: center;
   justify-content: center;
-  flex-shrink: 0;
+  width: 24px;
+  height: 46px;
+  --icon-size: 15px;
 
-  width: 28px;
-  height: 28px;
-  padding: 0;
-
-  background: transparent;
-  border: 1px solid transparent;
-  border-radius: var(--radius-sm, 4px);
+  border: 1px solid var(--color-border-light);
+  border-left: none;
+  border-radius: 0 var(--radius-md) var(--radius-md) 0;
+  background: var(--color-bg-secondary);
   color: var(--color-text-secondary);
   cursor: pointer;
+  box-shadow: var(--shadow-sm);
+  user-select: none;
+  -webkit-user-select: none;
+  touch-action: manipulation;
   transition:
-    background $transition-duration $transition-easing,
-    border-color $transition-duration $transition-easing,
-    color $transition-duration $transition-easing;
+    transform $transition-duration $transition-easing,
+    color $transition-duration $transition-easing,
+    background-color $transition-duration $transition-easing,
+    opacity $transition-duration $transition-easing;
 
   &:hover {
-    background: var(--color-bg-hover, rgba(255, 255, 255, 0.07));
-    border-color: var(--color-border);
+    color: var(--color-text-primary);
+    background: var(--color-surface-hover);
+  }
+
+  &:focus-visible {
+    outline: none;
+    box-shadow:
+      var(--shadow-sm),
+      0 0 0 2px var(--color-focus-ring);
+  }
+
+  &.is-pinned {
     color: var(--color-text-primary);
   }
 
-  // In collapsed+not-expanded mode the toggle lives in the centred header, so
-  // position it absolutely at the right to avoid stacking on top of the logo.
+  // Travel with the panel edge (same distance + timing) so the tab stays glued
+  // to the sidebar as it slides out, instead of fading in place. The opacity
+  // fade only cleans up the residual nub once it reaches the rail.
   :host.is-collapsed:not(.is-expanded) & {
-    position: absolute;
-    right: 4px;
-    top: 50%;
-    transform: translateY(-50%);
+    transform: translate(calc(-1 * var(--sidebar-w, 280px)), -50%);
+    opacity: 0;
+    visibility: hidden;
+    pointer-events: none;
+    transition:
+      transform $transition-duration $transition-easing,
+      opacity $transition-duration $transition-easing,
+      visibility 0s linear $transition-duration;
   }
 }
 
@@ -128,7 +135,7 @@ $transition-easing: ease;
   overflow-x: hidden;
   -webkit-overflow-scrolling: touch;
   touch-action: pan-y;
-  background: var(--color-bg-primary);
+  background: transparent;
 
   // Hide the scrollbar on touch devices — momentum scrolling still works,
   // and the scrollbar chrome looks out of place on mobile/tablet.
@@ -141,92 +148,51 @@ $transition-easing: ease;
   }
 }
 
-.sidebar-footer {
-  position: sticky;
-  bottom: 0;
-  z-index: 100;
-  flex-shrink: 0;
-
-  min-width: var(--sidebar-w, 280px);
-
-  display: flex;
-  align-items: center;
-  gap: 4px;
-
-  padding: 8px 16px;
-  border-top: 1px solid var(--color-border);
-
-  background: var(--color-bg-secondary);
-
-  :host.is-collapsed:not(.is-expanded) & {
-    min-width: $collapsed-width;
-    justify-content: start;
-  }
+.sidebar-content-inner {
+  // The panel is a fixed width, so content simply fills it — no reflow pinning
+  // needed, which is what previously made resizing jump.
+  width: 100%;
 }
 
-.sidebar-footer-spacer {
-  flex: 1;
-}
-
-.sidebar-footer-btn {
-  display: flex;
+.sidebar-reveal-hint {
+  position: absolute;
+  left: var(--spacing-sm);
+  top: 50%;
+  transform: translateY(-50%);
+  display: inline-flex;
   align-items: center;
-  justify-content: center;
-  flex-shrink: 0;
-
-  width: 28px;
-  height: 28px;
-  padding: 0;
-
-  background: transparent;
+  gap: var(--spacing-xs);
+  min-height: 34px;
+  padding: 0 var(--spacing-sm);
   border: 1px solid transparent;
-  border-radius: var(--radius-sm, 4px);
+  border-radius: 999px;
+  background: var(--color-surface);
   color: var(--color-text-secondary);
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-medium);
+  letter-spacing: 0.01em;
   cursor: pointer;
+  pointer-events: auto;
+  white-space: nowrap;
+  box-shadow: var(--shadow-xs);
   transition:
-    background $transition-duration $transition-easing,
-    border-color $transition-duration $transition-easing,
-    color $transition-duration $transition-easing;
+    color var(--duration-fast) var(--ease-standard),
+    border-color var(--duration-fast) var(--ease-standard),
+    box-shadow var(--duration-fast) var(--ease-standard),
+    transform var(--duration-fast) var(--ease-standard);
 
   &:hover {
-    background: var(--color-bg-hover, rgba(255, 255, 255, 0.07));
-    border-color: var(--color-border);
     color: var(--color-text-primary);
+    border-color: transparent;
+    box-shadow: var(--shadow-sm);
+    transform: translateY(-50%) translateX(2px);
   }
 
-  &.is-active {
-    background: var(--color-bg-hover, rgba(255, 255, 255, 0.07));
-    border-color: var(--color-border);
-    color: var(--color-text-primary);
-  }
-}
-
-.sidebar-content-inner {
-  // Pin the inner content to the sidebar's target expanded width so that
-  // text wrapping doesn't reflow while the host width is animating.
-  min-width: var(--sidebar-w, 280px);
-
-  transform-origin: top left;
-  transition:
-    opacity $transition-duration $transition-easing,
-    transform $transition-duration $transition-easing,
-    visibility 0s linear 0s;
-
-  opacity: 1;
-  transform: scale(1) translateX(0);
-  visibility: visible;
-
-  // Keep the DOM alive when collapsed to preserve scroll position,
-  // but fade out and make non-interactive.
-  :host.is-collapsed:not(.is-expanded) & {
-    opacity: 0;
-    transform: scale(0.96) translateX(-6px);
-    visibility: hidden;
-    pointer-events: none;
-    transition:
-      opacity $transition-duration $transition-easing,
-      transform $transition-duration $transition-easing,
-      visibility 0s linear $transition-duration;
+  &:focus-visible {
+    outline: none;
+    box-shadow:
+      var(--shadow-sm),
+      0 0 0 2px var(--color-focus-ring);
   }
 }
 
@@ -250,17 +216,17 @@ $transition-easing: ease;
   background: transparent;
   transition: background 120ms ease;
 
+  // Resizing only applies to a docked sidebar; hide the handle whenever the
+  // panel is collapsed (hidden or overlay peek).
   :host.is-collapsed & {
     display: none;
   }
 
   &:hover {
-    background: var(--color-primary, #7c3aed);
-    opacity: 0.4;
+    background: var(--accent);
   }
 
   :host.is-dragging & {
-    background: var(--color-primary, #7c3aed);
-    opacity: 0.7;
+    background: var(--accent);
   }
 }

@@ -1,4 +1,4 @@
-import { ChangeDetectionStrategy, Component, input } from '@angular/core';
+import { ChangeDetectionStrategy, Component, ElementRef, inject, input } from '@angular/core';
 
 export type ButtonVariant = 'primary' | 'secondary' | 'ghost' | 'subtle' | 'danger';
 export type ButtonSize = 'sm' | 'md' | 'lg';
@@ -26,7 +26,15 @@ export type ButtonSize = 'sm' | 'md' | 'lg';
   },
 })
 export class Button {
-  readonly variant = input<ButtonVariant>('secondary');
-  readonly size = input<ButtonSize>('md');
+  private readonly host = inject<ElementRef<HTMLElement>>(ElementRef);
+
+  // Seed defaults from authored attributes so first paint matches the template
+  // before Angular applies reactive input updates.
+  readonly variant = input<ButtonVariant>(
+    (this.host.nativeElement.getAttribute('variant') as ButtonVariant | null) ?? 'secondary',
+  );
+  readonly size = input<ButtonSize>(
+    (this.host.nativeElement.getAttribute('size') as ButtonSize | null) ?? 'md',
+  );
   readonly block = input(false);
 }

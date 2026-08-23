@@ -10,11 +10,11 @@
           class="lh-open"
           type="button"
           (click)="navigate(session)"
-          [title]="'Open ' + (session.original_filename ?? 'unknown.stl')"
+          [title]="'Open ' + displayName(session)"
         >
           <span class="lh-icon"><nexus-icon name="box-iso" /></span>
           <span class="lh-text">
-            <span class="lh-name">{{ session.original_filename ?? 'unknown.stl' }}</span>
+            <span class="lh-name">{{ displayName(session) }}</span>
             <span class="lh-date">{{ history.formatDate(session.created_at) }}</span>
           </span>
         </button>

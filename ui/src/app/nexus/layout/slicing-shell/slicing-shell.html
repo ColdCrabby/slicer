@@ -10,11 +10,11 @@
 
     <nexus-viewport-cube class="viewport-cube" />
 
-    <nexus-slice-control class="stage-panel" />
-
-    <nexus-slice-layer-bar class="layer-bar-panel" />
-
-    <nexus-slice-segment-bar class="segment-bar-panel" />
+    <!-- Unified right rail: G-code inspector (top, grows upward) + slice dock (bottom). -->
+    <nexus-card class="rail-card" visualSize="large">
+      <nexus-slice-segment-bar />
+      <nexus-slice-control />
+    </nexus-card>
   </div>
 </main>
 

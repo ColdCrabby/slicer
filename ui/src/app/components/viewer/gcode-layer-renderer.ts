@@ -29,6 +29,19 @@ import {
 
 // -- Shared types -------------------------------------------------------------
 
+/**
+ * Gcode tubes are lit by the scene rig, but the preview palette is chosen to
+ * match the flat legend swatches. To keep every tube reading as its legend
+ * colour (crisp, theme-correct) instead of being darkened into a muddy brown by
+ * the lighting, the role colour is emitted as self-illumination and only a
+ * small fraction is left as diffuse — just enough to give the cylinders a hint
+ * of form. This also makes the tube colour essentially independent of the scene
+ * lighting, so the model-oriented light rig can be tuned without washing out or
+ * darkening the preview.
+ */
+const EXTRUSION_EMISSIVE_INTENSITY = 0.45;
+const EXTRUSION_DIFFUSE_TINT = 0.9;
+
 export interface RoleSegments {
   role: RoleName;
   mesh?: InstancedMesh;
@@ -231,6 +244,8 @@ export function buildLayerGroup(
       // Seam points are rendered as spheres — no cylinder body, just dots.
       const material = new MeshStandardMaterial({
         color,
+        emissive: color,
+        emissiveIntensity: EXTRUSION_EMISSIVE_INTENSITY,
         roughness: 0.3,
         metalness: 0.1,
       });
@@ -241,7 +256,12 @@ export function buildLayerGroup(
       // Re-use the `joints` slot so existing visibility / progress logic works.
       roleSegmentsMap[role] = { role, joints: dots, count };
     } else {
-      const material = new MeshStandardMaterial({ color, roughness: 0.6 });
+      const material = new MeshStandardMaterial({
+        color,
+        emissive: color,
+        emissiveIntensity: EXTRUSION_EMISSIVE_INTENSITY,
+        roughness: 0.6,
+      });
       installInstanceOpacity(material);
 
       // Per-mesh geometry clones so each carries its own per-instance opacity
@@ -438,18 +458,28 @@ export function updateViewColors(
         continue;
       }
       if (rs.role === 'seam') {
-        if (rs.joints) (rs.joints.material as MeshStandardMaterial).color.set(colors.seam);
+        if (rs.joints) {
+          const m = rs.joints.material as MeshStandardMaterial;
+          c.set(colors.seam);
+          m.emissive.copy(c);
+          m.color.copy(c).multiplyScalar(EXTRUSION_DIFFUSE_TINT);
+        }
         continue;
       }
 
       const { mesh, joints, widths, heights, speeds, count } = rs;
 
       if (channel && channel.scope === 'segment' && mesh && widths && heights && speeds) {
-        // Per-instance color; keep the material white so it shows unmodulated.
-        (mesh.material as MeshStandardMaterial).color.set(0xffffff);
+        // Per-instance color; keep the material white (and unlit emissive off)
+        // so the per-instance scalar tint shows unmodulated.
+        const mm = mesh.material as MeshStandardMaterial;
+        mm.color.set(0xffffff);
+        mm.emissive.setHex(0x000000);
         ensureInstanceColor(mesh, count);
         if (joints) {
-          (joints.material as MeshStandardMaterial).color.set(0xffffff);
+          const jm = joints.material as MeshStandardMaterial;
+          jm.color.set(0xffffff);
+          jm.emissive.setHex(0x000000);
           ensureInstanceColor(joints, count * 2);
         }
         const meshAlpha = rs.meshOpacity?.array as Float32Array | undefined;
@@ -484,11 +514,15 @@ export function updateViewColors(
         c.set(sampleSpeedColor(t));
         if (dim) c.multiplyScalar(OUT_OF_BAND_DIM);
         if (mesh) {
-          (mesh.material as MeshStandardMaterial).color.copy(c);
+          const m = mesh.material as MeshStandardMaterial;
+          m.emissive.copy(c);
+          m.color.copy(c).multiplyScalar(EXTRUSION_DIFFUSE_TINT);
           resetInstanceColor(mesh);
         }
         if (joints) {
-          (joints.material as MeshStandardMaterial).color.copy(c);
+          const m = joints.material as MeshStandardMaterial;
+          m.emissive.copy(c);
+          m.color.copy(c).multiplyScalar(EXTRUSION_DIFFUSE_TINT);
           resetInstanceColor(joints);
         }
         fillOpacity(rs.meshOpacity, bandActive && dim ? OUT_OF_BAND_ALPHA : 1);
@@ -499,11 +533,15 @@ export function updateViewColors(
         // neutralize any leftover per-instance scalar tint / transparency.
         c.set(colors[rs.role]);
         if (mesh) {
-          (mesh.material as MeshStandardMaterial).color.copy(c);
+          const m = mesh.material as MeshStandardMaterial;
+          m.emissive.copy(c);
+          m.color.copy(c).multiplyScalar(EXTRUSION_DIFFUSE_TINT);
           resetInstanceColor(mesh);
         }
         if (joints) {
-          (joints.material as MeshStandardMaterial).color.copy(c);
+          const m = joints.material as MeshStandardMaterial;
+          m.emissive.copy(c);
+          m.color.copy(c).multiplyScalar(EXTRUSION_DIFFUSE_TINT);
           resetInstanceColor(joints);
         }
         applyMeshTransparency(rs, false);

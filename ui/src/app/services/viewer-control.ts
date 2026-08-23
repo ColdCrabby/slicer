@@ -20,7 +20,61 @@ export type ObjectMode = 'none' | 'translate' | 'rotate' | 'scale' | 'pullToFloo
  */
 export type TwoFingerGesture = 'orbit' | 'pan';
 
+/**
+ * Anti-aliasing preference for the 3D view. `'auto'` disables MSAA on
+ * high-DPI (≥2×) displays — where the extra samples buy little and cost
+ * performance — and enables it everywhere else. `'on'`/`'off'` force it.
+ * Applied at renderer construction, so a change rebuilds the scene.
+ */
+export type Antialiasing = 'auto' | 'on' | 'off';
+
+/**
+ * Render-resolution quality. Caps the device-pixel-ratio the renderer draws
+ * at: `'performance'` = 1×, `'balanced'` = up to 2×, `'quality'` = up to 3×.
+ * Higher is sharper but more expensive. Applied live via `setPixelRatio`.
+ */
+export type RenderQuality = 'performance' | 'balanced' | 'quality';
+
+/** Default perspective field-of-view in degrees. */
+export const DEFAULT_FIELD_OF_VIEW = 45;
+/** Allowed field-of-view range (degrees) for the settings slider. */
+export const MIN_FIELD_OF_VIEW = 20;
+export const MAX_FIELD_OF_VIEW = 80;
+
+/** Map a {@link RenderQuality} to the maximum device-pixel-ratio cap. */
+export function pixelRatioCapFor(quality: RenderQuality): number {
+  switch (quality) {
+    case 'performance':
+      return 1;
+    case 'quality':
+      return 3;
+    case 'balanced':
+    default:
+      return 2;
+  }
+}
+
+/**
+ * Resolve an {@link Antialiasing} preference to the concrete MSAA flag a
+ * WebGLRenderer is built with. `'auto'` disables it on high-DPI (≥2×) displays
+ * where the extra samples buy little. Shared by the main viewer and any
+ * preview scenes so they stay in lock-step.
+ */
+export function resolveAntialias(mode: Antialiasing): boolean {
+  if (mode === 'on') {
+    return true;
+  }
+  if (mode === 'off') {
+    return false;
+  }
+  return !(typeof window !== 'undefined' && window.devicePixelRatio >= 2);
+}
+
 const TWO_FINGER_GESTURE_KEY = 'nexus.viewer.trackpadTwoFingerGesture';
+const STATS_VISIBLE_KEY = 'nexus.viewer.statsVisible';
+const FIELD_OF_VIEW_KEY = 'nexus.viewer.fieldOfView';
+const ANTIALIASING_KEY = 'nexus.viewer.antialiasing';
+const RENDER_QUALITY_KEY = 'nexus.viewer.renderQuality';
 
 /**
  * Shared state between the 3D-view toolbar and the viewer component.
@@ -42,11 +96,39 @@ export class ViewerControl {
    */
   readonly trackpadTwoFingerGesture = signal<TwoFingerGesture>(this.readTwoFingerGesture());
 
+  /**
+   * Whether scene telemetry chips (FPS/WASM/op timings) are visible.
+   *
+   * Default is `true` for the beta app so diagnostics stay easy to access.
+   * Persisted to localStorage and can later be flipped to default `false`
+   * for production-focused builds.
+   */
+  readonly statsVisible = signal(this.readStatsVisible());
+
   /** Currently selected camera view preset. */
   readonly view = signal<ViewerView>('perspective');
 
   /** Whether the viewport shows the raw mesh ('model') or sliced G-code ('gcode'). */
   readonly viewMode = signal<ViewerMode>('model');
+
+  /**
+   * Perspective field-of-view in degrees. Persisted. The viewer pushes it
+   * into the SceneCamera live; the ortho preset ignores it (it forces a ~1°
+   * FOV to fake an orthographic projection).
+   */
+  readonly fieldOfView = signal<number>(this.readFieldOfView());
+
+  /**
+   * Anti-aliasing preference. Persisted. Applied at renderer construction,
+   * so the viewer rebuilds its scene when this changes.
+   */
+  readonly antialiasing = signal<Antialiasing>(this.readAntialiasing());
+
+  /**
+   * Render-resolution quality (device-pixel-ratio cap). Persisted and applied
+   * live via the renderer's pixel ratio.
+   */
+  readonly renderQuality = signal<RenderQuality>(this.readRenderQuality());
 
   /**
    * Currently selected object-manipulation mode. Drives the gizmo shown
@@ -123,8 +205,67 @@ export class ViewerControl {
     this.storage.write(TWO_FINGER_GESTURE_KEY, gesture);
   }
 
+  /** Update telemetry visibility and persist the preference. */
+  setStatsVisible(value: boolean): void {
+    this.statsVisible.set(value);
+    this.storage.write(STATS_VISIBLE_KEY, String(value));
+  }
+
+  /** Toggle telemetry visibility and persist the preference. */
+  toggleStatsVisible(): void {
+    this.setStatsVisible(!this.statsVisible());
+  }
+
+  /** Update the perspective field-of-view (degrees), clamped, and persist it. */
+  setFieldOfView(fov: number): void {
+    const clamped = Math.round(Math.max(MIN_FIELD_OF_VIEW, Math.min(MAX_FIELD_OF_VIEW, fov)));
+    this.fieldOfView.set(clamped);
+    this.storage.write(FIELD_OF_VIEW_KEY, String(clamped));
+  }
+
+  /** Update the anti-aliasing preference and persist it. */
+  setAntialiasing(mode: Antialiasing): void {
+    this.antialiasing.set(mode);
+    this.storage.write(ANTIALIASING_KEY, mode);
+  }
+
+  /** Update the render-resolution quality and persist it. */
+  setRenderQuality(quality: RenderQuality): void {
+    this.renderQuality.set(quality);
+    this.storage.write(RENDER_QUALITY_KEY, quality);
+  }
+
   private readTwoFingerGesture(): TwoFingerGesture {
     return this.storage.get(TWO_FINGER_GESTURE_KEY)() === 'pan' ? 'pan' : 'orbit';
+  }
+
+  private readStatsVisible(): boolean {
+    const raw = this.storage.get(STATS_VISIBLE_KEY)();
+    if (raw === 'false') {
+      return false;
+    }
+    if (raw === 'true') {
+      return true;
+    }
+    return true;
+  }
+
+  private readFieldOfView(): number {
+    const raw = Number(this.storage.get(FIELD_OF_VIEW_KEY)());
+    if (!Number.isFinite(raw)) {
+      return DEFAULT_FIELD_OF_VIEW;
+    }
+    return Math.round(Math.max(MIN_FIELD_OF_VIEW, Math.min(MAX_FIELD_OF_VIEW, raw)));
+  }
+
+  private readAntialiasing(): Antialiasing {
+    const raw = this.storage.get(ANTIALIASING_KEY)();
+    return raw === 'on' || raw === 'off' ? raw : 'auto';
+  }
+
+  private readRenderQuality(): RenderQuality {
+    const raw = this.storage.get(RENDER_QUALITY_KEY)();
+    return raw === 'performance' || raw === 'quality' ? raw : 'balanced';
   }
 
   /**

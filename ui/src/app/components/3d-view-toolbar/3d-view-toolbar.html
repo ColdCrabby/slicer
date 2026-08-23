@@ -27,6 +27,7 @@
     "
     [tooltipShortcut]="keyboardShortcuts.shortcutFor('toggle-gravity')"
     [class.active]="gravityEnabled()"
+    [attr.aria-pressed]="gravityEnabled()"
     (click)="toggleGravity()"
   >
     <nexus-icon name="depth"></nexus-icon>
@@ -79,6 +80,7 @@
     class="reset-view-button"
     type="button"
     [class.active]="viewMode() === 'gcode'"
+    [attr.aria-pressed]="viewMode() === 'gcode'"
     [disabled]="!canSlice"
     [tooltip]="viewMode() === 'gcode' ? 'Switch to model view' : 'Switch to G-code preview'"
     [tooltipShortcut]="keyboardShortcuts.shortcutFor('toggle-view-mode')"
@@ -92,6 +94,7 @@
     type="button"
     [tooltip]="shell.editorPanelVisible() ? 'Hide operation pipeline' : 'Show operation pipeline'"
     [class.active]="shell.editorPanelVisible()"
+    [attr.aria-pressed]="shell.editorPanelVisible()"
     (click)="shell.toggleEditorPanel()"
   >
     <nexus-icon name="developer"></nexus-icon>

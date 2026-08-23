@@ -9,16 +9,40 @@
     </header>
 
     <section class="hero-actions">
-      <a class="action-tile" routerLink="/slice">
+      <button
+        type="button"
+        class="action-tile action-tile--accent action-tile--demo"
+        (click)="loadBenchy()"
+        [disabled]="benchyLoading()"
+      >
+        <span class="tile-icon"><nexus-icon name="sea-and-sun" /></span>
+        <span class="tile-text">
+          <span class="tile-title">Try the 3DBenchy demo</span>
+          <span class="tile-desc">
+            {{
+              benchyLoading()
+                ? 'Fetching the latest 3DBenchy…'
+                : 'Load the classic benchmark boat and slice it instantly.'
+            }}
+          </span>
+        </span>
+        @if (benchyLoading()) {
+          <nexus-icon class="tile-arrow tile-arrow--spin" name="restart" />
+        } @else {
+          <nexus-icon class="tile-arrow" name="nav-arrow-right" />
+        }
+      </button>
+
+      <button type="button" class="action-tile" (click)="openEmptyWorkplate()">
         <span class="tile-icon"><nexus-icon name="grid-plus" /></span>
         <span class="tile-text">
           <span class="tile-title">Empty Workplate</span>
           <span class="tile-desc">Open a clean build plate and add models.</span>
         </span>
         <nexus-icon class="tile-arrow" name="nav-arrow-right" />
-      </a>
+      </button>
 
-      <button type="button" class="action-tile action-tile--accent" (click)="openModel()">
+      <button type="button" class="action-tile" (click)="openModel()">
         <span class="tile-icon"><nexus-icon name="cloud-upload" /></span>
         <span class="tile-text">
           <span class="tile-title">Open Model to Slice</span>

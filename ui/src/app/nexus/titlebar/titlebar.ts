@@ -1,5 +1,7 @@
 import { ChangeDetectionStrategy, Component, computed, signal } from '@angular/core';
+import { ConnectionState } from '../../components/connection-state/connection-state';
 import { Logo } from '../../components/logo/logo';
+import { WorkplateName } from '../../components/workplate-name/workplate-name';
 import { Icon } from '../../shared/icon/icon';
 import { IconButton } from '../../ui/icon-button/icon-button';
 
@@ -16,7 +18,7 @@ import { IconButton } from '../../ui/icon-button/icon-button';
  */
 @Component({
   selector: 'nexus-titlebar',
-  imports: [Logo, Icon, IconButton],
+  imports: [ConnectionState, Logo, WorkplateName, Icon, IconButton],
   templateUrl: './titlebar.html',
   styleUrl: './titlebar.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,

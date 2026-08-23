@@ -1,115 +1,235 @@
 :host {
-  display: grid;
-  place-items: center;
+  display: block;
   height: 100%;
 }
 
-.drop-zone {
+.scene-shell {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  cursor: pointer;
+}
+
+.scene-canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+.file-input-hidden {
+  display: none;
+}
+
+.launch-overlay {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: var(--spacing-xl);
+  pointer-events: none;
+  z-index: 3;
+}
+
+.launch-card {
   position: relative;
   display: flex;
   flex-direction: column;
   align-items: center;
-  justify-content: center;
-  gap: 8px;
-  width: 100%;
-  height: 100%;
   text-align: center;
-  cursor: pointer;
+  gap: var(--spacing-sm);
+  width: min(540px, calc(100% - 32px));
+  padding: 28px;
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--color-border);
+  background: color-mix(in oklab, var(--color-surface) 80%, transparent);
+  box-shadow: var(--shadow-lg);
+  transform-origin: 50% 62%;
+  animation: launch-card-enter 420ms var(--ease-decelerate) both;
+  animation-delay: 110ms;
+  pointer-events: auto;
+  transition:
+    transform var(--duration-fast) var(--ease-standard),
+    box-shadow var(--duration-fast) var(--ease-standard);
 }
 
-.file-input {
+.launch-card::before {
+  content: '';
   position: absolute;
-  inset: 0;
+  inset: -1px;
+  border-radius: inherit;
+  border: 1px solid transparent;
   opacity: 0;
-  cursor: pointer;
-}
-
-.drop-icon {
-  font-size: 48px;
-  color: var(--color-text-tertiary);
-  margin-bottom: 8px;
-}
-
-.drop-title {
-  font-size: 18px;
-  font-weight: 600;
-  color: var(--color-text-primary);
-  margin: 0;
-}
-
-.drop-sub {
-  font-size: 13px;
-  color: var(--color-text-tertiary);
-  margin: 0;
-}
-
-.drop-divider {
-  font-size: 12px;
-  color: var(--color-text-tertiary);
-  margin: 8px 0;
-}
-
-.browse-btn {
-  padding: 8px 20px;
-  background: var(--color-primary);
-  color: var(--color-primary-contrast, #fff);
-  border-radius: var(--radius-md);
-  font-size: 13px;
-  font-weight: 600;
   pointer-events: none;
 }
 
-.upload-state {
+.launch-card.is-drag-active {
+  transform: translateY(-2px) scale(1.01);
+  box-shadow:
+    var(--shadow-lg),
+    0 0 0 1px color-mix(in oklab, var(--accent) 40%, transparent);
+}
+
+.launch-card.is-drag-active::before {
+  opacity: 1;
+  animation: perimeter-scan 1.8s linear infinite;
+}
+
+.launch-card.is-error {
+  box-shadow:
+    var(--shadow-lg),
+    0 0 0 1px color-mix(in oklab, var(--color-danger) 36%, transparent);
+}
+
+.launch-empty {
+  width: 100%;
+  padding: 0;
+  animation: launch-content-enter 300ms var(--ease-decelerate) both;
+  animation-delay: 170ms;
+}
+
+.launch-actions {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 8px;
-  pointer-events: none;
+  width: 100%;
+  gap: var(--spacing-xs);
+  animation: launch-footer-enter 320ms var(--ease-decelerate) both;
+  animation-delay: 220ms;
+}
+
+.browse-btn {
+  margin-top: 4px;
+  height: 36px;
+  padding: 0 var(--spacing-lg);
+  background: var(--accent);
+  color: var(--accent-contrast);
+  border: none;
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-xs);
+  font-size: var(--font-size-md);
+  font-weight: var(--font-weight-medium);
+  line-height: 1;
 }
 
 .progress-track {
-  width: 240px;
+  width: min(300px, 82%);
   height: 4px;
-  background: var(--color-border);
+  margin-top: var(--spacing-xs);
+  background: var(--color-border-light);
   border-radius: 99px;
   overflow: hidden;
-  margin-top: 8px;
 }
 
 .progress-fill {
   height: 100%;
-  background: var(--color-primary);
+  background: var(--accent);
   border-radius: 99px;
-  transition: width 0.2s ease;
-}
-
-.drop-icon.uploading {
-  color: var(--color-primary);
-  animation: pulse 1.4s ease-in-out infinite;
-}
-
-.drop-icon.error {
-  color: var(--color-error, #e05252);
+  transition: width var(--duration-fast) var(--ease-standard);
 }
 
 .error-msg {
-  color: var(--color-error, #e05252);
+  margin: 0;
+  color: var(--color-danger);
 }
 
-@keyframes pulse {
-  0%,
-  100% {
-    opacity: 1;
-  }
-  50% {
-    opacity: 0.45;
-  }
+.meta-footer {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  width: 100%;
+  margin-top: var(--spacing-md);
+  padding-top: var(--spacing-sm);
+  color: var(--color-text-tertiary);
+  font-size: var(--font-size-xs);
+  line-height: 1.3;
+}
+
+.meta-item {
+  opacity: 0.86;
+}
+
+.meta-sep {
+  opacity: 0.45;
+}
+
+.scene-shell.is-drag-active::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    150deg,
+    color-mix(in oklab, var(--accent) 10%, transparent) 0%,
+    transparent 38%,
+    transparent 64%,
+    color-mix(in oklab, var(--accent) 8%, transparent) 100%
+  );
+  pointer-events: none;
+  z-index: 2;
+}
+
+.scene-shell.is-busy {
+  cursor: progress;
 }
 
 .progress-fill.indeterminate {
   width: 40% !important;
   animation: indeterminate 1.2s ease-in-out infinite;
   transform-origin: left center;
+}
+
+@keyframes perimeter-scan {
+  0% {
+    border-color: color-mix(in oklab, var(--accent) 20%, transparent);
+    box-shadow: inset 0 0 0 0 color-mix(in oklab, var(--accent) 20%, transparent);
+  }
+  25% {
+    border-color: color-mix(in oklab, var(--accent) 65%, transparent);
+  }
+  50% {
+    border-color: color-mix(in oklab, var(--accent) 35%, transparent);
+  }
+  75% {
+    border-color: color-mix(in oklab, var(--accent) 70%, transparent);
+  }
+  100% {
+    border-color: color-mix(in oklab, var(--accent) 20%, transparent);
+    box-shadow: inset 0 0 0 0 color-mix(in oklab, var(--accent) 20%, transparent);
+  }
+}
+
+@keyframes launch-card-enter {
+  0% {
+    opacity: 0;
+    transform: translateY(14px) scale(0.985);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes launch-content-enter {
+  0% {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes launch-footer-enter {
+  0% {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 
 @keyframes indeterminate {
@@ -121,5 +241,30 @@
   }
   100% {
     transform: translateX(260%) scaleX(0.4);
+  }
+}
+
+@media (max-width: 760px) {
+  .launch-overlay {
+    padding: var(--spacing-md);
+  }
+
+  .launch-card {
+    width: calc(100% - 8px);
+    padding: 22px 18px;
+  }
+
+  .meta-footer {
+    justify-content: flex-start;
+    flex-wrap: wrap;
+    row-gap: 2px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .launch-card,
+  .launch-empty,
+  .launch-actions {
+    animation: none;
   }
 }

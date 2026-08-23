@@ -94,6 +94,35 @@
   color: var(--color-text-secondary);
 }
 
+.control-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-md);
+}
+
+.control-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--spacing-md);
+  min-height: 24px;
+}
+
+.control-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.control-label {
+  font-size: var(--font-size-sm);
+  color: var(--color-text-secondary);
+
+  &.muted {
+    color: var(--color-text-tertiary);
+  }
+}
+
 .segmented {
   display: inline-flex;
   align-items: center;
@@ -101,6 +130,10 @@
   border-radius: var(--radius-md);
   background: var(--color-bg-secondary);
   padding: 2px;
+
+  &.stacked {
+    display: grid;
+  }
 }
 
 .segmented-item {

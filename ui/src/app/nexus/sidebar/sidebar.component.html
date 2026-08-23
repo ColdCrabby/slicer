@@ -1,61 +1,42 @@
-<div class="sidebar-header">
-  <span class="sidebar-heading">
-    <span class="sidebar-heading-icon"><nexus-icon name="menu-scale" /></span>
-    @if (isExpanded()) {
-      <span class="sidebar-heading-label">Print settings</span>
-    }
-  </span>
+<button
+  class="sidebar-pin"
+  type="button"
+  [class.is-pinned]="!collapsed()"
+  [attr.aria-pressed]="!collapsed()"
+  [attr.aria-label]="collapsed() ? 'Pin panel open' : 'Unpin panel'"
+  (click)="onCollapseToggle($event)"
+>
+  @if (collapsed()) {
+    <nexus-icon name="pin-slash" />
+  } @else {
+    <nexus-icon name="pin" />
+  }
+</button>
 
-  <div class="sidebar-header-actions">
-    @if (isExpanded()) {
-      <nexus-connection-state />
-    }
+<div class="sidebar-panel">
+  <div class="sidebar-content">
+    <div class="sidebar-content-inner">
+      <ng-content />
+    </div>
   </div>
+
+  <div
+    class="resize-handle"
+    aria-hidden="true"
+    (mousedown)="onResizeStart($event)"
+    (touchstart)="onResizeTouchStart($event)"
+  ></div>
 </div>
 
-<div class="sidebar-content">
-  <div class="sidebar-content-inner">
-    <ng-content />
-  </div>
-</div>
-
-<div class="sidebar-footer">
-  @if (isExpanded()) {
-    <span class="sidebar-footer-spacer"></span>
-  }
-
-  @if (collapsed() && isExpanded()) {
-    <button
-      class="sidebar-footer-btn"
-      type="button"
-      [class.is-active]="pinnedOpen()"
-      [attr.aria-pressed]="pinnedOpen()"
-      [attr.aria-label]="pinnedOpen() ? 'Unpin sidebar' : 'Keep sidebar open'"
-      (click)="onPinToggle($event)"
-    >
-      <nexus-icon name="pin" />
-    </button>
-  }
-
+@if (collapsed() && !isExpanded()) {
   <button
-    class="sidebar-footer-btn"
+    class="sidebar-reveal-hint"
     type="button"
-    [attr.aria-label]="collapsed() ? 'Expand sidebar' : 'Collapse sidebar'"
-    (click)="onCollapseToggle($event)"
+    aria-label="Show print settings"
+    (click)="onOpenPeek($event)"
   >
-    @if (collapsed() && !isExpanded()) {
-      <nexus-icon name="nav-arrow-right" />
-    } @else if (collapsed() && isExpanded()) {
-      <nexus-icon name="nav-arrow-right" />
-    } @else {
-      <nexus-icon name="nav-arrow-left" />
-    }
+    <nexus-icon name="menu-scale" aria-hidden="true" />
+    <span>Print settings</span>
+    <nexus-icon name="nav-arrow-right" aria-hidden="true" />
   </button>
-</div>
-
-<div
-  class="resize-handle"
-  aria-hidden="true"
-  (mousedown)="onResizeStart($event)"
-  (touchstart)="onResizeTouchStart($event)"
-></div>
+}

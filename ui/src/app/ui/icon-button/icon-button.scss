@@ -1,12 +1,18 @@
-.nexus-icon-button {
+:host {
   display: inline-grid;
   place-items: center;
+  padding: 0;
+  line-height: 0;
+  font-size: 0;
   flex: none;
   border: 1px solid transparent;
   border-radius: var(--radius-md);
   color: var(--color-text-secondary);
   background: transparent;
   cursor: pointer;
+  user-select: none;
+  -webkit-user-select: none;
+  touch-action: manipulation;
   --icon-size: 18px;
   transition:
     background-color var(--duration-fast) var(--ease-standard),
@@ -40,23 +46,23 @@
   }
 }
 
-.nexus-icon-button[data-size='sm'] {
-  width: 28px;
-  height: 28px;
-  --icon-size: 16px;
+:host([data-size='sm']) {
+  width: 26px;
+  height: 26px;
+  --icon-size: 14px;
 }
-.nexus-icon-button[data-size='md'] {
+:host([data-size='md']) {
   width: 34px;
   height: 34px;
   --icon-size: 18px;
 }
-.nexus-icon-button[data-size='lg'] {
+:host([data-size='lg']) {
   width: 40px;
   height: 40px;
   --icon-size: 20px;
 }
 
-.nexus-icon-button[data-variant='solid'] {
+:host([data-variant='solid']) {
   background: var(--accent);
   color: var(--accent-contrast);
 
@@ -69,7 +75,7 @@
   }
 }
 
-.nexus-icon-button[data-variant='outline'] {
+:host([data-variant='outline']) {
   border-color: var(--color-border);
   background: var(--color-surface);
 

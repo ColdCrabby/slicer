@@ -1,19 +1,32 @@
 import { RouterLink } from '@angular/router';
-import { ChangeDetectionStrategy, Component, inject } from '@angular/core';
+import { ChangeDetectionStrategy, Component, inject, signal } from '@angular/core';
 import type { OnDestroy } from '@angular/core';
 import { Card } from '../../components/card/card';
+import { ConnectionState } from '../../components/connection-state/connection-state';
 import { Logo } from '../../components/logo/logo';
 import { Dialog } from '../../services/dialog';
 import { NotificationService } from '../../services/notifications';
 import { Badge } from '../../shared/badge/badge';
 import { Icon } from '../../shared/icon/icon';
+import { IconButton as SharedIconButton } from '../../shared/icon-button/icon-button';
 import { RadioButtonValue } from '../../shared/radio-group/radio-button-value';
 import { RadioGroup } from '../../shared/radio-group/radio-group';
+import { StackWhenCramped } from '../../shared/radio-group/stack-when-cramped';
 import { TooltipDirective } from '../../shared/tooltip/tooltip.directive';
 import { Button } from '../../ui/button/button';
 import { EmptyState } from '../../ui/empty-state/empty-state';
 import { IconButton } from '../../ui/icon-button/icon-button';
+import { NumberInput } from '../../ui/number-input/number-input';
+import { RadioGroup as NexusRadioGroup } from '../../ui/radio-group/radio-group';
+import type { RadioOption } from '../../ui/radio-group/radio-group';
+import { RangeSlider } from '../../ui/range-slider/range-slider';
 import { SectionHeader } from '../../ui/section-header/section-header';
+import { Segmented } from '../../ui/segmented/segmented';
+import type { SegmentOption } from '../../ui/segmented/segmented';
+import { Select } from '../../ui/select/select';
+import type { SelectOption } from '../../ui/select/select';
+import { Slider } from '../../ui/slider/slider';
+import { Switch } from '../../ui/switch/switch';
 
 @Component({
   selector: 'nexus-ui-components-page',
@@ -26,11 +39,21 @@ import { SectionHeader } from '../../ui/section-header/section-header';
     EmptyState,
     Badge,
     Icon,
+    SharedIconButton,
+    ConnectionState,
     TooltipDirective,
     RadioGroup,
     RadioButtonValue,
+    StackWhenCramped,
     Card,
     Logo,
+    Switch,
+    Slider,
+    RangeSlider,
+    NumberInput,
+    Select,
+    NexusRadioGroup,
+    Segmented,
   ],
   templateUrl: './ui-components.component.html',
   styleUrl: './ui-components.component.scss',
@@ -39,6 +62,40 @@ import { SectionHeader } from '../../ui/section-header/section-header';
 export class UiComponentsPage implements OnDestroy {
   readonly #notifications = inject(NotificationService);
   readonly #dialog = inject(Dialog);
+
+  // --- Form-control demo state -------------------------------------------
+  protected readonly supportsOn = signal(true);
+  protected readonly spiralOn = signal(false);
+  protected readonly ironingOn = signal(false);
+  protected readonly density = signal(20);
+  protected readonly speed = signal(120);
+  protected readonly tempLow = signal(190);
+  protected readonly tempHigh = signal(230);
+  protected readonly layerRange = signal<[number, number]>([12, 84]);
+  protected readonly layerHeight = signal(0.2);
+  protected readonly wallCount = signal(3);
+  protected readonly pattern = signal('grid');
+  protected readonly wallGenerator = signal('arachne');
+  protected readonly qualityMode = signal('balanced');
+
+  protected readonly qualityOptions: readonly SegmentOption[] = [
+    { value: 'draft', label: 'Draft', description: 'Fast, coarse layers' },
+    { value: 'balanced', label: 'Balanced', description: 'A sensible default' },
+    { value: 'detail', label: 'Detail', description: 'Fine layers, slower' },
+  ];
+
+  protected readonly wallGeneratorOptions: readonly RadioOption[] = [
+    { value: 'classic', label: 'Classic', description: 'Fixed-width concentric perimeters' },
+    { value: 'arachne', label: 'Arachne', description: 'Variable-width beads for thin walls' },
+  ];
+
+  protected readonly patternOptions: readonly SelectOption[] = [
+    { value: 'grid', label: 'Grid', description: 'Fast, strong, two-directional' },
+    { value: 'gyroid', label: 'Gyroid', description: 'Isotropic, flexible, slow' },
+    { value: 'honeycomb', label: 'Honeycomb', description: 'High strength-to-weight' },
+    { value: 'rectilinear', label: 'Rectilinear', description: 'Simple back-and-forth lines' },
+    { value: 'tpms-d', label: 'TPMS Diamond', description: 'Smooth minimal surface' },
+  ];
 
   #progressTimer: ReturnType<typeof setInterval> | null = null;
 

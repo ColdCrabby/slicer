@@ -1,16 +1,17 @@
 import {
-    ChangeDetectionStrategy,
-    Component,
-    EventEmitter,
-    effect,
-    input,
-    signal,
-    untracked,
+  ChangeDetectionStrategy,
+  Component,
+  EventEmitter,
+  effect,
+  input,
+  signal,
+  untracked,
 } from '@angular/core';
+import { Slider } from '../../../ui/slider/slider';
 import { IconButton } from '../../../shared/icon-button/icon-button';
 import { TooltipDirective } from '../../../shared/tooltip/tooltip.directive';
-import { FieldDef } from '../../models/field-def';
-import { FieldWidget } from '../../widgets/base-field';
+import type { FieldDef } from '../../models/field-def';
+import type { FieldWidget } from '../../widgets/base-field';
 
 const MIN_DENSITY = 0;
 const MAX_DENSITY = 100;
@@ -29,14 +30,14 @@ const MAX_DENSITY = 100;
 @Component({
   selector: 'se-infill-density-slider',
   standalone: true,
-  imports: [IconButton, TooltipDirective],
+  imports: [IconButton, TooltipDirective, Slider],
   changeDetection: ChangeDetectionStrategy.OnPush,
   styles: [
     `
       :host {
         display: flex;
         flex-direction: column;
-        gap: 5px;
+        gap: 6px;
       }
 
       label {
@@ -48,24 +49,6 @@ const MAX_DENSITY = 100;
         color: var(--color-text-secondary);
         user-select: none;
         cursor: default;
-      }
-
-      .infill-slider-row {
-        display: flex;
-        align-items: center;
-        gap: 8px;
-
-        input[type='range'] {
-          flex: 1;
-          accent-color: var(--color-primary);
-        }
-      }
-
-      .infill-slider-readout {
-        font-size: 12px;
-        color: var(--color-text-secondary);
-        min-width: 32px;
-        text-align: right;
       }
     `,
   ],
@@ -82,18 +65,15 @@ const MAX_DENSITY = 100;
         />
       }
     </label>
-    <div class="infill-slider-row">
-      <input
-        [id]="field().key"
-        type="range"
-        [min]="MIN"
-        [max]="MAX"
-        step="1"
-        [value]="displayPercent()"
-        (input)="onSliderInput($any($event.target).value)"
-      />
-      <output class="infill-slider-readout">{{ displayPercent() }}%</output>
-    </div>
+    <nexus-slider
+      [value]="displayPercent()"
+      [min]="MIN"
+      [max]="MAX"
+      [step]="1"
+      unit="%"
+      [label]="field().title ?? field().key"
+      (valueChange)="onSliderInput($event)"
+    ></nexus-slider>
   `,
 })
 export class InfillDensitySlider implements FieldWidget {
@@ -121,8 +101,8 @@ export class InfillDensitySlider implements FieldWidget {
     });
   }
 
-  protected onSliderInput(raw: string): void {
-    const pct = Math.round(Number(raw));
+  protected onSliderInput(pctRaw: number): void {
+    const pct = Math.round(pctRaw);
     this.displayPercent.set(pct);
     // Emit as fraction so callers receive the same units as other fields
     this.valueChange.emit(pct / MAX_DENSITY);

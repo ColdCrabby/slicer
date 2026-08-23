@@ -32,10 +32,30 @@
 }
 
 .settings-item-main {
+  flex: 1;
   display: flex;
   flex-direction: column;
   min-width: 0;
   gap: 2px;
+
+  .name-input {
+    flex: none;
+    width: min(100%, 260px);
+    align-self: flex-start;
+  }
+
+  // Indent sub-text to match the 10px left padding inside the name input
+  .settings-item-sub {
+    padding-left: 10px;
+  }
+}
+
+.filament-main {
+  .name-input {
+    flex: none;
+    width: min(100%, 260px);
+    align-self: flex-start;
+  }
 }
 
 .settings-item-title {
@@ -53,7 +73,7 @@
   margin-left: auto;
   display: flex;
   align-items: center;
-  gap: var(--spacing-sm);
+  gap: var(--spacing-md);
   flex: none;
 }
 
@@ -102,19 +122,28 @@
 .name-input {
   flex: 1;
   min-width: 0;
+  box-sizing: border-box;
   font-size: var(--font-size-md);
   font-weight: var(--font-weight-medium);
-  padding: 6px 8px;
+  height: 36px;
+  padding: 0 10px;
+  line-height: 1.2;
   background: transparent;
   border: 1px solid transparent;
-  border-radius: var(--radius-sm);
+  border-radius: var(--radius-md);
   color: var(--color-text-primary);
+  transition:
+    border-color var(--duration-fast) var(--ease-standard),
+    box-shadow var(--duration-fast) var(--ease-standard),
+    background-color var(--duration-fast) var(--ease-standard);
 
   &:hover {
+    background: var(--color-surface);
     border-color: var(--color-border);
   }
 
-  &:focus {
+  &:focus,
+  &:focus-visible {
     outline: none;
     border-color: var(--color-focus-ring);
     box-shadow: inset 0 0 0 1px var(--color-focus-ring);
@@ -123,12 +152,39 @@
 }
 
 .material-select {
-  padding: 3px 8px;
-  font-size: var(--font-size-xs);
+  box-sizing: border-box;
+  min-height: 36px;
+  padding: 0 30px 0 10px;
+  font-size: var(--font-size-md);
+  font-weight: var(--font-weight-medium);
+  line-height: 1.2;
   border: 1px solid var(--color-border);
-  border-radius: var(--radius-sm);
-  background: var(--color-surface);
-  color: var(--color-text-secondary);
+  border-radius: var(--radius-md);
+  background-color: var(--color-bg-secondary);
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 24 24' fill='none' stroke='%23888' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 9px center;
+  appearance: none;
+  -webkit-appearance: none;
+  color: var(--color-text-primary);
+  cursor: pointer;
+  transition:
+    border-color var(--duration-fast) var(--ease-standard),
+    box-shadow var(--duration-fast) var(--ease-standard),
+    background-color var(--duration-fast) var(--ease-standard);
+
+  &:hover {
+    background-color: var(--color-surface);
+    border-color: var(--color-border-strong);
+  }
+
+  &:focus,
+  &:focus-visible {
+    outline: none;
+    border-color: var(--color-focus-ring);
+    box-shadow: inset 0 0 0 1px var(--color-focus-ring);
+    background-color: var(--color-surface);
+  }
 }
 
 .segmented {
@@ -148,8 +204,17 @@
   font-size: var(--font-size-sm);
   font-weight: var(--font-weight-medium);
   cursor: pointer;
+  user-select: none;
+  -webkit-user-select: none;
+  touch-action: manipulation;
 
   &:hover {
+    color: var(--color-text-primary);
+  }
+
+  &:focus-visible {
+    outline: none;
+    box-shadow: inset 0 0 0 1px var(--color-focus-ring);
     color: var(--color-text-primary);
   }
 

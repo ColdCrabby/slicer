@@ -662,13 +662,11 @@ export class ViewportCube {
  * transition.
  */
 interface CubePalette {
-  surface: string;
   surfaceHover: string;
   text: string;
   border: string;
   primary: string;
   primaryLight: string;
-  cornerRadius: number;
 }
 
 /** Read the current theme tokens from `<html>` computed styles. */
@@ -677,20 +675,17 @@ function readPalette(): CubePalette {
   const get = (name: string, fallback: string): string =>
     styles.getPropertyValue(name).trim() || fallback;
   return {
-    // Outer fill matches the viewer background so face seams are invisible.
-    surface: get('--color-bg-primary', '#f4f5f8'),
     surfaceHover: get('--color-surface-hover', '#f0f0f0'),
     text: get('--color-text-primary', '#222222'),
     border: get('--color-border', '#cccccc'),
     primary: get('--color-primary', '#5b5bff'),
     primaryLight: get('--color-primary-light', 'rgba(91, 91, 255, 0.12)'),
-    cornerRadius: 22,
   };
 }
 
 /**
  * Build a CanvasTexture for a single cube face that visually matches a
- * standard themed button: surface fill, rounded inner tile, themed border,
+ * standard themed button: surface fill, rounded inner tile (borderless),
  * primary-tinted hover state, themed label text.
  */
 function makeFaceTexture(label: string, hovered: boolean, palette: CubePalette): CanvasTexture {
@@ -703,37 +698,10 @@ function makeFaceTexture(label: string, hovered: boolean, palette: CubePalette):
     return new CanvasTexture(canvas);
   }
 
-  // Outer fill = surface so seams between faces are invisible against the
-  // surrounding UI background.
-  ctx.fillStyle = palette.surface;
-  ctx.fillRect(0, 0, size, size);
-
-  // Inner rounded tile mimics the button visual: small inset, themed border,
-  // primary-tinted background on hover (matching the button :hover token).
-  const inset = 10;
-  const x = inset;
-  const y = inset;
-  const w = size - inset * 2;
-  const h = size - inset * 2;
-
-  drawRoundedRect(ctx, x, y, w, h, palette.cornerRadius);
+  // Flat, borderless fill covering the whole face — the inset rounded tile is
+  // gone, so there is no visible edge between an inner tile and an outer frame.
   ctx.fillStyle = hovered ? palette.primaryLight : palette.surfaceHover;
-  ctx.fill();
-
-  // Hovered tiles get a bolder, primary-coloured outline so the highlight is
-  // unmistakable against the neighbouring faces.
-  const lineWidth = hovered ? 4 : 2;
-  drawRoundedRect(
-    ctx,
-    x + lineWidth / 2,
-    y + lineWidth / 2,
-    w - lineWidth,
-    h - lineWidth,
-    palette.cornerRadius,
-  );
-  ctx.lineWidth = lineWidth;
-  ctx.strokeStyle = hovered ? palette.primary : palette.border;
-  ctx.stroke();
+  ctx.fillRect(0, 0, size, size);
 
   ctx.fillStyle = hovered ? palette.primary : palette.text;
   // Monospace so every face label has identical letter geometry, keeping the
@@ -750,29 +718,6 @@ function makeFaceTexture(label: string, hovered: boolean, palette: CubePalette):
   tex.magFilter = LinearFilter;
   tex.needsUpdate = true;
   return tex;
-}
-
-/** Trace a rounded rectangle path on the given 2D context. */
-function drawRoundedRect(
-  ctx: CanvasRenderingContext2D,
-  x: number,
-  y: number,
-  w: number,
-  h: number,
-  r: number,
-): void {
-  const radius = Math.min(r, w / 2, h / 2);
-  ctx.beginPath();
-  ctx.moveTo(x + radius, y);
-  ctx.lineTo(x + w - radius, y);
-  ctx.quadraticCurveTo(x + w, y, x + w, y + radius);
-  ctx.lineTo(x + w, y + h - radius);
-  ctx.quadraticCurveTo(x + w, y + h, x + w - radius, y + h);
-  ctx.lineTo(x + radius, y + h);
-  ctx.quadraticCurveTo(x, y + h, x, y + h - radius);
-  ctx.lineTo(x, y + radius);
-  ctx.quadraticCurveTo(x, y, x + radius, y);
-  ctx.closePath();
 }
 
 /**

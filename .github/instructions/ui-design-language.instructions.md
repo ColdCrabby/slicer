@@ -67,6 +67,32 @@ Keyboard focus should read as a **shape change**, not a fill change.
   bespoke controls), but only when the replacement is equally clear and meets
   keyboard accessibility expectations.
 
+## Destructive Actions — Confirm by Impact
+
+Potentially harmful actions (especially delete) are a classic source of user
+error and must be explicitly double-checked before execution.
+
+- **Default pattern for routine destructive actions:** prefer an inline, in-place
+  two-step confirm instead of a blocking modal.
+- First click: do not execute. Transition the control to a destructive
+  confirmation state (for example, trash icon/button turns danger red and label
+  changes to `Confirm?`).
+- Second click on that same control: execute the action.
+- Keep this confirmation state obvious but temporary; if focus is lost or a
+  short timeout passes, reset back to the safe default state.
+- Use clear destructive language (`Delete`, `Remove`, `Confirm?`) and danger
+  tokens (`--color-danger`, `--color-danger-light`) for the confirm state.
+
+For high-impact or irreversible data loss (for example deleting a printer),
+inline double-click confirmation is not enough.
+
+- Require a **typed confirmation challenge** with known item identity.
+- Ask the user to enter a specific value tied to the target item (for example,
+  the exact printer name) before enabling final delete.
+- Match exactly and clearly show what must be typed.
+- Keep the default action safe (`Cancel`/close), and style the final destructive
+  submit as danger.
+
 ## Design Tokens (single source of truth)
 
 All values live in `ui/src/styles/theme/` — `_light.scss`, `_dark.scss`

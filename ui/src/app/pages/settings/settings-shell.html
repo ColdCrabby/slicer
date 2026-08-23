@@ -1,9 +1,15 @@
 <div class="settings">
   <aside class="settings-nav">
     <h1 class="settings-title">Settings</h1>
-    <nav class="settings-nav-list">
+    <nav class="settings-nav-list" aria-label="Settings sections">
       @for (item of sections; track item.path) {
-        <a class="settings-nav-item" [routerLink]="item.path" routerLinkActive="is-active">
+        <a
+          class="settings-nav-item"
+          [routerLink]="item.path"
+          routerLinkActive="is-active"
+          [routerLinkActiveOptions]="{ exact: true }"
+          ariaCurrentWhenActive="page"
+        >
           <nexus-icon [name]="item.icon" />
           <span>{{ item.label }}</span>
         </a>

@@ -10,7 +10,6 @@ import {
   Renderer2,
   signal,
 } from '@angular/core';
-import { ConnectionState } from '../../components/connection-state/connection-state';
 import { Icon } from '../../shared/icon/icon';
 
 const STORAGE_WIDTH_KEY = 'nexus.sidebar.width';
@@ -26,7 +25,7 @@ const HOVER_CLOSE_DELAY_MS = 240;
 @Component({
   selector: 'nexus-sidebar',
   standalone: true,
-  imports: [ConnectionState, Icon],
+  imports: [Icon],
   templateUrl: './sidebar.component.html',
   styleUrl: './sidebar.component.scss',
   host: {
@@ -34,6 +33,7 @@ const HOVER_CLOSE_DELAY_MS = 240;
     '(mouseleave)': 'onMouseLeave()',
     '[class.is-collapsed]': 'collapsed()',
     '[class.is-expanded]': 'isExpanded()',
+    '[class.is-pinned-open]': 'isPinnedOverlayOpen()',
     '[class.is-dragging]': 'isDragging()',
   },
 })
@@ -50,6 +50,7 @@ export class Sidebar {
   protected readonly isExpanded = computed(
     () => !this.collapsed() || this.pinnedOpen() || this.hovered(),
   );
+  protected readonly isPinnedOverlayOpen = computed(() => this.collapsed() && this.pinnedOpen());
 
   private dragStartX = 0;
   private dragStartWidth = 0;
@@ -84,11 +85,12 @@ export class Sidebar {
     event.stopPropagation();
     const next = !this.collapsed();
     this.collapsed.set(next);
-    if (next) {
-      this.pinnedOpen.set(false);
-      this.hovered.set(false);
-      this.clearHoverTimers();
-    }
+    this.clearHoverTimers();
+    this.pinnedOpen.set(false);
+    // Unpinning: keep the panel open as an overlay peek under the cursor so it
+    // doesn't vanish on click; onMouseLeave auto-hides it once the pointer
+    // leaves. Docking: hovered is irrelevant (isExpanded is driven by !collapsed).
+    this.hovered.set(next);
     this.saveCollapsed(next);
   }
 
@@ -120,15 +122,14 @@ export class Sidebar {
     }, HOVER_CLOSE_DELAY_MS);
   }
 
-  /** Explicit pin toggle — keeps a collapsed sidebar open until unpinned. */
-  protected onPinToggle(event: MouseEvent): void {
+  protected onOpenPeek(event: MouseEvent): void {
     event.stopPropagation();
-    this.clearHoverTimers();
-    const next = !this.pinnedOpen();
-    this.pinnedOpen.set(next);
-    if (next) {
-      this.hovered.set(false);
+    if (!this.collapsed()) {
+      return;
     }
+    this.clearHoverTimers();
+    this.hovered.set(false);
+    this.pinnedOpen.set(true);
   }
 
   @HostListener('document:keydown.escape')

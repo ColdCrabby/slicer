@@ -13,6 +13,7 @@
             type="button"
             class="segmented-btn"
             [class.is-active]="themeMode() === mode.value"
+            [attr.aria-pressed]="themeMode() === mode.value"
             (click)="setTheme(mode.value)"
           >
             {{ mode.label }}
@@ -30,6 +31,7 @@
         type="button"
         class="source-chip"
         [class.is-active]="accent.source() === 'brand'"
+        [attr.aria-pressed]="accent.source() === 'brand'"
         (click)="setAccentSource('brand')"
       >
         <span class="source-swatch source-swatch--brand"></span>
@@ -41,6 +43,7 @@
           type="button"
           class="source-chip"
           [class.is-active]="accent.source() === 'system'"
+          [attr.aria-pressed]="accent.source() === 'system'"
           (click)="setAccentSource('system')"
         >
           <span class="source-swatch source-swatch--system"></span>
@@ -59,6 +62,7 @@
           [class.is-active]="currentPreset() === preset.hex"
           [style.--swatch]="preset.hex"
           [attr.aria-label]="preset.name"
+          [attr.aria-pressed]="currentPreset() === preset.hex"
           (click)="setPreset(preset.hex)"
         >
           <span class="preset-swatch"></span>

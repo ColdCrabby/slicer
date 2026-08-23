@@ -18,13 +18,14 @@
   transform: translate(14px, 14px);
   pointer-events: none;
   z-index: 10;
-  padding: 5px 8px;
-  border-radius: var(--radius-md, 6px);
-  background: rgba(0, 0, 0, 0.72);
-  box-shadow: var(--shadow-md, 0 2px 8px rgba(0, 0, 0, 0.4));
-  color: #f0f0f0;
+  padding: 6px 9px;
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  box-shadow: var(--shadow-md);
+  color: var(--color-text-primary);
   font-family: var(--font-family-mono);
-  font-size: 11px;
+  font-size: var(--font-size-2xs);
   line-height: 1.35;
   font-weight: var(--font-weight-mono-normal);
   font-variation-settings: 'wght' var(--font-weight-mono-normal);
@@ -32,51 +33,69 @@
 }
 
 .gcode-tooltip-value {
-  font-size: 13px;
-  font-weight: 600;
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-mono-emphasis);
+  font-variation-settings: 'wght' var(--font-weight-mono-emphasis);
 }
 
 .gcode-tooltip-meta {
-  color: #c8cfda;
+  color: var(--color-text-secondary);
 }
 
 .gcode-tooltip-sub {
-  color: #9aa4b2;
+  color: var(--color-text-tertiary);
 }
 
 .viewer-bottom {
   position: absolute;
-  bottom: 10px;
-  left: 0;
-  width: 100%;
+  bottom: var(--spacing-md);
+  left: var(--spacing-md);
+  max-width: 42%;
   display: flex;
-  align-items: center;
-  gap: var(--spacing-xs);
-  padding: 0 var(--spacing-md);
   pointer-events: none;
 }
 
-.viewer-fps,
-.viewer-status {
-  padding: 4px 10px;
-  background: var(--color-surface);
-  border: 1px solid var(--color-border);
+.viewer-metrics {
+  display: inline-flex;
+  flex-wrap: nowrap;
+  align-items: center;
+  gap: 2px;
+  min-width: 0;
+  max-width: 100%;
+  padding: 3px;
+  border-radius: 999px;
+  background: color-mix(in oklab, var(--color-surface) 90%, var(--color-bg-primary));
+  border: 1px solid var(--color-border-light);
   box-shadow: var(--shadow-sm);
+}
+
+.viewer-chip {
+  flex: none;
+  padding: 2px 9px;
+  border-radius: 999px;
   color: var(--color-text-secondary);
   font-family: var(--font-family-mono);
-  font-size: var(--font-size-xs);
-  line-height: 1.2;
+  font-size: var(--font-size-2xs);
+  line-height: 1.35;
+  white-space: nowrap;
   font-weight: var(--font-weight-mono-normal);
   font-variation-settings: 'wght' var(--font-weight-mono-normal);
-  border-radius: var(--radius-md);
+
+  /* The verbose WASM line yields first so the pill stays a single slim row. */
+  &.viewer-chip--wasm {
+    flex: 0 1 auto;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  &.is-status {
+    background: var(--color-surface-hover);
+    color: var(--color-text-primary);
+  }
 }
 
-.viewer-status {
-  margin-left: auto;
-  color: var(--color-text-primary);
-}
-
-.viewer-fps-aux {
+.viewer-chip-aux {
   color: var(--color-text-tertiary);
   margin-left: 6px;
 }

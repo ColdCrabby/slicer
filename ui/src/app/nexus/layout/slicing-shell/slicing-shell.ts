@@ -12,7 +12,6 @@ import { ThreeDViewToolbar } from '../../../components/3d-view-toolbar/3d-view-t
 import { Card } from '../../../components/card/card';
 import { CodeEditor } from '../../../components/code-editor/code-editor';
 import { SettingsPanel } from '../../../components/settings-panel/settings-panel';
-import { SliceLayerBar } from '../../../components/slice-layer-bar/slice-layer-bar';
 import { SliceSegmentBar } from '../../../components/slice-segment-bar/slice-segment-bar';
 import { ViewportCube } from '../../../components/viewport-cube/viewport-cube';
 import { SceneEngine } from '../../../services/scene-engine';
@@ -25,7 +24,6 @@ import { SliceControl } from '../../slice-control/slice-control';
   imports: [
     Sidebar,
     SliceControl,
-    SliceLayerBar,
     SliceSegmentBar,
     ThreeDViewToolbar,
     ViewportCube,

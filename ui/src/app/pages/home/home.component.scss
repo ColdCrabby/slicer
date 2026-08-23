@@ -71,13 +71,24 @@
 
   &:focus-visible {
     outline: none;
-    box-shadow: 0 0 0 3px var(--color-focus-ring-glow);
+    box-shadow: 0 0 0 2px var(--color-focus-ring);
   }
 }
 
 .action-tile--accent {
   background: var(--accent-soft);
   border-color: var(--accent-border);
+}
+
+// Demo tile spans the full row beneath the two primary actions.
+.action-tile--demo {
+  grid-column: 1 / -1;
+
+  &:disabled {
+    cursor: default;
+    pointer-events: none;
+    opacity: 0.7;
+  }
 }
 
 .tile-icon {
@@ -120,6 +131,17 @@
   flex: none;
   color: var(--color-text-tertiary);
   --icon-size: 20px;
+}
+
+.tile-arrow--spin {
+  color: var(--accent);
+  animation: tile-spin 0.8s linear infinite;
+}
+
+@keyframes tile-spin {
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 // ── Sections ──

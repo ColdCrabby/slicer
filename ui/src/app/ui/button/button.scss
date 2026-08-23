@@ -1,4 +1,4 @@
-.nexus-button {
+:host {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -13,7 +13,9 @@
   border-radius: var(--radius-md);
   cursor: pointer;
   user-select: none;
-  --icon-size: 18px;
+  -webkit-user-select: none;
+  touch-action: manipulation;
+  --icon-size: 16px;
   transition:
     background-color var(--duration-fast) var(--ease-standard),
     border-color var(--duration-fast) var(--ease-standard),
@@ -34,43 +36,53 @@
     cursor: not-allowed;
     pointer-events: none;
   }
-
-  &.is-block {
-    width: 100%;
-  }
 }
 
-.nexus-button:hover:not(:disabled):not([aria-disabled='true']) {
+:host(.is-block) {
+  width: 100%;
+}
+
+:host > nexus-icon {
+  flex: none;
+  color: currentColor;
+  opacity: 0.92;
+}
+
+:host:hover:not(:disabled):not([aria-disabled='true']) {
   font-weight: var(--font-weight-hover);
   font-variation-settings: 'wght' var(--font-weight-hover);
 }
 
-.nexus-button:active:not(:disabled):not([aria-disabled='true']) {
+:host:active:not(:disabled):not([aria-disabled='true']) {
   font-weight: var(--font-weight-active);
   font-variation-settings: 'wght' var(--font-weight-active);
 }
 
 // ── Sizes ──
-.nexus-button[data-size='sm'] {
+:host([data-size='sm']),
+:host([size='sm']) {
   height: 30px;
   padding: 0 var(--spacing-md);
   font-size: var(--font-size-sm);
-  --icon-size: 16px;
+  --icon-size: 14px;
 }
-.nexus-button[data-size='md'] {
+:host([data-size='md']),
+:host([size='md']) {
   height: 36px;
   padding: 0 var(--spacing-lg);
   font-size: var(--font-size-md);
 }
-.nexus-button[data-size='lg'] {
+:host([data-size='lg']),
+:host([size='lg']) {
   height: 44px;
   padding: 0 var(--spacing-xl);
   font-size: var(--font-size-lg);
-  --icon-size: 20px;
+  --icon-size: 18px;
 }
 
 // ── Variants ──
-.nexus-button[data-variant='primary'] {
+:host([data-variant='primary']),
+:host([variant='primary']) {
   background: var(--accent);
   color: var(--accent-contrast);
 
@@ -82,7 +94,8 @@
   }
 }
 
-.nexus-button[data-variant='secondary'] {
+:host([data-variant='secondary']),
+:host([variant='secondary']) {
   background: var(--color-surface);
   color: var(--color-text-primary);
   border-color: var(--color-border);
@@ -96,7 +109,8 @@
   }
 }
 
-.nexus-button[data-variant='ghost'] {
+:host([data-variant='ghost']),
+:host([variant='ghost']) {
   background: transparent;
   color: var(--color-text-secondary);
 
@@ -109,7 +123,8 @@
   }
 }
 
-.nexus-button[data-variant='subtle'] {
+:host([data-variant='subtle']),
+:host([variant='subtle']) {
   background: var(--accent-soft);
   color: var(--accent);
 
@@ -118,14 +133,20 @@
   }
 }
 
-.nexus-button[data-variant='danger'] {
-  background: var(--color-danger);
-  color: #fff;
+:host([data-variant='danger']),
+:host([variant='danger']) {
+  background: color-mix(in oklab, var(--color-danger) 12%, var(--color-surface));
+  color: var(--color-danger);
+  border-color: color-mix(in oklab, var(--color-danger) 32%, var(--color-border));
+  box-shadow: var(--shadow-xs);
 
   &:hover {
-    filter: brightness(0.95);
+    background: color-mix(in oklab, var(--color-danger) 18%, var(--color-surface-hover));
+    border-color: color-mix(in oklab, var(--color-danger) 44%, var(--color-border));
   }
+
   &:active {
-    filter: brightness(0.9);
+    background: color-mix(in oklab, var(--color-danger) 24%, var(--color-surface-active));
+    border-color: color-mix(in oklab, var(--color-danger) 52%, var(--color-border));
   }
 }

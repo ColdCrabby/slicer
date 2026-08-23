@@ -1,180 +1,201 @@
 :host {
-  display: flex;
-  justify-content: center;
-  pointer-events: none;
+  display: contents;
 }
 
-.segment-bar {
-  pointer-events: auto;
+/* Animated reveal: the shell grows the inspector open when a preview lands and
+   collapses it away otherwise, without ever unmounting the controls. */
+.insp-shell {
+  display: grid;
+  grid-template-rows: 0fr;
+  opacity: 0;
+  transition:
+    grid-template-rows var(--duration-normal) var(--ease-standard),
+    opacity var(--duration-normal) var(--ease-standard);
+
+  &.is-open {
+    grid-template-rows: 1fr;
+    opacity: 1;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .insp-shell {
+    transition: none;
+  }
+}
+
+.inspector {
+  min-height: 0;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-md);
+  padding-bottom: var(--spacing-md);
+  color: var(--color-text-secondary);
+  transition: opacity var(--duration-fast) var(--ease-standard);
+
+  /* Dim (don't tear down) while a reslice is streaming in. */
+  &.is-updating {
+    opacity: 0.55;
+  }
+}
+
+.insp-section {
   display: flex;
   flex-direction: column;
   gap: 10px;
-  padding: 10px 16px 12px;
-  max-width: min(680px, 80vw);
-  width: 100%;
-
-  background: var(--color-surface);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-lg);
-  box-shadow: var(--shadow-lg);
-
-  color: var(--color-text-secondary);
-  font-size: 12px;
 }
 
-// ── View-mode selector ─────────────────────────────────────────────────────────
+.insp-divider {
+  height: 1px;
+  background: var(--color-border-light);
+}
 
-.mode-row {
+/* ── Layer navigation ───────────────────────────────────────────────────── */
+
+.insp-head {
   display: flex;
   align-items: center;
   gap: var(--spacing-sm);
 }
 
-.mode-label {
-  font-size: 10px;
-  font-family: var(--font-family-mono);
+.insp-title {
+  font-size: var(--font-size-2xs);
+  font-weight: var(--font-weight-semibold);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
   color: var(--color-text-tertiary);
-  white-space: nowrap;
-  flex-shrink: 0;
 }
 
-.mode-select {
-  appearance: none;
-  -webkit-appearance: none;
-  padding: 3px 24px 3px 8px;
-  border: 1px solid var(--color-border);
+.layer-readout {
+  flex: 1;
+  display: flex;
+  align-items: baseline;
+  gap: 4px;
+  font-family: var(--font-family-mono);
+  font-variant-numeric: tabular-nums;
+
+  .cur {
+    font-size: var(--font-size-md);
+    font-weight: var(--font-weight-mono-emphasis);
+    font-variation-settings: 'wght' var(--font-weight-mono-emphasis);
+    color: var(--color-text-primary);
+    line-height: 1;
+  }
+
+  .tot {
+    font-size: var(--font-size-2xs);
+    color: var(--color-text-tertiary);
+    line-height: 1;
+  }
+}
+
+.stack-toggle {
+  flex-shrink: 0;
+  display: inline-grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  border: 1px solid transparent;
   border-radius: var(--radius-md);
-  background-color: color-mix(in srgb, var(--color-surface) 60%, transparent);
-  background-image:
-    linear-gradient(45deg, transparent 50%, currentColor 50%),
-    linear-gradient(135deg, currentColor 50%, transparent 50%);
-  background-position:
-    right 12px center,
-    right 8px center;
-  background-size:
-    4px 4px,
-    4px 4px;
-  background-repeat: no-repeat;
-  color: var(--color-text-secondary);
-  font: inherit;
-  font-size: 11px;
+  background: transparent;
+  color: var(--color-text-tertiary);
   cursor: pointer;
+  user-select: none;
+  -webkit-user-select: none;
+  touch-action: manipulation;
+  transition:
+    background-color var(--duration-fast) var(--ease-standard),
+    color var(--duration-fast) var(--ease-standard);
 
   &:hover {
-    border-color: var(--color-primary);
+    background: var(--color-surface-hover);
+    color: var(--color-text-primary);
   }
 
   &:focus-visible {
-    outline: 2px solid var(--color-primary);
-    outline-offset: 1px;
+    outline: none;
+    border-color: var(--color-focus-ring);
+    box-shadow: inset 0 0 0 1px var(--color-focus-ring);
+  }
+
+  &.active {
+    background: var(--accent-soft);
+    color: var(--accent);
   }
 }
 
-// ── Scrub row ─────────────────────────────────────────────────────────────────
+/* ── Control rows (color-by / fan / progress) ───────────────────────────── */
 
-.scrub-row {
+.ctl-row {
   display: flex;
   align-items: center;
-  gap: var(--spacing-sm);
+  gap: var(--spacing-md);
 }
 
-.scrub-label {
-  font-size: 10px;
-  font-family: var(--font-family-mono);
-  color: var(--color-text-tertiary);
-  white-space: nowrap;
+.ctl-label {
+  width: 68px;
   flex-shrink: 0;
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-medium);
+  color: var(--color-text-secondary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
-// ── Custom range slider ───────────────────────────────────────────────────────
-
-.range-slider {
-  position: relative;
-  height: 20px;
+.ctl-field {
   flex: 1;
-  cursor: pointer;
-
-  &::before {
-    content: '';
-    position: absolute;
-    top: 8px;
-    left: 0;
-    right: 0;
-    height: 4px;
-    background: var(--color-border);
-    border-radius: 2px;
-  }
+  min-width: 0;
 }
 
-.range-track-fill {
-  position: absolute;
-  top: 8px;
-  left: 0;
-  height: 4px;
-  background: var(--color-primary);
-  border-radius: 2px;
-  pointer-events: none;
-}
-
-.thumb {
-  position: absolute;
-  width: 100%;
-  height: 4px;
-  top: 8px;
-  pointer-events: none;
-  appearance: none;
-  -webkit-appearance: none;
-  background: transparent;
-  outline: none;
-  margin: 0;
-  padding: 0;
-
-  &::-webkit-slider-thumb {
-    appearance: none;
-    -webkit-appearance: none;
-    pointer-events: all;
-    width: 14px;
-    height: 14px;
-    border-radius: 50%;
-    background: var(--color-primary-hover);
-    border: 2px solid var(--color-surface);
-    cursor: pointer;
-  }
-
-  &::-moz-range-thumb {
-    pointer-events: all;
-    width: 14px;
-    height: 14px;
-    border-radius: 50%;
-    background: var(--color-primary-hover);
-    border: 2px solid var(--color-surface);
-    cursor: pointer;
-  }
-}
-
-// ── Role legend ───────────────────────────────────────────────────────────────
+/* ── Role legend ────────────────────────────────────────────────────────── */
 
 .legend {
   display: flex;
   flex-wrap: wrap;
-  gap: 5px;
+  gap: 6px;
 }
 
 .role-badge {
   display: inline-flex;
   align-items: center;
-  gap: 5px;
-  padding: 3px 7px 3px 5px;
-  border: 1px solid var(--color-border);
-  border-radius: 20px;
-  font-size: 11px;
+  gap: 6px;
+  height: 26px;
+  padding: 0 10px 0 8px;
+  border: 1px solid transparent;
+  border-radius: 999px;
+  background: var(--color-surface-hover);
+  color: var(--color-text-primary);
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-medium);
+  cursor: pointer;
   user-select: none;
+  -webkit-user-select: none;
+  touch-action: manipulation;
+  transition:
+    background-color var(--duration-fast) var(--ease-standard),
+    color var(--duration-fast) var(--ease-standard),
+    opacity var(--duration-fast) var(--ease-standard);
 
+  &:hover {
+    background: var(--color-surface-active);
+  }
+
+  &:focus-visible {
+    outline: none;
+    border-color: var(--color-focus-ring);
+    box-shadow: inset 0 0 0 1px var(--color-focus-ring);
+  }
+
+  /* Hidden = role toggled off: flatten to the panel and de-emphasise. */
   &.hidden {
-    opacity: 0.35;
+    background: transparent;
+    color: var(--color-text-tertiary);
 
     .role-swatch {
-      opacity: 0.3;
+      opacity: 0.35;
     }
   }
 }
@@ -183,7 +204,7 @@
   display: inline-block;
   width: 10px;
   height: 10px;
-  border-radius: 50%;
+  border-radius: 3px;
   background: var(--role-color);
   flex-shrink: 0;
 }
@@ -192,20 +213,20 @@
   white-space: nowrap;
 }
 
-// ── Scalar legend ────────────────────────────────────────────────────────────
+/* ── Scalar legend ──────────────────────────────────────────────────────── */
 
 .scalar-legend {
   display: flex;
   align-items: center;
-  gap: var(--spacing-sm);
+  gap: var(--spacing-md);
 }
 
 .scalar-gradient {
   position: relative;
   flex: 1;
-  height: 10px;
-  border-radius: 5px;
-  border: 1px solid var(--color-border);
+  height: 12px;
+  border-radius: 999px;
+  border: 1px solid var(--color-border-light);
   cursor: crosshair;
 }
 
@@ -215,12 +236,11 @@
   bottom: -3px;
   width: 2px;
   transform: translateX(-1px);
-  background: var(--color-text-primary, #fff);
-  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.55);
+  background: var(--color-text-primary);
+  box-shadow: 0 0 0 1px var(--color-surface);
   border-radius: 1px;
   pointer-events: none;
-  // Glide between hovered values; the scrub tick below is intentionally not
-  // animated because it tracks the cursor 1:1.
+  /* Glide between hovered values; the scrub tick tracks the cursor 1:1. */
   transition: left var(--duration-fast) var(--ease-standard);
 }
 
@@ -236,22 +256,23 @@
   bottom: -3px;
   width: 2px;
   transform: translateX(-1px);
-  background: var(--color-primary);
-  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.55);
+  background: var(--accent);
+  box-shadow: 0 0 0 1px var(--color-surface);
   border-radius: 1px;
   pointer-events: none;
 }
 
 .scalar-scrub-readout {
   position: absolute;
-  bottom: 15px;
+  bottom: 18px;
   transform: translateX(-50%);
-  padding: 1px 6px;
-  border-radius: var(--radius-sm, 4px);
+  padding: 2px 7px;
+  border-radius: var(--radius-sm);
   background: var(--color-surface);
   border: 1px solid var(--color-border);
-  color: var(--color-text-secondary);
-  font-size: 10px;
+  box-shadow: var(--shadow-sm);
+  color: var(--color-text-primary);
+  font-size: var(--font-size-2xs);
   font-family: var(--font-family-mono);
   white-space: nowrap;
   pointer-events: none;
@@ -261,15 +282,16 @@
   display: inline-block;
   width: 14px;
   height: 14px;
-  border-radius: 4px;
+  border-radius: var(--radius-sm);
   border: 1px solid var(--color-border);
   flex-shrink: 0;
 }
 
 .scalar-label {
-  font-size: 10px;
+  font-size: var(--font-size-2xs);
   font-family: var(--font-family-mono);
-  color: var(--color-text-tertiary);
+  font-variant-numeric: tabular-nums;
+  color: var(--color-text-secondary);
   white-space: nowrap;
   flex-shrink: 0;
 }

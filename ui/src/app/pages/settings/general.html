@@ -39,6 +39,7 @@
           type="button"
           class="segmented-btn"
           [class.is-active]="gesture() === 'orbit'"
+          [attr.aria-pressed]="gesture() === 'orbit'"
           (click)="setGesture('orbit')"
         >
           Orbit
@@ -47,9 +48,143 @@
           type="button"
           class="segmented-btn"
           [class.is-active]="gesture() === 'pan'"
+          [attr.aria-pressed]="gesture() === 'pan'"
           (click)="setGesture('pan')"
         >
           Pan
+        </button>
+      </div>
+    </div>
+
+    <div class="settings-field">
+      <span class="settings-field-label">
+        <span class="settings-field-title">Scene diagnostics chips</span>
+        <span class="settings-field-desc">
+          Show FPS and WASM timing chips in the viewer overlay.
+        </span>
+      </span>
+      <div class="segmented" role="group" aria-label="Scene diagnostics chips">
+        <button
+          type="button"
+          class="segmented-btn"
+          [class.is-active]="statsVisible()"
+          [attr.aria-pressed]="statsVisible()"
+          (click)="setStatsVisible(true)"
+        >
+          On
+        </button>
+        <button
+          type="button"
+          class="segmented-btn"
+          [class.is-active]="!statsVisible()"
+          [attr.aria-pressed]="!statsVisible()"
+          (click)="setStatsVisible(false)"
+        >
+          Off
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <h2 class="subhead">3D View</h2>
+  <div class="settings-card">
+    <div class="settings-field">
+      <span class="settings-field-label">
+        <span class="settings-field-title">Field of view</span>
+        <span class="settings-field-desc">
+          Perspective camera angle. Lower feels flatter and more zoomed-in;
+          higher shows more of the scene with stronger perspective.
+        </span>
+      </span>
+      <div class="fov-control">
+        <nexus-fov-cube [fov]="fieldOfView()" />
+        <nexus-slider
+          class="fov-slider"
+          [value]="fieldOfView()"
+          [min]="minFov"
+          [max]="maxFov"
+          [step]="1"
+          unit="°"
+          label="Field of view"
+          (valueChange)="setFieldOfView($event)"
+        />
+      </div>
+    </div>
+
+    <div class="settings-field">
+      <span class="settings-field-label">
+        <span class="settings-field-title">Anti-aliasing</span>
+        <span class="settings-field-desc">
+          Smooths jagged edges. Auto disables it on high-density displays where
+          it barely helps. Changing this reloads the 3D view.
+        </span>
+      </span>
+      <div class="segmented" role="group" aria-label="Anti-aliasing">
+        <button
+          type="button"
+          class="segmented-btn"
+          [class.is-active]="antialiasing() === 'auto'"
+          [attr.aria-pressed]="antialiasing() === 'auto'"
+          (click)="setAntialiasing('auto')"
+        >
+          Auto
+        </button>
+        <button
+          type="button"
+          class="segmented-btn"
+          [class.is-active]="antialiasing() === 'on'"
+          [attr.aria-pressed]="antialiasing() === 'on'"
+          (click)="setAntialiasing('on')"
+        >
+          On
+        </button>
+        <button
+          type="button"
+          class="segmented-btn"
+          [class.is-active]="antialiasing() === 'off'"
+          [attr.aria-pressed]="antialiasing() === 'off'"
+          (click)="setAntialiasing('off')"
+        >
+          Off
+        </button>
+      </div>
+    </div>
+
+    <div class="settings-field">
+      <span class="settings-field-label">
+        <span class="settings-field-title">Render resolution</span>
+        <span class="settings-field-desc">
+          Higher renders sharper on high-density displays but costs more GPU;
+          lower favours frame rate.
+        </span>
+      </span>
+      <div class="segmented" role="group" aria-label="Render resolution">
+        <button
+          type="button"
+          class="segmented-btn"
+          [class.is-active]="renderQuality() === 'performance'"
+          [attr.aria-pressed]="renderQuality() === 'performance'"
+          (click)="setRenderQuality('performance')"
+        >
+          Performance
+        </button>
+        <button
+          type="button"
+          class="segmented-btn"
+          [class.is-active]="renderQuality() === 'balanced'"
+          [attr.aria-pressed]="renderQuality() === 'balanced'"
+          (click)="setRenderQuality('balanced')"
+        >
+          Balanced
+        </button>
+        <button
+          type="button"
+          class="segmented-btn"
+          [class.is-active]="renderQuality() === 'quality'"
+          [attr.aria-pressed]="renderQuality() === 'quality'"
+          (click)="setRenderQuality('quality')"
+        >
+          Quality
         </button>
       </div>
     </div>

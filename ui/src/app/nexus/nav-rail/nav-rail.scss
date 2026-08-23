@@ -1,4 +1,8 @@
 :host {
+  position: relative;
+  // Sit above the sidebar so its panel can slide out from behind the rail edge.
+  z-index: 30;
+
   display: flex;
   flex-direction: column;
   align-items: stretch;
@@ -34,6 +38,9 @@
   color: var(--color-text-tertiary);
   text-decoration: none;
   cursor: pointer;
+  user-select: none;
+  -webkit-user-select: none;
+  touch-action: manipulation;
   --icon-size: 22px;
   transition:
     background-color var(--duration-fast) var(--ease-standard),
@@ -46,7 +53,7 @@
 
   &:focus-visible {
     outline: none;
-    box-shadow: 0 0 0 3px var(--color-focus-ring-glow);
+    box-shadow: 0 0 0 2px var(--color-focus-ring);
   }
 
   &.is-active {

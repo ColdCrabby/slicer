@@ -18,6 +18,10 @@
       <nexus-card visualSize="small" class="demo-card">
         <div class="row wrap">
           <button nexusButton variant="primary">Slice now</button>
+          <button nexusButton variant="secondary">
+            <nexus-icon name="magic-wand" />
+            Smart orient
+          </button>
           <button nexusButton variant="secondary">Secondary</button>
           <button nexusButton variant="ghost">Ghost</button>
           <button nexusButton variant="subtle">Subtle</button>
@@ -34,6 +38,23 @@
           <button nexusIconButton variant="solid" [active]="true" aria-label="Select mode">
             <nexus-icon name="cursor-pointer" />
           </button>
+        </div>
+        <div class="row wrap">
+          <nexus-icon-button icon="trash" label="Delete item"></nexus-icon-button>
+          <nexus-icon-button icon="refresh" label="Refresh"></nexus-icon-button>
+          <nexus-icon-button icon="link" label="Link"></nexus-icon-button>
+        </div>
+      </nexus-card>
+    </section>
+
+    <section class="section">
+      <nexus-section-header
+        heading="Connection"
+        description="Live status badge reused from the dashboard header"
+      />
+      <nexus-card visualSize="small" class="demo-card">
+        <div class="row wrap">
+          <nexus-connection-state></nexus-connection-state>
         </div>
       </nexus-card>
     </section>
@@ -77,7 +98,13 @@
       <div class="grid two-up">
         <nexus-card visualSize="small" class="demo-card">
           <h3 class="subheading">Radio Group</h3>
-          <div class="segmented" radioGroup #quality="radioGroup" [radioGroup]="'balanced'">
+          <div
+            class="segmented"
+            radioGroup
+            stackWhenCramped
+            #quality="radioGroup"
+            [radioGroup]="'balanced'"
+          >
             <button type="button" class="segmented-item" [radioButtonValue]="'draft'">Draft</button>
             <button type="button" class="segmented-item" [radioButtonValue]="'balanced'">
               Balanced
@@ -109,6 +136,169 @@
             >
               Tap for details
             </button>
+          </div>
+        </nexus-card>
+      </div>
+    </section>
+
+    <section class="section">
+      <nexus-section-header
+        heading="Form Controls"
+        description="Refined print-setting controls — switches, sliders, steppers, and dropdowns"
+      />
+      <div class="grid two-up">
+        <nexus-card visualSize="small" class="demo-card">
+          <h3 class="subheading">Switches</h3>
+          <div class="control-list">
+            <div class="control-row">
+              <span class="control-label">Generate supports</span>
+              <nexus-switch
+                label="Generate supports"
+                [checked]="supportsOn()"
+                (checkedChange)="supportsOn.set($event)"
+              ></nexus-switch>
+            </div>
+            <div class="control-row">
+              <span class="control-label">Spiral vase mode</span>
+              <nexus-switch
+                label="Spiral vase mode"
+                [checked]="spiralOn()"
+                (checkedChange)="spiralOn.set($event)"
+              ></nexus-switch>
+            </div>
+            <div class="control-row">
+              <span class="control-label">Ironing (small)</span>
+              <nexus-switch
+                size="sm"
+                label="Ironing"
+                [checked]="ironingOn()"
+                (checkedChange)="ironingOn.set($event)"
+              ></nexus-switch>
+            </div>
+            <div class="control-row">
+              <span class="control-label muted">Disabled</span>
+              <nexus-switch label="Disabled" [checked]="true" [disabled]="true"></nexus-switch>
+            </div>
+          </div>
+        </nexus-card>
+
+        <nexus-card visualSize="small" class="demo-card">
+          <h3 class="subheading">Sliders</h3>
+          <div class="control-list">
+            <div class="control-stack">
+              <span class="control-label">Infill density</span>
+              <nexus-slider
+                label="Infill density"
+                unit="%"
+                [value]="density()"
+                (valueChange)="density.set($event)"
+              ></nexus-slider>
+            </div>
+            <div class="control-stack">
+              <span class="control-label">Print speed</span>
+              <nexus-slider
+                label="Print speed"
+                unit=" mm/s"
+                [min]="20"
+                [max]="300"
+                [step]="5"
+                [value]="speed()"
+                (valueChange)="speed.set($event)"
+              ></nexus-slider>
+            </div>
+            <div class="control-stack">
+              <span class="control-label">Nozzle temp range</span>
+              <nexus-range-slider
+                label="Nozzle temperature"
+                unit="°C"
+                [min]="150"
+                [max]="300"
+                [step]="5"
+                [low]="tempLow()"
+                [high]="tempHigh()"
+                (rangeChange)="tempLow.set($event[0]); tempHigh.set($event[1])"
+              ></nexus-range-slider>
+            </div>
+            <div class="control-stack">
+              <span class="control-label">Visible layer range</span>
+              <nexus-range-slider
+                label="Visible layers"
+                [min]="1"
+                [max]="100"
+                [step]="1"
+                [low]="layerRange()[0]"
+                [high]="layerRange()[1]"
+                (rangeChange)="layerRange.set($event)"
+              ></nexus-range-slider>
+            </div>
+          </div>
+        </nexus-card>
+
+        <nexus-card visualSize="small" class="demo-card">
+          <h3 class="subheading">Number Steppers</h3>
+          <div class="control-list">
+            <div class="control-stack">
+              <span class="control-label">Layer height</span>
+              <nexus-number-input
+                label="Layer height"
+                unit="mm"
+                [min]="0.04"
+                [max]="0.6"
+                [step]="0.02"
+                [value]="layerHeight()"
+                (valueChange)="layerHeight.set($event)"
+              ></nexus-number-input>
+            </div>
+            <div class="control-stack">
+              <span class="control-label">Wall loops</span>
+              <nexus-number-input
+                label="Wall loops"
+                [min]="1"
+                [max]="10"
+                [step]="1"
+                [value]="wallCount()"
+                (valueChange)="wallCount.set($event)"
+              ></nexus-number-input>
+            </div>
+          </div>
+        </nexus-card>
+
+        <nexus-card visualSize="small" class="demo-card">
+          <h3 class="subheading">Dropdown</h3>
+          <div class="control-list">
+            <div class="control-stack">
+              <span class="control-label">Infill pattern</span>
+              <nexus-select
+                [options]="patternOptions"
+                [value]="pattern()"
+                (valueChange)="pattern.set($event)"
+              ></nexus-select>
+            </div>
+            <p class="hint">Selected pattern: {{ pattern() }}</p>
+          </div>
+        </nexus-card>
+
+        <nexus-card visualSize="small" class="demo-card">
+          <h3 class="subheading">Radio Cards</h3>
+          <div class="control-list">
+            <div class="control-stack">
+              <span class="control-label">Wall generator</span>
+              <nexus-radio-group
+                label="Wall generator"
+                [options]="wallGeneratorOptions"
+                [value]="wallGenerator()"
+                (valueChange)="wallGenerator.set($event)"
+              ></nexus-radio-group>
+            </div>
+            <div class="control-stack">
+              <span class="control-label">Quality (segmented)</span>
+              <nexus-segmented
+                label="Quality"
+                [options]="qualityOptions"
+                [value]="qualityMode()"
+                (valueChange)="qualityMode.set($event)"
+              ></nexus-segmented>
+            </div>
           </div>
         </nexus-card>
       </div>

@@ -1,41 +1,89 @@
-<div class="drop-zone">
+<div
+  class="scene-shell"
+  [class.is-drag-active]="dragActive()"
+  [class.is-busy]="uploading() || slicerFile.isPending()"
+  (click)="triggerFilePicker()"
+  (dragenter)="onDragEnter($event)"
+  (dragover)="onDragOver($event)"
+  (dragleave)="onDragLeave($event)"
+  (drop)="onDrop($event)"
+>
+  <nexus-viewer class="scene-canvas" mode="model"></nexus-viewer>
+
   <input
+    #fileInput
     type="file"
     accept=".stl,.obj,.3mf,model/stl,model/obj,model/3mf,application/vnd.ms-pki.stl,application/sla,application/vnd.ms-package.3dmanufacturing-3dmodel+xml,application/octet-stream"
     (change)="onFileSelected($event)"
-    class="file-input"
+    class="file-input-hidden"
     [disabled]="uploading() || slicerFile.isPending()"
-    [style.visibility]="uploading() || slicerFile.isPending() ? 'hidden' : 'visible'"
   />
 
-  @if (uploading()) {
-    <div class="upload-state">
-      <nexus-icon name="cloud-upload" class="drop-icon uploading"></nexus-icon>
-      <p class="drop-title">Uploading&hellip;</p>
-      <p class="drop-sub">{{ slicerFile.uploadProgress() }}%</p>
-      <div class="progress-track">
-        <div class="progress-fill" [style.width.%]="slicerFile.uploadProgress()"></div>
+  <div class="launch-overlay">
+    @if (uploading()) {
+      <div class="launch-card">
+        <nexus-empty-state
+          class="launch-empty"
+          icon="cloud-upload"
+          heading="Uploading model..."
+          [description]="slicerFile.uploadProgress() + '%'"
+        >
+          <div class="progress-track">
+            <div class="progress-fill" [style.width.%]="slicerFile.uploadProgress()"></div>
+          </div>
+        </nexus-empty-state>
       </div>
-    </div>
-  } @else if (slicerFile.isPending()) {
-    <div class="upload-state">
-      <nexus-icon name="cloud-upload" class="drop-icon uploading"></nexus-icon>
-      <p class="drop-title">Preparing&hellip;</p>
-      <p class="drop-sub">{{ slicerFile.selectedFile()!.name }}</p>
-      <div class="progress-track">
-        <div class="progress-fill indeterminate"></div>
+    } @else if (slicerFile.isPending()) {
+      <div class="launch-card">
+        <nexus-empty-state
+          class="launch-empty"
+          icon="cloud-upload"
+          heading="Preparing workplate..."
+          [description]="slicerFile.selectedFile()!.name"
+        >
+          <div class="progress-track">
+            <div class="progress-fill indeterminate"></div>
+          </div>
+        </nexus-empty-state>
       </div>
-    </div>
-  } @else if (slicerFile.uploadError()) {
-    <nexus-icon name="warning-triangle" class="drop-icon error"></nexus-icon>
-    <p class="drop-title">Upload failed</p>
-    <p class="drop-sub error-msg">{{ slicerFile.uploadError() }}</p>
-    <span class="browse-btn">Try again</span>
-  } @else {
-    <nexus-icon name="cloud-upload" class="drop-icon"></nexus-icon>
-    <p class="drop-title">Drop your model here</p>
-    <p class="drop-sub">STL, OBJ or 3MF &mdash; up to 500&nbsp;MB</p>
-    <span class="drop-divider">or</span>
-    <span class="browse-btn">Browse file</span>
-  }
+    } @else if (slicerFile.uploadError()) {
+      <div class="launch-card is-error">
+        <nexus-empty-state
+          class="launch-empty"
+          icon="warning-triangle"
+          heading="Upload failed"
+          [description]="slicerFile.uploadError() ?? undefined"
+        >
+          <button class="browse-btn" type="button" (click)="triggerFilePicker($event)">
+            Try again
+          </button>
+        </nexus-empty-state>
+      </div>
+    } @else {
+      <div class="launch-card" [class.is-drag-active]="dragActive()">
+        <nexus-empty-state
+          class="launch-empty"
+          icon="cloud-upload"
+          [heading]="dragActive() ? 'Release to place on bed' : 'Start your first plate'"
+          [description]="
+            dragActive() ? 'Drop to start this workplate' : 'Drop STL, OBJ, or 3MF - up to 500 MB'
+          "
+        >
+          <div class="launch-actions">
+            <button class="browse-btn" type="button" (click)="triggerFilePicker($event)">
+              Browse files
+            </button>
+            @if (invalidDropMessage()) {
+              <p class="error-msg">{{ invalidDropMessage() }}</p>
+            }
+            <div class="meta-footer" aria-hidden="true">
+              <span class="meta-item">Bed {{ bedLabel() }}</span>
+              <span class="meta-sep">·</span>
+              <span class="meta-item">Drag multiple files to auto-arrange</span>
+            </div>
+          </div>
+        </nexus-empty-state>
+      </div>
+    }
+  </div>
 </div>

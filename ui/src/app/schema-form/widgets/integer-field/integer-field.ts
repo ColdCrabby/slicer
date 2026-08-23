@@ -1,20 +1,21 @@
-import { ChangeDetectionStrategy, Component, EventEmitter, input } from '@angular/core';
+import { ChangeDetectionStrategy, Component, EventEmitter, computed, input } from '@angular/core';
+import { NumberInput } from '../../../ui/number-input/number-input';
 import { IconButton } from '../../../shared/icon-button/icon-button';
 import { TooltipDirective } from '../../../shared/tooltip/tooltip.directive';
-import { FieldDef } from '../../models/field-def';
-import { FieldWidget } from '../base-field';
+import type { FieldDef } from '../../models/field-def';
+import type { FieldWidget } from '../base-field';
 
 @Component({
   selector: 'se-integer-field',
   standalone: true,
-  imports: [IconButton, TooltipDirective],
+  imports: [IconButton, TooltipDirective, NumberInput],
   changeDetection: ChangeDetectionStrategy.OnPush,
   styles: [
     `
       :host {
         display: flex;
         flex-direction: column;
-        gap: 5px;
+        gap: 6px;
       }
 
       label {
@@ -26,10 +27,6 @@ import { FieldWidget } from '../base-field';
         color: var(--color-text-secondary);
         user-select: none;
         cursor: default;
-      }
-
-      input {
-        width: 100%;
       }
     `,
   ],
@@ -46,15 +43,14 @@ import { FieldWidget } from '../base-field';
         />
       }
     </label>
-    <input
-      [id]="field().key"
-      type="number"
-      step="1"
-      [min]="field().minimum ?? null"
-      [max]="field().maximum ?? null"
-      [value]="value()"
-      (change)="valueChange.emit(Math.round(+$any($event.target).value))"
-    />
+    <nexus-number-input
+      [value]="numeric()"
+      [min]="min()"
+      [max]="max()"
+      [step]="1"
+      [label]="field().title ?? field().key"
+      (valueChange)="valueChange.emit($event)"
+    ></nexus-number-input>
   `,
 })
 export class IntegerField implements FieldWidget {
@@ -62,5 +58,12 @@ export class IntegerField implements FieldWidget {
   readonly value = input<unknown>(undefined);
   readonly valueChange = new EventEmitter<unknown>();
 
-  protected readonly Math = Math;
+  protected readonly numeric = computed(() => {
+    const v = this.value();
+    if (v === null || v === undefined || v === '')
+      return Math.round(Number(this.field().default ?? 0));
+    return Math.round(Number(v));
+  });
+  protected readonly min = computed(() => this.field().minimum ?? Number.NEGATIVE_INFINITY);
+  protected readonly max = computed(() => this.field().maximum ?? Number.POSITIVE_INFINITY);
 }
