@@ -24,7 +24,6 @@ import { Icon } from '../../shared/icon/icon';
       [attr.data-tone]="label().tone"
       [style.--label-color]="label().color"
     >
-      <span class="chip__dot"></span>
       <span class="chip__name">{{ label().name }}</span>
       @if (removable()) {
         <button
@@ -45,42 +44,33 @@ import { Icon } from '../../shared/icon/icon';
         min-width: 0;
       }
       .chip {
-        --tint-bg: 22%;
+        --tint-bg: 20%;
         --tint-text: 72%;
-        --tint-border: 34%;
-        --tint-dot: 90%;
+        --tint-border: 45%;
         display: inline-flex;
         align-items: center;
-        gap: 5px;
+        gap: 4px;
         max-width: 100%;
-        padding: 2px 9px;
-        border-radius: 999px;
+        padding: 0 8px;
+        height: 20px;
+        border-radius: var(--radius-sm);
         font-size: var(--font-size-xs);
         font-weight: var(--font-weight-medium);
-        line-height: 1.5;
+        line-height: 1;
         white-space: nowrap;
         background: color-mix(in oklab, var(--label-color) var(--tint-bg), transparent);
         color: color-mix(in oklab, var(--label-color) var(--tint-text), var(--color-text-primary));
-        box-shadow: inset 0 0 0 1px
-          color-mix(in oklab, var(--label-color) var(--tint-border), transparent);
+        border: 1px solid color-mix(in oklab, var(--label-color) var(--tint-border), transparent);
       }
       .chip[data-tone='light'] {
-        --tint-bg: 11%;
+        --tint-bg: 10%;
         --tint-text: 50%;
-        --tint-border: 20%;
-        --tint-dot: 60%;
+        --tint-border: 26%;
       }
       .chip--sm {
-        padding: 1px 7px;
+        height: 18px;
+        padding: 0 6px;
         font-size: 10px;
-        gap: 4px;
-      }
-      .chip__dot {
-        flex: none;
-        width: 7px;
-        height: 7px;
-        border-radius: 50%;
-        background: color-mix(in oklab, var(--label-color) var(--tint-dot), transparent);
       }
       .chip__name {
         overflow: hidden;

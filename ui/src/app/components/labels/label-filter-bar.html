@@ -1,6 +1,15 @@
 @if (store.count() > 0) {
   <div class="fb">
-    <nexus-icon name="filter" class="fb__icon" />
+    <button
+      type="button"
+      class="fb__lead"
+      [class.is-clearable]="hasSelection()"
+      [disabled]="!hasSelection()"
+      [attr.aria-label]="hasSelection() ? 'Clear label filter' : null"
+      (click)="clear.emit()"
+    >
+      <nexus-icon [name]="hasSelection() ? 'xmark' : 'filter'" />
+    </button>
     <div class="fb__chips">
       @for (label of store.items(); track label.id) {
         <button
@@ -17,8 +26,5 @@
         </button>
       }
     </div>
-    @if (hasSelection()) {
-      <button type="button" class="fb__clear" (click)="clear.emit()">Clear</button>
-    }
   </div>
 }

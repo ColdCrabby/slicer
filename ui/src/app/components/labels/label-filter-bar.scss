@@ -9,10 +9,32 @@
   flex-wrap: wrap;
 }
 
-.fb__icon {
+.fb__lead {
   flex: none;
+  display: inline-grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: transparent;
   color: var(--color-text-tertiary);
+  cursor: default;
   --icon-size: 16px;
+
+  &.is-clearable {
+    cursor: pointer;
+
+    &:hover {
+      background: var(--color-surface-hover);
+      color: var(--color-text-primary);
+    }
+  }
+
+  &:disabled {
+    cursor: default;
+  }
 }
 
 .fb__chips {
@@ -26,10 +48,10 @@
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  height: 26px;
+  height: 24px;
   padding: 0 var(--spacing-sm);
   border: 1px solid var(--color-border);
-  border-radius: 999px;
+  border-radius: var(--radius-sm);
   background: transparent;
   color: var(--color-text-secondary);
   font-family: inherit;
@@ -39,7 +61,7 @@
   transition:
     background-color var(--duration-fast) var(--ease-standard),
     color var(--duration-fast) var(--ease-standard),
-    box-shadow var(--duration-fast) var(--ease-standard);
+    border-color var(--duration-fast) var(--ease-standard);
 
   &[data-tone='light'] {
     --tint-dot: 60%;
@@ -51,16 +73,15 @@
   }
 
   &.is-on {
-    border-color: transparent;
-    background: color-mix(in oklab, var(--label-color) 22%, transparent);
+    background: color-mix(in oklab, var(--label-color) 20%, transparent);
     color: color-mix(in oklab, var(--label-color) 72%, var(--color-text-primary));
-    box-shadow: inset 0 0 0 1px color-mix(in oklab, var(--label-color) 34%, transparent);
+    border-color: color-mix(in oklab, var(--label-color) 45%, transparent);
   }
 
   &.is-on[data-tone='light'] {
-    background: color-mix(in oklab, var(--label-color) 11%, transparent);
+    background: color-mix(in oklab, var(--label-color) 10%, transparent);
     color: color-mix(in oklab, var(--label-color) 50%, var(--color-text-primary));
-    box-shadow: inset 0 0 0 1px color-mix(in oklab, var(--label-color) 20%, transparent);
+    border-color: color-mix(in oklab, var(--label-color) 26%, transparent);
   }
 }
 
@@ -70,22 +91,4 @@
   height: 9px;
   border-radius: 50%;
   background: color-mix(in oklab, var(--label-color) var(--tint-dot), transparent);
-}
-
-.fb__clear {
-  flex: none;
-  height: 26px;
-  padding: 0 var(--spacing-sm);
-  border: none;
-  border-radius: var(--radius-sm);
-  background: transparent;
-  color: var(--color-text-tertiary);
-  font-family: inherit;
-  font-size: var(--font-size-xs);
-  cursor: pointer;
-
-  &:hover {
-    color: var(--color-text-primary);
-    background: var(--color-surface-hover);
-  }
 }
