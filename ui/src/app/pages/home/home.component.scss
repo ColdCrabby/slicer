@@ -1,3 +1,9 @@
+:host {
+  position: relative;
+  display: block;
+  height: 100%;
+}
+
 .dashboard {
   width: 100%;
   height: 100%;
@@ -215,4 +221,111 @@
   margin-left: auto;
   font-size: var(--font-size-xs);
   color: var(--color-text-secondary);
+}
+
+// ── Drag-and-drop: full-page drop target + magic aurora ──
+//
+// Reuses the empty-workplate drop feel on the dashboard so a model can be
+// dropped straight onto the home page. The aurora itself is emitted globally
+// (see styles/main.scss → drop-aurora mixin) so this scope and the empty
+// workplate animate identically.
+
+.drop-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 50;
+  display: grid;
+  place-items: center;
+  padding: var(--spacing-2xl);
+  pointer-events: none;
+  opacity: 0;
+  visibility: hidden;
+  transition:
+    opacity var(--duration-normal) var(--ease-decelerate),
+    visibility 0s linear var(--duration-normal);
+}
+
+.drop-overlay.is-active {
+  opacity: 1;
+  visibility: visible;
+  transition:
+    opacity var(--duration-normal) var(--ease-decelerate),
+    visibility 0s;
+}
+
+.drop-card {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  width: min(520px, calc(100% - 32px));
+  padding: 32px 28px;
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--accent-border);
+  background: color-mix(in oklab, var(--color-surface) 88%, transparent);
+  backdrop-filter: var(--backdrop-blur);
+  -webkit-backdrop-filter: var(--backdrop-blur);
+  box-shadow:
+    var(--shadow-lg),
+    0 0 0 1px color-mix(in oklab, var(--accent) 34%, transparent);
+}
+
+.drop-overlay.is-active .drop-card {
+  animation: drop-card-enter 380ms var(--ease-decelerate) both;
+}
+
+// Animated accent perimeter — the "magic" pulse around the drop target.
+.drop-card::before {
+  content: '';
+  position: absolute;
+  inset: -1px;
+  border-radius: inherit;
+  border: 1px solid transparent;
+  pointer-events: none;
+}
+
+.drop-overlay.is-active .drop-card::before {
+  animation: drop-perimeter-scan 1.8s linear infinite;
+}
+
+.drop-empty {
+  width: 100%;
+  padding: 0;
+}
+
+@keyframes drop-card-enter {
+  0% {
+    opacity: 0;
+    transform: translateY(12px) scale(0.98);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes drop-perimeter-scan {
+  0% {
+    border-color: color-mix(in oklab, var(--accent) 22%, transparent);
+  }
+  25% {
+    border-color: color-mix(in oklab, var(--accent) 70%, transparent);
+  }
+  50% {
+    border-color: color-mix(in oklab, var(--accent) 34%, transparent);
+  }
+  75% {
+    border-color: color-mix(in oklab, var(--accent) 72%, transparent);
+  }
+  100% {
+    border-color: color-mix(in oklab, var(--accent) 22%, transparent);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .drop-card,
+  .drop-card::before {
+    animation: none;
+  }
 }

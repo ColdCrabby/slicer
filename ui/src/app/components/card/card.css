@@ -15,5 +15,5 @@
 :host(.large) {
   border-radius: var(--radius-lg);
   box-shadow: var(--shadow-lg);
-  border: none;
+  border: 1px solid var(--color-border);
 }

@@ -20,3 +20,9 @@
 
 // Utilities
 @use './utilities/utilities';
+
+// Emit the shared drag-and-drop aurora once, globally, so every drop scope
+// (home dashboard, empty workplate) animates identically without inflating each
+// component's style budget. z-index 2 sits above page content but below the
+// drop cards/overlays in both scopes.
+@include drop-aurora(2);

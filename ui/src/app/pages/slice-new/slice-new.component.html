@@ -10,6 +10,12 @@
 >
   <nexus-viewer class="scene-canvas" mode="model"></nexus-viewer>
 
+  <div class="drop-aurora" [class.is-active]="dragActive()" aria-hidden="true">
+    <span class="aurora-orb aurora-orb--a"><span class="aurora-blob"></span></span>
+    <span class="aurora-orb aurora-orb--b"><span class="aurora-blob"></span></span>
+    <span class="aurora-orb aurora-orb--c"><span class="aurora-blob"></span></span>
+  </div>
+
   <input
     #fileInput
     type="file"

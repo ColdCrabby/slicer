@@ -146,15 +146,11 @@ const AXIS_TICK_RADIUS = 0.01;
 const AXIS_LABEL_OFFSET = 0.12;
 const AXIS_LABEL_SIZE = 0.26;
 
-// Opacity of the cube's face tiles. Low enough that the RGB gizmo running
-// along the back edges shows clearly through the front faces, high enough
-// that the face labels (FRONT / BACK / TOP / etc.) and themed border still
-// read as a solid clickable button.
-const CUBE_FACE_OPACITY = 0.9;
-// Bevel facets (edges + corners) sit a touch more solid than the faces so the
-// faceting reads, and brighten to the primary colour on hover.
-const BEVEL_OPACITY = 0.92;
-const BEVEL_HOVER_OPACITY = 0.98;
+// Faces and bevels are fully opaque so the cube reads as a solid graphite
+// widget — you can't see the back faces or the interior through the front,
+// and only the outboard RGB axis shafts remain visible past the silhouette.
+const BEVEL_OPACITY = 1;
+const BEVEL_HOVER_OPACITY = 1;
 // Distance from the camera to the cube. Arbitrary for an orthographic camera
 // — only direction matters — but kept large enough to stay well inside the
 // near/far range.
@@ -247,6 +243,8 @@ const CLICK_DRAG_THRESHOLD = 4;
         border: 1px solid var(--color-border);
         border-radius: 999px;
         background: color-mix(in srgb, var(--color-surface) 82%, transparent);
+        backdrop-filter: var(--backdrop-blur);
+        -webkit-backdrop-filter: var(--backdrop-blur);
         color: var(--color-text-secondary);
         box-shadow: 0 1px 4px rgba(0, 0, 0, 0.2);
         cursor: pointer;
@@ -264,8 +262,8 @@ const CLICK_DRAG_THRESHOLD = 4;
         fill: currentColor;
       }
       .roll-btn:hover {
-        color: var(--color-primary);
-        border-color: var(--color-primary);
+        color: var(--color-text-primary);
+        border-color: var(--color-text-tertiary);
         background: var(--color-surface);
         box-shadow: 0 2px 6px rgba(0, 0, 0, 0.24);
       }
@@ -432,8 +430,8 @@ export class ViewportCube {
    */
   private refreshTheme(): void {
     const palette = readPalette();
-    const bevelBase = cssColor(palette.border);
-    const bevelHover = cssColor(palette.primary);
+    const bevelBase = cssColor(palette.bevelBase);
+    const bevelHover = cssColor(palette.bevelHover);
     for (const mesh of this.zones) {
       const ud = mesh.userData as ZoneUserData;
       const mat = mesh.material as MeshBasicMaterial;
@@ -662,31 +660,36 @@ export class ViewportCube {
  * transition.
  */
 interface CubePalette {
-  surfaceHover: string;
+  faceBase: string;
+  faceHover: string;
   text: string;
-  border: string;
-  primary: string;
-  primaryLight: string;
+  bevelBase: string;
+  bevelHover: string;
 }
 
-/** Read the current theme tokens from `<html>` computed styles. */
+/**
+ * Read the current theme tokens from `<html>` computed styles. Uses only
+ * neutral graphite surface / border / text tokens (never the amber accent) so
+ * the cube reads as a quiet OS-native widget in both dark and light mode; the
+ * hover state is a subtle neutral lift rather than an accent tint.
+ */
 function readPalette(): CubePalette {
   const styles = getComputedStyle(document.documentElement);
   const get = (name: string, fallback: string): string =>
     styles.getPropertyValue(name).trim() || fallback;
   return {
-    surfaceHover: get('--color-surface-hover', '#f0f0f0'),
-    text: get('--color-text-primary', '#222222'),
-    border: get('--color-border', '#cccccc'),
-    primary: get('--color-primary', '#5b5bff'),
-    primaryLight: get('--color-primary-light', 'rgba(91, 91, 255, 0.12)'),
+    faceBase: get('--color-surface', '#1b1c20'),
+    faceHover: get('--color-text-tertiary', '#7c808a'),
+    text: get('--color-text-secondary', '#b7bac1'),
+    bevelBase: get('--color-border', '#2b2e34'),
+    bevelHover: get('--color-text-tertiary', '#7c808a'),
   };
 }
 
 /**
- * Build a CanvasTexture for a single cube face that visually matches a
- * standard themed button: surface fill, rounded inner tile (borderless),
- * primary-tinted hover state, themed label text.
+ * Build a CanvasTexture for a single cube face: a flat, borderless graphite
+ * fill that lifts to a slightly brighter neutral on hover, with a themed
+ * (non-accent) label. No accent colour is used anywhere.
  */
 function makeFaceTexture(label: string, hovered: boolean, palette: CubePalette): CanvasTexture {
   const size = 256;
@@ -698,12 +701,14 @@ function makeFaceTexture(label: string, hovered: boolean, palette: CubePalette):
     return new CanvasTexture(canvas);
   }
 
-  // Flat, borderless fill covering the whole face — the inset rounded tile is
-  // gone, so there is no visible edge between an inner tile and an outer frame.
-  ctx.fillStyle = hovered ? palette.primaryLight : palette.surfaceHover;
+  // Flat, borderless fill covering the whole face. On hover the face lifts to
+  // a clear mid graphite (matching the edge/corner hover) and the label flips
+  // to the base surface colour so it stays legible against the lighter fill in
+  // both dark and light themes — an inverted "highlighted button" look.
+  ctx.fillStyle = hovered ? palette.faceHover : palette.faceBase;
   ctx.fillRect(0, 0, size, size);
 
-  ctx.fillStyle = hovered ? palette.primary : palette.text;
+  ctx.fillStyle = hovered ? palette.faceBase : palette.text;
   // Monospace so every face label has identical letter geometry, keeping the
   // cube reading like a uniform button grid.
   ctx.font = '700 64px "IBM Plex Mono", "SF Mono", Menlo, Consolas, ui-monospace, monospace';
@@ -761,11 +766,9 @@ function buildAxisArrow(label: string, direction: Vector3, color: number, origin
   const arrow = new Group();
   const shaftLength = AXIS_LENGTH - AXIS_HEAD_LENGTH;
 
-  // Standard depth-tested opaque material — the gizmo lives "inside" the
-  // cube space and we want the cube's semi-transparent faces to visibly
-  // overlay it from the front while the axes stay readable through the
-  // tinted glass effect. Opaque draws before transparent in three.js, so
-  // ordering is automatic.
+  // Depth-tested opaque material. The cube's faces are now opaque, so the
+  // shafts that run along back edges are occluded by the body while the
+  // outboard front-edge shafts stay visible past the silhouette.
   const material = new MeshBasicMaterial({ color });
 
   // Perpendicular tick at the origin end — architectural dimension-line cap
@@ -796,9 +799,8 @@ function buildAxisArrow(label: string, direction: Vector3, color: number, origin
 
   // Billboarded label sprite — always faces the camera, sits just past the
   // arrow tip in the arrow's local +Y direction (rotated into world space
-  // alongside the rest of the arrow). Standard depth testing means the
-  // semi-transparent cube tints the labels on the far side, matching the
-  // shafts.
+  // alongside the rest of the arrow). Standard depth testing means the opaque
+  // cube body occludes labels on its far side.
   const sprite = new Sprite(
     new SpriteMaterial({
       map: makeAxisLabelTexture(label, color),
@@ -879,8 +881,8 @@ function disposeGroup(root: Group): void {
 function buildViewCube(palette: CubePalette): { group: Group; zones: Mesh[] } {
   const group = new Group();
   const zones: Mesh[] = [];
-  const bevelBase = cssColor(palette.border);
-  const bevelHover = cssColor(palette.primary);
+  const bevelBase = cssColor(palette.bevelBase);
+  const bevelHover = cssColor(palette.bevelHover);
 
   // --- Faces (6) ---
   for (const def of FACE_DEFS) {
@@ -978,11 +980,10 @@ function applyZoneHover(mesh: Mesh, hovered: boolean): void {
  */
 function buildFaceTile(def: FaceDef, texture: CanvasTexture): Mesh {
   const geo = new PlaneGeometry(2 * FACE_HALF, 2 * FACE_HALF);
+  // Fully opaque with depth write — the cube occludes its own back faces so
+  // there's nothing to "see behind" on hover.
   const mat = new MeshBasicMaterial({
     map: texture,
-    transparent: true,
-    opacity: CUBE_FACE_OPACITY,
-    depthWrite: false,
   });
   const mesh = new Mesh(geo, mat);
   const zAxis = def.normal.clone().normalize();
@@ -1015,15 +1016,12 @@ function triGeometry(a: Vector3, b: Vector3, c: Vector3): BufferGeometry {
   return geo;
 }
 
-/** A translucent, double-sided bevel facet used for edges and corners. */
+/** An opaque, double-sided bevel facet used for edges and corners. */
 function bevelMesh(geometry: BufferGeometry, color: Color): Mesh {
   return new Mesh(
     geometry,
     new MeshBasicMaterial({
       color: color.clone(),
-      transparent: true,
-      opacity: BEVEL_OPACITY,
-      depthWrite: false,
       side: DoubleSide,
     }),
   );

@@ -44,4 +44,10 @@
   // Shell metrics
   --titlebar-height: 40px;
   --nav-rail-width: 60px;
+
+  // Backdrop blur — the ONE sanctioned frosted-glass effect. Applied only to
+  // semi-transparent surfaces that float over the 3D scene / live content
+  // (see the design-language instruction). Keep this the single source of the
+  // blur amount so every frosted surface reads identically.
+  --backdrop-blur: blur(7px);
 }

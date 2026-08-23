@@ -1,15 +1,14 @@
 :host {
   position: fixed;
-  top: calc(var(--spacing-lg, 16px) + env(safe-area-inset-top, 0) + var(--main-scene-inset, 16px));
-  left: 50%;
-  transform: translateX(-50%);
+  bottom: calc(var(--spacing-lg, 16px) + env(safe-area-inset-bottom, 0));
+  left: calc(var(--spacing-lg, 16px) + env(safe-area-inset-left, 0));
   z-index: 2000;
   display: flex;
-  flex-direction: column;
-  align-items: center;
+  flex-direction: column-reverse;
+  align-items: flex-start;
   gap: var(--spacing-sm, 8px);
   pointer-events: none;
-  width: min(420px, calc(100vw - 32px));
+  width: min(380px, calc(100vw - 32px));
 }
 
 .notification-center {
@@ -113,19 +112,6 @@
   }
 }
 
-.notification__progress-track {
-  height: 2px;
-  background: color-mix(in srgb, currentColor 12%, transparent);
-  overflow: hidden;
-}
-
-.notification__progress-fill {
-  height: 100%;
-  background: var(--sev-color, var(--accent));
-  transition: width 0.3s var(--ease-standard, cubic-bezier(0.2, 0, 0, 1));
-  min-width: 3px;
-}
-
 // ── Enter / Leave animations (CSS keyframes, driven by animate.enter/.leave) ─
 
 .notif-enter {
@@ -134,19 +120,19 @@
 
 .notif-leave {
   animation:
-    notif-leave-opacity 280ms linear forwards,
-    notif-leave-visual 280ms cubic-bezier(0.61, 0.35, 0.97, 0.43) forwards;
+    notif-leave-opacity 240ms linear forwards,
+    notif-leave-visual 240ms cubic-bezier(0.61, 0.35, 0.97, 0.43) forwards;
 }
 
 @keyframes notif-enter-kf {
   from {
     opacity: 0;
-    transform: translateY(-8px) scale(0.98);
+    transform: translateX(-12px) translateY(8px) scale(0.98);
   }
 
   to {
     opacity: 1;
-    transform: translateY(0) scale(1);
+    transform: translateX(0) translateY(0) scale(1);
   }
 }
 
@@ -158,6 +144,6 @@
 
 @keyframes notif-leave-visual {
   to {
-    transform: scale(0.97) translateY(-4px);
+    transform: translateX(-12px) scale(0.97);
   }
 }

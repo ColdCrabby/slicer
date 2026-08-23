@@ -1,5 +1,5 @@
 ---
-description: "Use for any UI/UX, styling, theming, component, or visual-polish work in the Angular front-end (ui/). Defines the Nexus Slicer design language: native-OS/Tauri feel, molten-amber accent tokens, no-blur rule, island/card patterns, and Angular styling gotchas. Read before touching ui/src styles, components, or theme tokens."
+description: "Use for any UI/UX, styling, theming, component, or visual-polish work in the Angular front-end (ui/). Defines the Nexus Slicer design language: native-OS/Tauri feel, molten-amber accent tokens, the single sanctioned backdrop-blur rule, island/card patterns, and Angular styling gotchas. Read before touching ui/src styles, components, or theme tokens."
 name: "Nexus Slicer UI Design Language"
 applyTo: "ui/src/**"
 ---
@@ -23,15 +23,26 @@ doubt, choose the quieter, more restrained option.
 - **Beginners + power users.** Dashboards and big obvious actions for newcomers;
   keyboard shortcuts, dense settings, and full control for experts.
 
-## Hard Rule: No Blur / Glass
+## Blur / Glass — One Sanctioned Effect Only
 
-**Never use `backdrop-filter`, `filter: blur()`, or frosted-glass surfaces.**
-This does not fit the design language. Floating panels, notifications,
-tooltips, cards, popovers, dialogs, and their enter/leave animations must use
-**solid surfaces** (`--color-surface` / `--color-bg-secondary`). Give panels that
-float _over the 3D scene_ definition with a border and/or shadow — but that is a
-targeted exception, not the default (see Borders below). Animations may fade,
-slide, or scale — never blur. Do not reintroduce `--backdrop-blur`-style tokens.
+There is **exactly one** backdrop blur in the whole app, and it is a token:
+`backdrop-filter: var(--backdrop-blur)` (defined once in `_root.scss`). Any
+frosted surface **must** consume that token — never hand-roll a `blur()` amount,
+never stack a second, different blur, and never `filter: blur()` a whole element.
+
+- **Where it is allowed:** a semi-transparent surface that floats _over the 3D
+  scene or live content_ — the drag-and-drop drop card, the slice launch card,
+  and the viewport-cube roll buttons. Blur only reads when the surface is
+  translucent, so pair `var(--backdrop-blur)` with a `color-mix(... transparent)`
+  fill (or `--backdrop-bg`) plus a border/shadow for definition.
+- **Where it is still forbidden:** everyday chrome, notifications, tooltips,
+  popovers, dialogs, menus, and any opaque panel. These stay on **solid
+  surfaces** (`--color-surface` / `--color-bg-secondary`). A solid surface gains
+  nothing from blur — do not add it.
+- **Enter/leave animations still never blur.** Animate opacity, transform
+  (slide/scale), or the surface fill — never animate the blur radius.
+- **Do not add a second blur token or vary the radius per component.** The
+  single `--backdrop-blur` value is what keeps the effect consistent.
 
 ## Borders — Sparingly, for Contrast
 

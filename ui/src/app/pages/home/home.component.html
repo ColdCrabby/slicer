@@ -1,11 +1,17 @@
-<div class="dashboard">
+<div
+  class="dashboard"
+  [class.is-drag-active]="dragActive()"
+  (dragenter)="onDragEnter($event)"
+  (dragover)="onDragOver($event)"
+  (dragleave)="onDragLeave($event)"
+  (drop)="onDrop($event)"
+>
   <div class="dashboard-inner">
     <header class="dash-header">
       <div class="dash-heading">
         <h1 class="dash-title">Let's get slicing.</h1>
         <p class="dash-subtitle">Start a fresh plate or drop in a model to slice.</p>
       </div>
-      <nexus-connection-state />
     </header>
 
     <section class="hero-actions">
@@ -99,5 +105,23 @@
       <nexus-section-header heading="Recent projects" description="Pick up where you left off" />
       <nexus-list-history />
     </section>
+  </div>
+</div>
+
+<!-- Full-page drop target: appears while a model is dragged over the dashboard. -->
+<div class="drop-aurora" [class.is-active]="dragActive()" aria-hidden="true">
+  <span class="aurora-orb aurora-orb--a"><span class="aurora-blob"></span></span>
+  <span class="aurora-orb aurora-orb--b"><span class="aurora-blob"></span></span>
+  <span class="aurora-orb aurora-orb--c"><span class="aurora-blob"></span></span>
+</div>
+
+<div class="drop-overlay" [class.is-active]="dragActive()" aria-hidden="true">
+  <div class="drop-card">
+    <nexus-empty-state
+      class="drop-empty"
+      icon="cloud-upload"
+      heading="Release to start slicing"
+      description="Drop an STL, OBJ, or 3MF — up to 500 MB"
+    />
   </div>
 </div>

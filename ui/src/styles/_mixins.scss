@@ -50,3 +50,254 @@
   align-items: center;
   justify-content: space-between;
 }
+
+/// Shared drag-and-drop "magic" aurora: a soft, continuously drifting gradient
+/// backdrop that fades in while a file hovers a drop target. Emits the
+/// `.drop-aurora` container, its `.aurora-orb` / `.aurora-blob` orbs, and the
+/// drift keyframes so every drop scope (home dashboard, empty workplate)
+/// animates identically. The orbs are deliberately oversized so their soft
+/// radial edges stay off-screen — you never see an orb boundary, only the
+/// colour wash.
+///
+/// Each orb is two nested layers: the outer `.aurora-orb` plays a one-shot,
+/// bouncy scatter-in entrance; the inner `.aurora-blob` runs the endless drift.
+/// Nesting keeps the two transforms independent (they multiply), so the entrance
+/// and the loop never fight over `transform`.
+/// @param {Number} $z - stacking context for the aurora layer.
+@mixin drop-aurora($z: 40) {
+  .drop-aurora {
+    position: absolute;
+    inset: 0;
+    z-index: $z;
+    overflow: hidden;
+    pointer-events: none;
+    opacity: 0;
+    visibility: hidden;
+    transition:
+      opacity var(--duration-normal) var(--ease-decelerate),
+      visibility 0s linear var(--duration-normal);
+    // Dim wash so the drop card reads clearly over the content beneath.
+    background: radial-gradient(
+      120% 90% at 50% 42%,
+      transparent 0%,
+      color-mix(in oklab, var(--color-bg-primary) 58%, transparent) 68%,
+      color-mix(in oklab, var(--color-bg-primary) 74%, transparent) 100%
+    );
+  }
+
+  .drop-aurora.is-active {
+    opacity: 1;
+    visibility: visible;
+    transition:
+      opacity var(--duration-normal) var(--ease-decelerate),
+      visibility 0s;
+  }
+
+  .aurora-orb {
+    position: absolute;
+    width: 82vmax;
+    height: 82vmax;
+    will-change: transform, opacity;
+  }
+
+  .aurora-blob {
+    display: block;
+    width: 100%;
+    height: 100%;
+    border-radius: 50%;
+    will-change: transform, opacity;
+  }
+
+  // Positions live on the outer orb; gradient + drift on the inner blob. The
+  // entrance and drift animations are only assigned while active so they replay
+  // fresh every time the overlay opens.
+  .aurora-orb--a {
+    top: -26vmax;
+    left: -20vmax;
+  }
+  .aurora-orb--a .aurora-blob {
+    background: radial-gradient(
+      circle at center,
+      color-mix(in oklab, var(--accent) 42%, transparent) 0%,
+      transparent 66%
+    );
+  }
+
+  .aurora-orb--b {
+    top: -18vmax;
+    right: -24vmax;
+  }
+  .aurora-orb--b .aurora-blob {
+    background: radial-gradient(
+      circle at center,
+      color-mix(in oklab, var(--color-secondary) 34%, transparent) 0%,
+      transparent 68%
+    );
+  }
+
+  .aurora-orb--c {
+    bottom: -30vmax;
+    left: 24%;
+  }
+  .aurora-orb--c .aurora-blob {
+    background: radial-gradient(
+      circle at center,
+      color-mix(in oklab, var(--accent) 30%, transparent) 0%,
+      transparent 70%
+    );
+  }
+
+  .drop-aurora.is-active .aurora-orb--a {
+    animation: aurora-enter-a 1250ms cubic-bezier(0.16, 1, 0.3, 1) both;
+  }
+  .drop-aurora.is-active .aurora-orb--b {
+    animation: aurora-enter-b 1320ms cubic-bezier(0.16, 1, 0.3, 1) 90ms both;
+  }
+  .drop-aurora.is-active .aurora-orb--c {
+    animation: aurora-enter-c 1380ms cubic-bezier(0.16, 1, 0.3, 1) 180ms both;
+  }
+
+  .drop-aurora.is-active .aurora-orb--a .aurora-blob {
+    animation: aurora-drift-a 13s ease-in-out infinite;
+  }
+  .drop-aurora.is-active .aurora-orb--b .aurora-blob {
+    animation: aurora-drift-b 15s ease-in-out infinite;
+  }
+  .drop-aurora.is-active .aurora-orb--c .aurora-blob {
+    animation: aurora-drift-c 17s ease-in-out infinite;
+  }
+
+  // Scatter-in: each orb glides in from a different far corner and eases into its
+  // home spot with just a hint of overshoot — a soft settle, not a hard bounce.
+  @keyframes aurora-enter-a {
+    0% {
+      transform: translate3d(-40vmax, -30vmax, 0) scale(0.2);
+      opacity: 0;
+    }
+    60% {
+      transform: translate3d(2vmax, 1.5vmax, 0) scale(1.05);
+      opacity: 1;
+    }
+    82% {
+      transform: translate3d(-0.6vmax, -0.4vmax, 0) scale(0.99);
+    }
+    100% {
+      transform: translate3d(0, 0, 0) scale(1);
+      opacity: 1;
+    }
+  }
+
+  @keyframes aurora-enter-b {
+    0% {
+      transform: translate3d(42vmax, -26vmax, 0) scale(0.22);
+      opacity: 0;
+    }
+    60% {
+      transform: translate3d(-2vmax, 1.5vmax, 0) scale(1.06);
+      opacity: 1;
+    }
+    82% {
+      transform: translate3d(0.6vmax, -0.4vmax, 0) scale(0.99);
+    }
+    100% {
+      transform: translate3d(0, 0, 0) scale(1);
+      opacity: 1;
+    }
+  }
+
+  @keyframes aurora-enter-c {
+    0% {
+      transform: translate3d(-6vmax, 44vmax, 0) scale(0.2);
+      opacity: 0;
+    }
+    60% {
+      transform: translate3d(1.5vmax, -2.5vmax, 0) scale(1.05);
+      opacity: 1;
+    }
+    82% {
+      transform: translate3d(-0.4vmax, 0.8vmax, 0) scale(0.99);
+    }
+    100% {
+      transform: translate3d(0, 0, 0) scale(1);
+      opacity: 1;
+    }
+  }
+
+  // Orbital loops (four waypoints returning to the start) keep the motion
+  // continuous so the wrap-around never reads as a hard stop-and-reverse.
+  @keyframes aurora-drift-a {
+    0% {
+      transform: translate3d(0, 0, 0) scale(1);
+      opacity: 0.85;
+    }
+    25% {
+      transform: translate3d(11vmax, 9vmax, 0) scale(1.12);
+      opacity: 1;
+    }
+    50% {
+      transform: translate3d(5vmax, 17vmax, 0) scale(1.06);
+      opacity: 0.92;
+    }
+    75% {
+      transform: translate3d(-9vmax, 8vmax, 0) scale(1.14);
+      opacity: 1;
+    }
+    100% {
+      transform: translate3d(0, 0, 0) scale(1);
+      opacity: 0.85;
+    }
+  }
+
+  @keyframes aurora-drift-b {
+    0% {
+      transform: translate3d(0, 0, 0) scale(1.05);
+      opacity: 0.82;
+    }
+    25% {
+      transform: translate3d(-12vmax, 7vmax, 0) scale(0.94);
+      opacity: 1;
+    }
+    50% {
+      transform: translate3d(-6vmax, 16vmax, 0) scale(1.1);
+      opacity: 0.9;
+    }
+    75% {
+      transform: translate3d(8vmax, 9vmax, 0) scale(0.98);
+      opacity: 1;
+    }
+    100% {
+      transform: translate3d(0, 0, 0) scale(1.05);
+      opacity: 0.82;
+    }
+  }
+
+  @keyframes aurora-drift-c {
+    0% {
+      transform: translate3d(0, 0, 0) scale(0.96);
+      opacity: 0.8;
+    }
+    25% {
+      transform: translate3d(10vmax, -11vmax, 0) scale(1.16);
+      opacity: 1;
+    }
+    50% {
+      transform: translate3d(-7vmax, -5vmax, 0) scale(1.04);
+      opacity: 0.9;
+    }
+    75% {
+      transform: translate3d(-11vmax, -13vmax, 0) scale(1.18);
+      opacity: 1;
+    }
+    100% {
+      transform: translate3d(0, 0, 0) scale(0.96);
+      opacity: 0.8;
+    }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .aurora-orb,
+    .aurora-blob {
+      animation: none;
+    }
+  }
+}

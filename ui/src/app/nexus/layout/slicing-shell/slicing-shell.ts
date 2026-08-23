@@ -13,6 +13,7 @@ import { Card } from '../../../components/card/card';
 import { CodeEditor } from '../../../components/code-editor/code-editor';
 import { SettingsPanel } from '../../../components/settings-panel/settings-panel';
 import { SliceSegmentBar } from '../../../components/slice-segment-bar/slice-segment-bar';
+import { TaskProgressBar } from '../../../components/task-progress-bar/task-progress-bar';
 import { ViewportCube } from '../../../components/viewport-cube/viewport-cube';
 import { SceneEngine } from '../../../services/scene-engine';
 import { Slicer } from '../../../services/slicer';
@@ -25,6 +26,7 @@ import { SliceControl } from '../../slice-control/slice-control';
     Sidebar,
     SliceControl,
     SliceSegmentBar,
+    TaskProgressBar,
     ThreeDViewToolbar,
     ViewportCube,
     RouterOutlet,

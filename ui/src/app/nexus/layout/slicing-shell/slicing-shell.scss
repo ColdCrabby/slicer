@@ -36,12 +36,25 @@ $default-inset: 40px;
 
   .shell-toolbar {
     grid-area: top-bar;
+    z-index: 2;
+  }
+
+  // Scene notifications: centered pill in the scene row (always below the
+  // toolbar, no magic offsets), sliding down from behind it (lower z-index).
+  .scene-notify {
+    grid-column: 1 / -1;
+    grid-row: 2;
+    z-index: 1;
+    align-self: start;
+    justify-self: center;
+    margin-top: var(--spacing-sm);
+    pointer-events: none;
   }
 
   .viewport-cube {
     grid-area: gizmo;
     place-self: start end;
-    margin: var(--spacing-sm);
+    margin: var(--spacing-xs);
   }
 
   // Unified right rail — inspector (top, expands upward) + slice dock (bottom),

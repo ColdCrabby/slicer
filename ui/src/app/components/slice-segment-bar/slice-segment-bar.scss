@@ -25,14 +25,25 @@
 }
 
 .inspector {
+  --inspector-fade: 24px;
+
   min-height: 0;
   overflow: hidden;
   display: flex;
   flex-direction: column;
   gap: var(--spacing-md);
-  padding-bottom: var(--spacing-md);
   color: var(--color-text-secondary);
   transition: opacity var(--duration-fast) var(--ease-standard);
+
+  /* Soft shade-out at the bottom edge (mirrors the sidebar's fade below the
+     sticky search) so the controls dissolve into the slice dock rather than
+     ending on a hard line — and the collapse animation reads smoother. */
+  -webkit-mask-image: linear-gradient(
+    to bottom,
+    #000 calc(100% - var(--inspector-fade)),
+    transparent
+  );
+  mask-image: linear-gradient(to bottom, #000 calc(100% - var(--inspector-fade)), transparent);
 
   /* Dim (don't tear down) while a reslice is streaming in. */
   &.is-updating {
@@ -44,6 +55,12 @@
   display: flex;
   flex-direction: column;
   gap: 10px;
+
+  /* Bottom breathing room lives on the content (not the grid item) so it
+     collapses with the shell — padding on `.inspector` itself would persist. */
+  &:last-child {
+    padding-bottom: var(--spacing-lg);
+  }
 }
 
 .insp-divider {

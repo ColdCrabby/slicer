@@ -1,6 +1,6 @@
-import { Component, ElementRef, ViewChild, inject, signal } from '@angular/core';
+import { Component, ViewChild, inject, signal } from '@angular/core';
+import type { ElementRef } from '@angular/core';
 import { Router, RouterLink } from '@angular/router';
-import { ConnectionState } from '../../components/connection-state/connection-state';
 import { ListHistory } from '../../components/list-history/list-history';
 import { GcodePreview } from '../../services/gcode-preview';
 import { NotificationService } from '../../services/notifications';
@@ -23,7 +23,7 @@ interface MockPrinter {
 @Component({
   selector: 'nexus-home-dashboard',
   standalone: true,
-  imports: [RouterLink, ListHistory, ConnectionState, Icon, Button, EmptyState, SectionHeader],
+  imports: [RouterLink, ListHistory, Icon, Button, EmptyState, SectionHeader],
   templateUrl: './home.component.html',
   styleUrl: './home.component.scss',
 })
@@ -41,6 +41,12 @@ export class HomeDashboard {
 
   /** True while the demo model is being fetched over the network. */
   protected readonly benchyLoading = signal(false);
+
+  /** True while a file is being dragged over the dashboard (shows the drop overlay). */
+  protected readonly dragActive = signal(false);
+  // dragenter/leave fire for every descendant; count depth so nested children
+  // don't prematurely clear the overlay.
+  private dragDepth = 0;
 
   @ViewChild('quickFileInput') private quickFileInput!: ElementRef<HTMLInputElement>;
 
@@ -71,12 +77,63 @@ export class HomeDashboard {
     const input = event.target as HTMLInputElement;
     const file = input.files?.[0];
     input.value = '';
-    if (!file || !/\.(stl|obj|3mf)$/i.test(file.name)) {
+    if (!file) {
+      return;
+    }
+    await this.openWorkplateFromFile(file);
+  }
+
+  onDragEnter(event: DragEvent): void {
+    if (!this.dragHasFiles(event)) {
+      return;
+    }
+    event.preventDefault();
+    this.dragDepth += 1;
+    this.dragActive.set(true);
+  }
+
+  onDragOver(event: DragEvent): void {
+    if (!this.dragHasFiles(event)) {
+      return;
+    }
+    event.preventDefault();
+  }
+
+  onDragLeave(event: DragEvent): void {
+    if (!this.dragHasFiles(event)) {
+      return;
+    }
+    event.preventDefault();
+    this.dragDepth = Math.max(0, this.dragDepth - 1);
+    if (this.dragDepth === 0) {
+      this.dragActive.set(false);
+    }
+  }
+
+  onDrop(event: DragEvent): void {
+    event.preventDefault();
+    this.dragDepth = 0;
+    this.dragActive.set(false);
+    const file = event.dataTransfer?.files?.[0] ?? null;
+    if (file) {
+      void this.openWorkplateFromFile(file);
+    }
+  }
+
+  /** Whether the current drag carries files (ignore text/element drags). */
+  private dragHasFiles(event: DragEvent): boolean {
+    return Array.from(event.dataTransfer?.types ?? []).includes('Files');
+  }
+
+  /** Validate a picked/dropped model and open it as a fresh workplace. */
+  private async openWorkplateFromFile(file: File): Promise<void> {
+    if (!/\.(stl|obj|3mf)$/i.test(file.name)) {
+      this.notifications.error('Unsupported file', 'Use an STL, OBJ, or 3MF model.');
       return;
     }
     try {
       const workplate = await this.slicer.startWorkplate(file);
-      this.router.navigate(['/slice', workplate.requestUuid], {
+      await this.router.navigate(['/slice', workplate.requestUuid], {
         state: workplate.uploadMeta ? { uploadMeta: workplate.uploadMeta } : undefined,
       });
     } catch {
@@ -105,10 +162,7 @@ export class HomeDashboard {
         state: workplate.uploadMeta ? { uploadMeta: workplate.uploadMeta } : undefined,
       });
     } catch {
-      this.notifications.error(
-        'Could not load 3DBenchy',
-        'Check your connection and try again.',
-      );
+      this.notifications.error('Could not load 3DBenchy', 'Check your connection and try again.');
     } finally {
       this.benchyLoading.set(false);
     }

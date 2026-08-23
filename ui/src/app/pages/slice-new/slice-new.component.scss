@@ -43,6 +43,8 @@
   border-radius: var(--radius-lg);
   border: 1px solid var(--color-border);
   background: color-mix(in oklab, var(--color-surface) 80%, transparent);
+  backdrop-filter: var(--backdrop-blur);
+  -webkit-backdrop-filter: var(--backdrop-blur);
   box-shadow: var(--shadow-lg);
   transform-origin: 50% 62%;
   animation: launch-card-enter 420ms var(--ease-decelerate) both;
@@ -154,20 +156,10 @@
   opacity: 0.45;
 }
 
-.scene-shell.is-drag-active::before {
-  content: '';
-  position: absolute;
-  inset: 0;
-  background: linear-gradient(
-    150deg,
-    color-mix(in oklab, var(--accent) 10%, transparent) 0%,
-    transparent 38%,
-    transparent 64%,
-    color-mix(in oklab, var(--accent) 8%, transparent) 100%
-  );
-  pointer-events: none;
-  z-index: 2;
-}
+// Drag-active backdrop: the same magic aurora used on the home dashboard, so the
+// "background effect" is identical across both drop scopes. The aurora is emitted
+// globally (styles/main.scss); it sits below the launch overlay (z-index 3) so
+// the prompt card stays legible.
 
 .scene-shell.is-busy {
   cursor: progress;
