@@ -4,6 +4,7 @@ import {
   Component,
   DestroyRef,
   ElementRef,
+  afterRenderEffect,
   computed,
   inject,
   input,
@@ -117,12 +118,41 @@ export class SchemaForm {
   readonly fieldChange = output<FieldChangeEvent>();
 
   private readonly searchInputRef = viewChild<ElementRef<HTMLInputElement>>('searchInput');
+  private readonly searchBarRef = viewChild<ElementRef<HTMLElement>>('searchBar');
+  private readonly hostEl = inject<ElementRef<HTMLElement>>(ElementRef);
 
   protected readonly searchQuery = signal('');
 
   constructor() {
     this.keyboardShortcuts.schemaFormRef = this;
     inject(DestroyRef).onDestroy(() => (this.keyboardShortcuts.schemaFormRef = null));
+
+    // Keep --schema-form-search-h in sync with the sticky search bar's height so
+    // the sticky group headers can pin directly beneath it regardless of its
+    // rendered size (font/spacing token changes, wrapping, etc.).
+    let obs: ResizeObserver | null = null;
+    afterRenderEffect({
+      read: (onCleanup) => {
+        const el = this.searchBarRef()?.nativeElement;
+        obs?.disconnect();
+        obs = null;
+        if (!el) return;
+
+        obs = new ResizeObserver((entries) => {
+          const h = entries[0]?.contentRect.height ?? 0;
+          this.hostEl.nativeElement.style.setProperty(
+            '--schema-form-search-h',
+            `${Math.round(h)}px`,
+          );
+        });
+        obs.observe(el);
+
+        onCleanup(() => {
+          obs?.disconnect();
+          obs = null;
+        });
+      },
+    });
   }
 
   focusSearch(): void {

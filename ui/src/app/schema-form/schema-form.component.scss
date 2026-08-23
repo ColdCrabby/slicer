@@ -148,7 +148,19 @@
 
 .schema-form-group {
   border-radius: var(--radius-md);
-  overflow: clip;
+}
+
+// Pin each section header beneath the sticky search bar so the current section
+// stays labelled while scrolling its fields. Sticky is scoped to the group's
+// own box, so a header only travels while its (expanded) section is on screen,
+// then the next section's header takes over — iOS-style section headers.
+.schema-form-group-heading {
+  position: sticky;
+  top: var(--schema-form-search-h, 44px);
+  z-index: 5;
+  margin: 0;
+  border-radius: var(--radius-md);
+  background: var(--color-bg-secondary);
 }
 
 .schema-form-group-trigger {
