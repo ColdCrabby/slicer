@@ -21,7 +21,11 @@ import { PrintArea } from '../../services/print-area';
 import { SceneCommand } from '../../services/scene-command/scene-command';
 import { SceneEngine } from '../../services/scene-engine';
 import { ViewerControl } from '../../services/viewer-control';
-import { pixelRatioCapFor, resolveAntialias, type Antialiasing } from '../../services/viewer-control';
+import {
+  pixelRatioCapFor,
+  resolveAntialias,
+  type Antialiasing,
+} from '../../services/viewer-control';
 
 import { GcodeHoverProbe, type GcodeHoverHit } from './gcode-hover';
 import { GcodeOrchestrator } from './gcode-orchestrator';
@@ -449,11 +453,13 @@ export class Viewer {
       this.selectedWasmIds = this.selectedWasmIds.filter((existing) => existing !== id);
     }
     this.scene?.setSelectedIds(new Set(this.selectedWasmIds.map(String)));
+    this.viewerControl.selectedObjectIds.set(this.selectedWasmIds);
   }
 
   private handleClearSelection(): void {
     this.selectedWasmIds = [];
     this.scene?.setSelectedIds(new Set());
+    this.viewerControl.selectedObjectIds.set([]);
   }
 
   /** Translate / rotate / scale a delta onto every currently-selected object. */

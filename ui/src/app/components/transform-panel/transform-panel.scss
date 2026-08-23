@@ -1,0 +1,160 @@
+// Axis indicator hues intentionally mirror the on-canvas gizmo handles
+// (gizmo.ts AXIS_COLORS) so the numeric fields read as the same X/Y/Z the
+// user drags in 3D. These are functional axis cues, not theme colours.
+$axis-x: #e74c3c;
+$axis-y: #2ecc71;
+$axis-z: #3498db;
+
+:host {
+  display: block;
+  pointer-events: none;
+}
+
+.transform-panel {
+  pointer-events: auto;
+  width: 216px;
+  padding: var(--spacing-sm);
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-xs);
+
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-md);
+
+  animation: tp-in var(--duration-fast) var(--ease-standard);
+}
+
+@keyframes tp-in {
+  from {
+    opacity: 0;
+    transform: translateY(-6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .transform-panel {
+    animation: none;
+  }
+}
+
+.tp-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--spacing-sm);
+  min-height: 22px;
+}
+
+.tp-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-medium);
+  color: var(--color-text-secondary);
+}
+
+.tp-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.tp-head-right {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.tp-action {
+  display: inline-grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--color-text-secondary);
+  cursor: pointer;
+  --icon-size: 15px;
+  transition:
+    background-color var(--duration-fast) var(--ease-standard),
+    color var(--duration-fast) var(--ease-standard);
+
+  &:hover {
+    background: var(--color-surface-hover);
+    color: var(--color-text-primary);
+  }
+
+  &:focus-visible {
+    outline: none;
+    border-color: var(--color-focus-ring);
+    box-shadow: inset 0 0 0 1px var(--color-focus-ring);
+  }
+
+  &.is-active {
+    background: var(--accent-soft);
+    color: var(--accent);
+  }
+}
+
+.tp-info {
+  cursor: help;
+  color: var(--color-text-tertiary);
+}
+
+.tp-body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-xs);
+}
+
+.tp-unit {
+  margin-bottom: 2px;
+}
+
+.tp-row {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+
+  nexus-number-input {
+    flex: 1;
+    min-width: 0;
+  }
+}
+
+.tp-axis {
+  flex: 0 0 auto;
+  display: inline-grid;
+  place-items: center;
+  width: 18px;
+  height: 18px;
+
+  border-radius: var(--radius-sm);
+  font-size: var(--font-size-2xs);
+  font-weight: var(--font-weight-semibold);
+  font-family: var(--font-family-mono);
+  color: var(--color-text-on-accent, #fff);
+
+  &[data-axis='X'] {
+    background: color-mix(in oklab, #{$axis-x} 82%, transparent);
+  }
+  &[data-axis='Y'] {
+    background: color-mix(in oklab, #{$axis-y} 82%, transparent);
+  }
+  &[data-axis='Z'] {
+    background: color-mix(in oklab, #{$axis-z} 82%, transparent);
+  }
+}
