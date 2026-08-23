@@ -1,0 +1,45 @@
+<div class="picker">
+  <div class="picker__head">
+    <label class="picker__preview" [style.background]="value()">
+      <input
+        type="color"
+        [value]="value()"
+        (input)="onNativeInput($event)"
+        aria-label="Custom colour"
+      />
+    </label>
+    <button type="button" class="picker__shuffle" (click)="shuffle()" aria-label="Random colour">
+      <nexus-icon name="shuffle" />
+    </button>
+    <div class="picker__hex">
+      <span class="picker__hash">#</span>
+      <input
+        type="text"
+        maxlength="7"
+        spellcheck="false"
+        [value]="value().replace('#', '')"
+        (input)="onHexInput($event)"
+        aria-label="Hex colour"
+      />
+    </div>
+  </div>
+
+  <div class="picker__grid" role="listbox" aria-label="Palette">
+    @for (color of palette; track color) {
+      <button
+        type="button"
+        class="picker__swatch"
+        role="option"
+        [class.is-selected]="color === value()"
+        [style.background]="color"
+        [attr.aria-selected]="color === value()"
+        [attr.aria-label]="color"
+        (click)="pick(color)"
+      >
+        @if (color === value()) {
+          <nexus-icon name="check" />
+        }
+      </button>
+    }
+  </div>
+</div>

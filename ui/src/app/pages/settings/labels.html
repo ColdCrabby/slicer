@@ -1,0 +1,70 @@
+<div class="settings-page">
+  <nexus-section-header
+    heading="Labels"
+    description="Freely assignable tags for printers, filaments and profiles"
+  >
+    <button nexusButton variant="primary" size="sm" (click)="add()">
+      <nexus-icon name="plus" />
+      Add label
+    </button>
+  </nexus-section-header>
+
+  @if (store.items().length > 0) {
+    <div class="profile-list">
+      @for (label of store.items(); track label.id) {
+        <div class="profile-card label-row">
+          <button class="label-row__main" type="button" (click)="toggleEditor(label.id)">
+            <span class="label-row__swatch" [style.background]="label.color"></span>
+            <nexus-label-chip [label]="chipFor(label)" />
+            <span class="label-row__usage">
+              {{ usageFor(label.id) }} {{ usageFor(label.id) === 1 ? 'use' : 'uses' }}
+            </span>
+          </button>
+
+          <div class="profile-card__actions">
+            <button nexusIconButton aria-label="Edit" (click)="toggleEditor(label.id)">
+              <nexus-icon [name]="editingId() === label.id ? 'nav-arrow-up' : 'settings'" />
+            </button>
+            <button
+              nexusIconButton
+              [attr.aria-label]="confirmDeleteId() === label.id ? 'Confirm delete' : 'Delete'"
+              [class.is-confirming]="confirmDeleteId() === label.id"
+              (click)="requestDelete(label.id)"
+            >
+              <nexus-icon name="trash" />
+            </button>
+          </div>
+
+          @if (editingId() === label.id) {
+            <div class="profile-editor">
+              <div class="profile-editor__group">
+                <label class="profile-editor__group-title">Name</label>
+                <input
+                  class="wz-input"
+                  placeholder="Label name"
+                  [value]="label.name"
+                  (input)="rename(label.id, $event)"
+                />
+              </div>
+              <div class="profile-editor__group">
+                <label class="profile-editor__group-title">Colour</label>
+                <nexus-color-swatch-picker
+                  [value]="label.color"
+                  (valueChange)="setColor(label.id, $event)"
+                />
+              </div>
+            </div>
+          }
+        </div>
+      }
+    </div>
+  } @else {
+    <nexus-empty-state
+      icon="label"
+      heading="No labels"
+      description="Create labels to organise and filter your printers, filaments and profiles."
+    >
+      <button nexusButton variant="primary" size="sm" (click)="add()">Add label</button>
+    </nexus-empty-state>
+  }
+</div>

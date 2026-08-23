@@ -155,3 +155,27 @@
   --icon-size: 16px;
   color: var(--accent);
 }
+
+// Label-colour dots shown in the trigger and per-option (see SelectOption.swatches).
+.trigger-swatches,
+.option-swatches {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+}
+
+.trigger-swatches {
+  margin-left: var(--spacing-xs);
+}
+
+.option-swatches {
+  margin-left: auto;
+}
+
+.swatch-dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  box-shadow: inset 0 0 0 1px color-mix(in oklab, var(--color-text-primary) 20%, transparent);
+}

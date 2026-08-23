@@ -23,6 +23,7 @@ export class SettingsShell {
     { path: 'printers', label: 'Printers', icon: 'printer' },
     { path: 'filaments', label: 'Filaments', icon: 'droplet' },
     { path: 'profiles', label: 'Print Profiles', icon: 'reports' },
+    { path: 'labels', label: 'Labels', icon: 'label' },
     { path: 'shortcuts', label: 'Shortcuts', icon: 'square-cursor' },
   ];
 }

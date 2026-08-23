@@ -8,10 +8,19 @@ import {
 import { PROFILE_SOURCE_LABELS } from '../../models/profile-source';
 import { CloudCatalog } from '../../services/catalog/cloud-catalog';
 import { ActiveSelection } from '../../services/profiles/active-selection';
+import {
+  matchesAllLabels,
+  toggledFilter,
+  toggledLabelIds,
+} from '../../services/profiles/label-filtering';
+import { LabelsStore } from '../../services/profiles/labels-store';
 import { PrintersStore } from '../../services/profiles/printers-store';
 import { Icon } from '../../shared/icon/icon';
 import { PrinterWizard } from '../../components/profiles/printer-wizard';
 import { CatalogPicker, type CatalogEntryVm } from '../../components/profiles/catalog-picker';
+import { LabelChip } from '../../components/labels/label-chip';
+import { LabelFilterBar } from '../../components/labels/label-filter-bar';
+import { LabelPicker } from '../../components/labels/label-picker';
 import { Button } from '../../ui/button/button';
 import { EmptyState } from '../../ui/empty-state/empty-state';
 import { FieldRow } from '../../ui/field-row/field-row';
@@ -39,6 +48,9 @@ import { Switch } from '../../ui/switch/switch';
     Select,
     Switch,
     Segmented,
+    LabelChip,
+    LabelFilterBar,
+    LabelPicker,
   ],
   templateUrl: './printers.html',
   styleUrl: './printers.scss',
@@ -47,6 +59,7 @@ import { Switch } from '../../ui/switch/switch';
 export class PrintersSettings {
   protected readonly store = inject(PrintersStore);
   protected readonly active = inject(ActiveSelection);
+  protected readonly labels = inject(LabelsStore);
   private readonly catalog = inject(CloudCatalog);
 
   protected readonly sourceLabels = PROFILE_SOURCE_LABELS;
@@ -60,6 +73,31 @@ export class PrintersSettings {
   protected readonly catalogOpen = signal(false);
   protected readonly editingId = signal<string | null>(null);
   protected readonly confirmDeleteId = signal<string | null>(null);
+  protected readonly labelFilter = signal<string[]>([]);
+
+  /** Printers narrowed by the active label filter. */
+  protected readonly visibleItems = computed(() =>
+    this.store.items().filter((p) => matchesAllLabels(p, this.labelFilter())),
+  );
+
+  protected labelsOf(item: PrinterProfile) {
+    return this.labels.resolve(item.labelIds);
+  }
+
+  protected toggleFilter(id: string): void {
+    this.labelFilter.update((f) => toggledFilter(f, id));
+  }
+
+  protected clearFilter(): void {
+    this.labelFilter.set([]);
+  }
+
+  protected toggleLabel(id: string, labelId: string): void {
+    const item = this.store.getById(id);
+    if (item) {
+      this.store.update(id, { labelIds: toggledLabelIds(item.labelIds, labelId) });
+    }
+  }
 
   protected readonly catalogStatus = this.catalog.status;
   protected readonly catalogEntries = computed<CatalogEntryVm[]>(() =>

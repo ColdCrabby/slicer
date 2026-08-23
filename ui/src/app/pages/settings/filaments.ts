@@ -9,10 +9,19 @@ import {
 import { PROFILE_SOURCE_LABELS } from '../../models/profile-source';
 import { CloudCatalog } from '../../services/catalog/cloud-catalog';
 import { ActiveSelection } from '../../services/profiles/active-selection';
+import {
+  matchesAllLabels,
+  toggledFilter,
+  toggledLabelIds,
+} from '../../services/profiles/label-filtering';
+import { LabelsStore } from '../../services/profiles/labels-store';
 import { FilamentsStore } from '../../services/profiles/filaments-store';
 import { Icon } from '../../shared/icon/icon';
 import { CatalogPicker, type CatalogEntryVm } from '../../components/profiles/catalog-picker';
 import { FilamentWizard } from '../../components/profiles/filament-wizard';
+import { LabelChip } from '../../components/labels/label-chip';
+import { LabelFilterBar } from '../../components/labels/label-filter-bar';
+import { LabelPicker } from '../../components/labels/label-picker';
 import { Button } from '../../ui/button/button';
 import { EmptyState } from '../../ui/empty-state/empty-state';
 import { FieldRow } from '../../ui/field-row/field-row';
@@ -38,6 +47,9 @@ import { Switch } from '../../ui/switch/switch';
     NumberInput,
     Select,
     Switch,
+    LabelChip,
+    LabelFilterBar,
+    LabelPicker,
   ],
   templateUrl: './filaments.html',
   styleUrl: './filaments.scss',
@@ -46,6 +58,7 @@ import { Switch } from '../../ui/switch/switch';
 export class FilamentsSettings {
   protected readonly store = inject(FilamentsStore);
   protected readonly active = inject(ActiveSelection);
+  protected readonly labels = inject(LabelsStore);
   private readonly catalog = inject(CloudCatalog);
 
   protected readonly sourceLabels = PROFILE_SOURCE_LABELS;
@@ -58,6 +71,31 @@ export class FilamentsSettings {
   protected readonly catalogOpen = signal(false);
   protected readonly editingId = signal<string | null>(null);
   protected readonly confirmDeleteId = signal<string | null>(null);
+  protected readonly labelFilter = signal<string[]>([]);
+
+  /** Filaments narrowed by the active label filter. */
+  protected readonly visibleItems = computed(() =>
+    this.store.items().filter((f) => matchesAllLabels(f, this.labelFilter())),
+  );
+
+  protected labelsOf(item: FilamentProfile) {
+    return this.labels.resolve(item.labelIds);
+  }
+
+  protected toggleFilter(id: string): void {
+    this.labelFilter.update((f) => toggledFilter(f, id));
+  }
+
+  protected clearFilter(): void {
+    this.labelFilter.set([]);
+  }
+
+  protected toggleLabel(id: string, labelId: string): void {
+    const item = this.store.getById(id);
+    if (item) {
+      this.store.update(id, { labelIds: toggledLabelIds(item.labelIds, labelId) });
+    }
+  }
 
   protected readonly catalogStatus = this.catalog.status;
   protected readonly catalogEntries = computed<CatalogEntryVm[]>(() =>

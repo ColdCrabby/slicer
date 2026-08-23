@@ -16,6 +16,8 @@ export interface SelectOption {
   value: string;
   label: string;
   description?: string;
+  /** Optional label colours shown as small dots (e.g. profile labels). */
+  swatches?: string[];
 }
 
 /**

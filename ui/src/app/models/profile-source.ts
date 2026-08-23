@@ -20,6 +20,12 @@ export interface ProfileMeta {
   source: ProfileSource;
   /** Catalog id this profile was imported/derived from, if any. */
   basedOn?: string;
+  /**
+   * Ids of the user-defined {@link Label}s attached to this profile. A single
+   * flat, cross-area vocabulary (see `label.model.ts`) — the same label can be
+   * attached to a printer, a filament, and a print profile.
+   */
+  labelIds?: string[];
 }
 
 export const PROFILE_SOURCE_LABELS: Record<ProfileSource, string> = {

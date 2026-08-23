@@ -1,0 +1,27 @@
+@if (store.count() > 0) {
+  <div class="fb">
+    <nexus-icon name="filter" class="fb__icon" />
+    <div class="fb__chips">
+      @for (label of store.items(); track label.id) {
+        <button
+          type="button"
+          class="fb__chip"
+          [class.is-on]="isSelected(label.id)"
+          [style.background]="isSelected(label.id) ? label.color : null"
+          [style.color]="isSelected(label.id) ? textColor(label.color) : null"
+          [style.border-color]="label.color"
+          [attr.aria-pressed]="isSelected(label.id)"
+          (click)="toggle.emit(label.id)"
+        >
+          @if (!isSelected(label.id)) {
+            <span class="fb__dot" [style.background]="label.color"></span>
+          }
+          {{ label.name }}
+        </button>
+      }
+    </div>
+    @if (hasSelection()) {
+      <button type="button" class="fb__clear" (click)="clear.emit()">Clear</button>
+    }
+  </div>
+}

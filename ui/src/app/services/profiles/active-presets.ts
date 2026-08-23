@@ -3,6 +3,7 @@ import type { SettingContractId } from '../../models/setting-contract';
 import type { SelectOption } from '../../ui/select/select';
 import { BrowserStorage } from '../browser-storage';
 import { FilamentsStore } from './filaments-store';
+import { LabelsStore } from './labels-store';
 import { PrintProfilesStore } from './print-profiles-store';
 import { PrintersStore } from './printers-store';
 
@@ -12,6 +13,7 @@ const STORAGE_KEY = 'profiles.active';
 interface NamedPreset {
   id: string;
   name: string;
+  labelIds?: string[];
 }
 
 type ActiveIds = Record<SettingContractId, string | null>;
@@ -28,6 +30,7 @@ export class ActivePresets {
   private readonly printers = inject(PrintersStore);
   private readonly filaments = inject(FilamentsStore);
   private readonly profiles = inject(PrintProfilesStore);
+  private readonly labels = inject(LabelsStore);
   private readonly storage = inject(BrowserStorage);
 
   private readonly ids = signal<ActiveIds>(
@@ -49,9 +52,16 @@ export class ActivePresets {
     }
   }
 
-  /** Dropdown options for the given contract. */
+  /** Dropdown options for the given contract, tagged with label colours. */
   options(contract: SettingContractId): SelectOption[] {
-    return this.itemsFor(contract).map((item) => ({ value: item.id, label: item.name }));
+    return this.itemsFor(contract).map((item) => {
+      const swatches = this.labels.resolve(item.labelIds).map((l) => l.color);
+      return {
+        value: item.id,
+        label: item.name,
+        ...(swatches.length ? { swatches } : {}),
+      };
+    });
   }
 
   /**

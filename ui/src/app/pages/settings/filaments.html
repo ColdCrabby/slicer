@@ -10,9 +10,15 @@
     </button>
   </nexus-section-header>
 
+  <nexus-label-filter-bar
+    [selectedIds]="labelFilter()"
+    (toggle)="toggleFilter($event)"
+    (clear)="clearFilter()"
+  />
+
   @if (store.items().length > 0) {
     <div class="profile-list">
-      @for (filament of store.items(); track filament.id) {
+      @for (filament of visibleItems(); track filament.id) {
         <div class="profile-card" [class.is-active]="active.filament().id === filament.id">
           <button
             class="profile-card__pick"
@@ -38,7 +44,7 @@
 
           <div class="profile-card__actions">
             <button nexusIconButton aria-label="Edit" (click)="toggleEditor(filament.id)">
-              <nexus-icon [name]="editingId() === filament.id ? 'nav-arrow-down' : 'settings'" />
+              <nexus-icon [name]="editingId() === filament.id ? 'nav-arrow-up' : 'settings'" />
             </button>
             <button nexusIconButton aria-label="Duplicate" (click)="duplicate(filament.id)">
               <nexus-icon name="box-iso" />
@@ -55,8 +61,23 @@
             }
           </div>
 
+          @if (labelsOf(filament).length > 0) {
+            <div class="profile-card__labels">
+              @for (label of labelsOf(filament); track label.id) {
+                <nexus-label-chip [label]="label" size="sm" />
+              }
+            </div>
+          }
+
           @if (editingId() === filament.id) {
             <div class="profile-editor">
+              <div class="profile-editor__group">
+                <label class="profile-editor__group-title">Labels</label>
+                <nexus-label-picker
+                  [assignedIds]="filament.labelIds ?? []"
+                  (toggle)="toggleLabel(filament.id, $event)"
+                />
+              </div>
               <div class="profile-editor__group">
                 <label class="profile-editor__group-title">Identity</label>
                 <nexus-field-row label="Name" [stacked]="true">
@@ -183,6 +204,8 @@
             </div>
           }
         </div>
+      } @empty {
+        <p class="profile-list__empty">No filaments match the selected labels.</p>
       }
     </div>
   } @else {

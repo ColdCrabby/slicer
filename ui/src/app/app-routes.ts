@@ -82,6 +82,11 @@ export const APP_ROUTES: Routes = [
               import('./pages/settings/profiles').then((m) => m.ProfilesSettings),
           },
           {
+            path: 'labels',
+            title: 'Label Settings',
+            loadComponent: () => import('./pages/settings/labels').then((m) => m.LabelsSettings),
+          },
+          {
             path: 'shortcuts',
             title: 'Keyboard Shortcuts',
             loadComponent: () =>
