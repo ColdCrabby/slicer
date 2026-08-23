@@ -1125,52 +1125,37 @@ pub fn generate_top_bottom_surfaces_with_interior(
 
     let total = layers.len();
 
-    // Snapshot the perimeter contours of every layer *before* we begin adding
-    // infill paths. Surface detection must operate on sliced geometry only;
-    // comparing against previously added infill would give wrong results.
+    // Snapshot the perimeter (OuterWall centerline) contours of every layer
+    // *before* we begin adding infill paths.  Surface detection must operate on
+    // sliced geometry only; comparing against previously added infill would give
+    // wrong results.  `perimeter_paths_of` is a cheap filter+clone, so this
+    // snapshot is inexpensive.
     //
-    // Both snapshots are read-only over their layer and are run in parallel
-    // on native targets — `compute_wall_bead_footprint` in particular spends
-    // the bulk of its time inside Clipper2 inflate/union calls, so per-layer
-    // parallelism gives a near-linear speedup on multi-core hosts.
+    // The physical wall-bead footprint (`compute_wall_bead_footprint`) used to
+    // be snapshotted here for every layer as well, but it is consumed *only* by
+    // `clip_to_void`, and only on the minority of layers that actually carry a
+    // bridge candidate.  Computing it eagerly for all layers — each a chain of
+    // Clipper2 inflate/union calls — dominated the whole surface phase.  It is
+    // now built lazily inside `detect_region` for the few layers that need it.
     #[cfg(not(target_arch = "wasm32"))]
     let t_snap = Instant::now();
     #[cfg(not(target_arch = "wasm32"))]
-    let (perimeters, wall_footprints): (Vec<Paths>, Vec<Paths>) = {
+    let perimeters: Vec<Paths> = {
         use rayon::prelude::*;
-        layers
-            .par_iter()
-            .map(|layer| {
-                (
-                    perimeter_paths_of(layer),
-                    compute_wall_bead_footprint(layer, nozzle_diameter_mm),
-                )
-            })
-            .unzip()
+        layers.par_iter().map(perimeter_paths_of).collect()
     };
     #[cfg(target_arch = "wasm32")]
     let perimeters: Vec<Paths> = layers.iter().map(perimeter_paths_of).collect();
-
-    // Snapshot the **physical bead footprint** of every wall path on every
-    // layer.  This is the union of every `OuterWall` / `InnerWall`
-    // centerline inflated by its half-width — i.e. the area the wall
-    // extrusions actually consume on the build plate.
-    //
-    // Used to clip bridge candidates so bridge infill is never placed on top
-    // of an existing wall extrusion.  This is stricter than clipping to the
-    // nominal `interior_regions[i]`: Arachne packs adaptive, variable-width
-    // inner beads inside the interior region for thin features (Benchy rear
-    // deck, lips, hull flares), so the *nominal* infill void may still be
-    // covered by walls that the interior calculation didn't account for.
-    #[cfg(target_arch = "wasm32")]
-    let wall_footprints: Vec<Paths> = layers
-        .iter()
-        .map(|layer| compute_wall_bead_footprint(layer, nozzle_diameter_mm))
-        .collect();
     #[cfg(not(target_arch = "wasm32"))]
     let snapshot_ns = t_snap.elapsed().as_nanos();
     #[cfg(target_arch = "wasm32")]
     let snapshot_ns = 0u128;
+
+    // Immutable view of the layers for the parallel detection pass so
+    // `clip_to_void` can build a layer's wall-bead footprint on demand.  This
+    // shared borrow ends when the detection closure is consumed by `.collect()`,
+    // before the serial apply pass takes `&mut layers`.
+    let layers_ro: &[SliceLayer] = layers;
 
     #[cfg(not(target_arch = "wasm32"))]
     let mut infill_ns = 0u128;
@@ -1376,14 +1361,14 @@ pub fn generate_top_bottom_surfaces_with_interior(
                 //    the wall band.  Empty for "all-wall" cross-sections, so
                 //    the bridge gets fully suppressed there.
                 //
-                // 2. `wall_footprints[i]` — the *physical* bead footprint of
-                //    every OuterWall / InnerWall / OverhangPerimeter on the
-                //    layer (centerline inflated by `width / 2` on both sides
-                //    via `EndType::Joined`).  Subtracted from the candidate.
-                //    This catches the case Arachne's adaptive variable-width
-                //    inner beads land *inside* the nominal interior region:
-                //    the interior clip alone would still leave bridge
-                //    overlapping those beads.
+                // 2. The layer's **physical wall-bead footprint** — every
+                //    OuterWall / InnerWall / OverhangPerimeter / GapFill
+                //    centerline inflated by `width / 2` — built lazily via
+                //    `compute_wall_bead_footprint` and subtracted from the
+                //    candidate.  This catches the case Arachne's adaptive
+                //    variable-width inner beads land *inside* the nominal
+                //    interior region: the interior clip alone would still leave
+                //    bridge overlapping those beads.
                 //
                 // Together, these mean the bridge can only land in true voids
                 // (porthole / window closure / cavity interior) and never on
@@ -1404,16 +1389,20 @@ pub fn generate_top_bottom_surfaces_with_interior(
                     if after_interior.is_empty() {
                         return after_interior;
                     }
-                    // Step B — subtract physical wall bead footprints.
-                    if wall_footprints[i].is_empty() {
+                    // Step B — subtract physical wall bead footprints.  Built
+                    // on demand here — only reached for a non-empty bridge
+                    // candidate that survived the interior clip — rather than
+                    // snapshotted for every layer.  The footprint is the union
+                    // of every OuterWall / InnerWall / OverhangPerimeter /
+                    // GapFill centerline inflated by its half-width, i.e. the
+                    // area the wall extrusions actually consume; subtracting it
+                    // keeps bridge infill out of Arachne's adaptive inner beads
+                    // that land inside the nominal interior region.
+                    let footprint = compute_wall_bead_footprint(&layers_ro[i], nozzle_diameter_mm);
+                    if footprint.is_empty() {
                         after_interior
                     } else {
-                        difference(
-                            after_interior,
-                            wall_footprints[i].clone(),
-                            FillRule::EvenOdd,
-                        )
-                        .unwrap_or_default()
+                        difference(after_interior, footprint, FillRule::EvenOdd).unwrap_or_default()
                     }
                 };
 
