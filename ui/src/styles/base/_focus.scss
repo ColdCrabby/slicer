@@ -17,17 +17,28 @@
 }
 
 *:focus-visible {
-  outline: none;
-  box-shadow: 0 0 0 4px var(--color-focus-ring);
-  transition: box-shadow var(--transition-fast);
+  outline: 2px solid var(--color-focus-ring);
+  outline-offset: 1px;
+  box-shadow: 0 0 0 0 var(--color-focus-ring-glow);
+  transition:
+    outline-color var(--duration-fast) var(--ease-standard),
+    outline-offset var(--duration-fast) var(--ease-standard),
+    box-shadow var(--duration-fast) var(--ease-standard);
 }
 
 *:not(:focus-visible) {
-  transition: box-shadow var(--transition-fast);
+  outline-color: transparent;
+  outline-offset: 0;
+  box-shadow: 0 0 0 0 transparent;
+  transition:
+    outline-color var(--duration-fast) var(--ease-standard),
+    outline-offset var(--duration-fast) var(--ease-standard),
+    box-shadow var(--duration-fast) var(--ease-standard);
 }
 
 // Suppress for mouse/touch users — set by InputModalityService on <body>.
 .nexus-mouse-user *:focus-visible,
 .nexus-touch-user *:focus-visible {
+  outline-color: transparent;
   box-shadow: none;
 }

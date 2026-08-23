@@ -21,6 +21,12 @@ import { PrintArea } from '../../services/print-area';
 import { SceneCommand } from '../../services/scene-command/scene-command';
 import { SceneEngine } from '../../services/scene-engine';
 import { ViewerControl } from '../../services/viewer-control';
+import {
+  pixelRatioCapFor,
+  resolveAntialias,
+  type Antialiasing,
+} from '../../services/viewer-control';
+
 import { GcodeHoverProbe, type GcodeHoverHit } from './gcode-hover';
 import { GcodeOrchestrator } from './gcode-orchestrator';
 import type { GizmoDelta } from './gizmo';
@@ -30,6 +36,21 @@ export type ViewerMode = 'model' | 'gcode';
 
 /** Input accepted by the model input. */
 export type ModelSource = string | URL | File | Blob | ArrayBuffer;
+
+/**
+ * Base model colour per theme. A single coherent neutral graphite so the mesh
+ * reads as the same "grey plastic" object in both themes. The light-mode shade
+ * is lighter so a mid-grey object doesn't read as heavy/dark against the near-
+ * white background; the dark-mode shade is a hair deeper so it doesn't glow
+ * against the near-black background. Both are near-neutral (minimal blue).
+ */
+const MODEL_COLOR_DARK = 0xbcc0c6;
+const MODEL_COLOR_LIGHT = 0xccd0d4;
+
+/** Resolve the model base colour for the active colour scheme. */
+function modelColor(isDark: boolean): number {
+  return isDark ? MODEL_COLOR_DARK : MODEL_COLOR_LIGHT;
+}
 
 /**
  * Single-component 3D viewer for both raw meshes and sliced G-code.
@@ -89,6 +110,8 @@ export class Viewer {
   readonly wasmRenderBufMs = signal<number | null>(null);
   /** Last-op rolling stats from the scene engine, surfaced in the overlay. */
   readonly opStats = computed(() => this.sceneEngine.opStats());
+  /** User preference: show or hide scene telemetry chips. */
+  readonly statsVisible = this.viewerControl.statsVisible;
   private readonly progressSegments = signal(0);
   private readonly errorMessage = signal<string>('');
 
@@ -125,6 +148,12 @@ export class Viewer {
    * cumulative-protocol drag handler is reintroduced later.)
    */
   private dragApplied = new Map<bigint, { dx: number; dy: number }>();
+
+  /**
+   * Last anti-aliasing mode applied to the live scene. `null` until the first
+   * effect run seeds it; used to detect real changes (which force a rebuild).
+   */
+  private lastAntialiasing: Antialiasing | null = null;
 
   constructor() {
     afterNextRender(() => this.initScene());
@@ -167,6 +196,47 @@ export class Viewer {
     effect(() => {
       const gesture = this.viewerControl.trackpadTwoFingerGesture();
       this.scene?.setTwoFingerGesture(gesture);
+    });
+
+    // React to field-of-view changes from the 3D-view settings.
+    effect(() => {
+      const fov = this.viewerControl.fieldOfView();
+      this.scene?.setFieldOfView(fov);
+    });
+
+    // React to render-resolution (pixel-ratio cap) changes.
+    effect(() => {
+      const quality = this.viewerControl.renderQuality();
+      this.scene?.setPixelRatioCap(pixelRatioCapFor(quality));
+    });
+
+    // React to anti-aliasing changes. MSAA is a WebGLRenderer construction
+    // option, so it cannot be toggled on a live context — rebuild the scene
+    // (the WASM engine keeps object state, so the model is restored intact).
+    effect(() => {
+      const mode = this.viewerControl.antialiasing();
+      if (this.lastAntialiasing === null) {
+        this.lastAntialiasing = mode;
+        return;
+      }
+      if (mode === this.lastAntialiasing) {
+        return;
+      }
+      this.lastAntialiasing = mode;
+      if (this.scene) {
+        this.rebuildScene();
+      }
+    });
+
+    // React to colour-scheme changes: retune the scene lighting and repaint
+    // the model meshes so the object keeps good contrast on both themes.
+    effect(() => {
+      const isDark = this.appTheme.isDarkMode();
+      this.scene?.setTheme(isDark);
+      const color = modelColor(isDark);
+      for (const mesh of this.wasmMeshes.values()) {
+        (mesh.material as MeshPhongMaterial).color.setHex(color);
+      }
     });
 
     // React to reset requests from the toolbar.
@@ -287,8 +357,7 @@ export class Viewer {
     // The hover-inspect probe is only meaningful in the G-code scalar views.
     effect(() => {
       const active =
-        this.mode() === 'gcode' &&
-        scalarChannelFor(this.gcodePreview.effectiveViewMode()) !== null;
+        this.mode() === 'gcode' && scalarChannelFor(this.gcodePreview.effectiveViewMode()) !== null;
       this.gcodeHover?.setEnabled(active);
       if (!active) {
         this.gcodePreview.setHoverInfo(null);
@@ -384,11 +453,13 @@ export class Viewer {
       this.selectedWasmIds = this.selectedWasmIds.filter((existing) => existing !== id);
     }
     this.scene?.setSelectedIds(new Set(this.selectedWasmIds.map(String)));
+    this.viewerControl.selectedObjectIds.set(this.selectedWasmIds);
   }
 
   private handleClearSelection(): void {
     this.selectedWasmIds = [];
     this.scene?.setSelectedIds(new Set());
+    this.viewerControl.selectedObjectIds.set([]);
   }
 
   /** Translate / rotate / scale a delta onto every currently-selected object. */
@@ -469,9 +540,34 @@ export class Viewer {
     }
   }
 
+  /**
+   * Tear down and recreate the Three.js scene, preserving the WASM scene
+   * engine's object state so the loaded model is restored. Used when a
+   * construction-only renderer option (anti-aliasing) changes at runtime.
+   */
+  private rebuildScene(): void {
+    if (!this.scene) {
+      return;
+    }
+    this.cancelInFlightLoad();
+    this.gcodeHover?.dispose();
+    this.gcodeHover = null;
+    this.gcode?.dispose();
+    this.gcode = null;
+    this.scene.dispose();
+    this.scene = null;
+    this.wasmMeshes.clear();
+    this.initScene();
+  }
+
   private initScene(): void {
     const host = this.hostRef().nativeElement;
-    this.scene = new ViewerScene(host, this.printArea.config());
+    this.scene = new ViewerScene(host, this.printArea.config(), {
+      antialias: resolveAntialias(this.viewerControl.antialiasing()),
+      pixelRatioCap: pixelRatioCapFor(this.viewerControl.renderQuality()),
+      fieldOfView: this.viewerControl.fieldOfView(),
+    });
+    this.lastAntialiasing = this.viewerControl.antialiasing();
     // Mirror the live camera direction/up into ViewerControl so external
     // overlays (the viewport-cube gizmo) can read it without going through
     // Angular's change-detection.
@@ -504,6 +600,7 @@ export class Viewer {
     this.scene.setObjectMode(this.viewerControl.objectMode());
     this.scene.setView(this.viewerControl.view());
     this.scene.setTwoFingerGesture(this.viewerControl.trackpadTwoFingerGesture());
+    this.scene.setTheme(this.appTheme.isDarkMode());
     this.gcode = new GcodeOrchestrator(this.scene.contentRoot);
     // Hover-inspect probe for the G-code scalar views: raycasts the visible
     // layer meshes and reports the extrusion value under the cursor.
@@ -624,7 +721,7 @@ export class Viewer {
       geometry.computeBoundingBox();
       geometry.computeBoundingSphere();
       const material = new MeshPhongMaterial({
-        color: 0xa9b4c2,
+        color: modelColor(this.appTheme.isDarkMode()),
         flatShading: true,
         shininess: 16,
       });
@@ -692,7 +789,7 @@ export class Viewer {
     geometry.computeBoundingBox();
     geometry.computeBoundingSphere();
     const material = new MeshPhongMaterial({
-      color: 0xa9b4c2,
+      color: modelColor(this.appTheme.isDarkMode()),
       flatShading: true,
       shininess: 16,
     });
@@ -775,15 +872,6 @@ export class Viewer {
       this.currentAbort = null;
     }
   }
-}
-
-function isAbortError(error: unknown): boolean {
-  return (
-    typeof error === 'object' &&
-    error !== null &&
-    'name' in error &&
-    (error as { name: string }).name === 'AbortError'
-  );
 }
 
 function messageOf(error: unknown): string {

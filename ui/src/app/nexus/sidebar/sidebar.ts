@@ -10,10 +10,6 @@ import {
   Renderer2,
   signal,
 } from '@angular/core';
-import { RouterLink } from '@angular/router';
-import { ConnectionState } from '../../components/connection-state/connection-state';
-import { Logo } from '../../components/logo/logo';
-import { AppTheme } from '../../services/app-theme';
 import { Icon } from '../../shared/icon/icon';
 
 const STORAGE_WIDTH_KEY = 'nexus.sidebar.width';
@@ -22,24 +18,26 @@ const DEFAULT_WIDTH = 280;
 const MIN_WIDTH = 180;
 const MAX_WIDTH = 480;
 
+// Hover-intent delays so a collapsed sidebar only opens/closes deliberately.
+const HOVER_OPEN_DELAY_MS = 180;
+const HOVER_CLOSE_DELAY_MS = 240;
+
 @Component({
   selector: 'nexus-sidebar',
   standalone: true,
-  imports: [Logo, RouterLink, ConnectionState, Icon],
+  imports: [Icon],
   templateUrl: './sidebar.component.html',
   styleUrl: './sidebar.component.scss',
   host: {
     '(mouseenter)': 'onMouseEnter()',
     '(mouseleave)': 'onMouseLeave()',
-    '(click)': 'onPanelClick()',
     '[class.is-collapsed]': 'collapsed()',
     '[class.is-expanded]': 'isExpanded()',
+    '[class.is-pinned-open]': 'isPinnedOverlayOpen()',
     '[class.is-dragging]': 'isDragging()',
   },
 })
 export class Sidebar {
-  protected readonly _theme = inject(AppTheme);
-
   private readonly el = inject(ElementRef<HTMLElement>);
   private readonly renderer = inject(Renderer2);
   private readonly document = inject(DOCUMENT);
@@ -52,10 +50,13 @@ export class Sidebar {
   protected readonly isExpanded = computed(
     () => !this.collapsed() || this.pinnedOpen() || this.hovered(),
   );
+  protected readonly isPinnedOverlayOpen = computed(() => this.collapsed() && this.pinnedOpen());
 
   private dragStartX = 0;
   private dragStartWidth = 0;
   private dragCleanup: (() => void)[] = [];
+  private hoverOpenTimer: ReturnType<typeof setTimeout> | null = null;
+  private hoverCloseTimer: ReturnType<typeof setTimeout> | null = null;
   private readonly destroyRef = inject(DestroyRef);
 
   constructor() {
@@ -64,14 +65,18 @@ export class Sidebar {
     });
 
     this.destroyRef.onDestroy(() => {
+      this.clearHoverTimers();
       for (const fn of this.dragCleanup) {
         fn();
       }
     });
   }
 
+  /** Reveal the panel (used by the settings-search shortcut). Pins it open. */
   expand(): void {
+    this.clearHoverTimers();
     if (this.collapsed()) {
+      this.hovered.set(false);
       this.pinnedOpen.set(true);
     }
   }
@@ -80,48 +85,80 @@ export class Sidebar {
     event.stopPropagation();
     const next = !this.collapsed();
     this.collapsed.set(next);
-    if (next) {
-      this.pinnedOpen.set(false);
-      this.hovered.set(false);
-    }
+    this.clearHoverTimers();
+    this.pinnedOpen.set(false);
+    // Unpinning: keep the panel open as an overlay peek under the cursor so it
+    // doesn't vanish on click; onMouseLeave auto-hides it once the pointer
+    // leaves. Docking: hovered is irrelevant (isExpanded is driven by !collapsed).
+    this.hovered.set(next);
     this.saveCollapsed(next);
   }
 
+  /** Hover-intent open: only after a short, deliberate hover. */
   protected onMouseEnter(): void {
-    if (this.collapsed()) {
+    if (!this.collapsed() || this.pinnedOpen()) {
+      return;
+    }
+    this.clearCloseTimer();
+    if (this.hovered() || this.hoverOpenTimer !== null) {
+      return;
+    }
+    this.hoverOpenTimer = setTimeout(() => {
+      this.hoverOpenTimer = null;
       this.hovered.set(true);
-    }
+    }, HOVER_OPEN_DELAY_MS);
   }
 
+  /** Hover-intent close: a brief grace period so the panel doesn't flicker. */
   protected onMouseLeave(): void {
-    this.hovered.set(false);
-  }
-
-  protected onPanelClick(): void {
-    if (this.collapsed() && !this.pinnedOpen()) {
-      this.pinnedOpen.set(true);
+    this.clearOpenTimer();
+    if (!this.hovered()) {
+      return;
     }
+    this.clearCloseTimer();
+    this.hoverCloseTimer = setTimeout(() => {
+      this.hoverCloseTimer = null;
+      this.hovered.set(false);
+    }, HOVER_CLOSE_DELAY_MS);
   }
 
-  protected onPinToggle(event: MouseEvent): void {
+  protected onOpenPeek(event: MouseEvent): void {
     event.stopPropagation();
-    this.pinnedOpen.update((v) => !v);
-  }
-
-  @HostListener('document:click', ['$event'])
-  protected onDocumentClick(event: MouseEvent): void {
-    if (this.collapsed() && this.pinnedOpen()) {
-      if (!this.el.nativeElement.contains(event.target as Node)) {
-        this.pinnedOpen.set(false);
-      }
+    if (!this.collapsed()) {
+      return;
     }
+    this.clearHoverTimers();
+    this.hovered.set(false);
+    this.pinnedOpen.set(true);
   }
 
   @HostListener('document:keydown.escape')
   protected onEscape(): void {
-    if (this.collapsed() && this.pinnedOpen()) {
-      this.pinnedOpen.set(false);
+    if (!this.collapsed()) {
+      return;
     }
+    this.clearHoverTimers();
+    this.pinnedOpen.set(false);
+    this.hovered.set(false);
+  }
+
+  private clearOpenTimer(): void {
+    if (this.hoverOpenTimer !== null) {
+      clearTimeout(this.hoverOpenTimer);
+      this.hoverOpenTimer = null;
+    }
+  }
+
+  private clearCloseTimer(): void {
+    if (this.hoverCloseTimer !== null) {
+      clearTimeout(this.hoverCloseTimer);
+      this.hoverCloseTimer = null;
+    }
+  }
+
+  private clearHoverTimers(): void {
+    this.clearOpenTimer();
+    this.clearCloseTimer();
   }
 
   protected onResizeStart(event: MouseEvent): void {
@@ -229,7 +266,7 @@ export class Sidebar {
       const stored = localStorage.getItem(STORAGE_WIDTH_KEY);
       if (stored) {
         const parsed = parseInt(stored, 10);
-        if (!isNaN(parsed)) {
+        if (!Number.isNaN(parsed)) {
           return Math.min(MAX_WIDTH, Math.max(MIN_WIDTH, parsed));
         }
       }

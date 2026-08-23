@@ -128,6 +128,42 @@ export class Slicer {
    */
   readonly slicedObjectIds = signal<readonly string[]>([]);
 
+  /**
+   * Signature of the scene + settings at the moment the current preview was
+   * sliced. `null` until the first slice; compared against the live signature
+   * to detect when the on-screen G-code no longer matches the main scene.
+   */
+  private readonly slicedSignature = signal<string | null>(null);
+
+  /**
+   * Live signature of the scene (object ids + placement) and slice settings.
+   * Recomputes reactively whenever an object moves or a setting changes.
+   */
+  private readonly sceneSignature = computed(() => {
+    const objects = this.sceneEngine
+      .snapshot()
+      .objects.map(
+        (o) =>
+          `${String(o.id)}@${o.translation.join(',')}/${o.euler_xyz_deg.join(',')}/${o.scale.join(',')}`,
+      )
+      .sort()
+      .join('|');
+    return `${objects}#${JSON.stringify(this.settings())}`;
+  });
+
+  /**
+   * `true` when a preview exists but the scene or settings changed since it was
+   * sliced — the on-screen G-code is stale. Non-blocking: it only hints that a
+   * re-slice would refresh the preview.
+   */
+  readonly previewStale = computed(() => {
+    const sliced = this.slicedSignature();
+    if (sliced === null || this.gcodeDownloadUrl() === null) {
+      return false;
+    }
+    return this.sceneSignature() !== sliced;
+  });
+
   /** Name of the pipeline phase currently executing, or `null` when idle. */
   readonly currentPhase = signal<string | null>(null);
   private objectUrl: string | null = null;
@@ -403,6 +439,8 @@ export class Slicer {
       // Record which objects this slice was produced from so the viewer can
       // preserve its layer/progress/coloring when the same scene is resliced.
       this.slicedObjectIds.set(scene.objects.map((object) => object.id));
+      // Snapshot the scene+settings signature so we can detect later drift.
+      this.slicedSignature.set(this.sceneSignature());
 
       const preview = await this.orchestrator.getPreviewSource(result.sliceId);
       if (preview.kind === 'download-url') {
@@ -454,6 +492,7 @@ export class Slicer {
     this.currentPhase.set(null);
     this.setDownloadUrl(null);
     this.slicedObjectIds.set([]);
+    this.slicedSignature.set(null);
   }
 
   getHistory(): Promise<RuntimeHistorySession[]> {

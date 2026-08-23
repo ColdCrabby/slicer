@@ -1,11 +1,11 @@
 import {
-    AmbientLight,
     BoxGeometry,
     DirectionalLight,
     Group,
+    HemisphereLight,
     Mesh,
     MeshBasicMaterial,
-    Object3D,
+    type Object3D,
     PerspectiveCamera,
     Scene,
     Vector3,
@@ -28,6 +28,19 @@ const MAX_PIXEL_RATIO = 2;
 
 function shouldDisableAntialias(): boolean {
   return typeof window !== 'undefined' && window.devicePixelRatio >= 2;
+}
+
+/**
+ * Optional render-quality knobs sourced from user settings. Omitted fields
+ * fall back to the historical defaults (auto anti-alias, 2× pixel-ratio cap).
+ */
+export interface ViewerSceneOptions {
+  /** Force MSAA on/off. When undefined, disabled on high-DPI (≥2×) displays. */
+  antialias?: boolean;
+  /** Maximum device-pixel-ratio the renderer draws at. */
+  pixelRatioCap?: number;
+  /** Initial perspective field-of-view in degrees. */
+  fieldOfView?: number;
 }
 
 /**
@@ -57,6 +70,9 @@ export class ViewerScene {
   private readonly _selection: SceneSelection;
   private readonly gizmo: GizmoManager;
   private readonly axesGizmo: Group;
+  private readonly hemiLight: HemisphereLight;
+  private readonly keyLight: DirectionalLight;
+  private readonly fillLight: DirectionalLight;
 
   private rafHandle = 0;
   private disposed = false;
@@ -64,6 +80,7 @@ export class ViewerScene {
   private smoothedFps = 0;
   private smoothedDelayMs = 0;
   private lastFpsPublishTime = 0;
+  private pixelRatioCap = MAX_PIXEL_RATIO;
 
   /**
    * Sink called at the end of every rendered frame with the live camera
@@ -86,8 +103,9 @@ export class ViewerScene {
     this._selection.gizmoHandlers = h;
   }
 
-  constructor(host: HTMLElement, initialPrintArea?: PrintAreaConfig) {
+  constructor(host: HTMLElement, initialPrintArea?: PrintAreaConfig, options?: ViewerSceneOptions) {
     this.host = host;
+    this.pixelRatioCap = options?.pixelRatioCap ?? MAX_PIXEL_RATIO;
     const printArea: PrintAreaConfig = initialPrintArea ?? {
       printableAreaWidth: 220,
       printableAreaHeight: 220,
@@ -100,7 +118,7 @@ export class ViewerScene {
 
     const { clientWidth, clientHeight } = this.sizeOf(host);
     this.camera = new PerspectiveCamera(
-      INITIAL_PERSPECTIVE_FOV,
+      options?.fieldOfView ?? INITIAL_PERSPECTIVE_FOV,
       clientWidth / clientHeight,
       CAMERA_NEAR,
       CAMERA_FAR,
@@ -111,11 +129,11 @@ export class ViewerScene {
     this.camera.lookAt(initialPose.target);
 
     this.renderer = new WebGLRenderer({
-      antialias: !shouldDisableAntialias(),
+      antialias: options?.antialias ?? !shouldDisableAntialias(),
       alpha: true,
       powerPreference: 'high-performance',
     });
-    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, MAX_PIXEL_RATIO));
+    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, this.pixelRatioCap));
     this.renderer.setClearColor(0x000000, 0);
     this.renderer.setSize(clientWidth, clientHeight);
     this.renderer.domElement.style.touchAction = 'none';
@@ -155,11 +173,19 @@ export class ViewerScene {
       this._selection.gizmoHandlers?.end();
     };
 
-    // Lights
-    this.scene.add(new AmbientLight(0xffffff, 0.55));
-    const dir = new DirectionalLight(0xffffff, 0.9);
-    dir.position.set(200, 300, 400);
-    this.scene.add(dir);
+    // Lights — a soft studio rig. A hemisphere fill lifts the shadowed faces
+    // off the background so the model never reads as a murky silhouette, a key
+    // light sculpts the form, and a dim opposite fill keeps back faces legible.
+    // Colours/intensities are theme-tuned in setTheme() below.
+    this.hemiLight = new HemisphereLight(0xffffff, 0x9a9ea8, 0.6);
+    this.scene.add(this.hemiLight);
+    this.keyLight = new DirectionalLight(0xffffff, 0.8);
+    this.keyLight.position.set(200, 300, 400);
+    this.scene.add(this.keyLight);
+    this.fillLight = new DirectionalLight(0xffffff, 0.25);
+    this.fillLight.position.set(-180, 140, -220);
+    this.scene.add(this.fillLight);
+    this.setTheme(true);
 
     this.axesGizmo = buildAxesGizmo(40, 0.6);
     this.scene.add(this.axesGizmo);
@@ -177,6 +203,29 @@ export class ViewerScene {
   setPrintArea(config: PrintAreaConfig): void {
     this._camera.setPrintArea(config);
     this._grid.setPrintArea(config);
+  }
+
+  /**
+   * Retune the lighting rig for the active colour scheme. Light mode needs a
+   * brighter hemisphere fill and a mid-grey ground tint so the model keeps
+   * readable form against the near-white background instead of collapsing into
+   * a dark shape; dark mode drops the fill so the faces don't wash out against
+   * the near-black background.
+   */
+  setTheme(isDark: boolean): void {
+    if (isDark) {
+      this.hemiLight.groundColor.setHex(0x4a4e57);
+      this.hemiLight.intensity = 0.72;
+      this.keyLight.intensity = 0.9;
+      this.fillLight.color.setHex(0xd6deec);
+      this.fillLight.intensity = 0.26;
+    } else {
+      this.hemiLight.groundColor.setHex(0xb2b8c2);
+      this.hemiLight.intensity = 1.3;
+      this.keyLight.intensity = 1.25;
+      this.fillLight.color.setHex(0xffffff);
+      this.fillLight.intensity = 0.34;
+    }
   }
 
   clearContent(): void {
@@ -247,6 +296,19 @@ export class ViewerScene {
   /** macOS bare-two-finger-swipe action (orbit or pan). */
   setTwoFingerGesture(gesture: TwoFingerGesture): void {
     this._controls.setTwoFingerGesture(gesture);
+  }
+
+  /** Set the perspective field-of-view (degrees); applied live when perspective. */
+  setFieldOfView(fov: number): void {
+    this._camera.setPerspectiveFov(fov);
+  }
+
+  /** Cap the device-pixel-ratio the renderer draws at and repaint at the new size. */
+  setPixelRatioCap(cap: number): void {
+    this.pixelRatioCap = cap;
+    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, cap));
+    const { clientWidth, clientHeight } = this.sizeOf(this.host);
+    this.renderer.setSize(clientWidth, clientHeight);
   }
 
   dispose(): void {

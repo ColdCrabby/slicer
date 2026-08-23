@@ -1,0 +1,14 @@
+<nav class="rail-nav">
+  @for (item of items; track item.path) {
+    <a
+      class="rail-item"
+      [routerLink]="item.path"
+      routerLinkActive="is-active"
+      [routerLinkActiveOptions]="{ exact: item.exact }"
+      [attr.aria-label]="item.label"
+    >
+      <nexus-icon [name]="item.icon" />
+      <span class="rail-label">{{ item.label }}</span>
+    </a>
+  }
+</nav>

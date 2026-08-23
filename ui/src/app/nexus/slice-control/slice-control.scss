@@ -1,197 +1,256 @@
 :host {
-  display: flex;
+  display: contents;
 }
 
-nexus-card {
-  padding: 14px 16px;
+.slice-block {
   display: flex;
   flex-direction: column;
-  gap: 10px;
-
-  min-width: 300px;
-  max-width: 22vw;
+  gap: 6px;
 }
 
-// ── Progress row ──────────────────────────────────────────────────────────────
-
-.phase-header {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-
-  .spin-icon {
-    font-size: 14px;
-    color: var(--color-accent);
-    flex-shrink: 0;
-    animation: spin 1s linear infinite;
-  }
-
-  .done-icon {
-    font-size: 14px;
-    color: var(--color-success);
-    flex-shrink: 0;
-  }
-
-  .phase-label {
-    flex: 1;
-    font-size: 13px;
-    font-weight: 500;
-    color: var(--color-text-primary);
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-  }
-
-  .progress-pct {
-    font-size: 12px;
-    font-weight: 600;
-    color: var(--color-text-secondary);
-    flex-shrink: 0;
-  }
-}
-
-progress.slice-progress {
-  display: block;
-  width: 100%;
-  height: 4px;
-  border: none;
-  border-radius: 2px;
-  background: var(--color-surface-alt, rgba(255 255 255 / 0.12));
-  overflow: hidden;
-  appearance: none;
-
-  &::-webkit-progress-bar {
-    background: var(--color-surface-alt, rgba(255 255 255 / 0.12));
-    border-radius: 2px;
-  }
-
-  &::-webkit-progress-value {
-    background: var(--color-secondary);
-    border-radius: 2px;
-    transition:
-      background-color var(--duration-slow) var(--ease-decelerate),
-      width 800ms cubic-bezier(0.57, 1.1, 0.41, 0.98);
-  }
-
-  &.done {
-    &::-webkit-progress-value {
-      background: var(--color-success);
-    }
-  }
-
-  &.no-transition {
-    &::-webkit-progress-value {
-      transition:
-        background-color var(--duration-slow) var(--ease-decelerate),
-        width 0s linear;
-    }
-  }
-}
-
-// ── Controls row ──────────────────────────────────────────────────────────────
+/* ── Controls row ───────────────────────────────────────────────────────── */
 
 .slice-row {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: var(--spacing-sm);
 }
 
 .file-info {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: var(--spacing-sm);
   flex: 1;
   min-width: 0;
 
   nexus-icon {
-    font-size: 16px;
-    color: var(--color-text-secondary);
+    --icon-size: 18px;
+    color: var(--accent);
     flex-shrink: 0;
 
     &.muted {
-      opacity: 0.4;
+      color: var(--color-text-tertiary);
     }
   }
 
   .file-name {
-    font-size: 12px;
-    color: var(--color-text-secondary);
+    font-size: var(--font-size-sm);
+    font-weight: var(--font-weight-medium);
+    color: var(--color-text-primary);
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
   }
 
   .no-file {
-    font-size: 12px;
+    font-size: var(--font-size-sm);
     color: var(--color-text-tertiary);
-    font-style: italic;
   }
 }
 
 .slice-btn {
-  display: flex;
+  display: inline-flex;
   align-items: center;
-  gap: 6px;
-  padding: 7px 14px;
+  justify-content: center;
+  gap: var(--spacing-sm);
+  min-width: 104px;
+  height: 40px;
+  padding: 0 var(--spacing-lg);
   border: none;
-  border-radius: 6px;
-  background: var(--color-accent);
-  font-size: 13px;
-  font-weight: 600;
+  border-radius: var(--radius-md);
+  background: var(--accent);
+  color: var(--accent-contrast);
+  font-size: var(--font-size-md);
+  font-weight: var(--font-weight-semibold);
+  font-variation-settings: 'wght' var(--font-weight-semibold);
   cursor: pointer;
   flex-shrink: 0;
+  box-shadow: var(--shadow-sm);
+  --icon-size: 16px;
   transition:
-    opacity 0.15s,
-    background 0.15s;
-
-  nexus-icon {
-    font-size: 14px;
-  }
+    background-color var(--duration-fast) var(--ease-standard),
+    box-shadow var(--duration-fast) var(--ease-standard),
+    transform var(--duration-fast) var(--ease-standard);
 
   &:hover:not(:disabled) {
-    background: var(--color-accent-hover, var(--color-accent));
-    opacity: 0.9;
+    background: var(--accent-hover);
   }
 
+  &:active:not(:disabled) {
+    transform: scale(0.97);
+  }
+
+  &:focus-visible {
+    outline: none;
+    box-shadow:
+      0 0 0 2px var(--color-bg-primary),
+      0 0 0 4px var(--color-focus-ring);
+  }
+
+  /* No-model disabled: quietly faded. */
   &:disabled {
     opacity: 0.4;
     cursor: not-allowed;
+    box-shadow: none;
+  }
+
+  /* Busy: a deliberate, calm "working" state — not a faded accent smudge. */
+  &.is-busy,
+  &.is-busy:disabled {
+    opacity: 1;
+    background: var(--color-surface-active);
+    color: var(--color-text-secondary);
+    box-shadow: none;
+    cursor: default;
+  }
+
+  /* Stale: preview no longer matches the scene — invite (never force) a reslice. */
+  &.is-stale:not(:disabled) {
+    animation: cta-stale-pulse 2s var(--ease-standard) infinite;
+  }
+}
+
+@keyframes cta-stale-pulse {
+  0%,
+  100% {
+    box-shadow:
+      var(--shadow-sm),
+      0 0 0 0 transparent;
+  }
+  50% {
+    box-shadow:
+      var(--shadow-sm),
+      0 0 0 4px color-mix(in oklab, var(--color-warning) 42%, transparent);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .slice-btn.is-stale:not(:disabled) {
+    animation: none;
+    box-shadow:
+      var(--shadow-sm),
+      0 0 0 2px color-mix(in oklab, var(--color-warning) 48%, transparent);
   }
 }
 
 .download-btn {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 7px;
-  border: 1px solid var(--color-border, rgba(255 255 255 / 0.15));
-  border-radius: 6px;
-  background: transparent;
+  display: inline-grid;
+  place-items: center;
+  width: 40px;
+  height: 40px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
   color: var(--color-text-secondary);
   cursor: pointer;
   flex-shrink: 0;
+  box-shadow: var(--shadow-xs);
+  --icon-size: 16px;
   transition:
-    background 0.15s,
-    color 0.15s;
-
-  nexus-icon {
-    font-size: 14px;
-  }
+    background-color var(--duration-fast) var(--ease-standard),
+    border-color var(--duration-fast) var(--ease-standard),
+    color var(--duration-fast) var(--ease-standard);
 
   &:hover {
-    background: var(--color-surface-alt, rgba(255 255 255 / 0.08));
+    background: var(--color-surface-hover);
+    border-color: var(--accent-border);
     color: var(--color-text-primary);
+  }
+
+  &:focus-visible {
+    outline: none;
+    border-color: var(--color-focus-ring);
+    box-shadow: inset 0 0 0 1px var(--color-focus-ring);
   }
 }
 
-.error-hint {
-  margin: 0;
-  font-size: 11px;
-  color: var(--color-error);
+/* ── Status line (fixed height → no reflow / jerk) ──────────────────────── */
+
+.slice-status {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 16px;
+  line-height: 16px;
+  font-size: var(--font-size-xs);
+  color: var(--color-text-tertiary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  transition: color var(--duration-fast) var(--ease-standard);
+
+  &[data-state='done'] {
+    color: var(--color-text-secondary);
+  }
+
+  &[data-state='error'] {
+    color: var(--color-danger);
+  }
+
+  &[data-state='stale'] {
+    color: var(--color-warning);
+  }
 }
 
-@keyframes spin {
-  to {
-    transform: rotate(360deg);
+.status-dot {
+  flex: none;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--color-warning);
+  animation: status-dot-pulse 2s var(--ease-standard) infinite;
+}
+
+@keyframes status-dot-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.35;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .status-dot {
+    animation: none;
+  }
+}
+
+/* ── Progress rail (flush to the shared card's bottom edge) ─────────────── */
+
+.slice-progress-rail {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 3px;
+  background: var(--color-border-light);
+  border-radius: 0 0 var(--radius-lg) var(--radius-lg);
+  overflow: hidden;
+  opacity: 0;
+  transition: opacity var(--duration-normal) var(--ease-standard);
+
+  &.is-visible {
+    opacity: 1;
+  }
+}
+
+.slice-progress-fill {
+  height: 100%;
+  width: 0;
+  background: var(--accent);
+  transition: width 800ms cubic-bezier(0.57, 1.1, 0.41, 0.98);
+
+  .is-done & {
+    background: var(--color-success);
+  }
+
+  .is-error & {
+    background: var(--color-danger);
+  }
+
+  .no-transition & {
+    transition: none;
   }
 }

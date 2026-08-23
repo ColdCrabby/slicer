@@ -1,12 +1,19 @@
 <div class="view-group">
-  <nexus-card class="button-radio-group icon-group" [(radioGroup)]="selectedView">
-    <button radioButtonValue="perspective" [tooltip]="'Perspective projection'">
-      <nexus-icon name="perspective-view"></nexus-icon>
-    </button>
-    <button radioButtonValue="ortho" [tooltip]="'Orthographic projection'">
-      <nexus-icon name="orthogonal-view"></nexus-icon>
-    </button>
-  </nexus-card>
+  <button
+    class="reset-view-button"
+    type="button"
+    [tooltip]="
+      selectedView() === 'ortho'
+        ? 'Orthographic projection — switch to perspective'
+        : 'Perspective projection — switch to orthographic'
+    "
+    [tooltipShortcut]="keyboardShortcuts.shortcutFor('toggle-projection')"
+    (click)="toggleProjection()"
+  >
+    <nexus-icon
+      [name]="selectedView() === 'ortho' ? 'orthogonal-view' : 'perspective-view'"
+    ></nexus-icon>
+  </button>
 
   <button
     class="reset-view-button"
@@ -27,6 +34,7 @@
     "
     [tooltipShortcut]="keyboardShortcuts.shortcutFor('toggle-gravity')"
     [class.active]="gravityEnabled()"
+    [attr.aria-pressed]="gravityEnabled()"
     (click)="toggleGravity()"
   >
     <nexus-icon name="depth"></nexus-icon>
@@ -75,34 +83,26 @@
 </nexus-card>
 
 <div class="view-group">
-  <button
-    class="reset-view-button"
-    type="button"
-    [class.active]="viewMode() === 'gcode'"
-    [disabled]="!canSlice"
-    [tooltip]="viewMode() === 'gcode' ? 'Switch to model view' : 'Switch to G-code preview'"
-    [tooltipShortcut]="keyboardShortcuts.shortcutFor('toggle-view-mode')"
-    (click)="toggleViewMode()"
-  >
-    <nexus-icon [name]="viewMode() === 'gcode' ? 'cube' : 'multiple-pages'"></nexus-icon>
-  </button>
+  @if (hasSliceResult()) {
+    <button
+      class="reset-view-button"
+      type="button"
+      [class.active]="viewMode() === 'gcode'"
+      [attr.aria-pressed]="viewMode() === 'gcode'"
+      [tooltip]="viewMode() === 'gcode' ? 'Switch to model view' : 'Switch to G-code preview'"
+      [tooltipShortcut]="keyboardShortcuts.shortcutFor('toggle-view-mode')"
+      (click)="toggleViewMode()"
+    >
+      <nexus-icon [name]="viewMode() === 'gcode' ? 'cube' : 'multiple-pages'"></nexus-icon>
+    </button>
+  }
 
   <button
     class="reset-view-button"
     type="button"
-    [tooltip]="shell.editorPanelVisible() ? 'Hide operation pipeline' : 'Show operation pipeline'"
-    [class.active]="shell.editorPanelVisible()"
-    (click)="shell.toggleEditorPanel()"
+    [tooltip]="'Show operation pipeline'"
+    (click)="showOperationPipeline()"
   >
     <nexus-icon name="developer"></nexus-icon>
-  </button>
-
-  <button
-    class="reset-view-button"
-    type="button"
-    [tooltip]="'Keyboard shortcuts'"
-    (click)="showKeyboardShortcuts()"
-  >
-    <nexus-icon name="headset-help"></nexus-icon>
   </button>
 </div>

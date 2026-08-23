@@ -1,5 +1,4 @@
-<nexus-card visualSize="large">
-  <!-- Controls row — always rendered so buttons are never torn down mid-slice -->
+<div class="slice-block">
   <div class="slice-row">
     <div class="file-info">
       @if (slicer.selectedFile()) {
@@ -13,49 +12,45 @@
       }
     </div>
 
-    <button
-      class="slice-btn"
-      type="button"
-      [disabled]="!canSlice()"
-      [tooltip]="canSlice() ? 'Slice and generate G-code' : 'Upload a model first'"
-      (click)="slice()"
-    >
-      <nexus-icon name="play"></nexus-icon>
-      @if (isDone()) {
-        Re-Slice
-      } @else {
-        Slice
-      }
-    </button>
-
     @if (slicer.gcodeDownloadUrl()) {
       <button class="download-btn" type="button" tooltip="Download G-code" (click)="download()">
         <nexus-icon name="download"></nexus-icon>
       </button>
     }
+
+    <button
+      class="slice-btn"
+      type="button"
+      [class.is-busy]="isActive()"
+      [class.is-stale]="isStale()"
+      [disabled]="!canSlice()"
+      [tooltip]="ctaTooltip()"
+      (click)="slice()"
+    >
+      @if (!isActive()) {
+        <nexus-icon name="play"></nexus-icon>
+      }
+      {{ ctaLabel() }}
+    </button>
   </div>
 
-  <!-- Progress row — visible once a slice has been initiated; stays through 'done' -->
-  @if (showProgress()) {
-    <div class="phase-header" [class.done]="isDone()">
-      @if (isActive()) {
-        <nexus-icon name="refresh" class="spin-icon"></nexus-icon>
-      } @else if (isDone()) {
-        <nexus-icon name="check-circle" class="done-icon"></nexus-icon>
-      }
-      <span class="phase-label">{{ phaseLabel() }}</span>
-      <span class="progress-pct">{{ slicer.sliceProgress() }}%</span>
-    </div>
-    <progress
-      class="slice-progress"
-      [class.done]="isDone()"
-      [class.no-transition]="disableProgressTransition()"
-      [value]="slicer.sliceProgress()"
-      max="100"
-    ></progress>
-  }
+  <!-- Always rendered with a reserved height so the card never reflows. -->
+  <div class="slice-status" [attr.data-state]="statusState()">
+    @if (isStale()) {
+      <span class="status-dot" aria-hidden="true"></span>
+    }
+    {{ statusLine() }}
+  </div>
 
-  @if (slicer.status() === 'error') {
-    <p class="error-hint">Slice failed — check the status panel for details.</p>
-  }
-</nexus-card>
+  <!-- Progress rail pinned flush to the shared card's bottom edge (no layout shift). -->
+  <div
+    class="slice-progress-rail"
+    [class.is-visible]="showProgress()"
+    [class.is-done]="isDone()"
+    [class.is-error]="isError()"
+    [class.no-transition]="disableProgressTransition()"
+    aria-hidden="true"
+  >
+    <div class="slice-progress-fill" [style.width.%]="slicer.sliceProgress()"></div>
+  </div>
+</div>

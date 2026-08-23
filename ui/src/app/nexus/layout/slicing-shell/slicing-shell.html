@@ -8,19 +8,16 @@
   <div class="shell-actions-layer">
     <nexus-3d-view-toolbar class="shell-toolbar" />
 
+    <nexus-transform-panel class="transform-dock" />
+
+    <nexus-task-progress-bar class="scene-notify" />
+
     <nexus-viewport-cube class="viewport-cube" />
 
-    <nexus-slice-control class="stage-panel" />
-
-    <nexus-slice-layer-bar class="layer-bar-panel" />
-
-    <nexus-slice-segment-bar class="segment-bar-panel" />
+    <!-- Unified right rail: G-code inspector (top, grows upward) + slice dock (bottom). -->
+    <nexus-card class="rail-card" visualSize="large">
+      <nexus-slice-segment-bar />
+      <nexus-slice-control />
+    </nexus-card>
   </div>
 </main>
-
-@if (editorPanelVisible()) {
-  <nexus-card class="code-editor-panel" visualSize="large">
-    <nexus-code-editor [content]="snapshotJson()" language="json" [readOnly]="true" />
-    <nexus-code-editor [content]="sliceParamsJson()" language="json" [readOnly]="true" />
-  </nexus-card>
-}

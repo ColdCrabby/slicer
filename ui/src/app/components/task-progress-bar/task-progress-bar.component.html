@@ -1,0 +1,21 @@
+<div class="scene-notes" aria-live="polite" aria-atomic="false">
+  @for (task of tasks(); track trackById($index, task)) {
+    <div
+      animate.enter="note-enter"
+      animate.leave="note-leave"
+      class="note"
+      role="progressbar"
+      [attr.aria-valuenow]="task.progress"
+      aria-valuemin="0"
+      aria-valuemax="100"
+    >
+      <div class="note__fill" [style.width.%]="task.progress" aria-hidden="true"></div>
+      <span class="note__label">
+        {{ task.title }}
+        @if (task.message) {
+          <span class="note__message">&nbsp;· {{ task.message }}</span>
+        }
+      </span>
+    </div>
+  }
+</div>

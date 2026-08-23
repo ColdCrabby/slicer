@@ -1,52 +1,42 @@
-<div class="sidebar-header">
-  <nexus-logo routerLink="/" [hideProductName]="!isExpanded()" />
-
-  <div class="sidebar-header-actions">
-    @if (isExpanded()) {
-      <nexus-connection-state />
-    }
-  </div>
-</div>
-
-<div class="sidebar-content">
-  <div class="sidebar-content-inner">
-    <ng-content />
-  </div>
-</div>
-
-<div class="sidebar-footer">
-  @if (isExpanded()) {
-    <button
-      class="sidebar-footer-btn"
-      type="button"
-      [attr.aria-label]="_theme.isDarkMode() ? 'Switch to light theme' : 'Switch to dark theme'"
-      (click)="_theme.toggleTheme()"
-    >
-      <nexus-icon [name]="_theme.isDarkMode() ? 'sun-light' : 'half-moon'" />
-    </button>
-
-    <span class="sidebar-footer-spacer"></span>
+<button
+  class="sidebar-pin"
+  type="button"
+  [class.is-pinned]="!collapsed()"
+  [attr.aria-pressed]="!collapsed()"
+  [attr.aria-label]="collapsed() ? 'Pin panel open' : 'Unpin panel'"
+  (click)="onCollapseToggle($event)"
+>
+  @if (collapsed()) {
+    <nexus-icon name="pin-slash" />
+  } @else {
+    <nexus-icon name="pin" />
   }
+</button>
 
-  <button
-    class="sidebar-footer-btn"
-    type="button"
-    [attr.aria-label]="collapsed() ? 'Expand sidebar' : 'Collapse sidebar'"
-    (click)="onCollapseToggle($event)"
-  >
-    @if (collapsed() && !isExpanded()) {
-      <nexus-icon name="nav-arrow-right" />
-    } @else if (collapsed() && isExpanded()) {
-      <nexus-icon name="nav-arrow-right" />
-    } @else {
-      <nexus-icon name="nav-arrow-left" />
-    }
-  </button>
+<div class="sidebar-panel">
+  <div class="sidebar-content">
+    <div class="sidebar-content-inner">
+      <ng-content />
+    </div>
+  </div>
+
+  <div
+    class="resize-handle"
+    aria-hidden="true"
+    (mousedown)="onResizeStart($event)"
+    (touchstart)="onResizeTouchStart($event)"
+  ></div>
 </div>
 
-<div
-  class="resize-handle"
-  aria-hidden="true"
-  (mousedown)="onResizeStart($event)"
-  (touchstart)="onResizeTouchStart($event)"
-></div>
+@if (collapsed() && !isExpanded()) {
+  <button
+    class="sidebar-reveal-hint"
+    type="button"
+    aria-label="Show print settings"
+    (click)="onOpenPeek($event)"
+  >
+    <nexus-icon name="menu-scale" aria-hidden="true" />
+    <span>Print settings</span>
+    <nexus-icon name="nav-arrow-right" aria-hidden="true" />
+  </button>
+}

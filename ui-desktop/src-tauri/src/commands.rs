@@ -34,3 +34,8 @@ pub fn preview_get_source(
 pub fn history_list(state: State<'_, AppState>) -> Result<Value, String> {
     crate::bridge::runtime_bridge::history_list(&state)
 }
+
+#[tauri::command]
+pub fn get_system_accent() -> Option<String> {
+    crate::system_accent::detect()
+}

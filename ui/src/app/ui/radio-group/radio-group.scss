@@ -1,0 +1,98 @@
+:host {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.option {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--spacing-sm);
+  width: 100%;
+  padding: var(--spacing-sm) var(--spacing-md);
+  border: 1px solid var(--color-border-light);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+  color: var(--color-text-primary);
+  font-weight: var(--font-weight-normal);
+  font-variation-settings: 'wght' var(--font-weight-normal);
+  text-align: left;
+  cursor: pointer;
+  transition:
+    border-color var(--duration-fast) var(--ease-standard),
+    background-color var(--duration-fast) var(--ease-standard),
+    box-shadow var(--duration-fast) var(--ease-standard);
+
+  // Neutralise the global button hover/active weight + background so rows
+  // don't shift or flash the default surface treatment.
+  &:hover,
+  &:active {
+    font-weight: var(--font-weight-normal);
+    font-variation-settings: 'wght' var(--font-weight-normal);
+  }
+
+  &:hover:not(:disabled):not(.is-selected) {
+    background: var(--color-surface-hover);
+  }
+
+  &:focus-visible {
+    outline: none;
+    border-color: var(--accent);
+    box-shadow: 0 0 0 2px var(--color-focus-ring);
+  }
+
+  &.is-selected {
+    border-color: var(--accent-border);
+    background: var(--accent-softer);
+  }
+
+  &:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+}
+
+.dot {
+  position: relative;
+  flex: none;
+  width: 16px;
+  height: 16px;
+  margin-top: 1px;
+  border-radius: 999px;
+  border: 2px solid var(--color-border);
+  background: var(--color-bg-primary);
+  transition: border-color var(--duration-fast) var(--ease-standard);
+}
+
+.option.is-selected .dot {
+  border-color: var(--accent);
+}
+
+.option.is-selected .dot::after {
+  content: '';
+  position: absolute;
+  inset: 2px;
+  border-radius: 999px;
+  background: var(--accent);
+}
+
+.option-body {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+}
+
+.option-label {
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-medium);
+  font-variation-settings: 'wght' var(--font-weight-medium);
+  color: var(--color-text-primary);
+}
+
+.option-desc {
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-normal);
+  font-variation-settings: 'wght' var(--font-weight-normal);
+  color: var(--color-text-tertiary);
+}

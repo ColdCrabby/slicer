@@ -1,27 +1,12 @@
-import {
-    ChangeDetectionStrategy,
-    Component,
-    EventEmitter,
-    effect,
-    input,
-    untracked,
-} from '@angular/core';
-import { Card } from '../../../components/card/card';
+import { ChangeDetectionStrategy, Component, EventEmitter, computed, input } from '@angular/core';
+import { Segmented } from '../../../ui/segmented/segmented';
+import type { SegmentOption } from '../../../ui/segmented/segmented';
 import { IconButton } from '../../../shared/icon-button/icon-button';
-import { RadioButtonValue } from '../../../shared/radio-group/radio-button-value';
-import { RadioGroup } from '../../../shared/radio-group/radio-group';
-import { StackWhenCramped } from '../../../shared/radio-group/stack-when-cramped';
 import { TooltipDirective } from '../../../shared/tooltip/tooltip.directive';
-import { FieldDef } from '../../models/field-def';
-import { FieldWidget } from '../../widgets/base-field';
+import type { FieldDef } from '../../models/field-def';
+import type { FieldWidget } from '../../widgets/base-field';
 
-interface PatternOption {
-  value: string;
-  label: string;
-  description: string;
-}
-
-const PATTERNS: PatternOption[] = [
+const PATTERNS: SegmentOption[] = [
   {
     value: 'Rectilinear',
     label: 'Lines',
@@ -52,22 +37,21 @@ const PATTERNS: PatternOption[] = [
 /**
  * Custom widget for `infill_pattern`.
  *
- * Renders the enum options as a segmented button-group using the existing
- * `RadioGroup` / `RadioButtonValue` directives. Each button carries an
- * inline tooltip so the user can discover what each pattern does without
- * leaving the panel.
+ * Renders the enum options as a `nexus-segmented` control; each segment's
+ * description shows as an inline tooltip so the abbreviated labels stay
+ * discoverable.
  */
 @Component({
   selector: 'se-infill-pattern-picker',
   standalone: true,
-  imports: [Card, RadioGroup, RadioButtonValue, IconButton, TooltipDirective, StackWhenCramped],
+  imports: [Segmented, IconButton, TooltipDirective],
   changeDetection: ChangeDetectionStrategy.OnPush,
   styles: [
     `
       :host {
         display: flex;
         flex-direction: column;
-        gap: 5px;
+        gap: 6px;
       }
 
       .field-label {
@@ -79,20 +63,6 @@ const PATTERNS: PatternOption[] = [
         color: var(--color-text-secondary);
         user-select: none;
         cursor: default;
-      }
-
-      .pattern-group {
-        display: flex;
-        padding: 3px;
-        width: 100%;
-
-        > button {
-          flex: 1;
-          font-size: 11px;
-          font-weight: 500;
-          padding: 4px 2px;
-          white-space: nowrap;
-        }
       }
     `,
   ],
@@ -109,16 +79,12 @@ const PATTERNS: PatternOption[] = [
         />
       }
     </span>
-    <nexus-card
-      class="pattern-group"
-      [(radioGroup)]="selected"
-      (radioGroupChange)="onSelect($event)"
-      stackWhenCramped
-    >
-      @for (p of patterns; track p.value) {
-        <button [radioButtonValue]="p.value" [tooltip]="p.description">{{ p.label }}</button>
-      }
-    </nexus-card>
+    <nexus-segmented
+      [options]="patterns"
+      [value]="stringValue()"
+      [label]="field().title ?? field().key"
+      (valueChange)="valueChange.emit($event)"
+    ></nexus-segmented>
   `,
 })
 export class InfillPatternPicker implements FieldWidget {
@@ -128,20 +94,8 @@ export class InfillPatternPicker implements FieldWidget {
 
   readonly patterns = PATTERNS;
 
-  protected selected: unknown = PATTERNS[0].value;
-
-  constructor() {
-    effect(() => {
-      const raw = this.value(); // tracked
-      untracked(() => {
-        if (raw !== undefined && raw !== null) {
-          this.selected = raw;
-        }
-      });
-    });
-  }
-
-  protected onSelect(value: unknown): void {
-    this.valueChange.emit(value);
-  }
+  protected readonly stringValue = computed(() => {
+    const v = this.value() ?? this.field().default ?? PATTERNS[0].value;
+    return v == null ? null : String(v);
+  });
 }

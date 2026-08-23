@@ -1,53 +1,10 @@
-@if (preview.gcodeHandle() !== null) {
-  <div class="segment-bar" (pointerdown)="$event.stopPropagation()">
-    <!-- ── View-mode selector ── -->
-    <div class="mode-row">
-      <label class="mode-label" for="gcode-view-mode">Color by</label>
-      <select
-        id="gcode-view-mode"
-        class="mode-select"
-        [value]="preview.effectiveViewMode()"
-        (change)="onModeChange($event)"
-      >
-        @for (mode of viewModes(); track mode) {
-          <option [value]="mode">{{ viewModeLabels[mode] }}</option>
-        }
-      </select>
-    </div>
-
-    @if (showFanSelector()) {
-      <!-- ── Fan sub-selector (multi-fan printers) ── -->
-      <div class="mode-row">
-        <label class="mode-label" for="gcode-fan-select">Fan</label>
-        <select
-          id="gcode-fan-select"
-          class="mode-select"
-          [value]="preview.selectedFan()"
-          (change)="onFanChange($event)"
-        >
-          @for (fan of fans(); track fan.key) {
-            <option [value]="fan.key">{{ fan.label }}</option>
-          }
-        </select>
-      </div>
-    }
-
-    <!-- ── Nozzle / segment scrub ── -->
-    <div class="scrub-row">
-      <span class="scrub-label">Layer progress</span>
-      <div class="range-slider" (wheel)="onWheelSegment($event)">
-        <div class="range-track-fill" [style.right.%]="scrubFillRight()"></div>
-        <input
-          type="range"
-          class="thumb"
-          min="0"
-          [max]="layerSegmentCount()"
-          [value]="segmentSliderValue()"
-          (input)="onSegmentInput($event)"
-        />
-      </div>
-    </div>
-
+<div class="insp-shell" [class.is-open]="revealed()">
+  <div
+    class="inspector"
+    [class.is-updating]="preview.loading()"
+    (pointerdown)="$event.stopPropagation()"
+  >
+    <!-- ── Legend (dynamic — grows upward; core controls below stay put) ── -->
     @if (activeChannel(); as channel) {
       @if (isUniform()) {
         <!-- ── Uniform value (span ≈ 0): no misleading gradient ── -->
@@ -85,6 +42,7 @@
             class="role-badge"
             [class.hidden]="preview.hiddenRoles().has(role)"
             [style.--role-color]="roleCss()[role]"
+            [attr.aria-pressed]="!preview.hiddenRoles().has(role)"
             (click)="toggleRole(role)"
             [title]="(preview.hiddenRoles().has(role) ? 'Show ' : 'Hide ') + roleLabels[role]"
           >
@@ -94,5 +52,103 @@
         }
       </div>
     }
+
+    <div class="insp-divider"></div>
+
+    <!-- ── Core controls (anchored — never move when the legend changes) ── -->
+    <section class="insp-section" (wheel)="onWheelLayer($event)">
+      <header class="insp-head">
+        <span class="insp-title">Layer</span>
+        <span class="layer-readout">
+          <span class="cur">{{ preview.layerMax() + 1 }}</span>
+          <span class="tot">/ {{ preview.layerCount() }}</span>
+        </span>
+        <button
+          type="button"
+          class="stack-toggle"
+          [class.active]="preview.showAllLayers()"
+          [attr.aria-pressed]="preview.showAllLayers()"
+          (click)="toggleShowAll()"
+          [title]="
+            preview.showAllLayers()
+              ? 'Showing all layers up to here — click for current only'
+              : 'Showing current layer only — click to stack all below'
+          "
+        >
+          @if (preview.showAllLayers()) {
+            <svg
+              width="15"
+              height="15"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            >
+              <polygon points="12 2 2 7 12 12 22 7 12 2" />
+              <polyline points="2 17 12 22 22 17" />
+              <polyline points="2 12 12 17 22 12" />
+            </svg>
+          } @else {
+            <svg
+              width="15"
+              height="15"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            >
+              <polygon points="12 2 2 7 12 12 22 7 12 2" />
+            </svg>
+          }
+        </button>
+      </header>
+      <nexus-slider
+        [min]="0"
+        [max]="layerMaxIndex()"
+        [value]="preview.layerMax()"
+        [showValue]="false"
+        label="Layer"
+        (valueChange)="setLayer($event)"
+      />
+
+      <div class="ctl-row">
+        <label class="ctl-label">Color by</label>
+        <nexus-select
+          class="ctl-field"
+          [options]="viewModeOptions()"
+          [value]="preview.effectiveViewMode()"
+          (valueChange)="onModeValue($event)"
+        />
+      </div>
+
+      @if (showFanSelector()) {
+        <div class="ctl-row">
+          <label class="ctl-label">Fan</label>
+          <nexus-select
+            class="ctl-field"
+            [options]="fanOptions()"
+            [value]="preview.selectedFan()"
+            (valueChange)="onFanValue($event)"
+          />
+        </div>
+      }
+
+      <div class="ctl-row" (wheel)="onWheelSegment($event)">
+        <label class="ctl-label">Progress</label>
+        <nexus-slider
+          class="ctl-field"
+          [min]="0"
+          [max]="layerSegmentCount()"
+          [value]="segmentSliderValue()"
+          [showValue]="false"
+          label="Layer progress"
+          (valueChange)="onSegmentValue($event)"
+        />
+      </div>
+    </section>
   </div>
-}
+</div>

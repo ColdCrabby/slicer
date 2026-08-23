@@ -1,0 +1,10 @@
+<input
+  class="workplate-input"
+  type="text"
+  [value]="savedName()"
+  [placeholder]="placeholder()"
+  (change)="rename($event)"
+  aria-label="Workplate name"
+  spellcheck="false"
+  autocomplete="off"
+/>

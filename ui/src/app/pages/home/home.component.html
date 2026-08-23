@@ -1,21 +1,127 @@
-<div class="home-dashboard">
-  <nexus-connection-state class="app-status-bar" />
-  <div class="dashboard-container">
-    <h1>Let's get slicing.</h1>
+<div
+  class="dashboard"
+  [class.is-drag-active]="dragActive()"
+  (dragenter)="onDragEnter($event)"
+  (dragover)="onDragOver($event)"
+  (dragleave)="onDragLeave($event)"
+  (drop)="onDrop($event)"
+>
+  <div class="dashboard-inner">
+    <header class="dash-header">
+      <div class="dash-heading">
+        <h1 class="dash-title">Let's get slicing.</h1>
+        <p class="dash-subtitle">Start a fresh plate or drop in a model to slice.</p>
+      </div>
+    </header>
 
-    <div class="dashboard-actions">
-      <button routerLink="/slice">New Workplate</button>
-      <button (click)="openQuickSlice()">Quick Slice</button>
+    <section class="hero-actions">
+      <button
+        type="button"
+        class="action-tile action-tile--accent action-tile--demo"
+        (click)="loadBenchy()"
+        [disabled]="benchyLoading()"
+      >
+        <span class="tile-icon"><nexus-icon name="sea-and-sun" /></span>
+        <span class="tile-text">
+          <span class="tile-title">Try the 3DBenchy demo</span>
+          <span class="tile-desc">
+            {{
+              benchyLoading()
+                ? 'Fetching the latest 3DBenchy…'
+                : 'Load the classic benchmark boat and slice it instantly.'
+            }}
+          </span>
+        </span>
+        @if (benchyLoading()) {
+          <nexus-icon class="tile-arrow tile-arrow--spin" name="restart" />
+        } @else {
+          <nexus-icon class="tile-arrow" name="nav-arrow-right" />
+        }
+      </button>
+
+      <button type="button" class="action-tile" (click)="openEmptyWorkplate()">
+        <span class="tile-icon"><nexus-icon name="grid-plus" /></span>
+        <span class="tile-text">
+          <span class="tile-title">Empty Workplate</span>
+          <span class="tile-desc">Open a clean build plate and add models.</span>
+        </span>
+        <nexus-icon class="tile-arrow" name="nav-arrow-right" />
+      </button>
+
+      <button type="button" class="action-tile" (click)="openModel()">
+        <span class="tile-icon"><nexus-icon name="cloud-upload" /></span>
+        <span class="tile-text">
+          <span class="tile-title">Open Model to Slice</span>
+          <span class="tile-desc">Import an STL, OBJ or 3MF and slice right away.</span>
+        </span>
+        <nexus-icon class="tile-arrow" name="nav-arrow-right" />
+      </button>
+
       <input
         #quickFileInput
         type="file"
         accept=".stl,.obj,.3mf,model/stl,model/obj,model/3mf,application/vnd.ms-pki.stl,application/sla,application/vnd.ms-package.3dmanufacturing-3dmodel+xml,application/octet-stream"
         (change)="onQuickFileSelected($event)"
-        style="display: none"
+        hidden
       />
-      <button (click)="_theme.toggleTheme()">Change Theme</button>
-    </div>
+    </section>
 
-    <nexus-list-history />
+    <section class="dash-section">
+      <nexus-section-header heading="Printers" description="Your machines at a glance">
+        <a nexusButton variant="ghost" size="sm" routerLink="/settings/printers">Manage</a>
+      </nexus-section-header>
+
+      @if (printers.length > 0) {
+        <div class="printer-grid">
+          @for (printer of printers; track printer.id) {
+            <a class="printer-card" routerLink="/settings/printers">
+              <span
+                class="printer-status"
+                [class.is-offline]="printer.status === 'offline'"
+                aria-hidden="true"
+              ></span>
+              <span class="printer-info">
+                <span class="printer-name">{{ printer.name }}</span>
+                <span class="printer-model">{{ printer.model }}</span>
+              </span>
+              <span class="printer-state">
+                {{ printer.status === 'ready' ? 'Ready' : 'Offline' }}
+              </span>
+            </a>
+          }
+        </div>
+      } @else {
+        <nexus-empty-state
+          icon="printer"
+          heading="No printers yet"
+          description="Add a printer to send prints and tune machine settings."
+        >
+          <a nexusButton variant="primary" size="sm" routerLink="/settings/printers">Add printer</a>
+        </nexus-empty-state>
+      }
+    </section>
+
+    <section class="dash-section">
+      <nexus-section-header heading="Recent projects" description="Pick up where you left off" />
+      <nexus-list-history />
+    </section>
+  </div>
+</div>
+
+<!-- Full-page drop target: appears while a model is dragged over the dashboard. -->
+<div class="drop-aurora" [class.is-active]="dragActive()" aria-hidden="true">
+  <span class="aurora-orb aurora-orb--a"><span class="aurora-blob"></span></span>
+  <span class="aurora-orb aurora-orb--b"><span class="aurora-blob"></span></span>
+  <span class="aurora-orb aurora-orb--c"><span class="aurora-blob"></span></span>
+</div>
+
+<div class="drop-overlay" [class.is-active]="dragActive()" aria-hidden="true">
+  <div class="drop-card">
+    <nexus-empty-state
+      class="drop-empty"
+      icon="cloud-upload"
+      heading="Release to start slicing"
+      description="Drop an STL, OBJ, or 3MF — up to 500 MB"
+    />
   </div>
 </div>

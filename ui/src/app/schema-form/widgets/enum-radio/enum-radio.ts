@@ -1,34 +1,30 @@
-import { ChangeDetectionStrategy, Component, EventEmitter, input } from '@angular/core';
+import { ChangeDetectionStrategy, Component, EventEmitter, computed, input } from '@angular/core';
+import { RadioGroup } from '../../../ui/radio-group/radio-group';
+import type { RadioOption } from '../../../ui/radio-group/radio-group';
 import { IconButton } from '../../../shared/icon-button/icon-button';
 import { TooltipDirective } from '../../../shared/tooltip/tooltip.directive';
-import { FieldDef } from '../../models/field-def';
-import { FieldWidget } from '../base-field';
+import type { FieldDef } from '../../models/field-def';
+import type { FieldWidget } from '../base-field';
 
 /**
- * Radio-group widget for enum fields with 3 or fewer options.
- * Shows per-option descriptions beneath each radio label so the user can
- * read what each variant does without opening a separate tooltip.
+ * Radio-group widget for enum fields with 3 or fewer options. Renders the
+ * design-system `nexus-radio-group` as selectable option cards, each showing
+ * the variant description so the user can tell the options apart at a glance.
  */
 @Component({
   selector: 'se-enum-radio',
   standalone: true,
-  imports: [IconButton, TooltipDirective],
+  imports: [IconButton, TooltipDirective, RadioGroup],
   changeDetection: ChangeDetectionStrategy.OnPush,
   styles: [
     `
       :host {
         display: flex;
         flex-direction: column;
-        gap: 5px;
+        gap: 6px;
       }
 
-      fieldset {
-        border: none;
-        padding: 0;
-        margin: 0;
-      }
-
-      legend {
+      .legend {
         display: flex;
         align-items: center;
         gap: 4px;
@@ -36,76 +32,45 @@ import { FieldWidget } from '../base-field';
         font-weight: 500;
         color: var(--color-text-secondary);
         user-select: none;
-        margin-bottom: 6px;
-        padding: 0;
-      }
-
-      .radio-option {
-        display: flex;
-        flex-direction: column;
-        gap: 2px;
-        cursor: pointer;
-        font-size: 12px;
-        color: var(--color-text-primary);
-
-        & + .radio-option {
-          margin-top: 6px;
-        }
-
-        input[type='radio'] {
-          accent-color: var(--color-primary);
-        }
-      }
-
-      .radio-label {
-        display: flex;
-        align-items: center;
-        gap: 6px;
-      }
-
-      .radio-option-description {
-        font-size: 11px;
-        color: var(--color-text-tertiary);
-        margin-left: 18px;
       }
     `,
   ],
   template: `
-    <fieldset>
-      <legend>
-        <span>{{ field().title ?? field().key }}</span>
-        @if (field().description) {
-          <nexus-icon-button
-            icon="help-circle"
-            label="More info"
-            [tooltip]="field().description!"
-            [tooltipMode]="'block'"
-            [tooltipClickToggle]="true"
-          />
-        }
-      </legend>
-      @for (opt of field().enumOptions; track opt.value) {
-        <label class="radio-option">
-          <span class="radio-label">
-            <input
-              type="radio"
-              [name]="field().key"
-              [value]="opt.value"
-              [checked]="(value() ?? field().default) === opt.value"
-              (change)="valueChange.emit(opt.value)"
-            />
-            {{ opt.value }}
-          </span>
-          @if (opt.description) {
-            <span class="radio-option-description">{{ opt.description }}</span>
-          }
-        </label>
+    <span class="legend">
+      <span>{{ field().title ?? field().key }}</span>
+      @if (field().description) {
+        <nexus-icon-button
+          icon="help-circle"
+          label="More info"
+          [tooltip]="field().description!"
+          [tooltipMode]="'block'"
+          [tooltipClickToggle]="true"
+        />
       }
-    </fieldset>
+    </span>
+    <nexus-radio-group
+      [options]="options()"
+      [value]="stringValue()"
+      [label]="field().title ?? field().key"
+      (valueChange)="valueChange.emit($event)"
+    ></nexus-radio-group>
   `,
 })
 export class EnumRadio implements FieldWidget {
   readonly field = input.required<FieldDef>();
   readonly value = input<unknown>(undefined);
   readonly valueChange = new EventEmitter<unknown>();
+
+  protected readonly options = computed<RadioOption[]>(() =>
+    (this.field().enumOptions ?? []).map((o) => ({
+      value: o.value,
+      label: o.value,
+      description: o.description,
+    })),
+  );
+
+  protected readonly stringValue = computed(() => {
+    const v = this.value() ?? this.field().default;
+    return v == null ? null : String(v);
+  });
 }
