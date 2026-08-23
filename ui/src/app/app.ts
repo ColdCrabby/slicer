@@ -25,5 +25,9 @@ export class App {
     // On the WASM web build only, remind the user once per session that
     // in-browser slicing trades performance for zero install.
     this.wasmPerfNotice.maybeShow();
+
+    // Watch for a newer static deployment (Pages/web runtime) so a stale tab
+    // gets a reload prompt even though there's no server to announce a version.
+    this.appVersion.startUpdateWatch();
   }
 }
