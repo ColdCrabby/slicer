@@ -5,11 +5,13 @@
 
 // Contract tabs + active-preset selector. Aligns with the schema-form search
 // field's horizontal padding so the sidebar reads as one continuous column.
+// The bottom padding gives the dropdown's 2px focus ring room to breathe so it
+// isn't clipped by the sticky search bar that follows.
 .preset-bar {
   display: flex;
   flex-direction: column;
   gap: var(--spacing-sm);
-  padding: var(--spacing-sm) var(--spacing-sm) 0;
+  padding: var(--spacing-sm) var(--spacing-sm) var(--spacing-sm);
 }
 
 .contract-tabs {

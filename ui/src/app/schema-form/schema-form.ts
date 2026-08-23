@@ -138,8 +138,10 @@ export class SchemaForm {
         obs = null;
         if (!el) return;
 
-        obs = new ResizeObserver((entries) => {
-          const h = entries[0]?.contentRect.height ?? 0;
+        obs = new ResizeObserver(() => {
+          // offsetHeight includes padding + border (the search bar has top
+          // padding); contentRect would under-measure and tuck headers behind.
+          const h = el.offsetHeight;
           this.hostEl.nativeElement.style.setProperty(
             '--schema-form-search-h',
             `${Math.round(h)}px`,

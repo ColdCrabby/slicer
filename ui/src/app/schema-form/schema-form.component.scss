@@ -156,7 +156,9 @@
 // then the next section's header takes over — iOS-style section headers.
 .schema-form-group-heading {
   position: sticky;
-  top: var(--schema-form-search-h, 44px);
+  // Offset by the search bar height *plus* its fade gradient so the pinned
+  // header clears the search entirely instead of tucking behind it.
+  top: calc(var(--schema-form-search-h, 44px) + var(--spacing-md));
   z-index: 5;
   margin: 0;
   border-radius: var(--radius-md);

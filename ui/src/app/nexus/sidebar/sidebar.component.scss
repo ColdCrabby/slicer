@@ -162,7 +162,6 @@ $transition-easing: ease;
   position: absolute;
   bottom: var(--spacing-md);
   left: 50%;
-  transform: translateX(-50%);
   z-index: 5;
   display: inline-flex;
   align-items: center;
@@ -175,35 +174,40 @@ $transition-easing: ease;
   color: var(--color-text-secondary);
   box-shadow: var(--shadow-md);
   cursor: pointer;
-  pointer-events: auto;
-  animation: sidebar-scrolltop-in var(--duration-fast) var(--ease-decelerate);
+  --icon-size: 18px;
+
+  // Hidden resting state — sits slightly lower and smaller, fully click-through.
+  opacity: 0;
+  transform: translate(-50%, 10px) scale(0.85);
+  pointer-events: none;
+  visibility: hidden;
   transition:
+    opacity var(--duration-normal) var(--ease-standard),
+    transform var(--duration-normal) var(--ease-decelerate),
+    visibility 0s linear var(--duration-normal),
     background-color var(--duration-fast) var(--ease-standard),
     color var(--duration-fast) var(--ease-standard),
-    transform var(--duration-fast) var(--ease-standard);
+    border-color var(--duration-fast) var(--ease-standard);
+
+  &.is-visible {
+    opacity: 1;
+    transform: translate(-50%, 0) scale(1);
+    pointer-events: auto;
+    visibility: visible;
+    // Reveal immediately on the way in; only the hide defers visibility.
+    transition-delay: 0s;
+  }
 
   &:hover {
     background: var(--color-surface-hover);
     color: var(--color-text-primary);
+    transform: translate(-50%, -1px) scale(1);
   }
 
   &:focus-visible {
     outline: none;
     border-color: var(--accent);
     box-shadow: 0 0 0 2px var(--color-focus-ring);
-  }
-
-  --icon-size: 18px;
-}
-
-@keyframes sidebar-scrolltop-in {
-  from {
-    opacity: 0;
-    transform: translate(-50%, 6px);
-  }
-  to {
-    opacity: 1;
-    transform: translate(-50%, 0);
   }
 }
 
