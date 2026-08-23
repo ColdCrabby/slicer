@@ -99,6 +99,13 @@ export class SchemaForm {
    */
   readonly value = input<Record<string, unknown>>({});
 
+  /**
+   * Optional allow-list of `x-group` names to display, in the given order.
+   * When set, only those accordion groups render (used to categorise settings
+   * by contract). Search always spans every group regardless of this filter.
+   */
+  readonly visibleGroups = input<readonly string[] | null>(null);
+
   /** Emitted whenever the user changes a single field. */
   readonly fieldChange = output<FieldChangeEvent>();
 
@@ -116,14 +123,25 @@ export class SchemaForm {
     setTimeout(() => this.searchInputRef()?.nativeElement.focus({ preventScroll: true }), 0);
   }
 
+  /** Every group parsed from the schema, unaffected by the visible filter. */
+  private readonly allGroups = computed<SchemaGroup[]>(() => parseSchema(this.schema()).groups);
+
+  /** Groups actually rendered in the accordion, honouring `visibleGroups`. */
   protected readonly groups = computed<SchemaGroup[]>(() => {
-    const { groups } = parseSchema(this.schema());
-    return groups;
+    const all = this.allGroups();
+    const visible = this.visibleGroups();
+    if (!visible) {
+      return all;
+    }
+    const order = new Map(visible.map((name, index) => [name, index]));
+    return all
+      .filter((group) => order.has(group.name))
+      .sort((a, b) => order.get(a.name)! - order.get(b.name)!);
   });
 
   /** All fields flattened with their group name, used to build the Fuse index. */
   private readonly flatFields = computed<FieldDefIndexed[]>(() =>
-    this.groups().flatMap((g) => g.fields.map((f) => ({ ...f, groupName: g.name }))),
+    this.allGroups().flatMap((g) => g.fields.map((f) => ({ ...f, groupName: g.name }))),
   );
 
   /**

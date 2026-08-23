@@ -1,3 +1,46 @@
 <section class="settings-panel">
-  <se-schema-form [schema]="schema" [value]="settings()" (fieldChange)="update($event)" />
+  <div class="preset-bar">
+    <nexus-segmented
+      class="contract-tabs"
+      label="Setting category"
+      [options]="contractTabs"
+      [value]="activeContract()"
+      (valueChange)="setContract($event)"
+    />
+
+    <div class="preset-row">
+      <nexus-icon [name]="activeContractMeta().icon" class="preset-icon" aria-hidden="true" />
+
+      @if (presetOptions().length > 0) {
+        <nexus-select
+          class="preset-select"
+          [options]="presetOptions()"
+          [value]="activePresetId()"
+          [placeholder]="'Select ' + activeContractMeta().label.toLowerCase()"
+          (valueChange)="selectPreset($event)"
+        />
+      } @else {
+        <a class="preset-empty" [routerLink]="activeContractMeta().managePath">
+          Add a {{ activeContractMeta().label.toLowerCase() }} preset…
+        </a>
+      }
+
+      <a
+        nexusIconButton
+        class="preset-manage"
+        [routerLink]="activeContractMeta().managePath"
+        [attr.aria-label]="'Manage ' + activeContractMeta().label + ' presets'"
+      >
+        <nexus-icon name="settings" />
+      </a>
+    </div>
+  </div>
+
+  <se-schema-form
+    class="settings-form"
+    [schema]="schema"
+    [value]="settings()"
+    [visibleGroups]="activeGroups()"
+    (fieldChange)="update($event)"
+  />
 </section>
