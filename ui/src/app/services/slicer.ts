@@ -36,19 +36,6 @@ export const PHASE_LABELS: Record<string, string> = {
 };
 
 /**
- * Human-readable label for a pipeline phase, guaranteeing no internal
- * identifier ever reaches the UI: known phases use {@link PHASE_LABELS}, and any
- * unmapped name (e.g. a newly added backend phase) is de-slugged to Title Case
- * — `wall_generation` → `Wall generation` — instead of shown verbatim.
- */
-export function phaseLabel(phase: string): string {
-  const known = PHASE_LABELS[phase];
-  if (known) return known;
-  const words = phase.replace(/[_-]+/g, ' ').trim();
-  return words.charAt(0).toUpperCase() + words.slice(1);
-}
-
-/**
  * Format a millisecond duration as a compact, human-friendly string:
  * `940` → `0.9 s`, `2519` → `2.5 s`, `72500` → `1 m 12 s`.
  */
