@@ -20,15 +20,47 @@ export const PHASE_LABELS: Record<string, string> = {
   mesh_load: 'Loading mesh',
   mesh_analysis: 'Analysing mesh',
   slicing: 'Slicing layers',
-  arachne_walls: 'Generating walls',
+  wall_generation: 'Generating walls',
   infill_region_snapshot: 'Mapping infill regions',
   wall_restrictions: 'Applying wall restrictions',
   interior_regions: 'Computing interior regions',
+  wall_top_detect: 'Detecting top surfaces',
+  wall_apply: 'Refining walls',
   surfaces: 'Generating surfaces',
+  'Overhang Perimeter Classification': 'Classifying overhangs',
   infill: 'Generating infill',
+  'Path Ordering': 'Ordering travel paths',
+  'Flow Compensation': 'Compensating flow',
   gcode_generation: 'Generating G-code',
   file_write: 'Writing output',
 };
+
+/**
+ * Human-readable label for a pipeline phase, guaranteeing no internal
+ * identifier ever reaches the UI: known phases use {@link PHASE_LABELS}, and any
+ * unmapped name (e.g. a newly added backend phase) is de-slugged to Title Case
+ * — `wall_generation` → `Wall generation` — instead of shown verbatim.
+ */
+export function phaseLabel(phase: string): string {
+  const known = PHASE_LABELS[phase];
+  if (known) return known;
+  const words = phase.replace(/[_-]+/g, ' ').trim();
+  return words.charAt(0).toUpperCase() + words.slice(1);
+}
+
+/**
+ * Format a millisecond duration as a compact, human-friendly string:
+ * `940` → `0.9 s`, `2519` → `2.5 s`, `72500` → `1 m 12 s`.
+ */
+export function formatDuration(ms: number): string {
+  if (!Number.isFinite(ms) || ms < 0) return '';
+  if (ms < 1000) return `${Math.round(ms)} ms`;
+  const totalSeconds = ms / 1000;
+  if (totalSeconds < 60) return `${totalSeconds.toFixed(1)} s`;
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = Math.round(totalSeconds - minutes * 60);
+  return `${minutes} m ${seconds} s`;
+}
 
 /**
  * Proportional weights per phase derived from typical Benchy timings.
@@ -38,7 +70,7 @@ const PHASE_WEIGHTS: Record<string, number> = {
   mesh_load: 6,
   mesh_analysis: 1,
   slicing: 46,
-  arachne_walls: 11,
+  wall_generation: 11,
   infill_region_snapshot: 4,
   wall_restrictions: 7,
   interior_regions: 4,
@@ -190,6 +222,17 @@ export class Slicer {
     }
 
     return Math.min(99, Math.round((completedWeight / PHASE_TOTAL_WEIGHT) * 100));
+  });
+
+  /**
+   * Total wall-clock time of the last completed slice, in milliseconds, taken
+   * from the outer `total` phase span. `null` until the real span is known — a
+   * `0` is treated as unknown because the cloud runtime emits a `0` placeholder
+   * on `SliceComplete` just before the real `total` phase-end arrives.
+   */
+  readonly totalElapsedMs = computed<number | null>(() => {
+    const total = this.phaseTimings().find((t) => t.phase === 'total');
+    return total?.elapsedMs && total.elapsedMs > 0 ? total.elapsedMs : null;
   });
 
   constructor() {

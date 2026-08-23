@@ -1,6 +1,6 @@
 import { ChangeDetectionStrategy, Component, computed, inject } from '@angular/core';
 import { GcodePreview } from '../../services/gcode-preview';
-import { PHASE_LABELS, Slicer } from '../../services/slicer';
+import { formatDuration, phaseLabel, Slicer } from '../../services/slicer';
 import { Icon } from '../../shared/icon/icon';
 import { TooltipDirective } from '../../shared/tooltip/tooltip.directive';
 
@@ -85,12 +85,14 @@ export class SliceControl {
     if (s === 'uploading') return 'Uploading model…';
     if (s === 'slicing') {
       const phase = this.slicer.currentPhase();
-      return phase ? (PHASE_LABELS[phase] ?? phase) : 'Preparing…';
+      return phase ? phaseLabel(phase) : 'Preparing…';
     }
     if (this.isStale()) return 'Scene changed — re-slice to update';
     if (s === 'done') {
       const n = this.preview.layerCount();
-      return n > 0 ? `Sliced · ${n} layers` : 'Slice complete';
+      const elapsed = this.slicer.totalElapsedMs();
+      const time = elapsed != null ? ` · ${formatDuration(elapsed)}` : '';
+      return n > 0 ? `Sliced · ${n} layers${time}` : `Slice complete${time}`;
     }
     return this.slicer.selectedFile() ? 'Ready to slice' : 'Add a model to begin';
   });
