@@ -24,17 +24,39 @@
   pointer-events: none;
 }
 
-// The arrow is a rotated square; `FloatingService`/`floating-core` place it on
-// the static side and offset it along the cross axis. Colour + border are
-// inherited from the panel via CSS variables the consumer sets.
+// The arrow is a rotated square placed half-over the panel edge by
+// `floating-core` (on the side opposite the placement). To avoid a double
+// line, only its two *outer* edges are bordered — the two panel-facing edges
+// stay borderless so the arrow fill continues the panel surface seamlessly.
 .nexus-floating-arrow {
   position: absolute;
   width: 8px;
   height: 8px;
   transform: rotate(45deg);
   background: var(--nexus-floating-arrow-bg, var(--color-surface));
-  border: 1px solid var(--nexus-floating-arrow-border, var(--color-border));
-  z-index: -1;
+}
+
+// `data-placement` is the panel's side relative to its reference; the arrow
+// points the opposite way, so the visible (outer) edges are the two that face
+// away from the panel body.
+.nexus-floating[data-placement^='top'] .nexus-floating-arrow {
+  border-right: 1px solid var(--nexus-floating-arrow-border, var(--color-border));
+  border-bottom: 1px solid var(--nexus-floating-arrow-border, var(--color-border));
+}
+
+.nexus-floating[data-placement^='bottom'] .nexus-floating-arrow {
+  border-left: 1px solid var(--nexus-floating-arrow-border, var(--color-border));
+  border-top: 1px solid var(--nexus-floating-arrow-border, var(--color-border));
+}
+
+.nexus-floating[data-placement^='left'] .nexus-floating-arrow {
+  border-top: 1px solid var(--nexus-floating-arrow-border, var(--color-border));
+  border-right: 1px solid var(--nexus-floating-arrow-border, var(--color-border));
+}
+
+.nexus-floating[data-placement^='right'] .nexus-floating-arrow {
+  border-bottom: 1px solid var(--nexus-floating-arrow-border, var(--color-border));
+  border-left: 1px solid var(--nexus-floating-arrow-border, var(--color-border));
 }
 
 // `size` middleware writes a `max-height` on the host; this lets the single

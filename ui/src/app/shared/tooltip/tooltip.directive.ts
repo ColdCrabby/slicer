@@ -196,7 +196,7 @@ export class TooltipDirective {
         : 'nexus-tooltip-floating',
       options: isBlock
         ? { placement: 'right-start', offset: 8, padding: 8, size: true }
-        : { placement: 'top', offset: 6, padding: 8 },
+        : { placement: 'bottom', offset: 6, padding: 8 },
       originElement: persistent ? this.elementRef.nativeElement : undefined,
       onOutsidePointer: persistent ? dismiss : undefined,
       onEscape: persistent ? dismiss : undefined,
