@@ -14,11 +14,23 @@
 </button>
 
 <div class="sidebar-panel">
-  <div class="sidebar-content">
+  <div class="sidebar-content" #scrollContainer (scroll)="onContentScroll($event)">
     <div class="sidebar-content-inner">
       <ng-content />
     </div>
   </div>
+
+  <button
+    class="sidebar-scrolltop"
+    [class.is-visible]="showScrollTop()"
+    type="button"
+    aria-label="Scroll to top"
+    [attr.tabindex]="showScrollTop() ? 0 : -1"
+    [attr.aria-hidden]="!showScrollTop()"
+    (click)="scrollToTop()"
+  >
+    <nexus-icon name="nav-arrow-up" aria-hidden="true" />
+  </button>
 
   <div
     class="resize-handle"

@@ -64,7 +64,7 @@ export class EnumSelect implements FieldWidget {
   protected readonly options = computed<SelectOption[]>(() =>
     (this.field().enumOptions ?? []).map((o) => ({
       value: o.value,
-      label: o.value,
+      label: o.label,
       description: o.description,
     })),
   );

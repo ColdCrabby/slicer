@@ -1,5 +1,7 @@
 export interface EnumOption {
   value: string;
+  /** Human-friendly label for the value; falls back to the raw value. */
+  label: string;
   description?: string;
 }
 

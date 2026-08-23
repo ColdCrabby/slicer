@@ -1,7 +1,36 @@
 import { Injectable, computed, inject, signal } from '@angular/core';
-import init, { SceneHandle, type RenderBuffer } from '../../generated/scene-wasm/scene_engine';
+import init, {
+  SceneHandle,
+  appInfo as wasmAppInfo,
+  changelogEntries as wasmChangelogEntries,
+  changelogMarkdown as wasmChangelogMarkdown,
+  type RenderBuffer,
+} from '../../generated/scene-wasm/scene_engine';
 import type { SlicingParams } from '../../generated/slicer-engine-ws-client-message-v1';
 import { Logger } from './logger';
+
+/**
+ * Build-time version snapshot exposed by the WASM bundle. Mirrors the Rust
+ * `crate::version::AppInfo` struct.
+ */
+export interface AppInfo {
+  version: string;
+  git_describe: string;
+  git_sha: string;
+  build_date: string;
+  cargo_version: string;
+  is_release: boolean;
+}
+
+/**
+ * One parsed changelog section. Mirrors the Rust
+ * `crate::version::ChangelogEntry` struct.
+ */
+export interface ChangelogEntry {
+  version: string;
+  date: string | null;
+  body: string;
+}
 
 /**
  * JS-side mirror of the Rust `SceneObjectJs` snapshot.
@@ -198,6 +227,27 @@ export class SceneEngine {
   /** Remove every object from the scene, keeping the current bed. */
   async clear(): Promise<void> {
     await this.resetWithBed(this.snapshotSignal().bed);
+  }
+
+  /**
+   * Build-time version metadata baked into the WASM bundle — the true running
+   * version (a release semver or `"development"`), plus git/build details.
+   */
+  async appInfo(): Promise<AppInfo> {
+    await this.ready();
+    return wasmAppInfo() as AppInfo;
+  }
+
+  /** The embedded changelog as raw Keep a Changelog markdown. */
+  async changelogMarkdown(): Promise<string> {
+    await this.ready();
+    return wasmChangelogMarkdown();
+  }
+
+  /** The embedded changelog parsed into ordered `{ version, date, body }` entries. */
+  async changelogEntries(): Promise<ChangelogEntry[]> {
+    await this.ready();
+    return wasmChangelogEntries() as ChangelogEntry[];
   }
 
   /**

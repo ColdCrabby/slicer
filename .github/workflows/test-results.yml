@@ -1,0 +1,44 @@
+name: Test Results
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main, develop ]
+
+env:
+  CARGO_TERM_COLOR: always
+
+permissions:
+  contents: read
+  checks: write
+  pull-requests: write
+
+jobs:
+  test:
+    name: Run tests and report results
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Install cargo-nextest
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-nextest
+
+      - name: Run tests
+        run: cargo nextest run --profile ci --all-features
+        continue-on-error: true
+
+      - name: Publish test results
+        uses: dorny/test-reporter@v1
+        if: ${{ !cancelled() }}
+        with:
+          name: Rust Tests
+          path: target/nextest/ci/junit.xml
+          reporter: java-junit
+          fail-on-error: true

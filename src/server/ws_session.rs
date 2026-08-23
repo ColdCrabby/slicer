@@ -143,7 +143,7 @@ async fn handle_ws_session(
 
     // Announce server version on connect
     let hello = ServerMessage::Connected {
-        version: env!("CARGO_PKG_VERSION").to_string(),
+        version: crate::version::VERSION.to_string(),
     };
     if send_msg(&mut session, &hello).await.is_err() {
         logger.log_warn("[WS] Failed to send Connected message, closing session");

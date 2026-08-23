@@ -4,6 +4,7 @@ import {
   Component,
   DestroyRef,
   ElementRef,
+  afterRenderEffect,
   computed,
   inject,
   input,
@@ -99,16 +100,61 @@ export class SchemaForm {
    */
   readonly value = input<Record<string, unknown>>({});
 
+  /**
+   * Optional allow-list of `x-group` names to display, in the given order.
+   * When set, only those accordion groups render (used to categorise settings
+   * by contract). Search always spans every group regardless of this filter.
+   */
+  readonly visibleGroups = input<readonly string[] | null>(null);
+
+  /**
+   * Optional map of group name → icon name. When a group has an entry its
+   * accordion header shows that icon, giving each collapsible section a visual
+   * anchor. Groups without an entry simply render without an icon.
+   */
+  readonly groupIcons = input<Record<string, string>>({});
+
   /** Emitted whenever the user changes a single field. */
   readonly fieldChange = output<FieldChangeEvent>();
 
   private readonly searchInputRef = viewChild<ElementRef<HTMLInputElement>>('searchInput');
+  private readonly searchBarRef = viewChild<ElementRef<HTMLElement>>('searchBar');
+  private readonly hostEl = inject<ElementRef<HTMLElement>>(ElementRef);
 
   protected readonly searchQuery = signal('');
 
   constructor() {
     this.keyboardShortcuts.schemaFormRef = this;
     inject(DestroyRef).onDestroy(() => (this.keyboardShortcuts.schemaFormRef = null));
+
+    // Keep --schema-form-search-h in sync with the sticky search bar's height so
+    // the sticky group headers can pin directly beneath it regardless of its
+    // rendered size (font/spacing token changes, wrapping, etc.).
+    let obs: ResizeObserver | null = null;
+    afterRenderEffect({
+      read: (onCleanup) => {
+        const el = this.searchBarRef()?.nativeElement;
+        obs?.disconnect();
+        obs = null;
+        if (!el) return;
+
+        obs = new ResizeObserver(() => {
+          // offsetHeight includes padding + border (the search bar has top
+          // padding); contentRect would under-measure and tuck headers behind.
+          const h = el.offsetHeight;
+          this.hostEl.nativeElement.style.setProperty(
+            '--schema-form-search-h',
+            `${Math.round(h)}px`,
+          );
+        });
+        obs.observe(el);
+
+        onCleanup(() => {
+          obs?.disconnect();
+          obs = null;
+        });
+      },
+    });
   }
 
   focusSearch(): void {
@@ -116,14 +162,25 @@ export class SchemaForm {
     setTimeout(() => this.searchInputRef()?.nativeElement.focus({ preventScroll: true }), 0);
   }
 
+  /** Every group parsed from the schema, unaffected by the visible filter. */
+  private readonly allGroups = computed<SchemaGroup[]>(() => parseSchema(this.schema()).groups);
+
+  /** Groups actually rendered in the accordion, honouring `visibleGroups`. */
   protected readonly groups = computed<SchemaGroup[]>(() => {
-    const { groups } = parseSchema(this.schema());
-    return groups;
+    const all = this.allGroups();
+    const visible = this.visibleGroups();
+    if (!visible) {
+      return all;
+    }
+    const order = new Map(visible.map((name, index) => [name, index]));
+    return all
+      .filter((group) => order.has(group.name))
+      .sort((a, b) => order.get(a.name)! - order.get(b.name)!);
   });
 
   /** All fields flattened with their group name, used to build the Fuse index. */
   private readonly flatFields = computed<FieldDefIndexed[]>(() =>
-    this.groups().flatMap((g) => g.fields.map((f) => ({ ...f, groupName: g.name }))),
+    this.allGroups().flatMap((g) => g.fields.map((f) => ({ ...f, groupName: g.name }))),
   );
 
   /**

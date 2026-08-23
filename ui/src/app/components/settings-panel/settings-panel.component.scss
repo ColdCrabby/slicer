@@ -1,2 +1,51 @@
 .settings-panel {
+  display: flex;
+  flex-direction: column;
+}
+
+// Contract tabs + active-preset selector. Aligns with the schema-form search
+// field's horizontal padding so the sidebar reads as one continuous column.
+// The bottom padding gives the dropdown's 2px focus ring room to breathe so it
+// isn't clipped by the sticky search bar that follows.
+.preset-bar {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-sm);
+  padding: var(--spacing-sm) var(--spacing-sm) var(--spacing-sm);
+}
+
+.contract-tabs {
+  width: 100%;
+}
+
+.preset-row {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-xs);
+}
+
+.preset-select {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+// Empty state stand-in that doubles as a shortcut into the manage page.
+.preset-empty {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-xs);
+  font-size: 12px;
+  color: var(--color-text-tertiary);
+  text-decoration: none;
+  --icon-size: 16px;
+
+  &:hover {
+    color: var(--accent);
+  }
+}
+
+.preset-manage {
+  flex: none;
 }

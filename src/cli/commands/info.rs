@@ -22,6 +22,10 @@ pub struct InfoCommand {
 struct InfoResult {
     name: &'static str,
     version: &'static str,
+    git_describe: &'static str,
+    git_sha: &'static str,
+    build_date: &'static str,
+    is_release: bool,
     edition: &'static str,
     features: Option<&'static str>,
 }
@@ -32,9 +36,14 @@ impl EmitPayload for InfoResult {
     }
 
     fn display_human(&self) -> String {
+        let channel = if self.is_release {
+            "release"
+        } else {
+            "development"
+        };
         let mut s = format!(
-            "Slicer Engine\n  Version: {}\n  Edition: {}",
-            self.version, self.edition
+            "Slicer Engine\n  Version: {}\n  Channel: {}\n  Build:   {} ({})\n  Commit:  {}\n  Edition: {}",
+            self.version, channel, self.git_describe, self.build_date, self.git_sha, self.edition
         );
         if let Some(f) = self.features {
             s.push_str(&format!("\n  Features: {}", f));
@@ -46,6 +55,10 @@ impl EmitPayload for InfoResult {
         json!({
             "name": self.name,
             "version": self.version,
+            "git_describe": self.git_describe,
+            "git_sha": self.git_sha,
+            "build_date": self.build_date,
+            "is_release": self.is_release,
             "edition": self.edition,
             "features": self.features,
         })
@@ -64,7 +77,11 @@ impl InfoCommand {
 
         let result = InfoResult {
             name: "slicer-engine",
-            version: env!("CARGO_PKG_VERSION"),
+            version: crate::version::VERSION,
+            git_describe: crate::version::GIT_DESCRIBE,
+            git_sha: crate::version::GIT_SHA,
+            build_date: crate::version::BUILD_DATE,
+            is_release: crate::version::is_release(),
             edition: "2021",
             features: if self.verbose {
                 Some("clipper2-based polygon clipping")
@@ -96,6 +113,10 @@ mod tests {
         let r = InfoResult {
             name: "slicer-engine",
             version: "0.1.0",
+            git_describe: "v0.1.0",
+            git_sha: "abc1234",
+            build_date: "2026-01-01",
+            is_release: true,
             edition: "2021",
             features: None,
         };
@@ -107,12 +128,18 @@ mod tests {
         let r = InfoResult {
             name: "slicer-engine",
             version: "0.1.0",
+            git_describe: "v0.1.0",
+            git_sha: "abc1234",
+            build_date: "2026-01-01",
+            is_release: true,
             edition: "2021",
             features: None,
         };
         let s = r.display_human();
         assert!(s.contains("Slicer Engine"));
         assert!(s.contains("0.1.0"));
+        assert!(s.contains("Commit:"));
+        assert!(s.contains("abc1234"));
         assert!(!s.contains("Features"));
     }
 
@@ -121,6 +148,10 @@ mod tests {
         let r = InfoResult {
             name: "slicer-engine",
             version: "0.1.0",
+            git_describe: "v0.1.0",
+            git_sha: "abc1234",
+            build_date: "2026-01-01",
+            is_release: true,
             edition: "2021",
             features: Some("clipper2-based polygon clipping"),
         };
@@ -132,12 +163,17 @@ mod tests {
         let r = InfoResult {
             name: "slicer-engine",
             version: "0.1.0",
+            git_describe: "v0.1.0",
+            git_sha: "abc1234",
+            build_date: "2026-01-01",
+            is_release: true,
             edition: "2021",
             features: None,
         };
         let v = r.to_json();
         assert_eq!(v["name"], "slicer-engine");
         assert_eq!(v["version"], "0.1.0");
+        assert_eq!(v["git_sha"], "abc1234");
         assert_eq!(v["edition"], "2021");
     }
 }
