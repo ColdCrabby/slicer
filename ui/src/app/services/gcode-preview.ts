@@ -497,9 +497,9 @@ export interface GcodeHoverInfo {
   speed: number;
   /** Normalized position on the active gradient, `[0, 1]`. */
   t: number;
-  /** Viewer-host-relative pointer position (px) for tooltip placement. */
-  x: number;
-  y: number;
+  /** Viewport pointer position (px) used as the floating anchor. */
+  clientX: number;
+  clientY: number;
 }
 
 // ── Service ───────────────────────────────────────────────────────────────────

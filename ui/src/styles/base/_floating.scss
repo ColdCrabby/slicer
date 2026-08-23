@@ -1,0 +1,73 @@
+/// Floating UI host + arrow — the shared surface for tooltips, dropdowns and
+/// popovers positioned by `FloatingService`.
+/// @group base
+
+@use '../theme/tokens' as *;
+
+// Body-level portal container. Sits above app chrome, never intercepts pointer
+// events itself — only interactive panels opt back in (see `.nexus-floating`).
+.nexus-floating-container {
+  position: fixed;
+  inset: 0;
+  z-index: $z-index-tooltip;
+  pointer-events: none;
+}
+
+// One positioned panel. Floating UI writes `position`, `top/left` and a
+// `transform`; we only own stacking and interactivity here.
+.nexus-floating {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: max-content;
+  max-width: 100vw;
+  pointer-events: none;
+}
+
+// The arrow is a rotated square placed half-over the panel edge by
+// `floating-core` (on the side opposite the placement). To avoid a double
+// line, only its two *outer* edges are bordered — the two panel-facing edges
+// stay borderless so the arrow fill continues the panel surface seamlessly.
+.nexus-floating-arrow {
+  position: absolute;
+  width: 8px;
+  height: 8px;
+  transform: rotate(45deg);
+  background: var(--nexus-floating-arrow-bg, var(--color-surface));
+}
+
+// `data-placement` is the panel's side relative to its reference; the arrow
+// points the opposite way, so the visible (outer) edges are the two that face
+// away from the panel body.
+.nexus-floating[data-placement^='top'] .nexus-floating-arrow {
+  border-right: 1px solid var(--nexus-floating-arrow-border, var(--color-border));
+  border-bottom: 1px solid var(--nexus-floating-arrow-border, var(--color-border));
+}
+
+.nexus-floating[data-placement^='bottom'] .nexus-floating-arrow {
+  border-left: 1px solid var(--nexus-floating-arrow-border, var(--color-border));
+  border-top: 1px solid var(--nexus-floating-arrow-border, var(--color-border));
+}
+
+.nexus-floating[data-placement^='left'] .nexus-floating-arrow {
+  border-top: 1px solid var(--nexus-floating-arrow-border, var(--color-border));
+  border-right: 1px solid var(--nexus-floating-arrow-border, var(--color-border));
+}
+
+.nexus-floating[data-placement^='right'] .nexus-floating-arrow {
+  border-bottom: 1px solid var(--nexus-floating-arrow-border, var(--color-border));
+  border-left: 1px solid var(--nexus-floating-arrow-border, var(--color-border));
+}
+
+// `size` middleware writes a `max-height` on the host; this lets the single
+// scrollable child (e.g. a listbox `.popover`) fill and scroll within it
+// instead of overflowing the viewport.
+.nexus-floating--fit {
+  display: flex;
+  flex-direction: column;
+}
+
+.nexus-floating--fit > * {
+  min-height: 0;
+  max-height: 100%;
+}

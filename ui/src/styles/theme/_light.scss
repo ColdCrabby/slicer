@@ -27,6 +27,16 @@ html {
   --color-border-light: #edecea;
   --color-border-lighter: #f3f3f1;
 
+  // Tooltips — an inverted dark graphite chip so the panel reads with strong
+  // contrast against the near-white UI, with a crisp border + real shadow.
+  --tooltip-bg: #26282d;
+  --tooltip-border: #3a3d44;
+  --tooltip-text: #f6f7f9;
+  --tooltip-text-muted: #c4c8d0;
+  --tooltip-shortcut-bg: rgba(255, 255, 255, 0.13);
+  --tooltip-shortcut-text: #f0f1f4;
+  --tooltip-shadow: 0 8px 24px rgba(24, 24, 27, 0.18), 0 2px 6px rgba(24, 24, 27, 0.12);
+
   // ── Accent (molten amber) — single source of truth ──
   // Overridable at runtime: setting `--accent` recomputes every shade below.
   --accent: #e0730f;
