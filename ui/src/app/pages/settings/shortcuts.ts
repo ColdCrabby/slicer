@@ -30,6 +30,8 @@ export class ShortcutsSettings {
     const pick = (ids: string[]): ShortcutRow[] =>
       ids.map((id) => byId.get(id)).filter((row): row is ShortcutRow => row !== undefined);
 
+    const alt = this.shortcuts.isMac ? '⌥' : 'Alt';
+
     return [
       { title: 'Editing', rows: pick(['undo', 'redo', 'redo-alt', 'auto-orient']) },
       {
@@ -42,6 +44,32 @@ export class ShortcutsSettings {
         ]),
       },
       { title: 'View', rows: pick(['toggle-gravity', 'toggle-view-mode', 'toggle-projection']) },
+      {
+        title: 'Number fields',
+        rows: [
+          {
+            actionId: 'numfield-scroll',
+            displayText: 'Scroll',
+            displayDescription:
+              'Adjust a number field by one step (hover in the transform panel, or focus elsewhere)',
+          },
+          {
+            actionId: 'numfield-arrows',
+            displayText: '↑ / ↓',
+            displayDescription: 'Step a focused number field up or down',
+          },
+          {
+            actionId: 'numfield-coarse',
+            displayText: 'Shift',
+            displayDescription: 'Hold while scrolling or stepping for a coarse ×10 step',
+          },
+          {
+            actionId: 'numfield-fine',
+            displayText: alt,
+            displayDescription: 'Hold while scrolling or stepping for a fine ×0.1 step',
+          },
+        ],
+      },
       {
         title: 'G-code viewer',
         rows: pick([

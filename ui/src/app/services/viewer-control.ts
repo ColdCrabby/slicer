@@ -138,6 +138,14 @@ export class ViewerControl {
   readonly objectMode = signal<ObjectMode>('translate');
 
   /**
+   * WASM scene-engine ids of the currently selected objects, published by
+   * the viewer as the user clicks meshes. Shared here (rather than kept
+   * private to the viewer) so the toolbar's transform sub-settings panel can
+   * read which object is selected and drive absolute-value edits against it.
+   */
+  readonly selectedObjectIds = signal<readonly bigint[]>([]);
+
+  /**
    * Monotonically increasing counter that is bumped every time the user
    * asks the viewer to reset its camera. The viewer reacts to changes of
    * this signal — the value itself is irrelevant.

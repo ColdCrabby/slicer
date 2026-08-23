@@ -5,6 +5,7 @@ import { Card } from '../../../components/card/card';
 import { SettingsPanel } from '../../../components/settings-panel/settings-panel';
 import { SliceSegmentBar } from '../../../components/slice-segment-bar/slice-segment-bar';
 import { TaskProgressBar } from '../../../components/task-progress-bar/task-progress-bar';
+import { TransformPanel } from '../../../components/transform-panel/transform-panel';
 import { ViewportCube } from '../../../components/viewport-cube/viewport-cube';
 import { Sidebar } from '../../sidebar/sidebar';
 import { SliceControl } from '../../slice-control/slice-control';
@@ -17,6 +18,7 @@ import { SliceControl } from '../../slice-control/slice-control';
     SliceSegmentBar,
     TaskProgressBar,
     ThreeDViewToolbar,
+    TransformPanel,
     ViewportCube,
     RouterOutlet,
     SettingsPanel,
