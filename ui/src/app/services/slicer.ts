@@ -11,6 +11,7 @@ import { createRuntime } from '../runtime/factory/runtime-factory';
 import { RuntimeEvent } from '../runtime/ports/runtime-events';
 import { NotificationService } from './notifications';
 import { SceneEngine } from './scene-engine';
+import { AppVersion } from './app-version';
 import { ConnectionStatus, SlicerConnection } from './slicer-connection';
 import { SlicerFile, UploadResponse } from './slicer-file';
 
@@ -91,6 +92,7 @@ export class Slicer {
   private readonly slicerFile = inject(SlicerFile);
   private readonly notifications = inject(NotificationService);
   private readonly sceneEngine = inject(SceneEngine);
+  private readonly appVersion = inject(AppVersion);
   private readonly runtimeMode = this.resolveRuntimeMode();
   private readonly runtime = createRuntime({
     mode: this.runtimeMode,
@@ -299,6 +301,7 @@ export class Slicer {
       case 'connected':
         this.runtimeConnected.set(true);
         this.outputLog.update((log) => [...log, `[runtime] Connected (${event.mode})`]);
+        void this.appVersion.reportServerVersion(event.serverVersion);
         break;
       case 'log':
         this.outputLog.update((log) => [...log, `[${event.level}] ${event.message}`]);

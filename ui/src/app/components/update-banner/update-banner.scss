@@ -1,0 +1,96 @@
+:host {
+  position: fixed;
+  bottom: calc(var(--spacing-lg, 16px) + env(safe-area-inset-bottom, 0));
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 2100;
+  pointer-events: none;
+  width: min(440px, calc(100vw - 32px));
+}
+
+.update-banner {
+  pointer-events: auto;
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm, 8px);
+  padding: 10px 10px 10px 14px;
+  border-radius: var(--radius-lg, 8px);
+  background: var(--color-surface);
+  border: 1px solid var(--accent-border);
+  box-shadow: var(--shadow-md);
+}
+
+.update-banner__icon {
+  flex-shrink: 0;
+  color: var(--accent);
+  --icon-size: 18px;
+}
+
+.update-banner__content {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.update-banner__title {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--color-text-primary, #f5f6f8);
+  line-height: 1.35;
+}
+
+.update-banner__message {
+  font-size: 12px;
+  color: var(--color-text-tertiary, #888c98);
+  line-height: 1.4;
+}
+
+.update-banner__action {
+  flex-shrink: 0;
+  appearance: none;
+  cursor: pointer;
+  padding: 6px 14px;
+  border-radius: var(--radius-md, 6px);
+  border: none;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--accent-contrast);
+  background: var(--accent);
+  transition:
+    background var(--transition-fast, 0.15s ease),
+    outline-color var(--transition-fast, 0.15s ease);
+  outline: 2px solid transparent;
+  outline-offset: 2px;
+
+  &:hover {
+    background: var(--accent-hover);
+  }
+
+  &:active {
+    background: var(--accent-active);
+  }
+
+  &:focus-visible {
+    outline-color: var(--accent);
+  }
+}
+
+// ── Enter animation (opacity + slide up, never blur) ──────────────────────────
+
+.banner-enter {
+  animation: banner-enter-kf 280ms cubic-bezier(0, 0, 0.2, 1) both;
+}
+
+@keyframes banner-enter-kf {
+  from {
+    opacity: 0;
+    transform: translateY(12px) scale(0.98);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}

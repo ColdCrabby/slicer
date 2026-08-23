@@ -67,6 +67,9 @@ jobs:
       - name: Build web-slicer WASM
         env:
           CXX_wasm32_unknown_unknown: ${{ github.workspace }}/tools/wasm32-clang++.js
+          # Pin the baked-in commit SHA so it exactly matches version.json below,
+          # letting a stale tab detect that a newer build has been deployed.
+          SLICER_GIT_SHA: ${{ github.sha }}
         run: pnpm run hydrate:web-slicer
 
       - name: Build UI (web-slicer)
@@ -90,6 +93,12 @@ jobs:
 
           cp -R docs/.vitepress/dist/. _site/docs/
           touch _site/.nojekyll
+
+          # Deploy manifest for the UI's out-of-date detector. Its SHA matches
+          # the one baked into the WASM bundle (SLICER_GIT_SHA above); a stale
+          # tab re-fetches this file and prompts a reload when they differ.
+          printf '{"sha":"%s","version":"%s"}\n' \
+            "${{ github.sha }}" "${{ github.ref_name }}" > _site/version.json
 
           # SPA fallback: GitHub Pages returns 404.html (with the request URL
           # preserved) for any path it can't resolve to a static file. Serving
