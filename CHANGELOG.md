@@ -29,6 +29,11 @@ these notes and acknowledges contributors. `scripts/gen-changelog-draft.sh` and
   shows a "What's New" dialog the first time it runs after an upgrade.
 - **GitHub Releases pipeline** — tagging `vX.Y.Z` builds all targets and publishes
   a GitHub Release whose notes are taken from this file (see [RELEASING.md](RELEASING.md)).
+- **Commit revision in build info** — every build now records the exact short
+  commit hash it was compiled from. The Settings → General page shows it beneath
+  the version, the CLI `info` command reports a `Commit:` line (and `git_sha` in
+  JSON), so a deployed build can be pinned to a precise source revision instead
+  of just an official version number.
 
 ## [0.1.0] - 2026-08-23
 

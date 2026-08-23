@@ -12,6 +12,11 @@
   width: min(320px, 60%);
 }
 
+.settings-value-mono {
+  font-family: var(--font-family-mono);
+  letter-spacing: 0.02em;
+}
+
 .fov-slider {
   flex: 1;
   min-width: 0;

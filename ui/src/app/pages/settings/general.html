@@ -21,8 +21,17 @@
         <span class="settings-field-title">Version</span>
         <span class="settings-field-desc">Current build of the app.</span>
       </span>
-      <span class="settings-value">{{ version }}</span>
+      <span class="settings-value">{{ version() }}</span>
     </div>
+    @if (commit()) {
+      <div class="settings-field">
+        <span class="settings-field-label">
+          <span class="settings-field-title">Commit</span>
+          <span class="settings-field-desc">Exact source revision this build was compiled from.</span>
+        </span>
+        <span class="settings-value settings-value-mono">{{ commit() }}</span>
+      </div>
+    }
   </div>
 
   <h2 class="subhead">Controls</h2>

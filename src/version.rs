@@ -26,6 +26,11 @@ pub const VERSION: &str = env!("SLICER_VERSION");
 /// hash) captured at build time, for diagnostics and bug reports.
 pub const GIT_DESCRIBE: &str = env!("SLICER_GIT_DESCRIBE");
 
+/// Short commit hash (`git rev-parse --short HEAD`) the binary was built from.
+/// Unlike [`GIT_DESCRIBE`], this is always a bare hash — even on an exact tag —
+/// so deployed builds can pin down the precise source commit.
+pub const GIT_SHA: &str = env!("SLICER_GIT_SHA");
+
 /// ISO-8601 date the build's source commit was authored (or build time when git
 /// is unavailable).
 pub const BUILD_DATE: &str = env!("SLICER_BUILD_DATE");
@@ -58,6 +63,8 @@ pub struct AppInfo {
     pub version: String,
     /// Raw `git describe` output.
     pub git_describe: String,
+    /// Short commit hash the build was cut from (always present).
+    pub git_sha: String,
     /// ISO-8601 build/commit date.
     pub build_date: String,
     /// `Cargo.toml` package version.
@@ -71,6 +78,7 @@ pub fn app_info() -> AppInfo {
     AppInfo {
         version: VERSION.to_string(),
         git_describe: GIT_DESCRIBE.to_string(),
+        git_sha: GIT_SHA.to_string(),
         build_date: BUILD_DATE.to_string(),
         cargo_version: CARGO_VERSION.to_string(),
         is_release: is_release(),
