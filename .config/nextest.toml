@@ -1,0 +1,12 @@
+# Nextest configuration
+# https://nexte.st/docs/configuration/
+
+[profile.ci]
+# Don't stop at the first failure so the JUnit report captures every test.
+fail-fast = false
+retries = 0
+
+[profile.ci.junit]
+# Emit JUnit XML so CI can report test results back to GitHub.
+# Written to target/nextest/ci/junit.xml.
+path = "junit.xml"

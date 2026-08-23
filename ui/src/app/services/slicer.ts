@@ -20,15 +20,34 @@ export const PHASE_LABELS: Record<string, string> = {
   mesh_load: 'Loading mesh',
   mesh_analysis: 'Analysing mesh',
   slicing: 'Slicing layers',
-  arachne_walls: 'Generating walls',
+  wall_generation: 'Generating walls',
   infill_region_snapshot: 'Mapping infill regions',
   wall_restrictions: 'Applying wall restrictions',
   interior_regions: 'Computing interior regions',
+  wall_top_detect: 'Detecting top surfaces',
+  wall_apply: 'Refining walls',
   surfaces: 'Generating surfaces',
+  'Overhang Perimeter Classification': 'Classifying overhangs',
   infill: 'Generating infill',
+  'Path Ordering': 'Ordering travel paths',
+  'Flow Compensation': 'Compensating flow',
   gcode_generation: 'Generating G-code',
   file_write: 'Writing output',
 };
+
+/**
+ * Format a millisecond duration as a compact, human-friendly string:
+ * `940` → `0.9 s`, `2519` → `2.5 s`, `72500` → `1 m 12 s`.
+ */
+export function formatDuration(ms: number): string {
+  if (!Number.isFinite(ms) || ms < 0) return '';
+  if (ms < 1000) return `${Math.round(ms)} ms`;
+  const totalSeconds = ms / 1000;
+  if (totalSeconds < 60) return `${totalSeconds.toFixed(1)} s`;
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = Math.round(totalSeconds - minutes * 60);
+  return `${minutes} m ${seconds} s`;
+}
 
 /**
  * Proportional weights per phase derived from typical Benchy timings.
@@ -38,7 +57,7 @@ const PHASE_WEIGHTS: Record<string, number> = {
   mesh_load: 6,
   mesh_analysis: 1,
   slicing: 46,
-  arachne_walls: 11,
+  wall_generation: 11,
   infill_region_snapshot: 4,
   wall_restrictions: 7,
   interior_regions: 4,
@@ -190,6 +209,29 @@ export class Slicer {
     }
 
     return Math.min(99, Math.round((completedWeight / PHASE_TOTAL_WEIGHT) * 100));
+  });
+
+  /**
+   * Wall-clock duration (ms) of the last completed slice, measured client-side
+   * from job start to completion. This is the runtime-agnostic source of truth:
+   * the web/wasm and tauri runtimes do not emit a `total` phase span, so the
+   * per-phase timings alone cannot yield an overall time.
+   */
+  readonly lastSliceElapsedMs = signal<number | null>(null);
+
+  /** Timestamp (performance.now) when the active slice job began. */
+  private sliceStartedAt: number | null = null;
+
+  /**
+   * Total time of the last completed slice, in milliseconds. Prefers the
+   * backend `total` phase span when the runtime reports one (the cloud/server
+   * path, which excludes client/network overhead) and otherwise falls back to
+   * the client-measured {@link lastSliceElapsedMs}.
+   */
+  readonly totalElapsedMs = computed<number | null>(() => {
+    const total = this.phaseTimings().find((t) => t.phase === 'total');
+    if (total?.elapsedMs && total.elapsedMs > 0) return total.elapsedMs;
+    return this.lastSliceElapsedMs();
   });
 
   constructor() {
@@ -397,6 +439,8 @@ export class Slicer {
     // Reset phase state for fresh run
     this.phaseTimings.set([]);
     this.currentPhase.set(null);
+    this.lastSliceElapsedMs.set(null);
+    this.sliceStartedAt = null;
     this.setDownloadUrl(null);
 
     // Set up operation abort controller for timeout handling
@@ -408,6 +452,7 @@ export class Slicer {
       const scene = await this.ensureRuntimeReadyForSlice(model);
 
       this.status.set('slicing');
+      this.sliceStartedAt = performance.now();
       const sliceId = this.createSliceId();
       this.activeSliceId = sliceId;
       this.outputLog.update((log) => [...log, `Starting slice job (${this.runtimeMode})…`]);
@@ -458,6 +503,9 @@ export class Slicer {
         this.setDownloadUrl(result.downloadUrl);
       }
 
+      if (this.sliceStartedAt != null) {
+        this.lastSliceElapsedMs.set(Math.round(performance.now() - this.sliceStartedAt));
+      }
       this.status.set('done');
       this.currentPhase.set(null);
       this.notifications.success(
