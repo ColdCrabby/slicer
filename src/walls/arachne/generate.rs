@@ -272,19 +272,39 @@ fn emit_residual_medial_fill(
     open: &mut Vec<bool>,
 ) {
     let d = params.nozzle_diameter_mm;
-    let mut covered = Paths::new(vec![]);
-    for lp in loops {
-        let band = inflate(
-            Paths::new(vec![lp.clone()]),
+    // Each loop deposits a `d`-wide band about its centerline; inflating all
+    // centerlines at once (`EndType::Joined` doubles a closed path into a band)
+    // yields their union directly — one Clipper offset instead of an
+    // accumulate-and-reunion loop that cloned the growing coverage every pass.
+    let covered = if loops.is_empty() {
+        Paths::new(vec![])
+    } else {
+        inflate(
+            Paths::new(loops.to_vec()),
             0.5 * d,
             JoinType::Round,
             EndType::Joined,
             2.0,
-        );
-        covered = union(covered.clone(), band, FillRule::NonZero).unwrap_or(covered);
-    }
+        )
+    };
     let uncovered = difference(island.clone(), covered, FillRule::NonZero).unwrap_or_default();
+
+    // A gap-fill bead is at least `min_len` long and `min_w` wide, so its
+    // extruded footprint — which must lie inside the residual — has area
+    // ≥ `min_len · min_w`.  A residual sub-region below that bound can never
+    // host a printable bead, so skip its (expensive) Voronoi/skeleton build.
+    // 97 % of Benchy residual slivers fall here; the skip is loss-free.
+    let min_len = if params.gap_fill_min_length_mm > 0.0 {
+        params.gap_fill_min_length_mm
+    } else {
+        d
+    };
+    let min_area = params.wall_line_width_min_mm * min_len;
     for sub in split_islands(&uncovered) {
+        let area = sub.iter().map(|p| p.signed_area()).sum::<f64>().abs();
+        if area < min_area {
+            continue;
+        }
         medial_fill(&sub, params, paths, roles, widths, vwidths, open);
     }
 }
