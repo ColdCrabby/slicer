@@ -13,11 +13,8 @@ import {
 import { PROFILE_SOURCE_LABELS } from '../../models/profile-source';
 import { CloudCatalog } from '../../services/catalog/cloud-catalog';
 import { ActiveSelection } from '../../services/profiles/active-selection';
-import {
-  matchesAllLabels,
-  toggledFilter,
-  toggledLabelIds,
-} from '../../services/profiles/label-filtering';
+import { matchesAllLabels, toggledLabelIds } from '../../services/profiles/label-filtering';
+import { LabelFilterStore } from '../../services/profiles/label-filter-store';
 import { LabelsStore } from '../../services/profiles/labels-store';
 import { PrintProfilesStore } from '../../services/profiles/print-profiles-store';
 import { Icon } from '../../shared/icon/icon';
@@ -65,6 +62,7 @@ export class ProfilesSettings {
   protected readonly store = inject(PrintProfilesStore);
   protected readonly active = inject(ActiveSelection);
   protected readonly labels = inject(LabelsStore);
+  private readonly filterStore = inject(LabelFilterStore);
   private readonly catalog = inject(CloudCatalog);
 
   protected readonly sourceLabels = PROFILE_SOURCE_LABELS;
@@ -77,7 +75,7 @@ export class ProfilesSettings {
   protected readonly catalogOpen = signal(false);
   protected readonly editingId = signal<string | null>(null);
   protected readonly confirmDeleteId = signal<string | null>(null);
-  protected readonly labelFilter = signal<string[]>([]);
+  protected readonly labelFilter = this.filterStore.selectedIds;
 
   /** Print profiles narrowed by the active label filter. */
   protected readonly visibleItems = computed(() =>
@@ -89,11 +87,11 @@ export class ProfilesSettings {
   }
 
   protected toggleFilter(id: string): void {
-    this.labelFilter.update((f) => toggledFilter(f, id));
+    this.filterStore.toggle(id);
   }
 
   protected clearFilter(): void {
-    this.labelFilter.set([]);
+    this.filterStore.clear();
   }
 
   protected toggleLabel(id: string, labelId: string): void {

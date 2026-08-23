@@ -11,6 +11,8 @@ import { parseSchema } from '../../schema-form/models/schema-parser';
 import { FieldChangeEvent, SchemaForm } from '../../schema-form/schema-form';
 import { BrowserStorage } from '../../services/browser-storage';
 import { ActivePresets } from '../../services/profiles/active-presets';
+import { LabelFilterStore } from '../../services/profiles/label-filter-store';
+import { LabelFilterBar } from '../labels/label-filter-bar';
 import { Slicer } from '../../services/slicer';
 import { Icon } from '../../shared/icon/icon';
 import { IconButton } from '../../ui/icon-button/icon-button';
@@ -38,7 +40,7 @@ const CONTRACT_STORAGE_KEY = 'settings-panel.contract';
 @Component({
   selector: 'nexus-settings-panel',
   standalone: true,
-  imports: [SchemaForm, Segmented, Select, Icon, IconButton, RouterLink],
+  imports: [SchemaForm, Segmented, Select, Icon, IconButton, RouterLink, LabelFilterBar],
   templateUrl: './settings-panel.component.html',
   styleUrl: './settings-panel.component.scss',
 })
@@ -46,6 +48,7 @@ export class SettingsPanel {
   private readonly slicer = inject(Slicer);
   private readonly storage = inject(BrowserStorage);
   protected readonly presets = inject(ActivePresets);
+  protected readonly labelFilter = inject(LabelFilterStore);
 
   readonly settings = this.slicer.settings;
   readonly schema = SLICING_PARAMS_SCHEMA;

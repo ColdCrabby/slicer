@@ -1,11 +1,12 @@
-import type { ProfileMeta } from '../../models/profile-source';
-
 /**
  * Whether a profile matches an active label filter. Uses AND semantics — the
  * profile must carry *every* selected label — matching how issue trackers
  * narrow a list as more labels are added. An empty filter matches everything.
  */
-export function matchesAllLabels(item: ProfileMeta, selectedIds: readonly string[]): boolean {
+export function matchesAllLabels(
+  item: { labelIds?: string[] },
+  selectedIds: readonly string[],
+): boolean {
   if (selectedIds.length === 0) {
     return true;
   }
