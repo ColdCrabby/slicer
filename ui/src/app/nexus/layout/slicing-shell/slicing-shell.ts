@@ -17,6 +17,7 @@ import { TransformPanel } from '../../../components/transform-panel/transform-pa
 import { ViewportCube } from '../../../components/viewport-cube/viewport-cube';
 import { PrintArea } from '../../../services/print-area';
 import { ActiveSelection } from '../../../services/profiles/active-selection';
+import { SceneEngine } from '../../../services/scene-engine';
 import { Slicer } from '../../../services/slicer';
 import { Sidebar } from '../../sidebar/sidebar';
 import { SliceControl } from '../../slice-control/slice-control';
@@ -42,6 +43,7 @@ export class NexusSlicingShell {
   private readonly toolbarRef = viewChild(ThreeDViewToolbar, { read: ElementRef<HTMLElement> });
   private readonly activeSelection = inject(ActiveSelection);
   private readonly printArea = inject(PrintArea);
+  private readonly sceneEngine = inject(SceneEngine);
   private readonly slicer = inject(Slicer);
 
   constructor() {
@@ -50,17 +52,21 @@ export class NexusSlicingShell {
     // Settings never boots the slicer runtime — this shell is only ever
     // constructed inside the slice workspace.
     //
-    // Only `bedConfig()` / `sliceParams()` are tracked dependencies. The writes
+    // Only `printAreaConfig()` / `sceneBedConfig()` / `sliceParams()` are tracked dependencies. The writes
     // run inside `untracked()` because `updateConfig` / `updateSettings` read
     // their own target signals (`{ ...current, ...patch }`); tracking those
     // reads would make the effect depend on the very signals it writes and loop
     // forever.
     effect(() => {
-      const bed = this.activeSelection.bedConfig();
+      const printAreaBed = this.activeSelection.printAreaConfig();
+      const sceneBed = this.activeSelection.sceneBedConfig();
       const params = this.activeSelection.sliceParams();
       untracked(() => {
-        if (bed) {
-          this.printArea.updateConfig(bed);
+        if (printAreaBed) {
+          this.printArea.updateConfig(printAreaBed);
+        }
+        if (sceneBed) {
+          this.sceneEngine.setBed(sceneBed);
         }
         if (params) {
           this.slicer.updateSettings(params);

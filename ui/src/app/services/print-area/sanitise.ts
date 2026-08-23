@@ -17,7 +17,9 @@ export function ensureFinite(value: number, fallback: number): number {
  * value is missing or invalid.
  */
 export function sanitisePrintAreaConfig(next: PrintAreaConfig): PrintAreaConfig {
+  const bedShape = next.bedShape === 'circular' ? 'circular' : 'rectangular';
   return {
+    bedShape,
     printableAreaWidth: ensurePositive(
       next.printableAreaWidth,
       DEFAULT_PRINT_AREA_CONFIG.printableAreaWidth,

@@ -1,7 +1,8 @@
 import { Injectable, computed, inject } from '@angular/core';
 import type { SlicingParams } from '../../../generated/slicer-engine-ws-client-message-v1';
 import { DEFAULT_SETTINGS } from '../../models/slice-settings.model';
-import { printerBedConfig } from '../../models/printer.model';
+import { printerBedConfig, printerSceneBedConfig } from '../../models/printer.model';
+import type { SceneBedSnapshot } from '../scene-engine';
 import { ActivePresets } from './active-presets';
 import { FilamentsStore } from './filaments-store';
 import { PrintProfilesStore } from './print-profiles-store';
@@ -39,9 +40,15 @@ export class ActiveSelection {
   readonly profile = computed(() => this.presets.activeProfile() ?? this.profiles.items()[0]!);
 
   /** Bed dimensions for the active printer, for {@link PrintArea}. */
-  readonly bedConfig = computed(() => {
+  readonly printAreaConfig = computed(() => {
     const printer = this.printer();
     return printer ? printerBedConfig(printer) : null;
+  });
+
+  /** Full bed config for the scene engine's bed-aware operations. */
+  readonly sceneBedConfig = computed<SceneBedSnapshot | null>(() => {
+    const printer = this.printer();
+    return printer ? printerSceneBedConfig(printer) : null;
   });
 
   /**

@@ -174,6 +174,24 @@ impl SceneHandle {
         })
     }
 
+    /// Update the bed configuration in-place (same JSON shape as `new`).
+    ///
+    /// This preserves all objects/transforms and only changes how bed-aware
+    /// operations (e.g. center/arrange) interpret the build volume.
+    #[wasm_bindgen(js_name = setBed)]
+    pub fn set_bed(&mut self, bed: JsValue) -> Result<(), JsValue> {
+        let bed_js: BedConfigJs = serde_wasm_bindgen::from_value(bed)
+            .map_err(|e| JsValue::from_str(&format!("invalid bed config: {}", e)))?;
+        self.inner.bed = BedConfig {
+            width: bed_js.width,
+            depth: bed_js.depth,
+            height: bed_js.height,
+            origin_offset_x: bed_js.origin_offset_x,
+            origin_offset_y: bed_js.origin_offset_y,
+        };
+        Ok(())
+    }
+
     /// Add a mesh from raw bytes. `format` must be `"stl"`, `"obj"`, or `"3mf"`.
     /// Returns the assigned object id.
     #[wasm_bindgen(js_name = addMesh)]

@@ -67,6 +67,10 @@ export interface LocalSliceResult {
   layer_count: number;
 }
 
+type SceneHandleWithSetBed = SceneHandle & {
+  setBed: (bed: object) => void;
+};
+
 type SceneHandleWithWebSlicer = SceneHandle & {
   sliceGcode(params: SlicingParams): LocalSliceResult;
 };
@@ -150,6 +154,7 @@ export class SceneEngine {
   private readonly log = inject(Logger).scope('SceneEngine');
   private handle: SceneHandle | null = null;
   private initPromise: Promise<void> | null = null;
+  private pendingBed: SceneBedSnapshot | null = null;
 
   private readonly snapshotSignal = signal<SceneSnapshot>({ objects: [], bed: DEFAULT_BED });
   /**
@@ -183,7 +188,9 @@ export class SceneEngine {
    */
   ready(bed: SceneBedSnapshot = DEFAULT_BED): Promise<void> {
     if (!this.initPromise) {
-      this.initPromise = this.bootstrap(bed).catch((err) => {
+      const initialBed = this.pendingBed ?? bed;
+      this.pendingBed = null;
+      this.initPromise = this.bootstrap(initialBed).catch((err) => {
         this.log.error('WASM initialization failed', err);
         // Clear the cached promise so a retry is possible
         this.initPromise = null;
@@ -221,6 +228,30 @@ export class SceneEngine {
     this.log.info('resetWithBed', { bed });
     this.disposeHandle();
     this.handle = new SceneHandle(bed as unknown as object);
+    this.refreshSnapshot();
+  }
+
+  /**
+   * Update bed dimensions/origin in-place while preserving scene objects.
+   *
+   * Uses the WASM `setBed` API when available. On older generated bundles
+   * that do not expose `setBed` yet, this call is safely ignored.
+   */
+  setBed(bed: SceneBedSnapshot): void {
+    if (!this.handle) {
+      this.pendingBed = bed;
+      return;
+    }
+
+    const handle = this.handle as unknown as Partial<SceneHandleWithSetBed>;
+    if (typeof handle.setBed !== 'function') {
+      this.log.warn('setBed not available on current WASM bundle; bed update skipped', { bed });
+      return;
+    }
+
+    const stop = this.log.time('setBed');
+    handle.setBed(bed as unknown as object);
+    stop(bed as unknown as Record<string, unknown>);
     this.refreshSnapshot();
   }
 

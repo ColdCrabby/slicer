@@ -2,6 +2,7 @@ import type {
   PrinterProfile,
   PrinterConnection,
 } from '../../generated/slicer-engine-ws-client-message-v1';
+import type { SceneBedSnapshot } from '../services/scene-engine';
 import { uid } from './id';
 
 /**
@@ -102,13 +103,44 @@ export const DEFAULT_PRINTER: PrinterProfile = makePrinter({
 
 export const DEFAULT_PRINTERS: PrinterProfile[] = [DEFAULT_PRINTER];
 
+/** Shared bed dimensions derived from a printer profile. */
+function resolvedBedFootprint(printer: PrinterProfile): { width: number; depth: number } {
+  return {
+    width: printer.bed_width,
+    depth: printer.bed_shape === 'circular' ? printer.bed_width : printer.bed_depth,
+  };
+}
+
 /** Printable-area dimensions for the {@link PrintArea} config. */
 export function printerBedConfig(printer: PrinterProfile): {
+  bedShape: 'rectangular' | 'circular';
   printableAreaWidth: number;
   printableAreaHeight: number;
+  movableAreaX: number;
+  movableAreaY: number;
 } {
+  const footprint = resolvedBedFootprint(printer);
+  const movableAreaX = printer.origin_at_center ? -footprint.width / 2 : 0;
+  const movableAreaY = printer.origin_at_center ? -footprint.depth / 2 : 0;
   return {
-    printableAreaWidth: printer.bed_width,
-    printableAreaHeight: printer.bed_shape === 'circular' ? printer.bed_width : printer.bed_depth,
+    bedShape: printer.bed_shape === 'circular' ? 'circular' : 'rectangular',
+    printableAreaWidth: footprint.width,
+    printableAreaHeight: footprint.depth,
+    movableAreaX,
+    movableAreaY,
+  };
+}
+
+/** Scene-engine bed config used by bed-aware ops (`CenterOnBed`, packing, etc). */
+export function printerSceneBedConfig(printer: PrinterProfile): SceneBedSnapshot {
+  const footprint = resolvedBedFootprint(printer);
+  const origin_offset_x = printer.origin_at_center ? -footprint.width / 2 : 0;
+  const origin_offset_y = printer.origin_at_center ? -footprint.depth / 2 : 0;
+  return {
+    width: footprint.width,
+    depth: footprint.depth,
+    height: printer.bed_height,
+    origin_offset_x,
+    origin_offset_y,
   };
 }
