@@ -119,6 +119,9 @@ pub struct BedConfigJs {
     pub height: f64,
     pub origin_offset_x: f64,
     pub origin_offset_y: f64,
+    /// `"rectangular"` (default) or `"circular"`.
+    #[serde(default)]
+    pub shape: crate::scene::bed::BedShape,
 }
 
 /// JS-friendly full snapshot.
@@ -143,6 +146,7 @@ impl From<&BedConfig> for BedConfigJs {
             height: b.height,
             origin_offset_x: b.origin_offset_x,
             origin_offset_y: b.origin_offset_y,
+            shape: b.shape,
         }
     }
 }
@@ -168,6 +172,7 @@ impl SceneHandle {
             height: bed_js.height,
             origin_offset_x: bed_js.origin_offset_x,
             origin_offset_y: bed_js.origin_offset_y,
+            shape: bed_js.shape,
         };
         Ok(SceneHandle {
             inner: SceneState::new(bed),
@@ -188,6 +193,7 @@ impl SceneHandle {
             height: bed_js.height,
             origin_offset_x: bed_js.origin_offset_x,
             origin_offset_y: bed_js.origin_offset_y,
+            shape: bed_js.shape,
         };
         Ok(())
     }

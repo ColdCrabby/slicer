@@ -142,5 +142,6 @@ export function printerSceneBedConfig(printer: PrinterProfile): SceneBedSnapshot
     height: printer.bed_height,
     origin_offset_x,
     origin_offset_y,
+    shape: printer.bed_shape === 'circular' ? 'circular' : 'rectangular',
   };
 }

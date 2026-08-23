@@ -273,6 +273,73 @@ impl Database {
         Ok(())
     }
 
+    // ── G-code cache ──────────────────────────────────────────────────────────
+
+    /// Look up a cached G-code slice by its content key.
+    ///
+    /// Returns `(file_path, file_size, layer_count)` when a row exists **and**
+    /// its file is still present on disk; a stale row (file deleted by cleanup)
+    /// is removed and treated as a miss so the caller re-slices.
+    pub async fn get_cached_gcode(&self, cache_key: &str) -> Result<Option<(PathBuf, u64, usize)>> {
+        let Some(model) = entities::gcode_cache::Entity::find_by_id(cache_key)
+            .one(&self.conn)
+            .await?
+        else {
+            return Ok(None);
+        };
+
+        let path = PathBuf::from(&model.file_path);
+        if !path.exists() {
+            // Evict the dangling entry so it doesn't shadow a fresh slice.
+            let _ = entities::gcode_cache::Entity::delete_by_id(cache_key)
+                .exec(&self.conn)
+                .await;
+            return Ok(None);
+        }
+
+        Ok(Some((
+            path,
+            model.file_size.max(0) as u64,
+            model.layer_count.max(0) as usize,
+        )))
+    }
+
+    /// Record (or replace) a cached G-code slice for `cache_key`.
+    pub async fn put_cached_gcode(
+        &self,
+        cache_key: &str,
+        file_path: impl AsRef<Path>,
+        file_size: u64,
+        layer_count: usize,
+    ) -> Result<()> {
+        use sea_orm::sea_query::OnConflict;
+
+        let now = Utc::now().to_rfc3339();
+        let model = entities::gcode_cache::ActiveModel {
+            cache_key: Set(cache_key.to_owned()),
+            file_path: Set(file_path.as_ref().to_string_lossy().to_string()),
+            file_size: Set(file_size as i64),
+            layer_count: Set(layer_count as i64),
+            created_at: Set(now),
+        };
+
+        entities::gcode_cache::Entity::insert(model)
+            .on_conflict(
+                OnConflict::column(entities::gcode_cache::Column::CacheKey)
+                    .update_columns([
+                        entities::gcode_cache::Column::FilePath,
+                        entities::gcode_cache::Column::FileSize,
+                        entities::gcode_cache::Column::LayerCount,
+                        entities::gcode_cache::Column::CreatedAt,
+                    ])
+                    .to_owned(),
+            )
+            .exec(&self.conn)
+            .await?;
+
+        Ok(())
+    }
+
     // ── Read helpers ──────────────────────────────────────────────────────────
 
     /// Retrieve a request session by its UUID, or `None` if not found.

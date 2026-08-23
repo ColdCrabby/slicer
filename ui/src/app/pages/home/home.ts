@@ -1,9 +1,12 @@
-import { Component, ViewChild, inject, signal } from '@angular/core';
-import type { ElementRef } from '@angular/core';
+import { Component, ViewChild, computed, effect, inject, signal } from '@angular/core';
+import type { ElementRef, OnDestroy } from '@angular/core';
 import { Router, RouterLink } from '@angular/router';
+import type { PrinterProfile } from '../../models/printer.model';
 import { ListHistory } from '../../components/list-history/list-history';
 import { GcodePreview } from '../../services/gcode-preview';
 import { NotificationService } from '../../services/notifications';
+import { PrinterConnectionService, type PrinterProbeState } from '../../services/printer-connection';
+import { PrintersStore } from '../../services/profiles/printers-store';
 import { SceneEngine } from '../../services/scene-engine';
 import { Slicer } from '../../services/slicer';
 import { ViewerControl } from '../../services/viewer-control';
@@ -12,12 +15,15 @@ import { Button } from '../../ui/button/button';
 import { EmptyState } from '../../ui/empty-state/empty-state';
 import { SectionHeader } from '../../ui/section-header/section-header';
 
-/** Placeholder machine shown until the real printer store lands (mock). */
-interface MockPrinter {
+interface DashboardPrinter {
   id: string;
   name: string;
   model: string;
-  status: 'ready' | 'offline';
+  /** Live connectivity state driving the status dot colour. */
+  state: PrinterProbeState;
+  statusLabel: string;
+  /** Longer detail shown as a tooltip. */
+  message?: string;
 }
 
 @Component({
@@ -27,13 +33,21 @@ interface MockPrinter {
   templateUrl: './home.component.html',
   styleUrl: './home.component.scss',
 })
-export class HomeDashboard {
+export class HomeDashboard implements OnDestroy {
   private readonly router = inject(Router);
+  private readonly printersStore = inject(PrintersStore);
+  private readonly printerConn = inject(PrinterConnectionService);
   private readonly slicer = inject(Slicer);
   private readonly sceneEngine = inject(SceneEngine);
   private readonly gcodePreview = inject(GcodePreview);
   private readonly viewerControl = inject(ViewerControl);
   private readonly notifications = inject(NotificationService);
+
+  /** Re-probe printers periodically so the dashboard reflects live status. */
+  private readonly pollTimer = setInterval(
+    () => this.printerConn.checkAll(this.printersStore.items()),
+    PrinterConnectionService.POLL_INTERVAL_MS,
+  );
 
   /** Canonical single-part 3DBenchy STL, served with permissive CORS by GitHub raw. */
   private static readonly BENCHY_URL =
@@ -50,11 +64,25 @@ export class HomeDashboard {
 
   @ViewChild('quickFileInput') private quickFileInput!: ElementRef<HTMLInputElement>;
 
-  // Mocked until the Printers store (Phase F) is built.
-  protected readonly printers: MockPrinter[] = [
-    { id: 'p1', name: 'Workshop MK4', model: 'Prusa MK4', status: 'ready' },
-    { id: 'p2', name: 'Garage Ender', model: 'Creality Ender 3', status: 'offline' },
-  ];
+  protected readonly printers = computed<DashboardPrinter[]>(() =>
+    this.printersStore.items().map((printer) => this.toDashboardPrinter(printer)),
+  );
+
+  constructor() {
+    // Probe printers whenever the set of configured printers changes, on first
+    // render, and again once the cloud server link comes up (so cloud-mode
+    // probes run server-side instead of falling back to a browser request).
+    effect(() => {
+      const printers = this.printersStore.items();
+      // Establish a reactive dependency on server connectivity.
+      this.printerConn.serverConnected();
+      this.printerConn.checkAll(printers);
+    });
+  }
+
+  ngOnDestroy(): void {
+    clearInterval(this.pollTimer);
+  }
 
   openModel(): void {
     this.quickFileInput.nativeElement.click();
@@ -166,5 +194,28 @@ export class HomeDashboard {
     } finally {
       this.benchyLoading.set(false);
     }
+  }
+
+  private toDashboardPrinter(printer: PrinterProfile): DashboardPrinter {
+    const connection = printer.connection;
+    const model = `${printer.vendor} ${printer.model}`.trim();
+    if (!connection || connection.kind === 'none') {
+      return {
+        id: printer.id,
+        name: printer.name,
+        model,
+        state: 'local',
+        statusLabel: 'Local profile',
+      };
+    }
+    const live = this.printerConn.statuses()[printer.id];
+    return {
+      id: printer.id,
+      name: printer.name,
+      model,
+      state: live?.state ?? 'unknown',
+      statusLabel: live?.label ?? 'Not checked',
+      message: live?.message,
+    };
   }
 }

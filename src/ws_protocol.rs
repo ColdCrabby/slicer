@@ -230,6 +230,34 @@ pub enum ClientMessage {
     /// Request the current scene snapshot. Server replies with
     /// [`ServerMessage::SceneState`].
     SceneSnapshot,
+    /// Probe a printer connection and report its live status.
+    ///
+    /// The server performs the HTTP request on the client's behalf so the
+    /// probe is **not subject to browser CORS** (Moonraker ships no permissive
+    /// CORS headers). `printer_id` is the UI's profile id, echoed back in the
+    /// [`ServerMessage::PrinterStatus`] reply so the browser can correlate the
+    /// response with the right card.
+    CheckPrinter {
+        printer_id: String,
+        connection: crate::profiles::PrinterConnection,
+    },
+    /// Upload the G-code previously sliced for `request_uuid` to a printer,
+    /// optionally starting the print. Replies with
+    /// [`ServerMessage::PrinterSendResult`].
+    SendToPrinter {
+        /// Workplate UUID whose sliced G-code should be sent.
+        request_uuid: String,
+        /// UI profile id, echoed back for correlation.
+        printer_id: String,
+        /// Target printer connection details.
+        connection: crate::profiles::PrinterConnection,
+        /// Filename to store on the printer (defaults to `<uuid>.gcode`).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        filename: Option<String>,
+        /// Start the print immediately after upload.
+        #[serde(default)]
+        start: bool,
+    },
 }
 
 /// Messages sent **from the server to the browser**.
@@ -270,6 +298,34 @@ pub enum ServerMessage {
     SceneState {
         objects: Vec<SceneObjectDto>,
         bed: BedConfigDto,
+    },
+    /// Live status of a printer connection (reply to
+    /// [`ClientMessage::CheckPrinter`]).
+    PrinterStatus {
+        /// Echoes the `printer_id` from the request.
+        printer_id: String,
+        /// The host answered a status query.
+        online: bool,
+        /// Firmware/host state (`ready`, `error`, `startup`, `shutdown`, …).
+        #[serde(skip_serializing_if = "Option::is_none")]
+        state: Option<String>,
+        /// Current job state (`standby`, `printing`, `paused`, `complete`, …).
+        #[serde(skip_serializing_if = "Option::is_none")]
+        print_state: Option<String>,
+        /// Print progress in `0.0..=1.0` when a job is active.
+        #[serde(skip_serializing_if = "Option::is_none")]
+        progress: Option<f32>,
+        /// Human-readable detail (an error reason when offline).
+        #[serde(skip_serializing_if = "Option::is_none")]
+        message: Option<String>,
+    },
+    /// Result of a [`ClientMessage::SendToPrinter`] request.
+    PrinterSendResult {
+        printer_id: String,
+        request_uuid: String,
+        ok: bool,
+        message: String,
+        started: bool,
     },
     /// A fatal error occurred during processing.
     Error { message: String },

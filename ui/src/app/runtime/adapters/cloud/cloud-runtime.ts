@@ -169,7 +169,7 @@ export class CloudRuntime implements RuntimePort {
       throw new Error('Missing uploaded file context. Upload a file before slicing.');
     }
 
-    const scene = this.buildSceneSnapshot(fileIds[0], request.scene);
+    const scene = this.buildSceneSnapshot(fileIds, request.scene);
     const payload: ClientMessage = request.profiles
       ? {
           type: 'Slice',
@@ -318,9 +318,12 @@ export class CloudRuntime implements RuntimePort {
   }
 
   private buildSceneSnapshot(
-    uploadFileId: string,
+    uploadFileIds: string[],
     requestScene?: RuntimeSceneSnapshot,
   ): SceneObjectSliceDto[] {
+    // Map the i-th scene object to the i-th uploaded file; extra instances
+    // (more objects than files) fall back to the first uploaded file.
+    const fileIdFor = (index: number): string => uploadFileIds[index] ?? uploadFileIds[0];
     const objects =
       requestScene?.objects ??
       this.sceneEngine.objects().map((object) => ({
@@ -335,7 +338,7 @@ export class CloudRuntime implements RuntimePort {
     if (objects.length === 0) {
       return [
         {
-          file_id: uploadFileId,
+          file_id: uploadFileIds[0],
           transform: {
             translation: [0, 0, 0],
             euler_xyz_deg: [0, 0, 0],
@@ -345,8 +348,8 @@ export class CloudRuntime implements RuntimePort {
       ];
     }
 
-    return objects.map((o) => ({
-      file_id: uploadFileId,
+    return objects.map((o, index) => ({
+      file_id: fileIdFor(index),
       transform: {
         translation: o.translation,
         euler_xyz_deg: o.euler_xyz_deg,

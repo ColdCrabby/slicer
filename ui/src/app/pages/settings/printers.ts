@@ -1,12 +1,17 @@
 import { ChangeDetectionStrategy, Component, computed, inject, signal } from '@angular/core';
 import {
+  PRINTER_CONNECTION_KINDS,
+  PRINTER_CONNECTION_LABELS,
   PRINTER_GCODE_FLAVORS,
   type BedShape,
+  type PrinterConnection,
+  type PrinterConnectionKind,
   type PrinterGcodeFlavor,
   type PrinterProfile,
 } from '../../models/printer.model';
 import { PROFILE_SOURCE_LABELS } from '../../models/profile-source';
 import { CloudCatalog } from '../../services/catalog/cloud-catalog';
+import { PrinterConnectionService } from '../../services/printer-connection';
 import { ActiveSelection } from '../../services/profiles/active-selection';
 import { matchesAllLabels, toggledLabelIds } from '../../services/profiles/label-filtering';
 import { paramNum, paramStr } from '../../models/params-access';
@@ -60,9 +65,14 @@ export class PrintersSettings {
   protected readonly labels = inject(LabelsStore);
   private readonly filterStore = inject(LabelFilterStore);
   private readonly catalog = inject(CloudCatalog);
+  private readonly printerConn = inject(PrinterConnectionService);
 
   protected readonly sourceLabels = PROFILE_SOURCE_LABELS;
   protected readonly flavorOptions = PRINTER_GCODE_FLAVORS;
+  protected readonly connectionKindOptions = PRINTER_CONNECTION_KINDS.map((kind) => ({
+    value: kind,
+    label: PRINTER_CONNECTION_LABELS[kind],
+  }));
   protected readonly bedShapeOptions = [
     { value: 'rectangular', label: 'Rectangular' },
     { value: 'circular', label: 'Circular (delta)' },
@@ -206,5 +216,54 @@ export class PrintersSettings {
 
   protected setFlavor(id: string, value: string): void {
     this.updateParams(id, { gcode_flavor: value as PrinterGcodeFlavor });
+  }
+
+  // ── Connection ────────────────────────────────────────────────────────────
+
+  /** Live connectivity status for a printer's card. */
+  protected connectionStatus(id: string) {
+    return this.printerConn.statusFor(id);
+  }
+
+  /** Probe the printer now and reflect the result in its status badge. */
+  protected testConnection(printer: PrinterProfile): void {
+    this.printerConn.check(printer);
+  }
+
+  protected setConnectionKind(id: string, value: string): void {
+    // Reset the stale `connected` flag; live status is owned by the probe.
+    this.updateConnection(id, { kind: value as PrinterConnectionKind, connected: false });
+    const printer = this.store.getById(id);
+    if (printer && value !== 'none') {
+      this.printerConn.check(printer);
+    }
+  }
+
+  protected setConnectionHost(id: string, event: Event): void {
+    const host = (event.target as HTMLInputElement).value.trim();
+    this.updateConnection(id, { host: host || undefined });
+  }
+
+  protected setConnectionPort(id: string, event: Event): void {
+    const raw = (event.target as HTMLInputElement).value.trim();
+    const port = raw ? Number.parseInt(raw, 10) : NaN;
+    this.updateConnection(id, {
+      port: Number.isFinite(port) && port > 0 ? port : undefined,
+    });
+  }
+
+  protected setConnectionApiKey(id: string, event: Event): void {
+    const key = (event.target as HTMLInputElement).value;
+    this.updateConnection(id, { api_key: key || undefined });
+  }
+
+  /** Merge a partial connection into a stored printer's `connection` block. */
+  private updateConnection(id: string, patch: Partial<PrinterConnection>): void {
+    const item = this.store.getById(id);
+    if (!item) {
+      return;
+    }
+    const current = item.connection ?? { kind: 'none', connected: false };
+    this.store.update(id, { connection: { ...current, ...patch } });
   }
 }

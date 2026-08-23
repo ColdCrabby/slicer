@@ -48,9 +48,17 @@ pub struct PrinterConnection {
     /// Transport kind.
     #[serde(default)]
     pub kind: PrinterConnectionKind,
-    /// Host / address, when applicable.
+    /// Host / address, when applicable. May include a scheme (`http://…`) and
+    /// an explicit `:port`; the transport fills in sensible defaults otherwise.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub host: Option<String>,
+    /// Explicit TCP port override. Ignored when `host` already carries a port.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub port: Option<u16>,
+    /// API key / token for authenticated hosts (Moonraker `X-Api-Key`,
+    /// OctoPrint `X-Api-Key`). Never surfaced back to the UI once stored.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub api_key: Option<String>,
     /// Whether the last connection attempt succeeded (UI-owned status).
     #[serde(default)]
     pub connected: bool,

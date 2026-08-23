@@ -1,1 +1,54 @@
 @use './settings';
+
+.conn-test {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2, 8px);
+}
+
+.conn-label {
+  font-size: var(--font-size-sm);
+  color: var(--color-text-secondary);
+}
+
+.conn-dot {
+  flex: none;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: var(--color-text-tertiary);
+  box-shadow: 0 0 0 3px var(--color-bg-tertiary);
+
+  &[data-state='online'] {
+    background: var(--color-success);
+    box-shadow: 0 0 0 3px var(--color-success-light);
+  }
+
+  &[data-state='checking'] {
+    background: var(--color-warning);
+    box-shadow: 0 0 0 3px var(--color-warning-light);
+    animation: conn-pulse 1.2s ease-in-out infinite;
+  }
+
+  &[data-state='cors'],
+  &[data-state='error'],
+  &[data-state='unsupported'] {
+    background: var(--color-warning);
+    box-shadow: 0 0 0 3px var(--color-warning-light);
+  }
+
+  &[data-state='offline'] {
+    background: var(--color-danger);
+    box-shadow: 0 0 0 3px var(--color-danger-light);
+  }
+}
+
+@keyframes conn-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.4;
+  }
+}

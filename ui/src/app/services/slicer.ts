@@ -119,6 +119,8 @@ export class Slicer {
    * page and the viewer page share a single source of truth.
    */
   readonly selectedFile = this.slicerFile.selectedFile;
+  /** Workplate UUID of the current scene (the key sliced G-code is stored under). */
+  readonly currentRequestUuid = this.slicerFile.requestUuid;
   readonly settings = signal<SlicingParams>(DEFAULT_SETTINGS);
   readonly status = signal<SlicerStatus>('idle');
   readonly runtimeConnected = signal(false);

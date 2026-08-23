@@ -545,6 +545,7 @@ mod tests {
             height: 100.0,
             origin_offset_x: 0.0,
             origin_offset_y: 0.0,
+            shape: crate::scene::bed::BedShape::Rectangular,
         }
     }
 
@@ -571,6 +572,35 @@ mod tests {
         let world = s.get(id).unwrap().world_aabb();
         assert!((world.center().x - 50.0).abs() < 1e-4);
         assert!((world.center().y - 50.0).abs() < 1e-4);
+    }
+
+    #[test]
+    fn center_on_bed_respects_nonzero_origin_offset() {
+        // Bed origin shifted (origin-at-center style): center must track the
+        // offset, not assume a (0,0)-anchored bed.
+        let bed = BedConfig {
+            width: 100.0,
+            depth: 100.0,
+            height: 100.0,
+            origin_offset_x: -50.0,
+            origin_offset_y: -50.0,
+            shape: crate::scene::bed::BedShape::Rectangular,
+        };
+        let mut s = SceneState::new(bed);
+        let id = s.add_mesh("c", cube_mesh([12.0, -7.0, 0.0], 10.0));
+        s.apply(SceneOp::CenterOnBed { id }).unwrap();
+        let world = s.get(id).unwrap().world_aabb();
+        // Bed center for this config is (0, 0).
+        assert!(
+            (world.center().x - 0.0).abs() < 1e-4,
+            "x={}",
+            world.center().x
+        );
+        assert!(
+            (world.center().y - 0.0).abs() < 1e-4,
+            "y={}",
+            world.center().y
+        );
     }
 
     #[test]

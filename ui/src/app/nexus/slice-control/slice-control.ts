@@ -1,5 +1,7 @@
 import { ChangeDetectionStrategy, Component, computed, inject } from '@angular/core';
 import { GcodePreview } from '../../services/gcode-preview';
+import { PrinterConnectionService } from '../../services/printer-connection';
+import { ActiveSelection } from '../../services/profiles/active-selection';
 import { formatDuration, PHASE_LABELS, Slicer } from '../../services/slicer';
 import { Icon } from '../../shared/icon/icon';
 import { TooltipDirective } from '../../shared/tooltip/tooltip.directive';
@@ -14,6 +16,8 @@ import { TooltipDirective } from '../../shared/tooltip/tooltip.directive';
 export class SliceControl {
   protected readonly slicer = inject(Slicer);
   private readonly preview = inject(GcodePreview);
+  private readonly active = inject(ActiveSelection);
+  private readonly printerConn = inject(PrinterConnectionService);
 
   /** Busy = a job is in flight (upload or slice). */
   protected readonly isActive = computed(() => {
@@ -103,5 +107,27 @@ export class SliceControl {
 
   download(): void {
     this.slicer.downloadGcode();
+  }
+
+  /** Whether the active printer has a network connection and a slice is ready. */
+  protected readonly canSendToPrinter = computed(() => {
+    const printer = this.active.printer();
+    const connected = !!printer?.connection && printer.connection.kind !== 'none';
+    return this.isDone() && connected && !!this.slicer.currentRequestUuid();
+  });
+
+  protected readonly sendTooltip = computed(() => {
+    const printer = this.active.printer();
+    return printer ? `Send G-code to ${printer.name}` : 'Send G-code to the printer';
+  });
+
+  /** Upload the sliced G-code to the active printer (does not auto-start). */
+  sendToPrinter(): void {
+    const printer = this.active.printer();
+    const uuid = this.slicer.currentRequestUuid();
+    if (!printer || !uuid) {
+      return;
+    }
+    this.printerConn.sendToPrinter(printer, uuid, { start: false });
   }
 }

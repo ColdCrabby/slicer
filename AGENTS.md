@@ -272,6 +272,47 @@ user-facing version number.
 - **Cross-compilation**: Requires appropriate target toolchains installed. CI verifies these work.
 - **`apply_single_wall_restrictions` is per-island**: Inner walls are stripped only from the specific island whose top-surface run ends on that layer; other islands on the same layer are untouched. The `pre_strip_infill_regions` snapshot is still taken before this step to guard against future regressions — keep that order.
 
+## Printer connectivity & G-code cache
+
+[src/printer/](src/printer/) is the **native-only** (`cfg(not(target_arch = "wasm32"))`)
+outbound transport to real printers. Today it implements **Moonraker/Klipper**
+(`check_status`, `send_gcode`) over `reqwest`.
+
+- **Prefer slicer → printer, not browser → printer.** Probes and uploads run
+  server-side (WS `CheckPrinter` / `SendToPrinter` → `PrinterStatus` /
+  `PrinterSendResult`) precisely so they are **not subject to CORS** — Moonraker
+  ships no permissive `Access-Control-*` headers, so a direct browser `fetch`
+  fails for most users. The wasm/`web` build has no native transport and falls
+  back to a browser `fetch`; the UI ([printer-connection.ts](ui/src/app/services/printer-connection.ts))
+  distinguishes *unreachable* from *reachable-but-CORS-blocked* (via a `no-cors`
+  follow-up probe) and surfaces a distinct `cors` status instead of a misleading
+  green/offline dot.
+- **`PrinterConnection` is the data model** ([src/profiles/printer.rs](src/profiles/printer.rs)):
+  `kind`, `host` (may embed scheme/`:port`), `port`, `api_key`, plus the legacy
+  UI-owned `connected` flag (no longer trusted for the status dot). Never put
+  `reqwest` in `profiles` — it compiles on wasm; keep the transport in the
+  native-gated `printer` module.
+- **Home-page status dot** reflects the *live* probe, not `connected`: neutral
+  (local/unknown), green (online), amber (checking/cors/error/unsupported), red
+  (offline).
+
+## G-code result cache — skip re-slicing identical scenes
+
+`handle_slice` ([src/server/ws_session.rs](src/server/ws_session.rs)) hashes the
+resolved `SlicingParams` + the ordered scene DTOs (file id + transform) +
+`crate::version::VERSION` into an FNV-1a key. A `gcode_cache` table
+(migration `m20250201_000002`) maps that key → the previously-generated
+`.gcode`. On a hit the pipeline is skipped entirely: the cached file is copied
+under the new workplate UUID and `SliceComplete` is emitted immediately. On a
+miss the fresh slice is stored. Notes:
+
+- **Object order is preserved in the key** (it affects the merged mesh, hence
+  the output). Do not sort.
+- **The engine version is part of the key**, so output changes across releases
+  bust the cache automatically.
+- Cache is best-effort: a dangling row (file cleaned up) is evicted lazily on
+  lookup and the scene re-sliced.
+
 ## Scene Engine — SSOT Contract
 
 [src/scene/](src/scene/) is the **single source of truth** for object placement, orientation, and transforms. Issue #51 introduced it; CLI, WS server, and the Angular UI (via WASM) all consume the same `SceneState::apply()` code path. Every CLI flag and every UI gesture must translate to a `SceneOp`.

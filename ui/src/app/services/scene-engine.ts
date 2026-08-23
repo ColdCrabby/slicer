@@ -55,6 +55,8 @@ export interface SceneBedSnapshot {
   height: number;
   origin_offset_x: number;
   origin_offset_y: number;
+  /** Bed shape; defaults to `'rectangular'` when omitted. */
+  shape?: 'rectangular' | 'circular';
 }
 
 export interface SceneSnapshot {
@@ -135,6 +137,7 @@ const DEFAULT_BED: SceneBedSnapshot = {
   height: 250,
   origin_offset_x: 0,
   origin_offset_y: 0,
+  shape: 'rectangular',
 };
 
 /**
@@ -245,8 +248,14 @@ export class SceneEngine {
 
     const handle = this.handle as unknown as Partial<SceneHandleWithSetBed>;
     if (typeof handle.setBed !== 'function') {
-      this.log.warn('setBed not available on current WASM bundle; bed update skipped', { bed });
-      return;
+      // A stale bundle silently ignoring bed updates would let center/arrange
+      // ops drift from the active printer. Surface it loudly instead.
+      this.log.error('setBed missing from WASM bundle — reload required for correct bed ops', {
+        bed,
+      });
+      throw new Error(
+        'Scene engine bundle is out of date (no setBed). Reload the app to apply the printer bed.',
+      );
     }
 
     const stop = this.log.time('setBed');

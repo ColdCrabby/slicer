@@ -66,7 +66,13 @@ export class NexusSlicingShell {
           this.printArea.updateConfig(printAreaBed);
         }
         if (sceneBed) {
-          this.sceneEngine.setBed(sceneBed);
+          // A stale bundle without setBed throws; don't let that block the
+          // print-area and settings writes below.
+          try {
+            this.sceneEngine.setBed(sceneBed);
+          } catch {
+            /* update-banner already prompts a reload */
+          }
         }
         if (params) {
           this.slicer.updateSettings(params);

@@ -18,6 +18,12 @@
       </button>
     }
 
+    @if (canSendToPrinter()) {
+      <button class="download-btn" type="button" [tooltip]="sendTooltip()" (click)="sendToPrinter()">
+        <nexus-icon name="printer"></nexus-icon>
+      </button>
+    }
+
     <button
       class="slice-btn"
       type="button"
