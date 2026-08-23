@@ -52,7 +52,7 @@
 .browse-btn {
   padding: 8px 20px;
   background: var(--color-primary);
-  color: #fff;
+  color: var(--color-primary-contrast, #fff);
   border-radius: var(--radius-md);
   font-size: 13px;
   font-weight: 600;

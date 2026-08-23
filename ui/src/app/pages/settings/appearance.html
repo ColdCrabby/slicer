@@ -1,0 +1,73 @@
+<div class="settings-page">
+  <nexus-section-header heading="Appearance" description="Theme and accent color" />
+
+  <div class="settings-card">
+    <div class="settings-field">
+      <span class="settings-field-label">
+        <span class="settings-field-title">Theme</span>
+        <span class="settings-field-desc">Light, dark, or follow the system.</span>
+      </span>
+      <div class="segmented" role="group" aria-label="Theme">
+        @for (mode of themeModes; track mode.value) {
+          <button
+            type="button"
+            class="segmented-btn"
+            [class.is-active]="themeMode() === mode.value"
+            (click)="setTheme(mode.value)"
+          >
+            {{ mode.label }}
+          </button>
+        }
+      </div>
+    </div>
+  </div>
+
+  <div class="accent-section">
+    <h2 class="subhead">Accent color</h2>
+
+    <div class="accent-sources">
+      <button
+        type="button"
+        class="source-chip"
+        [class.is-active]="accent.source() === 'brand'"
+        (click)="setAccentSource('brand')"
+      >
+        <span class="source-swatch source-swatch--brand"></span>
+        Brand
+      </button>
+
+      @if (accent.isDesktop) {
+        <button
+          type="button"
+          class="source-chip"
+          [class.is-active]="accent.source() === 'system'"
+          (click)="setAccentSource('system')"
+        >
+          <span class="source-swatch source-swatch--system"></span>
+          Match system
+        </button>
+      }
+    </div>
+
+    <p class="accent-hint">Or pick a preset to override the accent everywhere.</p>
+
+    <div class="preset-grid">
+      @for (preset of presets; track preset.hex) {
+        <button
+          type="button"
+          class="preset"
+          [class.is-active]="currentPreset() === preset.hex"
+          [style.--swatch]="preset.hex"
+          [attr.aria-label]="preset.name"
+          (click)="setPreset(preset.hex)"
+        >
+          <span class="preset-swatch"></span>
+          <span class="preset-name">{{ preset.name }}</span>
+          @if (currentPreset() === preset.hex) {
+            <nexus-icon name="check" class="preset-check" />
+          }
+        </button>
+      }
+    </div>
+  </div>
+</div>

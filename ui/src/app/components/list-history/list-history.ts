@@ -1,11 +1,14 @@
 import { Component, inject } from '@angular/core';
 import { Router } from '@angular/router';
-import { History } from '../../services/history';
 import { RuntimeHistorySession } from '../../runtime/domain/history-models';
+import { History } from '../../services/history';
+import { Icon } from '../../shared/icon/icon';
+import { Button } from '../../ui/button/button';
 
 @Component({
   selector: 'nexus-list-history',
   standalone: true,
+  imports: [Button, Icon],
   templateUrl: './list-history.component.html',
   styleUrl: './list-history.component.scss',
 })

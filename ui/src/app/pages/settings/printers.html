@@ -1,0 +1,68 @@
+<div class="settings-page">
+  <nexus-section-header heading="Printers" description="Machines you slice and print for">
+    <button nexusButton variant="primary" size="sm" (click)="add()">
+      <nexus-icon name="plus" />
+      Add printer
+    </button>
+  </nexus-section-header>
+
+  @if (store.items().length > 0) {
+    <div class="settings-list">
+      @for (printer of store.items(); track printer.id) {
+        <div class="printer">
+          <div class="printer-head">
+            <input
+              class="name-input"
+              [value]="printer.name"
+              (change)="rename(printer.id, $event)"
+              aria-label="Printer name"
+            />
+            <button
+              nexusIconButton
+              size="sm"
+              aria-label="Remove printer"
+              (click)="remove(printer.id)"
+            >
+              <nexus-icon name="trash" />
+            </button>
+          </div>
+
+          <div class="printer-meta">
+            <span class="meta"
+              ><span class="meta-k">Model</span>{{ printer.vendor }} {{ printer.model }}</span
+            >
+            <span class="meta">
+              <span class="meta-k">Bed</span>{{ printer.bedWidth }}×{{ printer.bedDepth }}×{{
+                printer.bedHeight
+              }}
+              mm
+            </span>
+            <span class="meta"
+              ><span class="meta-k">Nozzle</span>{{ printer.nozzleDiameter }} mm</span
+            >
+          </div>
+
+          <div class="printer-conn">
+            <span class="conn-status" [class.is-on]="printer.connection.connected">
+              <span class="dot"></span>
+              {{ connectionLabel(printer.connection.kind) }}
+            </span>
+            <button nexusButton variant="secondary" size="sm" disabled>
+              <nexus-icon name="link" />
+              Connect
+            </button>
+            <span class="soon">Uploads coming soon</span>
+          </div>
+        </div>
+      }
+    </div>
+  } @else {
+    <nexus-empty-state
+      icon="printer"
+      heading="No printers"
+      description="Add a printer to manage bed size, nozzle and connection."
+    >
+      <button nexusButton variant="primary" size="sm" (click)="add()">Add printer</button>
+    </nexus-empty-state>
+  }
+</div>

@@ -139,7 +139,9 @@
   padding-right: 16px !important;
 
   code {
-    font-family: ui-monospace, monospace;
+    font-family: var(--font-family-mono);
+    font-weight: var(--font-weight-mono-normal);
+    font-variation-settings: 'wght' var(--font-weight-mono-normal);
     font-size: 11px;
     color: var(--color-text-tertiary, #888c98);
     background: color-mix(in srgb, var(--color-border, #2e3640) 40%, transparent);
@@ -164,8 +166,9 @@
 kbd {
   padding: 2px 6px;
   font-size: 11px;
-  font-family: ui-monospace, monospace;
+  font-family: var(--font-family-mono);
   font-weight: 500;
+  font-variation-settings: 'wght' var(--font-weight-mono-emphasis);
   color: var(--color-text-primary, #f5f6f8);
   background: var(--color-bg-tertiary, #24272e);
   border: 1px solid var(--color-border, #2e3640);

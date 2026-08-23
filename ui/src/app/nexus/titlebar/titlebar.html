@@ -1,0 +1,26 @@
+<div class="tb-leading" data-tauri-drag-region>
+  <span class="tb-brand">
+    <nexus-logo [hideProductName]="false" />
+  </span>
+</div>
+
+<div class="tb-spacer" data-tauri-drag-region></div>
+
+@if (showWindowControls()) {
+  <div class="tb-controls">
+    <button nexusIconButton size="sm" aria-label="Minimize" (click)="minimize()">
+      <nexus-icon name="minus" />
+    </button>
+    <button
+      nexusIconButton
+      size="sm"
+      [attr.aria-label]="maximized() ? 'Restore' : 'Maximize'"
+      (click)="toggleMaximize()"
+    >
+      <nexus-icon [name]="maximized() ? 'collapse' : 'expand'" />
+    </button>
+    <button nexusIconButton size="sm" class="tb-close" aria-label="Close" (click)="close()">
+      <nexus-icon name="xmark" />
+    </button>
+  </div>
+}

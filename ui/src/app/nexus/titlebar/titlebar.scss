@@ -1,0 +1,45 @@
+:host {
+  display: flex;
+  align-items: center;
+  flex: none;
+  height: var(--titlebar-height);
+  padding: 0 var(--spacing-xs) 0 var(--spacing-md);
+  background: var(--color-bg-secondary);
+  border-bottom: 1px solid var(--color-border);
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+// macOS: reserve room for the native traffic lights (Overlay title-bar style).
+:host(.is-mac) {
+  padding-left: 78px;
+}
+
+.tb-leading {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  height: 100%;
+}
+
+.tb-brand {
+  display: inline-flex;
+  align-items: center;
+  --icon-size: 18px;
+}
+
+.tb-spacer {
+  flex: 1 1 auto;
+  height: 100%;
+}
+
+.tb-controls {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+button.tb-close:hover {
+  background: var(--color-danger);
+  color: #fff;
+}

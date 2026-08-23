@@ -1,0 +1,17 @@
+<div class="settings">
+  <aside class="settings-nav">
+    <h1 class="settings-title">Settings</h1>
+    <nav class="settings-nav-list">
+      @for (item of sections; track item.path) {
+        <a class="settings-nav-item" [routerLink]="item.path" routerLinkActive="is-active">
+          <nexus-icon [name]="item.icon" />
+          <span>{{ item.label }}</span>
+        </a>
+      }
+    </nav>
+  </aside>
+
+  <div class="settings-content">
+    <router-outlet />
+  </div>
+</div>

@@ -3,6 +3,7 @@
 /// @group styles
 
 // Theme variables
+@use './theme/root';
 @use './theme/light';
 @use './theme/dark';
 @use './theme/tokens' as *;

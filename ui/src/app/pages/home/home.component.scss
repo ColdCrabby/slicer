@@ -1,22 +1,196 @@
-.home-dashboard {
+.dashboard {
   width: 100%;
   height: 100%;
+  overflow-y: auto;
+}
+
+.dashboard-inner {
+  max-width: 880px;
+  margin: 0 auto;
+  padding: clamp(24px, 6vh, 64px) var(--spacing-xl) var(--spacing-2xl);
   display: flex;
   flex-direction: column;
-  align-items: center;
-  justify-content: center;
+  gap: var(--spacing-2xl);
 }
 
-.dashboard-container {
-  text-align: center;
-  max-width: 600px;
-  padding: 40px;
-  width: 100%;
-}
-
-.dashboard-actions {
+.dash-header {
   display: flex;
-  gap: 0.75rem;
-  justify-content: center;
-  margin-bottom: 2rem;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--spacing-lg);
+}
+
+.dash-title {
+  margin: 0;
+  font-size: var(--font-size-3xl);
+  font-weight: var(--font-weight-semibold);
+  letter-spacing: -0.02em;
+  color: var(--color-text-primary);
+}
+
+.dash-subtitle {
+  margin: 6px 0 0;
+  font-size: var(--font-size-lg);
+  color: var(--color-text-secondary);
+}
+
+// ── Hero action tiles ──
+.hero-actions {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: var(--spacing-lg);
+
+  @media (max-width: 640px) {
+    grid-template-columns: 1fr;
+  }
+}
+
+.action-tile {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-lg);
+  text-align: left;
+  padding: var(--spacing-xl);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  background: var(--color-surface);
+  color: var(--color-text-primary);
+  cursor: pointer;
+  text-decoration: none;
+  box-shadow: var(--shadow-xs);
+  transition:
+    transform var(--duration-fast) var(--ease-standard),
+    border-color var(--duration-fast) var(--ease-standard),
+    box-shadow var(--duration-fast) var(--ease-standard);
+
+  &:hover {
+    transform: translateY(-2px);
+    border-color: var(--accent-border);
+    box-shadow: var(--shadow-md);
+  }
+
+  &:focus-visible {
+    outline: none;
+    box-shadow: 0 0 0 3px var(--color-focus-ring-glow);
+  }
+}
+
+.action-tile--accent {
+  background: var(--accent-soft);
+  border-color: var(--accent-border);
+}
+
+.tile-icon {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 46px;
+  height: 46px;
+  border-radius: var(--radius-md);
+  background: var(--accent-soft);
+  color: var(--accent);
+  --icon-size: 26px;
+
+  .action-tile--accent & {
+    background: var(--accent);
+    color: var(--accent-contrast);
+  }
+}
+
+.tile-text {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+
+.tile-title {
+  font-size: var(--font-size-lg);
+  font-weight: var(--font-weight-semibold);
+}
+
+.tile-desc {
+  font-size: var(--font-size-sm);
+  color: var(--color-text-secondary);
+  line-height: 1.4;
+}
+
+.tile-arrow {
+  margin-left: auto;
+  flex: none;
+  color: var(--color-text-tertiary);
+  --icon-size: 20px;
+}
+
+// ── Sections ──
+.dash-section {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-md);
+}
+
+.printer-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: var(--spacing-md);
+
+  @media (max-width: 640px) {
+    grid-template-columns: 1fr;
+  }
+}
+
+.printer-card {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-md);
+  padding: var(--spacing-md) var(--spacing-lg);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+  text-decoration: none;
+  color: var(--color-text-primary);
+  transition:
+    border-color var(--duration-fast) var(--ease-standard),
+    background-color var(--duration-fast) var(--ease-standard);
+
+  &:hover {
+    border-color: var(--accent-border);
+    background: var(--color-surface-hover);
+  }
+}
+
+.printer-status {
+  flex: none;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: var(--color-success);
+  box-shadow: 0 0 0 3px var(--color-success-light);
+
+  &.is-offline {
+    background: var(--color-text-tertiary);
+    box-shadow: 0 0 0 3px var(--color-bg-tertiary);
+  }
+}
+
+.printer-info {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.printer-name {
+  font-size: var(--font-size-md);
+  font-weight: var(--font-weight-medium);
+}
+
+.printer-model {
+  font-size: var(--font-size-xs);
+  color: var(--color-text-tertiary);
+}
+
+.printer-state {
+  margin-left: auto;
+  font-size: var(--font-size-xs);
+  color: var(--color-text-secondary);
 }

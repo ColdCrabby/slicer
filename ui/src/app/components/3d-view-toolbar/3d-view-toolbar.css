@@ -33,21 +33,24 @@
 .reset-view-button {
   display: inline-grid;
   place-items: center;
-  width: 32px;
-  height: 32px;
+  width: 34px;
+  height: 34px;
   padding: 0;
-  border: 1px solid var(--color-border);
-  border-radius: 6px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-md);
   background: transparent;
-  color: inherit;
+  color: var(--color-text-secondary);
   cursor: pointer;
+  --icon-size: 18px;
   transition:
     background-color 160ms ease,
     border-color 160ms ease,
+    color 160ms ease,
     transform 160ms ease;
 
   &:hover {
-    background: var(--color-surface-hover, rgba(127, 127, 127, 0.12));
+    background: var(--color-surface-hover);
+    color: var(--color-text-primary);
   }
 
   &:active {
@@ -55,7 +58,8 @@
   }
 
   &.active {
-    background: var(--color-surface-active, rgba(127, 127, 127, 0.22));
-    border-color: var(--color-border-active, rgba(127, 127, 127, 0.5));
+    background: var(--accent-soft);
+    border-color: transparent;
+    color: var(--accent);
   }
 }

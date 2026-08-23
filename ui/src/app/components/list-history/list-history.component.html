@@ -1,42 +1,28 @@
-<div class="list-history">
-  <div class="list-history__header">
-    <h3 class="list-history__title">Slice History</h3>
-    <button class="list-history__refresh" (click)="history.refresh()" title="Refresh">↻</button>
-  </div>
-
-  @if (history.loadState() === 'pending') {
-    <p class="list-history__empty">Loading…</p>
-  } @else if (history.isEmpty()) {
-    <p class="list-history__empty">No previous sessions yet.</p>
-  } @else {
-    <ul class="list-history__items">
-      @for (session of history.sessions(); track session.request_uuid) {
-        <li class="list-history__item">
-          <div class="list-history__info">
-            <button
-              class="list-history__filename"
-              type="button"
-              (click)="navigate(session)"
-              [title]="'Open ' + (session.original_filename ?? 'unknown.stl')"
-            >
-              {{ session.original_filename ?? 'unknown.stl' }}
-            </button>
-            <span class="list-history__meta">
-              {{ history.formatDate(session.created_at) }}
-              @if (session.layer_count) {
-                &middot; {{ session.layer_count }} layers
-              }
-            </span>
-          </div>
-          <button
-            class="list-history__download"
-            (click)="download(session)"
-            title="Download G-code"
-          >
-            ⬇ Download
-          </button>
-        </li>
-      }
-    </ul>
-  }
-</div>
+@if (history.loadState() === 'pending') {
+  <p class="lh-empty">Loading…</p>
+} @else if (history.isEmpty()) {
+  <p class="lh-empty">No sliced projects yet. Slice a model and it'll show up here.</p>
+} @else {
+  <ul class="lh-list">
+    @for (session of history.sessions(); track session.request_uuid) {
+      <li class="lh-item">
+        <button
+          class="lh-open"
+          type="button"
+          (click)="navigate(session)"
+          [title]="'Open ' + (session.original_filename ?? 'unknown.stl')"
+        >
+          <span class="lh-icon"><nexus-icon name="box-iso" /></span>
+          <span class="lh-text">
+            <span class="lh-name">{{ session.original_filename ?? 'unknown.stl' }}</span>
+            <span class="lh-date">{{ history.formatDate(session.created_at) }}</span>
+          </span>
+        </button>
+        <button nexusButton variant="secondary" size="sm" (click)="download(session)">
+          <nexus-icon name="download" />
+          Download
+        </button>
+      </li>
+    }
+  </ul>
+}

@@ -1,5 +1,10 @@
 <div class="sidebar-header">
-  <nexus-logo routerLink="/" [hideProductName]="!isExpanded()" />
+  <span class="sidebar-heading">
+    <span class="sidebar-heading-icon"><nexus-icon name="menu-scale" /></span>
+    @if (isExpanded()) {
+      <span class="sidebar-heading-label">Print settings</span>
+    }
+  </span>
 
   <div class="sidebar-header-actions">
     @if (isExpanded()) {
@@ -16,16 +21,20 @@
 
 <div class="sidebar-footer">
   @if (isExpanded()) {
+    <span class="sidebar-footer-spacer"></span>
+  }
+
+  @if (collapsed() && isExpanded()) {
     <button
       class="sidebar-footer-btn"
       type="button"
-      [attr.aria-label]="_theme.isDarkMode() ? 'Switch to light theme' : 'Switch to dark theme'"
-      (click)="_theme.toggleTheme()"
+      [class.is-active]="pinnedOpen()"
+      [attr.aria-pressed]="pinnedOpen()"
+      [attr.aria-label]="pinnedOpen() ? 'Unpin sidebar' : 'Keep sidebar open'"
+      (click)="onPinToggle($event)"
     >
-      <nexus-icon [name]="_theme.isDarkMode() ? 'sun-light' : 'half-moon'" />
+      <nexus-icon name="pin" />
     </button>
-
-    <span class="sidebar-footer-spacer"></span>
   }
 
   <button

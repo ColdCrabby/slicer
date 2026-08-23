@@ -134,8 +134,9 @@ progress.slice-progress {
   gap: 6px;
   padding: 7px 14px;
   border: none;
-  border-radius: 6px;
+  border-radius: var(--radius-md);
   background: var(--color-accent);
+  color: var(--color-accent-contrast);
   font-size: 13px;
   font-weight: 600;
   cursor: pointer;

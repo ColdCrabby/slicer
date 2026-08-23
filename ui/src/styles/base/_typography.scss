@@ -10,7 +10,10 @@ body {
 }
 
 body {
-  font-family: 'Inter', system-ui, sans-serif;
+  font-family: var(--font-family-ui);
+  font-optical-sizing: auto;
+  font-weight: var(--font-weight-normal);
+  font-variation-settings: 'wght' var(--font-weight-normal);
   font-size: 14px;
   line-height: 1.5;
   background-color: var(--color-bg-primary);
@@ -32,7 +35,8 @@ h5,
 h6 {
   margin: 0;
   color: var(--color-text-primary);
-  font-weight: 600;
+  font-weight: var(--font-weight-semibold);
+  font-variation-settings: 'wght' var(--font-weight-semibold);
 }
 
 h1 {
@@ -65,14 +69,36 @@ p {
 a {
   color: var(--color-accent);
   text-decoration: none;
-  transition: color var(--transition-fast);
+  font-weight: var(--font-weight-medium);
+  font-variation-settings: 'wght' var(--font-weight-medium);
+  transition:
+    color var(--transition-fast),
+    font-weight var(--transition-fast),
+    font-variation-settings var(--transition-fast);
 
   &:hover {
     color: var(--color-accent-hover);
+    font-weight: var(--font-weight-hover);
+    font-variation-settings: 'wght' var(--font-weight-hover);
+  }
+
+  &:active {
+    font-weight: var(--font-weight-active);
+    font-variation-settings: 'wght' var(--font-weight-active);
   }
 
   &:focus-visible {
     outline: 2px solid var(--color-accent);
     outline-offset: 2px;
   }
+}
+
+code,
+kbd,
+pre,
+samp,
+tt {
+  font-family: var(--font-family-mono);
+  font-weight: var(--font-weight-mono-normal);
+  font-variation-settings: 'wght' var(--font-weight-mono-normal);
 }

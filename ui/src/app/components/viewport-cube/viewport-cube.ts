@@ -738,7 +738,7 @@ function makeFaceTexture(label: string, hovered: boolean, palette: CubePalette):
   ctx.fillStyle = hovered ? palette.primary : palette.text;
   // Monospace so every face label has identical letter geometry, keeping the
   // cube reading like a uniform button grid.
-  ctx.font = '700 64px "JetBrains Mono", "Fira Code", "SF Mono", Consolas, ui-monospace, monospace';
+  ctx.font = '700 64px "IBM Plex Mono", "SF Mono", Menlo, Consolas, ui-monospace, monospace';
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
   // Face-tile orientation (which world direction is "up") is baked into the
@@ -886,7 +886,7 @@ function makeAxisLabelTexture(label: string, color: number): CanvasTexture {
   }
 
   const hex = `#${color.toString(16).padStart(6, '0')}`;
-  ctx.font = '700 96px "Inter", system-ui, sans-serif';
+  ctx.font = '700 96px "Plus Jakarta Sans", "Avenir Next", "Segoe UI", system-ui, sans-serif';
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
   // Subtle dark halo for legibility against light cube faces.
@@ -953,10 +953,26 @@ function buildViewCube(palette: CubePalette): { group: Group; zones: Mesh[] } {
   // --- Edge bevels (12) ---
   for (const [a, b] of edgePairs()) {
     const c = new Vector3().crossVectors(a, b).normalize();
-    const q1 = a.clone().multiplyScalar(HALF).addScaledVector(b, FACE_HALF).addScaledVector(c, -FACE_HALF);
-    const q2 = a.clone().multiplyScalar(HALF).addScaledVector(b, FACE_HALF).addScaledVector(c, FACE_HALF);
-    const q3 = a.clone().multiplyScalar(FACE_HALF).addScaledVector(b, HALF).addScaledVector(c, FACE_HALF);
-    const q4 = a.clone().multiplyScalar(FACE_HALF).addScaledVector(b, HALF).addScaledVector(c, -FACE_HALF);
+    const q1 = a
+      .clone()
+      .multiplyScalar(HALF)
+      .addScaledVector(b, FACE_HALF)
+      .addScaledVector(c, -FACE_HALF);
+    const q2 = a
+      .clone()
+      .multiplyScalar(HALF)
+      .addScaledVector(b, FACE_HALF)
+      .addScaledVector(c, FACE_HALF);
+    const q3 = a
+      .clone()
+      .multiplyScalar(FACE_HALF)
+      .addScaledVector(b, HALF)
+      .addScaledVector(c, FACE_HALF);
+    const q4 = a
+      .clone()
+      .multiplyScalar(FACE_HALF)
+      .addScaledVector(b, HALF)
+      .addScaledVector(c, -FACE_HALF);
     const mesh = bevelMesh(quadGeometry(q1, q2, q3, q4), bevelBase);
     mesh.userData = {
       kind: 'edge',
@@ -1114,4 +1130,3 @@ function cssColor(css: string): Color {
   const [r, g, b] = ctx.getImageData(0, 0, 1, 1).data;
   return new Color(r / 255, g / 255, b / 255);
 }
-

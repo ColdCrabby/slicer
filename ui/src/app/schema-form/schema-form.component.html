@@ -1,25 +1,27 @@
 <div class="schema-form-search">
-  <nexus-icon name="search" class="schema-form-search-icon" aria-hidden="true" />
-  <input
-    #searchInput
-    class="schema-form-search-input"
-    type="search"
-    [placeholder]="
-      'Search settings… (' + keyboardShortcuts.shortcutFor('focus-settings-search') + ')'
-    "
-    autocomplete="off"
-    [(ngModel)]="searchQuery"
-  />
-  @if (searchQuery()) {
-    <button
-      class="schema-form-search-clear"
-      type="button"
-      aria-label="Clear search"
-      (click)="searchQuery.set('')"
-    >
-      <nexus-icon name="xmark" aria-hidden="true" />
-    </button>
-  }
+  <div class="schema-form-search-field">
+    <nexus-icon name="search" class="schema-form-search-icon" aria-hidden="true" />
+    <input
+      #searchInput
+      class="schema-form-search-input"
+      type="search"
+      [placeholder]="
+        'Search settings… (' + keyboardShortcuts.shortcutFor('focus-settings-search') + ')'
+      "
+      autocomplete="off"
+      [(ngModel)]="searchQuery"
+    />
+    @if (searchQuery()) {
+      <button
+        class="schema-form-search-clear"
+        type="button"
+        aria-label="Clear search"
+        (click)="searchQuery.set('')"
+      >
+        <nexus-icon name="xmark" aria-hidden="true" />
+      </button>
+    }
+  </div>
 </div>
 
 @if (searchQuery().trim()) {

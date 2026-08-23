@@ -1,0 +1,57 @@
+<div class="settings-page">
+  <nexus-section-header heading="General" description="Application information and defaults" />
+
+  <div class="settings-card">
+    <div class="settings-field">
+      <span class="settings-field-label">
+        <span class="settings-field-title">Application</span>
+        <span class="settings-field-desc">The engine powering previews and prints.</span>
+      </span>
+      <span class="settings-value">Slicer Engine</span>
+    </div>
+    <div class="settings-field">
+      <span class="settings-field-label">
+        <span class="settings-field-title">Interface</span>
+        <span class="settings-field-desc">Where this session is running.</span>
+      </span>
+      <span class="settings-value">{{ platform }}</span>
+    </div>
+    <div class="settings-field">
+      <span class="settings-field-label">
+        <span class="settings-field-title">Version</span>
+        <span class="settings-field-desc">Current build of the app.</span>
+      </span>
+      <span class="settings-value">{{ version }}</span>
+    </div>
+  </div>
+
+  <h2 class="subhead">Controls</h2>
+  <div class="settings-card">
+    <div class="settings-field">
+      <span class="settings-field-label">
+        <span class="settings-field-title">Two-finger swipe</span>
+        <span class="settings-field-desc">
+          What a trackpad two-finger swipe does in the 3D view.
+        </span>
+      </span>
+      <div class="segmented" role="group" aria-label="Two-finger swipe action">
+        <button
+          type="button"
+          class="segmented-btn"
+          [class.is-active]="gesture() === 'orbit'"
+          (click)="setGesture('orbit')"
+        >
+          Orbit
+        </button>
+        <button
+          type="button"
+          class="segmented-btn"
+          [class.is-active]="gesture() === 'pan'"
+          (click)="setGesture('pan')"
+        >
+          Pan
+        </button>
+      </div>
+    </div>
+  </div>
+</div>

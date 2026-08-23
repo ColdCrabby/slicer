@@ -2,6 +2,7 @@
 
 mod bridge;
 mod commands;
+mod system_accent;
 
 fn main() {
     tauri::Builder::default()
@@ -14,6 +15,7 @@ fn main() {
             commands::slice_cancel,
             commands::preview_get_source,
             commands::history_list,
+            commands::get_system_accent,
         ])
         .run(tauri::generate_context!())
         .expect("failed to run desktop runtime");

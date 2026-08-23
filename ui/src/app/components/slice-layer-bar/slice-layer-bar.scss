@@ -18,17 +18,16 @@
   padding: 14px 10px;
   width: 50px;
 
-  background: linear-gradient(
-    color-mix(in srgb, var(--color-surface) calc(var(--surface-transparency) * 0.9), transparent),
-    color-mix(in srgb, var(--color-surface) calc(var(--surface-transparency) * 1.1), transparent)
-  );
-  backdrop-filter: blur(8px) saturate(2);
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
   border-radius: var(--radius-lg);
   box-shadow: var(--shadow-lg);
 
   color: var(--color-text-secondary);
   font-size: 11px;
-  font-family: ui-monospace, monospace;
+  font-family: var(--font-family-mono);
+  font-weight: var(--font-weight-mono-normal);
+  font-variation-settings: 'wght' var(--font-weight-mono-normal);
   font-variant-numeric: tabular-nums;
 }
 

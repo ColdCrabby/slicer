@@ -86,7 +86,9 @@
     .timing-table {
       width: 100%;
       border-collapse: collapse;
-      font-family: 'JetBrains Mono', 'Fira Code', monospace;
+      font-family: var(--font-family-mono);
+      font-weight: var(--font-weight-mono-normal);
+      font-variation-settings: 'wght' var(--font-weight-mono-normal);
       font-size: 0.8rem;
 
       thead {
@@ -186,7 +188,9 @@
     min-height: 100px;
     max-height: 200px;
     overflow-y: auto;
-    font-family: 'JetBrains Mono', 'Fira Code', monospace;
+    font-family: var(--font-family-mono);
+    font-weight: var(--font-weight-mono-normal);
+    font-variation-settings: 'wght' var(--font-weight-mono-normal);
     font-size: 0.78rem;
 
     .log-empty {

@@ -1,0 +1,34 @@
+@use './settings';
+
+// Many short rows — flow the groups into two columns so the reference fills
+// the width instead of a tall, narrow strip. Width stays consistent with the
+// other settings pages so navigating here doesn't reflow the shared header.
+.shortcut-groups {
+  columns: 2;
+  column-gap: var(--spacing-xl);
+
+  @media (max-width: 720px) {
+    columns: 1;
+  }
+}
+
+.shortcut-group {
+  break-inside: avoid;
+  margin-bottom: var(--spacing-xl);
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-md);
+}
+
+.shortcut-key {
+  font-family: var(--font-family-mono);
+  font-weight: var(--font-weight-mono-normal);
+  font-variation-settings: 'wght' var(--font-weight-mono-normal);
+  font-size: var(--font-size-xs);
+  padding: 3px 8px;
+  border-radius: var(--radius-sm);
+  background: var(--color-bg-tertiary);
+  border: 1px solid var(--color-border);
+  color: var(--color-text-secondary);
+  white-space: nowrap;
+}

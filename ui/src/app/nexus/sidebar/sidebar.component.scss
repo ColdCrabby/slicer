@@ -14,7 +14,7 @@ $transition-easing: ease;
   overflow: hidden;
 
   background: var(--color-bg-secondary);
-  box-shadow: var(--shadow-lg);
+  border-right: 1px solid var(--color-border);
 
   // Collapsed but not hovered/pinned: rail-only width.
   &.is-collapsed:not(.is-expanded) {
@@ -44,8 +44,7 @@ $transition-easing: ease;
   padding: 16px;
   border-bottom: 1px solid var(--color-border);
 
-  background: color-mix(in srgb, var(--color-bg-tertiary) 70%, transparent);
-  backdrop-filter: blur(6px);
+  background: var(--color-bg-secondary);
 
   // Tighten header padding when collapsed to just frame the logo.
   :host.is-collapsed:not(.is-expanded) & {
@@ -58,6 +57,32 @@ $transition-easing: ease;
   display: flex;
   align-items: center;
   gap: 8px;
+}
+
+.sidebar-heading {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  min-width: 0;
+  color: var(--color-text-primary);
+}
+
+.sidebar-heading-icon {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 28px;
+  height: 28px;
+  border-radius: var(--radius-sm);
+  background: var(--accent-soft);
+  color: var(--accent);
+  --icon-size: 18px;
+}
+
+.sidebar-heading-label {
+  font-size: var(--font-size-md);
+  font-weight: var(--font-weight-semibold);
+  white-space: nowrap;
 }
 
 .collapse-toggle {
@@ -103,6 +128,7 @@ $transition-easing: ease;
   overflow-x: hidden;
   -webkit-overflow-scrolling: touch;
   touch-action: pan-y;
+  background: var(--color-bg-primary);
 
   // Hide the scrollbar on touch devices — momentum scrolling still works,
   // and the scrollbar chrome looks out of place on mobile/tablet.
@@ -130,8 +156,7 @@ $transition-easing: ease;
   padding: 8px 16px;
   border-top: 1px solid var(--color-border);
 
-  background: color-mix(in srgb, var(--color-bg-tertiary) 70%, transparent);
-  backdrop-filter: blur(6px);
+  background: var(--color-bg-secondary);
 
   :host.is-collapsed:not(.is-expanded) & {
     min-width: $collapsed-width;
