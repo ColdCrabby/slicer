@@ -3,6 +3,15 @@
   pointer-events: none;
 }
 
+/* Inline tooltip arrow matches the lighter inline border. */
+.nexus-tooltip-floating {
+  --nexus-floating-arrow-border: var(--color-border-light);
+}
+
+.nexus-tooltip-floating--block {
+  --nexus-floating-arrow-border: var(--color-border);
+}
+
 .tooltip-panel {
   animation: nexus-tooltip-in var(--duration-fast) var(--ease-decelerate) forwards;
   color: var(--color-text-secondary);

@@ -1,6 +1,6 @@
 <div class="viewer-host" #host></div>
 @if (hoverInfo(); as h) {
-  <div class="gcode-tooltip" [style.left.px]="h.x" [style.top.px]="h.y">
+  <div class="gcode-tooltip" #gcodeTooltip>
     <div class="gcode-tooltip-value">{{ h.valueLabel }}</div>
     <div class="gcode-tooltip-meta">
       {{ roleLabels[h.role] }} · Layer {{ h.layerIndex }} · Z{{ h.z.toFixed(2) }}

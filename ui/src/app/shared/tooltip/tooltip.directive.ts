@@ -1,10 +1,8 @@
 import { FocusMonitor } from '@angular/cdk/a11y';
-import { Overlay } from '@angular/cdk/overlay';
-import type { OverlayRef } from '@angular/cdk/overlay';
-import { ComponentPortal } from '@angular/cdk/portal';
 import { DestroyRef, Directive, ElementRef, HostListener, inject, input } from '@angular/core';
-import type { ComponentRef } from '@angular/core';
 import type { Subscription } from 'rxjs';
+import { FloatingService } from '../floating';
+import type { FloatingComponentRef } from '../floating';
 import { UserInputModality } from '../input-modality/input-modality';
 import { Tooltip } from './tooltip';
 
@@ -30,8 +28,9 @@ const PEN_HOVER_DELAY_MS = 300;
  *              short delay — these devices report `pointerType === 'pen'`
  *              on `pointerenter` while the tip hovers above the screen.
  *
- * Positioning is handled by the Angular CDK FlexibleConnectedPositionStrategy
- * so the panel stays on-screen even near viewport edges.
+ * Positioning is handled by the shared FloatingService (Floating UI) so the
+ * panel flips and shifts to stay on-screen even near viewport edges, and the
+ * inline variant renders a pointing arrow.
  */
 @Directive({
   selector: '[tooltip]',
@@ -50,17 +49,15 @@ export class TooltipDirective {
    */
   readonly tooltipClickToggle = input<boolean>(false);
 
-  private readonly overlay = inject(Overlay);
+  private readonly floating = inject(FloatingService);
   private readonly elementRef = inject(ElementRef<HTMLElement>);
   private readonly focusMonitor = inject(FocusMonitor);
   private readonly inputModality = inject(UserInputModality);
   private readonly destroyRef = inject(DestroyRef);
 
-  private overlayRef: OverlayRef | null = null;
-  private componentRef: ComponentRef<Tooltip> | null = null;
+  private floatingRef: FloatingComponentRef<Tooltip> | null = null;
   private showTimeout: ReturnType<typeof setTimeout> | null = null;
   private modalitySub: Subscription | null = null;
-  private backdropSub: Subscription | null = null;
   private clickToggleOpen = false;
 
   constructor() {
@@ -90,7 +87,6 @@ export class TooltipDirective {
       this.hide();
       this.modalitySub?.unsubscribe();
       this.focusMonitor.stopMonitoring(this.elementRef);
-      this.backdropSub?.unsubscribe();
     });
   }
 
@@ -180,83 +176,36 @@ export class TooltipDirective {
   }
 
   private show(): void {
-    if (this.overlayRef) {
+    if (this.floatingRef) {
       return;
     }
 
     const isBlock = this.tooltipMode() === 'block';
+    const persistent = this.tooltipClickToggle();
+    const dismiss = (): void => {
+      this.clickToggleOpen = false;
+      this.hide();
+    };
 
-    const positionStrategy = this.overlay
-      .position()
-      .flexibleConnectedTo(this.elementRef)
-      .withPositions(
-        isBlock
-          ? [
-              // Preferred: right side, top-aligned
-              {
-                originX: 'end',
-                originY: 'top',
-                overlayX: 'start',
-                overlayY: 'top',
-                offsetX: 8,
-              },
-              // Fallback: left side, top-aligned
-              {
-                originX: 'start',
-                originY: 'top',
-                overlayX: 'end',
-                overlayY: 'top',
-                offsetX: -8,
-              },
-              // Fallback: below, left-aligned
-              {
-                originX: 'start',
-                originY: 'bottom',
-                overlayX: 'start',
-                overlayY: 'top',
-                offsetY: 8,
-              },
-            ]
-          : [
-              {
-                originX: 'center',
-                originY: 'top',
-                overlayX: 'center',
-                overlayY: 'bottom',
-                offsetY: -6,
-              },
-              {
-                originX: 'center',
-                originY: 'bottom',
-                overlayX: 'center',
-                overlayY: 'top',
-                offsetY: 6,
-              },
-            ],
-      );
-
-    const hasBackdrop = this.tooltipClickToggle();
-    this.overlayRef = this.overlay.create({
-      positionStrategy,
-      scrollStrategy: this.overlay.scrollStrategies.close(),
-      panelClass: 'nexus-tooltip-overlay',
-      hasBackdrop,
-      backdropClass: 'nexus-tooltip-backdrop',
+    this.floatingRef = this.floating.openComponent(Tooltip, {
+      reference: this.elementRef.nativeElement,
+      arrow: !isBlock,
+      interactive: persistent,
+      panelClass: isBlock
+        ? ['nexus-tooltip-floating', 'nexus-tooltip-floating--block']
+        : 'nexus-tooltip-floating',
+      options: isBlock
+        ? { placement: 'right-start', offset: 8, padding: 8, size: true }
+        : { placement: 'top', offset: 6, padding: 8 },
+      originElement: persistent ? this.elementRef.nativeElement : undefined,
+      onOutsidePointer: persistent ? dismiss : undefined,
+      onEscape: persistent ? dismiss : undefined,
     });
 
-    if (hasBackdrop) {
-      this.backdropSub = this.overlayRef.backdropClick().subscribe(() => {
-        this.clickToggleOpen = false;
-        this.hide();
-      });
-    }
-
-    const portal = new ComponentPortal(Tooltip);
-    this.componentRef = this.overlayRef.attach(portal);
-    this.componentRef.setInput('text', this.tooltip());
-    this.componentRef.setInput('mode', this.tooltipMode());
-    this.componentRef.setInput('shortcut', this.tooltipShortcut());
-    this.componentRef.setInput('persistent', this.tooltipClickToggle());
+    this.floatingRef.setInput('text', this.tooltip());
+    this.floatingRef.setInput('mode', this.tooltipMode());
+    this.floatingRef.setInput('shortcut', this.tooltipShortcut());
+    this.floatingRef.setInput('persistent', persistent);
   }
 
   private hide(): void {
@@ -265,10 +214,7 @@ export class TooltipDirective {
       this.showTimeout = null;
     }
 
-    this.backdropSub?.unsubscribe();
-    this.backdropSub = null;
-    this.overlayRef?.dispose();
-    this.overlayRef = null;
-    this.componentRef = null;
+    this.floatingRef?.close();
+    this.floatingRef = null;
   }
 }

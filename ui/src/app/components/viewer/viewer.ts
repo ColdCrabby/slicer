@@ -31,6 +31,7 @@ import { GcodeHoverProbe, type GcodeHoverHit } from './gcode-hover';
 import { GcodeOrchestrator } from './gcode-orchestrator';
 import type { GizmoDelta } from './gizmo';
 import { ViewerScene } from './scene';
+import { applyFloating } from '../../shared/floating';
 
 export type ViewerMode = 'model' | 'gcode';
 
@@ -81,7 +82,8 @@ export class Viewer {
   readonly loadError = output<{ mode: ViewerMode; error: unknown }>();
 
   private readonly hostRef = viewChild.required<ElementRef<HTMLElement>>('host');
-  private readonly elementRef = inject(ElementRef);
+  /** The G-code inspector tooltip element (present only while hovering). */
+  private readonly gcodeTooltipRef = viewChild<ElementRef<HTMLElement>>('gcodeTooltip');
   private readonly viewerControl = inject(ViewerControl);
   private readonly printArea = inject(PrintArea);
   private readonly objectTracker = inject(ObjectTracker);
@@ -155,6 +157,16 @@ export class Viewer {
    */
   private lastAntialiasing: Antialiasing | null = null;
 
+  /** Cursor anchor for the G-code tooltip, exposed to Floating UI as a virtual element. */
+  private readonly gcodeCursor = { x: 0, y: 0 };
+  private readonly gcodeCursorAnchor = {
+    getBoundingClientRect: () => {
+      const { x, y } = this.gcodeCursor;
+      return { x, y, top: y, left: x, right: x, bottom: y, width: 0, height: 0 } as DOMRect;
+    },
+  };
+  private stopGcodeFloating: (() => void) | null = null;
+
   constructor() {
     afterNextRender(() => this.initScene());
 
@@ -167,6 +179,32 @@ export class Viewer {
       this.scene?.dispose();
       this.scene = null;
       this.viewerControl.orbitSink = null;
+      this.stopGcodeFloating?.();
+      this.stopGcodeFloating = null;
+    });
+
+    // Position the G-code inspector tooltip with Floating UI, anchored to a
+    // virtual element at the cursor so it flips/shifts to stay on-screen near
+    // the viewport edges instead of clipping.
+    effect(() => {
+      const info = this.gcodePreview.hoverInfo();
+      const el = this.gcodeTooltipRef()?.nativeElement;
+      if (info && el) {
+        this.gcodeCursor.x = info.clientX;
+        this.gcodeCursor.y = info.clientY;
+        if (!this.stopGcodeFloating) {
+          this.stopGcodeFloating = applyFloating(this.gcodeCursorAnchor, el, {
+            placement: 'right-start',
+            strategy: 'fixed',
+            offset: 14,
+            padding: 8,
+            hideWhenDetached: false,
+          });
+        }
+      } else if (this.stopGcodeFloating) {
+        this.stopGcodeFloating();
+        this.stopGcodeFloating = null;
+      }
     });
 
     // React to input changes — single effect handles mode + source switching.
@@ -421,7 +459,6 @@ export class Viewer {
     const range = this.gcodePreview.activeRange();
     const span = range.max - range.min;
     const t = span > 0 ? Math.min(1, Math.max(0, (value - range.min) / span)) : 0.5;
-    const rect = this.elementRef.nativeElement.getBoundingClientRect();
     this.gcodePreview.setHoverInfo({
       channelId: mode,
       value,
@@ -433,8 +470,8 @@ export class Viewer {
       height,
       speed,
       t,
-      x: hit.clientX - rect.left,
-      y: hit.clientY - rect.top,
+      clientX: hit.clientX,
+      clientY: hit.clientY,
     });
   }
 
