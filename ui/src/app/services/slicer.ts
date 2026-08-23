@@ -212,14 +212,26 @@ export class Slicer {
   });
 
   /**
-   * Total wall-clock time of the last completed slice, in milliseconds, taken
-   * from the outer `total` phase span. `null` until the real span is known — a
-   * `0` is treated as unknown because the cloud runtime emits a `0` placeholder
-   * on `SliceComplete` just before the real `total` phase-end arrives.
+   * Wall-clock duration (ms) of the last completed slice, measured client-side
+   * from job start to completion. This is the runtime-agnostic source of truth:
+   * the web/wasm and tauri runtimes do not emit a `total` phase span, so the
+   * per-phase timings alone cannot yield an overall time.
+   */
+  readonly lastSliceElapsedMs = signal<number | null>(null);
+
+  /** Timestamp (performance.now) when the active slice job began. */
+  private sliceStartedAt: number | null = null;
+
+  /**
+   * Total time of the last completed slice, in milliseconds. Prefers the
+   * backend `total` phase span when the runtime reports one (the cloud/server
+   * path, which excludes client/network overhead) and otherwise falls back to
+   * the client-measured {@link lastSliceElapsedMs}.
    */
   readonly totalElapsedMs = computed<number | null>(() => {
     const total = this.phaseTimings().find((t) => t.phase === 'total');
-    return total?.elapsedMs && total.elapsedMs > 0 ? total.elapsedMs : null;
+    if (total?.elapsedMs && total.elapsedMs > 0) return total.elapsedMs;
+    return this.lastSliceElapsedMs();
   });
 
   constructor() {
@@ -427,6 +439,8 @@ export class Slicer {
     // Reset phase state for fresh run
     this.phaseTimings.set([]);
     this.currentPhase.set(null);
+    this.lastSliceElapsedMs.set(null);
+    this.sliceStartedAt = null;
     this.setDownloadUrl(null);
 
     // Set up operation abort controller for timeout handling
@@ -438,6 +452,7 @@ export class Slicer {
       const scene = await this.ensureRuntimeReadyForSlice(model);
 
       this.status.set('slicing');
+      this.sliceStartedAt = performance.now();
       const sliceId = this.createSliceId();
       this.activeSliceId = sliceId;
       this.outputLog.update((log) => [...log, `Starting slice job (${this.runtimeMode})…`]);
@@ -488,6 +503,9 @@ export class Slicer {
         this.setDownloadUrl(result.downloadUrl);
       }
 
+      if (this.sliceStartedAt != null) {
+        this.lastSliceElapsedMs.set(Math.round(performance.now() - this.sliceStartedAt));
+      }
       this.status.set('done');
       this.currentPhase.set(null);
       this.notifications.success(
