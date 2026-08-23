@@ -1,64 +1,84 @@
 /// Dark mode CSS variables
 /// @group theme
+///
+/// Deep graphite neutrals + a slightly brighter molten-amber accent. Accent
+/// shades lighten on hover (vs. darken in light mode) and all derive from
+/// `--accent`, so an OS-accent override recolours the whole UI.
 
 html.dark {
-  // Backgrounds
-  --color-bg-primary: #111214;
-  --color-bg-secondary: #1a1b1e;
-  --color-bg-tertiary: #24272e;
+  // Backgrounds (deep graphite)
+  --color-bg-primary: #101113;
+  --color-bg-secondary: #17181b;
+  --color-bg-tertiary: #202226;
 
   // Surfaces & Interactions
-  --color-surface: #1e2128;
-  --color-surface-hover: #252b34;
-  --color-surface-active: #2e3640;
-  --surface-transparency: 86%;
+  --color-surface: #1b1c20;
+  --color-surface-hover: #232529;
+  --color-surface-active: #2c2f34;
+  --surface-transparency: 84%;
 
   // Text Colors
-  --color-text-primary: #f5f6f8;
-  --color-text-secondary: #d4d6db;
-  --color-text-tertiary: #888c98;
+  --color-text-primary: #f3f4f6;
+  --color-text-secondary: #b7bac1;
+  --color-text-tertiary: #7c808a;
 
   // Borders
-  --color-border: #2e3640;
-  --color-border-light: #252b34;
-  --color-border-lighter: #1e2128;
+  --color-border: #2b2e34;
+  --color-border-light: #232529;
+  --color-border-lighter: #1d1f23;
 
-  // Primary (Indigo, translucent over surface)
-  --color-primary: #7c84f5c7;
-  --color-primary-hover: #9aa2ffd9;
-  --color-primary-active: #7c84f5e6;
-  --color-primary-light: #7c84f533;
-  --color-primary-lighter: #7c84f51f;
+  // ── Accent (molten amber) — single source of truth ──
+  // Overridable at runtime: setting `--accent` recomputes every shade below.
+  --accent: #f5883a;
+  --accent-contrast: #1c1204;
+  --accent-hover: color-mix(in oklab, var(--accent), #fff 12%);
+  --accent-active: color-mix(in oklab, var(--accent), #fff 4%);
+  --accent-soft: color-mix(in oklab, var(--accent) 22%, transparent);
+  --accent-softer: color-mix(in oklab, var(--accent) 12%, transparent);
+  --accent-border: color-mix(in oklab, var(--accent) 38%, var(--color-border));
 
-  // Secondary (Amber, translucent over surface)
-  --color-secondary: #fbbf24c7;
-  --color-secondary-hover: #fcd34dd9;
-  --color-secondary-active: #fbbf24e6;
-  --color-secondary-light: #fbbf2433;
-  --color-secondary-lighter: #fbbf241f;
+  // Legacy primary tokens now alias the accent so existing consumers adopt it.
+  --color-primary: var(--accent);
+  --color-primary-hover: var(--accent-hover);
+  --color-primary-active: var(--accent-active);
+  --color-primary-light: var(--accent-soft);
+  --color-primary-lighter: var(--accent-softer);
+  --color-primary-contrast: var(--accent-contrast);
 
-  // Tertiary (Violet, translucent over surface)
-  --color-tertiary: #c084fcc7;
-  --color-tertiary-hover: #d8b4fed9;
-  --color-tertiary-active: #c084fce6;
-  --color-tertiary-light: #c084fc33;
-  --color-tertiary-lighter: #c084fc1f;
+  // Secondary (teal — cool balance to the amber, used for "go" actions)
+  --color-secondary: #2dd4bf;
+  --color-secondary-hover: #45ded0;
+  --color-secondary-active: #22c0ac;
+  --color-secondary-light: #2dd4bf33;
+  --color-secondary-lighter: #2dd4bf1f;
 
-  // Focus ring
-  --color-focus-ring: #9aa2ff;
+  // Tertiary (muted violet, sparse accents)
+  --color-tertiary: #a99cf0;
+  --color-tertiary-hover: #bcb1f5;
+  --color-tertiary-active: #9a8ce8;
+  --color-tertiary-light: #a99cf033;
+  --color-tertiary-lighter: #a99cf01f;
+
+  // Focus ring (tracks the accent)
+  --color-focus-ring: var(--accent);
+  --color-focus-ring-glow: color-mix(in oklab, var(--accent) 34%, transparent);
 
   // Status Colors
   --color-success: #3db76b;
-  --color-success-light: #1d3a2a;
-  --color-warning: #f5a623;
-  --color-warning-light: #3a2a1a;
-  --color-danger: #ff6b6b;
-  --color-danger-light: #3a1e1e;
+  --color-success-light: #16311f;
+  --color-warning: #eea23a;
+  --color-warning-light: #33260f;
+  --color-danger: #f16b6b;
+  --color-danger-light: #341a1a;
 
   // Scrollbar
-  --color-scrollbar-track: #1a1b1e;
-  --color-scrollbar-thumb: #2e3640;
-  --color-scrollbar-thumb-hover: #3a4250;
+  --color-scrollbar-track: transparent;
+  --color-scrollbar-thumb: #2e3138;
+  --color-scrollbar-thumb-hover: #3c4049;
+
+  // Backdrop / glass
+  --backdrop-bg: color-mix(in srgb, var(--color-surface) var(--surface-transparency), transparent);
+  --scrim: rgba(0, 0, 0, 0.5);
 
   // Spacing
   --spacing-xs: 4px;
@@ -88,9 +108,9 @@ html.dark {
 
   // Shadows
   --shadow-xs: 0 1px 2px rgba(0, 0, 0, 0.5);
-  --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.28);
-  --shadow-md: 0 8px 32px rgba(0, 0, 0, 0.4);
-  --shadow-lg: 0 4px 24px rgba(0, 0, 0, 0.3);
+  --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.4), 0 1px 2px rgba(0, 0, 0, 0.3);
+  --shadow-md: 0 6px 20px rgba(0, 0, 0, 0.44), 0 2px 6px rgba(0, 0, 0, 0.32);
+  --shadow-lg: 0 16px 48px rgba(0, 0, 0, 0.52), 0 6px 16px rgba(0, 0, 0, 0.36);
 
   // Icon Weight
   --icon-stroke-width: 1.8;

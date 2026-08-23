@@ -1,15 +1,14 @@
 :host {
   position: fixed;
-  top: calc(var(--spacing-lg, 16px) + env(safe-area-inset-top, 0) + var(--main-scene-inset, 16px));
-  left: 50%;
-  transform: translateX(-50%);
+  bottom: calc(var(--spacing-lg, 16px) + env(safe-area-inset-bottom, 0));
+  left: calc(var(--spacing-lg, 16px) + env(safe-area-inset-left, 0));
   z-index: 2000;
   display: flex;
-  flex-direction: column;
-  align-items: center;
+  flex-direction: column-reverse;
+  align-items: flex-start;
   gap: var(--spacing-sm, 8px);
   pointer-events: none;
-  width: min(420px, calc(100vw - 32px));
+  width: min(380px, calc(100vw - 32px));
 }
 
 .notification-center {
@@ -21,57 +20,38 @@
 
 .notification {
   pointer-events: auto;
+  position: relative;
   width: 100%;
   border-radius: var(--radius-lg, 8px);
   overflow: hidden;
-  border: 1px solid transparent;
+  border: 1px solid var(--color-border);
+  background: var(--color-surface);
+  box-shadow: var(--shadow-md);
+
+  // Left severity stripe.
+  &::before {
+    content: '';
+    position: absolute;
+    inset: 0 auto 0 0;
+    width: 3px;
+    background: var(--sev-color, transparent);
+  }
 
   &--info {
-    background: color-mix(in srgb, var(--color-primary, #7c84f5) 8%, var(--color-surface, #1e2128));
-    border-color: color-mix(in srgb, var(--color-primary, #7c84f5) 18%, transparent);
-    box-shadow:
-      0 0 0 1px color-mix(in srgb, var(--color-primary, #7c84f5) 12%, transparent),
-      var(--shadow-sm, 0 1px 3px rgba(0, 0, 0, 0.28));
-
-    .notification__icon {
-      color: var(--color-primary, #7c84f5);
-    }
+    --sev-color: var(--accent);
   }
-
   &--success {
-    background: color-mix(in srgb, var(--color-success, #3db76b) 8%, var(--color-surface, #1e2128));
-    border-color: color-mix(in srgb, var(--color-success, #3db76b) 18%, transparent);
-    box-shadow:
-      0 0 0 1px color-mix(in srgb, var(--color-success, #3db76b) 12%, transparent),
-      var(--shadow-sm, 0 1px 3px rgba(0, 0, 0, 0.28));
-
-    .notification__icon {
-      color: var(--color-success, #3db76b);
-    }
+    --sev-color: var(--color-success);
   }
-
   &--warning {
-    background: color-mix(in srgb, var(--color-warning, #f5a623) 8%, var(--color-surface, #1e2128));
-    border-color: color-mix(in srgb, var(--color-warning, #f5a623) 18%, transparent);
-    box-shadow:
-      0 0 0 1px color-mix(in srgb, var(--color-warning, #f5a623) 12%, transparent),
-      var(--shadow-sm, 0 1px 3px rgba(0, 0, 0, 0.28));
-
-    .notification__icon {
-      color: var(--color-warning, #f5a623);
-    }
+    --sev-color: var(--color-warning);
+  }
+  &--error {
+    --sev-color: var(--color-danger);
   }
 
-  &--error {
-    background: color-mix(in srgb, var(--color-danger, #ff6b6b) 8%, var(--color-surface, #1e2128));
-    border-color: color-mix(in srgb, var(--color-danger, #ff6b6b) 18%, transparent);
-    box-shadow:
-      0 0 0 1px color-mix(in srgb, var(--color-danger, #ff6b6b) 12%, transparent),
-      var(--shadow-sm, 0 1px 3px rgba(0, 0, 0, 0.28));
-
-    .notification__icon {
-      color: var(--color-danger, #ff6b6b);
-    }
+  .notification__icon {
+    color: var(--sev-color, var(--color-text-secondary));
   }
 }
 
@@ -132,19 +112,6 @@
   }
 }
 
-.notification__progress-track {
-  height: 2px;
-  background: color-mix(in srgb, currentColor 12%, transparent);
-  overflow: hidden;
-}
-
-.notification__progress-fill {
-  height: 100%;
-  background: var(--color-primary, #7c84f5);
-  transition: width 0.3s var(--ease-standard, cubic-bezier(0.2, 0, 0, 1));
-  min-width: 3px;
-}
-
 // ── Enter / Leave animations (CSS keyframes, driven by animate.enter/.leave) ─
 
 .notif-enter {
@@ -153,21 +120,19 @@
 
 .notif-leave {
   animation:
-    notif-leave-opacity 280ms linear forwards,
-    notif-leave-visual 280ms cubic-bezier(0.61, 0.35, 0.97, 0.43) forwards;
+    notif-leave-opacity 240ms linear forwards,
+    notif-leave-visual 240ms cubic-bezier(0.61, 0.35, 0.97, 0.43) forwards;
 }
 
 @keyframes notif-enter-kf {
   from {
     opacity: 0;
-    filter: blur(6px);
-    transform: translateY(-8px) scale(0.98);
+    transform: translateX(-12px) translateY(8px) scale(0.98);
   }
 
   to {
     opacity: 1;
-    filter: blur(0);
-    transform: translateY(0) scale(1);
+    transform: translateX(0) translateY(0) scale(1);
   }
 }
 
@@ -179,7 +144,6 @@
 
 @keyframes notif-leave-visual {
   to {
-    filter: blur(4px);
-    transform: scale(0.97) translateY(-4px);
+    transform: translateX(-12px) scale(0.97);
   }
 }

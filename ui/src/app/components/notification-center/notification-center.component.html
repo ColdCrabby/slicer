@@ -32,18 +32,6 @@
           </button>
         }
       </div>
-
-      @if (notification.progress !== undefined) {
-        <div
-          class="notification__progress-track"
-          role="progressbar"
-          [attr.aria-valuenow]="notification.progress"
-          aria-valuemin="0"
-          aria-valuemax="100"
-        >
-          <div class="notification__progress-fill" [style.width.%]="notification.progress"></div>
-        </div>
-      }
     </div>
   }
 </div>

@@ -1,0 +1,363 @@
+<div class="ui-components-page">
+  <div class="ui-components-inner">
+    <header class="page-hero">
+      <div>
+        <h1 class="page-title">UI Components</h1>
+        <p class="page-subtitle">
+          Live gallery for reusable Nexus UI components, interactions, and global feedback patterns.
+        </p>
+      </div>
+      <nexus-logo />
+    </header>
+
+    <section class="section">
+      <nexus-section-header
+        heading="Buttons"
+        description="Primary actions, subtle actions, danger actions, and icon buttons"
+      />
+      <nexus-card visualSize="small" class="demo-card">
+        <div class="row wrap">
+          <button nexusButton variant="primary">Slice now</button>
+          <button nexusButton variant="secondary">
+            <nexus-icon name="magic-wand" />
+            Smart orient
+          </button>
+          <button nexusButton variant="secondary">Secondary</button>
+          <button nexusButton variant="ghost">Ghost</button>
+          <button nexusButton variant="subtle">Subtle</button>
+          <button nexusButton variant="danger">Delete plate</button>
+          <a nexusButton variant="ghost" routerLink="/settings/general">Settings link</a>
+        </div>
+        <div class="row wrap">
+          <button nexusIconButton aria-label="Previous view">
+            <nexus-icon name="nav-arrow-left" />
+          </button>
+          <button nexusIconButton variant="outline" aria-label="Reset camera">
+            <nexus-icon name="home" />
+          </button>
+          <button nexusIconButton variant="solid" [active]="true" aria-label="Select mode">
+            <nexus-icon name="cursor-pointer" />
+          </button>
+        </div>
+        <div class="row wrap">
+          <nexus-icon-button icon="trash" label="Delete item"></nexus-icon-button>
+          <nexus-icon-button icon="refresh" label="Refresh"></nexus-icon-button>
+          <nexus-icon-button icon="link" label="Link"></nexus-icon-button>
+        </div>
+      </nexus-card>
+    </section>
+
+    <section class="section">
+      <nexus-section-header
+        heading="Connection"
+        description="Live status badge reused from the dashboard header"
+      />
+      <nexus-card visualSize="small" class="demo-card">
+        <div class="row wrap">
+          <nexus-connection-state></nexus-connection-state>
+        </div>
+      </nexus-card>
+    </section>
+
+    <section class="section">
+      <nexus-section-header
+        heading="Status"
+        description="Badges, icons, and inline status cues used across the app"
+      />
+      <div class="grid two-up">
+        <nexus-card visualSize="small" class="demo-card">
+          <h3 class="subheading">Badges</h3>
+          <div class="row wrap">
+            <nexus-badge>Default</nexus-badge>
+            <nexus-badge variant="success">Success</nexus-badge>
+            <nexus-badge variant="warning">Warning</nexus-badge>
+            <nexus-badge variant="danger">Danger</nexus-badge>
+            <nexus-badge variant="info">Info</nexus-badge>
+          </div>
+        </nexus-card>
+
+        <nexus-card visualSize="small" class="demo-card">
+          <h3 class="subheading">Icons</h3>
+          <div class="row wrap icons-row">
+            <nexus-icon name="cube-scan" />
+            <nexus-icon name="settings" />
+            <nexus-icon name="warning-triangle" />
+            <nexus-icon name="check-circle" />
+            <nexus-icon name="magic-wand" />
+            <nexus-icon name="cloud-upload" />
+          </div>
+        </nexus-card>
+      </div>
+    </section>
+
+    <section class="section">
+      <nexus-section-header
+        heading="Selections"
+        description="Radio-group behavior and tooltips for compact controls"
+      />
+      <div class="grid two-up">
+        <nexus-card visualSize="small" class="demo-card">
+          <h3 class="subheading">Radio Group</h3>
+          <div
+            class="segmented"
+            radioGroup
+            stackWhenCramped
+            #quality="radioGroup"
+            [radioGroup]="'balanced'"
+          >
+            <button type="button" class="segmented-item" [radioButtonValue]="'draft'">Draft</button>
+            <button type="button" class="segmented-item" [radioButtonValue]="'balanced'">
+              Balanced
+            </button>
+            <button type="button" class="segmented-item" [radioButtonValue]="'detail'">
+              Detail
+            </button>
+          </div>
+          <p class="hint">Selected profile: {{ quality.value() }}</p>
+        </nexus-card>
+
+        <nexus-card visualSize="small" class="demo-card">
+          <h3 class="subheading">Tooltips</h3>
+          <div class="row wrap">
+            <button
+              nexusButton
+              variant="secondary"
+              [tooltip]="'Keyboard shortcut helper'"
+              tooltipShortcut="Ctrl+K"
+            >
+              Hover me
+            </button>
+            <button
+              nexusButton
+              variant="ghost"
+              [tooltip]="'### Why this matters\nTooltips can also render **markdown** in block mode.'"
+              tooltipMode="block"
+              [tooltipClickToggle]="true"
+            >
+              Tap for details
+            </button>
+          </div>
+        </nexus-card>
+      </div>
+    </section>
+
+    <section class="section">
+      <nexus-section-header
+        heading="Form Controls"
+        description="Refined print-setting controls — switches, sliders, steppers, and dropdowns"
+      />
+      <div class="grid two-up">
+        <nexus-card visualSize="small" class="demo-card">
+          <h3 class="subheading">Switches</h3>
+          <div class="control-list">
+            <div class="control-row">
+              <span class="control-label">Generate supports</span>
+              <nexus-switch
+                label="Generate supports"
+                [checked]="supportsOn()"
+                (checkedChange)="supportsOn.set($event)"
+              ></nexus-switch>
+            </div>
+            <div class="control-row">
+              <span class="control-label">Spiral vase mode</span>
+              <nexus-switch
+                label="Spiral vase mode"
+                [checked]="spiralOn()"
+                (checkedChange)="spiralOn.set($event)"
+              ></nexus-switch>
+            </div>
+            <div class="control-row">
+              <span class="control-label">Ironing (small)</span>
+              <nexus-switch
+                size="sm"
+                label="Ironing"
+                [checked]="ironingOn()"
+                (checkedChange)="ironingOn.set($event)"
+              ></nexus-switch>
+            </div>
+            <div class="control-row">
+              <span class="control-label muted">Disabled</span>
+              <nexus-switch label="Disabled" [checked]="true" [disabled]="true"></nexus-switch>
+            </div>
+          </div>
+        </nexus-card>
+
+        <nexus-card visualSize="small" class="demo-card">
+          <h3 class="subheading">Sliders</h3>
+          <div class="control-list">
+            <div class="control-stack">
+              <span class="control-label">Infill density</span>
+              <nexus-slider
+                label="Infill density"
+                unit="%"
+                [value]="density()"
+                (valueChange)="density.set($event)"
+              ></nexus-slider>
+            </div>
+            <div class="control-stack">
+              <span class="control-label">Print speed</span>
+              <nexus-slider
+                label="Print speed"
+                unit=" mm/s"
+                [min]="20"
+                [max]="300"
+                [step]="5"
+                [value]="speed()"
+                (valueChange)="speed.set($event)"
+              ></nexus-slider>
+            </div>
+            <div class="control-stack">
+              <span class="control-label">Nozzle temp range</span>
+              <nexus-range-slider
+                label="Nozzle temperature"
+                unit="°C"
+                [min]="150"
+                [max]="300"
+                [step]="5"
+                [low]="tempLow()"
+                [high]="tempHigh()"
+                (rangeChange)="tempLow.set($event[0]); tempHigh.set($event[1])"
+              ></nexus-range-slider>
+            </div>
+            <div class="control-stack">
+              <span class="control-label">Visible layer range</span>
+              <nexus-range-slider
+                label="Visible layers"
+                [min]="1"
+                [max]="100"
+                [step]="1"
+                [low]="layerRange()[0]"
+                [high]="layerRange()[1]"
+                (rangeChange)="layerRange.set($event)"
+              ></nexus-range-slider>
+            </div>
+          </div>
+        </nexus-card>
+
+        <nexus-card visualSize="small" class="demo-card">
+          <h3 class="subheading">Number Steppers</h3>
+          <div class="control-list">
+            <div class="control-stack">
+              <span class="control-label">Layer height</span>
+              <nexus-number-input
+                label="Layer height"
+                unit="mm"
+                [min]="0.04"
+                [max]="0.6"
+                [step]="0.02"
+                [value]="layerHeight()"
+                (valueChange)="layerHeight.set($event)"
+              ></nexus-number-input>
+            </div>
+            <div class="control-stack">
+              <span class="control-label">Wall loops</span>
+              <nexus-number-input
+                label="Wall loops"
+                [min]="1"
+                [max]="10"
+                [step]="1"
+                [value]="wallCount()"
+                (valueChange)="wallCount.set($event)"
+              ></nexus-number-input>
+            </div>
+          </div>
+        </nexus-card>
+
+        <nexus-card visualSize="small" class="demo-card">
+          <h3 class="subheading">Dropdown</h3>
+          <div class="control-list">
+            <div class="control-stack">
+              <span class="control-label">Infill pattern</span>
+              <nexus-select
+                [options]="patternOptions"
+                [value]="pattern()"
+                (valueChange)="pattern.set($event)"
+              ></nexus-select>
+            </div>
+            <p class="hint">Selected pattern: {{ pattern() }}</p>
+          </div>
+        </nexus-card>
+
+        <nexus-card visualSize="small" class="demo-card">
+          <h3 class="subheading">Radio Cards</h3>
+          <div class="control-list">
+            <div class="control-stack">
+              <span class="control-label">Wall generator</span>
+              <nexus-radio-group
+                label="Wall generator"
+                [options]="wallGeneratorOptions"
+                [value]="wallGenerator()"
+                (valueChange)="wallGenerator.set($event)"
+              ></nexus-radio-group>
+            </div>
+            <div class="control-stack">
+              <span class="control-label">Quality (segmented)</span>
+              <nexus-segmented
+                label="Quality"
+                [options]="qualityOptions"
+                [value]="qualityMode()"
+                (valueChange)="qualityMode.set($event)"
+              ></nexus-segmented>
+            </div>
+          </div>
+        </nexus-card>
+      </div>
+    </section>
+
+    <section class="section">
+      <nexus-section-header
+        heading="Feedback Systems"
+        description="Global notifications and dialogs rendered by app-level outlets"
+      />
+      <div class="grid two-up">
+        <nexus-card visualSize="small" class="demo-card">
+          <h3 class="subheading">Notifications</h3>
+          <p class="hint">These controls trigger toasts in the global notification center.</p>
+          <div class="row wrap">
+            <button nexusButton size="sm" (click)="showInfoNotification()">Info</button>
+            <button nexusButton size="sm" variant="secondary" (click)="showSuccessNotification()">
+              Success
+            </button>
+            <button nexusButton size="sm" variant="subtle" (click)="showWarningNotification()">
+              Warning
+            </button>
+            <button nexusButton size="sm" variant="danger" (click)="showErrorNotification()">
+              Error
+            </button>
+            <button nexusButton size="sm" variant="primary" (click)="showProgressNotification()">
+              Progress
+            </button>
+          </div>
+        </nexus-card>
+
+        <nexus-card visualSize="small" class="demo-card">
+          <h3 class="subheading">Dialogs</h3>
+          <p class="hint">
+            Dialogs are rendered by the global dialog outlet attached in the root app shell.
+          </p>
+          <div class="row wrap">
+            <button nexusButton variant="subtle" (click)="openConfirmDialog()">
+              Confirm dialog
+            </button>
+            <button nexusButton variant="secondary" (click)="openAlertDialog()">
+              Alert dialog
+            </button>
+          </div>
+        </nexus-card>
+      </div>
+    </section>
+
+    <section class="section">
+      <nexus-section-header heading="Empty State" description="Default placeholder treatment" />
+      <nexus-card visualSize="large" class="demo-card">
+        <nexus-empty-state
+          icon="box-iso"
+          heading="No slices yet"
+          description="Drop in a model to generate your first preview and estimates."
+        >
+          <a nexusButton variant="primary" routerLink="/slice/new">Start slicing</a>
+        </nexus-empty-state>
+      </nexus-card>
+    </section>
+  </div>
+</div>

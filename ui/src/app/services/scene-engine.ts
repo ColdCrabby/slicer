@@ -195,6 +195,11 @@ export class SceneEngine {
     this.refreshSnapshot();
   }
 
+  /** Remove every object from the scene, keeping the current bed. */
+  async clear(): Promise<void> {
+    await this.resetWithBed(this.snapshotSignal().bed);
+  }
+
   /**
    * Add a mesh to the scene from raw bytes. Returns the assigned object id.
    */

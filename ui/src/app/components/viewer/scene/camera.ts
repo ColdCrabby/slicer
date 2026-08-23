@@ -44,6 +44,8 @@ export class SceneCamera {
   private currentView: ViewerView = 'perspective';
   private animation: CameraAnimation | null = null;
   private printArea: PrintAreaConfig;
+  /** User-configurable perspective FOV (degrees); the ortho preset ignores it. */
+  private perspectiveFov = PERSPECTIVE_FOV;
 
   constructor(
     private readonly camera: PerspectiveCamera,
@@ -70,6 +72,31 @@ export class SceneCamera {
 
   setPrintArea(config: PrintAreaConfig): void {
     this.printArea = { ...config };
+  }
+
+  /**
+   * Set the perspective field-of-view (degrees). When the camera is currently
+   * in the perspective preset the change is applied live, adjusting the orbit
+   * distance so the framed content keeps its apparent size (a wider FOV would
+   * otherwise appear to zoom out). The ortho preset is left untouched — it
+   * forces a ~1° FOV to fake an orthographic projection.
+   */
+  setPerspectiveFov(fov: number): void {
+    this.perspectiveFov = fov;
+    if (this.currentView !== 'perspective' || this.animation) {
+      return;
+    }
+    const target = this.controls.target;
+    const currentDistance = Math.max(this.camera.position.distanceTo(target), 1);
+    const fromTan = Math.tan(((this.camera.fov / 2) * Math.PI) / 180);
+    const toTan = Math.tan(((fov / 2) * Math.PI) / 180);
+    const distance = toTan > 1e-6 ? currentDistance * (fromTan / toTan) : currentDistance;
+    const dir = this.camera.position.clone().sub(target).normalize();
+    this.camera.position.copy(target).addScaledVector(dir, distance);
+    this.camera.fov = fov;
+    this.updateNearFar(distance);
+    this.camera.updateProjectionMatrix();
+    this.controls.update();
   }
 
   /** Re-frame the camera so the whole content fits comfortably in view. */
@@ -102,7 +129,7 @@ export class SceneCamera {
       position: pose.position,
       target: pose.target,
       up: INITIAL_CAMERA_UP.clone(),
-      fov: PERSPECTIVE_FOV,
+      fov: this.perspectiveFov,
     });
   }
 
@@ -280,7 +307,7 @@ export class SceneCamera {
         return { dir: currentDir, fov: ORTHO_FOV, target, up: currentUp };
       case 'perspective':
       default:
-        return { dir: currentDir, fov: PERSPECTIVE_FOV, target, up: currentUp };
+        return { dir: currentDir, fov: this.perspectiveFov, target, up: currentUp };
     }
   }
 

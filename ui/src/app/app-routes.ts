@@ -1,25 +1,99 @@
-import { Routes } from '@angular/router';
+import { inject } from '@angular/core';
+import { Router, type Routes } from '@angular/router';
 import { NexusSlicingShell } from './nexus/layout/slicing-shell/slicing-shell';
+import { AppShell } from './nexus/shell/shell';
+import { SettingsShell } from './pages/settings/settings-shell';
+import { SlicerFile } from './services/slicer-file';
 import { uploadCanDeactivate } from './services/upload-guard';
 
 export const APP_ROUTES: Routes = [
   {
     path: '',
-    loadComponent: async () => import('./pages/home/home').then((m) => m.HomeDashboard),
-  },
-  {
-    path: 'slice',
-    component: NexusSlicingShell,
+    component: AppShell,
     children: [
-      { path: '', redirectTo: 'new', pathMatch: 'full' },
       {
-        path: 'new',
-        loadComponent: () => import('./pages/slice-new/slice-new').then((m) => m.SliceNew),
-        canDeactivate: [uploadCanDeactivate],
+        path: '',
+        title: 'Home',
+        loadComponent: async () => import('./pages/home/home').then((m) => m.HomeDashboard),
       },
       {
-        path: ':requestUuid',
-        loadComponent: () => import('./pages/slice-viewer/slice-viewer').then((m) => m.SliceViewer),
+        path: 'slice',
+        component: NexusSlicingShell,
+        children: [
+          {
+            // Land on the active workplate if one is open; otherwise start a
+            // new plate. A static `redirectTo: 'new'` would drop the user back
+            // to the empty "Start your first plate" screen even while a
+            // workplate is still loaded.
+            path: '',
+            pathMatch: 'full',
+            redirectTo: () => {
+              const uuid = inject(SlicerFile).requestUuid();
+              return inject(Router).createUrlTree(['/slice', uuid ?? 'new']);
+            },
+          },
+          {
+            path: 'new',
+            title: 'New Slice',
+            loadComponent: () => import('./pages/slice-new/slice-new').then((m) => m.SliceNew),
+            canDeactivate: [uploadCanDeactivate],
+          },
+          {
+            path: ':requestUuid',
+            title: 'Slice Preview',
+            loadComponent: () =>
+              import('./pages/slice-viewer/slice-viewer').then((m) => m.SliceViewer),
+          },
+        ],
+      },
+      {
+        path: 'settings',
+        component: SettingsShell,
+        title: 'Settings',
+        children: [
+          { path: '', redirectTo: 'general', pathMatch: 'full' },
+          {
+            path: 'general',
+            title: 'General Settings',
+            loadComponent: () => import('./pages/settings/general').then((m) => m.GeneralSettings),
+          },
+          {
+            path: 'appearance',
+            title: 'Appearance Settings',
+            loadComponent: () =>
+              import('./pages/settings/appearance').then((m) => m.AppearanceSettings),
+          },
+          {
+            path: 'printers',
+            title: 'Printer Settings',
+            loadComponent: () =>
+              import('./pages/settings/printers').then((m) => m.PrintersSettings),
+          },
+          {
+            path: 'filaments',
+            title: 'Filament Settings',
+            loadComponent: () =>
+              import('./pages/settings/filaments').then((m) => m.FilamentsSettings),
+          },
+          {
+            path: 'profiles',
+            title: 'Profile Settings',
+            loadComponent: () =>
+              import('./pages/settings/profiles').then((m) => m.ProfilesSettings),
+          },
+          {
+            path: 'shortcuts',
+            title: 'Keyboard Shortcuts',
+            loadComponent: () =>
+              import('./pages/settings/shortcuts').then((m) => m.ShortcutsSettings),
+          },
+        ],
+      },
+      {
+        path: 'components',
+        title: 'UI Components',
+        loadComponent: () =>
+          import('./pages/ui-components/ui-components.component').then((m) => m.UiComponentsPage),
       },
     ],
   },

@@ -1,0 +1,18 @@
+@use './settings';
+
+.subhead {
+  margin-top: var(--spacing-sm);
+}
+
+.fov-control {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-md);
+  width: min(320px, 60%);
+}
+
+.fov-slider {
+  flex: 1;
+  min-width: 0;
+}

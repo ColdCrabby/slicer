@@ -1,14 +1,45 @@
 .schema-form-search {
   position: sticky;
-  background-color: var(--color-surface);
   top: 0;
   z-index: 10;
+  padding: var(--spacing-sm) var(--spacing-sm) 0;
+  // Seamless panel-coloured backing so scrolled content never peeks through the
+  // sticky search; the ::after fades the following content out smoothly.
+  background: var(--color-bg-secondary);
+}
 
+.schema-form-search::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 100%;
+  height: var(--spacing-md);
+  background: linear-gradient(
+    to bottom,
+    var(--color-bg-secondary),
+    color-mix(in srgb, var(--color-bg-secondary) 40%, transparent) 55%,
+    transparent
+  );
+  pointer-events: none;
+}
+
+.schema-form-search-field {
   display: flex;
   align-items: center;
   gap: var(--spacing-xs);
   padding: var(--spacing-sm) var(--spacing-md);
-  border-bottom: 1px solid var(--color-border-light);
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  transition:
+    border-color var(--duration-fast) var(--ease-standard),
+    box-shadow var(--duration-fast) var(--ease-standard);
+
+  &:focus-within {
+    border-color: var(--color-focus-ring);
+    box-shadow: inset 0 0 0 1px var(--color-focus-ring);
+  }
 }
 
 .schema-form-search-icon {
@@ -28,6 +59,14 @@
   line-height: 1.4;
   padding: 0;
   min-width: 0;
+
+  // The field's :focus-within border is the focus indicator; suppress the
+  // global input focus outline/box-shadow so we don't get a second inner ring.
+  &:focus,
+  &:focus-visible {
+    outline: none;
+    box-shadow: none;
+  }
 
   &::placeholder {
     color: var(--color-text-tertiary);
@@ -61,7 +100,8 @@
   display: flex;
   flex-direction: column;
   gap: var(--spacing-md);
-  padding: var(--spacing-md) var(--spacing-lg);
+  padding: var(--spacing-md);
+  margin-top: var(--spacing-md);
 }
 
 .schema-form-search-result {
@@ -94,15 +134,14 @@
 .schema-form-accordion {
   display: flex;
   flex-direction: column;
-  gap: 0;
+  gap: 2px;
+  padding: var(--spacing-sm);
+  margin-top: var(--spacing-md);
 }
 
 .schema-form-group {
-  border-bottom: 1px solid var(--color-border-light);
-
-  &:first-child {
-    border-top: 1px solid var(--color-border-light);
-  }
+  border-radius: var(--radius-md);
+  overflow: clip;
 }
 
 .schema-form-group-trigger {
@@ -110,40 +149,50 @@
   align-items: center;
   justify-content: space-between;
   width: 100%;
-  padding: var(--spacing-md) var(--spacing-lg);
+  min-height: 36px;
+  padding: 8px 12px;
   background: none;
   border: none;
+  border-radius: var(--radius-md);
   cursor: pointer;
-  color: inherit;
+  color: var(--color-text-secondary);
   text-align: left;
-  border-radius: 0;
-  gap: var(--spacing-sm);
-  transition: background-color var(--transition-fast);
+  gap: var(--spacing-md);
+  transition:
+    background-color var(--duration-fast) var(--ease-standard),
+    color var(--duration-fast) var(--ease-standard);
 
   &:hover {
-    background: var(--color-bg-hover);
+    background: var(--color-surface-hover);
+    color: var(--color-text-primary);
+  }
+
+  &:focus-visible {
+    outline: none;
+    box-shadow: inset 0 0 0 1px var(--color-focus-ring);
   }
 
   &[aria-expanded='true'] {
+    background: var(--accent-soft);
+    color: var(--accent);
+
     .schema-form-group-chevron {
       transform: rotate(-180deg);
+      color: currentColor;
     }
   }
 }
 
 .schema-form-group-title {
-  font-size: 11px;
-  font-weight: 600;
-  color: var(--color-text-tertiary);
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
+  font-size: var(--font-size-md);
+  font-weight: var(--font-weight-medium);
   flex: 1;
   user-select: none;
 }
 
 .schema-form-group-chevron {
   flex-shrink: 0;
-  color: var(--color-text-tertiary);
+  color: currentColor;
   transition: transform var(--duration-normal) var(--ease-standard);
   transform: rotate(-90deg);
 }
@@ -176,7 +225,7 @@
   display: flex;
   flex-direction: column;
   gap: var(--spacing-md);
-  padding: var(--spacing-sm) var(--spacing-lg);
+  padding: var(--spacing-xs) var(--spacing-sm) var(--spacing-sm);
   transform-origin: top center;
   transform: scale(1);
   transition: transform var(--duration-slow) var(--ease-standard);

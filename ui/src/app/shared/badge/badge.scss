@@ -8,6 +8,8 @@
   font-weight: 600;
   line-height: 18px;
   white-space: nowrap;
+  user-select: none;
+  -webkit-user-select: none;
 }
 
 :host([variant='default']) {

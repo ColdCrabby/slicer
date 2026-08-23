@@ -1,4 +1,13 @@
-import { ChangeDetectionStrategy, Component, computed, inject, signal } from '@angular/core';
+import {
+  ChangeDetectionStrategy,
+  Component,
+  DestroyRef,
+  computed,
+  effect,
+  inject,
+  signal,
+  untracked,
+} from '@angular/core';
 import {
   FLOATS_PER_SEGMENT,
   GcodePreview,
@@ -11,28 +20,124 @@ import {
   speedGradientCss,
   VIEW_MODE_LABELS,
 } from '../../services/gcode-preview';
+import { Select, type SelectOption, Slider } from '../../ui';
+import { ViewerControl } from '../../services/viewer-control';
 
 @Component({
   selector: 'nexus-slice-segment-bar',
   standalone: true,
-  imports: [],
+  imports: [Select, Slider],
   templateUrl: './slice-segment-bar.html',
   styleUrl: './slice-segment-bar.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class SliceSegmentBar {
   protected readonly preview = inject(GcodePreview);
+  private readonly viewerControl = inject(ViewerControl);
+  private readonly destroyRef = inject(DestroyRef);
 
   protected readonly roleCss = this.preview.roleCss;
   protected readonly roleLabels = ROLE_LABELS;
   protected readonly roleOrder: readonly RoleName[] = ROLE_ORDER;
 
+  /**
+   * Drives the card's reveal animation. Flipped true only once the preview
+   * render has settled (see the constructor), so the expand transition isn't
+   * fighting the heavy G-code geometry build for main-thread time (which drops
+   * frames). Stays true through a reslice's brief handle-null window so the
+   * inspector never collapses or re-animates mid-update.
+   */
+  private readonly revealSignal = signal(false);
+  protected readonly revealed = this.revealSignal.asReadonly();
+  private cancelReveal: (() => void) | null = null;
+
+  /** Clamped top index for the layer slider (avoids a −¹1 max during reslice). */
+  protected readonly layerMaxIndex = computed(() => Math.max(0, this.preview.layerCount() - 1));
+
+  constructor() {
+    effect(() => {
+      const hasData = this.preview.gcodeHandle() !== null || this.preview.loading();
+      const inGcodeView = this.viewerControl.viewMode() === 'gcode';
+      untracked(() => {
+        // Open only while previewing G-code with a result present; collapse
+        // (animated) for model view or when there's nothing sliced yet.
+        if (inGcodeView && hasData) {
+          if (!this.revealSignal() && !this.cancelReveal) {
+            this.scheduleReveal();
+          }
+          return;
+        }
+        this.clearReveal();
+        this.revealSignal.set(false);
+      });
+    });
+    this.destroyRef.onDestroy(() => this.clearReveal());
+  }
+
+  /**
+   * Open the inspector only after the main thread goes idle (the G-code build
+   * and first paint have finished), then start the transition on a fresh frame.
+   */
+  private scheduleReveal(): void {
+    const open = () => {
+      this.cancelReveal = null;
+      this.revealSignal.set(true);
+    };
+    const win = window as unknown as {
+      requestIdleCallback?: (cb: () => void, opts?: { timeout?: number }) => number;
+      cancelIdleCallback?: (id: number) => void;
+    };
+    if (typeof win.requestIdleCallback === 'function') {
+      let rafId = 0;
+      const idleId = win.requestIdleCallback(
+        () => {
+          rafId = requestAnimationFrame(open);
+        },
+        { timeout: 500 },
+      );
+      this.cancelReveal = () => {
+        win.cancelIdleCallback?.(idleId);
+        if (rafId) cancelAnimationFrame(rafId);
+      };
+      return;
+    }
+    // WebKit fallback: two frames past the synchronous build + a short settle.
+    let raf1 = 0;
+    let raf2 = 0;
+    let timer = 0;
+    raf1 = requestAnimationFrame(() => {
+      raf2 = requestAnimationFrame(() => {
+        timer = window.setTimeout(open, 80);
+      });
+    });
+    this.cancelReveal = () => {
+      cancelAnimationFrame(raf1);
+      cancelAnimationFrame(raf2);
+      window.clearTimeout(timer);
+    };
+  }
+
+  private clearReveal(): void {
+    this.cancelReveal?.();
+    this.cancelReveal = null;
+  }
+
   /** View-mode dropdown options (filtered to what the model actually has). */
   protected readonly viewModes = this.preview.availableViewModes;
   protected readonly viewModeLabels = VIEW_MODE_LABELS;
 
+  /** `nexus-select` options for the "Color by" dropdown. */
+  protected readonly viewModeOptions = computed<SelectOption[]>(() =>
+    this.viewModes().map((m) => ({ value: m, label: this.viewModeLabels[m] })),
+  );
+
   /** Fans discovered in the model, for the secondary fan selector. */
   protected readonly fans = this.preview.discoveredFans;
+
+  /** `nexus-select` options for the fan sub-selector. */
+  protected readonly fanOptions = computed<SelectOption[]>(() =>
+    this.fans().map((f) => ({ value: f.key, label: f.label })),
+  );
 
   /** Show the fan sub-selector only in fan mode with more than one fan. */
   protected readonly showFanSelector = computed(
@@ -116,21 +221,27 @@ export class SliceSegmentBar {
     Math.round(this.preview.segmentProgress() * this.layerSegmentCount()),
   );
 
-  /** CSS `right%` for the scrub track fill (from left edge to thumb). */
-  protected readonly scrubFillRight = computed(() => {
-    const total = this.layerSegmentCount();
-    if (total === 0) {
-      return 0;
-    }
-    return (1 - this.segmentSliderValue() / total) * 100;
-  });
-
   // ── Event handlers ───────────────────────────────────────────────────────
 
-  protected onSegmentInput(event: Event): void {
-    const raw = parseInt((event.target as HTMLInputElement).value, 10);
+  /** Layer navigation (top of the inspector). */
+  protected setLayer(value: number): void {
+    this.preview.setLayerMax(value);
+  }
+
+  protected onWheelLayer(event: WheelEvent): void {
+    event.preventDefault();
+    const step = event.deltaY < 0 ? 1 : -1;
+    this.preview.setLayerMax(this.preview.layerMax() + step);
+  }
+
+  protected toggleShowAll(): void {
+    this.preview.toggleShowAllLayers();
+  }
+
+  /** Segment scrub inside the active top layer. */
+  protected onSegmentValue(value: number): void {
     const total = this.layerSegmentCount();
-    this.preview.setSegmentProgress(total > 0 ? raw / total : 1);
+    this.preview.setSegmentProgress(total > 0 ? value / total : 1);
   }
 
   protected onWheelSegment(event: WheelEvent): void {
@@ -148,12 +259,12 @@ export class SliceSegmentBar {
     this.preview.toggleRole(role);
   }
 
-  protected onModeChange(event: Event): void {
-    this.preview.setViewMode((event.target as HTMLSelectElement).value as GcodeViewMode);
+  protected onModeValue(value: string): void {
+    this.preview.setViewMode(value as GcodeViewMode);
   }
 
-  protected onFanChange(event: Event): void {
-    this.preview.setSelectedFan((event.target as HTMLSelectElement).value);
+  protected onFanValue(value: string): void {
+    this.preview.setSelectedFan(value);
   }
 
   /** Hover over the gradient: show the value at the cursor and spotlight its band. */

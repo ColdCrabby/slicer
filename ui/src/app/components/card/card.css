@@ -3,11 +3,7 @@
   display: grid;
   gap: 2px;
 
-  background: linear-gradient(
-    color-mix(in srgb, var(--color-surface) calc(var(--surface-transparency) * 0.9), transparent),
-    color-mix(in srgb, var(--color-surface) calc(var(--surface-transparency) * 1.1), transparent)
-  );
-  backdrop-filter: blur(8px) saturate(2);
+  background: var(--color-surface);
 }
 
 :host(.small) {
@@ -19,5 +15,5 @@
 :host(.large) {
   border-radius: var(--radius-lg);
   box-shadow: var(--shadow-lg);
-  border: none;
+  border: 1px solid var(--color-border);
 }

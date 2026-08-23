@@ -1,0 +1,166 @@
+@if (visible() && selected(); as obj) {
+  <div class="transform-panel" role="group" [attr.aria-label]="'Transform ' + obj.name">
+    <header class="tp-head">
+      <span class="tp-name" [title]="obj.name">{{ obj.name }}</span>
+
+      <div class="tp-head-right">
+        @switch (mode()) {
+          @case ('translate') {
+            <div class="tp-actions">
+              <button
+                type="button"
+                class="tp-action"
+                [tooltip]="'Centre on the bed (X / Y)'"
+                (click)="centerOnBed()"
+              >
+                <nexus-icon name="position-align"></nexus-icon>
+              </button>
+              <button
+                type="button"
+                class="tp-action"
+                [tooltip]="'Drop to the floor'"
+                (click)="dropToFloor()"
+              >
+                <nexus-icon name="arrow-down"></nexus-icon>
+              </button>
+            </div>
+          }
+          @case ('rotate') {
+            <div class="tp-actions">
+              <button
+                type="button"
+                class="tp-action"
+                [tooltip]="'Reset rotation to 0°'"
+                (click)="resetRotation()"
+              >
+                <nexus-icon name="restart"></nexus-icon>
+              </button>
+            </div>
+          }
+          @case ('scale') {
+            <div class="tp-actions">
+              <button
+                type="button"
+                class="tp-action"
+                [class.is-active]="uniform()"
+                [attr.aria-pressed]="uniform()"
+                [tooltip]="
+                  uniform()
+                    ? 'Uniform scaling on — axes stay proportional'
+                    : 'Uniform scaling off — axes scale independently'
+                "
+                (click)="toggleUniform()"
+              >
+                <nexus-icon [name]="uniform() ? 'link' : 'link-slash'"></nexus-icon>
+              </button>
+              <button
+                type="button"
+                class="tp-action"
+                [tooltip]="'Reset scale to 100%'"
+                (click)="resetScale()"
+              >
+                <nexus-icon name="restart"></nexus-icon>
+              </button>
+            </div>
+          }
+        }
+        <button
+          type="button"
+          class="tp-action tp-info"
+          [tooltip]="stepHint"
+          tooltipMode="block"
+          [tooltipClickToggle]="true"
+          aria-label="Number field adjustment tips"
+        >
+          <nexus-icon name="info-circle"></nexus-icon>
+        </button>
+      </div>
+    </header>
+
+    <div class="tp-body">
+      @switch (mode()) {
+        @case ('translate') {
+          @for (axis of axes; track axis) {
+            <div class="tp-row">
+              <span class="tp-axis" [attr.data-axis]="axisLabels[axis]">{{
+                axisLabels[axis]
+              }}</span>
+              <nexus-number-input
+                [value]="position()[axis]"
+                [step]="1"
+                [precision]="2"
+                [min]="-1000"
+                [max]="1000"
+                unit="mm"
+                [label]="'Position ' + axisLabels[axis]"
+                [wheelHover]="true"
+                (valueChange)="setPosition(axis, $event)"
+              />
+            </div>
+          }
+        }
+        @case ('rotate') {
+          @for (axis of axes; track axis) {
+            <div class="tp-row">
+              <span class="tp-axis" [attr.data-axis]="axisLabels[axis]">{{
+                axisLabels[axis]
+              }}</span>
+              <nexus-number-input
+                [value]="rotation()[axis]"
+                [step]="1"
+                [precision]="1"
+                [min]="-360"
+                [max]="360"
+                unit="°"
+                [label]="'Rotation ' + axisLabels[axis]"
+                [wheelHover]="true"
+                (valueChange)="setRotation(axis, $event)"
+              />
+            </div>
+          }
+        }
+        @case ('scale') {
+          <nexus-segmented
+            class="tp-unit"
+            [options]="scaleUnitOptions"
+            [value]="scaleUnit()"
+            (valueChange)="scaleUnit.set($any($event))"
+            label="Scale unit"
+          />
+          @for (axis of axes; track axis) {
+            <div class="tp-row">
+              <span class="tp-axis" [attr.data-axis]="axisLabels[axis]">{{
+                axisLabels[axis]
+              }}</span>
+              @if (scaleUnit() === 'percent') {
+                <nexus-number-input
+                  [value]="scalePercent()[axis]"
+                  [step]="1"
+                  [precision]="1"
+                  [min]="1"
+                  [max]="2000"
+                  unit="%"
+                  [label]="'Scale ' + axisLabels[axis]"
+                  [wheelHover]="true"
+                  (valueChange)="setScalePercent(axis, $event)"
+                />
+              } @else {
+                <nexus-number-input
+                  [value]="size()[axis]"
+                  [step]="1"
+                  [precision]="2"
+                  [min]="0.1"
+                  [max]="10000"
+                  unit="mm"
+                  [label]="'Size ' + axisLabels[axis]"
+                  [wheelHover]="true"
+                  (valueChange)="setSize(axis, $event)"
+                />
+              }
+            </div>
+          }
+        }
+      }
+    </div>
+  </div>
+}

@@ -1,61 +1,77 @@
 :host {
-  padding: 0 var(--spacing-lg);
+  padding: var(--spacing-md) var(--spacing-lg);
 
   display: flex;
   align-items: center;
-  justify-content: space-between;
-
-  height: 60px;
+  justify-content: center;
+  gap: var(--spacing-sm);
 }
 
-.view-group {
-  display: flex;
+/* ── Floating pill groups ───────────────────────────────────────────────── */
+
+.view-group,
+:host > .button-radio-group {
+  display: inline-flex;
   align-items: center;
-  gap: var(--spacing-sm, 8px);
+  gap: 2px;
+  padding: 3px;
+
+  background: var(--color-surface);
+  border: 1px solid var(--color-border-light);
+  border-radius: 999px;
+  box-shadow: var(--shadow-sm);
 }
 
-.button-radio-group {
-  display: flex;
-  padding: 2px;
+/* ── Unified icon buttons (loose actions + radio segments) ──────────────── */
 
-  > button {
-    font-size: 12px;
-  }
-
-  &.icon-group {
-    button {
-      padding-top: 5px;
-      padding-bottom: 5px;
-    }
-  }
-}
-
-.reset-view-button {
+.reset-view-button,
+.button-radio-group > button {
   display: inline-grid;
   place-items: center;
-  width: 32px;
-  height: 32px;
+  width: 34px;
+  height: 34px;
   padding: 0;
-  border: 1px solid var(--color-border);
-  border-radius: 6px;
+
+  border: 1px solid transparent;
+  border-radius: 999px;
   background: transparent;
-  color: inherit;
+  color: var(--color-text-secondary);
   cursor: pointer;
+  user-select: none;
+  -webkit-user-select: none;
+  touch-action: manipulation;
+  font-size: 0;
+  --icon-size: 18px;
   transition:
-    background-color 160ms ease,
-    border-color 160ms ease,
-    transform 160ms ease;
+    background-color var(--duration-fast) var(--ease-standard),
+    border-color var(--duration-fast) var(--ease-standard),
+    color var(--duration-fast) var(--ease-standard),
+    transform var(--duration-fast) var(--ease-standard);
 
   &:hover {
-    background: var(--color-surface-hover, rgba(127, 127, 127, 0.12));
+    background: var(--color-surface-hover);
+    color: var(--color-text-primary);
   }
 
   &:active {
     transform: scale(0.94);
   }
 
-  &.active {
-    background: var(--color-surface-active, rgba(127, 127, 127, 0.22));
-    border-color: var(--color-border-active, rgba(127, 127, 127, 0.5));
+  &:focus-visible {
+    outline: none;
+    border-color: var(--color-focus-ring);
+    box-shadow: inset 0 0 0 1px var(--color-focus-ring);
+  }
+
+  &:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+    pointer-events: none;
+  }
+
+  &.active,
+  &[aria-pressed='true'] {
+    background: var(--accent-soft);
+    color: var(--accent);
   }
 }

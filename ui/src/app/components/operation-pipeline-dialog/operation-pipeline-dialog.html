@@ -1,0 +1,53 @@
+<div class="pipeline">
+  <section class="pipeline__section">
+    <header class="pipeline__head">
+      <div class="pipeline__heading">
+        <h3 class="pipeline__title">Scene snapshot</h3>
+        <p class="pipeline__desc">Object placement sent over WebSocket when a slice job starts.</p>
+      </div>
+      <button
+        type="button"
+        class="pipeline__copy"
+        [class.is-copied]="copied() === 'scene'"
+        [tooltip]="'Copy scene snapshot JSON'"
+        (click)="copy(snapshotJson(), 'scene')"
+      >
+        <nexus-icon [name]="copied() === 'scene' ? 'check' : 'copy'"></nexus-icon>
+        <span>{{ copied() === 'scene' ? 'Copied' : 'Copy' }}</span>
+      </button>
+    </header>
+    <div class="pipeline__editor">
+      <nexus-code-editor
+        [content]="snapshotJson()"
+        language="json"
+        [readOnly]="true"
+      ></nexus-code-editor>
+    </div>
+  </section>
+
+  <section class="pipeline__section">
+    <header class="pipeline__head">
+      <div class="pipeline__heading">
+        <h3 class="pipeline__title">Slice settings</h3>
+        <p class="pipeline__desc">Resolved slice parameters sent alongside the scene.</p>
+      </div>
+      <button
+        type="button"
+        class="pipeline__copy"
+        [class.is-copied]="copied() === 'settings'"
+        [tooltip]="'Copy slice settings JSON'"
+        (click)="copy(sliceParamsJson(), 'settings')"
+      >
+        <nexus-icon [name]="copied() === 'settings' ? 'check' : 'copy'"></nexus-icon>
+        <span>{{ copied() === 'settings' ? 'Copied' : 'Copy' }}</span>
+      </button>
+    </header>
+    <div class="pipeline__editor">
+      <nexus-code-editor
+        [content]="sliceParamsJson()"
+        language="json"
+        [readOnly]="true"
+      ></nexus-code-editor>
+    </div>
+  </section>
+</div>

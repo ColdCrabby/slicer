@@ -27,6 +27,7 @@
       type="button"
       class="mode-btn"
       [class.active]="preview.showAllLayers()"
+      [attr.aria-pressed]="preview.showAllLayers()"
       (click)="toggleMode()"
       [title]="
         preview.showAllLayers()

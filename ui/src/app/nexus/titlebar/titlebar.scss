@@ -1,0 +1,66 @@
+:host {
+  display: flex;
+  align-items: center;
+  flex: none;
+  height: var(--titlebar-height);
+  // Center the logo icon over the nav-rail column below it (24px logo box).
+  padding: 0 var(--spacing-xs);
+  padding-left: calc((var(--nav-rail-width) - 24px) / 2);
+  background: var(--color-bg-secondary);
+  border-bottom: 1px solid var(--color-border);
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+// macOS desktop: reserve room for the native traffic lights (Overlay title-bar
+// style). In the browser there are no traffic lights, so keep the nav-rail
+// alignment instead.
+:host(.is-mac.is-desktop) {
+  padding-left: 78px;
+}
+
+.tb-leading {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  height: 100%;
+}
+
+.tb-brand {
+  display: inline-flex;
+  align-items: center;
+  --icon-size: 18px;
+}
+
+// Active workplate name, sitting next to the brand with a hairline divider.
+// Hidden (along with its divider) when no workplate is open.
+.tb-workplate {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  margin-left: var(--spacing-sm);
+  padding-left: var(--spacing-sm);
+  border-left: 1px solid var(--color-border);
+}
+
+.tb-status {
+  display: inline-flex;
+  align-items: center;
+  margin-right: var(--spacing-sm);
+}
+
+.tb-spacer {
+  flex: 1 1 auto;
+  height: 100%;
+}
+
+.tb-controls {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+button.tb-close:hover {
+  background: var(--color-danger);
+  color: #fff;
+}

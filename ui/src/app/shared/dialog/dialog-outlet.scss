@@ -39,7 +39,6 @@ nexus-dialog-outlet {
 
     &::backdrop {
       background: rgba(0, 0, 0, 0.55);
-      backdrop-filter: blur(3px);
       animation: backdrop-enter 240ms var(--ease-decelerate, cubic-bezier(0, 0, 0.2, 1)) both;
     }
 
@@ -119,7 +118,7 @@ nexus-dialog-outlet {
     &--primary {
       background: var(--color-primary, #7c84f5);
       border-color: var(--color-primary, #7c84f5);
-      color: #fff;
+      color: var(--color-primary-contrast, #fff);
 
       &:hover {
         background: var(--color-primary-hover, #9aa2ff);
@@ -204,7 +203,6 @@ nexus-dialog-outlet {
     opacity: 0;
     scale: 0.95;
     translate: 0 6px;
-    filter: blur(4px);
   }
 }
 
@@ -213,6 +211,5 @@ nexus-dialog-outlet {
     opacity: 0;
     scale: 0.96;
     translate: 0 4px;
-    filter: blur(2px);
   }
 }

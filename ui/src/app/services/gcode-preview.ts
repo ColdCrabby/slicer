@@ -39,18 +39,18 @@ export const ROLE_COLORS_DARK: RoleColorPalette = {
 };
 
 export const ROLE_COLORS_LIGHT: RoleColorPalette = {
-  outerWall: 0xdd5500, // dark-orange    (legend: outer wall)
-  innerWall: 0xbb8800, // deep-amber     (legend: inner wall)
-  infill: 0x9900cc, // deep-violet    (legend: sparse infill)
-  topSurface: 0xcc0033, // dark-crimson   (legend: top surface)
-  bottomSurface: 0x0077bb, // ocean-blue     (legend: bottom surface)
-  travel: 0x445566, // dark-slate     (legend: travel)
-  other: 0x008855, // forest-teal    (twist: stands apart)
-  bridge: 0x0044cc, // dark-azure     (legend: bridge)
-  overhangPerimeter: 0x005e30, // deep-green     (legend: overhang perimeter)
-  skirt: 0x666666, // dark-gray      (legend: skirt/brim)
-  support: 0x557700, // dark-lime      (legend: support material)
-  seam: 0x111122, // near-black     (legend: seam point — white bg)
+  outerWall: 0xe0620c, // warm orange   (legend: outer wall)
+  innerWall: 0xc08800, // amber-gold     (legend: inner wall)
+  infill: 0x8e3fc4, // medium violet   (legend: sparse infill)
+  topSurface: 0xd1263f, // rose-crimson    (legend: top surface)
+  bottomSurface: 0x1592c4, // azure-cyan      (legend: bottom surface)
+  travel: 0x8a94a6, // muted slate     (legend: travel)
+  other: 0x0f9f97, // teal            (twist: stands apart)
+  bridge: 0x2e5bd6, // royal blue      (legend: bridge)
+  overhangPerimeter: 0x1e9e62, // emerald green   (legend: overhang perimeter)
+  skirt: 0x74787f, // neutral grey    (legend: skirt/brim)
+  support: 0x7f9c1f, // olive-lime      (legend: support material)
+  seam: 0x2a2e38, // dark slate      (legend: seam point \u2014 white bg)
 };
 
 /** Returns the correct palette for the current theme. */
@@ -102,6 +102,8 @@ export const ROLE_ORDER: readonly RoleName[] = [
   'seam',
   'other',
 ] as const;
+
+const DEFAULT_HIDDEN_ROLES: ReadonlySet<RoleName> = new Set<RoleName>(['travel', 'seam']);
 
 // ── Segment buffer layout ───────────────────────────────────────────────────
 
@@ -562,7 +564,7 @@ export class GcodePreview {
   readonly segmentProgress = signal(1);
 
   /** Set of roles to hide in the viewer. */
-  readonly hiddenRoles = signal<ReadonlySet<RoleName>>(new Set<RoleName>());
+  readonly hiddenRoles = signal<ReadonlySet<RoleName>>(new Set(DEFAULT_HIDDEN_ROLES));
 
   /** Active coloring mode: role categories (default) or a scalar channel. */
   readonly viewMode = signal<GcodeViewMode>('category');
@@ -698,6 +700,22 @@ export class GcodePreview {
     this.hoverBand.set(band);
   }
 
+  /**
+   * Discard the current preview so the layer/segment controls hide. Used when
+   * the workplate is cleared — the slicer's `null` download URL is ignored by
+   * the reload effect, so the handle must be dropped explicitly.
+   */
+  clear(): void {
+    this.gcodeHandle.set(null);
+    this.hoverInfo.set(null);
+    this.hoverBand.set(null);
+    this.modelScan.set(emptyModelScan());
+    this.layerMax.set(0);
+    this.segmentProgress.set(1);
+    this.showAllLayers.set(true);
+    this.#lastSlicedObjectIds = null;
+  }
+
   // ── Private ──────────────────────────────────────────────────────────────
 
   /**
@@ -765,7 +783,7 @@ export class GcodePreview {
         // an imperative reset that would race the reactive rebuild.
         this.layerMax.set(Math.max(0, count - 1));
         this.segmentProgress.set(1);
-        this.hiddenRoles.set(new Set<RoleName>());
+        this.hiddenRoles.set(new Set(DEFAULT_HIDDEN_ROLES));
         this.showAllLayers.set(true);
       }
 

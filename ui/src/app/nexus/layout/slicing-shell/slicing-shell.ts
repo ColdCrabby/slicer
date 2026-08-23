@@ -1,22 +1,12 @@
-import {
-  Component,
-  ElementRef,
-  afterRenderEffect,
-  computed,
-  inject,
-  signal,
-  viewChild,
-} from '@angular/core';
+import { Component, ElementRef, afterRenderEffect, viewChild } from '@angular/core';
 import { RouterOutlet } from '@angular/router';
 import { ThreeDViewToolbar } from '../../../components/3d-view-toolbar/3d-view-toolbar';
 import { Card } from '../../../components/card/card';
-import { CodeEditor } from '../../../components/code-editor/code-editor';
 import { SettingsPanel } from '../../../components/settings-panel/settings-panel';
-import { SliceLayerBar } from '../../../components/slice-layer-bar/slice-layer-bar';
 import { SliceSegmentBar } from '../../../components/slice-segment-bar/slice-segment-bar';
+import { TaskProgressBar } from '../../../components/task-progress-bar/task-progress-bar';
+import { TransformPanel } from '../../../components/transform-panel/transform-panel';
 import { ViewportCube } from '../../../components/viewport-cube/viewport-cube';
-import { SceneEngine } from '../../../services/scene-engine';
-import { Slicer } from '../../../services/slicer';
 import { Sidebar } from '../../sidebar/sidebar';
 import { SliceControl } from '../../slice-control/slice-control';
 
@@ -25,25 +15,20 @@ import { SliceControl } from '../../slice-control/slice-control';
   imports: [
     Sidebar,
     SliceControl,
-    SliceLayerBar,
     SliceSegmentBar,
+    TaskProgressBar,
     ThreeDViewToolbar,
+    TransformPanel,
     ViewportCube,
     RouterOutlet,
     SettingsPanel,
-    CodeEditor,
     Card,
   ],
   templateUrl: './slicing-shell.html',
   styleUrl: './slicing-shell.scss',
 })
 export class NexusSlicingShell {
-  private readonly sceneEngine = inject(SceneEngine);
-  private readonly slicer = inject(Slicer);
-
   private readonly toolbarRef = viewChild(ThreeDViewToolbar, { read: ElementRef<HTMLElement> });
-
-  readonly editorPanelVisible = signal(false);
 
   constructor() {
     // Keep --main-scene-inset on :root in sync with the toolbar's rendered
@@ -73,32 +58,5 @@ export class NexusSlicingShell {
         });
       },
     });
-  }
-
-  /**
-   * The current scene snapshot serialised as formatted JSON.
-   *
-   * This is exactly the payload that would be sent over WebSocket as scene
-   * state when a slice job starts. `bigint` ids are serialised as strings so
-   * JSON.stringify does not throw.
-   */
-  readonly snapshotJson = computed(() =>
-    JSON.stringify(
-      this.sceneEngine.snapshot(),
-      (_key, value) => (typeof value === 'bigint' ? String(value) : value),
-      2,
-    ),
-  );
-
-  /**
-   * The current slice settings serialised as formatted JSON.
-   *
-   * This is the `settings` payload that would be sent over WebSocket alongside
-   * the scene snapshot when a slice job starts.
-   */
-  readonly sliceParamsJson = computed(() => JSON.stringify(this.slicer.settings(), null, 2));
-
-  toggleEditorPanel(): void {
-    this.editorPanelVisible.update((v) => !v);
   }
 }

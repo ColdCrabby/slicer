@@ -17,13 +17,55 @@ export class RadioButtonValue {
   @HostBinding('attr.role')
   readonly role = 'radio';
 
+  @HostBinding('attr.aria-checked')
+  ariaChecked = 'false';
+
+  @HostBinding('attr.tabindex')
+  tabIndex = -1;
+
   @HostListener('click')
   onClick(): void {
-    this.group.select(this.radioButtonValue());
+    this.group.activate(this);
   }
 
-  setActive(active: boolean): void {
+  @HostListener('keydown', ['$event'])
+  onKeyDown(event: KeyboardEvent): void {
+    switch (event.key) {
+      case 'ArrowRight':
+      case 'ArrowDown':
+        event.preventDefault();
+        this.group.focusRelative(this, 1);
+        return;
+      case 'ArrowLeft':
+      case 'ArrowUp':
+        event.preventDefault();
+        this.group.focusRelative(this, -1);
+        return;
+      case 'Home':
+        event.preventDefault();
+        this.group.focusFirst();
+        return;
+      case 'End':
+        event.preventDefault();
+        this.group.focusLast();
+        return;
+      case ' ':
+      case 'Enter':
+        event.preventDefault();
+        this.group.activate(this);
+        return;
+      default:
+        return;
+    }
+  }
+
+  setStateFromGroup(active: boolean, focusable: boolean): void {
     this.isActive = active;
-    this.el.nativeElement.setAttribute('aria-checked', String(active));
+    this.ariaChecked = String(active);
+    this.tabIndex = focusable ? 0 : -1;
+  }
+
+  focus(): void {
+    this.el.nativeElement.focus();
   }
 }

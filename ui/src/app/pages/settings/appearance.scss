@@ -1,0 +1,134 @@
+@use './settings';
+
+.accent-section {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-md);
+}
+
+.accent-sources {
+  display: flex;
+  gap: var(--spacing-sm);
+}
+
+.source-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  padding: 6px 14px;
+  border: 1px solid var(--color-border);
+  border-radius: 999px;
+  background: var(--color-surface);
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-sm);
+  cursor: pointer;
+  user-select: none;
+  -webkit-user-select: none;
+  touch-action: manipulation;
+
+  &:hover {
+    border-color: var(--accent-border);
+  }
+
+  &:focus-visible {
+    outline: none;
+    border-color: var(--color-focus-ring);
+    box-shadow: inset 0 0 0 1px var(--color-focus-ring);
+  }
+
+  &.is-active {
+    border-color: var(--accent);
+    color: var(--color-text-primary);
+    background: var(--accent-soft);
+  }
+}
+
+.source-swatch {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+}
+
+.source-swatch--brand {
+  background: #e0730f;
+}
+
+.source-swatch--system {
+  background: conic-gradient(
+    from 210deg,
+    #ff5257,
+    #f7821b,
+    #ffc600,
+    #62ba46,
+    #007aff,
+    #953d96,
+    #ff5257
+  );
+}
+
+.accent-hint {
+  margin: var(--spacing-xs) 0 0;
+  font-size: var(--font-size-xs);
+  color: var(--color-text-tertiary);
+}
+
+.preset-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: var(--spacing-sm);
+
+  @media (max-width: 640px) {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+.preset {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  padding: var(--spacing-md);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+  cursor: pointer;
+  text-align: left;
+  user-select: none;
+  -webkit-user-select: none;
+  touch-action: manipulation;
+
+  &:hover {
+    border-color: var(--accent-border);
+  }
+
+  &:focus-visible {
+    outline: none;
+    border-color: var(--color-focus-ring);
+    box-shadow: inset 0 0 0 1px var(--color-focus-ring);
+  }
+
+  &.is-active {
+    border-color: var(--swatch);
+    box-shadow: 0 0 0 1px var(--swatch);
+  }
+}
+
+.preset-swatch {
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: var(--swatch);
+  flex: none;
+  box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.12);
+}
+
+.preset-name {
+  font-size: var(--font-size-sm);
+  color: var(--color-text-primary);
+}
+
+.preset-check {
+  margin-left: auto;
+  color: var(--swatch);
+  --icon-size: 18px;
+}

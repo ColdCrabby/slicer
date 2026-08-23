@@ -30,6 +30,9 @@ export class AppTheme {
 
   readonly currentTheme = this.isDarkMode;
 
+  /** True when the user has chosen an explicit theme (not "follow system"). */
+  readonly hasExplicitPreference = computed<boolean>(() => this.storedTheme() !== null);
+
   constructor() {
     // Reactively apply the theme class whenever the signal changes,
     // including cross-tab updates driven by BrowserStorage.
@@ -44,6 +47,11 @@ export class AppTheme {
 
   setTheme(isDark: boolean): void {
     this.storage.write(THEME_KEY, isDark ? 'dark' : 'light', 'local');
+  }
+
+  /** Clear the explicit choice so the UI follows the OS colour scheme. */
+  useSystemTheme(): void {
+    this.storage.write(THEME_KEY, null, 'local');
   }
 
   private applyTheme(isDark: boolean): void {

@@ -1,25 +1,27 @@
-import { ChangeDetectionStrategy, Component, EventEmitter, input } from '@angular/core';
+import { ChangeDetectionStrategy, Component, EventEmitter, computed, input } from '@angular/core';
+import { Select } from '../../../ui/select/select';
+import type { SelectOption } from '../../../ui/select/select';
 import { IconButton } from '../../../shared/icon-button/icon-button';
 import { TooltipDirective } from '../../../shared/tooltip/tooltip.directive';
-import { FieldDef } from '../../models/field-def';
-import { FieldWidget } from '../base-field';
+import type { FieldDef } from '../../models/field-def';
+import type { FieldWidget } from '../base-field';
 
 /**
- * Dropdown widget for enum fields with more than 3 options.
- * Each `<option>` shows the enum variant value; the option's `title`
- * attribute carries the per-variant description for browser-native tooltips.
+ * Dropdown widget for enum fields with more than 3 options. Renders the
+ * design-system `nexus-select`, mapping each enum variant to an option whose
+ * secondary line is the variant description.
  */
 @Component({
   selector: 'se-enum-select',
   standalone: true,
-  imports: [IconButton, TooltipDirective],
+  imports: [IconButton, TooltipDirective, Select],
   changeDetection: ChangeDetectionStrategy.OnPush,
   styles: [
     `
       :host {
         display: flex;
         flex-direction: column;
-        gap: 5px;
+        gap: 6px;
       }
 
       label {
@@ -31,10 +33,6 @@ import { FieldWidget } from '../base-field';
         color: var(--color-text-secondary);
         user-select: none;
         cursor: default;
-      }
-
-      select {
-        width: 100%;
       }
     `,
   ],
@@ -51,21 +49,28 @@ import { FieldWidget } from '../base-field';
         />
       }
     </label>
-    <select
-      [id]="field().key"
-      [value]="value() ?? field().default ?? ''"
-      (change)="valueChange.emit($any($event.target).value)"
-    >
-      @for (opt of field().enumOptions; track opt.value) {
-        <option [value]="opt.value" [title]="opt.description ?? ''">
-          {{ opt.value }}
-        </option>
-      }
-    </select>
+    <nexus-select
+      [options]="options()"
+      [value]="stringValue()"
+      (valueChange)="valueChange.emit($event)"
+    ></nexus-select>
   `,
 })
 export class EnumSelect implements FieldWidget {
   readonly field = input.required<FieldDef>();
   readonly value = input<unknown>(undefined);
   readonly valueChange = new EventEmitter<unknown>();
+
+  protected readonly options = computed<SelectOption[]>(() =>
+    (this.field().enumOptions ?? []).map((o) => ({
+      value: o.value,
+      label: o.value,
+      description: o.description,
+    })),
+  );
+
+  protected readonly stringValue = computed(() => {
+    const v = this.value() ?? this.field().default;
+    return v == null ? null : String(v);
+  });
 }

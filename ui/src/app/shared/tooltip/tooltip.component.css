@@ -3,107 +3,151 @@
   pointer-events: none;
 }
 
-/* ---- inline (default) ---- */
-.tooltip-text {
+.tooltip-panel {
+  animation: nexus-tooltip-in var(--duration-fast) var(--ease-decelerate) forwards;
+  color: var(--color-text-secondary);
+}
+
+.tooltip-panel--inline {
   display: flex;
   align-items: center;
   gap: var(--spacing-sm);
-  background: color-mix(in srgb, var(--color-bg-tertiary) 70%, transparent);
-  backdrop-filter: blur(6px);
-  color: var(--color-text-secondary);
-  border: none;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border-light);
   border-radius: var(--radius-sm);
-  padding: var(--spacing-xs) var(--spacing-sm);
-  font-size: 12px;
-  line-height: 1.4;
+  padding: 5px var(--spacing-sm);
+  font-size: var(--font-size-xs);
+  line-height: 1.35;
+  font-weight: var(--font-weight-medium);
   white-space: nowrap;
-  animation: nexus-tooltip-in var(--transition-fast) forwards;
-  box-shadow: var(--shadow-xs);
+  box-shadow: 0 1px 1px rgba(24, 24, 27, 0.04);
   transform-origin: center;
 }
 
+.tooltip-inline-text {
+  color: var(--color-text-primary);
+}
+
 .tooltip-shortcut {
-  display: inline-block;
-  font-family: inherit;
-  font-size: 11px;
-  line-height: 1;
-  color: var(--color-text-tertiary, var(--color-text-secondary));
-  background: color-mix(in srgb, var(--color-border) 40%, transparent);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 18px;
+  padding: 0 6px;
+  border-radius: var(--radius-sm);
   border: 1px solid var(--color-border);
-  border-radius: var(--radius-xs, var(--radius-sm));
-  padding: 1px 4px;
+  background: color-mix(in oklab, var(--color-surface-hover) 86%, var(--color-surface));
+  color: var(--color-text-tertiary);
+  font-family: var(--font-family-mono);
+  font-size: var(--font-size-2xs);
+  font-variation-settings: 'wght' var(--font-weight-mono-emphasis);
+  line-height: 1;
   white-space: nowrap;
 }
 
-/* ---- block (markdown) ---- */
-.tooltip-block .tooltip-shortcut {
-  display: block;
-  margin-top: var(--spacing-xs);
-}
-
-.tooltip-block {
-  min-width: 220px;
-  max-width: 320px;
+.tooltip-panel--block {
+  min-width: 240px;
+  max-width: 360px;
   background: var(--color-surface);
   border: 1px solid var(--color-border);
   border-radius: var(--radius-md);
-  padding: var(--spacing-sm) var(--spacing-md);
-  box-shadow: var(--shadow-md);
-  animation: nexus-tooltip-in var(--transition-fast) forwards;
+  box-shadow: var(--shadow-xs);
   transform-origin: top left;
-  color: var(--color-text-secondary);
-  font-size: 12px;
+  font-size: var(--font-size-xs);
   line-height: 1.55;
+  overflow: hidden;
+}
 
-  /* strip markdown's default margin-heavy block flow */
-  ::ng-deep {
-    p {
-      margin: 0;
+.tooltip-panel--block .tooltip-panel__content {
+  padding: var(--spacing-sm) var(--spacing-md);
+  color: var(--color-text-secondary);
+}
 
-      & + p {
-        margin-top: 0.5em;
-      }
-    }
+.tooltip-panel__meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--spacing-sm);
+  min-height: 28px;
+  padding: 0 var(--spacing-md) var(--spacing-sm);
+}
 
-    ul,
-    ol {
-      margin: 0.4em 0;
-      padding-left: 1.2em;
-    }
+.tooltip-hint {
+  font-size: var(--font-size-2xs);
+  color: var(--color-text-tertiary);
+  white-space: nowrap;
+}
 
-    li {
-      margin: 0;
-    }
+.tooltip-panel--persistent {
+  pointer-events: auto;
+}
 
-    code {
-      background: var(--color-surface-hover);
-      border-radius: var(--radius-sm);
-      padding: 0.1em 0.35em;
-      font-size: 0.9em;
-    }
+.tooltip-panel--persistent.tooltip-panel--inline,
+.tooltip-panel--persistent.tooltip-panel--block {
+  border-color: var(--color-border);
+  box-shadow: var(--shadow-xs);
+}
 
-    strong {
-      color: var(--color-text-primary);
-      font-weight: 600;
-    }
+.tooltip-panel--block .tooltip-markdown p,
+.tooltip-panel--block .tooltip-markdown ul,
+.tooltip-panel--block .tooltip-markdown ol,
+.tooltip-panel--block .tooltip-markdown pre,
+.tooltip-panel--block .tooltip-markdown blockquote,
+.tooltip-panel--block .tooltip-markdown h1,
+.tooltip-panel--block .tooltip-markdown h2,
+.tooltip-panel--block .tooltip-markdown h3,
+.tooltip-panel--block .tooltip-markdown h4 {
+  margin: 0;
+}
 
-    h1,
-    h2,
-    h3,
-    h4 {
-      font-size: 12px;
-      font-weight: 600;
-      color: var(--color-text-primary);
-      margin: 0 0 0.3em;
-    }
-  }
+.tooltip-panel--block .tooltip-markdown p + p {
+  margin-top: 0.45em;
+}
+
+.tooltip-panel--block .tooltip-markdown ul,
+.tooltip-panel--block .tooltip-markdown ol {
+  margin: 0.5em 0;
+  padding-left: 1.2em;
+}
+
+.tooltip-panel--block .tooltip-markdown li {
+  margin: 0.15em 0;
+}
+
+.tooltip-panel--block .tooltip-markdown code {
+  background: color-mix(in oklab, var(--color-surface-hover) 90%, var(--color-surface));
+  border-radius: var(--radius-sm);
+  padding: 0.1em 0.35em;
+  font-size: 0.9em;
+}
+
+.tooltip-panel--block .tooltip-markdown a {
+  color: var(--accent);
+  text-decoration: underline;
+  text-decoration-color: color-mix(in oklab, var(--accent) 40%, transparent);
+}
+
+.tooltip-panel--block .tooltip-markdown strong {
+  color: var(--color-text-primary);
+  font-variation-settings: 'wght' var(--font-weight-semibold);
+}
+
+.tooltip-panel--block .tooltip-markdown h1,
+.tooltip-panel--block .tooltip-markdown h2,
+.tooltip-panel--block .tooltip-markdown h3,
+.tooltip-panel--block .tooltip-markdown h4 {
+  font-size: var(--font-size-xs);
+  line-height: var(--line-height-tight);
+  color: var(--color-text-primary);
+  margin: 0 0 0.3em;
 }
 
 @keyframes nexus-tooltip-in {
   from {
     opacity: 0;
-    transform: scale(0.94);
+    transform: translateY(3px) scale(0.97);
   }
+
   to {
     opacity: 1;
     transform: scale(1);

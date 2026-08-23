@@ -1,0 +1,10 @@
+import { Injectable } from '@angular/core';
+import { DEFAULT_PRINTERS, PrinterProfile } from '../../models/printer.model';
+import { LocalCollectionStore } from './local-collection-store';
+
+@Injectable({ providedIn: 'root' })
+export class PrintersStore extends LocalCollectionStore<PrinterProfile> {
+  constructor() {
+    super('profiles.printers', DEFAULT_PRINTERS);
+  }
+}
