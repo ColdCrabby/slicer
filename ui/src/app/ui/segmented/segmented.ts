@@ -8,12 +8,15 @@ import {
   output,
 } from '@angular/core';
 import { StackWhenCramped } from '../../shared/radio-group/stack-when-cramped';
+import { Icon } from '../../shared/icon/icon';
 import { TooltipDirective } from '../../shared/tooltip/tooltip.directive';
 
 export interface SegmentOption {
   value: string;
   label: string;
   description?: string;
+  /** Optional leading icon (iconoir name) shown before the label. */
+  icon?: string;
 }
 
 /**
@@ -31,7 +34,7 @@ export interface SegmentOption {
 @Component({
   selector: 'nexus-segmented',
   standalone: true,
-  imports: [TooltipDirective],
+  imports: [TooltipDirective, Icon],
   hostDirectives: [StackWhenCramped],
   changeDetection: ChangeDetectionStrategy.OnPush,
   templateUrl: './segmented.html',

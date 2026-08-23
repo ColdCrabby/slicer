@@ -11,6 +11,9 @@
     (click)="pick(opt)"
     (keydown)="onKeydown($event, i)"
   >
-    {{ opt.label }}
+    @if (opt.icon) {
+      <nexus-icon [name]="opt.icon" class="segment-icon" aria-hidden="true" />
+    }
+    <span class="segment-label">{{ opt.label }}</span>
   </button>
 }

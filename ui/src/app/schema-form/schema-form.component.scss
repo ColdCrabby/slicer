@@ -117,11 +117,18 @@
 }
 
 .schema-form-search-result-group {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
   font-size: 10px;
   font-weight: 600;
   color: var(--color-text-tertiary);
   text-transform: uppercase;
   letter-spacing: 0.08em;
+
+  nexus-icon {
+    --icon-size: 12px;
+  }
 }
 
 .schema-form-no-results {
@@ -141,7 +148,21 @@
 
 .schema-form-group {
   border-radius: var(--radius-md);
-  overflow: clip;
+}
+
+// Pin each section header beneath the sticky search bar so the current section
+// stays labelled while scrolling its fields. Sticky is scoped to the group's
+// own box, so a header only travels while its (expanded) section is on screen,
+// then the next section's header takes over — iOS-style section headers.
+.schema-form-group-heading {
+  position: sticky;
+  // Offset by the search bar height *plus* its fade gradient so the pinned
+  // header clears the search entirely instead of tucking behind it.
+  top: calc(var(--schema-form-search-h, 44px) + var(--spacing-md));
+  z-index: 5;
+  margin: 0;
+  border-radius: var(--radius-md);
+  background: var(--color-bg-secondary);
 }
 
 .schema-form-group-trigger {
@@ -186,8 +207,21 @@
 .schema-form-group-title {
   font-size: var(--font-size-md);
   font-weight: var(--font-weight-medium);
-  flex: 1;
   user-select: none;
+}
+
+.schema-form-group-label {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  flex: 1;
+  min-width: 0;
+}
+
+.schema-form-group-icon {
+  flex-shrink: 0;
+  color: currentColor;
+  --icon-size: 16px;
 }
 
 .schema-form-group-chevron {

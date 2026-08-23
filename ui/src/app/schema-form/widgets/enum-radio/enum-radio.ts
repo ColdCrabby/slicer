@@ -64,7 +64,7 @@ export class EnumRadio implements FieldWidget {
   protected readonly options = computed<RadioOption[]>(() =>
     (this.field().enumOptions ?? []).map((o) => ({
       value: o.value,
-      label: o.value,
+      label: o.label,
       description: o.description,
     })),
   );

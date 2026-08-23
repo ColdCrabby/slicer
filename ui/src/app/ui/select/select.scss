@@ -55,6 +55,12 @@
   font-variation-settings: 'wght' var(--font-weight-normal);
 }
 
+.trigger-start-icon {
+  flex: none;
+  --icon-size: 16px;
+  color: var(--color-text-tertiary);
+}
+
 .chevron {
   flex: none;
   --icon-size: 16px;

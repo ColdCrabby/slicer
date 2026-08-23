@@ -27,6 +27,7 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
+  gap: 5px;
   flex: 1 1 0;
   min-width: 0;
   padding: 0 6px;
@@ -39,7 +40,6 @@
   font-variation-settings: 'wght' var(--font-weight-medium);
   white-space: nowrap;
   overflow: hidden;
-  text-overflow: ellipsis;
   cursor: pointer;
   transition:
     background-color var(--duration-fast) var(--ease-standard),
@@ -74,4 +74,15 @@
     opacity: 0.5;
     cursor: not-allowed;
   }
+}
+
+.segment-icon {
+  flex: none;
+  --icon-size: 15px;
+}
+
+.segment-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
