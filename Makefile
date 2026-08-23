@@ -1,4 +1,4 @@
-.PHONY: build build-release build-windows build-macos build-wasm clean test fmt lint help
+.PHONY: build build-release build-windows build-macos build-wasm clean test fmt lint help changelog-draft
 
 help:
 	@echo "Slicer Engine - Build Targets"
@@ -14,6 +14,7 @@ help:
 	@echo "  test               - Run tests"
 	@echo "  fmt                - Format code"
 	@echo "  lint               - Run clippy linter"
+	@echo "  changelog-draft    - Draft CHANGELOG notes from git history"
 	@echo "  clean              - Clean build artifacts"
 
 build:
@@ -40,6 +41,9 @@ fmt:
 
 lint:
 	cargo clippy --all-targets --all-features -- -D warnings
+
+changelog-draft:
+	@bash scripts/gen-changelog-draft.sh
 
 clean:
 	cargo clean

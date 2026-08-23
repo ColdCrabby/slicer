@@ -12,13 +12,14 @@ pub mod schemas;
 
 use clap::Parser;
 use commands::{
-    ConfigCommand, GenSchemasCommand, InfoCommand, ServeCommand, SettingsCommand, SliceCommand,
+    ChangelogCommand, ConfigCommand, GenSchemasCommand, InfoCommand, ServeCommand, SettingsCommand,
+    SliceCommand,
 };
 
 /// Slicer Engine CLI
 #[derive(Parser, Debug)]
 #[command(name = "slicer-engine")]
-#[command(version = env!("CARGO_PKG_VERSION"))]
+#[command(version = crate::version::VERSION)]
 #[command(about = "High-performance 3D model slicer powered by Clipper2")]
 #[command(long_about = None)]
 pub struct CliArgs {
@@ -35,6 +36,9 @@ pub enum Commands {
 
     /// Display build and library information
     Info(InfoCommand),
+
+    /// Show the changelog (embedded at build time)
+    Changelog(ChangelogCommand),
 
     /// Validate or diff slicing settings
     Settings(SettingsCommand),
@@ -62,6 +66,7 @@ impl CliArgs {
         match &self.command {
             Commands::Slice(cmd) => cmd.execute(),
             Commands::Info(cmd) => cmd.execute(),
+            Commands::Changelog(cmd) => cmd.execute(),
             Commands::Settings(cmd) => cmd.execute(),
             Commands::Config(cmd) => cmd.execute(),
             Commands::Serve(cmd) => cmd.execute(),

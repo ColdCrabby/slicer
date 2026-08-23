@@ -188,6 +188,7 @@ export default withMermaid(
             items: [
               { text: "Architecture", link: "/guide/architecture" },
               { text: "Contributing", link: "/guide/contributing" },
+              { text: "Releasing", link: "/guide/releasing" },
               { text: "Agents (AI)", link: "/guide/agents" },
             ],
           },
