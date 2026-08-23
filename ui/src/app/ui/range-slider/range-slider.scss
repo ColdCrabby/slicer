@@ -1,0 +1,158 @@
+:host {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-md);
+  width: 100%;
+}
+
+.range {
+  --low: 0;
+  --high: 100;
+  --track-h: 6px;
+  --thumb: 18px;
+
+  position: relative;
+  flex: 1;
+  min-width: 0;
+  height: var(--thumb);
+
+  &.is-disabled {
+    opacity: 0.5;
+    pointer-events: none;
+  }
+}
+
+// Shared groove + amber fill drawn by us; the native tracks are transparent.
+.track,
+.fill {
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  height: var(--track-h);
+  border-radius: 999px;
+  pointer-events: none;
+}
+
+.track {
+  left: 0;
+  right: 0;
+  background: var(--color-bg-primary);
+  box-shadow: inset 0 0 0 1px var(--color-border-light);
+}
+
+.fill {
+  left: calc(var(--low) * 1%);
+  right: calc((100 - var(--high)) * 1%);
+  background: var(--accent);
+}
+
+// Both inputs overlap and span the full width; only their thumbs catch pointer
+// events so the two handles stay independently draggable.
+.thumb {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  padding: 0;
+  border: none;
+  background: transparent;
+  box-shadow: none;
+  appearance: none;
+  -webkit-appearance: none;
+  pointer-events: none;
+  cursor: pointer;
+
+  &:focus {
+    outline: none;
+    box-shadow: none;
+  }
+
+  &.on-top {
+    z-index: 3;
+  }
+}
+
+.thumb::-webkit-slider-runnable-track {
+  height: var(--track-h);
+  background: transparent;
+  border: none;
+}
+
+.thumb::-moz-range-track {
+  height: var(--track-h);
+  background: transparent;
+  border: none;
+}
+
+.thumb::-webkit-slider-thumb {
+  appearance: none;
+  -webkit-appearance: none;
+  pointer-events: auto;
+  width: var(--thumb);
+  height: var(--thumb);
+  margin-top: calc((var(--track-h) - var(--thumb)) / 2);
+  border-radius: 999px;
+  background: #fff;
+  border: 1px solid color-mix(in oklab, var(--color-border), #000 8%);
+  box-shadow: var(--shadow-xs);
+  cursor: pointer;
+  transition:
+    transform var(--duration-fast) var(--ease-standard),
+    box-shadow var(--duration-fast) var(--ease-standard);
+}
+
+.thumb::-moz-range-thumb {
+  pointer-events: auto;
+  width: var(--thumb);
+  height: var(--thumb);
+  border-radius: 999px;
+  background: #fff;
+  border: 1px solid color-mix(in oklab, var(--color-border), #000 8%);
+  box-shadow: var(--shadow-xs);
+  cursor: pointer;
+  transition:
+    transform var(--duration-fast) var(--ease-standard),
+    box-shadow var(--duration-fast) var(--ease-standard);
+}
+
+.thumb:hover:not(:disabled)::-webkit-slider-thumb {
+  transform: scale(1.06);
+}
+
+.thumb:active:not(:disabled)::-webkit-slider-thumb {
+  transform: scale(1.12);
+  box-shadow:
+    var(--shadow-sm),
+    0 0 0 5px var(--color-focus-ring-glow);
+}
+
+.thumb:focus-visible::-webkit-slider-thumb {
+  border-color: var(--accent);
+  box-shadow:
+    var(--shadow-xs),
+    0 0 0 2px var(--color-focus-ring);
+}
+
+.thumb:active:not(:disabled)::-moz-range-thumb {
+  box-shadow: 0 0 0 5px var(--color-focus-ring-glow);
+}
+
+.thumb:focus-visible::-moz-range-thumb {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px var(--color-focus-ring);
+}
+
+.readout {
+  flex: none;
+  min-width: 96px;
+  padding: 2px 8px;
+  text-align: center;
+  white-space: nowrap;
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-medium);
+  font-variant-numeric: tabular-nums;
+  color: var(--color-text-secondary);
+  background: var(--color-surface);
+  border-radius: var(--radius-sm);
+}

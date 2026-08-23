@@ -4,6 +4,8 @@
 button {
   font-family: inherit;
   font-size: inherit;
+  font-weight: var(--font-weight-medium);
+  font-variation-settings: 'wght' var(--font-weight-medium);
   padding: var(--spacing-sm) var(--spacing-md);
   border: none;
   background-color: transparent;
@@ -14,10 +16,14 @@ button {
 
   &:hover {
     background-color: var(--color-surface-hover);
+    font-weight: var(--font-weight-hover);
+    font-variation-settings: 'wght' var(--font-weight-hover);
   }
 
   &:active {
     background-color: var(--color-surface-active);
+    font-weight: var(--font-weight-active);
+    font-variation-settings: 'wght' var(--font-weight-active);
   }
 
   &[aria-checked='true'] {
@@ -41,6 +47,7 @@ select,
 textarea {
   font-family: inherit;
   font-size: inherit;
+  font-variation-settings: 'wght' var(--font-weight-normal);
   color: var(--color-text-primary);
   background-color: var(--color-surface);
   border: 1px solid var(--color-border);
@@ -51,7 +58,7 @@ textarea {
   &:focus {
     outline: none;
     border-color: var(--color-focus-ring);
-    box-shadow: 0 0 0 3px var(--color-focus-ring-glow);
+    box-shadow: inset 0 0 0 1px var(--color-focus-ring);
   }
 
   &:disabled {

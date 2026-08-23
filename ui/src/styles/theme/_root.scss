@@ -1,0 +1,53 @@
+/// Mode-independent CSS variables
+/// @group theme
+///
+/// Tokens that do not change between light and dark modes. Kept in a single
+/// `:root` block (emitted once) so they are not duplicated across the theme
+/// files. Colour tokens live in `_light.scss` / `_dark.scss`.
+
+:root {
+  --font-family-ui: 'Plus Jakarta Sans', 'Avenir Next', 'Segoe UI', system-ui, sans-serif;
+  --font-family-mono: 'IBM Plex Mono', 'SF Mono', Menlo, Consolas, ui-monospace, monospace;
+
+  // Typography scale
+  --font-size-2xs: 11px;
+  --font-size-xs: 12px;
+  --font-size-sm: 13px;
+  --font-size-md: 14px; // base
+  --font-size-lg: 16px;
+  --font-size-xl: 20px;
+  --font-size-2xl: 26px;
+  --font-size-3xl: 34px;
+
+  // Variable font axis presets (non-step weights for smoother emphasis).
+  --font-weight-normal: 462;
+  --font-weight-medium: 536;
+  --font-weight-semibold: 614;
+  --font-weight-hover: 588;
+  --font-weight-active: 662;
+
+  --font-weight-mono-normal: 448;
+  --font-weight-mono-emphasis: 572;
+
+  --line-height-tight: 1.2;
+  --line-height-base: 1.5;
+
+  // Legacy colour aliases — map older token names onto the accent system so
+  // components referencing them resolve correctly (they use var(--accent) etc.,
+  // which already vary per theme).
+  --color-accent: var(--accent);
+  --color-accent-hover: var(--accent-hover);
+  --color-accent-contrast: var(--accent-contrast);
+  --color-surface-alt: color-mix(in oklab, var(--color-text-primary) 9%, transparent);
+  --color-border-active: var(--accent);
+
+  // Shell metrics
+  --titlebar-height: 40px;
+  --nav-rail-width: 60px;
+
+  // Backdrop blur — the ONE sanctioned frosted-glass effect. Applied only to
+  // semi-transparent surfaces that float over the 3D scene / live content
+  // (see the design-language instruction). Keep this the single source of the
+  // blur amount so every frosted surface reads identically.
+  --backdrop-blur: blur(7px);
+}

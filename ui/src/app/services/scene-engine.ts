@@ -223,6 +223,11 @@ export class SceneEngine {
     this.refreshSnapshot();
   }
 
+  /** Remove every object from the scene, keeping the current bed. */
+  async clear(): Promise<void> {
+    await this.resetWithBed(this.snapshotSignal().bed);
+  }
+
   /**
    * Build-time version metadata baked into the WASM bundle — the true running
    * version (a release semver or `"development"`), plus git/build details.

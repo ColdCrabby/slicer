@@ -1,0 +1,19 @@
+<div class="settings-page">
+  <nexus-section-header heading="Shortcuts" description="Keyboard shortcuts for the workspace" />
+
+  <div class="shortcut-groups">
+    @for (group of groups; track group.title) {
+      <div class="shortcut-group">
+        <h2 class="subhead">{{ group.title }}</h2>
+        <div class="settings-card">
+          @for (row of group.rows; track row.actionId) {
+            <div class="settings-field">
+              <span class="settings-field-title">{{ row.displayDescription }}</span>
+              <kbd class="shortcut-key">{{ row.displayText }}</kbd>
+            </div>
+          }
+        </div>
+      </div>
+    }
+  </div>
+</div>

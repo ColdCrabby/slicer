@@ -1,6 +1,6 @@
 import { ChangeDetectionStrategy, Component, inject } from '@angular/core';
 import { Icon } from '../../shared/icon/icon';
-import { Notification, NotificationService } from '../../services/notifications';
+import { NotificationService, type Notification } from '../../services/notifications';
 
 @Component({
   selector: 'nexus-notification-center',

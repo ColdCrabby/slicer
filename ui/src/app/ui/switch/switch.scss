@@ -1,0 +1,81 @@
+:host {
+  display: inline-flex;
+  vertical-align: middle;
+}
+
+.switch {
+  display: inline-flex;
+  align-items: center;
+  padding: 0;
+  margin: 0;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  border-radius: 999px;
+
+  &:hover:not(:disabled) {
+    background: transparent;
+  }
+
+  &:disabled {
+    cursor: not-allowed;
+    opacity: 0.5;
+  }
+}
+
+.track {
+  --track-w: 38px;
+  --track-h: 22px;
+  --thumb: 16px;
+  --pad: 3px;
+
+  position: relative;
+  display: block;
+  width: var(--track-w);
+  height: var(--track-h);
+  border-radius: 999px;
+  background: var(--color-border);
+  transition:
+    background-color var(--duration-fast) var(--ease-standard),
+    box-shadow var(--duration-fast) var(--ease-standard);
+}
+
+.thumb {
+  position: absolute;
+  top: var(--pad);
+  left: var(--pad);
+  width: var(--thumb);
+  height: var(--thumb);
+  border-radius: 999px;
+  background: #fff;
+  box-shadow: var(--shadow-xs);
+  transition: transform var(--duration-normal) var(--ease-standard);
+}
+
+// Checked state — accent-filled track, thumb slides to the end.
+.switch[aria-checked='true'] .track {
+  background: var(--accent);
+}
+
+.switch[aria-checked='true'] .thumb {
+  transform: translateX(calc(var(--track-w) - var(--thumb) - var(--pad) * 2));
+}
+
+// Keyboard focus reads as a ring around the track (border-first focus rule).
+.switch:focus-visible {
+  outline: none;
+}
+
+.switch:focus-visible .track {
+  box-shadow:
+    0 0 0 2px var(--color-bg-secondary),
+    0 0 0 4px var(--color-focus-ring);
+}
+
+// Compact variant for dense rows.
+:host([data-size='sm']) .track {
+  --track-w: 32px;
+  --track-h: 18px;
+  --thumb: 12px;
+  --pad: 3px;
+}

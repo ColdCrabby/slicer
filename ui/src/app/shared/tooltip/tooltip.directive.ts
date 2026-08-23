@@ -1,16 +1,10 @@
 import { FocusMonitor } from '@angular/cdk/a11y';
-import { Overlay, OverlayRef } from '@angular/cdk/overlay';
+import { Overlay } from '@angular/cdk/overlay';
+import type { OverlayRef } from '@angular/cdk/overlay';
 import { ComponentPortal } from '@angular/cdk/portal';
-import {
-  ComponentRef,
-  DestroyRef,
-  Directive,
-  ElementRef,
-  HostListener,
-  inject,
-  input,
-} from '@angular/core';
-import { Subscription } from 'rxjs';
+import { DestroyRef, Directive, ElementRef, HostListener, inject, input } from '@angular/core';
+import type { ComponentRef } from '@angular/core';
+import type { Subscription } from 'rxjs';
 import { UserInputModality } from '../input-modality/input-modality';
 import { Tooltip } from './tooltip';
 
@@ -262,6 +256,7 @@ export class TooltipDirective {
     this.componentRef.setInput('text', this.tooltip());
     this.componentRef.setInput('mode', this.tooltipMode());
     this.componentRef.setInput('shortcut', this.tooltipShortcut());
+    this.componentRef.setInput('persistent', this.tooltipClickToggle());
   }
 
   private hide(): void {

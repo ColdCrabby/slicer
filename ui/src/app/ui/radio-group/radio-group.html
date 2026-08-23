@@ -1,0 +1,21 @@
+@for (opt of options(); track opt.value; let i = $index) {
+  <button
+    type="button"
+    role="radio"
+    class="option"
+    [class.is-selected]="opt.value === value()"
+    [attr.aria-checked]="opt.value === value()"
+    [attr.tabindex]="tabIndexFor(i)"
+    [disabled]="disabled()"
+    (click)="pick(opt)"
+    (keydown)="onKeydown($event, i)"
+  >
+    <span class="dot" aria-hidden="true"></span>
+    <span class="option-body">
+      <span class="option-label">{{ opt.label }}</span>
+      @if (opt.description) {
+        <span class="option-desc">{{ opt.description }}</span>
+      }
+    </span>
+  </button>
+}

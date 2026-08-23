@@ -1,0 +1,65 @@
+<div class="settings-page">
+  <nexus-section-header heading="Filaments" description="Materials and their temperatures">
+    <button nexusButton variant="primary" size="sm" (click)="add()">
+      <nexus-icon name="plus" />
+      Add filament
+    </button>
+  </nexus-section-header>
+
+  @if (store.items().length > 0) {
+    <div class="settings-list">
+      @for (filament of store.items(); track filament.id) {
+        <div class="filament">
+          <label class="swatch" [style.background]="filament.color">
+            <input
+              type="color"
+              [value]="filament.color"
+              (input)="setColor(filament.id, $event)"
+              aria-label="Filament color"
+            />
+          </label>
+
+          <div class="filament-main">
+            <input
+              class="name-input"
+              [value]="filament.name"
+              (change)="rename(filament.id, $event)"
+              aria-label="Filament name"
+            />
+            <div class="filament-meta">
+              <select
+                class="material-select"
+                [value]="filament.material"
+                (change)="setMaterial(filament.id, $event)"
+                aria-label="Material"
+              >
+                @for (material of materials; track material) {
+                  <option [value]="material">{{ material }}</option>
+                }
+              </select>
+              <span class="meta">{{ filament.nozzleTemp }}°C nozzle</span>
+              <span class="meta">{{ filament.bedTemp }}°C bed</span>
+              <span class="meta">{{ filament.diameterMm }} mm</span>
+            </div>
+          </div>
+
+          <button
+            nexusIconButton
+            aria-label="Remove filament"
+            (click)="remove(filament.id)"
+          >
+            <nexus-icon name="trash" />
+          </button>
+        </div>
+      }
+    </div>
+  } @else {
+    <nexus-empty-state
+      icon="droplet"
+      heading="No filaments"
+      description="Add a filament to store its material and temperatures."
+    >
+      <button nexusButton variant="primary" size="sm" (click)="add()">Add filament</button>
+    </nexus-empty-state>
+  }
+</div>

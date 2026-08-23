@@ -1,0 +1,53 @@
+<button
+  type="button"
+  class="trigger"
+  cdkOverlayOrigin
+  #trigger="cdkOverlayOrigin"
+  #triggerEl
+  [class.is-open]="open()"
+  [class.is-placeholder]="!selected()"
+  [disabled]="disabled()"
+  aria-haspopup="listbox"
+  [attr.aria-expanded]="open()"
+  (click)="toggle()"
+  (keydown)="onTriggerKeydown($event)"
+>
+  <span class="trigger-label">{{ selected()?.label ?? placeholder() }}</span>
+  <nexus-icon name="nav-arrow-down" class="chevron" aria-hidden="true" />
+</button>
+
+<ng-template
+  cdkConnectedOverlay
+  [cdkConnectedOverlayOrigin]="trigger"
+  [cdkConnectedOverlayOpen]="open()"
+  [cdkConnectedOverlayPositions]="positions"
+  [cdkConnectedOverlayWidth]="menuWidth()"
+  [cdkConnectedOverlayViewportMargin]="8"
+  (overlayOutsideClick)="close()"
+  (detach)="close()"
+>
+  <div class="popover" role="listbox">
+    @for (opt of options(); track opt.value; let i = $index) {
+      <button
+        type="button"
+        role="option"
+        class="option"
+        [class.is-active]="i === activeIndex()"
+        [class.is-selected]="opt.value === value()"
+        [attr.aria-selected]="opt.value === value()"
+        (click)="pick(opt)"
+        (mouseenter)="activeIndex.set(i)"
+      >
+        <span class="option-body">
+          <span class="option-label">{{ opt.label }}</span>
+          @if (opt.description) {
+            <span class="option-desc">{{ opt.description }}</span>
+          }
+        </span>
+        @if (opt.value === value()) {
+          <nexus-icon name="check" class="option-check" aria-hidden="true" />
+        }
+      </button>
+    }
+  </div>
+</ng-template>

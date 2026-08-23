@@ -1,0 +1,59 @@
+<div class="settings-page">
+  <nexus-section-header heading="Print Profiles" description="Reusable quality presets">
+    <button nexusButton variant="primary" size="sm" (click)="add()">
+      <nexus-icon name="plus" />
+      Add profile
+    </button>
+  </nexus-section-header>
+
+  @if (store.items().length > 0) {
+    <div class="settings-list">
+      @for (profile of store.items(); track profile.id) {
+        <div class="settings-item">
+          <span class="quality-badge" [attr.data-q]="profile.quality">{{ profile.quality }}</span>
+
+          <div class="settings-item-main">
+            <input
+              class="name-input"
+              [value]="profile.name"
+              (change)="rename(profile.id, $event)"
+              aria-label="Profile name"
+            />
+            <span class="settings-item-sub">
+              {{ profile.layerHeight }} mm · {{ profile.wallCount }} walls ·
+              {{ infillPct(profile.infillDensity) }}% infill
+            </span>
+          </div>
+
+          <div class="settings-item-actions">
+            <select
+              class="material-select"
+              [value]="profile.quality"
+              (change)="setQuality(profile.id, $event)"
+              aria-label="Quality"
+            >
+              @for (quality of qualities; track quality) {
+                <option [value]="quality">{{ quality }}</option>
+              }
+            </select>
+            <button
+              nexusIconButton
+              aria-label="Remove profile"
+              (click)="remove(profile.id)"
+            >
+              <nexus-icon name="trash" />
+            </button>
+          </div>
+        </div>
+      }
+    </div>
+  } @else {
+    <nexus-empty-state
+      icon="reports"
+      heading="No profiles"
+      description="Create a print profile to reuse quality settings across models."
+    >
+      <button nexusButton variant="primary" size="sm" (click)="add()">Add profile</button>
+    </nexus-empty-state>
+  }
+</div>

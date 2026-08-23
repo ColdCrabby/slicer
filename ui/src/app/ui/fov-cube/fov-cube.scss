@@ -1,0 +1,13 @@
+:host {
+  display: block;
+  width: 64px;
+  height: 64px;
+  flex: none;
+  overflow: hidden;
+}
+
+:host canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
