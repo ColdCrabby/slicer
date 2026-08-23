@@ -1,4 +1,4 @@
-import { Routes } from '@angular/router';
+import type { Routes } from '@angular/router';
 import { NexusSlicingShell } from './nexus/layout/slicing-shell/slicing-shell';
 import { AppShell } from './nexus/shell/shell';
 import { SettingsShell } from './pages/settings/settings-shell';
@@ -65,6 +65,11 @@ export const APP_ROUTES: Routes = [
               import('./pages/settings/shortcuts').then((m) => m.ShortcutsSettings),
           },
         ],
+      },
+      {
+        path: 'components',
+        loadComponent: () =>
+          import('./pages/ui-components/ui-components.component').then((m) => m.UiComponentsPage),
       },
     ],
   },
