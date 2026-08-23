@@ -1,6 +1,7 @@
 <div class="insp-shell" [class.is-open]="revealed()">
   <div
     class="inspector"
+    #inspector
     [class.is-updating]="preview.loading()"
     (pointerdown)="$event.stopPropagation()"
   >

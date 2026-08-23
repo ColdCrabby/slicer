@@ -42,17 +42,23 @@
   color: var(--color-text-secondary);
   text-decoration: none;
   font-size: var(--font-size-md);
+  font-weight: var(--font-weight-normal);
+  font-variation-settings: 'wght' var(--font-weight-normal);
   user-select: none;
   -webkit-user-select: none;
   touch-action: manipulation;
   --icon-size: 18px;
   transition:
     background-color var(--duration-fast) var(--ease-standard),
-    color var(--duration-fast) var(--ease-standard);
+    color var(--duration-fast) var(--ease-standard),
+    font-weight var(--duration-fast) var(--ease-standard),
+    font-variation-settings var(--duration-fast) var(--ease-standard);
 
   &:hover {
     background: var(--color-surface-hover);
     color: var(--color-text-primary);
+    font-weight: var(--font-weight-active);
+    font-variation-settings: 'wght' var(--font-weight-active);
   }
 
   &:focus-visible {
@@ -64,7 +70,8 @@
   &.is-active {
     background: var(--accent-soft);
     color: var(--accent);
-    font-weight: var(--font-weight-medium);
+    font-weight: var(--font-weight-active);
+    font-variation-settings: 'wght' var(--font-weight-active);
   }
 }
 

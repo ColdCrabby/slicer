@@ -210,6 +210,10 @@
 
   &:hover {
     color: var(--color-text-primary);
+    // Pin weight — segmented buttons are free-width pills; a weight bump would
+    // shift their siblings in the group.
+    font-weight: var(--font-weight-medium);
+    font-variation-settings: 'wght' var(--font-weight-medium);
   }
 
   &:focus-visible {

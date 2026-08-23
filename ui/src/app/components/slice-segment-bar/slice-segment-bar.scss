@@ -2,19 +2,32 @@
   display: contents;
 }
 
-/* Animated reveal: the shell grows the inspector open when a preview lands and
-   collapses it away otherwise, without ever unmounting the controls. */
+/* Animated reveal: JS measures the inspector's natural scrollHeight before
+   opening and sets --inspector-height so max-height animates over the exact
+   pixel range — the easing curve maps 1:1 to the visible motion. The mask
+   pins a soft fade to the bottom edge at every frame. */
 .insp-shell {
-  display: grid;
-  grid-template-rows: 0fr;
-  opacity: 0;
-  transition:
-    grid-template-rows var(--duration-normal) var(--ease-standard),
-    opacity var(--duration-normal) var(--ease-standard);
+  --inspector-fade: 24px;
+
+  overflow: hidden;
+  max-height: 0;
+
+  -webkit-mask-image: linear-gradient(
+    to bottom,
+    #000 calc(100% - var(--inspector-fade)),
+    transparent
+  );
+  mask-image: linear-gradient(to bottom, #000 calc(100% - var(--inspector-fade)), transparent);
+
+  transition: max-height var(--inspector-duration, 440ms)
+    var(--inspector-ease, cubic-bezier(0.16, 1, 0.3, 1));
 
   &.is-open {
-    grid-template-rows: 1fr;
-    opacity: 1;
+    /* --inspector-height is set on the host by JS (exact content height); the
+       600px fallback only applies if that measurement hasn't landed yet. Do NOT
+       declare --inspector-height locally here — a local declaration would shadow
+       the inherited host value and always win. */
+    max-height: var(--inspector-height, 600px);
   }
 }
 
@@ -25,25 +38,11 @@
 }
 
 .inspector {
-  --inspector-fade: 24px;
-
-  min-height: 0;
-  overflow: hidden;
   display: flex;
   flex-direction: column;
   gap: var(--spacing-md);
   color: var(--color-text-secondary);
   transition: opacity var(--duration-fast) var(--ease-standard);
-
-  /* Soft shade-out at the bottom edge (mirrors the sidebar's fade below the
-     sticky search) so the controls dissolve into the slice dock rather than
-     ending on a hard line — and the collapse animation reads smoother. */
-  -webkit-mask-image: linear-gradient(
-    to bottom,
-    #000 calc(100% - var(--inspector-fade)),
-    transparent
-  );
-  mask-image: linear-gradient(to bottom, #000 calc(100% - var(--inspector-fade)), transparent);
 
   /* Dim (don't tear down) while a reslice is streaming in. */
   &.is-updating {
@@ -56,8 +55,6 @@
   flex-direction: column;
   gap: 10px;
 
-  /* Bottom breathing room lives on the content (not the grid item) so it
-     collapses with the shell — padding on `.inspector` itself would persist. */
   &:last-child {
     padding-bottom: var(--spacing-lg);
   }
@@ -187,6 +184,7 @@
   color: var(--color-text-primary);
   font-size: var(--font-size-xs);
   font-weight: var(--font-weight-medium);
+  font-variation-settings: 'wght' var(--font-weight-medium);
   cursor: pointer;
   user-select: none;
   -webkit-user-select: none;
@@ -196,7 +194,12 @@
     color var(--duration-fast) var(--ease-standard),
     opacity var(--duration-fast) var(--ease-standard);
 
-  &:hover {
+  // Pin weight steady — these pill badges sit in a flex-wrap grid and any
+  // width growth from a weight bump would shift adjacent badges.
+  &:hover,
+  &:active {
+    font-weight: var(--font-weight-medium);
+    font-variation-settings: 'wght' var(--font-weight-medium);
     background: var(--color-surface-active);
   }
 

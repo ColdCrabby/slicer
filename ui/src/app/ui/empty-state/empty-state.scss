@@ -22,8 +22,12 @@
 .es-title {
   margin: 0;
   font-size: var(--font-size-md);
-  font-weight: var(--font-weight-semibold);
+  font-weight: var(--es-title-weight, var(--font-weight-semibold));
+  font-variation-settings: 'wght' var(--es-title-weight, var(--font-weight-semibold));
   color: var(--color-text-primary);
+  transition:
+    font-weight var(--duration-fast) var(--ease-standard),
+    font-variation-settings var(--duration-fast) var(--ease-standard);
 }
 
 .es-desc {

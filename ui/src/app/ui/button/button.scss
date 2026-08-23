@@ -49,8 +49,8 @@
 }
 
 :host:hover:not(:disabled):not([aria-disabled='true']) {
-  font-weight: var(--font-weight-hover);
-  font-variation-settings: 'wght' var(--font-weight-hover);
+  font-weight: var(--font-weight-semibold);
+  font-variation-settings: 'wght' var(--font-weight-semibold);
 }
 
 :host:active:not(:disabled):not([aria-disabled='true']) {

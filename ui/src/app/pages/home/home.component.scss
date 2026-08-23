@@ -73,6 +73,15 @@
     transform: translateY(-2px);
     border-color: var(--accent-border);
     box-shadow: var(--shadow-md);
+
+    .tile-title {
+      font-weight: var(--font-weight-active);
+      font-variation-settings: 'wght' var(--font-weight-active);
+    }
+
+    .tile-arrow {
+      color: var(--accent);
+    }
   }
 
   &:focus-visible {
@@ -123,7 +132,11 @@
 
 .tile-title {
   font-size: var(--font-size-lg);
-  font-weight: var(--font-weight-semibold);
+  font-weight: var(--font-weight-normal);
+  font-variation-settings: 'wght' var(--font-weight-normal);
+  transition:
+    font-weight var(--duration-fast) var(--ease-standard),
+    font-variation-settings var(--duration-fast) var(--ease-standard);
 }
 
 .tile-desc {
@@ -137,6 +150,7 @@
   flex: none;
   color: var(--color-text-tertiary);
   --icon-size: 20px;
+  transition: color var(--duration-fast) var(--ease-standard);
 }
 
 .tile-arrow--spin {
@@ -184,6 +198,11 @@
   &:hover {
     border-color: var(--accent-border);
     background: var(--color-surface-hover);
+
+    .printer-name {
+      font-weight: var(--font-weight-semibold);
+      font-variation-settings: 'wght' var(--font-weight-semibold);
+    }
   }
 }
 
@@ -210,6 +229,10 @@
 .printer-name {
   font-size: var(--font-size-md);
   font-weight: var(--font-weight-medium);
+  font-variation-settings: 'wght' var(--font-weight-medium);
+  transition:
+    font-weight var(--duration-fast) var(--ease-standard),
+    font-variation-settings var(--duration-fast) var(--ease-standard);
 }
 
 .printer-model {

@@ -16,14 +16,10 @@ button {
 
   &:hover {
     background-color: var(--color-surface-hover);
-    font-weight: var(--font-weight-hover);
-    font-variation-settings: 'wght' var(--font-weight-hover);
   }
 
   &:active {
     background-color: var(--color-surface-active);
-    font-weight: var(--font-weight-active);
-    font-variation-settings: 'wght' var(--font-weight-active);
   }
 
   &[aria-checked='true'] {

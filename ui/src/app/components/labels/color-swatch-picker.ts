@@ -1,13 +1,13 @@
 import { ChangeDetectionStrategy, Component, input, output } from '@angular/core';
-import { LABEL_HUES, type Label, type LabelTone } from '../../models/label.model';
+import { LABEL_HUES, LABEL_TONES, type Label, type LabelTone } from '../../models/label.model';
 import { Icon } from '../../shared/icon/icon';
 import { LabelChip } from './label-chip';
 
 /**
- * Compact label-colour chooser: a single row of muted base hues plus a
- * Dark / Light shade toggle, and a live preview chip. Deliberately tiny — a few
- * hues cover the spectrum and the tone toggle supplies the softer variant,
- * instead of a large free-form palette. Controlled by the parent.
+ * Compact label-colour chooser rendered as two GitHub-style rows of the same
+ * hues — a deeper `dark` row and a brighter `light` row. Picking a swatch sets
+ * both hue and tone at once; a live preview chip shows the result. Controlled by
+ * the parent.
  */
 @Component({
   selector: 'nexus-color-swatch-picker',
@@ -27,6 +27,7 @@ export class ColorSwatchPicker {
   readonly toneChange = output<LabelTone>();
 
   protected readonly hues = LABEL_HUES;
+  protected readonly tones = LABEL_TONES;
 
   protected get previewLabel(): Label {
     return {
@@ -37,11 +38,12 @@ export class ColorSwatchPicker {
     };
   }
 
-  protected pickHue(value: string): void {
-    this.hueChange.emit(value);
-  }
-
-  protected pickTone(tone: LabelTone): void {
-    this.toneChange.emit(tone);
+  protected pick(color: string, tone: LabelTone): void {
+    if (color !== this.hue()) {
+      this.hueChange.emit(color);
+    }
+    if (tone !== this.tone()) {
+      this.toneChange.emit(tone);
+    }
   }
 }

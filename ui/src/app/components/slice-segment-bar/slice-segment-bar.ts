@@ -2,11 +2,13 @@ import {
   ChangeDetectionStrategy,
   Component,
   DestroyRef,
+  ElementRef,
   computed,
   effect,
   inject,
   signal,
   untracked,
+  viewChild,
 } from '@angular/core';
 import {
   FLOATS_PER_SEGMENT,
@@ -35,6 +37,9 @@ export class SliceSegmentBar {
   protected readonly preview = inject(GcodePreview);
   private readonly viewerControl = inject(ViewerControl);
   private readonly destroyRef = inject(DestroyRef);
+  private readonly hostEl = inject(ElementRef<HTMLElement>);
+
+  private readonly inspectorRef = viewChild<ElementRef<HTMLElement>>('inspector');
 
   protected readonly roleCss = this.preview.roleCss;
   protected readonly roleLabels = ROLE_LABELS;
@@ -71,6 +76,28 @@ export class SliceSegmentBar {
         this.revealSignal.set(false);
       });
     });
+
+    // Keep --inspector-height locked to the inspector's true content height.
+    //
+    // The reveal animates `max-height: 0 → var(--inspector-height)`. Animating
+    // to the *exact* pixel height (never an over-estimate) is what makes the
+    // easing curve map 1:1 to the visible motion — the single technique WebKit
+    // (Tauri's WKWebView / WebKitGTK) renders reliably smooth, unlike
+    // `grid-template-rows` fr-interpolation. A ResizeObserver keeps the value
+    // live so content that changes *while open* (the legend swapping between
+    // role / scalar / uniform, or the Fan row appearing) neither clips nor
+    // jumps — it resizes along the same eased transition.
+    effect((onCleanup) => {
+      const el = this.inspectorRef()?.nativeElement;
+      if (!el) return;
+      const sync = () =>
+        this.hostEl.nativeElement.style.setProperty('--inspector-height', `${el.scrollHeight}px`);
+      sync();
+      const ro = new ResizeObserver(sync);
+      ro.observe(el);
+      onCleanup(() => ro.disconnect());
+    });
+
     this.destroyRef.onDestroy(() => this.clearReveal());
   }
 
@@ -81,6 +108,8 @@ export class SliceSegmentBar {
   private scheduleReveal(): void {
     const open = () => {
       this.cancelReveal = null;
+      // --inspector-height is kept current by the ResizeObserver in the
+      // constructor, so the max-height reveal already has an exact target.
       this.revealSignal.set(true);
     };
     const win = window as unknown as {

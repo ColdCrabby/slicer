@@ -113,6 +113,10 @@
     background: var(--accent-soft);
     border-color: var(--accent-border);
     color: var(--accent);
+    // Pin weight — this pill sits in a flex row next to catalog info and any
+    // width growth would shift layout.
+    font-weight: var(--font-weight-medium);
+    font-variation-settings: 'wght' var(--font-weight-medium);
   }
 }
 
