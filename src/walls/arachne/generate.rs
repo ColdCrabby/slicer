@@ -190,6 +190,15 @@ fn emit_offset_loops(
     let mut last = island.clone();
     for k in 0..params.wall_count {
         let is_outer = k == 0;
+        // Erode the current region inward by `d` **once**.  This single result
+        // feeds both consumers that previously each recomputed it:
+        //   * the inner-loop morphological opening (dilate it back by `d`), and
+        //   * the advance to the next shell (`last`).
+        // The old code eroded `last` inside the opening step *and* eroded it
+        // again for the advance — two identical Clipper offsets per inner wall.
+        // Sharing `eroded` halves the offset count for every inner shell while
+        // producing bit-identical geometry.
+        let eroded = inflate(last.clone(), -d, JoinType::Round, EndType::Polygon, 2.0);
         // Inner loops are offset from the *opened* remaining region.  A full loop
         // in a neck thinner than 2·d would trace both surfaces on top of itself —
         // the coincident inner beads that render as an over-extruded seam.
@@ -199,8 +208,15 @@ fn emit_offset_loops(
         // opened so the perimeter keeps tracing the model surface exactly.
         let base = if is_outer {
             last.clone()
+        } else if eroded.is_empty() {
+            Paths::new(vec![])
         } else {
-            morph_open(&last, d, tol)
+            // Morphological opening = dilate the shared erosion back out by `d`.
+            simplify(
+                inflate(eroded.clone(), d, JoinType::Round, EndType::Polygon, 2.0),
+                tol,
+                false,
+            )
         };
         let inset = if base.is_empty() {
             Paths::new(vec![])
@@ -223,32 +239,12 @@ fn emit_offset_loops(
             open.push(false);
             loop_centerlines.push(p.clone());
         }
-        last = simplify(
-            inflate(last, -d, JoinType::Round, EndType::Polygon, 2.0),
-            tol,
-            false,
-        );
+        last = simplify(eroded, tol, false);
         if last.is_empty() {
             break;
         }
     }
     loop_centerlines
-}
-
-/// Morphological opening by radius `r`: erode then dilate, dropping features
-/// narrower than `2·r` while leaving thicker regions (their convex corners
-/// rounded by `r`) intact.  Used to keep an inner offset loop out of the necks
-/// where it would otherwise trace both surfaces on top of itself.
-fn morph_open(paths: &Paths, r: f64, tol: f64) -> Paths {
-    let eroded = inflate(paths.clone(), -r, JoinType::Round, EndType::Polygon, 2.0);
-    if eroded.is_empty() {
-        return Paths::new(vec![]);
-    }
-    simplify(
-        inflate(eroded, r, JoinType::Round, EndType::Polygon, 2.0),
-        tol,
-        false,
-    )
 }
 
 /// Fill the residual an island's offset `loops` leave uncovered with medial
