@@ -1,0 +1,30 @@
+<p class="wasm-perf__lead">
+  You're running the full <strong>WebAssembly</strong> build — the entire slicer runs inside your
+  browser tab, with nothing to install. To make that possible it has to make real compromises, and
+  the biggest one is <strong>raw performance</strong>.
+</p>
+
+<div class="wasm-perf__metric" role="group" aria-label="Slice time comparison">
+  <div class="wasm-perf__card">
+    <span class="wasm-perf__card-label">In the browser (WASM)</span>
+    <span class="wasm-perf__card-value">34.1<span class="wasm-perf__card-unit">s</span></span>
+    <span class="wasm-perf__card-note">MacBook M1, one slice</span>
+  </div>
+
+  <div class="wasm-perf__versus" aria-hidden="true">
+    <span class="wasm-perf__versus-arrow">→</span>
+    <span class="wasm-perf__versus-badge">~10× faster</span>
+  </div>
+
+  <div class="wasm-perf__card wasm-perf__card--native">
+    <span class="wasm-perf__card-label">Native app</span>
+    <span class="wasm-perf__card-value">&lt;3<span class="wasm-perf__card-unit">s</span></span>
+    <span class="wasm-perf__card-note">Same machine, same model</span>
+  </div>
+</div>
+
+<p class="wasm-perf__outro">
+  Everything here is the real slicing engine, so the quality and results match the native app
+  exactly — it's just slower. If you like what you see, grab the <strong>native version</strong> for
+  the full-speed experience.
+</p>
