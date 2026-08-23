@@ -186,8 +186,21 @@
 .schema-form-group-title {
   font-size: var(--font-size-md);
   font-weight: var(--font-weight-medium);
-  flex: 1;
   user-select: none;
+}
+
+.schema-form-group-label {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  flex: 1;
+  min-width: 0;
+}
+
+.schema-form-group-icon {
+  flex-shrink: 0;
+  color: currentColor;
+  --icon-size: 16px;
 }
 
 .schema-form-group-chevron {

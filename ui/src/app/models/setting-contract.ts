@@ -58,6 +58,25 @@ export const SETTING_CONTRACTS: readonly SettingContract[] = [
   },
 ];
 
+/**
+ * Icon (iconoir name) for each `x-group`, so every collapsible section in the
+ * slice sidebar has a visual anchor. Keyed by group name.
+ */
+export const GROUP_ICONS: Record<string, string> = {
+  Layer: 'multiple-pages',
+  Walls: 'frame',
+  Infill: 'grid-plus',
+  Speed: 'dashboard-speed',
+  Quality: 'medal',
+  Surfaces: 'fill-color',
+  Mesh: 'box-iso',
+  Temperature: 'temperature-high',
+  Cooling: 'snow-flake',
+  Hardware: 'extrude',
+  Retraction: 'undo',
+  Output: 'code-brackets',
+};
+
 /** The contract that owns a given `x-group`; unmapped groups fall to Process. */
 export function contractForGroup(group: string): SettingContractId {
   for (const contract of SETTING_CONTRACTS) {

@@ -106,6 +106,13 @@ export class SchemaForm {
    */
   readonly visibleGroups = input<readonly string[] | null>(null);
 
+  /**
+   * Optional map of group name → icon name. When a group has an entry its
+   * accordion header shows that icon, giving each collapsible section a visual
+   * anchor. Groups without an entry simply render without an icon.
+   */
+  readonly groupIcons = input<Record<string, string>>({});
+
   /** Emitted whenever the user changes a single field. */
   readonly fieldChange = output<FieldChangeEvent>();
 

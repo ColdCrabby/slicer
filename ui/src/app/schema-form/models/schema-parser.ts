@@ -1,3 +1,4 @@
+import { enumLabel, fieldLabel } from './field-labels';
 import { EnumOption, FieldDef, FieldType, SchemaGroup } from './field-def';
 
 type RawProp = Record<string, unknown>;
@@ -17,6 +18,7 @@ function resolveEnumOptions(prop: RawProp, defs: RawDefs): EnumOption[] | undefi
     if (def?.oneOf) {
       return def.oneOf.map((v) => ({
         value: String(v.const),
+        label: enumLabel(String(v.const)),
         description: v.description,
       }));
     }
@@ -24,7 +26,11 @@ function resolveEnumOptions(prop: RawProp, defs: RawDefs): EnumOption[] | undefi
 
   if ('oneOf' in prop) {
     const oneOf = prop['oneOf'] as Array<{ const?: unknown; description?: string }>;
-    return oneOf.map((v) => ({ value: String(v.const), description: v.description }));
+    return oneOf.map((v) => ({
+      value: String(v.const),
+      label: enumLabel(String(v.const)),
+      description: v.description,
+    }));
   }
 
   return undefined;
@@ -87,7 +93,7 @@ export function parseSchema(
       key,
       type: resolveFieldType(prop),
       format: prop['format'] as string | undefined,
-      title: prop['title'] as string | undefined,
+      title: (prop['title'] as string | undefined) ?? fieldLabel(key),
       description: prop['description'] as string | undefined,
       default: prop['default'],
       required: required.has(key),

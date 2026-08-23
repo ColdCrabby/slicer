@@ -3,6 +3,7 @@ import { RouterLink } from '@angular/router';
 import globalSettingsSchema from '../../../schemas/slicer-engine-global-settings-v1.json';
 import {
   bucketGroupsByContract,
+  GROUP_ICONS,
   SETTING_CONTRACTS,
   type SettingContractId,
 } from '../../models/setting-contract';
@@ -48,6 +49,7 @@ export class SettingsPanel {
 
   readonly settings = this.slicer.settings;
   readonly schema = SLICING_PARAMS_SCHEMA;
+  protected readonly groupIcons = GROUP_ICONS;
 
   protected readonly contractTabs: SegmentOption[] = SETTING_CONTRACTS.map((contract) => ({
     value: contract.id,

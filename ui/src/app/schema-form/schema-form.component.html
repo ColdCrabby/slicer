@@ -60,7 +60,12 @@
             class="schema-form-group-trigger"
             type="button"
           >
-            <span class="schema-form-group-title">{{ group.name }}</span>
+            <span class="schema-form-group-label">
+              @if (groupIcons()[group.name]; as groupIcon) {
+                <nexus-icon [name]="groupIcon" class="schema-form-group-icon" aria-hidden="true" />
+              }
+              <span class="schema-form-group-title">{{ group.name }}</span>
+            </span>
             <nexus-icon
               name="nav-arrow-down"
               class="schema-form-group-chevron"
