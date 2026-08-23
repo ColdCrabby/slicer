@@ -13,19 +13,30 @@
  */
 export type ProfileSource = 'builtin' | 'user' | 'catalog';
 
-/** Provenance fields shared by every profile kind. */
+/**
+ * Provenance fields shared by every profile kind. Matches the engine's
+ * generated profile shape (snake_case, optional `source`), so the profile
+ * models can be the engine types directly with no mapping.
+ */
 export interface ProfileMeta {
   id: string;
   name: string;
-  source: ProfileSource;
+  source?: ProfileSource;
   /** Catalog id this profile was imported/derived from, if any. */
-  basedOn?: string;
+  based_on?: string | null;
+  /**
+   * Provenance for a profile fetched from the cloud catalog: the source API URL
+   * it was imported from. Hidden field — never edited in the UI and ignored by
+   * the slicer; an imported profile behaves exactly like a hand-made one.
+   */
+  import_url?: string | null;
   /**
    * Ids of the user-defined {@link Label}s attached to this profile. A single
    * flat, cross-area vocabulary (see `label.model.ts`) — the same label can be
    * attached to a printer, a filament, and a print profile.
    */
-  labelIds?: string[];
+  label_ids?: string[];
+  [k: string]: unknown;
 }
 
 export const PROFILE_SOURCE_LABELS: Record<ProfileSource, string> = {

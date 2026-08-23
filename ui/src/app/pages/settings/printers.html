@@ -32,12 +32,12 @@
               <span class="profile-card__name">
                 {{ printer.name }}
                 <span class="profile-badge" [attr.data-source]="printer.source">
-                  {{ sourceLabels[printer.source] }}
+                  {{ sourceLabels[printer.source ?? 'user'] }}
                 </span>
               </span>
               <span class="profile-card__sub">
-                {{ printer.bedWidth }}×{{ printer.bedDepth }}×{{ printer.bedHeight }} mm ·
-                {{ printer.nozzleDiameter }} mm nozzle · {{ printer.gcodeFlavor }}
+                {{ printer.bed_width }}×{{ printer.bed_depth }}×{{ printer.bed_height }} mm ·
+                {{ pnum(printer.params, 'nozzle_diameter_mm') }} mm nozzle · {{ pstr(printer.params, 'gcode_flavor') }}
               </span>
             </span>
           </button>
@@ -74,7 +74,7 @@
               <div class="profile-editor__group">
                 <label class="profile-editor__group-title">Labels</label>
                 <nexus-label-picker
-                  [assignedIds]="printer.labelIds ?? []"
+                  [assignedIds]="printer.label_ids ?? []"
                   (toggle)="toggleLabel(printer.id, $event)"
                 />
               </div>
@@ -90,7 +90,7 @@
                 <nexus-field-row label="Firmware">
                   <nexus-select
                     [options]="flavorOptions"
-                    [value]="printer.gcodeFlavor"
+                    [value]="pstr(printer.params, 'gcode_flavor')"
                     (valueChange)="setFlavor(printer.id, $event)"
                   />
                 </nexus-field-row>
@@ -101,45 +101,45 @@
                 <nexus-field-row label="Bed shape">
                   <nexus-segmented
                     [options]="bedShapeOptions"
-                    [value]="printer.bedShape"
+                    [value]="printer.bed_shape ?? 'rectangular'"
                     (valueChange)="setBedShape(printer.id, $event)"
                   />
                 </nexus-field-row>
                 <nexus-field-row
-                  [label]="printer.bedShape === 'circular' ? 'Diameter' : 'Width (X)'"
+                  [label]="printer.bed_shape === 'circular' ? 'Diameter' : 'Width (X)'"
                 >
                   <nexus-number-input
-                    [value]="printer.bedWidth"
+                    [value]="printer.bed_width"
                     [min]="20"
                     [max]="1000"
                     unit="mm"
-                    (valueChange)="update(printer.id, { bedWidth: $event })"
+                    (valueChange)="update(printer.id, { bed_width: $event })"
                   />
                 </nexus-field-row>
-                @if (printer.bedShape === 'rectangular') {
+                @if (printer.bed_shape === 'rectangular') {
                   <nexus-field-row label="Depth (Y)">
                     <nexus-number-input
-                      [value]="printer.bedDepth"
+                      [value]="printer.bed_depth"
                       [min]="20"
                       [max]="1000"
                       unit="mm"
-                      (valueChange)="update(printer.id, { bedDepth: $event })"
+                      (valueChange)="update(printer.id, { bed_depth: $event })"
                     />
                   </nexus-field-row>
                 }
                 <nexus-field-row label="Height (Z)">
                   <nexus-number-input
-                    [value]="printer.bedHeight"
+                    [value]="printer.bed_height"
                     [min]="20"
                     [max]="1000"
                     unit="mm"
-                    (valueChange)="update(printer.id, { bedHeight: $event })"
+                    (valueChange)="update(printer.id, { bed_height: $event })"
                   />
                 </nexus-field-row>
                 <nexus-field-row label="Origin at center">
                   <nexus-switch
-                    [checked]="printer.originAtCenter"
-                    (checkedChange)="update(printer.id, { originAtCenter: $event })"
+                    [checked]="printer.origin_at_center ?? false"
+                    (checkedChange)="update(printer.id, { origin_at_center: $event })"
                   />
                 </nexus-field-row>
               </div>
@@ -148,52 +148,52 @@
                 <label class="profile-editor__group-title">Hardware</label>
                 <nexus-field-row label="Nozzle diameter">
                   <nexus-number-input
-                    [value]="printer.nozzleDiameter"
+                    [value]="pnum(printer.params, 'nozzle_diameter_mm')"
                     [min]="0.1"
                     [max]="2"
                     [step]="0.05"
                     unit="mm"
-                    (valueChange)="update(printer.id, { nozzleDiameter: $event })"
+                    (valueChange)="updateParams(printer.id, { nozzle_diameter_mm: $event })"
                   />
                 </nexus-field-row>
                 <nexus-field-row label="Filament diameter">
                   <nexus-number-input
-                    [value]="printer.filamentDiameter"
+                    [value]="pnum(printer.params, 'filament_diameter_mm')"
                     [min]="1"
                     [max]="4"
                     [step]="0.05"
                     unit="mm"
-                    (valueChange)="update(printer.id, { filamentDiameter: $event })"
+                    (valueChange)="updateParams(printer.id, { filament_diameter_mm: $event })"
                   />
                 </nexus-field-row>
                 <nexus-field-row label="Max print speed">
                   <nexus-number-input
-                    [value]="printer.maxPrintSpeed"
+                    [value]="pnum(printer.params, 'print_speed')"
                     [min]="10"
                     [max]="1000"
                     [step]="5"
                     unit="mm/s"
-                    (valueChange)="update(printer.id, { maxPrintSpeed: $event })"
+                    (valueChange)="updateParams(printer.id, { print_speed: $event })"
                   />
                 </nexus-field-row>
                 <nexus-field-row label="Retraction length">
                   <nexus-number-input
-                    [value]="printer.retractionLength"
+                    [value]="pnum(printer.params, 'retract_mm')"
                     [min]="0"
                     [max]="10"
                     [step]="0.1"
                     unit="mm"
-                    (valueChange)="update(printer.id, { retractionLength: $event })"
+                    (valueChange)="updateParams(printer.id, { retract_mm: $event })"
                   />
                 </nexus-field-row>
                 <nexus-field-row label="Z-hop">
                   <nexus-number-input
-                    [value]="printer.zHop"
+                    [value]="pnum(printer.params, 'z_hop_mm')"
                     [min]="0"
                     [max]="5"
                     [step]="0.05"
                     unit="mm"
-                    (valueChange)="update(printer.id, { zHop: $event })"
+                    (valueChange)="updateParams(printer.id, { z_hop_mm: $event })"
                   />
                 </nexus-field-row>
               </div>

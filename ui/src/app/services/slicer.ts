@@ -1,6 +1,7 @@
 import { Injectable, computed, inject, signal } from '@angular/core';
 import { environment } from '../../environments/environment';
 import { SlicingParams } from '../../generated/slicer-engine-ws-client-message-v1';
+import type { ProfileSelection } from '../../generated/slicer-engine-ws-client-message-v1';
 import { DEFAULT_SETTINGS } from '../models/slice-settings.model';
 import { RuntimeOrchestrator } from '../runtime/application/runtime-orchestrator';
 import { RuntimeSession } from '../runtime/application/runtime-session';
@@ -10,6 +11,7 @@ import { RuntimeMeshInput, RuntimeSceneSnapshot } from '../runtime/domain/scene-
 import { createRuntime } from '../runtime/factory/runtime-factory';
 import { RuntimeEvent } from '../runtime/ports/runtime-events';
 import { NotificationService } from './notifications';
+import { ActiveSelection } from './profiles/active-selection';
 import { SceneEngine } from './scene-engine';
 import { ConnectionStatus, SlicerConnection } from './slicer-connection';
 import { SlicerFile, UploadResponse } from './slicer-file';
@@ -91,6 +93,7 @@ export class Slicer {
   private readonly slicerFile = inject(SlicerFile);
   private readonly notifications = inject(NotificationService);
   private readonly sceneEngine = inject(SceneEngine);
+  private readonly activeSelection = inject(ActiveSelection);
   private readonly runtimeMode = this.resolveRuntimeMode();
   private readonly runtime = createRuntime({
     mode: this.runtimeMode,
@@ -412,6 +415,29 @@ export class Slicer {
     this.settings.update((current) => ({ ...current, ...patch }));
   }
 
+  /**
+   * Build the structured slice request: the three active profiles (already in
+   * the engine's own shape — no mapping) plus the user's sparse override diff.
+   * The diff is every live setting that differs from the resolved profile
+   * baseline; the engine re-resolves `profiles → overrides` authoritatively.
+   */
+  private buildProfileSelection(): ProfileSelection {
+    const baseline = (this.activeSelection.sliceParams() ?? {}) as Record<string, unknown>;
+    const settings = this.settings() as unknown as Record<string, unknown>;
+    const overrides: Record<string, unknown> = {};
+    for (const key of Object.keys(settings)) {
+      if (JSON.stringify(settings[key]) !== JSON.stringify(baseline[key])) {
+        overrides[key] = settings[key];
+      }
+    }
+    return {
+      printer: this.activeSelection.printer(),
+      filament: this.activeSelection.filament(),
+      process: this.activeSelection.profile(),
+      overrides,
+    };
+  }
+
   async slice(): Promise<void> {
     // Guard: prevent concurrent slice operations
     if (
@@ -479,6 +505,7 @@ export class Slicer {
         model,
         scene,
         settings: this.settings() as unknown as Record<string, unknown>,
+        profiles: this.buildProfileSelection(),
       });
 
       // Record which objects this slice was produced from so the viewer can

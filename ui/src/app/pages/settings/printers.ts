@@ -9,6 +9,7 @@ import { PROFILE_SOURCE_LABELS } from '../../models/profile-source';
 import { CloudCatalog } from '../../services/catalog/cloud-catalog';
 import { ActiveSelection } from '../../services/profiles/active-selection';
 import { matchesAllLabels, toggledLabelIds } from '../../services/profiles/label-filtering';
+import { paramNum, paramStr } from '../../models/params-access';
 import { LabelFilterStore } from '../../services/profiles/label-filter-store';
 import { LabelsStore } from '../../services/profiles/labels-store';
 import { PrintersStore } from '../../services/profiles/printers-store';
@@ -79,7 +80,7 @@ export class PrintersSettings {
   );
 
   protected labelsOf(item: PrinterProfile) {
-    return this.labels.resolve(item.labelIds);
+    return this.labels.resolve(item.label_ids);
   }
 
   protected toggleFilter(id: string): void {
@@ -93,7 +94,7 @@ export class PrintersSettings {
   protected toggleLabel(id: string, labelId: string): void {
     const item = this.store.getById(id);
     if (item) {
-      this.store.update(id, { labelIds: toggledLabelIds(item.labelIds, labelId) });
+      this.store.update(id, { label_ids: toggledLabelIds(item.label_ids, labelId) });
     }
   }
 
@@ -103,9 +104,9 @@ export class PrintersSettings {
       id: p.id,
       name: p.name,
       vendor: p.vendor,
-      meta: `${p.bedWidth}×${p.bedDepth} mm · ${p.nozzleDiameter} mm`,
+      meta: `${p.bed_width}×${p.bed_depth} mm · ${(p.params as Record<string, unknown>)?.['nozzle_diameter_mm']} mm`,
       icon: 'printer',
-      imported: this.store.items().some((item) => item.basedOn === p.id),
+      imported: this.store.items().some((item) => item.based_on === p.id),
     })),
   );
 
@@ -175,8 +176,21 @@ export class PrintersSettings {
     }
   }
 
+  protected readonly pnum = paramNum;
+  protected readonly pstr = paramStr;
+
   protected update(id: string, patch: Partial<PrinterProfile>): void {
     this.store.update(id, patch);
+  }
+
+  /** Merge a partial `SlicingParams` into a stored printer's `params` bundle. */
+  protected updateParams(id: string, patch: Record<string, unknown>): void {
+    const item = this.store.getById(id);
+    if (item) {
+      this.store.update(id, {
+        params: { ...((item.params as Record<string, unknown>) ?? {}), ...patch },
+      });
+    }
   }
 
   protected rename(id: string, event: Event): void {
@@ -187,10 +201,10 @@ export class PrintersSettings {
   }
 
   protected setBedShape(id: string, value: string): void {
-    this.store.update(id, { bedShape: value as BedShape });
+    this.store.update(id, { bed_shape: value as BedShape });
   }
 
   protected setFlavor(id: string, value: string): void {
-    this.store.update(id, { gcodeFlavor: value as PrinterGcodeFlavor });
+    this.updateParams(id, { gcode_flavor: value as PrinterGcodeFlavor });
   }
 }

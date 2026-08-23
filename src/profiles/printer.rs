@@ -1,0 +1,105 @@
+//! Printer (machine) profile.
+//!
+//! Holds the hardware *domain* fields (build volume, bed shape, network
+//! connection) plus a `params` bundle of sparse [`SlicingParams`] overrides
+//! (nozzle diameter, retraction, travel speed, firmware flavor, start/end
+//! G-code, …). Bed geometry feeds the scene's bed config, not `SlicingParams`.
+//! Slice parameters use the engine's own field names and units, so there is a
+//! single representation and no mapping layer.
+//!
+//! [`SlicingParams`]: crate::settings::params::SlicingParams
+
+use schemars::JsonSchema;
+use serde::{Deserialize, Serialize};
+
+use super::meta::ProfileMeta;
+
+/// Bed geometry. Circular beds (deltas) use `bed_width` as the diameter.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum BedShape {
+    /// Rectangular bed of `bed_width` × `bed_depth`.
+    #[default]
+    Rectangular,
+    /// Circular bed; `bed_width` is the diameter, `bed_depth` is ignored.
+    Circular,
+}
+
+/// Kind of network connection a printer can use to receive prints.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum PrinterConnectionKind {
+    /// No network connection configured.
+    #[default]
+    None,
+    /// OctoPrint host.
+    Octoprint,
+    /// Moonraker (Klipper) host.
+    Moonraker,
+    /// Bambu Lab cloud/LAN.
+    Bambu,
+    /// PrusaLink host.
+    Prusalink,
+}
+
+/// Network connection settings for a printer.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize, JsonSchema)]
+pub struct PrinterConnection {
+    /// Transport kind.
+    #[serde(default)]
+    pub kind: PrinterConnectionKind,
+    /// Host / address, when applicable.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub host: Option<String>,
+    /// Whether the last connection attempt succeeded (UI-owned status).
+    #[serde(default)]
+    pub connected: bool,
+}
+
+/// A printer (machine) profile.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+pub struct PrinterProfile {
+    /// Provenance (id, name, source, …).
+    #[serde(flatten)]
+    pub meta: ProfileMeta,
+
+    /// Manufacturer / brand.
+    pub vendor: String,
+    /// Model designation.
+    pub model: String,
+
+    /// Bed shape.
+    #[serde(default)]
+    pub bed_shape: BedShape,
+    /// Width (mm) along +X. For circular beds this is the diameter.
+    pub bed_width: f64,
+    /// Depth (mm) along +Y. Ignored for circular beds.
+    pub bed_depth: f64,
+    /// Max Z height (mm).
+    pub bed_height: f64,
+    /// True for delta / origin-at-center machines.
+    #[serde(default)]
+    pub origin_at_center: bool,
+
+    /// Network connection settings.
+    #[serde(default)]
+    pub connection: PrinterConnection,
+
+    /// Sparse `SlicingParams` overrides this printer contributes
+    /// (`nozzle_diameter_mm`, `filament_diameter_mm`, `print_speed`,
+    /// `travel_speed_mm_min`, `retract_mm`, `retract_speed_mm_min`, `z_hop_mm`,
+    /// `gcode_flavor`, `start_gcode`, `end_gcode`, `extruder_count`).
+    #[serde(default)]
+    pub params: serde_json::Value,
+}
+
+impl PrinterProfile {
+    /// Printable-area dimensions `(width, depth)` in mm for the bed config.
+    /// Circular beds report the diameter for both axes.
+    pub fn bed_dimensions(&self) -> (f64, f64) {
+        match self.bed_shape {
+            BedShape::Circular => (self.bed_width, self.bed_width),
+            BedShape::Rectangular => (self.bed_width, self.bed_depth),
+        }
+    }
+}

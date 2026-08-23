@@ -187,7 +187,18 @@ pub enum ClientMessage {
     ///   resolves the file via the DB (so it picks the right loader from the
     ///   on-disk extension), bakes every transform via `scene::apply_transform`,
     ///   and merges the results into a single mesh before `process_mesh`.
-    /// - **`settings`**: the full [`SlicingParams`] from the settings panel.
+    /// - **either `profiles` or `settings`** — the parameters to slice with:
+    ///   - `profiles`: the preferred, structured form. The active printer /
+    ///     filament / process profiles plus a sparse `overrides` diff; the
+    ///     server resolves them via [`crate::profiles::resolve`]. This is the
+    ///     single source of truth going forward — the engine owns the profile
+    ///     definitions and composition rules.
+    ///   - `settings`: the legacy pre-flattened [`SlicingParams`] blob, kept
+    ///     for backward compatibility while the UI migrates. Ignored when
+    ///     `profiles` is present.
+    ///
+    /// At least one of `profiles`/`settings` must be present; when neither is,
+    /// engine defaults are used.
     ///
     /// There is no longer a legacy "slice the upload as-is" fallback — the
     /// scene is the single source of truth for what gets sliced.
@@ -197,7 +208,12 @@ pub enum ClientMessage {
         request_uuid: String,
         /// Placed-object scene. Must contain at least one entry.
         scene: Vec<SceneObjectSliceDto>,
-        settings: Box<SlicingParams>,
+        /// Structured profile selection + user override diff (preferred).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        profiles: Option<Box<crate::profiles::ProfileSelection>>,
+        /// Legacy pre-flattened parameters (used only when `profiles` is absent).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        settings: Option<Box<SlicingParams>>,
     },
     /// Request a list of previously completed slicing sessions.
     ListSessions,
@@ -337,7 +353,40 @@ mod tests {
         let parsed: ClientMessage = serde_json::from_str(json).expect("parse");
         match parsed {
             ClientMessage::Slice { settings, .. } => {
+                let settings = settings.expect("settings present");
                 assert!((settings.infill_density - 0.3).abs() < 1e-9);
+            }
+            _ => panic!("expected Slice"),
+        }
+    }
+
+    /// A `Slice` may carry a structured profile selection instead of the legacy
+    /// flattened settings; it must round-trip and resolve.
+    #[test]
+    fn slice_message_with_profiles_round_trips() {
+        let selection = crate::profiles::ProfileSelection {
+            printer: crate::profiles::defaults::default_printer(),
+            filament: crate::profiles::defaults::default_filament(),
+            process: crate::profiles::defaults::default_process(),
+            overrides: serde_json::json!({ "layer_height": 0.15 }),
+        };
+        let msg = serde_json::json!({
+            "type": "Slice",
+            "request_uuid": "00000000-0000-0000-0000-000000000004",
+            "scene": [{ "file_id": "00000000-0000-0000-0000-000000000040" }],
+            "profiles": selection,
+        });
+        let parsed: ClientMessage = serde_json::from_value(msg).expect("parse profiles slice");
+        match parsed {
+            ClientMessage::Slice {
+                profiles, settings, ..
+            } => {
+                assert!(settings.is_none());
+                let resolved = profiles
+                    .expect("profiles present")
+                    .resolve()
+                    .expect("resolve");
+                assert!((resolved.layer_height - 0.15).abs() < 1e-9);
             }
             _ => panic!("expected Slice"),
         }

@@ -48,7 +48,8 @@ export class RangeSlider {
     return Math.max(0, Math.min(100, ((v - this.min()) / span) * 100));
   }
 
-  protected onLowInput(el: HTMLInputElement): void {
+  protected onLowInput(event: Event): void {
+    const el = event.target as HTMLInputElement;
     // Clamp against the high thumb and write the value straight back to the
     // native input — when the clamp is a no-op the bound value() doesn't change,
     // so Angular won't reset the thumb and it would visually drift past high.
@@ -57,7 +58,8 @@ export class RangeSlider {
     if (clamped !== this.low()) this.rangeChange.emit([clamped, this.high()]);
   }
 
-  protected onHighInput(el: HTMLInputElement): void {
+  protected onHighInput(event: Event): void {
+    const el = event.target as HTMLInputElement;
     const clamped = Math.max(Number(el.value), this.low());
     el.value = String(clamped);
     if (clamped !== this.high()) this.rangeChange.emit([this.low(), clamped]);

@@ -23,6 +23,7 @@ import { Switch } from '../../ui/switch/switch';
 import { FieldRow } from '../../ui/field-row/field-row';
 import { WizardShell } from '../../ui/wizard/wizard-shell';
 import { CatalogPicker, type CatalogEntryVm } from './catalog-picker';
+import { paramNum, paramStr } from '../../models/params-access';
 
 const STEPS = ['Start', 'Basics', 'Build volume', 'Hardware'] as const;
 
@@ -63,9 +64,9 @@ export class PrinterWizard {
       id: p.id,
       name: p.name,
       vendor: p.vendor,
-      meta: `${p.bedWidth}×${p.bedDepth} mm · ${p.nozzleDiameter} mm`,
+      meta: `${p.bed_width}×${p.bed_depth} mm · ${(p.params as Record<string, unknown>)?.['nozzle_diameter_mm']} mm`,
       icon: 'printer',
-      imported: this.store.items().some((item) => item.basedOn === p.id),
+      imported: this.store.items().some((item) => item.based_on === p.id),
     })),
   );
 
@@ -80,8 +81,19 @@ export class PrinterWizard {
     void this.catalog.load();
   }
 
+  protected readonly pnum = paramNum;
+  protected readonly pstr = paramStr;
+
   protected patch(patch: Partial<PrinterProfile>): void {
     this.draft.update((d) => ({ ...d, ...patch }));
+  }
+
+  /** Merge a partial `SlicingParams` into the draft's `params` bundle. */
+  protected patchParams(patch: Record<string, unknown>): void {
+    this.draft.update((d) => ({
+      ...d,
+      params: { ...((d.params as Record<string, unknown>) ?? {}), ...patch },
+    }));
   }
 
   protected patchName(event: Event): void {
@@ -126,10 +138,10 @@ export class PrinterWizard {
   }
 
   protected setBedShape(value: string): void {
-    this.patch({ bedShape: value as BedShape });
+    this.patch({ bed_shape: value as BedShape });
   }
 
   protected setFlavor(value: string): void {
-    this.patch({ gcodeFlavor: value as PrinterGcodeFlavor });
+    this.patchParams({ gcode_flavor: value as PrinterGcodeFlavor });
   }
 }

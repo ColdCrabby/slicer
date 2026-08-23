@@ -28,6 +28,7 @@ import { Switch } from '../../ui/switch/switch';
 import { FieldRow } from '../../ui/field-row/field-row';
 import { WizardShell } from '../../ui/wizard/wizard-shell';
 import { CatalogPicker, type CatalogEntryVm } from './catalog-picker';
+import { paramBool, paramNum, paramStr } from '../../models/params-access';
 
 const STEPS = ['Start', 'Layers & walls', 'Infill', 'Speeds & supports'] as const;
 
@@ -58,17 +59,24 @@ export class ProfileWizard {
 
   protected readonly catalogStatus = this.catalog.status;
   protected readonly catalogEntries = computed<CatalogEntryVm[]>(() =>
-    this.catalog.profiles().map((p) => ({
-      id: p.id,
-      name: p.name,
-      vendor: p.quality,
-      meta: `${p.layerHeight} mm · ${Math.round(p.infillDensity * 100)}% infill`,
-      icon: 'menu-scale',
-      imported: this.store.items().some((item) => item.basedOn === p.id),
-    })),
+    this.catalog.profiles().map((p) => {
+      const params = (p.params as Record<string, unknown>) ?? {};
+      const layer = Number(params['layer_height'] ?? 0);
+      const infill = Number(params['infill_density'] ?? 0);
+      return {
+        id: p.id,
+        name: p.name,
+        vendor: p.quality ?? 'standard',
+        meta: `${layer} mm · ${Math.round(infill * 100)}% infill`,
+        icon: 'menu-scale',
+        imported: this.store.items().some((item) => item.based_on === p.id),
+      };
+    }),
   );
 
-  protected readonly infillPercent = computed(() => Math.round(this.draft().infillDensity * 100));
+  protected readonly infillPercent = computed(() =>
+    Math.round(Number((this.draft().params as Record<string, unknown>)?.['infill_density'] ?? 0) * 100),
+  );
 
   protected readonly canProceed = computed(() => {
     if (this.index() === 0) {
@@ -81,8 +89,20 @@ export class ProfileWizard {
     void this.catalog.load();
   }
 
+  protected readonly pnum = paramNum;
+  protected readonly pstr = paramStr;
+  protected readonly pbool = paramBool;
+
   protected patch(patch: Partial<PrintProfile>): void {
     this.draft.update((d) => ({ ...d, ...patch }));
+  }
+
+  /** Merge a partial `SlicingParams` into the draft's `params` bundle. */
+  protected patchParams(patch: Record<string, unknown>): void {
+    this.draft.update((d) => ({
+      ...d,
+      params: { ...((d.params as Record<string, unknown>) ?? {}), ...patch },
+    }));
   }
 
   protected patchName(event: Event): void {
@@ -90,7 +110,7 @@ export class ProfileWizard {
   }
 
   protected setInfillPercent(pct: number): void {
-    this.patch({ infillDensity: Math.max(0, Math.min(100, pct)) / 100 });
+    this.patchParams({ infill_density: Math.max(0, Math.min(100, pct)) / 100 });
   }
 
   protected setQuality(value: string): void {
@@ -98,15 +118,15 @@ export class ProfileWizard {
   }
 
   protected setPattern(value: string): void {
-    this.patch({ infillPattern: value as InfillPattern });
+    this.patchParams({ infill_pattern: value as InfillPattern });
   }
 
   protected setSeam(value: string): void {
-    this.patch({ seamPosition: value as SeamPosition });
+    this.patchParams({ seam_position: value as SeamPosition });
   }
 
   protected setAdhesion(value: string): void {
-    this.patch({ adhesionType: value as AdhesionType });
+    this.patchParams({ adhesion_type: value as AdhesionType });
   }
 
   protected startFromScratch(): void {

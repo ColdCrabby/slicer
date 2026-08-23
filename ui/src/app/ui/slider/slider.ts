@@ -26,7 +26,7 @@ import { ChangeDetectionStrategy, Component, computed, input, output } from '@an
       [disabled]="disabled()"
       [attr.aria-label]="label() || null"
       [style.--fill]="fillPercent()"
-      (input)="onInput($any($event.target).value)"
+      (input)="onInput($event)"
     />
     @if (showValue()) {
       <output class="readout">{{ value() }}{{ unit() }}</output>
@@ -51,7 +51,7 @@ export class Slider {
     return Math.max(0, Math.min(100, pct));
   });
 
-  protected onInput(raw: string): void {
-    this.valueChange.emit(Number(raw));
+  protected onInput(event: Event): void {
+    this.valueChange.emit(Number((event.target as HTMLInputElement).value));
   }
 }

@@ -62,12 +62,12 @@
         </nexus-field-row>
         <nexus-field-row label="Filament diameter">
           <nexus-number-input
-            [value]="draft().diameterMm"
+            [value]="pnum(draft().params, 'filament_diameter_mm')"
             [min]="1"
             [max]="4"
             [step]="0.05"
             unit="mm"
-            (valueChange)="patch({ diameterMm: $event })"
+            (valueChange)="patchParams({ filament_diameter_mm: $event })"
           />
         </nexus-field-row>
       </div>
@@ -77,38 +77,38 @@
       <div class="wz-step">
         <nexus-field-row label="Nozzle temperature">
           <nexus-number-input
-            [value]="draft().nozzleTemp"
+            [value]="pnum(draft().params, 'nozzle_temp')"
             [min]="150"
             [max]="350"
             unit="°C"
-            (valueChange)="patch({ nozzleTemp: $event })"
+            (valueChange)="patchParams({ nozzle_temp: $event })"
           />
         </nexus-field-row>
         <nexus-field-row label="Nozzle — first layer">
           <nexus-number-input
-            [value]="draft().nozzleTempFirstLayer"
+            [value]="pnum(draft().params, 'nozzle_temp_first_layer')"
             [min]="150"
             [max]="350"
             unit="°C"
-            (valueChange)="patch({ nozzleTempFirstLayer: $event })"
+            (valueChange)="patchParams({ nozzle_temp_first_layer: $event })"
           />
         </nexus-field-row>
         <nexus-field-row label="Bed temperature">
           <nexus-number-input
-            [value]="draft().bedTemp"
+            [value]="pnum(draft().params, 'bed_temp')"
             [min]="0"
             [max]="150"
             unit="°C"
-            (valueChange)="patch({ bedTemp: $event })"
+            (valueChange)="patchParams({ bed_temp: $event })"
           />
         </nexus-field-row>
         <nexus-field-row label="Bed — first layer">
           <nexus-number-input
-            [value]="draft().bedTempFirstLayer"
+            [value]="pnum(draft().params, 'bed_temp_first_layer')"
             [min]="0"
             [max]="150"
             unit="°C"
-            (valueChange)="patch({ bedTempFirstLayer: $event })"
+            (valueChange)="patchParams({ bed_temp_first_layer: $event })"
           />
         </nexus-field-row>
       </div>
@@ -118,59 +118,50 @@
       <div class="wz-step">
         <nexus-field-row label="Fan speed — min">
           <nexus-number-input
-            [value]="draft().fanSpeedMin"
+            [value]="pnum(draft().params, 'first_layer_fan_speed') * 100"
             [min]="0"
             [max]="100"
             [step]="5"
             unit="%"
-            (valueChange)="patch({ fanSpeedMin: $event })"
+            (valueChange)="patchParams({ first_layer_fan_speed: $event / 100 })"
           />
         </nexus-field-row>
         <nexus-field-row label="Fan speed — max">
           <nexus-number-input
-            [value]="draft().fanSpeedMax"
+            [value]="pnum(draft().params, 'fan_speed') * 100"
             [min]="0"
             [max]="100"
             [step]="5"
             unit="%"
-            (valueChange)="patch({ fanSpeedMax: $event })"
-          />
-        </nexus-field-row>
-        <nexus-field-row
-          label="Fan always on"
-          description="Keep part cooling running after the first layers"
-        >
-          <nexus-switch
-            [checked]="draft().fanAlwaysOn"
-            (checkedChange)="patch({ fanAlwaysOn: $event })"
+            (valueChange)="patchParams({ fan_speed: $event / 100 })"
           />
         </nexus-field-row>
         <nexus-field-row label="Flow ratio">
           <nexus-number-input
-            [value]="draft().flowRatio"
+            [value]="pnum(draft().params, 'flow_ratio')"
             [min]="0.5"
             [max]="1.5"
             [step]="0.01"
-            (valueChange)="patch({ flowRatio: $event })"
+            (valueChange)="patchParams({ flow_ratio: $event })"
           />
         </nexus-field-row>
         <nexus-field-row label="Max volumetric speed">
           <nexus-number-input
-            [value]="draft().maxVolumetricSpeed"
+            [value]="pnum(draft().params, 'max_volumetric_speed')"
             [min]="1"
             [max]="50"
             [step]="0.5"
             unit="mm³/s"
-            (valueChange)="patch({ maxVolumetricSpeed: $event })"
+            (valueChange)="patchParams({ max_volumetric_speed: $event })"
           />
         </nexus-field-row>
         <nexus-field-row label="Cost" description="Per kilogram">
           <nexus-number-input
-            [value]="draft().costPerKg"
+            [value]="draft().cost_per_kg"
             [min]="0"
             [max]="500"
             unit="/kg"
-            (valueChange)="patch({ costPerKg: $event })"
+            (valueChange)="patch({ cost_per_kg: $event })"
           />
         </nexus-field-row>
       </div>

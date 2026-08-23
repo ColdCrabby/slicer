@@ -36,9 +36,9 @@ export class LabelsSettings {
         counts.set(id, (counts.get(id) ?? 0) + 1);
       }
     };
-    for (const p of this.printers.items()) bump(p.labelIds);
-    for (const f of this.filaments.items()) bump(f.labelIds);
-    for (const p of this.profiles.items()) bump(p.labelIds);
+    for (const p of this.printers.items()) bump(p.label_ids);
+    for (const f of this.filaments.items()) bump(f.label_ids);
+    for (const p of this.profiles.items()) bump(p.label_ids);
     return counts;
   });
 

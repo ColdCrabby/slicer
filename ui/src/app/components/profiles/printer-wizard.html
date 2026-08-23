@@ -53,7 +53,7 @@
         <nexus-field-row label="Firmware" description="G-code dialect the printer speaks">
           <nexus-select
             [options]="flavorOptions"
-            [value]="draft().gcodeFlavor"
+            [value]="pstr(draft().params, 'gcode_flavor')"
             (valueChange)="setFlavor($event)"
           />
         </nexus-field-row>
@@ -65,43 +65,43 @@
         <nexus-field-row label="Bed shape">
           <nexus-segmented
             [options]="bedShapeOptions"
-            [value]="draft().bedShape"
+            [value]="draft().bed_shape ?? 'rectangular'"
             (valueChange)="setBedShape($event)"
           />
         </nexus-field-row>
-        <nexus-field-row [label]="draft().bedShape === 'circular' ? 'Diameter' : 'Width (X)'">
+        <nexus-field-row [label]="draft().bed_shape === 'circular' ? 'Diameter' : 'Width (X)'">
           <nexus-number-input
-            [value]="draft().bedWidth"
+            [value]="draft().bed_width"
             [min]="20"
             [max]="1000"
             unit="mm"
-            (valueChange)="patch({ bedWidth: $event })"
+            (valueChange)="patch({ bed_width: $event })"
           />
         </nexus-field-row>
-        @if (draft().bedShape === 'rectangular') {
+        @if (draft().bed_shape === 'rectangular') {
           <nexus-field-row label="Depth (Y)">
             <nexus-number-input
-              [value]="draft().bedDepth"
+              [value]="draft().bed_depth"
               [min]="20"
               [max]="1000"
               unit="mm"
-              (valueChange)="patch({ bedDepth: $event })"
+              (valueChange)="patch({ bed_depth: $event })"
             />
           </nexus-field-row>
         }
         <nexus-field-row label="Height (Z)">
           <nexus-number-input
-            [value]="draft().bedHeight"
+            [value]="draft().bed_height"
             [min]="20"
             [max]="1000"
             unit="mm"
-            (valueChange)="patch({ bedHeight: $event })"
+            (valueChange)="patch({ bed_height: $event })"
           />
         </nexus-field-row>
         <nexus-field-row label="Origin at center" description="Delta / center-origin machines">
           <nexus-switch
-            [checked]="draft().originAtCenter"
-            (checkedChange)="patch({ originAtCenter: $event })"
+            [checked]="draft().origin_at_center ?? false"
+            (checkedChange)="patch({ origin_at_center: $event })"
           />
         </nexus-field-row>
       </div>
@@ -114,62 +114,62 @@
         </div>
         <nexus-field-row label="Nozzle diameter">
           <nexus-number-input
-            [value]="draft().nozzleDiameter"
+            [value]="pnum(draft().params, 'nozzle_diameter_mm')"
             [min]="0.1"
             [max]="2"
             [step]="0.05"
             unit="mm"
-            (valueChange)="patch({ nozzleDiameter: $event })"
+            (valueChange)="patchParams({ nozzle_diameter_mm: $event })"
           />
         </nexus-field-row>
         <nexus-field-row label="Filament diameter">
           <nexus-number-input
-            [value]="draft().filamentDiameter"
+            [value]="pnum(draft().params, 'filament_diameter_mm')"
             [min]="1"
             [max]="4"
             [step]="0.05"
             unit="mm"
-            (valueChange)="patch({ filamentDiameter: $event })"
+            (valueChange)="patchParams({ filament_diameter_mm: $event })"
           />
         </nexus-field-row>
         <nexus-field-row label="Max print speed">
           <nexus-number-input
-            [value]="draft().maxPrintSpeed"
+            [value]="pnum(draft().params, 'print_speed')"
             [min]="10"
             [max]="1000"
             [step]="5"
             unit="mm/s"
-            (valueChange)="patch({ maxPrintSpeed: $event })"
+            (valueChange)="patchParams({ print_speed: $event })"
           />
         </nexus-field-row>
         <nexus-field-row label="Max travel speed">
           <nexus-number-input
-            [value]="draft().maxTravelSpeed"
+            [value]="pnum(draft().params, 'travel_speed_mm_min') / 60"
             [min]="10"
             [max]="1000"
             [step]="5"
             unit="mm/s"
-            (valueChange)="patch({ maxTravelSpeed: $event })"
+            (valueChange)="patchParams({ travel_speed_mm_min: $event * 60 })"
           />
         </nexus-field-row>
         <nexus-field-row label="Retraction length">
           <nexus-number-input
-            [value]="draft().retractionLength"
+            [value]="pnum(draft().params, 'retract_mm')"
             [min]="0"
             [max]="10"
             [step]="0.1"
             unit="mm"
-            (valueChange)="patch({ retractionLength: $event })"
+            (valueChange)="patchParams({ retract_mm: $event })"
           />
         </nexus-field-row>
         <nexus-field-row label="Z-hop">
           <nexus-number-input
-            [value]="draft().zHop"
+            [value]="pnum(draft().params, 'z_hop_mm')"
             [min]="0"
             [max]="5"
             [step]="0.05"
             unit="mm"
-            (valueChange)="patch({ zHop: $event })"
+            (valueChange)="patchParams({ z_hop_mm: $event })"
           />
         </nexus-field-row>
       </div>

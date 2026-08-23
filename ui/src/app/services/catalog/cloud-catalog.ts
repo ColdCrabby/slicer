@@ -4,14 +4,13 @@ import type { PrintProfile } from '../../models/print-profile.model';
 import type { PrinterProfile } from '../../models/printer.model';
 import type { ProfileMeta } from '../../models/profile-source';
 import { uid } from '../../models/id';
-import { CATALOG_FILAMENTS, CATALOG_PRINTERS, CATALOG_PROFILES } from './catalog-data';
 
 /**
  * The remote data contract. `CloudCatalog` talks only to this interface, so
- * swapping the bundled dataset for a real HTTP backend later is a one-line
- * provider override — no consumer changes. Every method may reject (offline /
- * network error); `CloudCatalog` turns that into an `unavailable` state rather
- * than throwing at the call site.
+ * swapping in a real HTTP/WS backend later is a one-line provider override — no
+ * consumer changes. Every method may reject (offline / network error);
+ * `CloudCatalog` turns that into an `unavailable` state rather than throwing at
+ * the call site.
  */
 export interface CatalogSource {
   printers(): Promise<PrinterProfile[]>;
@@ -19,30 +18,29 @@ export interface CatalogSource {
   profiles(): Promise<PrintProfile[]>;
 }
 
-/** Simulated network latency (ms) so the loading state is exercised in dev. */
-const SIMULATED_LATENCY_MS = 350;
-
-const delay = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
-
-/** Default source: the bundled vendor dataset shipped in `catalog-data.ts`. */
-export class BundledCatalogSource implements CatalogSource {
-  async printers(): Promise<PrinterProfile[]> {
-    await delay(SIMULATED_LATENCY_MS);
-    return CATALOG_PRINTERS;
+/**
+ * Default source: **none**. The app ships no vendor/product catalog — that
+ * dataset is a cloud concern and lives outside this project. Until a real cloud
+ * backend is provided, every lookup reports "unavailable", so the UI offers
+ * "create from scratch" while the single builtin default per category keeps the
+ * app working offline.
+ */
+export class UnavailableCatalogSource implements CatalogSource {
+  private readonly reason = 'Cloud catalog is not connected.';
+  printers(): Promise<PrinterProfile[]> {
+    return Promise.reject(new Error(this.reason));
   }
-  async filaments(): Promise<FilamentProfile[]> {
-    await delay(SIMULATED_LATENCY_MS);
-    return CATALOG_FILAMENTS;
+  filaments(): Promise<FilamentProfile[]> {
+    return Promise.reject(new Error(this.reason));
   }
-  async profiles(): Promise<PrintProfile[]> {
-    await delay(SIMULATED_LATENCY_MS);
-    return CATALOG_PROFILES;
+  profiles(): Promise<PrintProfile[]> {
+    return Promise.reject(new Error(this.reason));
   }
 }
 
 export const CATALOG_SOURCE = new InjectionToken<CatalogSource>('CATALOG_SOURCE', {
   providedIn: 'root',
-  factory: () => new BundledCatalogSource(),
+  factory: () => new UnavailableCatalogSource(),
 });
 
 export type CatalogStatus = 'idle' | 'loading' | 'ready' | 'unavailable';
@@ -56,7 +54,7 @@ export function toUserCopy<T extends ProfileMeta>(entry: T, name?: string): T {
     ...structuredClone(entry),
     id: uid(),
     source: 'user',
-    basedOn: entry.source === 'catalog' ? entry.id : entry.basedOn,
+    based_on: entry.source === 'catalog' ? entry.id : entry.based_on,
     name: name ?? entry.name,
   };
 }

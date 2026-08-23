@@ -1,11 +1,9 @@
-import { DecimalPipe } from '@angular/common';
 import { ChangeDetectionStrategy, Component, computed, inject } from '@angular/core';
 import { GcodePreview } from '../../services/gcode-preview';
 
 @Component({
   selector: 'nexus-slice-layer-bar',
   standalone: true,
-  imports: [DecimalPipe],
   templateUrl: './slice-layer-bar.html',
   styleUrl: './slice-layer-bar.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,

@@ -170,12 +170,19 @@ export class CloudRuntime implements RuntimePort {
     }
 
     const scene = this.buildSceneSnapshot(fileIds[0], request.scene);
-    const payload: ClientMessage = {
-      type: 'Slice',
-      request_uuid: requestUuid,
-      scene,
-      settings: request.settings as SlicingParams,
-    };
+    const payload: ClientMessage = request.profiles
+      ? {
+          type: 'Slice',
+          request_uuid: requestUuid,
+          scene,
+          profiles: request.profiles,
+        }
+      : {
+          type: 'Slice',
+          request_uuid: requestUuid,
+          scene,
+          settings: request.settings as SlicingParams,
+        };
 
     this.pendingSliceId = request.sliceId;
     this.ws.send(payload);

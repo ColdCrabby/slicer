@@ -4,13 +4,13 @@
  * narrow a list as more labels are added. An empty filter matches everything.
  */
 export function matchesAllLabels(
-  item: { labelIds?: string[] },
+  item: { label_ids?: string[] },
   selectedIds: readonly string[],
 ): boolean {
   if (selectedIds.length === 0) {
     return true;
   }
-  const owned = item.labelIds ?? [];
+  const owned = item.label_ids ?? [];
   return selectedIds.every((id) => owned.includes(id));
 }
 

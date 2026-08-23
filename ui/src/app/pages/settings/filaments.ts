@@ -2,7 +2,8 @@ import { ChangeDetectionStrategy, Component, computed, inject, signal } from '@a
 import {
   FILAMENT_MATERIAL_LABELS,
   FILAMENT_MATERIALS,
-  MATERIAL_PRESETS,
+  MATERIAL_DENSITY,
+  MATERIAL_PARAMS,
   type FilamentMaterial,
   type FilamentProfile,
 } from '../../models/filament.model';
@@ -10,6 +11,7 @@ import { PROFILE_SOURCE_LABELS } from '../../models/profile-source';
 import { CloudCatalog } from '../../services/catalog/cloud-catalog';
 import { ActiveSelection } from '../../services/profiles/active-selection';
 import { matchesAllLabels, toggledLabelIds } from '../../services/profiles/label-filtering';
+import { paramNum } from '../../models/params-access';
 import { LabelFilterStore } from '../../services/profiles/label-filter-store';
 import { LabelsStore } from '../../services/profiles/labels-store';
 import { FilamentsStore } from '../../services/profiles/filaments-store';
@@ -27,7 +29,6 @@ import { ModalShell } from '../../ui/modal-shell/modal-shell';
 import { NumberInput } from '../../ui/number-input/number-input';
 import { SectionHeader } from '../../ui/section-header/section-header';
 import { Select } from '../../ui/select/select';
-import { Switch } from '../../ui/switch/switch';
 
 @Component({
   selector: 'nexus-settings-filaments',
@@ -43,7 +44,6 @@ import { Switch } from '../../ui/switch/switch';
     FieldRow,
     NumberInput,
     Select,
-    Switch,
     LabelChip,
     LabelFilterBar,
     LabelPicker,
@@ -77,7 +77,7 @@ export class FilamentsSettings {
   );
 
   protected labelsOf(item: FilamentProfile) {
-    return this.labels.resolve(item.labelIds);
+    return this.labels.resolve(item.label_ids);
   }
 
   protected toggleFilter(id: string): void {
@@ -91,7 +91,7 @@ export class FilamentsSettings {
   protected toggleLabel(id: string, labelId: string): void {
     const item = this.store.getById(id);
     if (item) {
-      this.store.update(id, { labelIds: toggledLabelIds(item.labelIds, labelId) });
+      this.store.update(id, { label_ids: toggledLabelIds(item.label_ids, labelId) });
     }
   }
 
@@ -101,9 +101,9 @@ export class FilamentsSettings {
       id: f.id,
       name: f.name,
       vendor: f.vendor,
-      meta: `${f.material} · ${f.nozzleTemp}°C`,
+      meta: `${f.material} · ${(f.params as Record<string, unknown>)?.['nozzle_temp']}°C`,
       color: f.color,
-      imported: this.store.items().some((item) => item.basedOn === f.id),
+      imported: this.store.items().some((item) => item.based_on === f.id),
     })),
   );
 
@@ -168,8 +168,20 @@ export class FilamentsSettings {
     }
   }
 
+  protected readonly pnum = paramNum;
+
   protected update(id: string, patch: Partial<FilamentProfile>): void {
     this.store.update(id, patch);
+  }
+
+  /** Merge a partial `SlicingParams` into a stored filament's `params` bundle. */
+  protected updateParams(id: string, patch: Record<string, unknown>): void {
+    const item = this.store.getById(id);
+    if (item) {
+      this.store.update(id, {
+        params: { ...((item.params as Record<string, unknown>) ?? {}), ...patch },
+      });
+    }
   }
 
   protected rename(id: string, event: Event): void {
@@ -185,6 +197,14 @@ export class FilamentsSettings {
 
   protected setMaterial(id: string, value: string): void {
     const material = value as FilamentMaterial;
-    this.store.update(id, { material, ...MATERIAL_PRESETS[material] });
+    const current = this.store.getById(id);
+    this.store.update(id, {
+      material,
+      density_g_cm3: MATERIAL_DENSITY[material],
+      params: {
+        ...((current?.params as Record<string, unknown>) ?? {}),
+        ...MATERIAL_PARAMS[material],
+      },
+    });
   }
 }

@@ -1,12 +1,19 @@
-import type { SlicingParams } from '../../generated/slicer-engine-ws-client-message-v1';
+import type { ProcessProfile } from '../../generated/slicer-engine-ws-client-message-v1';
 import { uid } from './id';
-import type { ProfileMeta } from './profile-source';
 
-/** Coarse quality tag used for badges / sorting. */
-export type PrintQuality = 'draft' | 'standard' | 'fine';
+/**
+ * Process (print / quality) profile — the engine's own type. Only the coarse
+ * `quality` tag lives at the top level; every slice parameter lives in
+ * {@link ProcessProfile.params} as a partial `SlicingParams` (engine field
+ * names and units). No separate camelCase model, no mapping.
+ */
+export type { ProcessProfile };
+/** Back-compat alias — the process profile *is* the print profile. */
+export type PrintProfile = ProcessProfile;
+
+export type PrintQuality = NonNullable<ProcessProfile['quality']>;
 export const PRINT_QUALITIES: PrintQuality[] = ['draft', 'standard', 'fine'];
 
-/** Infill pattern — serialised PascalCase to match the engine's `InfillPattern`. */
 export type InfillPattern = 'Rectilinear' | 'Grid' | 'Honeycomb' | 'Gyroid' | 'TpmsD';
 export const INFILL_PATTERNS: { value: InfillPattern; label: string }[] = [
   { value: 'Rectilinear', label: 'Rectilinear (fast)' },
@@ -16,7 +23,6 @@ export const INFILL_PATTERNS: { value: InfillPattern; label: string }[] = [
   { value: 'TpmsD', label: 'TPMS-D (organic)' },
 ];
 
-/** Seam placement — serialised snake_case to match the engine's `SeamPosition`. */
 export type SeamPosition = 'nearest' | 'rear' | 'aligned' | 'sharpest_corner' | 'random';
 export const SEAM_POSITIONS: { value: SeamPosition; label: string }[] = [
   { value: 'nearest', label: 'Nearest (fastest)' },
@@ -36,51 +42,29 @@ export const ADHESION_TYPES: { value: AdhesionType; label: string }[] = [
 
 export type SupportType = 'normal' | 'tree';
 
-/**
- * A print (process/quality) profile.
- *
- * Owns everything that trades speed against quality: layers, walls, infill,
- * speeds, supports, adhesion, and seam. Independent of the material and the
- * machine so the same quality preset can be reused everywhere.
- */
-export interface PrintProfile extends ProfileMeta {
-  quality: PrintQuality;
-
-  // Layers ------------------------------------------------------------------
-  layerHeight: number;
-  firstLayerHeight: number;
-  lineWidth: number;
-
-  // Shell -------------------------------------------------------------------
-  wallCount: number;
-  topLayers: number;
-  bottomLayers: number;
-  seamPosition: SeamPosition;
-
-  // Infill ------------------------------------------------------------------
-  infillDensity: number;
-  infillPattern: InfillPattern;
-  infillAngle: number;
-
-  // Speeds (mm/s) -----------------------------------------------------------
-  speedPrint: number;
-  speedWall: number;
-  speedInfill: number;
-  speedTopSurface: number;
-  speedFirstLayer: number;
-
-  // Supports ----------------------------------------------------------------
-  supportEnabled: boolean;
-  supportType: SupportType;
-  supportThreshold: number;
-  supportDensity: number;
-
-  // Adhesion ----------------------------------------------------------------
-  adhesionType: AdhesionType;
-  brimWidth: number;
-  skirtLoops: number;
-
-  ironingEnabled: boolean;
+/** Default slice params contributed by a from-scratch standard profile. */
+export function defaultProcessParams(): Record<string, unknown> {
+  return {
+    layer_height: 0.2,
+    first_layer_height: 0.24,
+    line_width: 0.44,
+    wall_generator: 'arachne',
+    wall_count: 3,
+    top_layers: 4,
+    bottom_layers: 3,
+    seam_position: 'aligned',
+    infill_density: 0.2,
+    infill_pattern: 'Gyroid',
+    infill_base_angle: 45,
+    print_speed: 120,
+    perimeter_speed: 80,
+    infill_speed: 150,
+    top_surface_speed: 60,
+    first_layer_speed: 30,
+    support_threshold_angle: 55,
+    adhesion_type: 'skirt',
+    skirt_loops: 1,
+  };
 }
 
 export function makePrintProfile(overrides: Partial<PrintProfile> = {}): PrintProfile {
@@ -89,29 +73,7 @@ export function makePrintProfile(overrides: Partial<PrintProfile> = {}): PrintPr
     name: 'New profile',
     source: 'user',
     quality: 'standard',
-    layerHeight: 0.2,
-    firstLayerHeight: 0.24,
-    lineWidth: 0.44,
-    wallCount: 3,
-    topLayers: 4,
-    bottomLayers: 3,
-    seamPosition: 'aligned',
-    infillDensity: 0.2,
-    infillPattern: 'Gyroid',
-    infillAngle: 45,
-    speedPrint: 120,
-    speedWall: 80,
-    speedInfill: 150,
-    speedTopSurface: 60,
-    speedFirstLayer: 30,
-    supportEnabled: false,
-    supportType: 'normal',
-    supportThreshold: 55,
-    supportDensity: 0.15,
-    adhesionType: 'skirt',
-    brimWidth: 5,
-    skirtLoops: 1,
-    ironingEnabled: false,
+    params: defaultProcessParams(),
     ...overrides,
   };
 }
@@ -125,23 +87,3 @@ export const DEFAULT_PRINT_PROFILE: PrintProfile = makePrintProfile({
 });
 
 export const DEFAULT_PRINT_PROFILES: PrintProfile[] = [DEFAULT_PRINT_PROFILE];
-
-/** Quality-owned slice parameters contributed by the active print profile. */
-export function printProfileSliceParams(profile: PrintProfile): Partial<SlicingParams> {
-  return {
-    layer_height: profile.layerHeight,
-    wall_count: profile.wallCount,
-    top_layers: profile.topLayers,
-    bottom_layers: profile.bottomLayers,
-    seam_position: profile.seamPosition,
-    infill_density: profile.infillDensity,
-    infill_pattern: profile.infillPattern,
-    infill_base_angle: profile.infillAngle,
-    print_speed: profile.speedPrint,
-    perimeter_speed: profile.speedWall,
-    infill_speed: profile.speedInfill,
-    top_surface_speed: profile.speedTopSurface,
-    first_layer_speed: profile.speedFirstLayer,
-    support_threshold_angle: profile.supportEnabled ? profile.supportThreshold : 0,
-  };
-}

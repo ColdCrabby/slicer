@@ -16,7 +16,7 @@ const STORAGE_KEY = 'profiles.active';
 interface NamedPreset {
   id: string;
   name: string;
-  labelIds?: string[];
+  label_ids?: string[];
 }
 
 type ActiveIds = Record<SettingContractId, string | null>;
@@ -68,7 +68,7 @@ export class ActivePresets {
     return this.itemsFor(contract)
       .filter((item) => item.id === activeId || matchesAllLabels(item, selected))
       .map((item) => {
-        const swatches = this.labels.resolve(item.labelIds).map((l) => labelDotColor(l));
+        const swatches = this.labels.resolve(item.label_ids).map((l) => labelDotColor(l));
         return {
           value: item.id,
           label: item.name,

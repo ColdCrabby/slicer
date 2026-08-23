@@ -73,7 +73,7 @@ export class LocalCollectionStore<T extends ProfileMeta> {
    * the same catalog id exists it is returned instead of duplicating.
    */
   importFromCatalog(entry: T): T {
-    const existing = this._items().find((item) => item.basedOn === entry.id);
+    const existing = this._items().find((item) => item.based_on === entry.id);
     if (existing) {
       return existing;
     }

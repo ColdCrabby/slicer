@@ -32,12 +32,12 @@
               <span class="profile-card__name">
                 {{ filament.name }}
                 <span class="profile-badge" [attr.data-source]="filament.source">
-                  {{ sourceLabels[filament.source] }}
+                  {{ sourceLabels[filament.source ?? 'user'] }}
                 </span>
               </span>
               <span class="profile-card__sub">
-                {{ filament.material }} · {{ filament.nozzleTemp }}°C nozzle ·
-                {{ filament.bedTemp }}°C bed
+                {{ filament.material }} · {{ pnum(filament.params, 'nozzle_temp') }}°C nozzle ·
+                {{ pnum(filament.params, 'bed_temp') }}°C bed
               </span>
             </span>
           </button>
@@ -74,7 +74,7 @@
               <div class="profile-editor__group">
                 <label class="profile-editor__group-title">Labels</label>
                 <nexus-label-picker
-                  [assignedIds]="filament.labelIds ?? []"
+                  [assignedIds]="filament.label_ids ?? []"
                   (toggle)="toggleLabel(filament.id, $event)"
                 />
               </div>
@@ -105,12 +105,12 @@
                 </nexus-field-row>
                 <nexus-field-row label="Diameter">
                   <nexus-number-input
-                    [value]="filament.diameterMm"
+                    [value]="pnum(filament.params, 'filament_diameter_mm')"
                     [min]="1"
                     [max]="4"
                     [step]="0.05"
                     unit="mm"
-                    (valueChange)="update(filament.id, { diameterMm: $event })"
+                    (valueChange)="updateParams(filament.id, { filament_diameter_mm: $event })"
                   />
                 </nexus-field-row>
               </div>
@@ -119,38 +119,38 @@
                 <label class="profile-editor__group-title">Temperatures</label>
                 <nexus-field-row label="Nozzle">
                   <nexus-number-input
-                    [value]="filament.nozzleTemp"
+                    [value]="pnum(filament.params, 'nozzle_temp')"
                     [min]="150"
                     [max]="350"
                     unit="°C"
-                    (valueChange)="update(filament.id, { nozzleTemp: $event })"
+                    (valueChange)="updateParams(filament.id, { nozzle_temp: $event })"
                   />
                 </nexus-field-row>
                 <nexus-field-row label="Nozzle — first layer">
                   <nexus-number-input
-                    [value]="filament.nozzleTempFirstLayer"
+                    [value]="pnum(filament.params, 'nozzle_temp_first_layer')"
                     [min]="150"
                     [max]="350"
                     unit="°C"
-                    (valueChange)="update(filament.id, { nozzleTempFirstLayer: $event })"
+                    (valueChange)="updateParams(filament.id, { nozzle_temp_first_layer: $event })"
                   />
                 </nexus-field-row>
                 <nexus-field-row label="Bed">
                   <nexus-number-input
-                    [value]="filament.bedTemp"
+                    [value]="pnum(filament.params, 'bed_temp')"
                     [min]="0"
                     [max]="150"
                     unit="°C"
-                    (valueChange)="update(filament.id, { bedTemp: $event })"
+                    (valueChange)="updateParams(filament.id, { bed_temp: $event })"
                   />
                 </nexus-field-row>
                 <nexus-field-row label="Bed — first layer">
                   <nexus-number-input
-                    [value]="filament.bedTempFirstLayer"
+                    [value]="pnum(filament.params, 'bed_temp_first_layer')"
                     [min]="0"
                     [max]="150"
                     unit="°C"
-                    (valueChange)="update(filament.id, { bedTempFirstLayer: $event })"
+                    (valueChange)="updateParams(filament.id, { bed_temp_first_layer: $event })"
                   />
                 </nexus-field-row>
               </div>
@@ -159,45 +159,39 @@
                 <label class="profile-editor__group-title">Cooling & flow</label>
                 <nexus-field-row label="Fan speed — max">
                   <nexus-number-input
-                    [value]="filament.fanSpeedMax"
+                    [value]="pnum(filament.params, 'fan_speed') * 100"
                     [min]="0"
                     [max]="100"
                     [step]="5"
                     unit="%"
-                    (valueChange)="update(filament.id, { fanSpeedMax: $event })"
-                  />
-                </nexus-field-row>
-                <nexus-field-row label="Fan always on">
-                  <nexus-switch
-                    [checked]="filament.fanAlwaysOn"
-                    (checkedChange)="update(filament.id, { fanAlwaysOn: $event })"
+                    (valueChange)="updateParams(filament.id, { fan_speed: $event / 100 })"
                   />
                 </nexus-field-row>
                 <nexus-field-row label="Flow ratio">
                   <nexus-number-input
-                    [value]="filament.flowRatio"
+                    [value]="pnum(filament.params, 'flow_ratio')"
                     [min]="0.5"
                     [max]="1.5"
                     [step]="0.01"
-                    (valueChange)="update(filament.id, { flowRatio: $event })"
+                    (valueChange)="updateParams(filament.id, { flow_ratio: $event })"
                   />
                 </nexus-field-row>
                 <nexus-field-row label="Max volumetric speed">
                   <nexus-number-input
-                    [value]="filament.maxVolumetricSpeed"
+                    [value]="pnum(filament.params, 'max_volumetric_speed')"
                     [min]="1"
                     [max]="50"
                     [step]="0.5"
                     unit="mm³/s"
-                    (valueChange)="update(filament.id, { maxVolumetricSpeed: $event })"
+                    (valueChange)="updateParams(filament.id, { max_volumetric_speed: $event })"
                   />
                 </nexus-field-row>
                 <nexus-field-row label="Cost / kg">
                   <nexus-number-input
-                    [value]="filament.costPerKg"
+                    [value]="filament.cost_per_kg"
                     [min]="0"
                     [max]="500"
-                    (valueChange)="update(filament.id, { costPerKg: $event })"
+                    (valueChange)="update(filament.id, { cost_per_kg: $event })"
                   />
                 </nexus-field-row>
               </div>

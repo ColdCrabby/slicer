@@ -1,8 +1,7 @@
 import { Injectable, computed, inject } from '@angular/core';
 import type { SlicingParams } from '../../../generated/slicer-engine-ws-client-message-v1';
-import { filamentSliceParams } from '../../models/filament.model';
-import { printProfileSliceParams } from '../../models/print-profile.model';
-import { printerBedConfig, printerSliceParams } from '../../models/printer.model';
+import { DEFAULT_SETTINGS } from '../../models/slice-settings.model';
+import { printerBedConfig } from '../../models/printer.model';
 import { ActivePresets } from './active-presets';
 import { FilamentsStore } from './filaments-store';
 import { PrintProfilesStore } from './print-profiles-store';
@@ -45,7 +44,13 @@ export class ActiveSelection {
     return printer ? printerBedConfig(printer) : null;
   });
 
-  /** Composed slice-param patch from printer + filament + print profile. */
+  /**
+   * Resolved baseline slice params for the active profile stack — the same
+   * plain merge the engine performs (`default → printer → filament → process`),
+   * with **no field mapping**: every profile's `params` is already a partial
+   * `SlicingParams`. User deviations on top are tracked separately and sent as
+   * the override diff; the engine is the authority at slice time.
+   */
   readonly sliceParams = computed<Partial<SlicingParams> | null>(() => {
     const printer = this.printer();
     const filament = this.filament();
@@ -54,10 +59,11 @@ export class ActiveSelection {
       return null;
     }
     return {
-      ...printerSliceParams(printer),
-      ...filamentSliceParams(filament),
-      ...printProfileSliceParams(profile),
-    };
+      ...DEFAULT_SETTINGS,
+      ...((printer.params as Record<string, unknown>) ?? {}),
+      ...((filament.params as Record<string, unknown>) ?? {}),
+      ...((profile.params as Record<string, unknown>) ?? {}),
+    } as Partial<SlicingParams>;
   });
 
   selectPrinter(id: string): void {

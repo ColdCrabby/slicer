@@ -10,7 +10,8 @@ import {
   FILAMENT_MATERIAL_LABELS,
   FILAMENT_MATERIALS,
   makeFilament,
-  MATERIAL_PRESETS,
+  MATERIAL_DENSITY,
+  MATERIAL_PARAMS,
   type FilamentMaterial,
   type FilamentProfile,
 } from '../../models/filament.model';
@@ -19,10 +20,10 @@ import { FilamentsStore } from '../../services/profiles/filaments-store';
 import { Icon } from '../../shared/icon/icon';
 import { NumberInput } from '../../ui/number-input/number-input';
 import { Select } from '../../ui/select/select';
-import { Switch } from '../../ui/switch/switch';
 import { FieldRow } from '../../ui/field-row/field-row';
 import { WizardShell } from '../../ui/wizard/wizard-shell';
 import { CatalogPicker, type CatalogEntryVm } from './catalog-picker';
+import { paramNum } from '../../models/params-access';
 
 const STEPS = ['Start', 'Basics', 'Temperatures', 'Cooling & flow'] as const;
 
@@ -34,7 +35,7 @@ const STEPS = ['Start', 'Basics', 'Temperatures', 'Cooling & flow'] as const;
 @Component({
   selector: 'nexus-filament-wizard',
   standalone: true,
-  imports: [WizardShell, CatalogPicker, FieldRow, NumberInput, Select, Switch, Icon],
+  imports: [WizardShell, CatalogPicker, FieldRow, NumberInput, Select, Icon],
   templateUrl: './filament-wizard.html',
   styleUrl: './filament-wizard.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -61,9 +62,9 @@ export class FilamentWizard {
       id: f.id,
       name: f.name,
       vendor: f.vendor,
-      meta: `${f.material} · ${f.nozzleTemp}°C`,
+      meta: `${f.material} · ${(f.params as Record<string, unknown>)?.['nozzle_temp']}°C`,
       color: f.color,
-      imported: this.store.items().some((item) => item.basedOn === f.id),
+      imported: this.store.items().some((item) => item.based_on === f.id),
     })),
   );
 
@@ -78,8 +79,18 @@ export class FilamentWizard {
     void this.catalog.load();
   }
 
+  protected readonly pnum = paramNum;
+
   protected patch(patch: Partial<FilamentProfile>): void {
     this.draft.update((d) => ({ ...d, ...patch }));
+  }
+
+  /** Merge a partial `SlicingParams` into the draft's `params` bundle. */
+  protected patchParams(patch: Record<string, unknown>): void {
+    this.draft.update((d) => ({
+      ...d,
+      params: { ...((d.params as Record<string, unknown>) ?? {}), ...patch },
+    }));
   }
 
   protected patchName(event: Event): void {
@@ -96,8 +107,15 @@ export class FilamentWizard {
 
   protected setMaterial(value: string): void {
     const material = value as FilamentMaterial;
-    // Re-seed material-dependent defaults but keep identity/color/diameter.
-    this.patch({ material, ...MATERIAL_PRESETS[material] });
+    // Re-seed material-dependent slice params + density; keep identity/color.
+    this.patch({
+      material,
+      density_g_cm3: MATERIAL_DENSITY[material],
+      params: {
+        ...((this.draft().params as Record<string, unknown>) ?? {}),
+        ...MATERIAL_PARAMS[material],
+      },
+    });
   }
 
   protected startFromScratch(): void {

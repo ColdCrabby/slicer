@@ -22,6 +22,8 @@ pub mod infill;
 pub mod logging;
 pub mod mesh;
 pub mod orient;
+#[cfg(any(not(target_arch = "wasm32"), feature = "web-slicer"))]
+pub mod profiles;
 pub mod scene;
 #[cfg(any(not(target_arch = "wasm32"), feature = "web-slicer"))]
 pub mod settings;

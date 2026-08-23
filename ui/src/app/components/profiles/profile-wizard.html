@@ -48,58 +48,58 @@
         <nexus-field-row label="Quality">
           <nexus-segmented
             [options]="qualityOptions"
-            [value]="draft().quality"
+            [value]="draft().quality ?? 'standard'"
             (valueChange)="setQuality($event)"
           />
         </nexus-field-row>
         <nexus-field-row label="Layer height">
           <nexus-number-input
-            [value]="draft().layerHeight"
+            [value]="pnum(draft().params, 'layer_height')"
             [min]="0.04"
             [max]="1"
             [step]="0.02"
             unit="mm"
-            (valueChange)="patch({ layerHeight: $event })"
+            (valueChange)="patchParams({ layer_height: $event })"
           />
         </nexus-field-row>
         <nexus-field-row label="First layer height">
           <nexus-number-input
-            [value]="draft().firstLayerHeight"
+            [value]="pnum(draft().params, 'first_layer_height')"
             [min]="0.04"
             [max]="1"
             [step]="0.02"
             unit="mm"
-            (valueChange)="patch({ firstLayerHeight: $event })"
+            (valueChange)="patchParams({ first_layer_height: $event })"
           />
         </nexus-field-row>
         <nexus-field-row label="Walls (perimeters)">
           <nexus-number-input
-            [value]="draft().wallCount"
+            [value]="pnum(draft().params, 'wall_count')"
             [min]="1"
             [max]="10"
-            (valueChange)="patch({ wallCount: $event })"
+            (valueChange)="patchParams({ wall_count: $event })"
           />
         </nexus-field-row>
         <nexus-field-row label="Top layers">
           <nexus-number-input
-            [value]="draft().topLayers"
+            [value]="pnum(draft().params, 'top_layers')"
             [min]="0"
             [max]="20"
-            (valueChange)="patch({ topLayers: $event })"
+            (valueChange)="patchParams({ top_layers: $event })"
           />
         </nexus-field-row>
         <nexus-field-row label="Bottom layers">
           <nexus-number-input
-            [value]="draft().bottomLayers"
+            [value]="pnum(draft().params, 'bottom_layers')"
             [min]="0"
             [max]="20"
-            (valueChange)="patch({ bottomLayers: $event })"
+            (valueChange)="patchParams({ bottom_layers: $event })"
           />
         </nexus-field-row>
         <nexus-field-row label="Seam position">
           <nexus-select
             [options]="seamOptions"
-            [value]="draft().seamPosition"
+            [value]="pstr(draft().params, 'seam_position')"
             (valueChange)="setSeam($event)"
           />
         </nexus-field-row>
@@ -121,24 +121,24 @@
         <nexus-field-row label="Infill pattern">
           <nexus-select
             [options]="patternOptions"
-            [value]="draft().infillPattern"
+            [value]="pstr(draft().params, 'infill_pattern')"
             (valueChange)="setPattern($event)"
           />
         </nexus-field-row>
         <nexus-field-row label="Infill angle">
           <nexus-number-input
-            [value]="draft().infillAngle"
+            [value]="pnum(draft().params, 'infill_base_angle')"
             [min]="0"
             [max]="90"
             [step]="5"
             unit="°"
-            (valueChange)="patch({ infillAngle: $event })"
+            (valueChange)="patchParams({ infill_base_angle: $event })"
           />
         </nexus-field-row>
         <nexus-field-row label="Ironing" description="Smooth top surfaces with a light pass">
           <nexus-switch
-            [checked]="draft().ironingEnabled"
-            (checkedChange)="patch({ ironingEnabled: $event })"
+            [checked]="pbool(draft().params, 'ironing_enabled')"
+            (checkedChange)="patchParams({ ironing_enabled: $event })"
           />
         </nexus-field-row>
       </div>
@@ -148,66 +148,66 @@
       <div class="wz-step">
         <nexus-field-row label="Print speed">
           <nexus-number-input
-            [value]="draft().speedPrint"
+            [value]="pnum(draft().params, 'print_speed')"
             [min]="5"
             [max]="1000"
             [step]="5"
             unit="mm/s"
-            (valueChange)="patch({ speedPrint: $event })"
+            (valueChange)="patchParams({ print_speed: $event })"
           />
         </nexus-field-row>
         <nexus-field-row label="Wall speed">
           <nexus-number-input
-            [value]="draft().speedWall"
+            [value]="pnum(draft().params, 'perimeter_speed')"
             [min]="5"
             [max]="1000"
             [step]="5"
             unit="mm/s"
-            (valueChange)="patch({ speedWall: $event })"
+            (valueChange)="patchParams({ perimeter_speed: $event })"
           />
         </nexus-field-row>
         <nexus-field-row label="Infill speed">
           <nexus-number-input
-            [value]="draft().speedInfill"
+            [value]="pnum(draft().params, 'infill_speed')"
             [min]="5"
             [max]="1000"
             [step]="5"
             unit="mm/s"
-            (valueChange)="patch({ speedInfill: $event })"
+            (valueChange)="patchParams({ infill_speed: $event })"
           />
         </nexus-field-row>
         <nexus-field-row label="First layer speed">
           <nexus-number-input
-            [value]="draft().speedFirstLayer"
+            [value]="pnum(draft().params, 'first_layer_speed')"
             [min]="5"
             [max]="200"
             [step]="1"
             unit="mm/s"
-            (valueChange)="patch({ speedFirstLayer: $event })"
+            (valueChange)="patchParams({ first_layer_speed: $event })"
           />
         </nexus-field-row>
         <nexus-field-row label="Supports" description="Generate support for overhangs">
           <nexus-switch
-            [checked]="draft().supportEnabled"
-            (checkedChange)="patch({ supportEnabled: $event })"
+            [checked]="pbool(draft().params, 'support_enabled')"
+            (checkedChange)="patchParams({ support_enabled: $event })"
           />
         </nexus-field-row>
-        @if (draft().supportEnabled) {
+        @if (pbool(draft().params, 'support_enabled')) {
           <nexus-field-row label="Overhang threshold">
             <nexus-number-input
-              [value]="draft().supportThreshold"
+              [value]="pnum(draft().params, 'support_threshold_angle')"
               [min]="0"
               [max]="90"
               [step]="1"
               unit="°"
-              (valueChange)="patch({ supportThreshold: $event })"
+              (valueChange)="patchParams({ support_threshold_angle: $event })"
             />
           </nexus-field-row>
         }
         <nexus-field-row label="Bed adhesion">
           <nexus-select
             [options]="adhesionOptions"
-            [value]="draft().adhesionType"
+            [value]="pstr(draft().params, 'adhesion_type')"
             (valueChange)="setAdhesion($event)"
           />
         </nexus-field-row>

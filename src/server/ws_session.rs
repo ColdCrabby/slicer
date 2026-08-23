@@ -157,14 +157,30 @@ async fn handle_ws_session(
                 Ok(ClientMessage::Slice {
                     request_uuid,
                     scene: scene_objects,
+                    profiles,
                     settings,
                 }) => {
                     logger.log_debug(&format!("[WS] Processing slice request: {}", request_uuid));
+                    // Resolve the parameters: prefer the structured profile
+                    // selection (engine-owned composition); fall back to the
+                    // legacy pre-flattened settings, then to defaults.
+                    let params = match resolve_slice_params(profiles, settings) {
+                        Ok(p) => Box::new(p),
+                        Err(e) => {
+                            logger.log_warn(&format!("[WS] Invalid profile selection: {e}"));
+                            let _ = send_msg(
+                                &mut session,
+                                &ServerMessage::error(format!("Invalid profile selection: {e}")),
+                            )
+                            .await;
+                            continue;
+                        }
+                    };
                     handle_slice(
                         &mut session,
                         request_uuid,
                         scene_objects,
-                        settings,
+                        params,
                         db.clone(),
                         work_dir.clone(),
                         base_url.clone(),
@@ -211,6 +227,22 @@ async fn handle_ws_session(
 
     logger.log_info("[WS] Session ended");
     let _ = session.close(None).await;
+}
+
+/// Resolve a slice request's parameters from either the structured profile
+/// selection (preferred) or the legacy pre-flattened settings.
+///
+/// Precedence: `profiles` (engine-owned composition) → `settings` (legacy) →
+/// engine defaults. Returns an error only when a provided profile selection
+/// fails to resolve (e.g. a malformed override diff).
+fn resolve_slice_params(
+    profiles: Option<Box<crate::profiles::ProfileSelection>>,
+    settings: Option<Box<crate::settings::params::SlicingParams>>,
+) -> Result<crate::settings::params::SlicingParams, serde_json::Error> {
+    if let Some(selection) = profiles {
+        return selection.resolve();
+    }
+    Ok(settings.map(|b| *b).unwrap_or_default())
 }
 
 /// Process a slice request from the browser.
@@ -364,6 +396,10 @@ async fn handle_slice(
             return;
         }
         t_load.finish();
+
+        for warning in params.unsupported_feature_warnings() {
+            logger.log_warn(&format!("[slice] {warning}"));
+        }
 
         let layers = crate::core::process_mesh(&combined, &params, &logger);
         let layer_count = layers.len();

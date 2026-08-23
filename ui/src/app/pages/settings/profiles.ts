@@ -14,6 +14,7 @@ import { PROFILE_SOURCE_LABELS } from '../../models/profile-source';
 import { CloudCatalog } from '../../services/catalog/cloud-catalog';
 import { ActiveSelection } from '../../services/profiles/active-selection';
 import { matchesAllLabels, toggledLabelIds } from '../../services/profiles/label-filtering';
+import { paramBool, paramNum, paramStr } from '../../models/params-access';
 import { LabelFilterStore } from '../../services/profiles/label-filter-store';
 import { LabelsStore } from '../../services/profiles/labels-store';
 import { PrintProfilesStore } from '../../services/profiles/print-profiles-store';
@@ -83,7 +84,7 @@ export class ProfilesSettings {
   );
 
   protected labelsOf(item: PrintProfile) {
-    return this.labels.resolve(item.labelIds);
+    return this.labels.resolve(item.label_ids);
   }
 
   protected toggleFilter(id: string): void {
@@ -97,20 +98,25 @@ export class ProfilesSettings {
   protected toggleLabel(id: string, labelId: string): void {
     const item = this.store.getById(id);
     if (item) {
-      this.store.update(id, { labelIds: toggledLabelIds(item.labelIds, labelId) });
+      this.store.update(id, { label_ids: toggledLabelIds(item.label_ids, labelId) });
     }
   }
 
   protected readonly catalogStatus = this.catalog.status;
   protected readonly catalogEntries = computed<CatalogEntryVm[]>(() =>
-    this.catalog.profiles().map((p) => ({
-      id: p.id,
-      name: p.name,
-      vendor: p.quality,
-      meta: `${p.layerHeight} mm · ${Math.round(p.infillDensity * 100)}% infill`,
-      icon: 'menu-scale',
-      imported: this.store.items().some((item) => item.basedOn === p.id),
-    })),
+    this.catalog.profiles().map((p) => {
+      const params = (p.params as Record<string, unknown>) ?? {};
+      const layer = Number(params['layer_height'] ?? 0);
+      const infill = Number(params['infill_density'] ?? 0);
+      return {
+        id: p.id,
+        name: p.name,
+        vendor: p.quality ?? 'standard',
+        meta: `${layer} mm · ${Math.round(infill * 100)}% infill`,
+        icon: 'menu-scale',
+        imported: this.store.items().some((item) => item.based_on === p.id),
+      };
+    }),
   );
 
   protected infillPct(fraction: number): number {
@@ -178,8 +184,22 @@ export class ProfilesSettings {
     }
   }
 
+  protected readonly pnum = paramNum;
+  protected readonly pstr = paramStr;
+  protected readonly pbool = paramBool;
+
   protected update(id: string, patch: Partial<PrintProfile>): void {
     this.store.update(id, patch);
+  }
+
+  /** Merge a partial `SlicingParams` into a stored profile's `params` bundle. */
+  protected updateParams(id: string, patch: Record<string, unknown>): void {
+    const item = this.store.getById(id);
+    if (item) {
+      this.store.update(id, {
+        params: { ...((item.params as Record<string, unknown>) ?? {}), ...patch },
+      });
+    }
   }
 
   protected rename(id: string, event: Event): void {
@@ -190,7 +210,7 @@ export class ProfilesSettings {
   }
 
   protected setInfillPercent(id: string, pct: number): void {
-    this.store.update(id, { infillDensity: Math.max(0, Math.min(100, pct)) / 100 });
+    this.updateParams(id, { infill_density: Math.max(0, Math.min(100, pct)) / 100 });
   }
 
   protected setQuality(id: string, value: string): void {
@@ -198,14 +218,14 @@ export class ProfilesSettings {
   }
 
   protected setPattern(id: string, value: string): void {
-    this.store.update(id, { infillPattern: value as InfillPattern });
+    this.updateParams(id, { infill_pattern: value as InfillPattern });
   }
 
   protected setSeam(id: string, value: string): void {
-    this.store.update(id, { seamPosition: value as SeamPosition });
+    this.updateParams(id, { seam_position: value as SeamPosition });
   }
 
   protected setAdhesion(id: string, value: string): void {
-    this.store.update(id, { adhesionType: value as AdhesionType });
+    this.updateParams(id, { adhesion_type: value as AdhesionType });
   }
 }

@@ -56,7 +56,7 @@ import {
         [disabled]="disabled()"
         [attr.aria-label]="label() || null"
         (keydown)="onKeydown($event)"
-        (change)="onChange($any($event.target).value)"
+        (change)="onChange($event)"
       />
       @if (unit()) {
         <span class="unit">{{ unit() }}</span>
@@ -135,8 +135,8 @@ export class NumberInput {
     this.nudge(event.key === 'ArrowUp' ? 1 : -1, event);
   }
 
-  protected onChange(raw: string): void {
-    const next = Number(raw);
+  protected onChange(event: Event): void {
+    const next = Number((event.target as HTMLInputElement).value);
     this.commit(Number.isFinite(next) ? next : this.value());
   }
 
