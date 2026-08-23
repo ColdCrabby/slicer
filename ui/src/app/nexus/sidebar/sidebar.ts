@@ -9,6 +9,7 @@ import {
   inject,
   Renderer2,
   signal,
+  viewChild,
 } from '@angular/core';
 import { Icon } from '../../shared/icon/icon';
 
@@ -47,6 +48,11 @@ export class Sidebar {
   protected readonly hovered = signal(false);
   protected readonly isDragging = signal(false);
 
+  /** Whether the content has been scrolled far enough to offer a "scroll to top". */
+  protected readonly showScrollTop = signal(false);
+
+  private readonly scrollContainer = viewChild<ElementRef<HTMLElement>>('scrollContainer');
+
   protected readonly isExpanded = computed(
     () => !this.collapsed() || this.pinnedOpen() || this.hovered(),
   );
@@ -79,6 +85,17 @@ export class Sidebar {
       this.hovered.set(false);
       this.pinnedOpen.set(true);
     }
+  }
+
+  /** Track scroll depth so the floating "scroll to top" affordance can appear. */
+  protected onContentScroll(event: Event): void {
+    const top = (event.target as HTMLElement).scrollTop;
+    this.showScrollTop.set(top > 240);
+  }
+
+  /** Smoothly return the content to the top — quick access to the preset controls. */
+  scrollToTop(): void {
+    this.scrollContainer()?.nativeElement.scrollTo({ top: 0, behavior: 'smooth' });
   }
 
   protected onCollapseToggle(event: MouseEvent): void {

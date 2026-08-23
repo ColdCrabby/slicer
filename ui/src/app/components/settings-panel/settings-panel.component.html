@@ -9,18 +9,18 @@
     />
 
     <div class="preset-row">
-      <nexus-icon [name]="activeContractMeta().icon" class="preset-icon" aria-hidden="true" />
-
       @if (presetOptions().length > 0) {
         <nexus-select
           class="preset-select"
           [options]="presetOptions()"
           [value]="activePresetId()"
+          [startIcon]="activeContractMeta().icon"
           [placeholder]="'Select ' + activeContractMeta().label.toLowerCase()"
           (valueChange)="selectPreset($event)"
         />
       } @else {
         <a class="preset-empty" [routerLink]="activeContractMeta().managePath">
+          <nexus-icon [name]="activeContractMeta().icon" aria-hidden="true" />
           Add a {{ activeContractMeta().label.toLowerCase() }} preset…
         </a>
       }

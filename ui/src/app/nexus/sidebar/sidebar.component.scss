@@ -154,6 +154,59 @@ $transition-easing: ease;
   width: 100%;
 }
 
+// Floating shortcut back to the top of the panel (where the preset controls
+// live), so switching printer/filament/process presets never means a long
+// scroll back up. Solid surface — this floats over panel chrome, not the 3D
+// scene, so no backdrop blur (per design language).
+.sidebar-scrolltop {
+  position: absolute;
+  bottom: var(--spacing-md);
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 5;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  border: 1px solid var(--color-border);
+  border-radius: 999px;
+  background: var(--color-surface);
+  color: var(--color-text-secondary);
+  box-shadow: var(--shadow-md);
+  cursor: pointer;
+  pointer-events: auto;
+  animation: sidebar-scrolltop-in var(--duration-fast) var(--ease-decelerate);
+  transition:
+    background-color var(--duration-fast) var(--ease-standard),
+    color var(--duration-fast) var(--ease-standard),
+    transform var(--duration-fast) var(--ease-standard);
+
+  &:hover {
+    background: var(--color-surface-hover);
+    color: var(--color-text-primary);
+  }
+
+  &:focus-visible {
+    outline: none;
+    border-color: var(--accent);
+    box-shadow: 0 0 0 2px var(--color-focus-ring);
+  }
+
+  --icon-size: 18px;
+}
+
+@keyframes sidebar-scrolltop-in {
+  from {
+    opacity: 0;
+    transform: translate(-50%, 6px);
+  }
+  to {
+    opacity: 1;
+    transform: translate(-50%, 0);
+  }
+}
+
 .sidebar-reveal-hint {
   position: absolute;
   left: var(--spacing-sm);

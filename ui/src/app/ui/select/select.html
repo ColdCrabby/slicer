@@ -12,6 +12,9 @@
   (click)="toggle()"
   (keydown)="onTriggerKeydown($event)"
 >
+  @if (startIcon()) {
+    <nexus-icon [name]="startIcon()!" class="trigger-start-icon" aria-hidden="true" />
+  }
   <span class="trigger-label">{{ selected()?.label ?? placeholder() }}</span>
   <nexus-icon name="nav-arrow-down" class="chevron" aria-hidden="true" />
 </button>

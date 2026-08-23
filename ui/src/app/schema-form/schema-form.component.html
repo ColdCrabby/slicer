@@ -32,7 +32,12 @@
         role="listitem"
         [style.opacity]="1 - f.score * 0.65"
       >
-        <span class="schema-form-search-result-group">{{ f.groupName }}</span>
+        <span class="schema-form-search-result-group">
+          @if (groupIcons()[f.groupName]; as groupIcon) {
+            <nexus-icon [name]="groupIcon" aria-hidden="true" />
+          }
+          {{ f.groupName }}
+        </span>
         <se-field-host
           [field]="f"
           [value]="value()[f.key]"

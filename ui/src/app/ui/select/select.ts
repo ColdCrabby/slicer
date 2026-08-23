@@ -48,6 +48,8 @@ export class Select {
   readonly value = input<string | null>(null);
   readonly placeholder = input('Select…');
   readonly disabled = input(false);
+  /** Optional leading icon (iconoir name) shown at the start of the trigger. */
+  readonly startIcon = input<string | null>(null);
   readonly valueChange = output<string>();
 
   protected readonly open = signal(false);
