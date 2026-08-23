@@ -13,10 +13,12 @@
 }
 
 // macOS desktop: reserve room for the native traffic lights (Overlay title-bar
-// style). In the browser there are no traffic lights, so keep the nav-rail
-// alignment instead.
+// style). The lights are positioned at x=19 via `trafficLightPosition` and the
+// three-button cluster spans ~52px, so the brand must start clear of ~71px.
+// Leave a comfortable gap so the logo never crowds the close button.
+// In the browser there are no traffic lights, so keep the nav-rail alignment.
 :host(.is-mac.is-desktop) {
-  padding-left: 78px;
+  padding-left: 88px;
 }
 
 .tb-leading {
