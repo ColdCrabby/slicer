@@ -1,0 +1,217 @@
+<nexus-wizard-shell
+  title="Add print profile"
+  [steps]="steps"
+  [index]="index()"
+  [canProceed]="canProceed()"
+  finishLabel="Add profile"
+  (back)="back()"
+  (next)="next()"
+  (finish)="finish()"
+  (cancel)="cancelled.emit()"
+>
+  @switch (index()) {
+    @case (0) {
+      <div class="wz-step">
+        <p class="wz-intro">
+          Import a tuned quality preset from the cloud catalog, or start from a balanced standard
+          profile.
+        </p>
+        <div class="wz-start">
+          <button type="button" class="wz-start__scratch" (click)="startFromScratch()">
+            <nexus-icon name="grid-plus" />
+            <span>
+              <strong>Start from scratch</strong>
+              <small>Standard 0.20 mm you can refine</small>
+            </span>
+          </button>
+
+          <div class="wz-start__divider">or pick a preset</div>
+
+          <nexus-catalog-picker
+            [entries]="catalogEntries()"
+            [loading]="catalogStatus() === 'loading'"
+            [unavailable]="catalogStatus() === 'unavailable'"
+            actionLabel="Use preset"
+            (pick)="startFromCatalog($event)"
+            (retry)="retryCatalog()"
+          />
+        </div>
+      </div>
+    }
+
+    @case (1) {
+      <div class="wz-step">
+        <div class="wz-group">
+          <label class="wz-group__title">Name</label>
+          <input class="wz-input" [value]="draft().name" (input)="patchName($event)" />
+        </div>
+        <nexus-field-row label="Quality">
+          <nexus-segmented
+            [options]="qualityOptions"
+            [value]="draft().quality"
+            (valueChange)="setQuality($event)"
+          />
+        </nexus-field-row>
+        <nexus-field-row label="Layer height">
+          <nexus-number-input
+            [value]="draft().layerHeight"
+            [min]="0.04"
+            [max]="1"
+            [step]="0.02"
+            unit="mm"
+            (valueChange)="patch({ layerHeight: $event })"
+          />
+        </nexus-field-row>
+        <nexus-field-row label="First layer height">
+          <nexus-number-input
+            [value]="draft().firstLayerHeight"
+            [min]="0.04"
+            [max]="1"
+            [step]="0.02"
+            unit="mm"
+            (valueChange)="patch({ firstLayerHeight: $event })"
+          />
+        </nexus-field-row>
+        <nexus-field-row label="Walls (perimeters)">
+          <nexus-number-input
+            [value]="draft().wallCount"
+            [min]="1"
+            [max]="10"
+            (valueChange)="patch({ wallCount: $event })"
+          />
+        </nexus-field-row>
+        <nexus-field-row label="Top layers">
+          <nexus-number-input
+            [value]="draft().topLayers"
+            [min]="0"
+            [max]="20"
+            (valueChange)="patch({ topLayers: $event })"
+          />
+        </nexus-field-row>
+        <nexus-field-row label="Bottom layers">
+          <nexus-number-input
+            [value]="draft().bottomLayers"
+            [min]="0"
+            [max]="20"
+            (valueChange)="patch({ bottomLayers: $event })"
+          />
+        </nexus-field-row>
+        <nexus-field-row label="Seam position">
+          <nexus-select
+            [options]="seamOptions"
+            [value]="draft().seamPosition"
+            (valueChange)="setSeam($event)"
+          />
+        </nexus-field-row>
+      </div>
+    }
+
+    @case (2) {
+      <div class="wz-step">
+        <nexus-field-row label="Infill density">
+          <nexus-number-input
+            [value]="infillPercent()"
+            [min]="0"
+            [max]="100"
+            [step]="5"
+            unit="%"
+            (valueChange)="setInfillPercent($event)"
+          />
+        </nexus-field-row>
+        <nexus-field-row label="Infill pattern">
+          <nexus-select
+            [options]="patternOptions"
+            [value]="draft().infillPattern"
+            (valueChange)="setPattern($event)"
+          />
+        </nexus-field-row>
+        <nexus-field-row label="Infill angle">
+          <nexus-number-input
+            [value]="draft().infillAngle"
+            [min]="0"
+            [max]="90"
+            [step]="5"
+            unit="°"
+            (valueChange)="patch({ infillAngle: $event })"
+          />
+        </nexus-field-row>
+        <nexus-field-row label="Ironing" description="Smooth top surfaces with a light pass">
+          <nexus-switch
+            [checked]="draft().ironingEnabled"
+            (checkedChange)="patch({ ironingEnabled: $event })"
+          />
+        </nexus-field-row>
+      </div>
+    }
+
+    @case (3) {
+      <div class="wz-step">
+        <nexus-field-row label="Print speed">
+          <nexus-number-input
+            [value]="draft().speedPrint"
+            [min]="5"
+            [max]="1000"
+            [step]="5"
+            unit="mm/s"
+            (valueChange)="patch({ speedPrint: $event })"
+          />
+        </nexus-field-row>
+        <nexus-field-row label="Wall speed">
+          <nexus-number-input
+            [value]="draft().speedWall"
+            [min]="5"
+            [max]="1000"
+            [step]="5"
+            unit="mm/s"
+            (valueChange)="patch({ speedWall: $event })"
+          />
+        </nexus-field-row>
+        <nexus-field-row label="Infill speed">
+          <nexus-number-input
+            [value]="draft().speedInfill"
+            [min]="5"
+            [max]="1000"
+            [step]="5"
+            unit="mm/s"
+            (valueChange)="patch({ speedInfill: $event })"
+          />
+        </nexus-field-row>
+        <nexus-field-row label="First layer speed">
+          <nexus-number-input
+            [value]="draft().speedFirstLayer"
+            [min]="5"
+            [max]="200"
+            [step]="1"
+            unit="mm/s"
+            (valueChange)="patch({ speedFirstLayer: $event })"
+          />
+        </nexus-field-row>
+        <nexus-field-row label="Supports" description="Generate support for overhangs">
+          <nexus-switch
+            [checked]="draft().supportEnabled"
+            (checkedChange)="patch({ supportEnabled: $event })"
+          />
+        </nexus-field-row>
+        @if (draft().supportEnabled) {
+          <nexus-field-row label="Overhang threshold">
+            <nexus-number-input
+              [value]="draft().supportThreshold"
+              [min]="0"
+              [max]="90"
+              [step]="1"
+              unit="°"
+              (valueChange)="patch({ supportThreshold: $event })"
+            />
+          </nexus-field-row>
+        }
+        <nexus-field-row label="Bed adhesion">
+          <nexus-select
+            [options]="adhesionOptions"
+            [value]="draft().adhesionType"
+            (valueChange)="setAdhesion($event)"
+          />
+        </nexus-field-row>
+      </div>
+    }
+  }
+</nexus-wizard-shell>

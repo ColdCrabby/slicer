@@ -5,6 +5,6 @@ import { LocalCollectionStore } from './local-collection-store';
 @Injectable({ providedIn: 'root' })
 export class PrintProfilesStore extends LocalCollectionStore<PrintProfile> {
   constructor() {
-    super('profiles.printProfiles', DEFAULT_PRINT_PROFILES);
+    super('profiles.printProfiles.v2', DEFAULT_PRINT_PROFILES);
   }
 }

@@ -1,49 +1,230 @@
 <div class="settings-page">
   <nexus-section-header heading="Print Profiles" description="Reusable quality presets">
-    <button nexusButton variant="primary" size="sm" (click)="add()">
+    <button nexusButton variant="secondary" size="sm" (click)="openCatalog()">
+      <nexus-icon name="cloud-upload" />
+      Catalog
+    </button>
+    <button nexusButton variant="primary" size="sm" (click)="openWizard()">
       <nexus-icon name="plus" />
       Add profile
     </button>
   </nexus-section-header>
 
   @if (store.items().length > 0) {
-    <div class="settings-list">
+    <div class="profile-list">
       @for (profile of store.items(); track profile.id) {
-        <div class="settings-item">
-          <span class="quality-badge" [attr.data-q]="profile.quality">{{ profile.quality }}</span>
-
-          <div class="settings-item-main">
-            <input
-              class="name-input"
-              [value]="profile.name"
-              (change)="rename(profile.id, $event)"
-              aria-label="Profile name"
-            />
-            <span class="settings-item-sub">
-              {{ profile.layerHeight }} mm · {{ profile.wallCount }} walls ·
-              {{ infillPct(profile.infillDensity) }}% infill
+        <div class="profile-card" [class.is-active]="active.profile().id === profile.id">
+          <button
+            class="profile-card__pick"
+            type="button"
+            [attr.aria-pressed]="active.profile().id === profile.id"
+            (click)="selectActive(profile.id)"
+          >
+            <span class="profile-card__radio"></span>
+            <span class="profile-card__icon"><nexus-icon name="menu-scale" /></span>
+            <span class="profile-card__info">
+              <span class="profile-card__name">
+                {{ profile.name }}
+                <span class="profile-badge" [attr.data-source]="profile.source">
+                  {{ sourceLabels[profile.source] }}
+                </span>
+              </span>
+              <span class="profile-card__sub">
+                {{ profile.layerHeight }} mm · {{ profile.wallCount }} walls ·
+                {{ infillPct(profile.infillDensity) }}% infill
+              </span>
             </span>
+          </button>
+
+          <div class="profile-card__actions">
+            <button nexusIconButton aria-label="Edit" (click)="toggleEditor(profile.id)">
+              <nexus-icon [name]="editingId() === profile.id ? 'nav-arrow-down' : 'settings'" />
+            </button>
+            <button nexusIconButton aria-label="Duplicate" (click)="duplicate(profile.id)">
+              <nexus-icon name="box-iso" />
+            </button>
+            @if (profile.source !== 'builtin') {
+              <button
+                nexusIconButton
+                [attr.aria-label]="confirmDeleteId() === profile.id ? 'Confirm delete' : 'Delete'"
+                [class.is-confirming]="confirmDeleteId() === profile.id"
+                (click)="requestDelete(profile.id)"
+              >
+                <nexus-icon name="trash" />
+              </button>
+            }
           </div>
 
-          <div class="settings-item-actions">
-            <select
-              class="material-select"
-              [value]="profile.quality"
-              (change)="setQuality(profile.id, $event)"
-              aria-label="Quality"
-            >
-              @for (quality of qualities; track quality) {
-                <option [value]="quality">{{ quality }}</option>
-              }
-            </select>
-            <button
-              nexusIconButton
-              aria-label="Remove profile"
-              (click)="remove(profile.id)"
-            >
-              <nexus-icon name="trash" />
-            </button>
-          </div>
+          @if (editingId() === profile.id) {
+            <div class="profile-editor">
+              <div class="profile-editor__group">
+                <label class="profile-editor__group-title">Identity</label>
+                <nexus-field-row label="Name" [stacked]="true">
+                  <input
+                    class="wz-input"
+                    [value]="profile.name"
+                    (change)="rename(profile.id, $event)"
+                  />
+                </nexus-field-row>
+                <nexus-field-row label="Quality">
+                  <nexus-segmented
+                    [options]="qualityOptions"
+                    [value]="profile.quality"
+                    (valueChange)="setQuality(profile.id, $event)"
+                  />
+                </nexus-field-row>
+              </div>
+
+              <div class="profile-editor__group">
+                <label class="profile-editor__group-title">Layers & walls</label>
+                <nexus-field-row label="Layer height">
+                  <nexus-number-input
+                    [value]="profile.layerHeight"
+                    [min]="0.04"
+                    [max]="1"
+                    [step]="0.02"
+                    unit="mm"
+                    (valueChange)="update(profile.id, { layerHeight: $event })"
+                  />
+                </nexus-field-row>
+                <nexus-field-row label="First layer height">
+                  <nexus-number-input
+                    [value]="profile.firstLayerHeight"
+                    [min]="0.04"
+                    [max]="1"
+                    [step]="0.02"
+                    unit="mm"
+                    (valueChange)="update(profile.id, { firstLayerHeight: $event })"
+                  />
+                </nexus-field-row>
+                <nexus-field-row label="Walls">
+                  <nexus-number-input
+                    [value]="profile.wallCount"
+                    [min]="1"
+                    [max]="10"
+                    (valueChange)="update(profile.id, { wallCount: $event })"
+                  />
+                </nexus-field-row>
+                <nexus-field-row label="Top layers">
+                  <nexus-number-input
+                    [value]="profile.topLayers"
+                    [min]="0"
+                    [max]="20"
+                    (valueChange)="update(profile.id, { topLayers: $event })"
+                  />
+                </nexus-field-row>
+                <nexus-field-row label="Bottom layers">
+                  <nexus-number-input
+                    [value]="profile.bottomLayers"
+                    [min]="0"
+                    [max]="20"
+                    (valueChange)="update(profile.id, { bottomLayers: $event })"
+                  />
+                </nexus-field-row>
+                <nexus-field-row label="Seam position">
+                  <nexus-select
+                    [options]="seamOptions"
+                    [value]="profile.seamPosition"
+                    (valueChange)="setSeam(profile.id, $event)"
+                  />
+                </nexus-field-row>
+              </div>
+
+              <div class="profile-editor__group">
+                <label class="profile-editor__group-title">Infill</label>
+                <nexus-field-row label="Density">
+                  <nexus-number-input
+                    [value]="infillPct(profile.infillDensity)"
+                    [min]="0"
+                    [max]="100"
+                    [step]="5"
+                    unit="%"
+                    (valueChange)="setInfillPercent(profile.id, $event)"
+                  />
+                </nexus-field-row>
+                <nexus-field-row label="Pattern">
+                  <nexus-select
+                    [options]="patternOptions"
+                    [value]="profile.infillPattern"
+                    (valueChange)="setPattern(profile.id, $event)"
+                  />
+                </nexus-field-row>
+                <nexus-field-row label="Angle">
+                  <nexus-number-input
+                    [value]="profile.infillAngle"
+                    [min]="0"
+                    [max]="90"
+                    [step]="5"
+                    unit="°"
+                    (valueChange)="update(profile.id, { infillAngle: $event })"
+                  />
+                </nexus-field-row>
+                <nexus-field-row label="Ironing">
+                  <nexus-switch
+                    [checked]="profile.ironingEnabled"
+                    (checkedChange)="update(profile.id, { ironingEnabled: $event })"
+                  />
+                </nexus-field-row>
+              </div>
+
+              <div class="profile-editor__group">
+                <label class="profile-editor__group-title">Speeds & supports</label>
+                <nexus-field-row label="Print speed">
+                  <nexus-number-input
+                    [value]="profile.speedPrint"
+                    [min]="5"
+                    [max]="1000"
+                    [step]="5"
+                    unit="mm/s"
+                    (valueChange)="update(profile.id, { speedPrint: $event })"
+                  />
+                </nexus-field-row>
+                <nexus-field-row label="Wall speed">
+                  <nexus-number-input
+                    [value]="profile.speedWall"
+                    [min]="5"
+                    [max]="1000"
+                    [step]="5"
+                    unit="mm/s"
+                    (valueChange)="update(profile.id, { speedWall: $event })"
+                  />
+                </nexus-field-row>
+                <nexus-field-row label="First layer speed">
+                  <nexus-number-input
+                    [value]="profile.speedFirstLayer"
+                    [min]="5"
+                    [max]="200"
+                    unit="mm/s"
+                    (valueChange)="update(profile.id, { speedFirstLayer: $event })"
+                  />
+                </nexus-field-row>
+                <nexus-field-row label="Supports">
+                  <nexus-switch
+                    [checked]="profile.supportEnabled"
+                    (checkedChange)="update(profile.id, { supportEnabled: $event })"
+                  />
+                </nexus-field-row>
+                @if (profile.supportEnabled) {
+                  <nexus-field-row label="Overhang threshold">
+                    <nexus-number-input
+                      [value]="profile.supportThreshold"
+                      [min]="0"
+                      [max]="90"
+                      unit="°"
+                      (valueChange)="update(profile.id, { supportThreshold: $event })"
+                    />
+                  </nexus-field-row>
+                }
+                <nexus-field-row label="Bed adhesion">
+                  <nexus-select
+                    [options]="adhesionOptions"
+                    [value]="profile.adhesionType"
+                    (valueChange)="setAdhesion(profile.id, $event)"
+                  />
+                </nexus-field-row>
+              </div>
+            </div>
+          }
         </div>
       }
     </div>
@@ -53,7 +234,27 @@
       heading="No profiles"
       description="Create a print profile to reuse quality settings across models."
     >
-      <button nexusButton variant="primary" size="sm" (click)="add()">Add profile</button>
+      <button nexusButton variant="primary" size="sm" (click)="openWizard()">Add profile</button>
     </nexus-empty-state>
   }
 </div>
+
+@if (wizardOpen()) {
+  <nexus-profile-wizard
+    (completed)="onWizardCompleted($event)"
+    (cancelled)="wizardOpen.set(false)"
+  />
+}
+
+@if (catalogOpen()) {
+  <nexus-modal-shell title="Profile catalog" (close)="catalogOpen.set(false)">
+    <nexus-catalog-picker
+      [entries]="catalogEntries()"
+      [loading]="catalogStatus() === 'loading'"
+      [unavailable]="catalogStatus() === 'unavailable'"
+      actionLabel="Import"
+      (pick)="importFromCatalog($event)"
+      (retry)="retryCatalog()"
+    />
+  </nexus-modal-shell>
+}

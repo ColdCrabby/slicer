@@ -1,57 +1,183 @@
 <div class="settings-page">
   <nexus-section-header heading="Printers" description="Machines you slice and print for">
-    <button nexusButton variant="primary" size="sm" (click)="add()">
+    <button nexusButton variant="secondary" size="sm" (click)="openCatalog()">
+      <nexus-icon name="cloud-upload" />
+      Catalog
+    </button>
+    <button nexusButton variant="primary" size="sm" (click)="openWizard()">
       <nexus-icon name="plus" />
       Add printer
     </button>
   </nexus-section-header>
 
   @if (store.items().length > 0) {
-    <div class="settings-list">
+    <div class="profile-list">
       @for (printer of store.items(); track printer.id) {
-        <div class="printer">
-          <div class="printer-head">
-            <input
-              class="name-input"
-              [value]="printer.name"
-              (change)="rename(printer.id, $event)"
-              aria-label="Printer name"
-            />
-            <button
-              nexusIconButton
-              aria-label="Remove printer"
-              (click)="remove(printer.id)"
-            >
-              <nexus-icon name="trash" />
+        <div class="profile-card" [class.is-active]="active.printer().id === printer.id">
+          <button
+            class="profile-card__pick"
+            type="button"
+            [attr.aria-pressed]="active.printer().id === printer.id"
+            (click)="selectActive(printer.id)"
+          >
+            <span class="profile-card__radio"></span>
+            <span class="profile-card__icon"><nexus-icon name="printer" /></span>
+            <span class="profile-card__info">
+              <span class="profile-card__name">
+                {{ printer.name }}
+                <span class="profile-badge" [attr.data-source]="printer.source">
+                  {{ sourceLabels[printer.source] }}
+                </span>
+              </span>
+              <span class="profile-card__sub">
+                {{ printer.bedWidth }}×{{ printer.bedDepth }}×{{ printer.bedHeight }} mm ·
+                {{ printer.nozzleDiameter }} mm nozzle · {{ printer.gcodeFlavor }}
+              </span>
+            </span>
+          </button>
+
+          <div class="profile-card__actions">
+            <button nexusIconButton aria-label="Edit" (click)="toggleEditor(printer.id)">
+              <nexus-icon [name]="editingId() === printer.id ? 'nav-arrow-down' : 'settings'" />
             </button>
+            <button nexusIconButton aria-label="Duplicate" (click)="duplicate(printer.id)">
+              <nexus-icon name="box-iso" />
+            </button>
+            @if (printer.source !== 'builtin') {
+              <button
+                nexusIconButton
+                [attr.aria-label]="confirmDeleteId() === printer.id ? 'Confirm delete' : 'Delete'"
+                [class.is-confirming]="confirmDeleteId() === printer.id"
+                (click)="requestDelete(printer.id)"
+              >
+                <nexus-icon name="trash" />
+              </button>
+            }
           </div>
 
-          <div class="printer-meta">
-            <span class="meta"
-              ><span class="meta-k">Model</span>{{ printer.vendor }} {{ printer.model }}</span
-            >
-            <span class="meta">
-              <span class="meta-k">Bed</span>{{ printer.bedWidth }}×{{ printer.bedDepth }}×{{
-                printer.bedHeight
-              }}
-              mm
-            </span>
-            <span class="meta"
-              ><span class="meta-k">Nozzle</span>{{ printer.nozzleDiameter }} mm</span
-            >
-          </div>
+          @if (editingId() === printer.id) {
+            <div class="profile-editor">
+              <div class="profile-editor__group">
+                <label class="profile-editor__group-title">Identity</label>
+                <nexus-field-row label="Name" [stacked]="true">
+                  <input
+                    class="wz-input"
+                    [value]="printer.name"
+                    (change)="rename(printer.id, $event)"
+                  />
+                </nexus-field-row>
+                <nexus-field-row label="Firmware">
+                  <nexus-select
+                    [options]="flavorOptions"
+                    [value]="printer.gcodeFlavor"
+                    (valueChange)="setFlavor(printer.id, $event)"
+                  />
+                </nexus-field-row>
+              </div>
 
-          <div class="printer-conn">
-            <span class="conn-status" [class.is-on]="printer.connection.connected">
-              <span class="dot"></span>
-              {{ connectionLabel(printer.connection.kind) }}
-            </span>
-            <button nexusButton variant="secondary" size="sm" disabled>
-              <nexus-icon name="link" />
-              Connect
-            </button>
-            <span class="soon">Uploads coming soon</span>
-          </div>
+              <div class="profile-editor__group">
+                <label class="profile-editor__group-title">Build volume</label>
+                <nexus-field-row label="Bed shape">
+                  <nexus-segmented
+                    [options]="bedShapeOptions"
+                    [value]="printer.bedShape"
+                    (valueChange)="setBedShape(printer.id, $event)"
+                  />
+                </nexus-field-row>
+                <nexus-field-row
+                  [label]="printer.bedShape === 'circular' ? 'Diameter' : 'Width (X)'"
+                >
+                  <nexus-number-input
+                    [value]="printer.bedWidth"
+                    [min]="20"
+                    [max]="1000"
+                    unit="mm"
+                    (valueChange)="update(printer.id, { bedWidth: $event })"
+                  />
+                </nexus-field-row>
+                @if (printer.bedShape === 'rectangular') {
+                  <nexus-field-row label="Depth (Y)">
+                    <nexus-number-input
+                      [value]="printer.bedDepth"
+                      [min]="20"
+                      [max]="1000"
+                      unit="mm"
+                      (valueChange)="update(printer.id, { bedDepth: $event })"
+                    />
+                  </nexus-field-row>
+                }
+                <nexus-field-row label="Height (Z)">
+                  <nexus-number-input
+                    [value]="printer.bedHeight"
+                    [min]="20"
+                    [max]="1000"
+                    unit="mm"
+                    (valueChange)="update(printer.id, { bedHeight: $event })"
+                  />
+                </nexus-field-row>
+                <nexus-field-row label="Origin at center">
+                  <nexus-switch
+                    [checked]="printer.originAtCenter"
+                    (checkedChange)="update(printer.id, { originAtCenter: $event })"
+                  />
+                </nexus-field-row>
+              </div>
+
+              <div class="profile-editor__group">
+                <label class="profile-editor__group-title">Hardware</label>
+                <nexus-field-row label="Nozzle diameter">
+                  <nexus-number-input
+                    [value]="printer.nozzleDiameter"
+                    [min]="0.1"
+                    [max]="2"
+                    [step]="0.05"
+                    unit="mm"
+                    (valueChange)="update(printer.id, { nozzleDiameter: $event })"
+                  />
+                </nexus-field-row>
+                <nexus-field-row label="Filament diameter">
+                  <nexus-number-input
+                    [value]="printer.filamentDiameter"
+                    [min]="1"
+                    [max]="4"
+                    [step]="0.05"
+                    unit="mm"
+                    (valueChange)="update(printer.id, { filamentDiameter: $event })"
+                  />
+                </nexus-field-row>
+                <nexus-field-row label="Max print speed">
+                  <nexus-number-input
+                    [value]="printer.maxPrintSpeed"
+                    [min]="10"
+                    [max]="1000"
+                    [step]="5"
+                    unit="mm/s"
+                    (valueChange)="update(printer.id, { maxPrintSpeed: $event })"
+                  />
+                </nexus-field-row>
+                <nexus-field-row label="Retraction length">
+                  <nexus-number-input
+                    [value]="printer.retractionLength"
+                    [min]="0"
+                    [max]="10"
+                    [step]="0.1"
+                    unit="mm"
+                    (valueChange)="update(printer.id, { retractionLength: $event })"
+                  />
+                </nexus-field-row>
+                <nexus-field-row label="Z-hop">
+                  <nexus-number-input
+                    [value]="printer.zHop"
+                    [min]="0"
+                    [max]="5"
+                    [step]="0.05"
+                    unit="mm"
+                    (valueChange)="update(printer.id, { zHop: $event })"
+                  />
+                </nexus-field-row>
+              </div>
+            </div>
+          }
         </div>
       }
     </div>
@@ -61,7 +187,27 @@
       heading="No printers"
       description="Add a printer to manage bed size, nozzle and connection."
     >
-      <button nexusButton variant="primary" size="sm" (click)="add()">Add printer</button>
+      <button nexusButton variant="primary" size="sm" (click)="openWizard()">Add printer</button>
     </nexus-empty-state>
   }
 </div>
+
+@if (wizardOpen()) {
+  <nexus-printer-wizard
+    (completed)="onWizardCompleted($event)"
+    (cancelled)="wizardOpen.set(false)"
+  />
+}
+
+@if (catalogOpen()) {
+  <nexus-modal-shell title="Printer catalog" (close)="catalogOpen.set(false)">
+    <nexus-catalog-picker
+      [entries]="catalogEntries()"
+      [loading]="catalogStatus() === 'loading'"
+      [unavailable]="catalogStatus() === 'unavailable'"
+      actionLabel="Import"
+      (pick)="importFromCatalog($event)"
+      (retry)="retryCatalog()"
+    />
+  </nexus-modal-shell>
+}
