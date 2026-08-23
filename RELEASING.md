@@ -41,7 +41,17 @@ the newly installed version in a one-time **"What's New"** dialog the first time
 a user runs an upgraded release (development builds are never nagged).
 
 We maintain it with a **hybrid** workflow: a script drafts the notes from git
-history, then a human curates them before tagging.
+history, then a human (or the [`release` skill](.github/skills/release/SKILL.md))
+curates them into enthusiastic, contributor-aware notes before tagging.
+
+## Cutting a release — the easy way
+
+Run the **`release` skill** (say "cut a release" to the agent). It automates this
+whole section: it gathers the commits and contributors since the last tag, curates
+the `CHANGELOG.md` section in the project's voice — leading with the biggest
+features and giving first-time contributors a real spotlight — then tags and pushes
+once you approve. The manual steps below are what that skill performs, and remain
+available if you prefer to do it by hand.
 
 ## Cutting a release — step by step
 
@@ -50,11 +60,13 @@ history, then a human curates them before tagging.
    ```bash
    scripts/gen-changelog-draft.sh          # since the last v* tag
    scripts/gen-changelog-draft.sh v0.2.0   # or since an explicit tag
+   scripts/release-contributors.sh         # contributors + first-timers
    ```
 
-   This prints a categorised `## [Unreleased]` block (Added / Changed / Fixed /
-   Documentation / Other). It writes nothing — copy the output as a starting
-   point.
+   The first script prints a categorised `## [Unreleased]` block (Added /
+   Changed / Fixed / Documentation / Other). The second lists everyone who
+   landed a change since the last tag and flags first-time contributors so they
+   can be acknowledged. Both write nothing — copy the output as a starting point.
 
 2. **Curate `CHANGELOG.md` by hand.** Fold the draft into the existing
    `## [Unreleased]` section: drop noise, merge related entries, and write for
@@ -123,6 +135,7 @@ notes fall back to auto-generated).
 
 ## See also
 
+- [`release` skill](.github/skills/release/SKILL.md) — automates this process locally.
 - [CHANGELOG.md](CHANGELOG.md) — the notes themselves.
 - [`build.rs`](build.rs) — version derivation from git.
 - [`src/version.rs`](src/version.rs) — the version/changelog API.

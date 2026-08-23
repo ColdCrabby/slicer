@@ -13,8 +13,9 @@ the workflow that keeps those in sync.
 <!--
 Maintainers: keep an `## [Unreleased]` section at the top. When cutting a release,
 rename it to `## [x.y.z] - YYYY-MM-DD` and add a fresh empty `## [Unreleased]`
-above it. `scripts/gen-changelog-draft.sh` generates a draft of the Unreleased
-section from git history — edit it by hand before tagging.
+above it. The `release` skill (say "cut a release") automates this — it curates
+these notes and acknowledges contributors. `scripts/gen-changelog-draft.sh` and
+`scripts/release-contributors.sh` provide the raw material if you do it by hand.
 -->
 
 ## [Unreleased]

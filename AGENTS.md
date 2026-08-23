@@ -257,6 +257,9 @@ user-facing version number.
 - **Releasing is tag-driven**: [.github/workflows/release.yml](.github/workflows/release.yml)
   fires on `v*` tags, extracts the changelog section, creates the GitHub Release,
   and attaches CLI binaries + desktop bundles. See [RELEASING.md](RELEASING.md).
+  Locally, the [`release` skill](.github/skills/release/SKILL.md) curates the
+  changelog (biggest features first, first-time contributors spotlighted) and
+  drives tag + push.
 - **Cargo.toml `version`** is the *next* target version only — not what users see.
 
 ## Known Constraints & Pitfalls
