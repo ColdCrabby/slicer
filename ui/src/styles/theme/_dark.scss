@@ -27,6 +27,16 @@ html.dark {
   --color-border-light: #232529;
   --color-border-lighter: #1d1f23;
 
+  // Tooltips — a distinctly elevated graphite "chip" that lifts clear of cards
+  // and the 3D scene for legibility, with a crisp border + real shadow.
+  --tooltip-bg: #33373f;
+  --tooltip-border: #474c56;
+  --tooltip-text: #f6f7f9;
+  --tooltip-text-muted: #c4c8d0;
+  --tooltip-shortcut-bg: rgba(255, 255, 255, 0.1);
+  --tooltip-shortcut-text: #e7e9ee;
+  --tooltip-shadow: 0 8px 24px rgba(0, 0, 0, 0.5), 0 2px 6px rgba(0, 0, 0, 0.36);
+
   // ── Accent (molten amber) — single source of truth ──
   // Overridable at runtime: setting `--accent` recomputes every shade below.
   --accent: #f5883a;
