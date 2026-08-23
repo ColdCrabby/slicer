@@ -7,15 +7,12 @@
           type="button"
           class="fb__chip"
           [class.is-on]="isSelected(label.id)"
-          [style.background]="isSelected(label.id) ? label.color : null"
-          [style.color]="isSelected(label.id) ? textColor(label.color) : null"
-          [style.border-color]="label.color"
+          [attr.data-tone]="label.tone"
+          [style.--label-color]="label.color"
           [attr.aria-pressed]="isSelected(label.id)"
           (click)="toggle.emit(label.id)"
         >
-          @if (!isSelected(label.id)) {
-            <span class="fb__dot" [style.background]="label.color"></span>
-          }
+          <span class="fb__dot"></span>
           {{ label.name }}
         </button>
       }

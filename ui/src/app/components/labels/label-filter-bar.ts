@@ -1,12 +1,12 @@
 import { ChangeDetectionStrategy, Component, computed, inject, input, output } from '@angular/core';
-import { labelTextColor } from '../../models/label.model';
 import { LabelsStore } from '../../services/profiles/labels-store';
 import { Icon } from '../../shared/icon/icon';
 
 /**
  * A horizontal row of every label rendered as a toggle chip, used to filter a
- * profile list. Selected chips show in full colour; unselected ones are muted.
- * The parent owns the selected-id set and the actual filtering.
+ * profile list. Selected chips show the label's tint; unselected ones are a
+ * quiet outline with a hue dot. The parent owns the selected-id set and the
+ * actual filtering.
  *
  * Renders nothing when no labels exist, so pages that `@if` on its emptiness
  * can hide the whole bar.
@@ -30,9 +30,5 @@ export class LabelFilterBar {
 
   protected isSelected(id: string): boolean {
     return this.selectedIds().includes(id);
-  }
-
-  protected textColor(hex: string): string {
-    return labelTextColor(hex);
   }
 }

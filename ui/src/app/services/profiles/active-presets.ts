@@ -1,4 +1,5 @@
 import { Injectable, computed, inject, signal } from '@angular/core';
+import { labelDotColor } from '../../models/label.model';
 import type { SettingContractId } from '../../models/setting-contract';
 import type { SelectOption } from '../../ui/select/select';
 import { BrowserStorage } from '../browser-storage';
@@ -55,7 +56,7 @@ export class ActivePresets {
   /** Dropdown options for the given contract, tagged with label colours. */
   options(contract: SettingContractId): SelectOption[] {
     return this.itemsFor(contract).map((item) => {
-      const swatches = this.labels.resolve(item.labelIds).map((l) => l.color);
+      const swatches = this.labels.resolve(item.labelIds).map((l) => labelDotColor(l));
       return {
         value: item.id,
         label: item.name,

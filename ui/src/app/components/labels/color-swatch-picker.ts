@@ -1,45 +1,47 @@
 import { ChangeDetectionStrategy, Component, input, output } from '@angular/core';
-import { isValidHexColor, LABEL_PALETTE, randomLabelColor } from '../../models/label.model';
+import { LABEL_HUES, type Label, type LabelTone } from '../../models/label.model';
 import { Icon } from '../../shared/icon/icon';
+import { LabelChip } from './label-chip';
 
 /**
- * GitHub-style colour chooser: a preview + shuffle button, a grid of curated
- * palette swatches, and a free-form hex input. Controlled — the parent owns the
- * `value` and updates it from `valueChange`.
+ * Compact label-colour chooser: a single row of muted base hues plus a
+ * Dark / Light shade toggle, and a live preview chip. Deliberately tiny — a few
+ * hues cover the spectrum and the tone toggle supplies the softer variant,
+ * instead of a large free-form palette. Controlled by the parent.
  */
 @Component({
   selector: 'nexus-color-swatch-picker',
   standalone: true,
-  imports: [Icon],
+  imports: [Icon, LabelChip],
   changeDetection: ChangeDetectionStrategy.OnPush,
   templateUrl: './color-swatch-picker.html',
   styleUrl: './color-swatch-picker.scss',
 })
 export class ColorSwatchPicker {
-  readonly value = input.required<string>();
-  readonly valueChange = output<string>();
+  readonly hue = input.required<string>();
+  readonly tone = input.required<LabelTone>();
+  /** Name shown in the preview chip. */
+  readonly previewName = input('Preview');
 
-  protected readonly palette = LABEL_PALETTE;
+  readonly hueChange = output<string>();
+  readonly toneChange = output<LabelTone>();
 
-  protected pick(color: string): void {
-    this.valueChange.emit(color);
+  protected readonly hues = LABEL_HUES;
+
+  protected get previewLabel(): Label {
+    return {
+      id: 'preview',
+      name: this.previewName() || 'Preview',
+      color: this.hue(),
+      tone: this.tone(),
+    };
   }
 
-  protected shuffle(): void {
-    this.valueChange.emit(randomLabelColor());
+  protected pickHue(value: string): void {
+    this.hueChange.emit(value);
   }
 
-  protected onHexInput(event: Event): void {
-    let raw = (event.target as HTMLInputElement).value.trim();
-    if (raw && !raw.startsWith('#')) {
-      raw = `#${raw}`;
-    }
-    if (isValidHexColor(raw)) {
-      this.valueChange.emit(raw.toLowerCase());
-    }
-  }
-
-  protected onNativeInput(event: Event): void {
-    this.valueChange.emit((event.target as HTMLInputElement).value.toLowerCase());
+  protected pickTone(tone: LabelTone): void {
+    this.toneChange.emit(tone);
   }
 }

@@ -1,11 +1,16 @@
-import { ChangeDetectionStrategy, Component, computed, input, output } from '@angular/core';
-import { labelTextColor, type Label } from '../../models/label.model';
+import { ChangeDetectionStrategy, Component, input, output } from '@angular/core';
+import type { Label } from '../../models/label.model';
 import { Icon } from '../../shared/icon/icon';
 
 /**
- * A single label rendered as a GitHub-style coloured pill. Text colour is
- * derived from the label colour for legibility. Optionally shows a remove
- * affordance (used inside the label picker).
+ * A single label rendered as a subtle, GitHub-style tinted pill. The fill,
+ * text, and border are all derived from the label's hue via `color-mix`, so a
+ * label never renders as a loud solid block — `light`-toned labels are more
+ * transparent than `dark` ones, and both stay quieter than the app's accent.
+ *
+ * The recipe lives in CSS (keyed off `--label-color` + `data-tone`) so it stays
+ * theme-aware: text is mixed toward `--color-text-primary`, staying legible in
+ * both light and dark app themes.
  */
 @Component({
   selector: 'nexus-label-chip',
@@ -16,9 +21,10 @@ import { Icon } from '../../shared/icon/icon';
     <span
       class="chip"
       [class.chip--sm]="size() === 'sm'"
-      [style.background]="label().color"
-      [style.color]="textColor()"
+      [attr.data-tone]="label().tone"
+      [style.--label-color]="label().color"
     >
+      <span class="chip__dot"></span>
       <span class="chip__name">{{ label().name }}</span>
       @if (removable()) {
         <button
@@ -39,9 +45,13 @@ import { Icon } from '../../shared/icon/icon';
         min-width: 0;
       }
       .chip {
+        --tint-bg: 22%;
+        --tint-text: 72%;
+        --tint-border: 34%;
+        --tint-dot: 90%;
         display: inline-flex;
         align-items: center;
-        gap: 4px;
+        gap: 5px;
         max-width: 100%;
         padding: 2px 9px;
         border-radius: 999px;
@@ -49,10 +59,28 @@ import { Icon } from '../../shared/icon/icon';
         font-weight: var(--font-weight-medium);
         line-height: 1.5;
         white-space: nowrap;
+        background: color-mix(in oklab, var(--label-color) var(--tint-bg), transparent);
+        color: color-mix(in oklab, var(--label-color) var(--tint-text), var(--color-text-primary));
+        box-shadow: inset 0 0 0 1px
+          color-mix(in oklab, var(--label-color) var(--tint-border), transparent);
+      }
+      .chip[data-tone='light'] {
+        --tint-bg: 11%;
+        --tint-text: 50%;
+        --tint-border: 20%;
+        --tint-dot: 60%;
       }
       .chip--sm {
         padding: 1px 7px;
         font-size: 10px;
+        gap: 4px;
+      }
+      .chip__dot {
+        flex: none;
+        width: 7px;
+        height: 7px;
+        border-radius: 50%;
+        background: color-mix(in oklab, var(--label-color) var(--tint-dot), transparent);
       }
       .chip__name {
         overflow: hidden;
@@ -67,13 +95,13 @@ import { Icon } from '../../shared/icon/icon';
         padding: 0;
         border: none;
         border-radius: 50%;
-        background: color-mix(in oklab, currentColor 20%, transparent);
+        background: color-mix(in oklab, currentColor 18%, transparent);
         color: inherit;
         cursor: pointer;
         --icon-size: 10px;
 
         &:hover {
-          background: color-mix(in oklab, currentColor 40%, transparent);
+          background: color-mix(in oklab, currentColor 34%, transparent);
         }
       }
     `,
@@ -84,6 +112,4 @@ export class LabelChip {
   readonly size = input<'sm' | 'md'>('md');
   readonly removable = input(false);
   readonly remove = output<void>();
-
-  protected readonly textColor = computed(() => labelTextColor(this.label().color));
 }

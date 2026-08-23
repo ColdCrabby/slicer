@@ -19,14 +19,6 @@
   }
 }
 
-.label-row__swatch {
-  flex: none;
-  width: 18px;
-  height: 18px;
-  border-radius: 50%;
-  box-shadow: inset 0 0 0 1px color-mix(in oklab, var(--color-text-primary) 20%, transparent);
-}
-
 .label-row__usage {
   margin-left: auto;
   font-size: var(--font-size-xs);

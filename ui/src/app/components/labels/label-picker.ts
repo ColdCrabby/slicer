@@ -9,7 +9,7 @@ import {
   output,
   signal,
 } from '@angular/core';
-import { makeLabel } from '../../models/label.model';
+import { labelDotColor, makeLabel, type Label } from '../../models/label.model';
 import { LabelsStore } from '../../services/profiles/labels-store';
 import { Icon } from '../../shared/icon/icon';
 import { LabelChip } from './label-chip';
@@ -63,6 +63,10 @@ export class LabelPicker {
 
   protected isAssigned(id: string): boolean {
     return this.assignedIds().includes(id);
+  }
+
+  protected dotColor(label: Label): string {
+    return labelDotColor(label);
   }
 
   protected onSearch(event: Event): void {

@@ -14,7 +14,6 @@
       @for (label of store.items(); track label.id) {
         <div class="profile-card label-row">
           <button class="label-row__main" type="button" (click)="toggleEditor(label.id)">
-            <span class="label-row__swatch" [style.background]="label.color"></span>
             <nexus-label-chip [label]="chipFor(label)" />
             <span class="label-row__usage">
               {{ usageFor(label.id) }} {{ usageFor(label.id) === 1 ? 'use' : 'uses' }}
@@ -49,8 +48,11 @@
               <div class="profile-editor__group">
                 <label class="profile-editor__group-title">Colour</label>
                 <nexus-color-swatch-picker
-                  [value]="label.color"
-                  (valueChange)="setColor(label.id, $event)"
+                  [hue]="label.color"
+                  [tone]="label.tone"
+                  [previewName]="label.name || 'Preview'"
+                  (hueChange)="setHue(label.id, $event)"
+                  (toneChange)="setTone(label.id, $event)"
                 />
               </div>
             </div>

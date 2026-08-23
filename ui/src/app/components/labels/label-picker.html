@@ -55,7 +55,7 @@
             [attr.aria-selected]="isAssigned(label.id)"
             (click)="toggleLabel(label.id)"
           >
-            <span class="lp__dot" [style.background]="label.color"></span>
+            <span class="lp__dot" [style.background]="dotColor(label)"></span>
             <span class="lp__name">{{ label.name }}</span>
             @if (isAssigned(label.id)) {
               <nexus-icon name="check" class="lp__check" />

@@ -1,5 +1,5 @@
 import { ChangeDetectionStrategy, Component, computed, inject, signal } from '@angular/core';
-import { makeLabel, type Label } from '../../models/label.model';
+import { makeLabel, type Label, type LabelTone } from '../../models/label.model';
 import { ColorSwatchPicker } from '../../components/labels/color-swatch-picker';
 import { LabelChip } from '../../components/labels/label-chip';
 import { FilamentsStore } from '../../services/profiles/filaments-store';
@@ -59,8 +59,12 @@ export class LabelsSettings {
     this.store.update(id, { name: (event.target as HTMLInputElement).value });
   }
 
-  protected setColor(id: string, color: string): void {
+  protected setHue(id: string, color: string): void {
     this.store.update(id, { color });
+  }
+
+  protected setTone(id: string, tone: LabelTone): void {
+    this.store.update(id, { tone });
   }
 
   protected requestDelete(id: string): void {
