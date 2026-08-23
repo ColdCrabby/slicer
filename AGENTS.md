@@ -235,6 +235,30 @@ GitHub Actions ([.github/workflows/build.yml](.github/workflows/build.yml)) auto
 
 **Do not bypass CI checks.** All builds must pass before merge.
 
+## Versioning & Releases — SSOT Contract
+
+**A git tag is the single source of truth for a release.** Never hardcode a
+user-facing version number.
+
+- **Version is derived at build time** by [build.rs](build.rs) via `git describe`:
+  a clean checkout on an exact `vX.Y.Z` tag reports `X.Y.Z`; everything else
+  (ahead of a tag, dirty tree, no tags) reports `development`.
+- **[src/version.rs](src/version.rs) is the one place** every target reads version
+  and changelog from (`crate::version::VERSION`, `CHANGELOG`, `app_info()`,
+  `changelog_entries()`). The CLI (`--version`, `info`, `changelog`), WS
+  `Connected`, the WASM exports (`appVersion`/`appInfo`/`changelogMarkdown`/
+  `changelogEntries`), and the desktop app all funnel through it. Do not add a
+  parallel version constant (especially not in the UI).
+- **[CHANGELOG.md](CHANGELOG.md) is embedded** via `include_str!` and republished
+  verbatim as GitHub Release notes. Keep an `## [Unreleased]` section at the top.
+- **The UI "What's New" dialog** ([ui/src/app/services/app-version.ts](ui/src/app/services/app-version.ts))
+  compares the running release against `localStorage` and shows skipped notes
+  once per upgrade. Development builds are never nagged.
+- **Releasing is tag-driven**: [.github/workflows/release.yml](.github/workflows/release.yml)
+  fires on `v*` tags, extracts the changelog section, creates the GitHub Release,
+  and attaches CLI binaries + desktop bundles. See [RELEASING.md](RELEASING.md).
+- **Cargo.toml `version`** is the *next* target version only — not what users see.
+
 ## Known Constraints & Pitfalls
 
 - **Clipper2 Coordinate System**: Uses integer-based `Centi` (centimeter precision). Be aware when converting from floating-point models.
@@ -402,6 +426,8 @@ infill within the ring.
 ## Related Documentation
 
 - [README.md](README.md) - User guide and feature overview
+- [RELEASING.md](RELEASING.md) - Versioning + changelog + GitHub Release process
+- [CHANGELOG.md](CHANGELOG.md) - Embedded, user-facing release notes
 - [SETUP_COMPLETE.md](SETUP_COMPLETE.md) - Initial setup record
 - [architecture-cli-layer-1.md](plan/architecture-cli-layer-1.md) - CLI layer implementation plan
 - [tools/gcode-analysis/](tools/gcode-analysis/README.md) - G-code quality diagnostics (wall overlap, unfilled gaps, bead widths, render/zoom)
@@ -409,5 +435,5 @@ infill within the ring.
 
 ---
 
-**Last Updated**: 2026-04-27 (per-island wall-strip fix)  
+**Last Updated**: 2026-08-23 (versioning + changelog + GitHub Releases)  
 **Maintainer Guidance**: Keep this file in sync with project structure changes, new conventions, or significant architectural decisions.

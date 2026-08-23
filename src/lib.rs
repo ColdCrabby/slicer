@@ -25,6 +25,9 @@ pub mod orient;
 pub mod scene;
 #[cfg(any(not(target_arch = "wasm32"), feature = "web-slicer"))]
 pub mod settings;
+/// Build-time version + embedded changelog — the single source of truth
+/// surfaced to every target (CLI, WS server, WASM/UI, desktop).
+pub mod version;
 #[cfg(any(not(target_arch = "wasm32"), feature = "web-slicer"))]
 pub mod walls;
 
