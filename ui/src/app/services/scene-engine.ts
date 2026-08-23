@@ -16,6 +16,7 @@ import { Logger } from './logger';
 export interface AppInfo {
   version: string;
   git_describe: string;
+  git_sha: string;
   build_date: string;
   cargo_version: string;
   is_release: boolean;

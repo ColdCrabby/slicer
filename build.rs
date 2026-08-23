@@ -50,11 +50,21 @@ fn emit_version() {
     println!("cargo:rerun-if-changed=.git/refs/tags");
     println!("cargo:rerun-if-changed=.git/packed-refs");
     println!("cargo:rerun-if-env-changed=SLICER_VERSION");
+    println!("cargo:rerun-if-env-changed=SLICER_GIT_SHA");
 
     let describe = git(&[
         "describe", "--tags", "--always", "--dirty", "--match", "v[0-9]*",
     ])
     .unwrap_or_else(|| "unknown".to_string());
+
+    // Always-present short commit hash so even a clean, tagged release build can
+    // report exactly which commit it was cut from — `git describe` omits the
+    // hash when sitting on an exact tag, so we capture it separately.
+    let git_sha = std::env::var("SLICER_GIT_SHA")
+        .ok()
+        .filter(|s| !s.trim().is_empty())
+        .or_else(|| git(&["rev-parse", "--short", "HEAD"]))
+        .unwrap_or_else(|| "unknown".to_string());
 
     let version = match std::env::var("SLICER_VERSION") {
         Ok(v) if !v.trim().is_empty() => v.trim().to_string(),
@@ -79,6 +89,7 @@ fn emit_version() {
 
     println!("cargo:rustc-env=SLICER_VERSION={version}");
     println!("cargo:rustc-env=SLICER_GIT_DESCRIBE={describe}");
+    println!("cargo:rustc-env=SLICER_GIT_SHA={git_sha}");
     println!("cargo:rustc-env=SLICER_BUILD_DATE={build_date}");
     println!("cargo:rustc-env=SLICER_IS_RELEASE={is_release}");
 }

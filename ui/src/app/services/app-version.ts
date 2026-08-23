@@ -34,6 +34,22 @@ export class AppVersion {
   readonly whatsNew = signal<ChangelogEntry[]>([]);
 
   /**
+   * Ensure {@link info} is populated, loading it from the WASM bundle on first
+   * call. Safe to call from any component that wants to display the running
+   * version; subsequent calls are no-ops. Failures are logged, not thrown.
+   */
+  async loadInfo(): Promise<void> {
+    if (this.info()) {
+      return;
+    }
+    try {
+      this.info.set(await this.sceneEngine.appInfo());
+    } catch (err) {
+      this.log.warn('Unable to read app version', err);
+    }
+  }
+
+  /**
    * Detect an upgrade and, if found, show the "What's New" dialog once.
    * Safe to call during app initialization — failures are logged, not thrown.
    */
