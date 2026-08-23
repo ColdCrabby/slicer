@@ -91,6 +91,18 @@ jobs:
           cp -R docs/.vitepress/dist/. _site/docs/
           touch _site/.nojekyll
 
+          # SPA fallback: GitHub Pages returns 404.html (with the request URL
+          # preserved) for any path it can't resolve to a static file. Serving
+          # the Angular shell there lets the client-side router handle deep
+          # links on hard reload instead of showing a 404. base-href is "/",
+          # so index.html works unchanged as the fallback.
+          if [ -f _site/index.html ]; then
+            cp _site/index.html _site/404.html
+          else
+            echo "Expected _site/index.html for SPA 404 fallback" >&2
+            exit 1
+          fi
+
       - name: Setup Pages
         uses: actions/configure-pages@v5
 
