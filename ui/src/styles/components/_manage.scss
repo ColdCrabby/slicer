@@ -1,0 +1,374 @@
+// Master–detail "manage" layout shared by the printer / filament / print-profile
+// settings pages: a searchable, groupable list on the left and a stable edit
+// panel on the right. Emitted once globally (like `_profiles.scss`) so each page
+// keeps its component style budget. HMR note: touch the consuming page .scss
+// after editing this file.
+
+.mgr {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+  padding: var(--spacing-lg) var(--spacing-xl) 0;
+  gap: var(--spacing-md);
+}
+
+.mgr__body {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: minmax(280px, 340px) 1fr;
+  gap: var(--spacing-xl);
+}
+
+// ── List column ─────────────────────────────────────────────────────────────
+
+.mgr__list {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  gap: var(--spacing-sm);
+}
+
+.mgr__tools {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+}
+
+.mgr__search {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  height: 34px;
+  padding: 0 var(--spacing-sm) 0 var(--spacing-md);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-bg-secondary);
+  color: var(--color-text-tertiary);
+  --icon-size: 16px;
+  transition:
+    border-color var(--duration-fast) var(--ease-standard),
+    box-shadow var(--duration-fast) var(--ease-standard);
+
+  &:focus-within {
+    border-color: var(--color-focus-ring);
+    box-shadow: inset 0 0 0 1px var(--color-focus-ring);
+    background: var(--color-surface);
+  }
+
+  input {
+    flex: 1;
+    min-width: 0;
+    height: 100%;
+    border: none;
+    background: transparent;
+    color: var(--color-text-primary);
+    font-family: inherit;
+    font-size: var(--font-size-sm);
+
+    &:focus {
+      outline: none;
+    }
+
+    &::placeholder {
+      color: var(--color-text-tertiary);
+    }
+  }
+
+  .mgr__search-clear {
+    flex: none;
+    display: inline-grid;
+    place-items: center;
+    width: 20px;
+    height: 20px;
+    border: none;
+    background: transparent;
+    border-radius: var(--radius-sm);
+    color: var(--color-text-tertiary);
+    cursor: pointer;
+    --icon-size: 14px;
+
+    &:hover {
+      color: var(--color-text-primary);
+      background: var(--color-surface-hover);
+    }
+  }
+}
+
+.mgr__scroll {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  margin: 0 calc(-1 * var(--spacing-xs));
+  padding: 0 var(--spacing-xs) var(--spacing-md);
+}
+
+.mgr__group {
+  & + & {
+    margin-top: var(--spacing-md);
+  }
+}
+
+.mgr__group-header {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  display: flex;
+  align-items: baseline;
+  gap: var(--spacing-sm);
+  padding: var(--spacing-xs) var(--spacing-sm) var(--spacing-xs);
+  background: var(--color-bg-primary);
+
+  h3 {
+    margin: 0;
+    font-size: var(--font-size-xs);
+    font-weight: var(--font-weight-semibold);
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--color-text-secondary);
+  }
+
+  .mgr__group-count {
+    font-size: var(--font-size-xs);
+    color: var(--color-text-tertiary);
+    font-variant-numeric: tabular-nums;
+  }
+}
+
+.mgr__group-items {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-xs);
+}
+
+// ── List card ───────────────────────────────────────────────────────────────
+
+.mgr__card {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  width: 100%;
+  padding: var(--spacing-sm);
+  border: 1px solid transparent;
+  border-radius: var(--radius-md);
+  background: transparent;
+  cursor: pointer;
+  text-align: left;
+  font-family: inherit;
+  transition:
+    background-color var(--duration-fast) var(--ease-standard),
+    border-color var(--duration-fast) var(--ease-standard);
+
+  &:hover {
+    background: var(--color-surface-hover);
+  }
+
+  &.is-selected {
+    background: var(--color-surface);
+    border-color: var(--color-border);
+    box-shadow: var(--shadow-xs);
+  }
+}
+
+.mgr__card-icon {
+  flex: none;
+  display: inline-grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  border-radius: var(--radius-md);
+  background: var(--color-bg-tertiary);
+  color: var(--color-text-secondary);
+  --icon-size: 18px;
+}
+
+.mgr__card-swatch {
+  flex: none;
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  box-shadow: inset 0 0 0 1px color-mix(in oklab, var(--color-text-primary) 20%, transparent);
+}
+
+.mgr__card-info {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.mgr__card-name {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-xs);
+  min-width: 0;
+
+  span {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: var(--font-size-sm);
+    font-weight: var(--font-weight-medium);
+    color: var(--color-text-primary);
+  }
+}
+
+.mgr__card-sub {
+  font-size: var(--font-size-xs);
+  color: var(--color-text-tertiary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.mgr__default-star {
+  flex: none;
+  display: inline-grid;
+  place-items: center;
+  color: var(--accent);
+  --icon-size: 14px;
+}
+
+.mgr__empty {
+  padding: var(--spacing-lg) var(--spacing-sm);
+  font-size: var(--font-size-sm);
+  color: var(--color-text-tertiary);
+}
+
+// ── Detail column ───────────────────────────────────────────────────────────
+
+.mgr__detail {
+  min-height: 0;
+  overflow-y: auto;
+  border-left: 1px solid var(--color-border-light);
+  padding-left: var(--spacing-xl);
+}
+
+.mgr__detail-inner {
+  max-width: 560px;
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-lg);
+  padding-bottom: var(--spacing-2xl);
+}
+
+.mgr__detail-head {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--spacing-md);
+  padding-bottom: var(--spacing-md);
+  border-bottom: 1px solid var(--color-border-light);
+}
+
+.mgr__detail-title {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+
+  h2 {
+    margin: 0;
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-sm);
+    font-size: var(--font-size-lg);
+    font-weight: var(--font-weight-semibold);
+    color: var(--color-text-primary);
+  }
+
+  p {
+    margin: 0;
+    font-size: var(--font-size-xs);
+    color: var(--color-text-tertiary);
+  }
+}
+
+.mgr__detail-actions {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-xs);
+}
+
+.mgr__default-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--spacing-xs);
+  height: 30px;
+  padding: 0 var(--spacing-md);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+  color: var(--color-text-secondary);
+  font-family: inherit;
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-medium);
+  cursor: pointer;
+  --icon-size: 15px;
+  transition:
+    background-color var(--duration-fast) var(--ease-standard),
+    color var(--duration-fast) var(--ease-standard),
+    border-color var(--duration-fast) var(--ease-standard);
+
+  &:hover {
+    border-color: var(--accent-border);
+    color: var(--color-text-primary);
+  }
+
+  &.is-default {
+    background: var(--accent-soft);
+    border-color: var(--accent-border);
+    color: var(--accent);
+    cursor: default;
+  }
+}
+
+// Typed-name delete challenge (high-impact deletes — see design language).
+.mgr__danger {  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-sm);
+  padding: var(--spacing-md);
+  border: 1px solid var(--color-danger);
+  border-radius: var(--radius-md);
+  background: var(--color-danger-light);
+
+  p {
+    margin: 0;
+    font-size: var(--font-size-sm);
+    color: var(--color-text-primary);
+
+    strong {
+      font-weight: var(--font-weight-semibold);
+    }
+  }
+
+  .mgr__danger-row {
+    display: flex;
+    gap: var(--spacing-sm);
+  }
+
+  input {
+    flex: 1;
+    min-width: 0;
+    height: 34px;
+    padding: 0 var(--spacing-md);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-md);
+    background: var(--color-surface);
+    color: var(--color-text-primary);
+    font-family: inherit;
+    font-size: var(--font-size-sm);
+
+    &:focus {
+      outline: none;
+      border-color: var(--color-danger);
+      box-shadow: inset 0 0 0 1px var(--color-danger);
+    }
+  }
+}

@@ -36,8 +36,12 @@ export interface FloatingOptions {
   size?: boolean;
   /** Arrow element to position against the reference, if any. */
   arrowEl?: HTMLElement | null;
-  /** Match the floating element's width to the reference width. */
-  matchReferenceWidth?: boolean;
+  /**
+   * Match the floating element's width to the reference width. `true` pins the
+   * width exactly; `'min'` uses the reference width as a floor and lets the
+   * panel grow to fit its content (capped by `size`'s `max-width`).
+   */
+  matchReferenceWidth?: boolean | 'min';
   /** Toggle `visibility` when the reference is fully clipped/escaped. Default `true`. */
   hideWhenDetached?: boolean;
 }
@@ -105,7 +109,13 @@ export function applyFloating(
     }
 
     if (matchReferenceWidth && reference instanceof HTMLElement) {
-      floating.style.width = `${reference.getBoundingClientRect().width}px`;
+      const referenceWidth = `${reference.getBoundingClientRect().width}px`;
+      if (matchReferenceWidth === 'min') {
+        floating.style.minWidth = referenceWidth;
+        floating.style.width = '';
+      } else {
+        floating.style.width = referenceWidth;
+      }
     }
 
     void computePosition(reference, floating, { placement, strategy, middleware }).then(

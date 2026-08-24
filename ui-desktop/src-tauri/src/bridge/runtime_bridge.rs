@@ -124,7 +124,7 @@ pub async fn slice_start(
             return Err("Slice cancelled by user".to_string());
         }
 
-        let gcode = slicer_engine::gcode::generate_gcode(&layers, &params);
+        let gcode = slicer_engine::gcode::generate_gcode_from_params(&layers, &params);
         let layer_count = layers.len();
         logger.log_info(&format!("GCode generated ({} chars)", gcode.len()));
 

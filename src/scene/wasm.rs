@@ -426,7 +426,7 @@ impl SceneHandle {
             crate::logging::PhaseTimer::start(crate::logging::phases::GCODE_GENERATION, &logger);
         let result = SliceResultJs {
             layer_count,
-            gcode: crate::gcode::generate_gcode(&layers, &params),
+            gcode: crate::gcode::generate_gcode_from_params(&layers, &params),
         };
         t_gcode.finish();
 

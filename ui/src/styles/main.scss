@@ -24,6 +24,7 @@
 
 // Shared component styles emitted globally (see partial header for rationale).
 @use './components/profiles';
+@use './components/manage';
 
 // Emit the shared drag-and-drop aurora once, globally, so every drop scope
 // (home dashboard, empty workplate) animates identically without inflating each

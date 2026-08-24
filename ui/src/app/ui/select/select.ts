@@ -96,7 +96,7 @@ export class Select {
           offset: 4,
           padding: 8,
           size: true,
-          matchReferenceWidth: true,
+          matchReferenceWidth: 'min',
         },
         onOutsidePointer: () => this.close(),
         onEscape: () => this.close(),

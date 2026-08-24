@@ -64,6 +64,18 @@ pub struct PrinterConnection {
     pub connected: bool,
 }
 
+/// Bed dimension defaults keep an incomplete profile (e.g. one persisted before
+/// these fields existed) deserialising instead of rejecting the whole message.
+fn default_bed_width() -> f64 {
+    220.0
+}
+fn default_bed_depth() -> f64 {
+    220.0
+}
+fn default_bed_height() -> f64 {
+    250.0
+}
+
 /// A printer (machine) profile.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
 pub struct PrinterProfile {
@@ -80,10 +92,13 @@ pub struct PrinterProfile {
     #[serde(default)]
     pub bed_shape: BedShape,
     /// Width (mm) along +X. For circular beds this is the diameter.
+    #[serde(default = "default_bed_width")]
     pub bed_width: f64,
     /// Depth (mm) along +Y. Ignored for circular beds.
+    #[serde(default = "default_bed_depth")]
     pub bed_depth: f64,
     /// Max Z height (mm).
+    #[serde(default = "default_bed_height")]
     pub bed_height: f64,
     /// True for delta / origin-at-center machines.
     #[serde(default)]

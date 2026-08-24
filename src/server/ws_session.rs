@@ -472,7 +472,7 @@ async fn handle_slice(
         let _ = tx.blocking_send(to_json(&progress));
 
         let t_gcode = PhaseTimer::start(phases::GCODE_GENERATION, &logger);
-        let gcode = crate::gcode::generate_gcode(&layers, &params);
+        let gcode = crate::gcode::generate_gcode_from_params(&layers, &params);
         t_gcode.finish();
 
         // Write G-code to disk

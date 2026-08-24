@@ -86,6 +86,39 @@ pub(crate) fn render_marker(
         .replace("{width}", width)
 }
 
+/// Substitute print-parameter placeholders shared by custom start / end / layer
+/// scripts: `{nozzle_temp}`, `{bed_temp}`, their `_first_layer` variants, plus
+/// `{layer_height}` and `{first_layer_height}`.
+///
+/// The `_first_layer` temperatures fall back to the general value when set to
+/// `0` (the "use base value" sentinel), matching the slicer's own resolution.
+/// Longer keys are replaced before their prefixes (e.g. `{nozzle_temp_first_layer}`
+/// before `{nozzle_temp}`) so no partial substitution occurs. Dialect-default
+/// scripts carry no placeholders, so this is a no-op for them.
+pub(crate) fn render_script_placeholders(line: &str, params: &SlicingParams) -> String {
+    let first_nozzle = if params.nozzle_temp_first_layer > 0.0 {
+        params.nozzle_temp_first_layer
+    } else {
+        params.nozzle_temp
+    };
+    let first_bed = if params.bed_temp_first_layer > 0.0 {
+        params.bed_temp_first_layer
+    } else {
+        params.bed_temp
+    };
+    let first_height = if params.first_layer_height > 0.0 {
+        params.first_layer_height
+    } else {
+        params.layer_height
+    };
+    line.replace("{nozzle_temp_first_layer}", &format!("{:.0}", first_nozzle))
+        .replace("{bed_temp_first_layer}", &format!("{:.0}", first_bed))
+        .replace("{nozzle_temp}", &format!("{:.0}", params.nozzle_temp))
+        .replace("{bed_temp}", &format!("{:.0}", params.bed_temp))
+        .replace("{first_layer_height}", &format!("{:.3}", first_height))
+        .replace("{layer_height}", &format!("{:.3}", params.layer_height))
+}
+
 // ── GcodeGenerator ─────────────────────────────────────────────────────────────
 
 /// High-level G-code generator that delegates all firmware-specific command
@@ -128,6 +161,8 @@ pub struct GcodeGenerator {
     custom_start_script: Option<Vec<String>>,
     /// Optional override for the end script (replaces dialect default).
     custom_end_script: Option<Vec<String>>,
+    /// Optional custom G-code emitted at every layer change (after the Z move).
+    custom_layer_script: Option<Vec<String>>,
 }
 
 impl GcodeGenerator {
@@ -143,6 +178,7 @@ impl GcodeGenerator {
             marker_config: LifecycleMarkerConfig::default(),
             custom_start_script: None,
             custom_end_script: None,
+            custom_layer_script: None,
         }
     }
 
@@ -156,6 +192,7 @@ impl GcodeGenerator {
             marker_config: LifecycleMarkerConfig::default(),
             custom_start_script: None,
             custom_end_script: None,
+            custom_layer_script: None,
         }
     }
 
@@ -234,6 +271,26 @@ impl GcodeGenerator {
     /// ```
     pub fn with_end_script(mut self, script: Vec<String>) -> Self {
         self.custom_end_script = Some(script);
+        self
+    }
+
+    /// Set a custom G-code block emitted at every layer change, right after the
+    /// Z move.
+    ///
+    /// Each line supports the `{z}`, `{height}` and `{layer_num}` (1-based)
+    /// placeholders. This is the slicer analogue of PrusaSlicer's
+    /// *Before/After layer change G-code* — useful for Klipper macros such as
+    /// `_ON_LAYER_CHANGE` (Klippain) or timelapse triggers.
+    ///
+    /// ```rust
+    /// use slicer_engine::gcode::{GcodeGenerator, GcodeFlavor};
+    /// use slicer_engine::settings::params::SlicingParams;
+    ///
+    /// let gen = GcodeGenerator::new(GcodeFlavor::Klipper)
+    ///     .with_layer_script(vec!["_ON_LAYER_CHANGE LAYER={layer_num} Z={z}".to_string()]);
+    /// ```
+    pub fn with_layer_script(mut self, script: Vec<String>) -> Self {
+        self.custom_layer_script = Some(script);
         self
     }
 
@@ -371,7 +428,7 @@ impl GcodeGenerator {
             None => Cow::Owned(self.dialect.start_script(params)),
         };
         for line in start_script.iter() {
-            out.push_str(line);
+            out.push_str(&render_script_placeholders(line, params));
             out.push('\n');
         }
 
@@ -380,7 +437,7 @@ impl GcodeGenerator {
         // Track previous fan speed per config index for rate limiting (aux overrides).
         let mut prev_fan_speeds: Vec<Option<f64>> = vec![None; params.fan_configs.len()];
 
-        for layer in layers {
+        for (layer_index, layer) in layers.iter().enumerate() {
             let z_str = format!("{:.3}", layer.z);
             let height_str = format!("{:.3}", params.layer_height);
             // Detect first layer: z within half a layer height of layer_height.
@@ -452,6 +509,17 @@ impl GcodeGenerator {
                     "{}\n",
                     self.dialect.move_z(layer.z, params.travel_speed_mm_min)
                 ));
+            }
+
+            // ── Custom layer-change G-code (Klipper macros, timelapse, …) ─────
+            if let Some(script) = &self.custom_layer_script {
+                let layer_num = (layer_index + 1).to_string();
+                for line in script {
+                    let rendered = render_marker(line, &z_str, &height_str, "", "")
+                        .replace("{layer_num}", &layer_num);
+                    out.push_str(&render_script_placeholders(&rendered, params));
+                    out.push('\n');
+                }
             }
 
             // ── Adaptive fan speed ───────────────────────────────────────────
@@ -923,7 +991,7 @@ impl GcodeGenerator {
             None => Cow::Owned(self.dialect.end_script()),
         };
         for line in end_script.iter() {
-            out.push_str(line);
+            out.push_str(&render_script_placeholders(line, params));
             out.push('\n');
         }
 
@@ -958,6 +1026,40 @@ impl GcodeGenerator {
 /// ```
 pub fn generate_gcode(layers: &[SliceLayer], params: &SlicingParams) -> String {
     GcodeGenerator::new(GcodeFlavor::Marlin).generate(layers, params)
+}
+
+/// Generate G-code honoring the firmware flavor and custom start/end/layer
+/// scripts carried by `params`.
+///
+/// This is the entry point used by every *application* slice path (WS server,
+/// WASM, desktop bridge). Unlike [`generate_gcode`] it respects
+/// `params.gcode_flavor` and applies `params.start_gcode`, `params.end_gcode`
+/// and `params.layer_gcode` when present (each split into lines on `'\n'`).
+///
+/// A non-empty custom block wins over the dialect default; a blank/whitespace
+/// block is ignored so an empty text field falls back to the flavor default.
+pub fn generate_gcode_from_params(layers: &[SliceLayer], params: &SlicingParams) -> String {
+    let mut generator = GcodeGenerator::new(params.gcode_flavor);
+    if let Some(lines) = gcode_block_lines(params.start_gcode.as_deref()) {
+        generator = generator.with_start_script(lines);
+    }
+    if let Some(lines) = gcode_block_lines(params.end_gcode.as_deref()) {
+        generator = generator.with_end_script(lines);
+    }
+    if let Some(lines) = gcode_block_lines(params.layer_gcode.as_deref()) {
+        generator = generator.with_layer_script(lines);
+    }
+    generator.generate(layers, params)
+}
+
+/// Split a multi-line custom G-code block into lines, returning `None` when the
+/// block is absent or entirely blank (so the dialect default is kept).
+fn gcode_block_lines(block: Option<&str>) -> Option<Vec<String>> {
+    let block = block?;
+    if block.trim().is_empty() {
+        return None;
+    }
+    Some(block.lines().map(str::to_string).collect())
 }
 
 // ── Tests ──────────────────────────────────────────────────────────────────────
@@ -1577,6 +1679,56 @@ mod tests {
         assert!(gcode.contains("G28 ; custom home"));
         assert!(gcode.contains("M190 S65"));
         assert!(gcode.contains("M84 ; motors off"));
+    }
+
+    #[test]
+    fn test_start_script_substitutes_temperature_placeholders() {
+        let params = SlicingParams {
+            nozzle_temp: 215.0,
+            bed_temp: 65.0,
+            nozzle_temp_first_layer: 220.0,
+            bed_temp_first_layer: 0.0, // falls back to bed_temp
+            ..SlicingParams::default()
+        };
+        let gen = GcodeGenerator::new(GcodeFlavor::Klipper).with_start_script(vec![
+            "START_PRINT EXTRUDER_TEMP={nozzle_temp_first_layer} BED_TEMP={bed_temp_first_layer}"
+                .to_string(),
+        ]);
+        let gcode = gen.generate(&[], &params);
+        assert!(
+            gcode.contains("EXTRUDER_TEMP=220"),
+            "first-layer nozzle temp not substituted: {gcode}"
+        );
+        assert!(
+            gcode.contains("BED_TEMP=65"),
+            "bed temp fallback not substituted: {gcode}"
+        );
+    }
+
+    #[test]
+    fn test_layer_script_emitted_with_placeholders() {
+        let layer = SliceLayer::new(0.2);
+        let gen = GcodeGenerator::new(GcodeFlavor::Klipper)
+            .with_layer_script(vec!["_ON_LAYER_CHANGE LAYER={layer_num} Z={z}".to_string()]);
+        let gcode = gen.generate(&[layer], &SlicingParams::default());
+        assert!(
+            gcode.contains("_ON_LAYER_CHANGE LAYER=1 Z=0.200"),
+            "layer script not rendered: {gcode}"
+        );
+    }
+
+    #[test]
+    fn test_generate_gcode_from_params_honors_flavor_and_scripts() {
+        let params = SlicingParams {
+            gcode_flavor: GcodeFlavor::Klipper,
+            start_gcode: Some("START_PRINT BED_TEMP={bed_temp}".to_string()),
+            end_gcode: Some("  \n  ".to_string()), // blank → keep dialect default
+            ..SlicingParams::default()
+        };
+        let gcode = generate_gcode_from_params(&[], &params);
+        assert!(gcode.contains("START_PRINT BED_TEMP=60"), "start not applied: {gcode}");
+        // Blank end block keeps the Klipper dialect default.
+        assert!(gcode.contains("END_PRINT"), "blank end should fall back: {gcode}");
     }
 
     // ── Metadata header ────────────────────────────────────────────────────────

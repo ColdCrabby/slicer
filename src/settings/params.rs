@@ -1119,6 +1119,15 @@ Caps print speed so the hotend can keep up with the flow.
     )]
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub end_gcode: Option<String>,
+
+    #[schemars(
+        description = "Custom G-code block inserted at every layer change, after the Z move. \
+                       Supports `{z}`, `{height}`, and `{layer_num}` (1-based) placeholders. \
+                       `null` = none.",
+        extend("x-group" = "Output")
+    )]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub layer_gcode: Option<String>,
 }
 
 impl Default for SlicingParams {
@@ -1195,6 +1204,7 @@ impl Default for SlicingParams {
             ironing_enabled: Self::default_ironing_enabled(),
             start_gcode: None,
             end_gcode: None,
+            layer_gcode: None,
         }
     }
 }

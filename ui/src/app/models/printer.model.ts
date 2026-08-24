@@ -42,12 +42,19 @@ export const PRINTER_GCODE_FLAVORS: { value: PrinterGcodeFlavor; label: string }
   { value: 'klipper', label: 'Klipper' },
 ];
 
-const DEFAULT_START_GCODE = `; --- start ---
+const DEFAULT_START_GCODE = `; Nexus standard Marlin start
+G21 ; millimetres
+G90 ; absolute positioning
+M82 ; extruder absolute mode
+M140 S{bed_temp_first_layer} ; set bed temperature
+M104 S{nozzle_temp_first_layer} ; set nozzle temperature
 G28 ; home all axes
+M190 S{bed_temp_first_layer} ; wait for bed temperature
+M109 S{nozzle_temp_first_layer} ; wait for nozzle temperature
 G92 E0 ; reset extruder
 G1 Z2.0 F3000 ; lift nozzle`;
 
-const DEFAULT_END_GCODE = `; --- end ---
+const DEFAULT_END_GCODE = `; Nexus standard Marlin end
 G91 ; relative positioning
 G1 E-2 F2700 ; retract
 G1 Z10 F3000 ; lift
@@ -105,10 +112,9 @@ export const DEFAULT_PRINTERS: PrinterProfile[] = [DEFAULT_PRINTER];
 
 /** Shared bed dimensions derived from a printer profile. */
 function resolvedBedFootprint(printer: PrinterProfile): { width: number; depth: number } {
-  return {
-    width: printer.bed_width,
-    depth: printer.bed_shape === 'circular' ? printer.bed_width : printer.bed_depth,
-  };
+  const width = printer.bed_width ?? 220;
+  const depth = printer.bed_shape === 'circular' ? width : (printer.bed_depth ?? 220);
+  return { width, depth };
 }
 
 /** Printable-area dimensions for the {@link PrintArea} config. */
@@ -139,7 +145,7 @@ export function printerSceneBedConfig(printer: PrinterProfile): SceneBedSnapshot
   return {
     width: footprint.width,
     depth: footprint.depth,
-    height: printer.bed_height,
+    height: printer.bed_height ?? 250,
     origin_offset_x,
     origin_offset_y,
     shape: printer.bed_shape === 'circular' ? 'circular' : 'rectangular',

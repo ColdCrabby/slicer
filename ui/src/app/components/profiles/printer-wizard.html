@@ -71,7 +71,7 @@
         </nexus-field-row>
         <nexus-field-row [label]="draft().bed_shape === 'circular' ? 'Diameter' : 'Width (X)'">
           <nexus-number-input
-            [value]="draft().bed_width"
+            [value]="draft().bed_width ?? 220"
             [min]="20"
             [max]="1000"
             unit="mm"
@@ -81,7 +81,7 @@
         @if (draft().bed_shape === 'rectangular') {
           <nexus-field-row label="Depth (Y)">
             <nexus-number-input
-              [value]="draft().bed_depth"
+              [value]="draft().bed_depth ?? 220"
               [min]="20"
               [max]="1000"
               unit="mm"
@@ -91,7 +91,7 @@
         }
         <nexus-field-row label="Height (Z)">
           <nexus-number-input
-            [value]="draft().bed_height"
+            [value]="draft().bed_height ?? 250"
             [min]="20"
             [max]="1000"
             unit="mm"

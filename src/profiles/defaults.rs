@@ -13,9 +13,8 @@ use super::meta::ProfileMeta;
 use super::printer::{BedShape, PrinterConnection, PrinterProfile};
 use super::process::{PrintQuality, ProcessProfile};
 
-const DEFAULT_START_GCODE: &str =
-    "; --- start ---\nG28 ; home all axes\nG92 E0 ; reset extruder\nG1 Z2.0 F3000 ; lift nozzle";
-const DEFAULT_END_GCODE: &str = "; --- end ---\nG91 ; relative positioning\nG1 E-2 F2700 ; retract\nG1 Z10 F3000 ; lift\nG90 ; absolute positioning\nM104 S0 ; nozzle off\nM140 S0 ; bed off\nM84 ; disable steppers";
+const DEFAULT_START_GCODE: &str = "; Nexus standard Marlin start\nG21 ; millimetres\nG90 ; absolute positioning\nM82 ; extruder absolute mode\nM140 S{bed_temp_first_layer} ; set bed temperature\nM104 S{nozzle_temp_first_layer} ; set nozzle temperature\nG28 ; home all axes\nM190 S{bed_temp_first_layer} ; wait for bed temperature\nM109 S{nozzle_temp_first_layer} ; wait for nozzle temperature\nG92 E0 ; reset extruder\nG1 Z2.0 F3000 ; lift nozzle";
+const DEFAULT_END_GCODE: &str = "; Nexus standard Marlin end\nG91 ; relative positioning\nG1 E-2 F2700 ; retract\nG1 Z10 F3000 ; lift\nG90 ; absolute positioning\nM104 S0 ; nozzle off\nM140 S0 ; bed off\nM84 ; disable steppers";
 
 /// A blank-slate printer with sensible defaults, tagged with `meta`.
 pub fn base_printer(meta: ProfileMeta) -> PrinterProfile {

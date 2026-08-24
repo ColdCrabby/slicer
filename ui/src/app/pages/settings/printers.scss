@@ -1,5 +1,24 @@
 @use './settings';
 
+// The master–detail manage layout fills the settings content area and scrolls
+// its two columns independently, so the page host must claim the full height.
+:host {
+  display: block;
+  height: 100%;
+}
+
+.profile-editor__gcode-hint {
+  margin: calc(-1 * var(--spacing-xs)) 0 var(--spacing-sm);
+  font-size: var(--font-size-xs);
+  line-height: 1.5;
+  color: var(--color-text-tertiary);
+  word-break: break-word;
+}
+
+.wz-textarea--compact {
+  min-height: 64px;
+}
+
 .conn-test {
   display: flex;
   align-items: center;
