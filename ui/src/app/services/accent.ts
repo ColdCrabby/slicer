@@ -65,6 +65,7 @@ export class AccentService {
 
     if (this.isDesktop) {
       void this.refreshSystemAccent();
+      void this.watchSystemAccent();
     }
   }
 
@@ -93,6 +94,26 @@ export class AccentService {
       this.systemAccent.set(typeof hex === 'string' ? hex : null);
     } catch {
       // Command unavailable or failed — keep the brand default.
+    }
+  }
+
+  /**
+   * Subscribe to live OS accent changes emitted by the desktop shell so the UI
+   * recolours instantly when the user changes their system accent. No-op on the
+   * web build or if the event API is unavailable.
+   */
+  private async watchSystemAccent(): Promise<void> {
+    if (!this.isDesktop) {
+      return;
+    }
+    try {
+      const { listen } = await import('@tauri-apps/api/event');
+      await listen<string | null>('system-accent-changed', (event) => {
+        const hex = event.payload;
+        this.systemAccent.set(typeof hex === 'string' ? hex : null);
+      });
+    } catch {
+      // Event API unavailable — fall back to the one-shot fetch.
     }
   }
 

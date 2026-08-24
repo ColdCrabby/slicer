@@ -1,11 +1,5 @@
-import {
-  ChangeDetectionStrategy,
-  Component,
-  computed,
-  inject,
-  output,
-  signal,
-} from '@angular/core';
+import { ChangeDetectionStrategy, Component, computed, inject, signal } from '@angular/core';
+import { Router } from '@angular/router';
 import {
   makePrinter,
   PRINTER_GCODE_FLAVORS,
@@ -14,6 +8,7 @@ import {
   type PrinterProfile,
 } from '../../models/printer.model';
 import { CloudCatalog, toUserCopy } from '../../services/catalog/cloud-catalog';
+import { ActiveSelection } from '../../services/profiles/active-selection';
 import { PrintersStore } from '../../services/profiles/printers-store';
 import { Icon } from '../../shared/icon/icon';
 import { NumberInput } from '../../ui/number-input/number-input';
@@ -44,9 +39,8 @@ const STEPS = ['Start', 'Basics', 'Build volume', 'Hardware'] as const;
 export class PrinterWizard {
   private readonly catalog = inject(CloudCatalog);
   private readonly store = inject(PrintersStore);
-
-  readonly completed = output<PrinterProfile>();
-  readonly cancelled = output<void>();
+  private readonly active = inject(ActiveSelection);
+  private readonly router = inject(Router);
 
   protected readonly steps = STEPS;
   protected readonly index = signal(0);
@@ -133,8 +127,31 @@ export class PrinterWizard {
     this.index.update((i) => Math.min(this.steps.length - 1, i + 1));
   }
 
+  protected goto(index: number): void {
+    this.index.set(index);
+  }
+
   protected finish(): void {
-    this.completed.emit(this.draft());
+    this.persist();
+    void this.router.navigate(['/settings/printers']);
+  }
+
+  /** Create the printer, then open its editor scrolled to the advanced sections. */
+  protected finishAndConfigure(): void {
+    const printer = this.persist();
+    void this.router.navigate(['/settings/printers'], { queryParams: { configure: printer.id } });
+  }
+
+  /** Persist the draft and make it the active printer; returns the saved profile. */
+  private persist(): PrinterProfile {
+    const printer = this.draft();
+    this.store.add(printer);
+    this.active.selectPrinter(printer.id);
+    return printer;
+  }
+
+  protected cancel(): void {
+    void this.router.navigate(['/settings/printers']);
   }
 
   protected setBedShape(value: string): void {

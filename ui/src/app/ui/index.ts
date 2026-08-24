@@ -16,3 +16,4 @@ export { RadioGroup } from './radio-group/radio-group';
 export type { RadioOption } from './radio-group/radio-group';
 export { Segmented } from './segmented/segmented';
 export type { SegmentOption } from './segmented/segmented';
+export { ColorPicker } from './color-picker/color-picker';

@@ -4,10 +4,10 @@
       <nexus-icon name="cloud-upload" />
       Catalog
     </button>
-    <button nexusButton variant="primary" size="sm" (click)="openWizard()">
+    <a nexusButton variant="primary" size="sm" routerLink="new">
       <nexus-icon name="plus" />
       Add printer
-    </button>
+    </a>
   </nexus-section-header>
 
   @if (store.items().length > 0) {
@@ -100,12 +100,10 @@
           <div class="mgr__detail-inner">
             <div class="mgr__detail-head">
               <div class="mgr__detail-title">
-                <h2>
-                  {{ printer.name }}
-                  <span class="profile-badge" [attr.data-source]="printer.source">
-                    {{ sourceLabels[printer.source ?? 'user'] }}
-                  </span>
-                </h2>
+                <nexus-badge [variant]="printer.source === 'user' ? 'info' : 'default'">
+                  {{ sourceLabels[printer.source ?? 'user'] }}
+                </nexus-badge>
+                <h2>{{ printer.name }}</h2>
                 <p>{{ printer.vendor }}{{ printer.model ? ' · ' + printer.model : '' }}</p>
               </div>
               <div class="mgr__detail-actions">
@@ -120,7 +118,7 @@
                   {{ isDefault(printer.id) ? 'Default' : 'Set default' }}
                 </button>
                 <button nexusIconButton aria-label="Duplicate" (click)="duplicate(printer.id)">
-                  <nexus-icon name="box-iso" />
+                  <nexus-icon name="copy" />
                 </button>
                 @if (printer.source !== 'builtin') {
                   <button nexusIconButton aria-label="Delete" (click)="armDelete()">
@@ -183,7 +181,7 @@
               </nexus-field-row>
             </div>
 
-            <div class="profile-editor__group">
+            <div class="profile-editor__group" id="configure-target">
               <label class="profile-editor__group-title">Connection</label>
               <nexus-field-row label="Type">
                 <nexus-select
@@ -242,7 +240,7 @@
 
             <div class="profile-editor__group">
               <label class="profile-editor__group-title">Build volume</label>
-              <nexus-field-row label="Bed shape">
+              <nexus-field-row label="Bed shape" [stacked]="true">
                 <nexus-segmented
                   [options]="bedShapeOptions"
                   [value]="printer.bed_shape ?? 'rectangular'"
@@ -423,17 +421,10 @@
       heading="No printers"
       description="Add a printer to manage bed size, nozzle and connection."
     >
-      <button nexusButton variant="primary" size="sm" (click)="openWizard()">Add printer</button>
+      <a nexusButton variant="primary" size="sm" routerLink="new">Add printer</a>
     </nexus-empty-state>
   }
 </div>
-
-@if (wizardOpen()) {
-  <nexus-printer-wizard
-    (completed)="onWizardCompleted($event)"
-    (cancelled)="wizardOpen.set(false)"
-  />
-}
 
 @if (catalogOpen()) {
   <nexus-modal-shell title="Printer catalog" (close)="catalogOpen.set(false)">

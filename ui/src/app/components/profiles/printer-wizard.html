@@ -4,10 +4,13 @@
   [index]="index()"
   [canProceed]="canProceed()"
   finishLabel="Add printer"
+  secondaryFinishLabel="Add & configure"
   (back)="back()"
   (next)="next()"
+  (goto)="goto($event)"
   (finish)="finish()"
-  (cancel)="cancelled.emit()"
+  (finishSecondary)="finishAndConfigure()"
+  (cancel)="cancel()"
 >
   @switch (index()) {
     @case (0) {
@@ -40,10 +43,9 @@
 
     @case (1) {
       <div class="wz-step">
-        <div class="wz-group">
-          <label class="wz-group__title">Name</label>
+        <nexus-field-row label="Name" [stacked]="true">
           <input class="wz-input" [value]="draft().name" (input)="patchName($event)" />
-        </div>
+        </nexus-field-row>
         <nexus-field-row label="Vendor" [stacked]="true">
           <input class="wz-input" [value]="draft().vendor" (input)="patchVendor($event)" />
         </nexus-field-row>
@@ -62,7 +64,7 @@
 
     @case (2) {
       <div class="wz-step">
-        <nexus-field-row label="Bed shape">
+        <nexus-field-row label="Bed shape" [stacked]="true">
           <nexus-segmented
             [options]="bedShapeOptions"
             [value]="draft().bed_shape ?? 'rectangular'"
@@ -109,9 +111,6 @@
 
     @case (3) {
       <div class="wz-step">
-        <div class="wz-group">
-          <label class="wz-group__title">Toolhead</label>
-        </div>
         <nexus-field-row label="Nozzle diameter">
           <nexus-number-input
             [value]="pnum(draft().params, 'nozzle_diameter_mm')"
@@ -152,7 +151,10 @@
             (valueChange)="patchParams({ travel_speed_mm_min: $event * 60 })"
           />
         </nexus-field-row>
-        <nexus-field-row label="Retraction length">
+        <nexus-field-row
+          label="Retraction length"
+          description="Filament pulled back on travel moves to curb oozing and stringing."
+        >
           <nexus-number-input
             [value]="pnum(draft().params, 'retract_mm')"
             [min]="0"
@@ -162,7 +164,10 @@
             (valueChange)="patchParams({ retract_mm: $event })"
           />
         </nexus-field-row>
-        <nexus-field-row label="Z-hop">
+        <nexus-field-row
+          label="Z-hop"
+          description="Lifts the nozzle on travel moves so it clears printed parts."
+        >
           <nexus-number-input
             [value]="pnum(draft().params, 'z_hop_mm')"
             [min]="0"

@@ -4,10 +4,13 @@
   [index]="index()"
   [canProceed]="canProceed()"
   finishLabel="Add filament"
+  secondaryFinishLabel="Add & configure"
   (back)="back()"
   (next)="next()"
+  (goto)="goto($event)"
   (finish)="finish()"
-  (cancel)="cancelled.emit()"
+  (finishSecondary)="finishAndConfigure()"
+  (cancel)="cancel()"
 >
   @switch (index()) {
     @case (0) {
@@ -41,15 +44,16 @@
 
     @case (1) {
       <div class="wz-step">
-        <div class="wz-group">
-          <label class="wz-group__title">Name</label>
+        <nexus-field-row label="Name" [stacked]="true">
           <div class="wz-swatch-row">
-            <label class="wz-swatch" [style.background]="draft().color">
-              <input type="color" [value]="draft().color" (input)="patchColor($event)" />
-            </label>
+            <nexus-color-picker
+              [value]="draft().color"
+              ariaLabel="Filament colour"
+              (valueChange)="patchColor($event)"
+            />
             <input class="wz-input" [value]="draft().name" (input)="patchName($event)" />
           </div>
-        </div>
+        </nexus-field-row>
         <nexus-field-row label="Vendor" [stacked]="true">
           <input class="wz-input" [value]="draft().vendor" (input)="patchVendor($event)" />
         </nexus-field-row>
@@ -136,7 +140,10 @@
             (valueChange)="patchParams({ fan_speed: $event / 100 })"
           />
         </nexus-field-row>
-        <nexus-field-row label="Flow ratio">
+        <nexus-field-row
+          label="Flow ratio"
+          description="Extrusion multiplier — raise if under-extruding, lower if over-extruding."
+        >
           <nexus-number-input
             [value]="pnum(draft().params, 'flow_ratio')"
             [min]="0.5"
@@ -145,7 +152,10 @@
             (valueChange)="patchParams({ flow_ratio: $event })"
           />
         </nexus-field-row>
-        <nexus-field-row label="Max volumetric speed">
+        <nexus-field-row
+          label="Max volumetric speed"
+          description="Upper limit on how fast filament can melt and flow (mm³/s)."
+        >
           <nexus-number-input
             [value]="pnum(draft().params, 'max_volumetric_speed')"
             [min]="1"
@@ -155,7 +165,7 @@
             (valueChange)="patchParams({ max_volumetric_speed: $event })"
           />
         </nexus-field-row>
-        <nexus-field-row label="Cost" description="Per kilogram">
+        <nexus-field-row label="Cost">
           <nexus-number-input
             [value]="draft().cost_per_kg"
             [min]="0"

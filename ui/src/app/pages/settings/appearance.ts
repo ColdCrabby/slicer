@@ -1,6 +1,10 @@
 import { ChangeDetectionStrategy, Component, computed, inject } from '@angular/core';
-import { AccentService, AccentSource } from '../../services/accent';
+import { AccentService, type AccentSource } from '../../services/accent';
 import { AppTheme } from '../../services/app-theme';
+import {
+  ColorPickerPreference,
+  type ColorPickerMode,
+} from '../../services/color-picker-preference';
 import { Icon } from '../../shared/icon/icon';
 import { SectionHeader } from '../../ui/section-header/section-header';
 
@@ -21,12 +25,32 @@ interface AccentPreset {
 export class AppearanceSettings {
   private readonly theme = inject(AppTheme);
   protected readonly accent = inject(AccentService);
+  protected readonly colorPicker = inject(ColorPickerPreference);
 
   protected readonly themeModes: { value: ThemeMode; label: string }[] = [
     { value: 'light', label: 'Light' },
     { value: 'dark', label: 'Dark' },
     { value: 'system', label: 'System' },
   ];
+
+  protected readonly colorPickerModes: { value: ColorPickerMode; label: string }[] = [
+    { value: 'app', label: 'Prefer app' },
+    { value: 'os', label: 'Prefer OS' },
+    { value: 'auto', label: 'Auto' },
+  ];
+
+  protected readonly colorPickerHint = computed(() => {
+    switch (this.colorPicker.mode()) {
+      case 'app':
+        return 'Always use the polished in-app picker.';
+      case 'os':
+        return 'Always open the native system colour dialog.';
+      default:
+        return this.colorPicker.nativeIsGood
+          ? 'Native macOS colour panel here, in-app picker elsewhere.'
+          : 'In-app picker here; the native panel only shines in Safari or the desktop app.';
+    }
+  });
 
   protected readonly presets: AccentPreset[] = [
     { name: 'Molten Amber', hex: '#e0730f' },

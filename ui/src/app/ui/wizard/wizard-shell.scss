@@ -1,121 +1,145 @@
 :host {
-  position: fixed;
-  inset: 0;
-  z-index: 1000;
-  display: grid;
-  place-items: center;
-  padding: var(--spacing-xl);
-}
-
-.wizard__scrim {
-  position: fixed;
-  inset: 0;
-  background: color-mix(in oklab, var(--color-bg-primary) 55%, transparent);
+  display: block;
+  height: 100%;
 }
 
 .wizard {
-  position: relative;
   display: flex;
   flex-direction: column;
-  width: min(680px, 100%);
-  max-height: min(760px, 90vh);
-  background: var(--color-surface);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-lg);
-  box-shadow: var(--shadow-lg);
-  overflow: hidden;
+  height: 100%;
+  min-height: 0;
+  background: var(--color-bg-primary);
 }
 
 .wizard__header {
   flex: none;
   display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: var(--spacing-md);
-  padding: var(--spacing-lg) var(--spacing-xl);
-  border-bottom: 1px solid var(--color-border-light);
-}
-
-.wizard__heading {
-  display: flex;
   flex-direction: column;
-  gap: var(--spacing-md);
-  min-width: 0;
+  align-items: center;
+  gap: var(--spacing-lg);
+  padding: var(--spacing-xl) var(--spacing-xl) var(--spacing-lg);
+  border-bottom: 1px solid var(--color-border-light);
 }
 
 .wizard__title {
   margin: 0;
-  font-size: var(--font-size-lg);
+  font-size: var(--font-size-xl);
   font-weight: var(--font-weight-semibold);
+  letter-spacing: -0.01em;
   color: var(--color-text-primary);
 }
 
 .wizard__steps {
   display: flex;
-  flex-wrap: wrap;
   align-items: center;
-  gap: var(--spacing-md);
   margin: 0;
   padding: 0;
   list-style: none;
 }
 
 .wizard__step {
+  display: flex;
+  align-items: center;
+
+  // Connector line to the left of every step but the first; it "fills" with
+  // accent once the step it leads into is reached (done or active).
+  & + &::before {
+    content: '';
+    width: clamp(20px, 5vw, 64px);
+    height: 2px;
+    margin: 0 var(--spacing-sm);
+    border-radius: 1px;
+    background: var(--color-border);
+    transition: background-color var(--duration-fast) var(--ease-standard);
+  }
+
+  &.is-done + &::before,
+  &.is-active::before {
+    background: var(--accent);
+  }
+}
+
+.wizard__step-btn {
   display: inline-flex;
   align-items: center;
-  gap: var(--spacing-xs);
-  font-size: var(--font-size-xs);
-  color: var(--color-text-tertiary);
+  gap: var(--spacing-sm);
+  padding: 4px 6px;
+  border: none;
+  background: transparent;
+  border-radius: var(--radius-md);
+  font-family: inherit;
+  cursor: pointer;
+
+  &:disabled {
+    cursor: default;
+  }
+
+  &:not(:disabled):hover .wizard__step-label {
+    color: var(--color-text-primary);
+  }
+
+  &:focus-visible {
+    outline: none;
+    box-shadow: 0 0 0 2px var(--color-focus-ring);
+  }
 }
 
 .wizard__step-dot {
+  flex: none;
   display: inline-grid;
   place-items: center;
-  width: 20px;
-  height: 20px;
+  width: 26px;
+  height: 26px;
   border-radius: 50%;
-  background: var(--color-bg-tertiary);
+  border: 2px solid var(--color-border-strong);
+  background: var(--color-surface);
   color: var(--color-text-tertiary);
-  font-size: 11px;
+  font-size: var(--font-size-sm);
   font-weight: var(--font-weight-semibold);
   font-variant-numeric: tabular-nums;
-  --icon-size: 12px;
+  --icon-size: 14px;
+  transition:
+    background-color var(--duration-fast) var(--ease-standard),
+    border-color var(--duration-fast) var(--ease-standard),
+    color var(--duration-fast) var(--ease-standard);
+}
+
+.wizard__step-label {
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-medium);
+  color: var(--color-text-tertiary);
+  white-space: nowrap;
+  transition: color var(--duration-fast) var(--ease-standard);
 }
 
 .wizard__step.is-active {
-  color: var(--color-text-primary);
-
   .wizard__step-dot {
+    border-color: var(--accent);
     background: var(--accent);
     color: var(--accent-contrast);
+  }
+
+  .wizard__step-label {
+    color: var(--color-text-primary);
   }
 }
 
 .wizard__step.is-done {
-  color: var(--color-text-secondary);
-
   .wizard__step-dot {
+    border-color: var(--accent);
     background: var(--accent-soft);
     color: var(--accent);
   }
+
+  .wizard__step-label {
+    color: var(--color-text-secondary);
+  }
 }
 
-.wizard__close {
-  flex: none;
-  display: inline-grid;
-  place-items: center;
-  width: 32px;
-  height: 32px;
-  border: none;
-  border-radius: var(--radius-md);
-  background: transparent;
-  color: var(--color-text-secondary);
-  cursor: pointer;
-  --icon-size: 18px;
-
-  &:hover {
-    background: var(--color-surface-hover);
-    color: var(--color-text-primary);
+// Collapse step labels on narrow pages so the dots + connectors still read.
+@media (max-width: 720px) {
+  .wizard__step:not(.is-active) .wizard__step-label {
+    display: none;
   }
 }
 
@@ -123,17 +147,27 @@
   flex: 1;
   min-height: 0;
   overflow-y: auto;
-  padding: var(--spacing-lg) var(--spacing-xl);
+  padding: var(--spacing-xl);
+}
+
+.wizard__content {
+  max-width: 640px;
+  margin: 0 auto;
 }
 
 .wizard__footer {
   flex: none;
+  padding: var(--spacing-md) var(--spacing-xl);
+  border-top: 1px solid var(--color-border-light);
+}
+
+.wizard__footer-inner {
+  max-width: 640px;
+  margin: 0 auto;
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: var(--spacing-md);
-  padding: var(--spacing-md) var(--spacing-xl);
-  border-top: 1px solid var(--color-border-light);
 }
 
 .wizard__footer-right {
@@ -182,5 +216,16 @@
 
   &:not(:disabled):hover {
     background: var(--accent-hover);
+  }
+}
+
+.wizard__btn--secondary {
+  background: var(--color-surface);
+  border-color: var(--color-border);
+  color: var(--color-text-secondary);
+
+  &:not(:disabled):hover {
+    background: var(--color-surface-hover);
+    color: var(--color-text-primary);
   }
 }

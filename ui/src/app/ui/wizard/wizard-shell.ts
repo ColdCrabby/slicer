@@ -25,11 +25,21 @@ export class WizardShell {
   readonly index = input.required<number>();
   readonly canProceed = input(true);
   readonly finishLabel = input('Create');
+  /**
+   * Optional label for a secondary finish action shown on the last step (e.g.
+   * "Add & configure"). When set, the shell renders it alongside the primary
+   * finish button and emits {@link finishSecondary} on click.
+   */
+  readonly secondaryFinishLabel = input<string | null>(null);
 
   readonly back = output<void>();
   readonly next = output<void>();
   readonly cancel = output<void>();
   readonly finish = output<void>();
+  /** Alternate finish that also drops the user into the full editor. */
+  readonly finishSecondary = output<void>();
+  /** Jump to a step (only completed / current steps are clickable). */
+  readonly goto = output<number>();
 
   protected readonly isFirst = computed(() => this.index() === 0);
   protected readonly isLast = computed(() => this.index() === this.steps().length - 1);
@@ -41,6 +51,13 @@ export class WizardShell {
       active: i === this.index(),
     })),
   );
+
+  protected onStep(i: number): void {
+    // No skipping ahead — only revisit a completed step or stay on the current.
+    if (i <= this.index()) {
+      this.goto.emit(i);
+    }
+  }
 
   protected onPrimary(): void {
     if (this.isLast()) {

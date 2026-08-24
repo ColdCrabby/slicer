@@ -21,6 +21,26 @@
         }
       </div>
     </div>
+
+    <div class="settings-field">
+      <span class="settings-field-label">
+        <span class="settings-field-title">Color picker</span>
+        <span class="settings-field-desc">{{ colorPickerHint() }}</span>
+      </span>
+      <div class="segmented" role="group" aria-label="Color picker">
+        @for (mode of colorPickerModes; track mode.value) {
+          <button
+            type="button"
+            class="segmented-btn"
+            [class.is-active]="colorPicker.mode() === mode.value"
+            [attr.aria-pressed]="colorPicker.mode() === mode.value"
+            (click)="colorPicker.setMode(mode.value)"
+          >
+            {{ mode.label }}
+          </button>
+        }
+      </div>
+    </div>
   </div>
 
   <div class="accent-section">

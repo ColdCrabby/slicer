@@ -1,11 +1,5 @@
-import {
-  ChangeDetectionStrategy,
-  Component,
-  computed,
-  inject,
-  output,
-  signal,
-} from '@angular/core';
+import { ChangeDetectionStrategy, Component, computed, inject, signal } from '@angular/core';
+import { Router } from '@angular/router';
 import {
   FILAMENT_MATERIAL_LABELS,
   FILAMENT_MATERIALS,
@@ -16,10 +10,12 @@ import {
   type FilamentProfile,
 } from '../../models/filament.model';
 import { CloudCatalog, toUserCopy } from '../../services/catalog/cloud-catalog';
+import { ActiveSelection } from '../../services/profiles/active-selection';
 import { FilamentsStore } from '../../services/profiles/filaments-store';
 import { Icon } from '../../shared/icon/icon';
 import { NumberInput } from '../../ui/number-input/number-input';
 import { Select } from '../../ui/select/select';
+import { ColorPicker } from '../../ui/color-picker/color-picker';
 import { FieldRow } from '../../ui/field-row/field-row';
 import { WizardShell } from '../../ui/wizard/wizard-shell';
 import { CatalogPicker, type CatalogEntryVm } from './catalog-picker';
@@ -35,7 +31,7 @@ const STEPS = ['Start', 'Basics', 'Temperatures', 'Cooling & flow'] as const;
 @Component({
   selector: 'nexus-filament-wizard',
   standalone: true,
-  imports: [WizardShell, CatalogPicker, FieldRow, NumberInput, Select, Icon],
+  imports: [WizardShell, CatalogPicker, FieldRow, NumberInput, Select, ColorPicker, Icon],
   templateUrl: './filament-wizard.html',
   styleUrl: './filament-wizard.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -43,9 +39,8 @@ const STEPS = ['Start', 'Basics', 'Temperatures', 'Cooling & flow'] as const;
 export class FilamentWizard {
   private readonly catalog = inject(CloudCatalog);
   private readonly store = inject(FilamentsStore);
-
-  readonly completed = output<FilamentProfile>();
-  readonly cancelled = output<void>();
+  private readonly active = inject(ActiveSelection);
+  private readonly router = inject(Router);
 
   protected readonly steps = STEPS;
   protected readonly index = signal(0);
@@ -101,8 +96,8 @@ export class FilamentWizard {
     this.patch({ vendor: (event.target as HTMLInputElement).value });
   }
 
-  protected patchColor(event: Event): void {
-    this.patch({ color: (event.target as HTMLInputElement).value });
+  protected patchColor(color: string): void {
+    this.patch({ color });
   }
 
   protected setMaterial(value: string): void {
@@ -143,7 +138,32 @@ export class FilamentWizard {
     this.index.update((i) => Math.min(this.steps.length - 1, i + 1));
   }
 
+  protected goto(index: number): void {
+    this.index.set(index);
+  }
+
   protected finish(): void {
-    this.completed.emit(this.draft());
+    this.persist();
+    void this.router.navigate(['/settings/filaments']);
+  }
+
+  /** Create the filament, then open its editor scrolled to the extra sections. */
+  protected finishAndConfigure(): void {
+    const filament = this.persist();
+    void this.router.navigate(['/settings/filaments'], {
+      queryParams: { configure: filament.id },
+    });
+  }
+
+  /** Persist the draft and make it the active filament; returns the saved profile. */
+  private persist(): FilamentProfile {
+    const filament = this.draft();
+    this.store.add(filament);
+    this.active.selectFilament(filament.id);
+    return filament;
+  }
+
+  protected cancel(): void {
+    void this.router.navigate(['/settings/filaments']);
   }
 }

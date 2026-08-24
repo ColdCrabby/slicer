@@ -1,4 +1,5 @@
-import { ChangeDetectionStrategy, Component, computed, inject, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, afterNextRender, computed, inject, signal } from '@angular/core';
+import { ActivatedRoute, RouterLink } from '@angular/router';
 import {
   PRINTER_CONNECTION_KINDS,
   PRINTER_CONNECTION_LABELS,
@@ -28,10 +29,11 @@ import { LabelFilterStore } from '../../services/profiles/label-filter-store';
 import { LabelsStore } from '../../services/profiles/labels-store';
 import { PrintersStore } from '../../services/profiles/printers-store';
 import { Icon } from '../../shared/icon/icon';
-import { PrinterWizard } from '../../components/profiles/printer-wizard';
+import { Badge } from '../../shared/badge/badge';
 import { CatalogPicker, type CatalogEntryVm } from '../../components/profiles/catalog-picker';
 import { LabelFilterBar } from '../../components/labels/label-filter-bar';
 import { LabelPicker } from '../../components/labels/label-picker';
+import { focusConfigureTarget } from './configure-scroll';
 import { Button } from '../../ui/button/button';
 import { EmptyState } from '../../ui/empty-state/empty-state';
 import { FieldRow } from '../../ui/field-row/field-row';
@@ -51,7 +53,8 @@ import { Switch } from '../../ui/switch/switch';
     Button,
     IconButton,
     Icon,
-    PrinterWizard,
+    Badge,
+    RouterLink,
     CatalogPicker,
     ModalShell,
     FieldRow,
@@ -73,6 +76,7 @@ export class PrintersSettings {
   private readonly filterStore = inject(LabelFilterStore);
   private readonly catalog = inject(CloudCatalog);
   private readonly printerConn = inject(PrinterConnectionService);
+  private readonly route = inject(ActivatedRoute);
 
   protected readonly sourceLabels = PROFILE_SOURCE_LABELS;
   protected readonly flavorOptions = PRINTER_GCODE_FLAVORS;
@@ -92,7 +96,6 @@ export class PrintersSettings {
     { value: 'none', label: 'None' },
   ];
 
-  protected readonly wizardOpen = signal(false);
   protected readonly catalogOpen = signal(false);
   /** Which printer's editor is open in the detail pane. */
   protected readonly selectedId = signal<string | null>(this.active.printer()?.id ?? null);
@@ -162,6 +165,16 @@ export class PrintersSettings {
     return !!p && this.deleteText().trim() === p.name.trim();
   });
 
+  constructor() {
+    // Arriving from a wizard's "Add & configure": open the new printer and
+    // scroll to the sections (connection, G-code) the wizard doesn't cover.
+    const configureId = this.route.snapshot.queryParamMap.get('configure');
+    if (configureId && this.store.getById(configureId)) {
+      this.select(configureId);
+      afterNextRender(() => focusConfigureTarget('configure-target'));
+    }
+  }
+
   protected setSearch(event: Event): void {
     this.search.set((event.target as HTMLInputElement).value);
   }
@@ -206,17 +219,6 @@ export class PrintersSettings {
   );
 
   protected readonly editing = computed(() => this.selected());
-
-  protected openWizard(): void {
-    this.wizardOpen.set(true);
-  }
-
-  protected onWizardCompleted(printer: PrinterProfile): void {
-    this.store.add(printer);
-    this.active.selectPrinter(printer.id);
-    this.select(printer.id);
-    this.wizardOpen.set(false);
-  }
 
   protected openCatalog(): void {
     void this.catalog.load();

@@ -18,7 +18,7 @@ interface SettingsSection {
 })
 export class SettingsShell {
   protected readonly sections: SettingsSection[] = [
-    { path: 'general', label: 'General', icon: 'settings' },
+    { path: 'general', label: 'General', icon: 'control-slider' },
     { path: 'appearance', label: 'Appearance', icon: 'palette' },
     { path: 'printers', label: 'Printers', icon: 'printer' },
     { path: 'filaments', label: 'Filaments', icon: 'droplet' },
@@ -26,4 +26,14 @@ export class SettingsShell {
     { path: 'labels', label: 'Labels', icon: 'label' },
     { path: 'shortcuts', label: 'Shortcuts', icon: 'square-cursor' },
   ];
+
+  /**
+   * True only inside the native desktop shell, where settings live in the
+   * app's own persistent storage. Every other build (web/cloud) runs in a
+   * browser and keeps settings in that browser's local storage, which is wiped
+   * by clearing site data or reinstalling the browser.
+   */
+  protected readonly isDesktop =
+    typeof globalThis !== 'undefined' &&
+    ('__TAURI_INTERNALS__' in globalThis || '__TAURI__' in globalThis);
 }

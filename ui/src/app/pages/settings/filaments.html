@@ -1,206 +1,291 @@
-<div class="settings-page">
+<div class="mgr">
   <nexus-section-header heading="Filaments" description="Materials and their temperatures">
     <button nexusButton variant="secondary" size="sm" (click)="openCatalog()">
       <nexus-icon name="cloud-upload" />
       Catalog
     </button>
-    <button nexusButton variant="primary" size="sm" (click)="openWizard()">
+    <a nexusButton variant="primary" size="sm" routerLink="new">
       <nexus-icon name="plus" />
       Add filament
-    </button>
+    </a>
   </nexus-section-header>
 
-  <nexus-label-filter-bar
-    [selectedIds]="labelFilter()"
-    (toggle)="toggleFilter($event)"
-    (clear)="clearFilter()"
-  />
-
   @if (store.items().length > 0) {
-    <div class="profile-list">
-      @for (filament of visibleItems(); track filament.id) {
-        <div class="profile-card" [class.is-active]="active.filament().id === filament.id">
-          <button
-            class="profile-card__pick"
-            type="button"
-            [attr.aria-pressed]="active.filament().id === filament.id"
-            (click)="selectActive(filament.id)"
-          >
-            <span class="profile-card__radio"></span>
-            <span class="profile-card__swatch" [style.background]="filament.color"></span>
-            <span class="profile-card__info">
-              <span class="profile-card__name">
-                {{ filament.name }}
-                <span class="profile-badge" [attr.data-source]="filament.source">
-                  {{ sourceLabels[filament.source ?? 'user'] }}
-                </span>
-              </span>
-              <span class="profile-card__sub">
-                {{ filament.material }} · {{ pnum(filament.params, 'nozzle_temp') }}°C nozzle ·
-                {{ pnum(filament.params, 'bed_temp') }}°C bed
-              </span>
-            </span>
-          </button>
-
-          <div class="profile-card__actions">
-            <button nexusIconButton aria-label="Edit" (click)="toggleEditor(filament.id)">
-              <nexus-icon [name]="editingId() === filament.id ? 'nav-arrow-up' : 'settings'" />
-            </button>
-            <button nexusIconButton aria-label="Duplicate" (click)="duplicate(filament.id)">
-              <nexus-icon name="box-iso" />
-            </button>
-            @if (filament.source !== 'builtin') {
+    <div class="mgr__body">
+      <!-- ── List column ──────────────────────────────────────────────────── -->
+      <div class="mgr__list">
+        <div class="mgr__tools">
+          <div class="mgr__search">
+            <nexus-icon name="search" />
+            <input
+              type="search"
+              placeholder="Search filaments"
+              aria-label="Search filaments"
+              [value]="search()"
+              (input)="setSearch($event)"
+            />
+            @if (search()) {
               <button
-                nexusIconButton
-                [attr.aria-label]="confirmDeleteId() === filament.id ? 'Confirm delete' : 'Delete'"
-                [class.is-confirming]="confirmDeleteId() === filament.id"
-                (click)="requestDelete(filament.id)"
+                class="mgr__search-clear"
+                type="button"
+                aria-label="Clear search"
+                (click)="clearSearch()"
               >
-                <nexus-icon name="trash" />
+                <nexus-icon name="xmark" />
               </button>
             }
           </div>
+          <nexus-segmented
+            [options]="groupByOptions"
+            [value]="groupBy()"
+            (valueChange)="setGroupBy($event)"
+          />
+        </div>
 
-          @if (labelsOf(filament).length > 0) {
-            <div class="profile-card__labels">
-              @for (label of labelsOf(filament); track label.id) {
-                <nexus-label-chip [label]="label" size="sm" />
+        <nexus-label-filter-bar
+          [selectedIds]="labelFilter()"
+          (toggle)="toggleFilter($event)"
+          (clear)="clearFilter()"
+        />
+
+        <div class="mgr__scroll">
+          @for (group of groups(); track group.key) {
+            <div class="mgr__group">
+              @if (group.title) {
+                <div class="mgr__group-header">
+                  <h3>{{ group.title }}</h3>
+                  <span class="mgr__group-count">{{ group.items.length }}</span>
+                </div>
               }
-            </div>
-          }
-
-          @if (editingId() === filament.id) {
-            <div class="profile-editor">
-              <div class="profile-editor__group">
-                <label class="profile-editor__group-title">Labels</label>
-                <nexus-label-picker
-                  [assignedIds]="filament.label_ids ?? []"
-                  (toggle)="toggleLabel(filament.id, $event)"
-                />
-              </div>
-              <div class="profile-editor__group">
-                <label class="profile-editor__group-title">Identity</label>
-                <nexus-field-row label="Name" [stacked]="true">
-                  <div class="wz-swatch-row">
-                    <label class="wz-swatch" [style.background]="filament.color">
-                      <input
-                        type="color"
-                        [value]="filament.color"
-                        (input)="setColor(filament.id, $event)"
-                      />
-                    </label>
-                    <input
-                      class="wz-input"
-                      [value]="filament.name"
-                      (change)="rename(filament.id, $event)"
-                    />
-                  </div>
-                </nexus-field-row>
-                <nexus-field-row label="Material">
-                  <nexus-select
-                    [options]="materialOptions"
-                    [value]="filament.material"
-                    (valueChange)="setMaterial(filament.id, $event)"
-                  />
-                </nexus-field-row>
-                <nexus-field-row label="Diameter">
-                  <nexus-number-input
-                    [value]="pnum(filament.params, 'filament_diameter_mm')"
-                    [min]="1"
-                    [max]="4"
-                    [step]="0.05"
-                    unit="mm"
-                    (valueChange)="updateParams(filament.id, { filament_diameter_mm: $event })"
-                  />
-                </nexus-field-row>
-              </div>
-
-              <div class="profile-editor__group">
-                <label class="profile-editor__group-title">Temperatures</label>
-                <nexus-field-row label="Nozzle">
-                  <nexus-number-input
-                    [value]="pnum(filament.params, 'nozzle_temp')"
-                    [min]="150"
-                    [max]="350"
-                    unit="°C"
-                    (valueChange)="updateParams(filament.id, { nozzle_temp: $event })"
-                  />
-                </nexus-field-row>
-                <nexus-field-row label="Nozzle — first layer">
-                  <nexus-number-input
-                    [value]="pnum(filament.params, 'nozzle_temp_first_layer')"
-                    [min]="150"
-                    [max]="350"
-                    unit="°C"
-                    (valueChange)="updateParams(filament.id, { nozzle_temp_first_layer: $event })"
-                  />
-                </nexus-field-row>
-                <nexus-field-row label="Bed">
-                  <nexus-number-input
-                    [value]="pnum(filament.params, 'bed_temp')"
-                    [min]="0"
-                    [max]="150"
-                    unit="°C"
-                    (valueChange)="updateParams(filament.id, { bed_temp: $event })"
-                  />
-                </nexus-field-row>
-                <nexus-field-row label="Bed — first layer">
-                  <nexus-number-input
-                    [value]="pnum(filament.params, 'bed_temp_first_layer')"
-                    [min]="0"
-                    [max]="150"
-                    unit="°C"
-                    (valueChange)="updateParams(filament.id, { bed_temp_first_layer: $event })"
-                  />
-                </nexus-field-row>
-              </div>
-
-              <div class="profile-editor__group">
-                <label class="profile-editor__group-title">Cooling & flow</label>
-                <nexus-field-row label="Fan speed — max">
-                  <nexus-number-input
-                    [value]="pnum(filament.params, 'fan_speed') * 100"
-                    [min]="0"
-                    [max]="100"
-                    [step]="5"
-                    unit="%"
-                    (valueChange)="updateParams(filament.id, { fan_speed: $event / 100 })"
-                  />
-                </nexus-field-row>
-                <nexus-field-row label="Flow ratio">
-                  <nexus-number-input
-                    [value]="pnum(filament.params, 'flow_ratio')"
-                    [min]="0.5"
-                    [max]="1.5"
-                    [step]="0.01"
-                    (valueChange)="updateParams(filament.id, { flow_ratio: $event })"
-                  />
-                </nexus-field-row>
-                <nexus-field-row label="Max volumetric speed">
-                  <nexus-number-input
-                    [value]="pnum(filament.params, 'max_volumetric_speed')"
-                    [min]="1"
-                    [max]="50"
-                    [step]="0.5"
-                    unit="mm³/s"
-                    (valueChange)="updateParams(filament.id, { max_volumetric_speed: $event })"
-                  />
-                </nexus-field-row>
-                <nexus-field-row label="Cost / kg">
-                  <nexus-number-input
-                    [value]="filament.cost_per_kg"
-                    [min]="0"
-                    [max]="500"
-                    (valueChange)="update(filament.id, { cost_per_kg: $event })"
-                  />
-                </nexus-field-row>
+              <div class="mgr__group-items">
+                @for (filament of group.items; track filament.id) {
+                  <button
+                    class="mgr__card"
+                    type="button"
+                    [class.is-selected]="selectedId() === filament.id"
+                    (click)="select(filament.id)"
+                  >
+                    <span class="mgr__card-swatch" [style.background]="filament.color"></span>
+                    <span class="mgr__card-info">
+                      <span class="mgr__card-name">
+                        <span>{{ filament.name }}</span>
+                        @if (isDefault(filament.id)) {
+                          <nexus-icon class="mgr__default-star" name="star" />
+                        }
+                      </span>
+                      <span class="mgr__card-sub">
+                        {{ filament.material }} · {{ pnum(filament.params, 'nozzle_temp') }}°C ·
+                        {{ pnum(filament.params, 'bed_temp') }}°C bed
+                      </span>
+                    </span>
+                  </button>
+                }
               </div>
             </div>
+          } @empty {
+            <p class="mgr__empty">No filaments match your filters.</p>
           }
         </div>
-      } @empty {
-        <p class="profile-list__empty">No filaments match the selected labels.</p>
-      }
+      </div>
+
+      <!-- ── Detail column ────────────────────────────────────────────────── -->
+      <div class="mgr__detail">
+        @if (selected(); as filament) {
+          <div class="mgr__detail-inner">
+            <div class="mgr__detail-head">
+              <div class="mgr__detail-title">
+                <nexus-badge [variant]="filament.source === 'user' ? 'info' : 'default'">
+                  {{ sourceLabels[filament.source ?? 'user'] }}
+                </nexus-badge>
+                <h2>
+                  <span class="mgr__title-swatch" [style.background]="filament.color"></span>
+                  {{ filament.name }}
+                </h2>
+                <p>{{ filament.material }}{{ filament.vendor ? ' · ' + filament.vendor : '' }}</p>
+              </div>
+              <div class="mgr__detail-actions">
+                <button
+                  class="mgr__default-btn"
+                  type="button"
+                  [class.is-default]="isDefault(filament.id)"
+                  [disabled]="isDefault(filament.id)"
+                  (click)="setDefault(filament.id)"
+                >
+                  <nexus-icon [name]="isDefault(filament.id) ? 'check' : 'star'" />
+                  {{ isDefault(filament.id) ? 'Default' : 'Set default' }}
+                </button>
+                <button nexusIconButton aria-label="Duplicate" (click)="duplicate(filament.id)">
+                  <nexus-icon name="copy" />
+                </button>
+                @if (filament.source !== 'builtin') {
+                  <button nexusIconButton aria-label="Delete" (click)="armDelete()">
+                    <nexus-icon name="trash" />
+                  </button>
+                }
+              </div>
+            </div>
+
+            @if (deleteArmed()) {
+              <div class="mgr__danger">
+                <p>
+                  Type <strong>{{ filament.name }}</strong> to permanently delete this filament.
+                </p>
+                <div class="mgr__danger-row">
+                  <input
+                    type="text"
+                    autocomplete="off"
+                    placeholder="Filament name"
+                    [value]="deleteText()"
+                    (input)="setDeleteText($event)"
+                  />
+                  <button nexusButton variant="ghost" size="sm" (click)="disarmDelete()">
+                    Cancel
+                  </button>
+                  <button
+                    nexusButton
+                    variant="danger"
+                    size="sm"
+                    [disabled]="!deleteReady()"
+                    (click)="confirmDelete()"
+                  >
+                    Delete
+                  </button>
+                </div>
+              </div>
+            }
+
+            <div class="profile-editor__group" id="configure-target">
+              <label class="profile-editor__group-title">Labels</label>
+              <nexus-label-picker
+                [assignedIds]="filament.label_ids ?? []"
+                (toggle)="toggleLabel(filament.id, $event)"
+              />
+            </div>
+
+            <div class="profile-editor__group">
+              <label class="profile-editor__group-title">Identity</label>
+              <nexus-field-row label="Name" [stacked]="true">
+                <div class="wz-swatch-row">
+                  <nexus-color-picker
+                    [value]="filament.color"
+                    ariaLabel="Filament colour"
+                    (valueChange)="setColor(filament.id, $event)"
+                  />
+                  <input
+                    class="wz-input"
+                    [value]="filament.name"
+                    (change)="rename(filament.id, $event)"
+                  />
+                </div>
+              </nexus-field-row>
+              <nexus-field-row label="Material">
+                <nexus-select
+                  [options]="materialOptions"
+                  [value]="filament.material"
+                  (valueChange)="setMaterial(filament.id, $event)"
+                />
+              </nexus-field-row>
+              <nexus-field-row label="Diameter">
+                <nexus-number-input
+                  [value]="pnum(filament.params, 'filament_diameter_mm')"
+                  [min]="1"
+                  [max]="4"
+                  [step]="0.05"
+                  unit="mm"
+                  (valueChange)="updateParams(filament.id, { filament_diameter_mm: $event })"
+                />
+              </nexus-field-row>
+            </div>
+
+            <div class="profile-editor__group">
+              <label class="profile-editor__group-title">Temperatures</label>
+              <nexus-field-row label="Nozzle">
+                <nexus-number-input
+                  [value]="pnum(filament.params, 'nozzle_temp')"
+                  [min]="150"
+                  [max]="350"
+                  unit="°C"
+                  (valueChange)="updateParams(filament.id, { nozzle_temp: $event })"
+                />
+              </nexus-field-row>
+              <nexus-field-row label="Nozzle — first layer">
+                <nexus-number-input
+                  [value]="pnum(filament.params, 'nozzle_temp_first_layer')"
+                  [min]="150"
+                  [max]="350"
+                  unit="°C"
+                  (valueChange)="updateParams(filament.id, { nozzle_temp_first_layer: $event })"
+                />
+              </nexus-field-row>
+              <nexus-field-row label="Bed">
+                <nexus-number-input
+                  [value]="pnum(filament.params, 'bed_temp')"
+                  [min]="0"
+                  [max]="150"
+                  unit="°C"
+                  (valueChange)="updateParams(filament.id, { bed_temp: $event })"
+                />
+              </nexus-field-row>
+              <nexus-field-row label="Bed — first layer">
+                <nexus-number-input
+                  [value]="pnum(filament.params, 'bed_temp_first_layer')"
+                  [min]="0"
+                  [max]="150"
+                  unit="°C"
+                  (valueChange)="updateParams(filament.id, { bed_temp_first_layer: $event })"
+                />
+              </nexus-field-row>
+            </div>
+
+            <div class="profile-editor__group">
+              <label class="profile-editor__group-title">Cooling & flow</label>
+              <nexus-field-row label="Fan speed — max">
+                <nexus-number-input
+                  [value]="pnum(filament.params, 'fan_speed') * 100"
+                  [min]="0"
+                  [max]="100"
+                  [step]="5"
+                  unit="%"
+                  (valueChange)="updateParams(filament.id, { fan_speed: $event / 100 })"
+                />
+              </nexus-field-row>
+              <nexus-field-row label="Flow ratio">
+                <nexus-number-input
+                  [value]="pnum(filament.params, 'flow_ratio')"
+                  [min]="0.5"
+                  [max]="1.5"
+                  [step]="0.01"
+                  (valueChange)="updateParams(filament.id, { flow_ratio: $event })"
+                />
+              </nexus-field-row>
+              <nexus-field-row label="Max volumetric speed">
+                <nexus-number-input
+                  [value]="pnum(filament.params, 'max_volumetric_speed')"
+                  [min]="1"
+                  [max]="50"
+                  [step]="0.5"
+                  unit="mm³/s"
+                  (valueChange)="updateParams(filament.id, { max_volumetric_speed: $event })"
+                />
+              </nexus-field-row>
+              <nexus-field-row label="Cost / kg">
+                <nexus-number-input
+                  [value]="filament.cost_per_kg"
+                  [min]="0"
+                  [max]="500"
+                  (valueChange)="update(filament.id, { cost_per_kg: $event })"
+                />
+              </nexus-field-row>
+            </div>
+          </div>
+        } @else {
+          <nexus-empty-state
+            icon="droplet"
+            heading="Select a filament"
+            description="Pick a filament on the left to edit its settings, or add a new one."
+          />
+        }
+      </div>
     </div>
   } @else {
     <nexus-empty-state
@@ -208,17 +293,10 @@
       heading="No filaments"
       description="Add a filament to store its material and temperatures."
     >
-      <button nexusButton variant="primary" size="sm" (click)="openWizard()">Add filament</button>
+      <a nexusButton variant="primary" size="sm" routerLink="new">Add filament</a>
     </nexus-empty-state>
   }
 </div>
-
-@if (wizardOpen()) {
-  <nexus-filament-wizard
-    (completed)="onWizardCompleted($event)"
-    (cancelled)="wizardOpen.set(false)"
-  />
-}
 
 @if (catalogOpen()) {
   <nexus-modal-shell title="Filament catalog" (close)="catalogOpen.set(false)">

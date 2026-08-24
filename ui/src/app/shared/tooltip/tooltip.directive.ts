@@ -180,6 +180,14 @@ export class TooltipDirective {
       return;
     }
 
+    // Nothing to show — skip the empty chip when both text and shortcut are blank
+    // (e.g. a segmented option with no description).
+    const hasText = this.tooltip().trim().length > 0;
+    const hasShortcut = (this.tooltipShortcut() ?? '').trim().length > 0;
+    if (!hasText && !hasShortcut) {
+      return;
+    }
+
     const isBlock = this.tooltipMode() === 'block';
     const persistent = this.tooltipClickToggle();
     const dismiss = (): void => {

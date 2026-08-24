@@ -4,10 +4,13 @@
   [index]="index()"
   [canProceed]="canProceed()"
   finishLabel="Add profile"
+  secondaryFinishLabel="Add & configure"
   (back)="back()"
   (next)="next()"
+  (goto)="goto($event)"
   (finish)="finish()"
-  (cancel)="cancelled.emit()"
+  (finishSecondary)="finishAndConfigure()"
+  (cancel)="cancel()"
 >
   @switch (index()) {
     @case (0) {
@@ -41,11 +44,10 @@
 
     @case (1) {
       <div class="wz-step">
-        <div class="wz-group">
-          <label class="wz-group__title">Name</label>
+        <nexus-field-row label="Name" [stacked]="true">
           <input class="wz-input" [value]="draft().name" (input)="patchName($event)" />
-        </div>
-        <nexus-field-row label="Quality">
+        </nexus-field-row>
+        <nexus-field-row label="Quality" [stacked]="true">
           <nexus-segmented
             [options]="qualityOptions"
             [value]="draft().quality ?? 'standard'"
@@ -72,7 +74,10 @@
             (valueChange)="patchParams({ first_layer_height: $event })"
           />
         </nexus-field-row>
-        <nexus-field-row label="Walls (perimeters)">
+        <nexus-field-row
+          label="Walls"
+          description="Number of perimeter shells around each layer."
+        >
           <nexus-number-input
             [value]="pnum(draft().params, 'wall_count')"
             [min]="1"
@@ -96,7 +101,10 @@
             (valueChange)="patchParams({ bottom_layers: $event })"
           />
         </nexus-field-row>
-        <nexus-field-row label="Seam position">
+        <nexus-field-row
+          label="Seam position"
+          description="Where each layer's start/end point (the Z-seam) is placed."
+        >
           <nexus-select
             [options]="seamOptions"
             [value]="pstr(draft().params, 'seam_position')"
@@ -204,7 +212,10 @@
             />
           </nexus-field-row>
         }
-        <nexus-field-row label="Bed adhesion">
+        <nexus-field-row
+          label="Bed adhesion"
+          description="Extra first-layer helper (skirt, brim, or raft) for grip."
+        >
           <nexus-select
             [options]="adhesionOptions"
             [value]="pstr(draft().params, 'adhesion_type')"

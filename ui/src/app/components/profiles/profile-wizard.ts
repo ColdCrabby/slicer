@@ -1,11 +1,5 @@
-import {
-  ChangeDetectionStrategy,
-  Component,
-  computed,
-  inject,
-  output,
-  signal,
-} from '@angular/core';
+import { ChangeDetectionStrategy, Component, computed, inject, signal } from '@angular/core';
+import { Router } from '@angular/router';
 import {
   ADHESION_TYPES,
   INFILL_PATTERNS,
@@ -19,6 +13,7 @@ import {
   type SeamPosition,
 } from '../../models/print-profile.model';
 import { CloudCatalog, toUserCopy } from '../../services/catalog/cloud-catalog';
+import { ActiveSelection } from '../../services/profiles/active-selection';
 import { PrintProfilesStore } from '../../services/profiles/print-profiles-store';
 import { Icon } from '../../shared/icon/icon';
 import { NumberInput } from '../../ui/number-input/number-input';
@@ -44,9 +39,8 @@ const STEPS = ['Start', 'Layers & walls', 'Infill', 'Speeds & supports'] as cons
 export class ProfileWizard {
   private readonly catalog = inject(CloudCatalog);
   private readonly store = inject(PrintProfilesStore);
-
-  readonly completed = output<PrintProfile>();
-  readonly cancelled = output<void>();
+  private readonly active = inject(ActiveSelection);
+  private readonly router = inject(Router);
 
   protected readonly steps = STEPS;
   protected readonly index = signal(0);
@@ -154,7 +148,32 @@ export class ProfileWizard {
     this.index.update((i) => Math.min(this.steps.length - 1, i + 1));
   }
 
+  protected goto(index: number): void {
+    this.index.set(index);
+  }
+
   protected finish(): void {
-    this.completed.emit(this.draft());
+    this.persist();
+    void this.router.navigate(['/settings/profiles']);
+  }
+
+  /** Create the profile, then open its editor scrolled to the extra sections. */
+  protected finishAndConfigure(): void {
+    const profile = this.persist();
+    void this.router.navigate(['/settings/profiles'], {
+      queryParams: { configure: profile.id },
+    });
+  }
+
+  /** Persist the draft and make it the active profile; returns the saved profile. */
+  private persist(): PrintProfile {
+    const profile = this.draft();
+    this.store.add(profile);
+    this.active.selectProfile(profile.id);
+    return profile;
+  }
+
+  protected cancel(): void {
+    void this.router.navigate(['/settings/profiles']);
   }
 }

@@ -279,6 +279,23 @@
         </nexus-card>
 
         <nexus-card visualSize="small" class="demo-card">
+          <h3 class="subheading">Color Picker</h3>
+          <div class="control-list">
+            <div class="control-stack">
+              <span class="control-label">Filament color</span>
+              <nexus-color-picker
+                [value]="filamentColor()"
+                ariaLabel="Filament color"
+                (valueChange)="filamentColor.set($event)"
+              ></nexus-color-picker>
+            </div>
+            <p class="hint">
+              Selected: {{ filamentColor() }} · default picker configurable in Appearance
+            </p>
+          </div>
+        </nexus-card>
+
+        <nexus-card visualSize="small" class="demo-card">
           <h3 class="subheading">Radio Cards</h3>
           <div class="control-list">
             <div class="control-stack">

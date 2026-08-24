@@ -1,4 +1,5 @@
-import { ChangeDetectionStrategy, Component, computed, inject, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, afterNextRender, computed, inject, signal } from '@angular/core';
+import { ActivatedRoute, RouterLink } from '@angular/router';
 import {
   ADHESION_TYPES,
   INFILL_PATTERNS,
@@ -19,11 +20,11 @@ import { LabelFilterStore } from '../../services/profiles/label-filter-store';
 import { LabelsStore } from '../../services/profiles/labels-store';
 import { PrintProfilesStore } from '../../services/profiles/print-profiles-store';
 import { Icon } from '../../shared/icon/icon';
+import { Badge } from '../../shared/badge/badge';
 import { CatalogPicker, type CatalogEntryVm } from '../../components/profiles/catalog-picker';
-import { ProfileWizard } from '../../components/profiles/profile-wizard';
-import { LabelChip } from '../../components/labels/label-chip';
 import { LabelFilterBar } from '../../components/labels/label-filter-bar';
 import { LabelPicker } from '../../components/labels/label-picker';
+import { focusConfigureTarget } from './configure-scroll';
 import { Button } from '../../ui/button/button';
 import { EmptyState } from '../../ui/empty-state/empty-state';
 import { FieldRow } from '../../ui/field-row/field-row';
@@ -43,7 +44,8 @@ import { Switch } from '../../ui/switch/switch';
     Button,
     IconButton,
     Icon,
-    ProfileWizard,
+    Badge,
+    RouterLink,
     CatalogPicker,
     ModalShell,
     FieldRow,
@@ -51,7 +53,6 @@ import { Switch } from '../../ui/switch/switch';
     Select,
     Switch,
     Segmented,
-    LabelChip,
     LabelFilterBar,
     LabelPicker,
   ],
@@ -65,26 +66,108 @@ export class ProfilesSettings {
   protected readonly labels = inject(LabelsStore);
   private readonly filterStore = inject(LabelFilterStore);
   private readonly catalog = inject(CloudCatalog);
+  private readonly route = inject(ActivatedRoute);
 
   protected readonly sourceLabels = PROFILE_SOURCE_LABELS;
   protected readonly qualityOptions = PRINT_QUALITIES.map((q) => ({ value: q, label: q }));
   protected readonly patternOptions = INFILL_PATTERNS;
   protected readonly seamOptions = SEAM_POSITIONS;
   protected readonly adhesionOptions = ADHESION_TYPES;
+  protected readonly groupByOptions = [
+    { value: 'category', label: 'Quality' },
+    { value: 'label', label: 'Labels' },
+    { value: 'none', label: 'None' },
+  ];
 
-  protected readonly wizardOpen = signal(false);
   protected readonly catalogOpen = signal(false);
-  protected readonly editingId = signal<string | null>(null);
-  protected readonly confirmDeleteId = signal<string | null>(null);
+  /** Which profile's editor is open in the detail pane. */
+  protected readonly selectedId = signal<string | null>(this.active.profile()?.id ?? null);
+  protected readonly search = signal('');
+  protected readonly groupBy = signal<'category' | 'label' | 'none'>('category');
   protected readonly labelFilter = this.filterStore.selectedIds;
 
-  /** Print profiles narrowed by the active label filter. */
-  protected readonly visibleItems = computed(() =>
-    this.store.items().filter((p) => matchesAllLabels(p, this.labelFilter())),
+  /** Typed-name delete challenge state (high-impact delete — design language). */
+  protected readonly deleteArmed = signal(false);
+  protected readonly deleteText = signal('');
+
+  /** Print profiles narrowed by the active label filter and the search query. */
+  protected readonly filtered = computed(() => {
+    const q = this.search().trim().toLowerCase();
+    return this.store.items().filter(
+      (p) =>
+        matchesAllLabels(p, this.labelFilter()) &&
+        (!q || `${p.name} ${p.quality ?? ''}`.toLowerCase().includes(q)),
+    );
+  });
+
+  /** The filtered profiles bucketed into titled groups per the group-by mode. */
+  protected readonly groups = computed<{ key: string; title: string; items: PrintProfile[] }[]>(
+    () => {
+      const items = this.filtered();
+      switch (this.groupBy()) {
+        case 'none':
+          return [{ key: 'all', title: '', items: sortByName(items) }];
+        case 'label': {
+          const groups: { key: string; title: string; items: PrintProfile[] }[] = [];
+          for (const label of this.labels.items()) {
+            const members = items.filter((p) => p.label_ids?.includes(label.id));
+            if (members.length) {
+              groups.push({ key: label.id, title: label.name, items: sortByName(members) });
+            }
+          }
+          const unlabeled = items.filter((p) => !p.label_ids?.length);
+          if (unlabeled.length) {
+            groups.push({ key: '__none', title: 'Unlabeled', items: sortByName(unlabeled) });
+          }
+          return groups;
+        }
+        default: {
+          // Group by quality tier, ordered by the canonical quality list.
+          return PRINT_QUALITIES.map((quality) => ({
+            key: quality,
+            title: quality,
+            items: sortByName(items.filter((p) => (p.quality ?? 'standard') === quality)),
+          })).filter((g) => g.items.length > 0);
+        }
+      }
+    },
   );
 
-  protected labelsOf(item: PrintProfile) {
-    return this.labels.resolve(item.label_ids);
+  protected readonly selected = computed(() => {
+    const id = this.selectedId();
+    return id ? (this.store.getById(id) ?? null) : null;
+  });
+
+  /** Whether the typed name matches the selected profile's name exactly. */
+  protected readonly deleteReady = computed(() => {
+    const p = this.selected();
+    return !!p && this.deleteText().trim() === p.name.trim();
+  });
+
+  constructor() {
+    // Arriving from the wizard's "Add & configure": open the new profile and
+    // scroll to the full editor so the user can keep tuning it.
+    const configureId = this.route.snapshot.queryParamMap.get('configure');
+    if (configureId && this.store.getById(configureId)) {
+      this.select(configureId);
+      afterNextRender(() => focusConfigureTarget('configure-target'));
+    }
+  }
+
+  protected setSearch(event: Event): void {
+    this.search.set((event.target as HTMLInputElement).value);
+  }
+
+  protected clearSearch(): void {
+    this.search.set('');
+  }
+
+  protected setGroupBy(value: string): void {
+    this.groupBy.set(value as 'category' | 'label' | 'none');
+  }
+
+  protected isDefault(id: string): boolean {
+    return this.active.profile()?.id === id;
   }
 
   protected toggleFilter(id: string): void {
@@ -123,17 +206,6 @@ export class ProfilesSettings {
     return Math.round(fraction * 100);
   }
 
-  protected openWizard(): void {
-    this.wizardOpen.set(true);
-  }
-
-  protected onWizardCompleted(profile: PrintProfile): void {
-    this.store.add(profile);
-    this.active.selectProfile(profile.id);
-    this.editingId.set(profile.id);
-    this.wizardOpen.set(false);
-  }
-
   protected openCatalog(): void {
     void this.catalog.load();
     this.catalogOpen.set(true);
@@ -150,38 +222,50 @@ export class ProfilesSettings {
     }
     const copy = this.store.importFromCatalog(entry);
     this.active.selectProfile(copy.id);
+    this.select(copy.id);
   }
 
-  protected selectActive(id: string): void {
+  /** Open a profile in the detail pane. */
+  protected select(id: string): void {
+    this.selectedId.set(id);
+    this.disarmDelete();
+  }
+
+  /** Make the selected profile the default used for slicing. */
+  protected setDefault(id: string): void {
     this.active.selectProfile(id);
-  }
-
-  protected toggleEditor(id: string): void {
-    this.editingId.update((current) => (current === id ? null : id));
   }
 
   protected duplicate(id: string): void {
     const copy = this.store.duplicate(id);
     if (copy) {
-      this.editingId.set(copy.id);
+      this.select(copy.id);
     }
   }
 
-  protected requestDelete(id: string): void {
-    if (this.confirmDeleteId() === id) {
-      this.store.remove(id);
-      this.confirmDeleteId.set(null);
-      if (this.editingId() === id) {
-        this.editingId.set(null);
-      }
-    } else {
-      this.confirmDeleteId.set(id);
-      setTimeout(() => {
-        if (this.confirmDeleteId() === id) {
-          this.confirmDeleteId.set(null);
-        }
-      }, 3000);
+  protected armDelete(): void {
+    this.deleteArmed.set(true);
+    this.deleteText.set('');
+  }
+
+  protected disarmDelete(): void {
+    this.deleteArmed.set(false);
+    this.deleteText.set('');
+  }
+
+  protected setDeleteText(event: Event): void {
+    this.deleteText.set((event.target as HTMLInputElement).value);
+  }
+
+  /** Delete the selected profile once its name has been typed to confirm. */
+  protected confirmDelete(): void {
+    const profile = this.selected();
+    if (!profile || !this.deleteReady()) {
+      return;
     }
+    this.store.remove(profile.id);
+    this.disarmDelete();
+    this.selectedId.set(this.store.items()[0]?.id ?? null);
   }
 
   protected readonly pnum = paramNum;
@@ -228,4 +312,9 @@ export class ProfilesSettings {
   protected setAdhesion(id: string, value: string): void {
     this.updateParams(id, { adhesion_type: value as AdhesionType });
   }
+}
+
+/** Case-insensitive sort by display name (non-mutating). */
+function sortByName(items: readonly PrintProfile[]): PrintProfile[] {
+  return [...items].sort((a, b) => a.name.localeCompare(b.name));
 }

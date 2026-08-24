@@ -1,1 +1,8 @@
 @use './settings';
+
+// The master–detail manage layout fills the settings content area and scrolls
+// its two columns independently, so the page host must claim the full height.
+:host {
+  display: block;
+  height: 100%;
+}

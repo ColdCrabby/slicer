@@ -14,6 +14,7 @@ import { RadioGroup } from '../../shared/radio-group/radio-group';
 import { StackWhenCramped } from '../../shared/radio-group/stack-when-cramped';
 import { TooltipDirective } from '../../shared/tooltip/tooltip.directive';
 import { Button } from '../../ui/button/button';
+import { ColorPicker } from '../../ui/color-picker/color-picker';
 import { EmptyState } from '../../ui/empty-state/empty-state';
 import { IconButton } from '../../ui/icon-button/icon-button';
 import { NumberInput } from '../../ui/number-input/number-input';
@@ -54,6 +55,7 @@ import { Switch } from '../../ui/switch/switch';
     Select,
     NexusRadioGroup,
     Segmented,
+    ColorPicker,
   ],
   templateUrl: './ui-components.component.html',
   styleUrl: './ui-components.component.scss',
@@ -77,6 +79,7 @@ export class UiComponentsPage implements OnDestroy {
   protected readonly pattern = signal('grid');
   protected readonly wallGenerator = signal('arachne');
   protected readonly qualityMode = signal('balanced');
+  protected readonly filamentColor = signal('#e0730f');
 
   protected readonly qualityOptions: readonly SegmentOption[] = [
     { value: 'draft', label: 'Draft', description: 'Fast, coarse layers' },
