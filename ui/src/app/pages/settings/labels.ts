@@ -2,6 +2,8 @@ import { ChangeDetectionStrategy, Component, computed, inject, signal } from '@a
 import { makeLabel, type Label, type LabelTone } from '../../models/label.model';
 import { ColorSwatchPicker } from '../../components/labels/color-swatch-picker';
 import { LabelChip } from '../../components/labels/label-chip';
+import { ContextMenuService } from '../../services/context-menu/context-menu.service';
+import type { ContextMenuItem } from '../../services/context-menu/context-menu.model';
 import { FilamentsStore } from '../../services/profiles/filaments-store';
 import { LabelsStore } from '../../services/profiles/labels-store';
 import { PrintProfilesStore } from '../../services/profiles/print-profiles-store';
@@ -24,6 +26,7 @@ export class LabelsSettings {
   private readonly printers = inject(PrintersStore);
   private readonly filaments = inject(FilamentsStore);
   private readonly profiles = inject(PrintProfilesStore);
+  private readonly contextMenu = inject(ContextMenuService);
 
   protected readonly editingId = signal<string | null>(null);
   protected readonly confirmDeleteId = signal<string | null>(null);
@@ -53,6 +56,31 @@ export class LabelsSettings {
 
   protected toggleEditor(id: string): void {
     this.editingId.update((current) => (current === id ? null : id));
+  }
+
+  /** Right-click a label row: edit, copy its colour, or delete. */
+  protected onContextMenu(event: MouseEvent, label: Label): void {
+    const items: ContextMenuItem[] = [
+      { label: 'Edit', icon: 'edit-pencil', action: () => this.editingId.set(label.id) },
+      {
+        label: 'Copy colour',
+        icon: 'copy',
+        action: () => void navigator.clipboard?.writeText(label.color),
+      },
+      { separator: true, label: '' },
+      {
+        label: 'Delete',
+        icon: 'trash',
+        danger: true,
+        action: () => {
+          this.store.remove(label.id);
+          if (this.editingId() === label.id) {
+            this.editingId.set(null);
+          }
+        },
+      },
+    ];
+    void this.contextMenu.open(event, items);
   }
 
   protected rename(id: string, event: Event): void {

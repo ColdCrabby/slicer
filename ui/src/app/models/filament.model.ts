@@ -101,7 +101,7 @@ export function makeFilament(overrides: Partial<FilamentProfile> = {}): Filament
   };
 }
 
-/** The single offline default filament (a generic PLA). */
+/** The default offline filament (a generic PLA). */
 export const DEFAULT_FILAMENT: FilamentProfile = makeFilament({
   id: 'builtin-generic-pla',
   name: 'Generic PLA',
@@ -111,4 +111,29 @@ export const DEFAULT_FILAMENT: FilamentProfile = makeFilament({
   color: '#d8d8dc',
 });
 
-export const DEFAULT_FILAMENTS: FilamentProfile[] = [DEFAULT_FILAMENT];
+/** A generic PETG built-in preset. */
+export const DEFAULT_PETG: FilamentProfile = makeFilament({
+  id: 'builtin-generic-petg',
+  name: 'Generic PETG',
+  source: 'builtin',
+  vendor: 'Generic',
+  material: 'PETG',
+  color: '#2f7fb8',
+});
+
+/** A generic ABS built-in preset. */
+export const DEFAULT_ABS: FilamentProfile = makeFilament({
+  id: 'builtin-generic-abs',
+  name: 'Generic ABS',
+  source: 'builtin',
+  vendor: 'Generic',
+  material: 'ABS',
+  color: '#3a3a3f',
+});
+
+/** Built-in presets for the three most common FDM materials. */
+export const DEFAULT_FILAMENTS: FilamentProfile[] = [
+  DEFAULT_FILAMENT,
+  DEFAULT_PETG,
+  DEFAULT_ABS,
+];

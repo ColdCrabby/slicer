@@ -1,0 +1,21 @@
+<div class="cm" role="menu">
+  @for (item of items(); track $index) {
+    @if (item.separator) {
+      <div class="cm-sep" role="separator"></div>
+    } @else {
+      <button
+        type="button"
+        role="menuitem"
+        class="cm-item"
+        [class.cm-item--danger]="item.danger"
+        [disabled]="item.disabled"
+        (click)="onItem(item)"
+      >
+        @if (item.icon) {
+          <span class="cm-icon"><nexus-icon [name]="item.icon" /></span>
+        }
+        <span class="cm-label">{{ item.label }}</span>
+      </button>
+    }
+  }
+</div>

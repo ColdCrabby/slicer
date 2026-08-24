@@ -64,6 +64,7 @@
                     type="button"
                     [class.is-selected]="selectedId() === filament.id"
                     (click)="select(filament.id)"
+                    (contextmenu)="onContextMenu($event, filament)"
                   >
                     <span class="mgr__card-swatch" [style.background]="filament.color"></span>
                     <span class="mgr__card-info">

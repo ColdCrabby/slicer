@@ -21,6 +21,8 @@ import {
   type GcodeTemplateStatus,
 } from '../../models/gcode-templates';
 import { CloudCatalog } from '../../services/catalog/cloud-catalog';
+import { ContextMenuService } from '../../services/context-menu/context-menu.service';
+import type { ContextMenuItem } from '../../services/context-menu/context-menu.model';
 import { PrinterConnectionService } from '../../services/printer-connection';
 import { ActiveSelection } from '../../services/profiles/active-selection';
 import { matchesAllLabels, toggledLabelIds } from '../../services/profiles/label-filtering';
@@ -77,6 +79,7 @@ export class PrintersSettings {
   protected readonly labels = inject(LabelsStore);
   private readonly filterStore = inject(LabelFilterStore);
   private readonly catalog = inject(CloudCatalog);
+  private readonly contextMenu = inject(ContextMenuService);
   private readonly printerConn = inject(PrinterConnectionService);
   private readonly route = inject(ActivatedRoute);
 
@@ -266,6 +269,39 @@ export class PrintersSettings {
     if (copy) {
       this.select(copy.id);
     }
+  }
+
+  /** Right-click a printer card: quick actions mirroring the detail-pane buttons. */
+  protected onContextMenu(event: MouseEvent, printer: PrinterProfile): void {
+    const items: ContextMenuItem[] = [
+      {
+        label: 'Set as default',
+        icon: 'star',
+        disabled: this.isDefault(printer.id),
+        action: () => this.setDefault(printer.id),
+      },
+      { label: 'Duplicate', icon: 'copy', action: () => this.duplicate(printer.id) },
+    ];
+    if ((printer.connection?.kind ?? 'none') !== 'none') {
+      items.push({
+        label: 'Test connection',
+        icon: 'wifi',
+        action: () => this.testConnection(printer),
+      });
+    }
+    if (printer.source !== 'builtin') {
+      items.push({ separator: true, label: '' });
+      items.push({
+        label: 'Delete\u2026',
+        icon: 'trash',
+        danger: true,
+        action: () => {
+          this.select(printer.id);
+          this.armDelete();
+        },
+      });
+    }
+    void this.contextMenu.open(event, items);
   }
 
   protected armDelete(): void {

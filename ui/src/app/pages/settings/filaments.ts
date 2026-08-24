@@ -10,6 +10,8 @@ import {
 } from '../../models/filament.model';
 import { PROFILE_SOURCE_LABELS } from '../../models/profile-source';
 import { CloudCatalog } from '../../services/catalog/cloud-catalog';
+import { ContextMenuService } from '../../services/context-menu/context-menu.service';
+import type { ContextMenuItem } from '../../services/context-menu/context-menu.model';
 import { ActiveSelection } from '../../services/profiles/active-selection';
 import { matchesAllLabels, toggledLabelIds } from '../../services/profiles/label-filtering';
 import { paramNum } from '../../models/params-access';
@@ -63,6 +65,7 @@ export class FilamentsSettings {
   protected readonly labels = inject(LabelsStore);
   private readonly filterStore = inject(LabelFilterStore);
   private readonly catalog = inject(CloudCatalog);
+  private readonly contextMenu = inject(ContextMenuService);
   private readonly route = inject(ActivatedRoute);
 
   protected readonly sourceLabels = PROFILE_SOURCE_LABELS;
@@ -231,6 +234,32 @@ export class FilamentsSettings {
     if (copy) {
       this.select(copy.id);
     }
+  }
+
+  /** Right-click a filament card: quick actions mirroring the detail-pane buttons. */
+  protected onContextMenu(event: MouseEvent, filament: FilamentProfile): void {
+    const items: ContextMenuItem[] = [
+      {
+        label: 'Set as default',
+        icon: 'star',
+        disabled: this.isDefault(filament.id),
+        action: () => this.setDefault(filament.id),
+      },
+      { label: 'Duplicate', icon: 'copy', action: () => this.duplicate(filament.id) },
+    ];
+    if (filament.source !== 'builtin') {
+      items.push({ separator: true, label: '' });
+      items.push({
+        label: 'Delete\u2026',
+        icon: 'trash',
+        danger: true,
+        action: () => {
+          this.select(filament.id);
+          this.armDelete();
+        },
+      });
+    }
+    void this.contextMenu.open(event, items);
   }
 
   protected armDelete(): void {

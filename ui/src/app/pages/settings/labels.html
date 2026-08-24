@@ -12,7 +12,7 @@
   @if (store.items().length > 0) {
     <div class="profile-list">
       @for (label of store.items(); track label.id) {
-        <div class="profile-card label-row">
+        <div class="profile-card label-row" (contextmenu)="onContextMenu($event, label)">
           <button class="label-row__main" type="button" (click)="toggleEditor(label.id)">
             <nexus-label-chip [label]="chipFor(label)" />
             <span class="label-row__usage">

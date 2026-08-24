@@ -97,7 +97,7 @@ pub fn default_printer() -> PrinterProfile {
     p
 }
 
-/// The single offline default filament (a generic PLA).
+/// The default offline filament (a generic PLA). Kept as the resolve fallback.
 pub fn default_filament() -> FilamentProfile {
     let mut f = base_filament(
         ProfileMeta::builtin("builtin-generic-pla", "Generic PLA"),
@@ -106,6 +106,34 @@ pub fn default_filament() -> FilamentProfile {
     f.vendor = "Generic".to_string();
     f.color = "#d8d8dc".to_string();
     f
+}
+
+/// A generic PETG built-in preset.
+pub fn default_petg() -> FilamentProfile {
+    let mut f = base_filament(
+        ProfileMeta::builtin("builtin-generic-petg", "Generic PETG"),
+        FilamentMaterial::PETG,
+    );
+    f.vendor = "Generic".to_string();
+    f.color = "#2f7fb8".to_string();
+    f
+}
+
+/// A generic ABS built-in preset.
+pub fn default_abs() -> FilamentProfile {
+    let mut f = base_filament(
+        ProfileMeta::builtin("builtin-generic-abs", "Generic ABS"),
+        FilamentMaterial::ABS,
+    );
+    f.vendor = "Generic".to_string();
+    f.color = "#3a3a3f".to_string();
+    f
+}
+
+/// The built-in offline filament presets: PLA, PETG, ABS — the three most
+/// common FDM materials.
+pub fn default_filaments() -> Vec<FilamentProfile> {
+    vec![default_filament(), default_petg(), default_abs()]
 }
 
 /// The single offline default process profile.
