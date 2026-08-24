@@ -173,7 +173,12 @@ async fn run_server(
                         web::get().to(handlers::download_file_handler),
                     )
                     .route("/config", web::get().to(handlers::get_config_handler))
-                    .route("/config", web::patch().to(handlers::patch_config_handler)),
+                    .route("/config", web::patch().to(handlers::patch_config_handler))
+                    .route("/profiles", web::get().to(handlers::get_profiles_handler))
+                    .route(
+                        "/profiles/{kind}",
+                        web::put().to(handlers::put_profiles_category_handler),
+                    ),
             )
             // WebSocket endpoint
             .route("/ws", web::get().to(ws_session::ws_handler))

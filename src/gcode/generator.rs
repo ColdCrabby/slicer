@@ -1726,9 +1726,15 @@ mod tests {
             ..SlicingParams::default()
         };
         let gcode = generate_gcode_from_params(&[], &params);
-        assert!(gcode.contains("START_PRINT BED_TEMP=60"), "start not applied: {gcode}");
+        assert!(
+            gcode.contains("START_PRINT BED_TEMP=60"),
+            "start not applied: {gcode}"
+        );
         // Blank end block keeps the Klipper dialect default.
-        assert!(gcode.contains("END_PRINT"), "blank end should fall back: {gcode}");
+        assert!(
+            gcode.contains("END_PRINT"),
+            "blank end should fall back: {gcode}"
+        );
     }
 
     // ── Metadata header ────────────────────────────────────────────────────────

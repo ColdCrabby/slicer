@@ -377,32 +377,28 @@
                 Placeholders resolved at slice time: {{ gcodePlaceholderHint }}
               </p>
               <nexus-field-row label="Start G-code" [stacked]="true">
-                <textarea
-                  class="wz-textarea"
-                  rows="6"
-                  spellcheck="false"
-                  [value]="pstr(printer.params, 'start_gcode')"
-                  (change)="setStartGcode(printer.id, $event)"
-                ></textarea>
+                <nexus-code-editor
+                  class="gcode-editor"
+                  language="gcode"
+                  [content]="pstr(printer.params, 'start_gcode')"
+                  (contentChange)="setStartGcode(printer.id, $event)"
+                ></nexus-code-editor>
               </nexus-field-row>
               <nexus-field-row label="Layer change G-code" [stacked]="true">
-                <textarea
-                  class="wz-textarea wz-textarea--compact"
-                  rows="3"
-                  spellcheck="false"
-                  placeholder="Runs at every layer change (optional)"
-                  [value]="pstr(printer.params, 'layer_gcode')"
-                  (change)="setLayerGcode(printer.id, $event)"
-                ></textarea>
+                <nexus-code-editor
+                  class="gcode-editor gcode-editor--compact"
+                  language="gcode"
+                  [content]="pstr(printer.params, 'layer_gcode')"
+                  (contentChange)="setLayerGcode(printer.id, $event)"
+                ></nexus-code-editor>
               </nexus-field-row>
               <nexus-field-row label="End G-code" [stacked]="true">
-                <textarea
-                  class="wz-textarea"
-                  rows="6"
-                  spellcheck="false"
-                  [value]="pstr(printer.params, 'end_gcode')"
-                  (change)="setEndGcode(printer.id, $event)"
-                ></textarea>
+                <nexus-code-editor
+                  class="gcode-editor"
+                  language="gcode"
+                  [content]="pstr(printer.params, 'end_gcode')"
+                  (contentChange)="setEndGcode(printer.id, $event)"
+                ></nexus-code-editor>
               </nexus-field-row>
             </div>
           </div>

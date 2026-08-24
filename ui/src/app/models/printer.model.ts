@@ -3,6 +3,7 @@ import type {
   PrinterConnection,
 } from '../../generated/slicer-engine-ws-client-message-v1';
 import type { SceneBedSnapshot } from '../services/scene-engine';
+import { DEFAULT_GCODE_TEMPLATE_ID, gcodeTemplatePatch } from './gcode-templates';
 import { uid } from './id';
 
 /**
@@ -42,27 +43,6 @@ export const PRINTER_GCODE_FLAVORS: { value: PrinterGcodeFlavor; label: string }
   { value: 'klipper', label: 'Klipper' },
 ];
 
-const DEFAULT_START_GCODE = `; Nexus standard Marlin start
-G21 ; millimetres
-G90 ; absolute positioning
-M82 ; extruder absolute mode
-M140 S{bed_temp_first_layer} ; set bed temperature
-M104 S{nozzle_temp_first_layer} ; set nozzle temperature
-G28 ; home all axes
-M190 S{bed_temp_first_layer} ; wait for bed temperature
-M109 S{nozzle_temp_first_layer} ; wait for nozzle temperature
-G92 E0 ; reset extruder
-G1 Z2.0 F3000 ; lift nozzle`;
-
-const DEFAULT_END_GCODE = `; Nexus standard Marlin end
-G91 ; relative positioning
-G1 E-2 F2700 ; retract
-G1 Z10 F3000 ; lift
-G90 ; absolute positioning
-M104 S0 ; nozzle off
-M140 S0 ; bed off
-M84 ; disable steppers`;
-
 /** Default hardware slice params contributed by a from-scratch printer. */
 export function defaultPrinterParams(): Record<string, unknown> {
   return {
@@ -74,9 +54,8 @@ export function defaultPrinterParams(): Record<string, unknown> {
     retract_mm: 0.8,
     retract_speed_mm_min: 2400,
     z_hop_mm: 0.2,
-    gcode_flavor: 'marlin',
-    start_gcode: DEFAULT_START_GCODE,
-    end_gcode: DEFAULT_END_GCODE,
+    // Blocks + template association (id/rev) so edits show "Modified from …".
+    ...gcodeTemplatePatch(DEFAULT_GCODE_TEMPLATE_ID),
   };
 }
 

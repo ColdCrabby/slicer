@@ -7,9 +7,11 @@ import {
     effect,
     inject,
     input,
+    output,
     viewChild,
 } from '@angular/core';
 import type * as Monaco from 'monaco-editor';
+import { NEXUS_CODE_THEME, registerGcodeLanguage } from './gcode-language';
 
 // Extend the window type to allow the MonacoEnvironment global required by the
 // Monaco editor loader.
@@ -59,9 +61,13 @@ export class CodeEditor {
   readonly language = input('plaintext');
   /** When true the editor is read-only. */
   readonly readOnly = input(false);
+  /** Emits the editor's text whenever the user edits it. */
+  readonly contentChange = output<string>();
 
   private readonly mount = viewChild.required<ElementRef<HTMLDivElement>>('mount');
   private editor: Monaco.editor.IStandaloneCodeEditor | null = null;
+  /** Guards the change output from firing during programmatic `setValue`. */
+  private applyingExternal = false;
 
   constructor() {
     const destroyRef = inject(DestroyRef);
@@ -76,7 +82,9 @@ export class CodeEditor {
       const readOnly = this.readOnly();
       if (this.editor) {
         if (this.editor.getValue() !== value) {
+          this.applyingExternal = true;
           this.editor.setValue(value);
+          this.applyingExternal = false;
         }
         this.editor.updateOptions({ readOnly });
       }
@@ -114,10 +122,12 @@ export class CodeEditor {
     // chunk — it is only fetched when the panel is first opened.
     const monaco = await import('monaco-editor');
 
+    registerGcodeLanguage(monaco);
+
     this.editor = monaco.editor.create(this.mount().nativeElement, {
       value: this.content(),
       language: this.language(),
-      theme: 'vs-dark',
+      theme: NEXUS_CODE_THEME,
       automaticLayout: true,
       fontSize: 13,
       minimap: { enabled: false },
@@ -128,6 +138,12 @@ export class CodeEditor {
       folding: true,
       foldingStrategy: 'indentation',
       showFoldingControls: 'always',
+    });
+
+    this.editor.onDidChangeModelContent(() => {
+      if (!this.applyingExternal && this.editor) {
+        this.contentChange.emit(this.editor.getValue());
+      }
     });
   }
 }

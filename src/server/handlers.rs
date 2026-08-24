@@ -78,6 +78,45 @@ pub async fn patch_config_handler(body: web::Json<PatchConfigRequest>) -> actix_
     }))
 }
 
+// ── Profile library handlers ──────────────────────────────────────────────────
+
+/// `GET /api/profiles` — return the whole user-owned profile library
+/// (printers, filaments, processes, labels) persisted beside the engine.
+///
+/// This is what the UI hydrates from on startup in cloud mode, so the user's
+/// printers/filaments/profiles live with the slicer and survive a browser
+/// cache wipe.
+pub async fn get_profiles_handler() -> actix_web::HttpResponse {
+    match crate::profiles::ProfileStore::new().load() {
+        Ok(library) => actix_web::HttpResponse::Ok().json(library),
+        Err(e) => actix_web::HttpResponse::InternalServerError()
+            .json(serde_json::json!({ "error": e.to_string() })),
+    }
+}
+
+/// `PUT /api/profiles/{kind}` — replace one category (`printers`, `filaments`,
+/// `processes`, or `labels`) with the posted JSON array and persist to
+/// `profiles.toml`.
+///
+/// Whole-category, last-writer-wins: the UI sends the full list for a category
+/// on any add / edit / delete, mirroring how it used to overwrite the whole
+/// localStorage blob. Returns the updated library.
+pub async fn put_profiles_category_handler(
+    path: web::Path<String>,
+    body: web::Json<serde_json::Value>,
+) -> actix_web::HttpResponse {
+    let Some(kind) = crate::profiles::ProfileKind::parse(&path.into_inner()) else {
+        return actix_web::HttpResponse::NotFound()
+            .json(serde_json::json!({ "error": "unknown profile category" }));
+    };
+
+    match crate::profiles::ProfileStore::new().replace_category(kind, body.into_inner()) {
+        Ok(library) => actix_web::HttpResponse::Ok().json(library),
+        Err(e) => actix_web::HttpResponse::BadRequest()
+            .json(serde_json::json!({ "error": e.to_string() })),
+    }
+}
+
 /// Handle file upload: save the file with its original extension and return
 /// `{ ruuid, ofids: [file_uuid] }`. The workplate UUID and the file UUID are
 /// distinct — the slice protocol references files by `file_uuid` and never by

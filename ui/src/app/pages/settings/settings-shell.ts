@@ -1,5 +1,6 @@
 import { ChangeDetectionStrategy, Component } from '@angular/core';
 import { RouterLink, RouterLinkActive, RouterOutlet } from '@angular/router';
+import { resolveRuntimeMode } from '../../runtime/domain/runtime-mode.util';
 import { Icon } from '../../shared/icon/icon';
 
 interface SettingsSection {
@@ -7,6 +8,17 @@ interface SettingsSection {
   label: string;
   icon: string;
 }
+
+/**
+ * Where the profile library is persisted for the active runtime, used to
+ * reassure the user (or warn them) about what survives clearing this browser.
+ *
+ * - `device` (native) — saved locally, next to the engine.
+ * - `server` (cloud) — saved on the slicer server; safe if this browser is
+ *   wiped.
+ * - `browser` (web/wasm) — kept only in this browser; losable.
+ */
+type StorageMode = 'device' | 'server' | 'browser';
 
 /** Settings area frame: a section sub-nav on the left, routed content right. */
 @Component({
@@ -28,12 +40,17 @@ export class SettingsShell {
   ];
 
   /**
-   * True only inside the native desktop shell, where settings live in the
-   * app's own persistent storage. Every other build (web/cloud) runs in a
-   * browser and keeps settings in that browser's local storage, which is wiped
-   * by clearing site data or reinstalling the browser.
+   * Where the profile library is persisted for the active runtime. Drives the
+   * sidebar storage notice.
    */
-  protected readonly isDesktop =
-    typeof globalThis !== 'undefined' &&
-    ('__TAURI_INTERNALS__' in globalThis || '__TAURI__' in globalThis);
+  protected readonly storageMode: StorageMode = ((): StorageMode => {
+    switch (resolveRuntimeMode()) {
+      case 'native':
+        return 'device';
+      case 'cloud':
+        return 'server';
+      default:
+        return 'browser';
+    }
+  })();
 }

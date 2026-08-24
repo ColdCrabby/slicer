@@ -17,23 +17,38 @@
     </nav>
 
     <aside class="settings-storage-note" role="note">
-      <p class="settings-storage-note-title">
-        <nexus-icon
-          class="settings-storage-note-icon"
-          [name]="isDesktop ? 'hard-drive' : 'database'"
-        />
-        <span>{{ isDesktop ? 'Saved on this device' : 'Stored in this browser' }}</span>
-      </p>
-      @if (isDesktop) {
-        <p class="settings-storage-note-text">
-          Your settings are saved locally by the app and stay put across sessions and updates.
-        </p>
-      } @else {
-        <p class="settings-storage-note-text">
-          Everything — including your profiles, filaments and printers — is kept in this browser
-          only. Clearing your cache or site data, resetting settings, or reinstalling the browser
-          will erase it.
-        </p>
+      @switch (storageMode) {
+        @case ('device') {
+          <p class="settings-storage-note-title">
+            <nexus-icon class="settings-storage-note-icon" name="hard-drive" />
+            <span>Saved on this device</span>
+          </p>
+          <p class="settings-storage-note-text">
+            Your printers, filaments, and profiles are saved on this computer, next to the slicer.
+            Appearance and view preferences stay in this browser view.
+          </p>
+        }
+        @case ('server') {
+          <p class="settings-storage-note-title">
+            <nexus-icon class="settings-storage-note-icon" name="cloud-check" />
+            <span>Saved on the slicer</span>
+          </p>
+          <p class="settings-storage-note-text">
+            Your printers, filaments, and profiles are saved on the slicer server, so they're safe
+            if you clear this browser. Only appearance and view preferences live here.
+          </p>
+        }
+        @default {
+          <p class="settings-storage-note-title">
+            <nexus-icon class="settings-storage-note-icon" name="database" />
+            <span>Stored in this browser</span>
+          </p>
+          <p class="settings-storage-note-text">
+            Everything — including your profiles, filaments, and printers — is kept in this browser
+            only. Clearing your cache or site data, resetting settings, or reinstalling the browser
+            will erase it.
+          </p>
+        }
       }
     </aside>
   </aside>

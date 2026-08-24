@@ -115,6 +115,8 @@ classDiagram
 | `/api/download/:ruuid` | GET    | Stream the G-code produced for that workplate                                 |
 | `/api/config`          | GET    | Return the fully-merged `AppConfig`                                           |
 | `/api/config`          | PATCH  | Update one config key, persist to `slicer.toml`                               |
+| `/api/profiles`        | GET    | Return the user-owned profile library (printers/filaments/processes/labels)  |
+| `/api/profiles/:kind`  | PUT    | Replace one category from a JSON array, persist to `profiles.toml`           |
 | `/*` (anything else)   | GET    | Serve the Angular bundle from `ui_dir`                                        |
 
 `POST /api/upload` enforces a 500 MB file-size cap, only reads the

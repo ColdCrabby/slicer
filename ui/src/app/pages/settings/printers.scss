@@ -15,8 +15,15 @@
   word-break: break-word;
 }
 
-.wz-textarea--compact {
-  min-height: 64px;
+.gcode-editor {
+  height: 180px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md, 8px);
+  overflow: hidden;
+}
+
+.gcode-editor--compact {
+  height: 96px;
 }
 
 .conn-test {

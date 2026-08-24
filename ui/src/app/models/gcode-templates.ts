@@ -107,6 +107,9 @@ export const GCODE_TEMPLATES: readonly GcodeTemplate[] = [
   KLIPPAIN,
 ];
 
+/** Template a from-scratch printer starts attached to. */
+export const DEFAULT_GCODE_TEMPLATE_ID = STANDARD_MARLIN.id;
+
 /** Dropdown options including the trailing "Custom" entry. */
 export const GCODE_TEMPLATE_OPTIONS: { value: string; label: string; description?: string }[] = [
   ...GCODE_TEMPLATES.map((t) => ({ value: t.id, label: t.label, description: t.description })),

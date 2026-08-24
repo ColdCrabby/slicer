@@ -31,6 +31,7 @@ import { PrintersStore } from '../../services/profiles/printers-store';
 import { Icon } from '../../shared/icon/icon';
 import { Badge } from '../../shared/badge/badge';
 import { CatalogPicker, type CatalogEntryVm } from '../../components/profiles/catalog-picker';
+import { CodeEditor } from '../../components/code-editor/code-editor';
 import { LabelFilterBar } from '../../components/labels/label-filter-bar';
 import { LabelPicker } from '../../components/labels/label-picker';
 import { focusConfigureTarget } from './configure-scroll';
@@ -56,6 +57,7 @@ import { Switch } from '../../ui/switch/switch';
     Badge,
     RouterLink,
     CatalogPicker,
+    CodeEditor,
     ModalShell,
     FieldRow,
     NumberInput,
@@ -368,16 +370,16 @@ export class PrintersSettings {
     }
   }
 
-  protected setStartGcode(id: string, event: Event): void {
-    this.updateParams(id, { start_gcode: (event.target as HTMLTextAreaElement).value });
+  protected setStartGcode(id: string, value: string): void {
+    this.updateParams(id, { start_gcode: value });
   }
 
-  protected setEndGcode(id: string, event: Event): void {
-    this.updateParams(id, { end_gcode: (event.target as HTMLTextAreaElement).value });
+  protected setEndGcode(id: string, value: string): void {
+    this.updateParams(id, { end_gcode: value });
   }
 
-  protected setLayerGcode(id: string, event: Event): void {
-    this.updateParams(id, { layer_gcode: (event.target as HTMLTextAreaElement).value });
+  protected setLayerGcode(id: string, value: string): void {
+    this.updateParams(id, { layer_gcode: value });
   }
 
   // ── Connection ────────────────────────────────────────────────────────────

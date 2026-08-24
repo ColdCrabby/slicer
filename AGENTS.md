@@ -313,6 +313,49 @@ miss the fresh slice is stored. Notes:
 - Cache is best-effort: a dangling row (file cleaned up) is evicted lazily on
   lookup and the scene re-sliced.
 
+## Profile library — persisted next to the engine
+
+User-owned profile *instances* (printers, filaments, process profiles, and the
+flat label vocabulary) must live **where the engine runs**, not only in the
+browser's `localStorage` — otherwise a cloud user who clears their browser
+silently loses every printer/filament even though the slicer is safe on a
+server. [src/profiles/store.rs](src/profiles/store.rs) is the engine-side store.
+
+- **TOML at rest, JSON on the wire.** The library is `profiles.toml` beside
+  `slicer.toml` in [`config_dir()`](src/config/io.rs); the UI↔engine transport
+  is JSON. The profile structs are JSON-native (`#[serde(flatten)]` meta + a
+  dynamic `serde_json::Value` `params` bag) which the `toml` serializer cannot
+  encode directly, so `ProfileStore` bridges through `serde_json::Value` and
+  drops nulls. **Do not try to `toml::to_string` a profile struct directly.**
+- **SQLite is only history + `gcode_cache`.** Profiles never touch the DB.
+- **Whole-category, last-writer-wins sync.** The unit is a category
+  (`ProfileKind::{Printers,Filaments,Processes,Labels}`); the UI sends the full
+  array on any add/edit/delete, mirroring the old whole-blob `localStorage`
+  write. Single-tenant — one library per engine instance, no auth/identity.
+- **Three transports, one store.** Server: `GET /api/profiles` +
+  `PUT /api/profiles/:kind` ([server/handlers.rs](src/server/handlers.rs)).
+  Native: Tauri `profiles_load` / `profiles_save_category`
+  ([ui-desktop/src-tauri/src/commands.rs](ui-desktop/src-tauri/src/commands.rs)).
+  Both call the same `ProfileStore`.
+- **UI: [`ProfilePersistence`](ui/src/app/services/profiles/profile-persistence.ts)**
+  has three adapters (browser / remote-REST / native-invoke) picked by
+  [`resolveRuntimeMode()`](ui/src/app/runtime/domain/runtime-mode.util.ts) —
+  **not** `environment.runtimeMode` alone, because the desktop build ships the
+  `cloud` environment and only becomes `native` by detecting Tauri at runtime.
+  `localStorage` stays a fast cache in every mode; engine-backed runtimes also
+  hydrate from and write through to the store. On first run against an empty
+  engine store the local library is pushed up (migration), never clobbered.
+- **UI "print profiles" == engine "processes".** The store key is
+  `profiles.printProfiles.v2` but the wire/category token is `processes`.
+- **`Label` is snake-case aligned** (`{id,name,color,tone}`) across
+  [store.rs](src/profiles/store.rs) and
+  [label.model.ts](ui/src/app/models/label.model.ts). The UI profile models are
+  the engine's generated types (snake_case, no mapping layer), so store items
+  serialize to the engine byte-compatibly.
+- **The settings-sidebar notice** reflects this: native = "saved on this
+  device", cloud = "saved on the slicer" (safe if the browser is wiped), web =
+  "kept in this browser only" (losable).
+
 ## Scene Engine — SSOT Contract
 
 [src/scene/](src/scene/) is the **single source of truth** for object placement, orientation, and transforms. Issue #51 introduced it; CLI, WS server, and the Angular UI (via WASM) all consume the same `SceneState::apply()` code path. Every CLI flag and every UI gesture must translate to a `SceneOp`.

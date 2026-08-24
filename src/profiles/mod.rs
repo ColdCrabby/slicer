@@ -39,6 +39,11 @@ pub mod printer;
 pub mod process;
 pub mod resolve;
 
+// On-disk profile persistence (TOML). Native/server only — the wasm build has
+// no filesystem and keeps the library in the browser's localStorage instead.
+#[cfg(not(target_arch = "wasm32"))]
+pub mod store;
+
 #[cfg(all(target_arch = "wasm32", feature = "web-slicer"))]
 pub mod wasm;
 
@@ -47,6 +52,9 @@ pub use meta::{ProfileMeta, ProfileSource};
 pub use printer::{BedShape, PrinterConnection, PrinterConnectionKind, PrinterProfile};
 pub use process::{PrintQuality, ProcessProfile};
 pub use resolve::{resolve, ProfileSelection};
+
+#[cfg(not(target_arch = "wasm32"))]
+pub use store::{Label, LabelTone, ProfileKind, ProfileLibrary, ProfileStore};
 
 #[cfg(test)]
 mod tests {
