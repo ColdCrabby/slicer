@@ -535,12 +535,6 @@ async fn handle_slice(
         }
         t_write.finish();
 
-        let complete = ServerMessage::SliceComplete {
-            layer_count,
-            download_url: format!("{}/api/download/{}", base_url, uuid),
-        };
-        let _ = tx.blocking_send(to_json(&complete));
-
         // Finish overall timing
         t_total.finish();
 
@@ -579,17 +573,46 @@ async fn handle_slice(
         }
     };
 
-    // Update database with G-code file info
-    if let Ok(file_size) = std::fs::metadata(&gcode_output_path).map(|m| m.len()) {
-        let _ = db
-            .set_download_file(uuid, &gcode_output_path, file_size)
-            .await;
-        // Populate the content cache so an identical future scene skips slicing.
-        if let Some(layer_count) = sliced_layer_count {
-            let _ = db
-                .put_cached_gcode(&cache_key, &gcode_output_path, file_size, layer_count)
+    // Update database with G-code file info before announcing completion, so
+    // the client can fetch `/api/download/{uuid}` immediately without racing
+    // a not-yet-populated `download_file_path` (blank viewer / 404).
+    if let Some(layer_count) = sliced_layer_count {
+        let file_size = match std::fs::metadata(&gcode_output_path).map(|m| m.len()) {
+            Ok(size) => size,
+            Err(e) => {
+                let _ = send_msg(
+                    session,
+                    &ServerMessage::error(format!(
+                        "Failed to inspect G-code output for download: {e}"
+                    )),
+                )
                 .await;
+                return;
+            }
+        };
+
+        if let Err(e) = db.set_download_file(uuid, &gcode_output_path, file_size).await {
+            let _ = send_msg(
+                session,
+                &ServerMessage::error(format!("Failed to register G-code download: {e}")),
+            )
+            .await;
+            return;
         }
+
+        // Populate the content cache so an identical future scene skips slicing.
+        let _ = db
+            .put_cached_gcode(&cache_key, &gcode_output_path, file_size, layer_count)
+            .await;
+
+        let _ = send_msg(
+            session,
+            &ServerMessage::SliceComplete {
+                layer_count,
+                download_url: format!("{}/api/download/{}", base_url, uuid),
+            },
+        )
+        .await;
     }
 }
 
