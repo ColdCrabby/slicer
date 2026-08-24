@@ -2059,11 +2059,8 @@ CHAMBER={chamber_temp} MATERIAL={filament_type}"
     #[test]
     fn test_klipper_dialect_set_fan_speed_indexed_defaults() {
         let d = KlipperDialect;
-        // P0 → fan, P1 → fan_hotend, P2 → fan_chamber, P3 → fan_aux
-        assert_eq!(
-            d.set_fan_speed_indexed(0, None, 1.0),
-            "SET_FAN_SPEED fan=fan speed=1.0000"
-        );
+        // P0 (part-cooling) → M106/M107; P1 → fan_hotend, P2 → fan_chamber, P3 → fan_aux
+        assert_eq!(d.set_fan_speed_indexed(0, None, 1.0), "M106 S255");
         assert_eq!(
             d.set_fan_speed_indexed(1, None, 0.0),
             "SET_FAN_SPEED fan=fan_hotend speed=0.0000"
@@ -2131,6 +2128,16 @@ CHAMBER={chamber_temp} MATERIAL={filament_type}"
             d.set_fan_speed_indexed(0, Some("side_blast"), 0.5),
             "SET_FAN_SPEED fan=side_blast speed=0.5000"
         );
+    }
+
+    #[test]
+    fn test_klipper_dialect_part_cooling_fan_uses_m106() {
+        // The default part-cooling fan (index 0, no name) must use M106/M107 —
+        // Klipper's `[fan]` object rejects SET_FAN_SPEED.
+        let d = KlipperDialect;
+        assert_eq!(d.set_fan_speed_indexed(0, None, 0.0), "M107");
+        assert_eq!(d.set_fan_speed_indexed(0, None, 1.0), "M106 S255");
+        assert_eq!(d.set_fan_speed_indexed(0, None, 0.5), "M106 S128");
     }
 
     #[test]
@@ -2383,10 +2390,15 @@ CHAMBER={chamber_temp} MATERIAL={filament_type}"
             ..SlicingParams::default()
         };
         let gcode = GcodeGenerator::new(GcodeFlavor::Klipper).generate(&[layer], &params);
-        // Both fans should use Klipper SET_FAN_SPEED syntax
+        // Part-cooling fan uses M106/M107 (Klipper's `[fan]` rejects SET_FAN_SPEED);
+        // named/auxiliary fans use SET_FAN_SPEED syntax.
         assert!(
-            gcode.contains("SET_FAN_SPEED fan=fan "),
+            gcode.contains("M106") || gcode.contains("M107"),
             "expected part-cooling fan command in:\n{gcode}"
+        );
+        assert!(
+            !gcode.contains("SET_FAN_SPEED fan=fan "),
+            "part-cooling fan must not use SET_FAN_SPEED fan=fan in:\n{gcode}"
         );
         assert!(
             gcode.contains("SET_FAN_SPEED fan=fan_chamber "),

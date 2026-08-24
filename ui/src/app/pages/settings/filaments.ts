@@ -8,8 +8,8 @@ import {
   type FilamentMaterial,
   type FilamentProfile,
 } from '../../models/filament.model';
-import { PROFILE_SOURCE_LABELS } from '../../models/profile-source';
-import { CloudCatalog } from '../../services/catalog/cloud-catalog';
+import type { FanConfig } from '../../../generated/slicer-engine-global-settings-v1';
+import { PROFILE_SOURCE_LABELS } from '../../models/profile-source';import { CloudCatalog } from '../../services/catalog/cloud-catalog';
 import { ContextMenuService } from '../../services/context-menu/context-menu.service';
 import type { ContextMenuItem } from '../../services/context-menu/context-menu.model';
 import { ActiveSelection } from '../../services/profiles/active-selection';
@@ -21,6 +21,7 @@ import { FilamentsStore } from '../../services/profiles/filaments-store';
 import { Icon } from '../../shared/icon/icon';
 import { Badge } from '../../shared/badge/badge';
 import { CatalogPicker, type CatalogEntryVm } from '../../components/profiles/catalog-picker';
+import { FanConfigsEditor } from '../../components/profiles/fan-configs-editor';
 import { LabelFilterBar } from '../../components/labels/label-filter-bar';
 import { LabelPicker } from '../../components/labels/label-picker';
 import { focusConfigureTarget } from './configure-scroll';
@@ -54,6 +55,7 @@ import { ColorPicker } from '../../ui/color-picker/color-picker';
     Segmented,
     LabelFilterBar,
     LabelPicker,
+    FanConfigsEditor,
   ],
   templateUrl: './filaments.html',
   styleUrl: './filaments.scss',
@@ -288,6 +290,16 @@ export class FilamentsSettings {
   }
 
   protected readonly pnum = paramNum;
+
+  /** The fan-cooling table stored in a filament's params (empty when unset). */
+  protected fanConfigs(params: unknown): FanConfig[] {
+    const configs = (params as Record<string, unknown> | undefined)?.['fan_configs'];
+    return Array.isArray(configs) ? (configs as FanConfig[]) : [];
+  }
+
+  protected setFanConfigs(id: string, configs: FanConfig[]): void {
+    this.updateParams(id, { fan_configs: configs });
+  }
 
   protected update(id: string, patch: Partial<FilamentProfile>): void {
     this.store.update(id, patch);

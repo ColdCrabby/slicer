@@ -213,7 +213,10 @@ fn enrich_from_moonraker_objects(detection: &mut PrinterDetection, status: &serd
     let min = &status["toolhead"]["axis_minimum"];
     let span = |i: usize| -> Option<f64> {
         let hi = max.get(i)?.as_f64()?;
-        let lo = min.get(i).and_then(serde_json::Value::as_f64).unwrap_or(0.0);
+        let lo = min
+            .get(i)
+            .and_then(serde_json::Value::as_f64)
+            .unwrap_or(0.0);
         let span = if lo < 0.0 { hi - lo } else { hi };
         (span > 0.0).then_some((span * 10.0).round() / 10.0)
     };
@@ -267,9 +270,7 @@ async fn detect_api_version(client: &reqwest::Client, base: &str) -> Option<Prin
         Some(PrinterDetection {
             reachable: true,
             kind: PrinterConnectionKind::Octoprint,
-            message: Some(
-                "Found an OctoPrint host. Add its API key to finish setup.".to_string(),
-            ),
+            message: Some("Found an OctoPrint host. Add its API key to finish setup.".to_string()),
             ..Default::default()
         })
     } else {
@@ -511,7 +512,6 @@ fn moonraker_error_message(body: &str) -> Option<String> {
     let trimmed = message.trim();
     (!trimmed.is_empty()).then(|| trimmed.to_string())
 }
-
 
 /// Moonraker filenames may not contain path separators.
 fn sanitize_filename(name: &str) -> String {

@@ -458,7 +458,9 @@ impl Database {
         // Collect on-disk paths before dropping the rows so we can unlink them.
         let all_requests = requests::Entity::find().all(&self.conn).await?;
         let all_files = files::Entity::find().all(&self.conn).await?;
-        let all_cache = entities::gcode_cache::Entity::find().all(&self.conn).await?;
+        let all_cache = entities::gcode_cache::Entity::find()
+            .all(&self.conn)
+            .await?;
 
         for r in &all_requests {
             if let Some(ref p) = r.download_file_path {

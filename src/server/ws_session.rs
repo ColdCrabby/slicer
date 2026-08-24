@@ -591,7 +591,10 @@ async fn handle_slice(
             }
         };
 
-        if let Err(e) = db.set_download_file(uuid, &gcode_output_path, file_size).await {
+        if let Err(e) = db
+            .set_download_file(uuid, &gcode_output_path, file_size)
+            .await
+        {
             let _ = send_msg(
                 session,
                 &ServerMessage::error(format!("Failed to register G-code download: {e}")),

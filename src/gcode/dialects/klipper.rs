@@ -49,7 +49,9 @@ impl KlipperDialect {
     /// Return the Klipper fan name for a given fan index.
     ///
     /// Klipper uses named fans rather than P-indexed M106 commands:
-    /// - P0 → `fan` (part-cooling, the default Klipper fan object)
+    /// - P0 → `fan` (part-cooling; note the default `[fan]` object is driven by
+    ///   `M106`/`M107`, so [`KlipperDialect::set_fan_speed_indexed`] only uses
+    ///   this name when an explicit override is not supplied for a non-zero index)
     /// - P1 → `fan_hotend`
     /// - P2 → `fan_chamber`
     /// - P3 and above → `fan_aux`
@@ -90,14 +92,32 @@ impl GcodeDialect for KlipperDialect {
         vec!["END_PRINT".to_string()]
     }
 
-    /// Klipper uses `SET_FAN_SPEED fan=<name> speed=<0.0–1.0>` instead of
-    /// Marlin's `M106 P<n> S<0–255>`.
+    /// Named Klipper fans use `SET_FAN_SPEED fan=<name> speed=<0.0–1.0>`; the
+    /// default part-cooling fan uses `M106`/`M107` instead.
     ///
-    /// The fan name is resolved from `name_hint` first (custom printer config),
-    /// then falls back to the default name derived from `fan_index`.
+    /// Klipper's primary `[fan]` object is *only* controllable via `M106`/`M107`
+    /// — `SET_FAN_SPEED` targets `[fan_generic]` objects and errors on `[fan]`
+    /// (`The value 'fan' is not valid for FAN`). So the part-cooling fan
+    /// (index 0 with no explicit name) falls back to `M106`/`M107`; only fans
+    /// with an explicit `name_hint`, or non-part-cooling indices, use
+    /// `SET_FAN_SPEED`.
     fn set_fan_speed_indexed(&self, fan_index: u8, name_hint: Option<&str>, speed: f64) -> String {
-        let name = name_hint.unwrap_or_else(|| Self::fan_name_for_index(fan_index));
         let s = speed.clamp(0.0, 1.0);
-        format!("SET_FAN_SPEED fan={} speed={:.4}", name, s)
+        match name_hint {
+            Some(name) => format!("SET_FAN_SPEED fan={} speed={:.4}", name, s),
+            None if fan_index == 0 => {
+                let v = (s * 255.0).round() as u8;
+                if v == 0 {
+                    "M107".to_string()
+                } else {
+                    format!("M106 S{}", v)
+                }
+            }
+            None => format!(
+                "SET_FAN_SPEED fan={} speed={:.4}",
+                Self::fan_name_for_index(fan_index),
+                s
+            ),
+        }
     }
 }
