@@ -241,6 +241,14 @@ pub enum ClientMessage {
         printer_id: String,
         connection: crate::profiles::PrinterConnection,
     },
+    /// Probe a single URL and report everything we can learn about the printer
+    /// (kind, bed volume, nozzle, kinematics) so the setup wizard can prefill
+    /// itself. Runs server-side to sidestep browser CORS. Replies with
+    /// [`ServerMessage::PrinterDetected`].
+    DetectPrinter {
+        /// Host / address the user typed (bare host, `host:port`, or full URL).
+        host: String,
+    },
     /// Upload the G-code previously sliced for `request_uuid` to a printer,
     /// optionally starting the print. Replies with
     /// [`ServerMessage::PrinterSendResult`].
@@ -326,6 +334,51 @@ pub enum ServerMessage {
         ok: bool,
         message: String,
         started: bool,
+    },
+    /// Result of a [`ClientMessage::DetectPrinter`] probe. Every hardware field
+    /// is optional — detection is best-effort. When `reachable` is false only
+    /// `message` is meaningful.
+    PrinterDetected {
+        /// Echoes the probed host so the client can correlate the reply.
+        host: String,
+        /// The host answered at least one probe.
+        reachable: bool,
+        /// Detected transport (`moonraker`, `octoprint`, `prusalink`, or
+        /// `none` when nothing answered).
+        kind: crate::profiles::PrinterConnectionKind,
+        /// Human-readable summary (a success note or the failure reason).
+        #[serde(skip_serializing_if = "Option::is_none")]
+        message: Option<String>,
+        /// Friendly name (e.g. Klipper hostname), when known.
+        #[serde(skip_serializing_if = "Option::is_none")]
+        name: Option<String>,
+        /// Model designation, when known.
+        #[serde(skip_serializing_if = "Option::is_none")]
+        model: Option<String>,
+        /// Manufacturer / firmware family, when known.
+        #[serde(skip_serializing_if = "Option::is_none")]
+        vendor: Option<String>,
+        /// G-code dialect the firmware speaks (`marlin`, `klipper`).
+        #[serde(skip_serializing_if = "Option::is_none")]
+        firmware: Option<String>,
+        /// Bed shape (`rectangular`, `circular`), when known.
+        #[serde(skip_serializing_if = "Option::is_none")]
+        bed_shape: Option<crate::profiles::printer::BedShape>,
+        /// Bed width / diameter (mm), when known.
+        #[serde(skip_serializing_if = "Option::is_none")]
+        bed_width: Option<f64>,
+        /// Bed depth (mm), when known.
+        #[serde(skip_serializing_if = "Option::is_none")]
+        bed_depth: Option<f64>,
+        /// Max Z height (mm), when known.
+        #[serde(skip_serializing_if = "Option::is_none")]
+        bed_height: Option<f64>,
+        /// True for delta / center-origin machines, when known.
+        #[serde(skip_serializing_if = "Option::is_none")]
+        origin_at_center: Option<bool>,
+        /// Nozzle diameter (mm), when known.
+        #[serde(skip_serializing_if = "Option::is_none")]
+        nozzle_diameter_mm: Option<f64>,
     },
     /// The engine's profile library changed on disk (another client/tab edited
     /// a category). Clients should refetch `GET /api/profiles` for `kind`.

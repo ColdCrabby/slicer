@@ -20,7 +20,7 @@
 use std::path::Path;
 use std::time::Duration;
 
-use crate::profiles::printer::{PrinterConnection, PrinterConnectionKind};
+use crate::profiles::printer::{BedShape, PrinterConnection, PrinterConnectionKind};
 
 /// How long to wait for a printer to answer before declaring it offline.
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(5);
@@ -59,6 +59,42 @@ pub struct SendOutcome {
     pub started: bool,
 }
 
+/// Everything we could learn about a printer by probing a single URL.
+///
+/// Every hardware field is optional: detection is best-effort and degrades
+/// gracefully. A `reachable: false` result still carries a `message` explaining
+/// why. When `kind` is identified but hardware fields are absent (OctoPrint /
+/// PrusaLink), the wizard can still pre-select the transport and host.
+#[derive(Debug, Clone, Default)]
+pub struct PrinterDetection {
+    /// The host answered at least one probe.
+    pub reachable: bool,
+    /// Detected transport, or `None` when nothing answered.
+    pub kind: PrinterConnectionKind,
+    /// Human-readable summary (a success note or the failure reason).
+    pub message: Option<String>,
+    /// Friendly name (Klipper hostname), when known.
+    pub name: Option<String>,
+    /// Model designation, when known.
+    pub model: Option<String>,
+    /// Manufacturer / firmware family, when known.
+    pub vendor: Option<String>,
+    /// G-code dialect the firmware speaks (`marlin`, `klipper`).
+    pub firmware: Option<String>,
+    /// Bed shape (rectangular / circular), when known.
+    pub bed_shape: Option<BedShape>,
+    /// Bed width / diameter (mm), when known.
+    pub bed_width: Option<f64>,
+    /// Bed depth (mm), when known.
+    pub bed_depth: Option<f64>,
+    /// Max Z height (mm), when known.
+    pub bed_height: Option<f64>,
+    /// True for delta / center-origin machines, when known.
+    pub origin_at_center: Option<bool>,
+    /// Nozzle diameter (mm), when known.
+    pub nozzle_diameter_mm: Option<f64>,
+}
+
 /// Probe a printer connection and report its live status.
 ///
 /// Never returns an error: an unreachable or misconfigured printer is reported
@@ -75,6 +111,169 @@ pub async fn check_status(conn: &PrinterConnection) -> PrinterStatusReport {
             )),
             ..Default::default()
         },
+    }
+}
+
+/// Probe a single URL and report everything we can learn about the printer.
+///
+/// Detection is best-effort and never errors: an unreachable host yields
+/// `reachable: false` with an explanatory `message`. The probe tries Moonraker
+/// first (richest metadata — bed volume, nozzle, kinematics), then falls back
+/// to identifying OctoPrint / PrusaLink from their `/api/version` banner.
+pub async fn detect_printer(host: &str) -> PrinterDetection {
+    let base = match base_url_from_parts(host, None) {
+        Ok(b) => b,
+        Err(e) => {
+            return PrinterDetection {
+                message: Some(e),
+                ..Default::default()
+            }
+        }
+    };
+
+    let client = http_client();
+
+    // 1) Moonraker (Klipper) — the only transport we can deeply introspect.
+    if let Some(detection) = detect_moonraker(&client, &base).await {
+        return detection;
+    }
+
+    // 2) OctoPrint / PrusaLink share the `/api/version` banner shape.
+    if let Some(detection) = detect_api_version(&client, &base).await {
+        return detection;
+    }
+
+    PrinterDetection {
+        reachable: false,
+        message: Some(
+            "Could not identify a printer at that address. Check the host and that the printer is on."
+                .to_string(),
+        ),
+        ..Default::default()
+    }
+}
+
+/// Probe Moonraker and, on success, harvest bed volume, nozzle, and kinematics.
+async fn detect_moonraker(client: &reqwest::Client, base: &str) -> Option<PrinterDetection> {
+    let info_url = format!("{base}/printer/info");
+    let resp = client.get(&info_url).send().await.ok()?;
+    if !resp.status().is_success() {
+        return None;
+    }
+    let info: serde_json::Value = resp.json().await.ok()?;
+    let result = &info["result"];
+    // `/printer/info` on a real Moonraker always carries a `state` field.
+    if result.get("state").is_none() && result.get("hostname").is_none() {
+        return None;
+    }
+
+    let mut detection = PrinterDetection {
+        reachable: true,
+        kind: PrinterConnectionKind::Moonraker,
+        vendor: Some("Klipper".to_string()),
+        firmware: Some("klipper".to_string()),
+        ..Default::default()
+    };
+    detection.name = result["hostname"].as_str().map(str::to_string);
+
+    // Enrich with bed volume / nozzle from the config + toolhead objects.
+    let query_url = format!("{base}/printer/objects/query?configfile&toolhead");
+    if let Ok(resp) = client.get(&query_url).send().await {
+        if let Ok(body) = resp.json::<serde_json::Value>().await {
+            enrich_from_moonraker_objects(&mut detection, &body["result"]["status"]);
+        }
+    }
+
+    detection.message = Some(match &detection.name {
+        Some(name) if !name.is_empty() => format!("Found Klipper printer “{name}”."),
+        _ => "Found a Klipper (Moonraker) printer.".to_string(),
+    });
+    Some(detection)
+}
+
+/// Pull bed dimensions, kinematics, and nozzle diameter out of a Moonraker
+/// `printer/objects/query?configfile&toolhead` status payload.
+fn enrich_from_moonraker_objects(detection: &mut PrinterDetection, status: &serde_json::Value) {
+    let settings = &status["configfile"]["settings"];
+
+    // Kinematics decides bed shape: deltas are circular / center-origin.
+    let kinematics = settings["printer"]["kinematics"].as_str().unwrap_or("");
+    let is_delta = kinematics.eq_ignore_ascii_case("delta");
+    detection.bed_shape = Some(if is_delta {
+        BedShape::Circular
+    } else {
+        BedShape::Rectangular
+    });
+    detection.origin_at_center = Some(is_delta);
+
+    // Bed volume from the toolhead's reachable axis limits. `axis_maximum` and
+    // `axis_minimum` are `[x, y, z, e]`; the span covers center-origin deltas
+    // (negative minima) as well as 0-origin cartesians.
+    let max = &status["toolhead"]["axis_maximum"];
+    let min = &status["toolhead"]["axis_minimum"];
+    let span = |i: usize| -> Option<f64> {
+        let hi = max.get(i)?.as_f64()?;
+        let lo = min.get(i).and_then(serde_json::Value::as_f64).unwrap_or(0.0);
+        let span = if lo < 0.0 { hi - lo } else { hi };
+        (span > 0.0).then_some((span * 10.0).round() / 10.0)
+    };
+    if let Some(w) = span(0) {
+        detection.bed_width = Some(w);
+    }
+    if let Some(d) = span(1) {
+        detection.bed_depth = Some(d);
+    }
+    if let Some(h) = max.get(2).and_then(serde_json::Value::as_f64) {
+        detection.bed_height = Some((h * 10.0).round() / 10.0);
+    }
+
+    // Nozzle diameter lives on the primary extruder config.
+    if let Some(nozzle) = settings["extruder"]["nozzle_diameter"].as_f64() {
+        if nozzle > 0.0 {
+            detection.nozzle_diameter_mm = Some(nozzle);
+        }
+    }
+}
+
+/// Identify an OctoPrint / PrusaLink host from its `/api/version` banner.
+///
+/// These transports aren't slicer-driven yet, so we only report the kind and
+/// reachability — enough for the wizard to pre-select the connection and host.
+async fn detect_api_version(client: &reqwest::Client, base: &str) -> Option<PrinterDetection> {
+    let url = format!("{base}/api/version");
+    let resp = client.get(&url).send().await.ok()?;
+    if !resp.status().is_success() {
+        return None;
+    }
+    let body: serde_json::Value = resp.json().await.ok()?;
+    let banner = [body["text"].as_str(), body["server"].as_str()]
+        .into_iter()
+        .flatten()
+        .collect::<Vec<_>>()
+        .join(" ")
+        .to_ascii_lowercase();
+
+    if banner.contains("prusa") {
+        Some(PrinterDetection {
+            reachable: true,
+            kind: PrinterConnectionKind::Prusalink,
+            vendor: Some("Prusa".to_string()),
+            firmware: Some("marlin".to_string()),
+            message: Some("Found a PrusaLink printer.".to_string()),
+            name: body["hostname"].as_str().map(str::to_string),
+            ..Default::default()
+        })
+    } else if banner.contains("octoprint") {
+        Some(PrinterDetection {
+            reachable: true,
+            kind: PrinterConnectionKind::Octoprint,
+            message: Some(
+                "Found an OctoPrint host. Add its API key to finish setup.".to_string(),
+            ),
+            ..Default::default()
+        })
+    } else {
+        None
     }
 }
 
@@ -123,6 +322,20 @@ fn base_url(conn: &PrinterConnection) -> Result<String, String> {
         .filter(|h| !h.is_empty())
         .ok_or_else(|| "No host configured".to_string())?;
 
+    base_url_from_parts(host, conn.port)
+}
+
+/// Build a normalized base URL (`http://host[:port]`) from a raw host string
+/// and an optional explicit port.
+///
+/// Accepts a bare host, a `host:port`, or a full `http(s)://…` URL. The
+/// explicit `port` is only applied when the host doesn't already carry one.
+fn base_url_from_parts(host: &str, port: Option<u16>) -> Result<String, String> {
+    let host = host.trim();
+    if host.is_empty() {
+        return Err("No host configured".to_string());
+    }
+
     let mut url = if host.starts_with("http://") || host.starts_with("https://") {
         host.to_string()
     } else {
@@ -133,7 +346,7 @@ fn base_url(conn: &PrinterConnection) -> Result<String, String> {
     }
 
     // Append the explicit port only when the authority lacks one.
-    if let Some(port) = conn.port {
+    if let Some(port) = port {
         let authority = url.split("://").nth(1).unwrap_or("");
         let authority_has_port = authority.split('/').next().unwrap_or("").contains(':');
         if !authority_has_port {
@@ -339,5 +552,45 @@ mod tests {
     fn sanitize_filename_strips_paths() {
         assert_eq!(sanitize_filename("/tmp/foo/bar.gcode"), "bar.gcode");
         assert_eq!(sanitize_filename(""), "print.gcode");
+    }
+
+    #[test]
+    fn enrich_reads_cartesian_bed_and_nozzle() {
+        let status = serde_json::json!({
+            "configfile": {
+                "settings": {
+                    "printer": { "kinematics": "cartesian" },
+                    "extruder": { "nozzle_diameter": 0.6 }
+                }
+            },
+            "toolhead": {
+                "axis_minimum": [0.0, 0.0, 0.0, 0.0],
+                "axis_maximum": [250.0, 210.0, 220.0, 0.0]
+            }
+        });
+        let mut d = PrinterDetection::default();
+        enrich_from_moonraker_objects(&mut d, &status);
+        assert_eq!(d.bed_shape, Some(BedShape::Rectangular));
+        assert_eq!(d.origin_at_center, Some(false));
+        assert_eq!(d.bed_width, Some(250.0));
+        assert_eq!(d.bed_depth, Some(210.0));
+        assert_eq!(d.bed_height, Some(220.0));
+        assert_eq!(d.nozzle_diameter_mm, Some(0.6));
+    }
+
+    #[test]
+    fn enrich_treats_delta_as_circular_center_origin() {
+        let status = serde_json::json!({
+            "configfile": { "settings": { "printer": { "kinematics": "delta" } } },
+            "toolhead": {
+                "axis_minimum": [-100.0, -100.0, 0.0, 0.0],
+                "axis_maximum": [100.0, 100.0, 300.0, 0.0]
+            }
+        });
+        let mut d = PrinterDetection::default();
+        enrich_from_moonraker_objects(&mut d, &status);
+        assert_eq!(d.bed_shape, Some(BedShape::Circular));
+        assert_eq!(d.origin_at_center, Some(true));
+        assert_eq!(d.bed_width, Some(200.0));
     }
 }

@@ -241,6 +241,10 @@ async fn handle_ws_session(
                     logger.log_debug(&format!("[WS] Checking printer {printer_id}"));
                     handle_check_printer(&mut session, printer_id, connection).await;
                 }
+                Ok(ClientMessage::DetectPrinter { host }) => {
+                    logger.log_debug(&format!("[WS] Detecting printer at {host}"));
+                    handle_detect_printer(&mut session, host).await;
+                }
                 Ok(ClientMessage::SendToPrinter {
                     request_uuid,
                     printer_id,
@@ -411,7 +415,24 @@ async fn handle_slice(
     // stored G-code, copy it under this workplate's download name, and skip the
     // entire slicing pipeline.
     if let Ok(Some((cached_path, _size, layer_count))) = db.get_cached_gcode(&cache_key).await {
-        match std::fs::copy(&cached_path, &gcode_output_path) {
+        // Re-slicing the same workplate reuses its request UUID, so the cached
+        // file and this run's output path can be the *same* file. `fs::copy`
+        // onto itself truncates it to empty (1-layer / blank viewer) — skip the
+        // copy in that case; the file is already in place.
+        let same_file = cached_path == gcode_output_path
+            || match (
+                std::fs::canonicalize(&cached_path),
+                std::fs::canonicalize(&gcode_output_path),
+            ) {
+                (Ok(a), Ok(b)) => a == b,
+                _ => false,
+            };
+        let copy_result = if same_file {
+            Ok(0)
+        } else {
+            std::fs::copy(&cached_path, &gcode_output_path)
+        };
+        match copy_result {
             Ok(_) => {
                 send_or_return!(ServerMessage::log_info(format!(
                     "Reusing cached slice ({layer_count} layers) — scene unchanged since last slice"
@@ -833,6 +854,31 @@ async fn handle_check_printer(
         print_state: report.print_state,
         progress: report.progress,
         message: report.message,
+    };
+    let _ = send_msg(session, &msg).await;
+}
+
+/// Probe a URL to identify a printer and prefill the setup wizard.
+///
+/// Like [`handle_check_printer`], the HTTP request runs server-side so it is
+/// **not** subject to browser CORS.
+async fn handle_detect_printer(session: &mut actix_ws::Session, host: String) {
+    let detection = crate::printer::detect_printer(&host).await;
+    let msg = ServerMessage::PrinterDetected {
+        host,
+        reachable: detection.reachable,
+        kind: detection.kind,
+        message: detection.message,
+        name: detection.name,
+        model: detection.model,
+        vendor: detection.vendor,
+        firmware: detection.firmware,
+        bed_shape: detection.bed_shape,
+        bed_width: detection.bed_width,
+        bed_depth: detection.bed_depth,
+        bed_height: detection.bed_height,
+        origin_at_center: detection.origin_at_center,
+        nozzle_diameter_mm: detection.nozzle_diameter_mm,
     };
     let _ = send_msg(session, &msg).await;
 }
