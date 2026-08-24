@@ -1021,6 +1021,24 @@ under/over-extrusion.",
     pub bed_temp_first_layer: f64,
 
     #[schemars(
+        description = "Chamber temperature in °C for enclosed printers. `0` = no active \
+chamber heating. Exposed to custom start G-code as `{chamber_temp}` (e.g. Klippain \
+`START_PRINT … CHAMBER={chamber_temp}`).",
+        extend("x-group" = "Temperature")
+    )]
+    #[serde(default = "SlicingParams::default_chamber_temp")]
+    pub chamber_temp: f64,
+
+    #[schemars(
+        description = "Material family name (e.g. `PLA`, `PETG`, `ABS`). Populated from the \
+active filament profile at resolve time. Exposed to custom start G-code as `{filament_type}` \
+(e.g. Klippain `START_PRINT … MATERIAL={filament_type}`).",
+        extend("x-group" = "Temperature")
+    )]
+    #[serde(default)]
+    pub filament_type: String,
+
+    #[schemars(
         description = "Linear/pressure advance factor (Klipper `SET_PRESSURE_ADVANCE`, Marlin `M900 K`).
 
 `0` disables. Compensates for pressure lag at corners.
@@ -1191,6 +1209,8 @@ impl Default for SlicingParams {
             flow_ratio: Self::default_flow_ratio(),
             nozzle_temp_first_layer: Self::default_nozzle_temp_first_layer(),
             bed_temp_first_layer: Self::default_bed_temp_first_layer(),
+            chamber_temp: Self::default_chamber_temp(),
+            filament_type: String::new(),
             pressure_advance: Self::default_pressure_advance(),
             disable_fan_first_layers: Self::default_disable_fan_first_layers(),
             max_volumetric_speed: Self::default_max_volumetric_speed(),
@@ -1226,6 +1246,9 @@ impl SlicingParams {
         0.0
     }
     fn default_bed_temp_first_layer() -> f64 {
+        0.0
+    }
+    fn default_chamber_temp() -> f64 {
         0.0
     }
     fn default_pressure_advance() -> f64 {

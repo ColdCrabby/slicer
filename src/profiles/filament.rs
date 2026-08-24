@@ -37,24 +37,41 @@ pub enum FilamentMaterial {
 }
 
 impl FilamentMaterial {
+    /// Wire name for this material family, as used by G-code macros
+    /// (Klippain / SuperSlicer `MATERIAL=` etc.). Always uppercase.
+    pub fn wire_name(self) -> &'static str {
+        match self {
+            Self::PLA => "PLA",
+            Self::PETG => "PETG",
+            Self::ABS => "ABS",
+            Self::ASA => "ASA",
+            Self::TPU => "TPU",
+            Self::PC => "PC",
+            Self::Nylon => "NYLON",
+            Self::PVA => "PVA",
+        }
+    }
+
     /// Typical starting `SlicingParams` overrides for this material, as a sparse
     /// JSON object. Fan speeds are engine-native fractions (0.0–1.0).
     pub fn default_params(self) -> serde_json::Value {
-        let (nozzle, nozzle1, bed, bed1, fan_min, fan_max, vmax) = match self {
-            Self::PLA => (210.0, 215.0, 60.0, 60.0, 1.0, 1.0, 15.0),
-            Self::PETG => (240.0, 245.0, 80.0, 80.0, 0.4, 0.6, 12.0),
-            Self::ABS => (250.0, 255.0, 100.0, 105.0, 0.0, 0.3, 11.0),
-            Self::ASA => (250.0, 255.0, 100.0, 105.0, 0.0, 0.3, 11.0),
-            Self::TPU => (230.0, 235.0, 40.0, 45.0, 0.5, 0.8, 4.0),
-            Self::PC => (270.0, 275.0, 110.0, 110.0, 0.0, 0.2, 10.0),
-            Self::Nylon => (260.0, 265.0, 90.0, 90.0, 0.0, 0.2, 10.0),
-            Self::PVA => (215.0, 220.0, 60.0, 60.0, 0.3, 0.5, 6.0),
+        let (nozzle, nozzle1, bed, bed1, fan_min, fan_max, vmax, chamber) = match self {
+            Self::PLA => (210.0, 215.0, 60.0, 60.0, 1.0, 1.0, 15.0, 0.0),
+            Self::PETG => (240.0, 245.0, 80.0, 80.0, 0.4, 0.6, 12.0, 0.0),
+            Self::ABS => (250.0, 255.0, 100.0, 105.0, 0.0, 0.3, 11.0, 50.0),
+            Self::ASA => (250.0, 255.0, 100.0, 105.0, 0.0, 0.3, 11.0, 50.0),
+            Self::TPU => (230.0, 235.0, 40.0, 45.0, 0.5, 0.8, 4.0, 0.0),
+            Self::PC => (270.0, 275.0, 110.0, 110.0, 0.0, 0.2, 10.0, 60.0),
+            Self::Nylon => (260.0, 265.0, 90.0, 90.0, 0.0, 0.2, 10.0, 45.0),
+            Self::PVA => (215.0, 220.0, 60.0, 60.0, 0.3, 0.5, 6.0, 0.0),
         };
         serde_json::json!({
             "nozzle_temp": nozzle,
             "nozzle_temp_first_layer": nozzle1,
             "bed_temp": bed,
             "bed_temp_first_layer": bed1,
+            "chamber_temp": chamber,
+            "filament_type": self.wire_name(),
             "first_layer_fan_speed": fan_min,
             "fan_speed": fan_max,
             "max_volumetric_speed": vmax,

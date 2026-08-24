@@ -70,6 +70,15 @@ pub fn resolve(
             deep_merge(&mut base, overlay);
         }
     }
+    // The material family is a typed field on the filament profile, not part of
+    // its sparse `params`; stamp it in last so `{filament_type}` in custom
+    // G-code always reflects the active filament even if its params omit it.
+    if let Some(map) = base.as_object_mut() {
+        map.insert(
+            "filament_type".to_string(),
+            serde_json::Value::String(filament.material.wire_name().to_string()),
+        );
+    }
     serde_json::from_value(base)
 }
 

@@ -87,8 +87,9 @@ pub(crate) fn render_marker(
 }
 
 /// Substitute print-parameter placeholders shared by custom start / end / layer
-/// scripts: `{nozzle_temp}`, `{bed_temp}`, their `_first_layer` variants, plus
-/// `{layer_height}` and `{first_layer_height}`.
+/// scripts: `{nozzle_temp}`, `{bed_temp}`, their `_first_layer` variants,
+/// `{chamber_temp}`, `{filament_type}`, plus `{layer_height}` and
+/// `{first_layer_height}`.
 ///
 /// The `_first_layer` temperatures fall back to the general value when set to
 /// `0` (the "use base value" sentinel), matching the slicer's own resolution.
@@ -115,6 +116,8 @@ pub(crate) fn render_script_placeholders(line: &str, params: &SlicingParams) -> 
         .replace("{bed_temp_first_layer}", &format!("{:.0}", first_bed))
         .replace("{nozzle_temp}", &format!("{:.0}", params.nozzle_temp))
         .replace("{bed_temp}", &format!("{:.0}", params.bed_temp))
+        .replace("{chamber_temp}", &format!("{:.0}", params.chamber_temp))
+        .replace("{filament_type}", &params.filament_type)
         .replace("{first_layer_height}", &format!("{:.3}", first_height))
         .replace("{layer_height}", &format!("{:.3}", params.layer_height))
 }
@@ -1702,6 +1705,27 @@ mod tests {
         assert!(
             gcode.contains("BED_TEMP=65"),
             "bed temp fallback not substituted: {gcode}"
+        );
+    }
+
+    #[test]
+    fn test_start_script_substitutes_chamber_and_material_placeholders() {
+        let params = SlicingParams {
+            nozzle_temp_first_layer: 255.0,
+            bed_temp_first_layer: 105.0,
+            chamber_temp: 50.0,
+            filament_type: "ABS".to_string(),
+            ..SlicingParams::default()
+        };
+        let gen = GcodeGenerator::new(GcodeFlavor::Klipper).with_start_script(vec![
+            "START_PRINT EXTRUDER={nozzle_temp_first_layer} BED={bed_temp_first_layer} \
+CHAMBER={chamber_temp} MATERIAL={filament_type}"
+                .to_string(),
+        ]);
+        let gcode = gen.generate(&[], &params);
+        assert!(
+            gcode.contains("EXTRUDER=255 BED=105 CHAMBER=50 MATERIAL=ABS"),
+            "Klippain start line not fully substituted: {gcode}"
         );
     }
 

@@ -51,7 +51,8 @@ export const GCODE_TEMPLATE_REV_KEY = 'gcode_template_rev';
 /** Placeholders the engine resolves at slice time (shown as an editor hint). */
 export const GCODE_PLACEHOLDER_HINT =
   '{nozzle_temp} · {bed_temp} · {nozzle_temp_first_layer} · {bed_temp_first_layer} · ' +
-  '{layer_height} · {first_layer_height}; layer G-code also has {z} · {height} · {layer_num}';
+  '{chamber_temp} · {filament_type} · {layer_height} · {first_layer_height}; ' +
+  'layer G-code also has {z} · {height} · {layer_num}';
 
 const STANDARD_MARLIN: GcodeTemplate = {
   id: 'marlin-standard',
@@ -93,9 +94,9 @@ const STANDARD_KLIPPER: GcodeTemplate = {
 const KLIPPAIN: GcodeTemplate = {
   id: 'klippain',
   label: 'Klippain',
-  description: 'START_PRINT / END_PRINT with temperature parameters.',
+  description: 'START_PRINT / END_PRINT with temperature, chamber and material parameters.',
   flavor: 'klipper',
-  startGcode: `START_PRINT EXTRUDER_TEMP={nozzle_temp_first_layer} BED_TEMP={bed_temp_first_layer}`,
+  startGcode: `START_PRINT EXTRUDER={nozzle_temp_first_layer} BED={bed_temp_first_layer} CHAMBER={chamber_temp} MATERIAL={filament_type}`,
   endGcode: `END_PRINT`,
   layerGcode: `_ON_LAYER_CHANGE LAYER={layer_num} Z={z}`,
 };
