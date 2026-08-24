@@ -7,6 +7,6 @@ import { LocalCollectionStore } from './local-collection-store';
 export class PrintProfilesStore extends LocalCollectionStore<PrintProfile> {
   constructor() {
     // The UI's "print profiles" are the engine's `processes` category.
-    super('profiles.printProfiles.v2', DEFAULT_PRINT_PROFILES, 'processes');
+    super('profiles.printProfiles', DEFAULT_PRINT_PROFILES, 'processes');
   }
 }

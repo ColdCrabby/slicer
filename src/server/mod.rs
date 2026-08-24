@@ -130,6 +130,8 @@ async fn run_server(
     let app_state = web::Data::new(AppState {
         db,
         work_dir: work_path.clone(),
+        // Retained for the server's lifetime; sessions each hold a subscriber.
+        profiles_changed: tokio::sync::broadcast::channel(16).0,
     });
 
     HttpServer::new(move || {

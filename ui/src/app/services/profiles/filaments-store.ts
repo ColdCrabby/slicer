@@ -6,6 +6,6 @@ import { LocalCollectionStore } from './local-collection-store';
 @Injectable({ providedIn: 'root' })
 export class FilamentsStore extends LocalCollectionStore<FilamentProfile> {
   constructor() {
-    super('profiles.filaments.v2', DEFAULT_FILAMENTS, 'filaments');
+    super('profiles.filaments', DEFAULT_FILAMENTS, 'filaments');
   }
 }

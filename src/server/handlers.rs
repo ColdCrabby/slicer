@@ -18,6 +18,9 @@ pub struct UploadResponse {
 pub struct AppState {
     pub db: Arc<crate::db::Database>,
     pub work_dir: std::path::PathBuf,
+    /// Broadcasts a profile-category token whenever the on-disk profile library
+    /// changes, so every open WebSocket session can tell its client to refetch.
+    pub profiles_changed: tokio::sync::broadcast::Sender<String>,
 }
 
 // ── Config handlers ───────────────────────────────────────────────────────────
@@ -104,6 +107,7 @@ pub async fn get_profiles_handler() -> actix_web::HttpResponse {
 pub async fn put_profiles_category_handler(
     path: web::Path<String>,
     body: web::Json<serde_json::Value>,
+    state: web::Data<AppState>,
 ) -> actix_web::HttpResponse {
     let Some(kind) = crate::profiles::ProfileKind::parse(&path.into_inner()) else {
         return actix_web::HttpResponse::NotFound()
@@ -111,7 +115,12 @@ pub async fn put_profiles_category_handler(
     };
 
     match crate::profiles::ProfileStore::new().replace_category(kind, body.into_inner()) {
-        Ok(library) => actix_web::HttpResponse::Ok().json(library),
+        Ok(library) => {
+            // Nudge every open WebSocket session to refetch this category.
+            // `send` errors only when there are no subscribers, which is fine.
+            let _ = state.profiles_changed.send(kind.as_str().to_string());
+            actix_web::HttpResponse::Ok().json(library)
+        }
         Err(e) => actix_web::HttpResponse::BadRequest()
             .json(serde_json::json!({ "error": e.to_string() })),
     }

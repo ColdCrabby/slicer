@@ -1,6 +1,6 @@
 import { provideHttpClient } from '@angular/common/http';
 import {
-  ApplicationConfig,
+  type ApplicationConfig,
   inject,
   provideAppInitializer,
   provideBrowserGlobalErrorListeners,
@@ -11,6 +11,7 @@ import { APP_ROUTES } from './app-routes';
 import { AccentService } from './services/accent';
 import { KeyboardShortcuts } from './services/keyboard-shortcuts/keyboard-shortcuts';
 import { provideProfilePersistence } from './services/profiles/profile-persistence';
+import { ProfileSync } from './services/profiles/profile-sync';
 import { NexusTitleStrategy } from './services/title-strategy';
 import { UploadGuard } from './services/upload-guard';
 import { UserInputModality } from './shared/input-modality/input-modality';
@@ -28,6 +29,7 @@ export const appConfig: ApplicationConfig = {
       inject(KeyboardShortcuts);
       inject(UserInputModality);
       inject(UploadGuard);
+      inject(ProfileSync);
     }),
   ],
 };

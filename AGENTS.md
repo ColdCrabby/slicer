@@ -337,6 +337,18 @@ server. [src/profiles/store.rs](src/profiles/store.rs) is the engine-side store.
   Native: Tauri `profiles_load` / `profiles_save_category`
   ([ui-desktop/src-tauri/src/commands.rs](ui-desktop/src-tauri/src/commands.rs)).
   Both call the same `ProfileStore`.
+- **Change fan-out over WS (cloud only).** A successful `PUT /api/profiles/:kind`
+  broadcasts `ServerMessage::ProfilesChanged { kind }` to every open WebSocket
+  session (via a `tokio::broadcast` channel on `AppState`), so a second tab
+  refetches instead of showing stale profiles.
+  [`ProfileSync`](ui/src/app/services/profiles/profile-sync.ts) maps the token
+  to its store and calls `reload()` (a cache-bypassing `reloadLibrary()` fetch).
+  Inert in web/native — `SlicerConnection.messages$` is `EMPTY` there and those
+  runtimes have no second client. GET/PUT stay REST; only the *nudge* is WS.
+- **`loadLibrary()` is memoised.** The four stores hydrate in their
+  constructors, so `ProfilePersistence.loadLibrary()` shares one in-flight
+  request instead of fetching the whole library once per category. Invalidated
+  on `saveCategory`; force-refreshed via `reloadLibrary()`.
 - **UI: [`ProfilePersistence`](ui/src/app/services/profiles/profile-persistence.ts)**
   has three adapters (browser / remote-REST / native-invoke) picked by
   [`resolveRuntimeMode()`](ui/src/app/runtime/domain/runtime-mode.util.ts) —
@@ -346,7 +358,7 @@ server. [src/profiles/store.rs](src/profiles/store.rs) is the engine-side store.
   hydrate from and write through to the store. On first run against an empty
   engine store the local library is pushed up (migration), never clobbered.
 - **UI "print profiles" == engine "processes".** The store key is
-  `profiles.printProfiles.v2` but the wire/category token is `processes`.
+  `profiles.printProfiles` but the wire/category token is `processes`.
 - **`Label` is snake-case aligned** (`{id,name,color,tone}`) across
   [store.rs](src/profiles/store.rs) and
   [label.model.ts](ui/src/app/models/label.model.ts). The UI profile models are

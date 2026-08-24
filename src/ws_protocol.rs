@@ -327,6 +327,12 @@ pub enum ServerMessage {
         message: String,
         started: bool,
     },
+    /// The engine's profile library changed on disk (another client/tab edited
+    /// a category). Clients should refetch `GET /api/profiles` for `kind`.
+    ///
+    /// `kind` is the lowercase category token (`printers`, `filaments`,
+    /// `processes`, `labels`) — matches [`crate::profiles::ProfileKind::as_str`].
+    ProfilesChanged { kind: String },
     /// A fatal error occurred during processing.
     Error { message: String },
 }

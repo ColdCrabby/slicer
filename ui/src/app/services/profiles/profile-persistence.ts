@@ -36,19 +36,59 @@ export interface ProfileLibrarySnapshot {
 export abstract class ProfilePersistence {
   /** True when the library is persisted with the engine (native/cloud). */
   abstract readonly isEngineBacked: boolean;
-  /** Pull the whole library from the engine. Only called when engine-backed. */
-  abstract loadLibrary(): Promise<ProfileLibrarySnapshot>;
+
+  /** Shared load so the four stores don't each fetch the library on startup. */
+  private pending: Promise<ProfileLibrarySnapshot> | null = null;
+
+  /**
+   * Pull the whole library from the engine. The four profile stores all call
+   * this from their constructors, so the result is memoised: concurrent callers
+   * share a single request instead of hitting the engine once per category.
+   * Invalidated on {@link saveCategory} so a later load reflects fresh state.
+   */
+  loadLibrary(): Promise<ProfileLibrarySnapshot> {
+    if (!this.isEngineBacked) {
+      return Promise.resolve({});
+    }
+    if (!this.pending) {
+      this.pending = this.fetchLibrary().catch((error) => {
+        // Let a failed load be retried rather than caching the rejection.
+        this.pending = null;
+        throw error;
+      });
+    }
+    return this.pending;
+  }
+
   /** Replace one category in the engine store (whole-category write-through). */
-  abstract saveCategory(category: ProfileCategory, items: unknown[]): Promise<void>;
+  async saveCategory(category: ProfileCategory, items: unknown[]): Promise<void> {
+    await this.persistCategory(category, items);
+    // The library changed; drop the cache so the next load re-fetches.
+    this.pending = null;
+  }
+
+  /**
+   * Force a fresh whole-library fetch, bypassing the memoised load. Used when
+   * the engine reports (over WebSocket) that a category changed elsewhere.
+   */
+  reloadLibrary(): Promise<ProfileLibrarySnapshot> {
+    this.pending = null;
+    return this.loadLibrary();
+  }
+
+  /** Backend-specific whole-library fetch. Only called when engine-backed. */
+  protected abstract fetchLibrary(): Promise<ProfileLibrarySnapshot>;
+  /** Backend-specific whole-category write. */
+  protected abstract persistCategory(category: ProfileCategory, items: unknown[]): Promise<void>;
 }
 
 /** Browser-local backend (wasm): the store's own `localStorage` is the truth. */
 export class BrowserProfilePersistence extends ProfilePersistence {
   readonly isEngineBacked = false;
-  async loadLibrary(): Promise<ProfileLibrarySnapshot> {
+  protected async fetchLibrary(): Promise<ProfileLibrarySnapshot> {
     return {};
   }
-  async saveCategory(): Promise<void> {
+  protected async persistCategory(): Promise<void> {
     // No engine store — the profile store already wrote localStorage.
   }
 }
@@ -58,7 +98,7 @@ export class RemoteProfilePersistence extends ProfilePersistence {
   readonly isEngineBacked = true;
   private readonly base = environment.apiUrl;
 
-  async loadLibrary(): Promise<ProfileLibrarySnapshot> {
+  protected async fetchLibrary(): Promise<ProfileLibrarySnapshot> {
     const response = await fetch(`${this.base}/profiles`, {
       headers: { Accept: 'application/json' },
     });
@@ -68,11 +108,13 @@ export class RemoteProfilePersistence extends ProfilePersistence {
     return (await response.json()) as ProfileLibrarySnapshot;
   }
 
-  async saveCategory(category: ProfileCategory, items: unknown[]): Promise<void> {
+  protected async persistCategory(category: ProfileCategory, items: unknown[]): Promise<void> {
     const response = await fetch(`${this.base}/profiles/${category}`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(items),
+      // Survive a page-hide flush so a fast navigation doesn't drop the write.
+      keepalive: true,
     });
     if (!response.ok) {
       throw new Error(`PUT /profiles/${category} failed (${response.status})`);
@@ -84,12 +126,12 @@ export class RemoteProfilePersistence extends ProfilePersistence {
 export class NativeProfilePersistence extends ProfilePersistence {
   readonly isEngineBacked = true;
 
-  async loadLibrary(): Promise<ProfileLibrarySnapshot> {
+  protected async fetchLibrary(): Promise<ProfileLibrarySnapshot> {
     const { invoke } = await import('@tauri-apps/api/core');
     return (await invoke<ProfileLibrarySnapshot>('profiles_load')) ?? {};
   }
 
-  async saveCategory(category: ProfileCategory, items: unknown[]): Promise<void> {
+  protected async persistCategory(category: ProfileCategory, items: unknown[]): Promise<void> {
     const { invoke } = await import('@tauri-apps/api/core');
     await invoke('profiles_save_category', { kind: category, items });
   }

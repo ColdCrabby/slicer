@@ -113,9 +113,15 @@ pub async fn ws_handler(
 
     let db = state.db.clone();
     let work_dir = state.work_dir.clone();
+    let profiles_changed = state.profiles_changed.subscribe();
 
     actix_web::rt::spawn(handle_ws_session(
-        session, msg_stream, db, work_dir, base_url,
+        session,
+        msg_stream,
+        db,
+        work_dir,
+        base_url,
+        profiles_changed,
     ));
 
     Ok(response)
@@ -129,6 +135,7 @@ async fn handle_ws_session(
     db: Arc<crate::db::Database>,
     work_dir: std::path::PathBuf,
     base_url: String,
+    mut profiles_changed: tokio::sync::broadcast::Receiver<String>,
 ) {
     let logger = StderrLogger;
     logger.log_info("[WS] New session started");
@@ -150,7 +157,26 @@ async fn handle_ws_session(
         return;
     }
 
-    while let Some(Ok(msg)) = stream.next().await {
+    loop {
+        // Multiplex the client's inbound frames with server-side profile-change
+        // notifications so a `PUT /api/profiles/:kind` from any client nudges
+        // every open session to refetch.
+        let msg = tokio::select! {
+            incoming = stream.next() => match incoming {
+                Some(Ok(msg)) => msg,
+                _ => break,
+            },
+            changed = profiles_changed.recv() => {
+                if let Ok(kind) = changed {
+                    let _ = send_msg(&mut session, &ServerMessage::ProfilesChanged { kind }).await;
+                }
+                // A `Closed` sender is unreachable (AppState holds it for the
+                // server's lifetime); a `Lagged` receiver merely drops missed
+                // notifications — clients refetch the whole category anyway.
+                continue;
+            },
+        };
+
         use actix_ws::AggregatedMessage;
         match msg {
             AggregatedMessage::Text(text) => match serde_json::from_str::<ClientMessage>(&text) {
@@ -390,15 +416,19 @@ async fn handle_slice(
                 send_or_return!(ServerMessage::log_info(format!(
                     "Reusing cached slice ({layer_count} layers) — scene unchanged since last slice"
                 )));
-                send_or_return!(ServerMessage::SliceComplete {
-                    layer_count,
-                    download_url: format!("{}/api/download/{}", base_url, uuid),
-                });
+                // Register the download path BEFORE announcing completion. The
+                // cache path is instant, so the client's fetch of
+                // `/api/download/{uuid}` would otherwise race this DB write and
+                // hit `download_file_path == None` (404 → blank viewer).
                 if let Ok(file_size) = std::fs::metadata(&gcode_output_path).map(|m| m.len()) {
                     let _ = db
                         .set_download_file(uuid, &gcode_output_path, file_size)
                         .await;
                 }
+                send_or_return!(ServerMessage::SliceComplete {
+                    layer_count,
+                    download_url: format!("{}/api/download/{}", base_url, uuid),
+                });
                 return;
             }
             Err(e) => {
