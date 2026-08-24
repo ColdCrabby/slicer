@@ -1,0 +1,149 @@
+<div class="settings-page">
+  <nexus-section-header
+    heading="Danger Zone"
+    description="Irreversible actions — proceed with care"
+  />
+
+  <!-- Clear slice history ------------------------------------------------->
+  <div class="danger-card">
+    <div class="danger-row">
+      <span class="danger-row-label">
+        <span class="danger-row-title">Clear slice history</span>
+        <span class="danger-row-desc">
+          @if (canClearHistory) {
+            Remove every past slice and the cached G-code
+            {{ storageScope === 'server' ? 'on the slicer' : 'on this device' }}. Your models,
+            printers, and profiles are kept.
+          } @else {
+            No slice history is stored in this browser — there's nothing to clear here.
+          }
+        </span>
+      </span>
+
+      @if (canClearHistory) {
+        <button
+          nexusButton
+          variant="danger"
+          size="sm"
+          [disabled]="busy()"
+          (click)="onClearHistory()"
+          (blur)="onHistoryBlur()"
+        >
+          {{ historyArmed() ? 'Confirm — clear history?' : 'Clear history' }}
+        </button>
+      }
+    </div>
+  </div>
+
+  <!-- Reset profiles ------------------------------------------------------->
+  <div class="danger-card">
+    <div class="danger-row">
+      <span class="danger-row-label">
+        <span class="danger-row-title">Reset profiles to defaults</span>
+        <span class="danger-row-desc">
+          Restore printers, filaments, print profiles, and labels to the built-in defaults. Every
+          profile you've added or edited will be lost.
+        </span>
+      </span>
+
+      @if (challenge() !== 'profiles') {
+        <button
+          nexusButton
+          variant="secondary"
+          size="sm"
+          [disabled]="busy()"
+          (click)="openChallenge('profiles')"
+        >
+          Reset profiles
+        </button>
+      }
+    </div>
+
+    @if (challenge() === 'profiles') {
+      <div class="danger-challenge">
+        <label class="danger-challenge-label" for="reset-profiles-input">
+          Type <strong>{{ confirmWord }}</strong> to confirm resetting your profiles.
+        </label>
+        <div class="danger-challenge-row">
+          <input
+            id="reset-profiles-input"
+            class="danger-input"
+            type="text"
+            autocomplete="off"
+            spellcheck="false"
+            [placeholder]="confirmWord"
+            [ngModel]="typed()"
+            (ngModelChange)="typed.set($event)"
+          />
+          <button nexusButton variant="ghost" size="sm" (click)="cancelChallenge()">Cancel</button>
+          <button
+            nexusButton
+            variant="danger"
+            size="sm"
+            [disabled]="!challengeMatches() || busy()"
+            (click)="confirmChallenge()"
+          >
+            Reset profiles
+          </button>
+        </div>
+      </div>
+    }
+  </div>
+
+  <!-- Factory reset -------------------------------------------------------->
+  <div class="danger-card">
+    <div class="danger-row">
+      <span class="danger-row-label">
+        <span class="danger-row-title">Reset the app</span>
+        <span class="danger-row-desc">
+          Return everything to a fresh install: clears slice history, resets profiles to defaults,
+          and wipes appearance, view, and layout preferences{{
+            storageScope === 'server' ? '' : ' stored in this browser'
+          }}. The app reloads afterwards.
+        </span>
+      </span>
+
+      @if (challenge() !== 'factory') {
+        <button
+          nexusButton
+          variant="secondary"
+          size="sm"
+          [disabled]="busy()"
+          (click)="openChallenge('factory')"
+        >
+          Reset app…
+        </button>
+      }
+    </div>
+
+    @if (challenge() === 'factory') {
+      <div class="danger-challenge">
+        <label class="danger-challenge-label" for="reset-app-input">
+          Type <strong>{{ confirmWord }}</strong> to confirm resetting the whole app.
+        </label>
+        <div class="danger-challenge-row">
+          <input
+            id="reset-app-input"
+            class="danger-input"
+            type="text"
+            autocomplete="off"
+            spellcheck="false"
+            [placeholder]="confirmWord"
+            [ngModel]="typed()"
+            (ngModelChange)="typed.set($event)"
+          />
+          <button nexusButton variant="ghost" size="sm" (click)="cancelChallenge()">Cancel</button>
+          <button
+            nexusButton
+            variant="danger"
+            size="sm"
+            [disabled]="!challengeMatches() || busy()"
+            (click)="confirmChallenge()"
+          >
+            Reset everything
+          </button>
+        </div>
+      </div>
+    }
+  </div>
+</div>

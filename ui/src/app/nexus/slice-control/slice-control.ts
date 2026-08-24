@@ -1,10 +1,28 @@
-import { ChangeDetectionStrategy, Component, computed, inject } from '@angular/core';
+import {
+  ChangeDetectionStrategy,
+  Component,
+  computed,
+  DestroyRef,
+  inject,
+  signal,
+  viewChild,
+} from '@angular/core';
+import type { ElementRef, TemplateRef } from '@angular/core';
 import { GcodePreview } from '../../services/gcode-preview';
 import { PrinterConnectionService } from '../../services/printer-connection';
 import { ActiveSelection } from '../../services/profiles/active-selection';
+import { BrowserStorage } from '../../services/browser-storage';
 import { formatDuration, PHASE_LABELS, Slicer } from '../../services/slicer';
+import { FloatingService } from '../../shared/floating';
+import type { FloatingRef } from '../../shared/floating';
 import { Icon } from '../../shared/icon/icon';
 import { TooltipDirective } from '../../shared/tooltip/tooltip.directive';
+
+/** The action the result split button runs on the sliced G-code. */
+type SliceAction = 'download' | 'upload' | 'print';
+
+/** localStorage key remembering the user's preferred default action. */
+const PRIMARY_ACTION_KEY = 'nexus.slice.primary-action';
 
 @Component({
   selector: 'nexus-slice-control',
@@ -18,6 +36,8 @@ export class SliceControl {
   private readonly preview = inject(GcodePreview);
   private readonly active = inject(ActiveSelection);
   private readonly printerConn = inject(PrinterConnectionService);
+  private readonly storage = inject(BrowserStorage);
+  private readonly floating = inject(FloatingService);
 
   /** Busy = a job is in flight (upload or slice). */
   protected readonly isActive = computed(() => {
@@ -116,18 +136,142 @@ export class SliceControl {
     return this.isDone() && connected && !!this.slicer.currentRequestUuid();
   });
 
-  protected readonly sendTooltip = computed(() => {
-    const printer = this.active.printer();
-    return printer ? `Send G-code to ${printer.name}` : 'Send G-code to the printer';
+  // ── Result action split button (download / upload / print) ────────────────
+
+  private readonly caretEl = viewChild<ElementRef<HTMLElement>>('caret');
+  private readonly menuTpl = viewChild<TemplateRef<unknown>>('menuTpl');
+  private menuRef: FloatingRef | null = null;
+
+  private readonly actionMeta: Record<
+    SliceAction,
+    { label: string; description: string; icon: string }
+  > = {
+    download: { label: 'Download G-code', description: 'Save the .gcode file', icon: 'download' },
+    upload: { label: 'Just upload', description: 'Copy the G-code to the printer', icon: 'upload' },
+    print: { label: 'Upload & print', description: 'Upload, then start the print', icon: 'printer' },
+  };
+
+  /** Remembered default action, persisted to localStorage across sessions. */
+  protected readonly primaryAction = signal<SliceAction>(this.readPrimaryAction());
+
+  protected readonly menuOpen = signal(false);
+
+  private readonly downloadAvailable = computed(() => !!this.slicer.gcodeDownloadUrl());
+
+  /**
+   * The action the primary button runs: the remembered default when it is
+   * currently possible, otherwise the first available fallback.
+   */
+  protected readonly effectiveAction = computed<SliceAction | null>(() => {
+    for (const action of [this.primaryAction(), 'download', 'upload', 'print'] as SliceAction[]) {
+      if (this.isActionAvailable(action)) return action;
+    }
+    return null;
   });
 
-  /** Upload the sliced G-code to the active printer (does not auto-start). */
-  sendToPrinter(): void {
+  /** Menu rows: every action, flagged with availability and selection. */
+  protected readonly actions = computed(() =>
+    (['download', 'upload', 'print'] as SliceAction[]).map((value) => ({
+      value,
+      ...this.actionMeta[value],
+      available: this.isActionAvailable(value),
+      selected: value === this.effectiveAction(),
+    })),
+  );
+
+  protected readonly showActions = computed(() => this.effectiveAction() !== null);
+
+  protected readonly primaryIcon = computed(() => {
+    const action = this.effectiveAction();
+    return action ? this.actionMeta[action].icon : 'download';
+  });
+
+  protected readonly primaryTooltip = computed(() => {
+    const action = this.effectiveAction();
+    if (action === 'download' || action === null) return 'Download G-code';
     const printer = this.active.printer();
-    const uuid = this.slicer.currentRequestUuid();
-    if (!printer || !uuid) {
+    const target = printer ? printer.name : 'the printer';
+    return action === 'print' ? `Upload & print on ${target}` : `Upload G-code to ${target}`;
+  });
+
+  constructor() {
+    inject(DestroyRef).onDestroy(() => this.closeMenu());
+  }
+
+  private readPrimaryAction(): SliceAction {
+    const raw = this.storage.get(PRIMARY_ACTION_KEY)();
+    return raw === 'upload' || raw === 'print' ? raw : 'download';
+  }
+
+  private isActionAvailable(action: SliceAction): boolean {
+    return action === 'download' ? this.downloadAvailable() : this.canSendToPrinter();
+  }
+
+  /** Run the current default action. */
+  protected runPrimary(): void {
+    const action = this.effectiveAction();
+    if (action) this.run(action);
+  }
+
+  /** Pick an action from the menu: remember it as the default. */
+  protected pick(action: SliceAction): void {
+    if (!this.isActionAvailable(action)) return;
+    this.primaryAction.set(action);
+    this.storage.write(PRIMARY_ACTION_KEY, action);
+    this.closeMenu();
+  }
+
+  private run(action: SliceAction): void {
+    if (action === 'download') {
+      this.download();
       return;
     }
-    this.printerConn.sendToPrinter(printer, uuid, { start: false });
+    const printer = this.active.printer();
+    const uuid = this.slicer.currentRequestUuid();
+    if (!printer || !uuid) return;
+    this.printerConn.sendToPrinter(printer, uuid, {
+      start: action === 'print',
+      filename: this.gcodeFilename(),
+    });
+  }
+
+  /** A printer-friendly `<model>.gcode` name, falling back to the engine default. */
+  private gcodeFilename(): string | undefined {
+    const name = this.slicer.selectedFile()?.name;
+    if (!name) return undefined;
+    const base = name.replace(/\.[^./\\]+$/, '').trim();
+    return base ? `${base}.gcode` : undefined;
+  }
+
+  protected toggleMenu(): void {
+    this.menuOpen() ? this.closeMenu() : this.openMenu();
+  }
+
+  private openMenu(): void {
+    const trigger = this.caretEl()?.nativeElement;
+    const tpl = this.menuTpl();
+    if (!trigger || !tpl) {
+      return;
+    }
+    this.menuOpen.set(true);
+    this.menuRef = this.floating.openTemplate(
+      tpl,
+      {},
+      {
+        reference: trigger,
+        interactive: true,
+        panelClass: 'nexus-floating--fit',
+        originElement: trigger,
+        options: { placement: 'bottom-end', offset: 4, padding: 8 },
+        onOutsidePointer: () => this.closeMenu(),
+        onEscape: () => this.closeMenu(),
+      },
+    );
+  }
+
+  private closeMenu(): void {
+    this.menuOpen.set(false);
+    this.menuRef?.close();
+    this.menuRef = null;
   }
 }

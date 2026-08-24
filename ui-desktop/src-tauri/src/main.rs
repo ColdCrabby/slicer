@@ -34,6 +34,7 @@ fn main() {
             commands::slice_cancel,
             commands::preview_get_source,
             commands::history_list,
+            commands::history_clear,
             commands::get_system_accent,
             commands::profiles_load,
             commands::profiles_save_category,

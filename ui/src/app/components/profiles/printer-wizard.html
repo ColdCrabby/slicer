@@ -16,27 +16,136 @@
     @case (0) {
       <div class="wz-step">
         <p class="wz-intro">
-          Start from a manufacturer preset in the cloud catalog, or set one up from scratch.
+          Have your printer on the network? Paste its address and we'll detect the type and settings
+          for you. Otherwise, start from a catalog preset or from scratch.
         </p>
         <div class="wz-start">
-          <button type="button" class="wz-start__scratch" (click)="startFromScratch()">
-            <nexus-icon name="grid-plus" />
-            <span>
-              <strong>Start from scratch</strong>
-              <small>A blank 220 mm printer you can fully customise</small>
-            </span>
-          </button>
+          <div class="wz-detect">
+            <div class="wz-detect__row">
+              <input
+                class="wz-input"
+                type="text"
+                placeholder="http://mainsailos.local  ·  192.168.1.42"
+                [value]="detectHost()"
+                (input)="setDetectHost($event)"
+                (keydown.enter)="detect()"
+                [disabled]="detecting()"
+              />
+              <button
+                nexusButton
+                variant="primary"
+                type="button"
+                class="wz-detect__btn"
+                [class.wz-detect__btn--busy]="detecting()"
+                (click)="detect()"
+                [disabled]="detecting() || !detectHost().trim()"
+              >
+                <nexus-icon [name]="detecting() ? 'refresh' : 'magic-wand'" />
+                <span>{{ detecting() ? 'Detecting…' : 'Detect' }}</span>
+              </button>
+            </div>
+            @if (detectResult(); as result) {
+              @if (!result.reachable) {
+                <p class="wz-detect__msg wz-detect__msg--error">
+                  <nexus-icon name="warning-triangle" />
+                  <span>{{ result.message ?? 'Could not reach a printer at that address.' }}</span>
+                </p>
+              }
+            }
+            @if (!detectResult()?.reachable) {
+              <p class="wz-detect__hint">
+                Works best with Klipper / Moonraker (bed size, nozzle and kinematics), and identifies
+                OctoPrint &amp; PrusaLink hosts.
+              </p>
+            }
+          </div>
 
-          <div class="wz-start__divider">or pick a preset</div>
+          @if (detectResult()?.reachable) {
+            <div class="wz-detected" role="status">
+              <header class="wz-detected__head">
+                <nexus-icon name="check-circle" />
+                <div>
+                  <strong>Printer detected</strong>
+                  <small>{{ detectResult()?.message ?? 'We prefilled what we could below.' }}</small>
+                </div>
+              </header>
 
-          <nexus-catalog-picker
-            [entries]="catalogEntries()"
-            [loading]="catalogStatus() === 'loading'"
-            [unavailable]="catalogStatus() === 'unavailable'"
-            actionLabel="Use preset"
-            (pick)="startFromCatalog($event)"
-            (retry)="retryCatalog()"
-          />
+              <dl class="wz-detected__grid">
+                @for (row of detectionRows(); track row.label) {
+                  <div class="wz-detected__item">
+                    <dt>{{ row.label }}</dt>
+                    <dd>{{ row.value }}</dd>
+                  </div>
+                }
+              </dl>
+
+              @if (detectionMissing()) {
+                <p class="wz-detected__note">
+                  <nexus-icon name="info-circle" />
+                  <span>
+                    We couldn't read the bed size or nozzle from this printer — please review those
+                    before adding it.
+                  </span>
+                </p>
+              }
+
+              <div class="wz-detected__actions">
+                <button nexusButton variant="ghost" type="button" (click)="startOver()">
+                  Start over
+                </button>
+
+                @if (detectionMissing()) {
+                  <button
+                    nexusButton
+                    variant="primary"
+                    type="button"
+                    (click)="continueFromDetection()"
+                  >
+                    <span>Review &amp; add</span>
+                    <nexus-icon name="arrow-right" />
+                  </button>
+                } @else {
+                  <div class="wz-detected__actions-end">
+                    <button nexusButton variant="ghost" type="button" (click)="finish()">
+                      Just add
+                    </button>
+                    <button
+                      nexusButton
+                      variant="primary"
+                      type="button"
+                      (click)="finishAndConfigureGcode()"
+                    >
+                      <span>Add &amp; check G-code</span>
+                      <nexus-icon name="arrow-right" />
+                    </button>
+                  </div>
+                }
+              </div>
+            </div>
+          }
+
+          @if (!detectResult()?.reachable) {
+            <div class="wz-start__divider">or start manually</div>
+
+            <button type="button" class="wz-start__scratch" (click)="startFromScratch()">
+              <nexus-icon name="grid-plus" />
+              <span>
+                <strong>Start from scratch</strong>
+                <small>A blank 220 mm printer you can fully customise</small>
+              </span>
+            </button>
+
+            <div class="wz-start__divider">or pick a preset</div>
+
+            <nexus-catalog-picker
+              [entries]="catalogEntries()"
+              [loading]="catalogStatus() === 'loading'"
+              [unavailable]="catalogStatus() === 'unavailable'"
+              actionLabel="Use preset"
+              (pick)="startFromCatalog($event)"
+              (retry)="retryCatalog()"
+            />
+          }
         </div>
       </div>
     }

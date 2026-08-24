@@ -180,7 +180,8 @@ async fn run_server(
                     .route(
                         "/profiles/{kind}",
                         web::put().to(handlers::put_profiles_category_handler),
-                    ),
+                    )
+                    .route("/history", web::delete().to(handlers::delete_history_handler)),
             )
             // WebSocket endpoint
             .route("/ws", web::get().to(ws_session::ws_handler))

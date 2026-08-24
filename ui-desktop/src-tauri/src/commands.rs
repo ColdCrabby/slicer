@@ -36,6 +36,11 @@ pub fn history_list(state: State<'_, AppState>) -> Result<Value, String> {
 }
 
 #[tauri::command]
+pub fn history_clear(state: State<'_, AppState>) -> Result<Value, String> {
+    crate::bridge::runtime_bridge::history_clear(&state)
+}
+
+#[tauri::command]
 pub fn get_system_accent() -> Option<String> {
     crate::system_accent::detect()
 }

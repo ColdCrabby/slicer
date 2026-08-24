@@ -110,6 +110,11 @@ export const GCODE_TEMPLATES: readonly GcodeTemplate[] = [
 /** Template a from-scratch printer starts attached to. */
 export const DEFAULT_GCODE_TEMPLATE_ID = STANDARD_MARLIN.id;
 
+/** The best default template id for a printer of the given firmware flavor. */
+export function defaultGcodeTemplateIdForFlavor(flavor: PrinterGcodeFlavor | undefined): string {
+  return flavor === 'klipper' ? STANDARD_KLIPPER.id : STANDARD_MARLIN.id;
+}
+
 /** Dropdown options including the trailing "Custom" entry. */
 export const GCODE_TEMPLATE_OPTIONS: { value: string; label: string; description?: string }[] = [
   ...GCODE_TEMPLATES.map((t) => ({ value: t.id, label: t.label, description: t.description })),

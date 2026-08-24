@@ -432,12 +432,12 @@ async fn moonraker_upload(
         .file_name(safe_name.clone())
         .mime_str("application/octet-stream")
         .map_err(|e| format!("Failed to build upload: {e}"))?;
-    let mut form = reqwest::multipart::Form::new()
+    // The upload endpoint's `print=true` convenience flag is unreliable — many
+    // Klipper builds accept the file but never start it. Upload here, then kick
+    // the print off explicitly below so we get a real start confirmation.
+    let form = reqwest::multipart::Form::new()
         .text("root", "gcodes")
         .part("file", part);
-    if start {
-        form = form.text("print", "true");
-    }
 
     let url = format!("{base}/server/files/upload");
     let client = http_client();
@@ -454,15 +454,64 @@ async fn moonraker_upload(
         return Err(format!("Upload rejected (HTTP {code}){hint}"));
     }
 
-    Ok(SendOutcome {
-        message: if start {
-            format!("Uploaded {safe_name} and started the print")
-        } else {
-            format!("Uploaded {safe_name} to the printer")
-        },
-        started: start,
-    })
+    if !start {
+        return Ok(SendOutcome {
+            message: format!("Uploaded {safe_name} to the printer"),
+            started: false,
+        });
+    }
+
+    match moonraker_start_print(conn, &base, &safe_name).await {
+        Ok(()) => Ok(SendOutcome {
+            message: format!("Uploaded {safe_name} and started the print"),
+            started: true,
+        }),
+        // The file is safely on the printer even when the start is refused
+        // (busy, not homed, in error). Report success-with-caveat so the user
+        // knows the upload landed and why the print didn't begin.
+        Err(reason) => Ok(SendOutcome {
+            message: format!("Uploaded {safe_name}, but couldn't start the print — {reason}"),
+            started: false,
+        }),
+    }
 }
+
+/// Ask Moonraker to begin printing an already-uploaded file (relative to the
+/// `gcodes` root). Returns the printer's refusal reason on failure.
+async fn moonraker_start_print(
+    conn: &PrinterConnection,
+    base: &str,
+    filename: &str,
+) -> Result<(), String> {
+    let url = format!("{base}/printer/print/start");
+    let client = http_client();
+    let resp = with_auth(client.post(&url), conn)
+        .query(&[("filename", filename)])
+        .send()
+        .await
+        .map_err(|e| friendly_error(&e))?;
+
+    let code = resp.status();
+    if code.is_success() {
+        return Ok(());
+    }
+
+    let detail = resp.text().await.unwrap_or_default();
+    Err(moonraker_error_message(&detail).unwrap_or_else(|| format!("HTTP {code}")))
+}
+
+/// Pull the human-readable reason out of a Moonraker JSON error body
+/// (`{"error": {"message": "…"}}`), when present.
+fn moonraker_error_message(body: &str) -> Option<String> {
+    let value: serde_json::Value = serde_json::from_str(body).ok()?;
+    let message = value
+        .get("error")
+        .and_then(|e| e.get("message"))
+        .and_then(|m| m.as_str())?;
+    let trimmed = message.trim();
+    (!trimmed.is_empty()).then(|| trimmed.to_string())
+}
+
 
 /// Moonraker filenames may not contain path separators.
 fn sanitize_filename(name: &str) -> String {

@@ -1,0 +1,94 @@
+@use './settings';
+
+// A restrained danger accent: the cards read as a distinct, cautious zone via a
+// faint danger-tinted border and heading, without shouting with fills.
+.danger-card {
+  border: 1px solid color-mix(in oklab, var(--color-danger) 22%, var(--color-border));
+  border-radius: var(--radius-lg);
+  background: var(--color-surface);
+  padding: var(--spacing-md) var(--spacing-lg);
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-md);
+}
+
+.danger-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--spacing-lg);
+}
+
+.danger-row-label {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.danger-row-title {
+  font-size: var(--font-size-md);
+  font-weight: var(--font-weight-medium);
+  color: var(--color-text-primary);
+}
+
+.danger-row-desc {
+  font-size: var(--font-size-xs);
+  color: var(--color-text-tertiary);
+  line-height: 1.5;
+}
+
+.danger-challenge {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-sm);
+  padding-top: var(--spacing-md);
+  border-top: 1px solid var(--color-border-light);
+}
+
+.danger-challenge-label {
+  font-size: var(--font-size-sm);
+  color: var(--color-text-secondary);
+
+  strong {
+    font-family: var(--font-family-mono);
+    letter-spacing: 0.08em;
+    color: var(--color-danger);
+  }
+}
+
+.danger-challenge-row {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+}
+
+.danger-input {
+  flex: 1;
+  min-width: 0;
+  box-sizing: border-box;
+  height: 34px;
+  padding: 0 10px;
+  font-size: var(--font-size-md);
+  font-family: var(--font-family-mono);
+  letter-spacing: 0.06em;
+  color: var(--color-text-primary);
+  background: var(--color-bg-secondary);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  transition:
+    border-color var(--duration-fast) var(--ease-standard),
+    box-shadow var(--duration-fast) var(--ease-standard);
+
+  &::placeholder {
+    color: var(--color-text-tertiary);
+    letter-spacing: 0.08em;
+  }
+
+  &:focus,
+  &:focus-visible {
+    outline: none;
+    border-color: var(--color-danger);
+    box-shadow: inset 0 0 0 1px var(--color-danger);
+  }
+}

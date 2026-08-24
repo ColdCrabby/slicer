@@ -2,6 +2,7 @@ import { ChangeDetectionStrategy, Component, computed, inject, signal } from '@a
 import { Router } from '@angular/router';
 import {
   makePrinter,
+  PRINTER_CONNECTION_LABELS,
   PRINTER_GCODE_FLAVORS,
   type BedShape,
   type PrinterGcodeFlavor,
@@ -10,7 +11,16 @@ import {
 import { CloudCatalog, toUserCopy } from '../../services/catalog/cloud-catalog';
 import { ActiveSelection } from '../../services/profiles/active-selection';
 import { PrintersStore } from '../../services/profiles/printers-store';
+import {
+  PrinterConnectionService,
+  type PrinterDetectionResult,
+} from '../../services/printer-connection';
+import {
+  defaultGcodeTemplateIdForFlavor,
+  gcodeTemplatePatch,
+} from '../../models/gcode-templates';
 import { Icon } from '../../shared/icon/icon';
+import { Button } from '../../ui/button/button';
 import { NumberInput } from '../../ui/number-input/number-input';
 import { Segmented } from '../../ui/segmented/segmented';
 import { Select } from '../../ui/select/select';
@@ -31,7 +41,7 @@ const STEPS = ['Start', 'Basics', 'Build volume', 'Hardware'] as const;
 @Component({
   selector: 'nexus-printer-wizard',
   standalone: true,
-  imports: [WizardShell, CatalogPicker, FieldRow, NumberInput, Select, Switch, Segmented, Icon],
+  imports: [WizardShell, CatalogPicker, FieldRow, NumberInput, Select, Switch, Segmented, Icon, Button],
   templateUrl: './printer-wizard.html',
   styleUrl: './printer-wizard.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -40,11 +50,56 @@ export class PrinterWizard {
   private readonly catalog = inject(CloudCatalog);
   private readonly store = inject(PrintersStore);
   private readonly active = inject(ActiveSelection);
+  private readonly printerConn = inject(PrinterConnectionService);
   private readonly router = inject(Router);
 
   protected readonly steps = STEPS;
   protected readonly index = signal(0);
   protected readonly draft = signal<PrinterProfile>(makePrinter());
+
+  /** “Detect from URL” state for the Start step. */
+  protected readonly detectHost = signal('');
+  protected readonly detecting = signal(false);
+  protected readonly detectResult = signal<PrinterDetectionResult | null>(null);
+
+  /** Human-readable summary of a successful detection, for the review card. */
+  protected readonly detectionRows = computed<{ label: string; value: string }[]>(() => {
+    const r = this.detectResult();
+    if (!r?.reachable) {
+      return [];
+    }
+    const rows: { label: string; value: string }[] = [];
+    rows.push({ label: 'Connection', value: PRINTER_CONNECTION_LABELS[r.kind] });
+    if (r.name) {
+      rows.push({ label: 'Name', value: r.name });
+    }
+    if (r.vendor) {
+      rows.push({ label: 'Firmware', value: r.vendor });
+    }
+    if (r.bedWidth != null) {
+      const bed =
+        r.bedShape === 'circular'
+          ? `⌀ ${r.bedWidth} mm`
+          : `${r.bedWidth} × ${r.bedDepth ?? r.bedWidth} mm`;
+      rows.push({ label: 'Bed', value: bed });
+    }
+    if (r.bedHeight != null) {
+      rows.push({ label: 'Max height', value: `${r.bedHeight} mm` });
+    }
+    if (r.nozzleDiameterMm != null) {
+      rows.push({ label: 'Nozzle', value: `${r.nozzleDiameterMm} mm` });
+    }
+    if (r.originAtCenter) {
+      rows.push({ label: 'Kinematics', value: 'Delta (center origin)' });
+    }
+    return rows;
+  });
+
+  /** True when a reachable printer left some hardware fields unknown. */
+  protected readonly detectionMissing = computed(() => {
+    const r = this.detectResult();
+    return !!r?.reachable && (r.bedWidth == null || r.nozzleDiameterMm == null);
+  });
 
   protected readonly bedShapeOptions = [
     { value: 'rectangular', label: 'Rectangular' },
@@ -106,13 +161,90 @@ export class PrinterWizard {
     this.draft.set(makePrinter());
     this.index.set(1);
   }
-
   protected startFromCatalog(id: string): void {
     const entry = this.catalog.printers().find((p) => p.id === id);
     if (entry) {
       this.draft.set(toUserCopy(entry));
       this.index.set(1);
     }
+  }
+
+  protected setDetectHost(event: Event): void {
+    this.detectHost.set((event.target as HTMLInputElement).value);
+  }
+
+  /**
+   * Probe the typed URL, then — on a reachable printer — prefill the draft from
+   * whatever the engine could learn (kind, bed volume, nozzle, kinematics) and
+   * show a review card summarising the findings. An unreachable host stays on
+   * the Start step with an explanatory message.
+   */
+  protected async detect(): Promise<void> {
+    const host = this.detectHost().trim();
+    if (!host || this.detecting()) {
+      return;
+    }
+    this.detecting.set(true);
+    this.detectResult.set(null);
+    try {
+      const result = await this.printerConn.detectPrinter(host);
+      this.detectResult.set(result);
+      if (result.reachable) {
+        this.applyDetection(result, host);
+      }
+    } finally {
+      this.detecting.set(false);
+    }
+  }
+
+  /** Accept the detected settings and move on to review the Basics step. */
+  protected continueFromDetection(): void {
+    this.index.set(1);
+  }
+
+  /** Add the detected printer and open its editor scrolled to the G-code block. */
+  protected finishAndConfigureGcode(): void {
+    const printer = this.persist();
+    void this.router.navigate(['/settings/printers'], {
+      queryParams: { configure: printer.id, focus: 'gcode' },
+    });
+  }
+
+  /** Discard the detection and return to the manual "start" options. */
+  protected startOver(): void {
+    this.detectResult.set(null);
+    this.detectHost.set('');
+    this.draft.set(makePrinter());
+  }
+
+  /** Merge a successful detection into a fresh draft, keeping sane defaults. */
+  private applyDetection(result: PrinterDetectionResult, host: string): void {
+    const base = makePrinter();
+    const params = { ...((base.params as Record<string, unknown>) ?? {}) };
+    // Attach the firmware-appropriate G-code template (Klipper macros for
+    // Klipper, raw M-codes for Marlin) instead of the from-scratch default.
+    const templatePatch = gcodeTemplatePatch(
+      defaultGcodeTemplateIdForFlavor(result.firmware as PrinterGcodeFlavor | undefined),
+    );
+    if (templatePatch) {
+      Object.assign(params, templatePatch);
+    }
+    if (result.nozzleDiameterMm != null) {
+      params['nozzle_diameter_mm'] = result.nozzleDiameterMm;
+    }
+    this.draft.set({
+      ...base,
+      name: result.name?.trim() || result.vendor || base.name,
+      vendor: result.vendor ?? base.vendor,
+      model: result.model ?? base.model,
+      bed_shape: result.bedShape ?? base.bed_shape,
+      bed_width: result.bedWidth ?? base.bed_width,
+      bed_depth: result.bedDepth ?? base.bed_depth,
+      bed_height: result.bedHeight ?? base.bed_height,
+      origin_at_center: result.originAtCenter ?? base.origin_at_center,
+      connection: { kind: result.kind, host, connected: false },
+      params,
+    });
   }
 
   protected retryCatalog(): void {

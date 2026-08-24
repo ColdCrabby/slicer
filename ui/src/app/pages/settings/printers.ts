@@ -169,11 +169,16 @@ export class PrintersSettings {
 
   constructor() {
     // Arriving from a wizard's "Add & configure": open the new printer and
-    // scroll to the sections (connection, G-code) the wizard doesn't cover.
+    // scroll to the sections the wizard doesn't cover. `focus=gcode` jumps
+    // straight to the G-code block (the meaningful review step after detection).
     const configureId = this.route.snapshot.queryParamMap.get('configure');
     if (configureId && this.store.getById(configureId)) {
       this.select(configureId);
-      afterNextRender(() => focusConfigureTarget('configure-target'));
+      const anchor =
+        this.route.snapshot.queryParamMap.get('focus') === 'gcode'
+          ? 'gcode-target'
+          : 'configure-target';
+      afterNextRender(() => focusConfigureTarget(anchor));
     }
   }
 

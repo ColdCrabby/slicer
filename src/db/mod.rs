@@ -445,6 +445,43 @@ impl Database {
         Ok(result.rows_affected as usize)
     }
 
+    /// Delete **every** session, uploaded-file row, and cached G-code entry,
+    /// removing their on-disk artifacts too. This is the "drop the history
+    /// database" action behind the settings Danger Zone: after it runs the
+    /// history list is empty and the G-code cache is cold, but the schema (and
+    /// the user's profiles, which live in `profiles.toml`, not the DB) are
+    /// untouched.
+    ///
+    /// On-disk file removal is best-effort — a missing artifact never fails the
+    /// clear. Returns the number of request rows deleted.
+    pub async fn clear_history(&self) -> Result<usize> {
+        // Collect on-disk paths before dropping the rows so we can unlink them.
+        let all_requests = requests::Entity::find().all(&self.conn).await?;
+        let all_files = files::Entity::find().all(&self.conn).await?;
+        let all_cache = entities::gcode_cache::Entity::find().all(&self.conn).await?;
+
+        for r in &all_requests {
+            if let Some(ref p) = r.download_file_path {
+                let _ = std::fs::remove_file(p);
+            }
+        }
+        for f in &all_files {
+            let _ = std::fs::remove_file(&f.file_path);
+        }
+        for c in &all_cache {
+            let _ = std::fs::remove_file(&c.file_path);
+        }
+
+        // Delete child rows first (FK), then the cache, then the requests.
+        files::Entity::delete_many().exec(&self.conn).await?;
+        entities::gcode_cache::Entity::delete_many()
+            .exec(&self.conn)
+            .await?;
+        let result = requests::Entity::delete_many().exec(&self.conn).await?;
+
+        Ok(result.rows_affected as usize)
+    }
+
     // ── Test helpers ──────────────────────────────────────────────────────────
 
     /// Directly set `updated_at` on a request row to an arbitrary timestamp.

@@ -210,7 +210,17 @@ pub fn history_list(state: &AppState) -> Result<Value, String> {
     Ok(json!({ "ok": true, "sessions": sessions }))
 }
 
-// Helpers
+/// Drop the desktop app's in-memory slice history. Backs the settings Danger
+/// Zone "Clear slice history" action; the native runtime keeps its history in
+/// `AppState`, so there is nothing on disk to remove.
+pub fn history_clear(state: &AppState) -> Result<Value, String> {
+    state
+        .history_sessions
+        .lock()
+        .map_err(|e| e.to_string())?
+        .clear();
+    Ok(json!({ "ok": true }))
+}
 
 /// Load a mesh from a filesystem path, reading bytes directly in the Rust
 /// process. The bytes never cross the IPC boundary.

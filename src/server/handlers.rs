@@ -126,6 +126,20 @@ pub async fn put_profiles_category_handler(
     }
 }
 
+/// `DELETE /api/history` — drop every slicing session, uploaded-file row, and
+/// cached G-code entry (and their on-disk artifacts). Backs the settings Danger
+/// Zone "Clear slice history" action. Profiles and configuration are untouched.
+pub async fn delete_history_handler(state: web::Data<AppState>) -> actix_web::HttpResponse {
+    match state.db.clear_history().await {
+        Ok(removed) => actix_web::HttpResponse::Ok().json(serde_json::json!({
+            "removed": removed,
+            "message": "Slice history and G-code cache cleared",
+        })),
+        Err(e) => actix_web::HttpResponse::InternalServerError()
+            .json(serde_json::json!({ "error": e.to_string() })),
+    }
+}
+
 /// Handle file upload: save the file with its original extension and return
 /// `{ ruuid, ofids: [file_uuid] }`. The workplate UUID and the file UUID are
 /// distinct — the slice protocol references files by `file_uuid` and never by

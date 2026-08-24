@@ -81,6 +81,4 @@ export function makeLabel(overrides: Partial<Label> = {}): Label {
 /** Seed labels so the feature is immediately discoverable on first run. */
 export const DEFAULT_LABELS: Label[] = [
   { id: 'label-favorite', name: 'Favorite', color: '#b8942f', tone: 'dark' },
-  { id: 'label-calibrated', name: 'Calibrated', color: '#5a9a5e', tone: 'dark' },
-  { id: 'label-experimental', name: 'Experimental', color: '#8a6fbf', tone: 'light' },
 ];

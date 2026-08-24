@@ -579,6 +579,16 @@ export class Slicer {
     return this.orchestrator.getHistory();
   }
 
+  /**
+   * Drop all persisted slicing history (and the engine's G-code cache, where
+   * applicable), then bump {@link historyVersion} so any history view refetches
+   * the now-empty list. No-op on the web/wasm runtime.
+   */
+  async clearHistory(): Promise<void> {
+    await this.orchestrator.clearHistory();
+    this.historyVersion.update((v) => v + 1);
+  }
+
   async downloadHistorySession(session: RuntimeHistorySession): Promise<void> {
     if (!session.download_url) {
       const preview = await this.orchestrator.getPreviewSource(session.request_uuid);

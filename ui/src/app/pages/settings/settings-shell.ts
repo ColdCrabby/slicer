@@ -1,4 +1,11 @@
-import { ChangeDetectionStrategy, Component, computed, effect, inject, signal } from '@angular/core';
+import {
+  ChangeDetectionStrategy,
+  Component,
+  computed,
+  effect,
+  inject,
+  signal,
+} from '@angular/core';
 import { RouterLink, RouterLinkActive, RouterOutlet } from '@angular/router';
 import { resolveRuntimeMode } from '../../runtime/domain/runtime-mode.util';
 import { SAVE_DEBOUNCE_MS } from '../../services/profiles/engine-write-through';
@@ -41,6 +48,7 @@ export class SettingsShell {
     { path: 'profiles', label: 'Print Profiles', icon: 'reports' },
     { path: 'labels', label: 'Labels', icon: 'label' },
     { path: 'shortcuts', label: 'Shortcuts', icon: 'square-cursor' },
+    { path: 'danger-zone', label: 'Danger Zone', icon: 'warning-triangle' },
   ];
 
   /** Aggregated profile-library sync status; `idle` renders nothing. */

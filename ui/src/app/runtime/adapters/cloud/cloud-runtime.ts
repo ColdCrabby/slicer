@@ -1,22 +1,23 @@
 import { Subscription } from 'rxjs';
 import {
-    ClientMessage,
-    SceneObjectSliceDto,
-    SlicingParams,
+  ClientMessage,
+  SceneObjectSliceDto,
+  SlicingParams,
 } from '../../../../generated/slicer-engine-ws-client-message-v1';
 import {
-    ServerMessage,
-    SessionSummary,
+  ServerMessage,
+  SessionSummary,
 } from '../../../../generated/slicer-engine-ws-server-message-v1';
+import { environment } from '../../../../environments/environment';
 import { SceneEngine } from '../../../services/scene-engine';
 import { SlicerConnection } from '../../../services/slicer-connection';
 import { SlicerFile } from '../../../services/slicer-file';
 import { RuntimeHistorySession } from '../../domain/history-models';
 import { RuntimePreviewSource } from '../../domain/preview-models';
 import {
-    RuntimeMeshInput,
-    RuntimeSceneOp,
-    RuntimeSceneSnapshot,
+  RuntimeMeshInput,
+  RuntimeSceneOp,
+  RuntimeSceneSnapshot,
 } from '../../domain/scene-commands';
 import { RuntimeSliceRequest, RuntimeSliceResult } from '../../domain/slice-commands';
 import { RuntimeEventBus } from '../../infrastructure/event-bus';
@@ -155,6 +156,14 @@ export class CloudRuntime implements RuntimePort {
         this.rejectPendingHistory(new Error('Cloud history request timed out.'));
       }, CLOUD_HISTORY_TIMEOUT_MS);
     });
+  }
+
+  async clearHistory(): Promise<void> {
+    this.requireReady();
+    const response = await fetch(`${environment.apiUrl}/history`, { method: 'DELETE' });
+    if (!response.ok) {
+      throw new Error(`DELETE /history failed (${response.status})`);
+    }
   }
 
   async slice(request: RuntimeSliceRequest): Promise<RuntimeSliceResult> {
