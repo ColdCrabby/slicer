@@ -474,27 +474,65 @@ The `−0.5 × d` term accounts for the fact that `OuterWall` centerlines are
 already inset `d/2` from the model surface. Without this correction the interior
 region is over-shrunk by half a bead width.
 
-`walls_per_island = ceil(total_wall_bead_count / outer_contour_count)` gives the
-number of wall shells per island. This works because Arachne places the same
-number of beads on every island (parameters are global, not per-island).
+`walls_per_island = ceil(total_wall_bead_count / outer_contour_count)` estimates the
+number of wall shells per island. **This is only an average, and the Arachne
+generator breaks the assumption behind it:** Arachne places a _variable_ number
+of variable-width beads per island (and even along one island), so on a layer
+whose islands differ in bead count the estimate is too low and the interior is
+under-deflated by up to a full bead width. Solid surface / sparse infill / bottom
+fill generated inside that over-reaching interior then lands _on top of the
+innermost wall_ (measurable "Inner wall × {Top surface, Sparse infill, Bottom
+surface}" double-extrusion; the classic generator, which places a fixed count,
+does not show it). See the wall-footprint clip below for the correction.
 
 **Do not normalise all wall paths to CCW before the inflate.** Hole boundary
 beads have CW winding. Flipping them to CCW makes Clipper2 treat holes as solid
 material → infill is generated inside the hole (through the void).
 
+### Wall-Footprint Clip — Correcting the Interior Estimate's Over-Reach
+
+Because the `walls_per_island` estimate above can under-deflate on Arachne
+layers, both the sparse-infill area (`add_infill_to_layers`) and the solid
+top/bottom surface fill (`generate_top_bottom_surfaces_with_interior`) are
+additionally clipped against the **actual physical wall-bead footprint**
+(`compute_wall_bead_footprint` — every wall centerline inflated by its own
+half-width). This is count- and width-agnostic and a **no-op where the estimate
+was already correct** (classic), so it removes only the genuine over-print:
+
+- **Sparse infill** subtracts the footprint _grown by_ `infill_perimeter_gap_mm`
+  so it keeps its intended clearance from the real innermost wall.
+- **Solid surfaces** subtract the footprint _eroded by_
+  `infill_overlap_percent × d` so the fill still welds that much into the
+  innermost wall (the designed bond) and no further. The un-eroded gap-fill
+  footprint is unioned back in so surfaces _abut_ gap fill rather than welding to
+  it.
+
+Use **`FillRule::NonZero`** for these subtractions, **not `Positive`**: the wall
+footprint is a frame with CW hole sub-paths (the enclosed interior). `Positive`
+ignores CW holes → treats the frame as a solid block → erases the whole interior.
+
+This clip is applied to the fill regions **only** — it never reshapes
+`interior_regions`, so bridge detection/classification (which keys off the
+smooth interior) is untouched. Reshaping the interior itself instead spawns
+phantom bridges from the jagged bead-following boundary.
+
+Trimming the surface off the wall band shrinks `solid_regions`, so
+`prune_redundant_gap_fill` correctly _retains_ the wall-band gap-fill beads it
+used to prune (they fill real medial gaps, not areas the surface covers) — this
+is why the Arachne `gap_fill` role length rises after the fix.
+
 ### Infill Boundary vs. Surface Region
 
 `add_infill_to_layers` calls `calculate_interior_region(layer, 0.0, nozzle_diameter_mm)`
 (overlap = 0) to get the infill area, then subtracts `layer.solid_regions` with
-`FillRule::Positive`.
+`FillRule::Positive` and finally the wall-bead footprint (see above) with
+`FillRule::NonZero`.
 
 `generate_top_bottom_surfaces_with_interior` clips surface regions to
 `interior_regions[i]` (computed ahead of time with
 `calculate_interior_region(layer, infill_overlap_percent, nozzle_diameter_mm)`)
-before generating solid infill lines.
-
-Both use `calculate_interior_region` — but with different `overlap_percent`
-values. Keep them consistent if the signature changes.
+then subtracts the eroded wall-bead footprint before generating solid infill
+lines.
 
 ### Thin Wall-Band Channels — Opened-Interior Surface Clip
 

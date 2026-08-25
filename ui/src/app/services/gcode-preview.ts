@@ -9,48 +9,66 @@ import { Slicer } from './slicer';
 export type RoleName =
   | 'outerWall'
   | 'innerWall'
+  | 'overhangPerimeter'
   | 'infill'
+  | 'solidInfill'
+  | 'gapFill'
+  | 'bridge'
+  | 'internalBridge'
   | 'topSurface'
   | 'bottomSurface'
+  | 'support'
+  | 'supportInterface'
+  | 'skirt'
+  | 'brim'
+  | 'primeTower'
   | 'travel'
   | 'other'
-  | 'bridge'
-  | 'overhangPerimeter'
-  | 'skirt'
-  | 'support'
   | 'seam';
 
 /** Palette mapping every role to a numeric RGB hex color. */
 export type RoleColorPalette = Record<RoleName, number>;
 
 export const ROLE_COLORS_DARK: RoleColorPalette = {
-  outerWall: 0xff8800, // amber-orange  (legend: outer wall)
-  innerWall: 0xffcc00, // golden-yellow (legend: inner wall)
-  infill: 0xcc44ff, // violet-purple (legend: sparse infill)
-  topSurface: 0xff3355, // crimson-pink  (legend: top surface)
-  bottomSurface: 0x00bbff, // vivid cyan    (legend: bottom surface)
-  travel: 0x334466, // dark slate    (legend: travel)
-  other: 0x44ffaa, // mint-green    (twist: stands apart)
-  bridge: 0x0057ff, // vivid azure   (legend: bridge)
-  overhangPerimeter: 0x008a4b, // emerald       (legend: overhang perimeter)
-  skirt: 0x888888, // mid-gray      (legend: skirt/brim)
-  support: 0x7dff00, // neon lime     (legend: support material)
-  seam: 0xffffff, // white         (legend: seam point)
+  outerWall: 0xff8800,
+  innerWall: 0xffcc00,
+  overhangPerimeter: 0x00a86b,
+  infill: 0xcc44ff,
+  solidInfill: 0xa56eff,
+  gapFill: 0xff5ea8,
+  bridge: 0x0057ff,
+  internalBridge: 0x3a7bff,
+  topSurface: 0xff3355,
+  bottomSurface: 0x00bbff,
+  support: 0x7dff00,
+  supportInterface: 0xb8ff5a,
+  skirt: 0x888888,
+  brim: 0xbfa37f,
+  primeTower: 0x47d4c8,
+  travel: 0x334466,
+  other: 0x44ffaa,
+  seam: 0xffffff,
 };
 
 export const ROLE_COLORS_LIGHT: RoleColorPalette = {
-  outerWall: 0xe0620c, // warm orange   (legend: outer wall)
-  innerWall: 0xc08800, // amber-gold     (legend: inner wall)
-  infill: 0x8e3fc4, // medium violet   (legend: sparse infill)
-  topSurface: 0xd1263f, // rose-crimson    (legend: top surface)
-  bottomSurface: 0x1592c4, // azure-cyan      (legend: bottom surface)
-  travel: 0x8a94a6, // muted slate     (legend: travel)
-  other: 0x0f9f97, // teal            (twist: stands apart)
-  bridge: 0x2e5bd6, // royal blue      (legend: bridge)
-  overhangPerimeter: 0x1e9e62, // emerald green   (legend: overhang perimeter)
-  skirt: 0x74787f, // neutral grey    (legend: skirt/brim)
-  support: 0x7f9c1f, // olive-lime      (legend: support material)
-  seam: 0x2a2e38, // dark slate      (legend: seam point \u2014 white bg)
+  outerWall: 0xe0620c,
+  innerWall: 0xc08800,
+  overhangPerimeter: 0x1e9e62,
+  infill: 0x8e3fc4,
+  solidInfill: 0x7642b2,
+  gapFill: 0xd95291,
+  bridge: 0x2e5bd6,
+  internalBridge: 0x5775dd,
+  topSurface: 0xd1263f,
+  bottomSurface: 0x1592c4,
+  support: 0x7f9c1f,
+  supportInterface: 0x95b13a,
+  skirt: 0x74787f,
+  brim: 0x9b8264,
+  primeTower: 0x0f9f97,
+  travel: 0x8a94a6,
+  other: 0x2b9f8e,
+  seam: 0x2a2e38,
 };
 
 /** Returns the correct palette for the current theme. */
@@ -64,15 +82,21 @@ export const ROLE_COLORS = ROLE_COLORS_DARK;
 export const ROLE_LABELS: Record<RoleName, string> = {
   outerWall: 'Outer Wall',
   innerWall: 'Inner Wall',
+  overhangPerimeter: 'Overhang Wall',
   infill: 'Infill',
+  solidInfill: 'Solid Infill',
+  gapFill: 'Gap Infill',
+  bridge: 'Bridge',
+  internalBridge: 'Internal Bridge',
   topSurface: 'Top Surface',
   bottomSurface: 'Bottom Surface',
+  support: 'Support',
+  supportInterface: 'Support Interface',
+  skirt: 'Skirt',
+  brim: 'Brim',
+  primeTower: 'Prime Tower',
   travel: 'Travel',
   other: 'Other',
-  bridge: 'Bridge',
-  overhangPerimeter: 'Overhang Perimeter',
-  skirt: 'Skirt / Brim',
-  support: 'Support',
   seam: 'Seam',
 };
 
@@ -91,16 +115,55 @@ export const ROLE_CSS = ROLE_CSS_DARK;
 export const ROLE_ORDER: readonly RoleName[] = [
   'outerWall',
   'innerWall',
+  'overhangPerimeter',
   'infill',
+  'solidInfill',
+  'gapFill',
+  'bridge',
+  'internalBridge',
   'topSurface',
   'bottomSurface',
-  'bridge',
-  'overhangPerimeter',
-  'skirt',
   'support',
+  'supportInterface',
+  'skirt',
+  'brim',
+  'primeTower',
   'travel',
   'seam',
   'other',
+] as const;
+
+export interface RoleGroup {
+  id: string;
+  label: string;
+  roles: readonly RoleName[];
+}
+
+export const ROLE_GROUPS: readonly RoleGroup[] = [
+  { id: 'shell', label: 'Shell', roles: ['outerWall', 'innerWall', 'overhangPerimeter'] },
+  {
+    id: 'fill',
+    label: 'Fill & Surfaces',
+    roles: [
+      'infill',
+      'solidInfill',
+      'gapFill',
+      'bridge',
+      'internalBridge',
+      'topSurface',
+      'bottomSurface',
+    ],
+  },
+  {
+    id: 'support',
+    label: 'Support & Adhesion',
+    roles: ['support', 'supportInterface', 'skirt', 'brim', 'primeTower'],
+  },
+  {
+    id: 'movement',
+    label: 'Movement & Markers',
+    roles: ['travel', 'seam', 'other'],
+  },
 ] as const;
 
 const DEFAULT_HIDDEN_ROLES: ReadonlySet<RoleName> = new Set<RoleName>(['travel', 'seam']);
@@ -150,7 +213,7 @@ export const VIEW_MODE_ORDER: readonly GcodeViewMode[] = [
 
 /** Human-readable labels for the view-mode dropdown. */
 export const VIEW_MODE_LABELS: Record<GcodeViewMode, string> = {
-  category: 'Categories',
+  category: 'Extrusion Kind',
   speed: 'Speed',
   flow: 'Flow',
   lineWidth: 'Line Width',

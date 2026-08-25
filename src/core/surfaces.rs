@@ -251,7 +251,7 @@ fn morphological_open(paths: Paths, radius_mm: f64) -> Paths {
 /// OverhangPerimeter / GapFill) — the build-plate area those extrusions consume.
 /// Bridge detection and solid top/bottom surfaces subtract this so nothing is
 /// deposited on top of an existing wall or gap-fill bead.
-fn compute_wall_bead_footprint(layer: &SliceLayer, nozzle_diameter_mm: f64) -> Paths {
+pub(super) fn compute_wall_bead_footprint(layer: &SliceLayer, nozzle_diameter_mm: f64) -> Paths {
     // Group wall paths by (is_open, radius-bucket) so we can run **one**
     // `inflate` call per group instead of one per path.  Clipper2's `inflate`
     // takes a `Paths` and offsets every contained sub-path together — there
@@ -1104,6 +1104,7 @@ pub fn generate_top_bottom_surfaces(
             bridge_min_area_mm2: 0.5,
             bridge_noise_filter_mm: 0.05,
             bridge_anchor_mm: 0.5,
+            infill_overlap_percent: 0.25,
         },
         None, // No interior regions - use full perimeters
     );
@@ -1158,6 +1159,16 @@ pub struct SurfaceConfig {
     /// the layer footprint) so each strand bites into the supported solid
     /// material on either side.
     pub bridge_anchor_mm: f64,
+    /// Fraction of the nozzle diameter by which solid top/bottom surface infill
+    /// is allowed to overlap the innermost wall for a bond weld.
+    ///
+    /// Solid surface fill is clipped against the **actual wall bead footprint**
+    /// (eroded by `infill_overlap_percent × nozzle_diameter`) so it welds to the
+    /// innermost wall by exactly this much and no further — regardless of how
+    /// far the interior-region estimate reached.  Matches the sparse-infill
+    /// clearance handling in `add_infill_to_layers` and keeps Arachne surfaces
+    /// from over-printing the wall band ("Top/Bottom surface × Inner wall").
+    pub infill_overlap_percent: f64,
 }
 
 /// Generate top and bottom solid surface infill for layers.
@@ -1234,6 +1245,48 @@ pub fn generate_top_bottom_surfaces_with_interior(
     let snapshot_ns = t_snap.elapsed().as_nanos();
     #[cfg(target_arch = "wasm32")]
     let snapshot_ns = 0u128;
+
+    // Per-layer **blocked** region for the solid top/bottom surface trim: the
+    // physical wall-bead footprint eroded by the bond distance, unioned with the
+    // un-eroded gap-fill footprint.  Subtracting it from the surface fill keeps
+    // the fill off the wall band while still welding `infill_overlap_percent × d`
+    // into the innermost wall (and merely abutting gap fill).  Built in parallel
+    // here — a chain of Clipper2 inflate/union calls per layer — so the serial
+    // apply pass only pays for the two cheap `difference` clips, not the whole
+    // footprint construction 240× single-threaded.
+    let surface_bond = (config.infill_overlap_percent * nozzle_diameter_mm).max(0.0);
+    let blocked_for_surface = |l: &SliceLayer| -> Paths {
+        let wall_fp = compute_wall_bead_footprint(l, nozzle_diameter_mm);
+        if wall_fp.is_empty() {
+            return Paths::new(vec![]);
+        }
+        let eroded = if surface_bond > 1e-9 {
+            inflate(
+                wall_fp,
+                -surface_bond,
+                JoinType::Round,
+                EndType::Polygon,
+                2.0,
+            )
+        } else {
+            wall_fp
+        };
+        let gap_fp = compute_gap_fill_footprint(l, nozzle_diameter_mm);
+        if gap_fp.is_empty() {
+            eroded
+        } else if eroded.is_empty() {
+            gap_fp
+        } else {
+            union(eroded, gap_fp, FillRule::NonZero).unwrap_or_default()
+        }
+    };
+    #[cfg(not(target_arch = "wasm32"))]
+    let surface_blocked: Vec<Paths> = {
+        use rayon::prelude::*;
+        layers.par_iter().map(blocked_for_surface).collect()
+    };
+    #[cfg(target_arch = "wasm32")]
+    let surface_blocked: Vec<Paths> = layers.iter().map(blocked_for_surface).collect();
 
     // Immutable view of the layers for the parallel detection pass so
     // `clip_to_void` can build a layer's wall-bead footprint on demand.  This
@@ -1725,6 +1778,34 @@ pub fn generate_top_bottom_surfaces_with_interior(
         let (bottom_region, top_region) = {
             let clean = |r: Paths| filter_small_islands(&r, SURFACE_MIN_ISLAND_MM2);
             (clean(bottom_region), clean(top_region))
+        };
+
+        // Trim solid top/bottom surface fill to keep it off the wall band.
+        //
+        // The surface regions were clipped to `interior_regions[i]`, whose
+        // inward inset assumes a uniform wall count per island.  The Arachne
+        // generator places a *variable* number of beads, so where an island
+        // carries fewer beads than the layer maximum the inset lands a whole
+        // bead-width too far out and the solid fill is laid on top of the inner
+        // wall ("Top/Bottom surface × Inner wall" double-extrusion).
+        //
+        // `surface_blocked[i]` (built in parallel above) is the wall-bead
+        // footprint eroded by the bond distance, unioned with the gap-fill
+        // footprint.  Subtracting it welds the fill `infill_overlap_percent × d`
+        // into the innermost wall (matching classic) and no further, while
+        // merely abutting gap fill.  `NonZero` respects the frame's CW hole so
+        // only the wall band is removed.  A no-op where the inset was already
+        // correct (classic), so it removes only the genuine over-print.
+        let (bottom_region, top_region) = {
+            let blocked = &surface_blocked[i];
+            let trim = |r: Paths| -> Paths {
+                if r.is_empty() || blocked.is_empty() {
+                    r
+                } else {
+                    difference(r, blocked.clone(), FillRule::NonZero).unwrap_or_default()
+                }
+            };
+            (trim(bottom_region), trim(top_region))
         };
 
         if !bottom_region.is_empty() {
@@ -2249,6 +2330,7 @@ mod tests {
                 bridge_min_area_mm2: 1.0,
                 bridge_noise_filter_mm: 0.0,
                 bridge_anchor_mm: 0.0,
+                infill_overlap_percent: 0.25,
             },
             Some(&interior_regions),
         );
