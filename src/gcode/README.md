@@ -10,14 +10,15 @@ Converts `Vec<SliceLayer>` → a firmware-ready G-code `String`.
 gcode/
 ├── mod.rs          re-exports; module-level docs
 ├── flavor.rs       GcodeFlavor enum (Marlin | Klipper)
-├── dialect.rs      GcodeDialect trait + WarnFn
+├── dialect.rs      GcodeDialect trait + WarnFn + header()
 ├── generator.rs    GcodeGenerator façade + generate_gcode()
+├── stats.rs        SliceStatistics + metadata/settings header lines
 ├── simplify.rs     Ramer-Douglas-Peucker polyline simplification
 ├── source.rs       resolve_gcode_source() file/string resolver
 └── dialects/
     ├── mod.rs      re-exports
-    ├── marlin.rs   MarlinDialect  (M104/M109/M140/M190 etc.)
-    └── klipper.rs  KlipperDialect (START_PRINT / END_PRINT macros)
+    ├── marlin.rs   MarlinDialect  (M104/M109/M140/M190; HEADER_BLOCK header)
+    └── klipper.rs  KlipperDialect (START_PRINT / END_PRINT; KLIPPER_HEADER)
 ```
 
 ---

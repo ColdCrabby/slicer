@@ -1,5 +1,6 @@
 //! [`GcodeDialect`] trait — abstraction over firmware-specific command syntax.
 
+use crate::gcode::stats::{self, SliceStatistics};
 use crate::settings::params::SlicingParams;
 
 /// Boxed warning callback type used by [`crate::gcode::GcodeGenerator`].
@@ -42,6 +43,24 @@ pub trait GcodeDialect: Send + Sync {
     ///
     /// Typically includes cooling, final retract, nozzle park, and motor-off.
     fn end_script(&self) -> Vec<String>;
+
+    /// Emit the metadata header block for a finished slice.
+    ///
+    /// Rendered once at the very top of the program (before the start script),
+    /// this carries the slicer version + timestamp, model name, layer count,
+    /// height, filament usage (mm / cm³ / g), estimated print time, and model
+    /// bounding box, followed by a human-readable print-settings summary
+    /// (issue #15).
+    ///
+    /// The default implementation produces a portable, flavor-tagged block.
+    /// Firmware dialects override this to match their ecosystem's expected
+    /// header format (e.g. Marlin/OrcaSlicer's `HEADER_BLOCK_START` … `END`).
+    fn header(&self, params: &SlicingParams, stats: &SliceStatistics) -> Vec<String> {
+        let mut lines = vec!["; ---- slicer-engine metadata ----".to_string()];
+        lines.extend(stats::metadata_lines(self.flavor_name(), stats));
+        lines.extend(stats::settings_summary_lines(params));
+        lines
+    }
 
     /// List of command identifiers not natively supported by this dialect.
     ///

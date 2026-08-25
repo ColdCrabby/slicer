@@ -22,6 +22,12 @@ these notes and acknowledges contributors. `scripts/gen-changelog-draft.sh` and
 
 ### Added
 
+- **G-code metadata header** — every generated program now opens with a
+  flavor-specific metadata block (Marlin `HEADER_BLOCK_*`, Klipper
+  `KLIPPER_HEADER_*`) carrying the slicer version and timestamp, model name,
+  layer count, model height, filament usage (mm / cm³ / g), an estimated print
+  time, and the model bounding box. A new `filament_density_g_cm3` setting
+  (defaulting to PLA) drives the weight calculation. ([#15](https://github.com/max-scopp/slicer-engine/issues/15))
 - **Live versioning** — every build now reports its true version, derived from
   git tags at build time. Local development builds report `development` instead of
   a misleading fixed number.
