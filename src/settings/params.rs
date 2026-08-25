@@ -822,6 +822,16 @@ Used to calculate extrusion volume from feed distance. Standard sizes:
     #[serde(default = "SlicingParams::default_filament_diameter_mm")]
     pub filament_diameter_mm: f64,
 
+    #[schemars(description = "Filament density in g/cm³.
+
+Used to convert the extruded volume into a filament **weight** for the G-code
+metadata header. Typical values:
+- `1.24` — PLA
+- `1.27` — PETG
+- `1.04` — ABS", extend("x-group" = "Hardware"))]
+    #[serde(default = "SlicingParams::default_filament_density_g_cm3")]
+    pub filament_density_g_cm3: f64,
+
     #[schemars(description = "Nozzle orifice diameter in mm.
 
 Affects minimum feature resolution and all line-width calculations.
@@ -1238,6 +1248,7 @@ impl Default for SlicingParams {
             bottom_layers: Self::default_bottom_layers(),
             surface_infill_angle: Self::default_surface_infill_angle(),
             filament_diameter_mm: Self::default_filament_diameter_mm(),
+            filament_density_g_cm3: Self::default_filament_density_g_cm3(),
             nozzle_diameter_mm: Self::default_nozzle_diameter_mm(),
             travel_speed_mm_min: Self::default_travel_speed_mm_min(),
             z_hop_mm: Self::default_z_hop_mm(),
@@ -1519,6 +1530,11 @@ impl SlicingParams {
 
     fn default_filament_diameter_mm() -> f64 {
         1.75
+    }
+
+    fn default_filament_density_g_cm3() -> f64 {
+        // PLA — the most common FFF material.
+        1.24
     }
 
     fn default_nozzle_diameter_mm() -> f64 {

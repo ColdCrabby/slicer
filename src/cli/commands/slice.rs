@@ -518,6 +518,15 @@ impl SliceCommand {
             .with_marker_config(marker_config)
             .with_warn_fn(move |msg| warn_logger.log_warn(msg));
 
+        // Embed the source model name (file stem) in the metadata header.
+        if let Some(stem) = self
+            .input
+            .file_stem()
+            .map(|s| s.to_string_lossy().into_owned())
+        {
+            generator = generator.with_model_name(stem);
+        }
+
         // Resolve custom start script (CLI arg takes priority over config)
         let start_source = self
             .start_print_gcode
