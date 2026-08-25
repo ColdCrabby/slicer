@@ -16,6 +16,18 @@ const TOUCH_DISABLED = -1 as unknown as TOUCH;
 const TWO_FINGER_DOLLY_DEAD_ZONE_PX = 1.5;
 const TWO_FINGER_ROLL_DEAD_ZONE_RAD = 0.01;
 
+/**
+ * Safari/WebKit-proprietary gesture event (not in the standard DOM lib types).
+ * Fired for trackpad pinch/rotate in WKWebView — i.e. the Tauri desktop app on
+ * macOS. `scale` is cumulative relative to `gesturestart` (1.0 at the start).
+ */
+interface WebKitGestureEvent extends Event {
+  readonly scale: number;
+  readonly rotation: number;
+  readonly clientX: number;
+  readonly clientY: number;
+}
+
 const AUTOSCROLL_DEAD_ZONE_PX = 6;
 const AUTOSCROLL_SPEED_PER_PX = 0.012;
 const AUTOSCROLL_ACCEL_REF_PX = 100;
@@ -84,6 +96,14 @@ export class SceneControls {
   private readonly wheelHandler: (event: WheelEvent) => void;
 
   /**
+   * Active while a WebKit trackpad pinch (`gesturestart`…`gestureend`) is in
+   * flight. Only ever true in WKWebView (Tauri/macOS). Guards the Chromium
+   * `ctrl`+wheel pinch branch so the two engines never double-zoom.
+   */
+  private gestureActive = false;
+  private gestureLastScale = 1;
+
+  /**
    * Action a bare two-finger trackpad swipe performs on macOS. Mirrors
    * `ViewerControl.trackpadTwoFingerGesture`; ⌥ + swipe always does the
    * opposite. Default matches Shapr3D (orbit).
@@ -111,6 +131,7 @@ export class SceneControls {
     this.installCustomTwoFingerControls();
     this.installAutoscrollZoom();
     this.installAlwaysOnWheelZoom();
+    this.installWebKitGestureZoom();
     // Orbit is the fixed cursor mode: left-drag rotates, right-drag pans.
     // Middle mouse is reserved for autoscroll zoom; disable OrbitControls' drag-dolly.
     const MIDDLE = null as unknown as MOUSE;
@@ -258,6 +279,7 @@ export class SceneControls {
   dispose(): void {
     this.uninstallAutoscrollZoom();
     this.uninstallRendererPointerListeners();
+    this.uninstallWebKitGestureZoom();
     this.renderer.domElement.removeEventListener('wheel', this.wheelHandler, { capture: true });
   }
 
@@ -328,9 +350,80 @@ export class SceneControls {
   };
 
   // -------------------------------------------------------------------------
-  // macOS trackpad wheel dispatch (Shapr3D-style)
+  // WebKit trackpad pinch (Tauri/macOS)
   // -------------------------------------------------------------------------
 
+  /**
+   * WKWebView (the Tauri desktop webview on macOS) does not synthesise the
+   * `ctrl`+wheel event that Chromium emits for a trackpad pinch — it fires the
+   * Safari-proprietary `gesturestart`/`gesturechange`/`gestureend` events
+   * instead. Without this handler pinch-to-zoom is silently dead in the desktop
+   * app (and the global `gesture*` blocker in index.html would eat the event
+   * anyway). We map the cumulative `scale` to the same cursor-anchored dolly the
+   * touch pinch uses. WebKit-only, so gating on {@link isMac} is sufficient —
+   * Chromium never fires these events, so there is no double-zoom.
+   */
+  private installWebKitGestureZoom(): void {
+    if (!this.isMac) {
+      return;
+    }
+    const el = this.renderer.domElement;
+    el.addEventListener('gesturestart', this.onGestureStart as EventListener, { passive: false });
+    el.addEventListener('gesturechange', this.onGestureChange as EventListener, { passive: false });
+    el.addEventListener('gestureend', this.onGestureEnd as EventListener, { passive: false });
+  }
+
+  private uninstallWebKitGestureZoom(): void {
+    if (!this.isMac) {
+      return;
+    }
+    const el = this.renderer.domElement;
+    el.removeEventListener('gesturestart', this.onGestureStart as EventListener);
+    el.removeEventListener('gesturechange', this.onGestureChange as EventListener);
+    el.removeEventListener('gestureend', this.onGestureEnd as EventListener);
+  }
+
+  private onGestureStart = (event: WebKitGestureEvent): void => {
+    if (!this.controls.enabled || !this.controls.enableZoom || this.autoscroll !== null) {
+      return;
+    }
+    event.preventDefault();
+    event.stopImmediatePropagation();
+    this.gestureActive = true;
+    this.gestureLastScale = event.scale || 1;
+  };
+
+  private onGestureChange = (event: WebKitGestureEvent): void => {
+    if (!this.gestureActive) {
+      return;
+    }
+    event.preventDefault();
+    event.stopImmediatePropagation();
+    if (!this.controls.enableZoom) {
+      return;
+    }
+    const scale = event.scale || this.gestureLastScale;
+    // Pinch open → scale grows → factor < 1 → zoom in (matches applyTouchDolly).
+    const factor = this.gestureLastScale / Math.max(scale, 1e-3);
+    this.gestureLastScale = scale;
+    if (Math.abs(factor - 1) < 1e-4) {
+      return;
+    }
+    this.applyTouchDolly(factor, event.clientX, event.clientY);
+  };
+
+  private onGestureEnd = (event: WebKitGestureEvent): void => {
+    if (!this.gestureActive) {
+      return;
+    }
+    event.preventDefault();
+    event.stopImmediatePropagation();
+    this.gestureActive = false;
+  };
+
+  // -------------------------------------------------------------------------
+  // macOS trackpad wheel dispatch (Shapr3D-style)
+  // -------------------------------------------------------------------------
   /**
    * On macOS the `wheel` channel carries every two-finger trackpad gesture,
    * distinguished only by modifier flags. This dispatcher routes each event
@@ -364,7 +457,7 @@ export class SceneControls {
       // zoom out; negative deltaY (pinch open) → factor < 1 → zoom in.
       // The per-event clamp keeps a single large-delta event from causing
       // a runaway zoom in the middle of an otherwise-smooth pinch.
-      if (!this.controls.enableZoom) {
+      if (!this.controls.enableZoom || this.gestureActive) {
         return;
       }
       const clamped = Math.max(
