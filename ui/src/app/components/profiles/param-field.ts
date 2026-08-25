@@ -3,6 +3,7 @@ import type { FieldDef } from '../../schema-form/models/field-def';
 import { NumberInput } from '../../ui/number-input/number-input';
 import { Select, type SelectOption } from '../../ui/select/select';
 import { Switch } from '../../ui/switch/switch';
+import { FieldShell } from './field-shell';
 
 /**
  * One schema-driven parameter row for the print-profile editor: the label and
@@ -15,83 +16,50 @@ import { Switch } from '../../ui/switch/switch';
  * control is chosen from the field's shape — enum → select, boolean → switch,
  * everything else → number input — so any new `SlicingParams` field appears
  * automatically with no per-field wiring.
+ *
+ * A thin wrapper around {@link FieldShell}: this component only picks the
+ * control and maps schema → title/description, delegating all row markup and
+ * styling to the shell so the row rhythm lives in a single place.
  */
 @Component({
   selector: 'nexus-param-field',
   standalone: true,
-  imports: [NumberInput, Select, Switch],
+  imports: [NumberInput, Select, Switch, FieldShell],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
-    <div class="param-field">
-      <div class="param-field__row">
-        <span class="param-field__title">{{ field().title ?? field().key }}</span>
-        <span class="param-field__control">
-          @switch (kind()) {
-            @case ('enum') {
-              <nexus-select
-                [options]="selectOptions()"
-                [value]="stringValue()"
-                (valueChange)="valueChange.emit($event)"
-              />
-            }
-            @case ('boolean') {
-              <nexus-switch
-                [checked]="boolValue()"
-                (checkedChange)="valueChange.emit($event)"
-              />
-            }
-            @default {
-              <nexus-number-input
-                [value]="numberValue()"
-                [min]="min()"
-                [max]="max()"
-                [step]="step()"
-                (valueChange)="valueChange.emit($event)"
-              />
-            }
-          }
-        </span>
-      </div>
-      @if (descriptionText(); as d) {
-        <p class="param-field__desc">{{ d }}</p>
+    <nexus-field-shell [title]="field().title ?? field().key" [description]="descriptionText()">
+      @switch (kind()) {
+        @case ('enum') {
+          <nexus-select
+            [options]="selectOptions()"
+            [value]="stringValue()"
+            (valueChange)="valueChange.emit($event)"
+          />
+        }
+        @case ('boolean') {
+          <nexus-switch [checked]="boolValue()" (checkedChange)="valueChange.emit($event)" />
+        }
+        @default {
+          <nexus-number-input
+            [value]="numberValue()"
+            [min]="min()"
+            [max]="max()"
+            [step]="step()"
+            (valueChange)="valueChange.emit($event)"
+          />
+        }
       }
-    </div>
+    </nexus-field-shell>
   `,
   styles: [
     `
       :host {
         display: block;
       }
-      :host + :host .param-field {
+      /* The between-row divider depends on adjacency of *these* hosts — the
+         nested shell hosts aren't siblings — so it stays at this level. */
+      :host + :host {
         border-top: 1px solid var(--color-border-light);
-      }
-      .param-field {
-        padding: var(--spacing-md) 0;
-      }
-      .param-field__row {
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-        gap: var(--spacing-lg);
-      }
-      .param-field__title {
-        min-width: 0;
-        font-size: var(--font-size-md);
-        color: var(--color-text-primary);
-      }
-      .param-field__control {
-        flex: none;
-        display: flex;
-        align-items: center;
-        gap: var(--spacing-sm);
-      }
-      .param-field__desc {
-        margin: var(--spacing-xs) 0 0;
-        max-width: 62ch;
-        font-size: var(--font-size-xs);
-        line-height: 1.5;
-        color: var(--color-text-tertiary);
-        white-space: pre-line;
       }
     `,
   ],
