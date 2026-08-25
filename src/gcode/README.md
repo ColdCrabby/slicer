@@ -306,6 +306,29 @@ All marker strings are **templates**: `{z}`, `{height}`, `{type}`, `{width}`
 are substituted at render time via `render_marker()`. Per-flavor overrides
 are stored in `GlobalSettings::lifecycle_markers` (keyed by flavor name).
 
+The `;TYPE:` label comes from `ExtrusionRole::type_name()` (OrcaSlicer-
+compatible), and a fresh `;TYPE:` / `;WIDTH:` pair is emitted whenever the role
+**or** the extrusion width changes. Variable-width Arachne beads additionally
+re-emit `;WIDTH:` as the bead tapers past `WIDTH_MARKER_STEP_MM`.
+
+### Extrusion width per role
+
+`resolve_width_mm(explicit, role, params)` decides the width used for both the
+extrusion flow and the `;WIDTH:` annotation. Precedence, first match wins:
+
+1. **Explicit per-path width** — Arachne bead width or bridge-flow reduction.
+2. **Per-role override** — `outer_wall_line_width`, `inner_wall_line_width`,
+   `top_surface_line_width` (top *and* bottom surfaces), or
+   `sparse_infill_line_width`, when set (`> 0`). Applies to that role whether it
+   is a wall or a fill; `OverhangPerimeter` follows the outer-wall override.
+3. **Generic `line_width`** — but only for solid infill and surfaces,
+   preserving the rule that walls ignore the global line width (their width
+   comes from the wall generator).
+4. **Role default** — the nozzle-derived `ExtrusionRole::default_width_mm()`.
+
+All per-role width fields default to `0.0` ("derive"), so an unset config
+behaves exactly as before.
+
 ---
 
 ## Script priority chain
