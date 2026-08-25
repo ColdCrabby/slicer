@@ -1,4 +1,11 @@
-import { ChangeDetectionStrategy, Component, afterNextRender, computed, inject, signal } from '@angular/core';
+import {
+  ChangeDetectionStrategy,
+  Component,
+  afterNextRender,
+  computed,
+  inject,
+  signal,
+} from '@angular/core';
 import { ActivatedRoute, RouterLink } from '@angular/router';
 import {
   PRINTER_CONNECTION_KINDS,
@@ -11,6 +18,10 @@ import {
   type PrinterProfile,
 } from '../../models/printer.model';
 import { PROFILE_SOURCE_LABELS } from '../../models/profile-source';
+import { SETTING_CONTRACTS } from '../../models/setting-contract';
+import globalSettingsSchema from '../../../schemas/slicer-engine-global-settings-v1.json';
+import { parseSchema } from '../../schema-form/models/schema-parser';
+import type { SchemaGroup } from '../../schema-form/models/field-def';
 import {
   CUSTOM_TEMPLATE_ID,
   GCODE_PLACEHOLDER_HINT,
@@ -33,6 +44,7 @@ import { PrintersStore } from '../../services/profiles/printers-store';
 import { Icon } from '../../shared/icon/icon';
 import { Badge } from '../../shared/badge/badge';
 import { CatalogPicker, type CatalogEntryVm } from '../../components/profiles/catalog-picker';
+import { ParamField } from '../../components/profiles/param-field';
 import { CodeEditor } from '../../components/code-editor/code-editor';
 import { LabelFilterBar } from '../../components/labels/label-filter-bar';
 import { LabelPicker } from '../../components/labels/label-picker';
@@ -48,6 +60,56 @@ import { Segmented } from '../../ui/segmented/segmented';
 import { Select } from '../../ui/select/select';
 import { Switch } from '../../ui/switch/switch';
 
+/**
+ * The `SlicingParams` sub-schema extracted from the generated global-settings
+ * schema, so the printer editor can render its slice-parameter groups
+ * dynamically (the same schema the slice-page settings sidebar consumes). Any
+ * new `SlicingParams` field appears automatically — no hand-maintained rows.
+ */
+const SLICING_PARAMS_SCHEMA = {
+  ...(globalSettingsSchema.$defs.SlicingParams as Record<string, unknown>),
+  $defs: globalSettingsSchema.$defs as Record<string, unknown>,
+};
+
+/**
+ * `x-group` names schema-driven in the printer editor, in display order.
+ *
+ * The Printer contract owns `['Hardware', 'Retraction', 'Output']`, but `Output`
+ * is left out here: its `gcode_flavor` is already the bespoke "Firmware" select
+ * and its `*_gcode` fields are multiline strings edited through the dedicated
+ * G-code editor block — both need typed widgets `nexus-param-field` can't
+ * provide. So the printer only schema-drives `Hardware` and `Retraction`.
+ */
+const PRINTER_PARAM_GROUPS = SETTING_CONTRACTS.find((c) => c.id === 'printer')!.groups.filter(
+  (name) => name === 'Hardware' || name === 'Retraction',
+);
+
+/**
+ * The slice-parameter groups rendered in the printer editor, in contract
+ * display order. Parsed once from the schema (it never changes at runtime).
+ * Each group's fields are filtered to those `nexus-param-field` can render —
+ * enums (→ select), booleans (→ switch), and numbers/integers (→ number) —
+ * dropping plain string/array fields that would render as broken inputs. Groups
+ * left with no renderable field are dropped entirely.
+ */
+const PARAM_GROUPS: SchemaGroup[] = (() => {
+  const order = new Map(PRINTER_PARAM_GROUPS.map((name, index) => [name, index]));
+  return parseSchema(SLICING_PARAMS_SCHEMA)
+    .groups.filter((g) => order.has(g.name))
+    .map((g) => ({
+      ...g,
+      fields: g.fields.filter(
+        (f) =>
+          !!f.enumOptions?.length ||
+          f.type === 'boolean' ||
+          f.type === 'number' ||
+          f.type === 'integer',
+      ),
+    }))
+    .filter((g) => g.fields.length > 0)
+    .sort((a, b) => order.get(a.name)! - order.get(b.name)!);
+})();
+
 @Component({
   selector: 'nexus-settings-printers',
   imports: [
@@ -59,6 +121,7 @@ import { Switch } from '../../ui/switch/switch';
     Badge,
     RouterLink,
     CatalogPicker,
+    ParamField,
     CodeEditor,
     ModalShell,
     FieldRow,
@@ -115,11 +178,13 @@ export class PrintersSettings {
   /** Printers narrowed by the active label filter and the search query. */
   protected readonly filtered = computed(() => {
     const q = this.search().trim().toLowerCase();
-    return this.store.items().filter(
-      (p) =>
-        matchesAllLabels(p, this.labelFilter()) &&
-        (!q || `${p.name} ${p.vendor ?? ''} ${p.model ?? ''}`.toLowerCase().includes(q)),
-    );
+    return this.store
+      .items()
+      .filter(
+        (p) =>
+          matchesAllLabels(p, this.labelFilter()) &&
+          (!q || `${p.name} ${p.vendor ?? ''} ${p.model ?? ''}`.toLowerCase().includes(q)),
+      );
   });
 
   /** The filtered printers bucketed into titled groups per the group-by mode. */
@@ -332,6 +397,9 @@ export class PrintersSettings {
   protected readonly pnum = paramNum;
   protected readonly pstr = paramStr;
 
+  /** Slice-parameter groups (Hardware, Retraction) rendered from the schema. */
+  protected readonly paramGroups = PARAM_GROUPS;
+
   protected update(id: string, patch: Partial<PrinterProfile>): void {
     this.store.update(id, patch);
   }
@@ -344,6 +412,16 @@ export class PrintersSettings {
         params: { ...((item.params as Record<string, unknown>) ?? {}), ...patch },
       });
     }
+  }
+
+  /** A printer's `params` bag as a plain record for the field controls. */
+  protected paramsOf(printer: PrinterProfile): Record<string, unknown> {
+    return (printer.params as Record<string, unknown>) ?? {};
+  }
+
+  /** Apply a single param field edit (templates can't build computed keys). */
+  protected setParam(id: string, key: string, value: unknown): void {
+    this.updateParams(id, { [key]: value });
   }
 
   protected rename(id: string, event: Event): void {

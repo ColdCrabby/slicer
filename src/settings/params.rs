@@ -987,6 +987,55 @@ Overrides the nozzle-derived default for solid infill and surfaces.
     pub line_width: f64,
 
     #[schemars(
+        description = "Per-role outer-wall extrusion width in mm. `0` = derive from \
+`line_width` / nozzle diameter.
+
+Overrides the width used for outer-wall paths and their `;TYPE:Outer wall` /
+`;WIDTH:` G-code annotations. Ignored for variable-width Arachne beads, which
+carry their own per-segment width.
+**Typical:** 100–105% of nozzle diameter for dimensional accuracy.",
+        extend("x-group" = "Walls")
+    )]
+    #[serde(default = "SlicingParams::default_role_line_width")]
+    pub outer_wall_line_width: f64,
+
+    #[schemars(
+        description = "Per-role inner-wall extrusion width in mm. `0` = derive from \
+`line_width` / nozzle diameter.
+
+Overrides the width used for inner-wall paths and their `;TYPE:Inner wall` /
+`;WIDTH:` G-code annotations. Ignored for variable-width Arachne beads.
+**Typical:** 110–120% of nozzle diameter for faster, stronger walls.",
+        extend("x-group" = "Walls")
+    )]
+    #[serde(default = "SlicingParams::default_role_line_width")]
+    pub inner_wall_line_width: f64,
+
+    #[schemars(
+        description = "Per-role top/bottom solid-surface extrusion width in mm. `0` = \
+derive from `line_width` / nozzle diameter.
+
+Overrides the width used for top and bottom surface paths and their
+`;TYPE:Top surface` / `;TYPE:Bottom surface` and `;WIDTH:` annotations.
+**Typical:** 100% of nozzle diameter for a fine finish.",
+        extend("x-group" = "Surfaces")
+    )]
+    #[serde(default = "SlicingParams::default_role_line_width")]
+    pub top_surface_line_width: f64,
+
+    #[schemars(
+        description = "Per-role sparse-infill extrusion width in mm. `0` = derive from \
+`line_width` / nozzle diameter.
+
+Overrides the width used for sparse-infill paths and their `;TYPE:Sparse infill`
+/ `;WIDTH:` annotations.
+**Typical:** 100–150% of nozzle diameter; wider infill prints faster.",
+        extend("x-group" = "Infill")
+    )]
+    #[serde(default = "SlicingParams::default_role_line_width")]
+    pub sparse_infill_line_width: f64,
+
+    #[schemars(
         description = "Retraction speed in **mm/min**.
 
 Convert from mm/s by multiplying by 60.
@@ -1205,6 +1254,10 @@ impl Default for SlicingParams {
             mesh_quality: Self::default_mesh_quality(),
             first_layer_height: Self::default_first_layer_height(),
             line_width: Self::default_line_width(),
+            outer_wall_line_width: Self::default_role_line_width(),
+            inner_wall_line_width: Self::default_role_line_width(),
+            top_surface_line_width: Self::default_role_line_width(),
+            sparse_infill_line_width: Self::default_role_line_width(),
             retract_speed_mm_min: Self::default_retract_speed_mm_min(),
             flow_ratio: Self::default_flow_ratio(),
             nozzle_temp_first_layer: Self::default_nozzle_temp_first_layer(),
@@ -1234,6 +1287,12 @@ impl SlicingParams {
         0.0
     }
     fn default_line_width() -> f64 {
+        0.0
+    }
+    /// Per-role line-width fields default to `0.0`, meaning "derive from the
+    /// generic `line_width` / nozzle diameter". Any positive value is an
+    /// explicit override for that extrusion role.
+    fn default_role_line_width() -> f64 {
         0.0
     }
     fn default_retract_speed_mm_min() -> f64 {

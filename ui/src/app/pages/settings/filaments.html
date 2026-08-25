@@ -196,79 +196,6 @@
                   (valueChange)="updateParams(filament.id, { filament_diameter_mm: $event })"
                 />
               </nexus-field-row>
-            </div>
-
-            <div class="profile-editor__group">
-              <label class="profile-editor__group-title">Temperatures</label>
-              <nexus-field-row label="Nozzle">
-                <nexus-number-input
-                  [value]="pnum(filament.params, 'nozzle_temp')"
-                  [min]="150"
-                  [max]="350"
-                  unit="°C"
-                  (valueChange)="updateParams(filament.id, { nozzle_temp: $event })"
-                />
-              </nexus-field-row>
-              <nexus-field-row label="Nozzle — first layer">
-                <nexus-number-input
-                  [value]="pnum(filament.params, 'nozzle_temp_first_layer')"
-                  [min]="150"
-                  [max]="350"
-                  unit="°C"
-                  (valueChange)="updateParams(filament.id, { nozzle_temp_first_layer: $event })"
-                />
-              </nexus-field-row>
-              <nexus-field-row label="Bed">
-                <nexus-number-input
-                  [value]="pnum(filament.params, 'bed_temp')"
-                  [min]="0"
-                  [max]="150"
-                  unit="°C"
-                  (valueChange)="updateParams(filament.id, { bed_temp: $event })"
-                />
-              </nexus-field-row>
-              <nexus-field-row label="Bed — first layer">
-                <nexus-number-input
-                  [value]="pnum(filament.params, 'bed_temp_first_layer')"
-                  [min]="0"
-                  [max]="150"
-                  unit="°C"
-                  (valueChange)="updateParams(filament.id, { bed_temp_first_layer: $event })"
-                />
-              </nexus-field-row>
-            </div>
-
-            <div class="profile-editor__group">
-              <label class="profile-editor__group-title">Cooling & flow</label>
-              <nexus-field-row label="Fan speed — max">
-                <nexus-number-input
-                  [value]="pnum(filament.params, 'fan_speed') * 100"
-                  [min]="0"
-                  [max]="100"
-                  [step]="5"
-                  unit="%"
-                  (valueChange)="updateParams(filament.id, { fan_speed: $event / 100 })"
-                />
-              </nexus-field-row>
-              <nexus-field-row label="Flow ratio">
-                <nexus-number-input
-                  [value]="pnum(filament.params, 'flow_ratio')"
-                  [min]="0.5"
-                  [max]="1.5"
-                  [step]="0.01"
-                  (valueChange)="updateParams(filament.id, { flow_ratio: $event })"
-                />
-              </nexus-field-row>
-              <nexus-field-row label="Max volumetric speed">
-                <nexus-number-input
-                  [value]="pnum(filament.params, 'max_volumetric_speed')"
-                  [min]="1"
-                  [max]="50"
-                  [step]="0.5"
-                  unit="mm³/s"
-                  (valueChange)="updateParams(filament.id, { max_volumetric_speed: $event })"
-                />
-              </nexus-field-row>
               <nexus-field-row label="Cost / kg">
                 <nexus-number-input
                   [value]="filament.cost_per_kg"
@@ -278,6 +205,19 @@
                 />
               </nexus-field-row>
             </div>
+
+            @for (group of paramGroups; track group.name) {
+              <div class="profile-editor__group">
+                <label class="profile-editor__group-title">{{ group.name }}</label>
+                @for (field of group.fields; track field.key) {
+                  <nexus-param-field
+                    [field]="field"
+                    [value]="paramsOf(filament)[field.key]"
+                    (valueChange)="setParam(filament.id, field.key, $event)"
+                  />
+                }
+              </div>
+            }
           </div>
         } @else {
           <nexus-empty-state

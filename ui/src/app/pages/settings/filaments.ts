@@ -1,4 +1,11 @@
-import { ChangeDetectionStrategy, Component, afterNextRender, computed, inject, signal } from '@angular/core';
+import {
+  ChangeDetectionStrategy,
+  Component,
+  afterNextRender,
+  computed,
+  inject,
+  signal,
+} from '@angular/core';
 import { ActivatedRoute, RouterLink } from '@angular/router';
 import {
   FILAMENT_MATERIAL_LABELS,
@@ -9,6 +16,10 @@ import {
   type FilamentProfile,
 } from '../../models/filament.model';
 import { PROFILE_SOURCE_LABELS } from '../../models/profile-source';
+import { SETTING_CONTRACTS } from '../../models/setting-contract';
+import globalSettingsSchema from '../../../schemas/slicer-engine-global-settings-v1.json';
+import { parseSchema } from '../../schema-form/models/schema-parser';
+import type { SchemaGroup } from '../../schema-form/models/field-def';
 import { CloudCatalog } from '../../services/catalog/cloud-catalog';
 import { ContextMenuService } from '../../services/context-menu/context-menu.service';
 import type { ContextMenuItem } from '../../services/context-menu/context-menu.model';
@@ -21,6 +32,7 @@ import { FilamentsStore } from '../../services/profiles/filaments-store';
 import { Icon } from '../../shared/icon/icon';
 import { Badge } from '../../shared/badge/badge';
 import { CatalogPicker, type CatalogEntryVm } from '../../components/profiles/catalog-picker';
+import { ParamField } from '../../components/profiles/param-field';
 import { LabelFilterBar } from '../../components/labels/label-filter-bar';
 import { LabelPicker } from '../../components/labels/label-picker';
 import { focusConfigureTarget } from './configure-scroll';
@@ -35,6 +47,52 @@ import { Segmented } from '../../ui/segmented/segmented';
 import { Select } from '../../ui/select/select';
 import { ColorPicker } from '../../ui/color-picker/color-picker';
 
+/**
+ * The `SlicingParams` sub-schema extracted from the generated global-settings
+ * schema, so the filament editor can render every temperature/cooling parameter
+ * dynamically (the same schema the slice-page settings sidebar consumes). Any
+ * new `SlicingParams` field in those groups appears automatically — no
+ * hand-maintained field list.
+ */
+const SLICING_PARAMS_SCHEMA = {
+  ...(globalSettingsSchema.$defs.SlicingParams as Record<string, unknown>),
+  $defs: globalSettingsSchema.$defs as Record<string, unknown>,
+};
+
+/** `x-group` names owned by the Filament contract, in display order. */
+const FILAMENT_GROUPS = SETTING_CONTRACTS.find((c) => c.id === 'filament')!.groups;
+
+/**
+ * The filament-parameter groups rendered in the editor, in the Filament
+ * contract's display order (`Temperature`, `Cooling`). Parsed once from the
+ * schema (it never changes at runtime); groups owned by other contracts
+ * (Hardware, Extrusion, …) are left out so the filament editor only shows
+ * material temperature/cooling settings.
+ *
+ * Each group's fields are filtered to those `nexus-param-field` can actually
+ * render (enum → select, boolean → switch, everything else → number). Plain
+ * `string` and array fields are dropped, which excludes `filament_type` and
+ * `fan_configs` automatically. `filament_diameter_mm` (Hardware) stays a
+ * bespoke "Diameter" row under Identity, so no param key renders twice.
+ */
+const PARAM_GROUPS: SchemaGroup[] = (() => {
+  const order = new Map(FILAMENT_GROUPS.map((name, index) => [name, index]));
+  return parseSchema(SLICING_PARAMS_SCHEMA)
+    .groups.filter((g) => order.has(g.name))
+    .map((g) => ({
+      ...g,
+      fields: g.fields.filter(
+        (f) =>
+          !!f.enumOptions?.length ||
+          f.type === 'boolean' ||
+          f.type === 'number' ||
+          f.type === 'integer',
+      ),
+    }))
+    .filter((g) => g.fields.length > 0)
+    .sort((a, b) => order.get(a.name)! - order.get(b.name)!);
+})();
+
 @Component({
   selector: 'nexus-settings-filaments',
   imports: [
@@ -46,6 +104,7 @@ import { ColorPicker } from '../../ui/color-picker/color-picker';
     Badge,
     RouterLink,
     CatalogPicker,
+    ParamField,
     ModalShell,
     FieldRow,
     NumberInput,
@@ -288,6 +347,7 @@ export class FilamentsSettings {
   }
 
   protected readonly pnum = paramNum;
+  protected readonly paramGroups = PARAM_GROUPS;
 
   protected update(id: string, patch: Partial<FilamentProfile>): void {
     this.store.update(id, patch);
@@ -301,6 +361,16 @@ export class FilamentsSettings {
         params: { ...((item.params as Record<string, unknown>) ?? {}), ...patch },
       });
     }
+  }
+
+  /** A filament's `params` bag as a plain record for the field controls. */
+  protected paramsOf(filament: FilamentProfile): Record<string, unknown> {
+    return (filament.params as Record<string, unknown>) ?? {};
+  }
+
+  /** Apply a single param field edit (templates can't build computed keys). */
+  protected setParam(id: string, key: string, value: unknown): void {
+    this.updateParams(id, { [key]: value });
   }
 
   protected rename(id: string, event: Event): void {

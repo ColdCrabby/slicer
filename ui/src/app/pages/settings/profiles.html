@@ -100,7 +100,11 @@
                   {{ sourceLabels[profile.source ?? 'user'] }}
                 </nexus-badge>
                 <h2>{{ profile.name }}</h2>
-                <p>{{ profile.quality ?? 'standard' }} quality</p>
+                <p>
+                  {{ pnum(profile.params, 'layer_height') }} mm ·
+                  {{ pnum(profile.params, 'wall_count') }} walls ·
+                  {{ infillPct(pnum(profile.params, 'infill_density')) }}% infill
+                </p>
               </div>
               <div class="mgr__detail-actions">
                 <button
@@ -159,171 +163,28 @@
               />
             </div>
             <div class="profile-editor__group">
-              <label class="profile-editor__group-title">Identity</label>
-                <nexus-field-row label="Name" [stacked]="true">
-                  <input
-                    class="wz-input"
-                    [value]="profile.name"
-                    (change)="rename(profile.id, $event)"
-                  />
-                </nexus-field-row>
-                <nexus-field-row label="Quality" [stacked]="true">
-                  <nexus-segmented
-                    [options]="qualityOptions"
-                    [value]="profile.quality ?? 'standard'"
-                    (valueChange)="setQuality(profile.id, $event)"
-                  />
-                </nexus-field-row>
-              </div>
+            <label class="profile-editor__group-title">Identity</label>
+            <nexus-field-row label="Name" [stacked]="true">
+              <input
+                class="wz-input"
+                [value]="profile.name"
+                (change)="rename(profile.id, $event)"
+              />
+            </nexus-field-row>
+            </div>
 
-              <div class="profile-editor__group">
-                <label class="profile-editor__group-title">Layers & walls</label>
-                <nexus-field-row label="Layer height">
-                  <nexus-number-input
-                    [value]="pnum(profile.params, 'layer_height')"
-                    [min]="0.04"
-                    [max]="1"
-                    [step]="0.02"
-                    unit="mm"
-                    (valueChange)="updateParams(profile.id, { layer_height: $event })"
-                  />
-                </nexus-field-row>
-                <nexus-field-row label="First layer height">
-                  <nexus-number-input
-                    [value]="pnum(profile.params, 'first_layer_height')"
-                    [min]="0.04"
-                    [max]="1"
-                    [step]="0.02"
-                    unit="mm"
-                    (valueChange)="updateParams(profile.id, { first_layer_height: $event })"
-                  />
-                </nexus-field-row>
-                <nexus-field-row label="Walls">
-                  <nexus-number-input
-                    [value]="pnum(profile.params, 'wall_count')"
-                    [min]="1"
-                    [max]="10"
-                    (valueChange)="updateParams(profile.id, { wall_count: $event })"
-                  />
-                </nexus-field-row>
-                <nexus-field-row label="Top layers">
-                  <nexus-number-input
-                    [value]="pnum(profile.params, 'top_layers')"
-                    [min]="0"
-                    [max]="20"
-                    (valueChange)="updateParams(profile.id, { top_layers: $event })"
-                  />
-                </nexus-field-row>
-                <nexus-field-row label="Bottom layers">
-                  <nexus-number-input
-                    [value]="pnum(profile.params, 'bottom_layers')"
-                    [min]="0"
-                    [max]="20"
-                    (valueChange)="updateParams(profile.id, { bottom_layers: $event })"
-                  />
-                </nexus-field-row>
-                <nexus-field-row label="Seam position">
-                  <nexus-select
-                    [options]="seamOptions"
-                    [value]="pstr(profile.params, 'seam_position')"
-                    (valueChange)="setSeam(profile.id, $event)"
-                  />
-                </nexus-field-row>
-              </div>
-
-              <div class="profile-editor__group">
-                <label class="profile-editor__group-title">Infill</label>
-                <nexus-field-row label="Density">
-                  <nexus-number-input
-                    [value]="infillPct(pnum(profile.params, 'infill_density'))"
-                    [min]="0"
-                    [max]="100"
-                    [step]="5"
-                    unit="%"
-                    (valueChange)="setInfillPercent(profile.id, $event)"
-                  />
-                </nexus-field-row>
-                <nexus-field-row label="Pattern">
-                  <nexus-select
-                    [options]="patternOptions"
-                    [value]="pstr(profile.params, 'infill_pattern')"
-                    (valueChange)="setPattern(profile.id, $event)"
-                  />
-                </nexus-field-row>
-                <nexus-field-row label="Angle">
-                  <nexus-number-input
-                    [value]="pnum(profile.params, 'infill_base_angle')"
-                    [min]="0"
-                    [max]="90"
-                    [step]="5"
-                    unit="°"
-                    (valueChange)="updateParams(profile.id, { infill_base_angle: $event })"
-                  />
-                </nexus-field-row>
-                <nexus-field-row label="Ironing">
-                  <nexus-switch
-                    [checked]="pbool(profile.params, 'ironing_enabled')"
-                    (checkedChange)="updateParams(profile.id, { ironing_enabled: $event })"
-                  />
-                </nexus-field-row>
-              </div>
-
-              <div class="profile-editor__group">
-                <label class="profile-editor__group-title">Speeds & supports</label>
-                <nexus-field-row label="Print speed">
-                  <nexus-number-input
-                    [value]="pnum(profile.params, 'print_speed')"
-                    [min]="5"
-                    [max]="1000"
-                    [step]="5"
-                    unit="mm/s"
-                    (valueChange)="updateParams(profile.id, { print_speed: $event })"
-                  />
-                </nexus-field-row>
-                <nexus-field-row label="Wall speed">
-                  <nexus-number-input
-                    [value]="pnum(profile.params, 'perimeter_speed')"
-                    [min]="5"
-                    [max]="1000"
-                    [step]="5"
-                    unit="mm/s"
-                    (valueChange)="updateParams(profile.id, { perimeter_speed: $event })"
-                  />
-                </nexus-field-row>
-                <nexus-field-row label="First layer speed">
-                  <nexus-number-input
-                    [value]="pnum(profile.params, 'first_layer_speed')"
-                    [min]="5"
-                    [max]="200"
-                    unit="mm/s"
-                    (valueChange)="updateParams(profile.id, { first_layer_speed: $event })"
-                  />
-                </nexus-field-row>
-                <nexus-field-row label="Supports">
-                  <nexus-switch
-                    [checked]="pbool(profile.params, 'support_enabled')"
-                    (checkedChange)="updateParams(profile.id, { support_enabled: $event })"
-                  />
-                </nexus-field-row>
-                @if (pbool(profile.params, 'support_enabled')) {
-                  <nexus-field-row label="Overhang threshold">
-                    <nexus-number-input
-                      [value]="pnum(profile.params, 'support_threshold_angle')"
-                      [min]="0"
-                      [max]="90"
-                      unit="°"
-                      (valueChange)="updateParams(profile.id, { support_threshold_angle: $event })"
-                    />
-                  </nexus-field-row>
-                }
-                <nexus-field-row label="Bed adhesion">
-                  <nexus-select
-                    [options]="adhesionOptions"
-                    [value]="pstr(profile.params, 'adhesion_type')"
-                    (valueChange)="setAdhesion(profile.id, $event)"
-                  />
-                </nexus-field-row>
-              </div>
+            @for (group of paramGroups; track group.name) {
+            <div class="profile-editor__group">
+              <label class="profile-editor__group-title">{{ group.name }}</label>
+              @for (field of group.fields; track field.key) {
+                <nexus-param-field
+                  [field]="field"
+                  [value]="paramsOf(profile)[field.key]"
+                  (valueChange)="setParam(profile.id, field.key, $event)"
+                />
+              }
+            </div>
+            }
           </div>
           } @else {
             <nexus-empty-state
