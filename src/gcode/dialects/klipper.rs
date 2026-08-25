@@ -16,7 +16,7 @@ use crate::settings::params::SlicingParams;
 ///
 /// Extra Klipper-specific commands are available as helper methods:
 /// - [`KlipperDialect::set_velocity_limit`] — runtime velocity/acceleration cap
-/// - [`KlipperDialect::set_pressure_advance`] — pressure advance tuning
+/// - [`GcodeDialect::set_pressure_advance`] — pressure advance tuning (trait override)
 /// - [`KlipperDialect::call_macro`] — invoke a named Klipper macro
 pub struct KlipperDialect;
 
@@ -30,14 +30,6 @@ impl KlipperDialect {
             "SET_VELOCITY_LIMIT VELOCITY={:.0} ACCEL={:.0}",
             velocity, accel
         )
-    }
-
-    /// Emit a `SET_PRESSURE_ADVANCE` command.
-    ///
-    /// Pressure advance compensates for filament compression in the hotend,
-    /// improving corner quality at high speeds.
-    pub fn set_pressure_advance(&self, value: f64) -> String {
-        format!("SET_PRESSURE_ADVANCE ADVANCE={:.4}", value)
     }
 
     /// Invoke a named Klipper macro (e.g. `PRINT_START`, `PRINT_END`).
@@ -103,6 +95,13 @@ impl GcodeDialect for KlipperDialect {
     /// Default Klipper end script: delegates to the `END_PRINT` macro.
     fn end_script(&self) -> Vec<String> {
         vec!["END_PRINT".to_string()]
+    }
+
+    /// Klipper uses `SET_PRESSURE_ADVANCE ADVANCE=…` rather than Marlin's
+    /// `M900 K…`.  Pressure advance compensates for filament compression in the
+    /// hotend, improving corner quality at high speeds.
+    fn set_pressure_advance(&self, value: f64) -> String {
+        format!("SET_PRESSURE_ADVANCE ADVANCE={:.4}", value)
     }
 
     /// Named Klipper fans use `SET_FAN_SPEED fan=<name> speed=<0.0–1.0>`; the

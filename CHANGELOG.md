@@ -22,6 +22,11 @@ these notes and acknowledges contributors. `scripts/gen-changelog-draft.sh` and
 
 ### Added
 
+- **Pressure / linear advance output** — when a filament or process profile sets
+  a non-zero pressure-advance value it is now emitted to G-code once, right after
+  the start script. The active firmware dialect renders the correct form
+  (Klipper `SET_PRESSURE_ADVANCE ADVANCE=…`, Marlin `M900 K…`). Leaving the value
+  at `0` disables it, so existing output is unchanged.
 - **G-code metadata header** — every generated program now opens with a
   flavor-specific metadata block (Marlin `HEADER_BLOCK_*`, Klipper
   `KLIPPER_HEADER_*`) carrying the slicer version and timestamp, model name,
