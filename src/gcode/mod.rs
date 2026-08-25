@@ -40,5 +40,5 @@ pub mod source;
 pub use dialect::{GcodeDialect, WarnFn};
 pub use dialects::{KlipperDialect, MarlinDialect};
 pub use flavor::GcodeFlavor;
-pub use generator::{generate_gcode, GcodeGenerator};
+pub use generator::{generate_gcode, generate_gcode_from_params, GcodeGenerator};
 pub use source::resolve_gcode_source;

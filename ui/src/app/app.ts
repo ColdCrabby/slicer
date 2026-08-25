@@ -1,5 +1,6 @@
 import { Component, inject } from '@angular/core';
 import { RouterOutlet } from '@angular/router';
+import { CelebrationOverlay } from './components/celebration-overlay/celebration-overlay';
 import { NotificationCenter } from './components/notification-center/notification-center';
 import { UpdateBanner } from './components/update-banner/update-banner';
 import { AppVersion } from './services/app-version';
@@ -9,7 +10,7 @@ import { DialogOutlet } from './shared/dialog/dialog-outlet';
 @Component({
   selector: 'nexus-root',
   standalone: true,
-  imports: [RouterOutlet, NotificationCenter, UpdateBanner, DialogOutlet],
+  imports: [RouterOutlet, NotificationCenter, CelebrationOverlay, UpdateBanner, DialogOutlet],
   templateUrl: './app.html',
   styleUrl: './app.scss',
 })

@@ -119,6 +119,9 @@ pub struct BedConfigJs {
     pub height: f64,
     pub origin_offset_x: f64,
     pub origin_offset_y: f64,
+    /// `"rectangular"` (default) or `"circular"`.
+    #[serde(default)]
+    pub shape: crate::scene::bed::BedShape,
 }
 
 /// JS-friendly full snapshot.
@@ -143,6 +146,7 @@ impl From<&BedConfig> for BedConfigJs {
             height: b.height,
             origin_offset_x: b.origin_offset_x,
             origin_offset_y: b.origin_offset_y,
+            shape: b.shape,
         }
     }
 }
@@ -168,10 +172,30 @@ impl SceneHandle {
             height: bed_js.height,
             origin_offset_x: bed_js.origin_offset_x,
             origin_offset_y: bed_js.origin_offset_y,
+            shape: bed_js.shape,
         };
         Ok(SceneHandle {
             inner: SceneState::new(bed),
         })
+    }
+
+    /// Update the bed configuration in-place (same JSON shape as `new`).
+    ///
+    /// This preserves all objects/transforms and only changes how bed-aware
+    /// operations (e.g. center/arrange) interpret the build volume.
+    #[wasm_bindgen(js_name = setBed)]
+    pub fn set_bed(&mut self, bed: JsValue) -> Result<(), JsValue> {
+        let bed_js: BedConfigJs = serde_wasm_bindgen::from_value(bed)
+            .map_err(|e| JsValue::from_str(&format!("invalid bed config: {}", e)))?;
+        self.inner.bed = BedConfig {
+            width: bed_js.width,
+            depth: bed_js.depth,
+            height: bed_js.height,
+            origin_offset_x: bed_js.origin_offset_x,
+            origin_offset_y: bed_js.origin_offset_y,
+            shape: bed_js.shape,
+        };
+        Ok(())
     }
 
     /// Add a mesh from raw bytes. `format` must be `"stl"`, `"obj"`, or `"3mf"`.
@@ -402,7 +426,7 @@ impl SceneHandle {
             crate::logging::PhaseTimer::start(crate::logging::phases::GCODE_GENERATION, &logger);
         let result = SliceResultJs {
             layer_count,
-            gcode: crate::gcode::generate_gcode(&layers, &params),
+            gcode: crate::gcode::generate_gcode_from_params(&layers, &params),
         };
         t_gcode.finish();
 

@@ -1,0 +1,180 @@
+<nexus-wizard-shell
+  title="Add filament"
+  [steps]="steps"
+  [index]="index()"
+  [canProceed]="canProceed()"
+  finishLabel="Add filament"
+  secondaryFinishLabel="Add & configure"
+  (back)="back()"
+  (next)="next()"
+  (goto)="goto($event)"
+  (finish)="finish()"
+  (finishSecondary)="finishAndConfigure()"
+  (cancel)="cancel()"
+>
+  @switch (index()) {
+    @case (0) {
+      <div class="wz-step">
+        <p class="wz-intro">
+          Import a spool from the cloud catalog, or start from scratch — picking a material
+          pre-fills sensible temperatures.
+        </p>
+        <div class="wz-start">
+          <button type="button" class="wz-start__scratch" (click)="startFromScratch()">
+            <nexus-icon name="grid-plus" />
+            <span>
+              <strong>Start from scratch</strong>
+              <small>A generic PLA you can retune</small>
+            </span>
+          </button>
+
+          <div class="wz-start__divider">or pick a preset</div>
+
+          <nexus-catalog-picker
+            [entries]="catalogEntries()"
+            [loading]="catalogStatus() === 'loading'"
+            [unavailable]="catalogStatus() === 'unavailable'"
+            actionLabel="Use preset"
+            (pick)="startFromCatalog($event)"
+            (retry)="retryCatalog()"
+          />
+        </div>
+      </div>
+    }
+
+    @case (1) {
+      <div class="wz-step">
+        <nexus-field-row label="Name" [stacked]="true">
+          <div class="wz-swatch-row">
+            <nexus-color-picker
+              [value]="draft().color"
+              ariaLabel="Filament colour"
+              (valueChange)="patchColor($event)"
+            />
+            <input class="wz-input" [value]="draft().name" (input)="patchName($event)" />
+          </div>
+        </nexus-field-row>
+        <nexus-field-row label="Vendor" [stacked]="true">
+          <input class="wz-input" [value]="draft().vendor" (input)="patchVendor($event)" />
+        </nexus-field-row>
+        <nexus-field-row label="Material" description="Sets default temps & cooling">
+          <nexus-select
+            [options]="materialOptions"
+            [value]="draft().material"
+            (valueChange)="setMaterial($event)"
+          />
+        </nexus-field-row>
+        <nexus-field-row label="Filament diameter">
+          <nexus-number-input
+            [value]="pnum(draft().params, 'filament_diameter_mm')"
+            [min]="1"
+            [max]="4"
+            [step]="0.05"
+            unit="mm"
+            (valueChange)="patchParams({ filament_diameter_mm: $event })"
+          />
+        </nexus-field-row>
+      </div>
+    }
+
+    @case (2) {
+      <div class="wz-step">
+        <nexus-field-row label="Nozzle temperature">
+          <nexus-number-input
+            [value]="pnum(draft().params, 'nozzle_temp')"
+            [min]="150"
+            [max]="350"
+            unit="°C"
+            (valueChange)="patchParams({ nozzle_temp: $event })"
+          />
+        </nexus-field-row>
+        <nexus-field-row label="Nozzle — first layer">
+          <nexus-number-input
+            [value]="pnum(draft().params, 'nozzle_temp_first_layer')"
+            [min]="150"
+            [max]="350"
+            unit="°C"
+            (valueChange)="patchParams({ nozzle_temp_first_layer: $event })"
+          />
+        </nexus-field-row>
+        <nexus-field-row label="Bed temperature">
+          <nexus-number-input
+            [value]="pnum(draft().params, 'bed_temp')"
+            [min]="0"
+            [max]="150"
+            unit="°C"
+            (valueChange)="patchParams({ bed_temp: $event })"
+          />
+        </nexus-field-row>
+        <nexus-field-row label="Bed — first layer">
+          <nexus-number-input
+            [value]="pnum(draft().params, 'bed_temp_first_layer')"
+            [min]="0"
+            [max]="150"
+            unit="°C"
+            (valueChange)="patchParams({ bed_temp_first_layer: $event })"
+          />
+        </nexus-field-row>
+      </div>
+    }
+
+    @case (3) {
+      <div class="wz-step">
+        <nexus-field-row label="Fan speed — min">
+          <nexus-number-input
+            [value]="pnum(draft().params, 'first_layer_fan_speed') * 100"
+            [min]="0"
+            [max]="100"
+            [step]="5"
+            unit="%"
+            (valueChange)="patchParams({ first_layer_fan_speed: $event / 100 })"
+          />
+        </nexus-field-row>
+        <nexus-field-row label="Fan speed — max">
+          <nexus-number-input
+            [value]="pnum(draft().params, 'fan_speed') * 100"
+            [min]="0"
+            [max]="100"
+            [step]="5"
+            unit="%"
+            (valueChange)="patchParams({ fan_speed: $event / 100 })"
+          />
+        </nexus-field-row>
+        <nexus-field-row
+          label="Flow ratio"
+          description="Extrusion multiplier — raise if under-extruding, lower if over-extruding."
+        >
+          <nexus-number-input
+            [value]="pnum(draft().params, 'flow_ratio')"
+            [min]="0.5"
+            [max]="1.5"
+            [step]="0.01"
+            (valueChange)="patchParams({ flow_ratio: $event })"
+          />
+        </nexus-field-row>
+        <nexus-field-row
+          label="Max volumetric speed"
+          description="Upper limit on how fast filament can melt and flow (mm³/s)."
+        >
+          <nexus-number-input
+            [value]="pnum(draft().params, 'max_volumetric_speed')"
+            [min]="1"
+            [max]="50"
+            [step]="0.5"
+            unit="mm³/s"
+            (valueChange)="patchParams({ max_volumetric_speed: $event })"
+          />
+        </nexus-field-row>
+        <nexus-field-row label="Cost">
+          <nexus-number-input
+            [value]="draft().cost_per_kg"
+            [min]="0"
+            [max]="500"
+            unit="/kg"
+            (valueChange)="patch({ cost_per_kg: $event })"
+          />
+        </nexus-field-row>
+      </div>
+    }
+  }
+</nexus-wizard-shell>

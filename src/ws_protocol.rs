@@ -187,7 +187,18 @@ pub enum ClientMessage {
     ///   resolves the file via the DB (so it picks the right loader from the
     ///   on-disk extension), bakes every transform via `scene::apply_transform`,
     ///   and merges the results into a single mesh before `process_mesh`.
-    /// - **`settings`**: the full [`SlicingParams`] from the settings panel.
+    /// - **either `profiles` or `settings`** — the parameters to slice with:
+    ///   - `profiles`: the preferred, structured form. The active printer /
+    ///     filament / process profiles plus a sparse `overrides` diff; the
+    ///     server resolves them via [`crate::profiles::resolve`]. This is the
+    ///     single source of truth going forward — the engine owns the profile
+    ///     definitions and composition rules.
+    ///   - `settings`: the legacy pre-flattened [`SlicingParams`] blob, kept
+    ///     for backward compatibility while the UI migrates. Ignored when
+    ///     `profiles` is present.
+    ///
+    /// At least one of `profiles`/`settings` must be present; when neither is,
+    /// engine defaults are used.
     ///
     /// There is no longer a legacy "slice the upload as-is" fallback — the
     /// scene is the single source of truth for what gets sliced.
@@ -197,7 +208,12 @@ pub enum ClientMessage {
         request_uuid: String,
         /// Placed-object scene. Must contain at least one entry.
         scene: Vec<SceneObjectSliceDto>,
-        settings: Box<SlicingParams>,
+        /// Structured profile selection + user override diff (preferred).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        profiles: Option<Box<crate::profiles::ProfileSelection>>,
+        /// Legacy pre-flattened parameters (used only when `profiles` is absent).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        settings: Option<Box<SlicingParams>>,
     },
     /// Request a list of previously completed slicing sessions.
     ListSessions,
@@ -214,6 +230,42 @@ pub enum ClientMessage {
     /// Request the current scene snapshot. Server replies with
     /// [`ServerMessage::SceneState`].
     SceneSnapshot,
+    /// Probe a printer connection and report its live status.
+    ///
+    /// The server performs the HTTP request on the client's behalf so the
+    /// probe is **not subject to browser CORS** (Moonraker ships no permissive
+    /// CORS headers). `printer_id` is the UI's profile id, echoed back in the
+    /// [`ServerMessage::PrinterStatus`] reply so the browser can correlate the
+    /// response with the right card.
+    CheckPrinter {
+        printer_id: String,
+        connection: crate::profiles::PrinterConnection,
+    },
+    /// Probe a single URL and report everything we can learn about the printer
+    /// (kind, bed volume, nozzle, kinematics) so the setup wizard can prefill
+    /// itself. Runs server-side to sidestep browser CORS. Replies with
+    /// [`ServerMessage::PrinterDetected`].
+    DetectPrinter {
+        /// Host / address the user typed (bare host, `host:port`, or full URL).
+        host: String,
+    },
+    /// Upload the G-code previously sliced for `request_uuid` to a printer,
+    /// optionally starting the print. Replies with
+    /// [`ServerMessage::PrinterSendResult`].
+    SendToPrinter {
+        /// Workplate UUID whose sliced G-code should be sent.
+        request_uuid: String,
+        /// UI profile id, echoed back for correlation.
+        printer_id: String,
+        /// Target printer connection details.
+        connection: crate::profiles::PrinterConnection,
+        /// Filename to store on the printer (defaults to `<uuid>.gcode`).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        filename: Option<String>,
+        /// Start the print immediately after upload.
+        #[serde(default)]
+        start: bool,
+    },
 }
 
 /// Messages sent **from the server to the browser**.
@@ -255,6 +307,85 @@ pub enum ServerMessage {
         objects: Vec<SceneObjectDto>,
         bed: BedConfigDto,
     },
+    /// Live status of a printer connection (reply to
+    /// [`ClientMessage::CheckPrinter`]).
+    PrinterStatus {
+        /// Echoes the `printer_id` from the request.
+        printer_id: String,
+        /// The host answered a status query.
+        online: bool,
+        /// Firmware/host state (`ready`, `error`, `startup`, `shutdown`, …).
+        #[serde(skip_serializing_if = "Option::is_none")]
+        state: Option<String>,
+        /// Current job state (`standby`, `printing`, `paused`, `complete`, …).
+        #[serde(skip_serializing_if = "Option::is_none")]
+        print_state: Option<String>,
+        /// Print progress in `0.0..=1.0` when a job is active.
+        #[serde(skip_serializing_if = "Option::is_none")]
+        progress: Option<f32>,
+        /// Human-readable detail (an error reason when offline).
+        #[serde(skip_serializing_if = "Option::is_none")]
+        message: Option<String>,
+    },
+    /// Result of a [`ClientMessage::SendToPrinter`] request.
+    PrinterSendResult {
+        printer_id: String,
+        request_uuid: String,
+        ok: bool,
+        message: String,
+        started: bool,
+    },
+    /// Result of a [`ClientMessage::DetectPrinter`] probe. Every hardware field
+    /// is optional — detection is best-effort. When `reachable` is false only
+    /// `message` is meaningful.
+    PrinterDetected {
+        /// Echoes the probed host so the client can correlate the reply.
+        host: String,
+        /// The host answered at least one probe.
+        reachable: bool,
+        /// Detected transport (`moonraker`, `octoprint`, `prusalink`, or
+        /// `none` when nothing answered).
+        kind: crate::profiles::PrinterConnectionKind,
+        /// Human-readable summary (a success note or the failure reason).
+        #[serde(skip_serializing_if = "Option::is_none")]
+        message: Option<String>,
+        /// Friendly name (e.g. Klipper hostname), when known.
+        #[serde(skip_serializing_if = "Option::is_none")]
+        name: Option<String>,
+        /// Model designation, when known.
+        #[serde(skip_serializing_if = "Option::is_none")]
+        model: Option<String>,
+        /// Manufacturer / firmware family, when known.
+        #[serde(skip_serializing_if = "Option::is_none")]
+        vendor: Option<String>,
+        /// G-code dialect the firmware speaks (`marlin`, `klipper`).
+        #[serde(skip_serializing_if = "Option::is_none")]
+        firmware: Option<String>,
+        /// Bed shape (`rectangular`, `circular`), when known.
+        #[serde(skip_serializing_if = "Option::is_none")]
+        bed_shape: Option<crate::profiles::printer::BedShape>,
+        /// Bed width / diameter (mm), when known.
+        #[serde(skip_serializing_if = "Option::is_none")]
+        bed_width: Option<f64>,
+        /// Bed depth (mm), when known.
+        #[serde(skip_serializing_if = "Option::is_none")]
+        bed_depth: Option<f64>,
+        /// Max Z height (mm), when known.
+        #[serde(skip_serializing_if = "Option::is_none")]
+        bed_height: Option<f64>,
+        /// True for delta / center-origin machines, when known.
+        #[serde(skip_serializing_if = "Option::is_none")]
+        origin_at_center: Option<bool>,
+        /// Nozzle diameter (mm), when known.
+        #[serde(skip_serializing_if = "Option::is_none")]
+        nozzle_diameter_mm: Option<f64>,
+    },
+    /// The engine's profile library changed on disk (another client/tab edited
+    /// a category). Clients should refetch `GET /api/profiles` for `kind`.
+    ///
+    /// `kind` is the lowercase category token (`printers`, `filaments`,
+    /// `processes`, `labels`) — matches [`crate::profiles::ProfileKind::as_str`].
+    ProfilesChanged { kind: String },
     /// A fatal error occurred during processing.
     Error { message: String },
 }
@@ -337,7 +468,40 @@ mod tests {
         let parsed: ClientMessage = serde_json::from_str(json).expect("parse");
         match parsed {
             ClientMessage::Slice { settings, .. } => {
+                let settings = settings.expect("settings present");
                 assert!((settings.infill_density - 0.3).abs() < 1e-9);
+            }
+            _ => panic!("expected Slice"),
+        }
+    }
+
+    /// A `Slice` may carry a structured profile selection instead of the legacy
+    /// flattened settings; it must round-trip and resolve.
+    #[test]
+    fn slice_message_with_profiles_round_trips() {
+        let selection = crate::profiles::ProfileSelection {
+            printer: crate::profiles::defaults::default_printer(),
+            filament: crate::profiles::defaults::default_filament(),
+            process: crate::profiles::defaults::default_process(),
+            overrides: serde_json::json!({ "layer_height": 0.15 }),
+        };
+        let msg = serde_json::json!({
+            "type": "Slice",
+            "request_uuid": "00000000-0000-0000-0000-000000000004",
+            "scene": [{ "file_id": "00000000-0000-0000-0000-000000000040" }],
+            "profiles": selection,
+        });
+        let parsed: ClientMessage = serde_json::from_value(msg).expect("parse profiles slice");
+        match parsed {
+            ClientMessage::Slice {
+                profiles, settings, ..
+            } => {
+                assert!(settings.is_none());
+                let resolved = profiles
+                    .expect("profiles present")
+                    .resolve()
+                    .expect("resolve");
+                assert!((resolved.layer_height - 0.15).abs() < 1e-9);
             }
             _ => panic!("expected Slice"),
         }

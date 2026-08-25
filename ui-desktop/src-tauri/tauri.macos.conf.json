@@ -3,6 +3,7 @@
   "app": {
     "windows": [
       {
+        "label": "main",
         "title": "Slicer Engine",
         "width": 1400,
         "height": 900,
@@ -10,7 +11,9 @@
         "minHeight": 600,
         "decorations": true,
         "titleBarStyle": "Overlay",
-        "hiddenTitle": true
+        "hiddenTitle": true,
+        "trafficLightPosition": { "x": 19, "y": 13 },
+        "dragDropEnabled": false
       }
     ]
   }

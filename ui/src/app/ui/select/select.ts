@@ -18,6 +18,8 @@ export interface SelectOption {
   value: string;
   label: string;
   description?: string;
+  /** Optional label colours shown as small dots (e.g. profile labels). */
+  swatches?: string[];
 }
 
 /**
@@ -94,7 +96,7 @@ export class Select {
           offset: 4,
           padding: 8,
           size: true,
-          matchReferenceWidth: true,
+          matchReferenceWidth: 'min',
         },
         onOutsidePointer: () => this.close(),
         onEscape: () => this.close(),

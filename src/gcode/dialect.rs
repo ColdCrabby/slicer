@@ -161,4 +161,16 @@ pub trait GcodeDialect: Send + Sync {
     fn reset_extruder(&self) -> String {
         "G92 E0".to_string()
     }
+
+    /// Force **absolute** extrusion mode (`M82`).
+    ///
+    /// The generator emits absolute E positions (an accumulating `e_total`
+    /// reset with `G92 E0` per layer), so absolute extrusion mode is a hard
+    /// invariant.  Custom start scripts and Klipper `START_PRINT` macros that
+    /// prime or use firmware retraction frequently leave the extruder in
+    /// **relative** mode (`M83`); the generator emits this after the start
+    /// script to guarantee the invariant regardless of what the macro left set.
+    fn extruder_absolute_mode(&self) -> String {
+        "M82 ; extruder absolute mode".to_string()
+    }
 }

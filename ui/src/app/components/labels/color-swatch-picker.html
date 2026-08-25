@@ -1,0 +1,35 @@
+<div class="picker">
+  <div class="picker__grid">
+    @for (t of tones; track t) {
+      <div
+        class="picker__row"
+        role="listbox"
+        [attr.aria-label]="t === 'dark' ? 'Dark colours' : 'Light colours'"
+      >
+        @for (h of hues; track h.value) {
+          <button
+            type="button"
+            class="picker__swatch"
+            role="option"
+            [attr.data-tone]="t"
+            [class.is-selected]="h.value === hue() && t === tone()"
+            [style.--label-color]="h.value"
+            [attr.aria-selected]="h.value === hue() && t === tone()"
+            [attr.aria-label]="h.name + ' ' + t"
+            [attr.title]="h.name"
+            (click)="pick(h.value, t)"
+          >
+            @if (h.value === hue() && t === tone()) {
+              <nexus-icon name="check" />
+            }
+          </button>
+        }
+      </div>
+    }
+  </div>
+
+  <div class="picker__preview">
+    <span class="picker__preview-label">Preview</span>
+    <nexus-label-chip [label]="previewLabel" />
+  </div>
+</div>

@@ -1,4 +1,12 @@
-import { Component, ElementRef, afterRenderEffect, viewChild } from '@angular/core';
+import {
+  Component,
+  ElementRef,
+  afterRenderEffect,
+  effect,
+  inject,
+  untracked,
+  viewChild,
+} from '@angular/core';
 import { RouterOutlet } from '@angular/router';
 import { ThreeDViewToolbar } from '../../../components/3d-view-toolbar/3d-view-toolbar';
 import { Card } from '../../../components/card/card';
@@ -7,6 +15,10 @@ import { SliceSegmentBar } from '../../../components/slice-segment-bar/slice-seg
 import { TaskProgressBar } from '../../../components/task-progress-bar/task-progress-bar';
 import { TransformPanel } from '../../../components/transform-panel/transform-panel';
 import { ViewportCube } from '../../../components/viewport-cube/viewport-cube';
+import { PrintArea } from '../../../services/print-area';
+import { ActiveSelection } from '../../../services/profiles/active-selection';
+import { SceneEngine } from '../../../services/scene-engine';
+import { Slicer } from '../../../services/slicer';
 import { Sidebar } from '../../sidebar/sidebar';
 import { SliceControl } from '../../slice-control/slice-control';
 
@@ -29,8 +41,45 @@ import { SliceControl } from '../../slice-control/slice-control';
 })
 export class NexusSlicingShell {
   private readonly toolbarRef = viewChild(ThreeDViewToolbar, { read: ElementRef<HTMLElement> });
+  private readonly activeSelection = inject(ActiveSelection);
+  private readonly printArea = inject(PrintArea);
+  private readonly sceneEngine = inject(SceneEngine);
+  private readonly slicer = inject(Slicer);
 
   constructor() {
+    // Apply the active printer/filament/print-profile selection to the live
+    // bed + slice params. Lives here (not in a root service) so opening
+    // Settings never boots the slicer runtime — this shell is only ever
+    // constructed inside the slice workspace.
+    //
+    // Only `printAreaConfig()` / `sceneBedConfig()` / `sliceParams()` are tracked dependencies. The writes
+    // run inside `untracked()` because `updateConfig` / `updateSettings` read
+    // their own target signals (`{ ...current, ...patch }`); tracking those
+    // reads would make the effect depend on the very signals it writes and loop
+    // forever.
+    effect(() => {
+      const printAreaBed = this.activeSelection.printAreaConfig();
+      const sceneBed = this.activeSelection.sceneBedConfig();
+      const params = this.activeSelection.sliceParams();
+      untracked(() => {
+        if (printAreaBed) {
+          this.printArea.updateConfig(printAreaBed);
+        }
+        if (sceneBed) {
+          // A stale bundle without setBed throws; don't let that block the
+          // print-area and settings writes below.
+          try {
+            this.sceneEngine.setBed(sceneBed);
+          } catch {
+            /* update-banner already prompts a reload */
+          }
+        }
+        if (params) {
+          this.slicer.updateSettings(params);
+        }
+      });
+    });
+
     // Keep --main-scene-inset on :root in sync with the toolbar's rendered
     // height so all floating panels (layer bar, segment bar, notification
     // center, etc.) stay inset below it regardless of its actual size.

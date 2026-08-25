@@ -1,0 +1,292 @@
+<nexus-wizard-shell
+  title="Add printer"
+  [steps]="steps"
+  [index]="index()"
+  [canProceed]="canProceed()"
+  finishLabel="Add printer"
+  secondaryFinishLabel="Add & configure"
+  (back)="back()"
+  (next)="next()"
+  (goto)="goto($event)"
+  (finish)="finish()"
+  (finishSecondary)="finishAndConfigure()"
+  (cancel)="cancel()"
+>
+  @switch (index()) {
+    @case (0) {
+      <div class="wz-step">
+        <p class="wz-intro">
+          Have your printer on the network? Paste its address and we'll detect the type and settings
+          for you. Otherwise, start from a catalog preset or from scratch.
+        </p>
+        <div class="wz-start">
+          <div class="wz-detect">
+            <div class="wz-detect__row">
+              <input
+                class="wz-input"
+                type="text"
+                placeholder="http://mainsailos.local  ·  192.168.1.42"
+                [value]="detectHost()"
+                (input)="setDetectHost($event)"
+                (keydown.enter)="detect()"
+                [disabled]="detecting()"
+              />
+              <button
+                nexusButton
+                variant="primary"
+                type="button"
+                class="wz-detect__btn"
+                [class.wz-detect__btn--busy]="detecting()"
+                (click)="detect()"
+                [disabled]="detecting() || !detectHost().trim()"
+              >
+                <nexus-icon [name]="detecting() ? 'refresh' : 'magic-wand'" />
+                <span>{{ detecting() ? 'Detecting…' : 'Detect' }}</span>
+              </button>
+            </div>
+            @if (detectResult(); as result) {
+              @if (!result.reachable) {
+                <p class="wz-detect__msg wz-detect__msg--error">
+                  <nexus-icon name="warning-triangle" />
+                  <span>{{ result.message ?? 'Could not reach a printer at that address.' }}</span>
+                </p>
+              }
+            }
+            @if (!detectResult()?.reachable) {
+              <p class="wz-detect__hint">
+                Works best with Klipper / Moonraker (bed size, nozzle and kinematics), and identifies
+                OctoPrint &amp; PrusaLink hosts.
+              </p>
+            }
+          </div>
+
+          @if (detectResult()?.reachable) {
+            <div class="wz-detected" role="status">
+              <header class="wz-detected__head">
+                <nexus-icon name="check-circle" />
+                <div>
+                  <strong>Printer detected</strong>
+                  <small>{{ detectResult()?.message ?? 'We prefilled what we could below.' }}</small>
+                </div>
+              </header>
+
+              <dl class="wz-detected__grid">
+                @for (row of detectionRows(); track row.label) {
+                  <div class="wz-detected__item">
+                    <dt>{{ row.label }}</dt>
+                    <dd>{{ row.value }}</dd>
+                  </div>
+                }
+              </dl>
+
+              @if (detectionMissing()) {
+                <p class="wz-detected__note">
+                  <nexus-icon name="info-circle" />
+                  <span>
+                    We couldn't read the bed size or nozzle from this printer — please review those
+                    before adding it.
+                  </span>
+                </p>
+              }
+
+              <div class="wz-detected__actions">
+                <button nexusButton variant="ghost" type="button" (click)="startOver()">
+                  Start over
+                </button>
+
+                @if (detectionMissing()) {
+                  <button
+                    nexusButton
+                    variant="primary"
+                    type="button"
+                    (click)="continueFromDetection()"
+                  >
+                    <span>Review &amp; add</span>
+                    <nexus-icon name="arrow-right" />
+                  </button>
+                } @else {
+                  <div class="wz-detected__actions-end">
+                    <button nexusButton variant="ghost" type="button" (click)="finish()">
+                      Just add
+                    </button>
+                    <button
+                      nexusButton
+                      variant="primary"
+                      type="button"
+                      (click)="finishAndConfigureGcode()"
+                    >
+                      <span>Add &amp; check G-code</span>
+                      <nexus-icon name="arrow-right" />
+                    </button>
+                  </div>
+                }
+              </div>
+            </div>
+          }
+
+          @if (!detectResult()?.reachable) {
+            <div class="wz-start__divider">or start manually</div>
+
+            <button type="button" class="wz-start__scratch" (click)="startFromScratch()">
+              <nexus-icon name="grid-plus" />
+              <span>
+                <strong>Start from scratch</strong>
+                <small>A blank 220 mm printer you can fully customise</small>
+              </span>
+            </button>
+
+            <div class="wz-start__divider">or pick a preset</div>
+
+            <nexus-catalog-picker
+              [entries]="catalogEntries()"
+              [loading]="catalogStatus() === 'loading'"
+              [unavailable]="catalogStatus() === 'unavailable'"
+              actionLabel="Use preset"
+              (pick)="startFromCatalog($event)"
+              (retry)="retryCatalog()"
+            />
+          }
+        </div>
+      </div>
+    }
+
+    @case (1) {
+      <div class="wz-step">
+        <nexus-field-row label="Name" [stacked]="true">
+          <input class="wz-input" [value]="draft().name" (input)="patchName($event)" />
+        </nexus-field-row>
+        <nexus-field-row label="Vendor" [stacked]="true">
+          <input class="wz-input" [value]="draft().vendor" (input)="patchVendor($event)" />
+        </nexus-field-row>
+        <nexus-field-row label="Model" [stacked]="true">
+          <input class="wz-input" [value]="draft().model" (input)="patchModel($event)" />
+        </nexus-field-row>
+        <nexus-field-row label="Firmware" description="G-code dialect the printer speaks">
+          <nexus-select
+            [options]="flavorOptions"
+            [value]="pstr(draft().params, 'gcode_flavor')"
+            (valueChange)="setFlavor($event)"
+          />
+        </nexus-field-row>
+      </div>
+    }
+
+    @case (2) {
+      <div class="wz-step">
+        <nexus-field-row label="Bed shape" [stacked]="true">
+          <nexus-segmented
+            [options]="bedShapeOptions"
+            [value]="draft().bed_shape ?? 'rectangular'"
+            (valueChange)="setBedShape($event)"
+          />
+        </nexus-field-row>
+        <nexus-field-row [label]="draft().bed_shape === 'circular' ? 'Diameter' : 'Width (X)'">
+          <nexus-number-input
+            [value]="draft().bed_width ?? 220"
+            [min]="20"
+            [max]="1000"
+            unit="mm"
+            (valueChange)="patch({ bed_width: $event })"
+          />
+        </nexus-field-row>
+        @if (draft().bed_shape === 'rectangular') {
+          <nexus-field-row label="Depth (Y)">
+            <nexus-number-input
+              [value]="draft().bed_depth ?? 220"
+              [min]="20"
+              [max]="1000"
+              unit="mm"
+              (valueChange)="patch({ bed_depth: $event })"
+            />
+          </nexus-field-row>
+        }
+        <nexus-field-row label="Height (Z)">
+          <nexus-number-input
+            [value]="draft().bed_height ?? 250"
+            [min]="20"
+            [max]="1000"
+            unit="mm"
+            (valueChange)="patch({ bed_height: $event })"
+          />
+        </nexus-field-row>
+        <nexus-field-row label="Origin at center" description="Delta / center-origin machines">
+          <nexus-switch
+            [checked]="draft().origin_at_center ?? false"
+            (checkedChange)="patch({ origin_at_center: $event })"
+          />
+        </nexus-field-row>
+      </div>
+    }
+
+    @case (3) {
+      <div class="wz-step">
+        <nexus-field-row label="Nozzle diameter">
+          <nexus-number-input
+            [value]="pnum(draft().params, 'nozzle_diameter_mm')"
+            [min]="0.1"
+            [max]="2"
+            [step]="0.05"
+            unit="mm"
+            (valueChange)="patchParams({ nozzle_diameter_mm: $event })"
+          />
+        </nexus-field-row>
+        <nexus-field-row label="Filament diameter">
+          <nexus-number-input
+            [value]="pnum(draft().params, 'filament_diameter_mm')"
+            [min]="1"
+            [max]="4"
+            [step]="0.05"
+            unit="mm"
+            (valueChange)="patchParams({ filament_diameter_mm: $event })"
+          />
+        </nexus-field-row>
+        <nexus-field-row label="Max print speed">
+          <nexus-number-input
+            [value]="pnum(draft().params, 'print_speed')"
+            [min]="10"
+            [max]="1000"
+            [step]="5"
+            unit="mm/s"
+            (valueChange)="patchParams({ print_speed: $event })"
+          />
+        </nexus-field-row>
+        <nexus-field-row label="Max travel speed">
+          <nexus-number-input
+            [value]="pnum(draft().params, 'travel_speed_mm_min') / 60"
+            [min]="10"
+            [max]="1000"
+            [step]="5"
+            unit="mm/s"
+            (valueChange)="patchParams({ travel_speed_mm_min: $event * 60 })"
+          />
+        </nexus-field-row>
+        <nexus-field-row
+          label="Retraction length"
+          description="Filament pulled back on travel moves to curb oozing and stringing."
+        >
+          <nexus-number-input
+            [value]="pnum(draft().params, 'retract_mm')"
+            [min]="0"
+            [max]="10"
+            [step]="0.1"
+            unit="mm"
+            (valueChange)="patchParams({ retract_mm: $event })"
+          />
+        </nexus-field-row>
+        <nexus-field-row
+          label="Z-hop"
+          description="Lifts the nozzle on travel moves so it clears printed parts."
+        >
+          <nexus-number-input
+            [value]="pnum(draft().params, 'z_hop_mm')"
+            [min]="0"
+            [max]="5"
+            [step]="0.05"
+            unit="mm"
+            (valueChange)="patchParams({ z_hop_mm: $event })"
+          />
+        </nexus-field-row>
+      </div>
+    }
+  }
+</nexus-wizard-shell>

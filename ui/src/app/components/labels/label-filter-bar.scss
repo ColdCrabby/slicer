@@ -1,0 +1,116 @@
+:host {
+  display: block;
+}
+
+.fb {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  flex-wrap: wrap;
+}
+
+.fb__lead {
+  position: relative;
+  flex: none;
+  display: inline-grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--color-text-tertiary);
+  cursor: default;
+  --icon-size: 16px;
+
+  &.is-clearable {
+    cursor: pointer;
+    color: var(--color-text-secondary);
+
+    &:hover {
+      background: var(--color-surface-hover);
+      color: var(--color-text-primary);
+    }
+  }
+
+  &:disabled {
+    cursor: default;
+  }
+}
+
+.fb__lead-badge {
+  position: absolute;
+  right: -2px;
+  bottom: -2px;
+  display: inline-grid;
+  place-items: center;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: var(--color-danger);
+  color: #fff;
+  // Punch the badge out of the funnel so the two glyphs read as one icon.
+  box-shadow: 0 0 0 2px var(--color-bg-primary);
+  --icon-size: 8px;
+}
+
+.fb__lead:hover .fb__lead-badge {
+  box-shadow: 0 0 0 2px var(--color-surface-hover);
+}
+
+.fb__chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--spacing-xs);
+}
+
+.fb__chip {
+  --tint-dot: 90%;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 24px;
+  padding: 0 var(--spacing-sm);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--color-text-secondary);
+  font-family: inherit;
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-medium);
+  cursor: pointer;
+  transition:
+    background-color var(--duration-fast) var(--ease-standard),
+    color var(--duration-fast) var(--ease-standard),
+    border-color var(--duration-fast) var(--ease-standard);
+
+  &[data-tone='light'] {
+    --tint-dot: 60%;
+  }
+
+  &:not(.is-on):hover {
+    background: var(--color-surface-hover);
+    color: var(--color-text-primary);
+  }
+
+  &.is-on {
+    background: color-mix(in oklab, var(--label-color) 20%, transparent);
+    color: color-mix(in oklab, var(--label-color) 72%, var(--color-text-primary));
+    border-color: color-mix(in oklab, var(--label-color) 45%, transparent);
+  }
+
+  &.is-on[data-tone='light'] {
+    background: color-mix(in oklab, var(--label-color) 10%, transparent);
+    color: color-mix(in oklab, var(--label-color) 50%, var(--color-text-primary));
+    border-color: color-mix(in oklab, var(--label-color) 26%, transparent);
+  }
+}
+
+.fb__dot {
+  flex: none;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: color-mix(in oklab, var(--label-color) var(--tint-dot), transparent);
+}

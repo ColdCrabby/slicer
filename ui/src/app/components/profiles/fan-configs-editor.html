@@ -1,0 +1,107 @@
+<div class="fans">
+  @for (fan of rows(); track $index) {
+    <div class="fans__row">
+      <div class="fans__head">
+        <span class="fans__title">
+          <nexus-icon name="cooling-square" />
+          {{ roleLabel(fan.fan_index) }}
+        </span>
+        <button
+          nexusIconButton
+          size="sm"
+          aria-label="Remove fan"
+          (click)="removeFan($index)"
+        >
+          <nexus-icon name="trash" />
+        </button>
+      </div>
+
+      <nexus-field-row label="Fan">
+        <nexus-select
+          [options]="roleOptions"
+          [value]="roleValue(fan.fan_index)"
+          (valueChange)="setRole($index, $event)"
+        />
+      </nexus-field-row>
+
+      <nexus-field-row
+        label="Klipper name"
+        description="Optional. The [fan_generic] / [fan] object name in your printer.cfg (e.g. rscs, exhaust_filter). Leave blank to use the default for this role."
+      >
+        <input
+          class="fans__name"
+          type="text"
+          [value]="fan.klipper_name ?? ''"
+          [attr.placeholder]="defaultName(fan.fan_index)"
+          (change)="setName($index, $event)"
+        />
+      </nexus-field-row>
+
+      <nexus-field-row
+        label="Speed — min"
+        description="Fan duty for slow / large layers (long cooling time)."
+      >
+        <nexus-number-input
+          [value]="pct(fan.min_speed)"
+          [min]="0"
+          [max]="100"
+          [step]="5"
+          unit="%"
+          (valueChange)="setMinSpeed($index, $event)"
+        />
+      </nexus-field-row>
+
+      <nexus-field-row
+        label="Speed — max"
+        description="Fan duty for fast / small layers (short cooling time)."
+      >
+        <nexus-number-input
+          [value]="pct(fan.max_speed)"
+          [min]="0"
+          [max]="100"
+          [step]="5"
+          unit="%"
+          (valueChange)="setMaxSpeed($index, $event)"
+        />
+      </nexus-field-row>
+
+      <nexus-field-row
+        label="Fast layer time"
+        description="Layers at or below this print time run at max speed."
+      >
+        <nexus-number-input
+          [value]="fan.layer_time_fast_s"
+          [min]="0"
+          [max]="120"
+          [step]="1"
+          unit="s"
+          (valueChange)="setFast($index, $event)"
+        />
+      </nexus-field-row>
+
+      <nexus-field-row
+        label="Slow layer time"
+        description="Layers at or above this print time run at min speed."
+      >
+        <nexus-number-input
+          [value]="fan.layer_time_slow_s"
+          [min]="0"
+          [max]="600"
+          [step]="5"
+          unit="s"
+          (valueChange)="setSlow($index, $event)"
+        />
+      </nexus-field-row>
+    </div>
+  } @empty {
+    <p class="fans__empty">
+      No fans configured. Add one to drive part cooling or any auxiliary fan your
+      printer exposes.
+    </p>
+  }
+
+  <button nexusButton variant="secondary" size="sm" (click)="addFan()">
+    <nexus-icon name="plus" />
+    Add fan
+  </button>
+</div>

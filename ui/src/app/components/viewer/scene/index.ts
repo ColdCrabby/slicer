@@ -107,6 +107,7 @@ export class ViewerScene {
     this.host = host;
     this.pixelRatioCap = options?.pixelRatioCap ?? MAX_PIXEL_RATIO;
     const printArea: PrintAreaConfig = initialPrintArea ?? {
+      bedShape: 'rectangular',
       printableAreaWidth: 220,
       printableAreaHeight: 220,
       movableAreaX: 0,

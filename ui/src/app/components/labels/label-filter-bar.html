@@ -1,0 +1,33 @@
+@if (store.count() > 0) {
+  <div class="fb">
+    <button
+      type="button"
+      class="fb__lead"
+      [class.is-clearable]="hasSelection()"
+      [disabled]="!hasSelection()"
+      [attr.aria-label]="hasSelection() ? 'Clear label filter' : null"
+      (click)="clear.emit()"
+    >
+      <nexus-icon name="filter" class="fb__lead-filter" />
+      @if (hasSelection()) {
+        <span class="fb__lead-badge"><nexus-icon name="xmark" /></span>
+      }
+    </button>
+    <div class="fb__chips">
+      @for (label of store.items(); track label.id) {
+        <button
+          type="button"
+          class="fb__chip"
+          [class.is-on]="isSelected(label.id)"
+          [attr.data-tone]="label.tone"
+          [style.--label-color]="label.color"
+          [attr.aria-pressed]="isSelected(label.id)"
+          (click)="toggle.emit(label.id)"
+        >
+          <span class="fb__dot"></span>
+          {{ label.name }}
+        </button>
+      }
+    </div>
+  </div>
+}

@@ -1,0 +1,270 @@
+:host {
+  display: inline-block;
+}
+
+// --- Trigger swatch -------------------------------------------------------
+
+.cp-trigger {
+  position: relative;
+  display: block;
+  width: 40px;
+  height: 40px;
+  padding: 0;
+  border: none;
+  border-radius: var(--radius-md);
+  background: transparent;
+  cursor: pointer;
+  box-shadow: inset 0 0 0 1px color-mix(in oklab, var(--color-text-primary) 20%, transparent);
+  overflow: hidden;
+  transition: box-shadow var(--duration-fast) var(--ease-standard);
+
+  &:hover:not(:disabled) {
+    box-shadow: inset 0 0 0 1px color-mix(in oklab, var(--color-text-primary) 32%, transparent);
+  }
+
+  &.is-open,
+  &:focus-visible {
+    outline: none;
+    box-shadow:
+      inset 0 0 0 1px var(--accent),
+      0 0 0 2px var(--color-focus-ring);
+  }
+
+  &:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+}
+
+.cp-trigger__fill {
+  position: absolute;
+  inset: 0;
+}
+
+// --- Popover --------------------------------------------------------------
+// Rendered body-level through FloatingService; encapsulation attributes still
+// scope these rules to the component's template nodes.
+
+.cp-pop {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-sm);
+  width: 232px;
+  padding: var(--spacing-sm);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  background: var(--color-bg-secondary);
+  box-shadow: var(--shadow-lg);
+  animation: cp-pop var(--duration-fast) var(--ease-standard);
+  user-select: none;
+}
+
+@keyframes cp-pop {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+// Saturation / value field.
+.cp-sv {
+  position: relative;
+  height: 148px;
+  border-radius: var(--radius-md);
+  cursor: crosshair;
+  touch-action: none;
+  // hue base → white (left) → black (bottom)
+  background:
+    linear-gradient(to top, #000, transparent), linear-gradient(to right, #fff, transparent),
+    hsl(calc(var(--cp-hue, 0) * 1deg) 100% 50%);
+  box-shadow: inset 0 0 0 1px color-mix(in oklab, var(--color-text-primary) 12%, transparent);
+}
+
+.cp-sv__handle {
+  position: absolute;
+  width: 14px;
+  height: 14px;
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+}
+
+.cp-sv__dot {
+  display: block;
+  width: 100%;
+  height: 100%;
+  border-radius: 999px;
+  box-shadow:
+    0 0 0 2px #fff,
+    0 0 0 3px color-mix(in oklab, #000 45%, transparent),
+    var(--shadow-sm);
+}
+
+// Preview + hue row.
+.cp-row {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+}
+
+.cp-preview {
+  flex: none;
+  width: 28px;
+  height: 28px;
+  border-radius: 999px;
+  box-shadow: inset 0 0 0 1px color-mix(in oklab, var(--color-text-primary) 20%, transparent);
+}
+
+.cp-hue {
+  position: relative;
+  flex: 1;
+  height: 12px;
+  border-radius: 999px;
+  cursor: pointer;
+  touch-action: none;
+  background: linear-gradient(
+    to right,
+    #f00 0%,
+    #ff0 17%,
+    #0f0 33%,
+    #0ff 50%,
+    #00f 67%,
+    #f0f 83%,
+    #f00 100%
+  );
+  box-shadow: inset 0 0 0 1px color-mix(in oklab, var(--color-text-primary) 12%, transparent);
+}
+
+.cp-hue__handle {
+  position: absolute;
+  top: 50%;
+  width: 14px;
+  height: 14px;
+  transform: translate(-50%, -50%);
+  border-radius: 999px;
+  background: #fff;
+  pointer-events: none;
+  box-shadow:
+    0 0 0 1px color-mix(in oklab, #000 30%, transparent),
+    var(--shadow-sm);
+}
+
+// Hex + native picker.
+.cp-hex {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-xs);
+  height: 32px;
+  padding: 0 var(--spacing-xs) 0 var(--spacing-sm);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+  transition:
+    border-color var(--duration-fast) var(--ease-standard),
+    box-shadow var(--duration-fast) var(--ease-standard);
+
+  &:focus-within {
+    border-color: var(--accent);
+    box-shadow: 0 0 0 2px var(--color-focus-ring);
+  }
+}
+
+.cp-hex__hash {
+  color: var(--color-text-tertiary);
+  font-variant-numeric: tabular-nums;
+}
+
+.cp-hex__input {
+  flex: 1;
+  min-width: 0;
+  height: 100%;
+  border: none;
+  background: transparent;
+  color: var(--color-text-primary);
+  font-family: var(--font-family-mono, monospace);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+
+  &:focus {
+    outline: none;
+  }
+}
+
+.cp-native {
+  position: relative;
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--color-text-tertiary);
+  cursor: pointer;
+  --icon-size: 16px;
+  transition:
+    background-color var(--duration-fast) var(--ease-standard),
+    color var(--duration-fast) var(--ease-standard);
+
+  &:hover {
+    background: var(--color-surface-hover);
+    color: var(--color-text-primary);
+  }
+
+  &:focus-visible {
+    outline: none;
+    box-shadow: 0 0 0 2px var(--color-focus-ring);
+  }
+}
+
+// Native input is a near-invisible hit target the button clicks through to.
+.cp-native__input {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  border: none;
+  opacity: 0;
+  pointer-events: none;
+}
+
+// Preset swatches.
+.cp-presets {
+  display: grid;
+  grid-template-columns: repeat(6, 1fr);
+  gap: var(--spacing-xs);
+}
+
+.cp-preset {
+  aspect-ratio: 1;
+  border: none;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  box-shadow: inset 0 0 0 1px color-mix(in oklab, var(--color-text-primary) 16%, transparent);
+  transition: transform var(--duration-fast) var(--ease-standard);
+
+  &:hover {
+    transform: scale(1.08);
+  }
+
+  &.is-active {
+    box-shadow:
+      inset 0 0 0 1px var(--color-bg-secondary),
+      0 0 0 2px var(--accent);
+  }
+
+  &:focus-visible {
+    outline: none;
+    box-shadow:
+      inset 0 0 0 1px var(--color-bg-secondary),
+      0 0 0 2px var(--color-focus-ring);
+  }
+}

@@ -73,10 +73,17 @@ $default-inset: 40px;
   // Unified right rail — inspector (top, expands upward) + slice dock (bottom),
   // bottom-anchored so the core controls never shift when the legend changes.
   .rail-card {
+    // Premium reveal motion — a confident growth that decelerates into a soft
+    // settle (ease-out-expo). Defined here on the shared ancestor so the
+    // inspector expand and the slice-control separator move as one; both the
+    // segment bar and slice-control inherit these.
+    --inspector-duration: 440ms;
+    --inspector-ease: cubic-bezier(0.16, 1, 0.3, 1);
+
     grid-area: rail;
     align-self: end;
     justify-self: end;
-    width: 340px;
+    width: 380px;
     margin: var(--spacing-md) var(--main-scene-inset, #{$default-inset})
       var(--main-scene-inset, #{$default-inset});
 
@@ -86,5 +93,21 @@ $default-inset: 40px;
     gap: 0;
     padding: var(--spacing-md);
     min-height: 0;
+
+    // When the G-code inspector is open, give the slice-control row a clear
+    // visual separation from the inspector content above it.
+    // Transitions match the inspector expand so nothing jumps mid-animation.
+    ::ng-deep nexus-slice-control .slice-block {
+      padding-top: 0;
+      border-top: 1px solid transparent;
+      transition:
+        padding-top var(--inspector-duration) var(--inspector-ease),
+        border-color var(--inspector-duration) var(--inspector-ease);
+    }
+
+    &:has(.insp-shell.is-open) ::ng-deep nexus-slice-control .slice-block {
+      padding-top: var(--spacing-md);
+      border-color: var(--color-border-light);
+    }
   }
 }

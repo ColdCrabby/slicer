@@ -142,6 +142,11 @@ export class TauriRuntime implements RuntimePort {
     return response.sessions ?? [];
   }
 
+  async clearHistory(): Promise<void> {
+    this.requireReady();
+    await invoke('history_clear');
+  }
+
   async slice(request: RuntimeSliceRequest): Promise<RuntimeSliceResult> {
     this.requireReady();
     this.bus.emit({ type: 'phase-start', sliceId: request.sliceId, phase: 'total' });

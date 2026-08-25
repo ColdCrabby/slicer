@@ -36,27 +36,23 @@
   background: transparent;
   color: var(--color-text-secondary);
   font-size: var(--font-size-xs);
-  font-weight: var(--font-weight-medium);
-  font-variation-settings: 'wght' var(--font-weight-medium);
+  font-weight: var(--font-weight-normal);
+  font-variation-settings: 'wght' var(--font-weight-normal);
   white-space: nowrap;
   overflow: hidden;
   cursor: pointer;
   transition:
     background-color var(--duration-fast) var(--ease-standard),
     color var(--duration-fast) var(--ease-standard),
-    box-shadow var(--duration-fast) var(--ease-standard);
-
-  // Hold the variable-font weight steady against the global button hover/active
-  // shift so labels don't bold.
-  &:hover,
-  &:active {
-    font-weight: var(--font-weight-medium);
-    font-variation-settings: 'wght' var(--font-weight-medium);
-  }
+    box-shadow var(--duration-fast) var(--ease-standard),
+    font-weight var(--duration-fast) var(--ease-standard),
+    font-variation-settings var(--duration-fast) var(--ease-standard);
 
   &:hover:not(:disabled):not(.is-selected) {
     color: var(--color-text-primary);
     background: var(--color-surface-hover);
+    font-weight: var(--font-weight-semibold);
+    font-variation-settings: 'wght' var(--font-weight-semibold);
   }
 
   &:focus-visible {
@@ -68,6 +64,8 @@
     background: var(--color-surface);
     color: var(--accent);
     box-shadow: var(--shadow-xs);
+    font-weight: var(--font-weight-active);
+    font-variation-settings: 'wght' var(--font-weight-active);
   }
 
   &:disabled {

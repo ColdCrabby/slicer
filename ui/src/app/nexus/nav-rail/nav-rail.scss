@@ -42,13 +42,19 @@
   -webkit-user-select: none;
   touch-action: manipulation;
   --icon-size: 22px;
+  font-weight: var(--font-weight-medium);
+  font-variation-settings: 'wght' var(--font-weight-medium);
   transition:
     background-color var(--duration-fast) var(--ease-standard),
-    color var(--duration-fast) var(--ease-standard);
+    color var(--duration-fast) var(--ease-standard),
+    font-weight var(--duration-fast) var(--ease-standard),
+    font-variation-settings var(--duration-fast) var(--ease-standard);
 
   &:hover {
     background: var(--color-surface-hover);
     color: var(--color-text-primary);
+    font-weight: var(--font-weight-active);
+    font-variation-settings: 'wght' var(--font-weight-active);
   }
 
   &:focus-visible {
@@ -59,12 +65,14 @@
   &.is-active {
     color: var(--accent);
     background: var(--accent-soft);
+    font-weight: var(--font-weight-active);
+    font-variation-settings: 'wght' var(--font-weight-active);
   }
 }
 
 .rail-label {
   font-size: var(--font-size-2xs);
-  font-weight: var(--font-weight-medium);
+  font-weight: inherit;
   line-height: 1;
   letter-spacing: 0.01em;
 }

@@ -133,6 +133,10 @@ export class WasmRuntime implements RuntimePort {
     return [];
   }
 
+  async clearHistory(): Promise<void> {
+    // The web/wasm runtime keeps no persisted history — nothing to clear.
+  }
+
   async slice(request: RuntimeSliceRequest): Promise<RuntimeSliceResult> {
     this.requireReady();
     await this.ensureWorkerReady();

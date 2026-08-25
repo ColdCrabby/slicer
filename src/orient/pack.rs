@@ -72,6 +72,9 @@ pub fn pack_footprints(
     });
 
     let mut shelves: Vec<Shelf> = Vec::new();
+    // Effective packing extent — the inscribed square for circular beds so no
+    // packed object lands outside the disk.
+    let (usable_width, _usable_depth) = bed.usable_footprint();
     // Pre-fill result with dummies; indexed by original `idx`.
     let mut result: Vec<PackedItem> = (0..footprints.len())
         .map(|i| PackedItem {
@@ -95,7 +98,7 @@ pub fn pack_footprints(
                 0.0
             };
             let x_start = shelf.x_cursor + gap;
-            if x_start + w <= bed.width {
+            if x_start + w <= usable_width {
                 result[idx].x = x_start;
                 result[idx].y = shelf.y_bottom;
                 shelf.x_cursor = x_start + w;
@@ -164,6 +167,7 @@ mod tests {
             height: 250.0,
             origin_offset_x: 0.0,
             origin_offset_y: 0.0,
+            shape: crate::scene::bed::BedShape::Rectangular,
         }
     }
 
@@ -270,5 +274,38 @@ mod tests {
         let cy = (min_y + max_y) / 2.0;
         assert!((cx - 110.0).abs() < 0.1, "cx={cx:.2}");
         assert!((cy - 110.0).abs() < 0.1, "cy={cy:.2}");
+    }
+    #[test]
+    fn circular_bed_keeps_objects_within_disk() {
+        // 200 mm circular bed → inscribed square side ≈ 141.42 mm, radius 100.
+        let bed = BedConfig {
+            width: 200.0,
+            depth: 200.0,
+            height: 250.0,
+            origin_offset_x: 0.0,
+            origin_offset_y: 0.0,
+            shape: crate::scene::bed::BedShape::Circular,
+        };
+        let (bx, by) = bed.center_xy();
+        let radius = bed.width.min(bed.depth) / 2.0;
+        let fps: Vec<(f64, f64)> = vec![(30.0, 30.0); 6];
+        let items = pack_footprints(&fps, &bed, 2.0);
+        assert_eq!(items.len(), 6);
+        // Every corner of every placed footprint must sit inside the disk.
+        for item in &items {
+            let (w, d) = fps[item.index];
+            for (cx, cy) in [
+                (item.x, item.y),
+                (item.x + w, item.y),
+                (item.x, item.y + d),
+                (item.x + w, item.y + d),
+            ] {
+                let dist = ((cx - bx).powi(2) + (cy - by).powi(2)).sqrt();
+                assert!(
+                    dist <= radius + 1e-6,
+                    "corner ({cx:.1},{cy:.1}) dist={dist:.2} > r={radius}"
+                );
+            }
+        }
     }
 }

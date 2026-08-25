@@ -33,6 +33,10 @@ export class RuntimeOrchestrator {
     return this.runtime.getHistory();
   }
 
+  clearHistory(): Promise<void> {
+    return this.runtime.clearHistory();
+  }
+
   getCapabilities(): RuntimeCapabilities {
     return this.runtime.getCapabilities();
   }

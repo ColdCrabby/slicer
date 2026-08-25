@@ -9,7 +9,7 @@ fn main() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_fs::init())
         .manage(bridge::runtime_bridge::AppState::new())
-        .setup(|_app| {
+        .setup(|app| {
             // The window is configured with `decorations: true` +
             // `titleBarStyle: Overlay` so macOS keeps its native traffic
             // lights overlaid on our custom title bar. On Windows/Linux there
@@ -19,10 +19,13 @@ fn main() {
             #[cfg(not(target_os = "macos"))]
             {
                 use tauri::Manager;
-                if let Some(window) = _app.get_webview_window("main") {
+                if let Some(window) = app.get_webview_window("main") {
                     let _ = window.set_decorations(false);
                 }
             }
+
+            // Track live OS accent changes and push them to the UI.
+            system_accent::spawn_watcher(app.handle().clone());
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -31,7 +34,10 @@ fn main() {
             commands::slice_cancel,
             commands::preview_get_source,
             commands::history_list,
+            commands::history_clear,
             commands::get_system_accent,
+            commands::profiles_load,
+            commands::profiles_save_category,
         ])
         .run(tauri::generate_context!())
         .expect("failed to run desktop runtime");

@@ -15,7 +15,60 @@
         </a>
       }
     </nav>
+
+    <div class="settings-nav-footer">
+      @if (syncVisible()) {
+        <p
+          class="settings-sync"
+          [class.is-error]="syncIsError()"
+          role="status"
+          aria-live="polite"
+          animate.enter="settings-sync-enter"
+          animate.leave="settings-sync-leave"
+        >
+          <span class="settings-sync-dot"></span>
+          <span>{{ syncLabel() }}</span>
+        </p>
+      }
+
+      <aside class="settings-storage-note" role="note">
+        @switch (storageMode) {
+          @case ('device') {
+            <p class="settings-storage-note-title">
+              <nexus-icon class="settings-storage-note-icon" name="hard-drive" />
+              <span>Saved on this device</span>
+            </p>
+            <p class="settings-storage-note-text">
+              Your printers, filaments, and profiles are saved on this computer, next to the
+              slicer. Appearance and view preferences stay in this browser view.
+            </p>
+          }
+          @case ('server') {
+            <p class="settings-storage-note-title">
+              <nexus-icon class="settings-storage-note-icon" name="cloud-check" />
+              <span>Saved on the slicer</span>
+            </p>
+            <p class="settings-storage-note-text">
+              Your printers, filaments, and profiles are saved on the slicer server, so they're
+              safe if you clear this browser. Only appearance and view preferences live here.
+            </p>
+          }
+          @default {
+            <p class="settings-storage-note-title">
+              <nexus-icon class="settings-storage-note-icon" name="database" />
+              <span>Stored in this browser</span>
+            </p>
+            <p class="settings-storage-note-text">
+              Everything — including your profiles, filaments, and printers — is kept in this
+              browser only. Clearing your cache or site data, resetting settings, or reinstalling
+              the browser will erase it.
+            </p>
+          }
+        }
+      </aside>
+    </div>
   </aside>
+
 
   <div class="settings-content">
     <router-outlet />

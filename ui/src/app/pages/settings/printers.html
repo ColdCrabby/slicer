@@ -1,59 +1,416 @@
-<div class="settings-page">
+<div class="mgr">
   <nexus-section-header heading="Printers" description="Machines you slice and print for">
-    <button nexusButton variant="primary" size="sm" (click)="add()">
+    <button nexusButton variant="secondary" size="sm" (click)="openCatalog()">
+      <nexus-icon name="cloud-upload" />
+      Catalog
+    </button>
+    <a nexusButton variant="primary" size="sm" routerLink="new">
       <nexus-icon name="plus" />
       Add printer
-    </button>
+    </a>
   </nexus-section-header>
 
   @if (store.items().length > 0) {
-    <div class="settings-list">
-      @for (printer of store.items(); track printer.id) {
-        <div class="printer">
-          <div class="printer-head">
+    <div class="mgr__body">
+      <!-- ── List column ──────────────────────────────────────────────────── -->
+      <div class="mgr__list">
+        <div class="mgr__tools">
+          <div class="mgr__search">
+            <nexus-icon name="search" />
             <input
-              class="name-input"
-              [value]="printer.name"
-              (change)="rename(printer.id, $event)"
-              aria-label="Printer name"
+              type="search"
+              placeholder="Search printers"
+              aria-label="Search printers"
+              [value]="search()"
+              (input)="setSearch($event)"
             />
-            <button
-              nexusIconButton
-              aria-label="Remove printer"
-              (click)="remove(printer.id)"
-            >
-              <nexus-icon name="trash" />
-            </button>
+            @if (search()) {
+              <button
+                class="mgr__search-clear"
+                type="button"
+                aria-label="Clear search"
+                (click)="clearSearch()"
+              >
+                <nexus-icon name="xmark" />
+              </button>
+            }
           </div>
-
-          <div class="printer-meta">
-            <span class="meta"
-              ><span class="meta-k">Model</span>{{ printer.vendor }} {{ printer.model }}</span
-            >
-            <span class="meta">
-              <span class="meta-k">Bed</span>{{ printer.bedWidth }}×{{ printer.bedDepth }}×{{
-                printer.bedHeight
-              }}
-              mm
-            </span>
-            <span class="meta"
-              ><span class="meta-k">Nozzle</span>{{ printer.nozzleDiameter }} mm</span
-            >
-          </div>
-
-          <div class="printer-conn">
-            <span class="conn-status" [class.is-on]="printer.connection.connected">
-              <span class="dot"></span>
-              {{ connectionLabel(printer.connection.kind) }}
-            </span>
-            <button nexusButton variant="secondary" size="sm" disabled>
-              <nexus-icon name="link" />
-              Connect
-            </button>
-            <span class="soon">Uploads coming soon</span>
-          </div>
+          <nexus-segmented
+            [options]="groupByOptions"
+            [value]="groupBy()"
+            (valueChange)="setGroupBy($event)"
+          />
         </div>
-      }
+
+        <nexus-label-filter-bar
+          [selectedIds]="labelFilter()"
+          (toggle)="toggleFilter($event)"
+          (clear)="clearFilter()"
+        />
+
+        <div class="mgr__scroll">
+          @for (group of groups(); track group.key) {
+            <div class="mgr__group">
+              @if (group.title) {
+                <div class="mgr__group-header">
+                  <h3>{{ group.title }}</h3>
+                  <span class="mgr__group-count">{{ group.items.length }}</span>
+                </div>
+              }
+              <div class="mgr__group-items">
+                @for (printer of group.items; track printer.id) {
+                  <button
+                    class="mgr__card"
+                    type="button"
+                    [class.is-selected]="selectedId() === printer.id"
+                    (click)="select(printer.id)"
+                    (contextmenu)="onContextMenu($event, printer)"
+                  >
+                    <span
+                      class="conn-dot"
+                      [attr.data-state]="connectionStatus(printer.id).state"
+                      [title]="connectionStatus(printer.id).label"
+                    ></span>
+                    <span class="mgr__card-icon"><nexus-icon name="printer" /></span>
+                    <span class="mgr__card-info">
+                      <span class="mgr__card-name">
+                        <span>{{ printer.name }}</span>
+                        @if (isDefault(printer.id)) {
+                          <nexus-icon class="mgr__default-star" name="star" />
+                        }
+                      </span>
+                      <span class="mgr__card-sub">
+                        {{ printer.bed_width }}×{{ printer.bed_depth }} mm ·
+                        {{ pnum(printer.params, 'nozzle_diameter_mm') }} mm ·
+                        {{ pstr(printer.params, 'gcode_flavor') }}
+                      </span>
+                    </span>
+                  </button>
+                }
+              </div>
+            </div>
+          } @empty {
+            <p class="mgr__empty">No printers match your filters.</p>
+          }
+        </div>
+      </div>
+
+      <!-- ── Detail column ────────────────────────────────────────────────── -->
+      <div class="mgr__detail">
+        @if (selected(); as printer) {
+          <div class="mgr__detail-inner">
+            <div class="mgr__detail-head">
+              <div class="mgr__detail-title">
+                <nexus-badge [variant]="printer.source === 'user' ? 'info' : 'default'">
+                  {{ sourceLabels[printer.source ?? 'user'] }}
+                </nexus-badge>
+                <h2>{{ printer.name }}</h2>
+                <p>{{ printer.vendor }}{{ printer.model ? ' · ' + printer.model : '' }}</p>
+              </div>
+              <div class="mgr__detail-actions">
+                <button
+                  class="mgr__default-btn"
+                  type="button"
+                  [class.is-default]="isDefault(printer.id)"
+                  [disabled]="isDefault(printer.id)"
+                  (click)="setDefault(printer.id)"
+                >
+                  <nexus-icon [name]="isDefault(printer.id) ? 'check' : 'star'" />
+                  {{ isDefault(printer.id) ? 'Default' : 'Set default' }}
+                </button>
+                <button nexusIconButton aria-label="Duplicate" (click)="duplicate(printer.id)">
+                  <nexus-icon name="copy" />
+                </button>
+                @if (printer.source !== 'builtin') {
+                  <button nexusIconButton aria-label="Delete" (click)="armDelete()">
+                    <nexus-icon name="trash" />
+                  </button>
+                }
+              </div>
+            </div>
+
+            @if (deleteArmed()) {
+              <div class="mgr__danger">
+                <p>Type <strong>{{ printer.name }}</strong> to permanently delete this printer.</p>
+                <div class="mgr__danger-row">
+                  <input
+                    type="text"
+                    autocomplete="off"
+                    placeholder="Printer name"
+                    [value]="deleteText()"
+                    (input)="setDeleteText($event)"
+                  />
+                  <button nexusButton variant="ghost" size="sm" (click)="disarmDelete()">
+                    Cancel
+                  </button>
+                  <button
+                    nexusButton
+                    variant="danger"
+                    size="sm"
+                    [disabled]="!deleteReady()"
+                    (click)="confirmDelete()"
+                  >
+                    Delete
+                  </button>
+                </div>
+              </div>
+            }
+
+            <div class="profile-editor__group">
+              <label class="profile-editor__group-title">Labels</label>
+              <nexus-label-picker
+                [assignedIds]="printer.label_ids ?? []"
+                (toggle)="toggleLabel(printer.id, $event)"
+              />
+            </div>
+
+            <div class="profile-editor__group">
+              <label class="profile-editor__group-title">Identity</label>
+              <nexus-field-row label="Name" [stacked]="true">
+                <input
+                  class="wz-input"
+                  [value]="printer.name"
+                  (change)="rename(printer.id, $event)"
+                />
+              </nexus-field-row>
+              <nexus-field-row label="Firmware">
+                <nexus-select
+                  [options]="flavorOptions"
+                  [value]="pstr(printer.params, 'gcode_flavor')"
+                  (valueChange)="setFlavor(printer.id, $event)"
+                />
+              </nexus-field-row>
+            </div>
+
+            <div class="profile-editor__group" id="configure-target">
+              <label class="profile-editor__group-title">Connection</label>
+              <nexus-field-row label="Type">
+                <nexus-select
+                  [options]="connectionKindOptions"
+                  [value]="printer.connection?.kind ?? 'none'"
+                  (valueChange)="setConnectionKind(printer.id, $event)"
+                />
+              </nexus-field-row>
+              @if ((printer.connection?.kind ?? 'none') !== 'none') {
+                <nexus-field-row label="Host / IP" [stacked]="true">
+                  <input
+                    class="wz-input"
+                    placeholder="192.168.1.50 or printer.local"
+                    [value]="printer.connection?.host ?? ''"
+                    (change)="setConnectionHost(printer.id, $event)"
+                  />
+                </nexus-field-row>
+                <nexus-field-row label="Port">
+                  <input
+                    class="wz-input"
+                    type="number"
+                    min="1"
+                    max="65535"
+                    placeholder="default"
+                    [value]="printer.connection?.port ?? ''"
+                    (change)="setConnectionPort(printer.id, $event)"
+                  />
+                </nexus-field-row>
+                <nexus-field-row label="API key" [stacked]="true">
+                  <input
+                    class="wz-input"
+                    type="password"
+                    autocomplete="off"
+                    placeholder="optional (Moonraker/OctoPrint)"
+                    [value]="printer.connection?.api_key ?? ''"
+                    (change)="setConnectionApiKey(printer.id, $event)"
+                  />
+                </nexus-field-row>
+                <nexus-field-row label="Status">
+                  <div class="conn-test">
+                    <span
+                      class="conn-dot"
+                      [attr.data-state]="connectionStatus(printer.id).state"
+                      [title]="
+                        connectionStatus(printer.id).message ?? connectionStatus(printer.id).label
+                      "
+                    ></span>
+                    <span class="conn-label">{{ connectionStatus(printer.id).label }}</span>
+                    <button nexusButton variant="ghost" size="sm" (click)="testConnection(printer)">
+                      Test
+                    </button>
+                  </div>
+                </nexus-field-row>
+              }
+            </div>
+
+            <div class="profile-editor__group">
+              <label class="profile-editor__group-title">Build volume</label>
+              <nexus-field-row label="Bed shape" [stacked]="true">
+                <nexus-segmented
+                  [options]="bedShapeOptions"
+                  [value]="printer.bed_shape ?? 'rectangular'"
+                  (valueChange)="setBedShape(printer.id, $event)"
+                />
+              </nexus-field-row>
+              <nexus-field-row
+                [label]="printer.bed_shape === 'circular' ? 'Diameter' : 'Width (X)'"
+              >
+                <nexus-number-input
+                  [value]="printer.bed_width ?? 220"
+                  [min]="20"
+                  [max]="1000"
+                  unit="mm"
+                  (valueChange)="update(printer.id, { bed_width: $event })"
+                />
+              </nexus-field-row>
+              @if (printer.bed_shape === 'rectangular') {
+                <nexus-field-row label="Depth (Y)">
+                  <nexus-number-input
+                    [value]="printer.bed_depth ?? 220"
+                    [min]="20"
+                    [max]="1000"
+                    unit="mm"
+                    (valueChange)="update(printer.id, { bed_depth: $event })"
+                  />
+                </nexus-field-row>
+              }
+              <nexus-field-row label="Height (Z)">
+                <nexus-number-input
+                  [value]="printer.bed_height ?? 250"
+                  [min]="20"
+                  [max]="1000"
+                  unit="mm"
+                  (valueChange)="update(printer.id, { bed_height: $event })"
+                />
+              </nexus-field-row>
+              <nexus-field-row label="Origin at center">
+                <nexus-switch
+                  [checked]="printer.origin_at_center ?? false"
+                  (checkedChange)="update(printer.id, { origin_at_center: $event })"
+                />
+              </nexus-field-row>
+            </div>
+
+            <div class="profile-editor__group">
+              <label class="profile-editor__group-title">Hardware</label>
+              <nexus-field-row label="Nozzle diameter">
+                <nexus-number-input
+                  [value]="pnum(printer.params, 'nozzle_diameter_mm')"
+                  [min]="0.1"
+                  [max]="2"
+                  [step]="0.05"
+                  unit="mm"
+                  (valueChange)="updateParams(printer.id, { nozzle_diameter_mm: $event })"
+                />
+              </nexus-field-row>
+              <nexus-field-row label="Filament diameter">
+                <nexus-number-input
+                  [value]="pnum(printer.params, 'filament_diameter_mm')"
+                  [min]="1"
+                  [max]="4"
+                  [step]="0.05"
+                  unit="mm"
+                  (valueChange)="updateParams(printer.id, { filament_diameter_mm: $event })"
+                />
+              </nexus-field-row>
+              <nexus-field-row label="Max print speed">
+                <nexus-number-input
+                  [value]="pnum(printer.params, 'print_speed')"
+                  [min]="10"
+                  [max]="1000"
+                  [step]="5"
+                  unit="mm/s"
+                  (valueChange)="updateParams(printer.id, { print_speed: $event })"
+                />
+              </nexus-field-row>
+              <nexus-field-row label="Retraction length">
+                <nexus-number-input
+                  [value]="pnum(printer.params, 'retract_mm')"
+                  [min]="0"
+                  [max]="10"
+                  [step]="0.1"
+                  unit="mm"
+                  (valueChange)="updateParams(printer.id, { retract_mm: $event })"
+                />
+              </nexus-field-row>
+              <nexus-field-row label="Z-hop">
+                <nexus-number-input
+                  [value]="pnum(printer.params, 'z_hop_mm')"
+                  [min]="0"
+                  [max]="5"
+                  [step]="0.05"
+                  unit="mm"
+                  (valueChange)="updateParams(printer.id, { z_hop_mm: $event })"
+                />
+              </nexus-field-row>
+            </div>
+
+            <div class="profile-editor__group" id="gcode-target">
+              <label class="profile-editor__group-title">G-code</label>
+              <nexus-field-row
+                label="Template"
+                description="Fill the blocks below from a firmware preset"
+              >
+                <nexus-select
+                  [options]="gcodeTemplateOptions"
+                  [value]="gcodeTemplateId(printer)"
+                  (valueChange)="applyGcodeTemplate(printer.id, $event)"
+                />
+              </nexus-field-row>
+              @if (gcodeTemplateStatus(printer); as tpl) {
+                @if (tpl.kind === 'modified' || tpl.kind === 'updated') {
+                  <div class="mgr__tpl-note" [attr.data-kind]="tpl.kind">
+                    <span>
+                      @if (tpl.kind === 'modified') {
+                        Edited away from <strong>{{ tpl.template?.label }}</strong>
+                      } @else {
+                        <strong>{{ tpl.template?.label }}</strong> has a newer version
+                      }
+                    </span>
+                    <button
+                      nexusButton
+                      variant="ghost"
+                      size="sm"
+                      (click)="resetToTemplate(printer.id)"
+                    >
+                      {{ tpl.kind === 'updated' ? 'Update' : 'Reset' }}
+                    </button>
+                  </div>
+                }
+              }
+              <p class="profile-editor__gcode-hint">
+                Placeholders resolved at slice time: {{ gcodePlaceholderHint }}
+              </p>
+              <nexus-field-row label="Start G-code" [stacked]="true">
+                <nexus-code-editor
+                  class="gcode-editor"
+                  language="gcode"
+                  [content]="pstr(printer.params, 'start_gcode')"
+                  (contentChange)="setStartGcode(printer.id, $event)"
+                ></nexus-code-editor>
+              </nexus-field-row>
+              <nexus-field-row label="Layer change G-code" [stacked]="true">
+                <nexus-code-editor
+                  class="gcode-editor gcode-editor--compact"
+                  language="gcode"
+                  [content]="pstr(printer.params, 'layer_gcode')"
+                  (contentChange)="setLayerGcode(printer.id, $event)"
+                ></nexus-code-editor>
+              </nexus-field-row>
+              <nexus-field-row label="End G-code" [stacked]="true">
+                <nexus-code-editor
+                  class="gcode-editor"
+                  language="gcode"
+                  [content]="pstr(printer.params, 'end_gcode')"
+                  (contentChange)="setEndGcode(printer.id, $event)"
+                ></nexus-code-editor>
+              </nexus-field-row>
+            </div>
+          </div>
+        } @else {
+          <nexus-empty-state
+            icon="printer"
+            heading="Select a printer"
+            description="Pick a printer on the left to edit its settings, or add a new one."
+          />
+        }
+      </div>
     </div>
   } @else {
     <nexus-empty-state
@@ -61,7 +418,20 @@
       heading="No printers"
       description="Add a printer to manage bed size, nozzle and connection."
     >
-      <button nexusButton variant="primary" size="sm" (click)="add()">Add printer</button>
+      <a nexusButton variant="primary" size="sm" routerLink="new">Add printer</a>
     </nexus-empty-state>
   }
 </div>
+
+@if (catalogOpen()) {
+  <nexus-modal-shell title="Printer catalog" (close)="catalogOpen.set(false)">
+    <nexus-catalog-picker
+      [entries]="catalogEntries()"
+      [loading]="catalogStatus() === 'loading'"
+      [unavailable]="catalogStatus() === 'unavailable'"
+      actionLabel="Import"
+      (pick)="importFromCatalog($event)"
+      (retry)="retryCatalog()"
+    />
+  </nexus-modal-shell>
+}

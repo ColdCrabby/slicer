@@ -70,10 +70,22 @@ export const APP_ROUTES: Routes = [
               import('./pages/settings/printers').then((m) => m.PrintersSettings),
           },
           {
+            path: 'printers/new',
+            title: 'Add Printer',
+            loadComponent: () =>
+              import('./components/profiles/printer-wizard').then((m) => m.PrinterWizard),
+          },
+          {
             path: 'filaments',
             title: 'Filament Settings',
             loadComponent: () =>
               import('./pages/settings/filaments').then((m) => m.FilamentsSettings),
+          },
+          {
+            path: 'filaments/new',
+            title: 'Add Filament',
+            loadComponent: () =>
+              import('./components/profiles/filament-wizard').then((m) => m.FilamentWizard),
           },
           {
             path: 'profiles',
@@ -82,10 +94,27 @@ export const APP_ROUTES: Routes = [
               import('./pages/settings/profiles').then((m) => m.ProfilesSettings),
           },
           {
+            path: 'profiles/new',
+            title: 'Add Print Profile',
+            loadComponent: () =>
+              import('./components/profiles/profile-wizard').then((m) => m.ProfileWizard),
+          },
+          {
+            path: 'labels',
+            title: 'Label Settings',
+            loadComponent: () => import('./pages/settings/labels').then((m) => m.LabelsSettings),
+          },
+          {
             path: 'shortcuts',
             title: 'Keyboard Shortcuts',
             loadComponent: () =>
               import('./pages/settings/shortcuts').then((m) => m.ShortcutsSettings),
+          },
+          {
+            path: 'danger-zone',
+            title: 'Danger Zone',
+            loadComponent: () =>
+              import('./pages/settings/danger-zone').then((m) => m.DangerZoneSettings),
           },
         ],
       },

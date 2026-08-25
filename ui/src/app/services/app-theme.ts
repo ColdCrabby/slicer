@@ -1,4 +1,4 @@
-import { computed, effect, inject, Injectable } from '@angular/core';
+import { computed, effect, inject, Injectable, signal } from '@angular/core';
 import { BrowserStorage } from './browser-storage';
 
 const THEME_KEY = 'theme';
@@ -12,6 +12,9 @@ export class AppTheme {
   /** Raw string signal backed by localStorage, kept in sync across tabs. */
   private readonly storedTheme = this.storage.get(THEME_KEY, 'local');
 
+  /** OS colour-scheme preference, kept live via a matchMedia listener. */
+  private readonly systemPrefersDark = signal<boolean>(this.queryPrefersDark());
+
   /**
    * `true` when dark mode is active. Derives from stored value with a fallback
    * to the OS colour-scheme preference.
@@ -21,11 +24,8 @@ export class AppTheme {
     if (stored !== null) {
       return stored === 'dark';
     }
-    // Fall back to system preference when no explicit choice is stored
-    if (typeof window !== 'undefined' && window.matchMedia) {
-      return window.matchMedia('(prefers-color-scheme: dark)').matches;
-    }
-    return false;
+    // Fall back to the live system preference when no explicit choice is stored.
+    return this.systemPrefersDark();
   });
 
   readonly currentTheme = this.isDarkMode;
@@ -34,6 +34,12 @@ export class AppTheme {
   readonly hasExplicitPreference = computed<boolean>(() => this.storedTheme() !== null);
 
   constructor() {
+    // Follow live OS colour-scheme changes while in "system" mode.
+    if (typeof window !== 'undefined' && window.matchMedia) {
+      window
+        .matchMedia('(prefers-color-scheme: dark)')
+        .addEventListener('change', (event) => this.systemPrefersDark.set(event.matches));
+    }
     // Reactively apply the theme class whenever the signal changes,
     // including cross-tab updates driven by BrowserStorage.
     effect(() => {
@@ -60,5 +66,13 @@ export class AppTheme {
     } else {
       document.documentElement.classList.remove('dark');
     }
+  }
+
+  private queryPrefersDark(): boolean {
+    return (
+      typeof window !== 'undefined' &&
+      !!window.matchMedia &&
+      window.matchMedia('(prefers-color-scheme: dark)').matches
+    );
   }
 }

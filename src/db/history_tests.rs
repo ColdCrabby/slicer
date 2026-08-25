@@ -67,4 +67,51 @@ mod history_integration_tests {
 
         Ok(())
     }
+
+    #[tokio::test]
+    async fn test_gcode_cache_round_trip() -> Result<(), Box<dyn std::error::Error>> {
+        let dir = TempDir::new()?;
+        let db = Database::open(dir.path().join("test.db")).await?;
+
+        // Miss on an unknown key.
+        assert!(db.get_cached_gcode("deadbeef").await?.is_none());
+
+        // Store a cache entry pointing at a real file.
+        let gcode = dir.path().join("cached.gcode");
+        std::fs::write(&gcode, b"G28\n")?;
+        db.put_cached_gcode("deadbeef", &gcode, 4, 42).await?;
+
+        // Hit returns the path, size, and layer count.
+        let hit = db.get_cached_gcode("deadbeef").await?.expect("cache hit");
+        assert_eq!(hit.0, gcode);
+        assert_eq!(hit.1, 4);
+        assert_eq!(hit.2, 42);
+
+        // A missing file evicts the row and reports a miss.
+        std::fs::remove_file(&gcode)?;
+        assert!(db.get_cached_gcode("deadbeef").await?.is_none());
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_gcode_cache_upsert_replaces() -> Result<(), Box<dyn std::error::Error>> {
+        let dir = TempDir::new()?;
+        let db = Database::open(dir.path().join("test.db")).await?;
+
+        let a = dir.path().join("a.gcode");
+        let b = dir.path().join("b.gcode");
+        std::fs::write(&a, b"a")?;
+        std::fs::write(&b, b"bb")?;
+
+        db.put_cached_gcode("k", &a, 1, 1).await?;
+        db.put_cached_gcode("k", &b, 2, 9).await?;
+
+        let hit = db.get_cached_gcode("k").await?.expect("cache hit");
+        assert_eq!(hit.0, b);
+        assert_eq!(hit.1, 2);
+        assert_eq!(hit.2, 9);
+
+        Ok(())
+    }
 }

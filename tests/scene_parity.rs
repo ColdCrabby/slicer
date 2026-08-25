@@ -63,6 +63,7 @@ fn load_simple_cube_and_center_drops_to_floor() {
         height: 200.0,
         origin_offset_x: 0.0,
         origin_offset_y: 0.0,
+        shape: slicer_engine::scene::bed::BedShape::Rectangular,
     };
     let mut scene = SceneState::new(bed);
     let id = scene.add_mesh("cube".to_string(), Arc::new(mesh));

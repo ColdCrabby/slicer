@@ -124,7 +124,7 @@
             class="tp-unit"
             [options]="scaleUnitOptions"
             [value]="scaleUnit()"
-            (valueChange)="scaleUnit.set($any($event))"
+            (valueChange)="setScaleUnit($event)"
             label="Scale unit"
           />
           @for (axis of axes; track axis) {

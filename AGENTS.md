@@ -272,6 +272,102 @@ user-facing version number.
 - **Cross-compilation**: Requires appropriate target toolchains installed. CI verifies these work.
 - **`apply_single_wall_restrictions` is per-island**: Inner walls are stripped only from the specific island whose top-surface run ends on that layer; other islands on the same layer are untouched. The `pre_strip_infill_regions` snapshot is still taken before this step to guard against future regressions — keep that order.
 
+## Printer connectivity & G-code cache
+
+[src/printer/](src/printer/) is the **native-only** (`cfg(not(target_arch = "wasm32"))`)
+outbound transport to real printers. Today it implements **Moonraker/Klipper**
+(`check_status`, `send_gcode`) over `reqwest`.
+
+- **Prefer slicer → printer, not browser → printer.** Probes and uploads run
+  server-side (WS `CheckPrinter` / `SendToPrinter` → `PrinterStatus` /
+  `PrinterSendResult`) precisely so they are **not subject to CORS** — Moonraker
+  ships no permissive `Access-Control-*` headers, so a direct browser `fetch`
+  fails for most users. The wasm/`web` build has no native transport and falls
+  back to a browser `fetch`; the UI ([printer-connection.ts](ui/src/app/services/printer-connection.ts))
+  distinguishes *unreachable* from *reachable-but-CORS-blocked* (via a `no-cors`
+  follow-up probe) and surfaces a distinct `cors` status instead of a misleading
+  green/offline dot.
+- **`PrinterConnection` is the data model** ([src/profiles/printer.rs](src/profiles/printer.rs)):
+  `kind`, `host` (may embed scheme/`:port`), `port`, `api_key`, plus the legacy
+  UI-owned `connected` flag (no longer trusted for the status dot). Never put
+  `reqwest` in `profiles` — it compiles on wasm; keep the transport in the
+  native-gated `printer` module.
+- **Home-page status dot** reflects the *live* probe, not `connected`: neutral
+  (local/unknown), green (online), amber (checking/cors/error/unsupported), red
+  (offline).
+
+## G-code result cache — skip re-slicing identical scenes
+
+`handle_slice` ([src/server/ws_session.rs](src/server/ws_session.rs)) hashes the
+resolved `SlicingParams` + the ordered scene DTOs (file id + transform) +
+`crate::version::VERSION` into an FNV-1a key. A `gcode_cache` table
+(migration `m20250201_000002`) maps that key → the previously-generated
+`.gcode`. On a hit the pipeline is skipped entirely: the cached file is copied
+under the new workplate UUID and `SliceComplete` is emitted immediately. On a
+miss the fresh slice is stored. Notes:
+
+- **Object order is preserved in the key** (it affects the merged mesh, hence
+  the output). Do not sort.
+- **The engine version is part of the key**, so output changes across releases
+  bust the cache automatically.
+- Cache is best-effort: a dangling row (file cleaned up) is evicted lazily on
+  lookup and the scene re-sliced.
+
+## Profile library — persisted next to the engine
+
+User-owned profile *instances* (printers, filaments, process profiles, and the
+flat label vocabulary) must live **where the engine runs**, not only in the
+browser's `localStorage` — otherwise a cloud user who clears their browser
+silently loses every printer/filament even though the slicer is safe on a
+server. [src/profiles/store.rs](src/profiles/store.rs) is the engine-side store.
+
+- **TOML at rest, JSON on the wire.** The library is `profiles.toml` beside
+  `slicer.toml` in [`config_dir()`](src/config/io.rs); the UI↔engine transport
+  is JSON. The profile structs are JSON-native (`#[serde(flatten)]` meta + a
+  dynamic `serde_json::Value` `params` bag) which the `toml` serializer cannot
+  encode directly, so `ProfileStore` bridges through `serde_json::Value` and
+  drops nulls. **Do not try to `toml::to_string` a profile struct directly.**
+- **SQLite is only history + `gcode_cache`.** Profiles never touch the DB.
+- **Whole-category, last-writer-wins sync.** The unit is a category
+  (`ProfileKind::{Printers,Filaments,Processes,Labels}`); the UI sends the full
+  array on any add/edit/delete, mirroring the old whole-blob `localStorage`
+  write. Single-tenant — one library per engine instance, no auth/identity.
+- **Three transports, one store.** Server: `GET /api/profiles` +
+  `PUT /api/profiles/:kind` ([server/handlers.rs](src/server/handlers.rs)).
+  Native: Tauri `profiles_load` / `profiles_save_category`
+  ([ui-desktop/src-tauri/src/commands.rs](ui-desktop/src-tauri/src/commands.rs)).
+  Both call the same `ProfileStore`.
+- **Change fan-out over WS (cloud only).** A successful `PUT /api/profiles/:kind`
+  broadcasts `ServerMessage::ProfilesChanged { kind }` to every open WebSocket
+  session (via a `tokio::broadcast` channel on `AppState`), so a second tab
+  refetches instead of showing stale profiles.
+  [`ProfileSync`](ui/src/app/services/profiles/profile-sync.ts) maps the token
+  to its store and calls `reload()` (a cache-bypassing `reloadLibrary()` fetch).
+  Inert in web/native — `SlicerConnection.messages$` is `EMPTY` there and those
+  runtimes have no second client. GET/PUT stay REST; only the *nudge* is WS.
+- **`loadLibrary()` is memoised.** The four stores hydrate in their
+  constructors, so `ProfilePersistence.loadLibrary()` shares one in-flight
+  request instead of fetching the whole library once per category. Invalidated
+  on `saveCategory`; force-refreshed via `reloadLibrary()`.
+- **UI: [`ProfilePersistence`](ui/src/app/services/profiles/profile-persistence.ts)**
+  has three adapters (browser / remote-REST / native-invoke) picked by
+  [`resolveRuntimeMode()`](ui/src/app/runtime/domain/runtime-mode.util.ts) —
+  **not** `environment.runtimeMode` alone, because the desktop build ships the
+  `cloud` environment and only becomes `native` by detecting Tauri at runtime.
+  `localStorage` stays a fast cache in every mode; engine-backed runtimes also
+  hydrate from and write through to the store. On first run against an empty
+  engine store the local library is pushed up (migration), never clobbered.
+- **UI "print profiles" == engine "processes".** The store key is
+  `profiles.printProfiles` but the wire/category token is `processes`.
+- **`Label` is snake-case aligned** (`{id,name,color,tone}`) across
+  [store.rs](src/profiles/store.rs) and
+  [label.model.ts](ui/src/app/models/label.model.ts). The UI profile models are
+  the engine's generated types (snake_case, no mapping layer), so store items
+  serialize to the engine byte-compatibly.
+- **The settings-sidebar notice** reflects this: native = "saved on this
+  device", cloud = "saved on the slicer" (safe if the browser is wiped), web =
+  "kept in this browser only" (losable).
+
 ## Scene Engine — SSOT Contract
 
 [src/scene/](src/scene/) is the **single source of truth** for object placement, orientation, and transforms. Issue #51 introduced it; CLI, WS server, and the Angular UI (via WASM) all consume the same `SceneState::apply()` code path. Every CLI flag and every UI gesture must translate to a `SceneOp`.

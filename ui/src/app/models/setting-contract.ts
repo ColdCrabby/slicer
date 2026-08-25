@@ -54,7 +54,18 @@ export const SETTING_CONTRACTS: readonly SettingContract[] = [
     label: 'Process',
     icon: 'reports',
     managePath: '/settings/profiles',
-    groups: ['Layer', 'Walls', 'Infill', 'Speed', 'Quality', 'Surfaces', 'Mesh'],
+    groups: [
+      'Layer',
+      'Walls',
+      'Extrusion',
+      'Infill',
+      'Support',
+      'Speed',
+      'Quality',
+      'Surfaces',
+      'Adhesion',
+      'Mesh',
+    ],
   },
 ];
 
@@ -72,9 +83,12 @@ export const GROUP_ICONS: Record<string, string> = {
   Mesh: 'box-iso',
   Temperature: 'temperature-high',
   Cooling: 'snow-flake',
-  Hardware: 'extrude',
+  Hardware: 'wrench',
   Retraction: 'undo',
   Output: 'code-brackets',
+  Extrusion: 'extrude',
+  Support: 'view-structure-down',
+  Adhesion: 'magnet-energy',
 };
 
 /** The contract that owns a given `x-group`; unmapped groups fall to Process. */

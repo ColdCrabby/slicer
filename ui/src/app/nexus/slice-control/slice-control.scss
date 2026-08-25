@@ -164,6 +164,185 @@
   }
 }
 
+/* ── Send-to-printer split button ───────────────────────────────────────── */
+
+.send-split {
+  display: inline-flex;
+  align-items: stretch;
+  height: 40px;
+  flex-shrink: 0;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+  box-shadow: var(--shadow-xs);
+  overflow: hidden;
+  transition:
+    border-color var(--duration-fast) var(--ease-standard),
+    box-shadow var(--duration-fast) var(--ease-standard);
+
+  &:hover {
+    border-color: var(--accent-border);
+  }
+
+  &.is-open {
+    border-color: var(--accent);
+    box-shadow: 0 0 0 2px var(--color-focus-ring);
+  }
+
+  .send-action,
+  .send-caret {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border: none;
+    background: transparent;
+    color: var(--color-text-secondary);
+    cursor: pointer;
+    transition:
+      background-color var(--duration-fast) var(--ease-standard),
+      color var(--duration-fast) var(--ease-standard);
+
+    &:hover {
+      background: var(--color-surface-hover);
+      color: var(--color-text-primary);
+    }
+
+    &:focus-visible {
+      outline: none;
+      background: var(--color-surface-hover);
+      color: var(--color-text-primary);
+    }
+  }
+
+  .send-action {
+    width: 40px;
+    color: var(--accent);
+    --icon-size: 17px;
+
+    &:hover {
+      color: var(--accent-hover);
+    }
+  }
+
+  .send-caret {
+    width: 26px;
+    border-left: 1px solid var(--color-border);
+    color: var(--color-text-tertiary);
+    --icon-size: 16px;
+
+    nexus-icon {
+      transition: transform var(--duration-normal) var(--ease-standard);
+    }
+  }
+
+  &.is-open .send-caret {
+    background: var(--color-surface-hover);
+    color: var(--color-text-primary);
+
+    nexus-icon {
+      transform: rotate(180deg);
+    }
+  }
+}
+
+/* Rendered body-level through FloatingService; emulated-encapsulation
+   attributes still tag these nodes, so scoped styles apply. */
+.send-menu {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 244px;
+  padding: var(--spacing-xs);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  background: var(--color-bg-secondary);
+  box-shadow: var(--shadow-lg);
+  animation: send-menu-pop var(--duration-fast) var(--ease-standard);
+}
+
+@keyframes send-menu-pop {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.send-menu-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  width: 100%;
+  padding: 9px 10px;
+  border: none;
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: var(--color-text-primary);
+  text-align: left;
+  cursor: pointer;
+  transition: background-color var(--duration-fast) var(--ease-standard);
+
+  &:hover:not(:disabled),
+  &:focus-visible:not(:disabled) {
+    outline: none;
+    background: var(--color-surface-hover);
+  }
+
+  &.is-selected {
+    background: color-mix(in oklab, var(--accent) 12%, transparent);
+
+    .send-menu-label {
+      color: var(--accent);
+    }
+
+    .send-menu-icon {
+      color: var(--accent);
+    }
+  }
+
+  &:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+  }
+}
+
+.send-menu-icon {
+  flex: none;
+  margin-top: 1px;
+  color: var(--color-text-tertiary);
+  --icon-size: 17px;
+}
+
+.send-menu-body {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  flex: 1;
+  min-width: 0;
+}
+
+.send-menu-label {
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-medium);
+  line-height: 1.3;
+}
+
+.send-menu-desc {
+  font-size: var(--font-size-xs);
+  color: var(--color-text-tertiary);
+  line-height: 1.3;
+}
+
+.send-menu-check {
+  flex: none;
+  margin-top: 1px;
+  --icon-size: 16px;
+  color: var(--accent);
+}
+
 /* ── Status line (fixed height → no reflow / jerk) ──────────────────────── */
 
 .slice-status {

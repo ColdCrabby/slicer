@@ -52,7 +52,17 @@
   pointer-events: auto;
   transition:
     transform var(--duration-fast) var(--ease-standard),
-    box-shadow var(--duration-fast) var(--ease-standard);
+    box-shadow var(--duration-fast) var(--ease-standard),
+    border-color var(--duration-fast) var(--ease-standard);
+
+  &:hover:not(.is-drag-active):not(.is-error) {
+    transform: translateY(-3px) scale(1.005);
+    border-color: var(--accent-border);
+    box-shadow:
+      var(--shadow-lg),
+      0 0 0 1px color-mix(in oklab, var(--accent) 20%, transparent);
+    --es-title-weight: var(--font-weight-active);
+  }
 }
 
 .launch-card::before {
@@ -110,8 +120,25 @@
   border-radius: var(--radius-md);
   box-shadow: var(--shadow-xs);
   font-size: var(--font-size-md);
-  font-weight: var(--font-weight-medium);
+  font-weight: var(--font-weight-semibold);
+  font-variation-settings: 'wght' var(--font-weight-semibold);
   line-height: 1;
+  cursor: pointer;
+  transition:
+    background-color var(--duration-fast) var(--ease-standard),
+    font-weight var(--duration-fast) var(--ease-standard),
+    font-variation-settings var(--duration-fast) var(--ease-standard),
+    transform var(--duration-fast) var(--ease-standard);
+
+  &:hover {
+    background: var(--accent-hover);
+    font-weight: var(--font-weight-active);
+    font-variation-settings: 'wght' var(--font-weight-active);
+  }
+
+  &:active {
+    transform: scale(0.97);
+  }
 }
 
 .progress-track {

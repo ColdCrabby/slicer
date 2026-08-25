@@ -1,0 +1,82 @@
+<button
+  type="button"
+  class="cp-trigger"
+  #triggerEl
+  [class.is-open]="open()"
+  [disabled]="disabled()"
+  [attr.aria-label]="ariaLabel()"
+  aria-haspopup="dialog"
+  [attr.aria-expanded]="open()"
+  (click)="toggle()"
+>
+  <span class="cp-trigger__fill" [style.background]="value()"></span>
+</button>
+
+@if (nativePicker()) {
+  <!-- Always-present hit target so OS-direct mode can open it without the popover. -->
+  <input
+    #nativeInput
+    type="color"
+    class="cp-native__input"
+    tabindex="-1"
+    aria-hidden="true"
+    [value]="value()"
+    (input)="onNativeInput($event)"
+  />
+}
+
+<ng-template #menuTpl>
+  <div class="cp-pop" role="dialog" aria-label="Colour picker">
+    <div #svEl class="cp-sv" [style.--cp-hue]="hue()" (pointerdown)="onSvPointer($event, svEl)">
+      <div class="cp-sv__handle" [style.left.%]="sat() * 100" [style.top.%]="(1 - val()) * 100">
+        <span class="cp-sv__dot" [style.background]="current()"></span>
+      </div>
+    </div>
+
+    <div class="cp-row">
+      <span class="cp-preview" [style.background]="current()"></span>
+      <div #hueEl class="cp-hue" (pointerdown)="onHuePointer($event, hueEl)">
+        <span class="cp-hue__handle" [style.left.%]="(hue() / 360) * 100"></span>
+      </div>
+    </div>
+
+    <div class="cp-hex">
+      <span class="cp-hex__hash">#</span>
+      <input
+        class="cp-hex__input"
+        maxlength="6"
+        autocomplete="off"
+        spellcheck="false"
+        [value]="hexDigits()"
+        (change)="onHexInput($event)"
+        (keydown.enter)="onHexInput($event)"
+      />
+      @if (nativePicker()) {
+        <button
+          type="button"
+          class="cp-native"
+          title="System colour picker"
+          aria-label="Open system colour picker"
+          (click)="openNative()"
+        >
+          <nexus-icon name="color-picker" aria-hidden="true" />
+        </button>
+      }
+    </div>
+
+    @if (presets().length) {
+      <div class="cp-presets">
+        @for (color of presets(); track color) {
+          <button
+            type="button"
+            class="cp-preset"
+            [class.is-active]="isActivePreset(color)"
+            [style.background]="color"
+            [attr.aria-label]="color"
+            (click)="pickPreset(color)"
+          ></button>
+        }
+      </div>
+    }
+  </div>
+</ng-template>

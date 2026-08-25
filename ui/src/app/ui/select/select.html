@@ -14,6 +14,13 @@
     <nexus-icon [name]="startIcon()!" class="trigger-start-icon" aria-hidden="true" />
   }
   <span class="trigger-label">{{ selected()?.label ?? placeholder() }}</span>
+  @if (selected()?.swatches?.length) {
+    <span class="trigger-swatches" aria-hidden="true">
+      @for (color of selected()!.swatches; track $index) {
+        <span class="swatch-dot" [style.background]="color"></span>
+      }
+    </span>
+  }
   <nexus-icon name="nav-arrow-down" class="chevron" aria-hidden="true" />
 </button>
 
@@ -36,6 +43,13 @@
             <span class="option-desc">{{ opt.description }}</span>
           }
         </span>
+        @if (opt.swatches?.length) {
+          <span class="option-swatches" aria-hidden="true">
+            @for (color of opt.swatches; track $index) {
+              <span class="swatch-dot" [style.background]="color"></span>
+            }
+          </span>
+        }
         @if (opt.value === value()) {
           <nexus-icon name="check" class="option-check" aria-hidden="true" />
         }

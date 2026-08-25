@@ -71,13 +71,14 @@
         <a nexusButton variant="ghost" size="sm" routerLink="/settings/printers">Manage</a>
       </nexus-section-header>
 
-      @if (printers.length > 0) {
+      @if (printers().length > 0) {
         <div class="printer-grid">
-          @for (printer of printers; track printer.id) {
+          @for (printer of printers(); track printer.id) {
             <a class="printer-card" routerLink="/settings/printers">
               <span
                 class="printer-status"
-                [class.is-offline]="printer.status === 'offline'"
+                [attr.data-state]="printer.state"
+                [title]="printer.message ?? printer.statusLabel"
                 aria-hidden="true"
               ></span>
               <span class="printer-info">
@@ -85,7 +86,7 @@
                 <span class="printer-model">{{ printer.model }}</span>
               </span>
               <span class="printer-state">
-                {{ printer.status === 'ready' ? 'Ready' : 'Offline' }}
+                {{ printer.statusLabel }}
               </span>
             </a>
           }

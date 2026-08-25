@@ -1,8 +1,12 @@
 import { Injectable, computed, inject, signal } from '@angular/core';
+import { labelDotColor } from '../../models/label.model';
 import type { SettingContractId } from '../../models/setting-contract';
 import type { SelectOption } from '../../ui/select/select';
 import { BrowserStorage } from '../browser-storage';
 import { FilamentsStore } from './filaments-store';
+import { LabelFilterStore } from './label-filter-store';
+import { matchesAllLabels } from './label-filtering';
+import { LabelsStore } from './labels-store';
 import { PrintProfilesStore } from './print-profiles-store';
 import { PrintersStore } from './printers-store';
 
@@ -12,6 +16,7 @@ const STORAGE_KEY = 'profiles.active';
 interface NamedPreset {
   id: string;
   name: string;
+  label_ids?: string[];
 }
 
 type ActiveIds = Record<SettingContractId, string | null>;
@@ -28,6 +33,8 @@ export class ActivePresets {
   private readonly printers = inject(PrintersStore);
   private readonly filaments = inject(FilamentsStore);
   private readonly profiles = inject(PrintProfilesStore);
+  private readonly labels = inject(LabelsStore);
+  private readonly labelFilter = inject(LabelFilterStore);
   private readonly storage = inject(BrowserStorage);
 
   private readonly ids = signal<ActiveIds>(
@@ -49,9 +56,25 @@ export class ActivePresets {
     }
   }
 
-  /** Dropdown options for the given contract. */
+  /**
+   * Dropdown options for the given contract, tagged with label colours and
+   * narrowed by the global {@link LabelFilterStore}. The currently-active preset
+   * is always kept in the list so the trigger label stays correct even when it
+   * doesn't match the active filter.
+   */
   options(contract: SettingContractId): SelectOption[] {
-    return this.itemsFor(contract).map((item) => ({ value: item.id, label: item.name }));
+    const selected = this.labelFilter.selectedIds();
+    const activeId = this.selectedId(contract);
+    return this.itemsFor(contract)
+      .filter((item) => item.id === activeId || matchesAllLabels(item, selected))
+      .map((item) => {
+        const swatches = this.labels.resolve(item.label_ids).map((l) => labelDotColor(l));
+        return {
+          value: item.id,
+          label: item.name,
+          ...(swatches.length ? { swatches } : {}),
+        };
+      });
   }
 
   /**

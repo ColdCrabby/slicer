@@ -214,8 +214,7 @@ const CLICK_DRAG_THRESHOLD = 4;
         pointer-events: auto;
         user-select: none;
         touch-action: none;
-        /* Let the roll buttons overhang the cube silhouette. */
-        overflow: visible;
+        overflow: hidden;
       }
       .cube-canvas {
         display: block;
@@ -234,11 +233,11 @@ const CLICK_DRAG_THRESHOLD = 4;
       }
       .roll-btn {
         position: absolute;
-        top: -9px;
+        top: 4px;
         display: grid;
         place-items: center;
-        width: 27px;
-        height: 27px;
+        width: 24px;
+        height: 24px;
         padding: 0;
         border: 1px solid var(--color-border);
         border-radius: 999px;
@@ -257,8 +256,8 @@ const CLICK_DRAG_THRESHOLD = 4;
           box-shadow var(--transition-fast, 0.15s);
       }
       .roll-btn svg {
-        width: 16px;
-        height: 16px;
+        width: 14px;
+        height: 14px;
         fill: currentColor;
       }
       .roll-btn:hover {
@@ -274,12 +273,12 @@ const CLICK_DRAG_THRESHOLD = 4;
         outline: 2px solid var(--color-focus-ring, var(--color-primary));
         outline-offset: 1px;
       }
-      .roll-ccw {
-        left: -9px;
-      }
       /* Mirror the same rotate glyph so the two buttons read as opposite spins. */
+      .roll-ccw {
+        left: 4px;
+      }
       .roll-cw {
-        right: -9px;
+        right: 4px;
       }
       .roll-cw svg {
         transform: scaleX(-1);

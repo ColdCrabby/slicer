@@ -12,10 +12,28 @@
       }
     </div>
 
-    @if (slicer.gcodeDownloadUrl()) {
-      <button class="download-btn" type="button" tooltip="Download G-code" (click)="download()">
-        <nexus-icon name="download"></nexus-icon>
-      </button>
+    @if (showActions()) {
+      <div class="send-split" [class.is-open]="menuOpen()">
+        <button
+          class="send-action"
+          type="button"
+          [tooltip]="primaryTooltip()"
+          (click)="runPrimary()"
+        >
+          <nexus-icon [name]="primaryIcon()"></nexus-icon>
+        </button>
+        <button
+          class="send-caret"
+          type="button"
+          #caret
+          aria-haspopup="menu"
+          [attr.aria-expanded]="menuOpen()"
+          tooltip="Choose action"
+          (click)="toggleMenu()"
+        >
+          <nexus-icon name="nav-arrow-down"></nexus-icon>
+        </button>
+      </div>
     }
 
     <button
@@ -54,3 +72,28 @@
     <div class="slice-progress-fill" [style.width.%]="slicer.sliceProgress()"></div>
   </div>
 </div>
+
+<ng-template #menuTpl>
+  <div class="send-menu" role="menu">
+    @for (action of actions(); track action.value) {
+      <button
+        type="button"
+        role="menuitemradio"
+        class="send-menu-item"
+        [class.is-selected]="action.selected"
+        [disabled]="!action.available"
+        [attr.aria-checked]="action.selected"
+        (click)="pick(action.value)"
+      >
+        <nexus-icon [name]="action.icon" class="send-menu-icon" aria-hidden="true" />
+        <span class="send-menu-body">
+          <span class="send-menu-label">{{ action.label }}</span>
+          <span class="send-menu-desc">{{ action.description }}</span>
+        </span>
+        @if (action.selected) {
+          <nexus-icon name="check" class="send-menu-check" aria-hidden="true" />
+        }
+      </button>
+    }
+  </div>
+</ng-template>

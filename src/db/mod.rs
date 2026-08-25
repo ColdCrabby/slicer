@@ -273,6 +273,73 @@ impl Database {
         Ok(())
     }
 
+    // ── G-code cache ──────────────────────────────────────────────────────────
+
+    /// Look up a cached G-code slice by its content key.
+    ///
+    /// Returns `(file_path, file_size, layer_count)` when a row exists **and**
+    /// its file is still present on disk; a stale row (file deleted by cleanup)
+    /// is removed and treated as a miss so the caller re-slices.
+    pub async fn get_cached_gcode(&self, cache_key: &str) -> Result<Option<(PathBuf, u64, usize)>> {
+        let Some(model) = entities::gcode_cache::Entity::find_by_id(cache_key)
+            .one(&self.conn)
+            .await?
+        else {
+            return Ok(None);
+        };
+
+        let path = PathBuf::from(&model.file_path);
+        if !path.exists() {
+            // Evict the dangling entry so it doesn't shadow a fresh slice.
+            let _ = entities::gcode_cache::Entity::delete_by_id(cache_key)
+                .exec(&self.conn)
+                .await;
+            return Ok(None);
+        }
+
+        Ok(Some((
+            path,
+            model.file_size.max(0) as u64,
+            model.layer_count.max(0) as usize,
+        )))
+    }
+
+    /// Record (or replace) a cached G-code slice for `cache_key`.
+    pub async fn put_cached_gcode(
+        &self,
+        cache_key: &str,
+        file_path: impl AsRef<Path>,
+        file_size: u64,
+        layer_count: usize,
+    ) -> Result<()> {
+        use sea_orm::sea_query::OnConflict;
+
+        let now = Utc::now().to_rfc3339();
+        let model = entities::gcode_cache::ActiveModel {
+            cache_key: Set(cache_key.to_owned()),
+            file_path: Set(file_path.as_ref().to_string_lossy().to_string()),
+            file_size: Set(file_size as i64),
+            layer_count: Set(layer_count as i64),
+            created_at: Set(now),
+        };
+
+        entities::gcode_cache::Entity::insert(model)
+            .on_conflict(
+                OnConflict::column(entities::gcode_cache::Column::CacheKey)
+                    .update_columns([
+                        entities::gcode_cache::Column::FilePath,
+                        entities::gcode_cache::Column::FileSize,
+                        entities::gcode_cache::Column::LayerCount,
+                        entities::gcode_cache::Column::CreatedAt,
+                    ])
+                    .to_owned(),
+            )
+            .exec(&self.conn)
+            .await?;
+
+        Ok(())
+    }
+
     // ── Read helpers ──────────────────────────────────────────────────────────
 
     /// Retrieve a request session by its UUID, or `None` if not found.
@@ -374,6 +441,45 @@ impl Database {
             .filter(requests::Column::UpdatedAt.lt(cutoff))
             .exec(&self.conn)
             .await?;
+
+        Ok(result.rows_affected as usize)
+    }
+
+    /// Delete **every** session, uploaded-file row, and cached G-code entry,
+    /// removing their on-disk artifacts too. This is the "drop the history
+    /// database" action behind the settings Danger Zone: after it runs the
+    /// history list is empty and the G-code cache is cold, but the schema (and
+    /// the user's profiles, which live in `profiles.toml`, not the DB) are
+    /// untouched.
+    ///
+    /// On-disk file removal is best-effort — a missing artifact never fails the
+    /// clear. Returns the number of request rows deleted.
+    pub async fn clear_history(&self) -> Result<usize> {
+        // Collect on-disk paths before dropping the rows so we can unlink them.
+        let all_requests = requests::Entity::find().all(&self.conn).await?;
+        let all_files = files::Entity::find().all(&self.conn).await?;
+        let all_cache = entities::gcode_cache::Entity::find()
+            .all(&self.conn)
+            .await?;
+
+        for r in &all_requests {
+            if let Some(ref p) = r.download_file_path {
+                let _ = std::fs::remove_file(p);
+            }
+        }
+        for f in &all_files {
+            let _ = std::fs::remove_file(&f.file_path);
+        }
+        for c in &all_cache {
+            let _ = std::fs::remove_file(&c.file_path);
+        }
+
+        // Delete child rows first (FK), then the cache, then the requests.
+        files::Entity::delete_many().exec(&self.conn).await?;
+        entities::gcode_cache::Entity::delete_many()
+            .exec(&self.conn)
+            .await?;
+        let result = requests::Entity::delete_many().exec(&self.conn).await?;
 
         Ok(result.rows_affected as usize)
     }

@@ -1,25 +1,26 @@
+import type {
+  PrinterProfile,
+  PrinterConnection,
+} from '../../generated/slicer-engine-ws-client-message-v1';
+import type { SceneBedSnapshot } from '../services/scene-engine';
+import { DEFAULT_GCODE_TEMPLATE_ID, gcodeTemplatePatch } from './gcode-templates';
 import { uid } from './id';
 
-/** Kinds of network connection a printer can use to receive prints (mocked). */
-export type PrinterConnectionKind = 'none' | 'octoprint' | 'moonraker' | 'bambu' | 'prusalink';
+/**
+ * Printer (machine) profile.
+ *
+ * This is the engine's own type (generated from the Rust `PrinterProfile`).
+ * Hardware/domain fields live at the top level; every *slice* parameter the
+ * printer contributes lives in {@link PrinterProfile.params} as a partial
+ * `SlicingParams` — the same field names and units the slicer uses. There is no
+ * separate camelCase model and no mapping layer: the object built here is sent
+ * to the slicer as-is.
+ */
+export type { PrinterProfile, PrinterConnection };
 
-export interface PrinterConnection {
-  kind: PrinterConnectionKind;
-  host?: string;
-  connected: boolean;
-}
-
-export interface PrinterProfile {
-  id: string;
-  name: string;
-  vendor: string;
-  model: string;
-  bedWidth: number;
-  bedDepth: number;
-  bedHeight: number;
-  nozzleDiameter: number;
-  connection: PrinterConnection;
-}
+export type PrinterConnectionKind = NonNullable<PrinterConnection['kind']>;
+export type PrinterGcodeFlavor = 'marlin' | 'klipper';
+export type BedShape = NonNullable<PrinterProfile['bed_shape']>;
 
 export const PRINTER_CONNECTION_LABELS: Record<PrinterConnectionKind, string> = {
   none: 'Not connected',
@@ -29,41 +30,103 @@ export const PRINTER_CONNECTION_LABELS: Record<PrinterConnectionKind, string> = 
   prusalink: 'PrusaLink',
 };
 
-export function makePrinter(): PrinterProfile {
+export const PRINTER_CONNECTION_KINDS: PrinterConnectionKind[] = [
+  'none',
+  'octoprint',
+  'moonraker',
+  'bambu',
+  'prusalink',
+];
+
+export const PRINTER_GCODE_FLAVORS: { value: PrinterGcodeFlavor; label: string }[] = [
+  { value: 'marlin', label: 'Marlin' },
+  { value: 'klipper', label: 'Klipper' },
+];
+
+/** Default hardware slice params contributed by a from-scratch printer. */
+export function defaultPrinterParams(): Record<string, unknown> {
   return {
-    id: uid(),
-    name: 'New printer',
-    vendor: 'Custom',
-    model: 'Generic',
-    bedWidth: 220,
-    bedDepth: 220,
-    bedHeight: 250,
-    nozzleDiameter: 0.4,
-    connection: { kind: 'none', connected: false },
+    nozzle_diameter_mm: 0.4,
+    filament_diameter_mm: 1.75,
+    extruder_count: 1,
+    print_speed: 150,
+    travel_speed_mm_min: 15000,
+    retract_mm: 0.8,
+    retract_speed_mm_min: 2400,
+    z_hop_mm: 0.2,
+    // Blocks + template association (id/rev) so edits show "Modified from …".
+    ...gcodeTemplatePatch(DEFAULT_GCODE_TEMPLATE_ID),
   };
 }
 
-export const DEFAULT_PRINTERS: PrinterProfile[] = [
-  {
-    id: 'seed-mk4',
-    name: 'Workshop MK4',
-    vendor: 'Prusa',
-    model: 'MK4',
-    bedWidth: 250,
-    bedDepth: 210,
-    bedHeight: 220,
-    nozzleDiameter: 0.4,
+/** Sensible blank-slate printer used when creating one from scratch. */
+export function makePrinter(overrides: Partial<PrinterProfile> = {}): PrinterProfile {
+  return {
+    id: uid(),
+    name: 'New printer',
+    source: 'user',
+    vendor: 'Custom',
+    model: 'Generic',
+    bed_shape: 'rectangular',
+    bed_width: 220,
+    bed_depth: 220,
+    bed_height: 250,
+    origin_at_center: false,
     connection: { kind: 'none', connected: false },
-  },
-  {
-    id: 'seed-ender3',
-    name: 'Garage Ender',
-    vendor: 'Creality',
-    model: 'Ender 3',
-    bedWidth: 220,
-    bedDepth: 220,
-    bedHeight: 250,
-    nozzleDiameter: 0.4,
-    connection: { kind: 'none', connected: false },
-  },
-];
+    params: defaultPrinterParams(),
+    ...overrides,
+  };
+}
+
+/** The single offline default printer. */
+export const DEFAULT_PRINTER: PrinterProfile = makePrinter({
+  id: 'builtin-generic-printer',
+  name: 'Generic 220 mm printer',
+  source: 'builtin',
+  vendor: 'Generic',
+  model: 'FDM 220',
+});
+
+export const DEFAULT_PRINTERS: PrinterProfile[] = [DEFAULT_PRINTER];
+
+/** Shared bed dimensions derived from a printer profile. */
+function resolvedBedFootprint(printer: PrinterProfile): { width: number; depth: number } {
+  const width = printer.bed_width ?? 220;
+  const depth = printer.bed_shape === 'circular' ? width : (printer.bed_depth ?? 220);
+  return { width, depth };
+}
+
+/** Printable-area dimensions for the {@link PrintArea} config. */
+export function printerBedConfig(printer: PrinterProfile): {
+  bedShape: 'rectangular' | 'circular';
+  printableAreaWidth: number;
+  printableAreaHeight: number;
+  movableAreaX: number;
+  movableAreaY: number;
+} {
+  const footprint = resolvedBedFootprint(printer);
+  const movableAreaX = printer.origin_at_center ? -footprint.width / 2 : 0;
+  const movableAreaY = printer.origin_at_center ? -footprint.depth / 2 : 0;
+  return {
+    bedShape: printer.bed_shape === 'circular' ? 'circular' : 'rectangular',
+    printableAreaWidth: footprint.width,
+    printableAreaHeight: footprint.depth,
+    movableAreaX,
+    movableAreaY,
+  };
+}
+
+/** Scene-engine bed config used by bed-aware ops (`CenterOnBed`, packing, etc). */
+export function printerSceneBedConfig(printer: PrinterProfile): SceneBedSnapshot {
+  const footprint = resolvedBedFootprint(printer);
+  const origin_offset_x = printer.origin_at_center ? -footprint.width / 2 : 0;
+  const origin_offset_y = printer.origin_at_center ? -footprint.depth / 2 : 0;
+  return {
+    width: footprint.width,
+    depth: footprint.depth,
+    height: printer.bed_height ?? 250,
+    origin_offset_x,
+    origin_offset_y,
+    shape: printer.bed_shape === 'circular' ? 'circular' : 'rectangular',
+  };
+}

@@ -24,8 +24,8 @@ pub struct ValidationRules;
 impl ValidationRules {
     /// Validate that `layer_height` is within the allowed range.
     ///
-    /// TODO: enforce `layer_height ≤ 0.8 × nozzle_diameter` once
-    /// `PrinterProfile` context is available.
+    /// TODO: enforce `layer_height ≤ 0.8 × nozzle_diameter` once printer
+    /// context is available.
     pub fn validate_layer_height(_layer_height: f64) -> Result<(), String> {
         Ok(())
     }

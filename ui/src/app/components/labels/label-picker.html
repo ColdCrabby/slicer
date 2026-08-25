@@ -1,0 +1,79 @@
+<div class="lp">
+  <div class="lp__assigned">
+    @for (label of assignedLabels(); track label.id) {
+      <nexus-label-chip
+        [label]="label"
+        size="sm"
+        [removable]="true"
+        (remove)="toggleLabel(label.id)"
+      />
+    }
+
+    <button
+      type="button"
+      class="lp__add"
+      cdkOverlayOrigin
+      #trigger="cdkOverlayOrigin"
+      [class.is-open]="open()"
+      (click)="open.set(!open())"
+      aria-label="Add label"
+    >
+      <nexus-icon name="label" />
+      @if (assignedLabels().length === 0) {
+        <span>Add labels</span>
+      }
+    </button>
+  </div>
+
+  <ng-template
+    cdkConnectedOverlay
+    [cdkConnectedOverlayOrigin]="trigger"
+    [cdkConnectedOverlayOpen]="open()"
+    [cdkConnectedOverlayPositions]="positions"
+    [cdkConnectedOverlayViewportMargin]="8"
+    (overlayOutsideClick)="close()"
+    (detach)="close()"
+  >
+    <div class="lp__pop">
+      <div class="lp__search">
+        <nexus-icon name="search" />
+        <input
+          type="text"
+          placeholder="Filter or create…"
+          [value]="query()"
+          (input)="onSearch($event)"
+          aria-label="Filter or create label"
+        />
+      </div>
+
+      <div class="lp__list" role="listbox">
+        @for (label of filtered(); track label.id) {
+          <button
+            type="button"
+            role="option"
+            class="lp__option"
+            [attr.aria-selected]="isAssigned(label.id)"
+            (click)="toggleLabel(label.id)"
+          >
+            <span class="lp__dot" [style.background]="dotColor(label)"></span>
+            <span class="lp__name">{{ label.name }}</span>
+            @if (isAssigned(label.id)) {
+              <nexus-icon name="check" class="lp__check" />
+            }
+          </button>
+        }
+
+        @if (canCreate()) {
+          <button type="button" class="lp__create" (click)="createAndAssign()">
+            <nexus-icon name="plus" />
+            Create “{{ query().trim() }}”
+          </button>
+        }
+
+        @if (filtered().length === 0 && !canCreate()) {
+          <p class="lp__empty">No labels yet — type a name to create one.</p>
+        }
+      </div>
+    </div>
+  </ng-template>
+</div>

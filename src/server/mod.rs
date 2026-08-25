@@ -130,6 +130,8 @@ async fn run_server(
     let app_state = web::Data::new(AppState {
         db,
         work_dir: work_path.clone(),
+        // Retained for the server's lifetime; sessions each hold a subscriber.
+        profiles_changed: tokio::sync::broadcast::channel(16).0,
     });
 
     HttpServer::new(move || {
@@ -173,7 +175,16 @@ async fn run_server(
                         web::get().to(handlers::download_file_handler),
                     )
                     .route("/config", web::get().to(handlers::get_config_handler))
-                    .route("/config", web::patch().to(handlers::patch_config_handler)),
+                    .route("/config", web::patch().to(handlers::patch_config_handler))
+                    .route("/profiles", web::get().to(handlers::get_profiles_handler))
+                    .route(
+                        "/profiles/{kind}",
+                        web::put().to(handlers::put_profiles_category_handler),
+                    )
+                    .route(
+                        "/history",
+                        web::delete().to(handlers::delete_history_handler),
+                    ),
             )
             // WebSocket endpoint
             .route("/ws", web::get().to(ws_session::ws_handler))

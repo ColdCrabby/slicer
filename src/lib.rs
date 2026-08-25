@@ -22,6 +22,8 @@ pub mod infill;
 pub mod logging;
 pub mod mesh;
 pub mod orient;
+#[cfg(any(not(target_arch = "wasm32"), feature = "web-slicer"))]
+pub mod profiles;
 pub mod scene;
 #[cfg(any(not(target_arch = "wasm32"), feature = "web-slicer"))]
 pub mod settings;
@@ -54,6 +56,11 @@ pub mod cli;
 
 #[cfg(not(target_arch = "wasm32"))]
 pub mod db;
+
+/// Outbound printer transports (Moonraker/Klipper, …). Native only — a browser
+/// wasm build talks to printers directly over `fetch` instead (CORS-permitting).
+#[cfg(not(target_arch = "wasm32"))]
+pub mod printer;
 
 #[cfg(not(target_arch = "wasm32"))]
 pub mod server;

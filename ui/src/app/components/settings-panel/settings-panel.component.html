@@ -1,5 +1,12 @@
 <section class="settings-panel">
   <div class="preset-bar">
+    <nexus-label-filter-bar
+      class="preset-filter"
+      [selectedIds]="labelFilter.selectedIds()"
+      (toggle)="labelFilter.toggle($event)"
+      (clear)="labelFilter.clear()"
+    />
+
     <nexus-segmented
       class="contract-tabs"
       label="Setting category"

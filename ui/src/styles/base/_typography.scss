@@ -78,11 +78,12 @@ a {
 
   &:hover {
     color: var(--color-accent-hover);
-    font-weight: var(--font-weight-hover);
-    font-variation-settings: 'wght' var(--font-weight-hover);
+    font-weight: var(--font-weight-semibold);
+    font-variation-settings: 'wght' var(--font-weight-semibold);
   }
 
   &:active {
+    color: var(--color-accent);
     font-weight: var(--font-weight-active);
     font-variation-settings: 'wght' var(--font-weight-active);
   }

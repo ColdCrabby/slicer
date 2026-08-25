@@ -73,6 +73,15 @@
     transform: translateY(-2px);
     border-color: var(--accent-border);
     box-shadow: var(--shadow-md);
+
+    .tile-title {
+      font-weight: var(--font-weight-active);
+      font-variation-settings: 'wght' var(--font-weight-active);
+    }
+
+    .tile-arrow {
+      color: var(--accent);
+    }
   }
 
   &:focus-visible {
@@ -123,7 +132,11 @@
 
 .tile-title {
   font-size: var(--font-size-lg);
-  font-weight: var(--font-weight-semibold);
+  font-weight: var(--font-weight-normal);
+  font-variation-settings: 'wght' var(--font-weight-normal);
+  transition:
+    font-weight var(--duration-fast) var(--ease-standard),
+    font-variation-settings var(--duration-fast) var(--ease-standard);
 }
 
 .tile-desc {
@@ -137,6 +150,7 @@
   flex: none;
   color: var(--color-text-tertiary);
   --icon-size: 20px;
+  transition: color var(--duration-fast) var(--ease-standard);
 }
 
 .tile-arrow--spin {
@@ -184,6 +198,11 @@
   &:hover {
     border-color: var(--accent-border);
     background: var(--color-surface-hover);
+
+    .printer-name {
+      font-weight: var(--font-weight-semibold);
+      font-variation-settings: 'wght' var(--font-weight-semibold);
+    }
   }
 }
 
@@ -192,12 +211,52 @@
   width: 9px;
   height: 9px;
   border-radius: 50%;
-  background: var(--color-success);
-  box-shadow: 0 0 0 3px var(--color-success-light);
+  // Neutral by default — only a live, reachable printer earns a green dot.
+  background: var(--color-text-tertiary);
+  box-shadow: 0 0 0 3px var(--color-bg-tertiary);
 
-  &.is-offline {
+  // Reachable and idle/ready → success green.
+  &[data-state='online'] {
+    background: var(--color-success);
+    box-shadow: 0 0 0 3px var(--color-success-light);
+  }
+
+  // Probe in flight → pulsing amber.
+  &[data-state='checking'] {
+    background: var(--color-warning);
+    box-shadow: 0 0 0 3px var(--color-warning-light);
+    animation: printer-pulse 1.2s ease-in-out infinite;
+  }
+
+  // Reachable but CORS-blocked, or an error/unsupported reply → amber warning.
+  &[data-state='cors'],
+  &[data-state='error'],
+  &[data-state='unsupported'] {
+    background: var(--color-warning);
+    box-shadow: 0 0 0 3px var(--color-warning-light);
+  }
+
+  // Unreachable → red.
+  &[data-state='offline'] {
+    background: var(--color-danger);
+    box-shadow: 0 0 0 3px var(--color-danger-light);
+  }
+
+  // Local-only profile or not-yet-checked → neutral (the default above).
+  &[data-state='local'],
+  &[data-state='unknown'] {
     background: var(--color-text-tertiary);
     box-shadow: 0 0 0 3px var(--color-bg-tertiary);
+  }
+}
+
+@keyframes printer-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.4;
   }
 }
 
@@ -210,6 +269,10 @@
 .printer-name {
   font-size: var(--font-size-md);
   font-weight: var(--font-weight-medium);
+  font-variation-settings: 'wght' var(--font-weight-medium);
+  transition:
+    font-weight var(--duration-fast) var(--ease-standard),
+    font-variation-settings var(--duration-fast) var(--ease-standard);
 }
 
 .printer-model {

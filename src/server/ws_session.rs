@@ -113,9 +113,15 @@ pub async fn ws_handler(
 
     let db = state.db.clone();
     let work_dir = state.work_dir.clone();
+    let profiles_changed = state.profiles_changed.subscribe();
 
     actix_web::rt::spawn(handle_ws_session(
-        session, msg_stream, db, work_dir, base_url,
+        session,
+        msg_stream,
+        db,
+        work_dir,
+        base_url,
+        profiles_changed,
     ));
 
     Ok(response)
@@ -129,6 +135,7 @@ async fn handle_ws_session(
     db: Arc<crate::db::Database>,
     work_dir: std::path::PathBuf,
     base_url: String,
+    mut profiles_changed: tokio::sync::broadcast::Receiver<String>,
 ) {
     let logger = StderrLogger;
     logger.log_info("[WS] New session started");
@@ -150,21 +157,56 @@ async fn handle_ws_session(
         return;
     }
 
-    while let Some(Ok(msg)) = stream.next().await {
+    loop {
+        // Multiplex the client's inbound frames with server-side profile-change
+        // notifications so a `PUT /api/profiles/:kind` from any client nudges
+        // every open session to refetch.
+        let msg = tokio::select! {
+            incoming = stream.next() => match incoming {
+                Some(Ok(msg)) => msg,
+                _ => break,
+            },
+            changed = profiles_changed.recv() => {
+                if let Ok(kind) = changed {
+                    let _ = send_msg(&mut session, &ServerMessage::ProfilesChanged { kind }).await;
+                }
+                // A `Closed` sender is unreachable (AppState holds it for the
+                // server's lifetime); a `Lagged` receiver merely drops missed
+                // notifications — clients refetch the whole category anyway.
+                continue;
+            },
+        };
+
         use actix_ws::AggregatedMessage;
         match msg {
             AggregatedMessage::Text(text) => match serde_json::from_str::<ClientMessage>(&text) {
                 Ok(ClientMessage::Slice {
                     request_uuid,
                     scene: scene_objects,
+                    profiles,
                     settings,
                 }) => {
                     logger.log_debug(&format!("[WS] Processing slice request: {}", request_uuid));
+                    // Resolve the parameters: prefer the structured profile
+                    // selection (engine-owned composition); fall back to the
+                    // legacy pre-flattened settings, then to defaults.
+                    let params = match resolve_slice_params(profiles, settings) {
+                        Ok(p) => Box::new(p),
+                        Err(e) => {
+                            logger.log_warn(&format!("[WS] Invalid profile selection: {e}"));
+                            let _ = send_msg(
+                                &mut session,
+                                &ServerMessage::error(format!("Invalid profile selection: {e}")),
+                            )
+                            .await;
+                            continue;
+                        }
+                    };
                     handle_slice(
                         &mut session,
                         request_uuid,
                         scene_objects,
-                        settings,
+                        params,
                         db.clone(),
                         work_dir.clone(),
                         base_url.clone(),
@@ -192,6 +234,39 @@ async fn handle_ws_session(
                 Ok(ClientMessage::SceneSnapshot) => {
                     let _ = send_msg(&mut session, &snapshot_msg(&scene)).await;
                 }
+                Ok(ClientMessage::CheckPrinter {
+                    printer_id,
+                    connection,
+                }) => {
+                    logger.log_debug(&format!("[WS] Checking printer {printer_id}"));
+                    handle_check_printer(&mut session, printer_id, connection).await;
+                }
+                Ok(ClientMessage::DetectPrinter { host }) => {
+                    logger.log_debug(&format!("[WS] Detecting printer at {host}"));
+                    handle_detect_printer(&mut session, host).await;
+                }
+                Ok(ClientMessage::SendToPrinter {
+                    request_uuid,
+                    printer_id,
+                    connection,
+                    filename,
+                    start,
+                }) => {
+                    logger.log_debug(&format!(
+                        "[WS] Sending {request_uuid} to printer {printer_id} (start={start})"
+                    ));
+                    handle_send_to_printer(
+                        &mut session,
+                        request_uuid,
+                        printer_id,
+                        connection,
+                        filename,
+                        start,
+                        db.clone(),
+                        work_dir.clone(),
+                    )
+                    .await;
+                }
                 Err(e) => {
                     logger.log_warn(&format!("[WS] Failed to parse message: {}", e));
                     let _ = send_msg(
@@ -211,6 +286,22 @@ async fn handle_ws_session(
 
     logger.log_info("[WS] Session ended");
     let _ = session.close(None).await;
+}
+
+/// Resolve a slice request's parameters from either the structured profile
+/// selection (preferred) or the legacy pre-flattened settings.
+///
+/// Precedence: `profiles` (engine-owned composition) → `settings` (legacy) →
+/// engine defaults. Returns an error only when a provided profile selection
+/// fails to resolve (e.g. a malformed override diff).
+fn resolve_slice_params(
+    profiles: Option<Box<crate::profiles::ProfileSelection>>,
+    settings: Option<Box<crate::settings::params::SlicingParams>>,
+) -> Result<crate::settings::params::SlicingParams, serde_json::Error> {
+    if let Some(selection) = profiles {
+        return selection.resolve();
+    }
+    Ok(settings.map(|b| *b).unwrap_or_default())
 }
 
 /// Process a slice request from the browser.
@@ -259,6 +350,11 @@ async fn handle_slice(
         ));
         return;
     }
+
+    // Content-derived cache key: identical scene + settings + engine version →
+    // identical G-code. Computed from the wire DTOs (file ids + transforms) so
+    // it is cheap and does not require reading mesh bytes.
+    let cache_key = compute_slice_cache_key(&scene_objects, &params);
 
     let mut slice_inputs: Vec<(std::path::PathBuf, Transform, u64)> =
         Vec::with_capacity(scene_objects.len());
@@ -315,7 +411,55 @@ async fn handle_slice(
     let gcode_output_path = work_dir.join(format!("{}.gcode", uuid));
     let gcode_output_path_clone = gcode_output_path.clone();
 
-    let slice_handle = tokio::task::spawn_blocking(move || {
+    // Cache hit: an identical scene + settings was sliced before. Reuse the
+    // stored G-code, copy it under this workplate's download name, and skip the
+    // entire slicing pipeline.
+    if let Ok(Some((cached_path, _size, layer_count))) = db.get_cached_gcode(&cache_key).await {
+        // Re-slicing the same workplate reuses its request UUID, so the cached
+        // file and this run's output path can be the *same* file. `fs::copy`
+        // onto itself truncates it to empty (1-layer / blank viewer) — skip the
+        // copy in that case; the file is already in place.
+        let same_file = cached_path == gcode_output_path
+            || match (
+                std::fs::canonicalize(&cached_path),
+                std::fs::canonicalize(&gcode_output_path),
+            ) {
+                (Ok(a), Ok(b)) => a == b,
+                _ => false,
+            };
+        let copy_result = if same_file {
+            Ok(0)
+        } else {
+            std::fs::copy(&cached_path, &gcode_output_path)
+        };
+        match copy_result {
+            Ok(_) => {
+                send_or_return!(ServerMessage::log_info(format!(
+                    "Reusing cached slice ({layer_count} layers) — scene unchanged since last slice"
+                )));
+                // Register the download path BEFORE announcing completion. The
+                // cache path is instant, so the client's fetch of
+                // `/api/download/{uuid}` would otherwise race this DB write and
+                // hit `download_file_path == None` (404 → blank viewer).
+                if let Ok(file_size) = std::fs::metadata(&gcode_output_path).map(|m| m.len()) {
+                    let _ = db
+                        .set_download_file(uuid, &gcode_output_path, file_size)
+                        .await;
+                }
+                send_or_return!(ServerMessage::SliceComplete {
+                    layer_count,
+                    download_url: format!("{}/api/download/{}", base_url, uuid),
+                });
+                return;
+            }
+            Err(e) => {
+                // Fall through to a normal slice if the cached file vanished.
+                StderrLogger.log_warn(&format!("[WS] Cache copy failed ({e}); reslicing"));
+            }
+        }
+    }
+
+    let slice_handle = tokio::task::spawn_blocking(move || -> Option<usize> {
         /// Serializes `msg` to JSON; returns a hard-coded error frame on failure.
         fn to_json(msg: &ServerMessage) -> String {
             serde_json::to_string(msg).unwrap_or_else(|_| {
@@ -347,7 +491,7 @@ async fn handle_slice(
                         e
                     ));
                     let _ = tx.blocking_send(to_json(&msg));
-                    return;
+                    return None;
                 }
             };
             // Bake the per-object transform exactly once, at the slicer
@@ -361,9 +505,13 @@ async fn handle_slice(
                 "Combined scene has no triangles — nothing to slice".to_string(),
             );
             let _ = tx.blocking_send(to_json(&msg));
-            return;
+            return None;
         }
         t_load.finish();
+
+        for warning in params.unsupported_feature_warnings() {
+            logger.log_warn(&format!("[slice] {warning}"));
+        }
 
         let layers = crate::core::process_mesh(&combined, &params, &logger);
         let layer_count = layers.len();
@@ -375,7 +523,7 @@ async fn handle_slice(
         let _ = tx.blocking_send(to_json(&progress));
 
         let t_gcode = PhaseTimer::start(phases::GCODE_GENERATION, &logger);
-        let gcode = crate::gcode::generate_gcode(&layers, &params);
+        let gcode = crate::gcode::generate_gcode_from_params(&layers, &params);
         t_gcode.finish();
 
         // Write G-code to disk
@@ -383,18 +531,14 @@ async fn handle_slice(
         if let Err(e) = std::fs::write(&gcode_output_path_clone, &gcode) {
             let msg = ServerMessage::error(format!("Failed to write G-code file: {e}"));
             let _ = tx.blocking_send(to_json(&msg));
-            return;
+            return None;
         }
         t_write.finish();
 
-        let complete = ServerMessage::SliceComplete {
-            layer_count,
-            download_url: format!("{}/api/download/{}", base_url, uuid),
-        };
-        let _ = tx.blocking_send(to_json(&complete));
-
         // Finish overall timing
         t_total.finish();
+
+        Some(layer_count)
     });
 
     // Forward channel messages to the WebSocket until the task finishes
@@ -407,29 +551,71 @@ async fn handle_slice(
     // If the blocking task panicked the channel closes silently — the UI
     // would hang forever with no response. Detect the panic and send an
     // error frame so the client can surface a meaningful message.
-    if let Err(join_err) = slice_handle.await {
-        let panic_msg = if join_err.is_panic() {
-            let payload = join_err.into_panic();
-            payload
-                .downcast_ref::<String>()
-                .cloned()
-                .or_else(|| payload.downcast_ref::<&str>().map(|s| s.to_string()))
-                .unwrap_or_else(|| "unknown panic".to_string())
-        } else {
-            join_err.to_string()
+    let sliced_layer_count = match slice_handle.await {
+        Ok(count) => count,
+        Err(join_err) => {
+            let panic_msg = if join_err.is_panic() {
+                let payload = join_err.into_panic();
+                payload
+                    .downcast_ref::<String>()
+                    .cloned()
+                    .or_else(|| payload.downcast_ref::<&str>().map(|s| s.to_string()))
+                    .unwrap_or_else(|| "unknown panic".to_string())
+            } else {
+                join_err.to_string()
+            };
+            let _ = send_msg(
+                session,
+                &ServerMessage::error(format!("Slicing failed unexpectedly: {panic_msg}")),
+            )
+            .await;
+            None
+        }
+    };
+
+    // Update database with G-code file info before announcing completion, so
+    // the client can fetch `/api/download/{uuid}` immediately without racing
+    // a not-yet-populated `download_file_path` (blank viewer / 404).
+    if let Some(layer_count) = sliced_layer_count {
+        let file_size = match std::fs::metadata(&gcode_output_path).map(|m| m.len()) {
+            Ok(size) => size,
+            Err(e) => {
+                let _ = send_msg(
+                    session,
+                    &ServerMessage::error(format!(
+                        "Failed to inspect G-code output for download: {e}"
+                    )),
+                )
+                .await;
+                return;
+            }
         };
+
+        if let Err(e) = db
+            .set_download_file(uuid, &gcode_output_path, file_size)
+            .await
+        {
+            let _ = send_msg(
+                session,
+                &ServerMessage::error(format!("Failed to register G-code download: {e}")),
+            )
+            .await;
+            return;
+        }
+
+        // Populate the content cache so an identical future scene skips slicing.
+        let _ = db
+            .put_cached_gcode(&cache_key, &gcode_output_path, file_size, layer_count)
+            .await;
+
         let _ = send_msg(
             session,
-            &ServerMessage::error(format!("Slicing failed unexpectedly: {panic_msg}")),
+            &ServerMessage::SliceComplete {
+                layer_count,
+                download_url: format!("{}/api/download/{}", base_url, uuid),
+            },
         )
         .await;
-    }
-
-    // Update database with G-code file info
-    if let Ok(file_size) = std::fs::metadata(&gcode_output_path).map(|m| m.len()) {
-        let _ = db
-            .set_download_file(uuid, &gcode_output_path, file_size)
-            .await;
     }
 }
 
@@ -633,4 +819,169 @@ fn snapshot_msg(scene: &SceneState) -> ServerMessage {
             origin_offset_y: scene.bed.origin_offset_y,
         },
     }
+}
+
+/// Derive a stable content key for a slice request.
+///
+/// Two requests share a key iff they would produce byte-identical G-code: same
+/// engine version, same resolved [`SlicingParams`], and the same ordered list
+/// of placed objects (file id + transform). Object order is preserved because
+/// the merge order affects the combined mesh and therefore the output. The key
+/// is a hex FNV-1a 64-bit hash — collision-free enough for a best-effort cache
+/// and dependency-free (no crypto hash crate).
+fn compute_slice_cache_key(
+    scene: &[crate::ws_protocol::SceneObjectSliceDto],
+    params: &crate::settings::params::SlicingParams,
+) -> String {
+    let mut canonical = String::new();
+    canonical.push_str("v=");
+    canonical.push_str(crate::version::VERSION);
+    canonical.push_str(";params=");
+    canonical.push_str(&serde_json::to_string(params).unwrap_or_default());
+    canonical.push_str(";scene=");
+    for obj in scene {
+        let t = &obj.transform;
+        canonical.push_str(&format!(
+            "[{}|{:?}|{:?}|{:?}]",
+            obj.file_id, t.translation, t.euler_xyz_deg, t.scale
+        ));
+    }
+    format!("{:016x}", fnv1a_64(canonical.as_bytes()))
+}
+
+/// FNV-1a 64-bit hash — deterministic across runs and platforms (unlike
+/// `std::hash::DefaultHasher`, whose output is not stability-guaranteed).
+fn fnv1a_64(bytes: &[u8]) -> u64 {
+    const OFFSET: u64 = 0xcbf2_9ce4_8422_2325;
+    const PRIME: u64 = 0x0000_0100_0000_01b3;
+    let mut hash = OFFSET;
+    for &b in bytes {
+        hash ^= b as u64;
+        hash = hash.wrapping_mul(PRIME);
+    }
+    hash
+}
+
+/// Probe a printer connection and reply with its live status.
+///
+/// The HTTP request runs server-side precisely so it is **not** subject to
+/// browser CORS — Moonraker ships no permissive CORS headers, so a direct
+/// browser `fetch` would fail for most users.
+async fn handle_check_printer(
+    session: &mut actix_ws::Session,
+    printer_id: String,
+    connection: crate::profiles::PrinterConnection,
+) {
+    let report = crate::printer::check_status(&connection).await;
+    let msg = ServerMessage::PrinterStatus {
+        printer_id,
+        online: report.online,
+        state: report.state,
+        print_state: report.print_state,
+        progress: report.progress,
+        message: report.message,
+    };
+    let _ = send_msg(session, &msg).await;
+}
+
+/// Probe a URL to identify a printer and prefill the setup wizard.
+///
+/// Like [`handle_check_printer`], the HTTP request runs server-side so it is
+/// **not** subject to browser CORS.
+async fn handle_detect_printer(session: &mut actix_ws::Session, host: String) {
+    let detection = crate::printer::detect_printer(&host).await;
+    let msg = ServerMessage::PrinterDetected {
+        host,
+        reachable: detection.reachable,
+        kind: detection.kind,
+        message: detection.message,
+        name: detection.name,
+        model: detection.model,
+        vendor: detection.vendor,
+        firmware: detection.firmware,
+        bed_shape: detection.bed_shape,
+        bed_width: detection.bed_width,
+        bed_depth: detection.bed_depth,
+        bed_height: detection.bed_height,
+        origin_at_center: detection.origin_at_center,
+        nozzle_diameter_mm: detection.nozzle_diameter_mm,
+    };
+    let _ = send_msg(session, &msg).await;
+}
+
+/// Upload a previously-sliced G-code file to a printer and reply with the
+/// outcome.
+#[allow(clippy::too_many_arguments)]
+async fn handle_send_to_printer(
+    session: &mut actix_ws::Session,
+    request_uuid: String,
+    printer_id: String,
+    connection: crate::profiles::PrinterConnection,
+    filename: Option<String>,
+    start: bool,
+    db: Arc<crate::db::Database>,
+    work_dir: std::path::PathBuf,
+) {
+    let uuid = match Uuid::parse_str(&request_uuid) {
+        Ok(u) => u,
+        Err(e) => {
+            let _ = send_msg(
+                session,
+                &ServerMessage::PrinterSendResult {
+                    printer_id,
+                    request_uuid,
+                    ok: false,
+                    message: format!("Invalid request UUID: {e}"),
+                    started: false,
+                },
+            )
+            .await;
+            return;
+        }
+    };
+
+    // Prefer the DB-recorded download path (authoritative), then fall back to
+    // the conventional `{uuid}.gcode` in the work dir.
+    let gcode_path = match db.get_request(uuid).await {
+        Ok(Some(req)) => req.download_file_path,
+        _ => None,
+    }
+    .unwrap_or_else(|| work_dir.join(format!("{}.gcode", uuid)));
+
+    if !gcode_path.exists() {
+        let _ = send_msg(
+            session,
+            &ServerMessage::PrinterSendResult {
+                printer_id,
+                request_uuid,
+                ok: false,
+                message: "No sliced G-code found for this scene — slice it first".to_string(),
+                started: false,
+            },
+        )
+        .await;
+        return;
+    }
+
+    let default_name = format!("{}.gcode", uuid);
+    let name = filename.unwrap_or(default_name);
+
+    let result = crate::printer::send_gcode(&connection, &gcode_path, &name, start).await;
+    let msg = match result {
+        Ok(outcome) => ServerMessage::PrinterSendResult {
+            printer_id,
+            request_uuid,
+            ok: true,
+            message: outcome.message,
+            started: outcome.started,
+        },
+        Err(e) => ServerMessage::PrinterSendResult {
+            printer_id,
+            request_uuid,
+            ok: false,
+            message: e,
+            started: false,
+        },
+    };
+    let _ = send_msg(session, &msg).await;
 }

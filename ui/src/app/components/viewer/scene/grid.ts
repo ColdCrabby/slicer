@@ -30,6 +30,7 @@ const LEVEL_FADE_BAND_START = 0.35;
 const LEVEL_FADE_BAND_END = 0.65;
 
 const DEFAULT_PRINT_AREA: PrintAreaConfig = {
+  bedShape: 'rectangular',
   printableAreaWidth: 220,
   printableAreaHeight: 220,
   movableAreaX: 0,
@@ -148,7 +149,8 @@ export class SceneGrid {
     this.levelMaterials.clear();
     this.outlineMaterials = [];
 
-    const { movableAreaX, movableAreaY, printableAreaWidth, printableAreaHeight } = this.printArea;
+    const { bedShape, movableAreaX, movableAreaY, printableAreaWidth, printableAreaHeight } =
+      this.printArea;
     const offset = { x: movableAreaX, y: movableAreaY };
 
     // Build levels 1, 10, 100, 1000
@@ -157,12 +159,20 @@ export class SceneGrid {
       const minorMats: LineBasicMaterial[] = [];
       const majorMats: LineBasicMaterial[] = [];
 
-      const { minorPositions, majorPositions } = buildBedGridPositions(
-        printableAreaWidth,
-        printableAreaHeight,
-        spacingMm,
-        MAJOR_EVERY,
-      );
+      const { minorPositions, majorPositions } =
+        bedShape === 'circular'
+          ? buildCircularBedGridPositions(
+              printableAreaWidth,
+              printableAreaHeight,
+              spacingMm,
+              MAJOR_EVERY,
+            )
+          : buildBedGridPositions(
+              printableAreaWidth,
+              printableAreaHeight,
+              spacingMm,
+              MAJOR_EVERY,
+            );
 
       if (minorPositions.length > 0) {
         const minor = makeLineSegments(
@@ -189,7 +199,10 @@ export class SceneGrid {
       this.levelMaterials.set(spacingMm, { minor: minorMats, major: majorMats });
     }
 
-    const outlinePositions = buildBedOutlinePositions(printableAreaWidth, printableAreaHeight);
+    const outlinePositions =
+      bedShape === 'circular'
+        ? buildCircularBedOutlinePositions(printableAreaWidth, printableAreaHeight)
+        : buildBedOutlinePositions(printableAreaWidth, printableAreaHeight);
     const outline = makeLineSegments(
       outlinePositions,
       offset,
@@ -244,6 +257,83 @@ function buildBedOutlinePositions(width: number, height: number): Float32Array {
         width, height, 0, 0, height, 0,
         0, height, 0,    0, 0, 0,
     ]);
+}
+
+function buildCircularBedGridPositions(
+  width: number,
+  height: number,
+  spacingMm: number,
+  majorEvery: number,
+): { minorPositions: Float32Array; majorPositions: Float32Array } {
+  const minor: number[] = [];
+  const major: number[] = [];
+  if (!(width > 0) || !(height > 0) || !(spacingMm > 0)) {
+    return { minorPositions: new Float32Array(0), majorPositions: new Float32Array(0) };
+  }
+
+  const cx = width / 2;
+  const cy = height / 2;
+  const radius = Math.min(width, height) / 2;
+  if (!(radius > 0)) {
+    return { minorPositions: new Float32Array(0), majorPositions: new Float32Array(0) };
+  }
+
+  const xCount = Math.floor(width / spacingMm);
+  for (let i = 0; i <= xCount; i++) {
+    const x = i * spacingMm;
+    if (x > width) break;
+    const dx = x - cx;
+    if (Math.abs(dx) > radius) continue;
+    const ySpan = Math.sqrt(Math.max(0, radius * radius - dx * dx));
+    const y0 = cy - ySpan;
+    const y1 = cy + ySpan;
+    const idx = Math.round(dx / spacingMm);
+    const target = idx % majorEvery === 0 ? major : minor;
+    target.push(x, y0, 0, x, y1, 0);
+  }
+
+  const yCount = Math.floor(height / spacingMm);
+  for (let j = 0; j <= yCount; j++) {
+    const y = j * spacingMm;
+    if (y > height) break;
+    const dy = y - cy;
+    if (Math.abs(dy) > radius) continue;
+    const xSpan = Math.sqrt(Math.max(0, radius * radius - dy * dy));
+    const x0 = cx - xSpan;
+    const x1 = cx + xSpan;
+    const idx = Math.round(dy / spacingMm);
+    const target = idx % majorEvery === 0 ? major : minor;
+    target.push(x0, y, 0, x1, y, 0);
+  }
+
+  return {
+    minorPositions: new Float32Array(minor),
+    majorPositions: new Float32Array(major),
+  };
+}
+
+function buildCircularBedOutlinePositions(width: number, height: number): Float32Array {
+  if (!(width > 0) || !(height > 0)) return new Float32Array(0);
+  const cx = width / 2;
+  const cy = height / 2;
+  const radius = Math.min(width, height) / 2;
+  if (!(radius > 0)) return new Float32Array(0);
+
+  const segments = 128;
+  const out: number[] = [];
+  for (let i = 0; i < segments; i++) {
+    const a0 = (i / segments) * Math.PI * 2;
+    const a1 = ((i + 1) / segments) * Math.PI * 2;
+    out.push(
+      cx + radius * Math.cos(a0),
+      cy + radius * Math.sin(a0),
+      0,
+      cx + radius * Math.cos(a1),
+      cy + radius * Math.sin(a1),
+      0,
+    );
+  }
+  return new Float32Array(out);
 }
 
 function makeLineSegments(

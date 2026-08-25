@@ -55,6 +55,8 @@ export interface SceneBedSnapshot {
   height: number;
   origin_offset_x: number;
   origin_offset_y: number;
+  /** Bed shape; defaults to `'rectangular'` when omitted. */
+  shape?: 'rectangular' | 'circular';
 }
 
 export interface SceneSnapshot {
@@ -66,6 +68,10 @@ export interface LocalSliceResult {
   gcode: string;
   layer_count: number;
 }
+
+type SceneHandleWithSetBed = SceneHandle & {
+  setBed: (bed: object) => void;
+};
 
 type SceneHandleWithWebSlicer = SceneHandle & {
   sliceGcode(params: SlicingParams): LocalSliceResult;
@@ -131,6 +137,7 @@ const DEFAULT_BED: SceneBedSnapshot = {
   height: 250,
   origin_offset_x: 0,
   origin_offset_y: 0,
+  shape: 'rectangular',
 };
 
 /**
@@ -150,6 +157,7 @@ export class SceneEngine {
   private readonly log = inject(Logger).scope('SceneEngine');
   private handle: SceneHandle | null = null;
   private initPromise: Promise<void> | null = null;
+  private pendingBed: SceneBedSnapshot | null = null;
 
   private readonly snapshotSignal = signal<SceneSnapshot>({ objects: [], bed: DEFAULT_BED });
   /**
@@ -183,7 +191,9 @@ export class SceneEngine {
    */
   ready(bed: SceneBedSnapshot = DEFAULT_BED): Promise<void> {
     if (!this.initPromise) {
-      this.initPromise = this.bootstrap(bed).catch((err) => {
+      const initialBed = this.pendingBed ?? bed;
+      this.pendingBed = null;
+      this.initPromise = this.bootstrap(initialBed).catch((err) => {
         this.log.error('WASM initialization failed', err);
         // Clear the cached promise so a retry is possible
         this.initPromise = null;
@@ -221,6 +231,36 @@ export class SceneEngine {
     this.log.info('resetWithBed', { bed });
     this.disposeHandle();
     this.handle = new SceneHandle(bed as unknown as object);
+    this.refreshSnapshot();
+  }
+
+  /**
+   * Update bed dimensions/origin in-place while preserving scene objects.
+   *
+   * Uses the WASM `setBed` API when available. On older generated bundles
+   * that do not expose `setBed` yet, this call is safely ignored.
+   */
+  setBed(bed: SceneBedSnapshot): void {
+    if (!this.handle) {
+      this.pendingBed = bed;
+      return;
+    }
+
+    const handle = this.handle as unknown as Partial<SceneHandleWithSetBed>;
+    if (typeof handle.setBed !== 'function') {
+      // A stale bundle silently ignoring bed updates would let center/arrange
+      // ops drift from the active printer. Surface it loudly instead.
+      this.log.error('setBed missing from WASM bundle — reload required for correct bed ops', {
+        bed,
+      });
+      throw new Error(
+        'Scene engine bundle is out of date (no setBed). Reload the app to apply the printer bed.',
+      );
+    }
+
+    const stop = this.log.time('setBed');
+    handle.setBed(bed as unknown as object);
+    stop(bed as unknown as Record<string, unknown>);
     this.refreshSnapshot();
   }
 

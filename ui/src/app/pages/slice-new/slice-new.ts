@@ -24,6 +24,9 @@ export class SliceNew {
   readonly invalidDropMessage = signal<string | null>(null);
   readonly bedLabel = computed(() => {
     const config = this.printArea.config();
+    if (config.bedShape === 'circular') {
+      return `Dia ${config.printableAreaWidth} mm`;
+    }
     return `${config.printableAreaWidth} x ${config.printableAreaHeight} mm`;
   });
   readonly uploading = computed(() => {

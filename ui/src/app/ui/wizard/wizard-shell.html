@@ -1,0 +1,75 @@
+<div class="wizard">
+  <header class="wizard__header">
+    <h2 class="wizard__title">{{ title() }}</h2>
+    <ol class="wizard__steps">
+      @for (step of stepList(); track step.i) {
+        <li class="wizard__step" [class.is-active]="step.active" [class.is-done]="step.done">
+          <button
+            class="wizard__step-btn"
+            type="button"
+            [disabled]="step.i > index()"
+            [attr.aria-current]="step.active ? 'step' : null"
+            (click)="onStep(step.i)"
+          >
+            <span class="wizard__step-dot">
+              @if (step.done) {
+                <nexus-icon name="check" />
+              } @else {
+                {{ step.i + 1 }}
+              }
+            </span>
+            <span class="wizard__step-label">{{ step.label }}</span>
+          </button>
+        </li>
+      }
+    </ol>
+  </header>
+
+  <div class="wizard__body">
+    <div class="wizard__content">
+      <ng-content />
+    </div>
+  </div>
+
+  <footer class="wizard__footer">
+    <div class="wizard__footer-inner">
+      <button
+        class="wizard__btn wizard__btn--ghost"
+        type="button"
+        [disabled]="isFirst()"
+        (click)="back.emit()"
+      >
+        <nexus-icon name="nav-arrow-left" />
+        Back
+      </button>
+
+      <div class="wizard__footer-right">
+        <button class="wizard__btn wizard__btn--ghost" type="button" (click)="cancel.emit()">
+          Cancel
+        </button>
+        @if (isLast() && secondaryFinishLabel()) {
+          <button
+            class="wizard__btn wizard__btn--secondary"
+            type="button"
+            [disabled]="!canProceed()"
+            (click)="finishSecondary.emit()"
+          >
+            {{ secondaryFinishLabel() }}
+            <nexus-icon name="settings" />
+          </button>
+        }
+        <button
+          class="wizard__btn wizard__btn--primary"
+          type="button"
+          [disabled]="!canProceed()"
+          (click)="onPrimary()"
+        >
+          {{ isLast() ? finishLabel() : 'Next' }}
+          @if (!isLast()) {
+            <nexus-icon name="nav-arrow-right" />
+          }
+        </button>
+      </div>
+    </div>
+  </footer>
+</div>

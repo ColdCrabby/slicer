@@ -1,0 +1,58 @@
+<div class="catalog">
+  <div class="catalog__search">
+    <nexus-icon name="search" />
+    <input
+      type="text"
+      placeholder="Search vendor presets…"
+      [value]="query()"
+      (input)="onSearch($event)"
+      aria-label="Search catalog"
+    />
+  </div>
+
+  @if (unavailable()) {
+    <div class="catalog__state">
+      <nexus-icon name="warning-triangle" />
+      <p>Cloud catalog is unavailable. You can still create profiles from scratch.</p>
+      <button type="button" class="catalog__retry" (click)="retry.emit()">
+        <nexus-icon name="restart" />
+        Retry
+      </button>
+    </div>
+  } @else if (loading()) {
+    <div class="catalog__state">
+      <span class="catalog__spinner"></span>
+      <p>Loading catalog…</p>
+    </div>
+  } @else if (filtered().length === 0) {
+    <div class="catalog__state">
+      <p>No presets match “{{ query() }}”.</p>
+    </div>
+  } @else {
+    <ul class="catalog__list">
+      @for (entry of filtered(); track entry.id) {
+        <li class="catalog__item">
+          @if (entry.color) {
+            <span class="catalog__swatch" [style.background]="entry.color"></span>
+          } @else if (entry.icon) {
+            <span class="catalog__icon"><nexus-icon [name]="entry.icon" /></span>
+          }
+          <div class="catalog__info">
+            <span class="catalog__name">{{ entry.name }}</span>
+            <span class="catalog__sub">{{ entry.vendor }} · {{ entry.meta }}</span>
+          </div>
+          @if (entry.imported) {
+            <span class="catalog__imported">
+              <nexus-icon name="check" />
+              Imported
+            </span>
+          } @else {
+            <button type="button" class="catalog__pick" (click)="pick.emit(entry.id)">
+              {{ actionLabel() }}
+            </button>
+          }
+        </li>
+      }
+    </ul>
+  }
+</div>

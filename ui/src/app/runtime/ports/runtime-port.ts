@@ -20,6 +20,9 @@ export interface RuntimePort {
   applySceneOps(ops: RuntimeSceneOp[]): Promise<void>;
   getSceneSnapshot(): Promise<RuntimeSceneSnapshot>;
   getHistory(): Promise<RuntimeHistorySession[]>;
+  /** Drop all persisted slicing history (and, where applicable, the G-code
+   *  cache). No-op on runtimes that keep no history (web/wasm). */
+  clearHistory(): Promise<void>;
   slice(request: RuntimeSliceRequest): Promise<RuntimeSliceResult>;
   cancel(sliceId: string): Promise<void>;
   getPreviewSource(sliceId: string): Promise<RuntimePreviewSource>;

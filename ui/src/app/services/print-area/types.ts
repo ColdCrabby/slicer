@@ -10,17 +10,20 @@
  * Description of the printer's build volume in machine coordinates.
  *
  * The viewer's world origin (0, 0, 0) — where the RGB axis gizmo sits — is
- * always the printer's machine origin. The build plate ("printable area") is
- * a rectangle whose dimensions are given by {@link printableAreaWidth} /
- * {@link printableAreaHeight} and whose lower-left corner is offset from the
- * machine origin by ({@link movableAreaX}, {@link movableAreaY}).
+ * always the printer's machine origin. The build plate ("printable area") can
+ * be rectangular or circular ({@link bedShape}). Dimensions are given by
+ * {@link printableAreaWidth} / {@link printableAreaHeight} and positioned by
+ * ({@link movableAreaX}, {@link movableAreaY}). For circular beds, width/height
+ * describe the bounding box and are usually equal to the diameter.
  *
- * That separation lets us model real-world printers correctly: many machines
+ * This separation lets us model real-world printers correctly: many machines
  * can drive their toolhead to coordinates that lie outside the physical bed
  * (e.g. for purge towers, wipe positions, parking) so the bed itself does
  * not have to start at (0, 0).
  */
 export interface PrintAreaConfig {
+  /** Shape of the printable area. */
+  bedShape: 'rectangular' | 'circular';
   /** Width of the bed in millimetres (along the world +X axis). */
   printableAreaWidth: number;
   /** Depth of the bed in millimetres (along the world +Y axis). */
@@ -60,6 +63,7 @@ export interface PrintAreaBounds {
 
 /** Default print-area configuration applied on first run / reset. */
 export const DEFAULT_PRINT_AREA_CONFIG: PrintAreaConfig = {
+  bedShape: 'rectangular',
   printableAreaWidth: 220,
   printableAreaHeight: 220,
   movableAreaX: 0,

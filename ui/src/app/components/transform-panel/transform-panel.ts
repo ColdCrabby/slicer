@@ -95,6 +95,10 @@ export class TransformPanel {
   /** Which unit the scale mode edits (percent of original vs. absolute mm). */
   protected readonly scaleUnit = signal<ScaleUnit>('percent');
 
+  protected setScaleUnit(value: string): void {
+    this.scaleUnit.set(value as ScaleUnit);
+  }
+
   /** When on, editing one scale/size axis scales the others proportionally. */
   protected readonly uniform = signal(true);
 

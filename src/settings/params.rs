@@ -384,6 +384,40 @@ impl WallGenerator {
     }
 }
 
+/// Support-structure style.
+///
+/// Only `support_threshold_angle` is honoured by the pipeline today; the
+/// `normal`/`tree` distinction and `support_density` are carried through the
+/// parameter set so profiles can express intent, but the generator that acts
+/// on them is not yet implemented.  See `TODO(profiles): supports`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum SupportType {
+    /// Classic vertical / grid supports.
+    #[default]
+    Normal,
+    /// Organic tree supports (branching columns).
+    Tree,
+}
+
+/// First-layer bed-adhesion helper.
+///
+/// Carried through so profiles can express intent.  Generation of skirt / brim
+/// / raft geometry is not yet implemented — see `TODO(profiles): adhesion`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum AdhesionType {
+    /// No adhesion helper.
+    None,
+    /// A loop of filament traced around the object (priming / draft shield).
+    #[default]
+    Skirt,
+    /// A flat apron fused to the object's first layer for extra bed grip.
+    Brim,
+    /// A full sacrificial base printed under the object.
+    Raft,
+}
+
 /// Parameters that control how a model is sliced and printed.
 ///
 /// All dimensional values are in millimeters; speeds in mm/s;
@@ -926,6 +960,192 @@ Supported values:
     )]
     #[serde(default = "SlicingParams::default_mesh_quality")]
     pub mesh_quality: MeshQuality,
+
+    // --- Profile-contributed extensions -------------------------------------
+    // These fields let printer / filament / process profiles express their full
+    // intent (see `crate::profiles`).  Some are honoured by the pipeline today;
+    // others are carried through and consumed by stub logic pending a real
+    // implementation (marked `TODO(profiles): …` at the consumption site).
+    #[schemars(
+        description = "First-layer height in mm. `0` = use `layer_height`.
+
+A thicker first layer improves bed adhesion.
+**Typical:** 0.20–0.28 mm.",
+        extend("x-group" = "Layer")
+    )]
+    #[serde(default = "SlicingParams::default_first_layer_height")]
+    pub first_layer_height: f64,
+
+    #[schemars(
+        description = "Explicit extrusion line width in mm. `0` = derive from nozzle diameter.
+
+Overrides the nozzle-derived default for solid infill and surfaces.
+**Typical:** 100–120% of nozzle diameter.",
+        extend("x-group" = "Walls")
+    )]
+    #[serde(default = "SlicingParams::default_line_width")]
+    pub line_width: f64,
+
+    #[schemars(
+        description = "Retraction speed in **mm/min**.
+
+Convert from mm/s by multiplying by 60.
+**Example:** 2400 mm/min = 40 mm/s.",
+        extend("x-group" = "Retraction")
+    )]
+    #[serde(default = "SlicingParams::default_retract_speed_mm_min")]
+    pub retract_speed_mm_min: f64,
+
+    #[schemars(
+        description = "Global extrusion flow multiplier (0.0–2.0).
+
+Scales every extrusion volume. `1.0` = nominal. Tune per-material to correct
+under/over-extrusion.",
+        extend("x-group" = "Extrusion")
+    )]
+    #[serde(default = "SlicingParams::default_flow_ratio")]
+    pub flow_ratio: f64,
+
+    #[schemars(
+        description = "First-layer nozzle temperature in °C. `0` = use `nozzle_temp`.",
+        extend("x-group" = "Temperature")
+    )]
+    #[serde(default = "SlicingParams::default_nozzle_temp_first_layer")]
+    pub nozzle_temp_first_layer: f64,
+
+    #[schemars(
+        description = "First-layer bed temperature in °C. `0` = use `bed_temp`.",
+        extend("x-group" = "Temperature")
+    )]
+    #[serde(default = "SlicingParams::default_bed_temp_first_layer")]
+    pub bed_temp_first_layer: f64,
+
+    #[schemars(
+        description = "Chamber temperature in °C for enclosed printers. `0` = no active \
+chamber heating. Exposed to custom start G-code as `{chamber_temp}` (e.g. Klippain \
+`START_PRINT … CHAMBER={chamber_temp}`).",
+        extend("x-group" = "Temperature")
+    )]
+    #[serde(default = "SlicingParams::default_chamber_temp")]
+    pub chamber_temp: f64,
+
+    #[schemars(
+        description = "Material family name (e.g. `PLA`, `PETG`, `ABS`). Populated from the \
+active filament profile at resolve time. Exposed to custom start G-code as `{filament_type}` \
+(e.g. Klippain `START_PRINT … MATERIAL={filament_type}`).",
+        extend("x-group" = "Temperature")
+    )]
+    #[serde(default)]
+    pub filament_type: String,
+
+    #[schemars(
+        description = "Linear/pressure advance factor (Klipper `SET_PRESSURE_ADVANCE`, Marlin `M900 K`).
+
+`0` disables. Compensates for pressure lag at corners.
+**Typical:** 0.02–0.08.",
+        extend("x-group" = "Extrusion")
+    )]
+    #[serde(default = "SlicingParams::default_pressure_advance")]
+    pub pressure_advance: f64,
+
+    #[schemars(
+        description = "Number of initial layers with the part-cooling fan forced off.
+
+Improves adhesion of the first few layers.
+**Typical:** 1.",
+        extend("x-group" = "Cooling")
+    )]
+    #[serde(default = "SlicingParams::default_disable_fan_first_layers")]
+    pub disable_fan_first_layers: usize,
+
+    #[schemars(
+        description = "Maximum volumetric extrusion rate in mm³/s. `0` = unlimited.
+
+Caps print speed so the hotend can keep up with the flow.
+**Typical:** 8–24 mm³/s depending on material and hotend.",
+        extend("x-group" = "Extrusion")
+    )]
+    #[serde(default = "SlicingParams::default_max_volumetric_speed")]
+    pub max_volumetric_speed: f64,
+
+    #[schemars(
+        description = "Number of extruders (tools) on the machine. Multi-material is not yet supported.",
+        extend("x-group" = "Hardware")
+    )]
+    #[serde(default = "SlicingParams::default_extruder_count")]
+    pub extruder_count: usize,
+
+    #[schemars(
+        description = "Whether support structures are generated.",
+        extend("x-group" = "Support")
+    )]
+    #[serde(default = "SlicingParams::default_support_enabled")]
+    pub support_enabled: bool,
+
+    #[schemars(
+        description = "Support style: `normal` (grid) or `tree` (organic). Generation pending.",
+        extend("x-group" = "Support")
+    )]
+    #[serde(default)]
+    pub support_type: SupportType,
+
+    #[schemars(
+        description = "Support infill density as a fraction (0.0–1.0). Generation pending.",
+        extend("x-group" = "Support")
+    )]
+    #[serde(default = "SlicingParams::default_support_density")]
+    pub support_density: f64,
+
+    #[schemars(
+        description = "Bed-adhesion helper: `none`, `skirt`, `brim`, or `raft`. Generation pending.",
+        extend("x-group" = "Adhesion")
+    )]
+    #[serde(default)]
+    pub adhesion_type: AdhesionType,
+
+    #[schemars(
+        description = "Brim width in mm (when `adhesion_type = brim`). Generation pending.",
+        extend("x-group" = "Adhesion")
+    )]
+    #[serde(default = "SlicingParams::default_brim_width")]
+    pub brim_width: f64,
+
+    #[schemars(
+        description = "Number of skirt loops (when `adhesion_type = skirt`). Generation pending.",
+        extend("x-group" = "Adhesion")
+    )]
+    #[serde(default = "SlicingParams::default_skirt_loops")]
+    pub skirt_loops: usize,
+
+    #[schemars(
+        description = "Iron top surfaces for a smoother finish. Ironing pass pending.",
+        extend("x-group" = "Surfaces")
+    )]
+    #[serde(default = "SlicingParams::default_ironing_enabled")]
+    pub ironing_enabled: bool,
+
+    #[schemars(
+        description = "Custom start G-code block, inserted before the first print move. `null` = flavor default.",
+        extend("x-group" = "Output")
+    )]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub start_gcode: Option<String>,
+
+    #[schemars(
+        description = "Custom end G-code block, inserted after the last print move. `null` = flavor default.",
+        extend("x-group" = "Output")
+    )]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub end_gcode: Option<String>,
+
+    #[schemars(
+        description = "Custom G-code block inserted at every layer change, after the Z move. \
+                       Supports `{z}`, `{height}`, and `{layer_num}` (1-based) placeholders. \
+                       `null` = none.",
+        extend("x-group" = "Output")
+    )]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub layer_gcode: Option<String>,
 }
 
 impl Default for SlicingParams {
@@ -983,7 +1203,125 @@ impl Default for SlicingParams {
             gcode_flavor: Self::default_gcode_flavor(),
             fan_configs: Self::default_fan_configs(),
             mesh_quality: Self::default_mesh_quality(),
+            first_layer_height: Self::default_first_layer_height(),
+            line_width: Self::default_line_width(),
+            retract_speed_mm_min: Self::default_retract_speed_mm_min(),
+            flow_ratio: Self::default_flow_ratio(),
+            nozzle_temp_first_layer: Self::default_nozzle_temp_first_layer(),
+            bed_temp_first_layer: Self::default_bed_temp_first_layer(),
+            chamber_temp: Self::default_chamber_temp(),
+            filament_type: String::new(),
+            pressure_advance: Self::default_pressure_advance(),
+            disable_fan_first_layers: Self::default_disable_fan_first_layers(),
+            max_volumetric_speed: Self::default_max_volumetric_speed(),
+            extruder_count: Self::default_extruder_count(),
+            support_enabled: Self::default_support_enabled(),
+            support_type: SupportType::default(),
+            support_density: Self::default_support_density(),
+            adhesion_type: AdhesionType::default(),
+            brim_width: Self::default_brim_width(),
+            skirt_loops: Self::default_skirt_loops(),
+            ironing_enabled: Self::default_ironing_enabled(),
+            start_gcode: None,
+            end_gcode: None,
+            layer_gcode: None,
         }
+    }
+}
+
+impl SlicingParams {
+    fn default_first_layer_height() -> f64 {
+        0.0
+    }
+    fn default_line_width() -> f64 {
+        0.0
+    }
+    fn default_retract_speed_mm_min() -> f64 {
+        2400.0
+    }
+    fn default_flow_ratio() -> f64 {
+        1.0
+    }
+    fn default_nozzle_temp_first_layer() -> f64 {
+        0.0
+    }
+    fn default_bed_temp_first_layer() -> f64 {
+        0.0
+    }
+    fn default_chamber_temp() -> f64 {
+        0.0
+    }
+    fn default_pressure_advance() -> f64 {
+        0.0
+    }
+    fn default_disable_fan_first_layers() -> usize {
+        1
+    }
+    fn default_max_volumetric_speed() -> f64 {
+        0.0
+    }
+    fn default_extruder_count() -> usize {
+        1
+    }
+    fn default_support_enabled() -> bool {
+        false
+    }
+    fn default_support_density() -> f64 {
+        0.15
+    }
+    fn default_brim_width() -> f64 {
+        5.0
+    }
+    fn default_skirt_loops() -> usize {
+        1
+    }
+    fn default_ironing_enabled() -> bool {
+        false
+    }
+}
+
+impl SlicingParams {
+    /// Human-readable warnings for profile features that are represented in the
+    /// parameter set but **not yet implemented** by the pipeline.
+    ///
+    /// This is the "document + dummy logic" seam: rather than silently dropping
+    /// a setting the user enabled, the slice path surfaces a warning so intent
+    /// is visible. Each entry corresponds to a `TODO(profiles): …` marker at the
+    /// (future) implementation site.
+    ///
+    /// Implementation checklist (remove the branch here when each lands):
+    /// - `TODO(profiles): adhesion` — skirt / brim / raft generation.
+    /// - `TODO(profiles): ironing` — top-surface ironing pass.
+    /// - `TODO(profiles): supports` — support generation (`normal`/`tree`,
+    ///   density). Only `support_threshold_angle` is honoured today.
+    /// - `TODO(profiles): volumetric` — max-volumetric-speed limiter.
+    /// - `TODO(profiles): multimaterial` — more than one extruder.
+    pub fn unsupported_feature_warnings(&self) -> Vec<String> {
+        let mut w = Vec::new();
+        if self.adhesion_type != AdhesionType::None {
+            w.push(format!(
+                "adhesion '{:?}' is selected but skirt/brim/raft generation is not yet implemented — ignored",
+                self.adhesion_type
+            ));
+        }
+        if self.ironing_enabled {
+            w.push(
+                "ironing is enabled but the ironing pass is not yet implemented — ignored".into(),
+            );
+        }
+        if self.support_enabled {
+            w.push(
+                "supports are enabled but support generation is not yet implemented — ignored"
+                    .into(),
+            );
+        }
+        if self.max_volumetric_speed > 0.0 {
+            w.push("max_volumetric_speed is set but the volumetric limiter is not yet implemented — ignored".into());
+        }
+        if self.extruder_count > 1 {
+            w.push("multiple extruders configured but multi-material slicing is not yet implemented — using tool 0".into());
+        }
+        w
     }
 }
 

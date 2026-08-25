@@ -30,6 +30,22 @@ export interface ProgressTask {
   progress: number;
 }
 
+/**
+ * A one-shot, full-page celebratory flourish (non-interactive). Used to make a
+ * successful action impossible to miss — e.g. a finished upload. Rendered by
+ * the root `CelebrationOverlay` and auto-cleared after {@link CELEBRATION_MS}.
+ */
+export interface Celebration {
+  id: string;
+  title: string;
+  message?: string;
+  /** Iconoir icon shown in the burst badge. */
+  icon: string;
+}
+
+/** Lifetime (ms) of a celebration overlay — matches its fade-out keyframes. */
+export const CELEBRATION_MS = 2200;
+
 let _nextId = 1;
 
 @Injectable({ providedIn: 'root' })
@@ -38,6 +54,8 @@ export class NotificationService {
   readonly notifications = signal<Notification[]>([]);
   /** Active determinate progress tasks (docked strip). */
   readonly tasks = signal<ProgressTask[]>([]);
+  /** The active full-page celebration, or `null` when none is playing. */
+  readonly celebration = signal<Celebration | null>(null);
 
   /** Push a simple informational toast and return its id. */
   info(title: string, message?: string, autoDismissMs = 4000): string {
@@ -103,6 +121,20 @@ export class NotificationService {
   /** Remove a progress task from the docked strip. */
   dismissTask(id: string): void {
     this.tasks.update((list) => list.filter((t) => t.id !== id));
+  }
+
+  /**
+   * Play a full-page celebration overlay. Supersedes any in-flight one and
+   * auto-clears after {@link CELEBRATION_MS}.
+   */
+  celebrate(title: string, message?: string, icon = 'check-circle'): void {
+    const id = String(_nextId++);
+    this.celebration.set({ id, title, message, icon });
+    setTimeout(() => {
+      if (this.celebration()?.id === id) {
+        this.celebration.set(null);
+      }
+    }, CELEBRATION_MS);
   }
 
   dismiss(id: string): void {

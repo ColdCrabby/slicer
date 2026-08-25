@@ -54,17 +54,55 @@ pub(crate) fn estimate_layer_time(layer: &SliceLayer, print_speed_mm_s: f64) -> 
 /// line of length `move_len` at the given `layer_height` with the configured
 /// nozzle and filament diameters.
 ///
-/// Formula: E = line_length × (layer_height × line_width) / (π × filament_radius²)
+/// Formula: E = line_length × (layer_height × line_width) / (π × filament_radius²) × flow_ratio
+///
+/// `flow_ratio` is the global volumetric flow multiplier (`1.0` = nominal); it
+/// scales the deposited volume to correct material-specific under/over-extrusion.
+/// A non-positive or non-finite ratio is treated as `1.0` so a malformed profile
+/// can never silently zero out (or reverse) all extrusion.
 pub(crate) fn extrusion_for_move(
     move_len: f64,
     layer_height: f64,
     width_mm: f64,
     filament_diameter_mm: f64,
+    flow_ratio: f64,
 ) -> f64 {
     let filament_radius = filament_diameter_mm / 2.0;
     let cross_section = layer_height * width_mm;
     let filament_area = std::f64::consts::PI * filament_radius.powi(2);
-    move_len * cross_section / filament_area
+    let flow = if flow_ratio.is_finite() && flow_ratio > 0.0 {
+        flow_ratio
+    } else {
+        1.0
+    };
+    move_len * cross_section / filament_area * flow
+}
+
+/// Resolve the extrusion width for a path.
+///
+/// Precedence: an explicit per-path width (Arachne bead width, bridge-flow
+/// reduction, …) always wins.  Otherwise the `line_width` setting overrides the
+/// nozzle-derived default for **solid infill and surfaces** when set (`> 0`);
+/// every other role falls back to its role default.
+pub(crate) fn resolve_width_mm(
+    explicit: Option<f64>,
+    role: crate::core::ExtrusionRole,
+    line_width: f64,
+) -> f64 {
+    if let Some(w) = explicit {
+        return w;
+    }
+    let line_width_role = matches!(
+        role,
+        crate::core::ExtrusionRole::Infill
+            | crate::core::ExtrusionRole::TopSurface
+            | crate::core::ExtrusionRole::BottomSurface
+    );
+    if line_width > 0.0 && line_width_role {
+        line_width
+    } else {
+        role.default_width_mm()
+    }
 }
 
 /// Substitute template placeholders in a marker string.
@@ -84,6 +122,42 @@ pub(crate) fn render_marker(
         .replace("{height}", height)
         .replace("{type}", type_name)
         .replace("{width}", width)
+}
+
+/// Substitute print-parameter placeholders shared by custom start / end / layer
+/// scripts: `{nozzle_temp}`, `{bed_temp}`, their `_first_layer` variants,
+/// `{chamber_temp}`, `{filament_type}`, plus `{layer_height}` and
+/// `{first_layer_height}`.
+///
+/// The `_first_layer` temperatures fall back to the general value when set to
+/// `0` (the "use base value" sentinel), matching the slicer's own resolution.
+/// Longer keys are replaced before their prefixes (e.g. `{nozzle_temp_first_layer}`
+/// before `{nozzle_temp}`) so no partial substitution occurs. Dialect-default
+/// scripts carry no placeholders, so this is a no-op for them.
+pub(crate) fn render_script_placeholders(line: &str, params: &SlicingParams) -> String {
+    let first_nozzle = if params.nozzle_temp_first_layer > 0.0 {
+        params.nozzle_temp_first_layer
+    } else {
+        params.nozzle_temp
+    };
+    let first_bed = if params.bed_temp_first_layer > 0.0 {
+        params.bed_temp_first_layer
+    } else {
+        params.bed_temp
+    };
+    let first_height = if params.first_layer_height > 0.0 {
+        params.first_layer_height
+    } else {
+        params.layer_height
+    };
+    line.replace("{nozzle_temp_first_layer}", &format!("{:.0}", first_nozzle))
+        .replace("{bed_temp_first_layer}", &format!("{:.0}", first_bed))
+        .replace("{nozzle_temp}", &format!("{:.0}", params.nozzle_temp))
+        .replace("{bed_temp}", &format!("{:.0}", params.bed_temp))
+        .replace("{chamber_temp}", &format!("{:.0}", params.chamber_temp))
+        .replace("{filament_type}", &params.filament_type)
+        .replace("{first_layer_height}", &format!("{:.3}", first_height))
+        .replace("{layer_height}", &format!("{:.3}", params.layer_height))
 }
 
 // ── GcodeGenerator ─────────────────────────────────────────────────────────────
@@ -128,6 +202,8 @@ pub struct GcodeGenerator {
     custom_start_script: Option<Vec<String>>,
     /// Optional override for the end script (replaces dialect default).
     custom_end_script: Option<Vec<String>>,
+    /// Optional custom G-code emitted at every layer change (after the Z move).
+    custom_layer_script: Option<Vec<String>>,
 }
 
 impl GcodeGenerator {
@@ -143,6 +219,7 @@ impl GcodeGenerator {
             marker_config: LifecycleMarkerConfig::default(),
             custom_start_script: None,
             custom_end_script: None,
+            custom_layer_script: None,
         }
     }
 
@@ -156,6 +233,7 @@ impl GcodeGenerator {
             marker_config: LifecycleMarkerConfig::default(),
             custom_start_script: None,
             custom_end_script: None,
+            custom_layer_script: None,
         }
     }
 
@@ -234,6 +312,26 @@ impl GcodeGenerator {
     /// ```
     pub fn with_end_script(mut self, script: Vec<String>) -> Self {
         self.custom_end_script = Some(script);
+        self
+    }
+
+    /// Set a custom G-code block emitted at every layer change, right after the
+    /// Z move.
+    ///
+    /// Each line supports the `{z}`, `{height}` and `{layer_num}` (1-based)
+    /// placeholders. This is the slicer analogue of PrusaSlicer's
+    /// *Before/After layer change G-code* — useful for Klipper macros such as
+    /// `_ON_LAYER_CHANGE` (Klippain) or timelapse triggers.
+    ///
+    /// ```rust
+    /// use slicer_engine::gcode::{GcodeGenerator, GcodeFlavor};
+    /// use slicer_engine::settings::params::SlicingParams;
+    ///
+    /// let gen = GcodeGenerator::new(GcodeFlavor::Klipper)
+    ///     .with_layer_script(vec!["_ON_LAYER_CHANGE LAYER={layer_num} Z={z}".to_string()]);
+    /// ```
+    pub fn with_layer_script(mut self, script: Vec<String>) -> Self {
+        self.custom_layer_script = Some(script);
         self
     }
 
@@ -371,16 +469,25 @@ impl GcodeGenerator {
             None => Cow::Owned(self.dialect.start_script(params)),
         };
         for line in start_script.iter() {
-            out.push_str(line);
+            out.push_str(&render_script_placeholders(line, params));
             out.push('\n');
         }
+
+        // The whole generator emits absolute E positions (accumulating `e_total`,
+        // `G92 E0` per layer).  A custom start script or a Klipper `START_PRINT`
+        // macro that primes / uses firmware retraction can leave the extruder in
+        // relative mode (`M83`), which would make every `G1 … E<e_total>` a
+        // relative extrusion of the full running total → gross over-extrusion.
+        // Force absolute mode and zero the counter so the invariant always holds.
+        out.push_str(&format!("{}\n", self.dialect.extruder_absolute_mode()));
+        out.push_str(&format!("{}\n", self.dialect.reset_extruder()));
 
         // ── Per-layer contours ────────────────────────────────────────────────
         let mut e_total = 0.0_f64;
         // Track previous fan speed per config index for rate limiting (aux overrides).
         let mut prev_fan_speeds: Vec<Option<f64>> = vec![None; params.fan_configs.len()];
 
-        for layer in layers {
+        for (layer_index, layer) in layers.iter().enumerate() {
             let z_str = format!("{:.3}", layer.z);
             let height_str = format!("{:.3}", params.layer_height);
             // Detect first layer: z within half a layer height of layer_height.
@@ -454,6 +561,17 @@ impl GcodeGenerator {
                 ));
             }
 
+            // ── Custom layer-change G-code (Klipper macros, timelapse, …) ─────
+            if let Some(script) = &self.custom_layer_script {
+                let layer_num = (layer_index + 1).to_string();
+                for line in script {
+                    let rendered = render_marker(line, &z_str, &height_str, "", "")
+                        .replace("{layer_num}", &layer_num);
+                    out.push_str(&render_script_placeholders(&rendered, params));
+                    out.push('\n');
+                }
+            }
+
             // ── Adaptive fan speed ───────────────────────────────────────────
             if !params.fan_configs.is_empty() {
                 let layer_time = estimate_layer_time(layer, params.print_speed);
@@ -498,9 +616,8 @@ impl GcodeGenerator {
 
                 // Fetch the role and resolve the effective extrusion width
                 let role = layer.role_for_path(path_idx);
-                let width_mm = layer
-                    .width_for_path(path_idx)
-                    .unwrap_or_else(|| role.default_width_mm());
+                let width_mm =
+                    resolve_width_mm(layer.width_for_path(path_idx), role, params.line_width);
                 // Per-vertex widths (variable-width beads) taper the flow along
                 // the path; `None` keeps the constant `width_mm`.
                 let raw_vertex_widths = layer.vertex_widths_for_path(path_idx);
@@ -737,6 +854,7 @@ impl GcodeGenerator {
                                 params.layer_height,
                                 width_mm,
                                 params.filament_diameter_mm,
+                                params.flow_ratio,
                             );
                             out.push_str(&format!(
                                 "{}\n",
@@ -753,6 +871,7 @@ impl GcodeGenerator {
                                 params.layer_height,
                                 width_mm,
                                 params.filament_diameter_mm,
+                                params.flow_ratio,
                             );
                             out.push_str(&format!(
                                 "{}\n",
@@ -785,6 +904,7 @@ impl GcodeGenerator {
                                 params.layer_height,
                                 width_mm,
                                 params.filament_diameter_mm,
+                                params.flow_ratio,
                             );
                             out.push_str(&format!(
                                 "{} ; close contour\n",
@@ -801,6 +921,7 @@ impl GcodeGenerator {
                                 params.layer_height,
                                 width_mm,
                                 params.filament_diameter_mm,
+                                params.flow_ratio,
                             );
                             out.push_str(&format!(
                                 "{}\n",
@@ -879,6 +1000,7 @@ impl GcodeGenerator {
                             params.layer_height,
                             sw,
                             params.filament_diameter_mm,
+                            params.flow_ratio,
                         );
                         out.push_str(&format!(
                             "{}\n",
@@ -902,6 +1024,7 @@ impl GcodeGenerator {
                                 params.layer_height,
                                 width_mm,
                                 params.filament_diameter_mm,
+                                params.flow_ratio,
                             );
                             out.push_str(&format!(
                                 "{} ; close contour\n",
@@ -923,7 +1046,7 @@ impl GcodeGenerator {
             None => Cow::Owned(self.dialect.end_script()),
         };
         for line in end_script.iter() {
-            out.push_str(line);
+            out.push_str(&render_script_placeholders(line, params));
             out.push('\n');
         }
 
@@ -958,6 +1081,40 @@ impl GcodeGenerator {
 /// ```
 pub fn generate_gcode(layers: &[SliceLayer], params: &SlicingParams) -> String {
     GcodeGenerator::new(GcodeFlavor::Marlin).generate(layers, params)
+}
+
+/// Generate G-code honoring the firmware flavor and custom start/end/layer
+/// scripts carried by `params`.
+///
+/// This is the entry point used by every *application* slice path (WS server,
+/// WASM, desktop bridge). Unlike [`generate_gcode`] it respects
+/// `params.gcode_flavor` and applies `params.start_gcode`, `params.end_gcode`
+/// and `params.layer_gcode` when present (each split into lines on `'\n'`).
+///
+/// A non-empty custom block wins over the dialect default; a blank/whitespace
+/// block is ignored so an empty text field falls back to the flavor default.
+pub fn generate_gcode_from_params(layers: &[SliceLayer], params: &SlicingParams) -> String {
+    let mut generator = GcodeGenerator::new(params.gcode_flavor);
+    if let Some(lines) = gcode_block_lines(params.start_gcode.as_deref()) {
+        generator = generator.with_start_script(lines);
+    }
+    if let Some(lines) = gcode_block_lines(params.end_gcode.as_deref()) {
+        generator = generator.with_end_script(lines);
+    }
+    if let Some(lines) = gcode_block_lines(params.layer_gcode.as_deref()) {
+        generator = generator.with_layer_script(lines);
+    }
+    generator.generate(layers, params)
+}
+
+/// Split a multi-line custom G-code block into lines, returning `None` when the
+/// block is absent or entirely blank (so the dialect default is kept).
+fn gcode_block_lines(block: Option<&str>) -> Option<Vec<String>> {
+    let block = block?;
+    if block.trim().is_empty() {
+        return None;
+    }
+    Some(block.lines().map(str::to_string).collect())
 }
 
 // ── Tests ──────────────────────────────────────────────────────────────────────
@@ -1014,8 +1171,131 @@ mod tests {
 
     #[test]
     fn test_extrusion_for_move_positive() {
-        let e = extrusion_for_move(10.0, 0.2, 0.4, 1.75);
+        let e = extrusion_for_move(10.0, 0.2, 0.4, 1.75, 1.0);
         assert!(e > 0.0, "extrusion must be positive");
+    }
+
+    #[test]
+    fn flow_ratio_scales_extrusion_linearly() {
+        let base = extrusion_for_move(10.0, 0.2, 0.4, 1.75, 1.0);
+        let double = extrusion_for_move(10.0, 0.2, 0.4, 1.75, 2.0);
+        let half = extrusion_for_move(10.0, 0.2, 0.4, 1.75, 0.5);
+        assert!((double - 2.0 * base).abs() < 1e-9, "flow 2.0 must double E");
+        assert!((half - 0.5 * base).abs() < 1e-9, "flow 0.5 must halve E");
+    }
+
+    #[test]
+    fn flow_ratio_non_positive_or_nan_falls_back_to_unity() {
+        let unity = extrusion_for_move(10.0, 0.2, 0.4, 1.75, 1.0);
+        for bad in [0.0, -1.0, f64::NAN, f64::INFINITY] {
+            let e = extrusion_for_move(10.0, 0.2, 0.4, 1.75, bad);
+            assert!(
+                (e - unity).abs() < 1e-9,
+                "flow_ratio {bad} must be treated as 1.0, got {e}"
+            );
+        }
+    }
+
+    #[test]
+    fn flow_ratio_scales_total_gcode_extrusion() {
+        use clipper2::Path;
+        let p1 = SlicingParams {
+            flow_ratio: 1.0,
+            ..SlicingParams::default()
+        };
+        let p2 = SlicingParams {
+            flow_ratio: 1.5,
+            ..SlicingParams::default()
+        };
+
+        let square: Path = vec![(0.0, 0.0), (10.0, 0.0), (10.0, 10.0), (0.0, 10.0)].into();
+        let mk = || {
+            let mut layer = SliceLayer::new(0.2);
+            layer.paths.push(square.clone());
+            layer
+        };
+        let total_e = |gcode: &str| -> f64 {
+            gcode
+                .lines()
+                .filter_map(|l| l.split_whitespace().find(|t| t.starts_with('E')))
+                .filter_map(|t| t[1..].parse::<f64>().ok())
+                .filter(|e| *e > 0.0)
+                .fold(0.0, f64::max)
+        };
+        let e1 = total_e(&generate_gcode(&[mk()], &p1));
+        let e2 = total_e(&generate_gcode(&[mk()], &p2));
+        assert!(e1 > 0.0 && e2 > 0.0, "both prints must extrude");
+        assert!(
+            (e2 / e1 - 1.5).abs() < 1e-3,
+            "1.5x flow_ratio must raise total extrusion 1.5x: {e1} -> {e2}"
+        );
+    }
+
+    // ── Width resolution (line_width override) ─────────────────────────────────
+
+    #[test]
+    fn resolve_width_explicit_always_wins() {
+        // An explicit per-path width (Arachne/bridge) is never overridden.
+        let w = resolve_width_mm(Some(0.55), crate::core::ExtrusionRole::Infill, 0.44);
+        assert_eq!(w, 0.55);
+        let w = resolve_width_mm(Some(0.30), crate::core::ExtrusionRole::OuterWall, 0.44);
+        assert_eq!(w, 0.30);
+    }
+
+    #[test]
+    fn resolve_width_line_width_applies_to_infill_and_surfaces() {
+        for role in [
+            crate::core::ExtrusionRole::Infill,
+            crate::core::ExtrusionRole::TopSurface,
+            crate::core::ExtrusionRole::BottomSurface,
+        ] {
+            assert_eq!(resolve_width_mm(None, role, 0.44), 0.44, "{role:?}");
+        }
+    }
+
+    #[test]
+    fn resolve_width_line_width_ignored_for_walls_and_when_zero() {
+        // Walls keep their role default regardless of line_width.
+        assert_eq!(
+            resolve_width_mm(None, crate::core::ExtrusionRole::OuterWall, 0.44),
+            crate::core::ExtrusionRole::OuterWall.default_width_mm()
+        );
+        // line_width = 0 means "derive from nozzle" → role default.
+        assert_eq!(
+            resolve_width_mm(None, crate::core::ExtrusionRole::Infill, 0.0),
+            crate::core::ExtrusionRole::Infill.default_width_mm()
+        );
+    }
+
+    // ── Absolute extrusion mode guarantee ──────────────────────────────────────
+
+    #[test]
+    fn klipper_forces_absolute_extrusion_after_start_print() {
+        let layer = SliceLayer::new(0.2);
+        let gcode =
+            GcodeGenerator::new(GcodeFlavor::Klipper).generate(&[layer], &SlicingParams::default());
+        let start = gcode.find("START_PRINT").expect("START_PRINT missing");
+        let m82 = gcode.find("M82").expect("M82 absolute mode missing");
+        assert!(
+            m82 > start,
+            "M82 must follow START_PRINT so a macro's M83 can't leave the extruder relative:\n{gcode}"
+        );
+        // And the counter is zeroed right after, before any extrusion.
+        assert!(
+            gcode.contains("G92 E0"),
+            "G92 E0 missing after start: {gcode}"
+        );
+    }
+
+    #[test]
+    fn marlin_output_is_in_absolute_extrusion_mode() {
+        let layer = SliceLayer::new(0.2);
+        let gcode =
+            GcodeGenerator::new(GcodeFlavor::Marlin).generate(&[layer], &SlicingParams::default());
+        assert!(
+            gcode.contains("M82"),
+            "Marlin output must set absolute E: {gcode}"
+        );
     }
 
     // ── Flavor enum ────────────────────────────────────────────────────────────
@@ -1579,6 +1859,83 @@ mod tests {
         assert!(gcode.contains("M84 ; motors off"));
     }
 
+    #[test]
+    fn test_start_script_substitutes_temperature_placeholders() {
+        let params = SlicingParams {
+            nozzle_temp: 215.0,
+            bed_temp: 65.0,
+            nozzle_temp_first_layer: 220.0,
+            bed_temp_first_layer: 0.0, // falls back to bed_temp
+            ..SlicingParams::default()
+        };
+        let gen = GcodeGenerator::new(GcodeFlavor::Klipper).with_start_script(vec![
+            "START_PRINT EXTRUDER_TEMP={nozzle_temp_first_layer} BED_TEMP={bed_temp_first_layer}"
+                .to_string(),
+        ]);
+        let gcode = gen.generate(&[], &params);
+        assert!(
+            gcode.contains("EXTRUDER_TEMP=220"),
+            "first-layer nozzle temp not substituted: {gcode}"
+        );
+        assert!(
+            gcode.contains("BED_TEMP=65"),
+            "bed temp fallback not substituted: {gcode}"
+        );
+    }
+
+    #[test]
+    fn test_start_script_substitutes_chamber_and_material_placeholders() {
+        let params = SlicingParams {
+            nozzle_temp_first_layer: 255.0,
+            bed_temp_first_layer: 105.0,
+            chamber_temp: 50.0,
+            filament_type: "ABS".to_string(),
+            ..SlicingParams::default()
+        };
+        let gen = GcodeGenerator::new(GcodeFlavor::Klipper).with_start_script(vec![
+            "START_PRINT EXTRUDER={nozzle_temp_first_layer} BED={bed_temp_first_layer} \
+CHAMBER={chamber_temp} MATERIAL={filament_type}"
+                .to_string(),
+        ]);
+        let gcode = gen.generate(&[], &params);
+        assert!(
+            gcode.contains("EXTRUDER=255 BED=105 CHAMBER=50 MATERIAL=ABS"),
+            "Klippain start line not fully substituted: {gcode}"
+        );
+    }
+
+    #[test]
+    fn test_layer_script_emitted_with_placeholders() {
+        let layer = SliceLayer::new(0.2);
+        let gen = GcodeGenerator::new(GcodeFlavor::Klipper)
+            .with_layer_script(vec!["_ON_LAYER_CHANGE LAYER={layer_num} Z={z}".to_string()]);
+        let gcode = gen.generate(&[layer], &SlicingParams::default());
+        assert!(
+            gcode.contains("_ON_LAYER_CHANGE LAYER=1 Z=0.200"),
+            "layer script not rendered: {gcode}"
+        );
+    }
+
+    #[test]
+    fn test_generate_gcode_from_params_honors_flavor_and_scripts() {
+        let params = SlicingParams {
+            gcode_flavor: GcodeFlavor::Klipper,
+            start_gcode: Some("START_PRINT BED_TEMP={bed_temp}".to_string()),
+            end_gcode: Some("  \n  ".to_string()), // blank → keep dialect default
+            ..SlicingParams::default()
+        };
+        let gcode = generate_gcode_from_params(&[], &params);
+        assert!(
+            gcode.contains("START_PRINT BED_TEMP=60"),
+            "start not applied: {gcode}"
+        );
+        // Blank end block keeps the Klipper dialect default.
+        assert!(
+            gcode.contains("END_PRINT"),
+            "blank end should fall back: {gcode}"
+        );
+    }
+
     // ── Metadata header ────────────────────────────────────────────────────────
 
     #[test]
@@ -1877,11 +2234,8 @@ mod tests {
     #[test]
     fn test_klipper_dialect_set_fan_speed_indexed_defaults() {
         let d = KlipperDialect;
-        // P0 → fan, P1 → fan_hotend, P2 → fan_chamber, P3 → fan_aux
-        assert_eq!(
-            d.set_fan_speed_indexed(0, None, 1.0),
-            "SET_FAN_SPEED fan=fan speed=1.0000"
-        );
+        // P0 (part-cooling) → M106/M107; P1 → fan_hotend, P2 → fan_chamber, P3 → fan_aux
+        assert_eq!(d.set_fan_speed_indexed(0, None, 1.0), "M106 S255");
         assert_eq!(
             d.set_fan_speed_indexed(1, None, 0.0),
             "SET_FAN_SPEED fan=fan_hotend speed=0.0000"
@@ -1949,6 +2303,16 @@ mod tests {
             d.set_fan_speed_indexed(0, Some("side_blast"), 0.5),
             "SET_FAN_SPEED fan=side_blast speed=0.5000"
         );
+    }
+
+    #[test]
+    fn test_klipper_dialect_part_cooling_fan_uses_m106() {
+        // The default part-cooling fan (index 0, no name) must use M106/M107 —
+        // Klipper's `[fan]` object rejects SET_FAN_SPEED.
+        let d = KlipperDialect;
+        assert_eq!(d.set_fan_speed_indexed(0, None, 0.0), "M107");
+        assert_eq!(d.set_fan_speed_indexed(0, None, 1.0), "M106 S255");
+        assert_eq!(d.set_fan_speed_indexed(0, None, 0.5), "M106 S128");
     }
 
     #[test]
@@ -2201,10 +2565,15 @@ mod tests {
             ..SlicingParams::default()
         };
         let gcode = GcodeGenerator::new(GcodeFlavor::Klipper).generate(&[layer], &params);
-        // Both fans should use Klipper SET_FAN_SPEED syntax
+        // Part-cooling fan uses M106/M107 (Klipper's `[fan]` rejects SET_FAN_SPEED);
+        // named/auxiliary fans use SET_FAN_SPEED syntax.
         assert!(
-            gcode.contains("SET_FAN_SPEED fan=fan "),
+            gcode.contains("M106") || gcode.contains("M107"),
             "expected part-cooling fan command in:\n{gcode}"
+        );
+        assert!(
+            !gcode.contains("SET_FAN_SPEED fan=fan "),
+            "part-cooling fan must not use SET_FAN_SPEED fan=fan in:\n{gcode}"
         );
         assert!(
             gcode.contains("SET_FAN_SPEED fan=fan_chamber "),

@@ -1,66 +1,80 @@
 @use './settings';
 
-.printer {
-  display: flex;
-  flex-direction: column;
-  gap: var(--spacing-md);
-  padding: var(--spacing-lg);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-md);
-  background: var(--color-surface);
+// The master–detail manage layout fills the settings content area and scrolls
+// its two columns independently, so the page host must claim the full height.
+:host {
+  display: block;
+  height: 100%;
 }
 
-.printer-head {
-  display: flex;
-  align-items: center;
-  gap: var(--spacing-md);
-}
-
-.printer-meta {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--spacing-lg);
-}
-
-.meta {
-  font-size: var(--font-size-sm);
-  color: var(--color-text-secondary);
-}
-
-.meta-k {
+.profile-editor__gcode-hint {
+  margin: calc(-1 * var(--spacing-xs)) 0 var(--spacing-sm);
+  font-size: var(--font-size-xs);
+  line-height: 1.5;
   color: var(--color-text-tertiary);
-  margin-right: 6px;
+  word-break: break-word;
 }
 
-.printer-conn {
+.gcode-editor {
+  height: 180px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md, 8px);
+  overflow: hidden;
+}
+
+.gcode-editor--compact {
+  height: 96px;
+}
+
+.conn-test {
   display: flex;
   align-items: center;
-  gap: var(--spacing-md);
-  padding-top: var(--spacing-md);
-  border-top: 1px solid var(--color-border-light);
+  gap: var(--space-2, 8px);
 }
 
-.conn-status {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
+.conn-label {
   font-size: var(--font-size-sm);
   color: var(--color-text-secondary);
 }
 
-.conn-status .dot {
-  width: 8px;
-  height: 8px;
+.conn-dot {
+  flex: none;
+  width: 9px;
+  height: 9px;
   border-radius: 50%;
   background: var(--color-text-tertiary);
+  box-shadow: 0 0 0 3px var(--color-bg-tertiary);
+
+  &[data-state='online'] {
+    background: var(--color-success);
+    box-shadow: 0 0 0 3px var(--color-success-light);
+  }
+
+  &[data-state='checking'] {
+    background: var(--color-warning);
+    box-shadow: 0 0 0 3px var(--color-warning-light);
+    animation: conn-pulse 1.2s ease-in-out infinite;
+  }
+
+  &[data-state='cors'],
+  &[data-state='error'],
+  &[data-state='unsupported'] {
+    background: var(--color-warning);
+    box-shadow: 0 0 0 3px var(--color-warning-light);
+  }
+
+  &[data-state='offline'] {
+    background: var(--color-danger);
+    box-shadow: 0 0 0 3px var(--color-danger-light);
+  }
 }
 
-.conn-status.is-on .dot {
-  background: var(--color-success);
-}
-
-.soon {
-  margin-left: auto;
-  font-size: var(--font-size-xs);
-  color: var(--color-text-tertiary);
+@keyframes conn-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.4;
+  }
 }

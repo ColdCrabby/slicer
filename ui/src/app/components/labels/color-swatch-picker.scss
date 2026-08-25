@@ -1,0 +1,79 @@
+:host {
+  display: block;
+}
+
+.picker {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-md);
+}
+
+.picker__grid {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-sm);
+}
+
+.picker__row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--spacing-sm);
+}
+
+.picker__swatch {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  line-height: 0;
+  border: none;
+  border-radius: 50%;
+  cursor: pointer;
+  // The picker swatch shows the hue at full vibrancy so it's easy to tell
+  // apart — the *tinted* rendering is reserved for the label chip preview. The
+  // `light` row is the same hue lifted toward white, GitHub-style.
+  background: var(--label-color);
+  color: #fff;
+  --icon-size: 15px;
+  transition:
+    transform var(--duration-fast) var(--ease-standard),
+    box-shadow var(--duration-fast) var(--ease-standard);
+
+  nexus-icon {
+    display: inline-flex;
+  }
+
+  &[data-tone='light'] {
+    background: color-mix(in oklab, var(--label-color) 55%, white);
+    color: color-mix(in oklab, var(--label-color) 70%, black);
+  }
+
+  &:hover {
+    transform: scale(1.08);
+  }
+
+  &.is-selected {
+    box-shadow:
+      0 0 0 2px var(--color-surface),
+      0 0 0 4px var(--label-color);
+  }
+
+  &[data-tone='light'].is-selected {
+    box-shadow:
+      0 0 0 2px var(--color-surface),
+      0 0 0 4px color-mix(in oklab, var(--label-color) 55%, white);
+  }
+}
+
+.picker__preview {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-md);
+}
+
+.picker__preview-label {
+  font-size: var(--font-size-xs);
+  color: var(--color-text-tertiary);
+}

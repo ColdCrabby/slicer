@@ -1,0 +1,26 @@
+@if (celebration(); as c) {
+  <div class="celebrate" aria-hidden="true">
+    <span class="celebrate__flash"></span>
+
+    <div class="burst">
+      <span class="ring ring--1"></span>
+      <span class="ring ring--2"></span>
+      <span class="ring ring--3"></span>
+
+      @for (angle of sparks; track $index) {
+        <span class="spark" [style.transform]="'rotate(' + angle + 'deg)'"><i></i></span>
+      }
+
+      <div class="badge">
+        <nexus-icon [name]="c.icon" />
+      </div>
+    </div>
+
+    <div class="celebrate__text">
+      <span class="celebrate__title">{{ c.title }}</span>
+      @if (c.message) {
+        <span class="celebrate__msg">{{ c.message }}</span>
+      }
+    </div>
+  </div>
+}

@@ -1,6 +1,7 @@
 import { Injectable, computed, inject, signal } from '@angular/core';
 import { environment } from '../../environments/environment';
 import { SlicingParams } from '../../generated/slicer-engine-ws-client-message-v1';
+import type { ProfileSelection } from '../../generated/slicer-engine-ws-client-message-v1';
 import { DEFAULT_SETTINGS } from '../models/slice-settings.model';
 import { RuntimeOrchestrator } from '../runtime/application/runtime-orchestrator';
 import { RuntimeSession } from '../runtime/application/runtime-session';
@@ -10,6 +11,7 @@ import { RuntimeMeshInput, RuntimeSceneSnapshot } from '../runtime/domain/scene-
 import { createRuntime } from '../runtime/factory/runtime-factory';
 import { RuntimeEvent } from '../runtime/ports/runtime-events';
 import { NotificationService } from './notifications';
+import { ActiveSelection } from './profiles/active-selection';
 import { SceneEngine } from './scene-engine';
 import { AppVersion } from './app-version';
 import { ConnectionStatus, SlicerConnection } from './slicer-connection';
@@ -92,6 +94,7 @@ export class Slicer {
   private readonly slicerFile = inject(SlicerFile);
   private readonly notifications = inject(NotificationService);
   private readonly sceneEngine = inject(SceneEngine);
+  private readonly activeSelection = inject(ActiveSelection);
   private readonly appVersion = inject(AppVersion);
   private readonly runtimeMode = this.resolveRuntimeMode();
   private readonly runtime = createRuntime({
@@ -116,6 +119,8 @@ export class Slicer {
    * page and the viewer page share a single source of truth.
    */
   readonly selectedFile = this.slicerFile.selectedFile;
+  /** Workplate UUID of the current scene (the key sliced G-code is stored under). */
+  readonly currentRequestUuid = this.slicerFile.requestUuid;
   readonly settings = signal<SlicingParams>(DEFAULT_SETTINGS);
   readonly status = signal<SlicerStatus>('idle');
   readonly runtimeConnected = signal(false);
@@ -415,6 +420,29 @@ export class Slicer {
     this.settings.update((current) => ({ ...current, ...patch }));
   }
 
+  /**
+   * Build the structured slice request: the three active profiles (already in
+   * the engine's own shape — no mapping) plus the user's sparse override diff.
+   * The diff is every live setting that differs from the resolved profile
+   * baseline; the engine re-resolves `profiles → overrides` authoritatively.
+   */
+  private buildProfileSelection(): ProfileSelection {
+    const baseline = (this.activeSelection.sliceParams() ?? {}) as Record<string, unknown>;
+    const settings = this.settings() as unknown as Record<string, unknown>;
+    const overrides: Record<string, unknown> = {};
+    for (const key of Object.keys(settings)) {
+      if (JSON.stringify(settings[key]) !== JSON.stringify(baseline[key])) {
+        overrides[key] = settings[key];
+      }
+    }
+    return {
+      printer: this.activeSelection.printer(),
+      filament: this.activeSelection.filament(),
+      process: this.activeSelection.profile(),
+      overrides,
+    };
+  }
+
   async slice(): Promise<void> {
     // Guard: prevent concurrent slice operations
     if (
@@ -482,6 +510,7 @@ export class Slicer {
         model,
         scene,
         settings: this.settings() as unknown as Record<string, unknown>,
+        profiles: this.buildProfileSelection(),
       });
 
       // Record which objects this slice was produced from so the viewer can
@@ -548,6 +577,16 @@ export class Slicer {
 
   getHistory(): Promise<RuntimeHistorySession[]> {
     return this.orchestrator.getHistory();
+  }
+
+  /**
+   * Drop all persisted slicing history (and the engine's G-code cache, where
+   * applicable), then bump {@link historyVersion} so any history view refetches
+   * the now-empty list. No-op on the web/wasm runtime.
+   */
+  async clearHistory(): Promise<void> {
+    await this.orchestrator.clearHistory();
+    this.historyVersion.update((v) => v + 1);
   }
 
   async downloadHistorySession(session: RuntimeHistorySession): Promise<void> {

@@ -17,7 +17,7 @@
     [disabled]="disabled()"
     [attr.aria-label]="(label() || 'Range') + ' minimum'"
     (pointerdown)="activeThumb.set('low')"
-    (input)="onLowInput($any($event.target))"
+    (input)="onLowInput($event)"
   />
   <input
     type="range"
@@ -30,7 +30,7 @@
     [disabled]="disabled()"
     [attr.aria-label]="(label() || 'Range') + ' maximum'"
     (pointerdown)="activeThumb.set('high')"
-    (input)="onHighInput($any($event.target))"
+    (input)="onHighInput($event)"
   />
 </div>
 

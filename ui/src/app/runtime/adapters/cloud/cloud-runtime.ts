@@ -1,22 +1,23 @@
 import { Subscription } from 'rxjs';
 import {
-    ClientMessage,
-    SceneObjectSliceDto,
-    SlicingParams,
+  ClientMessage,
+  SceneObjectSliceDto,
+  SlicingParams,
 } from '../../../../generated/slicer-engine-ws-client-message-v1';
 import {
-    ServerMessage,
-    SessionSummary,
+  ServerMessage,
+  SessionSummary,
 } from '../../../../generated/slicer-engine-ws-server-message-v1';
+import { environment } from '../../../../environments/environment';
 import { SceneEngine } from '../../../services/scene-engine';
 import { SlicerConnection } from '../../../services/slicer-connection';
 import { SlicerFile } from '../../../services/slicer-file';
 import { RuntimeHistorySession } from '../../domain/history-models';
 import { RuntimePreviewSource } from '../../domain/preview-models';
 import {
-    RuntimeMeshInput,
-    RuntimeSceneOp,
-    RuntimeSceneSnapshot,
+  RuntimeMeshInput,
+  RuntimeSceneOp,
+  RuntimeSceneSnapshot,
 } from '../../domain/scene-commands';
 import { RuntimeSliceRequest, RuntimeSliceResult } from '../../domain/slice-commands';
 import { RuntimeEventBus } from '../../infrastructure/event-bus';
@@ -157,6 +158,14 @@ export class CloudRuntime implements RuntimePort {
     });
   }
 
+  async clearHistory(): Promise<void> {
+    this.requireReady();
+    const response = await fetch(`${environment.apiUrl}/history`, { method: 'DELETE' });
+    if (!response.ok) {
+      throw new Error(`DELETE /history failed (${response.status})`);
+    }
+  }
+
   async slice(request: RuntimeSliceRequest): Promise<RuntimeSliceResult> {
     this.requireReady();
     if (!this.ws.isConnected()) {
@@ -169,13 +178,20 @@ export class CloudRuntime implements RuntimePort {
       throw new Error('Missing uploaded file context. Upload a file before slicing.');
     }
 
-    const scene = this.buildSceneSnapshot(fileIds[0], request.scene);
-    const payload: ClientMessage = {
-      type: 'Slice',
-      request_uuid: requestUuid,
-      scene,
-      settings: request.settings as SlicingParams,
-    };
+    const scene = this.buildSceneSnapshot(fileIds, request.scene);
+    const payload: ClientMessage = request.profiles
+      ? {
+          type: 'Slice',
+          request_uuid: requestUuid,
+          scene,
+          profiles: request.profiles,
+        }
+      : {
+          type: 'Slice',
+          request_uuid: requestUuid,
+          scene,
+          settings: request.settings as SlicingParams,
+        };
 
     this.pendingSliceId = request.sliceId;
     this.ws.send(payload);
@@ -311,9 +327,12 @@ export class CloudRuntime implements RuntimePort {
   }
 
   private buildSceneSnapshot(
-    uploadFileId: string,
+    uploadFileIds: string[],
     requestScene?: RuntimeSceneSnapshot,
   ): SceneObjectSliceDto[] {
+    // Map the i-th scene object to the i-th uploaded file; extra instances
+    // (more objects than files) fall back to the first uploaded file.
+    const fileIdFor = (index: number): string => uploadFileIds[index] ?? uploadFileIds[0];
     const objects =
       requestScene?.objects ??
       this.sceneEngine.objects().map((object) => ({
@@ -328,7 +347,7 @@ export class CloudRuntime implements RuntimePort {
     if (objects.length === 0) {
       return [
         {
-          file_id: uploadFileId,
+          file_id: uploadFileIds[0],
           transform: {
             translation: [0, 0, 0],
             euler_xyz_deg: [0, 0, 0],
@@ -338,8 +357,8 @@ export class CloudRuntime implements RuntimePort {
       ];
     }
 
-    return objects.map((o) => ({
-      file_id: uploadFileId,
+    return objects.map((o, index) => ({
+      file_id: fileIdFor(index),
       transform: {
         translation: o.translation,
         euler_xyz_deg: o.euler_xyz_deg,

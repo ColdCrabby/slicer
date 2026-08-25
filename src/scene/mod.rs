@@ -13,7 +13,7 @@ pub mod transform;
 #[cfg(target_arch = "wasm32")]
 pub mod wasm;
 
-pub use bed::BedConfig;
+pub use bed::{BedConfig, BedShape};
 pub use loader::{load_bytes, load_path, MeshFormat};
 pub use ops::{OpReceipt, SceneError, SceneOp, SceneOptions};
 pub use state::{ObjectId, SceneObject, SceneState};
