@@ -16,6 +16,12 @@
 /// - 9  Support
 /// - 10 Seam  (synthetic — point marker at the outer-wall seam/start)
 /// - 11 OverhangPerimeter
+/// - 12 GapFill
+/// - 13 SolidInfill
+/// - 14 SupportInterface
+/// - 15 Brim
+/// - 16 PrimeTower
+/// - 17 InternalBridge
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) enum Role {
     OuterWall,
@@ -27,25 +33,40 @@ pub(super) enum Role {
     Other,
     /// Bridge extrusion spanning an unsupported gap.
     Bridge,
-    /// Skirt or brim line printed around the model.
+    /// Skirt line printed around the model.
     Skirt,
     /// Support structure material.
     Support,
+    /// Support interface / roof / floor material.
+    SupportInterface,
     /// Synthetic point-marker at the seam (start/end) of each outer-wall loop.
     /// Stored as a degenerate zero-length segment so the viewer can render it
     /// as a white dot without special-casing the block data format.
     Seam,
     /// Outer wall that is printed as an overhang perimeter.
     OverhangPerimeter,
+    /// Variable-width gap infill.
+    GapFill,
+    /// Dense internal solid infill.
+    SolidInfill,
+    /// Brim adhesion lines around the part.
+    Brim,
+    /// Prime / wipe tower extrusion.
+    PrimeTower,
+    /// Internal bridge infill.
+    InternalBridge,
 }
 
 impl Role {
     pub(super) fn from_type_comment(s: &str) -> Self {
         let lower = s.to_ascii_lowercase();
+        if lower.contains("internal bridge") {
+            return Self::InternalBridge;
+        }
         // Check bridge / overhang before any "bottom" or "outer" test so
         // "Bridge" isn't confused with "Bottom surface", and "Overhang wall"
         // isn't confused with a normal outer/inner wall.
-        if lower == "bridge" {
+        if lower == "bridge" || lower.contains("bridge infill") {
             return Self::Bridge;
         }
         // Match OrcaSlicer's exact `;TYPE:Overhang wall` so generic strings
@@ -53,6 +74,24 @@ impl Role {
         // promote a normal perimeter to bridge colouring.
         if lower == "overhang wall" || lower == "overhang perimeter" {
             return Self::OverhangPerimeter;
+        }
+        if lower.contains("gap infill") || lower.contains("gap fill") {
+            return Self::GapFill;
+        }
+        if lower.contains("support interface")
+            || lower.contains("support roof")
+            || lower.contains("support floor")
+        {
+            return Self::SupportInterface;
+        }
+        if lower.contains("prime tower") || lower.contains("wipe tower") {
+            return Self::PrimeTower;
+        }
+        if lower.contains("brim") && !lower.contains("skirt") {
+            return Self::Brim;
+        }
+        if lower.contains("internal solid infill") {
+            return Self::SolidInfill;
         }
         if lower.contains("skirt") || lower.contains("brim") {
             return Self::Skirt;
@@ -72,7 +111,10 @@ impl Role {
         if lower.contains("bottom") {
             return Self::BottomSurface;
         }
-        if lower.contains("infill") || lower.contains("sparse") || lower.contains("solid infill") {
+        if lower.contains("solid infill") {
+            return Self::SolidInfill;
+        }
+        if lower.contains("infill") || lower.contains("sparse") {
             return Self::Infill;
         }
         Self::Other
@@ -92,6 +134,12 @@ impl Role {
             Role::Support => 9,
             Role::Seam => 10,
             Role::OverhangPerimeter => 11,
+            Role::GapFill => 12,
+            Role::SolidInfill => 13,
+            Role::SupportInterface => 14,
+            Role::Brim => 15,
+            Role::PrimeTower => 16,
+            Role::InternalBridge => 17,
         }
     }
 }
