@@ -1,6 +1,7 @@
 import { ChangeDetectionStrategy, Component, computed, inject, signal } from '@angular/core';
 import { makeLabel, type Label, type LabelTone } from '../../models/label.model';
 import { ColorSwatchPicker } from '../../components/labels/color-swatch-picker';
+import { FieldShell } from '../../components/profiles/field-shell';
 import { LabelChip } from '../../components/labels/label-chip';
 import { ContextMenuService } from '../../services/context-menu/context-menu.service';
 import type { ContextMenuItem } from '../../services/context-menu/context-menu.model';
@@ -16,7 +17,16 @@ import { SectionHeader } from '../../ui/section-header/section-header';
 
 @Component({
   selector: 'nexus-settings-labels',
-  imports: [SectionHeader, EmptyState, Button, IconButton, Icon, LabelChip, ColorSwatchPicker],
+  imports: [
+    SectionHeader,
+    EmptyState,
+    Button,
+    IconButton,
+    Icon,
+    LabelChip,
+    ColorSwatchPicker,
+    FieldShell,
+  ],
   templateUrl: './labels.html',
   styleUrl: './labels.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,

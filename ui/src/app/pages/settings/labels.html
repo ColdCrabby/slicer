@@ -38,22 +38,26 @@
             <div class="profile-editor">
               <div class="profile-editor__group">
                 <label class="profile-editor__group-title">Name</label>
-                <input
-                  class="wz-input"
-                  placeholder="Label name"
-                  [value]="label.name"
-                  (input)="rename(label.id, $event)"
-                />
+                <nexus-field-shell>
+                  <input
+                    class="wz-input"
+                    placeholder="Label name"
+                    [value]="label.name"
+                    (input)="rename(label.id, $event)"
+                  />
+                </nexus-field-shell>
               </div>
               <div class="profile-editor__group">
                 <label class="profile-editor__group-title">Colour</label>
-                <nexus-color-swatch-picker
-                  [hue]="label.color"
-                  [tone]="label.tone"
-                  [previewName]="label.name || 'Preview'"
-                  (hueChange)="setHue(label.id, $event)"
-                  (toneChange)="setTone(label.id, $event)"
-                />
+                <nexus-field-shell description="Hue and tone used on chips across the app.">
+                  <nexus-color-swatch-picker
+                    [hue]="label.color"
+                    [tone]="label.tone"
+                    [previewName]="label.name || 'Preview'"
+                    (hueChange)="setHue(label.id, $event)"
+                    (toneChange)="setTone(label.id, $event)"
+                  />
+                </nexus-field-shell>
               </div>
             </div>
           }
