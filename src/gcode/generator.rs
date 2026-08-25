@@ -81,26 +81,58 @@ pub(crate) fn extrusion_for_move(
 
 /// Resolve the extrusion width for a path.
 ///
-/// Precedence: an explicit per-path width (Arachne bead width, bridge-flow
-/// reduction, …) always wins.  Otherwise the `line_width` setting overrides the
-/// nozzle-derived default for **solid infill and surfaces** when set (`> 0`);
-/// every other role falls back to its role default.
+/// Precedence (first match wins):
+/// 1. A per-role width override (`outer_wall_line_width`, `inner_wall_line_width`,
+///    `top_surface_line_width`, `sparse_infill_line_width`) when set (`> 0`) —
+///    but only for **constant-width** paths (`has_vertex_widths == false`). This
+///    is what lets a wall-width setting take effect even though the wall
+///    generator stamps an explicit, nozzle-derived width on every wall path.
+///    Variable-width Arachne beads (gap fill, tapered beads) are skipped here
+///    because they carry their own authoritative per-segment widths.
+/// 2. An explicit per-path width (Arachne bead width, bridge-flow reduction, …).
+/// 3. The generic `line_width` setting — but only for **solid infill and
+///    surfaces**, preserving the historical behaviour that walls ignore the
+///    global line width (their width comes from the wall generator).
+/// 4. The role's nozzle-derived default width.
 pub(crate) fn resolve_width_mm(
     explicit: Option<f64>,
+    has_vertex_widths: bool,
     role: crate::core::ExtrusionRole,
-    line_width: f64,
+    params: &SlicingParams,
 ) -> f64 {
+    use crate::core::ExtrusionRole;
+
+    // A per-role override wins over the constant, generator-stamped width for
+    // its role (walls included). Skipped for variable-width beads, whose
+    // per-vertex widths are authoritative and applied separately.
+    if !has_vertex_widths {
+        let role_override = match role {
+            ExtrusionRole::OuterWall | ExtrusionRole::OverhangPerimeter => {
+                params.outer_wall_line_width
+            }
+            ExtrusionRole::InnerWall => params.inner_wall_line_width,
+            ExtrusionRole::TopSurface | ExtrusionRole::BottomSurface => {
+                params.top_surface_line_width
+            }
+            ExtrusionRole::Infill => params.sparse_infill_line_width,
+            _ => 0.0,
+        };
+        if role_override > 0.0 {
+            return role_override;
+        }
+    }
+
     if let Some(w) = explicit {
         return w;
     }
+
+    // Generic `line_width` still applies only to solid infill and surfaces.
     let line_width_role = matches!(
         role,
-        crate::core::ExtrusionRole::Infill
-            | crate::core::ExtrusionRole::TopSurface
-            | crate::core::ExtrusionRole::BottomSurface
+        ExtrusionRole::Infill | ExtrusionRole::TopSurface | ExtrusionRole::BottomSurface
     );
-    if line_width > 0.0 && line_width_role {
-        line_width
+    if params.line_width > 0.0 && line_width_role {
+        params.line_width
     } else {
         role.default_width_mm()
     }
@@ -622,13 +654,19 @@ impl GcodeGenerator {
                     continue;
                 }
 
-                // Fetch the role and resolve the effective extrusion width
-                let role = layer.role_for_path(path_idx);
-                let width_mm =
-                    resolve_width_mm(layer.width_for_path(path_idx), role, params.line_width);
+                // Fetch the role and resolve the effective extrusion width.
                 // Per-vertex widths (variable-width beads) taper the flow along
-                // the path; `None` keeps the constant `width_mm`.
+                // the path; `None` keeps the constant `width_mm`. They also gate
+                // the per-role width override off, since such beads carry their
+                // own authoritative widths.
+                let role = layer.role_for_path(path_idx);
                 let raw_vertex_widths = layer.vertex_widths_for_path(path_idx);
+                let width_mm = resolve_width_mm(
+                    layer.width_for_path(path_idx),
+                    raw_vertex_widths.is_some(),
+                    role,
+                    params,
+                );
 
                 // Resolve per-role print speed.
                 let speed_mm_min = Self::effective_speed_mm_min(role, is_first_layer, params);
@@ -1268,39 +1306,152 @@ mod tests {
         );
     }
 
-    // ── Width resolution (line_width override) ─────────────────────────────────
+    // ── Width resolution (line_width + per-role overrides) ─────────────────────
+
+    /// A `SlicingParams` with a specific generic `line_width` and otherwise
+    /// default (all per-role overrides `0.0` = "derive").
+    fn params_with_line_width(line_width: f64) -> SlicingParams {
+        SlicingParams {
+            line_width,
+            ..SlicingParams::default()
+        }
+    }
 
     #[test]
-    fn resolve_width_explicit_always_wins() {
-        // An explicit per-path width (Arachne/bridge) is never overridden.
-        let w = resolve_width_mm(Some(0.55), crate::core::ExtrusionRole::Infill, 0.44);
+    fn resolve_width_explicit_wins_for_variable_width_beads() {
+        // A variable-width Arachne bead carries authoritative per-vertex widths,
+        // so its scalar explicit width is never overridden by a per-role setting.
+        let mut params = params_with_line_width(0.44);
+        params.outer_wall_line_width = 0.6;
+        params.sparse_infill_line_width = 0.6;
+        let w = resolve_width_mm(
+            Some(0.55),
+            true,
+            crate::core::ExtrusionRole::Infill,
+            &params,
+        );
         assert_eq!(w, 0.55);
-        let w = resolve_width_mm(Some(0.30), crate::core::ExtrusionRole::OuterWall, 0.44);
+        let w = resolve_width_mm(
+            Some(0.30),
+            true,
+            crate::core::ExtrusionRole::OuterWall,
+            &params,
+        );
         assert_eq!(w, 0.30);
     }
 
     #[test]
+    fn resolve_width_per_role_override_beats_explicit_constant_width() {
+        // Regression: the classic wall generator stamps every wall path with an
+        // explicit, nozzle-derived constant width and no per-vertex widths. A
+        // per-role wall override must still take effect — it is the whole point
+        // of `outer_wall_line_width` / `inner_wall_line_width`.
+        let mut params = params_with_line_width(0.0);
+        params.outer_wall_line_width = 0.6;
+        params.inner_wall_line_width = 0.3;
+        // `explicit = Some(0.4)` mimics a classic wall bead; no vertex widths.
+        assert_eq!(
+            resolve_width_mm(
+                Some(0.4),
+                false,
+                crate::core::ExtrusionRole::OuterWall,
+                &params
+            ),
+            0.6
+        );
+        assert_eq!(
+            resolve_width_mm(
+                Some(0.4),
+                false,
+                crate::core::ExtrusionRole::InnerWall,
+                &params
+            ),
+            0.3
+        );
+    }
+
+    #[test]
     fn resolve_width_line_width_applies_to_infill_and_surfaces() {
+        let params = params_with_line_width(0.44);
         for role in [
             crate::core::ExtrusionRole::Infill,
             crate::core::ExtrusionRole::TopSurface,
             crate::core::ExtrusionRole::BottomSurface,
         ] {
-            assert_eq!(resolve_width_mm(None, role, 0.44), 0.44, "{role:?}");
+            assert_eq!(
+                resolve_width_mm(None, false, role, &params),
+                0.44,
+                "{role:?}"
+            );
         }
     }
 
     #[test]
     fn resolve_width_line_width_ignored_for_walls_and_when_zero() {
-        // Walls keep their role default regardless of line_width.
+        // Walls keep their role default regardless of the generic line_width.
+        let params = params_with_line_width(0.44);
         assert_eq!(
-            resolve_width_mm(None, crate::core::ExtrusionRole::OuterWall, 0.44),
+            resolve_width_mm(None, false, crate::core::ExtrusionRole::OuterWall, &params),
             crate::core::ExtrusionRole::OuterWall.default_width_mm()
         );
         // line_width = 0 means "derive from nozzle" → role default.
+        let params = params_with_line_width(0.0);
         assert_eq!(
-            resolve_width_mm(None, crate::core::ExtrusionRole::Infill, 0.0),
+            resolve_width_mm(None, false, crate::core::ExtrusionRole::Infill, &params),
             crate::core::ExtrusionRole::Infill.default_width_mm()
+        );
+    }
+
+    #[test]
+    fn resolve_width_per_role_override_applies_to_walls() {
+        // A per-role wall override wins over the role default even though the
+        // generic line_width never applies to walls.
+        let mut params = params_with_line_width(0.0);
+        params.outer_wall_line_width = 0.5;
+        params.inner_wall_line_width = 0.6;
+        assert_eq!(
+            resolve_width_mm(None, false, crate::core::ExtrusionRole::OuterWall, &params),
+            0.5
+        );
+        assert_eq!(
+            resolve_width_mm(None, false, crate::core::ExtrusionRole::InnerWall, &params),
+            0.6
+        );
+        // OverhangPerimeter follows the outer-wall override.
+        assert_eq!(
+            resolve_width_mm(
+                None,
+                false,
+                crate::core::ExtrusionRole::OverhangPerimeter,
+                &params
+            ),
+            0.5
+        );
+    }
+
+    #[test]
+    fn resolve_width_per_role_override_beats_generic_line_width() {
+        // For infill, the per-role override wins over the generic line_width.
+        let mut params = params_with_line_width(0.44);
+        params.sparse_infill_line_width = 0.7;
+        params.top_surface_line_width = 0.35;
+        assert_eq!(
+            resolve_width_mm(None, false, crate::core::ExtrusionRole::Infill, &params),
+            0.7
+        );
+        assert_eq!(
+            resolve_width_mm(None, false, crate::core::ExtrusionRole::TopSurface, &params),
+            0.35
+        );
+        // Bottom surfaces share the top-surface override field.
+        assert_eq!(
+            resolve_width_mm(
+                None,
+                false,
+                crate::core::ExtrusionRole::BottomSurface,
+                &params
+            ),
+            0.35
         );
     }
 
@@ -1735,6 +1886,62 @@ mod tests {
         assert!(
             gcode.contains(";TYPE:Gap infill"),
             "gap fill must emit the OrcaSlicer ;TYPE:Gap infill label:\n{gcode}"
+        );
+    }
+
+    #[test]
+    fn per_role_line_width_flows_into_width_annotation() {
+        use clipper2::Path;
+        // A classic (non-Arachne) outer wall — the wall generator stamps an
+        // explicit, nozzle-derived constant width (0.40 mm) and no per-vertex
+        // widths. The configured `outer_wall_line_width` must still win and
+        // drive the `;WIDTH:` annotation. This is the regression: previously the
+        // explicit width shadowed the override, so walls printed at 0.40 mm.
+        let mut layer = SliceLayer::new(0.2);
+        let square: Path = vec![(0.0, 0.0), (10.0, 0.0), (10.0, 10.0), (0.0, 10.0)].into();
+        layer.paths.push(square);
+        layer.path_roles.push(crate::core::ExtrusionRole::OuterWall);
+        layer.path_widths.push(Some(0.40));
+
+        let params = SlicingParams {
+            outer_wall_line_width: 0.55,
+            ..SlicingParams::default()
+        };
+        let gcode = GcodeGenerator::new(GcodeFlavor::Marlin).generate(&[layer], &params);
+        assert!(
+            gcode.contains(";TYPE:Outer wall"),
+            "outer wall TYPE must be present:\n{gcode}"
+        );
+        assert!(
+            gcode.contains(";WIDTH:0.55mm"),
+            "per-role outer_wall_line_width must override the stamped 0.40 mm wall width:\n{gcode}"
+        );
+        assert!(
+            !gcode.contains(";WIDTH:0.40mm"),
+            "the stamped classic wall width must not survive the override:\n{gcode}"
+        );
+    }
+
+    #[test]
+    fn skirt_role_emits_type_and_width_annotation() {
+        use clipper2::Path;
+        // A Skirt path (adhesion helper) must annotate as `;TYPE:Skirt` with a
+        // `;WIDTH:` so previews classify it correctly once skirt geometry is
+        // generated.
+        let mut layer = SliceLayer::new(0.2);
+        let loop_path: Path = vec![(0.0, 0.0), (20.0, 0.0), (20.0, 20.0), (0.0, 20.0)].into();
+        layer.paths.push(loop_path);
+        layer.path_roles.push(crate::core::ExtrusionRole::Skirt);
+
+        let gcode =
+            GcodeGenerator::new(GcodeFlavor::Marlin).generate(&[layer], &SlicingParams::default());
+        assert!(
+            gcode.contains(";TYPE:Skirt"),
+            "skirt must emit ;TYPE:Skirt:\n{gcode}"
+        );
+        assert!(
+            gcode.contains(";WIDTH:0.40mm"),
+            "skirt must emit a ;WIDTH: annotation:\n{gcode}"
         );
     }
 
