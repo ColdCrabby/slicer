@@ -107,7 +107,7 @@ const PARAM_GROUPS: SchemaGroup[] = (() => {
       ),
     }))
     .filter((g) => g.fields.length > 0)
-    .sort((a, b) => order.get(a.name)! - order.get(b.name)!);
+    .sort((a, b) => (order.get(a.name) ?? 0) - (order.get(b.name) ?? 0));
 })();
 
 @Component({
