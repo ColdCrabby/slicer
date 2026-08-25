@@ -496,6 +496,50 @@ before generating solid infill lines.
 Both use `calculate_interior_region` — but with different `overlap_percent`
 values. Keep them consistent if the signature changes.
 
+### Thin Wall-Band Channels — Opened-Interior Surface Clip
+
+`calculate_interior_region` uses a **per-island _average_** wall count
+(`walls_per_island = ceil(total_wall_beads / outer_islands)`), so wherever a
+cross-section is _locally_ thinner than that average — the Benchy hull-side wall
+tips, the funnel-to-roof transitions, the cabin roof-ridge line, embossed
+calibration-cube logos — the interior estimate leaves a **thin sliver channel**
+(≤ ~1 mm). Arachne already fills that channel solid with wall + gap-fill beads,
+but wherever the geometry above (top) or below (bottom) recedes layer-over-layer
+the channel gets picked up as an "exposed" surface and filled with a
+**rectilinear zig-zag of sub-millimetre segments** — the "tiny extrudes that
+make no sense / weird top-surface spots on the sides" defect. The `classic`
+generator, whose uniform offsets fully consume the same cross-sections, emits
+_no_ surface there.
+
+Fix (`generate_top_bottom_surfaces_with_interior`): the top/bottom surface is
+clipped to a **morphologically _opened_ interior** — `open_interior_for_surface`
+erodes then dilates `interior_regions[i]` by
+`SURFACE_MIN_INTERIOR_WIDTH_NOZZLE_MULT × nozzle / 2` (2.5× → erase channels
+< 1.0 mm at 0.4 mm) — instead of the raw interior. A surface that lands entirely
+inside a thin channel therefore disappears, while genuine surfaces (deck, roof,
+funnel cap, cube top) keep their **full extent** (only their corners, which sit
+inside the walls, are rounded). Key points:
+
+- **The discriminator is the _interior_, not the strip.** A real fore-deck top
+  surface is an equally thin band; what separates it from an artifact is that it
+  sits on a _thick_ interior (real infill area) rather than a _thin_ wall-band
+  channel. Filtering the strip by its own width wrongly deletes legit thin
+  surfaces — do not do that.
+- **Dropped strips stay solid** via the wall + gap-fill beads that already fill
+  them, and — no longer being a `solid_region` — their gap-fill beads survive
+  `prune_redundant_gap_fill` (so the wall channel is filled with a proper
+  single centered bead instead of the zig-zag). Expect a small **gap_fill ↑ /
+  top+bottom_surface ↓** shift in the QA baselines.
+- **The absolute base cap (`i < bottom_layers`) is exempt** for bottom surfaces:
+  it is the bed-contact region and must stay fully solid for adhesion, so it
+  clips to the _full_ interior. Tapering artifacts only occur mid-model.
+- **Bridges are exempt** (they explicitly fill wall-band voids) — the opening is
+  applied only to the supported top/bottom solid surface, never to
+  `bridge_region` / `clip_to_void`.
+- Verified against `classic` with [tools/gcode-analysis/](tools/gcode-analysis/README.md):
+  the removed strips open no new wall-zone void (`voids.py`) and cross-role
+  double-extrusion drops (`overlap.py`).
+
 ### `generate_rectilinear_infill` — Scanline Even-Odd Fill
 
 The scanline fills cells using an even-odd intersection count (pairs of sorted
