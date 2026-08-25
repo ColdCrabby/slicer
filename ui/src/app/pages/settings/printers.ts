@@ -93,7 +93,7 @@ const PRINTER_PARAM_GROUPS = SETTING_CONTRACTS.find((c) => c.id === 'printer')!.
  * left with no renderable field are dropped entirely.
  */
 const PARAM_GROUPS: SchemaGroup[] = (() => {
-  const order = new Map(PRINTER_PARAM_GROUPS.map((name, index) => [name, index]));
+  const order = new Map<string, number>(PRINTER_PARAM_GROUPS.map((name, index) => [name, index]));
   return parseSchema(SLICING_PARAMS_SCHEMA)
     .groups.filter((g) => order.has(g.name))
     .map((g) => ({
