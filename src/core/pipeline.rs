@@ -199,6 +199,7 @@ pub fn process_mesh(
                 bridge_min_area_mm2: params.bridge_min_area_mm2,
                 bridge_noise_filter_mm: params.bridge_noise_filter_mm,
                 bridge_anchor_mm: params.bridge_anchor_mm,
+                infill_overlap_percent: params.infill_overlap_percent,
             },
             Some(&interior_regions),
         );
@@ -565,6 +566,7 @@ pub fn process_mesh_debug(
                 bridge_min_area_mm2: params.bridge_min_area_mm2,
                 bridge_noise_filter_mm: params.bridge_noise_filter_mm,
                 bridge_anchor_mm: params.bridge_anchor_mm,
+                infill_overlap_percent: params.infill_overlap_percent,
             },
             Some(&interior_regions),
         );
