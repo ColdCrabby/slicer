@@ -1,5 +1,6 @@
 //! Klipper firmware G-code dialect.
 
+use crate::gcode::stats::{self, SliceStatistics};
 use crate::gcode::GcodeDialect;
 use crate::settings::params::SlicingParams;
 
@@ -64,6 +65,18 @@ impl KlipperDialect {
 impl GcodeDialect for KlipperDialect {
     fn flavor_name(&self) -> &'static str {
         "Klipper"
+    }
+
+    /// Klipper-flavored header: the metadata block is delimited by
+    /// `; KLIPPER_HEADER_START` / `; KLIPPER_HEADER_END`, keeping it distinct
+    /// from the Marlin/Orca `HEADER_BLOCK` convention while carrying the same
+    /// slice statistics.
+    fn header(&self, params: &SlicingParams, stats: &SliceStatistics) -> Vec<String> {
+        let mut lines = vec!["; KLIPPER_HEADER_START".to_string()];
+        lines.extend(stats::metadata_lines(self.flavor_name(), stats));
+        lines.push("; KLIPPER_HEADER_END".to_string());
+        lines.extend(stats::settings_summary_lines(params));
+        lines
     }
 
     /// Default Klipper start script: delegates to the `START_PRINT` macro.

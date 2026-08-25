@@ -27,6 +27,16 @@ these notes and acknowledges contributors. `scripts/gen-changelog-draft.sh` and
   the start script. The active firmware dialect renders the correct form
   (Klipper `SET_PRESSURE_ADVANCE ADVANCE=…`, Marlin `M900 K…`). Leaving the value
   at `0` disables it, so existing output is unchanged.
+- **G-code metadata header** — every generated program now opens with a
+  flavor-specific metadata block (Marlin `HEADER_BLOCK_*`, Klipper
+  `KLIPPER_HEADER_*`) carrying the slicer version and timestamp, model name,
+  layer count, model height, filament usage (mm / cm³ / g), an estimated print
+  time, and the model bounding box. A new `filament_density_g_cm3` setting
+  (defaulting to PLA) drives the weight calculation. ([#15](https://github.com/max-scopp/slicer-engine/issues/15))
+- **Slice diagnostics & bed-type tracking** — a new `bed_type` setting is
+  recorded in the header (`; bed_type:`) for printer integration, and the `slice`
+  CLI now reports model height, filament usage, and the estimated print time in
+  both its human and JSON output. ([#11](https://github.com/max-scopp/slicer-engine/issues/11))
 - **Live versioning** — every build now reports its true version, derived from
   git tags at build time. Local development builds report `development` instead of
   a misleading fixed number.

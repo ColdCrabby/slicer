@@ -1,5 +1,6 @@
 //! Marlin firmware G-code dialect.
 
+use crate::gcode::stats::{self, SliceStatistics};
 use crate::gcode::GcodeDialect;
 use crate::settings::params::SlicingParams;
 
@@ -12,6 +13,17 @@ pub struct MarlinDialect;
 impl GcodeDialect for MarlinDialect {
     fn flavor_name(&self) -> &'static str {
         "Marlin"
+    }
+
+    /// OrcaSlicer / PrusaSlicer-style header: the metadata block is delimited by
+    /// `; HEADER_BLOCK_START` / `; HEADER_BLOCK_END` so downstream tools that
+    /// parse that convention (firmware, print farms, analytics) recognise it.
+    fn header(&self, params: &SlicingParams, stats: &SliceStatistics) -> Vec<String> {
+        let mut lines = vec!["; HEADER_BLOCK_START".to_string()];
+        lines.extend(stats::metadata_lines(self.flavor_name(), stats));
+        lines.push("; HEADER_BLOCK_END".to_string());
+        lines.extend(stats::settings_summary_lines(params));
+        lines
     }
 
     fn start_script(&self, params: &SlicingParams) -> Vec<String> {
