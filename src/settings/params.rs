@@ -839,6 +839,14 @@ Affects minimum feature resolution and all line-width calculations.
     #[serde(default = "SlicingParams::default_nozzle_diameter_mm")]
     pub nozzle_diameter_mm: f64,
 
+    #[schemars(description = "Build-plate surface type recorded in the G-code metadata header.
+
+Free-form label (e.g. `Textured PEI Plate`, `Cool Plate`, `Engineering Plate`).
+Purely informational: it is tracked for printer integration / diagnostics and
+does **not** affect slicing. Empty = omit the `; bed_type:` header line.", extend("x-group" = "Hardware"))]
+    #[serde(default)]
+    pub bed_type: String,
+
     #[schemars(description = "Non-print (travel) move speed in **mm/min**.
 
 Convert from mm/s by multiplying by 60. Fast travel reduces print time without affecting print quality.
@@ -1250,6 +1258,7 @@ impl Default for SlicingParams {
             filament_diameter_mm: Self::default_filament_diameter_mm(),
             filament_density_g_cm3: Self::default_filament_density_g_cm3(),
             nozzle_diameter_mm: Self::default_nozzle_diameter_mm(),
+            bed_type: String::new(),
             travel_speed_mm_min: Self::default_travel_speed_mm_min(),
             z_hop_mm: Self::default_z_hop_mm(),
             retract_mm: Self::default_retract_mm(),

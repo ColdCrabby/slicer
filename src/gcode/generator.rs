@@ -2303,6 +2303,29 @@ CHAMBER={chamber_temp} MATERIAL={filament_type}"
         );
     }
 
+    #[test]
+    fn test_bed_type_tracked_in_header_when_set() {
+        let params = SlicingParams {
+            bed_type: "Textured PEI Plate".to_string(),
+            ..SlicingParams::default()
+        };
+        let gcode = GcodeGenerator::new(GcodeFlavor::Marlin).generate(&[], &params);
+        assert!(
+            gcode.contains("; bed_type: Textured PEI Plate"),
+            "missing bed_type line: {gcode}"
+        );
+    }
+
+    #[test]
+    fn test_bed_type_omitted_when_empty() {
+        let gcode =
+            GcodeGenerator::new(GcodeFlavor::Marlin).generate(&[], &SlicingParams::default());
+        assert!(
+            !gcode.contains("; bed_type:"),
+            "bed_type line must be absent when unset: {gcode}"
+        );
+    }
+
     // ── resolve_gcode_source ───────────────────────────────────────────────────
 
     #[test]
