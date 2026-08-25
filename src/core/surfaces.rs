@@ -64,6 +64,22 @@ const SURFACE_MIN_ISLAND_MM2: f64 = 2.0;
 /// void regions; values smaller than 1.5 may leave convex corners unchained.
 const SERPENTINE_CONNECT_THRESHOLD: f64 = 2.0;
 
+/// Scan-row gap (as a multiple of `line_spacing`) beyond which every active
+/// serpentine chain is finalised **before** pairing.
+///
+/// Empty scan rows are elided from `scan_line_data` (only rows that produced at
+/// least one segment are recorded), so two consecutive recorded rows whose
+/// `scan_y` differ by more than this factor imply at least one fully-empty row
+/// between them — i.e. every current island ended and no chain may reconnect
+/// across the void.  Without this guard the serpentine chaining reconnects two
+/// islands that are separated **across** the scan axis but share the same
+/// **along**-strand band, extruding the connector straight over open space (the
+/// "phantom bridge" / extrude-over-thin-air defect).
+///
+/// A value of 1.5 sits cleanly between "adjacent row" (1.0×) and "≥1 skipped
+/// row" (≥2.0×), so it never fires on genuinely contiguous fill.
+const SERPENTINE_ROW_GAP_THRESHOLD: f64 = 1.5;
+
 /// Add solid infill for a computed surface `region` to a layer.
 ///
 /// Generates a rectilinear infill pattern covering only the provided `region`
@@ -880,13 +896,33 @@ pub(super) fn generate_rectilinear_infill(
     // (rare) case where an island shifts further than the threshold in a single
     // scan line step.
     let connect_threshold = line_spacing * SERPENTINE_CONNECT_THRESHOLD;
+    let row_gap_threshold = line_spacing * SERPENTINE_ROW_GAP_THRESHOLD;
 
     // Each element: (accumulated path points in rotated coords, last_x).
     let mut active: Vec<(Vec<(f64, f64)>, f64)> = Vec::new();
     // Completed chains — converted to output paths in Phase 3.
     let mut finished: Vec<Vec<(f64, f64)>> = Vec::new();
+    // `scan_y` of the previously processed (non-empty) row, to detect skipped
+    // empty rows that were elided from `scan_line_data`.
+    let mut prev_sy: Option<f64> = None;
 
     for (sy, segments) in &scan_line_data {
+        // A gap larger than `row_gap_threshold` between two recorded rows means
+        // at least one fully-empty scan row was elided between them, so every
+        // active island ended in that void.  Finalise **all** active chains
+        // before pairing; otherwise a chain would reconnect across the empty
+        // rows and extrude a connector over open space (the "phantom bridge").
+        if let Some(p) = prev_sy {
+            if *sy - p > row_gap_threshold {
+                for (pts, _) in active.drain(..) {
+                    if pts.len() >= 2 {
+                        finished.push(pts);
+                    }
+                }
+            }
+        }
+        prev_sy = Some(*sy);
+
         // Sort active chains left-to-right so they align with sorted segments.
         active.sort_unstable_by(|a, b| a.1.total_cmp(&b.1));
 
@@ -1959,5 +1995,97 @@ mod tests {
              bridge/wall double-extrusion; got {} paths",
             layer.paths.len()
         );
+    }
+
+    /// **Regression (issue #107)** — two fill islands that share an
+    /// **along**-strand band but are separated **across** the scan-progression
+    /// axis by empty scan rows must NOT be chained together.
+    ///
+    /// Before the fix, `generate_rectilinear_infill` elided the empty rows and
+    /// the serpentine chaining reconnected the two islands, emitting the
+    /// connector as an *extruding* move straight across the void (the "phantom
+    /// bridge" / extrude-over-thin-air defect that produced a ~25.6 mm `Bridge`
+    /// strand across the Voron cube's logo pocket on layer 131).
+    #[test]
+    fn test_infill_does_not_chain_across_empty_scan_rows() {
+        let line_spacing = 1.0;
+
+        // Two rectangles sharing the X-band [0, 4]; separated in Y by an 8 mm
+        // void (y ∈ (2, 10) is empty).  With angle 0° the scan lines are
+        // horizontal and progress along +Y, so the islands are separated along
+        // the scan axis with fully-empty rows between them.
+        let island_a: Path = vec![(0.0, 0.0), (4.0, 0.0), (4.0, 2.0), (0.0, 2.0)].into();
+        let island_b: Path = vec![(0.0, 10.0), (4.0, 10.0), (4.0, 12.0), (0.0, 12.0)].into();
+        let region = Paths::new(vec![island_a, island_b]);
+
+        let paths = generate_rectilinear_infill(&region, line_spacing, 0.0, 0.0);
+
+        assert!(!paths.is_empty(), "both islands must still be filled");
+
+        // No extruding segment may span a scan-axis (Y) gap larger than
+        // `SERPENTINE_ROW_GAP_THRESHOLD × line_spacing`.  A void-spanning
+        // connector would jump the full 8 mm between the islands.
+        let max_allowed = line_spacing * SERPENTINE_ROW_GAP_THRESHOLD;
+        for path in paths.iter() {
+            let verts: Vec<(f64, f64)> = path.iter().map(|p| (p.x(), p.y())).collect();
+            for w in verts.windows(2) {
+                let dy = (w[1].1 - w[0].1).abs();
+                assert!(
+                    dy <= max_allowed + 1e-6,
+                    "infill segment spans a {dy:.3} mm scan-axis gap (> {max_allowed} mm) — \
+                     the chain reconnected across the void"
+                );
+            }
+        }
+
+        // Both bands must still be covered (island A near y≈0–2, island B near
+        // y≈10–12) — the fix separates the chains, it must not drop either.
+        let ys: Vec<f64> = paths
+            .iter()
+            .flat_map(|p| p.iter().map(|pt| pt.y()))
+            .collect();
+        assert!(
+            ys.iter().any(|&y| y <= 2.5),
+            "island A (y∈[0,2]) must still be filled"
+        );
+        assert!(
+            ys.iter().any(|&y| y >= 9.5),
+            "island B (y∈[10,12]) must still be filled"
+        );
+    }
+
+    /// A single **contiguous** region must still produce one fully-chained
+    /// serpentine path: the gap-finalisation guard must not fire on adjacent
+    /// rows (whose `scan_y` differ by exactly one `line_spacing`).
+    #[test]
+    fn test_infill_single_region_chains_without_false_gap() {
+        let line_spacing = 1.0;
+        let rect: Path = vec![(0.0, 0.0), (4.0, 0.0), (4.0, 6.0), (0.0, 6.0)].into();
+        let region = Paths::new(vec![rect]);
+
+        let paths = generate_rectilinear_infill(&region, line_spacing, 0.0, 0.0);
+
+        assert_eq!(
+            paths.len(),
+            1,
+            "a convex contiguous region must remain a single serpentine chain"
+        );
+
+        // Every vertical step within the chain is exactly one line_spacing;
+        // there must be no gap the guard could have wrongly introduced.
+        let verts: Vec<(f64, f64)> = paths
+            .iter()
+            .next()
+            .unwrap()
+            .iter()
+            .map(|p| (p.x(), p.y()))
+            .collect();
+        for w in verts.windows(2) {
+            let dy = (w[1].1 - w[0].1).abs();
+            assert!(
+                dy <= line_spacing + 1e-6,
+                "unexpected {dy:.3} mm gap inside a contiguous serpentine chain"
+            );
+        }
     }
 }
