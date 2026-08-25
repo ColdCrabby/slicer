@@ -215,6 +215,10 @@ struct SliceResult {
     layer_count: usize,
     output_path: Option<PathBuf>,
     gcode_flavor: String,
+    /// Aggregate diagnostics for the slice (issue #11).
+    stats: crate::gcode::SliceStatistics,
+    /// Build-plate surface, when the profile specified one.
+    bed_type: Option<String>,
 }
 
 impl EmitPayload for SliceResult {
@@ -227,6 +231,18 @@ impl EmitPayload for SliceResult {
             "✓ Sliced {} into {} layers\n  Layer height: {} mm\n  G-code flavor: {}",
             self.input_name, self.layer_count, self.layer_height, self.gcode_flavor
         );
+        s.push_str(&format!("\n  Model height: {:.2} mm", self.stats.max_z_mm));
+        s.push_str(&format!(
+            "\n  Filament: {:.2} mm ({:.2} g)",
+            self.stats.filament_mm, self.stats.filament_g
+        ));
+        s.push_str(&format!(
+            "\n  Estimated print time: {}",
+            self.stats.estimated_time_human()
+        ));
+        if let Some(bed) = &self.bed_type {
+            s.push_str(&format!("\n  Bed type: {}", bed));
+        }
         if let Some(path) = &self.output_path {
             s.push_str(&format!("\n  Output: {}", path.display()));
         }
@@ -241,6 +257,17 @@ impl EmitPayload for SliceResult {
             "layer_count": self.layer_count,
             "gcode_flavor": self.gcode_flavor,
             "output": self.output_path.as_ref().map(|p| p.display().to_string()),
+            "bed_type": self.bed_type,
+            "statistics": {
+                "max_z_mm": self.stats.max_z_mm,
+                "filament_mm": self.stats.filament_mm,
+                "filament_cm3": self.stats.filament_cm3,
+                "filament_g": self.stats.filament_g,
+                "estimated_print_time_s": self.stats.estimated_print_time_s,
+                "estimated_print_time_human": self.stats.estimated_time_human(),
+                "bbox_min_mm": self.stats.bbox_min,
+                "bbox_max_mm": self.stats.bbox_max,
+            },
         })
     }
 }
@@ -550,7 +577,7 @@ impl SliceCommand {
         }
 
         let t_gcode = PhaseTimer::start(phases::GCODE_GENERATION, &logger);
-        let gcode = generator.generate(&layers, &slice_params);
+        let (gcode, stats) = generator.generate_with_stats(&layers, &slice_params);
         t_gcode.finish();
 
         // Determine output path
@@ -586,6 +613,8 @@ impl SliceCommand {
             layer_count: layers.len(),
             output_path,
             gcode_flavor: flavor.to_string(),
+            bed_type: Some(slice_params.bed_type.clone()).filter(|b| !b.trim().is_empty()),
+            stats,
         };
 
         emitter.emit(&result);
@@ -600,6 +629,21 @@ impl SliceCommand {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A non-zero sample statistics bundle for `SliceResult` tests.
+    fn sample_stats() -> crate::gcode::SliceStatistics {
+        crate::gcode::SliceStatistics {
+            layer_count: 5,
+            max_z_mm: 1.0,
+            filament_mm: 123.45,
+            filament_cm3: 0.3,
+            filament_g: 0.37,
+            estimated_print_time_s: 65.0,
+            bbox_min: [0.0, 0.0, 0.1],
+            bbox_max: [10.0, 10.0, 1.0],
+            model_name: Some("model".to_string()),
+        }
+    }
 
     #[test]
     fn test_slice_command_creation() {
@@ -793,6 +837,8 @@ mod tests {
             layer_count: 5,
             output_path: None,
             gcode_flavor: "marlin".to_string(),
+            bed_type: None,
+            stats: sample_stats(),
         };
         assert_eq!(r.schema(), "slicer-engine/slice-result-v1");
     }
@@ -805,12 +851,24 @@ mod tests {
             layer_count: 5,
             output_path: None,
             gcode_flavor: "marlin".to_string(),
+            bed_type: Some("Textured PEI Plate".to_string()),
+            stats: sample_stats(),
         };
         let s = r.display_human();
         assert!(s.contains("model.stl"));
         assert!(s.contains("0.2"));
         assert!(s.contains('5'));
         assert!(s.contains("marlin"));
+        // Diagnostics (issue #11) surface in the human output.
+        assert!(
+            s.contains("Estimated print time: 1m 5s"),
+            "missing time: {s}"
+        );
+        assert!(s.contains("Filament:"), "missing filament: {s}");
+        assert!(
+            s.contains("Bed type: Textured PEI Plate"),
+            "missing bed type: {s}"
+        );
     }
 
     #[test]
@@ -821,9 +879,13 @@ mod tests {
             layer_count: 5,
             output_path: None,
             gcode_flavor: "klipper".to_string(),
+            bed_type: None,
+            stats: sample_stats(),
         };
         let s = r.display_human();
         assert!(s.contains("klipper"));
+        // No bed type selected → no bed-type line.
+        assert!(!s.contains("Bed type:"), "unexpected bed type line: {s}");
     }
 
     #[test]
@@ -834,6 +896,8 @@ mod tests {
             layer_count: 5,
             output_path: Some(PathBuf::from("/some/path/model.gcode")),
             gcode_flavor: "marlin".to_string(),
+            bed_type: None,
+            stats: sample_stats(),
         };
         let s = r.display_human();
         assert!(s.contains("model.gcode"));
@@ -847,6 +911,8 @@ mod tests {
             layer_count: 5,
             output_path: None,
             gcode_flavor: "marlin".to_string(),
+            bed_type: Some("Cool Plate".to_string()),
+            stats: sample_stats(),
         };
         let v = r.to_json();
         assert_eq!(v["status"], "success");
@@ -854,6 +920,13 @@ mod tests {
         assert_eq!(v["layer_height"], 0.2);
         assert_eq!(v["layer_count"], 5);
         assert_eq!(v["gcode_flavor"], "marlin");
+        // Diagnostics (issue #11).
+        assert_eq!(v["bed_type"], "Cool Plate");
+        assert_eq!(v["statistics"]["filament_mm"], 123.45);
+        assert_eq!(v["statistics"]["filament_g"], 0.37);
+        assert_eq!(v["statistics"]["estimated_print_time_s"], 65.0);
+        assert_eq!(v["statistics"]["estimated_print_time_human"], "1m 5s");
+        assert_eq!(v["statistics"]["max_z_mm"], 1.0);
     }
 
     #[test]

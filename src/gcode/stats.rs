@@ -179,10 +179,17 @@ pub(crate) fn metadata_lines(flavor_name: &str, stats: &SliceStatistics) -> Vec<
 /// Kept as plain `; key: value` comments (terminated by `; ---`) so existing
 /// post-processors that grepped the original header keep working.
 pub(crate) fn settings_summary_lines(params: &SlicingParams) -> Vec<String> {
-    vec![
+    let mut lines = vec![
         format!("; layer_height: {} mm", params.layer_height),
         format!("; nozzle_temp: {} °C", params.nozzle_temp),
         format!("; bed_temp: {} °C", params.bed_temp),
+    ];
+    // Bed/plate surface is tracked for printer integration (issue #11); only
+    // emitted when the user actually selected one.
+    if !params.bed_type.trim().is_empty() {
+        lines.push(format!("; bed_type: {}", params.bed_type));
+    }
+    lines.extend([
         format!(
             "; print_speed: {} mm/s | perimeter: {} | infill: {} | bridge: {} | first_layer: {}",
             params.print_speed,
@@ -198,7 +205,8 @@ pub(crate) fn settings_summary_lines(params: &SlicingParams) -> Vec<String> {
         ),
         format!("; infill_density: {:.0}%", params.infill_density * 100.0),
         "; ---".to_string(),
-    ]
+    ]);
+    lines
 }
 
 #[cfg(test)]
