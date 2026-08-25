@@ -54,17 +54,55 @@ pub(crate) fn estimate_layer_time(layer: &SliceLayer, print_speed_mm_s: f64) -> 
 /// line of length `move_len` at the given `layer_height` with the configured
 /// nozzle and filament diameters.
 ///
-/// Formula: E = line_length × (layer_height × line_width) / (π × filament_radius²)
+/// Formula: E = line_length × (layer_height × line_width) / (π × filament_radius²) × flow_ratio
+///
+/// `flow_ratio` is the global volumetric flow multiplier (`1.0` = nominal); it
+/// scales the deposited volume to correct material-specific under/over-extrusion.
+/// A non-positive or non-finite ratio is treated as `1.0` so a malformed profile
+/// can never silently zero out (or reverse) all extrusion.
 pub(crate) fn extrusion_for_move(
     move_len: f64,
     layer_height: f64,
     width_mm: f64,
     filament_diameter_mm: f64,
+    flow_ratio: f64,
 ) -> f64 {
     let filament_radius = filament_diameter_mm / 2.0;
     let cross_section = layer_height * width_mm;
     let filament_area = std::f64::consts::PI * filament_radius.powi(2);
-    move_len * cross_section / filament_area
+    let flow = if flow_ratio.is_finite() && flow_ratio > 0.0 {
+        flow_ratio
+    } else {
+        1.0
+    };
+    move_len * cross_section / filament_area * flow
+}
+
+/// Resolve the extrusion width for a path.
+///
+/// Precedence: an explicit per-path width (Arachne bead width, bridge-flow
+/// reduction, …) always wins.  Otherwise the `line_width` setting overrides the
+/// nozzle-derived default for **solid infill and surfaces** when set (`> 0`);
+/// every other role falls back to its role default.
+pub(crate) fn resolve_width_mm(
+    explicit: Option<f64>,
+    role: crate::core::ExtrusionRole,
+    line_width: f64,
+) -> f64 {
+    if let Some(w) = explicit {
+        return w;
+    }
+    let line_width_role = matches!(
+        role,
+        crate::core::ExtrusionRole::Infill
+            | crate::core::ExtrusionRole::TopSurface
+            | crate::core::ExtrusionRole::BottomSurface
+    );
+    if line_width > 0.0 && line_width_role {
+        line_width
+    } else {
+        role.default_width_mm()
+    }
 }
 
 /// Substitute template placeholders in a marker string.
@@ -435,6 +473,15 @@ impl GcodeGenerator {
             out.push('\n');
         }
 
+        // The whole generator emits absolute E positions (accumulating `e_total`,
+        // `G92 E0` per layer).  A custom start script or a Klipper `START_PRINT`
+        // macro that primes / uses firmware retraction can leave the extruder in
+        // relative mode (`M83`), which would make every `G1 … E<e_total>` a
+        // relative extrusion of the full running total → gross over-extrusion.
+        // Force absolute mode and zero the counter so the invariant always holds.
+        out.push_str(&format!("{}\n", self.dialect.extruder_absolute_mode()));
+        out.push_str(&format!("{}\n", self.dialect.reset_extruder()));
+
         // ── Per-layer contours ────────────────────────────────────────────────
         let mut e_total = 0.0_f64;
         // Track previous fan speed per config index for rate limiting (aux overrides).
@@ -569,9 +616,8 @@ impl GcodeGenerator {
 
                 // Fetch the role and resolve the effective extrusion width
                 let role = layer.role_for_path(path_idx);
-                let width_mm = layer
-                    .width_for_path(path_idx)
-                    .unwrap_or_else(|| role.default_width_mm());
+                let width_mm =
+                    resolve_width_mm(layer.width_for_path(path_idx), role, params.line_width);
                 // Per-vertex widths (variable-width beads) taper the flow along
                 // the path; `None` keeps the constant `width_mm`.
                 let raw_vertex_widths = layer.vertex_widths_for_path(path_idx);
@@ -808,6 +854,7 @@ impl GcodeGenerator {
                                 params.layer_height,
                                 width_mm,
                                 params.filament_diameter_mm,
+                                params.flow_ratio,
                             );
                             out.push_str(&format!(
                                 "{}\n",
@@ -824,6 +871,7 @@ impl GcodeGenerator {
                                 params.layer_height,
                                 width_mm,
                                 params.filament_diameter_mm,
+                                params.flow_ratio,
                             );
                             out.push_str(&format!(
                                 "{}\n",
@@ -856,6 +904,7 @@ impl GcodeGenerator {
                                 params.layer_height,
                                 width_mm,
                                 params.filament_diameter_mm,
+                                params.flow_ratio,
                             );
                             out.push_str(&format!(
                                 "{} ; close contour\n",
@@ -872,6 +921,7 @@ impl GcodeGenerator {
                                 params.layer_height,
                                 width_mm,
                                 params.filament_diameter_mm,
+                                params.flow_ratio,
                             );
                             out.push_str(&format!(
                                 "{}\n",
@@ -950,6 +1000,7 @@ impl GcodeGenerator {
                             params.layer_height,
                             sw,
                             params.filament_diameter_mm,
+                            params.flow_ratio,
                         );
                         out.push_str(&format!(
                             "{}\n",
@@ -973,6 +1024,7 @@ impl GcodeGenerator {
                                 params.layer_height,
                                 width_mm,
                                 params.filament_diameter_mm,
+                                params.flow_ratio,
                             );
                             out.push_str(&format!(
                                 "{} ; close contour\n",
@@ -1119,8 +1171,131 @@ mod tests {
 
     #[test]
     fn test_extrusion_for_move_positive() {
-        let e = extrusion_for_move(10.0, 0.2, 0.4, 1.75);
+        let e = extrusion_for_move(10.0, 0.2, 0.4, 1.75, 1.0);
         assert!(e > 0.0, "extrusion must be positive");
+    }
+
+    #[test]
+    fn flow_ratio_scales_extrusion_linearly() {
+        let base = extrusion_for_move(10.0, 0.2, 0.4, 1.75, 1.0);
+        let double = extrusion_for_move(10.0, 0.2, 0.4, 1.75, 2.0);
+        let half = extrusion_for_move(10.0, 0.2, 0.4, 1.75, 0.5);
+        assert!((double - 2.0 * base).abs() < 1e-9, "flow 2.0 must double E");
+        assert!((half - 0.5 * base).abs() < 1e-9, "flow 0.5 must halve E");
+    }
+
+    #[test]
+    fn flow_ratio_non_positive_or_nan_falls_back_to_unity() {
+        let unity = extrusion_for_move(10.0, 0.2, 0.4, 1.75, 1.0);
+        for bad in [0.0, -1.0, f64::NAN, f64::INFINITY] {
+            let e = extrusion_for_move(10.0, 0.2, 0.4, 1.75, bad);
+            assert!(
+                (e - unity).abs() < 1e-9,
+                "flow_ratio {bad} must be treated as 1.0, got {e}"
+            );
+        }
+    }
+
+    #[test]
+    fn flow_ratio_scales_total_gcode_extrusion() {
+        use clipper2::Path;
+        let p1 = SlicingParams {
+            flow_ratio: 1.0,
+            ..SlicingParams::default()
+        };
+        let p2 = SlicingParams {
+            flow_ratio: 1.5,
+            ..SlicingParams::default()
+        };
+
+        let square: Path = vec![(0.0, 0.0), (10.0, 0.0), (10.0, 10.0), (0.0, 10.0)].into();
+        let mk = || {
+            let mut layer = SliceLayer::new(0.2);
+            layer.paths.push(square.clone());
+            layer
+        };
+        let total_e = |gcode: &str| -> f64 {
+            gcode
+                .lines()
+                .filter_map(|l| l.split_whitespace().find(|t| t.starts_with('E')))
+                .filter_map(|t| t[1..].parse::<f64>().ok())
+                .filter(|e| *e > 0.0)
+                .fold(0.0, f64::max)
+        };
+        let e1 = total_e(&generate_gcode(&[mk()], &p1));
+        let e2 = total_e(&generate_gcode(&[mk()], &p2));
+        assert!(e1 > 0.0 && e2 > 0.0, "both prints must extrude");
+        assert!(
+            (e2 / e1 - 1.5).abs() < 1e-3,
+            "1.5x flow_ratio must raise total extrusion 1.5x: {e1} -> {e2}"
+        );
+    }
+
+    // ── Width resolution (line_width override) ─────────────────────────────────
+
+    #[test]
+    fn resolve_width_explicit_always_wins() {
+        // An explicit per-path width (Arachne/bridge) is never overridden.
+        let w = resolve_width_mm(Some(0.55), crate::core::ExtrusionRole::Infill, 0.44);
+        assert_eq!(w, 0.55);
+        let w = resolve_width_mm(Some(0.30), crate::core::ExtrusionRole::OuterWall, 0.44);
+        assert_eq!(w, 0.30);
+    }
+
+    #[test]
+    fn resolve_width_line_width_applies_to_infill_and_surfaces() {
+        for role in [
+            crate::core::ExtrusionRole::Infill,
+            crate::core::ExtrusionRole::TopSurface,
+            crate::core::ExtrusionRole::BottomSurface,
+        ] {
+            assert_eq!(resolve_width_mm(None, role, 0.44), 0.44, "{role:?}");
+        }
+    }
+
+    #[test]
+    fn resolve_width_line_width_ignored_for_walls_and_when_zero() {
+        // Walls keep their role default regardless of line_width.
+        assert_eq!(
+            resolve_width_mm(None, crate::core::ExtrusionRole::OuterWall, 0.44),
+            crate::core::ExtrusionRole::OuterWall.default_width_mm()
+        );
+        // line_width = 0 means "derive from nozzle" → role default.
+        assert_eq!(
+            resolve_width_mm(None, crate::core::ExtrusionRole::Infill, 0.0),
+            crate::core::ExtrusionRole::Infill.default_width_mm()
+        );
+    }
+
+    // ── Absolute extrusion mode guarantee ──────────────────────────────────────
+
+    #[test]
+    fn klipper_forces_absolute_extrusion_after_start_print() {
+        let layer = SliceLayer::new(0.2);
+        let gcode =
+            GcodeGenerator::new(GcodeFlavor::Klipper).generate(&[layer], &SlicingParams::default());
+        let start = gcode.find("START_PRINT").expect("START_PRINT missing");
+        let m82 = gcode.find("M82").expect("M82 absolute mode missing");
+        assert!(
+            m82 > start,
+            "M82 must follow START_PRINT so a macro's M83 can't leave the extruder relative:\n{gcode}"
+        );
+        // And the counter is zeroed right after, before any extrusion.
+        assert!(
+            gcode.contains("G92 E0"),
+            "G92 E0 missing after start: {gcode}"
+        );
+    }
+
+    #[test]
+    fn marlin_output_is_in_absolute_extrusion_mode() {
+        let layer = SliceLayer::new(0.2);
+        let gcode =
+            GcodeGenerator::new(GcodeFlavor::Marlin).generate(&[layer], &SlicingParams::default());
+        assert!(
+            gcode.contains("M82"),
+            "Marlin output must set absolute E: {gcode}"
+        );
     }
 
     // ── Flavor enum ────────────────────────────────────────────────────────────
