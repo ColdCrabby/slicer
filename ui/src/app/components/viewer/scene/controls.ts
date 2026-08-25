@@ -279,6 +279,7 @@ export class SceneControls {
   dispose(): void {
     this.uninstallAutoscrollZoom();
     this.uninstallRendererPointerListeners();
+    this.uninstallWebKitGestureZoom();
     this.renderer.domElement.removeEventListener('wheel', this.wheelHandler, { capture: true });
   }
 
@@ -346,6 +347,78 @@ export class SceneControls {
     newDist = Math.max(this.controls.minDistance, Math.min(this.controls.maxDistance, newDist));
     const f = newDist / oldDist;
     this.camera.position.copy(target).add(offset.multiplyScalar(f));
+  };
+
+  // -------------------------------------------------------------------------
+  // WebKit trackpad pinch (Tauri/macOS)
+  // -------------------------------------------------------------------------
+
+  /**
+   * WKWebView (the Tauri desktop webview on macOS) does not synthesise the
+   * `ctrl`+wheel event that Chromium emits for a trackpad pinch — it fires the
+   * Safari-proprietary `gesturestart`/`gesturechange`/`gestureend` events
+   * instead. Without this handler pinch-to-zoom is silently dead in the desktop
+   * app (and the global `gesture*` blocker in index.html would eat the event
+   * anyway). We map the cumulative `scale` to the same cursor-anchored dolly the
+   * touch pinch uses. WebKit-only, so gating on {@link isMac} is sufficient —
+   * Chromium never fires these events, so there is no double-zoom.
+   */
+  private installWebKitGestureZoom(): void {
+    if (!this.isMac) {
+      return;
+    }
+    const el = this.renderer.domElement;
+    el.addEventListener('gesturestart', this.onGestureStart as EventListener, { passive: false });
+    el.addEventListener('gesturechange', this.onGestureChange as EventListener, { passive: false });
+    el.addEventListener('gestureend', this.onGestureEnd as EventListener, { passive: false });
+  }
+
+  private uninstallWebKitGestureZoom(): void {
+    if (!this.isMac) {
+      return;
+    }
+    const el = this.renderer.domElement;
+    el.removeEventListener('gesturestart', this.onGestureStart as EventListener);
+    el.removeEventListener('gesturechange', this.onGestureChange as EventListener);
+    el.removeEventListener('gestureend', this.onGestureEnd as EventListener);
+  }
+
+  private onGestureStart = (event: WebKitGestureEvent): void => {
+    if (!this.controls.enabled || !this.controls.enableZoom || this.autoscroll !== null) {
+      return;
+    }
+    event.preventDefault();
+    event.stopImmediatePropagation();
+    this.gestureActive = true;
+    this.gestureLastScale = event.scale || 1;
+  };
+
+  private onGestureChange = (event: WebKitGestureEvent): void => {
+    if (!this.gestureActive) {
+      return;
+    }
+    event.preventDefault();
+    event.stopImmediatePropagation();
+    if (!this.controls.enableZoom) {
+      return;
+    }
+    const scale = event.scale || this.gestureLastScale;
+    // Pinch open → scale grows → factor < 1 → zoom in (matches applyTouchDolly).
+    const factor = this.gestureLastScale / Math.max(scale, 1e-3);
+    this.gestureLastScale = scale;
+    if (Math.abs(factor - 1) < 1e-4) {
+      return;
+    }
+    this.applyTouchDolly(factor, event.clientX, event.clientY);
+  };
+
+  private onGestureEnd = (event: WebKitGestureEvent): void => {
+    if (!this.gestureActive) {
+      return;
+    }
+    event.preventDefault();
+    event.stopImmediatePropagation();
+    this.gestureActive = false;
   };
 
   // -------------------------------------------------------------------------
