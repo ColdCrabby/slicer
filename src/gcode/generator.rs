@@ -482,6 +482,19 @@ impl GcodeGenerator {
         out.push_str(&format!("{}\n", self.dialect.extruder_absolute_mode()));
         out.push_str(&format!("{}\n", self.dialect.reset_extruder()));
 
+        // ── Pressure / linear advance (opt-in; `0` disables) ──────────────────
+        // Emitted once, right after the start script, so it survives custom
+        // `START_PRINT` macros and firmware retraction that may otherwise leave
+        // the value at the printer's default.  The active dialect renders the
+        // firmware-correct form (Klipper `SET_PRESSURE_ADVANCE`, Marlin
+        // `M900 K`).
+        if params.pressure_advance > 0.0 {
+            out.push_str(&format!(
+                "{} ; pressure advance\n",
+                self.dialect.set_pressure_advance(params.pressure_advance)
+            ));
+        }
+
         // ── Per-layer contours ────────────────────────────────────────────────
         let mut e_total = 0.0_f64;
         // Track previous fan speed per config index for rate limiting (aux overrides).
@@ -1436,6 +1449,65 @@ mod tests {
         let d = KlipperDialect;
         let cmd = d.set_pressure_advance(0.05);
         assert_eq!(cmd, "SET_PRESSURE_ADVANCE ADVANCE=0.0500");
+    }
+
+    #[test]
+    fn test_marlin_dialect_set_pressure_advance_default() {
+        let d = MarlinDialect;
+        // Marlin uses the linear-advance `M900 K` form via the trait default.
+        assert_eq!(d.set_pressure_advance(0.05), "M900 K0.0500");
+    }
+
+    #[test]
+    fn test_generator_emits_pressure_advance_klipper() {
+        let mut params = SlicingParams::default();
+        params.pressure_advance = 0.035;
+        let gcode = GcodeGenerator::new(GcodeFlavor::Klipper).generate(&[], &params);
+        assert!(
+            gcode.contains("SET_PRESSURE_ADVANCE ADVANCE=0.0350 ; pressure advance"),
+            "Klipper pressure advance not emitted:\n{gcode}"
+        );
+    }
+
+    #[test]
+    fn test_generator_emits_pressure_advance_marlin() {
+        let mut params = SlicingParams::default();
+        params.pressure_advance = 0.06;
+        let gcode = GcodeGenerator::new(GcodeFlavor::Marlin).generate(&[], &params);
+        assert!(
+            gcode.contains("M900 K0.0600 ; pressure advance"),
+            "Marlin pressure advance not emitted:\n{gcode}"
+        );
+    }
+
+    #[test]
+    fn test_generator_omits_pressure_advance_when_zero() {
+        let params = SlicingParams::default(); // pressure_advance defaults to 0.0
+        let klipper = GcodeGenerator::new(GcodeFlavor::Klipper).generate(&[], &params);
+        let marlin = GcodeGenerator::new(GcodeFlavor::Marlin).generate(&[], &params);
+        assert!(
+            !klipper.contains("SET_PRESSURE_ADVANCE"),
+            "Klipper emitted pressure advance when disabled:\n{klipper}"
+        );
+        assert!(
+            !marlin.contains("M900 K"),
+            "Marlin emitted pressure advance when disabled:\n{marlin}"
+        );
+    }
+
+    #[test]
+    fn test_pressure_advance_emitted_after_start_script() {
+        let mut params = SlicingParams::default();
+        params.pressure_advance = 0.04;
+        let gcode = GcodeGenerator::new(GcodeFlavor::Klipper).generate(&[], &params);
+        let pa = gcode
+            .find("SET_PRESSURE_ADVANCE")
+            .expect("pressure advance present");
+        let start = gcode.find("START_PRINT").expect("start script present");
+        assert!(
+            pa > start,
+            "pressure advance must be emitted after the start script"
+        );
     }
 
     #[test]

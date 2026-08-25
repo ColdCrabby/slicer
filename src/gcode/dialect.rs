@@ -145,6 +145,18 @@ pub trait GcodeDialect: Send + Sync {
         }
     }
 
+    /// Set linear / pressure advance (the *K* factor).
+    ///
+    /// Pressure advance compensates for the pressure lag in the hotend, keeping
+    /// corners crisp and preventing bulging / gaps at speed changes.  The
+    /// default implementation targets Marlin's `M900 K<value>` linear-advance
+    /// command; Klipper overrides this with `SET_PRESSURE_ADVANCE ADVANCE=…`.
+    ///
+    /// `value` is the firmware K factor (typically `0.02`–`0.08`).
+    fn set_pressure_advance(&self, value: f64) -> String {
+        format!("M900 K{:.4}", value)
+    }
+
     /// Home all axes (`G28`).
     fn home_axes(&self) -> String {
         "G28".to_string()

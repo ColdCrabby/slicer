@@ -22,6 +22,11 @@ these notes and acknowledges contributors. `scripts/gen-changelog-draft.sh` and
 
 ### Added
 
+- **Pressure / linear advance output** — when a filament or process profile sets
+  a non-zero pressure-advance value it is now emitted to G-code once, right after
+  the start script. The active firmware dialect renders the correct form
+  (Klipper `SET_PRESSURE_ADVANCE ADVANCE=…`, Marlin `M900 K…`). Leaving the value
+  at `0` disables it, so existing output is unchanged.
 - **Live versioning** — every build now reports its true version, derived from
   git tags at build time. Local development builds report `development` instead of
   a misleading fixed number.
