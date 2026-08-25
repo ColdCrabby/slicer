@@ -104,6 +104,13 @@ impl GcodeDialect for KlipperDialect {
         format!("SET_PRESSURE_ADVANCE ADVANCE={:.4}", value)
     }
 
+    /// Klipper configures acceleration at runtime via `SET_VELOCITY_LIMIT`
+    /// rather than Marlin's `M204`.  Only the `ACCEL` field is set here; the
+    /// velocity cap is left to the printer's configured default.
+    fn set_acceleration(&self, accel: f64) -> String {
+        format!("SET_VELOCITY_LIMIT ACCEL={:.0}", accel)
+    }
+
     /// Named Klipper fans use `SET_FAN_SPEED fan=<name> speed=<0.0–1.0>`; the
     /// default part-cooling fan uses `M106`/`M107` instead.
     ///

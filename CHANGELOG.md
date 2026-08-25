@@ -22,6 +22,12 @@ these notes and acknowledges contributors. `scripts/gen-changelog-draft.sh` and
 
 ### Added
 
+- **Layer-type acceleration control** — new `acceleration`, `first_layer_acceleration`,
+  and `top_surface_acceleration` slicing parameters. When set, the slicer emits a
+  firmware acceleration command whenever the target changes — Klipper
+  `SET_VELOCITY_LIMIT ACCEL=…`, Marlin `M204 P…` — using a lower first-layer value
+  for adhesion and a distinct top-surface value for finish. All default to `0`
+  (disabled), so existing output is unchanged.
 - **Pressure / linear advance output** — when a filament or process profile sets
   a non-zero pressure-advance value it is now emitted to G-code once, right after
   the start script. The active firmware dialect renders the correct form
