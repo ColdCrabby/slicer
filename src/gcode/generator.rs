@@ -462,6 +462,44 @@ impl GcodeGenerator {
         }
     }
 
+    /// Resolve the target acceleration (mm/s²) for a path, or `None` when
+    /// acceleration control is disabled for it.
+    ///
+    /// Precedence (Phase 2 — layer-type acceleration):
+    /// 1. **First layer** → `first_layer_acceleration` (falls back to
+    ///    `acceleration`), applied to every role for adhesion.
+    /// 2. **Top surface** → `top_surface_acceleration` (falls back to
+    ///    `acceleration`).
+    /// 3. Everything else → `acceleration`.
+    ///
+    /// A resolved value of `0` (nothing configured) yields `None`, so no
+    /// firmware command is emitted and existing output is unchanged.
+    fn effective_acceleration(
+        role: crate::core::ExtrusionRole,
+        is_first_layer: bool,
+        params: &SlicingParams,
+    ) -> Option<f64> {
+        use crate::core::ExtrusionRole;
+        let normal = params.acceleration;
+        if is_first_layer {
+            let a = params.first_layer_acceleration;
+            let a = if a > 0.0 { a } else { normal };
+            return (a > 0.0).then_some(a);
+        }
+        let a = match role {
+            ExtrusionRole::TopSurface => {
+                let t = params.top_surface_acceleration;
+                if t > 0.0 {
+                    t
+                } else {
+                    normal
+                }
+            }
+            _ => normal,
+        };
+        (a > 0.0).then_some(a)
+    }
+
     /// Generate a complete G-code program from the given layers and parameters.
     ///
     /// The output is a single `String` with lines separated by `'\n'`.
@@ -539,6 +577,9 @@ impl GcodeGenerator {
         let mut total_filament_mm = 0.0_f64;
         // Track previous fan speed per config index for rate limiting (aux overrides).
         let mut prev_fan_speeds: Vec<Option<f64>> = vec![None; params.fan_configs.len()];
+        // Track the last emitted acceleration so we only emit a firmware
+        // command when the target changes (persists across layers).
+        let mut last_accel: Option<f64> = None;
 
         for (layer_index, layer) in layers.iter().enumerate() {
             let z_str = format!("{:.3}", layer.z);
@@ -683,6 +724,20 @@ impl GcodeGenerator {
 
                 // Resolve per-role print speed.
                 let speed_mm_min = Self::effective_speed_mm_min(role, is_first_layer, params);
+
+                // ── Adaptive acceleration (opt-in; emitted on change only) ────
+                // Set the firmware acceleration before this path's moves when the
+                // target differs from the last emitted value.  Disabled roles
+                // resolve to `None` and leave the previous limit in place.
+                if let Some(accel) = Self::effective_acceleration(role, is_first_layer, params) {
+                    if last_accel != Some(accel) {
+                        out.push_str(&format!(
+                            "{} ; acceleration\n",
+                            self.dialect.set_acceleration(accel)
+                        ));
+                        last_accel = Some(accel);
+                    }
+                }
 
                 // Apply Ramer-Douglas-Peucker simplification when a tolerance is
                 // set.  Constant-width paths use the plain pass; variable-width
@@ -1695,6 +1750,112 @@ mod tests {
         assert!(
             pa > start,
             "pressure advance must be emitted after the start script"
+        );
+    }
+
+    // ── Acceleration (Phase 2 — layer-type) ─────────────────────────────────────
+
+    /// Build a single-path layer at height `z` with the given role.
+    fn layer_with_role(z: f64, role: crate::core::ExtrusionRole) -> SliceLayer {
+        use clipper2::Path;
+        let mut layer = SliceLayer::new(z);
+        let square: Path = vec![(0.0, 0.0), (10.0, 0.0), (10.0, 10.0), (0.0, 10.0)].into();
+        layer.paths.push(square);
+        layer.path_roles.push(role);
+        layer
+    }
+
+    #[test]
+    fn test_marlin_dialect_set_acceleration_default() {
+        let d = MarlinDialect;
+        assert_eq!(d.set_acceleration(6000.0), "M204 P6000");
+    }
+
+    #[test]
+    fn test_klipper_dialect_set_acceleration() {
+        let d = KlipperDialect;
+        assert_eq!(d.set_acceleration(6000.0), "SET_VELOCITY_LIMIT ACCEL=6000");
+    }
+
+    #[test]
+    fn test_generator_emits_first_layer_then_normal_acceleration() {
+        use crate::core::ExtrusionRole;
+        let mut params = SlicingParams::default();
+        params.acceleration = 6000.0;
+        params.first_layer_acceleration = 2000.0;
+        // z=0.2 → first layer (layer_height 0.2); z=0.4 → subsequent.
+        let layers = [
+            layer_with_role(0.2, ExtrusionRole::OuterWall),
+            layer_with_role(0.4, ExtrusionRole::OuterWall),
+        ];
+        let gcode = GcodeGenerator::new(GcodeFlavor::Marlin).generate(&layers, &params);
+        let first = gcode.find("M204 P2000").expect("first-layer accel");
+        let normal = gcode.find("M204 P6000").expect("normal accel");
+        assert!(
+            first < normal,
+            "first-layer acceleration must precede the normal acceleration:\n{gcode}"
+        );
+    }
+
+    #[test]
+    fn test_generator_emits_top_surface_acceleration() {
+        use crate::core::ExtrusionRole;
+        let mut params = SlicingParams::default();
+        params.acceleration = 6000.0;
+        params.top_surface_acceleration = 9000.0;
+        // Non-first layer with a wall followed by a top surface.
+        let mut layer = SliceLayer::new(0.4);
+        let sq1: clipper2::Path = vec![(0.0, 0.0), (10.0, 0.0), (10.0, 10.0), (0.0, 10.0)].into();
+        let sq2: clipper2::Path = vec![(1.0, 1.0), (9.0, 1.0), (9.0, 9.0), (1.0, 9.0)].into();
+        layer.paths.push(sq1);
+        layer.path_roles.push(ExtrusionRole::OuterWall);
+        layer.paths.push(sq2);
+        layer.path_roles.push(ExtrusionRole::TopSurface);
+        let gcode = GcodeGenerator::new(GcodeFlavor::Klipper).generate(&[layer], &params);
+        let wall = gcode
+            .find("SET_VELOCITY_LIMIT ACCEL=6000")
+            .expect("normal accel");
+        let top = gcode
+            .find("SET_VELOCITY_LIMIT ACCEL=9000")
+            .expect("top-surface accel");
+        assert!(
+            wall < top,
+            "top-surface acceleration must follow the wall acceleration:\n{gcode}"
+        );
+    }
+
+    #[test]
+    fn test_generator_omits_acceleration_when_zero() {
+        use crate::core::ExtrusionRole;
+        let params = SlicingParams::default(); // all acceleration fields default to 0
+        let layers = [layer_with_role(0.4, ExtrusionRole::OuterWall)];
+        let marlin = GcodeGenerator::new(GcodeFlavor::Marlin).generate(&layers, &params);
+        let klipper = GcodeGenerator::new(GcodeFlavor::Klipper).generate(&layers, &params);
+        assert!(
+            !marlin.contains("M204 P"),
+            "Marlin emitted acceleration when disabled:\n{marlin}"
+        );
+        assert!(
+            !klipper.contains("SET_VELOCITY_LIMIT ACCEL="),
+            "Klipper emitted acceleration when disabled:\n{klipper}"
+        );
+    }
+
+    #[test]
+    fn test_generator_no_redundant_acceleration() {
+        use crate::core::ExtrusionRole;
+        let mut params = SlicingParams::default();
+        params.acceleration = 6000.0;
+        // Two non-first layers, same role → the accel command must appear once.
+        let layers = [
+            layer_with_role(0.4, ExtrusionRole::OuterWall),
+            layer_with_role(0.6, ExtrusionRole::OuterWall),
+        ];
+        let gcode = GcodeGenerator::new(GcodeFlavor::Marlin).generate(&layers, &params);
+        let count = gcode.matches("M204 P6000").count();
+        assert_eq!(
+            count, 1,
+            "acceleration should only be emitted on change:\n{gcode}"
         );
     }
 

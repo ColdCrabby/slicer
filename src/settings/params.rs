@@ -1116,6 +1116,40 @@ active filament profile at resolve time. Exposed to custom start G-code as `{fil
     pub pressure_advance: f64,
 
     #[schemars(
+        description = "Print acceleration for normal moves in mm/s². `0` disables acceleration control.
+
+When set, the slicer emits a firmware acceleration command whenever the target
+changes (Klipper `SET_VELOCITY_LIMIT ACCEL=…`, Marlin `M204 P…`). Lower values
+smooth motion and reduce ringing; higher values print faster.
+**Typical:** 3000–10000.",
+        extend("x-group" = "Speed")
+    )]
+    #[serde(default = "SlicingParams::default_acceleration")]
+    pub acceleration: f64,
+
+    #[schemars(
+        description = "First-layer acceleration in mm/s². `0` = use `acceleration`.
+
+A lower first-layer acceleration improves bed adhesion by giving the nozzle more
+dwell time. Applies to every role on the first layer.
+**Typical:** 1000–3000.",
+        extend("x-group" = "Speed")
+    )]
+    #[serde(default = "SlicingParams::default_first_layer_acceleration")]
+    pub first_layer_acceleration: f64,
+
+    #[schemars(
+        description = "Top-surface acceleration in mm/s². `0` = use `acceleration`.
+
+Solid top surfaces benefit from a distinct (often higher) acceleration for a
+smoother finish. Applies to top-surface solid infill.
+**Typical:** 5000–10000.",
+        extend("x-group" = "Speed")
+    )]
+    #[serde(default = "SlicingParams::default_top_surface_acceleration")]
+    pub top_surface_acceleration: f64,
+
+    #[schemars(
         description = "Number of initial layers with the part-cooling fan forced off.
 
 Improves adhesion of the first few layers.
@@ -1285,6 +1319,9 @@ impl Default for SlicingParams {
             chamber_temp: Self::default_chamber_temp(),
             filament_type: String::new(),
             pressure_advance: Self::default_pressure_advance(),
+            acceleration: Self::default_acceleration(),
+            first_layer_acceleration: Self::default_first_layer_acceleration(),
+            top_surface_acceleration: Self::default_top_surface_acceleration(),
             disable_fan_first_layers: Self::default_disable_fan_first_layers(),
             max_volumetric_speed: Self::default_max_volumetric_speed(),
             extruder_count: Self::default_extruder_count(),
@@ -1331,6 +1368,15 @@ impl SlicingParams {
         0.0
     }
     fn default_pressure_advance() -> f64 {
+        0.0
+    }
+    fn default_acceleration() -> f64 {
+        0.0
+    }
+    fn default_first_layer_acceleration() -> f64 {
+        0.0
+    }
+    fn default_top_surface_acceleration() -> f64 {
         0.0
     }
     fn default_disable_fan_first_layers() -> usize {

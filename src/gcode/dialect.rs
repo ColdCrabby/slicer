@@ -176,6 +176,16 @@ pub trait GcodeDialect: Send + Sync {
         format!("M900 K{:.4}", value)
     }
 
+    /// Set the printing acceleration in mm/s².
+    ///
+    /// Emitted whenever the slicer's target acceleration changes (per layer /
+    /// per role) so motion can be tuned for adhesion, surface finish, or speed.
+    /// The default implementation targets Marlin's `M204 P<accel>` (printing
+    /// acceleration); Klipper overrides this with `SET_VELOCITY_LIMIT ACCEL=…`.
+    fn set_acceleration(&self, accel: f64) -> String {
+        format!("M204 P{:.0}", accel)
+    }
+
     /// Home all axes (`G28`).
     fn home_axes(&self) -> String {
         "G28".to_string()
