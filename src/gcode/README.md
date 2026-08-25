@@ -313,14 +313,19 @@ re-emit `;WIDTH:` as the bead tapers past `WIDTH_MARKER_STEP_MM`.
 
 ### Extrusion width per role
 
-`resolve_width_mm(explicit, role, params)` decides the width used for both the
-extrusion flow and the `;WIDTH:` annotation. Precedence, first match wins:
+`resolve_width_mm(explicit, has_vertex_widths, role, params)` decides the width
+used for both the extrusion flow and the `;WIDTH:` annotation. Precedence, first
+match wins:
 
-1. **Explicit per-path width** — Arachne bead width or bridge-flow reduction.
-2. **Per-role override** — `outer_wall_line_width`, `inner_wall_line_width`,
+1. **Per-role override** — `outer_wall_line_width`, `inner_wall_line_width`,
    `top_surface_line_width` (top *and* bottom surfaces), or
-   `sparse_infill_line_width`, when set (`> 0`). Applies to that role whether it
-   is a wall or a fill; `OverhangPerimeter` follows the outer-wall override.
+   `sparse_infill_line_width`, when set (`> 0`) — but **only for constant-width
+   paths** (no per-vertex widths). This lets a wall-width setting take effect
+   even though the wall generator stamps an explicit, nozzle-derived width on
+   every wall path. `OverhangPerimeter` follows the outer-wall override.
+   Variable-width Arachne beads (gap fill, tapered beads) are skipped because
+   their per-vertex widths are authoritative.
+2. **Explicit per-path width** — Arachne bead width or bridge-flow reduction.
 3. **Generic `line_width`** — but only for solid infill and surfaces,
    preserving the rule that walls ignore the global line width (their width
    comes from the wall generator).
