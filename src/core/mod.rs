@@ -1236,6 +1236,7 @@ mod tests {
                 bridge_min_area_mm2: 0.0,
                 bridge_noise_filter_mm: 0.0,
                 bridge_anchor_mm: 0.0,
+                infill_overlap_percent: 0.25,
                 min_infill_extrusion_mm: 0.0,
             },
             None,
@@ -1506,6 +1507,7 @@ mod tests {
                 bridge_min_area_mm2: 1.0,
                 bridge_noise_filter_mm: 0.0,
                 bridge_anchor_mm: 0.0,
+                infill_overlap_percent: 0.25,
                 min_infill_extrusion_mm: 0.0,
             },
             None,
@@ -1564,6 +1566,7 @@ mod tests {
                 bridge_min_area_mm2: 0.0,
                 bridge_noise_filter_mm: 0.5,
                 bridge_anchor_mm: 0.0,
+                infill_overlap_percent: 0.25,
                 min_infill_extrusion_mm: 0.0,
             },
             None,
@@ -1620,6 +1623,7 @@ mod tests {
             bridge_min_area_mm2: 0.0,
             bridge_noise_filter_mm: 0.0,
             bridge_anchor_mm: anchor,
+            infill_overlap_percent: 0.25,
             min_infill_extrusion_mm: 0.0,
         };
 
@@ -1721,6 +1725,7 @@ mod tests {
                 bridge_min_area_mm2: 0.0, // disable area filter so small porthole still passes
                 bridge_noise_filter_mm: 0.0, // disable noise filter
                 bridge_anchor_mm: 0.0,    // disable anchor so result area is minimal / predictable
+                infill_overlap_percent: 0.25,
                 min_infill_extrusion_mm: 0.0,
             },
             Some(&interior_regions),
@@ -1780,6 +1785,7 @@ mod tests {
                 bridge_min_area_mm2: 0.0,
                 bridge_noise_filter_mm: 0.0,
                 bridge_anchor_mm: 0.0,
+                infill_overlap_percent: 0.25,
                 min_infill_extrusion_mm: 0.0,
             },
             None,
@@ -1897,6 +1903,7 @@ mod tests {
                 bridge_min_area_mm2: 0.0,
                 bridge_noise_filter_mm: 0.0,
                 bridge_anchor_mm: 0.4,
+                infill_overlap_percent: 0.25,
                 min_infill_extrusion_mm: 0.0,
             },
             None,
@@ -1997,6 +2004,7 @@ mod tests {
                 bridge_min_area_mm2: 0.0,
                 bridge_noise_filter_mm: 0.0,
                 bridge_anchor_mm: 0.5,
+                infill_overlap_percent: 0.25,
                 min_infill_extrusion_mm: 0.0,
             },
             None,
@@ -2087,6 +2095,7 @@ mod tests {
                 bridge_min_area_mm2: 0.0,
                 bridge_noise_filter_mm: 0.0,
                 bridge_anchor_mm: 0.5,
+                infill_overlap_percent: 0.25,
                 min_infill_extrusion_mm: 0.0,
             },
             Some(&interior_regions),

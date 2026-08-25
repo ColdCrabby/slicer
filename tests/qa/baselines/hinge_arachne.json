@@ -9,7 +9,7 @@
   "role_extrusion_mm": {
     "bottom_surface": 11794.0,
     "bridge": 141.0,
-    "gap_fill": 454.0,
+    "gap_fill": 515.6,
     "infill": 3383.2,
     "inner_wall": 10704.1,
     "outer_wall": 6372.6,

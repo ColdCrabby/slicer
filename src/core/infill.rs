@@ -215,14 +215,52 @@ pub fn add_infill_to_layers(
         };
 
         // Subtract the gap-fill bead footprint so sparse infill abuts — never
-        // re-extrudes over — the variable-width Arachne gap fill.  (Walls are
-        // already excluded by the interior-region inset; over-print of *inner*
-        // walls at locally-thick spots is a separate, anchor-sensitive concern.)
+        // re-extrudes over — the variable-width Arachne gap fill.
         let gap_fp = super::surfaces::compute_gap_fill_footprint(layer, nozzle_diameter_mm);
         let infill_area = if gap_fp.is_empty() {
             infill_area
         } else {
             let remaining = difference(infill_area, gap_fp, FillRule::Positive).unwrap_or_default();
+            if remaining.is_empty() {
+                return None;
+            }
+            remaining
+        };
+
+        // Subtract the actual **wall bead footprint** (grown by the configured
+        // perimeter gap) so sparse infill keeps its intended clearance from the
+        // *real* innermost wall, regardless of how far the interior-region
+        // estimate reached.  The interior inset assumes a uniform wall count per
+        // island; the Arachne generator places a *variable* number of beads, so
+        // on a layer whose islands differ in bead count the inset lands a whole
+        // bead-width too far out and sparse infill is laid on top of the inner
+        // wall (measurable "Inner wall × Sparse infill" double-extrusion).
+        // Clipping against the physical bead footprint is count- and
+        // width-agnostic and is a no-op where the inset was already correct
+        // (classic), so it removes only the genuine over-print.
+        //
+        // `NonZero` is required (not `Positive`): the wall footprint is a
+        // frame with CW hole sub-paths (the enclosed interior).  `Positive`
+        // would ignore those holes and treat the frame as a solid block,
+        // erasing the whole interior; `NonZero` respects the holes so only the
+        // wall band itself is subtracted.
+        let wall_fp = super::surfaces::compute_wall_bead_footprint(layer, nozzle_diameter_mm);
+        let infill_area = if wall_fp.is_empty() {
+            infill_area
+        } else {
+            let clearance = infill_perimeter_gap_mm.max(0.0);
+            let blocked = if clearance > 1e-9 {
+                clipper2::inflate(
+                    wall_fp,
+                    clearance,
+                    clipper2::JoinType::Round,
+                    clipper2::EndType::Polygon,
+                    2.0,
+                )
+            } else {
+                wall_fp
+            };
+            let remaining = difference(infill_area, blocked, FillRule::NonZero).unwrap_or_default();
             if remaining.is_empty() {
                 return None;
             }
