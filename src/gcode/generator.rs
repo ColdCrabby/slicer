@@ -465,12 +465,15 @@ impl GcodeGenerator {
     /// Resolve the target acceleration (mm/s²) for a path, or `None` when
     /// acceleration control is disabled for it.
     ///
-    /// Precedence (Phase 2 — layer-type acceleration):
-    /// 1. **First layer** → `first_layer_acceleration` (falls back to
-    ///    `acceleration`), applied to every role for adhesion.
-    /// 2. **Top surface** → `top_surface_acceleration` (falls back to
-    ///    `acceleration`).
-    /// 3. Everything else → `acceleration`.
+    /// Precedence (first match wins; each falls back to `acceleration`):
+    /// 1. **First layer** → `first_layer_acceleration`, applied to every role
+    ///    for adhesion.
+    /// 2. **Bridge / overhang** → `bridge_acceleration` (Phase 3 — geometry
+    ///    aware): strands printed into air get a low, steady acceleration.
+    /// 3. **Top surface** → `top_surface_acceleration`.
+    /// 4. **Outer wall** → `outer_wall_acceleration` (Phase 3): the visible
+    ///    perimeter gets a dedicated limit to reduce ringing.
+    /// 5. Everything else → `acceleration`.
     ///
     /// A resolved value of `0` (nothing configured) yields `None`, so no
     /// firmware command is emitted and existing output is unchanged.
@@ -481,20 +484,25 @@ impl GcodeGenerator {
     ) -> Option<f64> {
         use crate::core::ExtrusionRole;
         let normal = params.acceleration;
+        // Pick a role-specific override, falling back to the normal value when
+        // the override is unset (`0`).
+        let or_normal = |override_val: f64| {
+            if override_val > 0.0 {
+                override_val
+            } else {
+                normal
+            }
+        };
         if is_first_layer {
-            let a = params.first_layer_acceleration;
-            let a = if a > 0.0 { a } else { normal };
+            let a = or_normal(params.first_layer_acceleration);
             return (a > 0.0).then_some(a);
         }
         let a = match role {
-            ExtrusionRole::TopSurface => {
-                let t = params.top_surface_acceleration;
-                if t > 0.0 {
-                    t
-                } else {
-                    normal
-                }
+            ExtrusionRole::Bridge | ExtrusionRole::OverhangPerimeter => {
+                or_normal(params.bridge_acceleration)
             }
+            ExtrusionRole::TopSurface => or_normal(params.top_surface_acceleration),
+            ExtrusionRole::OuterWall => or_normal(params.outer_wall_acceleration),
             _ => normal,
         };
         (a > 0.0).then_some(a)
@@ -1856,6 +1864,76 @@ mod tests {
         assert_eq!(
             count, 1,
             "acceleration should only be emitted on change:\n{gcode}"
+        );
+    }
+
+    // ── Acceleration (Phase 3 — geometry aware) ─────────────────────────────────
+
+    #[test]
+    fn test_bridge_acceleration_applies_to_bridge_and_overhang() {
+        use crate::core::ExtrusionRole;
+        let mut params = SlicingParams::default();
+        params.acceleration = 6000.0;
+        params.bridge_acceleration = 1500.0;
+        for role in [ExtrusionRole::Bridge, ExtrusionRole::OverhangPerimeter] {
+            let layers = [layer_with_role(0.4, role)];
+            let gcode = GcodeGenerator::new(GcodeFlavor::Marlin).generate(&layers, &params);
+            assert!(
+                gcode.contains("M204 P1500"),
+                "bridge acceleration not applied to {role:?}:\n{gcode}"
+            );
+        }
+    }
+
+    #[test]
+    fn test_outer_wall_acceleration_applies_to_outer_wall_only() {
+        use crate::core::ExtrusionRole;
+        let mut params = SlicingParams::default();
+        params.acceleration = 6000.0;
+        params.outer_wall_acceleration = 3000.0;
+        // Outer wall → dedicated accel; inner wall → normal accel.
+        let mut layer = SliceLayer::new(0.4);
+        let sq1: clipper2::Path = vec![(0.0, 0.0), (10.0, 0.0), (10.0, 10.0), (0.0, 10.0)].into();
+        let sq2: clipper2::Path = vec![(1.0, 1.0), (9.0, 1.0), (9.0, 9.0), (1.0, 9.0)].into();
+        layer.paths.push(sq1);
+        layer.path_roles.push(ExtrusionRole::OuterWall);
+        layer.paths.push(sq2);
+        layer.path_roles.push(ExtrusionRole::InnerWall);
+        let gcode = GcodeGenerator::new(GcodeFlavor::Marlin).generate(&[layer], &params);
+        let outer = gcode.find("M204 P3000").expect("outer-wall accel");
+        let inner = gcode.find("M204 P6000").expect("inner-wall normal accel");
+        assert!(
+            outer < inner,
+            "outer-wall accel must precede inner-wall normal accel:\n{gcode}"
+        );
+    }
+
+    #[test]
+    fn test_first_layer_acceleration_overrides_bridge() {
+        use crate::core::ExtrusionRole;
+        let mut params = SlicingParams::default();
+        params.acceleration = 6000.0;
+        params.bridge_acceleration = 1500.0;
+        params.first_layer_acceleration = 2000.0;
+        // A bridge on the first layer must still use the first-layer accel.
+        let layers = [layer_with_role(0.2, ExtrusionRole::Bridge)];
+        let gcode = GcodeGenerator::new(GcodeFlavor::Marlin).generate(&layers, &params);
+        assert!(
+            gcode.contains("M204 P2000") && !gcode.contains("M204 P1500"),
+            "first-layer accel must win over bridge accel on the first layer:\n{gcode}"
+        );
+    }
+
+    #[test]
+    fn test_bridge_acceleration_falls_back_to_normal() {
+        use crate::core::ExtrusionRole;
+        let mut params = SlicingParams::default();
+        params.acceleration = 6000.0; // bridge_acceleration left at 0
+        let layers = [layer_with_role(0.4, ExtrusionRole::Bridge)];
+        let gcode = GcodeGenerator::new(GcodeFlavor::Marlin).generate(&layers, &params);
+        assert!(
+            gcode.contains("M204 P6000"),
+            "bridge role should fall back to the normal acceleration:\n{gcode}"
         );
     }
 

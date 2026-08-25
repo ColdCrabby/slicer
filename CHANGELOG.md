@@ -22,6 +22,13 @@ these notes and acknowledges contributors. `scripts/gen-changelog-draft.sh` and
 
 ### Added
 
+- **Geometry-aware acceleration** — new `outer_wall_acceleration` and
+  `bridge_acceleration` slicing parameters extend layer-type acceleration with
+  role-specific limits: a lower outer-wall value cuts ringing on visible
+  surfaces, and a low bridge/overhang value keeps flow steady over unsupported
+  spans. Precedence is first layer → bridge/overhang → top surface → outer wall
+  → normal, each falling back to `acceleration`. Both default to `0` (use the
+  normal value), so existing output is unchanged.
 - **Layer-type acceleration control** — new `acceleration`, `first_layer_acceleration`,
   and `top_surface_acceleration` slicing parameters. When set, the slicer emits a
   firmware acceleration command whenever the target changes — Klipper

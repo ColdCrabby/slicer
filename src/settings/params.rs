@@ -1150,6 +1150,29 @@ smoother finish. Applies to top-surface solid infill.
     pub top_surface_acceleration: f64,
 
     #[schemars(
+        description = "Outer-wall acceleration in mm/s². `0` = use `acceleration`.
+
+The outermost perimeter defines the visible surface; a lower, dedicated
+acceleration reduces ringing and ghosting on external walls.
+**Typical:** 2000–6000.",
+        extend("x-group" = "Speed")
+    )]
+    #[serde(default = "SlicingParams::default_outer_wall_acceleration")]
+    pub outer_wall_acceleration: f64,
+
+    #[schemars(
+        description = "Bridge / overhang acceleration in mm/s². `0` = use `acceleration`.
+
+Strands printed into air (bridge infill and overhang perimeters) cool and sag
+without support below; a low acceleration keeps flow steady and lets each strand
+tension before the nozzle moves on.
+**Typical:** 1000–3000.",
+        extend("x-group" = "Speed")
+    )]
+    #[serde(default = "SlicingParams::default_bridge_acceleration")]
+    pub bridge_acceleration: f64,
+
+    #[schemars(
         description = "Number of initial layers with the part-cooling fan forced off.
 
 Improves adhesion of the first few layers.
@@ -1322,6 +1345,8 @@ impl Default for SlicingParams {
             acceleration: Self::default_acceleration(),
             first_layer_acceleration: Self::default_first_layer_acceleration(),
             top_surface_acceleration: Self::default_top_surface_acceleration(),
+            outer_wall_acceleration: Self::default_outer_wall_acceleration(),
+            bridge_acceleration: Self::default_bridge_acceleration(),
             disable_fan_first_layers: Self::default_disable_fan_first_layers(),
             max_volumetric_speed: Self::default_max_volumetric_speed(),
             extruder_count: Self::default_extruder_count(),
@@ -1377,6 +1402,12 @@ impl SlicingParams {
         0.0
     }
     fn default_top_surface_acceleration() -> f64 {
+        0.0
+    }
+    fn default_outer_wall_acceleration() -> f64 {
+        0.0
+    }
+    fn default_bridge_acceleration() -> f64 {
         0.0
     }
     fn default_disable_fan_first_layers() -> usize {
