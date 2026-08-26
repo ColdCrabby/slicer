@@ -117,6 +117,7 @@ pub struct FilamentProfile {
 
     /// Sparse `SlicingParams` overrides this filament contributes
     /// (temperatures, cooling, flow, `filament_diameter_mm`).
+    #[schemars(schema_with = "crate::settings::params::slicing_params_schema")]
     #[serde(default)]
     pub params: serde_json::Value,
 }

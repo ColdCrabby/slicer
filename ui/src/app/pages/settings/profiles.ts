@@ -97,7 +97,12 @@ export class ProfilesSettings {
 
   protected readonly sourceLabels = PROFILE_SOURCE_LABELS;
 
-  /** Flat, sticky process-parameter sections rendered in the editor. */
+  /**
+   * Flat, sticky process-parameter sections rendered in the editor. Every
+   * field is always shown here — a profile is where you *author* presets (e.g.
+   * dialling in support settings you keep off by default), so unlike the live
+   * slice sidebar the editor never hides gated-off fields.
+   */
   protected readonly paramGroups = PARAM_GROUPS;
 
   protected readonly groupByOptions = [

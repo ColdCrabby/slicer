@@ -7,6 +7,23 @@ export interface EnumOption {
 
 export type FieldType = 'number' | 'integer' | 'boolean' | 'string';
 
+/**
+ * Conditional relevance rule for a field, mirroring the `x-relevant-when`
+ * JSON Schema extension emitted by the backend. The field is only relevant
+ * (and therefore rendered) when the sibling field named `field` currently
+ * satisfies the condition.
+ *
+ * Only scalar `equals` is supported for now. The shape intentionally leaves
+ * room for an `in?: unknown[]` variant to be added later without a breaking
+ * change.
+ */
+export interface FieldRelevance {
+  /** Key of the sibling gate field whose value is inspected. */
+  field: string;
+  /** The field is relevant when the gate value strictly equals this scalar. */
+  equals?: unknown;
+}
+
 export interface FieldDef {
   key: string;
   type: FieldType;
@@ -24,6 +41,12 @@ export interface FieldDef {
   group?: string;
   /** Populated when the field is an enum type. */
   enumOptions?: EnumOption[];
+  /**
+   * Conditional relevance rule from the `x-relevant-when` schema extension.
+   * When present, the field is only rendered while the gate condition holds
+   * against the current form value; when absent the field is always relevant.
+   */
+  relevantWhen?: FieldRelevance;
 }
 
 export interface SchemaGroup {
