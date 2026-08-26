@@ -25,7 +25,7 @@ export function isTauriHost(): boolean {
   };
   return Boolean(
     globals.__TAURI__ ||
-      globals.__TAURI_INTERNALS__ ||
-      globals.navigator?.userAgent?.includes('Tauri'),
+    globals.__TAURI_INTERNALS__ ||
+    globals.navigator?.userAgent?.includes('Tauri'),
   );
 }

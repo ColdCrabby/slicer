@@ -1,15 +1,15 @@
 import {
-    BoxGeometry,
-    DirectionalLight,
-    Group,
-    HemisphereLight,
-    Mesh,
-    MeshBasicMaterial,
-    type Object3D,
-    PerspectiveCamera,
-    Scene,
-    Vector3,
-    WebGLRenderer,
+  BoxGeometry,
+  DirectionalLight,
+  Group,
+  HemisphereLight,
+  Mesh,
+  MeshBasicMaterial,
+  type Object3D,
+  PerspectiveCamera,
+  Scene,
+  Vector3,
+  WebGLRenderer,
 } from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import type { PrintAreaConfig } from '../../../services/print-area';

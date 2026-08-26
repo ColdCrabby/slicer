@@ -123,7 +123,10 @@ export class PrinterConnectionService {
   private readonly pendingDetections = new Map<string, (result: PrinterDetectionResult) => void>();
 
   /** In-flight server sends → their progress task, keyed by `${printerId}:${uuid}`. */
-  private readonly sends = new Map<string, { taskId: string; timer: ReturnType<typeof setInterval> }>();
+  private readonly sends = new Map<
+    string,
+    { taskId: string; timer: ReturnType<typeof setInterval> }
+  >();
 
   /** Read-only view of every known printer status keyed by profile id. */
   readonly statuses = computed(() => this.statusMap());
@@ -211,7 +214,10 @@ export class PrinterConnectionService {
   ): void {
     const connection = printer.connection;
     if (!connection || connection.kind === 'none') {
-      this.notifications.error('No connection', `${printer.name} has no printer connection set up.`);
+      this.notifications.error(
+        'No connection',
+        `${printer.name} has no printer connection set up.`,
+      );
       return;
     }
 
@@ -319,7 +325,9 @@ export class PrinterConnectionService {
     }
   }
 
-  private fromServerStatus(msg: Extract<ServerMessage, { type: 'PrinterStatus' }>): PrinterLiveStatus {
+  private fromServerStatus(
+    msg: Extract<ServerMessage, { type: 'PrinterStatus' }>,
+  ): PrinterLiveStatus {
     if (!msg.online) {
       return {
         state: 'offline',
@@ -536,7 +544,11 @@ export class PrinterConnectionService {
 
     const base = buildBaseUrl(connection);
     if (!base) {
-      this.setStatus(printerId, { state: 'error', label: 'No host', message: 'No host configured.' });
+      this.setStatus(printerId, {
+        state: 'error',
+        label: 'No host',
+        message: 'No host configured.',
+      });
       return;
     }
 

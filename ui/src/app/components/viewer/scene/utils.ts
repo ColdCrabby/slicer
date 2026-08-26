@@ -1,4 +1,3 @@
-
 /**
  * Dispose all GPU-backed resources (geometry + materials) reachable from
  * `obj` by traversing its scene-graph subtree. Safe to call on any

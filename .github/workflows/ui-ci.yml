@@ -77,6 +77,13 @@ jobs:
       - name: Build UI
         run: pnpm --filter slicer-ui build
       # `@angular/build:unit-test` runs on Node + jsdom via Vitest; --watch=false
-      # guarantees a single run even if a TTY is present.
+      # guarantees a single run even if a TTY is present. Skip cleanly until the
+      # repo has its first spec — the builder errors ("No tests found") on an
+      # empty match, which would otherwise fail the gate.
       - name: Unit tests
-        run: pnpm --filter slicer-ui exec ng test --watch=false
+        run: |
+          if find ui/src \( -name '*.spec.ts' -o -name '*.test.ts' \) -print -quit | grep -q .; then
+            pnpm --filter slicer-ui exec ng test --watch=false
+          else
+            echo "No UI unit tests (*.spec.ts / *.test.ts) found — skipping."
+          fi

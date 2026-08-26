@@ -15,10 +15,7 @@ import {
   PrinterConnectionService,
   type PrinterDetectionResult,
 } from '../../services/printer-connection';
-import {
-  defaultGcodeTemplateIdForFlavor,
-  gcodeTemplatePatch,
-} from '../../models/gcode-templates';
+import { defaultGcodeTemplateIdForFlavor, gcodeTemplatePatch } from '../../models/gcode-templates';
 import { Icon } from '../../shared/icon/icon';
 import { Button } from '../../ui/button/button';
 import { NumberInput } from '../../ui/number-input/number-input';
@@ -41,7 +38,17 @@ const STEPS = ['Start', 'Basics', 'Build volume', 'Hardware'] as const;
 @Component({
   selector: 'nexus-printer-wizard',
   standalone: true,
-  imports: [WizardShell, CatalogPicker, FieldRow, NumberInput, Select, Switch, Segmented, Icon, Button],
+  imports: [
+    WizardShell,
+    CatalogPicker,
+    FieldRow,
+    NumberInput,
+    Select,
+    Switch,
+    Segmented,
+    Icon,
+    Button,
+  ],
   templateUrl: './printer-wizard.html',
   styleUrl: './printer-wizard.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,

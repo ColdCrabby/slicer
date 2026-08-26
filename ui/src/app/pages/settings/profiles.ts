@@ -1,4 +1,11 @@
-import { ChangeDetectionStrategy, Component, afterNextRender, computed, inject, signal } from '@angular/core';
+import {
+  ChangeDetectionStrategy,
+  Component,
+  afterNextRender,
+  computed,
+  inject,
+  signal,
+} from '@angular/core';
 import { ActivatedRoute, RouterLink } from '@angular/router';
 import { type PrintProfile } from '../../models/print-profile.model';
 import { PROFILE_SOURCE_LABELS } from '../../models/profile-source';
@@ -112,9 +119,11 @@ export class ProfilesSettings {
   /** Print profiles narrowed by the active label filter and the search query. */
   protected readonly filtered = computed(() => {
     const q = this.search().trim().toLowerCase();
-    return this.store.items().filter(
-      (p) => matchesAllLabels(p, this.labelFilter()) && (!q || p.name.toLowerCase().includes(q)),
-    );
+    return this.store
+      .items()
+      .filter(
+        (p) => matchesAllLabels(p, this.labelFilter()) && (!q || p.name.toLowerCase().includes(q)),
+      );
   });
 
   /** The filtered profiles bucketed into titled groups per the group-by mode. */
