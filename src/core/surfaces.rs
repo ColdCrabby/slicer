@@ -1401,10 +1401,15 @@ pub fn generate_top_bottom_surfaces_with_interior(
             //   infill *and* no bottom-surface infill for the porthole.
             //
             // The `interior_regions` clip is applied *after* the bridge/bottom
-            // split, but only to the `supported` (bottom-surface) portion: solid
-            // infill must stay in the infill zone so it doesn't overlap wall
-            // extrusions.  Bridges are exempt because they explicitly fill the
-            // gap that exists inside the wall band.
+            // split: the supported (bottom-surface) portion is clipped in
+            // `clip_bottom`, and the bridge portion in `clip_to_void`.  Both
+            // clip to the **morphologically-opened** interior so solid infill
+            // and bridge lines stay in genuine voids and reject thin
+            // (< ~1 mm) wall-band channels — the leaning/sloped-wall
+            // false-positive bridges the wall + gap-fill beads already fill.
+            // A real porthole / window / door-header / roof void is wider than
+            // the opening threshold, so it survives; a lean-induced sliver does
+            // not.
             let region =
                 difference(perimeters[i].clone(), covered, FillRule::EvenOdd).unwrap_or_default();
 
@@ -1509,9 +1514,30 @@ pub fn generate_top_bottom_surfaces_with_interior(
                 //
                 // We clip the candidate against **two** masks:
                 //
-                // 1. `interior_regions[i]` — the nominal infill area inside
-                //    the wall band.  Empty for "all-wall" cross-sections, so
-                //    the bridge gets fully suppressed there.
+                // 1. The **morphologically-opened** interior
+                //    (`open_interior_for_surface(interior_regions[i])`) — the
+                //    nominal infill area inside the wall band with wall-band
+                //    channels narrower than
+                //    `SURFACE_MIN_INTERIOR_WIDTH_NOZZLE_MULT × nozzle` (≈ 1 mm)
+                //    erased.  Empty for "all-wall" cross-sections, so the bridge
+                //    is fully suppressed there.
+                //
+                //    Opening (not the raw interior) is what kills the
+                //    **leaning/sloped-wall false-positive bridge** — the class
+                //    of defect reported on the Benchy hull-side deck edge and
+                //    sloped cabin front (layers ≈ 159–172).  There the wall
+                //    leans past ~45° so a thin unsupported strip survives the
+                //    d/2 support envelope, but that strip is already filled
+                //    solid by the wall + gap-fill beads on its own layer; laying
+                //    sparse bridge lines over it double-extrudes into the walls
+                //    and gap fill.  Because such a strip sits inside a *thin*
+                //    (< 1 mm) wall-band channel — never a real void — the
+                //    opening removes it while a genuine bridge over a real gap
+                //    (cabin roof, porthole / window closure) keeps its full
+                //    extent (it sits on a *thick* interior).  This mirrors the
+                //    supported-surface clip in `clip_bottom` / the top-surface
+                //    clip below, so bridge, bottom, and top surfaces all reject
+                //    the same thin channels consistently.
                 //
                 // 2. The layer's **physical wall-bead footprint** — every
                 //    OuterWall / InnerWall / OverhangPerimeter / GapFill
@@ -1531,12 +1557,18 @@ pub fn generate_top_bottom_surfaces_with_interior(
                     if candidate.is_empty() {
                         return candidate;
                     }
-                    // Step A — clip to nominal interior (when available).
+                    // Step A — clip to the morphologically-opened interior (when
+                    // available) so thin wall-band channels are rejected.
                     let after_interior = match interior_regions {
                         None => candidate,
                         Some(regs) if regs[i].is_empty() => return Paths::new(vec![]),
-                        Some(regs) => intersect(candidate, regs[i].clone(), FillRule::EvenOdd)
-                            .unwrap_or_default(),
+                        Some(regs) => {
+                            let opened = open_interior_for_surface(&regs[i], nozzle_diameter_mm);
+                            if opened.is_empty() {
+                                return Paths::new(vec![]);
+                            }
+                            intersect(candidate, opened, FillRule::EvenOdd).unwrap_or_default()
+                        }
                     };
                     if after_interior.is_empty() {
                         return after_interior;

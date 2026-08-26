@@ -571,12 +571,29 @@ inside the walls, are rounded). Key points:
 - **The absolute base cap (`i < bottom_layers`) is exempt** for bottom surfaces:
   it is the bed-contact region and must stay fully solid for adhesion, so it
   clips to the _full_ interior. Tapering artifacts only occur mid-model.
-- **Bridges are exempt** (they explicitly fill wall-band voids) — the opening is
-  applied only to the supported top/bottom solid surface, never to
-  `bridge_region` / `clip_to_void`.
+- **Bridges get the same opened-interior clip** (in `clip_to_void`, step A —
+  `intersect(candidate, open_interior_for_surface(interior_regions[i]))`). The
+  identical per-island-average under-deflation that spawns phantom _surfaces_
+  in a thin channel also fires a phantom **bridge** there: on the Benchy
+  hull-side deck edge and sloped cabin front (Arachne layers ≈ 159–172) the
+  wall leans past ~45°, a thin unsupported strip survives the d/2 support
+  envelope, and — because Arachne's average leaves a non-empty sliver interior
+  — the old raw-interior clip let a bridge fire and lay sparse lines straight
+  over the wall + gap-fill beads that already fill the channel (measured
+  `Gap infill × Bridge` and `Inner wall × Bridge` double-extrusion, absent from
+  `classic`). Opening the interior erases the sub-1 mm channel so the phantom
+  bridge vanishes and the strip stays solid via its walls + gap fill, while a
+  **genuine** bridge over a _wide_ void (cabin roof, porthole / window / door-
+  header closure) sits on a _thick_ interior and keeps its full extent. The
+  wall-bead-footprint subtraction (step B) is unchanged. Bridges remain exempt
+  from any clip that would reshape `interior_regions` itself — only the bridge
+  _candidate_ is clipped, never `bridge_region` detection input, so bridge
+  classification is untouched.
 - Verified against `classic` with [tools/gcode-analysis/](tools/gcode-analysis/README.md):
   the removed strips open no new wall-zone void (`voids.py`) and cross-role
-  double-extrusion drops (`overlap.py`).
+  double-extrusion drops (`overlap.py`). After the bridge clip, every
+  `… × Bridge` overlap pair on the Benchy matches `classic` to within noise
+  (`Gap infill × Bridge` 8.6 → 0, `Inner wall × Bridge` 8.3 → 0.16 = classic).
 
 ### `generate_rectilinear_infill` — Scanline Even-Odd Fill
 
