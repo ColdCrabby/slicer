@@ -22,6 +22,7 @@ import { SETTING_CONTRACTS } from '../../models/setting-contract';
 import globalSettingsSchema from '../../../schemas/slicer-engine-global-settings-v1.json';
 import { parseSchema } from '../../schema-form/models/schema-parser';
 import type { SchemaGroup } from '../../schema-form/models/field-def';
+import { collectFieldDefaults, filterRelevantGroups } from '../../schema-form/models/relevance';
 import {
   CUSTOM_TEMPLATE_ID,
   GCODE_PLACEHOLDER_HINT,
@@ -109,6 +110,12 @@ const PARAM_GROUPS: SchemaGroup[] = (() => {
     .filter((g) => g.fields.length > 0)
     .sort((a, b) => (order.get(a.name) ?? 0) - (order.get(b.name) ?? 0));
 })();
+
+/**
+ * Engine defaults for every slice parameter, overlaid beneath a printer's
+ * sparse `params` so `x-relevant-when` gates evaluate against effective values.
+ */
+const PARAM_DEFAULTS = collectFieldDefaults(parseSchema(SLICING_PARAMS_SCHEMA).fields);
 
 @Component({
   selector: 'nexus-settings-printers',
@@ -397,8 +404,19 @@ export class PrintersSettings {
   protected readonly pnum = paramNum;
   protected readonly pstr = paramStr;
 
-  /** Slice-parameter groups (Hardware, Retraction) rendered from the schema. */
-  protected readonly paramGroups = PARAM_GROUPS;
+  /**
+   * Slice-parameter groups (Hardware, Retraction) for the selected printer,
+   * with `x-relevant-when` gates applied against the effective (defaults +
+   * overrides) values. Reactive to the selected printer's `params`. Falls back
+   * to the ungated groups when nothing is selected.
+   */
+  protected readonly paramGroups = computed(() => {
+    const printer = this.selected();
+    if (!printer) {
+      return PARAM_GROUPS;
+    }
+    return filterRelevantGroups(PARAM_GROUPS, { ...PARAM_DEFAULTS, ...this.paramsOf(printer) });
+  });
 
   protected update(id: string, patch: Partial<PrinterProfile>): void {
     this.store.update(id, patch);

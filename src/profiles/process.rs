@@ -40,6 +40,7 @@ pub struct ProcessProfile {
     /// Sparse `SlicingParams` overrides this profile contributes (e.g.
     /// `layer_height`, `wall_count`, `wall_generator`, `print_speed`,
     /// `infill_density`, `seam_position`, adhesion/support keys).
+    #[schemars(schema_with = "crate::settings::params::slicing_params_schema")]
     #[serde(default)]
     pub params: serde_json::Value,
 }

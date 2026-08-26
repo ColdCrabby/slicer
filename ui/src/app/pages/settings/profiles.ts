@@ -13,6 +13,7 @@ import { SETTING_CONTRACTS } from '../../models/setting-contract';
 import globalSettingsSchema from '../../../schemas/slicer-engine-global-settings-v1.json';
 import { parseSchema } from '../../schema-form/models/schema-parser';
 import type { SchemaGroup } from '../../schema-form/models/field-def';
+import { collectFieldDefaults, filterRelevantGroups } from '../../schema-form/models/relevance';
 import { CloudCatalog } from '../../services/catalog/cloud-catalog';
 import { ContextMenuService } from '../../services/context-menu/context-menu.service';
 import type { ContextMenuItem } from '../../services/context-menu/context-menu.model';
@@ -64,6 +65,13 @@ const PARAM_GROUPS: SchemaGroup[] = (() => {
     .sort((a, b) => order.get(a.name)! - order.get(b.name)!);
 })();
 
+/**
+ * Engine defaults for every slice parameter, overlaid beneath a profile's
+ * sparse `params` so `x-relevant-when` gates (e.g. brim fields only when
+ * `adhesion_type = brim`) evaluate against the effective values.
+ */
+const PARAM_DEFAULTS = collectFieldDefaults(parseSchema(SLICING_PARAMS_SCHEMA).fields);
+
 @Component({
   selector: 'nexus-settings-profiles',
   imports: [
@@ -97,8 +105,21 @@ export class ProfilesSettings {
 
   protected readonly sourceLabels = PROFILE_SOURCE_LABELS;
 
-  /** Flat, sticky process-parameter sections rendered in the editor. */
-  protected readonly paramGroups = PARAM_GROUPS;
+  /**
+   * Process-parameter sections for the selected profile, with `x-relevant-when`
+   * gates applied: fields whose gate is unmet (e.g. brim width when the profile
+   * isn't using a brim) are hidden, and any section left empty is dropped.
+   * Reactive to the selected profile's `params`, so toggling a gate field shows
+   * or hides its dependents live. Falls back to the ungated groups when no
+   * profile is selected.
+   */
+  protected readonly paramGroups = computed(() => {
+    const profile = this.selected();
+    if (!profile) {
+      return PARAM_GROUPS;
+    }
+    return filterRelevantGroups(PARAM_GROUPS, { ...PARAM_DEFAULTS, ...this.paramsOf(profile) });
+  });
 
   protected readonly groupByOptions = [
     { value: 'label', label: 'Labels' },

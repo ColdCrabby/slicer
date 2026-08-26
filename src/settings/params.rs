@@ -1233,14 +1233,14 @@ Caps print speed so the hotend can keep up with the flow.
 
     #[schemars(
         description = "Support style: `normal` (grid) or `tree` (organic). Generation pending.",
-        extend("x-group" = "Support")
+        extend("x-group" = "Support", "x-relevant-when" = serde_json::json!({"field": "support_enabled", "equals": true}))
     )]
     #[serde(default)]
     pub support_type: SupportType,
 
     #[schemars(
         description = "Support infill density as a fraction (0.0–1.0). Generation pending.",
-        extend("x-group" = "Support")
+        extend("x-group" = "Support", "x-relevant-when" = serde_json::json!({"field": "support_enabled", "equals": true}))
     )]
     #[serde(default = "SlicingParams::default_support_density")]
     pub support_density: f64,
@@ -1254,56 +1254,56 @@ Caps print speed so the hotend can keep up with the flow.
 
     #[schemars(
         description = "Brim width in mm (when `adhesion_type = brim`).",
-        extend("x-group" = "Adhesion")
+        extend("x-group" = "Adhesion", "x-relevant-when" = serde_json::json!({"field": "adhesion_type", "equals": "brim"}))
     )]
     #[serde(default = "SlicingParams::default_brim_width")]
     pub brim_width: f64,
 
     #[schemars(
         description = "Where brim material is placed: `outer_only`, `inner_only`, `outer_and_inner`, or `ears`.",
-        extend("x-group" = "Adhesion")
+        extend("x-group" = "Adhesion", "x-relevant-when" = serde_json::json!({"field": "adhesion_type", "equals": "brim"}))
     )]
     #[serde(default)]
     pub brim_type: BrimType,
 
     #[schemars(
         description = "Gap in mm between the brim and the object's first-layer contour (a.k.a. brim separation / offset). `0` fuses the brim directly onto the wall.",
-        extend("x-group" = "Adhesion")
+        extend("x-group" = "Adhesion", "x-relevant-when" = serde_json::json!({"field": "adhesion_type", "equals": "brim"}))
     )]
     #[serde(default = "SlicingParams::default_brim_separation")]
     pub brim_separation: f64,
 
     #[schemars(
         description = "Number of skirt loops (when `adhesion_type = skirt`).",
-        extend("x-group" = "Adhesion")
+        extend("x-group" = "Adhesion", "x-relevant-when" = serde_json::json!({"field": "adhesion_type", "equals": "skirt"}))
     )]
     #[serde(default = "SlicingParams::default_skirt_loops")]
     pub skirt_loops: usize,
 
     #[schemars(
         description = "Gap in mm between the object and the innermost skirt loop.",
-        extend("x-group" = "Adhesion")
+        extend("x-group" = "Adhesion", "x-relevant-when" = serde_json::json!({"field": "adhesion_type", "equals": "skirt"}))
     )]
     #[serde(default = "SlicingParams::default_skirt_distance")]
     pub skirt_distance: f64,
 
     #[schemars(
         description = "Number of layers the skirt spans (≥1). Values >1 act as a draft shield around the print.",
-        extend("x-group" = "Adhesion")
+        extend("x-group" = "Adhesion", "x-relevant-when" = serde_json::json!({"field": "adhesion_type", "equals": "skirt"}))
     )]
     #[serde(default = "SlicingParams::default_skirt_height")]
     pub skirt_height: usize,
 
     #[schemars(
         description = "Raft layer count: sacrificial base + interface layers printed under the object (when `adhesion_type = raft`, or any value >0).",
-        extend("x-group" = "Adhesion")
+        extend("x-group" = "Adhesion", "x-relevant-when" = serde_json::json!({"field": "adhesion_type", "equals": "raft"}))
     )]
     #[serde(default = "SlicingParams::default_raft_layers")]
     pub raft_layers: usize,
 
     #[schemars(
         description = "Vertical air gap in mm between the top of the raft and the object's first layer (eases raft removal).",
-        extend("x-group" = "Adhesion")
+        extend("x-group" = "Adhesion", "x-relevant-when" = serde_json::json!({"field": "adhesion_type", "equals": "raft"}))
     )]
     #[serde(default = "SlicingParams::default_raft_air_gap")]
     pub raft_air_gap: f64,
@@ -1337,6 +1337,15 @@ Caps print speed so the hotend can keep up with the flow.
     )]
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub layer_gcode: Option<String>,
+}
+
+/// Schema helper: emit the full [`SlicingParams`] schema for a
+/// `serde_json::Value` field that carries a sparse `SlicingParams` overlay.
+///
+/// Used via `#[schemars(schema_with = "...")]` on the profile `params` bags so
+/// the UI can discover valid keys, groups, and relevance metadata.
+pub fn slicing_params_schema(generator: &mut schemars::SchemaGenerator) -> schemars::Schema {
+    generator.subschema_for::<SlicingParams>()
 }
 
 impl Default for SlicingParams {
