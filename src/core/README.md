@@ -21,6 +21,8 @@ specific order, each consuming what the previous one produced:
 7. Add sparse infill to whatever is left, then order all paths per layer to
    minimise travel — including rotating closed loops to start at the
    configured seam vertex.
+8. Generate support structures under overhangs steeper than the threshold
+   angle (`support_enabled`), tagged `ExtrusionRole::Support`.
 
 Each step depends on the geometric output of the one before. Putting them in
 the wrong order — or running surface detection on the original contours

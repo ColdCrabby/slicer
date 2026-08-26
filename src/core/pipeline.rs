@@ -254,6 +254,22 @@ pub fn process_mesh(
         logger.log_debug("infill generation complete");
     }
 
+    // Generate support structures for overhangs steeper than the threshold
+    // angle.  Runs before path ordering so support strands are grouped and
+    // ordered with the rest of the layer.
+    if params.support_enabled {
+        logger.log_debug(&format!(
+            "generating supports (type: {:?}, threshold: {}°, density: {:.0}%)",
+            params.support_type,
+            params.support_threshold_angle,
+            params.support_density * 100.0
+        ));
+        let t_support = PhaseTimer::start("Support Generation", logger);
+        crate::core::generate_supports(&mut layers, params);
+        t_support.finish();
+        logger.log_debug("support generation complete");
+    }
+
     // Optimize path order (Greedy TSP within role groups)
     let t_tsp = PhaseTimer::start("Path Ordering", logger);
     for layer in layers.iter_mut() {

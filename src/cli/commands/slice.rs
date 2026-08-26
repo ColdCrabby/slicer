@@ -206,6 +206,28 @@ pub struct SliceCommand {
     /// steps can be captured.  Has no effect on the G-code output.
     #[arg(long, value_name = "DIR")]
     pub debug_geometry: Option<PathBuf>,
+
+    /// Enable support-structure generation for overhangs.
+    #[arg(long)]
+    pub support: bool,
+
+    /// Support style: `normal` (grid) or `tree` (organic). Implies --support.
+    #[arg(long, value_name = "TYPE")]
+    pub support_type: Option<String>,
+
+    /// Support body density as a percentage (0-100). Implies --support.
+    #[arg(long, value_name = "PERCENT")]
+    pub support_density: Option<f64>,
+
+    /// Overhang threshold angle in degrees, measured from vertical (0-89).
+    /// Overhangs steeper than this get support. Implies --support.
+    #[arg(long, value_name = "DEG")]
+    pub support_threshold_angle: Option<f64>,
+
+    /// Number of dense interface (contact) layers between support and model.
+    /// Implies --support.
+    #[arg(long, value_name = "N")]
+    pub support_interface_layers: Option<usize>,
 }
 
 /// Result payload emitted by the `slice` command.
@@ -340,6 +362,40 @@ impl SliceCommand {
                     "Unknown seam position: '{}'. Supported: nearest, rear, aligned, sharpest-corner, random",
                     policy_str
                 ))?;
+        }
+
+        // Support-structure overrides.  Any support-specific flag implies that
+        // supports should be generated, matching the "flag turns the feature
+        // on" convention of the other override groups.
+        if self.support
+            || self.support_type.is_some()
+            || self.support_density.is_some()
+            || self.support_threshold_angle.is_some()
+            || self.support_interface_layers.is_some()
+        {
+            slice_params.support_enabled = true;
+        }
+        if let Some(ref ty) = self.support_type {
+            slice_params.support_type = match ty.to_lowercase().as_str() {
+                "normal" | "grid" => crate::settings::params::SupportType::Normal,
+                "tree" | "organic" => crate::settings::params::SupportType::Tree,
+                other => {
+                    return Err(format!(
+                        "Unknown support type: '{}'. Supported: normal, tree",
+                        other
+                    )
+                    .into())
+                }
+            };
+        }
+        if let Some(density) = self.support_density {
+            slice_params.support_density = density / 100.0;
+        }
+        if let Some(angle) = self.support_threshold_angle {
+            slice_params.support_threshold_angle = angle;
+        }
+        if let Some(layers) = self.support_interface_layers {
+            slice_params.support_interface_layers = layers;
         }
 
         // Validate input file exists
@@ -671,6 +727,11 @@ mod tests {
             mesh_quality: None,
             seam_position: None,
             debug_geometry: None,
+            support: false,
+            support_type: None,
+            support_density: None,
+            support_threshold_angle: None,
+            support_interface_layers: None,
         };
         assert_eq!(cmd.layer_height, Some(0.2));
         assert_eq!(cmd.gcode_flavor.as_deref(), Some("marlin"));
@@ -702,6 +763,11 @@ mod tests {
             mesh_quality: None,
             seam_position: None,
             debug_geometry: None,
+            support: false,
+            support_type: None,
+            support_density: None,
+            support_threshold_angle: None,
+            support_interface_layers: None,
         };
         assert!(cmd.gcode_flavor.is_none());
     }
@@ -732,6 +798,11 @@ mod tests {
             mesh_quality: None,
             seam_position: None,
             debug_geometry: None,
+            support: false,
+            support_type: None,
+            support_density: None,
+            support_threshold_angle: None,
+            support_interface_layers: None,
         };
         assert_eq!(cmd.gcode_flavor.as_deref(), Some("klipper"));
     }
@@ -762,6 +833,11 @@ mod tests {
             mesh_quality: None,
             seam_position: None,
             debug_geometry: None,
+            support: false,
+            support_type: None,
+            support_density: None,
+            support_threshold_angle: None,
+            support_interface_layers: None,
         };
         assert_eq!(
             cmd.start_print_gcode.as_deref(),
@@ -796,6 +872,11 @@ mod tests {
             mesh_quality: None,
             seam_position: None,
             debug_geometry: None,
+            support: false,
+            support_type: None,
+            support_density: None,
+            support_threshold_angle: None,
+            support_interface_layers: None,
         };
         assert!(cmd_on.lifecycle_markers);
         assert!(!cmd_on.no_lifecycle_markers);
@@ -824,6 +905,11 @@ mod tests {
             mesh_quality: None,
             seam_position: None,
             debug_geometry: None,
+            support: false,
+            support_type: None,
+            support_density: None,
+            support_threshold_angle: None,
+            support_interface_layers: None,
         };
         assert!(!cmd_off.lifecycle_markers);
         assert!(cmd_off.no_lifecycle_markers);

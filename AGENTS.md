@@ -37,6 +37,7 @@ make build-release build-windows build-macos build-wasm test lint fmt
 | **Surface Generation**         | [src/core/surfaces.rs](src/core/surfaces.rs) | Top/bottom solid surface detection and infill                                                 |
 | **Wall Restrictions**          | [src/core/walls.rs](src/core/walls.rs)       | Single-wall first/top-layer constraints                                                       |
 | **Infill Boundary**            | [src/core/infill.rs](src/core/infill.rs)     | Interior region calculation and sparse infill                                                 |
+| **Support Generation**         | [src/core/supports.rs](src/core/supports.rs) | Overhang detection, normal/tree support columns, interface layers                             |
 | **Pipeline**                   | [src/core/pipeline.rs](src/core/pipeline.rs) | `process_mesh` — orchestrates the full slicing pipeline                                       |
 | **Scene Engine**               | [src/scene/](src/scene/)                     | Single source of truth for object placement (CLI / WS / WASM all consume `SceneState::apply`) |
 | **Clipper2 Integration**       | [src/core/](src/core/)                       | Geometric polygon clipping operations throughout                                              |
@@ -67,6 +68,7 @@ src/
 │   ├── surfaces.rs        # generate_top_bottom_surfaces*, rectilinear infill fill
 │   ├── walls.rs           # apply_single_wall_restrictions (per-island), compute_per_island_strip_masks
 │   ├── infill.rs          # calculate_interior_region, add_infill_to_layers
+│   ├── supports.rs        # generate_supports (overhang detection, normal + tree, interface layers)
 │   └── pipeline.rs        # process_mesh (full pipeline orchestrator)
 ├── scene/                 # Unified scene engine (issue #51 — SSOT for object placement)
 │   ├── mod.rs             # Re-exports public API
@@ -405,11 +407,45 @@ apply_single_wall_restrictions()     — strips inner walls from first/last laye
 interior_regions computed            — per-layer interior (for surfaces), post-strip
 generate_top_bottom_surfaces_with_interior()  — top/bottom solid infill within interior
 add_infill_to_layers()               — sparse infill using pre-strip regions minus solid regions
+generate_supports()                  — overhang detection → projected support columns (if support_enabled)
 ```
 
 Order matters critically. Surfaces are computed **after** Arachne walls so that
 `calculate_interior_region` sees the correct bead geometry. Infill is computed
-**after** surfaces so it can subtract `solid_regions`.
+**after** surfaces so it can subtract `solid_regions`. Supports run **last**
+(before path ordering) so they read the final `OuterWall` footprints and their
+strands are ordered alongside the rest of the layer.
+
+### Support Structure Generation
+
+[src/core/supports.rs](src/core/supports.rs) implements support generation
+(issue #10). It only reads `OuterWall` paths (via `perimeter_paths_of`) to
+derive each layer's model footprint, so it never disturbs wall/surface/infill
+geometry, and appends `ExtrusionRole::Support` **open** polylines.
+
+- **Overhang detection**: `overhang[i] = footprint[i] − inflate(footprint[i−1], max_step)`
+  where `max_step = layer_height · tan(threshold_from_vertical) + facet_tol`.
+  `support_threshold_angle` is measured from vertical (45° → the classic 45°
+  rule; a smaller angle triggers support on gentler overhangs). A facet
+  tolerance and a `SUPPORT_MIN_OVERHANG_AREA_MM2` filter reject near-vertical
+  faceted-wall slicing noise. Fill rule **NonZero** throughout (footprints are
+  Clipper2-normalised frames with CW holes; `Positive` would erase interiors).
+- **Downward projection**: each overhang is registered at its top-contact
+  (activation) layer `i − 1 − support_z_gap_layers`, leaving a Z air-gap for
+  clean removal, then accumulated top-down. The carried column is subtracted by
+  `inflate(footprint[i], support_xy_distance_mm)` (horizontal clearance).
+- **Interface layers**: the top contact under an overhang and the bottom contact
+  resting on the model — within `support_interface_layers` — are filled at the
+  denser `support_interface_density`; the body uses `support_density`.
+- **Normal vs tree**: `Normal` carries the full overhang footprint down (grid
+  column); `Tree` carries an *eroded trunk core* and applies a morphological
+  **close** per descending layer so nearby trunks merge into organic branches.
+  Tree is a pragmatic approximation, **not** a full collision-avoiding branching
+  tree — the honest limitation is surfaced by `unsupported_feature_warnings()`.
+- **G-code**: `ExtrusionRole::Support` already emits `;TYPE:Support material`
+  (issue #6); strands are open polylines (never closed loops), each carrying an
+  explicit nozzle-diameter width. Verified on the Benchy: support concentrates
+  on the real overhangs (deck flare ≈ Z8.5 mm, cabin roof ≈ Z36 mm).
 
 **`pre_strip_infill_regions` must be computed before `apply_single_wall_restrictions`.**
 `apply_single_wall_restrictions` now operates **per island**: an outer-wall path P at
