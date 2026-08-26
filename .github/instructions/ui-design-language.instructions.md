@@ -112,7 +112,7 @@ All values live in `ui/src/styles/theme/` — `_light.scss`, `_dark.scss`
 
 - **Accent = single source of truth.** `--accent` (amber `#e0730f` light /
   `#f5883a` dark). Every shade — `--accent-hover/-active/-soft/-softer/-border/
-  -contrast` — is derived via `color-mix(in oklab, ...)`. Overriding `--accent`
+-contrast` — is derived via `color-mix(in oklab, ...)`. Overriding `--accent`
   alone (what `AccentService` does with the OS accent) recolors the whole UI.
   `--color-primary*` are legacy aliases of the accent — keep them aliased.
 - **Neutrals:** warm **graphite** backgrounds/surfaces/text/borders
@@ -123,7 +123,7 @@ All values live in `ui/src/styles/theme/` — `_light.scss`, `_dark.scss`
 - **Focus:** `--color-focus-ring` (tracks accent) + `--color-focus-ring-glow`.
 - **Spacing:** `--spacing-xs..2xl` (4/8/12/16/24/32). **Radius:** `--radius-sm/md/lg`
   (4/6/8). **Shadows:** `--shadow-xs..lg`. **Motion:** `--duration-fast/normal/slow`
-  + `--ease-standard/decelerate/accelerate`. **Icons:** `--icon-stroke-width: 1.8`.
+  - `--ease-standard/decelerate/accelerate`. **Icons:** `--icon-stroke-width: 1.8`.
 
 ## Layout & Component Patterns
 
@@ -132,7 +132,8 @@ All values live in `ui/src/styles/theme/` — `_light.scss`, `_dark.scss`
   border only when the card needs contrast (floating over the 3D scene) rather
   than as a reflex.
 - **Use the UI primitives** in `ui/src/app/ui/` — `button[nexusButton]`,
-  `icon-button`, `nexus-section-header`, `empty-state` — instead of ad-hoc markup.
+  `icon-button`, `nexus-section-header`, `empty-state`, `inline-notice` — instead
+  of ad-hoc markup.
 - **`nexus-section-header` has fixed `height: 48px; flex: none`** with nowrap
   title/desc — do not let it reflow.
 - **Fixed-height chrome uses `flex: none`** (titlebar, section headers). A
@@ -142,6 +143,34 @@ All values live in `ui/src/styles/theme/` — `_light.scss`, `_dark.scss`
 - **Accent usage:** primary/CTA buttons use `--accent` bg + `--accent-contrast`
   text; active/selected states use `--accent-soft`; ghost buttons on hover use
   `--color-surface-hover`.
+
+## Contextual Notices & Cautions
+
+When a control needs a note, hint, or caution, use the **`nexus-inline-notice`**
+primitive — never hand-roll a coloured box. It is a solid **tinted surface (no
+blur)** with a `tone` input (`info` teal / `warning` amber / `danger` red) that
+drives its icon and border via one `--notice-tone` custom property.
+
+Follow the **"detail at the source, neutral hint on the container"** pattern for
+surfacing these (canonical: the schema-form settings sidebar):
+
+- **Put the tone-coloured detail right next to the offending control**, not at
+  the bottom of a section. The reader should see _which_ setting the caution is
+  about without hunting.
+- **Aggregate a single colour-_neutral_ cue on the collapsible container** (an
+  accordion header, a tab) whenever anything inside currently has a notice —
+  a `warning-triangle` held at `--color-text-tertiary`, so a collapsed section
+  still says "look inside." Keep it neutral: it is a calm "double-check" nudge,
+  **not** a second alarm competing with the tone-coloured detail.
+- **Drive the container cue from the same source as the detail** (a `computed`
+  over the same predicate), so the hint and the note can never drift apart.
+- Notices are **conditional on live state** — show them only while the risky
+  value is actually selected (e.g. raft adhesion), and let them disappear
+  reactively when it changes.
+
+For schema-driven settings specifically, declare the caution in the
+**field-exceptions registry** rather than special-casing the generic form — see
+the component-structure instruction's "Exceptions beside a generic resolver."
 
 ## Angular Styling Gotchas (this project)
 
@@ -165,6 +194,8 @@ asks or for a major new feature.
 ## See also
 
 - `ui/src/styles/theme/` — token definitions (`_light.scss`, `_dark.scss`, `_root.scss`)
-- `ui/src/app/ui/` — shared primitives (button, icon-button, section-header, empty-state)
+- `ui/src/app/ui/` — shared primitives (button, icon-button, section-header, empty-state, inline-notice)
+- `ui/src/app/ui/inline-notice/inline-notice.ts` — the contextual-notice primitive
+- `ui/src/app/schema-form/` — the "detail at the source, neutral hint on the container" pattern in practice
 - `ui/src/app/services/accent.ts` — OS-accent inheritance (`AccentService`)
 - `.github/instructions/ui-style-no-build.instructions.md` — build-verification policy
