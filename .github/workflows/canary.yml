@@ -1,8 +1,8 @@
-name: Nightly
+name: Canary
 
-# Every push to the default branch refreshes a single rolling "nightly"
-# pre-release so the latest Windows and macOS desktop bundles are always one
-# click away in the Releases tab. This is deliberately *not* a real release:
+# Every push to the default branch (i.e. every merge) refreshes a single rolling
+# "canary" pre-release so the latest Windows and macOS desktop bundles are always
+# one click away in the Releases tab. This is deliberately *not* a real release:
 # the version is a throwaway pre-release string, the notes are just the commit
 # range since the last tag, and everything here is overwritten on the next push.
 # Cutting an actual versioned release stays tag-driven — see release.yml.
@@ -11,10 +11,10 @@ on:
     branches: [main]
   workflow_dispatch:
 
-# Only one nightly build at a time; a newer push supersedes an in-flight one so
+# Only one canary build at a time; a newer push supersedes an in-flight one so
 # the rolling release always reflects the tip of main.
 concurrency:
-  group: nightly
+  group: canary
   cancel-in-progress: true
 
 permissions:
@@ -22,10 +22,10 @@ permissions:
 
 env:
   CARGO_TERM_COLOR: always
-  NIGHTLY_TAG: nightly
+  CANARY_TAG: canary
 
 jobs:
-  # ── 1. Refresh the rolling "nightly" pre-release ───────────────────────────
+  # ── 1. Refresh the rolling "canary" pre-release ────────────────────────────
   prepare:
     runs-on: ubuntu-latest
     outputs:
@@ -35,13 +35,13 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Derive nightly version
+      - name: Derive canary version
         id: meta
         run: |
           base="$(grep -m1 '^version' Cargo.toml | sed -E 's/.*"(.*)".*/\1/')"
-          version="${base}-nightly.${{ github.run_number }}+${GITHUB_SHA::7}"
+          version="${base}-canary.${{ github.run_number }}+${GITHUB_SHA::7}"
           echo "version=${version}" >> "$GITHUB_OUTPUT"
-          echo "Nightly version: ${version}"
+          echo "Canary version: ${version}"
 
       - name: Build release notes from the commit range
         run: |
@@ -55,32 +55,32 @@ jobs:
           fi
           {
             echo ""
-            echo "> ⚠️ **Nightly build** — automatically produced from the tip of"
-            echo "> \`main\` (\`${GITHUB_SHA::7}\`). Unstable and overwritten on every"
-            echo "> push. For a stable build use a tagged release."
+            echo "> ⚠️ **Canary build** — automatically produced from the tip of"
+            echo "> \`main\` (\`${GITHUB_SHA::7}\`) on every merge. Unstable and"
+            echo "> overwritten on every push. For a stable build use a tagged release."
             echo ""
             git log --no-merges --format='- %s (%h)' ${range} | head -n 50
           } >> NOTES.md
           cat NOTES.md
 
-      - name: Refresh the nightly pre-release
+      - name: Refresh the canary pre-release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          title="Nightly (${{ steps.meta.outputs.version }})"
-          if gh release view "${NIGHTLY_TAG}" >/dev/null 2>&1; then
+          title="Canary (${{ steps.meta.outputs.version }})"
+          if gh release view "${CANARY_TAG}" >/dev/null 2>&1; then
             # Move the rolling tag to this commit, refresh notes, and clear the
             # stale bundles so only the current build's assets remain.
-            gh release edit "${NIGHTLY_TAG}" \
+            gh release edit "${CANARY_TAG}" \
               --target "${GITHUB_SHA}" \
               --title "${title}" \
               --notes-file NOTES.md \
               --prerelease
-            for asset in $(gh release view "${NIGHTLY_TAG}" --json assets -q '.assets[].name'); do
-              gh release delete-asset "${NIGHTLY_TAG}" "${asset}" --yes || true
+            for asset in $(gh release view "${CANARY_TAG}" --json assets -q '.assets[].name'); do
+              gh release delete-asset "${CANARY_TAG}" "${asset}" --yes || true
             done
           else
-            gh release create "${NIGHTLY_TAG}" \
+            gh release create "${CANARY_TAG}" \
               --target "${GITHUB_SHA}" \
               --title "${title}" \
               --notes-file NOTES.md \
@@ -98,7 +98,7 @@ jobs:
           - os: windows-latest
     runs-on: ${{ matrix.os }}
     env:
-      # Bake the nightly version into the binaries even on a shallow checkout.
+      # Bake the canary version into the binaries even on a shallow checkout.
       SLICER_VERSION: ${{ needs.prepare.outputs.version }}
     steps:
       - uses: actions/checkout@v4
@@ -120,7 +120,7 @@ jobs:
       - name: Install workspace dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Sync desktop bundle version with the nightly version
+      - name: Sync desktop bundle version with the canary version
         shell: bash
         run: |
           # Tauri requires a plain semver, so strip the build-metadata suffix.
@@ -134,7 +134,7 @@ jobs:
       - name: Build desktop bundles
         run: pnpm --filter slicer-ui-desktop build
 
-      - name: Upload desktop bundles to the nightly release
+      - name: Upload desktop bundles to the canary release
         env:
           GH_TOKEN: ${{ github.token }}
         shell: bash
@@ -145,4 +145,4 @@ jobs:
             echo "No desktop bundles found to upload." >&2
             exit 1
           fi
-          gh release upload "${NIGHTLY_TAG}" "${assets[@]}" --clobber
+          gh release upload "${CANARY_TAG}" "${assets[@]}" --clobber
