@@ -436,6 +436,20 @@ Consequence: you **cannot** tell an outer solid contour from a hole contour by
 role alone. Use signed area (`path.signed_area()`): CCW (positive) = solid
 island, CW (negative) = hole.
 
+**`GapFill` beads follow a de-noised residual medial axis.** The variable-width
+gap-fill that closes the thin residual between the innermost wall and the infill
+boundary is walked from the residual's segment-Voronoi skeleton. That raw
+skeleton is noisy: a spur grows at every faceted boundary vertex, splitting the
+gap spine into a chain per junction whose stubs wander from layer to layer (a
+curved hull's residual ring boils into a different set of short beads each
+layer). [`prune_short_leaf_chains`](src/walls/arachne/skeleton.rs) removes spurs
+shorter than `2·nozzle` so those junctions collapse to degree 2 and the spine
+reassembles into a few long continuous beads (on the Benchy hull: ~⅓ the bead
+count, ~3× the mean bead length, no void-coverage change). Keep that floor near
+`2·d` — the radius-ratio `prune_boundary_spurs` misses uniform-radius facet
+spurs, and a much larger floor erodes genuine sub-millimetre features into
+voids. Walls are untouched, so this never affects the coincidence-free property.
+
 ### Clipper2 Fill Rules — When to Use Which
 
 | Operation                                                                 | Fill rule  | Why                                                                                                                                    |

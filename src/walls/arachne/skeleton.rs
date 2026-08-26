@@ -171,6 +171,84 @@ impl Skeleton {
         }
         self
     }
+
+    /// Remove **short leaf spurs** — the sub-`min_len` degree-1 branches the
+    /// segment Voronoi grows off every faceted boundary vertex of a thin
+    /// residual band.  Unlike [`Self::prune_boundary_spurs`] (a radius-ratio
+    /// test that only catches spurs *diving* toward the boundary), this prunes
+    /// by spur **arc length**, which is what removes the facet noise in a
+    /// *uniform*-thickness residual band whose spurs all share the spine's
+    /// radius.
+    ///
+    /// The payoff is topological: once a spur is gone, the spine node it hung
+    /// off drops from a degree-3 junction to degree 2, so [`Self::chains`]
+    /// walks straight through it — the residual spine reassembles into a few
+    /// long continuous chains instead of shattering into a chain per spur
+    /// junction.  Iterated to a fixed point (removing one spur can expose the
+    /// next); genuine features longer than `min_len` are untouched.
+    pub fn prune_short_leaf_chains(mut self, min_len: f64) -> Skeleton {
+        if min_len <= 0.0 {
+            return self;
+        }
+        loop {
+            let n = self.nodes.len();
+            let mut adj: Vec<Vec<usize>> = vec![Vec::new(); n];
+            for (ei, e) in self.edges.iter().enumerate() {
+                adj[e.a].push(ei);
+                adj[e.b].push(ei);
+            }
+            let other = |ei: usize, from: usize| -> usize {
+                let e = self.edges[ei];
+                if e.a == from {
+                    e.b
+                } else {
+                    e.a
+                }
+            };
+            let seg_len = |a: usize, b: usize| -> f64 {
+                let (na, nb) = (&self.nodes[a], &self.nodes[b]);
+                ((na.x - nb.x).powi(2) + (na.y - nb.y).powi(2)).sqrt()
+            };
+
+            let mut remove: HashSet<usize> = HashSet::new();
+            for start in 0..n {
+                if adj[start].len() != 1 {
+                    continue;
+                }
+                // Walk the leaf chain start → (degree-2 run) → junction/leaf.
+                let mut edges_in_chain: Vec<usize> = Vec::new();
+                let mut len = 0.0;
+                let mut prev = start;
+                let mut ei = adj[start][0];
+                loop {
+                    let nxt = other(ei, prev);
+                    len += seg_len(prev, nxt);
+                    edges_in_chain.push(ei);
+                    if adj[nxt].len() != 2 {
+                        break; // reached a junction (≥3) or the other leaf (1)
+                    }
+                    let Some(&next_ei) = adj[nxt].iter().find(|&&x| x != ei) else {
+                        break;
+                    };
+                    prev = nxt;
+                    ei = next_ei;
+                }
+                if len < min_len {
+                    remove.extend(edges_in_chain);
+                }
+            }
+            if remove.is_empty() {
+                break;
+            }
+            let mut idx = 0usize;
+            self.edges.retain(|_| {
+                let keep = !remove.contains(&idx);
+                idx += 1;
+                keep
+            });
+        }
+        self
+    }
 }
 
 /// Build the interior medial-axis skeleton from a polygon set and its Voronoi
@@ -392,5 +470,102 @@ mod tests {
             band.x,
             band.y
         );
+    }
+
+    fn node(x: f64, y: f64) -> SkeletonNode {
+        SkeletonNode { x, y, radius: 0.2 }
+    }
+
+    /// A short leaf spur is pruned and its junction dissolves, so the spine
+    /// `chains()` reassembles into a single continuous chain.
+    #[test]
+    fn prune_short_leaf_chains_removes_spur_and_merges_spine() {
+        // Spine 0-1-2-3-4 along X (4 mm) with a 0.3 mm spur 2-5.
+        let nodes = vec![
+            node(0.0, 0.0),
+            node(1.0, 0.0),
+            node(2.0, 0.0),
+            node(3.0, 0.0),
+            node(4.0, 0.0),
+            node(2.0, 0.3),
+        ];
+        let edges = vec![
+            SkeletonEdge { a: 0, b: 1 },
+            SkeletonEdge { a: 1, b: 2 },
+            SkeletonEdge { a: 2, b: 3 },
+            SkeletonEdge { a: 3, b: 4 },
+            SkeletonEdge { a: 2, b: 5 },
+        ];
+        let skel = Skeleton { nodes, edges };
+        // Before: node 2 is a junction → three separate chains.
+        assert_eq!(skel.chains().len(), 3);
+
+        let pruned = skel.prune_short_leaf_chains(0.6);
+        assert_eq!(pruned.edges.len(), 4, "the 0.3 mm spur edge must be pruned");
+        let chains = pruned.chains();
+        assert_eq!(chains.len(), 1, "spine should merge into a single chain");
+        assert_eq!(
+            chains[0].len(),
+            5,
+            "merged spine should span all five spine nodes"
+        );
+    }
+
+    /// A spur longer than the floor is a genuine feature and is kept, so the
+    /// junction (and its three chains) survive.
+    #[test]
+    fn prune_short_leaf_chains_keeps_long_spur() {
+        let nodes = vec![
+            node(0.0, 0.0),
+            node(1.0, 0.0),
+            node(2.0, 0.0),
+            node(3.0, 0.0),
+            node(4.0, 0.0),
+            node(2.0, 1.0), // 1.0 mm spur — a real feature
+        ];
+        let edges = vec![
+            SkeletonEdge { a: 0, b: 1 },
+            SkeletonEdge { a: 1, b: 2 },
+            SkeletonEdge { a: 2, b: 3 },
+            SkeletonEdge { a: 3, b: 4 },
+            SkeletonEdge { a: 2, b: 5 },
+        ];
+        let skel = Skeleton { nodes, edges };
+        let pruned = skel.prune_short_leaf_chains(0.6);
+        assert_eq!(
+            pruned.edges.len(),
+            5,
+            "a 1.0 mm spur exceeds the 0.6 mm floor and must stay"
+        );
+        assert_eq!(
+            pruned.chains().len(),
+            3,
+            "junction remains → three chains preserved"
+        );
+    }
+
+    /// Iterated pruning collapses a multi-segment spur (each edge short) from
+    /// the tip inward until the spine is clean.
+    #[test]
+    fn prune_short_leaf_chains_collapses_multi_segment_spur() {
+        // Spine 0-1-2 (2 mm) with a two-edge spur 1-3-4 whose total length
+        // (0.6 mm) is below the floor.
+        let nodes = vec![
+            node(0.0, 0.0),
+            node(1.0, 0.0),
+            node(2.0, 0.0),
+            node(1.0, 0.3),
+            node(1.0, 0.6),
+        ];
+        let edges = vec![
+            SkeletonEdge { a: 0, b: 1 },
+            SkeletonEdge { a: 1, b: 2 },
+            SkeletonEdge { a: 1, b: 3 },
+            SkeletonEdge { a: 3, b: 4 },
+        ];
+        let skel = Skeleton { nodes, edges };
+        let pruned = skel.prune_short_leaf_chains(1.0);
+        assert_eq!(pruned.edges.len(), 2, "both spur edges must be pruned");
+        assert_eq!(pruned.chains().len(), 1, "spine merges into one chain");
     }
 }
