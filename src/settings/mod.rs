@@ -10,7 +10,7 @@ pub mod params;
 pub mod validator;
 
 pub use diff::{compare_settings, SettingsDiff};
-pub use params::{AdhesionType, SupportType};
+pub use params::{AdhesionType, BrimType, SupportType};
 pub use params::{
     AuxFanOverrides, FanConfig, LifecycleMarkerConfig, MeshQuality, ObjectSettings, SlicingParams,
 };
