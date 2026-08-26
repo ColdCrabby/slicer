@@ -1,0 +1,7 @@
+# Regenerable slicing artifacts — reproduce with the workflow in
+# tools/gcode-analysis/README.md. Only the diagnostic scripts and the A/B repro
+# configs are tracked.
+gcode/
+logs/
+renders/
+__pycache__/
