@@ -59,6 +59,11 @@ jobs:
             echo "> \`main\` (\`${GITHUB_SHA::7}\`) on every merge. Unstable and"
             echo "> overwritten on every push. For a stable build use a tagged release."
             echo ""
+            echo "> 🍎 **macOS:** this build is unsigned, so Gatekeeper marks the"
+            echo "> downloaded app as \"damaged\". After moving it to Applications,"
+            echo "> clear the quarantine flag once to launch it —"
+            echo "> \`xattr -cr \"/Applications/Slicer Engine Desktop.app\"\`"
+            echo ""
             git log --no-merges --format='- %s (%h)' ${range} | head -n 50
           } >> NOTES.md
           cat NOTES.md
@@ -107,15 +112,30 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: wasm32-unknown-unknown
+      - name: Add macOS universal build targets
+        if: runner.os == 'macOS'
+        run: rustup target add x86_64-apple-darwin aarch64-apple-darwin
       - uses: Swatinem/rust-cache@v2
+        with:
+          # The desktop app is a *separate* Cargo workspace; its target dir was
+          # never cached, so the whole engine recompiled from scratch every run.
+          # Cache both trees (and path-dep crates) so warm runs are minutes faster.
+          workspaces: |
+            . -> target
+            ui-desktop/src-tauri -> target
+          cache-all-crates: "true"
+          cache-on-failure: "true"
       - uses: pnpm/action-setup@v4
       - uses: actions/setup-node@v4
         with:
           node-version: 22
           cache: pnpm
 
+      # Prebuilt binary — compiling wasm-bindgen-cli from source cost minutes.
       - name: Install wasm-bindgen-cli
-        run: cargo install wasm-bindgen-cli --version 0.2.126 --locked
+        uses: taiki-e/install-action@v2
+        with:
+          tool: wasm-bindgen-cli@0.2.126
 
       - name: Install workspace dependencies
         run: pnpm install --frozen-lockfile
@@ -123,25 +143,54 @@ jobs:
       - name: Sync desktop bundle version with the canary version
         shell: bash
         run: |
-          # Tauri requires a plain semver, so strip the build-metadata suffix.
+          # Windows MSI/WiX rejects a non-numeric pre-release identifier
+          # ("canary") and caps it at 65535, so the throwaway canary string
+          # cannot be the *installer* version. Derive a numeric-only
+          # `X.Y.Z-<run>` for bundle metadata; the user-facing version still
+          # comes from SLICER_VERSION baked in at build time.
           version="${{ needs.prepare.outputs.version }}"
-          version="${version%%+*}"
-          node -e "const f='ui-desktop/src-tauri/tauri.conf.json';const c=require('./'+f);c.version=process.argv[1];require('fs').writeFileSync(f,JSON.stringify(c,null,2)+'\n');" "${version}"
+          base="${version%%-*}"
+          bundle_version="${base}-$(( ${{ github.run_number }} % 65536 ))"
+          node -e "const f='ui-desktop/src-tauri/tauri.conf.json';const c=require('./'+f);c.version=process.argv[1];require('fs').writeFileSync(f,JSON.stringify(c,null,2)+'\n');" "${bundle_version}"
 
       - name: Generate WASM bindings and schemas
         run: pnpm run hydrate
 
       - name: Build desktop bundles
-        run: pnpm --filter slicer-ui-desktop build
+        shell: bash
+        env:
+          # Ad-hoc sign by default so the .app carries a valid signature and
+          # launches (after de-quarantine) on Apple Silicon; switch to a real
+          # Developer ID + notarization automatically when these repo secrets
+          # are configured.
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY || '-' }}
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          if [[ "$RUNNER_OS" == "macOS" ]]; then
+            # One universal binary so the DMG runs on both Intel and Apple
+            # Silicon (macos-latest runners are arm64-only otherwise).
+            pnpm --filter slicer-ui-desktop exec tauri build --target universal-apple-darwin
+          else
+            pnpm --filter slicer-ui-desktop build
+          fi
 
       - name: Upload desktop bundles to the canary release
         env:
           GH_TOKEN: ${{ github.token }}
         shell: bash
         run: |
-          # macOS ships bash 3.2 (no globstar), so enumerate with find instead
-          # of a `**` glob to stay portable across the macOS and Windows runners.
-          bundle_dir="ui-desktop/src-tauri/target/release/bundle"
+          # macOS bundles land under the universal target triple; other OSes use
+          # the default target dir. macOS ships bash 3.2 (no globstar), so
+          # enumerate with find instead of a `**` glob.
+          if [[ "$RUNNER_OS" == "macOS" ]]; then
+            bundle_dir="ui-desktop/src-tauri/target/universal-apple-darwin/release/bundle"
+          else
+            bundle_dir="ui-desktop/src-tauri/target/release/bundle"
+          fi
           assets=()
           while IFS= read -r asset; do
             assets+=("$asset")
