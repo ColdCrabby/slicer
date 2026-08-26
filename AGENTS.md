@@ -488,27 +488,109 @@ The `−0.5 × d` term accounts for the fact that `OuterWall` centerlines are
 already inset `d/2` from the model surface. Without this correction the interior
 region is over-shrunk by half a bead width.
 
-`walls_per_island = ceil(total_wall_bead_count / outer_contour_count)` gives the
-number of wall shells per island. This works because Arachne places the same
-number of beads on every island (parameters are global, not per-island).
+`walls_per_island = ceil(total_wall_bead_count / outer_contour_count)` estimates the
+number of wall shells per island. **This is only an average, and the Arachne
+generator breaks the assumption behind it:** Arachne places a _variable_ number
+of variable-width beads per island (and even along one island), so on a layer
+whose islands differ in bead count the estimate is too low and the interior is
+under-deflated by up to a full bead width. Solid surface / sparse infill / bottom
+fill generated inside that over-reaching interior then lands _on top of the
+innermost wall_ (measurable "Inner wall × {Top surface, Sparse infill, Bottom
+surface}" double-extrusion; the classic generator, which places a fixed count,
+does not show it). See the wall-footprint clip below for the correction.
 
 **Do not normalise all wall paths to CCW before the inflate.** Hole boundary
 beads have CW winding. Flipping them to CCW makes Clipper2 treat holes as solid
 material → infill is generated inside the hole (through the void).
 
+### Wall-Footprint Clip — Correcting the Interior Estimate's Over-Reach
+
+Because the `walls_per_island` estimate above can under-deflate on Arachne
+layers, both the sparse-infill area (`add_infill_to_layers`) and the solid
+top/bottom surface fill (`generate_top_bottom_surfaces_with_interior`) are
+additionally clipped against the **actual physical wall-bead footprint**
+(`compute_wall_bead_footprint` — every wall centerline inflated by its own
+half-width). This is count- and width-agnostic and a **no-op where the estimate
+was already correct** (classic), so it removes only the genuine over-print:
+
+- **Sparse infill** subtracts the footprint _grown by_ `infill_perimeter_gap_mm`
+  so it keeps its intended clearance from the real innermost wall.
+- **Solid surfaces** subtract the footprint _eroded by_
+  `infill_overlap_percent × d` so the fill still welds that much into the
+  innermost wall (the designed bond) and no further. The un-eroded gap-fill
+  footprint is unioned back in so surfaces _abut_ gap fill rather than welding to
+  it.
+
+Use **`FillRule::NonZero`** for these subtractions, **not `Positive`**: the wall
+footprint is a frame with CW hole sub-paths (the enclosed interior). `Positive`
+ignores CW holes → treats the frame as a solid block → erases the whole interior.
+
+This clip is applied to the fill regions **only** — it never reshapes
+`interior_regions`, so bridge detection/classification (which keys off the
+smooth interior) is untouched. Reshaping the interior itself instead spawns
+phantom bridges from the jagged bead-following boundary.
+
+Trimming the surface off the wall band shrinks `solid_regions`, so
+`prune_redundant_gap_fill` correctly _retains_ the wall-band gap-fill beads it
+used to prune (they fill real medial gaps, not areas the surface covers) — this
+is why the Arachne `gap_fill` role length rises after the fix.
+
 ### Infill Boundary vs. Surface Region
 
 `add_infill_to_layers` calls `calculate_interior_region(layer, 0.0, nozzle_diameter_mm)`
 (overlap = 0) to get the infill area, then subtracts `layer.solid_regions` with
-`FillRule::Positive`.
+`FillRule::Positive` and finally the wall-bead footprint (see above) with
+`FillRule::NonZero`.
 
 `generate_top_bottom_surfaces_with_interior` clips surface regions to
 `interior_regions[i]` (computed ahead of time with
 `calculate_interior_region(layer, infill_overlap_percent, nozzle_diameter_mm)`)
-before generating solid infill lines.
+then subtracts the eroded wall-bead footprint before generating solid infill
+lines.
 
-Both use `calculate_interior_region` — but with different `overlap_percent`
-values. Keep them consistent if the signature changes.
+### Thin Wall-Band Channels — Opened-Interior Surface Clip
+
+`calculate_interior_region` uses a **per-island _average_** wall count
+(`walls_per_island = ceil(total_wall_beads / outer_islands)`), so wherever a
+cross-section is _locally_ thinner than that average — the Benchy hull-side wall
+tips, the funnel-to-roof transitions, the cabin roof-ridge line, embossed
+calibration-cube logos — the interior estimate leaves a **thin sliver channel**
+(≤ ~1 mm). Arachne already fills that channel solid with wall + gap-fill beads,
+but wherever the geometry above (top) or below (bottom) recedes layer-over-layer
+the channel gets picked up as an "exposed" surface and filled with a
+**rectilinear zig-zag of sub-millimetre segments** — the "tiny extrudes that
+make no sense / weird top-surface spots on the sides" defect. The `classic`
+generator, whose uniform offsets fully consume the same cross-sections, emits
+_no_ surface there.
+
+Fix (`generate_top_bottom_surfaces_with_interior`): the top/bottom surface is
+clipped to a **morphologically _opened_ interior** — `open_interior_for_surface`
+erodes then dilates `interior_regions[i]` by
+`SURFACE_MIN_INTERIOR_WIDTH_NOZZLE_MULT × nozzle / 2` (2.5× → erase channels
+< 1.0 mm at 0.4 mm) — instead of the raw interior. A surface that lands entirely
+inside a thin channel therefore disappears, while genuine surfaces (deck, roof,
+funnel cap, cube top) keep their **full extent** (only their corners, which sit
+inside the walls, are rounded). Key points:
+
+- **The discriminator is the _interior_, not the strip.** A real fore-deck top
+  surface is an equally thin band; what separates it from an artifact is that it
+  sits on a _thick_ interior (real infill area) rather than a _thin_ wall-band
+  channel. Filtering the strip by its own width wrongly deletes legit thin
+  surfaces — do not do that.
+- **Dropped strips stay solid** via the wall + gap-fill beads that already fill
+  them, and — no longer being a `solid_region` — their gap-fill beads survive
+  `prune_redundant_gap_fill` (so the wall channel is filled with a proper
+  single centered bead instead of the zig-zag). Expect a small **gap_fill ↑ /
+  top+bottom_surface ↓** shift in the QA baselines.
+- **The absolute base cap (`i < bottom_layers`) is exempt** for bottom surfaces:
+  it is the bed-contact region and must stay fully solid for adhesion, so it
+  clips to the _full_ interior. Tapering artifacts only occur mid-model.
+- **Bridges are exempt** (they explicitly fill wall-band voids) — the opening is
+  applied only to the supported top/bottom solid surface, never to
+  `bridge_region` / `clip_to_void`.
+- Verified against `classic` with [tools/gcode-analysis/](tools/gcode-analysis/README.md):
+  the removed strips open no new wall-zone void (`voids.py`) and cross-role
+  double-extrusion drops (`overlap.py`).
 
 ### `generate_rectilinear_infill` — Scanline Even-Odd Fill
 

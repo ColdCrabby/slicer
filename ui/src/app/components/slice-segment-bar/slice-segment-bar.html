@@ -37,26 +37,60 @@
     } @else {
       <!-- ── Role legend ── -->
       <div class="legend">
-        @for (role of roleOrder; track role) {
-          <button
-            type="button"
-            class="role-badge"
-            [class.hidden]="preview.hiddenRoles().has(role)"
-            [style.--role-color]="roleCss()[role]"
-            [attr.aria-pressed]="!preview.hiddenRoles().has(role)"
-            (click)="toggleRole(role)"
-            [title]="(preview.hiddenRoles().has(role) ? 'Show ' : 'Hide ') + roleLabels[role]"
-          >
-            <span class="role-swatch"></span>
-            <span class="role-name">{{ roleLabels[role] }}</span>
-          </button>
+        @for (group of roleGroups; track group.id) {
+          <section class="legend-group">
+            <div class="legend-group-title">{{ group.label }}</div>
+            <div class="legend-group-grid">
+              @for (role of group.roles; track role) {
+                <button
+                  type="button"
+                  class="role-badge"
+                  [class.hidden]="preview.hiddenRoles().has(role)"
+                  [style.--role-color]="roleCss()[role]"
+                  [attr.aria-pressed]="!preview.hiddenRoles().has(role)"
+                  (click)="toggleRole(role)"
+                  [title]="(preview.hiddenRoles().has(role) ? 'Show ' : 'Hide ') + roleLabels[role]"
+                >
+                  <span class="role-swatch"></span>
+                  <span class="role-name">{{ roleLabels[role] }}</span>
+                </button>
+              }
+            </div>
+          </section>
         }
       </div>
     }
 
     <div class="insp-divider"></div>
 
-    <!-- ── Core controls (anchored — never move when the legend changes) ── -->
+    <!-- ── Coloring controls (kept nearest to legend) ── -->
+    <section class="insp-section">
+      <div class="ctl-row">
+        <label class="ctl-label">Color by</label>
+        <nexus-select
+          class="ctl-field"
+          [options]="viewModeOptions()"
+          [value]="preview.effectiveViewMode()"
+          (valueChange)="onModeValue($event)"
+        />
+      </div>
+
+      @if (showFanSelector()) {
+        <div class="ctl-row">
+          <label class="ctl-label">Fan</label>
+          <nexus-select
+            class="ctl-field"
+            [options]="fanOptions()"
+            [value]="preview.selectedFan()"
+            (valueChange)="onFanValue($event)"
+          />
+        </div>
+      }
+    </section>
+
+    <div class="insp-divider"></div>
+
+    <!-- ── Layer controls (layer + progress stay together) ── -->
     <section class="insp-section" (wheel)="onWheelLayer($event)">
       <header class="insp-head">
         <span class="insp-title">Layer</span>
@@ -115,28 +149,6 @@
         label="Layer"
         (valueChange)="setLayer($event)"
       />
-
-      <div class="ctl-row">
-        <label class="ctl-label">Color by</label>
-        <nexus-select
-          class="ctl-field"
-          [options]="viewModeOptions()"
-          [value]="preview.effectiveViewMode()"
-          (valueChange)="onModeValue($event)"
-        />
-      </div>
-
-      @if (showFanSelector()) {
-        <div class="ctl-row">
-          <label class="ctl-label">Fan</label>
-          <nexus-select
-            class="ctl-field"
-            [options]="fanOptions()"
-            [value]="preview.selectedFan()"
-            (valueChange)="onFanValue($event)"
-          />
-        </div>
-      }
 
       <div class="ctl-row" (wheel)="onWheelSegment($event)">
         <label class="ctl-label">Progress</label>

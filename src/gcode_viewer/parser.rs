@@ -522,16 +522,31 @@ G1 X10 Y10 Z0.2 E2.0
         assert_eq!(Role::from_type_comment("Inner wall"), Role::InnerWall);
         assert_eq!(Role::from_type_comment("Infill"), Role::Infill);
         assert_eq!(Role::from_type_comment("Sparse infill"), Role::Infill);
+        assert_eq!(
+            Role::from_type_comment("Internal solid infill"),
+            Role::SolidInfill
+        );
+        assert_eq!(Role::from_type_comment("Gap infill"), Role::GapFill);
         assert_eq!(Role::from_type_comment("Top surface"), Role::TopSurface);
         assert_eq!(
             Role::from_type_comment("Bottom surface"),
             Role::BottomSurface
         );
         assert_eq!(Role::from_type_comment("Bridge"), Role::Bridge);
+        assert_eq!(Role::from_type_comment("Bridge infill"), Role::Bridge);
+        assert_eq!(
+            Role::from_type_comment("Internal bridge infill"),
+            Role::InternalBridge
+        );
         assert_eq!(Role::from_type_comment("bridge"), Role::Bridge);
         assert_eq!(Role::from_type_comment("Skirt"), Role::Skirt);
-        assert_eq!(Role::from_type_comment("Brim"), Role::Skirt);
+        assert_eq!(Role::from_type_comment("Brim"), Role::Brim);
+        assert_eq!(
+            Role::from_type_comment("Support interface"),
+            Role::SupportInterface
+        );
         assert_eq!(Role::from_type_comment("Support material"), Role::Support);
+        assert_eq!(Role::from_type_comment("Prime tower"), Role::PrimeTower);
     }
 
     #[test]

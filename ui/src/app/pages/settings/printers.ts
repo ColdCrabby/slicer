@@ -93,7 +93,7 @@ const PRINTER_PARAM_GROUPS = SETTING_CONTRACTS.find((c) => c.id === 'printer')!.
  * left with no renderable field are dropped entirely.
  */
 const PARAM_GROUPS: SchemaGroup[] = (() => {
-  const order = new Map(PRINTER_PARAM_GROUPS.map((name, index) => [name, index]));
+  const order = new Map<string, number>(PRINTER_PARAM_GROUPS.map((name, index) => [name, index]));
   return parseSchema(SLICING_PARAMS_SCHEMA)
     .groups.filter((g) => order.has(g.name))
     .map((g) => ({
@@ -107,7 +107,7 @@ const PARAM_GROUPS: SchemaGroup[] = (() => {
       ),
     }))
     .filter((g) => g.fields.length > 0)
-    .sort((a, b) => order.get(a.name)! - order.get(b.name)!);
+    .sort((a, b) => (order.get(a.name) ?? 0) - (order.get(b.name) ?? 0));
 })();
 
 @Component({
