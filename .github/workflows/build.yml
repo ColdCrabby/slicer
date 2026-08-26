@@ -6,6 +6,15 @@ on:
   pull_request:
     branches: [ main, develop ]
 
+# Least privilege: builds/tests only need to read the repo.
+permissions:
+  contents: read
+
+# Cancel superseded PR runs; let branch pushes finish.
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 env:
   CARGO_TERM_COLOR: always
 
@@ -51,7 +60,7 @@ jobs:
       - name: Build WASM
         run: wasm-pack build --target web --release --dev
       - name: Upload WASM artifacts
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: wasm-artifacts
           path: pkg/

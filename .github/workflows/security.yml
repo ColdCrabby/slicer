@@ -1,0 +1,134 @@
+name: Security
+
+# Layered supply-chain / code security scanning.
+#
+# Enforcing gates (fail the check):
+#   * dependency-review  — blocks PRs that ADD a vulnerable/badly-licensed dep
+#   * codeql             — static analysis of the TypeScript/JS front-end
+#   * gitleaks           — hard-coded secret detection
+#
+# Report-first (run + surface findings, but do NOT block merges yet — flip by
+# removing `continue-on-error`):
+#   * cargo-audit / cargo-deny advisories+licenses — RustSec feed is volatile
+#   * pnpm-audit                                    — npm advisory feed
+#
+# NOTE: `dependency-review` and `codeql` require a public repo OR GitHub
+# Advanced Security. If this repo is private without GHAS, those two jobs will
+# no-op/fail — disable them or enable GHAS.
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main, develop]
+  schedule:
+    - cron: "0 6 * * 1" # Mondays 06:00 UTC — catches newly-published advisories
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: security-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  # ── Blocks PRs that introduce vulnerable or disallowed dependencies ─────────
+  dependency-review:
+    name: Dependency review
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/dependency-review-action@v4
+        with:
+          fail-on-severity: high
+          comment-summary-in-pr: on-failure
+
+  # ── Static analysis of the Angular UI (results land in the Security tab) ────
+  codeql:
+    name: CodeQL (JS/TS)
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write
+      actions: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: github/codeql-action/init@v3
+        with:
+          languages: javascript-typescript
+      - uses: github/codeql-action/analyze@v3
+        with:
+          category: "/language:javascript-typescript"
+
+  # ── Hard-coded secret detection across history / PR commits ─────────────────
+  gitleaks:
+    name: Secret scan (gitleaks)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # Personal/public repos are free. For GitHub *organizations*, add:
+          # GITLEAKS_LICENSE: ${{ secrets.GITLEAKS_LICENSE }}
+
+  # ── RustSec advisory + policy scan (Cargo.lock is gitignored → generate it) ─
+  cargo-audit:
+    name: cargo-audit (RustSec)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-audit
+      - name: Generate lockfile
+        run: cargo generate-lockfile
+      - name: Audit dependencies (report-first)
+        run: cargo audit
+        continue-on-error: true
+
+  cargo-deny:
+    name: cargo-deny (bans/licenses/sources)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-deny
+      - name: Generate lockfile
+        run: cargo generate-lockfile
+      # Policy checks (banned crates, non-crates.io sources) are stable → gate.
+      - name: Check bans & sources
+        run: cargo deny check bans sources
+      # Advisory + license feeds are volatile → surface but don't block yet.
+      - name: Check advisories & licenses (report-first)
+        run: cargo deny check advisories licenses
+        continue-on-error: true
+
+  # ── npm/pnpm advisory scan across the workspace ─────────────────────────────
+  pnpm-audit:
+    name: pnpm audit (npm deps)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+      - name: Audit dependencies (report-first)
+        run: pnpm audit --audit-level high
+        continue-on-error: true
