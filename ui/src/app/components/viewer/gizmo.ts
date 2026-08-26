@@ -545,4 +545,3 @@ function findSelectableId(obj: Object3D | null): string | null {
 
 // Re-exports so the host module doesn't need to import three directly.
 export { Z_DOWN };
-

@@ -1,0 +1,89 @@
+name: Frontend CI
+
+# Validates the Angular UI on every PR/push so a broken front-end fails here
+# instead of at deploy time (deploy-docs.yml publishes this same UI to Pages).
+on:
+  push:
+    branches: [main, develop]
+    paths: &ui-paths
+      - "ui/**"
+      - "src/**"
+      - "build.rs"
+      - "Cargo.toml"
+      - "package.json"
+      - "pnpm-lock.yaml"
+      - "pnpm-workspace.yaml"
+      - ".github/workflows/ui-ci.yml"
+  pull_request:
+    branches: [main, develop]
+    paths: *ui-paths
+
+# Least privilege: this workflow only needs to read the repo.
+permissions:
+  contents: read
+
+# Cancel superseded PR runs to save minutes; let branch pushes finish.
+concurrency:
+  group: ui-ci-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  format:
+    name: Prettier
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+      # Runs before `hydrate`, so generated schemas/types don't exist yet and
+      # can't trip the check. Prettier ignores node_modules automatically.
+      - name: Check formatting
+        run: pnpm --filter slicer-ui exec prettier --check "src/**/*.{ts,html,scss,css}"
+
+  build-and-test:
+    name: Build & unit test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # build.rs derives the version via `git describe`; full history avoids
+          # a bogus "development" build breaking version-dependent code paths.
+          fetch-depth: 0
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+      - uses: Swatinem/rust-cache@v2
+      - name: Install wasm-bindgen-cli
+        run: cargo install wasm-bindgen-cli --version 0.2.126 --locked
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+      # ui/src/generated + ui/src/schemas are gitignored, so the scene WASM
+      # bindings and generated TS types MUST be produced before `ng build`.
+      - name: Hydrate (WASM bindings + generated types)
+        run: pnpm run hydrate
+      - name: Build UI
+        run: pnpm --filter slicer-ui build
+      # `@angular/build:unit-test` runs on Node + jsdom via Vitest; --watch=false
+      # guarantees a single run even if a TTY is present. Skip cleanly until the
+      # repo has its first spec — the builder errors ("No tests found") on an
+      # empty match, which would otherwise fail the gate.
+      - name: Unit tests
+        run: |
+          if find ui/src \( -name '*.spec.ts' -o -name '*.test.ts' \) -print -quit | grep -q .; then
+            pnpm --filter slicer-ui exec ng test --watch=false
+          else
+            echo "No UI unit tests (*.spec.ts / *.test.ts) found — skipping."
+          fi

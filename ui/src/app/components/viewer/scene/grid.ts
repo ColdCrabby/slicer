@@ -167,12 +167,7 @@ export class SceneGrid {
               spacingMm,
               MAJOR_EVERY,
             )
-          : buildBedGridPositions(
-              printableAreaWidth,
-              printableAreaHeight,
-              spacingMm,
-              MAJOR_EVERY,
-            );
+          : buildBedGridPositions(printableAreaWidth, printableAreaHeight, spacingMm, MAJOR_EVERY);
 
       if (minorPositions.length > 0) {
         const minor = makeLineSegments(

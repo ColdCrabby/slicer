@@ -1,0 +1,12 @@
+# Code owners — auto-requested as reviewers on matching PRs.
+# Pair with branch protection (require review from Code Owners) to enforce.
+
+# Default owner for everything in the repo.
+*                         @max-scopp
+
+# CI/CD, security policy and release tooling are security-sensitive: keep the
+# owner in the loop on any change to how the project is built or shipped.
+/.github/                 @max-scopp
+/.github/workflows/       @max-scopp
+/.github/dependabot.yml   @max-scopp
+/deny.toml                @max-scopp

@@ -75,6 +75,18 @@ jobs:
       - name: Build UI (web-slicer)
         run: pnpm --filter slicer-ui exec ng build --configuration web-slicer --base-href /
 
+      # Deploy gate: a failing UI unit test must block the production Pages
+      # publish, even on a direct push to main that skipped PR checks. Skip
+      # cleanly until the repo has its first spec (the builder errors on an
+      # empty match).
+      - name: Unit tests (deploy gate)
+        run: |
+          if find ui/src \( -name '*.spec.ts' -o -name '*.test.ts' \) -print -quit | grep -q .; then
+            pnpm --filter slicer-ui exec ng test --watch=false
+          else
+            echo "No UI unit tests (*.spec.ts / *.test.ts) found — skipping."
+          fi
+
       - name: Build with VitePress
         run: pnpm --filter slicer-engine-docs docs:build
 
