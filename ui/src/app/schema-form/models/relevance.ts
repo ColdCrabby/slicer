@@ -43,23 +43,3 @@ export function filterRelevantGroups(
     }))
     .filter((group) => group.fields.length > 0);
 }
-
-/**
- * Collect each field's schema `default` into a flat `key → default` record.
- *
- * Profile `params` bags are *sparse* — an absent key resolves to the engine
- * default at slice time. A relevance gate must therefore be evaluated against
- * the *effective* values (defaults overlaid with the profile's own overrides),
- * otherwise a gate whose field is unset (e.g. `adhesion_type` still at its
- * `none` default) can't be reasoned about. Callers merge this map underneath
- * the sparse overrides before calling {@link filterRelevantGroups}.
- */
-export function collectFieldDefaults(fields: FieldDef[]): Record<string, unknown> {
-  const out: Record<string, unknown> = {};
-  for (const field of fields) {
-    if (field.default !== undefined) {
-      out[field.key] = field.default;
-    }
-  }
-  return out;
-}
