@@ -443,10 +443,16 @@ geometry, and appends `ExtrusionRole::Support` **open** polylines.
   resting on the model — within `support_interface_layers` — are filled at the
   denser `support_interface_density`; the body uses `support_density`.
 - **Normal vs tree**: `Normal` carries the full overhang footprint down (grid
-  column); `Tree` carries an *eroded trunk core* and applies a morphological
-  **close** per descending layer so nearby trunks merge into organic branches.
-  Tree is a pragmatic approximation, **not** a full collision-avoiding branching
-  tree — the honest limitation is surfaced by `unsupported_feature_warnings()`.
+  column). `Tree` is a **node-drop simulation**: contact tips are sampled from
+  each overhang, migrate toward their local centroid each layer (so edge tips
+  lean inward and a wide field contracts into a few thin trunks), merge when
+  they meet, and reject any step that would enter the model. Wide interface caps
+  still cover the full overhang, so trunks stay thin — tree uses markedly less
+  filament than normal (Benchy: ≈3.7 k mm vs ≈17 k mm; a wide flat plate ≈3×
+  less). It is a pragmatic approximation, **not** a full collision-avoiding
+  branching tree with base flaring — the honest limitation is surfaced by
+  `unsupported_feature_warnings()`. Validate the converging shape with an XZ
+  (front-elevation) projection of the `Support material` beads.
 - **G-code**: `ExtrusionRole::Support` already emits `;TYPE:Support material`
   (issue #6); strands are open polylines (never closed loops), each carrying an
   explicit nozzle-diameter width. Verified on the Benchy: support concentrates

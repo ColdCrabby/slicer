@@ -6,16 +6,20 @@
 //! fills the resulting columns with a grid/zig-zag pattern tagged
 //! [`ExtrusionRole::Support`].  Both support styles are produced:
 //!
-//! | Style                    | Column carried downward                     | Merging |
+//! | Style                    | Load-bearing column                         | Merging |
 //! |--------------------------|---------------------------------------------|---------|
-//! | [`SupportType::Normal`]  | full overhang footprint (straight-down grid) | none    |
-//! | [`SupportType::Tree`]    | eroded trunk core (tapered organic columns)  | morphological close per layer |
+//! | [`SupportType::Normal`]  | full overhang footprint (straight-down grid) | none |
+//! | [`SupportType::Tree`]    | node-drop branches that lean inward + converge | tips within `merge_dist` collapse |
 //!
-//! `Tree` is a pragmatic approximation of full branching tree support: each
-//! overhang seeds a trunk that is narrower than its contact pad, and nearby
-//! trunks are merged as they descend so the columns flow together like
-//! branches.  It is **not** a physically optimal collision-avoiding tree
-//! (that is a much larger algorithm); the honest limitation is surfaced by
+//! `Tree` is a node-drop (influence-drop) simulation — the standard organic
+//! support model, reduced to essentials: contact tips are sampled from each
+//! overhang, migrate toward their local centroid each layer (so **edge tips lean
+//! inward** and a wide field contracts into a few trunks), merge when they meet,
+//! and reject any step that would enter the model.  Wide interface caps still
+//! cover the full overhang at the contact layers, so the trunks stay thin and
+//! tree uses markedly less filament than a grid column.  It is **not** a
+//! physically optimal collision-avoiding tree with base flaring (that is a much
+//! larger algorithm); the honest limitation is surfaced by
 //! [`SlicingParams::unsupported_feature_warnings`].
 //!
 //! # Pipeline placement
@@ -44,6 +48,19 @@ const SUPPORT_MIN_REGION_AREA_MM2: f64 = 1.0;
 /// the tiny facet-to-facet jitter of a near-vertical wall does not register as
 /// an overhang.
 const OVERHANG_FACET_TOLERANCE_MM: f64 = 0.05;
+
+/// Tree support — maximum branch angle from vertical.  A branch may lean this
+/// far per layer (`dx = tan(angle)·layer_height`), so tips converge into trunks
+/// as they descend.  40° matches the organic-support default of mature slicers.
+const TREE_BRANCH_ANGLE_DEG: f64 = 40.0;
+
+/// Tree support — trunk radius as a multiple of the nozzle diameter.  Trunks are
+/// deliberately thin; the wide interface caps carry the actual contact surface.
+const TREE_TRUNK_NOZZLE_MULT: f64 = 1.5;
+
+/// Tree support — contact-tip sampling spacing as a multiple of the nozzle
+/// diameter.  Sparser than a grid column, so tree uses less material.
+const TREE_TIP_SPACING_NOZZLE_MULT: f64 = 6.0;
 
 /// ── Clipper2 helpers with empty-input guards ──────────────────────────────
 ///
@@ -78,17 +95,6 @@ fn poly_inflate(a: &Paths, delta: f64) -> Paths {
         return a.clone();
     }
     inflate(a.clone(), delta, JoinType::Round, EndType::Polygon, 2.0)
-}
-
-/// Morphological close: dilate by `radius` then erode back.  Bridges gaps up to
-/// `2·radius` between nearby columns (merging tree trunks) without materially
-/// growing the total area.
-fn poly_close(a: &Paths, radius: f64) -> Paths {
-    if a.is_empty() || radius <= 1e-6 {
-        return a.clone();
-    }
-    let grown = poly_inflate(a, radius);
-    poly_inflate(&grown, -radius)
 }
 
 fn filter_small(paths: &Paths, min_area_mm2: f64) -> Paths {
@@ -167,58 +173,39 @@ pub fn generate_supports(layers: &mut [SliceLayer], params: &SlicingParams) {
         add_at[activate] = poly_union(&add_at[activate], &overhang[i]);
     }
 
-    // ── 4. Descend, accumulating support columns ───────────────────────────
+    // ── 4. Build the load-bearing column per layer (model already subtracted) ─
+    //
+    // Two strategies produce a per-layer `columns[i]` region:
+    //   • Normal — the full overhang footprint projected straight down (a grid
+    //     column), subtracting the model + XY clearance each layer.
+    //   • Tree — a node-drop simulation: contact tips are sampled, migrate
+    //     toward their local centroid each layer (so edge tips lean inward and
+    //     converge), merge when they meet, avoid the model, and rasterise into
+    //     thin trunks.  Wide interface caps (added below) still cover the full
+    //     overhang at the contact layers, so the trunks can stay thin.
     let is_tree = params.support_type == SupportType::Tree;
     let xy = params.support_xy_distance_mm.max(0.0);
     let iface = params.support_interface_layers;
-    let merge_radius = ext_w * 2.0;
-    let trunk_taper = ext_w * 2.0;
 
-    // `acc` is the running column carried downward.  For tree support the
-    // carried column is the eroded trunk; for normal it is the full overhang.
-    let mut acc = Paths::new(vec![]);
+    let columns: Vec<Paths> = if is_tree {
+        simulate_tree_columns(&add_at, &footprints, n, lh, ext_w, xy)
+    } else {
+        project_normal_columns(&add_at, &footprints, n, xy)
+    };
+
     // Per-layer printed regions, split into interface (dense) and body.
     let mut body_regions: Vec<Paths> = vec![Paths::new(vec![]); n];
     let mut iface_regions: Vec<Paths> = vec![Paths::new(vec![]); n];
 
-    for i in (0..n).rev() {
-        // Seed newly-activated contacts into the carried column.
-        if !add_at[i].is_empty() {
-            let seed = if is_tree {
-                // Erode the contact pad to a narrower trunk core; if the pad is
-                // too small to erode without vanishing, carry it whole.
-                let eroded = poly_inflate(&add_at[i], -trunk_taper);
-                if eroded.is_empty() {
-                    add_at[i].clone()
-                } else {
-                    eroded
-                }
-            } else {
-                add_at[i].clone()
-            };
-            acc = poly_union(&acc, &seed);
-        }
+    for i in 0..n {
+        let column = &columns[i];
 
-        if acc.is_empty() {
-            continue;
-        }
-
-        // Tree: merge nearby trunks so branches flow together as they descend.
-        if is_tree {
-            acc = poly_close(&acc, merge_radius);
-        }
-
-        // Horizontal clearance: remove the model (+ XY distance) at this layer.
+        // Horizontal clearance frame for this layer (model + XY distance).
         let clip = poly_inflate(&footprints[i], xy);
-        let column = poly_difference(&acc, &clip);
-        let column = filter_small(&column, SUPPORT_MIN_REGION_AREA_MM2);
-        if column.is_empty() {
-            continue;
-        }
 
         // Top interface: the full overhang pad(s) whose contact band covers this
         // layer — [i, i+iface-1] — giving a dense, flat surface under the
-        // overhang regardless of trunk erosion.
+        // overhang regardless of how thin the load-bearing trunk is.
         let mut top_full = Paths::new(vec![]);
         if iface > 0 {
             for pad in add_at.iter().take((i + iface).min(n)).skip(i) {
@@ -229,9 +216,13 @@ pub fn generate_supports(layers: &mut [SliceLayer], params: &SlicingParams) {
         }
         let top_if = poly_difference(&top_full, &clip);
 
+        if column.is_empty() && top_if.is_empty() {
+            continue;
+        }
+
         // The printed footprint is the union of the load-bearing column and the
         // (possibly wider) top contact pad.
-        let total = poly_union(&column, &top_if);
+        let total = poly_union(column, &top_if);
 
         // Bottom interface: where the column rests on model within `iface`
         // layers below (contact that must detach cleanly).
@@ -254,7 +245,14 @@ pub fn generate_supports(layers: &mut [SliceLayer], params: &SlicingParams) {
     // ── 5. Fill each layer's support regions and append Support paths ───────
     let body_dens = params.support_density.clamp(0.02, 1.0);
     let iface_dens = params.support_interface_density.clamp(0.05, 1.0);
-    let body_spacing = ext_w / body_dens;
+    // Tree trunks are already thin and sparse (few columns), so they are filled
+    // near-solid for strength; normal support fills the whole overhang area at
+    // the configured (sparse) density.
+    let body_spacing = if is_tree {
+        ext_w / body_dens.max(0.6)
+    } else {
+        ext_w / body_dens
+    };
     let iface_spacing = ext_w / iface_dens;
     let min_len = params.min_infill_extrusion_mm;
 
@@ -285,6 +283,311 @@ pub fn generate_supports(layers: &mut [SliceLayer], params: &SlicingParams) {
             push_support_path(&mut layers[i], path, ext_w);
         }
     }
+}
+
+/// Project each overhang footprint straight down (classic grid support).
+///
+/// Returns a per-layer load-bearing column with the model + XY clearance already
+/// subtracted.  The overhang registered at `add_at[i]` is accumulated top-down
+/// into a running region and clipped by `inflate(footprint, xy)` each layer.
+fn project_normal_columns(add_at: &[Paths], footprints: &[Paths], n: usize, xy: f64) -> Vec<Paths> {
+    let mut acc = Paths::new(vec![]);
+    let mut out = vec![Paths::new(vec![]); n];
+    for i in (0..n).rev() {
+        if !add_at[i].is_empty() {
+            acc = poly_union(&acc, &add_at[i]);
+        }
+        if acc.is_empty() {
+            continue;
+        }
+        let clip = poly_inflate(&footprints[i], xy);
+        let column = filter_small(&poly_difference(&acc, &clip), SUPPORT_MIN_REGION_AREA_MM2);
+        out[i] = column;
+    }
+    out
+}
+
+/// Tree / organic support via a node-drop simulation.
+///
+/// This is the standard influence-drop model used by mature slicers, reduced to
+/// its essentials:
+///
+/// 1. **Seed** — at each activation layer, the overhang pad is sampled into a
+///    grid of contact tips.
+/// 2. **Merge** — tips closer than `merge_dist` collapse to their centroid, so
+///    branches that meet become one trunk.
+/// 3. **Migrate** — each tip moves toward the centroid of its neighbours, capped
+///    at `tan(TREE_BRANCH_ANGLE)·layer_height` per layer.  A uniform interior is
+///    balanced (no motion), but **edge tips see neighbours only on their inner
+///    side and therefore lean inward**, so a wide field of tips contracts into a
+///    few trunks as it descends — the characteristic tree shape.
+/// 4. **Avoid the model** — a migration step that would land a tip inside the
+///    model + XY clearance is rejected (the branch slides rather than diving in).
+/// 5. **Rasterise** — the surviving tips are stamped as discs of radius
+///    `TREE_TRUNK_NOZZLE_MULT·nozzle` and the model is subtracted.
+///
+/// Returns a per-layer load-bearing column (model already subtracted).  It is
+/// deterministic: sampling, merging and migration are all order-stable.
+fn simulate_tree_columns(
+    add_at: &[Paths],
+    footprints: &[Paths],
+    n: usize,
+    layer_height: f64,
+    ext_w: f64,
+    xy: f64,
+) -> Vec<Paths> {
+    let max_dx = TREE_BRANCH_ANGLE_DEG.to_radians().tan() * layer_height;
+    let trunk_r = ext_w * TREE_TRUNK_NOZZLE_MULT;
+    let sample_sp = ext_w * TREE_TIP_SPACING_NOZZLE_MULT;
+    let merge_dist = sample_sp * 0.75;
+    let neigh = sample_sp * 1.6;
+
+    let mut nodes: Vec<(f64, f64)> = Vec::new();
+    let mut out = vec![Paths::new(vec![]); n];
+
+    for i in (0..n).rev() {
+        // 1. Seed new contact tips from this layer's activated overhang pads.
+        if !add_at[i].is_empty() {
+            for p in sample_region_points(&add_at[i], sample_sp) {
+                nodes.push(p);
+            }
+        }
+        if nodes.is_empty() {
+            continue;
+        }
+
+        // 2. Merge tips that have come within merge_dist of each other.
+        nodes = merge_close_points(&nodes, merge_dist);
+
+        // 3 + 4. Migrate toward the local centroid, rejecting steps into the model.
+        let forbidden = poly_inflate(&footprints[i], xy);
+        let grid = SpatialGrid::build(&nodes, neigh);
+        let mut moved = Vec::with_capacity(nodes.len());
+        for &(x, y) in &nodes {
+            let (cx, cy, cnt) = grid.local_centroid(&nodes, x, y, neigh);
+            let mut np = (x, y);
+            if cnt > 1 {
+                let (dx, dy) = (cx - x, cy - y);
+                let d = (dx * dx + dy * dy).sqrt();
+                if d > 1e-9 {
+                    let s = max_dx.min(d) / d;
+                    let cand = (x + dx * s, y + dy * s);
+                    if !point_in_paths_eo(cand.0, cand.1, &forbidden) {
+                        np = cand;
+                    }
+                }
+            }
+            moved.push(np);
+        }
+        nodes = moved;
+
+        // 5. Rasterise the trunks and subtract the model.
+        let discs = stamp_discs(&nodes, trunk_r);
+        let column = poly_difference(&discs, &forbidden);
+        out[i] = filter_small(&column, SUPPORT_MIN_REGION_AREA_MM2 * 0.25);
+    }
+
+    out
+}
+
+/// Sample a polygon region into a regular grid of interior points, spacing
+/// `spacing` mm apart.  Uses an even-odd scanline so holes (e.g. the void of an
+/// annular overhang) are correctly excluded.  Deterministic: points are emitted
+/// in row-major (y, then x) order.
+fn sample_region_points(region: &Paths, spacing: f64) -> Vec<(f64, f64)> {
+    if region.is_empty() || spacing <= 1e-6 {
+        return Vec::new();
+    }
+    let (mut min_y, mut max_y) = (f64::INFINITY, f64::NEG_INFINITY);
+    for c in region.iter() {
+        for p in c.iter() {
+            min_y = min_y.min(p.y());
+            max_y = max_y.max(p.y());
+        }
+    }
+    if !min_y.is_finite() || min_y >= max_y {
+        return Vec::new();
+    }
+
+    let mut pts = Vec::new();
+    let mut y = (min_y / spacing).ceil() * spacing;
+    while y <= max_y {
+        // X coordinates where the horizontal scan line crosses region edges.
+        let mut xs: Vec<f64> = Vec::new();
+        for c in region.iter() {
+            let verts: Vec<(f64, f64)> = c.iter().map(|p| (p.x(), p.y())).collect();
+            let m = verts.len();
+            for k in 0..m {
+                let (x0, y0) = verts[k];
+                let (x1, y1) = verts[(k + 1) % m];
+                // Half-open straddle test: each edge counted once at a shared vertex.
+                if (y0 <= y) != (y1 <= y) {
+                    let t = (y - y0) / (y1 - y0);
+                    xs.push(x0 + t * (x1 - x0));
+                }
+            }
+        }
+        xs.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+        let mut k = 0;
+        while k + 1 < xs.len() {
+            let (xa, xb) = (xs[k], xs[k + 1]);
+            let mut x = (xa / spacing).ceil() * spacing;
+            while x <= xb {
+                pts.push((x, y));
+                x += spacing;
+            }
+            k += 2;
+        }
+        y += spacing;
+    }
+    pts
+}
+
+/// A uniform spatial hash over 2D points for O(1)-ish neighbour queries.
+struct SpatialGrid {
+    cell: f64,
+    map: std::collections::HashMap<(i64, i64), Vec<usize>>,
+}
+
+impl SpatialGrid {
+    fn key(cell: f64, x: f64, y: f64) -> (i64, i64) {
+        ((x / cell).floor() as i64, (y / cell).floor() as i64)
+    }
+
+    fn build(points: &[(f64, f64)], cell: f64) -> Self {
+        let cell = cell.max(1e-3);
+        let mut map: std::collections::HashMap<(i64, i64), Vec<usize>> =
+            std::collections::HashMap::new();
+        for (i, &(x, y)) in points.iter().enumerate() {
+            map.entry(Self::key(cell, x, y)).or_default().push(i);
+        }
+        Self { cell, map }
+    }
+
+    /// Indices of points within the 3×3 cell neighbourhood of `(x, y)`.
+    fn neighbours(&self, x: f64, y: f64) -> Vec<usize> {
+        let (cx, cy) = Self::key(self.cell, x, y);
+        let mut out = Vec::new();
+        for dx in -1..=1 {
+            for dy in -1..=1 {
+                if let Some(v) = self.map.get(&(cx + dx, cy + dy)) {
+                    out.extend_from_slice(v);
+                }
+            }
+        }
+        out
+    }
+
+    /// Centroid of the points within `radius` of `(x, y)` (including itself),
+    /// plus the count.  Used as the inward-pulling migration target.
+    fn local_centroid(
+        &self,
+        points: &[(f64, f64)],
+        x: f64,
+        y: f64,
+        radius: f64,
+    ) -> (f64, f64, usize) {
+        let r2 = radius * radius;
+        let (mut sx, mut sy, mut cnt) = (0.0, 0.0, 0usize);
+        for i in self.neighbours(x, y) {
+            let (px, py) = points[i];
+            let (dx, dy) = (px - x, py - y);
+            if dx * dx + dy * dy <= r2 {
+                sx += px;
+                sy += py;
+                cnt += 1;
+            }
+        }
+        if cnt == 0 {
+            (x, y, 0)
+        } else {
+            (sx / cnt as f64, sy / cnt as f64, cnt)
+        }
+    }
+}
+
+/// Collapse points closer than `dist` into their group centroid.  Greedy and
+/// order-stable (points are visited in input order); each unvisited point claims
+/// all not-yet-claimed points within `dist` via a spatial grid.
+fn merge_close_points(points: &[(f64, f64)], dist: f64) -> Vec<(f64, f64)> {
+    if points.len() < 2 || dist <= 1e-6 {
+        return points.to_vec();
+    }
+    let grid = SpatialGrid::build(points, dist);
+    let d2 = dist * dist;
+    let mut claimed = vec![false; points.len()];
+    let mut out = Vec::new();
+    for i in 0..points.len() {
+        if claimed[i] {
+            continue;
+        }
+        let (x, y) = points[i];
+        let (mut sx, mut sy, mut cnt) = (x, y, 1usize);
+        claimed[i] = true;
+        for j in grid.neighbours(x, y) {
+            if j <= i || claimed[j] {
+                continue;
+            }
+            let (px, py) = points[j];
+            let (dx, dy) = (px - x, py - y);
+            if dx * dx + dy * dy <= d2 {
+                claimed[j] = true;
+                sx += px;
+                sy += py;
+                cnt += 1;
+            }
+        }
+        out.push((sx / cnt as f64, sy / cnt as f64));
+    }
+    out
+}
+
+/// Stamp a disc of radius `r` at every node and union them into one region.
+/// Each node becomes a near-zero-length segment inflated with round caps, so a
+/// single `inflate` call produces every disc at once.
+fn stamp_discs(nodes: &[(f64, f64)], r: f64) -> Paths {
+    if nodes.is_empty() || r <= 1e-6 {
+        return Paths::new(vec![]);
+    }
+    let eps = (r * 0.01).max(1e-3);
+    let segs: Vec<Path> = nodes
+        .iter()
+        .map(|&(x, y)| {
+            let mut p = Path::new(vec![]);
+            p.push(Point::new(x - eps, y));
+            p.push(Point::new(x + eps, y));
+            p
+        })
+        .collect();
+    let inflated = inflate(Paths::new(segs), r, JoinType::Round, EndType::Round, 2.0);
+    if inflated.is_empty() {
+        return inflated;
+    }
+    union(inflated.clone(), Paths::new(vec![]), FillRule::NonZero).unwrap_or(inflated)
+}
+
+/// Even-odd point-in-polygon test against a `Paths` set (holes respected).
+/// Returns `true` when `(x, y)` lies inside an odd number of contours.
+fn point_in_paths_eo(x: f64, y: f64, paths: &Paths) -> bool {
+    if paths.is_empty() {
+        return false;
+    }
+    let mut inside = false;
+    for c in paths.iter() {
+        let verts: Vec<(f64, f64)> = c.iter().map(|p| (p.x(), p.y())).collect();
+        let m = verts.len();
+        for k in 0..m {
+            let (xi, yi) = verts[k];
+            let (xj, yj) = verts[(k + 1) % m];
+            if (yi > y) != (yj > y) {
+                let x_cross = xi + (y - yi) / (yj - yi) * (xj - xi);
+                if x < x_cross {
+                    inside = !inside;
+                }
+            }
+        }
+    }
+    inside
 }
 
 /// Append a single support polyline to `layer`, keeping the parallel per-path
@@ -339,6 +642,25 @@ mod tests {
         (0..layer.paths.len())
             .filter(|&i| layer.role_for_path(i) == ExtrusionRole::Support)
             .count()
+    }
+
+    /// Total length (mm) of all Support polylines across every layer.
+    fn support_total_len(layers: &[SliceLayer]) -> f64 {
+        let mut total = 0.0;
+        for layer in layers {
+            for (i, path) in layer.paths.iter().enumerate() {
+                if layer.role_for_path(i) != ExtrusionRole::Support {
+                    continue;
+                }
+                let pts: Vec<(f64, f64)> = path.iter().map(|p| (p.x(), p.y())).collect();
+                for w in pts.windows(2) {
+                    let dx = w[1].0 - w[0].0;
+                    let dy = w[1].1 - w[0].1;
+                    total += (dx * dx + dy * dy).sqrt();
+                }
+            }
+        }
+        total
     }
 
     fn params_with_supports() -> SlicingParams {
@@ -432,5 +754,40 @@ mod tests {
         };
         assert!(build(SupportType::Normal) > 0, "normal support expected");
         assert!(build(SupportType::Tree) > 0, "tree support expected");
+    }
+
+    #[test]
+    fn tree_uses_materially_less_filament_than_normal() {
+        // Regression lock for the tree rewrite: a tall thin base under a wide
+        // flat plate.  The plate underside is a large overhang.  Normal fills it
+        // with a full grid column; tree drops sparse converging branches and
+        // must therefore use materially less filament.  (Before the rewrite the
+        // two were byte-identical — this test would have failed.)
+        let build = |ty: SupportType| {
+            let mut layers = Vec::new();
+            for k in 0..20 {
+                layers.push(square_layer(0.2 * (k as f64 + 1.0), 0.0, 0.0, 2.0));
+            }
+            for k in 20..22 {
+                layers.push(square_layer(0.2 * (k as f64 + 1.0), 0.0, 0.0, 16.0));
+            }
+            let params = SlicingParams {
+                support_type: ty,
+                ..params_with_supports()
+            };
+            generate_supports(&mut layers, &params);
+            support_total_len(&layers)
+        };
+        let normal = build(SupportType::Normal);
+        let tree = build(SupportType::Tree);
+        assert!(
+            normal > 0.0 && tree > 0.0,
+            "both styles must produce support (normal={normal:.0}mm, tree={tree:.0}mm)"
+        );
+        assert!(
+            tree < normal * 0.85,
+            "tree must use materially less filament than normal \
+             (tree={tree:.0}mm, normal={normal:.0}mm)"
+        );
     }
 }
