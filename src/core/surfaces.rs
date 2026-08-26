@@ -54,6 +54,35 @@ const SOLID_INFILL_EXTRUSION_WIDTH_MULTIPLIER: f64 = 1.2;
 /// pulling a large surface back off its wall bond.
 const SURFACE_MIN_ISLAND_MM2: f64 = 2.0;
 
+/// Minimum width — as a multiple of the nozzle diameter — an **interior region**
+/// must reach to host a rectilinear top/bottom surface fill.
+///
+/// Arachne's per-island *average* wall count makes `calculate_interior_region`
+/// leave a thin interior sliver wherever a cross-section is locally thinner
+/// than that average — the Benchy hull-side wall tips, the funnel-to-roof
+/// transitions, the cabin roof-ridge line.  Such a channel is already fully
+/// consumed by the wall + gap-fill beads, but wherever the geometry above
+/// recedes (a wall tip that steps back layer over layer) it is still picked up
+/// as an "exposed" top/bottom surface and filled with a rectilinear zig-zag
+/// whose segments are a fraction of a millimetre long — the "tiny extrudes that
+/// make no sense" and "weird top-surface spots on the sides".
+///
+/// The discriminator is **not** the exposed strip's own width (a genuine
+/// fore-deck top surface is an equally thin horizontal band): it is whether the
+/// strip belongs to a *thick* interior (real infill area) or a *thin* wall-band
+/// channel (Arachne artifact).  Clipping the surface to a morphologically
+/// **opened** interior — one from which channels thinner than this threshold
+/// have been erased, genuine areas kept at full extent — drops exactly the
+/// artifacts and makes Arachne match the `classic` generator, which emits no
+/// surface in those channels.  Because the strip is then no longer a
+/// `solid_region`, its gap-fill beads also survive `prune_redundant_gap_fill`.
+///
+/// Measured on a 0.4 mm-nozzle Benchy: artifact channels are ≤ ~0.8 mm (≤ 2×
+/// nozzle) wide, while every genuine surface sits on an interior several
+/// millimetres across.  A threshold of 2.5× (1.0 mm) removes the former and
+/// keeps the latter with wide margin.
+const SURFACE_MIN_INTERIOR_WIDTH_NOZZLE_MULT: f64 = 2.5;
+
 /// Maximum horizontal gap (as a multiple of `line_spacing`) allowed when
 /// connecting the end of one scan-line segment to the nearest end of the next
 /// scan-line segment in the serpentine chaining pass.
@@ -427,6 +456,25 @@ fn filter_small_islands(paths: &Paths, min_area_mm2: f64) -> Paths {
         .cloned()
         .collect();
     Paths::new(kept)
+}
+
+/// Morphologically open an interior region for top/bottom **surface** detection
+/// so that wall-band channels narrower than
+/// `SURFACE_MIN_INTERIOR_WIDTH_NOZZLE_MULT × nozzle` are erased while genuine
+/// infill areas keep their full extent (only their convex corners, which sit
+/// inside the walls, are rounded).  See that constant for the full rationale.
+///
+/// Returns the input unchanged when the threshold is degenerate.  The caller
+/// clips the detected surface region to the result, so a surface that lands
+/// entirely inside a thin channel is dropped — matching the `classic` generator,
+/// which emits no surface there and leaves the channel to its wall + gap-fill
+/// beads.
+fn open_interior_for_surface(interior: &Paths, nozzle_diameter_mm: f64) -> Paths {
+    let radius = nozzle_diameter_mm * SURFACE_MIN_INTERIOR_WIDTH_NOZZLE_MULT * 0.5;
+    if radius <= 1e-6 || interior.is_empty() {
+        return interior.clone();
+    }
+    morphological_open(interior.clone(), radius)
 }
 
 /// Anchor expansion: dilate `unsupported` by `anchor_mm` (clipped to the
@@ -1384,27 +1432,42 @@ pub fn generate_top_bottom_surfaces_with_interior(
             // Material rejected by stages 1–2 is reclassified as
             // BottomSurface so the layer remains fully solid below the gap.
             //
-            // `clip_bottom` — clips solid bottom-surface infill to the infill
+            // `clip_bottom` — clips solid bottom-surface infill to the interior
             // zone so it doesn't overlap wall extrusions.  Defined here (before
             // the i==0 early-return) so the first layer's BottomSurface is also
             // restricted to the interior region.  Bridges are exempt from this
             // clip because they explicitly fill the gap inside the wall band.
             //
-            //   • `interior_regions = None` → no clip
-            //   • `interior_regions[i]` is empty → no solid infill in this
-            //     all-wall cross-section
-            //   • otherwise → clip to the interior region
+            // The **absolute base cap** (`i < bottom_layers`) is the bed-contact
+            // region and must stay fully solid for adhesion, so it clips to the
+            // *full* interior.  Every higher layer clips to the morphologically
+            // *opened* interior (`open_interior_for_surface`) so a supported
+            // bottom surface that lands entirely inside a thin Arachne wall-band
+            // channel — the tapering-underside artifact, e.g. Benchy layers
+            // 160/172 — is dropped instead of filled with a rectilinear zig-zag
+            // of sub-millimetre segments.  (Such artifacts only occur mid-model,
+            // never on the base cap, so the exemption costs no real surface.)
+            // The opening is computed lazily here — only for a non-empty bottom
+            // surface — to keep it off the pure-infill layers' hot path.
             //
-            // The closure captures `i` (the current layer index) and
-            // `interior_regions` from the enclosing `detect_region` scope.
+            //   • `interior_regions = None` → no clip
+            //   • chosen interior is empty → no solid infill in this all-wall or
+            //     all-thin-channel cross-section
+            //   • otherwise → clip to the chosen interior region
             let clip_bottom = |s: Paths| -> Paths {
-                match interior_regions {
+                if s.is_empty() {
+                    return s;
+                }
+                let interior: Option<Paths> = if i < bottom_layers {
+                    interior_regions.map(|regs| regs[i].clone())
+                } else {
+                    interior_regions
+                        .map(|regs| open_interior_for_surface(&regs[i], nozzle_diameter_mm))
+                };
+                match interior {
                     None => s,
-                    Some(regs) if regs[i].is_empty() => Paths::new(vec![]),
-                    Some(_regs) if s.is_empty() => s,
-                    Some(regs) => {
-                        intersect(s, regs[i].clone(), FillRule::EvenOdd).unwrap_or_default()
-                    }
+                    Some(region) if region.is_empty() => Paths::new(vec![]),
+                    Some(region) => intersect(s, region, FillRule::EvenOdd).unwrap_or_default(),
                 }
             };
 
@@ -1633,12 +1696,29 @@ pub fn generate_top_bottom_surfaces_with_interior(
             }
 
             if let Some(interior_regions) = interior_regions {
-                if interior_regions[i].is_empty() {
+                if interior_regions[i].is_empty() || top_region.is_empty() {
                     top_region = Paths::new(vec![]);
-                } else if !top_region.is_empty() {
-                    top_region =
-                        intersect(top_region, interior_regions[i].clone(), FillRule::EvenOdd)
-                            .unwrap_or_default();
+                } else {
+                    // Clip the top surface to the morphologically **opened**
+                    // interior so it lands only in genuine infill area, never in
+                    // the thin wall-band channels Arachne's per-island-average
+                    // interior estimate leaves in locally-thin cross-sections
+                    // (the Benchy hull-side wall tips, the funnel-to-roof
+                    // transitions).  Filled as a surface those channels become a
+                    // rectilinear zig-zag of sub-millimetre segments; the opening
+                    // erases channels narrower than
+                    // `SURFACE_MIN_INTERIOR_WIDTH_NOZZLE_MULT × nozzle` while
+                    // keeping genuine surfaces (deck, roof, funnel cap) at full
+                    // extent, so Arachne matches the `classic` reference.
+                    // Computed lazily — only for a non-empty top surface.
+                    let interior_surface =
+                        open_interior_for_surface(&interior_regions[i], nozzle_diameter_mm);
+                    top_region = if interior_surface.is_empty() {
+                        Paths::new(vec![])
+                    } else {
+                        intersect(top_region, interior_surface, FillRule::EvenOdd)
+                            .unwrap_or_default()
+                    };
                 }
             }
             top_region
@@ -1689,12 +1769,12 @@ pub fn generate_top_bottom_surfaces_with_interior(
             }
         }
 
-        // Drop tiny solid-surface islands (< `SURFACE_MIN_ISLAND_MM2`): the thin
-        // top-surface rims Arachne's loose interior estimate leaves over a
-        // wall-covered taper, which the perimeters already cover.  The surface
-        // is filled in full — redundant gap-fill beads sitting inside it are
-        // removed afterwards by `prune_redundant_gap_fill`, so the solid infill
-        // stays continuous instead of weaving around scattered beads.
+        // Clean up the detected solid-surface regions before filling them:
+        // drop tiny wall-covered islands by area (`SURFACE_MIN_ISLAND_MM2`).
+        //
+        // The surviving surface is filled in full — redundant gap-fill beads
+        // sitting inside it are removed afterwards by `prune_redundant_gap_fill`,
+        // so the solid infill stays continuous instead of weaving around beads.
         let (bottom_region, top_region) = {
             let clean = |r: Paths| filter_small_islands(&r, SURFACE_MIN_ISLAND_MM2);
             (clean(bottom_region), clean(top_region))
@@ -2168,5 +2248,96 @@ mod tests {
                 "unexpected {dy:.3} mm gap inside a contiguous serpentine chain"
             );
         }
+    }
+
+    /// A thin interior channel — the wall-band sliver Arachne's per-island-
+    /// average estimate leaves in a locally-thin cross-section — must be opened
+    /// away so no rectilinear top/bottom surface is placed inside it.
+    #[test]
+    fn test_open_interior_drops_thin_channel() {
+        // 0.6 mm-wide channel: narrower than
+        // SURFACE_MIN_INTERIOR_WIDTH_NOZZLE_MULT (2.5) × 0.4 mm = 1.0 mm.
+        let channel: Path = vec![(0.0, 0.0), (12.0, 0.0), (12.0, 0.6), (0.0, 0.6)].into();
+        let interior = Paths::new(vec![channel]);
+
+        let opened = open_interior_for_surface(&interior, 0.4);
+
+        assert!(
+            opened.is_empty(),
+            "a sub-1mm interior channel must be opened away, got {} sub-path(s)",
+            opened.len()
+        );
+    }
+
+    /// A genuine, several-millimetre-wide infill area (a real deck/roof surface)
+    /// must survive the opening at essentially its full extent.
+    #[test]
+    fn test_open_interior_keeps_wide_region() {
+        // 6×6 mm region — far wider than the 1.0 mm threshold.
+        let square: Path = vec![(0.0, 0.0), (6.0, 0.0), (6.0, 6.0), (0.0, 6.0)].into();
+        let interior = Paths::new(vec![square]);
+
+        let opened = open_interior_for_surface(&interior, 0.4);
+        let area: f64 = opened.iter().map(|p| p.signed_area().abs()).sum();
+
+        // Opening only rounds the corners (radius 0.5 mm); the 36 mm² square
+        // must lose no more than a few percent.
+        assert!(
+            area >= 34.0,
+            "a wide interior must be preserved (area {area:.2} mm², expected ≳ 34)"
+        );
+    }
+
+    /// **Regression** — a top surface detected over a locally-thin cross-section
+    /// (a thin wall-band channel whose aft end steps back a layer) must NOT be
+    /// filled: the opened interior is empty there, so the surface is dropped,
+    /// matching the `classic` generator.  Guards the "tiny top-surface extrudes
+    /// in a thin wall channel" defect (Benchy hull sides / funnel transitions).
+    #[test]
+    fn test_thin_channel_interior_yields_no_top_surface() {
+        // layer i: a 1.2 mm-wide wall stack, 20 mm long.
+        // layer i+1: the same stack with its tip receded 5 mm (y ≤ 15), so the
+        // y∈[15,20] end is "exposed" per the perimeter difference test.
+        let wall_i: Path = vec![(0.0, 0.0), (1.2, 0.0), (1.2, 20.0), (0.0, 20.0)].into();
+        let mut layer_i = SliceLayer::new(0.2);
+        layer_i.paths.push(wall_i);
+        layer_i.path_roles.push(ExtrusionRole::OuterWall);
+
+        let wall_above: Path = vec![(0.0, 0.0), (1.2, 0.0), (1.2, 15.0), (0.0, 15.0)].into();
+        let mut layer_above = SliceLayer::new(0.2);
+        layer_above.paths.push(wall_above);
+        layer_above.path_roles.push(ExtrusionRole::OuterWall);
+
+        let mut layers = vec![layer_i, layer_above];
+
+        // Hand-crafted interiors: layer 0 is a 0.8 mm-wide channel (a wall-band
+        // sliver, narrower than 2.5 × 0.4 = 1.0 mm); the exposed tip overlaps it,
+        // so without the opening a ~4 mm² top surface would be filled there.
+        let ch0: Path = vec![(0.2, 0.0), (1.0, 0.0), (1.0, 20.0), (0.2, 20.0)].into();
+        let ch1: Path = vec![(0.2, 0.0), (1.0, 0.0), (1.0, 15.0), (0.2, 15.0)].into();
+        let interior_regions: Vec<Paths> = vec![Paths::new(vec![ch0]), Paths::new(vec![ch1])];
+
+        generate_top_bottom_surfaces_with_interior(
+            &mut layers,
+            &SurfaceConfig {
+                top_layers: 1,
+                bottom_layers: 0,
+                layer_height: 0.2,
+                infill_angle: 45.0,
+                nozzle_diameter_mm: 0.4,
+                min_infill_extrusion_mm: 0.0,
+                bridge_flow_ratio: 1.0,
+                bridge_min_area_mm2: 1.0,
+                bridge_noise_filter_mm: 0.0,
+                bridge_anchor_mm: 0.0,
+                infill_overlap_percent: 0.25,
+            },
+            Some(&interior_regions),
+        );
+
+        assert!(
+            !layers[0].path_roles.contains(&ExtrusionRole::TopSurface),
+            "a top surface over a thin wall-band channel must be dropped"
+        );
     }
 }
