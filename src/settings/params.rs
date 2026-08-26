@@ -912,16 +912,6 @@ Improves bed adhesion and avoids potential issues with multiple perimeters press
     pub only_one_wall_first_layer: bool,
 
     #[schemars(
-        description = "Overhang angle threshold in degrees (0–90) for skipping solid surface generation.
-
-Surfaces are skipped when the overhang angle is below this threshold, since shallow overhangs may not need solid fill.
-**Default:** 45°. Set to `0` to always generate surfaces.",
-        extend("x-group" = "Surfaces")
-    )]
-    #[serde(default = "SlicingParams::default_support_threshold_angle")]
-    pub support_threshold_angle: f64,
-
-    #[schemars(
         description = "Overlap of solid surfaces into perimeter walls for bonding (0.0–1.0).
 
 Ensures surfaces bond to walls without leaving gaps at the perimeter boundary.
@@ -1233,7 +1223,19 @@ Caps print speed so the hotend can keep up with the flow.
     pub support_enabled: bool,
 
     #[schemars(
-        description = "Support style: `normal` (grid) or `tree` (organic). Generation pending.",
+        description = "Overhang angle threshold in degrees, measured from vertical (0–89).
+
+Any surface that overhangs more steeply than this gets support beneath it. `45°` is the classic
+rule (a wall may step outward by one layer height per layer); a **smaller** angle is more
+conservative and supports gentler overhangs, a **larger** angle supports only severe overhangs.
+**Default:** 45°.",
+        extend("x-group" = "Support")
+    )]
+    #[serde(default = "SlicingParams::default_support_threshold_angle")]
+    pub support_threshold_angle: f64,
+
+    #[schemars(
+        description = "Support style: `normal` (grid columns) or `tree` (organic branches).",
         extend("x-group" = "Support")
     )]
     #[serde(default)]
