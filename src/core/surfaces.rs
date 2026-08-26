@@ -42,18 +42,28 @@ fn union_or_first(a: Paths, b: Paths) -> Paths {
     }
 }
 
-/// Solid top/bottom surface fill lines are spaced at the **solid extrusion
-/// width**, which for a fully-dense surface equals the nozzle diameter times
-/// this multiplier.
+/// Center-to-center spacing (mm) for solid top/bottom **surface** fill lines.
 ///
-/// This replaces the earlier layer-height-derived spacing (`1.2 × layer_height`)
-/// which, on a standard 0.4 mm nozzle at 0.2 mm layers, packed solid lines only
-/// 0.24 mm apart — far tighter than the ~0.4 mm bead they lay down, grossly
-/// over-extruding every solid surface.  Orca/SuperSlicer/Cura all size solid
-/// infill from the nozzle-based extrusion width, not the layer height, so
-/// adjacent beads just touch.  A multiplier of `1.0` (lines spaced one nozzle
-/// diameter apart) yields full coverage with the beads abutting.
-const SOLID_SURFACE_LINE_SPACING_NOZZLE_MULT: f64 = 1.0;
+/// Uses the libslic3r/Orca/PrusaSlicer **extrusion-spacing** relation so that
+/// adjacent solid beads *overlap* by the rounded-cap correction and the surface
+/// has no gaps:
+///
+/// ```text
+/// spacing = extrusion_width − layer_height × (1 − π/4)
+/// ```
+///
+/// A round-capped bead of nominal width `w` and height `h` only occupies
+/// `w − h·(1 − π/4)` of lateral pitch when packed solid (its rounded sides
+/// interlock), so spacing lines exactly `w` apart leaves a lattice of holes —
+/// the "surfaces with holes" defect. The earlier `1.2 × layer_height` rule
+/// erred the opposite way (0.24 mm at 0.4 mm/0.2 mm ≈ 40 % bead overlap, heavy
+/// over-extrusion). This relation is the battle-tested middle ground: ≈ 11 %
+/// overlap at 0.4 mm nozzle / 0.2 mm layers (0.357 mm pitch), scaling the
+/// overlap correctly with layer height.
+fn solid_surface_line_spacing(extrusion_width_mm: f64, layer_height_mm: f64) -> f64 {
+    const CAP_CORRECTION: f64 = 1.0 - std::f64::consts::FRAC_PI_4; // ≈ 0.2146
+    (extrusion_width_mm - layer_height_mm * CAP_CORRECTION).max(0.01)
+}
 
 /// Solid top/bottom surface fill direction alternates by 90° every layer so
 /// successive solid layers cross-hatch — matching CuraEngine's default
@@ -141,11 +151,15 @@ const SERPENTINE_ROW_GAP_THRESHOLD: f64 = 1.5;
 /// Generates a rectilinear infill pattern covering only the provided `region`
 /// paths (the already-computed surface area), then appends the resulting paths
 /// to `layer` with the given extrusion `role`.
+///
+/// `line_spacing` is the center-to-center pitch of the fill lines in mm — for
+/// solid surfaces derive it via [`solid_surface_line_spacing`] so adjacent
+/// beads overlap and the surface has no gaps.
 pub(super) fn add_solid_infill_for_region(
     layer: &mut SliceLayer,
     region: &Paths,
     role: ExtrusionRole,
-    nozzle_diameter_mm: f64,
+    line_spacing: f64,
     infill_angle: f64,
     min_infill_extrusion_mm: f64,
 ) {
@@ -153,7 +167,7 @@ pub(super) fn add_solid_infill_for_region(
         return;
     }
 
-    let line_spacing = (nozzle_diameter_mm * SOLID_SURFACE_LINE_SPACING_NOZZLE_MULT).max(0.01);
+    let line_spacing = line_spacing.max(0.01);
     let infill_paths =
         generate_rectilinear_infill(region, line_spacing, infill_angle, min_infill_extrusion_mm);
 
@@ -1236,6 +1250,7 @@ pub fn generate_top_bottom_surfaces_with_interior(
 ) -> SurfaceSubTimings {
     let top_layers = config.top_layers;
     let bottom_layers = config.bottom_layers;
+    let layer_height = config.layer_height;
     let infill_angle = config.infill_angle;
     let nozzle_diameter_mm = config.nozzle_diameter_mm;
     let bridge_flow_ratio = config.bridge_flow_ratio;
@@ -1873,8 +1888,11 @@ pub fn generate_top_bottom_surfaces_with_interior(
             (trim(bottom_region), trim(top_region))
         };
 
-        // Solid top/bottom surface fill direction cross-hatches per layer.
+        // Solid top/bottom surface fill direction cross-hatches per layer, and
+        // fill lines overlap (extrusion-spacing relation) so the surface has no
+        // gaps between adjacent beads even under the cross-hatch.
         let layer_infill_angle = surface_infill_angle_for_layer(infill_angle, i);
+        let solid_line_spacing = solid_surface_line_spacing(nozzle_diameter_mm, layer_height);
 
         if !bottom_region.is_empty() {
             #[cfg(not(target_arch = "wasm32"))]
@@ -1883,7 +1901,7 @@ pub fn generate_top_bottom_surfaces_with_interior(
                 &mut layers[i],
                 &bottom_region,
                 ExtrusionRole::BottomSurface,
-                nozzle_diameter_mm,
+                solid_line_spacing,
                 layer_infill_angle,
                 min_infill_extrusion_mm,
             );
@@ -1900,7 +1918,7 @@ pub fn generate_top_bottom_surfaces_with_interior(
                 &mut layers[i],
                 &top_region,
                 ExtrusionRole::TopSurface,
-                nozzle_diameter_mm,
+                solid_line_spacing,
                 layer_infill_angle,
                 min_infill_extrusion_mm,
             );
@@ -2105,29 +2123,46 @@ mod tests {
     }
 
     #[test]
-    fn test_solid_surface_spacing_is_nozzle_based() {
-        // A 10×10 mm square filled at 0° should produce lines spaced one nozzle
-        // diameter apart (nozzle-based width), not layer-height based.  With a
-        // 0.4 mm nozzle that is ~25 scan lines across 10 mm, far fewer than the
-        // old 0.24 mm (1.2 × 0.2) spacing would have emitted.
+    fn test_solid_surface_spacing_overlaps_no_gaps() {
+        // Extrusion-spacing relation: adjacent solid beads must overlap so the
+        // surface has no holes.  At 0.4 mm nozzle / 0.2 mm layers the pitch is
+        // 0.4 − 0.2·(1 − π/4) ≈ 0.357 mm, i.e. below the 0.4 mm bead width
+        // (overlap) yet well above the old over-extruding 0.24 mm.
+        let s = solid_surface_line_spacing(0.4, 0.2);
+        assert!(
+            (s - 0.3571).abs() < 1e-3,
+            "expected ~0.357 mm pitch, got {s}"
+        );
+        // Strictly less than the bead width → guaranteed overlap (no gaps).
+        assert!(s < 0.4, "solid pitch {s} must be < bead width for overlap");
+        // And strictly greater than the old layer-height rule (0.24 mm) → not
+        // the previous heavy over-extrusion.
+        assert!(s > 0.24, "solid pitch {s} must exceed the old 0.24 mm rule");
+        // Larger layer height ⇒ larger cap correction ⇒ tighter pitch.
+        assert!(solid_surface_line_spacing(0.4, 0.3) < solid_surface_line_spacing(0.4, 0.1));
+    }
+
+    #[test]
+    fn test_add_solid_infill_emits_lines() {
+        // A 10×10 mm square filled at 0° with the solid pitch produces a
+        // reasonable line count (neither zero nor the old ~50 over-extruded).
         let mut layer = SliceLayer::new(0.2);
         let square: Path = vec![(0.0, 0.0), (10.0, 0.0), (10.0, 10.0), (0.0, 10.0)].into();
         let square: Paths = Paths::new(vec![square]);
+        let spacing = solid_surface_line_spacing(0.4, 0.2);
         add_solid_infill_for_region(
             &mut layer,
             &square,
             ExtrusionRole::TopSurface,
-            0.4,
+            spacing,
             0.0,
             0.0,
         );
         let n = layer.paths.len();
-        // 10 mm / 0.4 mm spacing ≈ 25 lines (serpentine chaining may merge some
-        // into multi-segment paths, so allow a generous band well below the
-        // ~50 lines the old 0.2 mm-derived spacing produced).
+        // 10 mm / 0.357 mm ≈ 28 lines (serpentine chaining may merge some).
         assert!(
-            n > 0 && n <= 35,
-            "expected roughly nozzle-spaced solid lines, got {n} paths"
+            n > 0 && n <= 40,
+            "expected overlap-spaced solid lines, got {n} paths"
         );
     }
 
