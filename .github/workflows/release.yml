@@ -182,8 +182,16 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         shell: bash
         run: |
-          shopt -s globstar nullglob
-          assets=(ui-desktop/src-tauri/target/release/bundle/**/*.{dmg,app.tar.gz,AppImage,deb,rpm,msi,exe})
+          # macOS ships bash 3.2 (no globstar), so enumerate with find instead
+          # of a `**` glob to stay portable across every runner OS.
+          bundle_dir="ui-desktop/src-tauri/target/release/bundle"
+          assets=()
+          while IFS= read -r asset; do
+            assets+=("$asset")
+          done < <(find "$bundle_dir" -type f \( \
+            -name '*.dmg' -o -name '*.app.tar.gz' -o -name '*.AppImage' \
+            -o -name '*.deb' -o -name '*.rpm' -o -name '*.msi' -o -name '*.exe' \
+          \))
           if [[ ${#assets[@]} -eq 0 ]]; then
             echo "No desktop bundles found to upload." >&2
             exit 0
