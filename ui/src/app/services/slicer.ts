@@ -1,3 +1,5 @@
+import { save } from '@tauri-apps/plugin-dialog';
+import { writeFile } from '@tauri-apps/plugin-fs';
 import { Injectable, computed, inject, signal } from '@angular/core';
 import { environment } from '../../environments/environment';
 import { SlicingParams } from '../../generated/slicer-engine-ws-client-message-v1';
@@ -356,12 +358,7 @@ export class Slicer {
     if (!url) {
       return;
     }
-    const filename =
-      this.selectedFile()?.name.replace(/\.(stl|obj|3mf)$/i, '.gcode') ?? 'output.gcode';
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = filename;
-    link.click();
+    void this.downloadFromUrl(url, this.selectedFile()?.name ?? undefined);
   }
 
   selectFile(file: File): void {
@@ -593,7 +590,7 @@ export class Slicer {
     if (!session.download_url) {
       const preview = await this.orchestrator.getPreviewSource(session.request_uuid);
       if (preview.kind === 'download-url') {
-        this.downloadFromUrl(preview.url, session.original_filename ?? undefined);
+        await this.downloadFromUrl(preview.url, session.original_filename ?? undefined);
         return;
       }
       if (preview.kind === 'gcode-inline') {
@@ -602,7 +599,7 @@ export class Slicer {
             type: 'text/plain;charset=utf-8',
           }),
         );
-        this.downloadFromUrl(url, session.original_filename ?? undefined);
+        await this.downloadFromUrl(url, session.original_filename ?? undefined);
         URL.revokeObjectURL(url);
         return;
       }
@@ -613,13 +610,40 @@ export class Slicer {
       return;
     }
 
-    this.downloadFromUrl(session.download_url, session.original_filename ?? undefined);
+    await this.downloadFromUrl(session.download_url, session.original_filename ?? undefined);
   }
 
-  private downloadFromUrl(url: string, originalFilename?: string): void {
+  private async downloadFromUrl(url: string, originalFilename?: string): Promise<void> {
     const filename =
       (originalFilename as string | null | undefined)?.replace(/\.(stl|obj|3mf)$/i, '.gcode') ??
       'output.gcode';
+
+    if (this.runtimeMode === 'native') {
+      // Tauri's webview does not reliably honour `<a download>` against a
+      // custom `asset://` URL (it's meant for `<img>`/`<video>` src, not
+      // forcing a save) — depending on OS/WebView the link just navigates or
+      // is silently ignored instead of prompting a save. Use the native
+      // "Save As" dialog + filesystem write instead: fetch the bytes (works
+      // for both `asset://` URLs and blob URLs) and write them to the
+      // user-chosen path.
+      try {
+        const destination = await save({
+          defaultPath: filename,
+          filters: [{ name: 'G-code', extensions: ['gcode', 'gco', 'g'] }],
+        });
+        if (!destination) {
+          return; // user cancelled the dialog
+        }
+        const bytes = new Uint8Array(await (await fetch(url)).arrayBuffer());
+        await writeFile(destination, bytes);
+        this.notifications.success('Saved', `G-code saved to ${destination}`);
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        this.notifications.error('Save failed', message);
+      }
+      return;
+    }
+
     const link = document.createElement('a');
     link.href = url;
     link.download = filename;
