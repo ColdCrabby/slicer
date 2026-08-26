@@ -133,6 +133,24 @@ Tag with a suffix — `v0.2.0-rc.1` — and the workflow marks the GitHub Releas
 a pre-release. Add a matching `## [0.2.0-rc.1]` section to `CHANGELOG.md` (or the
 notes fall back to auto-generated).
 
+## Canary builds
+
+Stable releases are tag-driven and deliberate (above). For quick access to the
+bleeding edge, [`.github/workflows/canary.yml`](.github/workflows/canary.yml)
+fires on **every push to `main`** (i.e. every merge) and refreshes a single
+rolling **`canary`** GitHub **pre-release** with fresh Windows and macOS desktop
+bundles.
+
+- **Not a real release.** The version is a throwaway pre-release string
+  (`X.Y.Z-canary.<run>+<sha>`), so builds still report as unofficial and the UI
+  never nags a "What's New" dialog for them.
+- **No changelog needed.** The notes are just the commit range since the last
+  `v*` tag — no `CHANGELOG.md` curation is involved.
+- **Always the tip of `main`.** The rolling `canary` tag and its assets are
+  overwritten on each push, so the Releases tab always offers the latest build.
+
+To publish a *stable*, versioned release, follow the tag-driven flow above.
+
 ## See also
 
 - [`release` skill](.github/skills/release/SKILL.md) — automates this process locally.
