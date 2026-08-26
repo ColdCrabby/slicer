@@ -42,9 +42,36 @@ fn union_or_first(a: Paths, b: Paths) -> Paths {
     }
 }
 
-/// Calculate infill line spacing based on layer height.
-/// Standard extrusion width is typically 1.2× layer height for solid infill.
-const SOLID_INFILL_EXTRUSION_WIDTH_MULTIPLIER: f64 = 1.2;
+/// Solid top/bottom surface fill lines are spaced at the **solid extrusion
+/// width**, which for a fully-dense surface equals the nozzle diameter times
+/// this multiplier.
+///
+/// This replaces the earlier layer-height-derived spacing (`1.2 × layer_height`)
+/// which, on a standard 0.4 mm nozzle at 0.2 mm layers, packed solid lines only
+/// 0.24 mm apart — far tighter than the ~0.4 mm bead they lay down, grossly
+/// over-extruding every solid surface.  Orca/SuperSlicer/Cura all size solid
+/// infill from the nozzle-based extrusion width, not the layer height, so
+/// adjacent beads just touch.  A multiplier of `1.0` (lines spaced one nozzle
+/// diameter apart) yields full coverage with the beads abutting.
+const SOLID_SURFACE_LINE_SPACING_NOZZLE_MULT: f64 = 1.0;
+
+/// Solid top/bottom surface fill direction alternates by 90° every layer so
+/// successive solid layers cross-hatch — matching CuraEngine's default
+/// `skin_angles = {45°, 135°}` and the per-layer solid-infill rotation in
+/// Orca/PrusaSlicer.  Cross-hatching welds adjacent solid layers together,
+/// hides the fill direction on the visible top surface, and distributes
+/// anisotropic strength.  `layer_index` is the absolute layer number so the
+/// alternation is stable regardless of where a surface run begins.
+fn surface_infill_angle_for_layer(base_angle_deg: f64, layer_index: usize) -> f64 {
+    let mut angle = base_angle_deg + if layer_index % 2 == 1 { 90.0 } else { 0.0 };
+    while angle >= 180.0 {
+        angle -= 180.0;
+    }
+    while angle < 0.0 {
+        angle += 180.0;
+    }
+    angle
+}
 
 /// Solid top/bottom surface islands below this area (mm²) are dropped.  They are
 /// the thin wall-covered slivers Arachne's per-island-*average* interior
@@ -118,7 +145,7 @@ pub(super) fn add_solid_infill_for_region(
     layer: &mut SliceLayer,
     region: &Paths,
     role: ExtrusionRole,
-    layer_height: f64,
+    nozzle_diameter_mm: f64,
     infill_angle: f64,
     min_infill_extrusion_mm: f64,
 ) {
@@ -126,7 +153,7 @@ pub(super) fn add_solid_infill_for_region(
         return;
     }
 
-    let line_spacing = layer_height * SOLID_INFILL_EXTRUSION_WIDTH_MULTIPLIER;
+    let line_spacing = (nozzle_diameter_mm * SOLID_SURFACE_LINE_SPACING_NOZZLE_MULT).max(0.01);
     let infill_paths =
         generate_rectilinear_infill(region, line_spacing, infill_angle, min_infill_extrusion_mm);
 
@@ -1126,9 +1153,16 @@ pub struct SurfaceConfig {
     pub top_layers: usize,
     /// Number of solid layers below any exposed bottom surface.
     pub bottom_layers: usize,
-    /// Layer height in mm, used to derive solid infill line spacing.
+    /// Layer height in mm.
+    ///
+    /// Retained for callers and future adaptive-spacing use; solid top/bottom
+    /// surface line spacing is now derived from `nozzle_diameter_mm` (the solid
+    /// extrusion width), matching Orca/SuperSlicer, **not** the layer height.
     pub layer_height: f64,
-    /// Angle in degrees for top/bottom solid infill lines (e.g. 45).
+    /// Base angle in degrees for top/bottom solid infill lines (e.g. 45).
+    ///
+    /// The effective angle alternates by 90° every layer (cross-hatch) so
+    /// successive solid layers bond; see `surface_infill_angle_for_layer`.
     pub infill_angle: f64,
     /// Nozzle diameter in mm, used for bridge line spacing and extrusion width.
     pub nozzle_diameter_mm: f64,
@@ -1202,7 +1236,6 @@ pub fn generate_top_bottom_surfaces_with_interior(
 ) -> SurfaceSubTimings {
     let top_layers = config.top_layers;
     let bottom_layers = config.bottom_layers;
-    let layer_height = config.layer_height;
     let infill_angle = config.infill_angle;
     let nozzle_diameter_mm = config.nozzle_diameter_mm;
     let bridge_flow_ratio = config.bridge_flow_ratio;
@@ -1840,6 +1873,9 @@ pub fn generate_top_bottom_surfaces_with_interior(
             (trim(bottom_region), trim(top_region))
         };
 
+        // Solid top/bottom surface fill direction cross-hatches per layer.
+        let layer_infill_angle = surface_infill_angle_for_layer(infill_angle, i);
+
         if !bottom_region.is_empty() {
             #[cfg(not(target_arch = "wasm32"))]
             let t = Instant::now();
@@ -1847,8 +1883,8 @@ pub fn generate_top_bottom_surfaces_with_interior(
                 &mut layers[i],
                 &bottom_region,
                 ExtrusionRole::BottomSurface,
-                layer_height,
-                infill_angle,
+                nozzle_diameter_mm,
+                layer_infill_angle,
                 min_infill_extrusion_mm,
             );
             #[cfg(not(target_arch = "wasm32"))]
@@ -1864,8 +1900,8 @@ pub fn generate_top_bottom_surfaces_with_interior(
                 &mut layers[i],
                 &top_region,
                 ExtrusionRole::TopSurface,
-                layer_height,
-                infill_angle,
+                nozzle_diameter_mm,
+                layer_infill_angle,
                 min_infill_extrusion_mm,
             );
             #[cfg(not(target_arch = "wasm32"))]
@@ -2051,6 +2087,49 @@ fn trim_surfaces_to_walls(layers: &mut [SliceLayer], overlap_percent: f64, nozzl
 mod tests {
     use super::*;
     use clipper2::{Path, Paths};
+
+    #[test]
+    fn test_surface_infill_angle_alternates_per_layer() {
+        // Even layers keep the base angle; odd layers rotate 90° to cross-hatch.
+        assert_eq!(surface_infill_angle_for_layer(45.0, 0), 45.0);
+        assert_eq!(surface_infill_angle_for_layer(45.0, 1), 135.0);
+        assert_eq!(surface_infill_angle_for_layer(45.0, 2), 45.0);
+        assert_eq!(surface_infill_angle_for_layer(45.0, 3), 135.0);
+        // Result is always wrapped into [0, 180).
+        assert_eq!(surface_infill_angle_for_layer(135.0, 1), 45.0);
+        assert_eq!(surface_infill_angle_for_layer(0.0, 1), 90.0);
+        for layer in 0..10 {
+            let a = surface_infill_angle_for_layer(45.0, layer);
+            assert!((0.0..180.0).contains(&a));
+        }
+    }
+
+    #[test]
+    fn test_solid_surface_spacing_is_nozzle_based() {
+        // A 10×10 mm square filled at 0° should produce lines spaced one nozzle
+        // diameter apart (nozzle-based width), not layer-height based.  With a
+        // 0.4 mm nozzle that is ~25 scan lines across 10 mm, far fewer than the
+        // old 0.24 mm (1.2 × 0.2) spacing would have emitted.
+        let mut layer = SliceLayer::new(0.2);
+        let square: Path = vec![(0.0, 0.0), (10.0, 0.0), (10.0, 10.0), (0.0, 10.0)].into();
+        let square: Paths = Paths::new(vec![square]);
+        add_solid_infill_for_region(
+            &mut layer,
+            &square,
+            ExtrusionRole::TopSurface,
+            0.4,
+            0.0,
+            0.0,
+        );
+        let n = layer.paths.len();
+        // 10 mm / 0.4 mm spacing ≈ 25 lines (serpentine chaining may merge some
+        // into multi-segment paths, so allow a generous band well below the
+        // ~50 lines the old 0.2 mm-derived spacing produced).
+        assert!(
+            n > 0 && n <= 35,
+            "expected roughly nozzle-spaced solid lines, got {n} paths"
+        );
+    }
 
     /// A wall path that lies entirely outside the bridge region must be kept
     /// unchanged with path_is_open = false.

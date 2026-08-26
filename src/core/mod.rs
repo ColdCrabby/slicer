@@ -714,7 +714,7 @@ mod tests {
             &mut layer,
             &empty,
             ExtrusionRole::TopSurface,
-            0.2,
+            0.4,
             45.0,
             0.0,
         );

@@ -166,11 +166,24 @@ flowchart TD
 
 ### Infill spacing
 
-Line spacing for solid surface infill is derived from `layer_height`:
+Line spacing for solid surface infill is the **solid extrusion width**, derived
+from the nozzle diameter (Orca/SuperSlicer parity), not the layer height:
 
 ```
-line_spacing = layer_height × SOLID_INFILL_EXTRUSION_WIDTH_MULTIPLIER  (= 1.2)
+line_spacing = nozzle_diameter_mm × SOLID_SURFACE_LINE_SPACING_NOZZLE_MULT  (= 1.0)
 ```
+
+Beads therefore just touch for full coverage. The earlier layer-height rule
+(`1.2 × layer_height`) packed lines far tighter than the bead they lay down
+(0.24 mm at 0.2 mm layers vs. a ~0.4 mm bead), over-extruding solid surfaces.
+
+### Infill direction
+
+The solid top/bottom fill angle **alternates by 90° every layer** (cross-hatch),
+matching CuraEngine's default `skin_angles = {45°, 135°}`. Even layers use
+`surface_infill_angle`; odd layers use `surface_infill_angle + 90°`. Cross-
+hatching welds adjacent solid layers and hides the fill direction on the
+visible top surface.
 
 ### Configurable parameters
 
