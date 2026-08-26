@@ -166,11 +166,29 @@ flowchart TD
 
 ### Infill spacing
 
-Line spacing for solid surface infill is derived from `layer_height`:
+Line spacing for solid surface infill uses the libslic3r/Orca/PrusaSlicer
+**extrusion-spacing** relation so adjacent solid beads *overlap* and the surface
+has no gaps:
 
 ```
-line_spacing = layer_height × SOLID_INFILL_EXTRUSION_WIDTH_MULTIPLIER  (= 1.2)
+line_spacing = extrusion_width − layer_height × (1 − π/4)
 ```
+
+At a 0.4 mm nozzle / 0.2 mm layers this is ≈ 0.357 mm — below the 0.4 mm bead
+width (so the rounded bead caps interlock, ~11 % overlap, no holes) yet well
+above the earlier over-extruding `1.2 × layer_height` rule (0.24 mm, ~40 %
+overlap). Spacing lines exactly one bead width apart (0.4 mm) would leave a
+lattice of holes because round-capped beads only occupy `w − h·(1 − π/4)` of
+lateral pitch when packed solid.
+
+### Infill direction
+
+The solid top/bottom fill angle **alternates by 90° every layer** (cross-hatch),
+matching CuraEngine's default `skin_angles = {45°, 135°}`. Even layers use
+`surface_infill_angle`; odd layers use `surface_infill_angle + 90°`. Cross-
+hatching welds adjacent solid layers and hides the fill direction on the
+visible top surface. Because the fill lines overlap (see spacing above), the
+cross-hatch does not open gaps between beads.
 
 ### Configurable parameters
 
