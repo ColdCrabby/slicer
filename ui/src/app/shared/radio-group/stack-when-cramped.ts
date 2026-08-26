@@ -1,10 +1,10 @@
 import {
-    afterNextRender,
-    DestroyRef,
-    Directive,
-    ElementRef,
-    inject,
-    Renderer2,
+  afterNextRender,
+  DestroyRef,
+  Directive,
+  ElementRef,
+  inject,
+  Renderer2,
 } from '@angular/core';
 
 // Extra px of leeway added per child to account for padding, margin, and gap

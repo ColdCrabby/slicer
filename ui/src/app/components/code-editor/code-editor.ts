@@ -1,14 +1,14 @@
 import {
-    ChangeDetectionStrategy,
-    Component,
-    DestroyRef,
-    ElementRef,
-    afterNextRender,
-    effect,
-    inject,
-    input,
-    output,
-    viewChild,
+  ChangeDetectionStrategy,
+  Component,
+  DestroyRef,
+  ElementRef,
+  afterNextRender,
+  effect,
+  inject,
+  input,
+  output,
+  viewChild,
 } from '@angular/core';
 import type * as Monaco from 'monaco-editor';
 import { NEXUS_CODE_THEME, registerGcodeLanguage } from './gcode-language';

@@ -1,0 +1,27 @@
+# Lefthook — Git hooks for the whole workspace.  https://lefthook.dev
+#
+# Installed automatically on `pnpm install` via the root package.json `prepare`
+# script (`lefthook install`). On commit it autoformats ONLY the staged files
+# so what you commit already matches CI:
+#
+#   * Prettier — ui/**/*.{ts,html,scss,css}  (mirrors the format gate in ui-ci.yml)
+#   * rustfmt  — **/*.rs                      (mirrors `cargo fmt --check` in build.yml)
+#
+# Escape hatches: `git commit --no-verify` (skip once) or `LEFTHOOK=0 git commit`.
+
+pre-commit:
+  parallel: true
+  commands:
+    prettier:
+      # Run inside ui/ so its .prettierrc and the workspace-local prettier
+      # binary resolve; {staged_files} are made relative to this root.
+      root: "ui/"
+      glob: "**/*.{ts,html,scss,css}"
+      run: pnpm exec prettier --write --ignore-unknown {staged_files}
+      stage_fixed: true
+    rustfmt:
+      glob: "**/*.rs"
+      # Edition matches Cargo.toml (2021); with no rustfmt.toml this equals what
+      # `cargo fmt` enforces in CI.
+      run: rustfmt --edition 2021 {staged_files}
+      stage_fixed: true

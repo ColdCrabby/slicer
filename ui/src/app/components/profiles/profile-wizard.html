@@ -74,10 +74,7 @@
             (valueChange)="patchParams({ first_layer_height: $event })"
           />
         </nexus-field-row>
-        <nexus-field-row
-          label="Walls"
-          description="Number of perimeter shells around each layer."
-        >
+        <nexus-field-row label="Walls" description="Number of perimeter shells around each layer.">
           <nexus-number-input
             [value]="pnum(draft().params, 'wall_count')"
             [min]="1"
