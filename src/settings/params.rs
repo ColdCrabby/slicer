@@ -402,20 +402,45 @@ pub enum SupportType {
 
 /// First-layer bed-adhesion helper.
 ///
-/// Carried through so profiles can express intent.  Generation of skirt / brim
-/// / raft geometry is not yet implemented — see `TODO(profiles): adhesion`.
+/// Drives skirt / brim / raft generation in [`crate::adhesion`].
+///
+/// The enum default is [`None`](Self::None): a bare
+/// [`SlicingParams::default()`](crate::settings::params::SlicingParams) slice
+/// produces only the object, with no adhesion geometry. Product intent (a skirt
+/// on the standard PLA profile) is expressed by the process profiles in
+/// [`crate::profiles::defaults`], which set `adhesion_type` explicitly, not by
+/// this struct default.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum AdhesionType {
     /// No adhesion helper.
+    #[default]
     None,
     /// A loop of filament traced around the object (priming / draft shield).
-    #[default]
     Skirt,
     /// A flat apron fused to the object's first layer for extra bed grip.
     Brim,
     /// A full sacrificial base printed under the object.
     Raft,
+}
+
+/// Where brim material is placed relative to the object footprint.
+///
+/// Consumed by [`crate::adhesion`] when `adhesion_type = brim`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum BrimType {
+    /// Loops around the outer contour of every island (the common case).
+    #[default]
+    OuterOnly,
+    /// Loops inside every hole / concavity only (frees the outer edge, e.g.
+    /// when the outside must stay dimensionally clean).
+    InnerOnly,
+    /// Both outer contours and holes get brim loops.
+    OuterAndInner,
+    /// Small brim discs ("mouse ears") stamped only at sharp convex corners —
+    /// minimal material where warping actually starts.
+    Ears,
 }
 
 /// Parameters that control how a model is sliced and printed.
@@ -1221,25 +1246,67 @@ Caps print speed so the hotend can keep up with the flow.
     pub support_density: f64,
 
     #[schemars(
-        description = "Bed-adhesion helper: `none`, `skirt`, `brim`, or `raft`. Generation pending.",
+        description = "Bed-adhesion helper: `none`, `skirt`, `brim`, or `raft`.",
         extend("x-group" = "Adhesion")
     )]
     #[serde(default)]
     pub adhesion_type: AdhesionType,
 
     #[schemars(
-        description = "Brim width in mm (when `adhesion_type = brim`). Generation pending.",
+        description = "Brim width in mm (when `adhesion_type = brim`).",
         extend("x-group" = "Adhesion")
     )]
     #[serde(default = "SlicingParams::default_brim_width")]
     pub brim_width: f64,
 
     #[schemars(
-        description = "Number of skirt loops (when `adhesion_type = skirt`). Generation pending.",
+        description = "Where brim material is placed: `outer_only`, `inner_only`, `outer_and_inner`, or `ears`.",
+        extend("x-group" = "Adhesion")
+    )]
+    #[serde(default)]
+    pub brim_type: BrimType,
+
+    #[schemars(
+        description = "Gap in mm between the brim and the object's first-layer contour (a.k.a. brim separation / offset). `0` fuses the brim directly onto the wall.",
+        extend("x-group" = "Adhesion")
+    )]
+    #[serde(default = "SlicingParams::default_brim_separation")]
+    pub brim_separation: f64,
+
+    #[schemars(
+        description = "Number of skirt loops (when `adhesion_type = skirt`).",
         extend("x-group" = "Adhesion")
     )]
     #[serde(default = "SlicingParams::default_skirt_loops")]
     pub skirt_loops: usize,
+
+    #[schemars(
+        description = "Gap in mm between the object and the innermost skirt loop.",
+        extend("x-group" = "Adhesion")
+    )]
+    #[serde(default = "SlicingParams::default_skirt_distance")]
+    pub skirt_distance: f64,
+
+    #[schemars(
+        description = "Number of layers the skirt spans (≥1). Values >1 act as a draft shield around the print.",
+        extend("x-group" = "Adhesion")
+    )]
+    #[serde(default = "SlicingParams::default_skirt_height")]
+    pub skirt_height: usize,
+
+    #[schemars(
+        description = "Raft layer count: sacrificial base + interface layers printed under the object (when `adhesion_type = raft`, or any value >0).",
+        extend("x-group" = "Adhesion")
+    )]
+    #[serde(default = "SlicingParams::default_raft_layers")]
+    pub raft_layers: usize,
+
+    #[schemars(
+        description = "Vertical air gap in mm between the top of the raft and the object's first layer (eases raft removal).",
+        extend("x-group" = "Adhesion")
+    )]
+    #[serde(default = "SlicingParams::default_raft_air_gap")]
+    pub raft_air_gap: f64,
 
     #[schemars(
         description = "Iron top surfaces for a smoother finish. Ironing pass pending.",
@@ -1355,7 +1422,13 @@ impl Default for SlicingParams {
             support_density: Self::default_support_density(),
             adhesion_type: AdhesionType::default(),
             brim_width: Self::default_brim_width(),
+            brim_type: BrimType::default(),
+            brim_separation: Self::default_brim_separation(),
             skirt_loops: Self::default_skirt_loops(),
+            skirt_distance: Self::default_skirt_distance(),
+            skirt_height: Self::default_skirt_height(),
+            raft_layers: Self::default_raft_layers(),
+            raft_air_gap: Self::default_raft_air_gap(),
             ironing_enabled: Self::default_ironing_enabled(),
             start_gcode: None,
             end_gcode: None,
@@ -1428,8 +1501,23 @@ impl SlicingParams {
     fn default_brim_width() -> f64 {
         5.0
     }
+    fn default_brim_separation() -> f64 {
+        0.0
+    }
     fn default_skirt_loops() -> usize {
         1
+    }
+    fn default_skirt_distance() -> f64 {
+        2.0
+    }
+    fn default_skirt_height() -> usize {
+        1
+    }
+    fn default_raft_layers() -> usize {
+        0
+    }
+    fn default_raft_air_gap() -> f64 {
+        0.1
     }
     fn default_ironing_enabled() -> bool {
         false
@@ -1446,20 +1534,12 @@ impl SlicingParams {
     /// (future) implementation site.
     ///
     /// Implementation checklist (remove the branch here when each lands):
-    /// - `TODO(profiles): adhesion` — skirt / brim / raft generation.
     /// - `TODO(profiles): ironing` — top-surface ironing pass.
     /// - `TODO(profiles): supports` — support generation (`normal`/`tree`,
     ///   density). Only `support_threshold_angle` is honoured today.
-    /// - `TODO(profiles): volumetric` — max-volumetric-speed limiter.
     /// - `TODO(profiles): multimaterial` — more than one extruder.
     pub fn unsupported_feature_warnings(&self) -> Vec<String> {
         let mut w = Vec::new();
-        if self.adhesion_type != AdhesionType::None {
-            w.push(format!(
-                "adhesion '{:?}' is selected but skirt/brim/raft generation is not yet implemented — ignored",
-                self.adhesion_type
-            ));
-        }
         if self.ironing_enabled {
             w.push(
                 "ironing is enabled but the ironing pass is not yet implemented — ignored".into(),
@@ -1470,9 +1550,6 @@ impl SlicingParams {
                 "supports are enabled but support generation is not yet implemented — ignored"
                     .into(),
             );
-        }
-        if self.max_volumetric_speed > 0.0 {
-            w.push("max_volumetric_speed is set but the volumetric limiter is not yet implemented — ignored".into());
         }
         if self.extruder_count > 1 {
             w.push("multiple extruders configured but multi-material slicing is not yet implemented — using tool 0".into());

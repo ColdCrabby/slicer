@@ -405,11 +405,16 @@ apply_single_wall_restrictions()     — strips inner walls from first/last laye
 interior_regions computed            — per-layer interior (for surfaces), post-strip
 generate_top_bottom_surfaces_with_interior()  — top/bottom solid infill within interior
 add_infill_to_layers()               — sparse infill using pre-strip regions minus solid regions
+path ordering + flow compensation    — greedy-TSP per role group, then wall-overlap flow scaling
+apply_adhesion()                     — skirt/brim prepended to first layer(s); raft prepends layers + Z-shifts object (src/adhesion/)
 ```
 
 Order matters critically. Surfaces are computed **after** Arachne walls so that
 `calculate_interior_region` sees the correct bead geometry. Infill is computed
-**after** surfaces so it can subtract `solid_regions`.
+**after** surfaces so it can subtract `solid_regions`. **Bed adhesion runs dead
+last**, after ordering and flow compensation, so its loops are appended cleanly
+and the object's own toolpaths are provably unperturbed — see
+[src/adhesion/README.md](src/adhesion/README.md).
 
 **`pre_strip_infill_regions` must be computed before `apply_single_wall_restrictions`.**
 `apply_single_wall_restrictions` now operates **per island**: an outer-wall path P at
