@@ -2,6 +2,7 @@ import { Injectable, computed, inject, signal } from '@angular/core';
 import { environment } from '../../environments/environment';
 import type { ClientMessage } from '../../generated/slicer-engine-ws-client-message-v1';
 import type { ServerMessage } from '../../generated/slicer-engine-ws-server-message-v1';
+import { isTauriHost } from '../runtime/domain/runtime-mode.util';
 import type {
   BedShape,
   PrinterConnection,
@@ -163,14 +164,20 @@ export class PrinterConnectionService {
 
     this.setStatus(printer.id, { state: 'checking', label: 'Checking…' });
 
-    // In cloud mode the server always performs the probe (no CORS). If the
-    // WebSocket isn't up yet, stay in `checking` — a reconnect-driven re-probe
-    // (see the home dashboard effect) will pick it up rather than falling back
-    // to a CORS-prone browser request.
-    if (environment.runtimeMode === 'cloud') {
-      if (this.ws.isConnected()) {
-        this.sendWs({ type: 'CheckPrinter', printer_id: printer.id, connection });
-      }
+    // Prefer the server-side probe (no CORS), exactly like {@link
+    // detectPrinter} and {@link sendToPrinter}. `canUseServer()` (not the raw
+    // `cloud` environment constant) correctly detects Tauri at runtime: the
+    // desktop build also ships the `cloud` environment but its WebSocket never
+    // connects, so checking the constant alone used to leave native `check()`
+    // silently doing nothing instead of falling back to a browser probe.
+    if (this.canUseServer()) {
+      this.sendWs({ type: 'CheckPrinter', printer_id: printer.id, connection });
+      return;
+    }
+    if (environment.runtimeMode === 'cloud' && !isTauriHost()) {
+      // WebSocket isn't up yet — stay in `checking`; a reconnect-driven
+      // re-probe (see the home dashboard effect) will pick it up rather than
+      // falling back to a CORS-prone browser request.
       return;
     }
 
@@ -516,7 +523,7 @@ export class PrinterConnectionService {
 
   /** True when the cloud WebSocket is connected and usable for RPC. */
   private canUseServer(): boolean {
-    return environment.runtimeMode === 'cloud' && this.ws.isConnected();
+    return environment.runtimeMode === 'cloud' && !isTauriHost() && this.ws.isConnected();
   }
 
   private sendWs(msg: ClientMessage): void {
