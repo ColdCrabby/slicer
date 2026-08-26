@@ -148,7 +148,11 @@ export class SliceControl {
   > = {
     download: { label: 'Download G-code', description: 'Save the .gcode file', icon: 'download' },
     upload: { label: 'Just upload', description: 'Copy the G-code to the printer', icon: 'upload' },
-    print: { label: 'Upload & print', description: 'Upload, then start the print', icon: 'printer' },
+    print: {
+      label: 'Upload & print',
+      description: 'Upload, then start the print',
+      icon: 'printer',
+    },
   };
 
   /** Remembered default action, persisted to localStorage across sessions. */

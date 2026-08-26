@@ -5,7 +5,10 @@ import type { PrinterProfile } from '../../models/printer.model';
 import { ListHistory } from '../../components/list-history/list-history';
 import { GcodePreview } from '../../services/gcode-preview';
 import { NotificationService } from '../../services/notifications';
-import { PrinterConnectionService, type PrinterProbeState } from '../../services/printer-connection';
+import {
+  PrinterConnectionService,
+  type PrinterProbeState,
+} from '../../services/printer-connection';
 import { PrintersStore } from '../../services/profiles/printers-store';
 import { SceneEngine } from '../../services/scene-engine';
 import { Slicer } from '../../services/slicer';

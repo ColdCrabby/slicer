@@ -79,6 +79,36 @@ pub(crate) fn extrusion_for_move(
     move_len * cross_section / filament_area * flow
 }
 
+/// Cap a linear feedrate (mm/min) so the volumetric extrusion rate stays at or
+/// below `max_volumetric_speed` (mm³/s) — the hotend melt-rate ceiling.
+///
+/// The volumetric rate of an extrusion move is `cross_section × linear_speed`,
+/// where `cross_section = layer_height × width_mm` (mm²).  When the requested
+/// feedrate would exceed the ceiling this returns the highest feedrate that
+/// still respects it (`max_volumetric_speed · 60 / cross_section`); otherwise
+/// the input is returned unchanged.
+///
+/// A non-positive limit (the default `0`) disables the cap, and a degenerate
+/// cross-section (zero height or width) is passed through untouched so a
+/// malformed path can never divide-by-zero or stall the feedrate to zero.
+pub(crate) fn volumetric_capped_speed_mm_min(
+    speed_mm_min: f64,
+    layer_height: f64,
+    width_mm: f64,
+    max_volumetric_speed: f64,
+) -> f64 {
+    if max_volumetric_speed <= 0.0 {
+        return speed_mm_min;
+    }
+    let cross_section = layer_height * width_mm;
+    if cross_section <= 0.0 {
+        return speed_mm_min;
+    }
+    // mm³/s ÷ mm² = mm/s, ×60 → mm/min.
+    let cap_mm_min = max_volumetric_speed * 60.0 / cross_section;
+    speed_mm_min.min(cap_mm_min)
+}
+
 /// Resolve the extrusion width for a path.
 ///
 /// Precedence (first match wins):
@@ -733,6 +763,17 @@ impl GcodeGenerator {
                 // Resolve per-role print speed.
                 let speed_mm_min = Self::effective_speed_mm_min(role, is_first_layer, params);
 
+                // Global volumetric-flow ceiling for constant-width emissions
+                // (coasting splits and the close-contour move).  Variable-width
+                // beads are capped per-segment in `seg_speed` below, where the
+                // real per-segment width is known.
+                let capped_speed_mm_min = volumetric_capped_speed_mm_min(
+                    speed_mm_min,
+                    params.layer_height,
+                    width_mm,
+                    params.max_volumetric_speed,
+                );
+
                 // ── Adaptive acceleration (opt-in; emitted on change only) ────
                 // Set the firmware acceleration before this path's moves when the
                 // target differs from the last emitted value.  Disabled roles
@@ -982,7 +1023,8 @@ impl GcodeGenerator {
                             total_filament_mm += de;
                             out.push_str(&format!(
                                 "{}\n",
-                                self.dialect.move_extrude(x, y, e_total, speed_mm_min)
+                                self.dialect
+                                    .move_extrude(x, y, e_total, capped_speed_mm_min)
                             ));
                         } else if dist_traveled < coasting_start {
                             // Segment straddles the coasting boundary → split it
@@ -1001,7 +1043,8 @@ impl GcodeGenerator {
                             total_filament_mm += de;
                             out.push_str(&format!(
                                 "{}\n",
-                                self.dialect.move_extrude(bx, by, e_total, speed_mm_min)
+                                self.dialect
+                                    .move_extrude(bx, by, e_total, capped_speed_mm_min)
                             ));
                             // Remainder is a travel move
                             out.push_str(&format!(
@@ -1036,8 +1079,12 @@ impl GcodeGenerator {
                             total_filament_mm += de;
                             out.push_str(&format!(
                                 "{} ; close contour\n",
-                                self.dialect
-                                    .move_extrude(start_x, start_y, e_total, speed_mm_min)
+                                self.dialect.move_extrude(
+                                    start_x,
+                                    start_y,
+                                    e_total,
+                                    capped_speed_mm_min
+                                )
                             ));
                         } else if dist_traveled < coasting_start {
                             let dist_to_coast = coasting_start - dist_traveled;
@@ -1055,7 +1102,8 @@ impl GcodeGenerator {
                             total_filament_mm += de;
                             out.push_str(&format!(
                                 "{}\n",
-                                self.dialect.move_extrude(bx, by, e_total, speed_mm_min)
+                                self.dialect
+                                    .move_extrude(bx, by, e_total, capped_speed_mm_min)
                             ));
                             out.push_str(&format!(
                                 "{} ; coasting close\n",
@@ -1084,13 +1132,24 @@ impl GcodeGenerator {
                     // nominal feedrate and under-extrude, so it never squeezes
                     // into the gap.  Slow it in proportion to width so mm³/s
                     // holds at the nozzle-width rate — "extrude more, move slower".
+                    //
+                    // On top of that per-bead throttle, the global
+                    // `max_volumetric_speed` ceiling is applied per-segment using
+                    // the segment's real width, so both the constant- and
+                    // variable-width cases honour the hotend melt-rate limit.
                     let nozzle = params.nozzle_diameter_mm;
                     let seg_speed = |sw: f64| -> f64 {
-                        if vertex_widths.is_some() && nozzle > 0.0 && sw > nozzle {
+                        let base = if vertex_widths.is_some() && nozzle > 0.0 && sw > nozzle {
                             speed_mm_min * (nozzle / sw)
                         } else {
                             speed_mm_min
-                        }
+                        };
+                        volumetric_capped_speed_mm_min(
+                            base,
+                            params.layer_height,
+                            sw,
+                            params.max_volumetric_speed,
+                        )
                     };
                     let mut prev = points[0];
                     for (i, &(x, y)) in points.iter().enumerate().skip(1) {
@@ -1162,8 +1221,12 @@ impl GcodeGenerator {
                             total_filament_mm += de;
                             out.push_str(&format!(
                                 "{} ; close contour\n",
-                                self.dialect
-                                    .move_extrude(start_x, start_y, e_total, speed_mm_min)
+                                self.dialect.move_extrude(
+                                    start_x,
+                                    start_y,
+                                    e_total,
+                                    capped_speed_mm_min
+                                )
                             ));
                         }
                         last_pos = Some((start_x, start_y));
@@ -1379,6 +1442,87 @@ mod tests {
         assert!(
             (e2 / e1 - 1.5).abs() < 1e-3,
             "1.5x flow_ratio must raise total extrusion 1.5x: {e1} -> {e2}"
+        );
+    }
+
+    // ── Volumetric-flow ceiling (max_volumetric_speed) ─────────────────────────
+
+    #[test]
+    fn volumetric_cap_disabled_is_passthrough() {
+        // A non-positive limit never touches the feedrate.
+        for limit in [0.0, -1.0] {
+            let s = volumetric_capped_speed_mm_min(3000.0, 0.2, 0.4, limit);
+            assert!((s - 3000.0).abs() < 1e-9, "limit {limit} must pass through");
+        }
+    }
+
+    #[test]
+    fn volumetric_cap_leaves_slow_moves_untouched() {
+        // 5 mm³/s ceiling, cross-section 0.2×0.4 = 0.08 mm² → cap = 3750 mm/min.
+        // A 1000 mm/min request is already under the ceiling.
+        let s = volumetric_capped_speed_mm_min(1000.0, 0.2, 0.4, 5.0);
+        assert!(
+            (s - 1000.0).abs() < 1e-9,
+            "under-ceiling speed must be kept"
+        );
+    }
+
+    #[test]
+    fn volumetric_cap_clamps_fast_moves() {
+        // cap = 5.0 * 60 / (0.2 * 0.4) = 3750 mm/min.
+        let s = volumetric_capped_speed_mm_min(6000.0, 0.2, 0.4, 5.0);
+        assert!(
+            (s - 3750.0).abs() < 1e-6,
+            "fast move must clamp to 3750: {s}"
+        );
+    }
+
+    #[test]
+    fn volumetric_cap_degenerate_cross_section_is_passthrough() {
+        // Zero height or width must never divide-by-zero or stall the feedrate.
+        assert!((volumetric_capped_speed_mm_min(6000.0, 0.0, 0.4, 5.0) - 6000.0).abs() < 1e-9);
+        assert!((volumetric_capped_speed_mm_min(6000.0, 0.2, 0.0, 5.0) - 6000.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn volumetric_cap_lowers_gcode_feedrate() {
+        use clipper2::Path;
+        let square: Path = vec![(0.0, 0.0), (10.0, 0.0), (10.0, 10.0), (0.0, 10.0)].into();
+        let mk = || {
+            let mut layer = SliceLayer::new(0.2);
+            layer.paths.push(square.clone());
+            layer
+        };
+        // Highest extruding feedrate on a printing move (has both X and E).
+        // Retract/un-retract moves carry an E but no X and must be excluded.
+        let max_extrude_feedrate = |gcode: &str| -> f64 {
+            gcode
+                .lines()
+                .filter(|l| l.contains(" X") && l.contains(" E"))
+                .filter_map(|l| l.split_whitespace().find(|t| t.starts_with('F')))
+                .filter_map(|t| t[1..].parse::<f64>().ok())
+                .fold(0.0, f64::max)
+        };
+
+        let uncapped = SlicingParams {
+            max_volumetric_speed: 0.0,
+            ..SlicingParams::default()
+        };
+        let capped = SlicingParams {
+            // Deliberately tiny ceiling so it bites at any sane print speed.
+            max_volumetric_speed: 1.0,
+            ..SlicingParams::default()
+        };
+
+        let f_uncapped = max_extrude_feedrate(&generate_gcode(&[mk()], &uncapped));
+        let f_capped = max_extrude_feedrate(&generate_gcode(&[mk()], &capped));
+        assert!(
+            f_uncapped > 0.0 && f_capped > 0.0,
+            "both prints must extrude"
+        );
+        assert!(
+            f_capped < f_uncapped,
+            "volumetric ceiling must lower the feedrate: {f_uncapped} -> {f_capped}"
         );
     }
 

@@ -147,7 +147,10 @@ export class SlicerConnection {
         }
 
         // Exponential backoff: delay = RETRY_DELAY_MS * 2^(attempt-1), capped at MAX_RETRY_DELAY_MS
-        const delayMs = Math.min(RETRY_DELAY_MS * Math.pow(2, this.#retryCount - 1), MAX_RETRY_DELAY_MS);
+        const delayMs = Math.min(
+          RETRY_DELAY_MS * Math.pow(2, this.#retryCount - 1),
+          MAX_RETRY_DELAY_MS,
+        );
         this.status.set('connecting');
         console.info(
           `[SlicerConnection] Retrying in ${delayMs}ms (attempt ${this.#retryCount}/${MAX_RETRIES})`,

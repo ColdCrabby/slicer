@@ -17,3 +17,5 @@ export type { RadioOption } from './radio-group/radio-group';
 export { Segmented } from './segmented/segmented';
 export type { SegmentOption } from './segmented/segmented';
 export { ColorPicker } from './color-picker/color-picker';
+export { InlineNotice } from './inline-notice/inline-notice';
+export type { InlineNoticeTone } from './inline-notice/inline-notice';

@@ -130,7 +130,9 @@
 
             @if (deleteArmed()) {
               <div class="mgr__danger">
-                <p>Type <strong>{{ profile.name }}</strong> to permanently delete this profile.</p>
+                <p>
+                  Type <strong>{{ profile.name }}</strong> to permanently delete this profile.
+                </p>
                 <div class="mgr__danger-row">
                   <input
                     type="text"
@@ -163,38 +165,38 @@
               />
             </div>
             <div class="profile-editor__group">
-            <label class="profile-editor__group-title">Identity</label>
-            <nexus-field-row label="Name" [stacked]="true">
-              <input
-                class="wz-input"
-                [value]="profile.name"
-                (change)="rename(profile.id, $event)"
-              />
-            </nexus-field-row>
+              <label class="profile-editor__group-title">Identity</label>
+              <nexus-field-row label="Name" [stacked]="true">
+                <input
+                  class="wz-input"
+                  [value]="profile.name"
+                  (change)="rename(profile.id, $event)"
+                />
+              </nexus-field-row>
             </div>
 
             @for (group of paramGroups; track group.name) {
-            <div class="profile-editor__group">
-              <label class="profile-editor__group-title">{{ group.name }}</label>
-              @for (field of group.fields; track field.key) {
-                <nexus-param-field
-                  [field]="field"
-                  [value]="paramsOf(profile)[field.key]"
-                  (valueChange)="setParam(profile.id, field.key, $event)"
-                />
-              }
-            </div>
+              <div class="profile-editor__group">
+                <label class="profile-editor__group-title">{{ group.name }}</label>
+                @for (field of group.fields; track field.key) {
+                  <nexus-param-field
+                    [field]="field"
+                    [value]="paramsOf(profile)[field.key]"
+                    (valueChange)="setParam(profile.id, field.key, $event)"
+                  />
+                }
+              </div>
             }
           </div>
-          } @else {
-            <nexus-empty-state
-              icon="reports"
-              heading="Select a profile"
-              description="Pick a print profile on the left to edit its settings, or add a new one."
-            />
-          }
-        </div>
+        } @else {
+          <nexus-empty-state
+            icon="reports"
+            heading="Select a profile"
+            description="Pick a print profile on the left to edit its settings, or add a new one."
+          />
+        }
       </div>
+    </div>
   } @else {
     <nexus-empty-state
       icon="reports"

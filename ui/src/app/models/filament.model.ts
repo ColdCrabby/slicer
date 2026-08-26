@@ -132,8 +132,4 @@ export const DEFAULT_ABS: FilamentProfile = makeFilament({
 });
 
 /** Built-in presets for the three most common FDM materials. */
-export const DEFAULT_FILAMENTS: FilamentProfile[] = [
-  DEFAULT_FILAMENT,
-  DEFAULT_PETG,
-  DEFAULT_ABS,
-];
+export const DEFAULT_FILAMENTS: FilamentProfile[] = [DEFAULT_FILAMENT, DEFAULT_PETG, DEFAULT_ABS];

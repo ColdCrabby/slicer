@@ -6,12 +6,7 @@
           <nexus-icon name="cooling-square" />
           {{ roleLabel(fan.fan_index) }}
         </span>
-        <button
-          nexusIconButton
-          size="sm"
-          aria-label="Remove fan"
-          (click)="removeFan($index)"
-        >
+        <button nexusIconButton size="sm" aria-label="Remove fan" (click)="removeFan($index)">
           <nexus-icon name="trash" />
         </button>
       </div>
@@ -95,8 +90,7 @@
     </div>
   } @empty {
     <p class="fans__empty">
-      No fans configured. Add one to drive part cooling or any auxiliary fan your
-      printer exposes.
+      No fans configured. Add one to drive part cooling or any auxiliary fan your printer exposes.
     </p>
   }
 

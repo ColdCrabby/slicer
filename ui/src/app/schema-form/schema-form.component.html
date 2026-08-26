@@ -70,6 +70,16 @@
                 <nexus-icon [name]="groupIcon" class="schema-form-group-icon" aria-hidden="true" />
               }
               <span class="schema-form-group-title">{{ group.name }}</span>
+              @if (groupsWithNotice().has(group.name)) {
+                <span
+                  class="schema-form-group-notice-hint"
+                  role="img"
+                  aria-label="Some settings in this section may need a second look"
+                  title="Some settings in this section may need a second look"
+                >
+                  <nexus-icon name="warning-triangle" aria-hidden="true" />
+                </span>
+              }
             </span>
             <nexus-icon
               name="nav-arrow-down"

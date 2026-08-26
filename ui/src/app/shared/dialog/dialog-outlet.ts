@@ -1,11 +1,11 @@
 import { NgComponentOutlet } from '@angular/common';
 import {
-    ChangeDetectionStrategy,
-    Component,
-    ElementRef,
-    ViewEncapsulation,
-    effect,
-    inject,
+  ChangeDetectionStrategy,
+  Component,
+  ElementRef,
+  ViewEncapsulation,
+  effect,
+  inject,
 } from '@angular/core';
 import { Dialog } from '../../services/dialog';
 

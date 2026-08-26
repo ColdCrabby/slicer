@@ -34,7 +34,10 @@ This module ships both, selected per slice:
   over-extrusion. Those necks fall through to the variable-width medial gap fill
   instead. Overlap is resolved by geometry, not by post-hoc flow compensation
   (`wall_overlap_compensation` is **off by default**; see
-  [flow](../flow/mod.rs)).
+  [flow](../flow/mod.rs)). The residual **medial skeleton is de-noised**
+  (short facet spurs pruned) before the gap beads are walked, so a curved
+  wall's residual ring prints as a few long continuous beads instead of a cloud
+  of stubs that wander layer-to-layer — see invariant #5.
 - **`Classic`** — fixed-width concentric perimeters plus a thin-wall gap fill.
   Deterministic, fast, dependency-free. Descends from Slic3r's
   `PerimeterGenerator` + `MedialAxis`.
@@ -156,6 +159,21 @@ them makes Clipper2 treat holes as solid and infill fills the void.
 Tightly nested concentric paths under EvenOdd produce alternating in/out bands.
 If you ever union the bead set, use `NonZero` — and only after making every
 input path CCW.
+
+### 5. De-noise the residual skeleton before walking gap beads
+
+A segment Voronoi grows a short spur at **every faceted boundary vertex** of a
+thin residual band. Those spurs turn a continuous gap spine into a chain per
+junction, and since the junctions sit at facet vertices that shift with the
+sloped wall thickness, the emitted stubs land in a different place on every
+layer — the gap fill visibly boils. [`prune_short_leaf_chains`](arachne/skeleton.rs)
+removes sub-`2d` spurs so the junctions collapse to degree 2 and
+[`chains`](arachne/skeleton.rs) reassembles the spine into a few long beads. Do
+**not** raise that floor much further: past ~`2d` it starts eroding genuine
+sub-millimetre features (small embossed-logo detail) into voids. The
+radius-ratio [`prune_boundary_spurs`](arachne/skeleton.rs) alone does *not*
+suffice — it only catches spurs that dive toward the boundary, not the
+uniform-radius facet spurs of a constant-thickness band.
 
 ---
 

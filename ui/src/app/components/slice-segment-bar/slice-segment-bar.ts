@@ -14,8 +14,9 @@ import {
   FLOATS_PER_SEGMENT,
   GcodePreview,
   type GcodeViewMode,
+  ROLE_GROUPS,
   ROLE_LABELS,
-  ROLE_ORDER,
+  type RoleGroup,
   type RoleName,
   sampleSpeedColor,
   scalarChannelFor,
@@ -43,7 +44,7 @@ export class SliceSegmentBar {
 
   protected readonly roleCss = this.preview.roleCss;
   protected readonly roleLabels = ROLE_LABELS;
-  protected readonly roleOrder: readonly RoleName[] = ROLE_ORDER;
+  protected readonly roleGroups: readonly RoleGroup[] = ROLE_GROUPS;
 
   /**
    * Drives the card's reveal animation. Flipped true only once the preview

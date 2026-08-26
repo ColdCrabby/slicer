@@ -22,6 +22,13 @@ these notes and acknowledges contributors. `scripts/gen-changelog-draft.sh` and
 
 ### Added
 
+- **Volumetric-flow limiter** — the `max_volumetric_speed` parameter (mm³/s) is
+  now enforced by the G-code generator. On every extruding move the feedrate is
+  capped to `max_volumetric_speed · 60 / (layer_height × width)` so the hotend
+  is never asked to melt faster than it can, honoured per-segment for
+  variable-width Arachne beads and on wall/coasting close moves alike. It stacks
+  with the existing wide-bead throttle (the lower speed wins). Defaults to `0`
+  (unlimited), so existing output is unchanged.
 - **Geometry-aware acceleration** — new `outer_wall_acceleration` and
   `bridge_acceleration` slicing parameters extend layer-type acceleration with
   role-specific limits: a lower outer-wall value cuts ringing on visible

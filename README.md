@@ -323,6 +323,11 @@ pnpm --filter slicer-engine-docs docs:dev                   # live docs site
 sea-orm-cli migrate generate "my_migration" -d src/db       # scaffold DB migration
 ```
 
+**Git hooks (autoformat on commit):** `pnpm install` sets up [Lefthook](https://lefthook.dev)
+via the `prepare` script. On every commit it formats just the **staged** files so they already
+match CI — [Prettier](https://prettier.io/) for `ui/**/*.{ts,html,scss,css}` and `rustfmt` for
+`*.rs`. Skip once with `git commit --no-verify`, or disable with `LEFTHOOK=0 git commit`.
+
 See [CONTRIBUTING.md](CONTRIBUTING.md) for workflow, [AGENTS.md](AGENTS.md) for AI-agent guidance, and [ARCHITECTURE.md](ARCHITECTURE.md) for the long-form architecture overview (also rendered on the [docs site](https://slicer.maxscopp.de/docs/guide/architecture)).
 
 **G-code diagnostics:** [tools/gcode-analysis/](tools/gcode-analysis/README.md) has Python scripts to measure and visualise sliced output — wall overlap, unfilled gaps, bead-width distribution, and layer/zoom renders.

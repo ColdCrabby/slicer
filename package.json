@@ -19,6 +19,15 @@
     "gen": "pnpm run gen-schemas && pnpm run gen-types",
     "docs:dev": "pnpm --filter slicer-engine-docs docs:dev",
     "docs:build": "pnpm --filter slicer-engine-docs docs:build",
-    "docs:preview": "pnpm --filter slicer-engine-docs docs:preview"
+    "docs:preview": "pnpm --filter slicer-engine-docs docs:preview",
+    "prepare": "lefthook install"
+  },
+  "devDependencies": {
+    "lefthook": "^2.1.10"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "lefthook"
+    ]
   }
 }

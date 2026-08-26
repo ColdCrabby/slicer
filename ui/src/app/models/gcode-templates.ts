@@ -267,4 +267,3 @@ export function gcodeTemplateStatus(params: unknown): GcodeTemplateStatus {
 
   return { kind: 'modified', template, id: template.id };
 }
-

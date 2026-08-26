@@ -2112,4 +2112,101 @@ mod tests {
             layers[1].path_roles
         );
     }
+
+    /// Regression for the "bridges extrude into walls" defect on the Benchy
+    /// hull-side deck edge and sloped cabin front (Arachne layers ≈ 159–172).
+    ///
+    /// Unlike `test_thin_overhang_strip_no_bridge_when_perimeters_cover_it`
+    /// (where `interior_regions` is *empty*), here the interior estimate is
+    /// **non-empty but a thin (< 1 mm) channel** — exactly what Arachne's
+    /// per-island **average** `walls_per_island` leaves in a locally-thin
+    /// cross-section.  The old code fired a bridge there (interior non-empty),
+    /// laying sparse bridge lines straight over the wall + gap-fill beads that
+    /// already fill the channel (measured "Gap infill × Bridge" and "Inner
+    /// wall × Bridge" double-extrusion, absent from the `classic` reference).
+    ///
+    /// The fix clips the bridge candidate to the **morphologically-opened**
+    /// interior (`open_interior_for_surface`), so a candidate that lands
+    /// entirely inside a sub-`SURFACE_MIN_INTERIOR_WIDTH_NOZZLE_MULT × nozzle`
+    /// channel disappears — while a genuine bridge over a *wide* void (cabin
+    /// roof, porthole / window closure) keeps its full extent.  This test
+    /// asserts both halves of that discriminator on identical geometry that
+    /// differs only in interior width.
+    #[test]
+    fn test_no_bridge_in_thin_interior_channel_but_yes_in_wide_void() {
+        use crate::core::surfaces::{generate_top_bottom_surfaces_with_interior, SurfaceConfig};
+        use clipper2::Path;
+
+        // Runs the surface pass on a 3-layer stack whose top layer (i == 2)
+        // overhangs a support that is identical on the two layers below (so the
+        // overhang survives the min-depth `deepen` gate), with the supplied
+        // interior region for that top layer.  Returns whether a Bridge role
+        // was emitted on the top layer.
+        let run_with_interior = |interior_top: Paths| -> bool {
+            // Support footprint present on layers 0 and 1: 10 × 1 mm at Y∈[0,1].
+            let support: Path = vec![(-5.0, 0.0), (5.0, 0.0), (5.0, 1.0), (-5.0, 1.0)].into();
+            let mut layer0 = SliceLayer::new(0.2);
+            layer0.paths.push(support.clone());
+            layer0.path_roles.push(ExtrusionRole::OuterWall);
+            let mut layer1 = SliceLayer::new(0.4);
+            layer1.paths.push(support);
+            layer1.path_roles.push(ExtrusionRole::OuterWall);
+
+            // Top layer 2: strip extends to Y = 3, so Y∈[1,3] overhangs the
+            // support below and is still unsupported two layers down → a bridge
+            // candidate forms and passes the `deepen` gate.
+            let mut layer2 = SliceLayer::new(0.6);
+            let strip: Path = vec![(-5.0, 0.0), (5.0, 0.0), (5.0, 3.0), (-5.0, 3.0)].into();
+            layer2.paths.push(strip);
+            layer2.path_roles.push(ExtrusionRole::OuterWall);
+
+            let mut layers = vec![layer0, layer1, layer2];
+            let interior_regions = vec![Paths::new(vec![]), Paths::new(vec![]), interior_top];
+
+            generate_top_bottom_surfaces_with_interior(
+                &mut layers,
+                &SurfaceConfig {
+                    top_layers: 0,
+                    bottom_layers: 1,
+                    layer_height: 0.2,
+                    infill_angle: 45.0,
+                    nozzle_diameter_mm: 0.4,
+                    bridge_flow_ratio: 0.8,
+                    // Keep the noise/area filters off so the ONLY thing that can
+                    // suppress the bridge is the opened-interior clip under test.
+                    bridge_min_area_mm2: 0.0,
+                    bridge_noise_filter_mm: 0.0,
+                    bridge_anchor_mm: 0.5,
+                    infill_overlap_percent: 0.25,
+                    min_infill_extrusion_mm: 0.0,
+                },
+                Some(&interior_regions),
+            );
+
+            layers[2].path_roles.contains(&ExtrusionRole::Bridge)
+        };
+
+        // Thin channel: 8 mm long × 0.6 mm wide (< 1.0 mm = 2.5 × 0.4 nozzle).
+        // Morphological opening erodes it to nothing → NO bridge.
+        let thin_path: clipper2::Path =
+            vec![(-4.0, 1.7), (4.0, 1.7), (4.0, 2.3), (-4.0, 2.3)].into();
+        assert!(
+            !run_with_interior(Paths::new(vec![thin_path])),
+            "Bridge must NOT be generated when the interior estimate is a thin \
+             (< 1 mm) wall-band channel — the wall + gap-fill beads already fill \
+             it, and a bridge would double-extrude over them (Benchy hull-side / \
+             sloped-front regression)."
+        );
+
+        // Wide void: 8 mm long × 2 mm wide (well above the opening threshold).
+        // The opening keeps it → a genuine bridge IS generated.
+        let wide_path: clipper2::Path =
+            vec![(-4.0, 0.5), (4.0, 0.5), (4.0, 2.5), (-4.0, 2.5)].into();
+        assert!(
+            run_with_interior(Paths::new(vec![wide_path])),
+            "Bridge MUST still be generated over a genuine wide void (cabin roof \
+             / porthole / window closure); the opened-interior clip must not \
+             suppress real bridges."
+        );
+    }
 }

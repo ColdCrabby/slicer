@@ -446,6 +446,20 @@ pub fn process_mesh(
     crate::flow::compensate(&mut layers, params);
     t_flow.finish();
 
+    // Bed-adhesion helpers (skirt / brim / raft).  Runs after the object's own
+    // toolpaths are fully ordered and flow-compensated so it never perturbs
+    // them: skirt/brim loops are prepended to the first layer(s); raft prepends
+    // sacrificial layers and shifts the object up.
+    if params.adhesion_type != crate::settings::params::AdhesionType::None {
+        let t_adhesion = PhaseTimer::start("Bed Adhesion", logger);
+        logger.log_debug(&format!(
+            "generating bed adhesion ({:?})",
+            params.adhesion_type
+        ));
+        crate::adhesion::apply_adhesion(&mut layers, params);
+        t_adhesion.finish();
+    }
+
     layers
 }
 

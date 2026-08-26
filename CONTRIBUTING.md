@@ -61,6 +61,15 @@ rustup component add clippy rustfmt
 cargo install wasm-pack
 ```
 
+**Set up the workspace + git hooks:**
+```bash
+pnpm install   # also installs Lefthook (via the `prepare` script)
+```
+Lefthook then autoformats your **staged** files on every commit — Prettier for the
+Angular UI (`ui/**/*.{ts,html,scss,css}`) and `rustfmt` for Rust (`*.rs`) — so what you
+commit already matches CI. Bypass once with `git commit --no-verify` or disable with
+`LEFTHOOK=0 git commit`.
+
 ### 2. Create a Feature Branch
 
 ```bash
@@ -76,9 +85,10 @@ Use descriptive names:
 
 **Code Style:**
 - Follow Rust idioms and conventions
-- Use `cargo fmt` to format code (enforced by CI)
+- Use `cargo fmt` to format code (enforced by CI; also applied automatically on commit by Lefthook)
 - Run `cargo clippy` to catch common issues
 - Add doc comments (`///`) for public APIs
+- UI code (`ui/`) is formatted with Prettier — also applied on commit by Lefthook
 
 **Testing:**
 - Write tests for new functionality
@@ -102,6 +112,9 @@ mod tests {
 ```
 
 ### 4. Commit Your Changes
+
+> On commit, Lefthook autoformats your staged files (Prettier + `rustfmt`) and re-stages
+> them, so formatting never blocks your PR. Use `git commit --no-verify` to skip it.
 
 **Commit message format:**
 ```
@@ -380,7 +393,7 @@ Before submitting your PR, ensure:
 - [ ] Code builds: `cargo build --release`
 - [ ] All tests pass: `cargo test --release`
 - [ ] Linting passes: `cargo clippy --all-targets --all-features -- -D warnings`
-- [ ] Code is formatted: `cargo fmt`
+- [ ] Code is formatted: `cargo fmt` (Lefthook applies this automatically on commit)
 - [ ] New code has tests
 - [ ] Public APIs have doc comments
 - [ ] ARCHITECTURE.md updated if architecture changed

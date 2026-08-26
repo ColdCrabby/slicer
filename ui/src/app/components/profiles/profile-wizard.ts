@@ -69,7 +69,9 @@ export class ProfileWizard {
   );
 
   protected readonly infillPercent = computed(() =>
-    Math.round(Number((this.draft().params as Record<string, unknown>)?.['infill_density'] ?? 0) * 100),
+    Math.round(
+      Number((this.draft().params as Record<string, unknown>)?.['infill_density'] ?? 0) * 100,
+    ),
   );
 
   protected readonly canProceed = computed(() => {
