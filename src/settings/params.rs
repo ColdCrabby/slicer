@@ -403,13 +403,20 @@ pub enum SupportType {
 /// First-layer bed-adhesion helper.
 ///
 /// Drives skirt / brim / raft generation in [`crate::adhesion`].
+///
+/// The enum default is [`None`](Self::None): a bare
+/// [`SlicingParams::default()`](crate::settings::params::SlicingParams) slice
+/// produces only the object, with no adhesion geometry. Product intent (a skirt
+/// on the standard PLA profile) is expressed by the process profiles in
+/// [`crate::profiles::defaults`], which set `adhesion_type` explicitly, not by
+/// this struct default.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum AdhesionType {
     /// No adhesion helper.
+    #[default]
     None,
     /// A loop of filament traced around the object (priming / draft shield).
-    #[default]
     Skirt,
     /// A flat apron fused to the object's first layer for extra bed grip.
     Brim,
