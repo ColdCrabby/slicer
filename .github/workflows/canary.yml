@@ -163,13 +163,29 @@ jobs:
           # launches (after de-quarantine) on Apple Silicon; switch to a real
           # Developer ID + notarization automatically when these repo secrets
           # are configured.
+          #
+          # GitHub Actions always injects `secrets.X` as an *empty string*
+          # env var when the secret doesn't exist (never unset). tauri-bundler
+          # checks these with Rust's `var_os`, which treats `Some("")` as
+          # "present" -- an empty APPLE_CERTIFICATE then makes it try to
+          # import a blank keychain certificate and fail with
+          # `SecKeychainItemImport: One or more parameters ... not valid`.
+          # So these must only be exported when actually non-empty (below),
+          # not assigned unconditionally here.
           APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY || '-' }}
-          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
-          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
-          APPLE_ID: ${{ secrets.APPLE_ID }}
-          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
-          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         run: |
+          # Only export the certificate/notarization secrets when they are
+          # actually configured -- see the note above the env: block.
+          if [[ -n "${{ secrets.APPLE_CERTIFICATE }}" ]]; then
+            export APPLE_CERTIFICATE="${{ secrets.APPLE_CERTIFICATE }}"
+            export APPLE_CERTIFICATE_PASSWORD="${{ secrets.APPLE_CERTIFICATE_PASSWORD }}"
+          fi
+          if [[ -n "${{ secrets.APPLE_ID }}" ]]; then
+            export APPLE_ID="${{ secrets.APPLE_ID }}"
+            export APPLE_PASSWORD="${{ secrets.APPLE_PASSWORD }}"
+            export APPLE_TEAM_ID="${{ secrets.APPLE_TEAM_ID }}"
+          fi
+
           if [[ "$RUNNER_OS" == "macOS" ]]; then
             # One universal binary so the DMG runs on both Intel and Apple
             # Silicon (macos-latest runners are arm64-only otherwise).
