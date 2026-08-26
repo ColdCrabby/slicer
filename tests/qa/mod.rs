@@ -55,7 +55,7 @@ pub struct Fixture {
     pub fast_gate: bool,
 }
 
-/// The prepared corpus, mirroring `analysis/REPORT.md`.
+/// The prepared fixture corpus (Voron cube, hinge, caddy, Benchy).
 pub fn corpus() -> Vec<Fixture> {
     vec![
         Fixture {

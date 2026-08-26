@@ -20,6 +20,7 @@ import { KeyboardShortcuts } from '../services/keyboard-shortcuts/keyboard-short
 import { Icon } from '../shared/icon/icon';
 import { UserInputModality } from '../shared/input-modality/input-modality';
 import { FieldHost } from './field-host/field-host';
+import { noticeForField } from './field-exceptions/field-exceptions';
 import { FieldDef, SchemaGroup } from './models/field-def';
 import { parseSchema } from './models/schema-parser';
 
@@ -182,6 +183,23 @@ export class SchemaForm {
   private readonly flatFields = computed<FieldDefIndexed[]>(() =>
     this.allGroups().flatMap((g) => g.fields.map((f) => ({ ...f, groupName: g.name }))),
   );
+
+  /**
+   * Names of groups that currently contain at least one field with an active
+   * {@link noticeForField} exception (given the live values). Drives the neutral
+   * "double-check this section" hint on the accordion header, so a collapsed
+   * group still advertises that something inside wants a second look.
+   */
+  protected readonly groupsWithNotice = computed<ReadonlySet<string>>(() => {
+    const values = this.value();
+    const names = new Set<string>();
+    for (const group of this.allGroups()) {
+      if (group.fields.some((f) => noticeForField(f, values[f.key]) !== null)) {
+        names.add(group.name);
+      }
+    }
+    return names;
+  });
 
   /**
    * Ranked search results when the user has typed a query.

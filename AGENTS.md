@@ -408,13 +408,18 @@ interior_regions computed            — per-layer interior (for surfaces), post
 generate_top_bottom_surfaces_with_interior()  — top/bottom solid infill within interior
 add_infill_to_layers()               — sparse infill using pre-strip regions minus solid regions
 generate_supports()                  — overhang detection → projected support columns (if support_enabled)
+path ordering + flow compensation    — greedy-TSP per role group, then wall-overlap flow scaling
+apply_adhesion()                     — skirt/brim prepended to first layer(s); raft prepends layers + Z-shifts object (src/adhesion/)
 ```
 
 Order matters critically. Surfaces are computed **after** Arachne walls so that
 `calculate_interior_region` sees the correct bead geometry. Infill is computed
-**after** surfaces so it can subtract `solid_regions`. Supports run **last**
-(before path ordering) so they read the final `OuterWall` footprints and their
-strands are ordered alongside the rest of the layer.
+**after** surfaces so it can subtract `solid_regions`. Supports are generated
+**after infill but before path ordering** so they read the final `OuterWall`
+footprints and their strands are ordered/flow-compensated alongside the rest of
+the layer. **Bed adhesion runs dead last**, after ordering and flow
+compensation, so its loops are appended cleanly and the object's own toolpaths
+are provably unperturbed — see [src/adhesion/README.md](src/adhesion/README.md).
 
 ### Support Structure Generation
 

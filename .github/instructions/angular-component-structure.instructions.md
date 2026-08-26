@@ -23,14 +23,14 @@ not before.
 
 ## Smart (container) vs. Dumb (presentational)
 
-| | Smart / container | Dumb / presentational |
-|---|---|---|
-| Lives in | `pages/`, feature roots in `components/` | `ui/`, `shared/`, leaf `components/` |
-| Knows about | services, routing, WASM, state | nothing but its `input()`s |
-| Gets data via | `inject()`ing services/signals | `input()` only |
-| Talks back via | calling service methods | `output()` only |
-| Reused across features | rarely | freely |
-| Selector | element `nexus-*` | attribute (`[nexusButton]`) or element |
+|                        | Smart / container                        | Dumb / presentational                  |
+| ---------------------- | ---------------------------------------- | -------------------------------------- |
+| Lives in               | `pages/`, feature roots in `components/` | `ui/`, `shared/`, leaf `components/`   |
+| Knows about            | services, routing, WASM, state           | nothing but its `input()`s             |
+| Gets data via          | `inject()`ing services/signals           | `input()` only                         |
+| Talks back via         | calling service methods                  | `output()` only                        |
+| Reused across features | rarely                                   | freely                                 |
+| Selector               | element `nexus-*`                        | attribute (`[nexusButton]`) or element |
 
 - **Dumb components should be pure functions of their inputs.** As a rule they
   don't `inject()` app services, HTTP, the router, or `NotificationService`. If
@@ -45,7 +45,7 @@ not before.
 ```ts
 // dumb: pure, reusable, testable without a TestBed harness
 @Component({
-  selector: 'nexus-slice-summary',
+  selector: "nexus-slice-summary",
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class SliceSummary {
@@ -54,11 +54,13 @@ export class SliceSummary {
 }
 
 // smart: owns the service, feeds the dumb child
-@Component({ selector: 'nexus-slice-viewer', /* ... */ })
+@Component({ selector: "nexus-slice-viewer" /* ... */ })
 export class SliceViewer {
   readonly #slicer = inject(SlicerService);
   readonly stats = this.#slicer.stats; // signal
-  rerun() { this.#slicer.rerun(); }
+  rerun() {
+    this.#slicer.rerun();
+  }
 }
 ```
 
@@ -106,6 +108,34 @@ Reusability comes from a **small, honest contract**, not from options.
   `SliceStats` value, never reaches into `SlicerService`. That is what makes it
   drop-in across features.
 
+## Exceptions beside a generic resolver
+
+When a **generic, data-driven renderer** (a schema form, a dynamic table, a
+component-outlet host) needs a handful of items treated specially, do **not**
+branch inside the generic path — that is how a clean resolver rots into a pile of
+`if (key === …)`. Instead keep the generic path clean and add a **parallel
+registry keyed by item id** for the exceptions.
+
+Canonical example — the schema-form has **two independent maps**:
+
+- `field-registry.ts` — `key → widget` ("_which_ control renders this field").
+- `field-exceptions.ts` — `key → exception` ("does this field need extra
+  treatment", e.g. a conditional caution notice).
+
+The widget-choosing never learns about notices, and vice-versa; each map stays a
+one-liner per entry. Guidelines:
+
+- **Render the exception at the point of use** (inside the per-item host), so it
+  works everywhere that item renders — grouped view, search results, anywhere —
+  with zero duplication.
+- **Drive any container-level aggregate from the same registry** via a
+  `computed` (e.g. an accordion header that flags "something inside needs a look"
+  reuses the exceptions predicate), so the summary and the detail can't drift.
+- **Shape the exception for extension, not just today's need.** An exception
+  object with an optional `notice?()` leaves room for future kinds (badge, hidden,
+  disabled) without reshaping call sites — but add those only when a real second
+  case appears.
+
 ## Conventions (match the existing codebase)
 
 - **Standalone, `ChangeDetectionStrategy.OnPush`, signals throughout.** Use
@@ -136,3 +166,4 @@ Reusability comes from a **small, honest contract**, not from options.
 - `.github/instructions/ui-design-language.instructions.md` — visual language.
 - `ui/src/app/ui/button/button.ts` — canonical dumb primitive.
 - `ui/src/app/pages/slice-viewer/slice-viewer.ts` — canonical smart container.
+- `ui/src/app/schema-form/field-registry/field-registry.ts` + `field-exceptions/field-exceptions.ts` — the "exceptions beside a generic resolver" pattern.
