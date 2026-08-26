@@ -1537,7 +1537,6 @@ impl SlicingParams {
     /// - `TODO(profiles): ironing` — top-surface ironing pass.
     /// - `TODO(profiles): supports` — support generation (`normal`/`tree`,
     ///   density). Only `support_threshold_angle` is honoured today.
-    /// - `TODO(profiles): volumetric` — max-volumetric-speed limiter.
     /// - `TODO(profiles): multimaterial` — more than one extruder.
     pub fn unsupported_feature_warnings(&self) -> Vec<String> {
         let mut w = Vec::new();
@@ -1551,9 +1550,6 @@ impl SlicingParams {
                 "supports are enabled but support generation is not yet implemented — ignored"
                     .into(),
             );
-        }
-        if self.max_volumetric_speed > 0.0 {
-            w.push("max_volumetric_speed is set but the volumetric limiter is not yet implemented — ignored".into());
         }
         if self.extruder_count > 1 {
             w.push("multiple extruders configured but multi-material slicing is not yet implemented — using tool 0".into());
