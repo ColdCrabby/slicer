@@ -24,6 +24,7 @@ export class GeneralSettings implements OnInit {
   private readonly appVersion = inject(AppVersion);
   protected readonly gesture = this.viewer.trackpadTwoFingerGesture;
   protected readonly statsVisible = this.viewer.statsVisible;
+  protected readonly palmRejection = this.viewer.palmRejection;
   protected readonly fieldOfView = this.viewer.fieldOfView;
   protected readonly antialiasing = this.viewer.antialiasing;
   protected readonly renderQuality = this.viewer.renderQuality;
@@ -60,6 +61,10 @@ export class GeneralSettings implements OnInit {
 
   setStatsVisible(value: boolean): void {
     this.viewer.setStatsVisible(value);
+  }
+
+  setPalmRejection(value: boolean): void {
+    this.viewer.setPalmRejection(value);
   }
 
   setFieldOfView(value: number): void {

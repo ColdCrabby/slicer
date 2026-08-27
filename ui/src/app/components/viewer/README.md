@@ -184,6 +184,13 @@ array to the viewer.
 When multiple input consumers are active at the same time (orbit, selection
 raycaster, gizmo), the viewer applies a clear priority order:
 
+0. **Palm rejection (stylus in use)** — [`PointerArbiter`](scene/pointer-arbiter.ts)
+   listens in the _capture_ phase on the canvas host (an ancestor of the WebGL
+   canvas), so it runs before every other consumer. While an Apple Pencil /
+   stylus is down, hovering, or was active within the grace window, it swallows
+   `pointerType === 'touch'` events — the hand and wrist resting on the glass —
+   so the palm never orbits, pinches, or selects. Genuine finger gestures are
+   untouched whenever no pen is involved.
 1. **Gizmo dragging in progress** — gizmo owns the pointer; OrbitControls
    and the selection raycaster are both suppressed.
 2. **Gizmo hovering** (cursor over a handle, not yet dragging) — the selection
@@ -193,6 +200,35 @@ raycaster, gizmo), the viewer applies a clear priority order:
    dedicated to face picking.
 4. **Normal mode** — the selection raycaster runs; OrbitControls handles any
    gesture that misses a selectable object.
+
+### Pen-priority palm rejection ("wrist detection")
+
+On an iPad the hand resting on the glass while drawing with an Apple Pencil
+fires `touch` pointer events for the palm and wrist. Unfiltered, they drive the
+camera — OrbitControls' single-touch rotate spins the view and two palm
+contacts read as a pinch — so the model lurches while the user works with the
+pencil. [`PointerArbiter`](scene/pointer-arbiter.ts) vetoes those contacts.
+
+```mermaid
+flowchart TD
+    E[pointer event on host<br/>capture phase] --> P{pointerType?}
+    P -->|pen| T[track pen: penActive + penEverUsed<br/>pass through]
+    P -->|touch| C{palm?}
+    P -->|mouse| A[pass through]
+    C -->|pen active, in grace,<br/>or palm-sized after pen use| S[stopImmediatePropagation<br/>swallow]
+    C -->|otherwise| A
+    T --> D[OrbitControls / selection / gizmo]
+    A --> D
+```
+
+A touch is judged palm at its `pointerdown` (`isPalmTouch`, unit-tested) when a
+pen is active — down, hovering, or lifted within `PEN_GRACE_MS` — or, once a pen
+has been seen this session, when its contact patch is palm-sized
+(`PALM_CONTACT_MIN_PX`), which catches the palm that lands just before the tip on
+iPads without pencil hover. Pure-touch users are never affected: the contact-size
+path is gated behind "a pen has been seen", and the pen-active path only fires
+while a pen is in use. The user can turn the whole behaviour off from
+**Settings → General → Controls → Palm rejection** (persisted; default on).
 
 ---
 
@@ -208,6 +244,7 @@ viewer/
 │   ├── camera.ts              SceneCamera — animations, view presets, fit-to-content, near/far
 │   ├── controls.ts            SceneControls — orbit inertia, multi-touch (pinch/pan/roll), autoscroll zoom
 │   ├── grid.ts                SceneGrid — adaptive build-plate grid with cross-fade and fade-on-graze
+│   ├── pointer-arbiter.ts     PointerArbiter — pen-priority palm rejection (capture-phase touch veto)
 │   ├── selection.ts           SceneSelection — selectable registry, emissive highlight, raycasting, face-pick
 │   ├── types.ts               Shared public types (SceneSelectionHandlers, SceneGizmoHandlers, ViewerView, …)
 │   └── utils.ts               disposeObject — recursive Three.js geometry/material cleanup
@@ -224,6 +261,7 @@ viewer/
 | `scene/camera.ts`    | `SceneCamera`    | `PerspectiveCamera` pose, view animations, `fitToContent`                                   |
 | `scene/controls.ts`  | `SceneControls`  | `OrbitControls` config, orbit inertia, touch gestures, autoscroll zoom                      |
 | `scene/grid.ts`      | `SceneGrid`      | Bed grid `LineSegments`, adaptive spacing, CSS theme integration                            |
+| `scene/pointer-arbiter.ts` | `PointerArbiter` | Pen-priority palm rejection — capture-phase touch veto while a stylus is in use          |
 | `scene/selection.ts` | `SceneSelection` | Selectable `Map`, emissive highlight, pointer event plumbing, face-pick overlay             |
 | `scene/index.ts`     | `ViewerScene`    | Three.js primitives (`Scene`, `WebGLRenderer`, `OrbitControls`), `contentRoot`, render loop |
 
@@ -266,6 +304,7 @@ flowchart LR
 - [scene/camera.ts](scene/camera.ts) — `SceneCamera`
 - [scene/controls.ts](scene/controls.ts) — `SceneControls`
 - [scene/grid.ts](scene/grid.ts) — `SceneGrid`
+- [scene/pointer-arbiter.ts](scene/pointer-arbiter.ts) — `PointerArbiter`, `isPalmTouch`, `PEN_GRACE_MS`, `PALM_CONTACT_MIN_PX`
 - [scene/selection.ts](scene/selection.ts) — `SceneSelection`
 - [gizmo.ts](gizmo.ts) — `GizmoManager`, `GizmoDelta`, `FacePickResult`, `raycastFace`, `computeSelectionCentroid`
 - [gcode-orchestrator.ts](gcode-orchestrator.ts) — `GcodeOrchestrator`

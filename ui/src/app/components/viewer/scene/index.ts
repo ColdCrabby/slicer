@@ -22,6 +22,7 @@ import { GizmoManager } from '../gizmo';
 import { INITIAL_CAMERA_UP, INITIAL_PERSPECTIVE_FOV, SceneCamera } from './camera';
 import { SceneControls } from './controls';
 import { SceneGrid } from './grid';
+import { PointerArbiter } from './pointer-arbiter';
 import { SceneSelection } from './selection';
 import type { SceneGizmoHandlers, SceneSelectionHandlers, ViewerView } from './types';
 import { disposeObject } from './utils';
@@ -106,6 +107,7 @@ export class ViewerScene {
   private readonly _controls: SceneControls;
   private readonly _grid: SceneGrid;
   private readonly _selection: SceneSelection;
+  private readonly _pointerArbiter: PointerArbiter;
   private readonly gizmo: GizmoManager;
   private readonly axesGizmo: Group;
   private readonly hemiLight: HemisphereLight;
@@ -177,6 +179,13 @@ export class ViewerScene {
     this.renderer.setSize(clientWidth, clientHeight);
     this.renderer.domElement.style.touchAction = 'none';
     host.appendChild(this.renderer.domElement);
+
+    // Palm rejection is installed on `host` (an ancestor of the canvas) in the
+    // capture phase so it runs before OrbitControls, selection, and the
+    // two-finger touch handlers — it can veto a palm/wrist contact before any
+    // of them start a camera gesture. Created before those consumers so its
+    // capture listeners are the first thing every pointer event meets.
+    this._pointerArbiter = new PointerArbiter(host);
 
     this.controls = new OrbitControls(this.camera, this.renderer.domElement);
     this.controls.enableDamping = false;
@@ -484,6 +493,16 @@ export class ViewerScene {
     this._controls.setTwoFingerGesture(gesture);
   }
 
+  /**
+   * Enable or disable pen-priority palm rejection ("wrist detection"). When
+   * enabled (default) touch contacts from the hand resting on the glass are
+   * swallowed while an Apple Pencil / stylus is in use, so the palm never
+   * orbits or pinches the camera. See {@link PointerArbiter}.
+   */
+  setPalmRejectionEnabled(enabled: boolean): void {
+    this._pointerArbiter.setEnabled(enabled);
+  }
+
   /** Set the perspective field-of-view (degrees); applied live when perspective. */
   setFieldOfView(fov: number): void {
     this._camera.setPerspectiveFov(fov);
@@ -507,6 +526,7 @@ export class ViewerScene {
     this._controls.dispose();
     this._grid.dispose();
     this._selection.dispose();
+    this._pointerArbiter.dispose();
     this.gizmo.dispose();
     this.clearContent();
     this.controls.dispose();

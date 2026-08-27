@@ -100,6 +100,7 @@ const FIELD_OF_VIEW_KEY = 'nexus.viewer.fieldOfView';
 const ANTIALIASING_KEY = 'nexus.viewer.antialiasing';
 const RENDER_QUALITY_KEY = 'nexus.viewer.renderQuality';
 const USE_FILAMENT_COLOR_KEY = 'nexus.viewer.useFilamentColor';
+const PALM_REJECTION_KEY = 'nexus.viewer.palmRejection';
 
 /**
  * Shared state between the 3D-view toolbar and the viewer component.
@@ -162,6 +163,15 @@ export class ViewerControl {
    * Default is `false` to preserve the existing scene appearance.
    */
   readonly useFilamentColor = signal(this.readUseFilamentColor());
+
+  /**
+   * Whether pen-priority palm rejection ("wrist detection") is active in the
+   * 3D view. When on (the default), touch contacts from the hand resting on
+   * the glass are ignored while an Apple Pencil / stylus is in use, so the palm
+   * never orbits or pinches the camera. Pure-touch gestures are unaffected.
+   * Persisted so the choice survives reloads.
+   */
+  readonly palmRejection = signal(this.readPalmRejection());
 
   /**
    * Currently selected object-manipulation mode. Drives the gizmo shown
@@ -300,6 +310,12 @@ export class ViewerControl {
     this.storage.write(USE_FILAMENT_COLOR_KEY, String(value));
   }
 
+  /** Update the palm-rejection preference and persist it. */
+  setPalmRejection(value: boolean): void {
+    this.palmRejection.set(value);
+    this.storage.write(PALM_REJECTION_KEY, String(value));
+  }
+
   private readTwoFingerGesture(): TwoFingerGesture {
     return this.storage.get(TWO_FINGER_GESTURE_KEY)() === 'pan' ? 'pan' : 'orbit';
   }
@@ -335,6 +351,12 @@ export class ViewerControl {
 
   private readUseFilamentColor(): boolean {
     return this.storage.get(USE_FILAMENT_COLOR_KEY)() === 'true';
+  }
+
+  private readPalmRejection(): boolean {
+    // Default on — palm rejection only changes behaviour once a pen appears,
+    // so it is safe to enable everywhere.
+    return this.storage.get(PALM_REJECTION_KEY)() !== 'false';
   }
 
   /**

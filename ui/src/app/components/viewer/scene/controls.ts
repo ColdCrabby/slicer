@@ -618,6 +618,11 @@ export class SceneControls {
   /**
    * Combined pinch-dolly + centroid-pan + twist-roll for two-finger touch.
    * Bypasses OrbitControls entirely while two or more fingers are down.
+   *
+   * Palm/wrist contacts never reach here while a stylus is in use: the
+   * {@link PointerArbiter} installed on the canvas host swallows them in the
+   * capture phase, upstream of these listeners. So a resting hand can't be
+   * mistaken for the second finger of a pinch. See `scene/pointer-arbiter.ts`.
    */
   private installCustomTwoFingerControls(): void {
     const el = this.renderer.domElement;

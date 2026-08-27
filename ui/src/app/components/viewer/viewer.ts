@@ -283,6 +283,12 @@ export class Viewer {
       this.scene?.setTwoFingerGesture(gesture);
     });
 
+    // React to the palm-rejection ("wrist detection") preference for stylus use.
+    effect(() => {
+      const enabled = this.viewerControl.palmRejection();
+      this.scene?.setPalmRejectionEnabled(enabled);
+    });
+
     // React to field-of-view changes from the 3D-view settings.
     effect(() => {
       const fov = this.viewerControl.fieldOfView();
@@ -689,6 +695,7 @@ export class Viewer {
     this.scene.setObjectMode(this.viewerControl.objectMode());
     this.scene.setView(this.viewerControl.view());
     this.scene.setTwoFingerGesture(this.viewerControl.trackpadTwoFingerGesture());
+    this.scene.setPalmRejectionEnabled(this.viewerControl.palmRejection());
     this.scene.setTheme(this.appTheme.isDarkMode());
     this.gcode = new GcodeOrchestrator(this.scene.contentRoot);
     // Hover-inspect probe for the G-code scalar views: raycasts the visible
