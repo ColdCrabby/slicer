@@ -74,8 +74,7 @@ export class SliceViewer {
       // If we just navigated here from `slice-new` we already have the upload
       // response in router state — skip the meta fetch entirely.
       const navState = this.#router.getCurrentNavigation()?.extras?.state as
-        | { uploadMeta?: UploadResponse }
-        | undefined;
+        { uploadMeta?: UploadResponse } | undefined;
       const stateUpload =
         navState?.uploadMeta ?? (history.state?.uploadMeta as UploadResponse | undefined);
 

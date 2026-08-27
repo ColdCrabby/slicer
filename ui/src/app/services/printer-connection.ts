@@ -27,14 +27,7 @@ import { SlicerConnection } from './slicer-connection';
  * - `error`       — the host answered with an error (e.g. bad API key).
  */
 export type PrinterProbeState =
-  | 'local'
-  | 'unknown'
-  | 'checking'
-  | 'online'
-  | 'offline'
-  | 'unsupported'
-  | 'cors'
-  | 'error';
+  'local' | 'unknown' | 'checking' | 'online' | 'offline' | 'unsupported' | 'cors' | 'error';
 
 export interface PrinterLiveStatus {
   state: PrinterProbeState;

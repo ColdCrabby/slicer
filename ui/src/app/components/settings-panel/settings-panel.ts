@@ -65,8 +65,8 @@ export class SettingsPanel {
     this.storage.getJson<SettingContractId>(CONTRACT_STORAGE_KEY, 'local') ?? 'process',
   );
 
-  protected readonly activeContractMeta = computed(
-    () => SETTING_CONTRACTS.find((c) => c.id === this.activeContract())!,
+  protected readonly activeContractMeta = computed(() =>
+    SETTING_CONTRACTS.find((c) => c.id === this.activeContract())!,
   );
 
   private readonly groupsByContract = computed(() =>
