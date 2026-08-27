@@ -2,6 +2,10 @@ import { Injectable, inject, signal } from '@angular/core';
 import { BrowserStorage } from './browser-storage';
 
 const STORAGE_KEY = 'workplate.names';
+const DEFAULT_WORKPLATE_NAME = 'Untitled workplate';
+const DEFAULT_GCODE_FILENAME = 'output.gcode';
+const INVALID_FILENAME_CHARS = /[<>:"/\\|?*\u0000-\u001F]/g;
+const GCODE_EXTENSION = /\.(gcode|gco|g)$/i;
 
 /**
  * Remembers the user-chosen display name for each workplate, keyed by its
@@ -29,6 +33,55 @@ export class WorkplateNames {
     return this._names()[uuid] ?? null;
   }
 
+  /**
+   * The human-facing workplate title:
+   * custom rename → uploaded model stem → fallback.
+   */
+  displayNameFor(
+    uuid: string | null | undefined,
+    sourceFilename: string | null | undefined,
+  ): string {
+    return (
+      this.nameFor(uuid) ?? this.defaultNameFromFilename(sourceFilename) ?? DEFAULT_WORKPLATE_NAME
+    );
+  }
+
+  /** Derive the default plate name from an uploaded model filename. */
+  defaultNameFromFilename(filename: string | null | undefined): string | null {
+    if (!filename) {
+      return null;
+    }
+
+    const basename = filename.trim().split(/[\\/]/).pop()?.trim();
+    if (!basename) {
+      return null;
+    }
+
+    const stem = basename.replace(/\.[^./\\]+$/, '').trim();
+    return stem || null;
+  }
+
+  /**
+   * Canonical `<workplate>.gcode` filename used for downloads and printer sends.
+   */
+  gcodeFilenameFor(
+    uuid: string | null | undefined,
+    sourceFilename: string | null | undefined,
+  ): string {
+    const baseName = this.nameFor(uuid) ?? this.defaultNameFromFilename(sourceFilename);
+    if (!baseName) {
+      return DEFAULT_GCODE_FILENAME;
+    }
+
+    const safeBase = this.#sanitizeFilenameBase(baseName);
+    if (!safeBase) {
+      return DEFAULT_GCODE_FILENAME;
+    }
+
+    const withoutGcodeExt = safeBase.replace(GCODE_EXTENSION, '').trim();
+    return withoutGcodeExt ? `${withoutGcodeExt}.gcode` : DEFAULT_GCODE_FILENAME;
+  }
+
   /** Store (or, when blank, clear) the custom name for a workplate. */
   setName(uuid: string, name: string): void {
     const trimmed = name.trim();
@@ -42,5 +95,13 @@ export class WorkplateNames {
       return next;
     });
     this.storage.writeJson(STORAGE_KEY, this._names(), 'local');
+  }
+
+  #sanitizeFilenameBase(name: string): string {
+    return name
+      .replace(INVALID_FILENAME_CHARS, ' ')
+      .replace(/\s+/g, ' ')
+      .replace(/\.+$/, '')
+      .trim();
   }
 }

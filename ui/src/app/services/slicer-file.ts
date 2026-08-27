@@ -31,6 +31,8 @@ export class SlicerFile {
   readonly #http = inject(HttpClient);
 
   readonly selectedFile = signal<File | null>(null);
+  /** Source model filename for the active workplate (used for title/download fallbacks). */
+  readonly sourceFilename = signal<string | null>(null);
   /** Workplate UUID — the `ruuid` from the upload response. */
   readonly requestUuid = signal<string | null>(null);
   /** File UUIDs (`ofids`) that belong to {@link requestUuid}. */
@@ -45,6 +47,7 @@ export class SlicerFile {
 
   selectFile(file: File): void {
     this.selectedFile.set(file);
+    this.sourceFilename.set(file.name);
     this.requestUuid.set(null);
     this.fileIds.set([]);
     this.uploadProgress.set(0);
@@ -107,6 +110,7 @@ export class SlicerFile {
 
   reset(): void {
     this.selectedFile.set(null);
+    this.sourceFilename.set(null);
     this.requestUuid.set(null);
     this.fileIds.set([]);
     this.uploadProgress.set(0);
@@ -139,6 +143,8 @@ export class SlicerFile {
   adopt(meta: RequestMeta): void {
     this.requestUuid.set(meta.ruuid);
     this.fileIds.set(meta.ofids.map((f) => f.file_uuid));
+    const firstFilename = meta.ofids[0]?.original_filename?.trim();
+    this.sourceFilename.set(firstFilename || null);
   }
 
   /** Mark the selected file as belonging to a local-only workplate. */
@@ -147,6 +153,10 @@ export class SlicerFile {
     this.fileIds.set([]);
     this.uploadProgress.set(0);
     this.uploadError.set(null);
+    if (!this.sourceFilename()) {
+      const selected = this.selectedFile()?.name?.trim();
+      this.sourceFilename.set(selected || null);
+    }
   }
 
   /**
@@ -180,6 +190,7 @@ export class SlicerFile {
                   type: 'application/octet-stream',
                 });
                 this.selectedFile.set(file);
+                this.sourceFilename.set(filename);
                 this.requestUuid.set(requestUuid);
                 this.fileIds.set([fileUuid]);
                 this.uploadProgress.set(100);

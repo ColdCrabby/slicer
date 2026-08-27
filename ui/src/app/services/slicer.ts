@@ -18,6 +18,7 @@ import { SceneEngine } from './scene-engine';
 import { AppVersion } from './app-version';
 import { ConnectionStatus, SlicerConnection } from './slicer-connection';
 import { SlicerFile, UploadResponse } from './slicer-file';
+import { WorkplateNames } from './workplate-names';
 
 /** Human-readable label for each pipeline phase. */
 export const PHASE_LABELS: Record<string, string> = {
@@ -98,6 +99,7 @@ export class Slicer {
   private readonly sceneEngine = inject(SceneEngine);
   private readonly activeSelection = inject(ActiveSelection);
   private readonly appVersion = inject(AppVersion);
+  private readonly workplateNames = inject(WorkplateNames);
   private readonly runtimeMode = this.resolveRuntimeMode();
   private readonly runtime = createRuntime({
     mode: this.runtimeMode,
@@ -358,7 +360,14 @@ export class Slicer {
     if (!url) {
       return;
     }
-    void this.downloadFromUrl(url, this.selectedFile()?.name ?? undefined);
+    void this.downloadFromUrl(url, this.currentGcodeFilename());
+  }
+
+  currentGcodeFilename(): string {
+    return this.workplateNames.gcodeFilenameFor(
+      this.currentRequestUuid(),
+      this.slicerFile.sourceFilename() ?? this.selectedFile()?.name,
+    );
   }
 
   selectFile(file: File): void {
@@ -587,10 +596,15 @@ export class Slicer {
   }
 
   async downloadHistorySession(session: RuntimeHistorySession): Promise<void> {
+    const filename = this.workplateNames.gcodeFilenameFor(
+      session.request_uuid,
+      session.original_filename,
+    );
+
     if (!session.download_url) {
       const preview = await this.orchestrator.getPreviewSource(session.request_uuid);
       if (preview.kind === 'download-url') {
-        await this.downloadFromUrl(preview.url, session.original_filename ?? undefined);
+        await this.downloadFromUrl(preview.url, filename);
         return;
       }
       if (preview.kind === 'gcode-inline') {
@@ -599,7 +613,7 @@ export class Slicer {
             type: 'text/plain;charset=utf-8',
           }),
         );
-        await this.downloadFromUrl(url, session.original_filename ?? undefined);
+        await this.downloadFromUrl(url, filename);
         URL.revokeObjectURL(url);
         return;
       }
@@ -610,14 +624,10 @@ export class Slicer {
       return;
     }
 
-    await this.downloadFromUrl(session.download_url, session.original_filename ?? undefined);
+    await this.downloadFromUrl(session.download_url, filename);
   }
 
-  private async downloadFromUrl(url: string, originalFilename?: string): Promise<void> {
-    const filename =
-      (originalFilename as string | null | undefined)?.replace(/\.(stl|obj|3mf)$/i, '.gcode') ??
-      'output.gcode';
-
+  private async downloadFromUrl(url: string, filename: string): Promise<void> {
     if (this.runtimeMode === 'native') {
       // Tauri's webview does not reliably honour `<a download>` against a
       // custom `asset://` URL (it's meant for `<img>`/`<video>` src, not

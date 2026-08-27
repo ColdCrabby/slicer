@@ -1832,6 +1832,14 @@ mod tests {
             gcode.contains("EXTRUDER_TEMP=210"),
             "Klipper START_PRINT missing EXTRUDER_TEMP: {gcode}"
         );
+        assert!(
+            gcode.contains("BED=60"),
+            "Klipper START_PRINT missing Klippain BED alias: {gcode}"
+        );
+        assert!(
+            gcode.contains("EXTRUDER=210"),
+            "Klipper START_PRINT missing Klippain EXTRUDER alias: {gcode}"
+        );
     }
 
     #[test]

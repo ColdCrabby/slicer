@@ -41,8 +41,11 @@ export class WorkplateName {
   readonly savedName = computed(() => this.store.nameFor(this.requestUuid()) ?? '');
 
   /** Fallback shown as placeholder when the plate has no custom name yet. */
-  readonly placeholder = computed(
-    () => this.slicerFile.selectedFile()?.name ?? 'Untitled workplate',
+  readonly placeholder = computed(() =>
+    this.store.displayNameFor(
+      this.requestUuid(),
+      this.slicerFile.sourceFilename() ?? this.slicerFile.selectedFile()?.name,
+    ),
   );
 
   rename(event: Event): void {
