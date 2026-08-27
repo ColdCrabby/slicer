@@ -1131,6 +1131,25 @@ active filament profile at resolve time. Exposed to custom start G-code as `{fil
     pub filament_type: String,
 
     #[schemars(
+        description = "Filament display name recorded in the G-code metadata footer as \
+`filament_settings_id`. Populated from the active filament profile at resolve time so \
+Moonraker / Mainsail / Fluidd, OctoPrint, and other front-ends can show which filament the \
+file was sliced for. Empty = omit the line.",
+        extend("x-group" = "Temperature")
+    )]
+    #[serde(default)]
+    pub filament_name: String,
+
+    #[schemars(
+        description = "Filament colour (hex string, e.g. `#E0730F`) recorded in the G-code \
+metadata footer as `filament_colour`. Populated from the active filament profile at resolve \
+time so printer front-ends can render a swatch for the file. Empty = omit the line.",
+        extend("x-group" = "Temperature")
+    )]
+    #[serde(default)]
+    pub filament_color: String,
+
+    #[schemars(
         description = "Linear/pressure advance factor (Klipper `SET_PRESSURE_ADVANCE`, Marlin `M900 K`).
 
 `0` disables. Compensates for pressure lag at corners.
@@ -1417,6 +1436,8 @@ impl Default for SlicingParams {
             bed_temp_first_layer: Self::default_bed_temp_first_layer(),
             chamber_temp: Self::default_chamber_temp(),
             filament_type: String::new(),
+            filament_name: String::new(),
+            filament_color: String::new(),
             pressure_advance: Self::default_pressure_advance(),
             acceleration: Self::default_acceleration(),
             first_layer_acceleration: Self::default_first_layer_acceleration(),

@@ -17,9 +17,11 @@
 //! report `unsupported` so the UI can render an honest status instead of a
 //! misleading green dot.
 
+use std::net::{SocketAddr, ToSocketAddrs};
 use std::path::Path;
 use std::time::Duration;
 
+use reqwest::dns::{Addrs, Name, Resolve, Resolving};
 use serde::Serialize;
 
 use crate::profiles::printer::{BedShape, PrinterConnection, PrinterConnectionKind};
@@ -370,8 +372,66 @@ fn base_url_from_parts(host: &str, port: Option<u16>) -> Result<String, String> 
 fn http_client() -> reqwest::Client {
     reqwest::Client::builder()
         .timeout(REQUEST_TIMEOUT)
+        .dns_resolver(LanFriendlyResolver)
         .build()
         .unwrap_or_default()
+}
+
+/// Boxed error alias matching reqwest's [`Resolving`] future output.
+type BoxError = Box<dyn std::error::Error + Send + Sync>;
+
+/// System resolver that hides unreachable IPv6 link-local addresses and tries
+/// IPv4 first.
+///
+/// Bare LAN printer names (e.g. `darky`) routinely resolve to *both* an IPv4
+/// address and an IPv6 link-local `fe80::/10` address. A link-local address
+/// can't be reached without a scope/zone id, so a plain `connect()` to it
+/// stalls until the request times out. `curl` hides this with Happy Eyeballs
+/// (it races the families and IPv4 wins); reqwest's default connector does not
+/// save us here, so probes/uploads to a bare hostname would hang. Resolving
+/// through the OS the same way, then dropping the link-local address and
+/// biasing IPv4 first, makes the slicer reach the printer like `curl` does.
+#[derive(Debug, Clone, Copy, Default)]
+struct LanFriendlyResolver;
+
+impl Resolve for LanFriendlyResolver {
+    fn resolve(&self, name: Name) -> Resolving {
+        let host = name.as_str().to_string();
+        Box::pin(async move {
+            // Resolve through the OS (getaddrinfo) on a blocking thread so bare
+            // names still get search-domain expansion and mDNS, exactly like
+            // `curl`. Port 0 is a placeholder reqwest overrides with the URL's.
+            let resolved: Vec<SocketAddr> = tokio::task::spawn_blocking(move || {
+                (host.as_str(), 0u16)
+                    .to_socket_addrs()
+                    .map(|addrs| addrs.collect::<Vec<_>>())
+            })
+            .await??;
+
+            let mut usable: Vec<SocketAddr> = resolved
+                .iter()
+                .copied()
+                .filter(|addr| !is_ipv6_link_local(addr))
+                .collect();
+            // If a host somehow only advertises link-local, don't strand it.
+            if usable.is_empty() {
+                usable = resolved;
+            }
+            // Bias IPv4 first — the address that routes to most LAN printers.
+            usable.sort_by_key(SocketAddr::is_ipv6);
+
+            Ok::<Addrs, BoxError>(Box::new(usable.into_iter()))
+        })
+    }
+}
+
+/// True for IPv6 link-local (`fe80::/10`) addresses, which need a scope id and
+/// stall a plain `connect()`.
+fn is_ipv6_link_local(addr: &SocketAddr) -> bool {
+    match addr {
+        SocketAddr::V6(v6) => (v6.ip().segments()[0] & 0xffc0) == 0xfe80,
+        SocketAddr::V4(_) => false,
+    }
 }
 
 /// Attach the `X-Api-Key` header when an API key is configured.

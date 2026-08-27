@@ -62,6 +62,23 @@ pub trait GcodeDialect: Send + Sync {
         lines
     }
 
+    /// Emit the metadata **footer** block for a finished slice.
+    ///
+    /// Rendered once at the very end of the program (after the end script), this
+    /// carries a PrusaSlicer/OrcaSlicer-compatible `; key = value` configuration
+    /// block plus the print statistics (filament usage, estimated time, layer
+    /// count). Printer front-ends — Moonraker (Mainsail / Fluidd) and OctoPrint —
+    /// scan the file *footer* for this exact format to populate filament type,
+    /// colour, layer height, object height, and filament usage; the
+    /// human-readable [`GcodeDialect::header`] block is not parsed by them.
+    ///
+    /// The default implementation is flavor-agnostic (the same block is parsed
+    /// identically regardless of firmware), so dialects rarely need to override
+    /// it.
+    fn footer(&self, params: &SlicingParams, stats: &SliceStatistics) -> Vec<String> {
+        stats::config_block_lines(params, stats)
+    }
+
     /// List of command identifiers not natively supported by this dialect.
     ///
     /// When [`crate::gcode::GcodeGenerator`] encounters a command in this list

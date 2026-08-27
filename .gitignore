@@ -18,6 +18,7 @@ node_modules/
 # Angular UI
 ui/dist/
 ui/.angular/
+.angular/
 
 # Tauri desktop
 ui-desktop/src-tauri/target

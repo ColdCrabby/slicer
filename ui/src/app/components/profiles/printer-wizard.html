@@ -81,6 +81,56 @@
                 }
               </dl>
 
+              @if (detectedKlipper()) {
+                <div class="wz-step">
+                  <p class="wz-detect__msg">
+                    <nexus-icon name="info-circle" />
+                    <span> Klipper detected. Do you run Klippain on this printer? </span>
+                  </p>
+
+                  <nexus-segmented
+                    [options]="klipperMacroOptions"
+                    [value]="klipperMacroChoice()"
+                    label="Klipper macro convention"
+                    (valueChange)="setKlipperMacroChoice($event)"
+                  />
+
+                  <p class="wz-detect__hint">
+                    Not sure? Klippain info is available on the project links below.
+                  </p>
+
+                  <div class="wz-detected__actions-end">
+                    <a
+                      nexusButton
+                      variant="ghost"
+                      size="sm"
+                      [href]="klippainRepoUrl"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                    >
+                      Klippain repo
+                    </a>
+                    <a
+                      nexusButton
+                      variant="ghost"
+                      size="sm"
+                      [href]="klippainReadmeUrl"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                    >
+                      Klippain README
+                    </a>
+                  </div>
+
+                  @if (needsKlipperFlavorChoice()) {
+                    <p class="wz-detect__msg wz-detect__msg--error">
+                      <nexus-icon name="warning-triangle" />
+                      <span>Choose Standard Klipper or Klippain before continuing.</span>
+                    </p>
+                  }
+                </div>
+              }
+
               @if (detectionMissing()) {
                 <p class="wz-detected__note">
                   <nexus-icon name="info-circle" />
@@ -102,13 +152,20 @@
                     variant="primary"
                     type="button"
                     (click)="continueFromDetection()"
+                    [disabled]="needsKlipperFlavorChoice()"
                   >
                     <span>Review &amp; add</span>
                     <nexus-icon name="arrow-right" />
                   </button>
                 } @else {
                   <div class="wz-detected__actions-end">
-                    <button nexusButton variant="ghost" type="button" (click)="finish()">
+                    <button
+                      nexusButton
+                      variant="ghost"
+                      type="button"
+                      (click)="finish()"
+                      [disabled]="needsKlipperFlavorChoice()"
+                    >
                       Just add
                     </button>
                     <button
@@ -116,6 +173,7 @@
                       variant="primary"
                       type="button"
                       (click)="finishAndConfigureGcode()"
+                      [disabled]="needsKlipperFlavorChoice()"
                     >
                       <span>Add &amp; check G-code</span>
                       <nexus-icon name="arrow-right" />
