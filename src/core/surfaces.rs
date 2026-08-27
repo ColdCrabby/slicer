@@ -1294,14 +1294,10 @@ pub fn generate_top_bottom_surfaces_with_interior(
     #[cfg(target_arch = "wasm32")]
     let snapshot_ns = 0u128;
 
-    // Per-layer **blocked** region for the solid top/bottom surface trim: the
-    // physical wall-bead footprint eroded by the bond distance, unioned with the
-    // un-eroded gap-fill footprint.  Subtracting it from the surface fill keeps
-    // the fill off the wall band while still welding `infill_overlap_percent × d`
-    // into the innermost wall (and merely abutting gap fill).  Built in parallel
-    // here — a chain of Clipper2 inflate/union calls per layer — so the serial
-    // apply pass only pays for the two cheap `difference` clips, not the whole
-    // footprint construction 240× single-threaded.
+    // `blocked_for_surface` builds a layer's **blocked** region for the solid
+    // top/bottom surface trim (see the gated parallel pass after detection for
+    // the full rationale and why it is now computed lazily).  Defined here as a
+    // closure so both that pass and the wasm fallback share it.
     let surface_bond = (config.infill_overlap_percent * nozzle_diameter_mm).max(0.0);
     let blocked_for_surface = |l: &SliceLayer| -> Paths {
         let wall_fp = compute_wall_bead_footprint(l, nozzle_diameter_mm);
@@ -1328,13 +1324,6 @@ pub fn generate_top_bottom_surfaces_with_interior(
             union(eroded, gap_fp, FillRule::NonZero).unwrap_or_default()
         }
     };
-    #[cfg(not(target_arch = "wasm32"))]
-    let surface_blocked: Vec<Paths> = {
-        use rayon::prelude::*;
-        layers.par_iter().map(blocked_for_surface).collect()
-    };
-    #[cfg(target_arch = "wasm32")]
-    let surface_blocked: Vec<Paths> = layers.iter().map(blocked_for_surface).collect();
 
     // Immutable view of the layers for the parallel detection pass so
     // `clip_to_void` can build a layer's wall-bead footprint on demand.  This
@@ -1822,6 +1811,46 @@ pub fn generate_top_bottom_surfaces_with_interior(
     let detection_ns = t_detect.elapsed().as_nanos();
     #[cfg(target_arch = "wasm32")]
     let detection_ns = 0u128;
+
+    // Per-layer **blocked** region for the solid top/bottom surface trim: the
+    // physical wall-bead footprint eroded by the bond distance, unioned with the
+    // un-eroded gap-fill footprint.  Subtracting it from the surface fill keeps
+    // the fill off the wall band while still welding `infill_overlap_percent × d`
+    // into the innermost wall (and merely abutting gap fill).
+    //
+    // Built here — *after* detection — and **only for layers that actually
+    // produced a surface region**.  `blocked_for_surface` is a chain of Clipper2
+    // inflate/union calls over every wall bead (the single most expensive
+    // per-layer artifact in the surface phase); computing it for all layers when
+    // only the top/bottom cap and transition layers carry a surface wasted the
+    // bulk of the phase.  A layer with no surface never reads its entry, so an
+    // empty placeholder there is output-identical.
+    #[cfg(not(target_arch = "wasm32"))]
+    let surface_blocked: Vec<Paths> = {
+        use rayon::prelude::*;
+        (0..total)
+            .into_par_iter()
+            .map(|i| {
+                let (_, bottom, top, _) = &regions[i];
+                if bottom.is_empty() && top.is_empty() {
+                    Paths::new(vec![])
+                } else {
+                    blocked_for_surface(&layers[i])
+                }
+            })
+            .collect()
+    };
+    #[cfg(target_arch = "wasm32")]
+    let surface_blocked: Vec<Paths> = (0..total)
+        .map(|i| {
+            let (_, bottom, top, _) = &regions[i];
+            if bottom.is_empty() && top.is_empty() {
+                Paths::new(vec![])
+            } else {
+                blocked_for_surface(&layers[i])
+            }
+        })
+        .collect();
 
     // ── Serial apply pass ─────────────────────────────────────────────────────
     for (i, (bridge_region, bottom_region, top_region, raw_unsupported)) in
