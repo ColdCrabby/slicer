@@ -1,0 +1,41 @@
+name: Quality
+
+# The slicing quality gate, split into its own workflow so it exposes an
+# independent status badge (separate from the unit-test run in
+# test-results.yml). The job name is unchanged ("Slicing quality gate"), so the
+# branch-protection required-status-check keyed off that name still resolves.
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main, develop]
+
+env:
+  CARGO_TERM_COLOR: always
+
+permissions:
+  contents: read
+
+jobs:
+  quality:
+    name: Slicing quality gate
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      # Slices the fixture corpus with both wall generators, measures the
+      # G-code, checks invariants, and diffs against the committed baselines.
+      # QA_REPORT=1 also captures per-stage geometry into target/qa/report.html.
+      # Baselines are pinned to this job's platform+profile (ubuntu, debug), so
+      # regenerate here — not on macOS — when a deliberate change moves them:
+      #   UPDATE_QA_BASELINES=1 QA_FULL=1 cargo test --test slicing_quality -- --ignored
+      - name: Run slicing quality gate
+        run: QA_REPORT=1 cargo test --test slicing_quality -- --ignored --nocapture
+      - name: Upload quality report
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: slicing-quality-report
+          path: target/qa/
+          if-no-files-found: warn
