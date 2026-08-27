@@ -18,6 +18,7 @@ import { AppTheme } from '../../services/app-theme';
 import { GcodePreview, ROLE_LABELS, scalarChannelFor } from '../../services/gcode-preview';
 import { ObjectTracker } from '../../services/object-tracker';
 import { PrintArea } from '../../services/print-area';
+import { ActiveSelection } from '../../services/profiles/active-selection';
 import { SceneCommand } from '../../services/scene-command/scene-command';
 import { SceneEngine } from '../../services/scene-engine';
 import { ViewerControl } from '../../services/viewer-control';
@@ -90,6 +91,7 @@ export class Viewer {
   private readonly sceneEngine = inject(SceneEngine);
   private readonly sceneCommand = inject(SceneCommand);
   private readonly gcodePreview = inject(GcodePreview);
+  private readonly activeSelection = inject(ActiveSelection);
   private readonly appTheme = inject(AppTheme);
   private readonly destroyRef = inject(DestroyRef);
 
@@ -271,7 +273,11 @@ export class Viewer {
     effect(() => {
       const isDark = this.appTheme.isDarkMode();
       this.scene?.setTheme(isDark);
-      const color = modelColor(isDark);
+      const color = resolveModelColor(
+        isDark,
+        this.viewerControl.useFilamentColor(),
+        this.activeSelection.filament()?.color,
+      );
       for (const mesh of this.wasmMeshes.values()) {
         (mesh.material as MeshPhongMaterial).color.setHex(color);
       }
@@ -758,7 +764,7 @@ export class Viewer {
       geometry.computeBoundingBox();
       geometry.computeBoundingSphere();
       const material = new MeshPhongMaterial({
-        color: modelColor(this.appTheme.isDarkMode()),
+        color: this.currentModelColor(),
         flatShading: true,
         shininess: 16,
       });
@@ -826,7 +832,7 @@ export class Viewer {
     geometry.computeBoundingBox();
     geometry.computeBoundingSphere();
     const material = new MeshPhongMaterial({
-      color: modelColor(this.appTheme.isDarkMode()),
+      color: this.currentModelColor(),
       flatShading: true,
       shininess: 16,
     });
@@ -909,6 +915,14 @@ export class Viewer {
       this.currentAbort = null;
     }
   }
+
+  private currentModelColor(): number {
+    return resolveModelColor(
+      this.appTheme.isDarkMode(),
+      this.viewerControl.useFilamentColor(),
+      this.activeSelection.filament()?.color,
+    );
+  }
 }
 
 function messageOf(error: unknown): string {
@@ -966,4 +980,31 @@ function parseWasmId(stringId: string): bigint | null {
   } catch {
     return null;
   }
+}
+
+function resolveModelColor(
+  isDark: boolean,
+  useFilamentColor: boolean,
+  filamentColor: string | null | undefined,
+): number {
+  if (!useFilamentColor) {
+    return modelColor(isDark);
+  }
+  const parsed = parseHexColor(filamentColor);
+  return parsed ?? modelColor(isDark);
+}
+
+function parseHexColor(raw: string | null | undefined): number | null {
+  if (!raw) {
+    return null;
+  }
+  const trimmed = raw.trim();
+  const match = /^#([0-9a-f]{3}|[0-9a-f]{6})$/i.exec(trimmed);
+  if (!match) {
+    return null;
+  }
+  const hex = match[1];
+  const normalized =
+    hex.length === 3 ? `${hex[0]}${hex[0]}${hex[1]}${hex[1]}${hex[2]}${hex[2]}` : hex.toLowerCase();
+  return Number.parseInt(normalized, 16);
 }
