@@ -190,7 +190,7 @@ export class KeyboardShortcuts {
       return 'unset';
     }
     const isApplePlatform = this.isApplePlatform();
-    return config.shortcut.replace(/\$mod/g, isApplePlatform ? '⌘' : 'Ctrl').replace(/\+/g, '+');
+    return config.shortcut.replace(/\$mod/g, isApplePlatform ? '⌘' : 'Ctrl');
   }
 
   /** Returns all registered shortcuts as plain data for display in a panel. */
