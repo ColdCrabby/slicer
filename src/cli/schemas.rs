@@ -167,6 +167,21 @@ pub fn all_schemas() -> Vec<SchemaDefinition> {
             schema: serde_json::to_value(schemars::schema_for!(ServerMessage))
                 .expect("failed to serialize ServerMessage"),
         },
+        SchemaDefinition {
+            schema_id: "slicer-engine/filament-profile-v1",
+            schema: serde_json::to_value(schemars::schema_for!(crate::profiles::FilamentProfile))
+                .expect("failed to serialize FilamentProfile"),
+        },
+        SchemaDefinition {
+            schema_id: "slicer-engine/process-profile-v1",
+            schema: serde_json::to_value(schemars::schema_for!(crate::profiles::ProcessProfile))
+                .expect("failed to serialize ProcessProfile"),
+        },
+        SchemaDefinition {
+            schema_id: "slicer-engine/printer-profile-v1",
+            schema: serde_json::to_value(schemars::schema_for!(crate::profiles::PrinterProfile))
+                .expect("failed to serialize PrinterProfile"),
+        },
     ]
 }
 
@@ -177,7 +192,7 @@ mod tests {
     #[test]
     fn test_all_schemas_generates_definitions() {
         let schemas = all_schemas();
-        assert_eq!(schemas.len(), 12);
+        assert_eq!(schemas.len(), 15);
     }
 
     #[test]

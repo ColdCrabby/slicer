@@ -20,13 +20,19 @@
 use std::path::Path;
 use std::time::Duration;
 
+use serde::Serialize;
+
 use crate::profiles::printer::{BedShape, PrinterConnection, PrinterConnectionKind};
 
 /// How long to wait for a printer to answer before declaring it offline.
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(5);
 
 /// A point-in-time snapshot of a printer's reachability and job state.
-#[derive(Debug, Clone, Default)]
+///
+/// Serializes to the same field shape as the WS `PrinterStatus` payload (minus
+/// the `printer_id` envelope) so the native Tauri `printer_check` command and
+/// the cloud WebSocket probe hand the UI an identical object.
+#[derive(Debug, Clone, Default, Serialize)]
 pub struct PrinterStatusReport {
     /// The host answered a status query.
     pub online: bool,
@@ -51,7 +57,7 @@ impl PrinterStatusReport {
 }
 
 /// Outcome of an upload/print request.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize)]
 pub struct SendOutcome {
     /// Human-readable summary for the UI.
     pub message: String,
@@ -65,7 +71,11 @@ pub struct SendOutcome {
 /// gracefully. A `reachable: false` result still carries a `message` explaining
 /// why. When `kind` is identified but hardware fields are absent (OctoPrint /
 /// PrusaLink), the wizard can still pre-select the transport and host.
-#[derive(Debug, Clone, Default)]
+///
+/// Serializes to the same field shape as the WS `PrinterDetected` payload
+/// (minus the `host` envelope) so the native Tauri `printer_detect` command and
+/// the cloud WebSocket probe hand the UI an identical object.
+#[derive(Debug, Clone, Default, Serialize)]
 pub struct PrinterDetection {
     /// The host answered at least one probe.
     pub reachable: bool,

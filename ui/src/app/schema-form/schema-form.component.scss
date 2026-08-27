@@ -230,6 +230,18 @@
   --icon-size: 16px;
 }
 
+// Neutral "double-check this section" hint on a group that contains an active
+// field notice. Deliberately colour-neutral (not the notice's tone) and held at
+// tertiary even when the header is accented/expanded — it's a calm cue to look,
+// not an alarm; the tone-coloured detail lives on the field notice inside.
+.schema-form-group-notice-hint {
+  display: inline-grid;
+  place-items: center;
+  flex-shrink: 0;
+  color: var(--color-text-tertiary);
+  --icon-size: 15px;
+}
+
 .schema-form-group-chevron {
   flex-shrink: 0;
   color: currentColor;

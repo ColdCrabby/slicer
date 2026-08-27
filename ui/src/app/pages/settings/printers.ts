@@ -397,7 +397,11 @@ export class PrintersSettings {
   protected readonly pnum = paramNum;
   protected readonly pstr = paramStr;
 
-  /** Slice-parameter groups (Hardware, Retraction) rendered from the schema. */
+  /**
+   * Slice-parameter groups (Hardware, Retraction) rendered from the schema.
+   * Every field is always shown — the profile editor authors presets, so it
+   * never hides gated-off fields (unlike the live slice sidebar).
+   */
   protected readonly paramGroups = PARAM_GROUPS;
 
   protected update(id: string, patch: Partial<PrinterProfile>): void {

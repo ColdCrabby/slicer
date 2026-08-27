@@ -133,6 +133,58 @@ Tag with a suffix — `v0.2.0-rc.1` — and the workflow marks the GitHub Releas
 a pre-release. Add a matching `## [0.2.0-rc.1]` section to `CHANGELOG.md` (or the
 notes fall back to auto-generated).
 
+## Canary builds
+
+Stable releases are tag-driven and deliberate (above). For quick access to the
+bleeding edge, [`.github/workflows/canary.yml`](.github/workflows/canary.yml)
+fires on **every push to `main`** (i.e. every merge) and refreshes a single
+rolling **`canary`** GitHub **pre-release** with fresh Windows and macOS desktop
+bundles.
+
+- **Not a real release.** The version is a throwaway pre-release string
+  (`X.Y.Z-canary.<run>+<sha>`), so builds still report as unofficial and the UI
+  never nags a "What's New" dialog for them.
+- **No changelog needed.** The notes are just the commit range since the last
+  `v*` tag — no `CHANGELOG.md` curation is involved.
+- **Always the tip of `main`.** The rolling `canary` tag and its assets are
+  overwritten on each push, so the Releases tab always offers the latest build.
+
+To publish a *stable*, versioned release, follow the tag-driven flow above.
+
+## macOS bundles & code signing
+
+Both desktop workflows build a **universal** macOS binary
+(`universal-apple-darwin`), so a single `.dmg` runs on Intel *and* Apple Silicon.
+
+By default the app is only **ad-hoc signed** (`APPLE_SIGNING_IDENTITY=-`). That
+is enough to launch it, but because it is not notarized, macOS attaches a
+quarantine flag to the downloaded bundle and Gatekeeper reports the app as
+**"damaged and can't be opened"**. Clearing the flag once fixes it:
+
+```bash
+xattr -cr "/Applications/Slicer Engine Desktop.app"
+```
+
+The canary and release notes already spell this out for users.
+
+### Shipping notarized builds
+
+To give users a clean double-click experience (no `xattr` dance), add these repo
+**secrets** — both workflows detect them automatically and switch from ad-hoc
+signing to real Developer ID signing + notarization:
+
+| Secret                       | What it is                                          |
+| ---------------------------- | --------------------------------------------------- |
+| `APPLE_SIGNING_IDENTITY`     | e.g. `Developer ID Application: Your Name (TEAMID)` |
+| `APPLE_CERTIFICATE`          | base64 of the exported `.p12`                       |
+| `APPLE_CERTIFICATE_PASSWORD` | password for that `.p12`                            |
+| `APPLE_ID`                   | your Apple ID email                                 |
+| `APPLE_PASSWORD`             | an app-specific password for notarization           |
+| `APPLE_TEAM_ID`              | your 10-character Apple Team ID                      |
+
+This requires a paid Apple Developer account. Until those are set, the ad-hoc +
+`xattr` path above is the supported way to run the desktop app.
+
 ## See also
 
 - [`release` skill](.github/skills/release/SKILL.md) — automates this process locally.

@@ -347,6 +347,11 @@ export class FilamentsSettings {
   }
 
   protected readonly pnum = paramNum;
+  /**
+   * Filament-parameter sections rendered in the editor. Every field is always
+   * shown — the profile editor is where presets are authored, so it never
+   * hides gated-off fields (unlike the live slice sidebar).
+   */
   protected readonly paramGroups = PARAM_GROUPS;
 
   protected update(id: string, patch: Partial<FilamentProfile>): void {

@@ -223,7 +223,7 @@ Two things to note:
 | Slice                         | [`slice_mesh`](slicer.rs)                                                     | `Mesh`                                      | `paths` (OuterWall)                          |
 | Arachne walls                 | [`arachne::generate_arachne_walls`](../arachne/mod.rs)                        | `paths`                                     | `paths`, `path_roles`, `path_widths`         |
 | Infill snapshot               | [`infill::calculate_interior_region`](infill.rs)                              | `paths` (all walls)                         | `pre_strip_infill_regions` local             |
-| Single-wall strip             | [`walls::apply_single_wall_restrictions`](walls.rs)                           | `paths`, `path_roles`                       | `paths`, `path_roles` (some islands shorter) |
+| Single-wall strip             | [`walls::apply_single_wall_restrictions`](walls.rs)                           | `paths`, `path_roles`                       | `paths`, `path_roles` (inner walls + first-layer gap fill removed) |
 | Interior regions for surfaces | [`infill::calculate_interior_region`](infill.rs)                              | `paths` (post-strip)                        | `interior_regions` local                     |
 | Top / bottom surfaces         | [`surfaces::generate_top_bottom_surfaces_with_interior`](surfaces.rs)         | `paths`, `interior_regions`                 | `paths`, `path_roles`, `solid_regions`       |
 | Overhang classification       | [`walls::classify_overhang_perimeters`](walls.rs)                             | `paths`, `unsupported_regions`              | `path_roles` (some `OverhangPerimeter`)      |
@@ -266,7 +266,8 @@ The three most expensive pipeline phases all parallelise across layers via
 
 | Phase                     | Strategy                               | Notes                                                                                  |
 | ------------------------- | -------------------------------------- | -------------------------------------------------------------------------------------- |
-| `perimeter_snapshot`      | `par_iter().unzip()` across all layers | Both `perimeter_paths_of` and `compute_wall_bead_footprint` run concurrently per layer |
+| `perimeter_snapshot`      | `par_iter().map` across all layers     | `perimeter_paths_of` runs concurrently per layer                                       |
+| `surface_blocked`         | `into_par_iter().map` **gated**        | Wall-bead footprint built only for layers that produced a top/bottom surface region    |
 | `surfaces` detection      | `into_par_iter().map(detect_region)`   | Each layer's bridge/top/bottom regions are independent                                 |
 | `overhang_classification` | `par_iter().map(process_layer)`        | Each layer's densification + boundary tests are independent                            |
 
@@ -283,6 +284,16 @@ Measured on a 3DBenchy at 0.2 mm layer height (240 layers), 8-core host:
 `inflate+union` _per wall path_ (quadratic accumulation) to one batched
 `inflate` _per `(is_open, radius)` bucket_, typically reducing it to 1–2
 Clipper2 calls per layer regardless of wall count.
+
+Even batched, the wall-bead footprint is the single most expensive per-layer
+artifact of the surface phase, so `surface_blocked` (the eroded-footprint ∪
+gap-fill region the serial apply pass subtracts from the solid fill) is built
+**only for layers that actually produced a top/bottom surface region**. The
+gate runs after the detection pass, when each layer's `(bottom, top)` regions
+are known; a layer with no surface never reads its `surface_blocked` entry, so
+the empty placeholder left there is output-identical while skipping the
+footprint construction for the majority of mid-model layers. On a 3DBenchy this
+roughly halves the surface phase.
 
 ### WASM (`wasm32-unknown-unknown`)
 

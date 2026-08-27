@@ -12,6 +12,8 @@
 //! - User-friendly CLI layer for command-line usage
 
 #[cfg(any(not(target_arch = "wasm32"), feature = "web-slicer"))]
+pub mod adhesion;
+#[cfg(any(not(target_arch = "wasm32"), feature = "web-slicer"))]
 pub mod core;
 #[cfg(any(not(target_arch = "wasm32"), feature = "web-slicer"))]
 pub mod flow;

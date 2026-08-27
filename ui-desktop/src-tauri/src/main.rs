@@ -38,6 +38,9 @@ fn main() {
             commands::get_system_accent,
             commands::profiles_load,
             commands::profiles_save_category,
+            commands::printer_check,
+            commands::printer_detect,
+            commands::printer_send,
         ])
         .run(tauri::generate_context!())
         .expect("failed to run desktop runtime");

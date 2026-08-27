@@ -276,14 +276,30 @@ user-facing version number.
 
 [src/printer/](src/printer/) is the **native-only** (`cfg(not(target_arch = "wasm32"))`)
 outbound transport to real printers. Today it implements **Moonraker/Klipper**
-(`check_status`, `send_gcode`) over `reqwest`.
+(`check_status`, `detect_printer`, `send_gcode`) over `reqwest`. It is reached by
+**both** native runtimes over the OS network line — never the browser:
 
-- **Prefer slicer → printer, not browser → printer.** Probes and uploads run
-  server-side (WS `CheckPrinter` / `SendToPrinter` → `PrinterStatus` /
-  `PrinterSendResult`) precisely so they are **not subject to CORS** — Moonraker
+- **Cloud** `serve` WebSocket: `CheckPrinter` / `DetectPrinter` / `SendToPrinter`.
+- **Desktop** Tauri commands: `printer_check` / `printer_detect` / `printer_send`
+  ([ui-desktop/src-tauri/src/commands.rs](ui-desktop/src-tauri/src/commands.rs)),
+  which call the same `crate::printer` functions in-process. Their result types
+  (`PrinterStatusReport`, `PrinterDetection`, `SendOutcome`) are `Serialize`d to
+  the **same field shape** as the WS `PrinterStatus` / `PrinterDetected` /
+  `PrinterSendResult` payloads (minus the envelope), so the UI reuses one set of
+  `fromServer*` mappers for both transports.
+
+- **Prefer slicer → printer, not browser → printer.** Probes and uploads run in
+  the native process precisely so they are **not subject to CORS** — Moonraker
   ships no permissive `Access-Control-*` headers, so a direct browser `fetch`
-  fails for most users. The wasm/`web` build has no native transport and falls
-  back to a browser `fetch`; the UI ([printer-connection.ts](ui/src/app/services/printer-connection.ts))
+  fails for most users. Only the pure wasm/`web` build has no native transport
+  and falls back to a browser `fetch`; the UI
+  ([printer-connection.ts](ui/src/app/services/printer-connection.ts)) picks the
+  transport at runtime — cloud WS when connected, Tauri commands when
+  `isTauriHost()`, browser `fetch` only in `web`. **Do not gate on
+  `environment.runtimeMode` alone**: the desktop build ships the `cloud`
+  environment and only becomes native by detecting Tauri at runtime, so a
+  build-time constant would send the desktop app down the CORS-prone browser
+  path (the bug this contract exists to prevent). The web fallback still
   distinguishes *unreachable* from *reachable-but-CORS-blocked* (via a `no-cors`
   follow-up probe) and surfaces a distinct `cors` status instead of a misleading
   green/offline dot.
@@ -405,11 +421,16 @@ apply_single_wall_restrictions()     — strips inner walls from first/last laye
 interior_regions computed            — per-layer interior (for surfaces), post-strip
 generate_top_bottom_surfaces_with_interior()  — top/bottom solid infill within interior
 add_infill_to_layers()               — sparse infill using pre-strip regions minus solid regions
+path ordering + flow compensation    — greedy-TSP per role group, then wall-overlap flow scaling
+apply_adhesion()                     — skirt/brim prepended to first layer(s); raft prepends layers + Z-shifts object (src/adhesion/)
 ```
 
 Order matters critically. Surfaces are computed **after** Arachne walls so that
 `calculate_interior_region` sees the correct bead geometry. Infill is computed
-**after** surfaces so it can subtract `solid_regions`.
+**after** surfaces so it can subtract `solid_regions`. **Bed adhesion runs dead
+last**, after ordering and flow compensation, so its loops are appended cleanly
+and the object's own toolpaths are provably unperturbed — see
+[src/adhesion/README.md](src/adhesion/README.md).
 
 **`pre_strip_infill_regions` must be computed before `apply_single_wall_restrictions`.**
 `apply_single_wall_restrictions` now operates **per island**: an outer-wall path P at
@@ -585,12 +606,29 @@ inside the walls, are rounded). Key points:
 - **The absolute base cap (`i < bottom_layers`) is exempt** for bottom surfaces:
   it is the bed-contact region and must stay fully solid for adhesion, so it
   clips to the _full_ interior. Tapering artifacts only occur mid-model.
-- **Bridges are exempt** (they explicitly fill wall-band voids) — the opening is
-  applied only to the supported top/bottom solid surface, never to
-  `bridge_region` / `clip_to_void`.
+- **Bridges get the same opened-interior clip** (in `clip_to_void`, step A —
+  `intersect(candidate, open_interior_for_surface(interior_regions[i]))`). The
+  identical per-island-average under-deflation that spawns phantom _surfaces_
+  in a thin channel also fires a phantom **bridge** there: on the Benchy
+  hull-side deck edge and sloped cabin front (Arachne layers ≈ 159–172) the
+  wall leans past ~45°, a thin unsupported strip survives the d/2 support
+  envelope, and — because Arachne's average leaves a non-empty sliver interior
+  — the old raw-interior clip let a bridge fire and lay sparse lines straight
+  over the wall + gap-fill beads that already fill the channel (measured
+  `Gap infill × Bridge` and `Inner wall × Bridge` double-extrusion, absent from
+  `classic`). Opening the interior erases the sub-1 mm channel so the phantom
+  bridge vanishes and the strip stays solid via its walls + gap fill, while a
+  **genuine** bridge over a _wide_ void (cabin roof, porthole / window / door-
+  header closure) sits on a _thick_ interior and keeps its full extent. The
+  wall-bead-footprint subtraction (step B) is unchanged. Bridges remain exempt
+  from any clip that would reshape `interior_regions` itself — only the bridge
+  _candidate_ is clipped, never `bridge_region` detection input, so bridge
+  classification is untouched.
 - Verified against `classic` with [tools/gcode-analysis/](tools/gcode-analysis/README.md):
   the removed strips open no new wall-zone void (`voids.py`) and cross-role
-  double-extrusion drops (`overlap.py`).
+  double-extrusion drops (`overlap.py`). After the bridge clip, every
+  `… × Bridge` overlap pair on the Benchy matches `classic` to within noise
+  (`Gap infill × Bridge` 8.6 → 0, `Inner wall × Bridge` 8.3 → 0.16 = classic).
 
 ### `generate_rectilinear_infill` — Scanline Even-Odd Fill
 

@@ -194,6 +194,7 @@ pub fn process_mesh(
                 layer_height: params.layer_height,
                 infill_angle: params.surface_infill_angle,
                 nozzle_diameter_mm: params.nozzle_diameter_mm,
+                solid_surface_line_width_mm: crate::core::solid_surface_nominal_width_mm(params),
                 min_infill_extrusion_mm: params.min_infill_extrusion_mm,
                 bridge_flow_ratio: params.bridge_flow_ratio,
                 bridge_min_area_mm2: params.bridge_min_area_mm2,
@@ -446,6 +447,20 @@ pub fn process_mesh(
     crate::flow::compensate(&mut layers, params);
     t_flow.finish();
 
+    // Bed-adhesion helpers (skirt / brim / raft).  Runs after the object's own
+    // toolpaths are fully ordered and flow-compensated so it never perturbs
+    // them: skirt/brim loops are prepended to the first layer(s); raft prepends
+    // sacrificial layers and shifts the object up.
+    if params.adhesion_type != crate::settings::params::AdhesionType::None {
+        let t_adhesion = PhaseTimer::start("Bed Adhesion", logger);
+        logger.log_debug(&format!(
+            "generating bed adhesion ({:?})",
+            params.adhesion_type
+        ));
+        crate::adhesion::apply_adhesion(&mut layers, params);
+        t_adhesion.finish();
+    }
+
     layers
 }
 
@@ -561,6 +576,7 @@ pub fn process_mesh_debug(
                 layer_height: params.layer_height,
                 infill_angle: params.surface_infill_angle,
                 nozzle_diameter_mm: params.nozzle_diameter_mm,
+                solid_surface_line_width_mm: crate::core::solid_surface_nominal_width_mm(params),
                 min_infill_extrusion_mm: params.min_infill_extrusion_mm,
                 bridge_flow_ratio: params.bridge_flow_ratio,
                 bridge_min_area_mm2: params.bridge_min_area_mm2,

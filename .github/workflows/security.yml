@@ -5,12 +5,14 @@ name: Security
 # Enforcing gates (fail the check):
 #   * dependency-review  — blocks PRs that ADD a vulnerable/badly-licensed dep
 #   * codeql             — static analysis of the TypeScript/JS front-end
-#   * gitleaks           — hard-coded secret detection
 #
 # Report-first (run + surface findings, but do NOT block merges yet — flip by
 # removing `continue-on-error`):
 #   * cargo-audit / cargo-deny advisories+licenses — RustSec feed is volatile
 #   * pnpm-audit                                    — npm advisory feed
+#
+# NOTE: gitleaks was removed — gitleaks-action requires a paid GITLEAKS_LICENSE
+# for use in GitHub organizations, which this repo doesn't have.
 #
 # NOTE: `dependency-review` and `codeql` require a public repo OR GitHub
 # Advanced Security. If this repo is private without GHAS, those two jobs will
@@ -44,8 +46,8 @@ jobs:
       contents: read
       pull-requests: write
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/dependency-review-action@v4
+      - uses: actions/checkout@v7
+      - uses: actions/dependency-review-action@v5
         with:
           fail-on-severity: high
           comment-summary-in-pr: on-failure
@@ -59,7 +61,7 @@ jobs:
       security-events: write
       actions: read
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: github/codeql-action/init@v3
         with:
           languages: javascript-typescript
@@ -67,26 +69,12 @@ jobs:
         with:
           category: "/language:javascript-typescript"
 
-  # ── Hard-coded secret detection across history / PR commits ─────────────────
-  gitleaks:
-    name: Secret scan (gitleaks)
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-      - uses: gitleaks/gitleaks-action@v2
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          # Personal/public repos are free. For GitHub *organizations*, add:
-          # GITLEAKS_LICENSE: ${{ secrets.GITLEAKS_LICENSE }}
-
   # ── RustSec advisory + policy scan (Cargo.lock is gitignored → generate it) ─
   cargo-audit:
     name: cargo-audit (RustSec)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
       - uses: taiki-e/install-action@v2
         with:
@@ -101,7 +89,7 @@ jobs:
     name: cargo-deny (bans/licenses/sources)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
       - uses: taiki-e/install-action@v2
         with:
@@ -121,9 +109,9 @@ jobs:
     name: pnpm audit (npm deps)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: pnpm/action-setup@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v7
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v7
         with:
           node-version: 22
           cache: pnpm

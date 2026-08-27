@@ -1,0 +1,52 @@
+// Compact inline callout. Tone drives a single --notice-tone custom property
+// that the base rule mixes into the surface, border, and icon colour — so each
+// severity is one line, not a repeated block.
+:host {
+  --notice-tone: var(--color-secondary);
+
+  display: flex;
+  gap: var(--spacing-sm);
+  align-items: flex-start;
+  padding: var(--spacing-sm) var(--spacing-md);
+  border: 1px solid color-mix(in oklab, var(--notice-tone) 28%, transparent);
+  border-radius: var(--radius-md);
+  background: color-mix(in oklab, var(--notice-tone) 8%, var(--color-surface));
+  color: var(--color-text-secondary);
+}
+
+:host(.inline-notice--info) {
+  --notice-tone: var(--color-secondary);
+}
+
+:host(.inline-notice--warning) {
+  --notice-tone: var(--color-warning);
+}
+
+:host(.inline-notice--danger) {
+  --notice-tone: var(--color-danger);
+}
+
+.inline-notice-icon {
+  flex: none;
+  margin-top: 1px;
+  --icon-size: 15px;
+  color: var(--notice-tone);
+}
+
+.inline-notice-body {
+  min-width: 0;
+}
+
+.inline-notice-title {
+  margin: 0 0 2px;
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-semibold);
+  color: var(--color-text-primary);
+}
+
+.inline-notice-text {
+  margin: 0;
+  font-size: var(--font-size-xs);
+  line-height: 1.5;
+  color: var(--color-text-tertiary);
+}

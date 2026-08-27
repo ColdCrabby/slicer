@@ -20,8 +20,10 @@ import { KeyboardShortcuts } from '../services/keyboard-shortcuts/keyboard-short
 import { Icon } from '../shared/icon/icon';
 import { UserInputModality } from '../shared/input-modality/input-modality';
 import { FieldHost } from './field-host/field-host';
+import { noticeForField } from './field-exceptions/field-exceptions';
 import { FieldDef, SchemaGroup } from './models/field-def';
 import { parseSchema } from './models/schema-parser';
+import { filterRelevantGroups } from './models/relevance';
 
 export interface FieldChangeEvent {
   key: string;
@@ -165,9 +167,22 @@ export class SchemaForm {
   /** Every group parsed from the schema, unaffected by the visible filter. */
   private readonly allGroups = computed<SchemaGroup[]>(() => parseSchema(this.schema()).groups);
 
+  /**
+   * Every group with only the fields that are currently relevant given the
+   * live {@link value}. Groups that lose all their fields are dropped.
+   *
+   * Reactivity: this reads `this.value()`, so toggling a gate field (e.g.
+   * flipping `support_enabled` or changing `adhesion_type`) re-evaluates the
+   * computed and makes gated fields appear/disappear live. Hidden fields keep
+   * their stored values — relevance only affects rendering, never the data.
+   */
+  private readonly relevantGroups = computed<SchemaGroup[]>(() =>
+    filterRelevantGroups(this.allGroups(), this.value()),
+  );
+
   /** Groups actually rendered in the accordion, honouring `visibleGroups`. */
   protected readonly groups = computed<SchemaGroup[]>(() => {
-    const all = this.allGroups();
+    const all = this.relevantGroups();
     const visible = this.visibleGroups();
     if (!visible) {
       return all;
@@ -178,10 +193,32 @@ export class SchemaForm {
       .sort((a, b) => order.get(a.name)! - order.get(b.name)!);
   });
 
-  /** All fields flattened with their group name, used to build the Fuse index. */
+  /**
+   * All currently-relevant fields flattened with their group name, used to
+   * build the Fuse index. Hidden (gated-off) fields are excluded so they do
+   * not surface in search results while their gate condition is unmet.
+   */
   private readonly flatFields = computed<FieldDefIndexed[]>(() =>
-    this.allGroups().flatMap((g) => g.fields.map((f) => ({ ...f, groupName: g.name }))),
+    this.relevantGroups().flatMap((g) => g.fields.map((f) => ({ ...f, groupName: g.name }))),
   );
+
+  /**
+   * Names of groups that currently contain at least one field with an active
+   * {@link noticeForField} exception (given the live values). Drives the neutral
+   * "double-check this section" hint on the accordion header, so a collapsed
+   * group still advertises that something inside wants a second look.
+   * Only relevant (visible) fields are considered.
+   */
+  protected readonly groupsWithNotice = computed<ReadonlySet<string>>(() => {
+    const values = this.value();
+    const names = new Set<string>();
+    for (const group of this.relevantGroups()) {
+      if (group.fields.some((f) => noticeForField(f, values[f.key]) !== null)) {
+        names.add(group.name);
+      }
+    }
+    return names;
+  });
 
   /**
    * Ranked search results when the user has typed a query.
