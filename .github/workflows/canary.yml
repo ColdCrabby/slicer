@@ -62,10 +62,10 @@ jobs:
             echo "> 🍎 **macOS:** this build is unsigned (no paid Apple"
             echo "> Developer ID), so Gatekeeper marks the downloaded app as"
             echo "> \"damaged\" — **right-click → Open will not clear this**. Drag"
-            echo "> **Slicer Engine Desktop** to Applications, then run this once"
+            echo "> **Cold Crabby Desktop** to Applications, then run this once"
             echo "> in Terminal to strip the quarantine flag and launch it:"
             echo ">"
-            echo "> \`xattr -cr \"/Applications/Slicer Engine Desktop.app\"\`"
+            echo "> \`xattr -cr \"/Applications/Cold Crabby Desktop.app\"\`"
             echo ""
             git log --no-merges --format='- %s (%h)' ${range} | head -n 50
           } >> NOTES.md
@@ -208,7 +208,7 @@ jobs:
           # so fail loudly here rather than shipping an unlaunchable bundle.
           # Note: `spctl` is intentionally NOT used — it always rejects an
           # un-notarized app and would give a false failure.
-          app="ui-desktop/src-tauri/target/universal-apple-darwin/release/bundle/macos/Slicer Engine Desktop.app"
+          app="ui-desktop/src-tauri/target/universal-apple-darwin/release/bundle/macos/Cold Crabby Desktop.app"
           codesign --verify --deep --strict --verbose=2 "$app"
           codesign -dvv "$app" 2>&1 | sed -n '1,8p'
 

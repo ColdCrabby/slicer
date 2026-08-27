@@ -16,7 +16,7 @@ use commands::{
     SliceCommand,
 };
 
-/// Slicer Engine CLI
+/// Cold Crabby CLI
 #[derive(Parser, Debug)]
 #[command(name = "slicer-engine")]
 #[command(version = crate::version::VERSION)]
