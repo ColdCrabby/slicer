@@ -1,6 +1,6 @@
 <div align="center">
 
-<img src="ui/public/logo_still@2x.png" alt="Cold Crabby mascot - a crab hugging an ice cube" width="200" />
+<img src="ui/public/logo_hero.png" alt="Cold Crabby mascot - a crab hugging an ice cube" width="200" />
 
 # Cold Crabby
 
@@ -10,7 +10,6 @@ The web version runs fully in the browser, so you can slice on an iPad or any de
 
 🌐 **[Try the online slicer](https://slicer.maxscopp.de/)** → no install, no account.
 
-[![Multi-Platform Build](https://github.com/ColdCrabby/slicer/actions/workflows/build.yml/badge.svg)](https://github.com/ColdCrabby/slicer/actions/workflows/build.yml)
 [![Frontend CI](https://github.com/ColdCrabby/slicer/actions/workflows/ui-ci.yml/badge.svg)](https://github.com/ColdCrabby/slicer/actions/workflows/ui-ci.yml)
 [![Security](https://github.com/ColdCrabby/slicer/actions/workflows/security.yml/badge.svg)](https://github.com/ColdCrabby/slicer/actions/workflows/security.yml)
 [![SLOC](https://img.shields.io/endpoint?url=https%3A%2F%2Fraw.githubusercontent.com%2FColdCrabby%2Fslicer%2Fmain%2F.github%2Fbadges%2Fsloc.json)](https://github.com/ColdCrabby/slicer/actions/workflows/sloc.yml)
