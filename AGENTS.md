@@ -276,14 +276,30 @@ user-facing version number.
 
 [src/printer/](src/printer/) is the **native-only** (`cfg(not(target_arch = "wasm32"))`)
 outbound transport to real printers. Today it implements **Moonraker/Klipper**
-(`check_status`, `send_gcode`) over `reqwest`.
+(`check_status`, `detect_printer`, `send_gcode`) over `reqwest`. It is reached by
+**both** native runtimes over the OS network line — never the browser:
 
-- **Prefer slicer → printer, not browser → printer.** Probes and uploads run
-  server-side (WS `CheckPrinter` / `SendToPrinter` → `PrinterStatus` /
-  `PrinterSendResult`) precisely so they are **not subject to CORS** — Moonraker
+- **Cloud** `serve` WebSocket: `CheckPrinter` / `DetectPrinter` / `SendToPrinter`.
+- **Desktop** Tauri commands: `printer_check` / `printer_detect` / `printer_send`
+  ([ui-desktop/src-tauri/src/commands.rs](ui-desktop/src-tauri/src/commands.rs)),
+  which call the same `crate::printer` functions in-process. Their result types
+  (`PrinterStatusReport`, `PrinterDetection`, `SendOutcome`) are `Serialize`d to
+  the **same field shape** as the WS `PrinterStatus` / `PrinterDetected` /
+  `PrinterSendResult` payloads (minus the envelope), so the UI reuses one set of
+  `fromServer*` mappers for both transports.
+
+- **Prefer slicer → printer, not browser → printer.** Probes and uploads run in
+  the native process precisely so they are **not subject to CORS** — Moonraker
   ships no permissive `Access-Control-*` headers, so a direct browser `fetch`
-  fails for most users. The wasm/`web` build has no native transport and falls
-  back to a browser `fetch`; the UI ([printer-connection.ts](ui/src/app/services/printer-connection.ts))
+  fails for most users. Only the pure wasm/`web` build has no native transport
+  and falls back to a browser `fetch`; the UI
+  ([printer-connection.ts](ui/src/app/services/printer-connection.ts)) picks the
+  transport at runtime — cloud WS when connected, Tauri commands when
+  `isTauriHost()`, browser `fetch` only in `web`. **Do not gate on
+  `environment.runtimeMode` alone**: the desktop build ships the `cloud`
+  environment and only becomes native by detecting Tauri at runtime, so a
+  build-time constant would send the desktop app down the CORS-prone browser
+  path (the bug this contract exists to prevent). The web fallback still
   distinguishes *unreachable* from *reachable-but-CORS-blocked* (via a `no-cors`
   follow-up probe) and surfaces a distinct `cors` status instead of a misleading
   green/offline dot.
