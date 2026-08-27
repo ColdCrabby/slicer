@@ -1,6 +1,6 @@
 <div align="center">
 
-<img src="ui/public/logo_hero.png" alt="Cold Crabby mascot - a crab hugging an ice cube" width="200" />
+<img src="https://raw.githubusercontent.com/ColdCrabby/slicer/main/ui/public/logo_hero.png" alt="Cold Crabby mascot - a crab hugging an ice cube" width="200" />
 
 # Cold Crabby
 
