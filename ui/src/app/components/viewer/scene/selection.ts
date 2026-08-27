@@ -158,6 +158,21 @@ export class SceneSelection {
     return this.currentSelectedIds;
   }
 
+  /**
+   * Temporarily remove (or restore) the emissive selection highlight on the
+   * currently-selected objects, without changing the selection itself. Used by
+   * off-screen thumbnail capture so the selection glow never bleeds into the
+   * rendered image.
+   */
+  setHighlightVisible(visible: boolean): void {
+    for (const id of this.currentSelectedIds) {
+      const obj = this.selectables.get(id);
+      if (obj) {
+        this.applyHighlight(obj, visible);
+      }
+    }
+  }
+
   setObjectTransform(
     id: string,
     transform: {

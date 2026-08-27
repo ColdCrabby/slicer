@@ -391,6 +391,8 @@ export class ViewerScene {
     const prevBackground = this.scene.background;
     this.setTheme(options.isDark);
     this.scene.background = options.background === null ? null : new Color(options.background);
+    // Drop the emissive selection glow so a selected object isn't captured lit up.
+    this._selection.setHighlightVisible(false);
 
     const target = new WebGLRenderTarget(size, size, { samples: 4 });
     target.texture.colorSpace = SRGBColorSpace;
@@ -405,6 +407,7 @@ export class ViewerScene {
       dataUrl = encodePixelsToPng(buffer, size);
     } finally {
       // Restore everything, regardless of encode outcome.
+      this._selection.setHighlightVisible(true);
       this.renderer.setRenderTarget(prevTarget);
       this.scene.background = prevBackground;
       this.setTheme(options.liveIsDark);
