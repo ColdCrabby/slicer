@@ -28,6 +28,7 @@ import {
   type Antialiasing,
   type SliceThumbnailCapture,
   type SliceThumbnailRequest,
+  type ThumbnailColorMode,
   type ThumbnailView,
 } from '../../services/viewer-control';
 
@@ -982,12 +983,17 @@ export class Viewer {
     const thumbIsDark = request.theme === 'dark';
     const liveIsDark = this.appTheme.isDarkMode();
 
-    // Honour the existing filament-colour toggle, but resolve the model colour
-    // for the thumbnail's fixed theme (which may differ from the live theme).
-    const useFilamentColor = this.viewerControl.useFilamentColor();
+    // The thumbnail has its own colour mode (generic / filament / custom),
+    // independent of the viewer's live filament-colour toggle. Resolve the
+    // colour for the thumbnail, and the live colour so meshes are restored.
     const filamentColor = this.activeSelection.filament()?.color;
-    const thumbColor = resolveModelColor(thumbIsDark, useFilamentColor, filamentColor);
-    const liveColor = resolveModelColor(liveIsDark, useFilamentColor, filamentColor);
+    const thumbColor = resolveThumbnailColor(
+      thumbIsDark,
+      request.colorMode,
+      filamentColor,
+      request.customColor,
+    );
+    const liveColor = this.currentModelColor();
     const needsColorSwap = thumbColor !== liveColor && this.wasmMeshes.size > 0;
 
     if (needsColorSwap) {
@@ -1128,6 +1134,28 @@ function resolveModelColor(
   }
   const parsed = parseHexColor(filamentColor);
   return parsed ?? modelColor(isDark);
+}
+
+/**
+ * Resolve the model colour for the thumbnail's own colour mode. `generic` uses
+ * the theme-tuned neutral grey; `filament` uses the active filament colour;
+ * `custom` uses the chosen hex. Any unparseable value falls back to grey.
+ */
+function resolveThumbnailColor(
+  isDark: boolean,
+  mode: ThumbnailColorMode,
+  filamentColor: string | null | undefined,
+  customColor: string,
+): number {
+  switch (mode) {
+    case 'filament':
+      return parseHexColor(filamentColor) ?? modelColor(isDark);
+    case 'custom':
+      return parseHexColor(customColor) ?? modelColor(isDark);
+    case 'generic':
+    default:
+      return modelColor(isDark);
+  }
 }
 
 function parseHexColor(raw: string | null | undefined): number | null {

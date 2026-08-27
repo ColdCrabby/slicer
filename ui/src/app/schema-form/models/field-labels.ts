@@ -79,6 +79,8 @@ const FIELD_LABELS: Record<string, string> = {
   thumbnail_size_px: 'Thumbnail Size',
   thumbnail_view: 'Thumbnail Angle',
   thumbnail_theme: 'Thumbnail Theme',
+  thumbnail_color_mode: 'Model Color',
+  thumbnail_custom_color: 'Custom Color',
   // Mesh
   mesh_quality: 'Mesh Quality',
 };

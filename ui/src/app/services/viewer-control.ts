@@ -46,11 +46,17 @@ export type ThumbnailView = 'isometric' | 'front' | 'rear' | 'left' | 'right' | 
 /** Fixed colour scheme for the embedded thumbnail render. */
 export type ThumbnailTheme = 'light' | 'dark';
 
+/** How the model is coloured in the thumbnail. */
+export type ThumbnailColorMode = 'generic' | 'filament' | 'custom';
+
 /** A request to render the outbound slice thumbnail from a fixed viewpoint. */
 export interface SliceThumbnailRequest {
   sizePx: number;
   view: ThumbnailView;
   theme: ThumbnailTheme;
+  colorMode: ThumbnailColorMode;
+  /** `#rrggbb` used when `colorMode === 'custom'`. */
+  customColor: string;
 }
 
 /** Default perspective field-of-view in degrees. */

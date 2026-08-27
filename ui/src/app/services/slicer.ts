@@ -18,7 +18,12 @@ import { SceneEngine } from './scene-engine';
 import { AppVersion } from './app-version';
 import { ConnectionStatus, SlicerConnection } from './slicer-connection';
 import { SlicerFile, UploadResponse } from './slicer-file';
-import { ViewerControl, type ThumbnailTheme, type ThumbnailView } from './viewer-control';
+import {
+  ViewerControl,
+  type ThumbnailColorMode,
+  type ThumbnailTheme,
+  type ThumbnailView,
+} from './viewer-control';
 import { WorkplateNames } from './workplate-names';
 
 /** Human-readable label for each pipeline phase. */
@@ -503,6 +508,8 @@ export class Slicer {
           sizePx: this.thumbnailSizePx(requestSettings),
           view: this.thumbnailView(requestSettings),
           theme: this.thumbnailTheme(requestSettings),
+          colorMode: this.thumbnailColorMode(requestSettings),
+          customColor: this.thumbnailCustomColor(requestSettings),
         });
         if (thumbnail) {
           requestSettings['thumbnail_size_px'] = thumbnail.sizePx;
@@ -821,6 +828,16 @@ export class Slicer {
 
   private thumbnailTheme(settings: Record<string, unknown>): ThumbnailTheme {
     return settings['thumbnail_theme'] === 'dark' ? 'dark' : 'light';
+  }
+
+  private thumbnailColorMode(settings: Record<string, unknown>): ThumbnailColorMode {
+    const raw = settings['thumbnail_color_mode'];
+    return raw === 'generic' || raw === 'custom' ? raw : 'filament';
+  }
+
+  private thumbnailCustomColor(settings: Record<string, unknown>): string {
+    const raw = settings['thumbnail_custom_color'];
+    return typeof raw === 'string' && /^#[0-9a-fA-F]{6}$/.test(raw) ? raw : '#e0912f';
   }
 
   private setDownloadUrl(url: string | null): void {

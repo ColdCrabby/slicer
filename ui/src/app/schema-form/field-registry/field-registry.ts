@@ -1,4 +1,5 @@
 import { Type } from '@angular/core';
+import { ColorField } from '../custom-widgets/color-field/color-field';
 import { InfillDensitySlider } from '../custom-widgets/infill-density-slider/infill-density-slider';
 import { InfillPatternPicker } from '../custom-widgets/infill-pattern-picker/infill-pattern-picker';
 import { FieldDef } from '../models/field-def';
@@ -22,6 +23,7 @@ const RADIO_MAX_OPTIONS = 3;
 const KEY_REGISTRY: Record<string, Type<FieldWidget>> = {
   infill_density: InfillDensitySlider,
   infill_pattern: InfillPatternPicker,
+  thumbnail_custom_color: ColorField,
 };
 
 /**

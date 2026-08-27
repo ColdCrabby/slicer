@@ -180,8 +180,9 @@
 }
 
 @keyframes capture-polaroid-flyout {
-  /* Eject from the "camera": rise into the center, settle, hold, then slide
-     up and off the top of the frame — like a printed photo being taken. */
+  /* Eject from the "camera": rise into the center, settle with a little tilt,
+     hold, then sail up and off the top with a subtle rotate + drift. It leaves
+     the frame entirely, so it never needs to fade out. */
   0% {
     opacity: 0;
     transform: translateY(30px) scale(0.84) rotate(-3deg);
@@ -191,18 +192,21 @@
     transform: translateY(0) scale(1) rotate(-1.5deg);
   }
   16% {
-    transform: translateY(-6px) scale(1) rotate(-1.5deg);
+    transform: translateY(-6px) scale(1.02) rotate(1.5deg);
   }
-  22% {
+  24% {
     transform: translateY(0) scale(1) rotate(-1.5deg);
   }
   62% {
     opacity: 1;
     transform: translateY(0) scale(1) rotate(-1.5deg);
   }
+  78% {
+    transform: translateY(-32vh) scale(0.99) rotate(4deg);
+  }
   100% {
-    opacity: 0;
-    transform: translateY(-135vh) scale(0.9) rotate(5deg);
+    opacity: 1;
+    transform: translateY(-140vh) translateX(5%) scale(0.92) rotate(9deg);
   }
 }
 
