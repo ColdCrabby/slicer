@@ -195,8 +195,7 @@ async fn run_server(
                     .default_handler(web::to(move || {
                         let path = format!("{}/index.html", fallback_dir);
                         async move {
-                            actix_files::NamedFile::open_async(path)
-                                .await
+                            actix_files::NamedFile::open(path)
                                 .map_err(actix_web::error::ErrorNotFound)
                         }
                     })),

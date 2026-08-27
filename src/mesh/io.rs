@@ -319,19 +319,19 @@ pub fn read_3mf_from_bytes(bytes: &[u8]) -> Result<Mesh, Box<dyn std::error::Err
     loop {
         match reader.read_event_into(&mut buf)? {
             Event::Empty(ref e) | Event::Start(ref e) => match e.local_name().as_ref() {
-                b"vertex" => {
+                "vertex" => {
                     let mut x = None::<f64>;
                     let mut y = None::<f64>;
                     let mut z = None::<f64>;
                     for attr in e.attributes().flatten() {
-                        let val: f64 = std::str::from_utf8(&attr.value)
-                            .map_err(|_| "3MF vertex attribute is not valid UTF-8")?
+                        let val: f64 = attr
+                            .value
                             .parse()
                             .map_err(|_| "3MF vertex coordinate is not a valid number")?;
                         match attr.key.local_name().as_ref() {
-                            b"x" => x = Some(val),
-                            b"y" => y = Some(val),
-                            b"z" => z = Some(val),
+                            "x" => x = Some(val),
+                            "y" => y = Some(val),
+                            "z" => z = Some(val),
                             _ => {}
                         }
                     }
@@ -341,19 +341,19 @@ pub fn read_3mf_from_bytes(bytes: &[u8]) -> Result<Mesh, Box<dyn std::error::Err
                     };
                     vertices.push(Vertex::new(x, y, z));
                 }
-                b"triangle" => {
+                "triangle" => {
                     let mut v1 = None::<usize>;
                     let mut v2 = None::<usize>;
                     let mut v3 = None::<usize>;
                     for attr in e.attributes().flatten() {
-                        let val: usize = std::str::from_utf8(&attr.value)
-                            .map_err(|_| "3MF triangle attribute is not valid UTF-8")?
+                        let val: usize = attr
+                            .value
                             .parse()
                             .map_err(|_| "3MF triangle index is not a valid integer")?;
                         match attr.key.local_name().as_ref() {
-                            b"v1" => v1 = Some(val),
-                            b"v2" => v2 = Some(val),
-                            b"v3" => v3 = Some(val),
+                            "v1" => v1 = Some(val),
+                            "v2" => v2 = Some(val),
+                            "v3" => v3 = Some(val),
                             _ => {}
                         }
                     }
