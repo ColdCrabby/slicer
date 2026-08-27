@@ -8,7 +8,7 @@ import {
   InstancedMesh,
   LineBasicMaterial,
   LineSegments,
-  MeshStandardMaterial,
+  MeshPhongMaterial,
   Object3D,
   SphereGeometry,
   Vector3,
@@ -38,6 +38,14 @@ import {
  * of form. This also makes the tube colour essentially independent of the scene
  * lighting, so the model-oriented light rig can be tuned without washing out or
  * darkening the preview.
+ *
+ * The tubes use {@link MeshPhongMaterial} rather than {@link MeshStandardMaterial}:
+ * the preview is overdraw-heavy (millions of instanced tubes redrawn every
+ * frame), and a full PBR BRDF + IBL per fragment is wasted here because the look
+ * is dominated by flat emissive. Phong keeps per-fragment shading (so the
+ * low-poly 8-radial tubes and 6x4 joint balls stay smooth — Lambert's per-vertex
+ * lighting would facet them) at a fraction of the fragment cost, and `specular`
+ * is left black so the matte, mostly-emissive look is preserved.
  */
 const EXTRUSION_EMISSIVE_INTENSITY = 0.45;
 const EXTRUSION_DIFFUSE_TINT = 0.9;
@@ -159,20 +167,28 @@ const OUT_OF_BAND_DIM = 0.16;
 const OUT_OF_BAND_ALPHA = 0.12;
 
 // Reusable geometries. We will scale instances.
+//
+// Tessellation is deliberately low. Every extrusion segment instances one tube
+// body plus one joint ball, so at millions of segments the per-primitive
+// triangle count dominates the frame budget. A bead is well under a millimetre
+// wide, so a joint ball is almost always sub-pixel or inscribed inside the tube
+// (invisible on straight runs) — an 8x8 sphere there was pure waste. 6x4 keeps
+// the silhouette round at the bends that actually show it while cutting joint
+// triangles ~3x.
 const segmentGeometry = new CylinderGeometry(0.5, 0.5, 1, 8, 1, false);
 segmentGeometry.rotateX(Math.PI / 2); // Align along Z
-const jointGeometry = new SphereGeometry(0.5, 8, 8);
+const jointGeometry = new SphereGeometry(0.5, 6, 4);
 
 // Seam dots are rendered as larger spheres.  We keep a dedicated geometry so
 // they can be rendered independently of the normal joint spheres.
-const seamDotGeometry = new SphereGeometry(0.5, 10, 10);
+const seamDotGeometry = new SphereGeometry(0.5, 8, 6);
 
 /**
- * Inject a per-instance opacity (`aOpacity`) multiply into a standard material
+ * Inject a per-instance opacity (`aOpacity`) multiply into a tube material
  * so individual extrusions can fade independently — Three.js `InstancedMesh`
  * has per-instance color but no per-instance alpha out of the box.
  */
-function installInstanceOpacity(material: MeshStandardMaterial): void {
+function installInstanceOpacity(material: MeshPhongMaterial): void {
   material.onBeforeCompile = (shader) => {
     shader.vertexShader =
       'attribute float aOpacity;\nvarying float vOpacity;\n' +
@@ -254,12 +270,14 @@ export function buildLayerGroup(
       roleSegmentsMap[role] = { role, lines, count };
     } else if (role === 'seam') {
       // Seam points are rendered as spheres — no cylinder body, just dots.
-      const material = new MeshStandardMaterial({
+      // A small specular keeps the marker dots reading as slightly glossier
+      // than the matte tubes.
+      const material = new MeshPhongMaterial({
         color,
         emissive: color,
         emissiveIntensity: EXTRUSION_EMISSIVE_INTENSITY,
-        roughness: 0.3,
-        metalness: 0.1,
+        specular: 0x222222,
+        shininess: 30,
       });
       const dots = new InstancedMesh(seamDotGeometry, material, count);
       dots.instanceMatrix.setUsage(35044 /* THREE.DynamicDrawUsage */);
@@ -268,11 +286,11 @@ export function buildLayerGroup(
       // Re-use the `joints` slot so existing visibility / progress logic works.
       roleSegmentsMap[role] = { role, joints: dots, count };
     } else {
-      const material = new MeshStandardMaterial({
+      const material = new MeshPhongMaterial({
         color,
         emissive: color,
         emissiveIntensity: EXTRUSION_EMISSIVE_INTENSITY,
-        roughness: 0.6,
+        specular: 0x000000,
       });
       installInstanceOpacity(material);
 
@@ -281,19 +299,23 @@ export function buildLayerGroup(
       const segGeom = segmentGeometry.clone();
       const jointGeom = jointGeometry.clone();
       const meshOpacity = new InstancedBufferAttribute(new Float32Array(count).fill(1), 1);
-      const jointsOpacity = new InstancedBufferAttribute(new Float32Array(count * 2).fill(1), 1);
+      // One joint ball per segment, placed at its start point. Consecutive
+      // segments of a path share a vertex, so a ball at every start already
+      // rounds every interior joint; the path's final vertex is closed by the
+      // capped tube. This halves joint instances vs. one ball per endpoint.
+      const jointsOpacity = new InstancedBufferAttribute(new Float32Array(count).fill(1), 1);
       meshOpacity.setUsage(35044 /* THREE.DynamicDrawUsage */);
       jointsOpacity.setUsage(35044 /* THREE.DynamicDrawUsage */);
       segGeom.setAttribute('aOpacity', meshOpacity);
       jointGeom.setAttribute('aOpacity', jointsOpacity);
 
       const mesh = new InstancedMesh(segGeom, material, count);
-      const joints = new InstancedMesh(jointGeom, material, count * 2);
+      const joints = new InstancedMesh(jointGeom, material, count);
       mesh.instanceMatrix.setUsage(35044 /* THREE.DynamicDrawUsage */);
       joints.instanceMatrix.setUsage(35044 /* THREE.DynamicDrawUsage */);
 
       mesh.count = count;
-      joints.count = count * 2;
+      joints.count = count;
       group.add(mesh);
       group.add(joints);
 
@@ -404,14 +426,9 @@ export function buildLayerGroup(
         mesh.setMatrixAt(globalI, _dummy.matrix);
 
         _dummy.scale.set(width, height, width);
-
         _dummy.position.copy(_p0);
         _dummy.updateMatrix();
-        joints.setMatrixAt(globalI * 2, _dummy.matrix);
-
-        _dummy.position.copy(_p1);
-        _dummy.updateMatrix();
-        joints.setMatrixAt(globalI * 2 + 1, _dummy.matrix);
+        joints.setMatrixAt(globalI, _dummy.matrix);
       }
       mesh.instanceMatrix.needsUpdate = true;
       joints.instanceMatrix.needsUpdate = true;
@@ -477,7 +494,7 @@ export function updateViewColors(
       }
       if (rs.role === 'seam') {
         if (rs.joints) {
-          const m = rs.joints.material as MeshStandardMaterial;
+          const m = rs.joints.material as MeshPhongMaterial;
           c.set(colors.seam);
           m.emissive.copy(c);
           m.color.copy(c).multiplyScalar(EXTRUSION_DIFFUSE_TINT);
@@ -490,15 +507,15 @@ export function updateViewColors(
       if (channel && channel.scope === 'segment' && mesh && widths && heights && speeds) {
         // Per-instance color; keep the material white (and unlit emissive off)
         // so the per-instance scalar tint shows unmodulated.
-        const mm = mesh.material as MeshStandardMaterial;
+        const mm = mesh.material as MeshPhongMaterial;
         mm.color.set(0xffffff);
         mm.emissive.setHex(0x000000);
         ensureInstanceColor(mesh, count);
         if (joints) {
-          const jm = joints.material as MeshStandardMaterial;
+          const jm = joints.material as MeshPhongMaterial;
           jm.color.set(0xffffff);
           jm.emissive.setHex(0x000000);
-          ensureInstanceColor(joints, count * 2);
+          ensureInstanceColor(joints, count);
         }
         const meshAlpha = rs.meshOpacity?.array as Float32Array | undefined;
         const jointAlpha = rs.jointsOpacity?.array as Float32Array | undefined;
@@ -512,12 +529,10 @@ export function updateViewColors(
           const alpha = bandActive && dim ? OUT_OF_BAND_ALPHA : 1;
           if (meshAlpha) meshAlpha[i] = alpha;
           if (joints) {
-            joints.setColorAt(i * 2, c);
-            joints.setColorAt(i * 2 + 1, c);
+            joints.setColorAt(i, c);
           }
           if (jointAlpha) {
-            jointAlpha[i * 2] = alpha;
-            jointAlpha[i * 2 + 1] = alpha;
+            jointAlpha[i] = alpha;
           }
         }
         if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
@@ -532,13 +547,13 @@ export function updateViewColors(
         c.set(sampleSpeedColor(t));
         if (dim) c.multiplyScalar(OUT_OF_BAND_DIM);
         if (mesh) {
-          const m = mesh.material as MeshStandardMaterial;
+          const m = mesh.material as MeshPhongMaterial;
           m.emissive.copy(c);
           m.color.copy(c).multiplyScalar(EXTRUSION_DIFFUSE_TINT);
           resetInstanceColor(mesh);
         }
         if (joints) {
-          const m = joints.material as MeshStandardMaterial;
+          const m = joints.material as MeshPhongMaterial;
           m.emissive.copy(c);
           m.color.copy(c).multiplyScalar(EXTRUSION_DIFFUSE_TINT);
           resetInstanceColor(joints);
@@ -551,13 +566,13 @@ export function updateViewColors(
         // neutralize any leftover per-instance scalar tint / transparency.
         c.set(colors[rs.role]);
         if (mesh) {
-          const m = mesh.material as MeshStandardMaterial;
+          const m = mesh.material as MeshPhongMaterial;
           m.emissive.copy(c);
           m.color.copy(c).multiplyScalar(EXTRUSION_DIFFUSE_TINT);
           resetInstanceColor(mesh);
         }
         if (joints) {
-          const m = joints.material as MeshStandardMaterial;
+          const m = joints.material as MeshPhongMaterial;
           m.emissive.copy(c);
           m.color.copy(c).multiplyScalar(EXTRUSION_DIFFUSE_TINT);
           resetInstanceColor(joints);
@@ -596,7 +611,7 @@ function fillOpacity(attr: InstancedBufferAttribute | undefined, value: number):
  * in-band ones behind them; non-band stays fully opaque (no regression).
  */
 function applyMeshTransparency(rs: RoleSegments, transparent: boolean): void {
-  const material = (rs.mesh?.material ?? rs.joints?.material) as MeshStandardMaterial | undefined;
+  const material = (rs.mesh?.material ?? rs.joints?.material) as MeshPhongMaterial | undefined;
   if (!material) return;
   material.depthWrite = !transparent;
   if (material.transparent !== transparent) {
@@ -617,7 +632,7 @@ export function showLayerRange(
         if (rs.joints) rs.joints.count = rs.count;
       } else {
         if (rs.mesh) rs.mesh.count = rs.count;
-        if (rs.joints) rs.joints.count = rs.count * 2;
+        if (rs.joints) rs.joints.count = rs.count;
         if (rs.lines) rs.lines.geometry.setDrawRange(0, Infinity);
       }
     }
@@ -674,7 +689,7 @@ export function applySegmentProgress(
       if (rs.joints) rs.joints.count = show;
     } else {
       if (rs.mesh) rs.mesh.count = show;
-      if (rs.joints) rs.joints.count = show * 2;
+      if (rs.joints) rs.joints.count = show;
       if (rs.lines) rs.lines.geometry.setDrawRange(0, show * 2);
     }
   }
