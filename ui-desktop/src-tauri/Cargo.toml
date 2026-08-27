@@ -24,3 +24,24 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 chrono = { version = "0.4", features = ["clock"] }
 slicer-engine = { path = "../../" }
+
+# Cargo only honours `[profile.*]` from the root of the build graph, and this
+# crate — not `slicer-engine` — is that root for the desktop app. Without these
+# the engine's own profile tuning in the workspace `Cargo.toml` is ignored, so
+# native slicing here builds slower than the cloud/server build of the same
+# engine. Mirror the engine profiles so desktop slicing performance matches:
+#   - dev: opt-level 1 (fast iteration) with boostvoronoi optimized + assertions
+#     off (its robust-predicate arithmetic otherwise trips thousands of expensive
+#     debug_assert unwinds on curved slices, flooding stderr and diverging output)
+#   - release: LTO + single codegen unit, matching the distributed cloud build
+[profile.dev]
+opt-level = 1
+
+[profile.dev.package.boostvoronoi]
+opt-level = 3
+debug-assertions = false
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
