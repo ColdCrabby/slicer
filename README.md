@@ -10,9 +10,12 @@ The web version runs fully in the browser, so you can slice on an iPad or any de
 
 🌐 **[Try the online slicer](https://slicer.maxscopp.de/)** → no install, no account.
 
-[![Frontend CI](https://github.com/ColdCrabby/slicer/actions/workflows/ui-ci.yml/badge.svg)](https://github.com/ColdCrabby/slicer/actions/workflows/ui-ci.yml)
-[![Security](https://github.com/ColdCrabby/slicer/actions/workflows/security.yml/badge.svg)](https://github.com/ColdCrabby/slicer/actions/workflows/security.yml)
-[![SLOC](https://img.shields.io/endpoint?url=https%3A%2F%2Fraw.githubusercontent.com%2FColdCrabby%2Fslicer%2Fbadges%2Fsloc.json)](https://github.com/ColdCrabby/slicer/actions/workflows/sloc.yml)
+[![Tests](https://img.shields.io/github/actions/workflow/status/ColdCrabby/slicer/test-results.yml?branch=main&label=tests)](https://github.com/ColdCrabby/slicer/actions/workflows/test-results.yml)
+[![Quality](https://img.shields.io/github/actions/workflow/status/ColdCrabby/slicer/quality.yml?branch=main&label=quality)](https://github.com/ColdCrabby/slicer/actions/workflows/quality.yml)
+[![Frontend CI](https://img.shields.io/github/actions/workflow/status/ColdCrabby/slicer/ui-ci.yml?branch=main&label=frontend)](https://github.com/ColdCrabby/slicer/actions/workflows/ui-ci.yml)
+[![Security](https://img.shields.io/github/actions/workflow/status/ColdCrabby/slicer/security.yml?branch=main&label=security)](https://github.com/ColdCrabby/slicer/actions/workflows/security.yml)
+[![Rust lines](https://img.shields.io/endpoint?url=https%3A%2F%2Fraw.githubusercontent.com%2FColdCrabby%2Fslicer%2Fbadges%2Frust.json)](https://github.com/ColdCrabby/slicer/actions/workflows/sloc.yml)
+[![TypeScript lines](https://img.shields.io/endpoint?url=https%3A%2F%2Fraw.githubusercontent.com%2FColdCrabby%2Fslicer%2Fbadges%2Ftypescript.json)](https://github.com/ColdCrabby/slicer/actions/workflows/sloc.yml)
 
 </div>
 
