@@ -1342,6 +1342,7 @@ impl GcodeGenerator {
             result.push_str(&line);
             result.push('\n');
         }
+        append_thumbnail_block(&mut result, params);
         result.push_str(&out);
 
         // ── Metadata footer (Moonraker / PrusaSlicer-compatible config block) ─
@@ -1419,6 +1420,53 @@ fn gcode_block_lines(block: Option<&str>) -> Option<Vec<String>> {
         return None;
     }
     Some(block.lines().map(str::to_string).collect())
+}
+
+/// Emit a Prusa/Orca-style thumbnail comment block when the current request
+/// carries a PNG payload.
+fn append_thumbnail_block(out: &mut String, params: &SlicingParams) {
+    if !params.thumbnail_enabled {
+        return;
+    }
+    let Some(encoded) = normalize_thumbnail_base64(params.thumbnail_png_base64.as_deref()) else {
+        return;
+    };
+    let size = params.thumbnail_size_px.clamp(64, 1024);
+    out.push_str(&format!(
+        "; thumbnail begin {}x{} {}\n",
+        size,
+        size,
+        encoded.len()
+    ));
+    for chunk in encoded.as_bytes().chunks(78) {
+        if let Ok(line) = std::str::from_utf8(chunk) {
+            out.push_str("; ");
+            out.push_str(line);
+            out.push('\n');
+        }
+    }
+    out.push_str("; thumbnail end\n");
+}
+
+fn normalize_thumbnail_base64(raw: Option<&str>) -> Option<String> {
+    let raw = raw?.trim();
+    if raw.is_empty() {
+        return None;
+    }
+    let payload = raw.strip_prefix("data:image/png;base64,").unwrap_or(raw);
+    let normalized: String = payload.chars().filter(|ch| !ch.is_whitespace()).collect();
+    if normalized.is_empty() {
+        return None;
+    }
+    if !normalized.bytes().all(|b| {
+        matches!(
+            b,
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'+' | b'/' | b'='
+        )
+    }) {
+        return None;
+    }
+    Some(normalized)
 }
 
 // ── Tests ──────────────────────────────────────────────────────────────────────
@@ -2797,6 +2845,42 @@ CHAMBER={chamber_temp} MATERIAL={filament_type}"
         assert!(
             gcode.contains("END_PRINT"),
             "blank end should fall back: {gcode}"
+        );
+    }
+
+    #[test]
+    fn test_generate_gcode_from_params_embeds_thumbnail_block() {
+        let params = SlicingParams {
+            thumbnail_enabled: true,
+            thumbnail_size_px: 256,
+            thumbnail_png_base64: Some(
+                "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8Xw8AAoMBgM4n4VwAAAAASUVORK5CYII="
+                    .to_string(),
+            ),
+            ..SlicingParams::default()
+        };
+        let gcode = generate_gcode_from_params(&[], &params);
+        assert!(
+            gcode.contains("; thumbnail begin 256x256 "),
+            "missing thumbnail start marker: {gcode}"
+        );
+        assert!(
+            gcode.contains("; thumbnail end"),
+            "missing thumbnail end marker: {gcode}"
+        );
+    }
+
+    #[test]
+    fn test_generate_gcode_from_params_skips_invalid_thumbnail_payload() {
+        let params = SlicingParams {
+            thumbnail_enabled: true,
+            thumbnail_png_base64: Some("not base64?!".to_string()),
+            ..SlicingParams::default()
+        };
+        let gcode = generate_gcode_from_params(&[], &params);
+        assert!(
+            !gcode.contains("; thumbnail begin"),
+            "invalid payload must be ignored"
         );
     }
 

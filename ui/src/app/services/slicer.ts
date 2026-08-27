@@ -18,6 +18,12 @@ import { SceneEngine } from './scene-engine';
 import { AppVersion } from './app-version';
 import { ConnectionStatus, SlicerConnection } from './slicer-connection';
 import { SlicerFile, UploadResponse } from './slicer-file';
+import {
+  ViewerControl,
+  type ThumbnailColorMode,
+  type ThumbnailTheme,
+  type ThumbnailView,
+} from './viewer-control';
 import { WorkplateNames } from './workplate-names';
 
 /** Human-readable label for each pipeline phase. */
@@ -76,6 +82,7 @@ const PHASE_TOTAL_WEIGHT = Object.values(PHASE_WEIGHTS).reduce((a, b) => a + b, 
 
 /** Maximum time (ms) to wait for a slice operation before timing out. */
 const SLICE_TIMEOUT_MS = 30 * 60 * 1000; // 30 minutes
+const DEFAULT_THUMBNAIL_SIZE_PX = 320;
 
 export type SlicerStatus = 'idle' | 'ready' | 'uploading' | 'slicing' | 'done' | 'error';
 
@@ -99,6 +106,7 @@ export class Slicer {
   private readonly sceneEngine = inject(SceneEngine);
   private readonly activeSelection = inject(ActiveSelection);
   private readonly appVersion = inject(AppVersion);
+  private readonly viewerControl = inject(ViewerControl);
   private readonly workplateNames = inject(WorkplateNames);
   private readonly runtimeMode = this.resolveRuntimeMode();
   private readonly runtime = createRuntime({
@@ -432,7 +440,7 @@ export class Slicer {
    * The diff is every live setting that differs from the resolved profile
    * baseline; the engine re-resolves `profiles → overrides` authoritatively.
    */
-  private buildProfileSelection(): ProfileSelection {
+  private buildProfileSelection(extraOverrides: Record<string, unknown> = {}): ProfileSelection {
     const baseline = (this.activeSelection.sliceParams() ?? {}) as Record<string, unknown>;
     const settings = this.settings() as unknown as Record<string, unknown>;
     const overrides: Record<string, unknown> = {};
@@ -440,6 +448,9 @@ export class Slicer {
       if (JSON.stringify(settings[key]) !== JSON.stringify(baseline[key])) {
         overrides[key] = settings[key];
       }
+    }
+    for (const [key, value] of Object.entries(extraOverrides)) {
+      overrides[key] = value;
     }
     return {
       printer: this.activeSelection.printer(),
@@ -487,6 +498,34 @@ export class Slicer {
     try {
       const model = await this.readRuntimeMeshInput(file);
       const scene = await this.ensureRuntimeReadyForSlice(model);
+      const requestSettings = {
+        ...(this.settings() as unknown as Record<string, unknown>),
+      };
+      const thumbnailOverrides: Record<string, unknown> = {};
+
+      if (this.thumbnailEnabled(requestSettings)) {
+        const thumbnail = await this.viewerControl.captureSliceThumbnail({
+          sizePx: this.thumbnailSizePx(requestSettings),
+          view: this.thumbnailView(requestSettings),
+          theme: this.thumbnailTheme(requestSettings),
+          colorMode: this.thumbnailColorMode(requestSettings),
+          customColor: this.thumbnailCustomColor(requestSettings),
+        });
+        if (thumbnail) {
+          requestSettings['thumbnail_size_px'] = thumbnail.sizePx;
+          requestSettings['thumbnail_png_base64'] = thumbnail.pngBase64;
+          thumbnailOverrides['thumbnail_size_px'] = thumbnail.sizePx;
+          thumbnailOverrides['thumbnail_png_base64'] = thumbnail.pngBase64;
+        } else {
+          this.outputLog.update((log) => [
+            ...log,
+            '[warn] Thumbnail capture unavailable — slicing without embedded preview image.',
+          ]);
+        }
+      } else {
+        delete requestSettings['thumbnail_png_base64'];
+      }
+      const profileSelection = this.buildProfileSelection(thumbnailOverrides);
 
       this.status.set('slicing');
       this.sliceStartedAt = performance.now();
@@ -515,8 +554,8 @@ export class Slicer {
         request_uuid: this.slicerFile.requestUuid() ?? undefined,
         model,
         scene,
-        settings: this.settings() as unknown as Record<string, unknown>,
-        profiles: this.buildProfileSelection(),
+        settings: requestSettings,
+        profiles: profileSelection,
       });
 
       // Record which objects this slice was produced from so the viewer can
@@ -754,6 +793,52 @@ export class Slicer {
       return '3mf';
     }
     return 'stl';
+  }
+
+  private thumbnailEnabled(settings: Record<string, unknown>): boolean {
+    const raw = settings['thumbnail_enabled'];
+    if (raw === undefined || raw === null) {
+      return true;
+    }
+    return raw === true || raw === 'true' || raw === 1;
+  }
+
+  private thumbnailSizePx(settings: Record<string, unknown>): number {
+    const raw = Number(settings['thumbnail_size_px']);
+    if (!Number.isFinite(raw)) {
+      return DEFAULT_THUMBNAIL_SIZE_PX;
+    }
+    return Math.max(64, Math.min(1024, Math.round(raw)));
+  }
+
+  private thumbnailView(settings: Record<string, unknown>): ThumbnailView {
+    const raw = settings['thumbnail_view'];
+    switch (raw) {
+      case 'front':
+      case 'rear':
+      case 'left':
+      case 'right':
+      case 'top':
+      case 'isometric':
+        return raw;
+      default:
+        return 'isometric';
+    }
+  }
+
+  private thumbnailTheme(settings: Record<string, unknown>): ThumbnailTheme {
+    const raw = settings['thumbnail_theme'];
+    return raw === 'dark' || raw === 'transparent' ? raw : 'light';
+  }
+
+  private thumbnailColorMode(settings: Record<string, unknown>): ThumbnailColorMode {
+    const raw = settings['thumbnail_color_mode'];
+    return raw === 'generic' || raw === 'custom' ? raw : 'filament';
+  }
+
+  private thumbnailCustomColor(settings: Record<string, unknown>): string {
+    const raw = settings['thumbnail_custom_color'];
+    return typeof raw === 'string' && /^#[0-9a-fA-F]{6}$/.test(raw) ? raw : '#e0912f';
   }
 
   private setDownloadUrl(url: string | null): void {

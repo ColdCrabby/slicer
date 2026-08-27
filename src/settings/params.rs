@@ -443,6 +443,60 @@ pub enum BrimType {
     Ears,
 }
 
+/// Camera angle used when the UI renders the embedded G-code thumbnail.
+///
+/// The thumbnail is produced from a fixed, repeatable viewpoint (not the
+/// user's live camera) so every slice yields a comparable preview. Angles are
+/// expressed in the scene's world Z-up frame.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum ThumbnailView {
+    /// Three-quarter isometric from the front-right, slightly above — the
+    /// classic "hero" product shot. Shows depth and the top face at once.
+    #[default]
+    Isometric,
+    /// Straight-on from the front (−Y), a hair above the horizon.
+    Front,
+    /// Straight-on from the back (+Y).
+    Rear,
+    /// From the model's left (−X).
+    Left,
+    /// From the model's right (+X).
+    Right,
+    /// Top-down plan view (+Z looking down).
+    Top,
+}
+
+/// Colour scheme used when the UI renders the embedded G-code thumbnail.
+///
+/// Fixed per the setting — deliberately independent of the operating-system or
+/// application theme so the embedded preview is deterministic. Model colouring
+/// (filament colour vs. neutral grey) still follows the viewer's own toggle.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum ThumbnailTheme {
+    /// Light studio background.
+    Light,
+    /// Dark studio background.
+    Dark,
+    /// No background — a transparent PNG cutout of the model (default).
+    #[default]
+    Transparent,
+}
+
+/// How the model is coloured in the embedded thumbnail.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum ThumbnailColorMode {
+    /// Neutral grey "grey plastic" look, tuned to the thumbnail theme.
+    Generic,
+    /// Use the active filament's colour (default) — matches the viewer.
+    #[default]
+    Filament,
+    /// Use a specific colour picked in `thumbnail_custom_color`.
+    Custom,
+}
+
 /// Parameters that control how a model is sliced and printed.
 ///
 /// All dimensional values are in millimeters; speeds in mm/s;
@@ -1356,6 +1410,60 @@ Caps print speed so the hotend can keep up with the flow.
     )]
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub layer_gcode: Option<String>,
+
+    #[schemars(
+        description = "Embed a PNG thumbnail comment block in generated G-code files. \
+                       The UI renders it from a fixed camera angle and theme (see \
+                       `thumbnail_view` / `thumbnail_theme`) when slicing.",
+        extend("x-group" = "Thumbnail")
+    )]
+    #[serde(default = "SlicingParams::default_thumbnail_enabled")]
+    pub thumbnail_enabled: bool,
+
+    #[schemars(
+        description = "Square thumbnail resolution in pixels — this is the thumbnail's quality knob.",
+        extend("x-group" = "Thumbnail", "x-relevant-when" = serde_json::json!({"field": "thumbnail_enabled", "equals": true}))
+    )]
+    #[serde(default = "SlicingParams::default_thumbnail_size_px")]
+    pub thumbnail_size_px: u32,
+
+    #[schemars(
+        description = "Fixed camera angle used to render the embedded thumbnail (not the live view).",
+        extend("x-group" = "Thumbnail", "x-relevant-when" = serde_json::json!({"field": "thumbnail_enabled", "equals": true}))
+    )]
+    #[serde(default)]
+    pub thumbnail_view: ThumbnailView,
+
+    #[schemars(
+        description = "Fixed colour scheme for the embedded thumbnail — independent of the app/OS theme.",
+        extend("x-group" = "Thumbnail", "x-relevant-when" = serde_json::json!({"field": "thumbnail_enabled", "equals": true}))
+    )]
+    #[serde(default)]
+    pub thumbnail_theme: ThumbnailTheme,
+
+    #[schemars(
+        description = "How the model is coloured in the thumbnail: a neutral grey, the active \
+                       filament's colour, or a specific colour you choose.",
+        extend("x-group" = "Thumbnail", "x-relevant-when" = serde_json::json!({"field": "thumbnail_enabled", "equals": true}))
+    )]
+    #[serde(default)]
+    pub thumbnail_color_mode: ThumbnailColorMode,
+
+    #[schemars(
+        description = "Specific model colour (`#rrggbb`) used when the thumbnail colour mode is `custom`.",
+        extend("x-group" = "Thumbnail", "x-relevant-when" = serde_json::json!({"field": "thumbnail_color_mode", "equals": "custom"}))
+    )]
+    #[serde(default = "SlicingParams::default_thumbnail_custom_color")]
+    pub thumbnail_custom_color: String,
+
+    /// Optional base64-encoded PNG payload for the current slice request.
+    ///
+    /// This is an ephemeral request-scoped value (not a user-facing setting),
+    /// intentionally excluded from JSON schema so the settings UI does not
+    /// render it as an editable field.
+    #[schemars(skip)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub thumbnail_png_base64: Option<String>,
 }
 
 /// Schema helper: emit the full [`SlicingParams`] schema for a
@@ -1463,6 +1571,13 @@ impl Default for SlicingParams {
             start_gcode: None,
             end_gcode: None,
             layer_gcode: None,
+            thumbnail_enabled: Self::default_thumbnail_enabled(),
+            thumbnail_size_px: Self::default_thumbnail_size_px(),
+            thumbnail_view: ThumbnailView::default(),
+            thumbnail_theme: ThumbnailTheme::default(),
+            thumbnail_color_mode: ThumbnailColorMode::default(),
+            thumbnail_custom_color: Self::default_thumbnail_custom_color(),
+            thumbnail_png_base64: None,
         }
     }
 }
@@ -1551,6 +1666,15 @@ impl SlicingParams {
     }
     fn default_ironing_enabled() -> bool {
         false
+    }
+    fn default_thumbnail_enabled() -> bool {
+        true
+    }
+    fn default_thumbnail_size_px() -> u32 {
+        320
+    }
+    fn default_thumbnail_custom_color() -> String {
+        "#e0912f".to_string()
     }
 }
 
@@ -2032,6 +2156,13 @@ mod tests {
         assert_eq!(params.z_hop_mm, 0.2);
         assert_eq!(params.retract_mm, 1.0);
         assert_eq!(params.path_tolerance, 0.05);
+        assert!(params.thumbnail_enabled);
+        assert_eq!(params.thumbnail_size_px, 320);
+        assert_eq!(params.thumbnail_view, ThumbnailView::Isometric);
+        assert_eq!(params.thumbnail_theme, ThumbnailTheme::Transparent);
+        assert_eq!(params.thumbnail_color_mode, ThumbnailColorMode::Filament);
+        assert_eq!(params.thumbnail_custom_color, "#e0912f");
+        assert!(params.thumbnail_png_base64.is_none());
     }
 
     #[test]
@@ -2067,5 +2198,30 @@ mod tests {
         assert_eq!(params.z_hop_mm, 0.2, "default z-hop");
         assert_eq!(params.retract_mm, 1.0, "default retract");
         assert_eq!(params.path_tolerance, 0.05, "default path tolerance");
+        assert!(params.thumbnail_enabled, "default thumbnail enabled");
+        assert_eq!(params.thumbnail_size_px, 320, "default thumbnail size");
+        assert_eq!(
+            params.thumbnail_view,
+            ThumbnailView::Isometric,
+            "default thumbnail view"
+        );
+        assert_eq!(
+            params.thumbnail_theme,
+            ThumbnailTheme::Transparent,
+            "default thumbnail theme"
+        );
+        assert_eq!(
+            params.thumbnail_color_mode,
+            ThumbnailColorMode::Filament,
+            "default thumbnail colour mode"
+        );
+        assert_eq!(
+            params.thumbnail_custom_color, "#e0912f",
+            "default thumbnail custom colour"
+        );
+        assert!(
+            params.thumbnail_png_base64.is_none(),
+            "default thumbnail payload absent"
+        );
     }
 }

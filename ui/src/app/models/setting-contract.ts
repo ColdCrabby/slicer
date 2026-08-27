@@ -64,6 +64,7 @@ export const SETTING_CONTRACTS: readonly SettingContract[] = [
       'Quality',
       'Surfaces',
       'Adhesion',
+      'Thumbnail',
       'Mesh',
     ],
   },
@@ -89,6 +90,7 @@ export const GROUP_ICONS: Record<string, string> = {
   Extrusion: 'extrude',
   Support: 'view-structure-down',
   Adhesion: 'magnet-energy',
+  Thumbnail: 'media-image',
 };
 
 /** The contract that owns a given `x-group`; unmapped groups fall to Process. */

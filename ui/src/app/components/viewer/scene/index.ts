@@ -1,5 +1,7 @@
 import {
   BoxGeometry,
+  Box3,
+  Color,
   DirectionalLight,
   Group,
   HemisphereLight,
@@ -8,8 +10,10 @@ import {
   type Object3D,
   PerspectiveCamera,
   Scene,
+  SRGBColorSpace,
   Vector3,
   WebGLRenderer,
+  WebGLRenderTarget,
 } from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import type { PrintAreaConfig } from '../../../services/print-area';
@@ -41,6 +45,40 @@ export interface ViewerSceneOptions {
   pixelRatioCap?: number;
   /** Initial perspective field-of-view in degrees. */
   fieldOfView?: number;
+}
+
+/** Field-of-view (deg) used for the fixed-angle thumbnail render. */
+const THUMBNAIL_FOV = 40;
+/** Fit padding — a whisker of margin so the tight box-fit never clips an edge. */
+const THUMBNAIL_FIT_PADDING = 1.02;
+
+/**
+ * Inputs for {@link ViewerScene.captureThumbnail}. The caller resolves the
+ * world-space camera direction/up (from a fixed preset), the thumbnail theme,
+ * and the background — the scene handles framing, an off-screen render, and
+ * full state restoration.
+ */
+export interface ThumbnailCaptureOptions {
+  /** Square output edge length in pixels. */
+  sizePx: number;
+  /** Normalised world-space camera direction (target → camera). */
+  direction: Vector3;
+  /** World-space camera up vector. */
+  up: Vector3;
+  /** Whether the thumbnail uses the dark studio lighting rig. */
+  isDark: boolean;
+  /** The live scene theme to restore after the capture. */
+  liveIsDark: boolean;
+  /** Solid background colour (hex), or `null` for a transparent background. */
+  background: number | null;
+  /**
+   * Explicit objects to frame + render in isolation — typically freshly-built
+   * model meshes. When provided, all live scene content (model *and* G-code
+   * preview) is hidden for the capture and only these subjects are drawn, so
+   * the thumbnail always depicts the model regardless of the viewer's current
+   * mode. When omitted, the live {@link ViewerScene.contentRoot} is framed.
+   */
+  subjects?: Object3D[];
 }
 
 /**
@@ -278,6 +316,153 @@ export class ViewerScene {
     this._camera.resetView();
   }
 
+  /**
+   * Render the current model content to a square PNG from a fixed camera angle
+   * and theme, entirely off-screen. The live canvas, camera, controls, lights,
+   * and background are all restored before returning, so this never disturbs
+   * the on-screen view. Returns a `data:image/png;base64,…` URL, or `null` when
+   * there is nothing to frame.
+   */
+  captureThumbnail(options: ThumbnailCaptureOptions): string | null {
+    const size = Math.max(16, Math.round(options.sizePx));
+
+    // When explicit subjects are given (freshly-built model meshes), render
+    // them in isolation from a temporary group so neither the live model nor
+    // the G-code preview toolpaths bleed into the shot or skew the framing.
+    const subjects = options.subjects ?? [];
+    let subjectGroup: Group | null = null;
+    if (subjects.length > 0) {
+      subjectGroup = new Group();
+      for (const s of subjects) {
+        subjectGroup.add(s);
+      }
+      this.scene.add(subjectGroup);
+    }
+    const frameTarget: Object3D = subjectGroup ?? this.contentRoot;
+    frameTarget.updateMatrixWorld(true);
+
+    const box = new Box3().setFromObject(frameTarget);
+    if (box.isEmpty()) {
+      if (subjectGroup) {
+        this.scene.remove(subjectGroup);
+      }
+      return null;
+    }
+    const center = new Vector3();
+    box.getCenter(center);
+
+    // Build the camera basis (forward = viewing direction) so we can fit the
+    // eight box corners tightly — the loose bounding sphere would leave a big
+    // border, especially for elongated prints.
+    const dir = options.direction.clone().normalize();
+    const forward = dir.clone().negate();
+    const right = new Vector3().crossVectors(forward, options.up);
+    if (right.lengthSq() < 1e-8) {
+      right.set(1, 0, 0);
+    }
+    right.normalize();
+    const trueUp = new Vector3().crossVectors(right, forward).normalize();
+
+    const fovRad = (THUMBNAIL_FOV * Math.PI) / 180;
+    const tanHalf = Math.tan(fovRad / 2);
+    const corner = new Vector3();
+    let distance = 0;
+    let maxExtent = 1;
+    for (let cx = 0; cx < 2; cx++) {
+      for (let cy = 0; cy < 2; cy++) {
+        for (let cz = 0; cz < 2; cz++) {
+          corner.set(
+            cx ? box.max.x : box.min.x,
+            cy ? box.max.y : box.min.y,
+            cz ? box.max.z : box.min.z,
+          );
+          corner.sub(center);
+          const px = corner.dot(right);
+          const py = corner.dot(trueUp);
+          const pf = corner.dot(forward);
+          // Distance at which this corner just fits the square frustum.
+          const needed = Math.max(Math.abs(px), Math.abs(py)) / tanHalf - pf;
+          distance = Math.max(distance, needed);
+          maxExtent = Math.max(maxExtent, Math.abs(px), Math.abs(py), Math.abs(pf));
+        }
+      }
+    }
+    distance = Math.max(distance * THUMBNAIL_FIT_PADDING, 0.01);
+
+    const cam = new PerspectiveCamera(THUMBNAIL_FOV, 1, CAMERA_NEAR, CAMERA_FAR);
+    cam.up.copy(options.up);
+    cam.position.copy(center).addScaledVector(dir, distance);
+    cam.near = Math.max(distance - maxExtent * 2, 0.01);
+    cam.far = distance + maxExtent * 4;
+    cam.lookAt(center);
+    cam.updateProjectionMatrix();
+
+    // Hide everything that isn't the frame target or a light (grid, axes,
+    // gizmos — and, when rendering isolated subjects, the live contentRoot too).
+    const keep = new Set<Object3D>([frameTarget, this.hemiLight, this.keyLight, this.fillLight]);
+    const rehide: Object3D[] = [];
+    for (const child of this.scene.children) {
+      if (!keep.has(child) && child.visible) {
+        child.visible = false;
+        rehide.push(child);
+      }
+    }
+
+    // Apply the thumbnail theme, then a solid studio background or a fully
+    // transparent one (`background === null` → the renderer's 0-alpha clear).
+    const prevBackground = this.scene.background;
+    this.setTheme(options.isDark);
+    this.scene.background = options.background === null ? null : new Color(options.background);
+    // Drop the emissive selection glow so a selected object isn't captured lit up.
+    this._selection.setHighlightVisible(false);
+
+    // Disable frustum culling on the framed content for the duration of the
+    // render. G-code preview is drawn with InstancedMesh whose cull volume can
+    // be stale/degenerate, so from the thumbnail camera geometry could be
+    // wrongly culled and the image comes out blank. Culling is a live-view perf
+    // optimisation we don't need here.
+    const unculled: Object3D[] = [];
+    frameTarget.traverse((node) => {
+      if (node.frustumCulled) {
+        node.frustumCulled = false;
+        unculled.push(node);
+      }
+    });
+
+    const target = new WebGLRenderTarget(size, size, { samples: 4 });
+    target.texture.colorSpace = SRGBColorSpace;
+    const prevTarget = this.renderer.getRenderTarget();
+    const buffer = new Uint8Array(size * size * 4);
+    let dataUrl: string | null = null;
+    try {
+      this.renderer.setRenderTarget(target);
+      this.renderer.clear();
+      this.renderer.render(this.scene, cam);
+      this.renderer.readRenderTargetPixels(target, 0, 0, size, size, buffer);
+      dataUrl = encodePixelsToPng(buffer, size);
+    } finally {
+      // Restore everything, regardless of encode outcome.
+      this._selection.setHighlightVisible(true);
+      for (const node of unculled) {
+        node.frustumCulled = true;
+      }
+      this.renderer.setRenderTarget(prevTarget);
+      this.scene.background = prevBackground;
+      this.setTheme(options.liveIsDark);
+      for (const child of rehide) {
+        child.visible = true;
+      }
+      if (subjectGroup) {
+        // Detach subjects so the caller can dispose them; drop the temp group.
+        subjectGroup.clear();
+        this.scene.remove(subjectGroup);
+      }
+      target.dispose();
+    }
+
+    return dataUrl;
+  }
+
   animateToDirection(direction: Vector3, up: Vector3): void {
     this._camera.animateToDirection(direction, up);
   }
@@ -470,4 +655,28 @@ function buildAxesGizmo(length: number, thickness: number): Group {
     group.add(mesh);
   }
   return group;
+}
+
+/**
+ * Encode an RGBA pixel buffer read from a WebGL render target into a PNG data
+ * URL. WebGL returns rows bottom-up, so each row is copied into its mirrored
+ * position to produce a correctly-oriented image.
+ */
+function encodePixelsToPng(buffer: Uint8Array, size: number): string | null {
+  const canvas = document.createElement('canvas');
+  canvas.width = size;
+  canvas.height = size;
+  const ctx = canvas.getContext('2d');
+  if (!ctx) {
+    return null;
+  }
+  const image = ctx.createImageData(size, size);
+  const rowBytes = size * 4;
+  for (let y = 0; y < size; y++) {
+    const srcStart = y * rowBytes;
+    const dstStart = (size - 1 - y) * rowBytes;
+    image.data.set(buffer.subarray(srcStart, srcStart + rowBytes), dstStart);
+  }
+  ctx.putImageData(image, 0, 0);
+  return canvas.toDataURL('image/png');
 }

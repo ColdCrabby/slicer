@@ -17,6 +17,12 @@ Configuration for slicing behavior and printer control. All values stored as JSO
 | `seam_position`           | enum | `nearest` | see [Seam Position](#seam-position) | Where each closed-loop seam sits                              |
 | `min_infill_extrusion_mm` | mm   | 0.4       | 0.0–nozzle                          | Drops sub-threshold solid-infill segments to cut tiny travels |
 | `coasting_distance_mm`    | mm   | 0.2       | 0.0–1.0                             | Length of un-extruded tail at the end of each path            |
+| `thumbnail_enabled`       | bool | `true`    | true/false                          | Embed a PNG thumbnail comment block in output G-code (Thumbnail group) |
+| `thumbnail_size_px`       | px   | 320       | 64–1024                             | Square thumbnail resolution (the quality knob)                 |
+| `thumbnail_view`          | enum | `isometric` | isometric/front/rear/left/right/top | Fixed camera angle the UI renders the thumbnail from         |
+| `thumbnail_theme`         | enum | `transparent` | light/dark/transparent          | Fixed thumbnail background (independent of app/OS theme)       |
+| `thumbnail_color_mode`    | enum | `filament` | generic/filament/custom            | Model colour in the thumbnail: neutral / filament / chosen     |
+| `thumbnail_custom_color`  | hex  | `#e0912f` | `#rrggbb`                           | Model colour used when `thumbnail_color_mode = custom`         |
 
 ### Bridge & overhang (`params.*`)
 

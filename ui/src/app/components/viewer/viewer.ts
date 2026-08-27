@@ -13,7 +13,7 @@ import {
   untracked,
   viewChild,
 } from '@angular/core';
-import { BufferAttribute, BufferGeometry, Matrix4, Mesh, MeshPhongMaterial } from 'three';
+import { BufferAttribute, BufferGeometry, Matrix4, Mesh, MeshPhongMaterial, Vector3 } from 'three';
 import { AppTheme } from '../../services/app-theme';
 import { GcodePreview, ROLE_LABELS, scalarChannelFor } from '../../services/gcode-preview';
 import { ObjectTracker } from '../../services/object-tracker';
@@ -26,6 +26,10 @@ import {
   pixelRatioCapFor,
   resolveAntialias,
   type Antialiasing,
+  type SliceThumbnailCapture,
+  type SliceThumbnailRequest,
+  type ThumbnailColorMode,
+  type ThumbnailView,
 } from '../../services/viewer-control';
 
 import { GcodeHoverProbe, type GcodeHoverHit } from './gcode-hover';
@@ -53,6 +57,30 @@ const MODEL_COLOR_LIGHT = 0xccd0d4;
 function modelColor(isDark: boolean): number {
   return isDark ? MODEL_COLOR_DARK : MODEL_COLOR_LIGHT;
 }
+
+/**
+ * Fixed camera directions (world Z-up, target → camera) and up vectors for
+ * each thumbnail preset. Directions are normalised on use. A slight elevation
+ * on the side views reads as a product shot rather than a flat elevation.
+ */
+const THUMBNAIL_VIEW_POSES: Record<ThumbnailView, { dir: Vector3; up: Vector3 }> = {
+  isometric: { dir: new Vector3(1, -1, 0.8), up: new Vector3(0, 0, 1) },
+  front: { dir: new Vector3(0, -1, 0.32), up: new Vector3(0, 0, 1) },
+  rear: { dir: new Vector3(0, 1, 0.32), up: new Vector3(0, 0, 1) },
+  left: { dir: new Vector3(-1, 0, 0.32), up: new Vector3(0, 0, 1) },
+  right: { dir: new Vector3(1, 0, 0.32), up: new Vector3(0, 0, 1) },
+  // Pure top-down: nudge off the pole so the view axis isn't parallel to up,
+  // and orient so the bed's far edge (+Y) points to the top of the image.
+  top: { dir: new Vector3(0, 0.001, 1), up: new Vector3(0, -1, 0) },
+};
+
+/** Solid studio background behind the model in each thumbnail theme. */
+const THUMBNAIL_BG_LIGHT = 0xe9ebee;
+const THUMBNAIL_BG_DARK = 0x212327;
+
+/** How long the outbound thumbnail card lingers on screen (ms). */
+const THUMBNAIL_SHUTTER_MS = 460;
+const THUMBNAIL_POLAROID_MS = 3200;
 
 /**
  * Single-component 3D viewer for both raw meshes and sliced G-code.
@@ -123,6 +151,12 @@ export class Viewer {
   readonly hoverInfo = this.gcodePreview.hoverInfo;
   /** Role display labels for the hover tooltip. */
   protected readonly roleLabels = ROLE_LABELS;
+  /** One-shot white shutter pulse shown while capturing a slice thumbnail. */
+  readonly thumbnailShutterActive = signal(false);
+  /** Data-URL preview card for the outbound thumbnail animation. */
+  readonly thumbnailPolaroidImage = signal<string | null>(null);
+  /** Drives the "slide to top" thumbnail card animation class. */
+  readonly thumbnailPolaroidAnimating = signal(false);
 
   private scene: ViewerScene | null = null;
   private gcode: GcodeOrchestrator | null = null;
@@ -168,6 +202,10 @@ export class Viewer {
     },
   };
   private stopGcodeFloating: (() => void) | null = null;
+  private shutterTimer: ReturnType<typeof setTimeout> | null = null;
+  private polaroidTimer: ReturnType<typeof setTimeout> | null = null;
+  private readonly captureSliceThumbnailSink = (request: SliceThumbnailRequest) =>
+    this.captureSliceThumbnail(request);
 
   constructor() {
     afterNextRender(() => this.initScene());
@@ -181,8 +219,15 @@ export class Viewer {
       this.scene?.dispose();
       this.scene = null;
       this.viewerControl.orbitSink = null;
+      if (this.viewerControl.sliceThumbnailCaptureSink === this.captureSliceThumbnailSink) {
+        this.viewerControl.sliceThumbnailCaptureSink = null;
+      }
       this.stopGcodeFloating?.();
       this.stopGcodeFloating = null;
+      this.clearThumbnailFxTimers();
+      this.thumbnailShutterActive.set(false);
+      this.thumbnailPolaroidAnimating.set(false);
+      this.thumbnailPolaroidImage.set(null);
     });
 
     // Position the G-code inspector tooltip with Floating UI, anchored to a
@@ -626,6 +671,7 @@ export class Viewer {
     };
     // Allow external gizmos (viewport-cube drag) to orbit the main camera.
     this.viewerControl.orbitSink = (azimuth, polar) => this.scene?.orbitBy(azimuth, polar);
+    this.viewerControl.sliceThumbnailCaptureSink = this.captureSliceThumbnailSink;
     // Bridge raycast hits / gizmo gestures from the scene into the WASM
     // scene engine. Selection is stored locally; object manipulation is
     // driven by the gizmo (translate / rotate / scale) and pull-to-floor.
@@ -923,6 +969,140 @@ export class Viewer {
       this.activeSelection.filament()?.color,
     );
   }
+
+  private async captureSliceThumbnail(
+    request: SliceThumbnailRequest,
+  ): Promise<SliceThumbnailCapture | null> {
+    const scene = this.scene;
+    if (!scene) {
+      return null;
+    }
+
+    const targetSize = clampThumbnailSize(request.sizePx);
+    const pose = THUMBNAIL_VIEW_POSES[request.view] ?? THUMBNAIL_VIEW_POSES.isometric;
+    const isTransparent = request.theme === 'transparent';
+    const thumbIsDark = request.theme === 'dark';
+    const liveIsDark = this.appTheme.isDarkMode();
+
+    // The thumbnail has its own colour mode (generic / filament / custom),
+    // independent of the viewer's live filament-colour toggle.
+    const filamentColor = this.activeSelection.filament()?.color;
+    const thumbColor = resolveThumbnailColor(
+      thumbIsDark,
+      request.colorMode,
+      filamentColor,
+      request.customColor,
+    );
+
+    // Build fresh model meshes from the WASM scene engine so the thumbnail
+    // always depicts the model — even when the viewer is currently showing the
+    // G-code preview (whose toolpaths would otherwise be captured and skew the
+    // framing). These are throwaway meshes, never added to the live scene.
+    const subjects = this.buildThumbnailSubjects(thumbColor);
+
+    let dataUrl: string | null = null;
+    try {
+      dataUrl = scene.captureThumbnail({
+        sizePx: targetSize,
+        direction: pose.dir.clone(),
+        up: pose.up.clone(),
+        isDark: thumbIsDark,
+        liveIsDark,
+        background: isTransparent ? null : thumbIsDark ? THUMBNAIL_BG_DARK : THUMBNAIL_BG_LIGHT,
+        subjects: subjects.length > 0 ? subjects : undefined,
+      });
+    } finally {
+      for (const mesh of subjects) {
+        mesh.geometry.dispose();
+        (mesh.material as MeshPhongMaterial).dispose();
+      }
+    }
+
+    if (!dataUrl) {
+      return null;
+    }
+    const comma = dataUrl.indexOf(',');
+    if (comma < 0) {
+      return null;
+    }
+
+    // Only play the camera-flash + polaroid FX when the user is looking at the
+    // model. Re-slicing repeatedly while fine-tuning in the G-code preview
+    // shouldn't fling a polaroid across the screen every time — the thumbnail
+    // is still captured and embedded, just silently.
+    if (this.mode() === 'model') {
+      this.playThumbnailCaptureFx(dataUrl);
+    }
+    return {
+      pngBase64: dataUrl.slice(comma + 1),
+      sizePx: targetSize,
+    };
+  }
+
+  /**
+   * Build detached Three.js meshes for the current model objects straight from
+   * the WASM scene engine's render buffers, painted in the thumbnail colour.
+   * These are used solely for an off-screen thumbnail render and disposed by
+   * the caller — they are never added to the live scene or the selectable set,
+   * so this works identically whether the viewer is in model or G-code mode.
+   */
+  private buildThumbnailSubjects(color: number): Mesh[] {
+    const subjects: Mesh[] = [];
+    const objects = untracked(() => this.sceneEngine.objects());
+    for (const obj of objects) {
+      let buf: ReturnType<SceneEngine['getRenderBuffer']>;
+      try {
+        buf = this.sceneEngine.getRenderBuffer(obj.id);
+      } catch {
+        continue;
+      }
+      const geometry = new BufferGeometry();
+      geometry.setAttribute('position', new BufferAttribute(buf.positions, 3));
+      geometry.setAttribute('normal', new BufferAttribute(buf.normals, 3));
+      geometry.setIndex(new BufferAttribute(buf.indices, 1));
+      geometry.computeBoundingBox();
+      geometry.computeBoundingSphere();
+      const material = new MeshPhongMaterial({ color, flatShading: true, shininess: 16 });
+      const mesh = new Mesh(geometry, material);
+      mesh.matrixAutoUpdate = false;
+      this.tmpMatrix.fromArray(this.sceneEngine.getMatrix(obj.id));
+      mesh.matrix.copy(this.tmpMatrix);
+      mesh.matrixWorldNeedsUpdate = true;
+      subjects.push(mesh);
+    }
+    return subjects;
+  }
+
+  private playThumbnailCaptureFx(dataUrl: string): void {
+    this.clearThumbnailFxTimers();
+    this.thumbnailShutterActive.set(false);
+    this.thumbnailPolaroidAnimating.set(false);
+    this.thumbnailPolaroidImage.set(dataUrl);
+
+    requestAnimationFrame(() => {
+      this.thumbnailShutterActive.set(true);
+      this.thumbnailPolaroidAnimating.set(true);
+    });
+
+    this.shutterTimer = setTimeout(() => {
+      this.thumbnailShutterActive.set(false);
+    }, THUMBNAIL_SHUTTER_MS);
+    this.polaroidTimer = setTimeout(() => {
+      this.thumbnailPolaroidAnimating.set(false);
+      this.thumbnailPolaroidImage.set(null);
+    }, THUMBNAIL_POLAROID_MS);
+  }
+
+  private clearThumbnailFxTimers(): void {
+    if (this.shutterTimer !== null) {
+      clearTimeout(this.shutterTimer);
+      this.shutterTimer = null;
+    }
+    if (this.polaroidTimer !== null) {
+      clearTimeout(this.polaroidTimer);
+      this.polaroidTimer = null;
+    }
+  }
 }
 
 function messageOf(error: unknown): string {
@@ -994,6 +1174,28 @@ function resolveModelColor(
   return parsed ?? modelColor(isDark);
 }
 
+/**
+ * Resolve the model colour for the thumbnail's own colour mode. `generic` uses
+ * the theme-tuned neutral grey; `filament` uses the active filament colour;
+ * `custom` uses the chosen hex. Any unparseable value falls back to grey.
+ */
+function resolveThumbnailColor(
+  isDark: boolean,
+  mode: ThumbnailColorMode,
+  filamentColor: string | null | undefined,
+  customColor: string,
+): number {
+  switch (mode) {
+    case 'filament':
+      return parseHexColor(filamentColor) ?? modelColor(isDark);
+    case 'custom':
+      return parseHexColor(customColor) ?? modelColor(isDark);
+    case 'generic':
+    default:
+      return modelColor(isDark);
+  }
+}
+
 function parseHexColor(raw: string | null | undefined): number | null {
   if (!raw) {
     return null;
@@ -1007,4 +1209,11 @@ function parseHexColor(raw: string | null | undefined): number | null {
   const normalized =
     hex.length === 3 ? `${hex[0]}${hex[0]}${hex[1]}${hex[1]}${hex[2]}${hex[2]}` : hex.toLowerCase();
   return Number.parseInt(normalized, 16);
+}
+
+function clampThumbnailSize(sizePx: number): number {
+  if (!Number.isFinite(sizePx)) {
+    return 320;
+  }
+  return Math.max(64, Math.min(1024, Math.round(sizePx)));
 }

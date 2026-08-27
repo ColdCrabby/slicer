@@ -35,6 +35,30 @@ export type Antialiasing = 'auto' | 'on' | 'off';
  */
 export type RenderQuality = 'performance' | 'balanced' | 'quality';
 
+export interface SliceThumbnailCapture {
+  pngBase64: string;
+  sizePx: number;
+}
+
+/** Fixed camera angle for the embedded thumbnail render. */
+export type ThumbnailView = 'isometric' | 'front' | 'rear' | 'left' | 'right' | 'top';
+
+/** Fixed colour scheme for the embedded thumbnail render. */
+export type ThumbnailTheme = 'light' | 'dark' | 'transparent';
+
+/** How the model is coloured in the thumbnail. */
+export type ThumbnailColorMode = 'generic' | 'filament' | 'custom';
+
+/** A request to render the outbound slice thumbnail from a fixed viewpoint. */
+export interface SliceThumbnailRequest {
+  sizePx: number;
+  view: ThumbnailView;
+  theme: ThumbnailTheme;
+  colorMode: ThumbnailColorMode;
+  /** `#rrggbb` used when `colorMode === 'custom'`. */
+  customColor: string;
+}
+
 /** Default perspective field-of-view in degrees. */
 export const DEFAULT_FIELD_OF_VIEW = 45;
 /** Allowed field-of-view range (degrees) for the settings slider. */
@@ -209,6 +233,24 @@ export class ViewerControl {
    * drags it. Bypasses signal/effect overhead.
    */
   orbitSink: ((azimuth: number, polar: number) => void) | null = null;
+
+  /**
+   * Optional callback exposed by the active 3D viewer to render a square PNG
+   * thumbnail from a fixed camera angle and theme (see
+   * {@link SliceThumbnailRequest}) — deliberately not the live viewport.
+   */
+  sliceThumbnailCaptureSink:
+    ((request: SliceThumbnailRequest) => Promise<SliceThumbnailCapture | null>) | null = null;
+
+  async captureSliceThumbnail(
+    request: SliceThumbnailRequest,
+  ): Promise<SliceThumbnailCapture | null> {
+    const sink = this.sliceThumbnailCaptureSink;
+    if (!sink) {
+      return null;
+    }
+    return sink(request);
+  }
 
   /** Request the viewer to fully reset its camera framing. */
   reset(): void {
