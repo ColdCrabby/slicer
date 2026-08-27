@@ -3,16 +3,13 @@ import type { ElementRef, OnDestroy } from '@angular/core';
 import { Router, RouterLink } from '@angular/router';
 import type { PrinterProfile } from '../../models/printer.model';
 import { ListHistory } from '../../components/list-history/list-history';
-import { GcodePreview } from '../../services/gcode-preview';
 import { NotificationService } from '../../services/notifications';
 import {
   PrinterConnectionService,
   type PrinterProbeState,
 } from '../../services/printer-connection';
 import { PrintersStore } from '../../services/profiles/printers-store';
-import { SceneEngine } from '../../services/scene-engine';
 import { Slicer } from '../../services/slicer';
-import { ViewerControl } from '../../services/viewer-control';
 import { Icon } from '../../shared/icon/icon';
 import { Button } from '../../ui/button/button';
 import { EmptyState } from '../../ui/empty-state/empty-state';
@@ -41,9 +38,6 @@ export class HomeDashboard implements OnDestroy {
   private readonly printersStore = inject(PrintersStore);
   private readonly printerConn = inject(PrinterConnectionService);
   private readonly slicer = inject(Slicer);
-  private readonly sceneEngine = inject(SceneEngine);
-  private readonly gcodePreview = inject(GcodePreview);
-  private readonly viewerControl = inject(ViewerControl);
   private readonly notifications = inject(NotificationService);
 
   /** Re-probe printers periodically so the dashboard reflects live status. */
@@ -97,10 +91,7 @@ export class HomeDashboard implements OnDestroy {
    * the previous model over into the "empty" plate.
    */
   async openEmptyWorkplate(): Promise<void> {
-    this.slicer.reset();
-    this.gcodePreview.clear();
-    this.viewerControl.viewMode.set('model');
-    await this.sceneEngine.clear();
+    await this.slicer.resetWorkplate();
     await this.router.navigate(['/slice', 'new']);
   }
 

@@ -590,6 +590,13 @@ export class GcodePreview {
   /** Object-id set of the previously loaded slice, for scene-change detection. */
   #lastSlicedObjectIds: ReadonlySet<string> | null = null;
 
+  /**
+   * Workplate uuid the current preview belongs to. `undefined` until first
+   * observed so the initial value is adopted without clearing; any later
+   * change means a different plate is active and the preview must be dropped.
+   */
+  #lastWorkplateUuid: string | null | undefined = undefined;
+
   /** Parsed handle — `null` until a slice download URL is available. */
   readonly gcodeHandle = signal<GcodeHandle | null>(null);
 
@@ -710,6 +717,25 @@ export class GcodePreview {
         return;
       }
       void this.#loadFromUrl(url);
+    });
+
+    // Drop the preview the moment the active workplate changes so a new plate
+    // — or a history entry / deep-link opened without re-slicing — never shows
+    // the previous plate's G-code. A reslice keeps the same uuid, so the layer
+    // position and coloring are still preserved by #loadFromUrl.
+    effect(() => {
+      const uuid = this.slicer.currentRequestUuid();
+      untracked(() => {
+        if (this.#lastWorkplateUuid === undefined) {
+          this.#lastWorkplateUuid = uuid;
+          return;
+        }
+        if (uuid === this.#lastWorkplateUuid) {
+          return;
+        }
+        this.#lastWorkplateUuid = uuid;
+        this.clear();
+      });
     });
   }
 

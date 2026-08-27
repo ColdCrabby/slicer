@@ -1,6 +1,6 @@
 import { save } from '@tauri-apps/plugin-dialog';
 import { writeFile } from '@tauri-apps/plugin-fs';
-import { Injectable, computed, inject, signal } from '@angular/core';
+import { Injectable, computed, effect, inject, signal, untracked } from '@angular/core';
 import { environment } from '../../environments/environment';
 import { SlicingParams } from '../../generated/slicer-engine-ws-client-message-v1';
 import type { ProfileSelection } from '../../generated/slicer-engine-ws-client-message-v1';
@@ -207,6 +207,15 @@ export class Slicer {
   private objectUrl: string | null = null;
 
   /**
+   * The workplate uuid the transient slice state currently belongs to.
+   * `undefined` until the first observation so the initial value is adopted
+   * without flushing anything. A change to any *other* value means the active
+   * plate switched (new upload, opened history entry, deep-link) and the
+   * previous plate's slice results must be discarded.
+   */
+  private lastWorkplateUuid: string | null | undefined = undefined;
+
+  /**
    * Overall slice progress 0–100.
    *
    * - When `status === 'done'`, always returns 100.
@@ -262,6 +271,29 @@ export class Slicer {
         ...log,
         `[error] Runtime initialization failed: ${error instanceof Error ? error.message : String(error)}`,
       ]);
+    });
+
+    // Forget the previous plate's slice the instant the active workplate
+    // changes. `startWorkplate` / `resetWorkplate` also flush imperatively,
+    // but opening a history entry or deep-linking to `/slice/:uuid` swaps the
+    // workplate without going through them — this reactive guard keeps the
+    // download URL, progress rail, thumbnail source and view mode from leaking
+    // across plates in those paths too. A reslice keeps the same uuid, so it
+    // never fires mid-job.
+    effect(() => {
+      const uuid = this.currentRequestUuid();
+      untracked(() => {
+        if (this.lastWorkplateUuid === undefined) {
+          this.lastWorkplateUuid = uuid;
+          return;
+        }
+        if (uuid === this.lastWorkplateUuid) {
+          return;
+        }
+        this.lastWorkplateUuid = uuid;
+        this.clearSliceState();
+        this.viewerControl.viewMode.set('model');
+      });
     });
   }
 
@@ -415,6 +447,11 @@ export class Slicer {
   }
 
   async startWorkplate(file: File): Promise<WorkplateStart> {
+    // Clear every trace of the previous plate (file, slice results, scene
+    // objects, view mode) before adopting the new model so nothing bleeds
+    // across — the old download URL, thumbnail source or a leftover scene
+    // object would otherwise ride along into the new workplate.
+    await this.resetWorkplate();
     this.selectFile(file);
 
     if (this.runtimeMode !== 'cloud') {
@@ -495,6 +532,11 @@ export class Slicer {
     this.sliceAbort?.abort();
     this.sliceAbort = new AbortController();
 
+    // Hoisted so the catch block can tell a genuine failure from one caused by
+    // this job being superseded (a workplate switch cancels it, nulling
+    // `activeSliceId`). Assigned once the job is actually dispatched below.
+    let sliceId: string | null = null;
+
     try {
       const model = await this.readRuntimeMeshInput(file);
       const scene = await this.ensureRuntimeReadyForSlice(model);
@@ -529,7 +571,7 @@ export class Slicer {
 
       this.status.set('slicing');
       this.sliceStartedAt = performance.now();
-      const sliceId = this.createSliceId();
+      sliceId = this.createSliceId();
       this.activeSliceId = sliceId;
       this.outputLog.update((log) => [...log, `Starting slice job (${this.runtimeMode})…`]);
 
@@ -558,13 +600,27 @@ export class Slicer {
         profiles: profileSelection,
       });
 
+      // A workplate switch (opening another plate / history entry) cancels the
+      // active slice via `clearSliceState`, which nulls `activeSliceId`. If that
+      // happened while we were awaiting, this job has been superseded — bail out
+      // so its results are never published onto whatever plate is now open.
+      if (this.activeSliceId !== sliceId) {
+        return;
+      }
+
+      const preview = await this.orchestrator.getPreviewSource(result.sliceId);
+      if (this.activeSliceId !== sliceId) {
+        return;
+      }
+
+      // No awaits below this point — publish every result synchronously so a
+      // concurrent workplate switch cannot interleave a partial update.
       // Record which objects this slice was produced from so the viewer can
       // preserve its layer/progress/coloring when the same scene is resliced.
       this.slicedObjectIds.set(scene.objects.map((object) => object.id));
       // Snapshot the scene+settings signature so we can detect later drift.
       this.slicedSignature.set(this.sceneSignature());
 
-      const preview = await this.orchestrator.getPreviewSource(result.sliceId);
       if (preview.kind === 'download-url') {
         this.setDownloadUrl(preview.url);
       }
@@ -596,6 +652,12 @@ export class Slicer {
       ]);
       this.activeSliceId = null;
     } catch (error) {
+      // Swallow the failure of a slice that was superseded by a workplate
+      // switch — surfacing an error here would wrongly mark the new plate as
+      // failed.
+      if (this.activeSliceId !== sliceId) {
+        return;
+      }
       this.status.set('error');
       const errorMsg = error instanceof Error ? error.message : String(error);
       this.outputLog.update((log) => [...log, `[error] Slice failed: ${errorMsg}`]);
@@ -604,20 +666,47 @@ export class Slicer {
     }
   }
 
-  reset(): void {
+  /**
+   * Discard the transient results of the current plate — the in-flight job,
+   * slice output, progress timings, download URL and the sliced-scene
+   * signatures — without touching the selected file's identity. Safe to call
+   * repeatedly. The G-code preview clears itself reactively off the workplate
+   * uuid, so it is intentionally not touched here (which would also introduce
+   * a circular dependency).
+   */
+  private clearSliceState(): void {
     if (this.activeSliceId) {
       void this.orchestrator.cancel(this.activeSliceId);
       this.activeSliceId = null;
     }
-    this.pendingNativeMeshInput = null;
-    this.slicerFile.reset();
-    this.status.set('idle');
+    this.status.set(this.selectedFile() ? 'ready' : 'idle');
     this.outputLog.set([]);
     this.phaseTimings.set([]);
     this.currentPhase.set(null);
+    this.sliceStartedAt = null;
+    this.lastSliceElapsedMs.set(null);
     this.setDownloadUrl(null);
     this.slicedObjectIds.set([]);
     this.slicedSignature.set(null);
+  }
+
+  reset(): void {
+    this.pendingNativeMeshInput = null;
+    this.slicerFile.reset();
+    this.clearSliceState();
+    this.viewerControl.viewMode.set('model');
+  }
+
+  /**
+   * Full teardown for opening a brand-new or empty plate: drops the file and
+   * all slice results (via {@link reset}) and empties the scene engine so no
+   * geometry from the previous plate survives. Every "start a workplate" and
+   * "open an empty plate" entry point funnels through here so the reset is
+   * applied uniformly.
+   */
+  async resetWorkplate(): Promise<void> {
+    this.reset();
+    await this.sceneEngine.clear();
   }
 
   getHistory(): Promise<RuntimeHistorySession[]> {

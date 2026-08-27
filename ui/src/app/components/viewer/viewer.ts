@@ -757,13 +757,23 @@ export class Viewer {
       this.trackedObjectIds = [];
       for (const id of this.wasmMeshes.keys()) {
         this.scene?.unregisterSelectable(String(id));
+      }
+      this.wasmMeshes.clear();
+      // Evict *every* object from the singleton scene engine — not only the
+      // ones this component mirrored. Navigating between workplates destroys
+      // the viewer component but not the WASM engine, so a previous plate's
+      // object can survive in the engine even though this freshly-created
+      // component never tracked it (its `wasmMeshes` map starts empty). Left
+      // behind, that stale mesh would be sliced into the new plate and skew
+      // its thumbnail. Read untracked so this teardown never subscribes the
+      // enclosing effect to the object list it is about to mutate.
+      for (const obj of untracked(() => this.sceneEngine.objects())) {
         try {
-          this.sceneEngine.apply({ op: 'Remove', args: { id } });
+          this.sceneEngine.apply({ op: 'Remove', args: { id: obj.id } });
         } catch {
           // Object may already be gone if the engine reset; safe to ignore.
         }
       }
-      this.wasmMeshes.clear();
       this.handleClearSelection();
       this.dragApplied.clear();
       this.activeModelSource = model;
