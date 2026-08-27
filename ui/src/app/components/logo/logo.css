@@ -1,7 +1,7 @@
 :host {
   display: flex;
   align-items: center;
-  gap: 1ch;
+  gap: 0.5ch;
 }
 
 :host([routerlink]) {
@@ -9,10 +9,11 @@
 }
 
 .nexus-logo {
-  width: 24px;
-  height: 24px;
+  width: 86px;
+  height: var(--titlebar-height, 100%);
 
-  object-fit: contain;
+  object-fit: cover;
+  object-position: left -8px;
   border-radius: var(--radius-md);
 
   user-select: none;
