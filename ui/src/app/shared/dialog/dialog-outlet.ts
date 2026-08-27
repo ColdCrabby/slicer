@@ -8,11 +8,12 @@ import {
   inject,
 } from '@angular/core';
 import { Dialog } from '../../services/dialog';
+import { Button } from '../../ui/button/button';
 
 @Component({
   selector: 'nexus-dialog-outlet',
   standalone: true,
-  imports: [NgComponentOutlet],
+  imports: [NgComponentOutlet, Button],
   templateUrl: './dialog-outlet.html',
   styleUrl: './dialog-outlet.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,

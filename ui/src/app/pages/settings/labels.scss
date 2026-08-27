@@ -25,3 +25,15 @@
   color: var(--color-text-tertiary);
   font-variant-numeric: tabular-nums;
 }
+
+.profile-card__actions button[nexusIconButton].is-confirming {
+  color: var(--color-danger);
+  border-color: color-mix(in oklab, var(--color-danger) 28%, var(--color-border));
+  background: color-mix(in oklab, var(--color-danger) 12%, transparent);
+
+  &:hover {
+    color: var(--color-danger);
+    border-color: color-mix(in oklab, var(--color-danger) 40%, var(--color-border));
+    background: color-mix(in oklab, var(--color-danger) 18%, transparent);
+  }
+}

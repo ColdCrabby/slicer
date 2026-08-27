@@ -58,10 +58,10 @@ jobs:
               echo ""
               echo "### 🍎 macOS"
               echo ""
-              echo "This build is unsigned (no paid Apple Developer ID), so macOS Gatekeeper marks the downloaded app as \"damaged\" — **right-click → Open will not clear this**. After moving **Slicer Engine Desktop** to Applications, run this once in Terminal to strip the quarantine flag and launch it:"
+              echo "This build is unsigned (no paid Apple Developer ID), so macOS Gatekeeper marks the downloaded app as \"damaged\" — **right-click → Open will not clear this**. After moving **Cold Crabby Desktop** to Applications, run this once in Terminal to strip the quarantine flag and launch it:"
               echo ""
               echo '```bash'
-              echo 'xattr -cr "/Applications/Slicer Engine Desktop.app"'
+              echo 'xattr -cr "/Applications/Cold Crabby Desktop.app"'
               echo '```'
             } >> RELEASE_NOTES.md
           fi

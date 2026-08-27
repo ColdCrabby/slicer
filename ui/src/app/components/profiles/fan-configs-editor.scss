@@ -27,6 +27,18 @@
   border-bottom: 1px solid var(--color-border-light);
 }
 
+.fans__head button[nexusIconButton].is-confirming {
+  color: var(--color-danger);
+  border-color: color-mix(in oklab, var(--color-danger) 28%, var(--color-border));
+  background: color-mix(in oklab, var(--color-danger) 12%, transparent);
+
+  &:hover {
+    color: var(--color-danger);
+    border-color: color-mix(in oklab, var(--color-danger) 40%, var(--color-border));
+    background: color-mix(in oklab, var(--color-danger) 18%, transparent);
+  }
+}
+
 .fans__title {
   display: inline-flex;
   align-items: center;
