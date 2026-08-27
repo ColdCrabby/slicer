@@ -12,7 +12,7 @@ The web version runs fully in the browser, so you can slice on an iPad or any de
 
 [![Frontend CI](https://github.com/ColdCrabby/slicer/actions/workflows/ui-ci.yml/badge.svg)](https://github.com/ColdCrabby/slicer/actions/workflows/ui-ci.yml)
 [![Security](https://github.com/ColdCrabby/slicer/actions/workflows/security.yml/badge.svg)](https://github.com/ColdCrabby/slicer/actions/workflows/security.yml)
-[![SLOC](https://img.shields.io/endpoint?url=https%3A%2F%2Fraw.githubusercontent.com%2FColdCrabby%2Fslicer%2Fmain%2F.github%2Fbadges%2Fsloc.json)](https://github.com/ColdCrabby/slicer/actions/workflows/sloc.yml)
+[![SLOC](https://img.shields.io/endpoint?url=https%3A%2F%2Fraw.githubusercontent.com%2FColdCrabby%2Fslicer%2Fbadges%2Fsloc.json)](https://github.com/ColdCrabby/slicer/actions/workflows/sloc.yml)
 
 </div>
 

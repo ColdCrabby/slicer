@@ -2,17 +2,17 @@ name: SLOC
 
 # Keeps the README's source-lines-of-code badge current without any manual work.
 # On every push to main it recounts all git-tracked source (Rust + Angular +
-# everything else) with tokei and rewrites .github/badges/sloc.json, which the
-# README renders through a shields.io endpoint badge. The badge commit carries
-# [skip ci] so it never re-triggers this (or any other) workflow.
+# everything else) with tokei and publishes the number as a shields.io endpoint
+# JSON on the dedicated, unprotected `badges` branch. Main is protected (all
+# changes must go through a PR), so the badge is force-pushed to `badges`
+# instead - a single-commit generated branch the README reads from. Pushes made
+# with GITHUB_TOKEN don't trigger further workflow runs, so there's no loop.
 on:
   push:
     branches: [main]
-    paths-ignore:
-      - ".github/badges/sloc.json"
   workflow_dispatch:
 
-# Needs write access to commit the refreshed badge JSON back to main.
+# Needs write access to force-push the refreshed badge JSON to the badges branch.
 permissions:
   contents: write
 
@@ -33,23 +33,24 @@ jobs:
             | tar xz
           sudo install -m 0755 tokei /usr/local/bin/tokei
 
-      - name: Recount SLOC and refresh badge
+      - name: Recount SLOC and publish badge
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           code=$(tokei --output json | python3 -c "import sys,json;print(json.load(sys.stdin)['Total']['code'])")
           formatted=$(python3 -c "print(f'{$code:,}')")
-          mkdir -p .github/badges
-          printf '{ "schemaVersion": 1, "label": "SLOC", "message": "%s", "color": "orange" }\n' "$formatted" \
-            > .github/badges/sloc.json
           echo "SLOC = $formatted"
 
-      - name: Commit if changed
-        run: |
+          # Build the whole badge branch fresh in a scratch dir so it stays a
+          # single commit (no history growth) and force-push it to `badges`.
+          work=$(mktemp -d)
+          cd "$work"
+          git init -q
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add .github/badges/sloc.json
-          if git diff --staged --quiet; then
-            echo "SLOC badge already up to date."
-          else
-            git commit -m "chore: update SLOC badge [skip ci]"
-            git push
-          fi
+          git checkout -q --orphan badges
+          printf '{ "schemaVersion": 1, "label": "SLOC", "message": "%s", "color": "orange" }\n' "$formatted" \
+            > sloc.json
+          git add sloc.json
+          git commit -q -m "chore: SLOC ${formatted}"
+          git push -q --force "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" badges
