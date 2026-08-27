@@ -75,6 +75,8 @@ const FIELD_LABELS: Record<string, string> = {
   // Output
   path_tolerance: 'Path Tolerance',
   gcode_flavor: 'G-code Flavor',
+  thumbnail_enabled: 'Embed Thumbnail',
+  thumbnail_size_px: 'Thumbnail Size',
   // Mesh
   mesh_quality: 'Mesh Quality',
 };

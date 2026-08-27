@@ -26,6 +26,7 @@ import {
   pixelRatioCapFor,
   resolveAntialias,
   type Antialiasing,
+  type SliceThumbnailCapture,
 } from '../../services/viewer-control';
 
 import { GcodeHoverProbe, type GcodeHoverHit } from './gcode-hover';
@@ -123,6 +124,12 @@ export class Viewer {
   readonly hoverInfo = this.gcodePreview.hoverInfo;
   /** Role display labels for the hover tooltip. */
   protected readonly roleLabels = ROLE_LABELS;
+  /** One-shot white shutter pulse shown while capturing a slice thumbnail. */
+  readonly thumbnailShutterActive = signal(false);
+  /** Data-URL preview card for the outbound thumbnail animation. */
+  readonly thumbnailPolaroidImage = signal<string | null>(null);
+  /** Drives the "slide to top" thumbnail card animation class. */
+  readonly thumbnailPolaroidAnimating = signal(false);
 
   private scene: ViewerScene | null = null;
   private gcode: GcodeOrchestrator | null = null;
@@ -168,6 +175,10 @@ export class Viewer {
     },
   };
   private stopGcodeFloating: (() => void) | null = null;
+  private shutterTimer: ReturnType<typeof setTimeout> | null = null;
+  private polaroidTimer: ReturnType<typeof setTimeout> | null = null;
+  private readonly captureSliceThumbnailSink = (sizePx: number) =>
+    this.captureSliceThumbnail(sizePx);
 
   constructor() {
     afterNextRender(() => this.initScene());
@@ -181,8 +192,15 @@ export class Viewer {
       this.scene?.dispose();
       this.scene = null;
       this.viewerControl.orbitSink = null;
+      if (this.viewerControl.sliceThumbnailCaptureSink === this.captureSliceThumbnailSink) {
+        this.viewerControl.sliceThumbnailCaptureSink = null;
+      }
       this.stopGcodeFloating?.();
       this.stopGcodeFloating = null;
+      this.clearThumbnailFxTimers();
+      this.thumbnailShutterActive.set(false);
+      this.thumbnailPolaroidAnimating.set(false);
+      this.thumbnailPolaroidImage.set(null);
     });
 
     // Position the G-code inspector tooltip with Floating UI, anchored to a
@@ -626,6 +644,7 @@ export class Viewer {
     };
     // Allow external gizmos (viewport-cube drag) to orbit the main camera.
     this.viewerControl.orbitSink = (azimuth, polar) => this.scene?.orbitBy(azimuth, polar);
+    this.viewerControl.sliceThumbnailCaptureSink = this.captureSliceThumbnailSink;
     // Bridge raycast hits / gizmo gestures from the scene into the WASM
     // scene engine. Selection is stored locally; object manipulation is
     // driven by the gizmo (translate / rotate / scale) and pull-to-floor.
@@ -923,6 +942,86 @@ export class Viewer {
       this.activeSelection.filament()?.color,
     );
   }
+
+  private async captureSliceThumbnail(sizePx: number): Promise<SliceThumbnailCapture | null> {
+    const scene = this.scene;
+    if (!scene) {
+      return null;
+    }
+    const source = scene.renderer.domElement;
+    if (source.width <= 0 || source.height <= 0) {
+      return null;
+    }
+
+    scene.renderer.render(scene.scene, scene.camera);
+
+    const targetSize = clampThumbnailSize(sizePx);
+    const canvas = document.createElement('canvas');
+    canvas.width = targetSize;
+    canvas.height = targetSize;
+    const context = canvas.getContext('2d');
+    if (!context) {
+      return null;
+    }
+
+    const sourceSize = Math.min(source.width, source.height);
+    const sourceX = Math.floor((source.width - sourceSize) / 2);
+    const sourceY = Math.floor((source.height - sourceSize) / 2);
+    context.drawImage(
+      source,
+      sourceX,
+      sourceY,
+      sourceSize,
+      sourceSize,
+      0,
+      0,
+      targetSize,
+      targetSize,
+    );
+
+    const dataUrl = canvas.toDataURL('image/png');
+    const comma = dataUrl.indexOf(',');
+    if (comma < 0) {
+      return null;
+    }
+
+    this.playThumbnailCaptureFx(dataUrl);
+    return {
+      pngBase64: dataUrl.slice(comma + 1),
+      sizePx: targetSize,
+    };
+  }
+
+  private playThumbnailCaptureFx(dataUrl: string): void {
+    this.clearThumbnailFxTimers();
+    this.thumbnailShutterActive.set(false);
+    this.thumbnailPolaroidAnimating.set(false);
+    this.thumbnailPolaroidImage.set(dataUrl);
+
+    requestAnimationFrame(() => {
+      this.thumbnailShutterActive.set(true);
+      this.thumbnailPolaroidAnimating.set(true);
+    });
+
+    this.shutterTimer = setTimeout(() => {
+      this.thumbnailShutterActive.set(false);
+    }, 260);
+    this.polaroidTimer = setTimeout(() => {
+      this.thumbnailPolaroidAnimating.set(false);
+      this.thumbnailPolaroidImage.set(null);
+    }, 980);
+  }
+
+  private clearThumbnailFxTimers(): void {
+    if (this.shutterTimer !== null) {
+      clearTimeout(this.shutterTimer);
+      this.shutterTimer = null;
+    }
+    if (this.polaroidTimer !== null) {
+      clearTimeout(this.polaroidTimer);
+      this.polaroidTimer = null;
+    }
+  }
 }
 
 function messageOf(error: unknown): string {
@@ -1007,4 +1106,11 @@ function parseHexColor(raw: string | null | undefined): number | null {
   const normalized =
     hex.length === 3 ? `${hex[0]}${hex[0]}${hex[1]}${hex[1]}${hex[2]}${hex[2]}` : hex.toLowerCase();
   return Number.parseInt(normalized, 16);
+}
+
+function clampThumbnailSize(sizePx: number): number {
+  if (!Number.isFinite(sizePx)) {
+    return 320;
+  }
+  return Math.max(64, Math.min(1024, Math.round(sizePx)));
 }

@@ -1356,6 +1356,31 @@ Caps print speed so the hotend can keep up with the flow.
     )]
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub layer_gcode: Option<String>,
+
+    #[schemars(
+        description = "Embed a PNG thumbnail comment block in generated G-code files. \
+                       The image is captured from the current viewport when slicing \
+                       from the UI.",
+        extend("x-group" = "Output")
+    )]
+    #[serde(default = "SlicingParams::default_thumbnail_enabled")]
+    pub thumbnail_enabled: bool,
+
+    #[schemars(
+        description = "Square thumbnail size in pixels when `thumbnail_enabled` is true.",
+        extend("x-group" = "Output", "x-relevant-when" = serde_json::json!({"field": "thumbnail_enabled", "equals": true}))
+    )]
+    #[serde(default = "SlicingParams::default_thumbnail_size_px")]
+    pub thumbnail_size_px: u32,
+
+    /// Optional base64-encoded PNG payload for the current slice request.
+    ///
+    /// This is an ephemeral request-scoped value (not a user-facing setting),
+    /// intentionally excluded from JSON schema so the settings UI does not
+    /// render it as an editable field.
+    #[schemars(skip)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub thumbnail_png_base64: Option<String>,
 }
 
 /// Schema helper: emit the full [`SlicingParams`] schema for a
@@ -1463,6 +1488,9 @@ impl Default for SlicingParams {
             start_gcode: None,
             end_gcode: None,
             layer_gcode: None,
+            thumbnail_enabled: Self::default_thumbnail_enabled(),
+            thumbnail_size_px: Self::default_thumbnail_size_px(),
+            thumbnail_png_base64: None,
         }
     }
 }
@@ -1551,6 +1579,12 @@ impl SlicingParams {
     }
     fn default_ironing_enabled() -> bool {
         false
+    }
+    fn default_thumbnail_enabled() -> bool {
+        true
+    }
+    fn default_thumbnail_size_px() -> u32 {
+        320
     }
 }
 
@@ -2032,6 +2066,9 @@ mod tests {
         assert_eq!(params.z_hop_mm, 0.2);
         assert_eq!(params.retract_mm, 1.0);
         assert_eq!(params.path_tolerance, 0.05);
+        assert!(params.thumbnail_enabled);
+        assert_eq!(params.thumbnail_size_px, 320);
+        assert!(params.thumbnail_png_base64.is_none());
     }
 
     #[test]
@@ -2067,5 +2104,11 @@ mod tests {
         assert_eq!(params.z_hop_mm, 0.2, "default z-hop");
         assert_eq!(params.retract_mm, 1.0, "default retract");
         assert_eq!(params.path_tolerance, 0.05, "default path tolerance");
+        assert!(params.thumbnail_enabled, "default thumbnail enabled");
+        assert_eq!(params.thumbnail_size_px, 320, "default thumbnail size");
+        assert!(
+            params.thumbnail_png_base64.is_none(),
+            "default thumbnail payload absent"
+        );
     }
 }

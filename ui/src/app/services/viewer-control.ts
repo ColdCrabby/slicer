@@ -35,6 +35,11 @@ export type Antialiasing = 'auto' | 'on' | 'off';
  */
 export type RenderQuality = 'performance' | 'balanced' | 'quality';
 
+export interface SliceThumbnailCapture {
+  pngBase64: string;
+  sizePx: number;
+}
+
 /** Default perspective field-of-view in degrees. */
 export const DEFAULT_FIELD_OF_VIEW = 45;
 /** Allowed field-of-view range (degrees) for the settings slider. */
@@ -209,6 +214,21 @@ export class ViewerControl {
    * drags it. Bypasses signal/effect overhead.
    */
   orbitSink: ((azimuth: number, polar: number) => void) | null = null;
+
+  /**
+   * Optional callback exposed by the active 3D viewer to capture a square PNG
+   * thumbnail from the current viewport.
+   */
+  sliceThumbnailCaptureSink: ((sizePx: number) => Promise<SliceThumbnailCapture | null>) | null =
+    null;
+
+  async captureSliceThumbnail(sizePx: number): Promise<SliceThumbnailCapture | null> {
+    const sink = this.sliceThumbnailCaptureSink;
+    if (!sink) {
+      return null;
+    }
+    return sink(sizePx);
+  }
 
   /** Request the viewer to fully reset its camera framing. */
   reset(): void {

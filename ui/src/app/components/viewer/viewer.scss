@@ -13,6 +13,60 @@
   inset: 0;
 }
 
+:host {
+  --thumbnail-shutter-peak-opacity: 0.18;
+}
+
+:host-context(.dark) {
+  --thumbnail-shutter-peak-opacity: 0.12;
+}
+
+.capture-shutter {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 11;
+  opacity: 0;
+  background: color-mix(in oklab, #fff 82%, transparent);
+}
+
+.capture-shutter.is-active {
+  animation: capture-shutter-fade 260ms var(--ease-decelerate) both;
+}
+
+.capture-polaroid {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  pointer-events: none;
+  z-index: 11;
+}
+
+.capture-polaroid-card {
+  width: min(220px, 28vw);
+  aspect-ratio: 1 / 1.18;
+  padding: 10px 10px 26px;
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+  border: 1px solid var(--color-border-light);
+  box-shadow: var(--shadow-lg);
+  opacity: 0;
+  transform: translateY(14px) scale(0.9) rotate(-2.5deg);
+
+  img {
+    width: 100%;
+    height: auto;
+    display: block;
+    border-radius: 2px;
+    box-shadow: var(--shadow-xs);
+  }
+}
+
+.capture-polaroid.is-animating .capture-polaroid-card {
+  animation: capture-polaroid-flyout 980ms var(--ease-decelerate) both;
+}
+
 .gcode-tooltip {
   z-index: 10;
   pointer-events: none;
@@ -96,4 +150,38 @@
 .viewer-chip-aux {
   color: var(--color-text-tertiary);
   margin-left: 6px;
+}
+
+@keyframes capture-shutter-fade {
+  0% {
+    opacity: 0;
+  }
+  32% {
+    opacity: var(--thumbnail-shutter-peak-opacity);
+  }
+  100% {
+    opacity: 0;
+  }
+}
+
+@keyframes capture-polaroid-flyout {
+  0% {
+    opacity: 0;
+    transform: translateY(14px) scale(0.9) rotate(-2.5deg);
+  }
+  16% {
+    opacity: 1;
+    transform: translateY(0) scale(1) rotate(-1deg);
+  }
+  100% {
+    opacity: 0;
+    transform: translateY(-120vh) scale(0.84) rotate(5deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .capture-shutter.is-active,
+  .capture-polaroid.is-animating .capture-polaroid-card {
+    animation: none;
+  }
 }

@@ -64,6 +64,8 @@ export function defaultProcessParams(): Record<string, unknown> {
     support_threshold_angle: 55,
     adhesion_type: 'skirt',
     skirt_loops: 1,
+    thumbnail_enabled: true,
+    thumbnail_size_px: 320,
   };
 }
 

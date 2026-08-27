@@ -1,4 +1,16 @@
 <div class="viewer-host" #host></div>
+<div class="capture-shutter" [class.is-active]="thumbnailShutterActive()" aria-hidden="true"></div>
+@if (thumbnailPolaroidImage(); as thumbnailImage) {
+  <div
+    class="capture-polaroid"
+    [class.is-animating]="thumbnailPolaroidAnimating()"
+    aria-hidden="true"
+  >
+    <div class="capture-polaroid-card">
+      <img [src]="thumbnailImage" alt="" />
+    </div>
+  </div>
+}
 @if (hoverInfo(); as h) {
   <div class="gcode-tooltip" #gcodeTooltip>
     <div class="gcode-tooltip-value">{{ h.valueLabel }}</div>
