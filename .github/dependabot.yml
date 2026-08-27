@@ -13,6 +13,15 @@ updates:
       cargo-minor-patch:
         patterns: ["*"]
         update-types: [minor, patch]
+    ignore:
+      # `getrandom` is declared here only to turn on its `wasm_js` backend for
+      # the copy pulled in transitively by `ahash -> tobj`, which is still
+      # pinned to getrandom 0.3. Bumping our direct dependency to 0.4 desyncs
+      # the two majors (nothing enables `wasm_js` on the 0.3 copy any more) and
+      # breaks the wasm32-unknown-unknown build. Revisit once tobj/ahash move
+      # to getrandom 0.4. (Supersedes the un-mergeable bump in upstream #137.)
+      - dependency-name: "getrandom"
+        update-types: ["version-update:semver-major"]
 
   # ── npm / pnpm workspace (single root lockfile spans ui, ui-desktop, docs) ──
   - package-ecosystem: npm
@@ -26,6 +35,13 @@ updates:
       npm-minor-patch:
         patterns: ["*"]
         update-types: [minor, patch]
+    ignore:
+      # Angular pins `typescript` to ">=6.0 <6.1", so TypeScript 7 (the native
+      # "tsgo" port) cannot be used until Angular widens its peer range. Stay on
+      # the Angular-supported 6.0.x line. (Supersedes the un-mergeable bump in
+      # upstream #144.)
+      - dependency-name: "typescript"
+        update-types: ["version-update:semver-major"]
 
   # ── GitHub Actions used by the workflows ────────────────────────────────────
   - package-ecosystem: github-actions

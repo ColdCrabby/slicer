@@ -189,10 +189,7 @@ impl Database {
             ..Default::default()
         };
 
-        let result = requests::Entity::update(model)
-            .filter(requests::Column::RequestUuid.eq(request_uuid.to_string()))
-            .exec(&self.conn)
-            .await;
+        let result = requests::Entity::update(model).exec(&self.conn).await;
 
         match result {
             Ok(_) => Ok(()),
@@ -237,10 +234,7 @@ impl Database {
             ..Default::default()
         };
 
-        requests::Entity::update(req_model)
-            .filter(requests::Column::RequestUuid.eq(request_uuid.to_string()))
-            .exec(&self.conn)
-            .await?;
+        requests::Entity::update(req_model).exec(&self.conn).await?;
 
         Ok(())
     }
@@ -265,10 +259,7 @@ impl Database {
             ..Default::default()
         };
 
-        requests::Entity::update(model)
-            .filter(requests::Column::RequestUuid.eq(request_uuid.to_string()))
-            .exec(&self.conn)
-            .await?;
+        requests::Entity::update(model).exec(&self.conn).await?;
 
         Ok(())
     }
@@ -494,7 +485,7 @@ impl Database {
     pub async fn set_updated_at_for_test(&self, request_uuid: Uuid, timestamp: &str) -> Result<()> {
         use sea_orm::ConnectionTrait;
         self.conn
-            .execute(sea_orm::Statement::from_sql_and_values(
+            .execute_raw(sea_orm::Statement::from_sql_and_values(
                 sea_orm::DatabaseBackend::Sqlite,
                 "UPDATE requests SET updated_at = $1 WHERE request_uuid = $2",
                 [timestamp.into(), request_uuid.to_string().into()],

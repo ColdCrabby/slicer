@@ -1,9 +1,5 @@
 export type RuntimeErrorCode =
-  | 'not_ready'
-  | 'unsupported'
-  | 'transport_error'
-  | 'invalid_request'
-  | 'internal_error';
+  'not_ready' | 'unsupported' | 'transport_error' | 'invalid_request' | 'internal_error';
 
 export interface RuntimeError {
   code: RuntimeErrorCode;

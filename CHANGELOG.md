@@ -70,6 +70,19 @@ these notes and acknowledges contributors. `scripts/gen-changelog-draft.sh` and
   JSON), so a deployed build can be pinned to a precise source revision instead
   of just an official version number.
 
+### Changed
+
+- **Dependency maintenance** — cleared the outstanding Dependabot backlog. The
+  Angular front-end moves to the 22.x line (all `@angular/*` packages, the
+  Angular CLI/build toolchain, `@angular/cdk`, and `ngx-markdown`) on
+  TypeScript 6.0; the Rust engine moves to `sea-orm` 2.0 and `reqwest` 0.13; and
+  the grouped npm minor/patch bumps (three.js, monaco-editor, vitest, prettier,
+  fuse.js, iconoir, mermaid, the Tauri CLI, …) are applied. Two proposed bumps
+  are intentionally held back and ignored by Dependabot going forward:
+  TypeScript 7 (Angular pins `typescript` to `>=6.0 <6.1`) and `getrandom` 0.4
+  (declared only to enable the `wasm_js` backend for the 0.3 copy that
+  `tobj`/`ahash` still require). No behavioural changes to sliced output.
+
 ## [0.1.0] - 2026-08-23
 
 ### Added
