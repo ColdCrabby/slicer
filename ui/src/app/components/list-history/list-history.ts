@@ -2,6 +2,7 @@ import { Component, inject } from '@angular/core';
 import { Router } from '@angular/router';
 import type { RuntimeHistorySession } from '../../runtime/domain/history-models';
 import { ContextMenuService } from '../../services/context-menu/context-menu.service';
+import { ContextMenuTrigger } from '../../services/context-menu/context-menu-trigger';
 import type { ContextMenuItem } from '../../services/context-menu/context-menu.model';
 import { History } from '../../services/history';
 import { WorkplateNames } from '../../services/workplate-names';
@@ -11,7 +12,7 @@ import { Button } from '../../ui/button/button';
 @Component({
   selector: 'nexus-list-history',
   standalone: true,
-  imports: [Button, Icon],
+  imports: [Button, Icon, ContextMenuTrigger],
   templateUrl: './list-history.component.html',
   styleUrl: './list-history.component.scss',
 })

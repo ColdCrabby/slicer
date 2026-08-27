@@ -15,6 +15,7 @@ import { parseSchema } from '../../schema-form/models/schema-parser';
 import type { SchemaGroup } from '../../schema-form/models/field-def';
 import { CloudCatalog } from '../../services/catalog/cloud-catalog';
 import { ContextMenuService } from '../../services/context-menu/context-menu.service';
+import { ContextMenuTrigger } from '../../services/context-menu/context-menu-trigger';
 import type { ContextMenuItem } from '../../services/context-menu/context-menu.model';
 import { Dialog } from '../../services/dialog';
 import { ActiveSelection } from '../../services/profiles/active-selection';
@@ -82,6 +83,7 @@ const PARAM_GROUPS: SchemaGroup[] = (() => {
     Segmented,
     LabelFilterBar,
     LabelPicker,
+    ContextMenuTrigger,
   ],
   templateUrl: './profiles.html',
   styleUrl: './profiles.scss',
