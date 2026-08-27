@@ -112,6 +112,10 @@ pub(crate) fn volumetric_capped_speed_mm_min(
 /// Resolve the extrusion width for a path.
 ///
 /// Precedence (first match wins):
+/// 0. **Solid top/bottom surface fill** (no explicit/per-vertex width) is
+///    charged at its *line spacing* (`solid_surface_line_spacing`), not a
+///    nominal bead width, so it deposits `spacing × layer_height` and fills the
+///    surface exactly instead of over-extruding it (see the inline note).
 /// 1. A per-role width override (`outer_wall_line_width`, `inner_wall_line_width`,
 ///    `top_surface_line_width`, `sparse_infill_line_width`) when set (`> 0`) —
 ///    but only for **constant-width** paths (`has_vertex_widths == false`). This
@@ -131,6 +135,26 @@ pub(crate) fn resolve_width_mm(
     params: &SlicingParams,
 ) -> f64 {
     use crate::core::ExtrusionRole;
+
+    // Solid top/bottom surface fill is laid at `solid_surface_line_spacing` (the
+    // libslic3r/Orca stadium pitch, ≈ 0.357 mm at a 0.4 mm nozzle / 0.2 mm
+    // layers), so each line must deposit `spacing × layer_height` of filament —
+    // the volume of the strip it fills — *not* the full nominal bead width.
+    // Charging solid surfaces at the wider nominal width over-extrudes them by
+    // `width / spacing` (≈ 13 % at nozzle width, ≈ 23 % once `line_width` >
+    // nozzle): the raised / blobby top-surface defect. Matching the flow to the
+    // spacing mirrors PrusaSlicer/Orca (`mm³/mm = spacing × height`) and lays a
+    // flat surface. Bridges (their own role, explicit width) are unaffected.
+    if explicit.is_none()
+        && !has_vertex_widths
+        && matches!(
+            role,
+            ExtrusionRole::TopSurface | ExtrusionRole::BottomSurface
+        )
+    {
+        let nominal = crate::core::solid_surface_nominal_width_mm(params);
+        return crate::core::solid_surface_line_spacing(nominal, params.layer_height);
+    }
 
     // A per-role override wins over the constant, generator-stamped width for
     // its role (walls included). Skipped for variable-width beads, whose
@@ -1593,14 +1617,22 @@ mod tests {
     #[test]
     fn resolve_width_line_width_applies_to_infill_and_surfaces() {
         let params = params_with_line_width(0.44);
+        // Sparse infill lays an isolated bead → honours the generic line width.
+        assert_eq!(
+            resolve_width_mm(None, false, crate::core::ExtrusionRole::Infill, &params),
+            0.44
+        );
+        // Solid top/bottom surfaces are charged at the fill *line spacing*
+        // derived from the same 0.44 nominal width, so the flow matches the fill
+        // geometry (`mm³/mm = spacing × height`) and the surface stays flat.
+        let expect = crate::core::solid_surface_line_spacing(0.44, params.layer_height);
         for role in [
-            crate::core::ExtrusionRole::Infill,
             crate::core::ExtrusionRole::TopSurface,
             crate::core::ExtrusionRole::BottomSurface,
         ] {
             assert_eq!(
                 resolve_width_mm(None, false, role, &params),
-                0.44,
+                expect,
                 "{role:?}"
             );
         }
@@ -1659,9 +1691,13 @@ mod tests {
             resolve_width_mm(None, false, crate::core::ExtrusionRole::Infill, &params),
             0.7
         );
+        // Solid surfaces honour the per-role override for their nominal width,
+        // but are charged at the line spacing derived from it so the deposited
+        // volume matches the fill (no over-extrusion).
+        let expect = crate::core::solid_surface_line_spacing(0.35, params.layer_height);
         assert_eq!(
             resolve_width_mm(None, false, crate::core::ExtrusionRole::TopSurface, &params),
-            0.35
+            expect
         );
         // Bottom surfaces share the top-surface override field.
         assert_eq!(
@@ -1671,7 +1707,7 @@ mod tests {
                 crate::core::ExtrusionRole::BottomSurface,
                 &params
             ),
-            0.35
+            expect
         );
     }
 

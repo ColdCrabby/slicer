@@ -16,6 +16,11 @@ pub use surfaces::{
     generate_top_bottom_surfaces, generate_top_bottom_surfaces_with_interior, SurfaceConfig,
     SurfaceSubTimings,
 };
+// Solid-surface line pitch + its nominal-width basis, shared with the G-code
+// generator so the flow it charges for each top/bottom fill line matches the
+// pitch the lines are laid at (deposited volume = spacing × layer_height, no
+// over-extrusion) and both honour `top_surface_line_width` / `line_width`.
+pub(crate) use surfaces::{solid_surface_line_spacing, solid_surface_nominal_width_mm};
 pub use types::{ExtrusionRole, SliceLayer};
 
 #[cfg(test)]
@@ -1232,6 +1237,7 @@ mod tests {
                 layer_height: 0.2,
                 infill_angle: 0.0,
                 nozzle_diameter_mm,
+                solid_surface_line_width_mm: 0.0,
                 bridge_flow_ratio,
                 bridge_min_area_mm2: 0.0,
                 bridge_noise_filter_mm: 0.0,
@@ -1503,6 +1509,7 @@ mod tests {
                 layer_height: 0.2,
                 infill_angle: 45.0,
                 nozzle_diameter_mm: 0.4,
+                solid_surface_line_width_mm: 0.0,
                 bridge_flow_ratio: 0.8,
                 bridge_min_area_mm2: 1.0,
                 bridge_noise_filter_mm: 0.0,
@@ -1562,6 +1569,7 @@ mod tests {
                 layer_height: 0.2,
                 infill_angle: 0.0,
                 nozzle_diameter_mm: 0.4,
+                solid_surface_line_width_mm: 0.0,
                 bridge_flow_ratio: 0.8,
                 bridge_min_area_mm2: 0.0,
                 bridge_noise_filter_mm: 0.5,
@@ -1619,6 +1627,7 @@ mod tests {
             layer_height: 0.2,
             infill_angle: 0.0,
             nozzle_diameter_mm: 0.4,
+            solid_surface_line_width_mm: 0.0,
             bridge_flow_ratio: 0.8,
             bridge_min_area_mm2: 0.0,
             bridge_noise_filter_mm: 0.0,
@@ -1721,6 +1730,7 @@ mod tests {
                 layer_height: 0.2,
                 infill_angle: 45.0,
                 nozzle_diameter_mm: 0.4,
+                solid_surface_line_width_mm: 0.0,
                 bridge_flow_ratio: 0.8,
                 bridge_min_area_mm2: 0.0, // disable area filter so small porthole still passes
                 bridge_noise_filter_mm: 0.0, // disable noise filter
@@ -1781,6 +1791,7 @@ mod tests {
                 layer_height: 0.2,
                 infill_angle: 45.0,
                 nozzle_diameter_mm: 0.4,
+                solid_surface_line_width_mm: 0.0,
                 bridge_flow_ratio: 0.8,
                 bridge_min_area_mm2: 0.0,
                 bridge_noise_filter_mm: 0.0,
@@ -1899,6 +1910,7 @@ mod tests {
                 layer_height: 0.2,
                 infill_angle: 45.0,
                 nozzle_diameter_mm: 0.4,
+                solid_surface_line_width_mm: 0.0,
                 bridge_flow_ratio: 0.8,
                 bridge_min_area_mm2: 0.0,
                 bridge_noise_filter_mm: 0.0,
@@ -2000,6 +2012,7 @@ mod tests {
                 layer_height: 0.2,
                 infill_angle: 45.0,
                 nozzle_diameter_mm: 0.4,
+                solid_surface_line_width_mm: 0.0,
                 bridge_flow_ratio: 0.8,
                 bridge_min_area_mm2: 0.0,
                 bridge_noise_filter_mm: 0.0,
@@ -2091,6 +2104,7 @@ mod tests {
                 layer_height: 0.2,
                 infill_angle: 45.0,
                 nozzle_diameter_mm: 0.4,
+                solid_surface_line_width_mm: 0.0,
                 bridge_flow_ratio: 0.8,
                 bridge_min_area_mm2: 0.0,
                 bridge_noise_filter_mm: 0.0,
@@ -2171,6 +2185,7 @@ mod tests {
                     layer_height: 0.2,
                     infill_angle: 45.0,
                     nozzle_diameter_mm: 0.4,
+                    solid_surface_line_width_mm: 0.0,
                     bridge_flow_ratio: 0.8,
                     // Keep the noise/area filters off so the ONLY thing that can
                     // suppress the bridge is the opened-interior clip under test.

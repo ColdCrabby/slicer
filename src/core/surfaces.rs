@@ -4,6 +4,7 @@ use std::time::Instant;
 use clipper2::*;
 
 use super::types::{ExtrusionRole, SliceLayer};
+use crate::settings::params::SlicingParams;
 
 /// Extract only outer-wall paths from a layer for use in surface detection.
 ///
@@ -54,15 +55,42 @@ fn union_or_first(a: Paths, b: Paths) -> Paths {
 ///
 /// A round-capped bead of nominal width `w` and height `h` only occupies
 /// `w − h·(1 − π/4)` of lateral pitch when packed solid (its rounded sides
-/// interlock), so spacing lines exactly `w` apart leaves a lattice of holes —
-/// the "surfaces with holes" defect. The earlier `1.2 × layer_height` rule
-/// erred the opposite way (0.24 mm at 0.4 mm/0.2 mm ≈ 40 % bead overlap, heavy
-/// over-extrusion). This relation is the battle-tested middle ground: ≈ 11 %
-/// overlap at 0.4 mm nozzle / 0.2 mm layers (0.357 mm pitch), scaling the
-/// overlap correctly with layer height.
-fn solid_surface_line_spacing(extrusion_width_mm: f64, layer_height_mm: f64) -> f64 {
+/// interlock), so the fill lines are laid this far apart — ≈ 0.357 mm at a
+/// 0.4 mm nozzle / 0.2 mm layers — rather than a full `w` apart. The earlier
+/// `1.2 × layer_height` rule packed them far tighter (0.24 mm), heavily
+/// over-extruding every solid surface.
+///
+/// **The returned value is also the effective flow width.** The G-code
+/// generator charges each solid-surface line at `spacing × layer_height`
+/// (see `resolve_width_mm`), *not* the wider nominal bead width, mirroring
+/// PrusaSlicer/Orca's `mm³/mm = spacing × height`. Charging the full nominal
+/// width into the narrower pitch would over-extrude every solid surface by
+/// `width / spacing` (≈ 13 % at nozzle width, ≈ 23 % once `line_width > nozzle`)
+/// — the raised / blobby top-surface defect. Matching the flow to the spacing
+/// fills the surface exactly: no gaps, no bulge.
+pub(crate) fn solid_surface_line_spacing(extrusion_width_mm: f64, layer_height_mm: f64) -> f64 {
     const CAP_CORRECTION: f64 = 1.0 - std::f64::consts::FRAC_PI_4; // ≈ 0.2146
     (extrusion_width_mm - layer_height_mm * CAP_CORRECTION).max(0.01)
+}
+
+/// Nominal solid top/bottom **surface** extrusion width (mm), before the
+/// [`solid_surface_line_spacing`] cap-correction.
+///
+/// This is the single source of truth for the width that both the surface fill
+/// *line spacing* (in [`generate_top_bottom_surfaces_with_interior`]) and the
+/// G-code *flow* (`resolve_width_mm`) derive from, so the two always agree and
+/// solid surfaces neither over- nor under-extrude. Resolution mirrors
+/// `resolve_width_mm`: an explicit `top_surface_line_width`, else the generic
+/// `line_width`, else the nozzle diameter (the fill's natural bead width, and
+/// the historical spacing basis).
+pub(crate) fn solid_surface_nominal_width_mm(params: &SlicingParams) -> f64 {
+    if params.top_surface_line_width > 0.0 {
+        params.top_surface_line_width
+    } else if params.line_width > 0.0 {
+        params.line_width
+    } else {
+        params.nozzle_diameter_mm
+    }
 }
 
 /// Solid top/bottom surface fill direction alternates by 90° every layer so
@@ -1140,6 +1168,7 @@ pub fn generate_top_bottom_surfaces(
             layer_height,
             infill_angle,
             nozzle_diameter_mm: 0.4,
+            solid_surface_line_width_mm: 0.0,
             min_infill_extrusion_mm: 0.0,
             bridge_flow_ratio: 0.8,
             bridge_min_area_mm2: 0.5,
@@ -1169,9 +1198,10 @@ pub struct SurfaceConfig {
     pub bottom_layers: usize,
     /// Layer height in mm.
     ///
-    /// Retained for callers and future adaptive-spacing use; solid top/bottom
-    /// surface line spacing is now derived from `nozzle_diameter_mm` (the solid
-    /// extrusion width), matching Orca/SuperSlicer, **not** the layer height.
+    /// Together with `solid_surface_line_width_mm` it sets the solid top/bottom
+    /// surface line pitch via [`solid_surface_line_spacing`] (the
+    /// libslic3r/Orca stadium relation), and the G-code generator charges each
+    /// fill line at `spacing × layer_height` so surfaces fill flat.
     pub layer_height: f64,
     /// Base angle in degrees for top/bottom solid infill lines (e.g. 45).
     ///
@@ -1180,6 +1210,14 @@ pub struct SurfaceConfig {
     pub infill_angle: f64,
     /// Nozzle diameter in mm, used for bridge line spacing and extrusion width.
     pub nozzle_diameter_mm: f64,
+    /// Nominal solid top/bottom surface extrusion width in mm — the width the
+    /// fill line *spacing* is derived from (via [`solid_surface_line_spacing`]),
+    /// kept in lock-step with the G-code flow so surfaces fill exactly.
+    ///
+    /// `0.0` (or any non-positive value) means "derive from `nozzle_diameter_mm`".
+    /// Production callers set it to [`solid_surface_nominal_width_mm`] so an
+    /// explicit `top_surface_line_width` / generic `line_width` is honoured.
+    pub solid_surface_line_width_mm: f64,
     /// Minimum absolute length (mm) for a solid infill scan-line segment to be
     /// emitted.  Segments shorter than this are discarded — they would produce
     /// a tiny, mechanically useless extrusion and waste printhead motion.
@@ -1921,7 +1959,17 @@ pub fn generate_top_bottom_surfaces_with_interior(
         // fill lines overlap (extrusion-spacing relation) so the surface has no
         // gaps between adjacent beads even under the cross-hatch.
         let layer_infill_angle = surface_infill_angle_for_layer(infill_angle, i);
-        let solid_line_spacing = solid_surface_line_spacing(nozzle_diameter_mm, layer_height);
+        // Line pitch derives from the solid-surface extrusion width (honouring
+        // `top_surface_line_width` / `line_width`, falling back to the nozzle),
+        // and the G-code generator charges each line at exactly this pitch —
+        // `mm³/mm = spacing × layer_height` — so surfaces fill flat, never
+        // raised/over-extruded.
+        let surface_width = if config.solid_surface_line_width_mm > 0.0 {
+            config.solid_surface_line_width_mm
+        } else {
+            nozzle_diameter_mm
+        };
+        let solid_line_spacing = solid_surface_line_spacing(surface_width, layer_height);
 
         if !bottom_region.is_empty() {
             #[cfg(not(target_arch = "wasm32"))]
@@ -2500,6 +2548,7 @@ mod tests {
                 layer_height: 0.2,
                 infill_angle: 45.0,
                 nozzle_diameter_mm: 0.4,
+                solid_surface_line_width_mm: 0.0,
                 min_infill_extrusion_mm: 0.0,
                 bridge_flow_ratio: 1.0,
                 bridge_min_area_mm2: 1.0,
