@@ -21,13 +21,9 @@ export class ListHistory {
   readonly #workplateNames = inject(WorkplateNames);
   readonly #contextMenu = inject(ContextMenuService);
 
-  /** Custom workplate name if the user set one, otherwise the source filename. */
+  /** Custom workplate name, or a default derived from the first uploaded model. */
   displayName(session: RuntimeHistorySession): string {
-    return (
-      this.#workplateNames.nameFor(session.request_uuid) ??
-      session.original_filename ??
-      'unknown.stl'
-    );
+    return this.#workplateNames.displayNameFor(session.request_uuid, session.original_filename);
   }
 
   navigate(session: RuntimeHistorySession): void {
