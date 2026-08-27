@@ -173,7 +173,7 @@ function showLayerRange(layers: LayerInfo[], min: number, max: number, prevMax: 
   if (prevInfo && prevMax !== max) {
     for (const rs of prevInfo.roleSegments) {
       if (rs.mesh) rs.mesh.count = rs.count;
-      if (rs.joints) rs.joints.count = rs.count * 2;
+      if (rs.joints) rs.joints.count = rs.count;
       if (rs.lines) rs.lines.geometry.setDrawRange(0, Infinity);
     }
   }
