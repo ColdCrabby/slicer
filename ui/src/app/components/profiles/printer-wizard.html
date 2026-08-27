@@ -52,6 +52,15 @@
                 </p>
               }
             }
+            @if (detecting()) {
+              <p class="wz-detect__msg">
+                <nexus-icon name="refresh" />
+                <span>
+                  Querying printer details… this can take up to about a minute on large Klipper /
+                  Klippain setups.
+                </span>
+              </p>
+            }
             @if (!detectResult()?.reachable) {
               <p class="wz-detect__hint">
                 Works best with Klipper / Moonraker (bed size, nozzle and kinematics), and
@@ -82,11 +91,19 @@
               </dl>
 
               @if (detectedKlipper()) {
-                <div class="wz-step">
-                  <p class="wz-detect__msg">
-                    <nexus-icon name="info-circle" />
-                    <span> Klipper detected. Do you run Klippain on this printer? </span>
-                  </p>
+                <div class="wz-macros">
+                  <div class="wz-macros__head">
+                    <span class="wz-macros__q">Which start / end macros does it use?</span>
+                    <a
+                      class="wz-macros__learn"
+                      [href]="klippainReadmeUrl"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                    >
+                      What's Klippain?
+                      <nexus-icon name="open-new-window" />
+                    </a>
+                  </div>
 
                   <nexus-segmented
                     [options]="klipperMacroOptions"
@@ -95,38 +112,8 @@
                     (valueChange)="setKlipperMacroChoice($event)"
                   />
 
-                  <p class="wz-detect__hint">
-                    Not sure? Klippain info is available on the project links below.
-                  </p>
-
-                  <div class="wz-detected__actions-end">
-                    <a
-                      nexusButton
-                      variant="ghost"
-                      size="sm"
-                      [href]="klippainRepoUrl"
-                      target="_blank"
-                      rel="noopener noreferrer"
-                    >
-                      Klippain repo
-                    </a>
-                    <a
-                      nexusButton
-                      variant="ghost"
-                      size="sm"
-                      [href]="klippainReadmeUrl"
-                      target="_blank"
-                      rel="noopener noreferrer"
-                    >
-                      Klippain README
-                    </a>
-                  </div>
-
                   @if (needsKlipperFlavorChoice()) {
-                    <p class="wz-detect__msg wz-detect__msg--error">
-                      <nexus-icon name="warning-triangle" />
-                      <span>Choose Standard Klipper or Klippain before continuing.</span>
-                    </p>
+                    <p class="wz-macros__hint">Pick one to set the correct start / end G-code.</p>
                   }
                 </div>
               }

@@ -29,7 +29,6 @@ import { paramNum, paramStr } from '../../models/params-access';
 
 const STEPS = ['Start', 'Basics', 'Build volume', 'Hardware'] as const;
 const KLIPPAIN_TEMPLATE_ID = 'klippain';
-const KLIPPAIN_REPO_URL = 'https://github.com/Frix-x/klippain';
 const KLIPPAIN_README_URL = 'https://github.com/Frix-x/klippain/blob/main/README.md';
 
 type KlipperMacroChoice = 'standard' | 'klippain';
@@ -152,7 +151,6 @@ export class PrinterWizard {
       description: 'START_PRINT / END_PRINT + _ON_LAYER_CHANGE macros.',
     },
   ];
-  protected readonly klippainRepoUrl = KLIPPAIN_REPO_URL;
   protected readonly klippainReadmeUrl = KLIPPAIN_README_URL;
   protected readonly flavorOptions = PRINTER_GCODE_FLAVORS;
 

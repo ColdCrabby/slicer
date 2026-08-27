@@ -29,6 +29,13 @@ use crate::profiles::printer::{BedShape, PrinterConnection, PrinterConnectionKin
 /// How long to wait for a printer to answer before declaring it offline.
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(5);
 
+/// Detection info probe timeout (`/printer/info`, `/api/version`).
+/// Some Moonraker hosts are slow to answer this first probe.
+const DETECT_INFO_TIMEOUT: Duration = Duration::from_secs(30);
+
+/// Detection enrichment timeout (`/printer/objects/query?...`).
+const DETECT_ENRICH_TIMEOUT: Duration = Duration::from_secs(25);
+
 /// A point-in-time snapshot of a printer's reachability and job state.
 ///
 /// Serializes to the same field shape as the WS `PrinterStatus` payload (minus
@@ -143,15 +150,16 @@ pub async fn detect_printer(host: &str) -> PrinterDetection {
         }
     };
 
-    let client = http_client();
+    let info_client = http_client_with_timeout(DETECT_INFO_TIMEOUT);
+    let detect_client = http_client_with_timeout(DETECT_ENRICH_TIMEOUT);
 
     // 1) Moonraker (Klipper) — the only transport we can deeply introspect.
-    if let Some(detection) = detect_moonraker(&client, &base).await {
+    if let Some(detection) = detect_moonraker(&info_client, &detect_client, &base).await {
         return detection;
     }
 
     // 2) OctoPrint / PrusaLink share the `/api/version` banner shape.
-    if let Some(detection) = detect_api_version(&client, &base).await {
+    if let Some(detection) = detect_api_version(&info_client, &base).await {
         return detection;
     }
 
@@ -166,9 +174,13 @@ pub async fn detect_printer(host: &str) -> PrinterDetection {
 }
 
 /// Probe Moonraker and, on success, harvest bed volume, nozzle, and kinematics.
-async fn detect_moonraker(client: &reqwest::Client, base: &str) -> Option<PrinterDetection> {
+async fn detect_moonraker(
+    info_client: &reqwest::Client,
+    detect_client: &reqwest::Client,
+    base: &str,
+) -> Option<PrinterDetection> {
     let info_url = format!("{base}/printer/info");
-    let resp = client.get(&info_url).send().await.ok()?;
+    let resp = info_client.get(&info_url).send().await.ok()?;
     if !resp.status().is_success() {
         return None;
     }
@@ -188,9 +200,20 @@ async fn detect_moonraker(client: &reqwest::Client, base: &str) -> Option<Printe
     };
     detection.name = result["hostname"].as_str().map(str::to_string);
 
-    // Enrich with bed volume / nozzle from the config + toolhead objects.
-    let query_url = format!("{base}/printer/objects/query?configfile&toolhead");
-    if let Ok(resp) = client.get(&query_url).send().await {
+    // Enrich in two passes: `toolhead` is tiny and carries the bed spans, while
+    // `configfile` can be very large on macro-heavy Klipper setups (Klippain).
+    // Splitting keeps bed-size detection reliable even when config enrichment
+    // times out. These calls intentionally use a longer timeout than status
+    // checks to favour complete setup detection.
+    let toolhead_url = format!("{base}/printer/objects/query?toolhead");
+    if let Ok(resp) = detect_client.get(&toolhead_url).send().await {
+        if let Ok(body) = resp.json::<serde_json::Value>().await {
+            enrich_from_moonraker_objects(&mut detection, &body["result"]["status"]);
+        }
+    }
+
+    let config_url = format!("{base}/printer/objects/query?configfile");
+    if let Ok(resp) = detect_client.get(&config_url).send().await {
         if let Ok(body) = resp.json::<serde_json::Value>().await {
             enrich_from_moonraker_objects(&mut detection, &body["result"]["status"]);
         }
@@ -203,20 +226,26 @@ async fn detect_moonraker(client: &reqwest::Client, base: &str) -> Option<Printe
     Some(detection)
 }
 
-/// Pull bed dimensions, kinematics, and nozzle diameter out of a Moonraker
-/// `printer/objects/query?configfile&toolhead` status payload.
+/// Pull any available bed dimensions, kinematics, and nozzle diameter out of a
+/// Moonraker `printer/objects/query?...` status payload.
 fn enrich_from_moonraker_objects(detection: &mut PrinterDetection, status: &serde_json::Value) {
     let settings = &status["configfile"]["settings"];
 
     // Kinematics decides bed shape: deltas are circular / center-origin.
-    let kinematics = settings["printer"]["kinematics"].as_str().unwrap_or("");
-    let is_delta = kinematics.eq_ignore_ascii_case("delta");
-    detection.bed_shape = Some(if is_delta {
-        BedShape::Circular
-    } else {
-        BedShape::Rectangular
-    });
-    detection.origin_at_center = Some(is_delta);
+    // Only stamp when present so a toolhead-only payload does not guess.
+    if let Some(kinematics) = settings["printer"]["kinematics"]
+        .as_str()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    {
+        let is_delta = kinematics.eq_ignore_ascii_case("delta");
+        detection.bed_shape = Some(if is_delta {
+            BedShape::Circular
+        } else {
+            BedShape::Rectangular
+        });
+        detection.origin_at_center = Some(is_delta);
+    }
 
     // Bed volume from the toolhead's reachable axis limits. `axis_maximum` and
     // `axis_minimum` are `[x, y, z, e]`; the span covers center-origin deltas
@@ -370,8 +399,12 @@ fn base_url_from_parts(host: &str, port: Option<u16>) -> Result<String, String> 
 }
 
 fn http_client() -> reqwest::Client {
+    http_client_with_timeout(REQUEST_TIMEOUT)
+}
+
+fn http_client_with_timeout(timeout: Duration) -> reqwest::Client {
     reqwest::Client::builder()
-        .timeout(REQUEST_TIMEOUT)
+        .timeout(timeout)
         .dns_resolver(LanFriendlyResolver)
         .build()
         .unwrap_or_default()
@@ -695,6 +728,24 @@ mod tests {
         assert_eq!(d.bed_depth, Some(210.0));
         assert_eq!(d.bed_height, Some(220.0));
         assert_eq!(d.nozzle_diameter_mm, Some(0.6));
+    }
+
+    #[test]
+    fn enrich_reads_toolhead_when_config_is_missing() {
+        let status = serde_json::json!({
+            "toolhead": {
+                "axis_minimum": [0.0, 0.0, -5.0, 0.0],
+                "axis_maximum": [350.0, 350.0, 370.0, 0.0]
+            }
+        });
+        let mut d = PrinterDetection::default();
+        enrich_from_moonraker_objects(&mut d, &status);
+        assert_eq!(d.bed_width, Some(350.0));
+        assert_eq!(d.bed_depth, Some(350.0));
+        assert_eq!(d.bed_height, Some(370.0));
+        assert_eq!(d.bed_shape, None);
+        assert_eq!(d.origin_at_center, None);
+        assert_eq!(d.nozzle_diameter_mm, None);
     }
 
     #[test]

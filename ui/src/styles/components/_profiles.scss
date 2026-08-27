@@ -484,6 +484,52 @@
   gap: var(--spacing-sm);
 }
 
+// Klipper macro-convention picker inside the detected card. Kept intentionally
+// quiet — one question, the segmented control, and a single learn-more link —
+// so it reads as a small follow-up, not a second alarm on the amber card.
+.wz-macros {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-sm);
+  padding-top: var(--spacing-md);
+  border-top: 1px solid color-mix(in oklab, var(--accent) 20%, transparent);
+}
+
+.wz-macros__head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--spacing-md);
+}
+
+.wz-macros__q {
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-medium);
+  color: var(--color-text-primary);
+}
+
+.wz-macros__learn {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--spacing-2xs, 4px);
+  font-size: var(--font-size-xs);
+  color: var(--accent);
+  text-decoration: none;
+  --icon-size: 12px;
+
+  &:hover {
+    text-decoration: underline;
+  }
+}
+
+.wz-macros__hint {
+  margin: 0;
+  font-size: var(--font-size-xs);
+  color: var(--color-text-tertiary);
+  line-height: 1.4;
+}
+
 .wz-swatch-row {
   display: flex;
   align-items: center;

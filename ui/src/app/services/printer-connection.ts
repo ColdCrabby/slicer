@@ -88,7 +88,13 @@ const UNKNOWN_STATUS: PrinterLiveStatus = { state: 'unknown', label: 'Not checke
 const POLL_INTERVAL_MS = 30_000;
 
 /** How long (ms) to wait for a server-side detection reply before giving up. */
-const DETECT_TIMEOUT_MS = 15_000;
+const DETECT_TIMEOUT_MS = 70_000;
+
+/** Browser-side timeout for the lightweight Moonraker info/toolhead probes. */
+const DETECT_FAST_REQUEST_TIMEOUT_MS = 20_000;
+
+/** Browser-side timeout for heavy Moonraker config payloads. */
+const DETECT_SLOW_REQUEST_TIMEOUT_MS = 25_000;
 
 /**
  * Tracks live printer connectivity and drives "send to printer".
@@ -393,7 +399,8 @@ export class PrinterConnectionService {
             host,
             reachable: false,
             kind: 'none',
-            message: 'The slicer did not answer in time. Check that it is running and try again.',
+            message:
+              'Detection timed out. Some Klipper setups can take up to about a minute; try again, or verify the host address.',
           });
         }
       }, DETECT_TIMEOUT_MS);
@@ -464,7 +471,9 @@ export class PrinterConnectionService {
     base: string,
   ): Promise<PrinterDetectionResult | null> {
     try {
-      const info = await fetch(`${base}/printer/info`, { signal: AbortSignal.timeout(5000) });
+      const info = await fetch(`${base}/printer/info`, {
+        signal: AbortSignal.timeout(DETECT_FAST_REQUEST_TIMEOUT_MS),
+      });
       if (!info.ok) {
         return null;
       }
@@ -483,15 +492,31 @@ export class PrinterConnectionService {
       };
 
       try {
-        const query = await fetch(`${base}/printer/objects/query?configfile&toolhead`, {
-          signal: AbortSignal.timeout(5000),
+        // Split enrichment calls: `toolhead` is tiny and carries bed spans,
+        // while `configfile` can be large on macro-heavy Klipper setups.
+        const queryToolhead = await fetch(`${base}/printer/objects/query?toolhead`, {
+          signal: AbortSignal.timeout(DETECT_FAST_REQUEST_TIMEOUT_MS),
         });
-        if (query.ok) {
-          const status = ((await query.json()) as MoonrakerObjectsResponse)?.result?.status ?? {};
+        if (queryToolhead.ok) {
+          const status =
+            ((await queryToolhead.json()) as MoonrakerObjectsResponse)?.result?.status ?? {};
           enrichFromMoonrakerObjects(detection, status);
         }
       } catch {
         // Enrichment is best-effort; a bare Moonraker id is still useful.
+      }
+
+      try {
+        const queryConfig = await fetch(`${base}/printer/objects/query?configfile`, {
+          signal: AbortSignal.timeout(DETECT_SLOW_REQUEST_TIMEOUT_MS),
+        });
+        if (queryConfig.ok) {
+          const status =
+            ((await queryConfig.json()) as MoonrakerObjectsResponse)?.result?.status ?? {};
+          enrichFromMoonrakerObjects(detection, status);
+        }
+      } catch {
+        // Optional enrichment only (kinematics/nozzle).
       }
 
       detection.message = detection.name
@@ -781,18 +806,21 @@ interface ApiVersionResponse {
 }
 
 /**
- * Pull bed dimensions, kinematics, and nozzle diameter out of a Moonraker
- * `printer/objects/query?configfile&toolhead` status payload. Mirrors the
- * engine's `enrich_from_moonraker_objects`.
+ * Pull any available bed dimensions, kinematics, and nozzle diameter out of a
+ * Moonraker `printer/objects/query?...` status payload. Mirrors the engine's
+ * `enrich_from_moonraker_objects`.
  */
 function enrichFromMoonrakerObjects(
   detection: PrinterDetectionResult,
   status: MoonrakerObjectsStatus,
 ): void {
   const settings = status.configfile?.settings;
-  const isDelta = (settings?.printer?.kinematics ?? '').toLowerCase() === 'delta';
-  detection.bedShape = isDelta ? 'circular' : 'rectangular';
-  detection.originAtCenter = isDelta;
+  const kinematics = settings?.printer?.kinematics?.trim().toLowerCase();
+  if (kinematics) {
+    const isDelta = kinematics === 'delta';
+    detection.bedShape = isDelta ? 'circular' : 'rectangular';
+    detection.originAtCenter = isDelta;
+  }
 
   const max = status.toolhead?.axis_maximum ?? [];
   const min = status.toolhead?.axis_minimum ?? [];
