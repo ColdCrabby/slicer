@@ -71,6 +71,14 @@ export interface ThumbnailCaptureOptions {
   liveIsDark: boolean;
   /** Solid background colour (hex), or `null` for a transparent background. */
   background: number | null;
+  /**
+   * Explicit objects to frame + render in isolation — typically freshly-built
+   * model meshes. When provided, all live scene content (model *and* G-code
+   * preview) is hidden for the capture and only these subjects are drawn, so
+   * the thumbnail always depicts the model regardless of the viewer's current
+   * mode. When omitted, the live {@link ViewerScene.contentRoot} is framed.
+   */
+  subjects?: Object3D[];
 }
 
 /**
@@ -318,8 +326,26 @@ export class ViewerScene {
   captureThumbnail(options: ThumbnailCaptureOptions): string | null {
     const size = Math.max(16, Math.round(options.sizePx));
 
-    const box = new Box3().setFromObject(this.contentRoot);
+    // When explicit subjects are given (freshly-built model meshes), render
+    // them in isolation from a temporary group so neither the live model nor
+    // the G-code preview toolpaths bleed into the shot or skew the framing.
+    const subjects = options.subjects ?? [];
+    let subjectGroup: Group | null = null;
+    if (subjects.length > 0) {
+      subjectGroup = new Group();
+      for (const s of subjects) {
+        subjectGroup.add(s);
+      }
+      this.scene.add(subjectGroup);
+    }
+    const frameTarget: Object3D = subjectGroup ?? this.contentRoot;
+    frameTarget.updateMatrixWorld(true);
+
+    const box = new Box3().setFromObject(frameTarget);
     if (box.isEmpty()) {
+      if (subjectGroup) {
+        this.scene.remove(subjectGroup);
+      }
       return null;
     }
     const center = new Vector3();
@@ -371,13 +397,9 @@ export class ViewerScene {
     cam.lookAt(center);
     cam.updateProjectionMatrix();
 
-    // Hide everything that isn't model content or a light (grid, axes, gizmos).
-    const keep = new Set<Object3D>([
-      this.contentRoot,
-      this.hemiLight,
-      this.keyLight,
-      this.fillLight,
-    ]);
+    // Hide everything that isn't the frame target or a light (grid, axes,
+    // gizmos — and, when rendering isolated subjects, the live contentRoot too).
+    const keep = new Set<Object3D>([frameTarget, this.hemiLight, this.keyLight, this.fillLight]);
     const rehide: Object3D[] = [];
     for (const child of this.scene.children) {
       if (!keep.has(child) && child.visible) {
@@ -394,6 +416,19 @@ export class ViewerScene {
     // Drop the emissive selection glow so a selected object isn't captured lit up.
     this._selection.setHighlightVisible(false);
 
+    // Disable frustum culling on the framed content for the duration of the
+    // render. G-code preview is drawn with InstancedMesh whose cull volume can
+    // be stale/degenerate, so from the thumbnail camera geometry could be
+    // wrongly culled and the image comes out blank. Culling is a live-view perf
+    // optimisation we don't need here.
+    const unculled: Object3D[] = [];
+    frameTarget.traverse((node) => {
+      if (node.frustumCulled) {
+        node.frustumCulled = false;
+        unculled.push(node);
+      }
+    });
+
     const target = new WebGLRenderTarget(size, size, { samples: 4 });
     target.texture.colorSpace = SRGBColorSpace;
     const prevTarget = this.renderer.getRenderTarget();
@@ -408,11 +443,19 @@ export class ViewerScene {
     } finally {
       // Restore everything, regardless of encode outcome.
       this._selection.setHighlightVisible(true);
+      for (const node of unculled) {
+        node.frustumCulled = true;
+      }
       this.renderer.setRenderTarget(prevTarget);
       this.scene.background = prevBackground;
       this.setTheme(options.liveIsDark);
       for (const child of rehide) {
         child.visible = true;
+      }
+      if (subjectGroup) {
+        // Detach subjects so the caller can dispose them; drop the temp group.
+        subjectGroup.clear();
+        this.scene.remove(subjectGroup);
       }
       target.dispose();
     }

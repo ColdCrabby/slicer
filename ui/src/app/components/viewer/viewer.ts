@@ -985,8 +985,7 @@ export class Viewer {
     const liveIsDark = this.appTheme.isDarkMode();
 
     // The thumbnail has its own colour mode (generic / filament / custom),
-    // independent of the viewer's live filament-colour toggle. Resolve the
-    // colour for the thumbnail, and the live colour so meshes are restored.
+    // independent of the viewer's live filament-colour toggle.
     const filamentColor = this.activeSelection.filament()?.color;
     const thumbColor = resolveThumbnailColor(
       thumbIsDark,
@@ -994,14 +993,12 @@ export class Viewer {
       filamentColor,
       request.customColor,
     );
-    const liveColor = this.currentModelColor();
-    const needsColorSwap = thumbColor !== liveColor && this.wasmMeshes.size > 0;
 
-    if (needsColorSwap) {
-      for (const mesh of this.wasmMeshes.values()) {
-        (mesh.material as MeshPhongMaterial).color.setHex(thumbColor);
-      }
-    }
+    // Build fresh model meshes from the WASM scene engine so the thumbnail
+    // always depicts the model — even when the viewer is currently showing the
+    // G-code preview (whose toolpaths would otherwise be captured and skew the
+    // framing). These are throwaway meshes, never added to the live scene.
+    const subjects = this.buildThumbnailSubjects(thumbColor);
 
     let dataUrl: string | null = null;
     try {
@@ -1012,12 +1009,12 @@ export class Viewer {
         isDark: thumbIsDark,
         liveIsDark,
         background: isTransparent ? null : thumbIsDark ? THUMBNAIL_BG_DARK : THUMBNAIL_BG_LIGHT,
+        subjects: subjects.length > 0 ? subjects : undefined,
       });
     } finally {
-      if (needsColorSwap) {
-        for (const mesh of this.wasmMeshes.values()) {
-          (mesh.material as MeshPhongMaterial).color.setHex(liveColor);
-        }
+      for (const mesh of subjects) {
+        mesh.geometry.dispose();
+        (mesh.material as MeshPhongMaterial).dispose();
       }
     }
 
@@ -1034,6 +1031,40 @@ export class Viewer {
       pngBase64: dataUrl.slice(comma + 1),
       sizePx: targetSize,
     };
+  }
+
+  /**
+   * Build detached Three.js meshes for the current model objects straight from
+   * the WASM scene engine's render buffers, painted in the thumbnail colour.
+   * These are used solely for an off-screen thumbnail render and disposed by
+   * the caller — they are never added to the live scene or the selectable set,
+   * so this works identically whether the viewer is in model or G-code mode.
+   */
+  private buildThumbnailSubjects(color: number): Mesh[] {
+    const subjects: Mesh[] = [];
+    const objects = untracked(() => this.sceneEngine.objects());
+    for (const obj of objects) {
+      let buf: ReturnType<SceneEngine['getRenderBuffer']>;
+      try {
+        buf = this.sceneEngine.getRenderBuffer(obj.id);
+      } catch {
+        continue;
+      }
+      const geometry = new BufferGeometry();
+      geometry.setAttribute('position', new BufferAttribute(buf.positions, 3));
+      geometry.setAttribute('normal', new BufferAttribute(buf.normals, 3));
+      geometry.setIndex(new BufferAttribute(buf.indices, 1));
+      geometry.computeBoundingBox();
+      geometry.computeBoundingSphere();
+      const material = new MeshPhongMaterial({ color, flatShading: true, shininess: 16 });
+      const mesh = new Mesh(geometry, material);
+      mesh.matrixAutoUpdate = false;
+      this.tmpMatrix.fromArray(this.sceneEngine.getMatrix(obj.id));
+      mesh.matrix.copy(this.tmpMatrix);
+      mesh.matrixWorldNeedsUpdate = true;
+      subjects.push(mesh);
+    }
+    return subjects;
   }
 
   private playThumbnailCaptureFx(dataUrl: string): void {
