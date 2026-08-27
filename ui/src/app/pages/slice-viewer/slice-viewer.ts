@@ -80,9 +80,8 @@ export class SliceViewer {
 
       let meta: RequestMeta;
       if (stateUpload && stateUpload.ruuid === requestUuid) {
-        // Adopt the upload result; we don't have filenames in the upload
-        // response itself, so fetch the meta in the background only if we
-        // need the original filename later.
+        // Adopt the upload result immediately, then hydrate it with canonical
+        // request metadata (file IDs + original filename) from the backend.
         this.#slicerFile.adopt({
           ruuid: stateUpload.ruuid,
           status: 'upload_complete',
@@ -90,6 +89,7 @@ export class SliceViewer {
           ofids: stateUpload.ofids.map((id) => ({ file_uuid: id, original_filename: 'model' })),
         });
         meta = await this.#slicerFile.getRequestMeta(requestUuid);
+        this.#slicerFile.adopt(meta);
       } else {
         meta = await this.#slicerFile.getRequestMeta(requestUuid);
         this.#slicerFile.adopt(meta);

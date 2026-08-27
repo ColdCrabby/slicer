@@ -235,16 +235,8 @@ export class SliceControl {
     if (!printer || !uuid) return;
     this.printerConn.sendToPrinter(printer, uuid, {
       start: action === 'print',
-      filename: this.gcodeFilename(),
+      filename: this.slicer.currentGcodeFilename(),
     });
-  }
-
-  /** A printer-friendly `<model>.gcode` name, falling back to the engine default. */
-  private gcodeFilename(): string | undefined {
-    const name = this.slicer.selectedFile()?.name;
-    if (!name) return undefined;
-    const base = name.replace(/\.[^./\\]+$/, '').trim();
-    return base ? `${base}.gcode` : undefined;
   }
 
   protected toggleMenu(): void {
