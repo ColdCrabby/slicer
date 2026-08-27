@@ -49,8 +49,8 @@ export interface ViewerSceneOptions {
 
 /** Field-of-view (deg) used for the fixed-angle thumbnail render. */
 const THUMBNAIL_FOV = 40;
-/** Fit padding — a hair of margin so the tight box-fit never clips an edge. */
-const THUMBNAIL_FIT_PADDING = 1.06;
+/** Fit padding — a whisker of margin so the tight box-fit never clips an edge. */
+const THUMBNAIL_FIT_PADDING = 1.02;
 
 /**
  * Inputs for {@link ViewerScene.captureThumbnail}. The caller resolves the

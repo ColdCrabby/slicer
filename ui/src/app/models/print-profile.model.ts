@@ -67,7 +67,7 @@ export function defaultProcessParams(): Record<string, unknown> {
     thumbnail_enabled: true,
     thumbnail_size_px: 320,
     thumbnail_view: 'isometric',
-    thumbnail_theme: 'light',
+    thumbnail_theme: 'transparent',
     thumbnail_color_mode: 'filament',
     thumbnail_custom_color: '#e0912f',
   };

@@ -475,12 +475,12 @@ pub enum ThumbnailView {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum ThumbnailTheme {
-    /// Light studio background (default).
-    #[default]
+    /// Light studio background.
     Light,
     /// Dark studio background.
     Dark,
-    /// No background — a transparent PNG cutout of the model.
+    /// No background — a transparent PNG cutout of the model (default).
+    #[default]
     Transparent,
 }
 
@@ -2159,7 +2159,7 @@ mod tests {
         assert!(params.thumbnail_enabled);
         assert_eq!(params.thumbnail_size_px, 320);
         assert_eq!(params.thumbnail_view, ThumbnailView::Isometric);
-        assert_eq!(params.thumbnail_theme, ThumbnailTheme::Light);
+        assert_eq!(params.thumbnail_theme, ThumbnailTheme::Transparent);
         assert_eq!(params.thumbnail_color_mode, ThumbnailColorMode::Filament);
         assert_eq!(params.thumbnail_custom_color, "#e0912f");
         assert!(params.thumbnail_png_base64.is_none());
@@ -2207,7 +2207,7 @@ mod tests {
         );
         assert_eq!(
             params.thumbnail_theme,
-            ThumbnailTheme::Light,
+            ThumbnailTheme::Transparent,
             "default thumbnail theme"
         );
         assert_eq!(
