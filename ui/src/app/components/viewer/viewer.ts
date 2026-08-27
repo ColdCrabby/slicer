@@ -980,6 +980,7 @@ export class Viewer {
 
     const targetSize = clampThumbnailSize(request.sizePx);
     const pose = THUMBNAIL_VIEW_POSES[request.view] ?? THUMBNAIL_VIEW_POSES.isometric;
+    const isTransparent = request.theme === 'transparent';
     const thumbIsDark = request.theme === 'dark';
     const liveIsDark = this.appTheme.isDarkMode();
 
@@ -1010,7 +1011,7 @@ export class Viewer {
         up: pose.up.clone(),
         isDark: thumbIsDark,
         liveIsDark,
-        background: thumbIsDark ? THUMBNAIL_BG_DARK : THUMBNAIL_BG_LIGHT,
+        background: isTransparent ? null : thumbIsDark ? THUMBNAIL_BG_DARK : THUMBNAIL_BG_LIGHT,
       });
     } finally {
       if (needsColorSwap) {

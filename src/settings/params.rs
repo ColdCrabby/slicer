@@ -480,6 +480,8 @@ pub enum ThumbnailTheme {
     Light,
     /// Dark studio background.
     Dark,
+    /// No background — a transparent PNG cutout of the model.
+    Transparent,
 }
 
 /// How the model is coloured in the embedded thumbnail.

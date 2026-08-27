@@ -827,7 +827,8 @@ export class Slicer {
   }
 
   private thumbnailTheme(settings: Record<string, unknown>): ThumbnailTheme {
-    return settings['thumbnail_theme'] === 'dark' ? 'dark' : 'light';
+    const raw = settings['thumbnail_theme'];
+    return raw === 'dark' || raw === 'transparent' ? raw : 'light';
   }
 
   private thumbnailColorMode(settings: Record<string, unknown>): ThumbnailColorMode {

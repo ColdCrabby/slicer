@@ -44,7 +44,7 @@ export interface SliceThumbnailCapture {
 export type ThumbnailView = 'isometric' | 'front' | 'rear' | 'left' | 'right' | 'top';
 
 /** Fixed colour scheme for the embedded thumbnail render. */
-export type ThumbnailTheme = 'light' | 'dark';
+export type ThumbnailTheme = 'light' | 'dark' | 'transparent';
 
 /** How the model is coloured in the thumbnail. */
 export type ThumbnailColorMode = 'generic' | 'filament' | 'custom';

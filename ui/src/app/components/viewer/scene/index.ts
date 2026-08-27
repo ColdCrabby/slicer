@@ -10,7 +10,6 @@ import {
   type Object3D,
   PerspectiveCamera,
   Scene,
-  Sphere,
   SRGBColorSpace,
   Vector3,
   WebGLRenderer,
@@ -50,14 +49,14 @@ export interface ViewerSceneOptions {
 
 /** Field-of-view (deg) used for the fixed-angle thumbnail render. */
 const THUMBNAIL_FOV = 40;
-/** Fit padding — how much empty margin around the model in the thumbnail. */
-const THUMBNAIL_FIT_PADDING = 1.28;
+/** Fit padding — a hair of margin so the tight box-fit never clips an edge. */
+const THUMBNAIL_FIT_PADDING = 1.06;
 
 /**
  * Inputs for {@link ViewerScene.captureThumbnail}. The caller resolves the
  * world-space camera direction/up (from a fixed preset), the thumbnail theme,
- * and the solid studio background — the scene handles framing, an off-screen
- * render, and full state restoration.
+ * and the background — the scene handles framing, an off-screen render, and
+ * full state restoration.
  */
 export interface ThumbnailCaptureOptions {
   /** Square output edge length in pixels. */
@@ -70,8 +69,8 @@ export interface ThumbnailCaptureOptions {
   isDark: boolean;
   /** The live scene theme to restore after the capture. */
   liveIsDark: boolean;
-  /** Solid background colour (hex) for the thumbnail. */
-  background: number;
+  /** Solid background colour (hex), or `null` for a transparent background. */
+  background: number | null;
 }
 
 /**
@@ -319,26 +318,57 @@ export class ViewerScene {
   captureThumbnail(options: ThumbnailCaptureOptions): string | null {
     const size = Math.max(16, Math.round(options.sizePx));
 
-    // Frame the model's bounding sphere.
     const box = new Box3().setFromObject(this.contentRoot);
     if (box.isEmpty()) {
       return null;
     }
-    const sphere = new Sphere();
-    box.getBoundingSphere(sphere);
-    if (!(sphere.radius > 0) || !Number.isFinite(sphere.radius)) {
-      return null;
+    const center = new Vector3();
+    box.getCenter(center);
+
+    // Build the camera basis (forward = viewing direction) so we can fit the
+    // eight box corners tightly — the loose bounding sphere would leave a big
+    // border, especially for elongated prints.
+    const dir = options.direction.clone().normalize();
+    const forward = dir.clone().negate();
+    const right = new Vector3().crossVectors(forward, options.up);
+    if (right.lengthSq() < 1e-8) {
+      right.set(1, 0, 0);
     }
+    right.normalize();
+    const trueUp = new Vector3().crossVectors(right, forward).normalize();
+
+    const fovRad = (THUMBNAIL_FOV * Math.PI) / 180;
+    const tanHalf = Math.tan(fovRad / 2);
+    const corner = new Vector3();
+    let distance = 0;
+    let maxExtent = 1;
+    for (let cx = 0; cx < 2; cx++) {
+      for (let cy = 0; cy < 2; cy++) {
+        for (let cz = 0; cz < 2; cz++) {
+          corner.set(
+            cx ? box.max.x : box.min.x,
+            cy ? box.max.y : box.min.y,
+            cz ? box.max.z : box.min.z,
+          );
+          corner.sub(center);
+          const px = corner.dot(right);
+          const py = corner.dot(trueUp);
+          const pf = corner.dot(forward);
+          // Distance at which this corner just fits the square frustum.
+          const needed = Math.max(Math.abs(px), Math.abs(py)) / tanHalf - pf;
+          distance = Math.max(distance, needed);
+          maxExtent = Math.max(maxExtent, Math.abs(px), Math.abs(py), Math.abs(pf));
+        }
+      }
+    }
+    distance = Math.max(distance * THUMBNAIL_FIT_PADDING, 0.01);
 
     const cam = new PerspectiveCamera(THUMBNAIL_FOV, 1, CAMERA_NEAR, CAMERA_FAR);
     cam.up.copy(options.up);
-    const fovRad = (THUMBNAIL_FOV * Math.PI) / 180;
-    const distance = (sphere.radius * THUMBNAIL_FIT_PADDING) / Math.sin(fovRad / 2);
-    const dir = options.direction.clone().normalize();
-    cam.position.copy(sphere.center).addScaledVector(dir, distance);
-    cam.near = Math.max(distance - sphere.radius * 2, 0.01);
-    cam.far = distance + sphere.radius * 4;
-    cam.lookAt(sphere.center);
+    cam.position.copy(center).addScaledVector(dir, distance);
+    cam.near = Math.max(distance - maxExtent * 2, 0.01);
+    cam.far = distance + maxExtent * 4;
+    cam.lookAt(center);
     cam.updateProjectionMatrix();
 
     // Hide everything that isn't model content or a light (grid, axes, gizmos).
@@ -356,10 +386,11 @@ export class ViewerScene {
       }
     }
 
-    // Apply the thumbnail theme + solid studio background.
+    // Apply the thumbnail theme, then a solid studio background or a fully
+    // transparent one (`background === null` → the renderer's 0-alpha clear).
     const prevBackground = this.scene.background;
     this.setTheme(options.isDark);
-    this.scene.background = new Color(options.background);
+    this.scene.background = options.background === null ? null : new Color(options.background);
 
     const target = new WebGLRenderTarget(size, size, { samples: 4 });
     target.texture.colorSpace = SRGBColorSpace;
