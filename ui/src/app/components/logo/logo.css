@@ -9,15 +9,14 @@
 }
 
 .nexus-logo {
-  --icon-size: 14px;
-
   width: 24px;
   height: 24px;
 
-  background: var(--color-text-primary);
-  color: var(--color-bg-secondary);
-
+  object-fit: contain;
   border-radius: var(--radius-md);
+
+  user-select: none;
+  -webkit-user-drag: none;
 }
 
 .nexus-product-name {
