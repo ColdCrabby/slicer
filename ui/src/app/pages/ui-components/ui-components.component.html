@@ -351,11 +351,14 @@
         <nexus-card visualSize="small" class="demo-card">
           <h3 class="subheading">Dialogs</h3>
           <p class="hint">
-            Dialogs are rendered by the global dialog outlet attached in the root app shell.
+            Shared dialog variants used across the app (including destructive actions in Settings).
           </p>
           <div class="row wrap">
-            <button nexusButton variant="subtle" (click)="openConfirmDialog()">
-              Confirm dialog
+            <button nexusButton variant="subtle" (click)="openWarningConfirmDialog()">
+              Warning confirm
+            </button>
+            <button nexusButton variant="danger" (click)="openDangerConfirmDialog()">
+              Danger confirm
             </button>
             <button nexusButton variant="secondary" (click)="openAlertDialog()">
               Alert dialog
