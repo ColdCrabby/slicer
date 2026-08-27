@@ -28,6 +28,18 @@ import { CatalogPicker, type CatalogEntryVm } from './catalog-picker';
 import { paramNum, paramStr } from '../../models/params-access';
 
 const STEPS = ['Start', 'Basics', 'Build volume', 'Hardware'] as const;
+const KLIPPAIN_TEMPLATE_ID = 'klippain';
+const KLIPPAIN_README_URL = 'https://github.com/Frix-x/klippain/blob/main/README.md';
+
+type KlipperMacroChoice = 'standard' | 'klippain';
+
+function normalizedFlavor(value: string | undefined): PrinterGcodeFlavor | undefined {
+  const normalized = value?.trim().toLowerCase();
+  if (normalized === 'marlin' || normalized === 'klipper') {
+    return normalized;
+  }
+  return undefined;
+}
 
 /**
  * Guided, multi-step flow for adding a printer. Step 0 lets the user seed from
@@ -68,6 +80,7 @@ export class PrinterWizard {
   protected readonly detectHost = signal('');
   protected readonly detecting = signal(false);
   protected readonly detectResult = signal<PrinterDetectionResult | null>(null);
+  protected readonly klipperMacroChoice = signal<KlipperMacroChoice | null>(null);
 
   /** Human-readable summary of a successful detection, for the review card. */
   protected readonly detectionRows = computed<{ label: string; value: string }[]>(() => {
@@ -108,10 +121,37 @@ export class PrinterWizard {
     return !!r?.reachable && (r.bedWidth == null || r.nozzleDiameterMm == null);
   });
 
+  /** True when detection identified a Klipper host. */
+  protected readonly detectedKlipper = computed(() => {
+    const result = this.detectResult();
+    if (!result?.reachable) {
+      return false;
+    }
+    return normalizedFlavor(result.firmware) === 'klipper';
+  });
+
+  /** Block adding until a Klipper profile (standard/Klippain) is chosen. */
+  protected readonly needsKlipperFlavorChoice = computed(
+    () => this.detectedKlipper() && this.klipperMacroChoice() == null,
+  );
+
   protected readonly bedShapeOptions = [
     { value: 'rectangular', label: 'Rectangular' },
     { value: 'circular', label: 'Circular (delta)' },
   ];
+  protected readonly klipperMacroOptions = [
+    {
+      value: 'standard',
+      label: 'Standard Klipper',
+      description: 'PRINT_START / PRINT_END macros.',
+    },
+    {
+      value: 'klippain',
+      label: 'Klippain',
+      description: 'START_PRINT / END_PRINT + _ON_LAYER_CHANGE macros.',
+    },
+  ];
+  protected readonly klippainReadmeUrl = KLIPPAIN_README_URL;
   protected readonly flavorOptions = PRINTER_GCODE_FLAVORS;
 
   protected readonly catalogStatus = this.catalog.status;
@@ -145,10 +185,13 @@ export class PrinterWizard {
   }
 
   /** Merge a partial `SlicingParams` into the draft's `params` bundle. */
-  protected patchParams(patch: Record<string, unknown>): void {
+  protected patchParams(patch: object): void {
     this.draft.update((d) => ({
       ...d,
-      params: { ...((d.params as Record<string, unknown>) ?? {}), ...patch },
+      params: {
+        ...((d.params as Record<string, unknown>) ?? {}),
+        ...(patch as Record<string, unknown>),
+      },
     }));
   }
 
@@ -193,6 +236,7 @@ export class PrinterWizard {
     }
     this.detecting.set(true);
     this.detectResult.set(null);
+    this.klipperMacroChoice.set(null);
     try {
       const result = await this.printerConn.detectPrinter(host);
       this.detectResult.set(result);
@@ -206,11 +250,17 @@ export class PrinterWizard {
 
   /** Accept the detected settings and move on to review the Basics step. */
   protected continueFromDetection(): void {
+    if (this.needsKlipperFlavorChoice()) {
+      return;
+    }
     this.index.set(1);
   }
 
   /** Add the detected printer and open its editor scrolled to the G-code block. */
   protected finishAndConfigureGcode(): void {
+    if (this.needsKlipperFlavorChoice()) {
+      return;
+    }
     const printer = this.persist();
     void this.router.navigate(['/settings/printers'], {
       queryParams: { configure: printer.id, focus: 'gcode' },
@@ -221,20 +271,37 @@ export class PrinterWizard {
   protected startOver(): void {
     this.detectResult.set(null);
     this.detectHost.set('');
+    this.klipperMacroChoice.set(null);
     this.draft.set(makePrinter());
+  }
+
+  /** Pick the macro convention for detected Klipper hosts. */
+  protected setKlipperMacroChoice(value: string): void {
+    if (value !== 'standard' && value !== 'klippain') {
+      return;
+    }
+    this.klipperMacroChoice.set(value);
+    this.applyDetectedKlipperTemplate(value);
   }
 
   /** Merge a successful detection into a fresh draft, keeping sane defaults. */
   private applyDetection(result: PrinterDetectionResult, host: string): void {
     const base = makePrinter();
     const params = { ...((base.params as Record<string, unknown>) ?? {}) };
-    // Attach the firmware-appropriate G-code template (Klipper macros for
-    // Klipper, raw M-codes for Marlin) instead of the from-scratch default.
-    const templatePatch = gcodeTemplatePatch(
-      defaultGcodeTemplateIdForFlavor(result.firmware as PrinterGcodeFlavor | undefined),
-    );
-    if (templatePatch) {
-      Object.assign(params, templatePatch);
+    const flavor = normalizedFlavor(result.firmware);
+    this.klipperMacroChoice.set(null);
+
+    if (flavor === 'klipper') {
+      // Do not assume a Klipper macro convention: ask whether this host uses
+      // Klippain before choosing the template.
+      params['gcode_flavor'] = 'klipper';
+    } else {
+      // Non-Klipper printers can keep the automatic firmware-appropriate
+      // defaults (Marlin M-codes, etc.).
+      const templatePatch = gcodeTemplatePatch(defaultGcodeTemplateIdForFlavor(flavor));
+      if (templatePatch) {
+        Object.assign(params, templatePatch);
+      }
     }
     if (result.nozzleDiameterMm != null) {
       params['nozzle_diameter_mm'] = result.nozzleDiameterMm;
@@ -252,6 +319,15 @@ export class PrinterWizard {
       connection: { kind: result.kind, host, connected: false },
       params,
     });
+  }
+
+  private applyDetectedKlipperTemplate(choice: KlipperMacroChoice): void {
+    const templateId =
+      choice === 'klippain' ? KLIPPAIN_TEMPLATE_ID : defaultGcodeTemplateIdForFlavor('klipper');
+    const templatePatch = gcodeTemplatePatch(templateId);
+    if (templatePatch) {
+      this.patchParams(templatePatch);
+    }
   }
 
   protected retryCatalog(): void {
