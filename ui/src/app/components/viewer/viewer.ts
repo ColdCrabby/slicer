@@ -1026,7 +1026,13 @@ export class Viewer {
       return null;
     }
 
-    this.playThumbnailCaptureFx(dataUrl);
+    // Only play the camera-flash + polaroid FX when the user is looking at the
+    // model. Re-slicing repeatedly while fine-tuning in the G-code preview
+    // shouldn't fling a polaroid across the screen every time — the thumbnail
+    // is still captured and embedded, just silently.
+    if (this.mode() === 'model') {
+      this.playThumbnailCaptureFx(dataUrl);
+    }
     return {
       pngBase64: dataUrl.slice(comma + 1),
       sizePx: targetSize,
