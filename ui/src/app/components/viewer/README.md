@@ -230,6 +230,28 @@ path is gated behind "a pen has been seen", and the pen-active path only fires
 while a pen is in use. The user can turn the whole behaviour off from
 **Settings → General → Controls → Palm rejection** (persisted; default on).
 
+### Hand-aware inspector tooltip placement
+
+The G-code inspector tooltip (extrusion width/height/speed on hover in the
+scalar views) is anchored to a virtual element at the pointer. A fixed
+below-right placement is ideal with a mouse but lands the readout **directly
+under the palm** of a right-handed pen user. `preferredHoverPlacement`
+([hover-placement.ts](hover-placement.ts), unit-tested) picks the side per input:
+
+| Pointer | Placement                                                     |
+| ------- | ------------------------------------------------------------- |
+| mouse   | `right-start` — the familiar below-right desktop behaviour.   |
+| touch   | `top` — the finger and hand occlude below, so float above.    |
+| pen     | opposite the tilt (hand) direction; `top` when near-upright.  |
+
+The elegant part is the pen case: `PointerEvent.tiltX`/`tiltY` point from the tip
+toward the barrel — i.e. toward the hand — so the tooltip floats to the _opposite_
+side. Because tilt reveals which way the pen leans, this adapts to left- vs.
+right-handed users with **no setting to configure**. Floating UI's flip/shift
+still keep it on-screen, so this only chooses the _preferred_ side. The
+`viewer.ts` effect re-anchors when the preferred side changes (input swap or a
+tilt that crosses an axis).
+
 ---
 
 ## Anatomy
@@ -239,6 +261,7 @@ The viewer is split into focused files so each concern stays under ~300 lines.
 ```
 viewer/
 ├── viewer.ts                  Angular component — effects wiring, WASM ↔ Three bridge
+├── hover-placement.ts         preferredHoverPlacement — hand-aware inspector-tooltip side (pen tilt)
 ├── scene/                     ViewerScene and all Three.js sub-systems
 │   ├── index.ts               ViewerScene — owns renderer, render loop, delegates to sub-modules
 │   ├── camera.ts              SceneCamera — animations, view presets, fit-to-content, near/far
@@ -307,6 +330,7 @@ flowchart LR
 - [scene/pointer-arbiter.ts](scene/pointer-arbiter.ts) — `PointerArbiter`, `isPalmTouch`, `PEN_GRACE_MS`, `PALM_CONTACT_MIN_PX`
 - [scene/selection.ts](scene/selection.ts) — `SceneSelection`
 - [gizmo.ts](gizmo.ts) — `GizmoManager`, `GizmoDelta`, `FacePickResult`, `raycastFace`, `computeSelectionCentroid`
+- [hover-placement.ts](hover-placement.ts) — `preferredHoverPlacement`, `HoverPointerInfo`
 - [gcode-orchestrator.ts](gcode-orchestrator.ts) — `GcodeOrchestrator`
 - [gcode-layer-renderer.ts](gcode-layer-renderer.ts) — layer builder and visibility helpers
 - [viewer.ts](viewer.ts) — Angular component wiring

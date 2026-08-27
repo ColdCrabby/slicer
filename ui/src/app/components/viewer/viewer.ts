@@ -34,9 +34,10 @@ import {
 
 import { GcodeHoverProbe, type GcodeHoverHit } from './gcode-hover';
 import { GcodeOrchestrator } from './gcode-orchestrator';
+import { preferredHoverPlacement } from './hover-placement';
 import type { GizmoDelta } from './gizmo';
 import { ViewerScene } from './scene';
-import { applyFloating } from '../../shared/floating';
+import { applyFloating, type FloatingPlacement } from '../../shared/floating';
 
 export type ViewerMode = 'model' | 'gcode';
 
@@ -202,6 +203,8 @@ export class Viewer {
     },
   };
   private stopGcodeFloating: (() => void) | null = null;
+  /** Preferred side the G-code tooltip is currently floated to; drives re-anchoring when the input hand/side changes. */
+  private gcodeFloatingPlacement: FloatingPlacement | null = null;
   private shutterTimer: ReturnType<typeof setTimeout> | null = null;
   private polaroidTimer: ReturnType<typeof setTimeout> | null = null;
   private readonly captureSliceThumbnailSink = (request: SliceThumbnailRequest) =>
@@ -224,6 +227,7 @@ export class Viewer {
       }
       this.stopGcodeFloating?.();
       this.stopGcodeFloating = null;
+      this.gcodeFloatingPlacement = null;
       this.clearThumbnailFxTimers();
       this.thumbnailShutterActive.set(false);
       this.thumbnailPolaroidAnimating.set(false);
@@ -232,16 +236,24 @@ export class Viewer {
 
     // Position the G-code inspector tooltip with Floating UI, anchored to a
     // virtual element at the cursor so it flips/shifts to stay on-screen near
-    // the viewport edges instead of clipping.
+    // the viewport edges instead of clipping. The preferred side adapts to the
+    // input: below-right for a mouse, but opposite the hand for a pen (from its
+    // tilt) and above the contact for touch, so the hand never covers it.
     effect(() => {
       const info = this.gcodePreview.hoverInfo();
       const el = this.gcodeTooltipRef()?.nativeElement;
       if (info && el) {
         this.gcodeCursor.x = info.clientX;
         this.gcodeCursor.y = info.clientY;
-        if (!this.stopGcodeFloating) {
+        const placement = preferredHoverPlacement(info);
+        // Placement is fixed when applyFloating is created, so re-anchor when
+        // the desired side changes (e.g. the user switches from mouse to pen,
+        // or tilts the pen across an axis).
+        if (!this.stopGcodeFloating || this.gcodeFloatingPlacement !== placement) {
+          this.stopGcodeFloating?.();
+          this.gcodeFloatingPlacement = placement;
           this.stopGcodeFloating = applyFloating(this.gcodeCursorAnchor, el, {
-            placement: 'right-start',
+            placement,
             strategy: 'fixed',
             offset: 14,
             padding: 8,
@@ -251,6 +263,7 @@ export class Viewer {
       } else if (this.stopGcodeFloating) {
         this.stopGcodeFloating();
         this.stopGcodeFloating = null;
+        this.gcodeFloatingPlacement = null;
       }
     });
 
@@ -529,6 +542,9 @@ export class Viewer {
       t,
       clientX: hit.clientX,
       clientY: hit.clientY,
+      pointerType: hit.pointerType,
+      tiltX: hit.tiltX,
+      tiltY: hit.tiltY,
     });
   }
 

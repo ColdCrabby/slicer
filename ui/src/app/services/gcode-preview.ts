@@ -563,6 +563,12 @@ export interface GcodeHoverInfo {
   /** Viewport pointer position (px) used as the floating anchor. */
   clientX: number;
   clientY: number;
+  /** Originating pointer type — drives which side the tooltip floats toward. */
+  pointerType: string;
+  /** Pen tilt toward +X in degrees (−90…90); 0 for mouse/touch. */
+  tiltX: number;
+  /** Pen tilt toward +Y in degrees (−90…90); 0 for mouse/touch. */
+  tiltY: number;
 }
 
 // ── Service ───────────────────────────────────────────────────────────────────
