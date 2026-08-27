@@ -46,6 +46,15 @@ export class SceneCamera {
   private printArea: PrintAreaConfig;
   /** User-configurable perspective FOV (degrees); the ortho preset ignores it. */
   private perspectiveFov = PERSPECTIVE_FOV;
+  /**
+   * True while the projection has been *temporarily* forced to orthographic by
+   * a viewport-cube snap (see {@link animateToDirection}). Distinct from the
+   * user's `currentView`: the cube engages this without touching the toolbar
+   * preset, and a free pan/zoom in the main viewport reverts it
+   * ({@link notifyUserPanOrZoom}) back to `currentView`. Rotating or further
+   * cube interaction keep it engaged.
+   */
+  private autoOrtho = false;
 
   constructor(
     private readonly camera: PerspectiveCamera,
@@ -83,7 +92,10 @@ export class SceneCamera {
    */
   setPerspectiveFov(fov: number): void {
     this.perspectiveFov = fov;
-    if (this.currentView !== 'perspective' || this.animation) {
+    // While auto-ortho holds the projection at ~1°, only remember the new FOV;
+    // it is applied when the projection reverts. Applying it live here would
+    // fight the forced ortho.
+    if (this.currentView !== 'perspective' || this.animation || this.autoOrtho) {
       return;
     }
     const target = this.controls.target;
@@ -115,6 +127,8 @@ export class SceneCamera {
   }
 
   setView(view: ViewerView): void {
+    // A manual toolbar view change takes over from any temporary cube ortho.
+    this.autoOrtho = false;
     if (view === this.currentView && !this.animation) {
       return;
     }
@@ -123,6 +137,7 @@ export class SceneCamera {
   }
 
   resetView(): void {
+    this.autoOrtho = false;
     this.currentView = 'perspective';
     const pose = this.initialPoseForBed();
     this.animateToPose({
@@ -133,7 +148,18 @@ export class SceneCamera {
     });
   }
 
-  animateToDirection(direction: Vector3, up: Vector3): void {
+  /**
+   * Snap the camera to look along `direction` (target → camera) with `up`.
+   * Driven by the viewport-cube gizmo.
+   *
+   * When `forceOrtho` is set (every cube snap does), the projection is also
+   * driven to orthographic and {@link autoOrtho} is engaged, matching the CAD
+   * convention that clicking a cube face gives a flat, dimension-true view. The
+   * user's toolbar `currentView` is deliberately left untouched so a later free
+   * pan/zoom can revert to it ({@link notifyUserPanOrZoom}); rotating or further
+   * cube snaps keep ortho.
+   */
+  animateToDirection(direction: Vector3, up: Vector3, forceOrtho = false): void {
     const target = this.controls.target.clone();
     const distance = Math.max(this.camera.position.distanceTo(target), 1);
     // Express every snapped view in the scene's stable world Z-up frame so that
@@ -160,12 +186,64 @@ export class SceneCamera {
       ).normalize();
       resolvedUp = INITIAL_CAMERA_UP.clone();
     }
-    this.animateToPose({
-      position: target.clone().addScaledVector(dir, distance),
-      target,
-      up: resolvedUp,
-      fov: this.camera.fov,
+
+    // Default: keep the current projection and orbit distance (pure re-orient).
+    let toFov = this.camera.fov;
+    let toDistance = distance;
+    if (forceOrtho) {
+      this.autoOrtho = true;
+      toFov = ORTHO_FOV;
+      // Grow the distance so the flattened (~1° FOV) view frames the same
+      // apparent size — advanceAnimation interpolates in apparent-size space,
+      // so this keeps the snap from appearing to zoom.
+      const fromTan = Math.tan(((this.camera.fov / 2) * Math.PI) / 180);
+      const toTan = Math.tan(((ORTHO_FOV / 2) * Math.PI) / 180);
+      toDistance = toTan > 1e-6 ? distance * (fromTan / toTan) : distance;
+    }
+    this.startAnimation({
+      toDir: dir,
+      toFov,
+      toTarget: target,
+      toUp: resolvedUp,
+      toDistance,
     });
+  }
+
+  /**
+   * Called when the user pans or zooms the *main viewport* (not a rotate, not a
+   * cube gesture). If a cube snap had forced the projection to orthographic,
+   * this reverts it to the user's `currentView`. The swap is instantaneous and
+   * apparent-size-preserving (no distance/target lock), so it never fights the
+   * in-flight pan/zoom gesture that triggered it; only the perspective
+   * distortion (re)appears. A no-op when auto-ortho is not engaged.
+   */
+  notifyUserPanOrZoom(): void {
+    if (!this.autoOrtho) {
+      return;
+    }
+    this.autoOrtho = false;
+    // Cancel any in-flight snap animation so it can't fight the swap, and hand
+    // control straight back to the user's live gesture.
+    this.animation = null;
+    this.controls.enabled = true;
+    const targetFov = this.currentView === 'ortho' ? ORTHO_FOV : this.perspectiveFov;
+    if (Math.abs(this.camera.fov - targetFov) < 1e-3) {
+      return;
+    }
+    const target = this.controls.target;
+    const offset = this.camera.position.clone().sub(target);
+    const distance = Math.max(offset.length(), 1);
+    const dir = offset.divideScalar(distance);
+    // Preserve apparent size: distance × tan(fov/2) is held constant so content
+    // does not jump size when the projection changes.
+    const apparent = distance * Math.tan(((this.camera.fov / 2) * Math.PI) / 180);
+    const newDistance = apparent / Math.tan(((targetFov / 2) * Math.PI) / 180);
+    this.camera.fov = targetFov;
+    this.camera.position.copy(target).addScaledVector(dir, newDistance);
+    this.updateNearFar(newDistance, Math.max(newDistance * 0.5, 1));
+    this.camera.lookAt(target);
+    this.camera.updateProjectionMatrix();
+    this.controls.update();
   }
 
   orbitBy(azimuth: number, polar: number): void {

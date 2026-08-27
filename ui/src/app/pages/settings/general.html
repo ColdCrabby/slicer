@@ -69,6 +69,36 @@
 
     <div class="settings-field">
       <span class="settings-field-label">
+        <span class="settings-field-title">Palm rejection</span>
+        <span class="settings-field-desc">
+          Ignore the hand resting on the screen while drawing with an Apple Pencil or stylus, so the
+          palm never orbits or zooms the 3D view. Finger-only gestures are unaffected.
+        </span>
+      </span>
+      <div class="segmented" role="group" aria-label="Palm rejection">
+        <button
+          type="button"
+          class="segmented-btn"
+          [class.is-active]="palmRejection()"
+          [attr.aria-pressed]="palmRejection()"
+          (click)="setPalmRejection(true)"
+        >
+          On
+        </button>
+        <button
+          type="button"
+          class="segmented-btn"
+          [class.is-active]="!palmRejection()"
+          [attr.aria-pressed]="!palmRejection()"
+          (click)="setPalmRejection(false)"
+        >
+          Off
+        </button>
+      </div>
+    </div>
+
+    <div class="settings-field">
+      <span class="settings-field-label">
         <span class="settings-field-title">Scene diagnostics chips</span>
         <span class="settings-field-desc">
           Show FPS and WASM timing chips in the viewer overlay.

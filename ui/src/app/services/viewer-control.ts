@@ -100,6 +100,7 @@ const FIELD_OF_VIEW_KEY = 'nexus.viewer.fieldOfView';
 const ANTIALIASING_KEY = 'nexus.viewer.antialiasing';
 const RENDER_QUALITY_KEY = 'nexus.viewer.renderQuality';
 const USE_FILAMENT_COLOR_KEY = 'nexus.viewer.useFilamentColor';
+const PALM_REJECTION_KEY = 'nexus.viewer.palmRejection';
 
 /**
  * Shared state between the 3D-view toolbar and the viewer component.
@@ -164,6 +165,15 @@ export class ViewerControl {
   readonly useFilamentColor = signal(this.readUseFilamentColor());
 
   /**
+   * Whether pen-priority palm rejection ("wrist detection") is active in the
+   * 3D view. When on (the default), touch contacts from the hand resting on
+   * the glass are ignored while an Apple Pencil / stylus is in use, so the palm
+   * never orbits or pinches the camera. Pure-touch gestures are unaffected.
+   * Persisted so the choice survives reloads.
+   */
+  readonly palmRejection = signal(this.readPalmRejection());
+
+  /**
    * Currently selected object-manipulation mode. Drives the gizmo shown
    * over the current selection. Independent of camera orbit/pan — the
    * user picks a camera mode and an object mode separately.
@@ -214,9 +224,16 @@ export class ViewerControl {
    * Pending request for the viewer to animate to a specific look direction
    * (e.g. when the user clicks a face of the viewport-cube). Cleared after
    * the viewer consumes it; the `tick` field disambiguates repeated requests
-   * for the same direction.
+   * for the same direction. `autoOrtho` asks the viewer to also snap the
+   * projection to orthographic (viewport-cube behaviour) until the next free
+   * pan/zoom.
    */
-  readonly lookRequest = signal<{ direction: Vector3; up: Vector3; tick: number } | null>(null);
+  readonly lookRequest = signal<{
+    direction: Vector3;
+    up: Vector3;
+    tick: number;
+    autoOrtho: boolean;
+  } | null>(null);
   private lookTick = 0;
 
   /**
@@ -300,6 +317,12 @@ export class ViewerControl {
     this.storage.write(USE_FILAMENT_COLOR_KEY, String(value));
   }
 
+  /** Update the palm-rejection preference and persist it. */
+  setPalmRejection(value: boolean): void {
+    this.palmRejection.set(value);
+    this.storage.write(PALM_REJECTION_KEY, String(value));
+  }
+
   private readTwoFingerGesture(): TwoFingerGesture {
     return this.storage.get(TWO_FINGER_GESTURE_KEY)() === 'pan' ? 'pan' : 'orbit';
   }
@@ -337,17 +360,27 @@ export class ViewerControl {
     return this.storage.get(USE_FILAMENT_COLOR_KEY)() === 'true';
   }
 
+  private readPalmRejection(): boolean {
+    // Default on — palm rejection only changes behaviour once a pen appears,
+    // so it is safe to enable everywhere.
+    return this.storage.get(PALM_REJECTION_KEY)() !== 'false';
+  }
+
   /**
    * Ask the viewer to animate to a specific camera direction (unit vector
    * from the controls target toward the camera) with the given up vector.
    * The current target and distance are preserved.
+   *
+   * @param autoOrtho  When `true` (viewport-cube snaps), also flatten the
+   *   projection to orthographic until the next free pan/zoom in the viewport.
    */
-  lookFrom(direction: Vector3, up: Vector3): void {
+  lookFrom(direction: Vector3, up: Vector3, autoOrtho = false): void {
     this.lookTick += 1;
     this.lookRequest.set({
       direction: direction.clone().normalize(),
       up: up.clone().normalize(),
       tick: this.lookTick,
+      autoOrtho,
     });
   }
 

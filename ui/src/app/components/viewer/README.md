@@ -184,6 +184,13 @@ array to the viewer.
 When multiple input consumers are active at the same time (orbit, selection
 raycaster, gizmo), the viewer applies a clear priority order:
 
+0. **Palm rejection (stylus in use)** — [`PointerArbiter`](scene/pointer-arbiter.ts)
+   listens in the _capture_ phase on the canvas host (an ancestor of the WebGL
+   canvas), so it runs before every other consumer. While an Apple Pencil /
+   stylus is down, hovering, or was active within the grace window, it swallows
+   `pointerType === 'touch'` events — the hand and wrist resting on the glass —
+   so the palm never orbits, pinches, or selects. Genuine finger gestures are
+   untouched whenever no pen is involved.
 1. **Gizmo dragging in progress** — gizmo owns the pointer; OrbitControls
    and the selection raycaster are both suppressed.
 2. **Gizmo hovering** (cursor over a handle, not yet dragging) — the selection
@@ -194,6 +201,85 @@ raycaster, gizmo), the viewer applies a clear priority order:
 4. **Normal mode** — the selection raycaster runs; OrbitControls handles any
    gesture that misses a selectable object.
 
+### Viewport-cube auto-ortho
+
+Clicking a viewport-cube face/edge/corner snaps the camera to that view **and
+flattens the projection to orthographic** — the CAD convention that a snapped
+view is dimension-true. The temporary ortho is held until the user **pans or
+zooms** the main viewport, at which point the projection reverts to whatever the
+toolbar preset was (normally perspective). **Rotating** the view or interacting
+with the cube again keeps ortho.
+
+| Action                                    | Auto-ortho       |
+| ----------------------------------------- | ---------------- |
+| Cube face/edge/corner snap                | engage (→ ortho) |
+| Rotate (1-finger / left-drag / swipe)     | keep             |
+| Cube drag-orbit / roll / re-snap          | keep             |
+| **Pan** (2-finger / right-drag / ⌥-swipe) | **revert**       |
+| **Zoom** (pinch / wheel / autoscroll)     | **revert**       |
+| Toolbar view toggle / home reset          | cancel (manual)  |
+
+This lives entirely in [`SceneCamera`](scene/camera.ts) as a projection override
+(`autoOrtho`) — it deliberately does **not** touch the toolbar `view` signal, so
+there is no signal-ordering race between the snap animation and a view toggle.
+Engaging animates to the snapped direction at ~1° FOV with an apparent-size-
+preserving distance; reverting is an **instant** apparent-size-preserving FOV
+swap (`notifyUserPanOrZoom`) so it never fights the live pan/zoom gesture that
+triggered it. The pan/zoom trigger is emitted only from the genuine pan/zoom
+input sites in [`SceneControls`](scene/controls.ts) (`setRevertGestureSink`) —
+rotate and cube-driven moves never emit it.
+
+### Pen-priority palm rejection ("wrist detection")
+
+On an iPad the hand resting on the glass while drawing with an Apple Pencil
+fires `touch` pointer events for the palm and wrist. Unfiltered, they drive the
+camera — OrbitControls' single-touch rotate spins the view and two palm
+contacts read as a pinch — so the model lurches while the user works with the
+pencil. [`PointerArbiter`](scene/pointer-arbiter.ts) vetoes those contacts.
+
+```mermaid
+flowchart TD
+    E[pointer event on host<br/>capture phase] --> P{pointerType?}
+    P -->|pen| T[track pen: penActive + penEverUsed<br/>pass through]
+    P -->|touch| C{palm?}
+    P -->|mouse| A[pass through]
+    C -->|pen active, in grace,<br/>or palm-sized after pen use| S[stopImmediatePropagation<br/>swallow]
+    C -->|otherwise| A
+    T --> D[OrbitControls / selection / gizmo]
+    A --> D
+```
+
+A touch is judged palm at its `pointerdown` (`isPalmTouch`, unit-tested) when a
+pen is active — down, hovering, or lifted within `PEN_GRACE_MS` — or, once a pen
+has been seen this session, when its contact patch is palm-sized
+(`PALM_CONTACT_MIN_PX`), which catches the palm that lands just before the tip on
+iPads without pencil hover. Pure-touch users are never affected: the contact-size
+path is gated behind "a pen has been seen", and the pen-active path only fires
+while a pen is in use. The user can turn the whole behaviour off from
+**Settings → General → Controls → Palm rejection** (persisted; default on).
+
+### Hand-aware inspector tooltip placement
+
+The G-code inspector tooltip (extrusion width/height/speed on hover in the
+scalar views) is anchored to a virtual element at the pointer. A fixed
+below-right placement is ideal with a mouse but lands the readout **directly
+under the palm** of a right-handed pen user. `preferredHoverPlacement`
+([hover-placement.ts](hover-placement.ts), unit-tested) picks the side per input:
+
+| Pointer | Placement                                                    |
+| ------- | ------------------------------------------------------------ |
+| mouse   | `right-start` — the familiar below-right desktop behaviour.  |
+| touch   | `top` — the finger and hand occlude below, so float above.   |
+| pen     | opposite the tilt (hand) direction; `top` when near-upright. |
+
+The elegant part is the pen case: `PointerEvent.tiltX`/`tiltY` point from the tip
+toward the barrel — i.e. toward the hand — so the tooltip floats to the _opposite_
+side. Because tilt reveals which way the pen leans, this adapts to left- vs.
+right-handed users with **no setting to configure**. Floating UI's flip/shift
+still keep it on-screen, so this only chooses the _preferred_ side. The
+`viewer.ts` effect re-anchors when the preferred side changes (input swap or a
+tilt that crosses an axis).
+
 ---
 
 ## Anatomy
@@ -203,11 +289,13 @@ The viewer is split into focused files so each concern stays under ~300 lines.
 ```
 viewer/
 ├── viewer.ts                  Angular component — effects wiring, WASM ↔ Three bridge
+├── hover-placement.ts         preferredHoverPlacement — hand-aware inspector-tooltip side (pen tilt)
 ├── scene/                     ViewerScene and all Three.js sub-systems
 │   ├── index.ts               ViewerScene — owns renderer, render loop, delegates to sub-modules
 │   ├── camera.ts              SceneCamera — animations, view presets, fit-to-content, near/far
 │   ├── controls.ts            SceneControls — orbit inertia, multi-touch (pinch/pan/roll), autoscroll zoom
 │   ├── grid.ts                SceneGrid — adaptive build-plate grid with cross-fade and fade-on-graze
+│   ├── pointer-arbiter.ts     PointerArbiter — pen-priority palm rejection (capture-phase touch veto)
 │   ├── selection.ts           SceneSelection — selectable registry, emissive highlight, raycasting, face-pick
 │   ├── types.ts               Shared public types (SceneSelectionHandlers, SceneGizmoHandlers, ViewerView, …)
 │   └── utils.ts               disposeObject — recursive Three.js geometry/material cleanup
@@ -219,13 +307,14 @@ viewer/
 
 ### ViewerScene sub-module responsibilities
 
-| File                 | Class            | Owns                                                                                        |
-| -------------------- | ---------------- | ------------------------------------------------------------------------------------------- |
-| `scene/camera.ts`    | `SceneCamera`    | `PerspectiveCamera` pose, view animations, `fitToContent`                                   |
-| `scene/controls.ts`  | `SceneControls`  | `OrbitControls` config, orbit inertia, touch gestures, autoscroll zoom                      |
-| `scene/grid.ts`      | `SceneGrid`      | Bed grid `LineSegments`, adaptive spacing, CSS theme integration                            |
-| `scene/selection.ts` | `SceneSelection` | Selectable `Map`, emissive highlight, pointer event plumbing, face-pick overlay             |
-| `scene/index.ts`     | `ViewerScene`    | Three.js primitives (`Scene`, `WebGLRenderer`, `OrbitControls`), `contentRoot`, render loop |
+| File                       | Class            | Owns                                                                                        |
+| -------------------------- | ---------------- | ------------------------------------------------------------------------------------------- |
+| `scene/camera.ts`          | `SceneCamera`    | `PerspectiveCamera` pose, view animations, `fitToContent`                                   |
+| `scene/controls.ts`        | `SceneControls`  | `OrbitControls` config, orbit inertia, touch gestures, autoscroll zoom                      |
+| `scene/grid.ts`            | `SceneGrid`      | Bed grid `LineSegments`, adaptive spacing, CSS theme integration                            |
+| `scene/pointer-arbiter.ts` | `PointerArbiter` | Pen-priority palm rejection — capture-phase touch veto while a stylus is in use             |
+| `scene/selection.ts`       | `SceneSelection` | Selectable `Map`, emissive highlight, pointer event plumbing, face-pick overlay             |
+| `scene/index.ts`           | `ViewerScene`    | Three.js primitives (`Scene`, `WebGLRenderer`, `OrbitControls`), `contentRoot`, render loop |
 
 ### G-code layer architecture
 
@@ -266,8 +355,10 @@ flowchart LR
 - [scene/camera.ts](scene/camera.ts) — `SceneCamera`
 - [scene/controls.ts](scene/controls.ts) — `SceneControls`
 - [scene/grid.ts](scene/grid.ts) — `SceneGrid`
+- [scene/pointer-arbiter.ts](scene/pointer-arbiter.ts) — `PointerArbiter`, `isPalmTouch`, `PEN_GRACE_MS`, `PALM_CONTACT_MIN_PX`
 - [scene/selection.ts](scene/selection.ts) — `SceneSelection`
 - [gizmo.ts](gizmo.ts) — `GizmoManager`, `GizmoDelta`, `FacePickResult`, `raycastFace`, `computeSelectionCentroid`
+- [hover-placement.ts](hover-placement.ts) — `preferredHoverPlacement`, `HoverPointerInfo`
 - [gcode-orchestrator.ts](gcode-orchestrator.ts) — `GcodeOrchestrator`
 - [gcode-layer-renderer.ts](gcode-layer-renderer.ts) — layer builder and visibility helpers
 - [viewer.ts](viewer.ts) — Angular component wiring
