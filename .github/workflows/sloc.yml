@@ -1,0 +1,55 @@
+name: SLOC
+
+# Keeps the README's source-lines-of-code badge current without any manual work.
+# On every push to main it recounts all git-tracked source (Rust + Angular +
+# everything else) with tokei and rewrites .github/badges/sloc.json, which the
+# README renders through a shields.io endpoint badge. The badge commit carries
+# [skip ci] so it never re-triggers this (or any other) workflow.
+on:
+  push:
+    branches: [main]
+    paths-ignore:
+      - ".github/badges/sloc.json"
+  workflow_dispatch:
+
+# Needs write access to commit the refreshed badge JSON back to main.
+permissions:
+  contents: write
+
+concurrency:
+  group: sloc-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  count:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install tokei
+        run: |
+          ver=v12.1.2
+          curl -sSfL "https://github.com/XAMPPRocky/tokei/releases/download/${ver}/tokei-x86_64-unknown-linux-gnu.tar.gz" \
+            | tar xz
+          sudo install -m 0755 tokei /usr/local/bin/tokei
+
+      - name: Recount SLOC and refresh badge
+        run: |
+          code=$(tokei --output json | python3 -c "import sys,json;print(json.load(sys.stdin)['Total']['code'])")
+          formatted=$(python3 -c "print(f'{$code:,}')")
+          mkdir -p .github/badges
+          printf '{ "schemaVersion": 1, "label": "SLOC", "message": "%s", "color": "orange" }\n' "$formatted" \
+            > .github/badges/sloc.json
+          echo "SLOC = $formatted"
+
+      - name: Commit if changed
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add .github/badges/sloc.json
+          if git diff --staged --quiet; then
+            echo "SLOC badge already up to date."
+          else
+            git commit -m "chore: update SLOC badge [skip ci]"
+            git push
+          fi
