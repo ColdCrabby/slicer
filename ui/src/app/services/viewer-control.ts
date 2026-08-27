@@ -224,9 +224,16 @@ export class ViewerControl {
    * Pending request for the viewer to animate to a specific look direction
    * (e.g. when the user clicks a face of the viewport-cube). Cleared after
    * the viewer consumes it; the `tick` field disambiguates repeated requests
-   * for the same direction.
+   * for the same direction. `autoOrtho` asks the viewer to also snap the
+   * projection to orthographic (viewport-cube behaviour) until the next free
+   * pan/zoom.
    */
-  readonly lookRequest = signal<{ direction: Vector3; up: Vector3; tick: number } | null>(null);
+  readonly lookRequest = signal<{
+    direction: Vector3;
+    up: Vector3;
+    tick: number;
+    autoOrtho: boolean;
+  } | null>(null);
   private lookTick = 0;
 
   /**
@@ -363,13 +370,17 @@ export class ViewerControl {
    * Ask the viewer to animate to a specific camera direction (unit vector
    * from the controls target toward the camera) with the given up vector.
    * The current target and distance are preserved.
+   *
+   * @param autoOrtho  When `true` (viewport-cube snaps), also flatten the
+   *   projection to orthographic until the next free pan/zoom in the viewport.
    */
-  lookFrom(direction: Vector3, up: Vector3): void {
+  lookFrom(direction: Vector3, up: Vector3, autoOrtho = false): void {
     this.lookTick += 1;
     this.lookRequest.set({
       direction: direction.clone().normalize(),
       up: up.clone().normalize(),
       tick: this.lookTick,
+      autoOrtho,
     });
   }
 

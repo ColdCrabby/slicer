@@ -206,6 +206,9 @@ export class ViewerScene {
     this._controls = new SceneControls(this.camera, this.controls, this.renderer, () =>
       this._selection.cancelActiveDrag(),
     );
+    // Free pan/zoom in the main viewport reverts the viewport-cube's temporary
+    // orthographic snap; rotate and cube gestures never fire this.
+    this._controls.setRevertGestureSink(() => this._camera.notifyUserPanOrZoom());
     this._grid = new SceneGrid(this.scene, this.camera, this.controls, this.renderer, printArea);
 
     // Wire gizmo callbacks.
@@ -472,8 +475,8 @@ export class ViewerScene {
     return dataUrl;
   }
 
-  animateToDirection(direction: Vector3, up: Vector3): void {
-    this._camera.animateToDirection(direction, up);
+  animateToDirection(direction: Vector3, up: Vector3, forceOrtho = false): void {
+    this._camera.animateToDirection(direction, up, forceOrtho);
   }
 
   orbitBy(azimuth: number, polar: number): void {

@@ -363,7 +363,7 @@ export class Viewer {
       if (!req) {
         return;
       }
-      this.scene?.animateToDirection(req.direction, req.up);
+      this.scene?.animateToDirection(req.direction, req.up, req.autoOrtho);
     });
 
     // React to roll requests (viewport-cube roll buttons).

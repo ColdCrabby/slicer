@@ -579,7 +579,9 @@ export class ViewportCube {
       const mesh = this.pickZone(event);
       if (mesh) {
         const ud = mesh.userData as ZoneUserData;
-        this.viewerControl.lookFrom(ud.direction, WORLD_UP);
+        // Snapping to a cube face/edge/corner also flattens the projection to
+        // orthographic (CAD convention); a later free pan/zoom reverts it.
+        this.viewerControl.lookFrom(ud.direction, WORLD_UP, true);
       }
     }
     canvas.style.cursor = this.pickZone(event) ? 'pointer' : 'grab';

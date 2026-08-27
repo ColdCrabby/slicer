@@ -201,6 +201,34 @@ raycaster, gizmo), the viewer applies a clear priority order:
 4. **Normal mode** — the selection raycaster runs; OrbitControls handles any
    gesture that misses a selectable object.
 
+### Viewport-cube auto-ortho
+
+Clicking a viewport-cube face/edge/corner snaps the camera to that view **and
+flattens the projection to orthographic** — the CAD convention that a snapped
+view is dimension-true. The temporary ortho is held until the user **pans or
+zooms** the main viewport, at which point the projection reverts to whatever the
+toolbar preset was (normally perspective). **Rotating** the view or interacting
+with the cube again keeps ortho.
+
+| Action                                    | Auto-ortho       |
+| ----------------------------------------- | ---------------- |
+| Cube face/edge/corner snap                | engage (→ ortho) |
+| Rotate (1-finger / left-drag / swipe)     | keep             |
+| Cube drag-orbit / roll / re-snap          | keep             |
+| **Pan** (2-finger / right-drag / ⌥-swipe) | **revert**       |
+| **Zoom** (pinch / wheel / autoscroll)     | **revert**       |
+| Toolbar view toggle / home reset          | cancel (manual)  |
+
+This lives entirely in [`SceneCamera`](scene/camera.ts) as a projection override
+(`autoOrtho`) — it deliberately does **not** touch the toolbar `view` signal, so
+there is no signal-ordering race between the snap animation and a view toggle.
+Engaging animates to the snapped direction at ~1° FOV with an apparent-size-
+preserving distance; reverting is an **instant** apparent-size-preserving FOV
+swap (`notifyUserPanOrZoom`) so it never fights the live pan/zoom gesture that
+triggered it. The pan/zoom trigger is emitted only from the genuine pan/zoom
+input sites in [`SceneControls`](scene/controls.ts) (`setRevertGestureSink`) —
+rotate and cube-driven moves never emit it.
+
 ### Pen-priority palm rejection ("wrist detection")
 
 On an iPad the hand resting on the glass while drawing with an Apple Pencil
@@ -238,11 +266,11 @@ below-right placement is ideal with a mouse but lands the readout **directly
 under the palm** of a right-handed pen user. `preferredHoverPlacement`
 ([hover-placement.ts](hover-placement.ts), unit-tested) picks the side per input:
 
-| Pointer | Placement                                                     |
-| ------- | ------------------------------------------------------------- |
-| mouse   | `right-start` — the familiar below-right desktop behaviour.   |
-| touch   | `top` — the finger and hand occlude below, so float above.    |
-| pen     | opposite the tilt (hand) direction; `top` when near-upright.  |
+| Pointer | Placement                                                    |
+| ------- | ------------------------------------------------------------ |
+| mouse   | `right-start` — the familiar below-right desktop behaviour.  |
+| touch   | `top` — the finger and hand occlude below, so float above.   |
+| pen     | opposite the tilt (hand) direction; `top` when near-upright. |
 
 The elegant part is the pen case: `PointerEvent.tiltX`/`tiltY` point from the tip
 toward the barrel — i.e. toward the hand — so the tooltip floats to the _opposite_
@@ -279,14 +307,14 @@ viewer/
 
 ### ViewerScene sub-module responsibilities
 
-| File                 | Class            | Owns                                                                                        |
-| -------------------- | ---------------- | ------------------------------------------------------------------------------------------- |
-| `scene/camera.ts`    | `SceneCamera`    | `PerspectiveCamera` pose, view animations, `fitToContent`                                   |
-| `scene/controls.ts`  | `SceneControls`  | `OrbitControls` config, orbit inertia, touch gestures, autoscroll zoom                      |
-| `scene/grid.ts`      | `SceneGrid`      | Bed grid `LineSegments`, adaptive spacing, CSS theme integration                            |
-| `scene/pointer-arbiter.ts` | `PointerArbiter` | Pen-priority palm rejection — capture-phase touch veto while a stylus is in use          |
-| `scene/selection.ts` | `SceneSelection` | Selectable `Map`, emissive highlight, pointer event plumbing, face-pick overlay             |
-| `scene/index.ts`     | `ViewerScene`    | Three.js primitives (`Scene`, `WebGLRenderer`, `OrbitControls`), `contentRoot`, render loop |
+| File                       | Class            | Owns                                                                                        |
+| -------------------------- | ---------------- | ------------------------------------------------------------------------------------------- |
+| `scene/camera.ts`          | `SceneCamera`    | `PerspectiveCamera` pose, view animations, `fitToContent`                                   |
+| `scene/controls.ts`        | `SceneControls`  | `OrbitControls` config, orbit inertia, touch gestures, autoscroll zoom                      |
+| `scene/grid.ts`            | `SceneGrid`      | Bed grid `LineSegments`, adaptive spacing, CSS theme integration                            |
+| `scene/pointer-arbiter.ts` | `PointerArbiter` | Pen-priority palm rejection — capture-phase touch veto while a stylus is in use             |
+| `scene/selection.ts`       | `SceneSelection` | Selectable `Map`, emissive highlight, pointer event plumbing, face-pick overlay             |
+| `scene/index.ts`           | `ViewerScene`    | Three.js primitives (`Scene`, `WebGLRenderer`, `OrbitControls`), `contentRoot`, render loop |
 
 ### G-code layer architecture
 

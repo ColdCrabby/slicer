@@ -15,6 +15,8 @@ import type { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js
 const TOUCH_DISABLED = -1 as unknown as TOUCH;
 const TWO_FINGER_DOLLY_DEAD_ZONE_PX = 1.5;
 const TWO_FINGER_ROLL_DEAD_ZONE_RAD = 0.01;
+/** Right-drag travel (px) before it counts as a pan for the auto-ortho revert. */
+const RIGHT_PAN_REVERT_THRESHOLD_PX = 3;
 
 /**
  * Safari/WebKit-proprietary gesture event (not in the standard DOM lib types).
@@ -111,6 +113,20 @@ export class SceneControls {
   private twoFingerGesture: 'orbit' | 'pan' = 'orbit';
 
   /**
+   * Fired whenever the user *pans or zooms* the main viewport (never on a
+   * rotate). Used by the viewport-cube auto-ortho behaviour to revert the
+   * temporary orthographic projection back to the user's chosen view. Rotate
+   * and cube-driven camera moves deliberately do not fire it. See
+   * {@link SceneCamera.notifyUserPanOrZoom}.
+   */
+  private revertGestureSink: (() => void) | null = null;
+
+  /** Handlers for the right-drag (pan) revert detector, retained for cleanup. */
+  private rightPanPointerDownHandler: ((event: PointerEvent) => void) | null = null;
+  private rightPanPointerMoveHandler: ((event: PointerEvent) => void) | null = null;
+  private rightPanPointerUpHandler: ((event: PointerEvent) => void) | null = null;
+
+  /**
    * @param cancelDragCallback  Called when a two-finger gesture begins so
    *   any in-flight single-finger selection drag can be abandoned cleanly.
    */
@@ -132,6 +148,7 @@ export class SceneControls {
     this.installAutoscrollZoom();
     this.installAlwaysOnWheelZoom();
     this.installWebKitGestureZoom();
+    this.installRightPanRevertDetection();
     // Orbit is the fixed cursor mode: left-drag rotates, right-drag pans.
     // Middle mouse is reserved for autoscroll zoom; disable OrbitControls' drag-dolly.
     const MIDDLE = null as unknown as MOUSE;
@@ -146,6 +163,19 @@ export class SceneControls {
   /** Set the macOS bare-two-finger-swipe action (orbit or pan). */
   setTwoFingerGesture(gesture: 'orbit' | 'pan'): void {
     this.twoFingerGesture = gesture;
+  }
+
+  /**
+   * Register a callback fired whenever the user pans or zooms the main viewport
+   * (never on a rotate or a cube gesture). Drives the viewport-cube auto-ortho
+   * revert. Pass `null` to clear.
+   */
+  setRevertGestureSink(sink: (() => void) | null): void {
+    this.revertGestureSink = sink;
+  }
+
+  private emitRevertGesture(): void {
+    this.revertGestureSink?.();
   }
 
   applyOrbitInertia(dt: number): void {
@@ -280,7 +310,77 @@ export class SceneControls {
     this.uninstallAutoscrollZoom();
     this.uninstallRendererPointerListeners();
     this.uninstallWebKitGestureZoom();
+    this.uninstallRightPanRevertDetection();
     this.renderer.domElement.removeEventListener('wheel', this.wheelHandler, { capture: true });
+  }
+
+  // -------------------------------------------------------------------------
+  // Right-drag (pan) revert detection
+  // -------------------------------------------------------------------------
+
+  /**
+   * OrbitControls maps the right mouse button to PAN. Panning is handled
+   * internally by OrbitControls (not by our custom helpers), so to notify the
+   * auto-ortho revert we watch the right-button drag ourselves. We only observe
+   * — we never call `preventDefault`/`stopPropagation` — so OrbitControls still
+   * performs the pan. A small travel threshold avoids reverting on a bare
+   * right-click that never moves.
+   */
+  private installRightPanRevertDetection(): void {
+    const el = this.renderer.domElement;
+    let pointerId: number | null = null;
+    let startX = 0;
+    let startY = 0;
+    let emitted = false;
+
+    this.rightPanPointerDownHandler = (event: PointerEvent): void => {
+      if (event.button !== 2) {
+        return;
+      }
+      pointerId = event.pointerId;
+      startX = event.clientX;
+      startY = event.clientY;
+      emitted = false;
+    };
+    this.rightPanPointerMoveHandler = (event: PointerEvent): void => {
+      if (event.pointerId !== pointerId || emitted) {
+        return;
+      }
+      if (
+        Math.hypot(event.clientX - startX, event.clientY - startY) > RIGHT_PAN_REVERT_THRESHOLD_PX
+      ) {
+        emitted = true;
+        this.emitRevertGesture();
+      }
+    };
+    this.rightPanPointerUpHandler = (event: PointerEvent): void => {
+      if (event.pointerId === pointerId) {
+        pointerId = null;
+        emitted = false;
+      }
+    };
+
+    el.addEventListener('pointerdown', this.rightPanPointerDownHandler);
+    el.addEventListener('pointermove', this.rightPanPointerMoveHandler);
+    el.addEventListener('pointerup', this.rightPanPointerUpHandler);
+    el.addEventListener('pointercancel', this.rightPanPointerUpHandler);
+  }
+
+  private uninstallRightPanRevertDetection(): void {
+    const el = this.renderer.domElement;
+    if (this.rightPanPointerDownHandler) {
+      el.removeEventListener('pointerdown', this.rightPanPointerDownHandler);
+      this.rightPanPointerDownHandler = null;
+    }
+    if (this.rightPanPointerMoveHandler) {
+      el.removeEventListener('pointermove', this.rightPanPointerMoveHandler);
+      this.rightPanPointerMoveHandler = null;
+    }
+    if (this.rightPanPointerUpHandler) {
+      el.removeEventListener('pointerup', this.rightPanPointerUpHandler);
+      el.removeEventListener('pointercancel', this.rightPanPointerUpHandler);
+      this.rightPanPointerUpHandler = null;
+    }
   }
 
   // -------------------------------------------------------------------------
@@ -312,6 +412,7 @@ export class SceneControls {
     }
     event.preventDefault();
     event.stopImmediatePropagation();
+    this.emitRevertGesture();
 
     const zoomSpeed = this.controls.zoomSpeed;
     let normalised: number;
@@ -790,6 +891,7 @@ export class SceneControls {
    * `factor < 1` zooms in, `factor > 1` zooms out.
    */
   private applyTouchDolly(factor: number, cx: number, cy: number): void {
+    this.emitRevertGesture();
     const { camera } = this;
     const target = this.controls.target;
     camera.updateMatrixWorld(true);
@@ -822,6 +924,7 @@ export class SceneControls {
 
   /** Translate camera + target by a screen-space pixel delta. */
   private applyTouchPan(dxPx: number, dyPx: number): void {
+    this.emitRevertGesture();
     const { camera } = this;
     const target = this.controls.target;
     camera.updateMatrix();
@@ -881,6 +984,7 @@ export class SceneControls {
     }
     event.preventDefault();
     event.stopPropagation();
+    this.emitRevertGesture();
     const el = this.renderer.domElement;
     el.setPointerCapture(event.pointerId);
     el.style.cursor = 'ns-resize';
