@@ -27,6 +27,7 @@ export class GeneralSettings implements OnInit {
   protected readonly fieldOfView = this.viewer.fieldOfView;
   protected readonly antialiasing = this.viewer.antialiasing;
   protected readonly renderQuality = this.viewer.renderQuality;
+  protected readonly useFilamentColor = this.viewer.useFilamentColor;
 
   protected readonly minFov = MIN_FIELD_OF_VIEW;
   protected readonly maxFov = MAX_FIELD_OF_VIEW;
@@ -71,5 +72,9 @@ export class GeneralSettings implements OnInit {
 
   setRenderQuality(quality: RenderQuality): void {
     this.viewer.setRenderQuality(quality);
+  }
+
+  setUseFilamentColor(value: boolean): void {
+    this.viewer.setUseFilamentColor(value);
   }
 }

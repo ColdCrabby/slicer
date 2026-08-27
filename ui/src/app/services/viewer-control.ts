@@ -75,6 +75,7 @@ const STATS_VISIBLE_KEY = 'nexus.viewer.statsVisible';
 const FIELD_OF_VIEW_KEY = 'nexus.viewer.fieldOfView';
 const ANTIALIASING_KEY = 'nexus.viewer.antialiasing';
 const RENDER_QUALITY_KEY = 'nexus.viewer.renderQuality';
+const USE_FILAMENT_COLOR_KEY = 'nexus.viewer.useFilamentColor';
 
 /**
  * Shared state between the 3D-view toolbar and the viewer component.
@@ -129,6 +130,14 @@ export class ViewerControl {
    * live via the renderer's pixel ratio.
    */
   readonly renderQuality = signal<RenderQuality>(this.readRenderQuality());
+
+  /**
+   * Whether model meshes use the active filament profile color instead of the
+   * neutral theme-based graphite tone.
+   *
+   * Default is `false` to preserve the existing scene appearance.
+   */
+  readonly useFilamentColor = signal(this.readUseFilamentColor());
 
   /**
    * Currently selected object-manipulation mode. Drives the gizmo shown
@@ -243,6 +252,12 @@ export class ViewerControl {
     this.storage.write(RENDER_QUALITY_KEY, quality);
   }
 
+  /** Update model-color source preference and persist it. */
+  setUseFilamentColor(value: boolean): void {
+    this.useFilamentColor.set(value);
+    this.storage.write(USE_FILAMENT_COLOR_KEY, String(value));
+  }
+
   private readTwoFingerGesture(): TwoFingerGesture {
     return this.storage.get(TWO_FINGER_GESTURE_KEY)() === 'pan' ? 'pan' : 'orbit';
   }
@@ -274,6 +289,10 @@ export class ViewerControl {
   private readRenderQuality(): RenderQuality {
     const raw = this.storage.get(RENDER_QUALITY_KEY)();
     return raw === 'performance' || raw === 'quality' ? raw : 'balanced';
+  }
+
+  private readUseFilamentColor(): boolean {
+    return this.storage.get(USE_FILAMENT_COLOR_KEY)() === 'true';
   }
 
   /**
