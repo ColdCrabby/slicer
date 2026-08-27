@@ -4,7 +4,9 @@
 //! The `tobj` crate handles OBJ files.
 //! 3MF files are ZIP archives containing an XML mesh description, parsed with
 //! `zip` and `quick-xml`.
-//! Loaded meshes are in native file coordinates — no transforms are applied on import.
+//! Loaded meshes are in native file coordinates — no placement transforms are
+//! applied on import. The one exception is 3MF's declared measurement `unit`,
+//! which is normalized to millimeters (the engine's canonical unit) on load.
 
 use std::fs::OpenOptions;
 use std::io::Cursor;
@@ -244,6 +246,24 @@ pub fn read_obj_from_bytes(bytes: &[u8]) -> Result<Mesh, Box<dyn std::error::Err
     })
 }
 
+/// Convert a 3MF `unit` declaration into a millimeter scale factor.
+///
+/// The 3MF core spec permits `micron`, `millimeter`, `centimeter`, `inch`,
+/// `foot`, and `meter`. The engine operates exclusively in millimeters, so every
+/// coordinate is multiplied by the returned factor on import. Returns `None` for
+/// an unrecognized unit. Comparison is case-insensitive.
+fn unit_to_mm_scale(unit: &str) -> Option<f64> {
+    match unit.trim().to_ascii_lowercase().as_str() {
+        "micron" => Some(0.001),
+        "millimeter" => Some(1.0),
+        "centimeter" => Some(10.0),
+        "inch" => Some(25.4),
+        "foot" => Some(304.8),
+        "meter" => Some(1000.0),
+        _ => None,
+    }
+}
+
 /// Load a mesh from a 3MF file.
 ///
 /// 3MF is a ZIP archive containing an XML model descriptor at `3D/3dmodel.model`.
@@ -316,9 +336,25 @@ pub fn read_3mf_from_bytes(bytes: &[u8]) -> Result<Mesh, Box<dyn std::error::Err
     let mut faces: Vec<Face> = Vec::new();
     let mut buf = Vec::new();
 
+    // The `<model>` element declares the measurement unit for all coordinates.
+    // The engine works exclusively in millimeters, so capture the conversion
+    // factor (defaults to millimeter per the 3MF spec) and scale every vertex.
+    // `<model>` always precedes the mesh data, so this is known before any vertex.
+    let mut unit_scale = 1.0_f64;
+
     loop {
         match reader.read_event_into(&mut buf)? {
             Event::Empty(ref e) | Event::Start(ref e) => match e.local_name().as_ref() {
+                "model" => {
+                    for attr in e.attributes().flatten() {
+                        if attr.key.local_name().as_ref() == "unit" {
+                            let unit = attr.value.as_ref();
+                            unit_scale = unit_to_mm_scale(unit).ok_or_else(|| {
+                                format!("3MF model declares an unknown unit '{unit}'")
+                            })?;
+                        }
+                    }
+                }
                 "vertex" => {
                     let mut x = None::<f64>;
                     let mut y = None::<f64>;
@@ -339,7 +375,7 @@ pub fn read_3mf_from_bytes(bytes: &[u8]) -> Result<Mesh, Box<dyn std::error::Err
                         (Some(x), Some(y), Some(z)) => (x, y, z),
                         _ => return Err("3MF vertex is missing x, y, or z attribute".into()),
                     };
-                    vertices.push(Vertex::new(x, y, z));
+                    vertices.push(Vertex::new(x * unit_scale, y * unit_scale, z * unit_scale));
                 }
                 "triangle" => {
                     let mut v1 = None::<usize>;
@@ -600,5 +636,127 @@ mod tests {
             msg.contains("out-of-bounds"),
             "Error should mention out-of-bounds: {msg}"
         );
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    fn build_3mf_with_unit(unit: &str) -> Vec<u8> {
+        use std::io::Write;
+
+        // A single triangle whose far vertex is at coordinate 2 in each axis, so
+        // the scale factor is directly observable on the returned geometry.
+        let xml = format!(
+            r#"<?xml version="1.0" encoding="UTF-8"?>
+<model unit="{unit}" xmlns="http://schemas.microsoft.com/3dmanufacturing/core/2015/02">
+  <resources>
+    <object id="1" type="model">
+      <mesh>
+        <vertices>
+          <vertex x="0" y="0" z="0"/>
+          <vertex x="2" y="0" z="0"/>
+          <vertex x="2" y="2" z="2"/>
+        </vertices>
+        <triangles>
+          <triangle v1="0" v2="1" v3="2"/>
+        </triangles>
+      </mesh>
+    </object>
+  </resources>
+  <build><item objectid="1"/></build>
+</model>"#
+        );
+
+        let mut zip_buf: Vec<u8> = Vec::new();
+        {
+            let cursor = std::io::Cursor::new(&mut zip_buf);
+            let mut zw = zip::ZipWriter::new(cursor);
+            zw.start_file("3D/3dmodel.model", zip::write::SimpleFileOptions::default())
+                .unwrap();
+            zw.write_all(xml.as_bytes()).unwrap();
+            zw.finish().unwrap();
+        }
+        zip_buf
+    }
+
+    #[test]
+    #[cfg(not(target_arch = "wasm32"))]
+    fn test_read_3mf_scales_units_to_millimeters() {
+        // (unit, expected mm value for a coordinate of 2 in the source file)
+        let cases = [
+            ("millimeter", 2.0),
+            ("micron", 0.002),
+            ("centimeter", 20.0),
+            ("inch", 50.8),
+            ("foot", 609.6),
+            ("meter", 2000.0),
+            ("METER", 2000.0), // case-insensitive
+        ];
+        for (unit, expected) in cases {
+            let bytes = build_3mf_with_unit(unit);
+            let mesh = read_3mf_from_bytes(&bytes)
+                .unwrap_or_else(|e| panic!("Failed to read 3MF with unit '{unit}': {e}"));
+            let far = mesh.vertices[1];
+            assert!(
+                (far.x - expected).abs() < 1e-9,
+                "unit '{unit}': expected x={expected}, got {}",
+                far.x
+            );
+        }
+    }
+
+    #[test]
+    #[cfg(not(target_arch = "wasm32"))]
+    fn test_read_3mf_defaults_to_millimeter_when_unit_absent() {
+        use std::io::Write;
+
+        let xml = r#"<?xml version="1.0" encoding="UTF-8"?>
+<model xmlns="http://schemas.microsoft.com/3dmanufacturing/core/2015/02">
+  <resources>
+    <object id="1" type="model">
+      <mesh>
+        <vertices>
+          <vertex x="0" y="0" z="0"/>
+          <vertex x="2" y="0" z="0"/>
+          <vertex x="2" y="2" z="2"/>
+        </vertices>
+        <triangles>
+          <triangle v1="0" v2="1" v3="2"/>
+        </triangles>
+      </mesh>
+    </object>
+  </resources>
+  <build><item objectid="1"/></build>
+</model>"#;
+        let mut zip_buf: Vec<u8> = Vec::new();
+        {
+            let cursor = std::io::Cursor::new(&mut zip_buf);
+            let mut zw = zip::ZipWriter::new(cursor);
+            zw.start_file("3D/3dmodel.model", zip::write::SimpleFileOptions::default())
+                .unwrap();
+            zw.write_all(xml.as_bytes()).unwrap();
+            zw.finish().unwrap();
+        }
+        let mesh = read_3mf_from_bytes(&zip_buf).expect("Failed to read unit-less 3MF");
+        assert!((mesh.vertices[1].x - 2.0).abs() < 1e-9);
+    }
+
+    #[test]
+    #[cfg(not(target_arch = "wasm32"))]
+    fn test_read_3mf_rejects_unknown_unit() {
+        let bytes = build_3mf_with_unit("furlong");
+        let result = read_3mf_from_bytes(&bytes);
+        assert!(result.is_err(), "Should fail on unknown unit");
+        assert!(result.unwrap_err().to_string().contains("unknown unit"));
+    }
+
+    #[test]
+    fn test_unit_to_mm_scale() {
+        assert_eq!(unit_to_mm_scale("millimeter"), Some(1.0));
+        assert_eq!(unit_to_mm_scale("micron"), Some(0.001));
+        assert_eq!(unit_to_mm_scale("centimeter"), Some(10.0));
+        assert_eq!(unit_to_mm_scale("inch"), Some(25.4));
+        assert_eq!(unit_to_mm_scale("foot"), Some(304.8));
+        assert_eq!(unit_to_mm_scale("meter"), Some(1000.0));
+        assert_eq!(unit_to_mm_scale("MilliMeter"), Some(1.0));
+        assert_eq!(unit_to_mm_scale("parsec"), None);
     }
 }

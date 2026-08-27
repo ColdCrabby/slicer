@@ -83,6 +83,17 @@ these notes and acknowledges contributors. `scripts/gen-changelog-draft.sh` and
   (declared only to enable the `wasm_js` backend for the 0.3 copy that
   `tobj`/`ahash` still require). No behavioural changes to sliced output.
 
+### Fixed
+
+- **3MF models loaded at the wrong scale** — the 3MF importer ignored the
+  `<model unit="…">` declaration and read every coordinate as raw millimeters, so
+  files authored in `meter`, `centimeter`, `inch`, or `foot` opened dramatically
+  undersized (e.g. a metre-declared object appeared 1000× too small). The loader
+  now normalizes all six spec units (`micron`, `millimeter`, `centimeter`,
+  `inch`, `foot`, `meter`) to millimeters on import and rejects unrecognized
+  units with a clear error. Applies to both the CLI file path and the
+  byte-upload path used by the UI/WASM and WS server.
+
 ## [0.1.0] - 2026-08-23
 
 ### Added
