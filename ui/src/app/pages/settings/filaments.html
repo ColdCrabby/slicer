@@ -119,8 +119,13 @@
                   <nexus-icon name="copy" />
                 </button>
                 @if (filament.source !== 'builtin') {
-                  <button nexusIconButton aria-label="Delete" (click)="armDelete()">
-                    <nexus-icon name="trash" />
+                  <button
+                    nexusIconButton
+                    [attr.aria-label]="deleteArmed() ? 'Cancel delete' : 'Delete'"
+                    [class.is-danger]="deleteArmed()"
+                    (click)="toggleDelete()"
+                  >
+                    <nexus-icon [name]="deleteArmed() ? 'xmark' : 'trash'" />
                   </button>
                 }
               </div>

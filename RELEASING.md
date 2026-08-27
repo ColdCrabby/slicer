@@ -162,7 +162,7 @@ quarantine flag to the downloaded bundle and Gatekeeper reports the app as
 **"damaged and can't be opened"**. Clearing the flag once fixes it:
 
 ```bash
-xattr -cr "/Applications/Slicer Engine Desktop.app"
+xattr -cr "/Applications/Cold Crabby Desktop.app"
 ```
 
 The canary and release notes already spell this out for users.

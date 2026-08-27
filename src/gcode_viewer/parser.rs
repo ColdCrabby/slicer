@@ -4,6 +4,15 @@ use super::types::{FanSample, InternalLayer, Role};
 /// paths without having to hide other roles.
 const SEAM_DOT_DIAMETER_FROM_LAYER_HEIGHT_SCALE: f32 = 4.0;
 const MIN_SEAM_DOT_RADIUS_MM: f32 = 0.3;
+/// Parameter keys used by common start-macro conventions to pass nozzle temp.
+const NOZZLE_TEMP_KEYS: &[&str] = &[
+    "EXTRUDER_TEMP=",
+    "EXTRUDER=",
+    "NOZZLE_TEMP=",
+    "NOZZLE=",
+    "HOTEND_TEMP=",
+    "HOTEND=",
+];
 
 fn seam_dot_radius(layer_height_mm: f32) -> f32 {
     let diameter = layer_height_mm.max(0.0) * SEAM_DOT_DIAMETER_FROM_LAYER_HEIGHT_SCALE;
@@ -247,6 +256,25 @@ pub(super) fn parse_gcode_bytes(bytes: &[u8]) -> Vec<InternalLayer> {
                     }
                 }
             }
+            "SET_HEATER_TEMPERATURE" => {
+                // Klipper direct heater command:
+                // `SET_HEATER_TEMPERATURE HEATER=extruder TARGET=210`.
+                let mut heater = None;
+                let mut target = None;
+                for param in parts {
+                    if let Some(v) = strip_prefix_ci(param, "heater=") {
+                        heater = Some(v);
+                    } else if let Some(v) = strip_prefix_ci(param, "target=") {
+                        target = parse_leading_f32(v);
+                    }
+                }
+                if heater.is_some_and(|h| h.eq_ignore_ascii_case("extruder")) {
+                    if let Some(v) = target {
+                        sticky.nozzle_temp = Some(v);
+                        sticky.seed(&mut current);
+                    }
+                }
+            }
             "M106" => {
                 // Marlin part-cooling: `M106 P<n> S<0-255>` (P defaults to 0).
                 let mut fan_index: u32 = 0;
@@ -298,7 +326,15 @@ pub(super) fn parse_gcode_bytes(bytes: &[u8]) -> Vec<InternalLayer> {
                     sticky.seed(&mut current);
                 }
             }
-            _ => {} // G28, G4, M140, etc. — ignore
+            _ => {
+                // Custom start macros often pass temperatures as named args
+                // (e.g. `START_PRINT EXTRUDER_TEMP=...`). Capture those so
+                // temperature-based color modes work for Klipper-style starts.
+                if let Some(v) = parse_nozzle_temp_from_params(parts) {
+                    sticky.nozzle_temp = Some(v);
+                    sticky.seed(&mut current);
+                }
+            } // G28, G4, M140, etc. — ignore
         }
     }
 
@@ -313,6 +349,25 @@ fn strip_prefix_ci<'a>(value: &'a str, prefix: &str) -> Option<&'a str> {
     } else {
         None
     }
+}
+
+/// Parse nozzle temperature from key/value-style macro args.
+///
+/// Supports common conventions such as:
+/// - `START_PRINT EXTRUDER_TEMP=210`
+/// - `START_PRINT EXTRUDER=210`
+/// - `PRINT_START HOTEND=210`
+fn parse_nozzle_temp_from_params<'a>(params: impl Iterator<Item = &'a str>) -> Option<f32> {
+    for param in params {
+        for key in NOZZLE_TEMP_KEYS {
+            if let Some(raw) = strip_prefix_ci(param, key) {
+                if let Some(temp) = parse_leading_f32(raw) {
+                    return Some(temp);
+                }
+            }
+        }
+    }
+    None
 }
 
 /// Handle a `;` comment line, mutating parser state as needed.
@@ -721,6 +776,54 @@ G1 X10 Y0 Z0.2 E1.0
         let layers = parse_gcode_bytes(gcode);
         let layer = first_printed_layer(&layers);
         assert_eq!(layer.meta.nozzle_temp, Some(210.0));
+    }
+
+    /// Klipper-style start macros pass nozzle temp as named arguments.
+    #[test]
+    fn nozzle_temperature_is_captured_from_start_print_macro() {
+        let gcode = b"
+START_PRINT BED_TEMP=60 EXTRUDER_TEMP=215 BED=60 EXTRUDER=215
+;LAYER_CHANGE
+;Z:0.200
+;TYPE:Outer wall
+G1 X0 Y0 Z0.2 E0 F1800
+G1 X10 Y0 Z0.2 E1.0
+";
+        let layers = parse_gcode_bytes(gcode);
+        let layer = first_printed_layer(&layers);
+        assert_eq!(layer.meta.nozzle_temp, Some(215.0));
+    }
+
+    /// Generic macros with common aliases (`HOTEND`, `NOZZLE`) are supported too.
+    #[test]
+    fn nozzle_temperature_is_captured_from_generic_macro_aliases() {
+        let gcode = b"
+PRINT_START HOTEND=225
+;LAYER_CHANGE
+;Z:0.200
+;TYPE:Outer wall
+G1 X0 Y0 Z0.2 E0 F1800
+G1 X10 Y0 Z0.2 E1.0
+";
+        let layers = parse_gcode_bytes(gcode);
+        let layer = first_printed_layer(&layers);
+        assert_eq!(layer.meta.nozzle_temp, Some(225.0));
+    }
+
+    /// Direct Klipper heater commands are also mapped to nozzle temperature.
+    #[test]
+    fn nozzle_temperature_is_captured_from_set_heater_temperature() {
+        let gcode = b"
+SET_HEATER_TEMPERATURE HEATER=extruder TARGET=235
+;LAYER_CHANGE
+;Z:0.200
+;TYPE:Outer wall
+G1 X0 Y0 Z0.2 E0 F1800
+G1 X10 Y0 Z0.2 E1.0
+";
+        let layers = parse_gcode_bytes(gcode);
+        let layer = first_printed_layer(&layers);
+        assert_eq!(layer.meta.nozzle_temp, Some(235.0));
     }
 
     /// Active tool index is captured from `T<n>` commands.

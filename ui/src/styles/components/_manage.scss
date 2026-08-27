@@ -315,6 +315,18 @@
   gap: var(--spacing-xs);
 }
 
+.mgr__detail-actions button[nexusIconButton].is-danger {
+  color: var(--color-danger);
+  border-color: color-mix(in oklab, var(--color-danger) 28%, var(--color-border));
+  background: color-mix(in oklab, var(--color-danger) 12%, transparent);
+
+  &:hover {
+    color: var(--color-danger);
+    border-color: color-mix(in oklab, var(--color-danger) 40%, var(--color-border));
+    background: color-mix(in oklab, var(--color-danger) 18%, transparent);
+  }
+}
+
 .mgr__default-btn {
   display: inline-flex;
   align-items: center;

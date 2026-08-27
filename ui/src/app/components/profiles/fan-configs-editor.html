@@ -6,8 +6,14 @@
           <nexus-icon name="cooling-square" />
           {{ roleLabel(fan.fan_index) }}
         </span>
-        <button nexusIconButton size="sm" aria-label="Remove fan" (click)="removeFan($index)">
-          <nexus-icon name="trash" />
+        <button
+          nexusIconButton
+          size="sm"
+          [attr.aria-label]="confirmRemoveIndex() === $index ? 'Confirm remove fan' : 'Remove fan'"
+          [class.is-confirming]="confirmRemoveIndex() === $index"
+          (click)="requestRemoveFan($index)"
+        >
+          <nexus-icon [name]="confirmRemoveIndex() === $index ? 'check' : 'trash'" />
         </button>
       </div>
 

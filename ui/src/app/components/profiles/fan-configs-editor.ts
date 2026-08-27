@@ -1,4 +1,4 @@
-import { ChangeDetectionStrategy, Component, computed, input, output } from '@angular/core';
+import { ChangeDetectionStrategy, Component, computed, input, output, signal } from '@angular/core';
 import type { FanConfig } from '../../../generated/slicer-engine-global-settings-v1';
 import { Icon } from '../../shared/icon/icon';
 import { Button } from '../../ui/button/button';
@@ -25,6 +25,8 @@ export const FAN_ROLE_PRESETS: readonly FanRolePreset[] = [
   { index: 2, label: 'Chamber', defaultName: 'fan_chamber' },
   { index: 3, label: 'Auxiliary', defaultName: 'fan_aux' },
 ];
+
+const REMOVE_CONFIRM_TIMEOUT_MS = 3000;
 
 /** A sane fan configuration for a freshly-added row of the given role index. */
 function defaultFan(index: number): FanConfig {
@@ -68,6 +70,8 @@ export class FanConfigsEditor {
   }));
 
   protected readonly rows = computed(() => this.configs() ?? []);
+  protected readonly confirmRemoveIndex = signal<number | null>(null);
+  private removeConfirmTimer: ReturnType<typeof setTimeout> | null = null;
 
   /** The `<nexus-select>` value for a role index (options are string-keyed). */
   protected roleValue(index: number): string {
@@ -85,13 +89,23 @@ export class FanConfigsEditor {
   }
 
   protected addFan(): void {
+    this.clearRemoveFanConfirm();
     const rows = this.rows();
     // First fan is the part-cooling fan; subsequent ones default to auxiliary.
     const index = rows.length === 0 ? 0 : 3;
     this.configsChange.emit([...rows, defaultFan(index)]);
   }
 
+  protected requestRemoveFan(i: number): void {
+    if (this.confirmRemoveIndex() === i) {
+      this.removeFan(i);
+      return;
+    }
+    this.armRemoveFan(i);
+  }
+
   protected removeFan(i: number): void {
+    this.clearRemoveFanConfirm();
     this.configsChange.emit(this.rows().filter((_, idx) => idx !== i));
   }
 
@@ -127,6 +141,25 @@ export class FanConfigsEditor {
 
   protected pct(fraction: number): number {
     return Math.round(clamp01(fraction) * 100);
+  }
+
+  private armRemoveFan(i: number): void {
+    this.clearRemoveFanConfirm();
+    this.confirmRemoveIndex.set(i);
+    this.removeConfirmTimer = setTimeout(() => {
+      if (this.confirmRemoveIndex() === i) {
+        this.confirmRemoveIndex.set(null);
+      }
+      this.removeConfirmTimer = null;
+    }, REMOVE_CONFIRM_TIMEOUT_MS);
+  }
+
+  private clearRemoveFanConfirm(): void {
+    if (this.removeConfirmTimer !== null) {
+      clearTimeout(this.removeConfirmTimer);
+      this.removeConfirmTimer = null;
+    }
+    this.confirmRemoveIndex.set(null);
   }
 }
 
