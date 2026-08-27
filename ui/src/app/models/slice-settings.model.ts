@@ -3,6 +3,8 @@ export type { SlicingParams as SliceSettings } from '../../generated/slicer-engi
 const THUMBNAIL_DEFAULTS: Record<string, unknown> = {
   thumbnail_enabled: true,
   thumbnail_size_px: 320,
+  thumbnail_view: 'isometric',
+  thumbnail_theme: 'light',
 };
 
 export const DEFAULT_SETTINGS: import('../../generated/slicer-engine-ws-client-message-v1').SlicingParams =

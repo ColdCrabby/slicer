@@ -66,6 +66,8 @@ export function defaultProcessParams(): Record<string, unknown> {
     skirt_loops: 1,
     thumbnail_enabled: true,
     thumbnail_size_px: 320,
+    thumbnail_view: 'isometric',
+    thumbnail_theme: 'light',
   };
 }
 

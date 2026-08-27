@@ -77,6 +77,8 @@ const FIELD_LABELS: Record<string, string> = {
   gcode_flavor: 'G-code Flavor',
   thumbnail_enabled: 'Embed Thumbnail',
   thumbnail_size_px: 'Thumbnail Size',
+  thumbnail_view: 'Thumbnail Angle',
+  thumbnail_theme: 'Thumbnail Theme',
   // Mesh
   mesh_quality: 'Mesh Quality',
 };

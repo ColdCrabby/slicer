@@ -443,6 +443,45 @@ pub enum BrimType {
     Ears,
 }
 
+/// Camera angle used when the UI renders the embedded G-code thumbnail.
+///
+/// The thumbnail is produced from a fixed, repeatable viewpoint (not the
+/// user's live camera) so every slice yields a comparable preview. Angles are
+/// expressed in the scene's world Z-up frame.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum ThumbnailView {
+    /// Three-quarter isometric from the front-right, slightly above — the
+    /// classic "hero" product shot. Shows depth and the top face at once.
+    #[default]
+    Isometric,
+    /// Straight-on from the front (−Y), a hair above the horizon.
+    Front,
+    /// Straight-on from the back (+Y).
+    Rear,
+    /// From the model's left (−X).
+    Left,
+    /// From the model's right (+X).
+    Right,
+    /// Top-down plan view (+Z looking down).
+    Top,
+}
+
+/// Colour scheme used when the UI renders the embedded G-code thumbnail.
+///
+/// Fixed per the setting — deliberately independent of the operating-system or
+/// application theme so the embedded preview is deterministic. Model colouring
+/// (filament colour vs. neutral grey) still follows the viewer's own toggle.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum ThumbnailTheme {
+    /// Light studio background (default).
+    #[default]
+    Light,
+    /// Dark studio background.
+    Dark,
+}
+
 /// Parameters that control how a model is sliced and printed.
 ///
 /// All dimensional values are in millimeters; speeds in mm/s;
@@ -1359,8 +1398,8 @@ Caps print speed so the hotend can keep up with the flow.
 
     #[schemars(
         description = "Embed a PNG thumbnail comment block in generated G-code files. \
-                       The image is captured from the current viewport when slicing \
-                       from the UI.",
+                       The UI renders it from a fixed camera angle and theme (see \
+                       `thumbnail_view` / `thumbnail_theme`) when slicing.",
         extend("x-group" = "Output")
     )]
     #[serde(default = "SlicingParams::default_thumbnail_enabled")]
@@ -1372,6 +1411,20 @@ Caps print speed so the hotend can keep up with the flow.
     )]
     #[serde(default = "SlicingParams::default_thumbnail_size_px")]
     pub thumbnail_size_px: u32,
+
+    #[schemars(
+        description = "Fixed camera angle used to render the embedded thumbnail (not the live view).",
+        extend("x-group" = "Output", "x-relevant-when" = serde_json::json!({"field": "thumbnail_enabled", "equals": true}))
+    )]
+    #[serde(default)]
+    pub thumbnail_view: ThumbnailView,
+
+    #[schemars(
+        description = "Fixed colour scheme for the embedded thumbnail — independent of the app/OS theme.",
+        extend("x-group" = "Output", "x-relevant-when" = serde_json::json!({"field": "thumbnail_enabled", "equals": true}))
+    )]
+    #[serde(default)]
+    pub thumbnail_theme: ThumbnailTheme,
 
     /// Optional base64-encoded PNG payload for the current slice request.
     ///
@@ -1490,6 +1543,8 @@ impl Default for SlicingParams {
             layer_gcode: None,
             thumbnail_enabled: Self::default_thumbnail_enabled(),
             thumbnail_size_px: Self::default_thumbnail_size_px(),
+            thumbnail_view: ThumbnailView::default(),
+            thumbnail_theme: ThumbnailTheme::default(),
             thumbnail_png_base64: None,
         }
     }
@@ -2068,6 +2123,8 @@ mod tests {
         assert_eq!(params.path_tolerance, 0.05);
         assert!(params.thumbnail_enabled);
         assert_eq!(params.thumbnail_size_px, 320);
+        assert_eq!(params.thumbnail_view, ThumbnailView::Isometric);
+        assert_eq!(params.thumbnail_theme, ThumbnailTheme::Light);
         assert!(params.thumbnail_png_base64.is_none());
     }
 
@@ -2106,6 +2163,16 @@ mod tests {
         assert_eq!(params.path_tolerance, 0.05, "default path tolerance");
         assert!(params.thumbnail_enabled, "default thumbnail enabled");
         assert_eq!(params.thumbnail_size_px, 320, "default thumbnail size");
+        assert_eq!(
+            params.thumbnail_view,
+            ThumbnailView::Isometric,
+            "default thumbnail view"
+        );
+        assert_eq!(
+            params.thumbnail_theme,
+            ThumbnailTheme::Light,
+            "default thumbnail theme"
+        );
         assert!(
             params.thumbnail_png_base64.is_none(),
             "default thumbnail payload absent"

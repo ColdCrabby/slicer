@@ -18,7 +18,7 @@ import { SceneEngine } from './scene-engine';
 import { AppVersion } from './app-version';
 import { ConnectionStatus, SlicerConnection } from './slicer-connection';
 import { SlicerFile, UploadResponse } from './slicer-file';
-import { ViewerControl } from './viewer-control';
+import { ViewerControl, type ThumbnailTheme, type ThumbnailView } from './viewer-control';
 import { WorkplateNames } from './workplate-names';
 
 /** Human-readable label for each pipeline phase. */
@@ -499,8 +499,11 @@ export class Slicer {
       const thumbnailOverrides: Record<string, unknown> = {};
 
       if (this.thumbnailEnabled(requestSettings)) {
-        const sizePx = this.thumbnailSizePx(requestSettings);
-        const thumbnail = await this.viewerControl.captureSliceThumbnail(sizePx);
+        const thumbnail = await this.viewerControl.captureSliceThumbnail({
+          sizePx: this.thumbnailSizePx(requestSettings),
+          view: this.thumbnailView(requestSettings),
+          theme: this.thumbnailTheme(requestSettings),
+        });
         if (thumbnail) {
           requestSettings['thumbnail_size_px'] = thumbnail.sizePx;
           requestSettings['thumbnail_png_base64'] = thumbnail.pngBase64;
@@ -799,6 +802,25 @@ export class Slicer {
       return DEFAULT_THUMBNAIL_SIZE_PX;
     }
     return Math.max(64, Math.min(1024, Math.round(raw)));
+  }
+
+  private thumbnailView(settings: Record<string, unknown>): ThumbnailView {
+    const raw = settings['thumbnail_view'];
+    switch (raw) {
+      case 'front':
+      case 'rear':
+      case 'left':
+      case 'right':
+      case 'top':
+      case 'isometric':
+        return raw;
+      default:
+        return 'isometric';
+    }
+  }
+
+  private thumbnailTheme(settings: Record<string, unknown>): ThumbnailTheme {
+    return settings['thumbnail_theme'] === 'dark' ? 'dark' : 'light';
   }
 
   private setDownloadUrl(url: string | null): void {

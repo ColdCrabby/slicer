@@ -1,5 +1,7 @@
 import {
   BoxGeometry,
+  Box3,
+  Color,
   DirectionalLight,
   Group,
   HemisphereLight,
@@ -8,8 +10,11 @@ import {
   type Object3D,
   PerspectiveCamera,
   Scene,
+  Sphere,
+  SRGBColorSpace,
   Vector3,
   WebGLRenderer,
+  WebGLRenderTarget,
 } from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import type { PrintAreaConfig } from '../../../services/print-area';
@@ -41,6 +46,32 @@ export interface ViewerSceneOptions {
   pixelRatioCap?: number;
   /** Initial perspective field-of-view in degrees. */
   fieldOfView?: number;
+}
+
+/** Field-of-view (deg) used for the fixed-angle thumbnail render. */
+const THUMBNAIL_FOV = 40;
+/** Fit padding — how much empty margin around the model in the thumbnail. */
+const THUMBNAIL_FIT_PADDING = 1.28;
+
+/**
+ * Inputs for {@link ViewerScene.captureThumbnail}. The caller resolves the
+ * world-space camera direction/up (from a fixed preset), the thumbnail theme,
+ * and the solid studio background — the scene handles framing, an off-screen
+ * render, and full state restoration.
+ */
+export interface ThumbnailCaptureOptions {
+  /** Square output edge length in pixels. */
+  sizePx: number;
+  /** Normalised world-space camera direction (target → camera). */
+  direction: Vector3;
+  /** World-space camera up vector. */
+  up: Vector3;
+  /** Whether the thumbnail uses the dark studio lighting rig. */
+  isDark: boolean;
+  /** The live scene theme to restore after the capture. */
+  liveIsDark: boolean;
+  /** Solid background colour (hex) for the thumbnail. */
+  background: number;
 }
 
 /**
@@ -278,6 +309,83 @@ export class ViewerScene {
     this._camera.resetView();
   }
 
+  /**
+   * Render the current model content to a square PNG from a fixed camera angle
+   * and theme, entirely off-screen. The live canvas, camera, controls, lights,
+   * and background are all restored before returning, so this never disturbs
+   * the on-screen view. Returns a `data:image/png;base64,…` URL, or `null` when
+   * there is nothing to frame.
+   */
+  captureThumbnail(options: ThumbnailCaptureOptions): string | null {
+    const size = Math.max(16, Math.round(options.sizePx));
+
+    // Frame the model's bounding sphere.
+    const box = new Box3().setFromObject(this.contentRoot);
+    if (box.isEmpty()) {
+      return null;
+    }
+    const sphere = new Sphere();
+    box.getBoundingSphere(sphere);
+    if (!(sphere.radius > 0) || !Number.isFinite(sphere.radius)) {
+      return null;
+    }
+
+    const cam = new PerspectiveCamera(THUMBNAIL_FOV, 1, CAMERA_NEAR, CAMERA_FAR);
+    cam.up.copy(options.up);
+    const fovRad = (THUMBNAIL_FOV * Math.PI) / 180;
+    const distance = (sphere.radius * THUMBNAIL_FIT_PADDING) / Math.sin(fovRad / 2);
+    const dir = options.direction.clone().normalize();
+    cam.position.copy(sphere.center).addScaledVector(dir, distance);
+    cam.near = Math.max(distance - sphere.radius * 2, 0.01);
+    cam.far = distance + sphere.radius * 4;
+    cam.lookAt(sphere.center);
+    cam.updateProjectionMatrix();
+
+    // Hide everything that isn't model content or a light (grid, axes, gizmos).
+    const keep = new Set<Object3D>([
+      this.contentRoot,
+      this.hemiLight,
+      this.keyLight,
+      this.fillLight,
+    ]);
+    const rehide: Object3D[] = [];
+    for (const child of this.scene.children) {
+      if (!keep.has(child) && child.visible) {
+        child.visible = false;
+        rehide.push(child);
+      }
+    }
+
+    // Apply the thumbnail theme + solid studio background.
+    const prevBackground = this.scene.background;
+    this.setTheme(options.isDark);
+    this.scene.background = new Color(options.background);
+
+    const target = new WebGLRenderTarget(size, size, { samples: 4 });
+    target.texture.colorSpace = SRGBColorSpace;
+    const prevTarget = this.renderer.getRenderTarget();
+    const buffer = new Uint8Array(size * size * 4);
+    let dataUrl: string | null = null;
+    try {
+      this.renderer.setRenderTarget(target);
+      this.renderer.clear();
+      this.renderer.render(this.scene, cam);
+      this.renderer.readRenderTargetPixels(target, 0, 0, size, size, buffer);
+      dataUrl = encodePixelsToPng(buffer, size);
+    } finally {
+      // Restore everything, regardless of encode outcome.
+      this.renderer.setRenderTarget(prevTarget);
+      this.scene.background = prevBackground;
+      this.setTheme(options.liveIsDark);
+      for (const child of rehide) {
+        child.visible = true;
+      }
+      target.dispose();
+    }
+
+    return dataUrl;
+  }
+
   animateToDirection(direction: Vector3, up: Vector3): void {
     this._camera.animateToDirection(direction, up);
   }
@@ -470,4 +578,28 @@ function buildAxesGizmo(length: number, thickness: number): Group {
     group.add(mesh);
   }
   return group;
+}
+
+/**
+ * Encode an RGBA pixel buffer read from a WebGL render target into a PNG data
+ * URL. WebGL returns rows bottom-up, so each row is copied into its mirrored
+ * position to produce a correctly-oriented image.
+ */
+function encodePixelsToPng(buffer: Uint8Array, size: number): string | null {
+  const canvas = document.createElement('canvas');
+  canvas.width = size;
+  canvas.height = size;
+  const ctx = canvas.getContext('2d');
+  if (!ctx) {
+    return null;
+  }
+  const image = ctx.createImageData(size, size);
+  const rowBytes = size * 4;
+  for (let y = 0; y < size; y++) {
+    const srcStart = y * rowBytes;
+    const dstStart = (size - 1 - y) * rowBytes;
+    image.data.set(buffer.subarray(srcStart, srcStart + rowBytes), dstStart);
+  }
+  ctx.putImageData(image, 0, 0);
+  return canvas.toDataURL('image/png');
 }

@@ -40,6 +40,19 @@ export interface SliceThumbnailCapture {
   sizePx: number;
 }
 
+/** Fixed camera angle for the embedded thumbnail render. */
+export type ThumbnailView = 'isometric' | 'front' | 'rear' | 'left' | 'right' | 'top';
+
+/** Fixed colour scheme for the embedded thumbnail render. */
+export type ThumbnailTheme = 'light' | 'dark';
+
+/** A request to render the outbound slice thumbnail from a fixed viewpoint. */
+export interface SliceThumbnailRequest {
+  sizePx: number;
+  view: ThumbnailView;
+  theme: ThumbnailTheme;
+}
+
 /** Default perspective field-of-view in degrees. */
 export const DEFAULT_FIELD_OF_VIEW = 45;
 /** Allowed field-of-view range (degrees) for the settings slider. */
@@ -216,18 +229,21 @@ export class ViewerControl {
   orbitSink: ((azimuth: number, polar: number) => void) | null = null;
 
   /**
-   * Optional callback exposed by the active 3D viewer to capture a square PNG
-   * thumbnail from the current viewport.
+   * Optional callback exposed by the active 3D viewer to render a square PNG
+   * thumbnail from a fixed camera angle and theme (see
+   * {@link SliceThumbnailRequest}) — deliberately not the live viewport.
    */
-  sliceThumbnailCaptureSink: ((sizePx: number) => Promise<SliceThumbnailCapture | null>) | null =
-    null;
+  sliceThumbnailCaptureSink:
+    ((request: SliceThumbnailRequest) => Promise<SliceThumbnailCapture | null>) | null = null;
 
-  async captureSliceThumbnail(sizePx: number): Promise<SliceThumbnailCapture | null> {
+  async captureSliceThumbnail(
+    request: SliceThumbnailRequest,
+  ): Promise<SliceThumbnailCapture | null> {
     const sink = this.sliceThumbnailCaptureSink;
     if (!sink) {
       return null;
     }
-    return sink(sizePx);
+    return sink(request);
   }
 
   /** Request the viewer to fully reset its camera framing. */

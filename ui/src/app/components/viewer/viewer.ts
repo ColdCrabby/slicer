@@ -13,7 +13,7 @@ import {
   untracked,
   viewChild,
 } from '@angular/core';
-import { BufferAttribute, BufferGeometry, Matrix4, Mesh, MeshPhongMaterial } from 'three';
+import { BufferAttribute, BufferGeometry, Matrix4, Mesh, MeshPhongMaterial, Vector3 } from 'three';
 import { AppTheme } from '../../services/app-theme';
 import { GcodePreview, ROLE_LABELS, scalarChannelFor } from '../../services/gcode-preview';
 import { ObjectTracker } from '../../services/object-tracker';
@@ -27,6 +27,8 @@ import {
   resolveAntialias,
   type Antialiasing,
   type SliceThumbnailCapture,
+  type SliceThumbnailRequest,
+  type ThumbnailView,
 } from '../../services/viewer-control';
 
 import { GcodeHoverProbe, type GcodeHoverHit } from './gcode-hover';
@@ -54,6 +56,30 @@ const MODEL_COLOR_LIGHT = 0xccd0d4;
 function modelColor(isDark: boolean): number {
   return isDark ? MODEL_COLOR_DARK : MODEL_COLOR_LIGHT;
 }
+
+/**
+ * Fixed camera directions (world Z-up, target → camera) and up vectors for
+ * each thumbnail preset. Directions are normalised on use. A slight elevation
+ * on the side views reads as a product shot rather than a flat elevation.
+ */
+const THUMBNAIL_VIEW_POSES: Record<ThumbnailView, { dir: Vector3; up: Vector3 }> = {
+  isometric: { dir: new Vector3(1, -1, 0.8), up: new Vector3(0, 0, 1) },
+  front: { dir: new Vector3(0, -1, 0.32), up: new Vector3(0, 0, 1) },
+  rear: { dir: new Vector3(0, 1, 0.32), up: new Vector3(0, 0, 1) },
+  left: { dir: new Vector3(-1, 0, 0.32), up: new Vector3(0, 0, 1) },
+  right: { dir: new Vector3(1, 0, 0.32), up: new Vector3(0, 0, 1) },
+  // Pure top-down: nudge off the pole so the view axis isn't parallel to up,
+  // and orient so the bed's far edge (+Y) points to the top of the image.
+  top: { dir: new Vector3(0, 0.001, 1), up: new Vector3(0, -1, 0) },
+};
+
+/** Solid studio background behind the model in each thumbnail theme. */
+const THUMBNAIL_BG_LIGHT = 0xe9ebee;
+const THUMBNAIL_BG_DARK = 0x212327;
+
+/** How long the outbound thumbnail card lingers on screen (ms). */
+const THUMBNAIL_SHUTTER_MS = 460;
+const THUMBNAIL_POLAROID_MS = 3200;
 
 /**
  * Single-component 3D viewer for both raw meshes and sliced G-code.
@@ -177,8 +203,8 @@ export class Viewer {
   private stopGcodeFloating: (() => void) | null = null;
   private shutterTimer: ReturnType<typeof setTimeout> | null = null;
   private polaroidTimer: ReturnType<typeof setTimeout> | null = null;
-  private readonly captureSliceThumbnailSink = (sizePx: number) =>
-    this.captureSliceThumbnail(sizePx);
+  private readonly captureSliceThumbnailSink = (request: SliceThumbnailRequest) =>
+    this.captureSliceThumbnail(request);
 
   constructor() {
     afterNextRender(() => this.initScene());
@@ -943,43 +969,54 @@ export class Viewer {
     );
   }
 
-  private async captureSliceThumbnail(sizePx: number): Promise<SliceThumbnailCapture | null> {
+  private async captureSliceThumbnail(
+    request: SliceThumbnailRequest,
+  ): Promise<SliceThumbnailCapture | null> {
     const scene = this.scene;
     if (!scene) {
       return null;
     }
-    const source = scene.renderer.domElement;
-    if (source.width <= 0 || source.height <= 0) {
-      return null;
+
+    const targetSize = clampThumbnailSize(request.sizePx);
+    const pose = THUMBNAIL_VIEW_POSES[request.view] ?? THUMBNAIL_VIEW_POSES.isometric;
+    const thumbIsDark = request.theme === 'dark';
+    const liveIsDark = this.appTheme.isDarkMode();
+
+    // Honour the existing filament-colour toggle, but resolve the model colour
+    // for the thumbnail's fixed theme (which may differ from the live theme).
+    const useFilamentColor = this.viewerControl.useFilamentColor();
+    const filamentColor = this.activeSelection.filament()?.color;
+    const thumbColor = resolveModelColor(thumbIsDark, useFilamentColor, filamentColor);
+    const liveColor = resolveModelColor(liveIsDark, useFilamentColor, filamentColor);
+    const needsColorSwap = thumbColor !== liveColor && this.wasmMeshes.size > 0;
+
+    if (needsColorSwap) {
+      for (const mesh of this.wasmMeshes.values()) {
+        (mesh.material as MeshPhongMaterial).color.setHex(thumbColor);
+      }
     }
 
-    scene.renderer.render(scene.scene, scene.camera);
-
-    const targetSize = clampThumbnailSize(sizePx);
-    const canvas = document.createElement('canvas');
-    canvas.width = targetSize;
-    canvas.height = targetSize;
-    const context = canvas.getContext('2d');
-    if (!context) {
-      return null;
+    let dataUrl: string | null = null;
+    try {
+      dataUrl = scene.captureThumbnail({
+        sizePx: targetSize,
+        direction: pose.dir.clone(),
+        up: pose.up.clone(),
+        isDark: thumbIsDark,
+        liveIsDark,
+        background: thumbIsDark ? THUMBNAIL_BG_DARK : THUMBNAIL_BG_LIGHT,
+      });
+    } finally {
+      if (needsColorSwap) {
+        for (const mesh of this.wasmMeshes.values()) {
+          (mesh.material as MeshPhongMaterial).color.setHex(liveColor);
+        }
+      }
     }
 
-    const sourceSize = Math.min(source.width, source.height);
-    const sourceX = Math.floor((source.width - sourceSize) / 2);
-    const sourceY = Math.floor((source.height - sourceSize) / 2);
-    context.drawImage(
-      source,
-      sourceX,
-      sourceY,
-      sourceSize,
-      sourceSize,
-      0,
-      0,
-      targetSize,
-      targetSize,
-    );
-
-    const dataUrl = canvas.toDataURL('image/png');
+    if (!dataUrl) {
+      return null;
+    }
     const comma = dataUrl.indexOf(',');
     if (comma < 0) {
       return null;
@@ -1005,11 +1042,11 @@ export class Viewer {
 
     this.shutterTimer = setTimeout(() => {
       this.thumbnailShutterActive.set(false);
-    }, 260);
+    }, THUMBNAIL_SHUTTER_MS);
     this.polaroidTimer = setTimeout(() => {
       this.thumbnailPolaroidAnimating.set(false);
       this.thumbnailPolaroidImage.set(null);
-    }, 980);
+    }, THUMBNAIL_POLAROID_MS);
   }
 
   private clearThumbnailFxTimers(): void {
