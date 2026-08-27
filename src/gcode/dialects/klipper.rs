@@ -81,14 +81,17 @@ impl GcodeDialect for KlipperDialect {
 
     /// Default Klipper start script: delegates to the `START_PRINT` macro.
     ///
-    /// Print temperatures are forwarded as macro arguments so the user's
-    /// Klipper `START_PRINT` macro can use them for pre-heat, bed levelling,
-    /// purge routines, etc.  This follows the OrcaSlicer / SuperSlicer
-    /// convention for Klipper start G-code.
+    /// Print temperatures are forwarded using both common parameter naming
+    /// conventions:
+    /// - Orca/SuperSlicer style: `BED_TEMP` / `EXTRUDER_TEMP`
+    /// - Klippain style: `BED` / `EXTRUDER`
+    ///
+    /// Emitting both keeps the default robust across macro packs while still
+    /// preserving user-configurable custom start G-code overrides.
     fn start_script(&self, params: &SlicingParams) -> Vec<String> {
         vec![format!(
-            "START_PRINT BED_TEMP={:.0} EXTRUDER_TEMP={:.0}",
-            params.bed_temp, params.nozzle_temp
+            "START_PRINT BED_TEMP={:.0} EXTRUDER_TEMP={:.0} BED={:.0} EXTRUDER={:.0}",
+            params.bed_temp, params.nozzle_temp, params.bed_temp, params.nozzle_temp
         )]
     }
 
