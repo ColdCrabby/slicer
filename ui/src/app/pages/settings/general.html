@@ -199,5 +199,35 @@
         </button>
       </div>
     </div>
+
+    <div class="settings-field">
+      <span class="settings-field-label">
+        <span class="settings-field-title">Use filament color for models</span>
+        <span class="settings-field-desc">
+          Color model meshes with the active filament profile color instead of the neutral viewer
+          tone.
+        </span>
+      </span>
+      <div class="segmented" role="group" aria-label="Use filament color for models">
+        <button
+          type="button"
+          class="segmented-btn"
+          [class.is-active]="useFilamentColor()"
+          [attr.aria-pressed]="useFilamentColor()"
+          (click)="setUseFilamentColor(true)"
+        >
+          On
+        </button>
+        <button
+          type="button"
+          class="segmented-btn"
+          [class.is-active]="!useFilamentColor()"
+          [attr.aria-pressed]="!useFilamentColor()"
+          (click)="setUseFilamentColor(false)"
+        >
+          Off
+        </button>
+      </div>
+    </div>
   </div>
 </div>
