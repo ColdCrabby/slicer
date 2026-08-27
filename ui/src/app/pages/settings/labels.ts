@@ -4,6 +4,7 @@ import { ColorSwatchPicker } from '../../components/labels/color-swatch-picker';
 import { FieldShell } from '../../components/profiles/field-shell';
 import { LabelChip } from '../../components/labels/label-chip';
 import { ContextMenuService } from '../../services/context-menu/context-menu.service';
+import { ContextMenuTrigger } from '../../services/context-menu/context-menu-trigger';
 import type { ContextMenuItem } from '../../services/context-menu/context-menu.model';
 import { Dialog } from '../../services/dialog';
 import { FilamentsStore } from '../../services/profiles/filaments-store';
@@ -27,6 +28,7 @@ import { SectionHeader } from '../../ui/section-header/section-header';
     LabelChip,
     ColorSwatchPicker,
     FieldShell,
+    ContextMenuTrigger,
   ],
   templateUrl: './labels.html',
   styleUrl: './labels.scss',

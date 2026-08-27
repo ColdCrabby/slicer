@@ -64,7 +64,7 @@
                     type="button"
                     [class.is-selected]="selectedId() === printer.id"
                     (click)="select(printer.id)"
-                    (contextmenu)="onContextMenu($event, printer)"
+                    (nexusContextMenu)="onContextMenu($event, printer)"
                   >
                     <span
                       class="conn-dot"

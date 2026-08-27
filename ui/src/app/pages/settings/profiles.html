@@ -64,7 +64,7 @@
                     type="button"
                     [class.is-selected]="selectedId() === profile.id"
                     (click)="select(profile.id)"
-                    (contextmenu)="onContextMenu($event, profile)"
+                    (nexusContextMenu)="onContextMenu($event, profile)"
                   >
                     <span class="mgr__card-icon"><nexus-icon name="menu-scale" /></span>
                     <span class="mgr__card-info">

@@ -33,6 +33,7 @@ import {
 } from '../../models/gcode-templates';
 import { CloudCatalog } from '../../services/catalog/cloud-catalog';
 import { ContextMenuService } from '../../services/context-menu/context-menu.service';
+import { ContextMenuTrigger } from '../../services/context-menu/context-menu-trigger';
 import type { ContextMenuItem } from '../../services/context-menu/context-menu.model';
 import { Dialog } from '../../services/dialog';
 import { PrinterConnectionService } from '../../services/printer-connection';
@@ -132,6 +133,7 @@ const PARAM_GROUPS: SchemaGroup[] = (() => {
     Segmented,
     LabelFilterBar,
     LabelPicker,
+    ContextMenuTrigger,
   ],
   templateUrl: './printers.html',
   styleUrl: './printers.scss',
