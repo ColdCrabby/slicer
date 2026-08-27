@@ -155,7 +155,7 @@ export class UiComponentsPage implements OnDestroy {
     }, 220);
   }
 
-  openConfirmDialog(): void {
+  openWarningConfirmDialog(): void {
     this.#dialog
       .confirm({
         title: 'Discard changes?',
@@ -166,6 +166,24 @@ export class UiComponentsPage implements OnDestroy {
       .subscribe((confirmed) => {
         if (confirmed) {
           this.#notifications.success('Changes discarded');
+        }
+      });
+  }
+
+  openDangerConfirmDialog(): void {
+    this.#dialog
+      .confirm({
+        title: 'Delete printer "Voron 2.4"?',
+        message: 'This printer profile will be permanently deleted.',
+        type: 'danger',
+        confirmLabel: 'Delete',
+      })
+      .subscribe((confirmed) => {
+        if (confirmed) {
+          this.#notifications.warning(
+            'Delete confirmed',
+            'Demo only: this action does not remove anything.',
+          );
         }
       });
   }

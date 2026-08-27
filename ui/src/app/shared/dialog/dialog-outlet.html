@@ -25,16 +25,15 @@
 
     <div class="dialog__actions">
       @if (!d.config.alertOnly) {
-        <button class="dialog__btn dialog__btn--ghost" type="button" (click)="cancel()">
+        <button nexusButton variant="ghost" size="sm" type="button" (click)="cancel()">
           {{ d.config.cancelLabel ?? 'Cancel' }}
         </button>
       }
 
       <button
-        class="dialog__btn"
-        [class.dialog__btn--primary]="(d.config.type ?? 'default') === 'default'"
-        [class.dialog__btn--warning]="d.config.type === 'warning'"
-        [class.dialog__btn--danger]="d.config.type === 'danger'"
+        nexusButton
+        [variant]="d.config.type === 'danger' ? 'danger' : 'primary'"
+        size="sm"
         type="button"
         (click)="confirm()"
       >

@@ -16,6 +16,7 @@ import type { SchemaGroup } from '../../schema-form/models/field-def';
 import { CloudCatalog } from '../../services/catalog/cloud-catalog';
 import { ContextMenuService } from '../../services/context-menu/context-menu.service';
 import type { ContextMenuItem } from '../../services/context-menu/context-menu.model';
+import { Dialog } from '../../services/dialog';
 import { ActiveSelection } from '../../services/profiles/active-selection';
 import { matchesAllLabels, toggledLabelIds } from '../../services/profiles/label-filtering';
 import { paramNum } from '../../models/params-access';
@@ -93,6 +94,7 @@ export class ProfilesSettings {
   private readonly filterStore = inject(LabelFilterStore);
   private readonly catalog = inject(CloudCatalog);
   private readonly contextMenu = inject(ContextMenuService);
+  private readonly dialog = inject(Dialog);
   private readonly route = inject(ActivatedRoute);
 
   protected readonly sourceLabels = PROFILE_SOURCE_LABELS;
@@ -281,13 +283,18 @@ export class ProfilesSettings {
         label: 'Delete\u2026',
         icon: 'trash',
         danger: true,
-        action: () => {
-          this.select(profile.id);
-          this.armDelete();
-        },
+        action: () => this.confirmDeleteFromContextMenu(profile),
       });
     }
     void this.contextMenu.open(event, items);
+  }
+
+  protected toggleDelete(): void {
+    if (this.deleteArmed()) {
+      this.disarmDelete();
+      return;
+    }
+    this.armDelete();
   }
 
   protected armDelete(): void {
@@ -310,9 +317,31 @@ export class ProfilesSettings {
     if (!profile || !this.deleteReady()) {
       return;
     }
-    this.store.remove(profile.id);
+    this.deleteProfileById(profile.id);
+  }
+
+  private confirmDeleteFromContextMenu(profile: PrintProfile): void {
+    this.dialog
+      .confirm({
+        title: `Delete profile "${profile.name}"?`,
+        message: 'This print profile will be permanently deleted.',
+        type: 'danger',
+        confirmLabel: 'Delete',
+      })
+      .subscribe((confirmed) => {
+        if (!confirmed) {
+          return;
+        }
+        this.deleteProfileById(profile.id);
+      });
+  }
+
+  private deleteProfileById(id: string): void {
+    this.store.remove(id);
     this.disarmDelete();
-    this.selectedId.set(this.store.items()[0]?.id ?? null);
+    if (this.selectedId() === id) {
+      this.selectedId.set(this.store.items()[0]?.id ?? null);
+    }
   }
 
   protected readonly pnum = paramNum;
