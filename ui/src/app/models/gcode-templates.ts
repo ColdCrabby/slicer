@@ -59,7 +59,7 @@ const STANDARD_MARLIN: GcodeTemplate = {
   label: 'Standard Marlin',
   description: 'Home, heat and wait using raw M-commands.',
   flavor: 'marlin',
-  startGcode: `; Nexus standard Marlin start
+  startGcode: `; Cold Crabby standard Marlin start
 G21 ; millimetres
 G90 ; absolute positioning
 M82 ; extruder absolute mode
@@ -70,7 +70,7 @@ M190 S{bed_temp_first_layer} ; wait for bed temperature
 M109 S{nozzle_temp_first_layer} ; wait for nozzle temperature
 G92 E0 ; reset extruder
 G1 Z2.0 F3000 ; lift nozzle`,
-  endGcode: `; Nexus standard Marlin end
+  endGcode: `; Cold Crabby standard Marlin end
 G91 ; relative positioning
 G1 E-2 F2700 ; retract
 G1 Z10 F3000 ; lift

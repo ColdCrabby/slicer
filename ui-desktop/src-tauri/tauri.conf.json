@@ -1,6 +1,6 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "Slicer Engine Desktop",
+  "productName": "Cold Crabby Desktop",
   "version": "0.1.0",
   "identifier": "com.maxscopp.slicerengine",
   "build": {
@@ -30,7 +30,7 @@
     "windows": [
       {
         "label": "main",
-        "title": "Slicer Engine",
+        "title": "Cold Crabby",
         "width": 1400,
         "height": 900,
         "minWidth": 900,
