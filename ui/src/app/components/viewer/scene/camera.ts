@@ -64,13 +64,24 @@ export class SceneCamera {
    * True while the projection has been *temporarily* forced to orthographic by
    * a viewport-cube snap (see {@link animateToDirection}). Distinct from the
    * user's `currentView`: the cube engages this without touching the toolbar
-   * preset, and a deliberate free-view gesture in the main viewport — a pan, a
-   * zoom, or a rotate dragged past the sticky intent threshold — reverts it
-   * ({@link notifyUserViewGesture}) back to `currentView`. A small rotate below
-   * that threshold, or further cube interaction, keeps it engaged, so the mode
-   * only ever changes on a clear user intent (Shapr3D-style stickiness).
+   * preset. It is released together with the {@link snapHoldPose} detent once a
+   * gesture breaks the snap free — a pan, a zoom, or a rotate dragged past
+   * `SNAP_BREAKOUT_TRAVEL_PX` ({@link notifyUserViewGesture}) — reverting to
+   * `currentView`. Everything below that distance, and any further cube
+   * interaction, keeps it engaged.
    */
   private autoOrtho = false;
+
+  /**
+   * Pose the camera is *pinned* to while a viewport-cube snap is held — the
+   * detent. While set, {@link applySnapHold} restores this pose after every
+   * frame's `OrbitControls.update()`, so a rotate gesture inside the breakout
+   * distance moves the view **not at all** instead of drifting off the snapped
+   * orientation. Cleared when the snap breaks free
+   * ({@link notifyUserViewGesture}), when the cube itself orbits/rolls the view
+   * ({@link orbitBy}), or when a toolbar preset takes over.
+   */
+  private snapHoldPose: { position: Vector3; up: Vector3; target: Vector3 } | null = null;
 
   constructor(
     private readonly camera: PerspectiveCamera,
@@ -138,6 +149,8 @@ export class SceneCamera {
     if (!sphere) {
       return;
     }
+    // Re-framing moves the camera, so the snap detent no longer applies.
+    this.snapHoldPose = null;
     const fovRad = (this.camera.fov * Math.PI) / 180;
     const distance = (sphere.radius * padding) / Math.sin(fovRad / 2);
     this.camera.position.copy(sphere.center).addScaledVector(DEFAULT_VIEW_DIR, distance);
@@ -150,6 +163,7 @@ export class SceneCamera {
   setView(view: ViewerView): void {
     // A manual toolbar view change takes over from any temporary cube ortho.
     this.autoOrtho = false;
+    this.snapHoldPose = null;
     if (view === this.currentView && !this.animation) {
       return;
     }
@@ -159,6 +173,7 @@ export class SceneCamera {
 
   resetView(): void {
     this.autoOrtho = false;
+    this.snapHoldPose = null;
     this.currentView = 'perspective';
     const pose = this.initialPoseForBed();
     this.animateToPose({
@@ -232,13 +247,13 @@ export class SceneCamera {
   }
 
   /**
-   * Called when the user performs a deliberate free-view gesture on the *main
-   * viewport* — a pan, a zoom, or a rotate dragged past the sticky intent
-   * threshold (a small rotate and cube gestures do not call this). If a cube
-   * snap had forced the projection to orthographic, this reverts it to the
-   * user's `currentView`: so leaving the snapped view lands back in perspective
-   * only when the user *entered* the cube snap from perspective — a toolbar
-   * ortho preset stays ortho.
+   * Called when a gesture breaks a held viewport-cube snap free — a pan, a zoom,
+   * or a rotate dragged past `SNAP_BREAKOUT_TRAVEL_PX` (a rotate inside that
+   * distance never gets here, and neither do cube gestures). Releases both the
+   * {@link snapHoldPose} detent, so the camera starts following the gesture, and
+   * the forced orthographic projection, reverting to the user's `currentView` —
+   * so leaving the snap lands back in perspective only when the user *entered*
+   * it from perspective; a toolbar ortho preset stays ortho.
    *
    * The projection **animates** back over {@link VIEW_TRANSITION_MS} with the
    * same easing as the toolbar's perspective/ortho toggle, so the morph reads
@@ -253,6 +268,7 @@ export class SceneCamera {
       return;
     }
     this.autoOrtho = false;
+    this.snapHoldPose = null;
     // Cancel any in-flight snap animation so it can't fight the revert, and hand
     // control straight back to the user's live gesture.
     this.animation = null;
@@ -267,6 +283,40 @@ export class SceneCamera {
       duration: VIEW_TRANSITION_MS,
       fromFov: this.camera.fov,
       toFov: targetFov,
+    };
+  }
+
+  /**
+   * Re-pin the camera to the held snap pose. Called from the render loop *after*
+   * `OrbitControls.update()` and the inertia step, so whatever rotation those
+   * applied this frame is undone before anything is drawn — the snapped view
+   * therefore appears completely motionless until the gesture travels past
+   * `SNAP_BREAKOUT_TRAVEL_PX` and {@link notifyUserViewGesture} releases the pin.
+   *
+   * Discarding the rotation each frame (rather than accumulating it) is what
+   * makes the hand-off seamless: `OrbitControls` derives its orbit frame from
+   * the camera's *current* position on every update, so the instant the pin is
+   * released the view simply starts following the pointer from the snapped
+   * orientation — no jump, no replay of the absorbed movement.
+   */
+  applySnapHold(): void {
+    const pose = this.snapHoldPose;
+    // A snap/roll animation owns the camera while it runs; it re-pins on finish.
+    if (!pose || this.animation) {
+      return;
+    }
+    this.camera.position.copy(pose.position);
+    this.camera.up.copy(pose.up);
+    this.controls.target.copy(pose.target);
+    this.camera.lookAt(pose.target);
+  }
+
+  /** Pin the current pose as the snap detent. */
+  private captureSnapHold(): void {
+    this.snapHoldPose = {
+      position: this.camera.position.clone(),
+      up: this.camera.up.clone(),
+      target: this.controls.target.clone(),
     };
   }
 
@@ -308,6 +358,10 @@ export class SceneCamera {
 
   orbitBy(azimuth: number, polar: number): void {
     this.animation = null;
+    // Dragging the cube itself is an explicit orbit request, so it releases the
+    // detent (the view must follow the drag) while deliberately keeping the
+    // ortho projection engaged.
+    this.snapHoldPose = null;
     this.controls.enabled = true;
     const target = this.controls.target;
     const offset = this.camera.position.clone().sub(target);
@@ -566,6 +620,12 @@ export class SceneCamera {
       this.controls.enabled = true;
       this.controls.update();
       this.animation = null;
+      // The cube snap has landed — pin this pose as the detent so the snapped
+      // view stays perfectly still until a gesture travels far enough to break
+      // it free. Also re-pins after a roll, which keeps the snap sticky.
+      if (this.autoOrtho) {
+        this.captureSnapHold();
+      }
     }
   }
 }

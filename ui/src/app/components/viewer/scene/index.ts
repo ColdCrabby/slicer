@@ -563,6 +563,10 @@ export class ViewerScene {
       this.controls.update();
       this._controls.applyOrbitInertia(dt);
     }
+    // Re-pin a held viewport-cube snap. Runs *after* OrbitControls and inertia
+    // so their rotation is discarded before drawing — the snapped view stays
+    // perfectly still until the gesture travels far enough to break it free.
+    this._camera.applySnapHold();
     // Runs on every frame — including frames driven by OrbitControls above — so
     // the viewport-cube's ortho→perspective revert can animate while the user's
     // pan/zoom/rotate gesture is still live.
