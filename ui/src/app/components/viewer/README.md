@@ -207,29 +207,83 @@ raycaster, gizmo), the viewer applies a clear priority order:
 
 Clicking a viewport-cube face/edge/corner snaps the camera to that view **and
 flattens the projection to orthographic** — the CAD convention that a snapped
-view is dimension-true. The temporary ortho is held until the user **pans or
-zooms** the main viewport, at which point the projection reverts to whatever the
-toolbar preset was (normally perspective). **Rotating** the view or interacting
-with the cube again keeps ortho.
+view is dimension-true. The snap is then **pinned**: it survives until a gesture
+breaks it free — a **pan**, a **zoom**, or a **rotate dragged past the breakout
+distance** — at which point the projection reverts to whatever the toolbar preset
+was (normally perspective). Because the revert targets the toolbar `currentView`,
+leaving the snap lands back in perspective only when the user _entered_ it from
+perspective; a toolbar ortho preset stays ortho.
 
-| Action                                    | Auto-ortho       |
-| ----------------------------------------- | ---------------- |
-| Cube face/edge/corner snap                | engage (→ ortho) |
-| Rotate (1-finger / left-drag / swipe)     | keep             |
-| Cube drag-orbit / roll / re-snap          | keep             |
-| **Pan** (2-finger / right-drag / ⌥-swipe) | **revert**       |
-| **Zoom** (pinch / wheel / autoscroll)     | **revert**       |
-| Toolbar view toggle / home reset          | cancel (manual)  |
+The rotate behaviour is a true **detent, Shapr3D-style**. While the snap is held
+the camera does **not move at all**: a rotate gesture shorter than
+`SNAP_BREAKOUT_TRAVEL_PX` (70 px, measured straight-line from where the drag
+started) is absorbed completely, so the dimension-true view survives jitter, a
+small screen touch or a stray nudge — and wiggling back and forth never breaks
+out, because travel is measured from the origin rather than summed along the
+path. Cross that distance and the snap "pops": the camera starts orbiting from
+the snapped orientation and the projection animates back. Interacting with the
+cube again always keeps ortho.
 
-This lives entirely in [`SceneCamera`](scene/camera.ts) as a projection override
-(`autoOrtho`) — it deliberately does **not** touch the toolbar `view` signal, so
-there is no signal-ordering race between the snap animation and a view toggle.
-Engaging animates to the snapped direction at ~1° FOV with an apparent-size-
-preserving distance; reverting is an **instant** apparent-size-preserving FOV
-swap (`notifyUserPanOrZoom`) so it never fights the live pan/zoom gesture that
-triggered it. The pan/zoom trigger is emitted only from the genuine pan/zoom
-input sites in [`SceneControls`](scene/controls.ts) (`setRevertGestureSink`) —
-rotate and cube-driven moves never emit it.
+| Action                                                  | Auto-ortho         |
+| ------------------------------------------------------- | ------------------ |
+| Cube face/edge/corner snap                              | engage (→ ortho)   |
+| Rotate **inside** the breakout distance                 | keep — view frozen |
+| **Rotate past breakout** (1-finger / left-drag / swipe) | **revert** (pops)  |
+| Cube drag-orbit / roll / re-snap                        | keep               |
+| **Pan** (2-finger / right-drag / ⌥-swipe)               | **revert**         |
+| **Zoom** (pinch / wheel / autoscroll)                   | **revert**         |
+| Toolbar view toggle / home reset                        | cancel (manual)    |
+
+This lives across two files. Both the projection override (`autoOrtho`) and the
+detent (`snapHoldPose`) are in [`SceneCamera`](scene/camera.ts). Engaging
+animates to the snapped direction at ~1° FOV with an apparent-size-preserving
+distance, then pins that pose on landing.
+
+A snap also **tells the toolbar what it did**. Engaging sets `currentView =
+'ortho'` and reports it through `onViewChange` → `ViewerScene.setViewChangeSink`
+→ the UI's `view` signal; a breakout restores the remembered `preSnapView` the
+same way. Earlier the snap deliberately left that signal alone, which desynced
+the button from the screen: the toolbar claimed "perspective" while the view was
+flat, so the button's icon lied and its first press was swallowed re-asserting a
+projection that was already active — you had to press it twice to see anything.
+The viewer guards the echo (`cameraOriginatedView`, armed only when the write
+actually changes the signal) so a camera-originated value is not routed straight
+back into `setView`, which would cancel the in-flight snap and its detent.
+
+The perspective preset is seeded from the FOV the camera is built with
+(`setPerspectiveFov(camera.fov)` at construction). The settings effect that
+applies the user's field-of-view runs before the scene exists, so without this
+the preset kept its built-in default and _restoring_ perspective — the toggle, a
+breakout, or the home reset — snapped the view to that default instead of the FOV
+the user had configured.
+
+**Holding** is enforced by `applySnapHold()`, which the render loop calls _after_
+`OrbitControls.update()` and the inertia step: it restores the pinned pose, so
+whatever rotation those applied is discarded before anything is drawn. Discarding
+it each frame (rather than accumulating) is what makes the hand-off seamless —
+`OrbitControls` re-derives its orbit frame from the camera's current position
+every update, so the instant the pin is released the view simply starts following
+the pointer from the snapped orientation, with no jump and no replay of the
+absorbed movement.
+
+**Reverting** animates over the same `VIEW_TRANSITION_MS` + easing as the
+toolbar's perspective/ortho toggle, so the morph reads identically whichever
+control triggered it. It runs as a projection-only `ProjectionTween`
+(`notifyUserViewGesture` → `advanceProjectionTween`) rather than a full pose
+animation: only the FOV is driven, and the orbit distance is rescaled
+_incrementally_ each frame (`tan(prevFov/2) / tan(nextFov/2)`) to hold apparent
+size. Because nothing pins the direction, target or distance, the tween never
+fights the gesture that triggered it — the render loop advances it on **every**
+frame, including frames where `OrbitControls` is driving the camera, so the user
+can keep dragging/zooming straight through the transition.
+
+The revert trigger is emitted only from the genuine pan/zoom input sites and from
+the pointer-travel breakout detector in [`SceneControls`](scene/controls.ts)
+(`setRevertGestureSink`) — a rotate inside the detent and cube-driven moves never
+emit it. Travel is measured in **pixels**, not camera angle, precisely because a
+held snap does not rotate the camera at all. The budget is per gesture: reset on
+each pointer down/up and, on the trackpad-swipe path (which has no pointer
+brackets), after an idle gap.
 
 ### Pen-priority palm rejection ("wrist detection")
 
