@@ -728,6 +728,49 @@ inside the walls, are rounded). Key points:
   `… × Bridge` overlap pair on the Benchy matches `classic` to within noise
   (`Gap infill × Bridge` 8.6 → 0, `Inner wall × Bridge` 8.3 → 0.16 = classic).
 
+### Sub-Bead Slivers — Grazing-Angle Surface Fill
+
+The wall-band trim above subtracts the eroded wall-bead footprint from a surface
+region whose outline does **not** follow that footprint exactly. Where the two
+boundaries meet at a **grazing angle** the subtraction leaves a long crescent far
+narrower than one bead. The scanline still fills it, but because the fill
+direction is then near-parallel to the crescent **every span is a stub**.
+
+Measured on the Filament Card Caddy's hexagon logo (0.44 mm extrusion,
+`wall_count = 3`): the `solid_surface` region carried separate sliver sub-paths
+of ≈4.5 mm² and ≈0.22 mm mean width along exactly the two hexagon edges lying
+15° off the fill direction. A 135° scanline crossing a 0.22 mm strip at 150°
+gives span `0.22/sin 15° ≈ 0.85 mm` — matching the observed repeating
+**0.82 mm line / 0.62 mm connector** micro-serpentine. **93 % of that material
+was already covered** by the flanking wall bead or the normal surface, so it
+bought ≈0.5 mm² of real coverage for ~20 mm of sub-millimetre moves.
+
+`open_surface_region_for_fill` (applied to `bottom_region` / `top_region` after
+the wall-band trim, before `add_solid_infill_for_region`) removes them:
+
+- **Threshold is physical, not heuristic.** Erode by
+  `SURFACE_FILL_MIN_WIDTH_FRACTION (0.5) × solid-surface extrusion width`, i.e.
+  an erosion *diameter* of exactly one bead. A strip narrower than one bead
+  cannot hold a bead by construction.
+- **It is a _width_ filter, not an area filter.** Small-but-printable surfaces
+  survive intact (measured: 79 mm² and 37 mm² regions untouched while six
+  slivers went to zero).
+- **Corners are preserved.** A plain morphological opening rounds convex
+  corners, and a rounded corner makes the scanline emit *extra* stub spans —
+  the very artifact being removed (measured +31 stubs on the Voron cube). So
+  the surviving core is re-grown by `SURFACE_FILL_REGROW_FACTOR (2.0) × radius`
+  and **clipped back to the original region**, restoring exact original shape.
+  That took the cube from +31 stubs to −1.
+- Use **`FillRule::NonZero`** for the final clip so CW hole sub-paths stay holes.
+- This defect is **not** Arachne-specific — `arachne` and `classic` produced
+  byte-identical stub measurements on the caddy hexagon, because it originates
+  in the surface fill, not the wall generator.
+
+Measured effect (user profile, whole model): coverage change ≤ 0.004 % on
+Benchy / Voron cube / caddy, with sub-1 mm segments −19 / −1 / −55 and the
+caddy's two grazing edges dropping **22.9 → 2.4 mm** and **24.1 → 2.8 mm** of
+sub-1 mm top surface. QA gate passes with **no baseline drift**.
+
 ### `generate_rectilinear_infill` — Scanline Even-Odd Fill
 
 The scanline fills cells using an even-odd intersection count (pairs of sorted

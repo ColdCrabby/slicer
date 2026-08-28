@@ -85,6 +85,24 @@ these notes and acknowledges contributors. `scripts/gen-changelog-draft.sh` and
 
 ### Fixed
 
+- **Top-surface "squiggles" where solid fill grazes a wall** — a surface whose
+  boundary meets the wall band at a shallow angle was filled with a dense
+  micro-serpentine of sub-millimetre stubs hugging the wall, interleaved with
+  unfilled wedge voids. The wall-band trim leaves a crescent narrower than one
+  bead there, and because the fill direction is near-parallel to it every
+  scanline span is a stub. On the Filament Card Caddy's hexagon logo the two
+  edges lying 15° off the fill direction carried ≈0.22 mm-wide slivers filled
+  with a repeating 0.8 mm-line / 0.6 mm-connector zig-zag whose material was
+  **93 % already covered** by the flanking wall bead. Solid top/bottom surface
+  regions are now width-filtered before filling: anything narrower than one
+  extrusion width is dropped (it cannot hold a bead by construction), while
+  thicker geometry is preserved at its **exact original shape**, sharp corners
+  included. The two affected caddy edges drop from 22.9 → 2.4 mm and
+  24.1 → 2.8 mm of sub-1 mm top surface with total material coverage unchanged
+  (≤ 0.004 % on Benchy, Voron cube and caddy alike). This was **not** an
+  Arachne-only defect — `classic` produced identical stubs, because the cause
+  is in the surface fill rather than the wall generator.
+
 - **Arachne "splat" gap-fill and gap fill printed under top surfaces** — two
   Benchy-visible quality defects in the Arachne wall generator:
   - Isolated sub-millimetre gap-fill beads (≈ 270 on a 3DBenchy) that added

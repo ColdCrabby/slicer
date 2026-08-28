@@ -167,6 +167,30 @@ const SURFACE_MIN_ISLAND_MM2: f64 = 2.0;
 /// keeps the latter with wide margin.
 const SURFACE_MIN_INTERIOR_WIDTH_NOZZLE_MULT: f64 = 2.5;
 
+/// Opening radius, as a fraction of the **solid-surface extrusion width**, used
+/// to erase sub-bead slivers left on a surface region by the wall-band trim.
+///
+/// A value of 0.5 makes the erosion diameter exactly one extrusion width, which
+/// is the physically meaningful threshold: a strip narrower than one bead cannot
+/// hold a bead, so filling it is impossible by construction and the flanking
+/// wall already covers it.  See [`open_surface_region_for_fill`].
+const SURFACE_FILL_MIN_WIDTH_FRACTION: f64 = 0.5;
+
+/// How far the surviving core is re-grown, as a multiple of the erosion radius,
+/// before being clipped back to the original region.
+///
+/// Re-growing by *more* than the erosion radius restores sharp convex corners
+/// exactly (the clip to the original region bounds the result), instead of
+/// leaving them rounded as a plain morphological opening would.  Corner rounding
+/// is not a coverage problem — it is a *stub* problem: the scanline crossing a
+/// rounded corner emits a couple of extra sub-millimetre spans, which is the
+/// very artifact this filter exists to remove.
+///
+/// 2.0 recovers every corner while staying well below the wall-band width that
+/// separates a sliver from the nearest genuine surface, so a dropped sliver is
+/// never re-attached.
+const SURFACE_FILL_REGROW_FACTOR: f64 = 2.0;
+
 /// Maximum horizontal gap (as a multiple of `line_spacing`) allowed when
 /// connecting the end of one scan-line segment to the nearest end of the next
 /// scan-line segment in the serpentine chaining pass.
@@ -724,6 +748,60 @@ fn open_interior_for_surface(interior: &Paths, nozzle_diameter_mm: f64) -> Paths
         return interior.clone();
     }
     morphological_open(interior.clone(), radius)
+}
+
+/// Erase residual **sub-bead slivers** from a solid top/bottom surface region so
+/// the scanline never fills a strip too narrow to hold a bead.
+///
+/// The wall-band trim subtracts the eroded wall-bead footprint from a surface
+/// region whose outline does not follow that footprint exactly.  Where the two
+/// boundaries meet at a **grazing angle** the subtraction leaves a long crescent
+/// far narrower than one extrusion.  The scanline happily fills such a crescent,
+/// but since the fill direction is then near-parallel to it *every* span is a
+/// stub: the observed artifact is a dense `≈0.8 mm line / ≈0.6 mm connector`
+/// micro-serpentine hugging the wall — a burst of retract-free but pointless
+/// sub-millimetre moves whose material is overwhelmingly already laid down by
+/// the flanking wall bead.
+///
+/// Opening by half the extrusion width erases every feature narrower than one
+/// full bead.  Unlike a plain morphological opening this preserves **sharp
+/// convex corners**: the surviving core is re-grown by
+/// `SURFACE_FILL_REGROW_FACTOR × radius` and then clipped back to the original
+/// region, so thicker geometry is recovered at its exact original shape.  That
+/// matters because a rounded corner makes the scanline emit extra stub spans —
+/// the very artifact being removed.  This is a **width** filter, not an area
+/// filter, so genuinely small *but printable* surfaces are untouched.
+fn open_surface_region_for_fill(region: Paths, surface_width_mm: f64) -> Paths {
+    let radius = surface_width_mm * SURFACE_FILL_MIN_WIDTH_FRACTION;
+    if radius <= 1e-6 || region.is_empty() {
+        return region;
+    }
+
+    // Erode to the printable-width core; a sub-bead sliver contributes nothing.
+    let core = clipper2::inflate(
+        region.clone(),
+        -radius,
+        JoinType::Round,
+        EndType::Polygon,
+        2.0,
+    );
+    if core.is_empty() {
+        return Paths::new(vec![]);
+    }
+
+    // Re-grow past the erosion radius, then clip to the original so corners come
+    // back sharp.  `NonZero` keeps CW hole sub-paths as holes.
+    let grown = clipper2::inflate(
+        core,
+        radius * SURFACE_FILL_REGROW_FACTOR,
+        JoinType::Round,
+        EndType::Polygon,
+        2.0,
+    );
+    if grown.is_empty() {
+        return Paths::new(vec![]);
+    }
+    intersect(region, grown, FillRule::NonZero).unwrap_or_default()
 }
 
 /// Anchor expansion: dilate `unsupported` by `anchor_mm` (clipped to the
@@ -2162,6 +2240,15 @@ pub fn generate_top_bottom_surfaces_with_interior(
         };
         let solid_line_spacing = solid_surface_line_spacing(surface_width, layer_height);
 
+        // Drop sub-bead slivers the wall-band trim above may have left behind,
+        // so the scanline never fills a strip too narrow to hold a bead (that
+        // produces a micro-serpentine of stub segments against the wall).
+        // See `open_surface_region_for_fill` for the full rationale.
+        let (bottom_region, top_region) = (
+            open_surface_region_for_fill(bottom_region, surface_width),
+            open_surface_region_for_fill(top_region, surface_width),
+        );
+
         if !bottom_region.is_empty() {
             #[cfg(not(target_arch = "wasm32"))]
             let t = Instant::now();
@@ -2702,8 +2789,67 @@ mod tests {
         );
     }
 
-    /// **Regression** — a top surface detected over a locally-thin cross-section
-    /// (a thin wall-band channel whose aft end steps back a layer) must NOT be
+    /// **Regression** — the sub-bead sliver the wall-band trim leaves along a
+    /// boundary it meets at a grazing angle must be erased, so the scanline
+    /// never fills it with a micro-serpentine of stub segments.
+    ///
+    /// Measured on the Filament Card Caddy's hexagon logo (0.44 mm extrusion):
+    /// the trim left ≈0.22 mm-wide crescents of ≈4.5 mm² along the two hexagon
+    /// edges lying only 15° off the fill direction, which the scanline filled
+    /// with a repeating 0.8 mm-line / 0.6 mm-connector zig-zag.
+    #[test]
+    fn test_open_surface_region_drops_sub_bead_sliver() {
+        // 0.22 mm-wide crescent — half of the 0.44 mm extrusion width.
+        let sliver: Path = vec![(0.0, 0.0), (20.0, 0.0), (20.0, 0.22), (0.0, 0.22)].into();
+        let region = Paths::new(vec![sliver]);
+
+        let opened = open_surface_region_for_fill(region, 0.44);
+
+        assert!(
+            opened.is_empty(),
+            "a sub-bead sliver must be erased, got {} sub-path(s)",
+            opened.len()
+        );
+    }
+
+    /// A strip exactly one bead wide *can* hold a bead, and anything thicker
+    /// must survive the filter at its **exact original shape** — including
+    /// sharp convex corners, which a plain morphological opening would round
+    /// (and a rounded corner makes the scanline emit extra stub spans).
+    #[test]
+    fn test_open_surface_region_keeps_printable_regions() {
+        // 3×3 mm surface — small in area but far wider than one 0.44 mm bead.
+        let small: Path = vec![(0.0, 0.0), (3.0, 0.0), (3.0, 3.0), (0.0, 3.0)].into();
+        let opened = open_surface_region_for_fill(Paths::new(vec![small]), 0.44);
+        let area: f64 = opened.iter().map(|p| p.signed_area().abs()).sum();
+        assert!(
+            area >= 8.95,
+            "a printable surface must keep its sharp corners (area {area:.3} mm², expected ≈ 9.0)"
+        );
+
+        // A 1.0 mm-wide rib is over two beads wide and must also survive.
+        let rib: Path = vec![(0.0, 0.0), (12.0, 0.0), (12.0, 1.0), (0.0, 1.0)].into();
+        let opened = open_surface_region_for_fill(Paths::new(vec![rib]), 0.44);
+        assert!(
+            !opened.is_empty(),
+            "a 1 mm rib is wider than one bead and must be kept"
+        );
+    }
+
+    /// A zero/negative width must be a no-op rather than erasing the region.
+    #[test]
+    fn test_open_surface_region_degenerate_width_is_noop() {
+        let square: Path = vec![(0.0, 0.0), (5.0, 0.0), (5.0, 5.0), (0.0, 5.0)].into();
+        let region = Paths::new(vec![square]);
+        let opened = open_surface_region_for_fill(region.clone(), 0.0);
+        assert_eq!(
+            opened.len(),
+            region.len(),
+            "a degenerate width must leave the region untouched"
+        );
+    }
+
+    /// **Regression** — a top surface detected over a locally-thin cross-section    /// (a thin wall-band channel whose aft end steps back a layer) must NOT be
     /// filled: the opened interior is empty there, so the surface is dropped,
     /// matching the `classic` generator.  Guards the "tiny top-surface extrudes
     /// in a thin wall channel" defect (Benchy hull sides / funnel transitions).
