@@ -37,6 +37,7 @@ printf '[slicing]\nwall_generator = "classic"\n' > /tmp/classic.toml
 | `zoom.py` | Zoomed region drawing every bead as a filled capsule at its **actual `;WIDTH:`**, so you can see whether gap-fill beads truly span their gap. | `zoom.py <gcode> [layer] [cx] [cy] [half] [out.png]` |
 | `overlap.py` | **Cross-role double-extrusion**: pairwise footprint intersection between every role pair, with a ¼-nozzle-eroded **BODY** column that strips the expected boundary seam and leaves genuine bead-on-bead overlap (e.g. sparse infill re-extruding over a gap-fill bead). | `overlap.py <gcode> [layer\|all]` |
 | `beaddiff.py` | **Before/after visual diff** of one layer from two gcode files, every bead a capsule at its true `;WIDTH:`, role-coloured on a shared scale, with isolated short paths highlighted and counted. The image to attach to a PR. | `beaddiff.py <before> <after> [layer] [out.png] [cx cy half] [--short=0.8]` |
+| `wallbands.py` | **Wall-band anatomy of one island**: labels every island on a layer, then zooms one and draws its wall loops in print order (outer, inner-1, inner-2, …) as separate colours, so "between the two inner walls" is unambiguous. | `wallbands.py <gcode> <layer> [island] [out.png]` |
 
 ### Examples
 
