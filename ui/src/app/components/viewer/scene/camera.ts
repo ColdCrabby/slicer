@@ -50,9 +50,11 @@ export class SceneCamera {
    * True while the projection has been *temporarily* forced to orthographic by
    * a viewport-cube snap (see {@link animateToDirection}). Distinct from the
    * user's `currentView`: the cube engages this without touching the toolbar
-   * preset, and a free pan/zoom in the main viewport reverts it
-   * ({@link notifyUserPanOrZoom}) back to `currentView`. Rotating or further
-   * cube interaction keep it engaged.
+   * preset, and a deliberate free-view gesture in the main viewport — a pan, a
+   * zoom, or a rotate dragged past the sticky intent threshold — reverts it
+   * ({@link notifyUserViewGesture}) back to `currentView`. A small rotate below
+   * that threshold, or further cube interaction, keeps it engaged, so the mode
+   * only ever changes on a clear user intent (Shapr3D-style stickiness).
    */
   private autoOrtho = false;
 
@@ -155,9 +157,10 @@ export class SceneCamera {
    * When `forceOrtho` is set (every cube snap does), the projection is also
    * driven to orthographic and {@link autoOrtho} is engaged, matching the CAD
    * convention that clicking a cube face gives a flat, dimension-true view. The
-   * user's toolbar `currentView` is deliberately left untouched so a later free
-   * pan/zoom can revert to it ({@link notifyUserPanOrZoom}); rotating or further
-   * cube snaps keep ortho.
+   * user's toolbar `currentView` is deliberately left untouched so a later
+   * deliberate free-view gesture can revert to it ({@link notifyUserViewGesture});
+   * a small rotate below the sticky threshold, or a further cube snap, keeps
+   * ortho.
    */
   animateToDirection(direction: Vector3, up: Vector3, forceOrtho = false): void {
     const target = this.controls.target.clone();
@@ -210,14 +213,18 @@ export class SceneCamera {
   }
 
   /**
-   * Called when the user pans or zooms the *main viewport* (not a rotate, not a
-   * cube gesture). If a cube snap had forced the projection to orthographic,
-   * this reverts it to the user's `currentView`. The swap is instantaneous and
-   * apparent-size-preserving (no distance/target lock), so it never fights the
-   * in-flight pan/zoom gesture that triggered it; only the perspective
-   * distortion (re)appears. A no-op when auto-ortho is not engaged.
+   * Called when the user performs a deliberate free-view gesture on the *main
+   * viewport* — a pan, a zoom, or a rotate dragged past the sticky intent
+   * threshold (a small rotate and cube gestures do not call this). If a cube
+   * snap had forced the projection to orthographic, this reverts it to the
+   * user's `currentView`: so leaving the snapped view lands back in perspective
+   * only when the user *entered* the cube snap from perspective — a toolbar
+   * ortho preset stays ortho. The swap is instantaneous and apparent-size-
+   * preserving (no distance/target lock), so it never fights the in-flight
+   * gesture that triggered it; only the perspective distortion (re)appears. A
+   * no-op when auto-ortho is not engaged.
    */
-  notifyUserPanOrZoom(): void {
+  notifyUserViewGesture(): void {
     if (!this.autoOrtho) {
       return;
     }

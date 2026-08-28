@@ -206,9 +206,11 @@ export class ViewerScene {
     this._controls = new SceneControls(this.camera, this.controls, this.renderer, () =>
       this._selection.cancelActiveDrag(),
     );
-    // Free pan/zoom in the main viewport reverts the viewport-cube's temporary
-    // orthographic snap; rotate and cube gestures never fire this.
-    this._controls.setRevertGestureSink(() => this._camera.notifyUserPanOrZoom());
+    // A deliberate free-view gesture in the main viewport — pan, zoom, or a
+    // rotate dragged past the sticky intent threshold — reverts the viewport-
+    // cube's temporary orthographic snap; a small rotate and cube gestures never
+    // fire this, so the mode only changes on a clear user intent.
+    this._controls.setRevertGestureSink(() => this._camera.notifyUserViewGesture());
     this._grid = new SceneGrid(this.scene, this.camera, this.controls, this.renderer, printArea);
 
     // Wire gizmo callbacks.

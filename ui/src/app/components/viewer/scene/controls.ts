@@ -17,6 +17,21 @@ const TWO_FINGER_DOLLY_DEAD_ZONE_PX = 1.5;
 const TWO_FINGER_ROLL_DEAD_ZONE_RAD = 0.01;
 /** Right-drag travel (px) before it counts as a pan for the auto-ortho revert. */
 const RIGHT_PAN_REVERT_THRESHOLD_PX = 3;
+/**
+ * Accumulated orbit travel (radians, azimuth + polar) within a single
+ * continuous rotate gesture before it counts as a deliberate "leave the snapped
+ * view" intent and releases the viewport-cube's temporary orthographic
+ * projection. Sticky, Shapr3D-style: small nudges keep the snap, so the mode
+ * only ever changes on a clear user intent — never on an accidental jitter or a
+ * small screen touch. ~8.6°, comfortably above pointer/finger noise.
+ */
+const ROTATE_REVERT_THRESHOLD_RAD = 0.15;
+/**
+ * Idle gap (ms) that ends one trackpad two-finger-swipe rotate burst. That mac
+ * wheel-orbit path has no pointer up/down to bracket the gesture, so a pause
+ * longer than this starts a fresh stickiness budget.
+ */
+const ROTATE_REVERT_IDLE_MS = 150;
 
 /**
  * Safari/WebKit-proprietary gesture event (not in the standard DOM lib types).
@@ -91,6 +106,15 @@ export class SceneControls {
   private orbitVelAzimuth = 0;
   private orbitVelPolar = 0;
   private orbitVelTarget = new Vector3();
+  /**
+   * Sticky auto-ortho release state. Accumulates orbit travel across the
+   * current rotate gesture; once it crosses {@link ROTATE_REVERT_THRESHOLD_RAD}
+   * the revert fires exactly once (`…Emitted`). Reset per pointer drag (via the
+   * OrbitControls `start` event) and per trackpad-swipe burst (idle gap).
+   */
+  private rotateRevertAccumRad = 0;
+  private rotateRevertEmitted = false;
+  private rotateRevertLastWheelTime = 0;
   private autoscroll: AutoscrollState | null = null;
   private readonly raycaster = new Raycaster();
   private readonly ndcScratch = new Vector2();
@@ -113,11 +137,14 @@ export class SceneControls {
   private twoFingerGesture: 'orbit' | 'pan' = 'orbit';
 
   /**
-   * Fired whenever the user *pans or zooms* the main viewport (never on a
-   * rotate). Used by the viewport-cube auto-ortho behaviour to revert the
-   * temporary orthographic projection back to the user's chosen view. Rotate
-   * and cube-driven camera moves deliberately do not fire it. See
-   * {@link SceneCamera.notifyUserPanOrZoom}.
+   * Fired whenever the user performs a deliberate free-view gesture on the main
+   * viewport — a pan, a zoom, or a rotate dragged past the sticky
+   * {@link ROTATE_REVERT_THRESHOLD_RAD} intent threshold. Used by the
+   * viewport-cube auto-ortho behaviour to revert the temporary orthographic
+   * projection back to the user's chosen view. A small rotate (below the
+   * threshold) and cube-driven camera moves deliberately do not fire it, so the
+   * mode never flips on an accidental nudge. See
+   * {@link SceneCamera.notifyUserViewGesture}.
    */
   private revertGestureSink: (() => void) | null = null;
 
@@ -166,9 +193,9 @@ export class SceneControls {
   }
 
   /**
-   * Register a callback fired whenever the user pans or zooms the main viewport
-   * (never on a rotate or a cube gesture). Drives the viewport-cube auto-ortho
-   * revert. Pass `null` to clear.
+   * Register a callback fired whenever the user pans, zooms, or rotates the main
+   * viewport past the sticky intent threshold (never on a small rotate or a cube
+   * gesture). Drives the viewport-cube auto-ortho revert. Pass `null` to clear.
    */
   setRevertGestureSink(sink: (() => void) | null): void {
     this.revertGestureSink = sink;
@@ -176,6 +203,30 @@ export class SceneControls {
 
   private emitRevertGesture(): void {
     this.revertGestureSink?.();
+  }
+
+  /** Begin a fresh stickiness budget for the next rotate gesture. */
+  private resetRotateRevertIntent(): void {
+    this.rotateRevertAccumRad = 0;
+    this.rotateRevertEmitted = false;
+  }
+
+  /**
+   * Feed one increment of orbit travel (radians) into the sticky auto-ortho
+   * release. Fires {@link emitRevertGesture} exactly once per gesture, and only
+   * after the accumulated travel crosses {@link ROTATE_REVERT_THRESHOLD_RAD} —
+   * so a deliberate drag leaves the snapped ortho view while a small nudge keeps
+   * it. A no-op when the delta is non-positive or the gesture already fired.
+   */
+  private accumulateRotateRevertIntent(deltaRad: number): void {
+    if (this.rotateRevertEmitted || !(deltaRad > 0)) {
+      return;
+    }
+    this.rotateRevertAccumRad += deltaRad;
+    if (this.rotateRevertAccumRad >= ROTATE_REVERT_THRESHOLD_RAD) {
+      this.rotateRevertEmitted = true;
+      this.emitRevertGesture();
+    }
   }
 
   applyOrbitInertia(dt: number): void {
@@ -621,6 +672,17 @@ export class SceneControls {
       .addScaledVector(e1, r * sinPhi * Math.cos(newTheta))
       .addScaledVector(e2, r * sinPhi * Math.sin(newTheta));
     this.camera.position.copy(target).add(offset);
+    // Sticky auto-ortho release for a trackpad two-finger-swipe rotate (mirrors
+    // the OrbitControls rotate path). This channel has no pointer up/down, so an
+    // idle gap between events starts a fresh stickiness budget. Emitted after
+    // the pose is set so the revert's apparent-size-preserving distance swap is
+    // not overwritten by this frame's orbit.
+    const nowMs = performance.now();
+    if (nowMs - this.rotateRevertLastWheelTime > ROTATE_REVERT_IDLE_MS) {
+      this.resetRotateRevertIntent();
+    }
+    this.rotateRevertLastWheelTime = nowMs;
+    this.accumulateRotateRevertIntent(Math.abs(dAz) + Math.abs(dPol));
     this.controls.update();
   }
 
@@ -631,6 +693,7 @@ export class SceneControls {
   private installOrbitInertia(): void {
     this.controls.addEventListener('start', () => {
       this.orbitInteracting = true;
+      this.resetRotateRevertIntent();
       this.orbitLastSampleTime = performance.now();
       this.orbitLastAzimuth = this.controls.getAzimuthalAngle();
       this.orbitLastPolar = this.controls.getPolarAngle();
@@ -643,6 +706,19 @@ export class SceneControls {
       if (!this.orbitInteracting) {
         return;
       }
+      // Sticky auto-ortho release: accumulate this drag's orbit travel and, once
+      // it crosses ROTATE_REVERT_THRESHOLD_RAD (a clear intent to leave the
+      // snapped view), revert the viewport-cube's temporary ortho. A right-drag
+      // pan leaves azimuth/polar unchanged so it never trips this (it reverts
+      // via its own detector); cube drag-orbit never sets `orbitInteracting`, so
+      // it is likewise excluded and keeps ortho. Sampled before the inertia
+      // bookkeeping below advances `orbitLast*`, so both read the same baseline.
+      let dAzIntent = this.controls.getAzimuthalAngle() - this.orbitLastAzimuth;
+      if (dAzIntent > Math.PI) dAzIntent -= 2 * Math.PI;
+      else if (dAzIntent < -Math.PI) dAzIntent += 2 * Math.PI;
+      const dPolIntent = this.controls.getPolarAngle() - this.orbitLastPolar;
+      this.accumulateRotateRevertIntent(Math.abs(dAzIntent) + Math.abs(dPolIntent));
+
       const now = performance.now();
       const dt = (now - this.orbitLastSampleTime) / 1000;
       this.orbitLastSampleTime = now;

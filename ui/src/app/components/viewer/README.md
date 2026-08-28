@@ -205,29 +205,42 @@ raycaster, gizmo), the viewer applies a clear priority order:
 
 Clicking a viewport-cube face/edge/corner snaps the camera to that view **and
 flattens the projection to orthographic** — the CAD convention that a snapped
-view is dimension-true. The temporary ortho is held until the user **pans or
-zooms** the main viewport, at which point the projection reverts to whatever the
-toolbar preset was (normally perspective). **Rotating** the view or interacting
-with the cube again keeps ortho.
+view is dimension-true. The temporary ortho is held until the user makes a
+**deliberate free-view gesture** on the main viewport — a **pan**, a **zoom**, or
+a **rotate dragged past a sticky intent threshold** — at which point the
+projection reverts to whatever the toolbar preset was (normally perspective).
+Because the revert targets the toolbar `currentView`, leaving the snap lands back
+in perspective only when the user _entered_ it from perspective; a toolbar ortho
+preset stays ortho.
 
-| Action                                    | Auto-ortho       |
-| ----------------------------------------- | ---------------- |
-| Cube face/edge/corner snap                | engage (→ ortho) |
-| Rotate (1-finger / left-drag / swipe)     | keep             |
-| Cube drag-orbit / roll / re-snap          | keep             |
-| **Pan** (2-finger / right-drag / ⌥-swipe) | **revert**       |
-| **Zoom** (pinch / wheel / autoscroll)     | **revert**       |
-| Toolbar view toggle / home reset          | cancel (manual)  |
+The rotate trigger is **sticky, Shapr3D-style**: a small nudge keeps the snap, so
+the mode only ever changes on a clear user intent, never on an accidental jitter
+or a small screen touch. Only after the accumulated orbit travel crosses
+`ROTATE_REVERT_THRESHOLD_RAD` (~8.6°) within one continuous drag does the view
+release into perspective. Interacting with the cube again always keeps ortho.
 
-This lives entirely in [`SceneCamera`](scene/camera.ts) as a projection override
-(`autoOrtho`) — it deliberately does **not** touch the toolbar `view` signal, so
-there is no signal-ordering race between the snap animation and a view toggle.
-Engaging animates to the snapped direction at ~1° FOV with an apparent-size-
-preserving distance; reverting is an **instant** apparent-size-preserving FOV
-swap (`notifyUserPanOrZoom`) so it never fights the live pan/zoom gesture that
-triggered it. The pan/zoom trigger is emitted only from the genuine pan/zoom
-input sites in [`SceneControls`](scene/controls.ts) (`setRevertGestureSink`) —
-rotate and cube-driven moves never emit it.
+| Action                                                   | Auto-ortho          |
+| -------------------------------------------------------- | ------------------- |
+| Cube face/edge/corner snap                               | engage (→ ortho)    |
+| Small rotate (below threshold)                           | keep                |
+| **Rotate past threshold** (1-finger / left-drag / swipe) | **revert** (sticky) |
+| Cube drag-orbit / roll / re-snap                         | keep                |
+| **Pan** (2-finger / right-drag / ⌥-swipe)                | **revert**          |
+| **Zoom** (pinch / wheel / autoscroll)                    | **revert**          |
+| Toolbar view toggle / home reset                         | cancel (manual)     |
+
+This lives across two files. The projection override (`autoOrtho`) is entirely in
+[`SceneCamera`](scene/camera.ts) — it deliberately does **not** touch the toolbar
+`view` signal, so there is no signal-ordering race between the snap animation and
+a view toggle. Engaging animates to the snapped direction at ~1° FOV with an
+apparent-size-preserving distance; reverting is an **instant** apparent-size-
+preserving FOV swap (`notifyUserViewGesture`) so it never fights the live gesture
+that triggered it. The revert trigger is emitted only from the genuine pan/zoom
+input sites and from the sticky rotate accumulator in
+[`SceneControls`](scene/controls.ts) (`setRevertGestureSink`) — a below-threshold
+rotate and cube-driven moves never emit it. The stickiness threshold keeps the
+budget per gesture: it is reset at the start of each pointer drag (OrbitControls
+`start`) and after an idle gap on the trackpad-swipe path.
 
 ### Pen-priority palm rejection ("wrist detection")
 
