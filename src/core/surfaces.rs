@@ -307,7 +307,7 @@ fn principal_axis_angle_deg(paths: &Paths) -> Option<f64> {
 /// Removes thin features (slivers, hair-thin connecting strands) narrower
 /// than `2 × radius_mm` while preserving larger regions almost unchanged.
 /// A no-op when `radius_mm <= 0`.
-pub(super) fn morphological_open(paths: Paths, radius_mm: f64) -> Paths {
+fn morphological_open(paths: Paths, radius_mm: f64) -> Paths {
     // 1e-6 mm = 1 nm — well below any real geometry and below Clipper2's
     // Centi quantisation (10 µm).  Anything smaller is rounding noise and
     // a no-op is the right behaviour.

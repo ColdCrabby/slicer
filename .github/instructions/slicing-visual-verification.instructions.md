@@ -96,7 +96,38 @@ Measure across several models (`3DBenchy.stl`, `Voron_Design_Cube_v7.stl`,
 tuned to one shape, and state explicitly that no model got worse. Always report
 the **cost** (material or path length lost) next to the win.
 
-### 4. Attach it to the PR
+### 4. Run the slicing quality gate — locally, before pushing
+
+**This is not optional and it is easy to forget:** the gate is `#[ignore]`d, so
+a plain `cargo test` skips it and reports all-green on a change that CI will
+reject.
+
+```bash
+QA_FULL=1 cargo test --test slicing_quality -- --ignored
+```
+
+It slices the whole fixture corpus with both generators and fails on any metric
+drifting >5 % from `tests/qa/baselines/*.json`. It exists precisely to catch the
+model you *didn't* look at.
+
+It works. A morphological opening of the infill area, validated by eye and by
+metrics on the Benchy, looked like a clean win — and the gate caught that it had
+erased 35 % of the filament caddy's infill (`caddy/classic: role infill
+13170.1 -> 8505.5`), a fixture whose thin hollow-box lattice the change could
+not distinguish from an artifact.
+
+When it fails, **read the failing fixture before touching the baselines**:
+
+- A **`classic`** delta from a change meant to affect only Arachne is a red flag
+  — investigate, don't rebaseline.
+- Reproduce the flagged case, render it, and confirm the new output is
+  genuinely better. If it is not, the *fix* is wrong, not the baseline.
+- Only when a delta is the intended, verified effect, refresh with
+  `QA_FULL=1 UPDATE_QA_BASELINES=1 cargo test --test slicing_quality -- --ignored`,
+  then **diff `tests/qa/baselines/` and justify every line** in the commit
+  message. An unexplained baseline movement is a silent regression.
+
+### 5. Attach it to the PR
 
 Upload the PNG to GitHub's user-attachments API and embed the returned URL. Keep
 untrusted values in quoted shell variables and let `--url-query` encode them.
@@ -162,6 +193,15 @@ from the same broken region in place; erasing the region fixes both.
 - **Layer indexing.** These scripts are 1-based over `;LAYER_CHANGE`; the UI
   viewer may number differently. Confirm via `;Z:` before claiming a layer
   number, and quote the Z height alongside it.
+- **A thin channel is not automatically an artifact.** A sliver left by
+  subtracting a *solid region* is one; a thin wall-to-wall cavity in a hollow
+  box is a real feature whose lattice must survive. Key such a correction to the
+  thing that *caused* the sliver (here, `solid_regions`) so it is a provable
+  no-op elsewhere — never to the infill area as a whole.
+- **`git stash` in a shared worktree.** Check `git stash list` first: a `pop`
+  can restore *someone else's* older stash if your own `stash -u` found nothing
+  to save. Prefer `git checkout <ref> -- <paths>` for temporary A/B builds, and
+  verify `git status` afterwards.
 - **Do not name a helper module `gc.py`** — it shadows Python's built-in `gc`
   and the import fails confusingly.
 
