@@ -21,11 +21,14 @@ const RIGHT_PAN_REVERT_THRESHOLD_PX = 3;
  * Accumulated orbit travel (radians, azimuth + polar) within a single
  * continuous rotate gesture before it counts as a deliberate "leave the snapped
  * view" intent and releases the viewport-cube's temporary orthographic
- * projection. Sticky, Shapr3D-style: small nudges keep the snap, so the mode
- * only ever changes on a clear user intent — never on an accidental jitter or a
- * small screen touch. ~8.6°, comfortably above pointer/finger noise.
+ * projection. Sticky, Shapr3D-style: the snapped view holds on through casual
+ * orbiting, so the mode only ever changes when the user clearly means to leave
+ * it — never on an accidental jitter or a small screen touch. ~34°, which on a
+ * ~730 px-tall viewport is ≈70 px of left-drag (OrbitControls rotates
+ * `2π · Δpx / clientHeight`): easy to reach on purpose, essentially impossible
+ * to trip by accident.
  */
-const ROTATE_REVERT_THRESHOLD_RAD = 0.15;
+const ROTATE_REVERT_THRESHOLD_RAD = 0.6;
 /**
  * Idle gap (ms) that ends one trackpad two-finger-swipe rotate burst. That mac
  * wheel-orbit path has no pointer up/down to bracket the gesture, so a pause

@@ -563,6 +563,10 @@ export class ViewerScene {
       this.controls.update();
       this._controls.applyOrbitInertia(dt);
     }
+    // Runs on every frame — including frames driven by OrbitControls above — so
+    // the viewport-cube's ortho→perspective revert can animate while the user's
+    // pan/zoom/rotate gesture is still live.
+    this._camera.advanceProjectionTween();
 
     this._grid.updateAdaptiveGrid();
     this._grid.updateGridFade();

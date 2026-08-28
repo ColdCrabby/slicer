@@ -37,12 +37,26 @@ interface CameraAnimation {
 }
 
 /**
+ * A *projection-only* transition (see {@link SceneCamera.advanceProjectionTween}).
+ * Unlike {@link CameraAnimation} it drives nothing but the FOV — no direction,
+ * target or `up` lock — so the user's live gesture keeps full control of the
+ * camera while the perspective↔ortho morph plays out underneath it.
+ */
+interface ProjectionTween {
+  startTime: number;
+  duration: number;
+  fromFov: number;
+  toFov: number;
+}
+
+/**
  * Handles camera positioning, view-preset animations, fit-to-content,
  * and near/far plane management for the viewer scene.
  */
 export class SceneCamera {
   private currentView: ViewerView = 'perspective';
   private animation: CameraAnimation | null = null;
+  private projectionTween: ProjectionTween | null = null;
   private printArea: PrintAreaConfig;
   /** User-configurable perspective FOV (degrees); the ortho preset ignores it. */
   private perspectiveFov = PERSPECTIVE_FOV;
@@ -94,10 +108,15 @@ export class SceneCamera {
    */
   setPerspectiveFov(fov: number): void {
     this.perspectiveFov = fov;
-    // While auto-ortho holds the projection at ~1°, only remember the new FOV;
-    // it is applied when the projection reverts. Applying it live here would
-    // fight the forced ortho.
-    if (this.currentView !== 'perspective' || this.animation || this.autoOrtho) {
+    // While auto-ortho holds the projection at ~1° — or a revert tween is
+    // morphing back out of it — only remember the new FOV; it is applied once
+    // the projection settles. Applying it live here would fight that transition.
+    if (
+      this.currentView !== 'perspective' ||
+      this.animation ||
+      this.projectionTween ||
+      this.autoOrtho
+    ) {
       return;
     }
     const target = this.controls.target;
@@ -219,38 +238,72 @@ export class SceneCamera {
    * snap had forced the projection to orthographic, this reverts it to the
    * user's `currentView`: so leaving the snapped view lands back in perspective
    * only when the user *entered* the cube snap from perspective — a toolbar
-   * ortho preset stays ortho. The swap is instantaneous and apparent-size-
-   * preserving (no distance/target lock), so it never fights the in-flight
-   * gesture that triggered it; only the perspective distortion (re)appears. A
-   * no-op when auto-ortho is not engaged.
+   * ortho preset stays ortho.
+   *
+   * The projection **animates** back over {@link VIEW_TRANSITION_MS} with the
+   * same easing as the toolbar's perspective/ortho toggle, so the morph reads
+   * identically no matter which control triggered it. It runs as a
+   * projection-only {@link ProjectionTween} rather than a full pose animation:
+   * direction, target and distance stay under the user's control, so the tween
+   * never fights the in-flight gesture that triggered it. A no-op when
+   * auto-ortho is not engaged.
    */
   notifyUserViewGesture(): void {
     if (!this.autoOrtho) {
       return;
     }
     this.autoOrtho = false;
-    // Cancel any in-flight snap animation so it can't fight the swap, and hand
+    // Cancel any in-flight snap animation so it can't fight the revert, and hand
     // control straight back to the user's live gesture.
     this.animation = null;
     this.controls.enabled = true;
     const targetFov = this.currentView === 'ortho' ? ORTHO_FOV : this.perspectiveFov;
     if (Math.abs(this.camera.fov - targetFov) < 1e-3) {
+      this.projectionTween = null;
       return;
     }
+    this.projectionTween = {
+      startTime: performance.now(),
+      duration: VIEW_TRANSITION_MS,
+      fromFov: this.camera.fov,
+      toFov: targetFov,
+    };
+  }
+
+  /**
+   * Advance an in-flight projection-only transition one frame. Called from the
+   * render loop on *every* frame — including frames where `OrbitControls` is
+   * driving the camera — so the perspective↔ortho morph can play out while the
+   * user keeps panning, zooming or rotating.
+   *
+   * Apparent size is preserved *incrementally*: each frame the orbit distance is
+   * rescaled by `tan(prevFov/2) / tan(nextFov/2)` relative to wherever the user
+   * has meanwhile moved the camera. That keeps content the same on-screen size
+   * through the morph without ever pinning the distance to a precomputed value,
+   * which is what lets a live zoom keep working mid-transition.
+   */
+  advanceProjectionTween(): void {
+    const tween = this.projectionTween;
+    if (!tween) {
+      return;
+    }
+    const t = Math.min(1, (performance.now() - tween.startTime) / tween.duration);
+    const fov = lerp(tween.fromFov, tween.toFov, easeInOutCubic(t));
+    const prevTan = Math.tan(((this.camera.fov / 2) * Math.PI) / 180);
+    const nextTan = Math.tan(((fov / 2) * Math.PI) / 180);
     const target = this.controls.target;
     const offset = this.camera.position.clone().sub(target);
-    const distance = Math.max(offset.length(), 1);
-    const dir = offset.divideScalar(distance);
-    // Preserve apparent size: distance × tan(fov/2) is held constant so content
-    // does not jump size when the projection changes.
-    const apparent = distance * Math.tan(((this.camera.fov / 2) * Math.PI) / 180);
-    const newDistance = apparent / Math.tan(((targetFov / 2) * Math.PI) / 180);
-    this.camera.fov = targetFov;
-    this.camera.position.copy(target).addScaledVector(dir, newDistance);
-    this.updateNearFar(newDistance, Math.max(newDistance * 0.5, 1));
-    this.camera.lookAt(target);
+    const distance = offset.length();
+    if (distance > 1e-6 && nextTan > 1e-9) {
+      const scaled = distance * (prevTan / nextTan);
+      this.camera.position.copy(target).addScaledVector(offset.divideScalar(distance), scaled);
+      this.updateNearFar(scaled, Math.max(scaled * 0.5, 1));
+    }
+    this.camera.fov = fov;
     this.camera.updateProjectionMatrix();
-    this.controls.update();
+    if (t >= 1) {
+      this.projectionTween = null;
+    }
   }
 
   orbitBy(azimuth: number, polar: number): void {
@@ -446,6 +499,9 @@ export class SceneCamera {
       fromDistance > 1e-6 ? offset.clone().divideScalar(fromDistance) : DEFAULT_VIEW_DIR.clone();
     const fromUp = this.camera.up.clone().normalize();
     this.controls.enabled = false;
+    // A full pose animation drives the FOV itself — drop any projection-only
+    // tween so the two can't fight over it.
+    this.projectionTween = null;
     this.animation = {
       startTime: performance.now(),
       duration: VIEW_TRANSITION_MS,

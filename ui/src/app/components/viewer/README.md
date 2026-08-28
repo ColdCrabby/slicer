@@ -213,11 +213,13 @@ Because the revert targets the toolbar `currentView`, leaving the snap lands bac
 in perspective only when the user _entered_ it from perspective; a toolbar ortho
 preset stays ortho.
 
-The rotate trigger is **sticky, Shapr3D-style**: a small nudge keeps the snap, so
-the mode only ever changes on a clear user intent, never on an accidental jitter
-or a small screen touch. Only after the accumulated orbit travel crosses
-`ROTATE_REVERT_THRESHOLD_RAD` (~8.6°) within one continuous drag does the view
-release into perspective. Interacting with the cube again always keeps ortho.
+The rotate trigger is **sticky, Shapr3D-style**: the snapped view holds on
+through casual orbiting, so the mode only ever changes when the user clearly
+means to leave it — never on an accidental jitter or a small screen touch. Only
+after the accumulated orbit travel crosses `ROTATE_REVERT_THRESHOLD_RAD` (~34°,
+≈70 px of left-drag on a ~730 px-tall viewport) within one continuous drag does
+the view release into perspective. Interacting with the cube again always keeps
+ortho.
 
 | Action                                                   | Auto-ortho          |
 | -------------------------------------------------------- | ------------------- |
@@ -233,14 +235,25 @@ This lives across two files. The projection override (`autoOrtho`) is entirely i
 [`SceneCamera`](scene/camera.ts) — it deliberately does **not** touch the toolbar
 `view` signal, so there is no signal-ordering race between the snap animation and
 a view toggle. Engaging animates to the snapped direction at ~1° FOV with an
-apparent-size-preserving distance; reverting is an **instant** apparent-size-
-preserving FOV swap (`notifyUserViewGesture`) so it never fights the live gesture
-that triggered it. The revert trigger is emitted only from the genuine pan/zoom
-input sites and from the sticky rotate accumulator in
-[`SceneControls`](scene/controls.ts) (`setRevertGestureSink`) — a below-threshold
-rotate and cube-driven moves never emit it. The stickiness threshold keeps the
-budget per gesture: it is reset at the start of each pointer drag (OrbitControls
-`start`) and after an idle gap on the trackpad-swipe path.
+apparent-size-preserving distance.
+
+Reverting **animates** over the same `VIEW_TRANSITION_MS` + easing as the
+toolbar's perspective/ortho toggle, so the morph reads identically whichever
+control triggered it. It runs as a projection-only `ProjectionTween`
+(`notifyUserViewGesture` → `advanceProjectionTween`) rather than a full pose
+animation: only the FOV is driven, and the orbit distance is rescaled
+_incrementally_ each frame (`tan(prevFov/2) / tan(nextFov/2)`) to hold apparent
+size. Because nothing pins the direction, target or distance, the tween never
+fights the gesture that triggered it — the render loop advances it on **every**
+frame, including frames where `OrbitControls` is driving the camera, so the user
+can keep dragging/zooming straight through the transition.
+
+The revert trigger is emitted only from the genuine pan/zoom input sites and from
+the sticky rotate accumulator in [`SceneControls`](scene/controls.ts)
+(`setRevertGestureSink`) — a below-threshold rotate and cube-driven moves never
+emit it. The stickiness budget is per gesture: it is reset at the start of each
+pointer drag (OrbitControls `start`) and after an idle gap on the trackpad-swipe
+path.
 
 ### Pen-priority palm rejection ("wrist detection")
 
