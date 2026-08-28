@@ -506,6 +506,31 @@ and is kept (sparse infill would skip that sub-nozzle channel). Model-wide this
 took `GapFill × TopSurface` from 7.3 → 0.5 mm² by pruning ~3 long beads, with no
 new wall-zone void where the surface already covers the strip.
 
+**The solid surface must _cover_ a sandwiched gap bead's footprint, not carve
+it out.** Pruning the redundant bead (above) is only half the fix: if the
+surface region still has the bead-wide corridor carved out of it, that corridor
+becomes a **hole** in `solid_regions`. On a thin roof (the 3DBenchy rear rail,
+≈ layer 201) the hole (a) splits the top-surface serpentine into **two
+disconnected bands** and (b) is re-filled by **sparse-infill dashes** over the
+void the pruned bead left — the "two infill surfaces plus tiny blobs of goo"
+defect. The corridor was carved from **two** places, so both must stop carving a
+sandwiched bead:
+
+- `blocked_for_surface`'s explicit gap-fill term now uses
+  `compute_gap_fill_footprint_excluding_sandwiched`, and
+- `compute_wall_bead_footprint` — which also lists `GapFill` — is called with
+  `include_gap_fill = false` for the surface trim (the walls-only variant),
+  because the gap fill is accounted for by that separate, sandwich-aware term.
+
+The sandwich test there runs against the layer's **combined detected surface**
+(`combined_surface_region(bridge, bottom, top)`, pre-trim) so a centre bead is
+recognised as redundant before the trim would hole the surface. Result: the roof
+fills as **one** solid region, the bead is pruned, and no sparse infill leaks in.
+Genuine one-sided necks are still carved (surface abuts, never welds). Verify
+with a true-width capsule render (grey wall + one red top surface, no green bead,
+no orange dash) and the debug SVG (`--debug-geometry`): the rail `solid_surface`
+must be **one CCW polygon**, not a CCW ring with a CW hole.
+
 ### Clipper2 Fill Rules — When to Use Which
 
 | Operation                                                                 | Fill rule  | Why                                                                                                                                    |
