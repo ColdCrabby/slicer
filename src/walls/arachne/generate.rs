@@ -301,11 +301,7 @@ fn emit_residual_medial_fill(
     // ≥ `min_len · min_w`.  A residual sub-region below that bound can never
     // host a printable bead, so skip its (expensive) Voronoi/skeleton build.
     // 97 % of Benchy residual slivers fall here; the skip is loss-free.
-    let min_len = if params.gap_fill_min_length_mm > 0.0 {
-        params.gap_fill_min_length_mm
-    } else {
-        d
-    };
+    let min_len = gap_fill_min_run_len_mm(params);
     let min_area = params.wall_line_width_min_mm * min_len;
     for sub in split_islands(&uncovered) {
         let area = sub.iter().map(|p| p.signed_area()).sum::<f64>().abs();
@@ -385,6 +381,41 @@ const GAP_SPUR_PRUNE_RATIO: f64 = 0.6;
 /// unchanged (a larger floor starts nibbling fine embossed-logo detail); the
 /// coincidence-free wall property is untouched because walls are not modified.
 const GAP_SPUR_MIN_LEN_FACTOR: f64 = 2.0;
+
+/// Minimum emitted gap-fill **run** length, as a multiple of the nozzle
+/// diameter, used when the caller leaves `gap_fill_min_length_mm` at its `0`
+/// "auto" default.
+///
+/// A run shorter than this deposits a mechanically-insignificant dab of
+/// material (below `2·d × min_width` ≈ 0.3 mm² at a 0.4 mm nozzle) yet still
+/// costs a full retract → travel → un-retract cycle to reach — the "tiny
+/// inner-body splat" that wastes print time and invites filament grinding.  The
+/// sub-`2·d` residual such a run would have filled is already bridged by the
+/// squish of the wall beads flanking it: the `classic` generator leaves the
+/// identical curved/tapering wall-band corners bead-free with no measurable
+/// wall-zone void (verified with [`tools/gcode-analysis/voids.py`]).  Dropping
+/// them clears the splat swarm (~270 isolated beads on the 3DBenchy) with no
+/// change in void coverage.
+///
+/// It matches [`GAP_SPUR_MIN_LEN_FACTOR`] on purpose: a run below the same `2·d`
+/// floor that separates a real gap spine from facet-noise spurs is itself facet
+/// noise once isolated as its own bead.  A user who wants the old, denser
+/// behaviour can set an explicit smaller `gap_fill_min_length_mm`.
+const GAP_FILL_MIN_RUN_LEN_FACTOR: f64 = 2.0;
+
+/// Resolve the effective minimum gap-fill run length (mm): the explicit
+/// `gap_fill_min_length_mm` when the user set one (`> 0`), else
+/// [`GAP_FILL_MIN_RUN_LEN_FACTOR`] × nozzle diameter.  Shared by the residual
+/// pre-filter ([`emit_residual_medial_fill`]) and the per-run emit filter
+/// ([`emit_medial_beads`]) so the two never disagree on what counts as a
+/// printable run.
+fn gap_fill_min_run_len_mm(params: &WallParams) -> f64 {
+    if params.gap_fill_min_length_mm > 0.0 {
+        params.gap_fill_min_length_mm
+    } else {
+        GAP_FILL_MIN_RUN_LEN_FACTOR * params.nozzle_diameter_mm
+    }
+}
 
 /// Medial-fill a (thin) region: emit variable-width open beads along its medial
 /// axis wherever the local thickness (2·radius) is a printable `[min, max]`
@@ -473,11 +504,7 @@ fn emit_medial_beads(
     // user asked for (visible as blobs / dimensional bulge, especially layer 1).
     let max_w = params.wall_line_width_max_mm;
     let gap_max = 2.5 * params.nozzle_diameter_mm;
-    let min_len = if params.gap_fill_min_length_mm > 0.0 {
-        params.gap_fill_min_length_mm
-    } else {
-        params.nozzle_diameter_mm
-    };
+    let min_len = gap_fill_min_run_len_mm(params);
     let mut run: Vec<(f64, f64)> = Vec::new();
     let mut run_w: Vec<f64> = Vec::new();
 
@@ -658,6 +685,42 @@ mod tests {
         assert_eq!(
             closed_loops, 0,
             "a nozzle-thick rib should NOT get a degenerate closed loop"
+        );
+    }
+
+    #[test]
+    fn gap_fill_min_run_len_auto_default_is_two_nozzle() {
+        // With the param left at its 0 "auto" default, the floor is 2·d — the
+        // faceting-noise floor that keeps sub-2·d splat beads out.
+        let mut p = wall_params();
+        p.gap_fill_min_length_mm = 0.0;
+        p.nozzle_diameter_mm = 0.4;
+        assert!((gap_fill_min_run_len_mm(&p) - 0.8).abs() < 1e-9);
+
+        // An explicit value overrides the auto default verbatim.
+        p.gap_fill_min_length_mm = 0.3;
+        assert!((gap_fill_min_run_len_mm(&p) - 0.3).abs() < 1e-9);
+    }
+
+    #[test]
+    fn short_residual_gap_yields_no_splat_bead() {
+        // A 0.6 mm-long, ~0.5 mm-thick residual pocket is below the 2·d = 0.8 mm
+        // auto floor, so it must NOT emit an isolated gap-fill "splat" bead.
+        let mut layer = SliceLayer::new(0.2);
+        // A short thin rib: 0.6 mm long (x), 0.5 mm thick (y).
+        let rib: Path = vec![(-0.3, -0.25), (0.3, -0.25), (0.3, 0.25), (-0.3, 0.25)].into();
+        layer.paths.push(rib);
+        layer.path_roles.push(ExtrusionRole::OuterWall);
+        layer.path_widths.push(None);
+
+        generate_arachne_walls_for_layer(&mut layer, &wall_params());
+
+        let open_beads = (0..layer.paths.len())
+            .filter(|&i| layer.is_path_open(i))
+            .count();
+        assert_eq!(
+            open_beads, 0,
+            "a sub-2·d residual must not emit a gap-fill splat bead, got {open_beads}"
         );
     }
 }

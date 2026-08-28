@@ -471,6 +471,41 @@ count, ~3× the mean bead length, no void-coverage change). Keep that floor near
 spurs, and a much larger floor erodes genuine sub-millimetre features into
 voids. Walls are untouched, so this never affects the coincidence-free property.
 
+**Isolated gap-fill "splat" beads are dropped by a `2·d` minimum run length.**
+Separate from the *spur* prune above, `emit_medial_beads` and the residual
+pre-filter (`emit_residual_medial_fill`) both discard any emitted gap-fill *run*
+shorter than [`gap_fill_min_run_len_mm`](src/walls/arachne/generate.rs) —
+`gap_fill_min_length_mm` when the user set it (`> 0`), else `2·d` (0.8 mm at a
+0.4 mm nozzle). The old auto-default was `d`, which let ~270 sub-`2·d` beads
+survive on the 3DBenchy: each an isolated dab of material that still costs a full
+retract → travel → un-retract to reach — the "tiny inner-body splat" that wastes
+time and grinds filament. The residual such a splat would fill is bridged by the
+squish of the flanking wall beads, so `classic` (which has no gap fill) leaves
+the same curved/tapering wall corners bead-free with **no** measurable wall-zone
+void (`voids.py`). Matching the spur floor is deliberate: a run below the same
+`2·d` that separates a real gap spine from facet noise *is* facet noise once
+isolated as its own bead.
+
+**Redundant gap fill *under* a solid surface is pruned two ways.**
+[`prune_redundant_gap_fill`](src/core/surfaces.rs) drops a `GapFill` bead when
+either (1) a majority of its vertices lie **inside** `solid_regions`, or (2) it
+is **sandwiched** — solid surface on *both* perpendicular sides
+(`gap_fill_sandwiched_by_surface`). Case (2) exists because
+`blocked_for_surface` unions the gap-fill footprint *out* of the surface region
+(so the surface *abuts* genuine thin necks), which carves a bead-wide corridor
+in `solid_regions` exactly where each bead sits — so a bead running down the
+centre of a thin solid strip is never "inside" the surface, yet the surface's
+full-width rectilinear zig-zag still deposits straight over it. Measured on the
+3DBenchy rear rail (≈ layer 200): 6 mm²/layer of `GapFill × TopSurface`
+double-extrusion that a footprint-erosion overlap scan (`overlap.py`) *hides*
+because the bead is thin — use a true-width capsule intersection to see it. The
+sandwich probe reaches `half-width + 0.5·d` to either side, just past the carved
+corridor: a bead the surface *surrounds* has surface on both probes and is
+dropped; a genuine neck that merely *abuts* a surface edge has it on at most one
+and is kept (sparse infill would skip that sub-nozzle channel). Model-wide this
+took `GapFill × TopSurface` from 7.3 → 0.5 mm² by pruning ~3 long beads, with no
+new wall-zone void where the surface already covers the strip.
+
 ### Clipper2 Fill Rules — When to Use Which
 
 | Operation                                                                 | Fill rule  | Why                                                                                                                                    |

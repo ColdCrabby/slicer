@@ -451,21 +451,113 @@ pub(super) fn compute_gap_fill_footprint(layer: &SliceLayer, nozzle_diameter_mm:
     acc
 }
 
-/// Remove `GapFill` beads that fall inside a solid-surface region.
+/// Perpendicular over-reach, as a multiple of the nozzle diameter, added to a
+/// gap-fill bead's own half-width when probing for solid surface on either side
+/// (see [`gap_fill_sandwiched_by_surface`]).  The probe point must clear the
+/// gap-fill footprint band that `blocked_for_surface` carved out of the surface
+/// (exactly the bead's half-width) and land a nozzle-fraction *into* the
+/// surface fill beyond it; `0.5·d` (0.2 mm at a 0.4 mm nozzle) clears the band
+/// edge without reaching across a genuine one-sided neck to the surface on its
+/// far flank.
+const GAP_FILL_SURFACE_PROBE_OVERREACH_NOZZLE_MULT: f64 = 0.5;
+
+/// Fraction of a gap-fill bead's vertices that must be flanked by solid surface
+/// on **both** sides for the bead to count as redundant with that surface.
+const GAP_FILL_SANDWICH_MAJORITY: f64 = 0.5;
+
+/// True when a gap-fill `bead` runs *through* a solid-surface region — the
+/// surface abuts it on **both** perpendicular sides — so filling it as gap fill
+/// merely double-extrudes over the surface the pipeline already lays down.
+///
+/// ## Why the plain "inside `solid_regions`" test misses this
+///
+/// `blocked_for_surface` unions the gap-fill footprint out of the surface region
+/// so the surface fill *abuts* rather than welds onto genuine thin necks.  That
+/// leaves a bead-wide corridor in `solid_regions` exactly where each gap-fill
+/// bead sits, so a bead centred in a solid strip is never "inside" the surface —
+/// yet the surface's rectilinear zig-zag, laid at full extrusion width, still
+/// deposits straight over it (measured on the 3DBenchy rear rail, ≈ layer 200:
+/// 6 mm² of GapFill∩TopSurface double-extrusion that a footprint-erosion overlap
+/// scan hides because the bead is thin).
+///
+/// ## The discriminator
+///
+/// Probe each bead vertex a short distance to either perpendicular side
+/// (`half-width + `[`GAP_FILL_SURFACE_PROBE_OVERREACH_NOZZLE_MULT`]`·d`), just
+/// past the carved-out corridor.  A bead the surface *surrounds* (rear rail,
+/// embossed-logo channel) has surface on both probes; a genuine thin neck that
+/// merely *abuts* a surface edge has it on at most one.  Requiring both sides on
+/// a majority of vertices ([`GAP_FILL_SANDWICH_MAJORITY`]) drops the redundant
+/// centre-of-strip beads while keeping every load-bearing thin-neck bead.
+fn gap_fill_sandwiched_by_surface(
+    bead: &clipper2::Path,
+    vertex_widths: Option<&[f64]>,
+    scalar_width: Option<f64>,
+    nozzle_diameter_mm: f64,
+    solid_regions: &Paths,
+) -> bool {
+    let pts: Vec<(f64, f64)> = bead.iter().map(|p| (p.x(), p.y())).collect();
+    if pts.len() < 2 {
+        return false;
+    }
+    let overreach = GAP_FILL_SURFACE_PROBE_OVERREACH_NOZZLE_MULT * nozzle_diameter_mm;
+    let default_half = 0.5 * nozzle_diameter_mm;
+    let mut total = 0_usize;
+    let mut sandwiched = 0_usize;
+    for j in 0..pts.len() {
+        // Tangent from the neighbours (forward/back difference at the ends).
+        let prev = pts[j.saturating_sub(1)];
+        let next = pts[(j + 1).min(pts.len() - 1)];
+        let (tx, ty) = (next.0 - prev.0, next.1 - prev.1);
+        let len = (tx * tx + ty * ty).sqrt();
+        if len <= 1e-9 {
+            continue;
+        }
+        // Perpendicular unit vector.
+        let (px, py) = (-ty / len, tx / len);
+        let half_w = vertex_widths
+            .and_then(|w| w.get(j).copied())
+            .or(scalar_width)
+            .map(|w| 0.5 * w)
+            .unwrap_or(default_half);
+        let reach = half_w + overreach;
+        let (vx, vy) = pts[j];
+        let side_a = vertex_inside_or_on_paths_eo(vx + px * reach, vy + py * reach, solid_regions);
+        let side_b = vertex_inside_or_on_paths_eo(vx - px * reach, vy - py * reach, solid_regions);
+        total += 1;
+        if side_a && side_b {
+            sandwiched += 1;
+        }
+    }
+    total > 0 && (sandwiched as f64) > GAP_FILL_SANDWICH_MAJORITY * (total as f64)
+}
+
+/// Remove `GapFill` beads that are already covered by a solid-surface region.
 ///
 /// Arachne emits medial gap fill over *every* thin residual its offset loops
 /// leave — including thin necks deep inside the solid interior.  On a solid
 /// layer the top/bottom surface fills that interior densely, so a gap bead
 /// there is redundant; since the surface is generated in full first, the bead
 /// would otherwise sit as a scattered variable-width island on the uniform
-/// surface (the isolated dashes visible across the Benchy first layer).
+/// surface (the isolated dashes visible across the Benchy first layer), or —
+/// where it runs down the centre of a thin solid strip — double-extrude
+/// straight under the surface's zig-zag (the Benchy rear-rail "unexplained gap
+/// bead under a top surface" defect).
 ///
-/// Fill priority is **solid surface > gap fill > sparse infill**: a bead whose
-/// majority of vertices lie inside `solid_regions` (even-odd test) loses to the
-/// surface and is dropped; gap fill in sparse zones and thin ribs (outside
-/// `solid_regions`) is kept, because sparse infill would skip those sub-nozzle
-/// channels.  Runs after surface generation, before sparse infill.
-pub(super) fn prune_redundant_gap_fill(layers: &mut [SliceLayer]) {
+/// Fill priority is **solid surface > gap fill > sparse infill**.  A bead is
+/// dropped when either
+///
+/// 1. a majority of its vertices lie **inside** `solid_regions` (the bead sits
+///    in a filled surface), or
+/// 2. it is **sandwiched** by surface on both perpendicular sides
+///    ([`gap_fill_sandwiched_by_surface`]) — the surface surrounds it even
+///    though `blocked_for_surface` carved a bead-wide corridor out of
+///    `solid_regions` so the plain inside-test would miss it.
+///
+/// Gap fill in sparse zones and genuine thin ribs (surface on at most one side)
+/// is kept, because sparse infill would skip those sub-nozzle channels.  Runs
+/// after surface generation, before sparse infill.
+pub(super) fn prune_redundant_gap_fill(layers: &mut [SliceLayer], nozzle_diameter_mm: f64) {
     for layer in layers.iter_mut() {
         if layer.solid_regions.is_empty() || !layer.path_roles.contains(&ExtrusionRole::GapFill) {
             continue;
@@ -488,7 +580,14 @@ pub(super) fn prune_redundant_gap_fill(layers: &mut [SliceLayer]) {
                         inside += 1;
                     }
                 }
-                total > 0 && inside * 2 > total
+                (total > 0 && inside * 2 > total)
+                    || gap_fill_sandwiched_by_surface(
+                        path,
+                        layer.vertex_widths_for_path(i).as_deref(),
+                        layer.width_for_path(i),
+                        nozzle_diameter_mm,
+                        &layer.solid_regions,
+                    )
             };
             if redundant {
                 continue;
@@ -2562,6 +2661,64 @@ mod tests {
         assert!(
             !layers[0].path_roles.contains(&ExtrusionRole::TopSurface),
             "a top surface over a thin wall-band channel must be dropped"
+        );
+    }
+
+    /// A gap-fill bead running down the centre of a solid-surface strip (surface
+    /// on both perpendicular sides) is redundant with the surface and must be
+    /// pruned — the Benchy rear-rail "gap bead under a top surface" defect.
+    #[test]
+    fn test_prune_gap_fill_sandwiched_by_surface() {
+        let mut layer = SliceLayer::new(0.2);
+        // Gap-fill bead: a horizontal 0.56 mm-wide centreline at y = 0.
+        let bead: Path = vec![(-8.0, 0.0), (8.0, 0.0)].into();
+        layer.paths.push(bead);
+        layer.path_roles.push(ExtrusionRole::GapFill);
+        layer.path_widths.push(Some(0.56));
+        layer.path_vertex_widths.push(Some(vec![0.56, 0.56]));
+        layer.path_is_open.push(true);
+
+        // solid_regions: two surface bands flanking the bead with a bead-wide
+        // corridor carved out (as `blocked_for_surface` does): the corridor is
+        // the bead's half-width (0.28 mm), so the surface starts at y = ±0.3 —
+        // present on BOTH sides.
+        let top_band: Path = vec![(-8.0, 0.3), (8.0, 0.3), (8.0, 1.3), (-8.0, 1.3)].into();
+        let bot_band: Path = vec![(-8.0, -1.3), (8.0, -1.3), (8.0, -0.3), (-8.0, -0.3)].into();
+        layer.solid_regions = Paths::new(vec![top_band, bot_band]);
+
+        let mut layers = vec![layer];
+        prune_redundant_gap_fill(&mut layers, 0.4);
+
+        assert!(
+            !layers[0].path_roles.contains(&ExtrusionRole::GapFill),
+            "a gap bead flanked by surface on both sides must be pruned"
+        );
+    }
+
+    /// A gap-fill bead that a solid surface only abuts on **one** side is a
+    /// genuine thin neck (sparse infill would skip it) and must be kept.
+    #[test]
+    fn test_keep_gap_fill_abutting_surface_one_side() {
+        let mut layer = SliceLayer::new(0.2);
+        let bead: Path = vec![(-8.0, 0.0), (8.0, 0.0)].into();
+        layer.paths.push(bead);
+        layer.path_roles.push(ExtrusionRole::GapFill);
+        layer.path_widths.push(Some(0.56));
+        layer.path_vertex_widths.push(Some(vec![0.56, 0.56]));
+        layer.path_is_open.push(true);
+
+        // Surface present on ONE side only (y ∈ [0.3, 1.3], reachable by the
+        // probe); the other side is open (a wall band the sparse infill can't
+        // reach).
+        let top_band: Path = vec![(-8.0, 0.3), (8.0, 0.3), (8.0, 1.3), (-8.0, 1.3)].into();
+        layer.solid_regions = Paths::new(vec![top_band]);
+
+        let mut layers = vec![layer];
+        prune_redundant_gap_fill(&mut layers, 0.4);
+
+        assert!(
+            layers[0].path_roles.contains(&ExtrusionRole::GapFill),
+            "a gap bead with surface on only one side is a real neck — keep it"
         );
     }
 }

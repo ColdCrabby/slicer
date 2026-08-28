@@ -327,6 +327,7 @@ mod tests {
             45.0,
             0.4,
             0.0,
+            0.0,
             None,
         );
 
@@ -358,6 +359,7 @@ mod tests {
             45.0,
             0.4,
             0.0,
+            0.0,
             None,
         );
 
@@ -376,7 +378,16 @@ mod tests {
         let mut layers = slice_mesh(&mesh, 2.0);
 
         // Add grid infill
-        add_infill_to_layers(&mut layers, 0.3, InfillPattern::Grid, 45.0, 0.4, 0.0, None);
+        add_infill_to_layers(
+            &mut layers,
+            0.3,
+            InfillPattern::Grid,
+            45.0,
+            0.4,
+            0.0,
+            0.0,
+            None,
+        );
 
         // Grid pattern should produce more infill paths than rectilinear
         for layer in &layers {
@@ -436,6 +447,7 @@ mod tests {
             InfillPattern::Rectilinear,
             45.0,
             0.4,
+            0.0,
             0.0,
             None,
         );
@@ -1431,6 +1443,7 @@ mod tests {
             45.0,
             0.4,
             0.0,
+            0.0,
             None,
         );
 
@@ -1442,6 +1455,7 @@ mod tests {
             45.0,
             0.4,
             0.2, // 0.2 mm gap from walls
+            0.0,
             None,
         );
 
@@ -1462,6 +1476,90 @@ mod tests {
             "Infill with gap ({} paths) should not have more paths than no-gap ({} paths)",
             gap_count,
             no_gap_count
+        );
+    }
+
+    /// Isolated sparse-infill dashes shorter than `min_infill_extrusion_mm` are
+    /// dropped as splats, while the same scene with the filter disabled keeps
+    /// them — the "tiny inner-body splat" cleanup.
+    #[test]
+    fn test_min_infill_extrusion_drops_sparse_splats() {
+        use crate::infill::InfillPattern;
+
+        // Build a layer with a large interior so rectilinear infill generates a
+        // mix of long lines and — at the rounded corners of the region — short
+        // dashes.  A disc gives the diagonal boundary that yields sub-mm crossings.
+        let make_disc_layer = || {
+            let mut layer = SliceLayer::new(0.2);
+            let mut ring: Vec<(f64, f64)> = Vec::new();
+            let r = 8.0;
+            for k in 0..64 {
+                let a = std::f64::consts::TAU * (k as f64) / 64.0;
+                ring.push((r * a.cos(), r * a.sin()));
+            }
+            let disc: clipper2::Path = ring.into();
+            layer.paths.push(disc);
+            layer.path_roles.push(ExtrusionRole::OuterWall);
+            layer.path_widths.push(Some(0.4));
+            layer
+        };
+
+        let count_short = |layers: &[SliceLayer], max_len: f64| -> usize {
+            let mut n = 0;
+            for l in layers {
+                for (i, p) in l.paths.iter().enumerate() {
+                    if l.role_for_path(i) != ExtrusionRole::Infill {
+                        continue;
+                    }
+                    let pts: Vec<(f64, f64)> = p.iter().map(|q| (q.x(), q.y())).collect();
+                    let len: f64 = pts
+                        .windows(2)
+                        .map(|w| ((w[1].0 - w[0].0).powi(2) + (w[1].1 - w[0].1).powi(2)).sqrt())
+                        .sum();
+                    if len < max_len {
+                        n += 1;
+                    }
+                }
+            }
+            n
+        };
+
+        let mut unfiltered = vec![make_disc_layer()];
+        add_infill_to_layers(
+            &mut unfiltered,
+            0.15,
+            InfillPattern::Rectilinear,
+            45.0,
+            0.4,
+            0.0,
+            0.0, // filter disabled
+            None,
+        );
+
+        let mut filtered = vec![make_disc_layer()];
+        add_infill_to_layers(
+            &mut filtered,
+            0.15,
+            InfillPattern::Rectilinear,
+            45.0,
+            0.4,
+            0.0,
+            0.4, // drop sub-0.4 mm dashes
+            None,
+        );
+
+        // The filter must leave no sub-0.4 mm infill dash …
+        assert_eq!(
+            count_short(&filtered, 0.4),
+            0,
+            "no sub-threshold sparse dash should survive the filter"
+        );
+        // … and must not add paths; it only ever removes.
+        let n_unfiltered: usize = unfiltered.iter().map(|l| l.paths.len()).sum();
+        let n_filtered: usize = filtered.iter().map(|l| l.paths.len()).sum();
+        assert!(
+            n_filtered <= n_unfiltered,
+            "filter must not add paths ({n_filtered} > {n_unfiltered})"
         );
     }
 

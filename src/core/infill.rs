@@ -117,6 +117,10 @@ pub(crate) fn calculate_interior_region(
 /// * `nozzle_diameter_mm` - Nozzle diameter used when computing infill regions on the fly
 /// * `infill_perimeter_gap_mm` - Gap in mm between the innermost wall and the infill boundary.
 ///   A positive value leaves a gap; `0.0` means infill starts exactly at the inner wall edge.
+/// * `min_infill_extrusion_mm` - Isolated sparse-infill segments shorter than this are dropped
+///   as splats: a sub-threshold dash in a narrow corner deposits a mechanically-insignificant
+///   amount of material yet still costs a full retract → travel → un-retract to reach.  `0`
+///   disables the filter.  Mirrors the identical guard on solid-surface infill.
 /// * `precomputed_infill_regions` - Optional per-layer interior regions computed **before**
 ///   any single-wall restrictions were applied.  When provided, these regions are used
 ///   instead of calling [`calculate_interior_region`] on each layer, which prevents
@@ -134,8 +138,9 @@ pub(crate) fn calculate_interior_region(
 /// # let mesh = Mesh::new();
 ///
 /// let mut layers = slice_mesh(&mesh, 0.2);
-/// add_infill_to_layers(&mut layers, 0.2, InfillPattern::Rectilinear, 45.0, 0.4, 0.0, None);
+/// add_infill_to_layers(&mut layers, 0.2, InfillPattern::Rectilinear, 45.0, 0.4, 0.0, 0.4, None);
 /// ```
+#[allow(clippy::too_many_arguments)]
 pub fn add_infill_to_layers(
     layers: &mut [SliceLayer],
     infill_density: f64,
@@ -143,6 +148,7 @@ pub fn add_infill_to_layers(
     infill_base_angle: f64,
     nozzle_diameter_mm: f64,
     infill_perimeter_gap_mm: f64,
+    min_infill_extrusion_mm: f64,
     precomputed_infill_regions: Option<&[Paths]>,
 ) {
     use crate::infill::generate_infill;
@@ -292,10 +298,38 @@ pub fn add_infill_to_layers(
     let results: Vec<Option<Paths>> = (0..layers.len()).map(compute).collect();
 
     // ── Serial apply pass ─────────────────────────────────────────────────────
+    //
+    // Drop isolated sparse-infill segments shorter than `min_infill_extrusion_mm`:
+    // a sub-threshold dash in a narrow corner deposits a mechanically-
+    // insignificant amount of material yet still costs a full retract → travel →
+    // un-retract to reach — the "tiny inner-body splat".  This mirrors the guard
+    // solid-surface infill already applies in `generate_rectilinear_infill`.
+    let min_len_sq = if min_infill_extrusion_mm > 0.0 {
+        min_infill_extrusion_mm * min_infill_extrusion_mm
+    } else {
+        0.0
+    };
+    let polyline_len_sq_ge = |path: &clipper2::Path, min_sq: f64| -> bool {
+        if min_sq <= 0.0 {
+            return true;
+        }
+        let pts: Vec<(f64, f64)> = path.iter().map(|p| (p.x(), p.y())).collect();
+        let mut len = 0.0;
+        for w in pts.windows(2) {
+            len += ((w[1].0 - w[0].0).powi(2) + (w[1].1 - w[0].1).powi(2)).sqrt();
+            if len * len >= min_sq {
+                return true;
+            }
+        }
+        len * len >= min_sq
+    };
     for (layer_idx, infill_paths) in results.into_iter().enumerate() {
         if let Some(paths) = infill_paths {
             let layer = &mut layers[layer_idx];
             for infill_path in paths.iter() {
+                if !polyline_len_sq_ge(infill_path, min_len_sq) {
+                    continue;
+                }
                 layer.paths.push(infill_path.clone());
                 layer.path_roles.push(ExtrusionRole::Infill);
             }

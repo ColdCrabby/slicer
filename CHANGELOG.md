@@ -85,6 +85,29 @@ these notes and acknowledges contributors. `scripts/gen-changelog-draft.sh` and
 
 ### Fixed
 
+- **Arachne "splat" gap-fill and gap fill printed under top surfaces** — two
+  Benchy-visible quality defects in the Arachne wall generator:
+  - Isolated sub-millimetre gap-fill beads (≈ 270 on a 3DBenchy) that added
+    nothing but a full retract → travel → un-retract cycle each — wasting time
+    and risking filament grinding — are now dropped. The automatic minimum
+    gap-fill run length rose from one nozzle diameter to `2·d` (0.8 mm at a
+    0.4 mm nozzle), matching the medial-skeleton spur floor. Set
+    `gap_fill_min_length_mm` explicitly to override. The residual such short
+    beads would have filled is covered by the squish of the flanking wall beads,
+    so no wall-zone void opens (verified against the `classic` generator).
+  - A redundant gap-fill bead running down the centre of a thin solid strip
+    (e.g. the Benchy rear rail, ≈ layer 200) that double-extruded straight under
+    the top-surface fill is now pruned. Gap fill sandwiched by solid surface on
+    both sides is removed as redundant, while a bead that merely abuts a surface
+    on one side (a genuine thin neck) is kept. Cut model-wide gap-fill-under-
+    surface double-extrusion from 7.3 → 0.5 mm² with no new voids.
+- **Tiny sparse-infill "splat" dashes** — `min_infill_extrusion_mm` (default
+  0.4 mm) now also filters *sparse* infill, not just solid surface fill.
+  Isolated sub-threshold infill dashes in narrow corners — each a full
+  retract/travel/un-retract for a mechanically-insignificant dab — are dropped.
+  Combined with the gap-fill fixes this cut isolated sub-0.8 mm extrusions on the
+  3DBenchy by ~66 % (356 → 120) and removed ~160 retract cycles, with no change
+  to strength (the flanking walls fill the corner).
 - **3MF models loaded at the wrong scale** — the 3MF importer ignored the
   `<model unit="…">` declaration and read every coordinate as raw millimeters, so
   files authored in `meter`, `centimeter`, `inch`, or `foot` opened dramatically
