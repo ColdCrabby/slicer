@@ -85,6 +85,19 @@ these notes and acknowledges contributors. `scripts/gen-changelog-draft.sh` and
 
 ### Fixed
 
+- **iPad Apple Pencil + two-finger navigation "spazzing"** — palm rejection
+  classified each touch on its own, so a stylus user's two-finger pan/pinch could
+  lose exactly one finger — a firm fingertip read as palm-sized, or a flickering
+  pen hover/grace state — collapsing the gesture into an unwanted single-finger
+  camera rotate. The viewport's pointer arbiter now decides **per gesture
+  group**: the first contact is classified, and any finger that lands while
+  another is already down inherits that verdict, so a two-finger gesture is
+  admitted or rejected as a whole and never split. The palm-by-size heuristic is
+  also gated to _recent_ pen use instead of the whole session, so firm fingertips
+  stop being mistaken for a palm long after the pencil is set down. Stale
+  pointer state is now reclaimed by timeout, so a touch or pen event dropped by
+  the OS (a common iPad backgrounding glitch) can no longer wedge the viewport
+  into ignoring all touch until reload.
 - **3MF models loaded at the wrong scale** — the 3MF importer ignored the
   `<model unit="…">` declaration and read every coordinate as raw millimeters, so
   files authored in `meter`, `centimeter`, `inch`, or `foot` opened dramatically
