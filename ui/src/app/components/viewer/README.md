@@ -189,8 +189,10 @@ raycaster, gizmo), the viewer applies a clear priority order:
    canvas), so it runs before every other consumer. While an Apple Pencil /
    stylus is down, hovering, or was active within the grace window, it swallows
    `pointerType === 'touch'` events — the hand and wrist resting on the glass —
-   so the palm never orbits, pinches, or selects. Genuine finger gestures are
-   untouched whenever no pen is involved.
+   so the palm never orbits, pinches, or selects. It decides **per gesture
+   group** (see the no-tear invariant below), so it can never split a real
+   two-finger gesture into a lone survivor. Genuine finger gestures are untouched
+   whenever no pen is involved.
 1. **Gizmo dragging in progress** — gizmo owns the pointer; OrbitControls
    and the selection raycaster are both suppressed.
 2. **Gizmo hovering** (cursor over a handle, not yet dragging) — the selection
@@ -241,22 +243,43 @@ pencil. [`PointerArbiter`](scene/pointer-arbiter.ts) vetoes those contacts.
 flowchart TD
     E[pointer event on host<br/>capture phase] --> P{pointerType?}
     P -->|pen| T[track pen: penActive + penEverUsed<br/>pass through]
-    P -->|touch| C{palm?}
     P -->|mouse| A[pass through]
-    C -->|pen active, in grace,<br/>or palm-sized after pen use| S[stopImmediatePropagation<br/>swallow]
+    P -->|touch| G{another touch<br/>already down?}
+    G -->|yes| I[inherit group verdict<br/>admit wins over palm]
+    G -->|no · fresh group| C{palm?}
+    C -->|pen active/in grace, or<br/>palm-sized within PEN_SIZE_ARM_MS| S[stopImmediatePropagation<br/>swallow]
     C -->|otherwise| A
+    I -->|palm| S
+    I -->|admit| A
     T --> D[OrbitControls / selection / gizmo]
     A --> D
 ```
 
-A touch is judged palm at its `pointerdown` (`isPalmTouch`, unit-tested) when a
-pen is active — down, hovering, or lifted within `PEN_GRACE_MS` — or, once a pen
-has been seen this session, when its contact patch is palm-sized
-(`PALM_CONTACT_MIN_PX`), which catches the palm that lands just before the tip on
-iPads without pencil hover. Pure-touch users are never affected: the contact-size
-path is gated behind "a pen has been seen", and the pen-active path only fires
-while a pen is in use. The user can turn the whole behaviour off from
-**Settings → General → Controls → Palm rejection** (persisted; default on).
+A **fresh** touch — the first contact of a group, nothing else down — is judged
+palm at its `pointerdown` (`isPalmTouch`, unit-tested) when a pen is active
+(down, hovering, or lifted within `PEN_GRACE_MS`) or, once a pen has been used
+**recently** (`PEN_SIZE_ARM_MS`), when its contact patch is palm-sized
+(`PALM_CONTACT_MIN_PX`) — which catches the palm that lands just before the tip
+on iPads without pencil hover. Pure-touch users are never affected: the
+contact-size path only arms after a pen is seen, and the pen-active path only
+fires while a pen is in use.
+
+**No-tear invariant.** The camera's two-finger handler only engages while two
+touches are down; a lone touch falls to OrbitControls' single-finger rotate. If
+the arbiter ever swallowed exactly one finger of a two-finger gesture, the
+survivor would spin the camera — the "spazzing" a stylus user hits when a
+palm-sized fingertip, or a flickering pen hover/grace state, splits the pair.
+So only the first contact of a fresh group is classified from scratch; any touch
+that lands while another is already down **inherits** the group verdict (admit
+wins over palm). A resting hand is still rejected because its contacts open the
+group as palm (the pencil is the active tool, and a lone palm never lifts, so
+the group stays palm across long pauses between strokes). To keep a dropped
+`pointerup` (an iPad that never delivers the palm's lift) from stranding a
+`palm` verdict that every later finger would inherit — locking out all touch —
+stale verdicts and a stuck pen-down latch are reclaimed by timeout
+(`TOUCH_VERDICT_STALE_MS`, `PEN_CONTACT_STALE_MS`); a contact really still down
+keeps itself fresh. The user can turn the whole behaviour off from **Settings →
+General → Controls → Palm rejection** (persisted; default on).
 
 ### Hand-aware inspector tooltip placement
 
@@ -355,7 +378,7 @@ flowchart LR
 - [scene/camera.ts](scene/camera.ts) — `SceneCamera`
 - [scene/controls.ts](scene/controls.ts) — `SceneControls`
 - [scene/grid.ts](scene/grid.ts) — `SceneGrid`
-- [scene/pointer-arbiter.ts](scene/pointer-arbiter.ts) — `PointerArbiter`, `isPalmTouch`, `PEN_GRACE_MS`, `PALM_CONTACT_MIN_PX`
+- [scene/pointer-arbiter.ts](scene/pointer-arbiter.ts) — `PointerArbiter`, `isPalmTouch`, `PEN_GRACE_MS`, `PALM_CONTACT_MIN_PX`, `PEN_SIZE_ARM_MS`, `PEN_CONTACT_STALE_MS`, `TOUCH_VERDICT_STALE_MS`
 - [scene/selection.ts](scene/selection.ts) — `SceneSelection`
 - [gizmo.ts](gizmo.ts) — `GizmoManager`, `GizmoDelta`, `FacePickResult`, `raycastFace`, `computeSelectionCentroid`
 - [hover-placement.ts](hover-placement.ts) — `preferredHoverPlacement`, `HoverPointerInfo`
