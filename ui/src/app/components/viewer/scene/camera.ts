@@ -83,6 +83,25 @@ export class SceneCamera {
    */
   private snapHoldPose: { position: Vector3; up: Vector3; target: Vector3 } | null = null;
 
+  /**
+   * Toolbar preset to restore when a cube snap is released. A snap genuinely
+   * switches the projection to orthographic — and says so, via
+   * {@link onViewChange} — so `currentView` becomes `'ortho'` for its duration
+   * and this remembers what to go back to. Without it the toolbar would claim
+   * "perspective" while the screen showed a flat view, and the button's first
+   * press would be swallowed re-asserting a projection that was already active.
+   */
+  private preSnapView: ViewerView = 'perspective';
+
+  /**
+   * Notified whenever the *effective* projection changes for a reason the
+   * toolbar did not initiate — i.e. a cube snap engaging ortho, or a breakout
+   * restoring the previous preset. Lets the UI's `view` signal track what is
+   * actually on screen. The listener must not route the value back into
+   * {@link setView}, which would cancel the in-flight snap and its detent.
+   */
+  onViewChange: ((view: ViewerView) => void) | null = null;
+
   constructor(
     private readonly camera: PerspectiveCamera,
     private readonly controls: OrbitControls,
@@ -161,9 +180,11 @@ export class SceneCamera {
   }
 
   setView(view: ViewerView): void {
-    // A manual toolbar view change takes over from any temporary cube ortho.
+    // A manual toolbar view change takes over from any temporary cube ortho, and
+    // becomes the preset a later snap will hand back to.
     this.autoOrtho = false;
     this.snapHoldPose = null;
+    this.preSnapView = view;
     if (view === this.currentView && !this.animation) {
       return;
     }
@@ -175,6 +196,7 @@ export class SceneCamera {
     this.autoOrtho = false;
     this.snapHoldPose = null;
     this.currentView = 'perspective';
+    this.preSnapView = 'perspective';
     const pose = this.initialPoseForBed();
     this.animateToPose({
       position: pose.position,
@@ -228,7 +250,19 @@ export class SceneCamera {
     let toFov = this.camera.fov;
     let toDistance = distance;
     if (forceOrtho) {
+      // Remember the preset being interrupted only on the *first* snap — a
+      // re-snap while already engaged must not overwrite it with 'ortho'.
+      if (!this.autoOrtho) {
+        this.preSnapView = this.currentView;
+      }
       this.autoOrtho = true;
+      // The projection really is orthographic now, so say so: `currentView` and
+      // the toolbar both track it, which keeps the button's icon honest and its
+      // next press meaningful (one press → perspective).
+      if (this.currentView !== 'ortho') {
+        this.currentView = 'ortho';
+        this.onViewChange?.('ortho');
+      }
       toFov = ORTHO_FOV;
       // Grow the distance so the flattened (~1° FOV) view frames the same
       // apparent size — advanceAnimation interpolates in apparent-size space,
@@ -273,6 +307,12 @@ export class SceneCamera {
     // control straight back to the user's live gesture.
     this.animation = null;
     this.controls.enabled = true;
+    // Hand the preset back to whatever the toolbar had before the snap, and tell
+    // the UI so its button matches the projection the user is about to see.
+    if (this.currentView !== this.preSnapView) {
+      this.currentView = this.preSnapView;
+      this.onViewChange?.(this.currentView);
+    }
     const targetFov = this.currentView === 'ortho' ? ORTHO_FOV : this.perspectiveFov;
     if (Math.abs(this.camera.fov - targetFov) < 1e-3) {
       this.projectionTween = null;

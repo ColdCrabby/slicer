@@ -233,11 +233,27 @@ cube again always keeps ortho.
 | Toolbar view toggle / home reset                        | cancel (manual)    |
 
 This lives across two files. Both the projection override (`autoOrtho`) and the
-detent (`snapHoldPose`) are in [`SceneCamera`](scene/camera.ts) — it deliberately
-does **not** touch the toolbar `view` signal, so there is no signal-ordering race
-between the snap animation and a view toggle. Engaging animates to the snapped
-direction at ~1° FOV with an apparent-size-preserving distance, then pins that
-pose on landing.
+detent (`snapHoldPose`) are in [`SceneCamera`](scene/camera.ts). Engaging
+animates to the snapped direction at ~1° FOV with an apparent-size-preserving
+distance, then pins that pose on landing.
+
+A snap also **tells the toolbar what it did**. Engaging sets `currentView =
+'ortho'` and reports it through `onViewChange` → `ViewerScene.setViewChangeSink`
+→ the UI's `view` signal; a breakout restores the remembered `preSnapView` the
+same way. Earlier the snap deliberately left that signal alone, which desynced
+the button from the screen: the toolbar claimed "perspective" while the view was
+flat, so the button's icon lied and its first press was swallowed re-asserting a
+projection that was already active — you had to press it twice to see anything.
+The viewer guards the echo (`cameraOriginatedView`, armed only when the write
+actually changes the signal) so a camera-originated value is not routed straight
+back into `setView`, which would cancel the in-flight snap and its detent.
+
+The perspective preset is seeded from the FOV the camera is built with
+(`setPerspectiveFov(camera.fov)` at construction). The settings effect that
+applies the user's field-of-view runs before the scene exists, so without this
+the preset kept its built-in default and _restoring_ perspective — the toggle, a
+breakout, or the home reset — snapped the view to that default instead of the FOV
+the user had configured.
 
 **Holding** is enforced by `applySnapHold()`, which the render loop calls _after_
 `OrbitControls.update()` and the inertia step: it restores the pinned pose, so
