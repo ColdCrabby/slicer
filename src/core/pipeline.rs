@@ -227,7 +227,7 @@ pub fn process_mesh(
         // islands on the uniform surface.  Genuine gap fill in sparse zones and
         // thin ribs (outside solid_regions) is preserved.
         logger.log_debug("pruning redundant gap fill inside solid surfaces");
-        prune_redundant_gap_fill(&mut layers);
+        prune_redundant_gap_fill(&mut layers, params.nozzle_diameter_mm);
     }
 
     // Add infill
@@ -249,6 +249,7 @@ pub fn process_mesh(
             params.infill_base_angle,
             params.nozzle_diameter_mm,
             params.infill_perimeter_gap_mm,
+            params.min_infill_extrusion_mm,
             pre_strip_infill_regions.as_deref(),
         );
         t_infill.finish();
@@ -609,6 +610,7 @@ pub fn process_mesh_debug(
             params.infill_base_angle,
             params.nozzle_diameter_mm,
             params.infill_perimeter_gap_mm,
+            params.min_infill_extrusion_mm,
             pre_strip_infill_regions.as_deref(),
         );
 

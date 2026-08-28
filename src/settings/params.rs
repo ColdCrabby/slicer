@@ -764,8 +764,12 @@ Set to `0` to fall back to `perimeter_speed` (then `print_speed`).
         description = "Minimum length in mm for a gap-fill bead to be kept.
 
 Gap-fill beads shorter than this are dropped to avoid stringy sub-millimetre
-dribbles the medial pass finds along faceted boundaries.  Set to `0` to use the
-automatic default (one nozzle diameter).
+dribbles the medial pass finds along faceted boundaries — the isolated \"splat\"
+beads that waste print time on a retract/travel/un-retract cycle and risk
+filament grinding for a mechanically-insignificant dab.  Set to `0` to use the
+automatic default (twice the nozzle diameter), which matches the faceting-noise
+floor used when de-noising the medial skeleton; the residual such short beads
+would have filled is bridged by the squish of the flanking wall beads.
 **Typical:** 0.4–1.0 mm.",
         extend("x-group" = "Walls")
     )]
@@ -996,12 +1000,14 @@ where the infill pattern shows through the outer wall.
     pub infill_perimeter_gap_mm: f64,
 
     #[schemars(
-        description = "Minimum solid infill line length in mm.
+        description = "Minimum infill line length in mm.
 
 Scan-line segments shorter than this threshold are discarded instead of being
-printed. Tiny slivers at curved or diagonal surface boundaries waste printhead
-motion without meaningfully improving coverage — adjacent lines overlap to fill
-the gap naturally.
+printed, for **both** solid top/bottom surface fill and sparse infill. Tiny
+slivers at curved or diagonal boundaries — and isolated sparse-infill dashes in
+narrow corners — waste printhead motion (a full retract/travel/un-retract for a
+mechanically-insignificant dab) without meaningfully improving coverage;
+adjacent lines and the flanking walls fill the space naturally.
 
 Set to the nozzle diameter for best results (e.g. `0.4` for a 0.4 mm nozzle).
 Set to `0.0` to disable the filter entirely.
