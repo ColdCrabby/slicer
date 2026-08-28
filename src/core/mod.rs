@@ -1563,6 +1563,72 @@ mod tests {
         );
     }
 
+    /// A sparse-infill area that is a **thin crescent channel** (narrower than
+    /// `INFILL_MIN_CHANNEL_WIDTH_NOZZLE_MULT × nozzle`) must produce **no**
+    /// infill at all — the morphological opening erases it — instead of a swarm
+    /// of sub-millimetre dashes each costing a retract/travel cycle.  A wide
+    /// region on the same layer must still fill normally.
+    #[test]
+    fn test_thin_infill_channel_yields_no_sparse_dashes() {
+        use crate::infill::InfillPattern;
+        use clipper2::Path;
+
+        let count_infill = |layers: &[SliceLayer]| -> usize {
+            layers
+                .iter()
+                .flat_map(|l| l.path_roles.iter())
+                .filter(|&&r| r == ExtrusionRole::Infill)
+                .count()
+        };
+
+        // A long, 0.6 mm-wide channel (below 2.5 × 0.4 = 1.0 mm): the wall band
+        // already fills it, so no sparse infill may be generated inside.
+        let mut thin = SliceLayer::new(0.2);
+        let strip: Path = vec![(-15.0, -0.3), (15.0, -0.3), (15.0, 0.3), (-15.0, 0.3)].into();
+        thin.paths.push(strip);
+        thin.path_roles.push(ExtrusionRole::OuterWall);
+        thin.path_widths.push(Some(0.4));
+        let mut thin_layers = vec![thin];
+        add_infill_to_layers(
+            &mut thin_layers,
+            0.2,
+            InfillPattern::Rectilinear,
+            45.0,
+            0.4,
+            0.0,
+            0.0, // length filter off — the opening alone must do the work
+            None,
+        );
+        assert_eq!(
+            count_infill(&thin_layers),
+            0,
+            "a sub-1 mm infill channel must yield no sparse dashes"
+        );
+
+        // A generous 30×30 mm square must still be filled normally, proving the
+        // opening does not suppress genuine infill.
+        let mut wide = SliceLayer::new(0.2);
+        let sq: Path = vec![(-15.0, -15.0), (15.0, -15.0), (15.0, 15.0), (-15.0, 15.0)].into();
+        wide.paths.push(sq);
+        wide.path_roles.push(ExtrusionRole::OuterWall);
+        wide.path_widths.push(Some(0.4));
+        let mut wide_layers = vec![wide];
+        add_infill_to_layers(
+            &mut wide_layers,
+            0.2,
+            InfillPattern::Rectilinear,
+            45.0,
+            0.4,
+            0.0,
+            0.0,
+            None,
+        );
+        assert!(
+            count_infill(&wide_layers) > 0,
+            "a wide region must still receive sparse infill"
+        );
+    }
+
     // ── Bridge filter pipeline (issue: noisy bridges & overhang walls) ──────
 
     /// A tiny sliver of unsupported area (sub-mm) must be reclassified as

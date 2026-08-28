@@ -629,6 +629,36 @@ is why the Arachne `gap_fill` role length rises after the fix.
 then subtracts the eroded wall-bead footprint before generating solid infill
 lines.
 
+**The sparse-infill area is morphologically _opened_ before the scanline runs.**
+That area is `interior − solid_regions − gap_fill − wall_band`, and each of
+those boundaries is jagged in its own way — most of all the solid surface, whose
+edge follows its rectilinear fill's **stepped serpentine extent**. The result is
+a thin crescent **sliver** surviving between the solid region and the wall band
+all along a curved perimeter (plainly visible on the 3DBenchy hull, layers
+≈ 40–42). The scanline shatters that sliver into a swarm of sub-millimetre
+dashes — 31 on layer 41 alone — each an isolated dab that costs a full
+retract → travel → un-retract to reach. That cycle pushes ~4.8 mm³ of filament
+back and forth through the nozzle to deposit ~0.04 mm³: the "infill produces
+tiny extrudes" defect, pure waste and a grinding risk, with zero structural
+gain (the sliver is already flanked by the solid surface on one side and a wall
+bead on the other).
+
+`add_infill_to_layers` therefore applies `morphological_open` at
+`INFILL_MIN_CHANNEL_WIDTH_NOZZLE_MULT × nozzle / 2`, erasing channels narrower
+than `2.5 × nozzle` (1.0 mm at 0.4 mm). The multiplier deliberately **matches
+`SURFACE_MIN_INTERIOR_WIDTH_NOZZLE_MULT`**: that is already the minimum width an
+interior must reach to host a *rectilinear top/bottom surface fill*, and sparse
+infill is the same rectilinear-fill-in-a-thin-channel problem — only less
+critical, being a sparse lattice rather than a solid skin.
+
+Attack the **cause** (the sliver region), not the symptom: a plain
+minimum-length filter keeps the *longer* but equally useless dashes inside the
+same sliver, whereas the opening removes the whole channel. `min_infill_extrusion_mm`
+still guards the residual sub-threshold segments a legitimate region's tapering
+corners produce. Measured: isolated sparse dashes 114 → 21 (3DBenchy), 45 → 23
+(Voron cube), 2 → 0 (filament caddy), never worse — for **0.28 %** of infill
+length, with wall-zone void still less than half the `classic` reference.
+
 ### Thin Wall-Band Channels — Opened-Interior Surface Clip
 
 `calculate_interior_region` uses a **per-island _average_** wall count

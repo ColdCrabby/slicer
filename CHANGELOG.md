@@ -106,13 +106,27 @@ these notes and acknowledges contributors. `scripts/gen-changelog-draft.sh` and
     that leaked sparse-infill dashes. A bead that merely abuts a surface on one
     side (a genuine thin neck) is still kept and abutted. Cut model-wide
     gap-fill-under-surface double-extrusion from 7.3 → 0.5 mm² with no new voids.
-- **Tiny sparse-infill "splat" dashes** — `min_infill_extrusion_mm` (default
-  0.4 mm) now also filters *sparse* infill, not just solid surface fill.
-  Isolated sub-threshold infill dashes in narrow corners — each a full
-  retract/travel/un-retract for a mechanically-insignificant dab — are dropped.
-  Combined with the gap-fill fixes this cut isolated sub-0.8 mm extrusions on the
-  3DBenchy by ~68 % (356 → 114) and removed ~160 retract cycles, with no change
-  to strength (the flanking walls fill the corner).
+- **Tiny sparse-infill "splat" dashes** — two complementary fixes:
+  - The sparse-infill area is now **morphologically opened** before the scanline
+    runs, erasing channels narrower than `2.5 × nozzle` (matching the existing
+    minimum width for a rectilinear *surface* fill). The infill area is
+    `interior − solid − gap fill − wall band`, and the solid surface's stepped
+    serpentine edge left a thin crescent sliver hugging the wall all along a
+    curved perimeter; the scanline shattered it into a swarm of sub-millimetre
+    dashes (31 on one 3DBenchy layer alone), each an isolated dab costing a full
+    retract/travel/un-retract for no structural gain — the sliver is already
+    flanked by the solid surface on one side and a wall bead on the other.
+    Removing the sliver itself also clears the *longer* useless dashes inside it
+    that a minimum-length filter would keep. Isolated sparse dashes drop
+    114 → 21 (3DBenchy), 45 → 23 (Voron cube), 2 → 0 (filament caddy), never
+    worse — for 0.28 % of infill length and no new wall-zone void.
+  - `min_infill_extrusion_mm` (default 0.4 mm) now also filters *sparse* infill,
+    not just solid surface fill, catching the residual sub-threshold segments a
+    legitimate region's tapering corners produce.
+
+  Together with the gap-fill fixes this cut isolated sub-0.8 mm extrusions on the
+  3DBenchy by ~94 % (356 → 21) and removed ~300 retract cycles, with no change
+  to strength (the flanking walls and solid surface fill the space).
 
 - **iPad Apple Pencil + two-finger navigation "spazzing"** — palm rejection
   classified each touch on its own, so a stylus user's two-finger pan/pinch could
