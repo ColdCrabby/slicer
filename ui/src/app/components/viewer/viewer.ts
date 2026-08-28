@@ -37,6 +37,7 @@ import { GcodeOrchestrator } from './gcode-orchestrator';
 import { preferredHoverPlacement } from './hover-placement';
 import type { GizmoDelta } from './gizmo';
 import { ViewerScene } from './scene';
+import type { ViewerView } from './scene';
 import { applyFloating, type FloatingPlacement } from '../../shared/floating';
 
 export type ViewerMode = 'model' | 'gcode';
@@ -160,6 +161,14 @@ export class Viewer {
   readonly thumbnailPolaroidAnimating = signal(false);
 
   private scene: ViewerScene | null = null;
+  /**
+   * View value most recently pushed *from* the camera into
+   * `viewerControl.view` (a cube snap engaging ortho, or a breakout restoring
+   * the previous preset). Armed only when the write actually changes the
+   * signal, so the effect it triggers can skip echoing it straight back into the
+   * camera. Cleared by that skip.
+   */
+  private cameraOriginatedView: ViewerView | null = null;
   private gcode: GcodeOrchestrator | null = null;
   private gcodeHover: GcodeHoverProbe | null = null;
   private currentAbort: AbortController | null = null;
@@ -278,9 +287,17 @@ export class Viewer {
       this.applySource(mode, model);
     });
 
-    // React to view-preset changes from the toolbar.
+    // React to view-preset changes from the toolbar. Changes the *camera*
+    // originated (a cube snap engaging ortho, or a breakout restoring the
+    // previous preset) are echoed into the same signal so the toolbar button
+    // always matches the screen; those must not be routed back into the camera,
+    // which would cancel the in-flight snap and its detent.
     effect(() => {
       const view = this.viewerControl.view();
+      if (view === this.cameraOriginatedView) {
+        this.cameraOriginatedView = null;
+        return;
+      }
       this.scene?.setView(view);
     });
 
@@ -365,7 +382,6 @@ export class Viewer {
       }
       this.scene?.animateToDirection(req.direction, req.up, req.autoOrtho);
     });
-
     // React to roll requests (viewport-cube roll buttons).
     effect(() => {
       const req = this.viewerControl.rollRequest();
@@ -548,6 +564,21 @@ export class Viewer {
     });
   }
 
+  /**
+   * Mirror a camera-originated projection change into the toolbar's `view`
+   * signal, so the projection button's icon, tooltip and next press always match
+   * what is on screen. Arms {@link cameraOriginatedView} only when the signal
+   * actually changes — that is exactly when the effect will fire and needs to
+   * skip pushing the value back into the camera.
+   */
+  private syncViewFromCamera(view: ViewerView): void {
+    if (this.viewerControl.view() === view) {
+      return;
+    }
+    this.cameraOriginatedView = view;
+    this.viewerControl.view.set(view);
+  }
+
   private handleSelect(stringId: string, _additive: boolean): void {
     const id = parseWasmId(stringId);
     if (id === null) {
@@ -710,6 +741,9 @@ export class Viewer {
     // whatever view / object mode the user already had selected.
     this.scene.setObjectMode(this.viewerControl.objectMode());
     this.scene.setView(this.viewerControl.view());
+    // Keep the toolbar's projection button honest when the viewport cube (not
+    // the toolbar) changes the projection.
+    this.scene.setViewChangeSink((view) => this.syncViewFromCamera(view));
     this.scene.setTwoFingerGesture(this.viewerControl.trackpadTwoFingerGesture());
     this.scene.setPalmRejectionEnabled(this.viewerControl.palmRejection());
     this.scene.setTheme(this.appTheme.isDarkMode());

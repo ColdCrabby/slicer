@@ -200,15 +200,23 @@ export class ViewerScene {
     //   SceneCamera → GizmoManager → SceneSelection (needs gizmo)
     //   → SceneControls (needs cancelDrag callback) → SceneGrid
     this._camera = new SceneCamera(this.camera, this.controls, this.contentRoot, printArea);
+    // Seed the perspective preset from the FOV the camera was actually built
+    // with. Without this the preset keeps its built-in default while the camera
+    // runs at the user's configured FOV, so *restoring* perspective — the
+    // toolbar toggle, a cube-snap breakout, or the home reset — would snap the
+    // view to the default instead of the FOV the user chose.
+    this._camera.setPerspectiveFov(this.camera.fov);
     this.gizmo = new GizmoManager(this.scene, this.camera, this.renderer);
     this._selection = new SceneSelection(this.scene, this.camera, this.renderer, this.gizmo);
 
     this._controls = new SceneControls(this.camera, this.controls, this.renderer, () =>
       this._selection.cancelActiveDrag(),
     );
-    // Free pan/zoom in the main viewport reverts the viewport-cube's temporary
-    // orthographic snap; rotate and cube gestures never fire this.
-    this._controls.setRevertGestureSink(() => this._camera.notifyUserPanOrZoom());
+    // A deliberate free-view gesture in the main viewport — pan, zoom, or a
+    // rotate dragged past the sticky intent threshold — reverts the viewport-
+    // cube's temporary orthographic snap; a small rotate and cube gestures never
+    // fire this, so the mode only changes on a clear user intent.
+    this._controls.setRevertGestureSink(() => this._camera.notifyUserViewGesture());
     this._grid = new SceneGrid(this.scene, this.camera, this.controls, this.renderer, printArea);
 
     // Wire gizmo callbacks.
@@ -322,6 +330,16 @@ export class ViewerScene {
 
   setView(view: ViewerView): void {
     this._camera.setView(view);
+  }
+
+  /**
+   * Register a listener for projection changes the toolbar did not initiate — a
+   * viewport-cube snap engaging ortho, or a breakout restoring the previous
+   * preset. Lets the UI's `view` signal mirror what is actually on screen. The
+   * listener must not feed the value back into {@link setView}.
+   */
+  setViewChangeSink(sink: ((view: ViewerView) => void) | null): void {
+    this._camera.onViewChange = sink;
   }
 
   resetView(): void {
@@ -561,6 +579,14 @@ export class ViewerScene {
       this.controls.update();
       this._controls.applyOrbitInertia(dt);
     }
+    // Re-pin a held viewport-cube snap. Runs *after* OrbitControls and inertia
+    // so their rotation is discarded before drawing — the snapped view stays
+    // perfectly still until the gesture travels far enough to break it free.
+    this._camera.applySnapHold();
+    // Runs on every frame — including frames driven by OrbitControls above — so
+    // the viewport-cube's ortho→perspective revert can animate while the user's
+    // pan/zoom/rotate gesture is still live.
+    this._camera.advanceProjectionTween();
 
     this._grid.updateAdaptiveGrid();
     this._grid.updateGridFade();

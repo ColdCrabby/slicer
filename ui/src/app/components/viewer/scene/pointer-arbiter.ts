@@ -29,10 +29,31 @@
  *     patch is palm-sized ({@link PALM_CONTACT_MIN_PX}). This catches the palm
  *     that lands a moment before the tip on iPads without pencil hover.
  *
- * Pure-touch users are never affected: the contact-size path is gated behind
- * "a pen has been seen this session", and the pen-active path only fires while
- * a pen is actually in use. Genuine two-finger orbit/pinch/pan therefore keeps
- * working exactly as before whenever no pen is involved.
+ * Pure-touch users are never affected: the contact-size path is gated behind a
+ * pen having been used *recently* ({@link PEN_SIZE_ARM_MS}), and the pen-active
+ * path only fires while a pen is actually in use. Genuine two-finger
+ * orbit/pinch/pan therefore keeps working exactly as before whenever no pen is
+ * involved.
+ *
+ * **No-tear invariant.** Palm rejection decides per *gesture group*, not per
+ * isolated pointer. The camera's two-finger handler only engages while two
+ * touches are down; a lone touch drives OrbitControls' single-finger rotate. So
+ * if the arbiter ever swallowed exactly one finger of a two-finger gesture, the
+ * surviving finger would spin the camera — the "spazzing" a stylus user sees
+ * when a palm-sized fingertip, or a flickering pen hover/grace state, splits the
+ * pair. To prevent that, only the *first* contact of a fresh group (nothing else
+ * down) is classified from scratch; every touch that lands while another is
+ * already down inherits that group's verdict (admit wins over palm). A
+ * navigation gesture is thus admitted or rejected as a whole, never split.
+ *
+ * **Self-healing live set.** Because a mid-group contact inherits the group
+ * verdict, a leaked `'palm'` entry (an iPad that drops a `pointerup`/
+ * `pointercancel`) would otherwise be inherited forever and lock out all touch.
+ * Two guards prevent that: touch verdicts whose pointer has produced no event
+ * within {@link TOUCH_VERDICT_STALE_MS} are pruned before each new
+ * classification, and the "pen is down/hovering" latch is bounded by
+ * {@link PEN_CONTACT_STALE_MS}. A pointer really still down keeps refreshing its
+ * timestamp, so only phantom contacts are reclaimed.
  */
 
 /**
@@ -50,6 +71,41 @@ export const PEN_GRACE_MS = 600;
  * this session, so ordinary fat-finger touches on pen-less devices are safe.
  */
 export const PALM_CONTACT_MIN_PX = 45;
+
+/**
+ * Once a pen has been used this session, the palm-by-size heuristic
+ * ({@link PALM_CONTACT_MIN_PX}) stays armed only for this long after the pen's
+ * most recent activity. Beyond it we assume the pencil has been set down and the
+ * user is navigating with fingers again, so firm fingertips are no longer
+ * mistaken for a palm and a stray large single-finger contact stops silently
+ * failing. A palm that never lifts keeps its original verdict via the
+ * group-coherence rule regardless of this window, so an actively-drawing hand is
+ * still rejected across long pauses between strokes.
+ */
+export const PEN_SIZE_ARM_MS = 1500;
+
+/**
+ * Upper bound on how long the "a pen is physically down or hovering"
+ * ({@link PointerArbiter.isPenActive}) latch is trusted without a fresh pen
+ * event. The latch is set on every pen event and normally cleared on the pen's
+ * `pointerup`/`pointerout`. But iOS/WebKit can *drop* that lift (app
+ * backgrounded mid-stroke, cancel storms), which would otherwise pin the latch
+ * on and suppress **all** touch until a reload. An actively used pen streams
+ * `pointermove`s that keep the latch fresh, so this only trips after a genuine
+ * idle — at which point we assume the pencil was parked and let touch resume.
+ */
+export const PEN_CONTACT_STALE_MS = 3000;
+
+/**
+ * How long a live touch verdict survives without any event for its pointer
+ * before it is pruned. Verdicts are normally removed on `pointerup`/
+ * `pointercancel`; this reconciles the set when that lift is *dropped* by the
+ * OS. Without it, a leaked `'palm'` entry would be inherited by every later
+ * contact (see the no-tear rule) and lock out all touch indefinitely. A contact
+ * that is really still down streams `pointermove`s that refresh its timestamp,
+ * so only a phantom (already-lifted) contact goes stale and is reclaimed.
+ */
+export const TOUCH_VERDICT_STALE_MS = 3000;
 
 /**
  * The minimal, side-effect-free inputs needed to decide whether a touch is a
@@ -89,6 +145,16 @@ export function isPalmTouch(state: PalmRejectionState): boolean {
   return false;
 }
 
+/** Whether a live touch pointer is being passed through or swallowed. */
+type TouchVerdict = 'admit' | 'palm';
+
+/** A live touch pointer's verdict plus the clock of its most recent event. */
+interface TouchRecord {
+  verdict: TouchVerdict;
+  /** `now()` of this pointer's last event — used to prune dropped contacts. */
+  lastSeenMs: number;
+}
+
 /**
  * Installs pen-priority palm rejection on a viewport host element and tracks
  * pen presence over time. One instance per {@link ViewerScene}.
@@ -100,8 +166,18 @@ export class PointerArbiter {
   private penContact = false;
   /** `performance.now()` of the most recent pen event, for the grace window. */
   private lastPenActivityMs = Number.NEGATIVE_INFINITY;
-  /** Touch pointer ids currently classified as palm — swallowed for their life. */
-  private readonly palmPointerIds = new Set<number>();
+  /**
+   * Verdict for every touch pointer currently down — `'admit'` (passed through)
+   * or `'palm'` (swallowed for its whole life), each stamped with the time of
+   * its last event. Entries are added at `pointerdown`, refreshed on
+   * `pointermove`, removed at `pointerup`/`pointercancel`, and reclaimed by
+   * staleness if their lift is ever dropped ({@link TOUCH_VERDICT_STALE_MS}).
+   * Tracking the whole live set is what lets the arbiter honour the no-tear
+   * invariant: a touch that lands mid-group inherits the group's verdict instead
+   * of being reclassified in isolation (which could split a two-finger gesture).
+   * See the module doc.
+   */
+  private readonly touchVerdicts = new Map<number, TouchRecord>();
 
   private readonly listenerOptions: AddEventListenerOptions = { capture: true };
 
@@ -133,7 +209,7 @@ export class PointerArbiter {
   setEnabled(enabled: boolean): void {
     this.enabled = enabled;
     if (!enabled) {
-      this.palmPointerIds.clear();
+      this.touchVerdicts.clear();
     }
   }
 
@@ -143,7 +219,7 @@ export class PointerArbiter {
     this.host.removeEventListener('pointerup', this.onPointerUp, this.listenerOptions);
     this.host.removeEventListener('pointercancel', this.onPointerUp, this.listenerOptions);
     this.host.removeEventListener('pointerout', this.onPointerOut, this.listenerOptions);
-    this.palmPointerIds.clear();
+    this.touchVerdicts.clear();
   }
 
   /**
@@ -151,10 +227,14 @@ export class PointerArbiter {
    * Exposed for diagnostics and potential UI affordances.
    */
   isPenActive(): boolean {
-    if (this.penContact) {
+    const idleMs = this.now() - this.lastPenActivityMs;
+    // The `penContact` latch normally clears on the pen's up/out; bound it by
+    // staleness so a dropped lift can't suppress touch forever. A pen in real
+    // use streams moves that keep `lastPenActivityMs` fresh.
+    if (this.penContact && idleMs < PEN_CONTACT_STALE_MS) {
       return true;
     }
-    return this.now() - this.lastPenActivityMs < PEN_GRACE_MS;
+    return idleMs < PEN_GRACE_MS;
   }
 
   private notePenActivity(): void {
@@ -171,14 +251,68 @@ export class PointerArbiter {
     }
   }
 
-  private classify(event: PointerEvent): boolean {
+  /**
+   * True while the palm-by-size heuristic is armed: a pen has been used and its
+   * last activity was within {@link PEN_SIZE_ARM_MS}. Outside that window we no
+   * longer second-guess firm fingertips by contact size (see the constant).
+   */
+  private isSizeHeuristicArmed(): boolean {
+    return this.penEverUsed && this.now() - this.lastPenActivityMs < PEN_SIZE_ARM_MS;
+  }
+
+  /**
+   * Classify a *fresh* touch — the first contact of a group — in isolation.
+   * Later contacts never call this; they inherit the group verdict. See
+   * {@link verdictForNewTouch}.
+   */
+  private classifyFresh(event: PointerEvent): boolean {
     return isPalmTouch({
       enabled: this.enabled,
       penActive: this.isPenActive(),
-      penEverUsed: this.penEverUsed,
+      // The size path is additionally gated on recency; `isPalmTouch` only needs
+      // to know whether that path is live for this contact right now.
+      penEverUsed: this.isSizeHeuristicArmed(),
       contactMaxPx: Math.max(event.width ?? 0, event.height ?? 0),
       palmContactMinPx: PALM_CONTACT_MIN_PX,
     });
+  }
+
+  /**
+   * Drop verdicts whose pointer has produced no event within
+   * {@link TOUCH_VERDICT_STALE_MS} — a contact whose `pointerup`/`pointercancel`
+   * the OS never delivered. Keeps the live set matching physical reality so a
+   * phantom `'palm'` can't be inherited by (and thus lock out) later contacts.
+   */
+  private pruneStaleTouches(): void {
+    const cutoff = this.now() - TOUCH_VERDICT_STALE_MS;
+    for (const [id, record] of this.touchVerdicts) {
+      if (record.lastSeenMs < cutoff) {
+        this.touchVerdicts.delete(id);
+      }
+    }
+  }
+
+  /**
+   * The verdict a newly-pressed touch should take, honouring the no-tear
+   * invariant: the first contact of a fresh group is classified from scratch;
+   * any touch landing while another is already down inherits the group verdict.
+   * Admit wins over palm so a genuine multi-finger gesture is never split into a
+   * lone survivor that OrbitControls would read as a single-finger rotate.
+   */
+  private verdictForNewTouch(event: PointerEvent): TouchVerdict {
+    if (!this.enabled) {
+      return 'admit';
+    }
+    this.pruneStaleTouches();
+    if (this.touchVerdicts.size > 0) {
+      for (const record of this.touchVerdicts.values()) {
+        if (record.verdict === 'admit') {
+          return 'admit';
+        }
+      }
+      return 'palm';
+    }
+    return this.classifyFresh(event) ? 'palm' : 'admit';
   }
 
   private readonly onPointerDown = (event: PointerEvent): void => {
@@ -189,8 +323,9 @@ export class PointerArbiter {
     if (event.pointerType !== 'touch') {
       return;
     }
-    if (this.classify(event)) {
-      this.palmPointerIds.add(event.pointerId);
+    const verdict = this.verdictForNewTouch(event);
+    this.touchVerdicts.set(event.pointerId, { verdict, lastSeenMs: this.now() });
+    if (verdict === 'palm') {
       this.swallow(event);
     }
   };
@@ -203,9 +338,16 @@ export class PointerArbiter {
     if (event.pointerType !== 'touch') {
       return;
     }
-    // A touch already committed to "palm" stays swallowed for its whole life so
-    // its move stream can never leak into a gesture handler.
-    if (this.palmPointerIds.has(event.pointerId)) {
+    const record = this.touchVerdicts.get(event.pointerId);
+    if (!record) {
+      return;
+    }
+    // Keep the contact fresh so staleness pruning only reclaims phantom (dropped)
+    // pointers, never a finger that is really still down.
+    record.lastSeenMs = this.now();
+    // A touch committed to "palm" stays swallowed for its whole life so its move
+    // stream can never leak into a gesture handler.
+    if (record.verdict === 'palm') {
       this.swallow(event);
     }
   };
@@ -219,7 +361,14 @@ export class PointerArbiter {
     if (event.pointerType !== 'touch') {
       return;
     }
-    if (this.palmPointerIds.delete(event.pointerId)) {
+    const record = this.touchVerdicts.get(event.pointerId);
+    this.touchVerdicts.delete(event.pointerId);
+    // Swallow **only** for a palm verdict — never on an admit. The two-finger
+    // controller dispatches a synthetic `pointercancel` for its admitted fingers
+    // to reset OrbitControls; swallowing here would eat that (and real admitted
+    // pointerups, breaking single-tap selection). Deleting an admit entry is
+    // harmless: the finger has already passed the arbiter's gate.
+    if (record?.verdict === 'palm') {
       this.swallow(event);
     }
   };

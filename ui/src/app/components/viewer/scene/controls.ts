@@ -17,6 +17,26 @@ const TWO_FINGER_DOLLY_DEAD_ZONE_PX = 1.5;
 const TWO_FINGER_ROLL_DEAD_ZONE_RAD = 0.01;
 /** Right-drag travel (px) before it counts as a pan for the auto-ortho revert. */
 const RIGHT_PAN_REVERT_THRESHOLD_PX = 3;
+/**
+ * Straight-line pointer travel (px) that breaks a viewport-cube snap free.
+ *
+ * Sticky, Shapr3D-style: while a snap is held the camera does **not move at
+ * all** — a rotate gesture below this distance is absorbed completely, so the
+ * dimension-true view survives accidental jitter, a small screen touch or a
+ * stray nudge. Cross it and the snap "pops": the camera starts orbiting from
+ * that point and the projection animates back (see
+ * {@link SceneCamera.applySnapHold}).
+ *
+ * Measured from where the drag *started*, so wiggling back and forth never
+ * breaks out — you have to genuinely pull away from the detent.
+ */
+const SNAP_BREAKOUT_TRAVEL_PX = 70;
+/**
+ * Idle gap (ms) that ends one trackpad two-finger-swipe rotate burst. That mac
+ * wheel-orbit path has no pointer up/down to bracket the gesture, so a pause
+ * longer than this starts a fresh breakout budget.
+ */
+const SNAP_BREAKOUT_IDLE_MS = 150;
 
 /**
  * Safari/WebKit-proprietary gesture event (not in the standard DOM lib types).
@@ -91,6 +111,18 @@ export class SceneControls {
   private orbitVelAzimuth = 0;
   private orbitVelPolar = 0;
   private orbitVelTarget = new Vector3();
+  /**
+   * Snap-breakout state. Tracks how far the pointer has travelled from where the
+   * current rotate gesture started; crossing {@link SNAP_BREAKOUT_TRAVEL_PX}
+   * fires the release exactly once (`…Emitted`). Reset per pointer drag and per
+   * trackpad-swipe burst (idle gap). Pixel travel — not camera angle — is the
+   * metric precisely because a held snap does not rotate the camera at all.
+   */
+  private breakoutStart = new Vector2();
+  private breakoutPointerId: number | null = null;
+  private breakoutEmitted = false;
+  private breakoutWheelPx = 0;
+  private breakoutLastWheelTime = 0;
   private autoscroll: AutoscrollState | null = null;
   private readonly raycaster = new Raycaster();
   private readonly ndcScratch = new Vector2();
@@ -113,15 +145,17 @@ export class SceneControls {
   private twoFingerGesture: 'orbit' | 'pan' = 'orbit';
 
   /**
-   * Fired whenever the user *pans or zooms* the main viewport (never on a
-   * rotate). Used by the viewport-cube auto-ortho behaviour to revert the
-   * temporary orthographic projection back to the user's chosen view. Rotate
-   * and cube-driven camera moves deliberately do not fire it. See
-   * {@link SceneCamera.notifyUserPanOrZoom}.
+   * Fired when a gesture breaks a held viewport-cube snap free — a pan, a zoom,
+   * or a rotate dragged past {@link SNAP_BREAKOUT_TRAVEL_PX}. Used by the
+   * auto-ortho behaviour to release the detent and revert the temporary
+   * orthographic projection to the user's chosen view. A rotate inside the
+   * breakout distance and cube-driven camera moves deliberately do not fire it,
+   * so the snapped view never slips on an accidental nudge. See
+   * {@link SceneCamera.notifyUserViewGesture}.
    */
   private revertGestureSink: (() => void) | null = null;
 
-  /** Handlers for the right-drag (pan) revert detector, retained for cleanup. */
+  /** Handlers for the pointer-drag revert detectors, retained for cleanup. */
   private rightPanPointerDownHandler: ((event: PointerEvent) => void) | null = null;
   private rightPanPointerMoveHandler: ((event: PointerEvent) => void) | null = null;
   private rightPanPointerUpHandler: ((event: PointerEvent) => void) | null = null;
@@ -166,8 +200,10 @@ export class SceneControls {
   }
 
   /**
-   * Register a callback fired whenever the user pans or zooms the main viewport
-   * (never on a rotate or a cube gesture). Drives the viewport-cube auto-ortho
+  /**
+   * Register a callback fired whenever the user pans, zooms, or drags the main
+   * viewport far enough to break a viewport-cube snap free (never on a small
+   * rotate inside the detent, nor on a cube gesture). Drives the auto-ortho
    * revert. Pass `null` to clear.
    */
   setRevertGestureSink(sink: (() => void) | null): void {
@@ -176,6 +212,27 @@ export class SceneControls {
 
   private emitRevertGesture(): void {
     this.revertGestureSink?.();
+  }
+
+  /** Begin a fresh breakout budget for the next rotate gesture. */
+  private resetBreakout(): void {
+    this.breakoutWheelPx = 0;
+    this.breakoutEmitted = false;
+  }
+
+  /**
+   * Report how far the pointer has travelled in the current rotate gesture.
+   * Fires {@link emitRevertGesture} exactly once, the moment the travel crosses
+   * {@link SNAP_BREAKOUT_TRAVEL_PX} — releasing a held snap so the camera can
+   * start orbiting. Below that distance nothing is emitted and the snap stays
+   * pinned, which is what makes the detent feel sticky.
+   */
+  private reportBreakoutTravel(travelPx: number): void {
+    if (this.breakoutEmitted || travelPx <= SNAP_BREAKOUT_TRAVEL_PX) {
+      return;
+    }
+    this.breakoutEmitted = true;
+    this.emitRevertGesture();
   }
 
   applyOrbitInertia(dt: number): void {
@@ -315,48 +372,74 @@ export class SceneControls {
   }
 
   // -------------------------------------------------------------------------
-  // Right-drag (pan) revert detection
+  // Pointer-drag revert detection (right-drag pan + rotate snap breakout)
   // -------------------------------------------------------------------------
 
   /**
-   * OrbitControls maps the right mouse button to PAN. Panning is handled
-   * internally by OrbitControls (not by our custom helpers), so to notify the
-   * auto-ortho revert we watch the right-button drag ourselves. We only observe
-   * — we never call `preventDefault`/`stopPropagation` — so OrbitControls still
-   * performs the pan. A small travel threshold avoids reverting on a bare
-   * right-click that never moves.
+   * Watches raw pointer drags to drive the auto-ortho revert. Two cases share
+   * these listeners:
+   *
+   * - **Right-drag = pan.** OrbitControls pans internally (not via our helpers),
+   *   so we observe the drag to notify the revert. A tiny travel threshold
+   *   avoids reverting on a bare right-click that never moves.
+   * - **Left-drag / touch / pen = rotate.** Distance from the drag origin is the
+   *   snap-breakout metric. It has to be measured in *pixels* here rather than
+   *   in camera angle, because while a snap is held the camera does not rotate
+   *   at all ({@link SceneCamera.applySnapHold}) — there is no angle to measure.
+   *
+   * We only observe — never `preventDefault`/`stopPropagation` — so
+   * OrbitControls still performs the gesture.
    */
   private installRightPanRevertDetection(): void {
     const el = this.renderer.domElement;
-    let pointerId: number | null = null;
-    let startX = 0;
-    let startY = 0;
-    let emitted = false;
+    let panPointerId: number | null = null;
+    let panStartX = 0;
+    let panStartY = 0;
+    let panEmitted = false;
 
     this.rightPanPointerDownHandler = (event: PointerEvent): void => {
-      if (event.button !== 2) {
+      if (event.button === 2) {
+        panPointerId = event.pointerId;
+        panStartX = event.clientX;
+        panStartY = event.clientY;
+        panEmitted = false;
         return;
       }
-      pointerId = event.pointerId;
-      startX = event.clientX;
-      startY = event.clientY;
-      emitted = false;
+      // Primary button (or a touch/pen contact) starts a rotate: open a fresh
+      // breakout budget measured from here. Skipped while `controls` is disabled
+      // — that means a gizmo/selection drag (or a snap animation) owns the
+      // pointer, and dragging an object must not pop the view out of its snap.
+      if (event.button === 0 && this.controls.enabled) {
+        this.breakoutPointerId = event.pointerId;
+        this.breakoutStart.set(event.clientX, event.clientY);
+        this.resetBreakout();
+      }
     };
     this.rightPanPointerMoveHandler = (event: PointerEvent): void => {
-      if (event.pointerId !== pointerId || emitted) {
+      if (event.pointerId === panPointerId && !panEmitted) {
+        if (
+          Math.hypot(event.clientX - panStartX, event.clientY - panStartY) >
+          RIGHT_PAN_REVERT_THRESHOLD_PX
+        ) {
+          panEmitted = true;
+          this.emitRevertGesture();
+        }
         return;
       }
-      if (
-        Math.hypot(event.clientX - startX, event.clientY - startY) > RIGHT_PAN_REVERT_THRESHOLD_PX
-      ) {
-        emitted = true;
-        this.emitRevertGesture();
+      if (event.pointerId === this.breakoutPointerId && this.controls.enabled) {
+        this.reportBreakoutTravel(
+          Math.hypot(event.clientX - this.breakoutStart.x, event.clientY - this.breakoutStart.y),
+        );
       }
     };
     this.rightPanPointerUpHandler = (event: PointerEvent): void => {
-      if (event.pointerId === pointerId) {
-        pointerId = null;
-        emitted = false;
+      if (event.pointerId === panPointerId) {
+        panPointerId = null;
+        panEmitted = false;
+      }
+      if (event.pointerId === this.breakoutPointerId) {
+        this.breakoutPointerId = null;
+        this.resetBreakout();
       }
     };
 
@@ -621,6 +704,17 @@ export class SceneControls {
       .addScaledVector(e1, r * sinPhi * Math.cos(newTheta))
       .addScaledVector(e2, r * sinPhi * Math.sin(newTheta));
     this.camera.position.copy(target).add(offset);
+    // Snap breakout for a trackpad two-finger-swipe rotate (mirrors the pointer
+    // rotate path). This channel has no pointer up/down to bracket the gesture,
+    // so an idle gap starts a fresh budget and travel is summed from the wheel
+    // deltas instead of measured from a drag origin.
+    const nowMs = performance.now();
+    if (nowMs - this.breakoutLastWheelTime > SNAP_BREAKOUT_IDLE_MS) {
+      this.resetBreakout();
+    }
+    this.breakoutLastWheelTime = nowMs;
+    this.breakoutWheelPx += Math.abs(dxPx) + Math.abs(dyPx);
+    this.reportBreakoutTravel(this.breakoutWheelPx);
     this.controls.update();
   }
 
