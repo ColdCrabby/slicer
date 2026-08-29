@@ -1277,6 +1277,56 @@ tension before the nozzle moves on.
     pub bridge_acceleration: f64,
 
     #[schemars(
+        description = "Square-corner velocity in mm/s — the speed the head keeps through a 90° corner (junction-deviation cornering). `0` = use the estimator/firmware default (5 mm/s).
+
+Higher values corner faster (shorter prints, more ringing); lower values slow into corners for cleaner edges. When set, the slicer emits the firmware limit (Klipper `SET_VELOCITY_LIMIT SQUARE_CORNER_VELOCITY=…`, Marlin `M205 J…` junction deviation) and the print-time estimate uses the same value, so the ETA tracks reality.
+**Typical:** 5–10.",
+        extend("x-group" = "Speed")
+    )]
+    #[serde(default = "SlicingParams::default_square_corner_velocity")]
+    pub square_corner_velocity: f64,
+
+    #[schemars(
+        description = "Maximum travel/print velocity cap in mm/s. `0` = unlimited (no cap).
+
+The machine's top speed: any role feedrate above this is clamped by the firmware, so the estimate honors it too. When set, the slicer emits the firmware limit (Klipper `SET_VELOCITY_LIMIT VELOCITY=…`, Marlin `M203 X… Y…`).
+**Typical:** 150–500.",
+        extend("x-group" = "Speed")
+    )]
+    #[serde(default = "SlicingParams::default_max_velocity")]
+    pub max_velocity: f64,
+
+    #[schemars(
+        description = "Fixed warm-up allowance in seconds added *before* the toolpath in the print-time estimate. `0` = none.
+
+Accounts for wall-clock the toolpath can't show — homing, bed mesh, heat-soak, purge — none of which is derivable from the moves. A flat allowance, not a thermal model.
+**Typical:** 60–300.",
+        extend("x-group" = "Time estimate")
+    )]
+    #[serde(default = "SlicingParams::default_time_estimate_warmup_s")]
+    pub time_estimate_warmup_s: f64,
+
+    #[schemars(
+        description = "Fixed cool-down allowance in seconds added *after* the toolpath in the print-time estimate. `0` = none.
+
+For material/hardware that isn't \"done\" at the last move — e.g. an ABS chamber cool-off or a park-and-cool end sequence — before the print is truly finished.
+**Typical:** 0–120.",
+        extend("x-group" = "Time estimate")
+    )]
+    #[serde(default = "SlicingParams::default_time_estimate_cooldown_s")]
+    pub time_estimate_cooldown_s: f64,
+
+    #[schemars(
+        description = "Calibration multiplier applied to the *toolpath* portion of the print-time estimate. `1.0` = no adjustment.
+
+If real prints consistently run a few percent over/under the estimate (tiny details the model rounds off, firmware smoothing), nudge this to match your machine — `1.05` adds 5 %. Scales only the toolpath; the fixed warm-up/cool-down allowances are added afterward.
+**Typical:** 0.9–1.15.",
+        extend("x-group" = "Time estimate")
+    )]
+    #[serde(default = "SlicingParams::default_time_estimate_scale")]
+    pub time_estimate_scale: f64,
+
+    #[schemars(
         description = "Number of initial layers with the part-cooling fan forced off.
 
 Improves adhesion of the first few layers.
@@ -1558,6 +1608,11 @@ impl Default for SlicingParams {
             top_surface_acceleration: Self::default_top_surface_acceleration(),
             outer_wall_acceleration: Self::default_outer_wall_acceleration(),
             bridge_acceleration: Self::default_bridge_acceleration(),
+            square_corner_velocity: Self::default_square_corner_velocity(),
+            max_velocity: Self::default_max_velocity(),
+            time_estimate_warmup_s: Self::default_time_estimate_warmup_s(),
+            time_estimate_cooldown_s: Self::default_time_estimate_cooldown_s(),
+            time_estimate_scale: Self::default_time_estimate_scale(),
             disable_fan_first_layers: Self::default_disable_fan_first_layers(),
             max_volumetric_speed: Self::default_max_volumetric_speed(),
             extruder_count: Self::default_extruder_count(),
@@ -1633,6 +1688,25 @@ impl SlicingParams {
     }
     fn default_bridge_acceleration() -> f64 {
         0.0
+    }
+    fn default_square_corner_velocity() -> f64 {
+        // `0` = defer to the estimator/firmware default (5 mm/s). Kept at 0 so a
+        // profile that never set it doesn't start emitting an `M205`/velocity
+        // limit that changes existing output.
+        0.0
+    }
+    fn default_max_velocity() -> f64 {
+        // `0` = no cap; role feedrates stand as emitted.
+        0.0
+    }
+    fn default_time_estimate_warmup_s() -> f64 {
+        0.0
+    }
+    fn default_time_estimate_cooldown_s() -> f64 {
+        0.0
+    }
+    fn default_time_estimate_scale() -> f64 {
+        1.0
     }
     fn default_disable_fan_first_layers() -> usize {
         1

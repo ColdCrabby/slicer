@@ -135,10 +135,43 @@ flowchart LR
 Each move is timed with a **trapezoidal velocity profile** (accelerate → cruise →
 decelerate). Entry/exit speeds at each corner come from a two-pass planner
 look-ahead, and cornering speed uses the **junction-deviation** model (a right
-angle is taken at `DEFAULT_SQUARE_CORNER_VELOCITY_MM_S`, a straight join keeps
-full speed, a reversal stops). Travel moves, Z lifts and the retract/un-retract
-ceremony are all counted; per-role feedrates and per-role accelerations
-(`M204` / `SET_VELOCITY_LIMIT`) are read straight from the emitted lines.
+angle is taken at the square-corner velocity, a straight join keeps full speed, a
+reversal stops). Travel moves, Z lifts and the retract/un-retract ceremony are
+all counted; per-role feedrates and per-role accelerations (`M204` /
+`SET_VELOCITY_LIMIT`) are read straight from the emitted lines.
+
+### Machine kinematics (emitted **and** estimated)
+
+To keep the estimate honest — *it must describe the moves the printer actually
+runs* — the kinematic limits are both **emitted** by the generator and **read
+back** by the estimator from the same `SlicingParams`:
+
+| Param                     | Emitted as (Marlin / Klipper)                          | In the estimate                    |
+| ------------------------- | ------------------------------------------------------ | ---------------------------------- |
+| `acceleration`            | `M204 P…` / `SET_VELOCITY_LIMIT ACCEL=…` (per role)    | per-move ramp rate                 |
+| `square_corner_velocity`  | `M205 J<jd>` / `SET_VELOCITY_LIMIT SQUARE_CORNER_VEL…` | junction-deviation corner speed    |
+| `max_velocity`            | `M203 X… Y…` / `SET_VELOCITY_LIMIT VELOCITY=…`         | per-move nominal-speed cap         |
+
+Marlin has no square-corner-velocity command, so it is converted to a
+junction-deviation distance `jd = scv² · (√2 − 1) / accel` — the exact relation
+`junction_speed` inverts. Each limit is emitted only when set (`> 0`), so a
+profile that never touched them produces byte-identical output to before.
+
+### Calibration (Bucket B)
+
+Three `SlicingParams` knobs correct for wall-clock the toolpath physics cannot
+show. `total = warmup_s + (toolpath × scale) + cooldown_s`:
+
+| Param                      | Effect                                                       |
+| -------------------------- | ----------------------------------------------------------- |
+| `time_estimate_scale`      | multiplies the **toolpath** portion (systematic-error fudge) |
+| `time_estimate_warmup_s`   | fixed seconds added **before** (homing, heat-soak, purge)    |
+| `time_estimate_cooldown_s` | fixed seconds added **after** (e.g. chamber cool-off)        |
+
+The per-layer `;LAYER_TIME:` markers are scaled by `scale` too (so they stay
+consistent with the toolpath total) but carry **no** fixed allowance — those
+belong to no single layer. The physics module [`time_estimate`](./time_estimate.rs)
+stays pure; scale/offset are applied at the generator boundary.
 
 The old naive `length ÷ print_speed` figure survives only as
 [`generator::estimate_layer_time`](./generator.rs) — a cheap *pre-move* proxy
@@ -147,10 +180,12 @@ moves are known); its `;LAYER_TIME:` placeholder is overwritten afterward with
 the trapezoidal figure. On a 30 mm calibration cube the naive model
 under-estimated by ~57 % (≈35 min vs the realistic ≈81 min).
 
-> **Not modelled:** heating waits, arcs, dwell, and per-axis machine limits — a
-> single acceleration plus one cornering constant stand in for a full
-> `M201`/`M203` profile. The slicer does not slow a layer to meet a minimum
-> layer time, so there is no min-layer-time slowdown to account for.
+> **Not modelled:** heating waits (a coarse `warmup`/`cooldown` allowance stands
+> in — not a thermal model), arcs, dwell, and *per-axis* jerk (one scalar
+> square-corner velocity, not an X/Y/E profile). The slicer does not yet slow a
+> layer to meet a minimum layer time, so there is no min-layer-time slowdown to
+> account for — the day that feature lands, the estimator picks it up for free
+> because it reads the emitted moves.
 
 ---
 

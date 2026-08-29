@@ -688,6 +688,26 @@ impl GcodeGenerator {
             ));
         }
 
+        // ── Machine kinematic limits (opt-in; each `0` leaves the default) ────
+        // Emitted once, right after pressure advance, so the firmware corners
+        // (square-corner velocity → junction deviation) and caps velocity
+        // exactly as the acceleration-aware print-time estimate assumes. The
+        // conversion needs an acceleration; use the normal target (falling back
+        // to the estimator default when acceleration control is off).
+        let kinematic_accel = if params.acceleration > 0.0 {
+            params.acceleration
+        } else {
+            crate::gcode::time_estimate::DEFAULT_ACCELERATION_MM_S2
+        };
+        for line in self.dialect.set_kinematic_limits(
+            params.square_corner_velocity,
+            params.max_velocity,
+            kinematic_accel,
+        ) {
+            out.push_str(&line);
+            out.push('\n');
+        }
+
         // ── Per-layer contours ────────────────────────────────────────────────
         let mut e_total = 0.0_f64;
         // Grand total of deposited filament (mm of feedstock) across every
@@ -1365,12 +1385,31 @@ impl GcodeGenerator {
         // ── Acceleration-aware print-time estimate (issue #117) ───────────────
         // Measure the *emitted* moves — travel, Z lifts, retraction and every
         // per-role feedrate / acceleration the body above wrote — with the
-        // trapezoidal planner model, then splice the accurate per-layer figures
-        // back into the `;LAYER_TIME:` markers so the header/footer ETA and the
-        // viewer's Layer-Time colouring all read the same numbers.
+        // trapezoidal planner model, then apply the user's estimate calibration
+        // and splice the per-layer figures back into the `;LAYER_TIME:` markers
+        // so the header/footer ETA and the viewer's Layer-Time colouring all read
+        // the same numbers.
+        //
+        // Calibration (issue #117 follow-up): the toolpath physics from the
+        // estimator is corrected by `time_estimate_scale` (a user fudge factor
+        // for systematic error the model rounds off), then the fixed
+        // `time_estimate_warmup_s` (homing / heat-soak / purge) and
+        // `time_estimate_cooldown_s` (e.g. chamber cool-off) allowances — wall
+        // clock the toolpath cannot show — are added. The per-layer markers get
+        // the same scale so they stay consistent with the toolpath total, but
+        // *not* the fixed allowances (those belong to no single layer).
         let est_cfg = crate::gcode::time_estimate::EstimatorConfig::from_params(params);
         let estimate = crate::gcode::time_estimate::estimate_print_time(&out, &est_cfg);
-        patch_layer_time_markers(&mut out, &estimate.per_layer_s);
+        let scale = if params.time_estimate_scale > 0.0 {
+            params.time_estimate_scale
+        } else {
+            1.0
+        };
+        let scaled_per_layer: Vec<f64> = estimate.per_layer_s.iter().map(|t| t * scale).collect();
+        patch_layer_time_markers(&mut out, &scaled_per_layer);
+        let total_estimate_s = params.time_estimate_warmup_s.max(0.0)
+            + estimate.total_s * scale
+            + params.time_estimate_cooldown_s.max(0.0);
 
         // ── Metadata header (issue #15) ───────────────────────────────────────
         // Now that the body is emitted we know the measured filament total, the
@@ -1381,7 +1420,7 @@ impl GcodeGenerator {
             layers,
             params,
             total_filament_mm,
-            estimate.total_s,
+            total_estimate_s,
             self.model_name.clone(),
         );
         let mut result = String::with_capacity(out.len() + 512);
@@ -2530,6 +2569,116 @@ mod tests {
                 "; estimated printing time (normal mode) = {human}"
             )),
             "footer ETA must match stats: {human}"
+        );
+    }
+
+    #[test]
+    fn test_kinematic_limits_emitted_per_flavor() {
+        use clipper2::Path;
+        let mut layer = SliceLayer::new(0.2);
+        let square: Path = vec![(0.0, 0.0), (10.0, 0.0), (10.0, 10.0), (0.0, 10.0)].into();
+        layer.paths.push(square);
+        layer.path_roles.push(crate::core::ExtrusionRole::OuterWall);
+
+        let params = SlicingParams {
+            square_corner_velocity: 8.0,
+            max_velocity: 300.0,
+            acceleration: 3000.0,
+            ..SlicingParams::default()
+        };
+
+        // Marlin: M203 velocity cap + M205 J junction deviation.
+        let marlin = GcodeGenerator::new(GcodeFlavor::Marlin).generate(&[layer.clone()], &params);
+        assert!(
+            marlin.contains("M203 X300 Y300"),
+            "Marlin must emit the max-feedrate cap: {marlin}"
+        );
+        assert!(
+            marlin.contains("M205 J"),
+            "Marlin must emit a junction-deviation limit: {marlin}"
+        );
+
+        // Klipper: a single SET_VELOCITY_LIMIT with both native fields.
+        let klipper = GcodeGenerator::new(GcodeFlavor::Klipper).generate(&[layer], &params);
+        assert!(
+            klipper.contains("VELOCITY=300"),
+            "Klipper must set the velocity cap: {klipper}"
+        );
+        assert!(
+            klipper.contains("SQUARE_CORNER_VELOCITY=8.00"),
+            "Klipper must set the square-corner velocity: {klipper}"
+        );
+    }
+
+    #[test]
+    fn test_kinematic_limits_absent_when_unset() {
+        let layer = SliceLayer::new(0.2);
+        // Defaults: square_corner_velocity = 0, max_velocity = 0 → no emission.
+        let gcode =
+            GcodeGenerator::new(GcodeFlavor::Marlin).generate(&[layer], &SlicingParams::default());
+        assert!(
+            !gcode.contains("M203"),
+            "no velocity cap must be emitted by default"
+        );
+        assert!(
+            !gcode.contains("M205 J"),
+            "no junction-deviation limit must be emitted by default"
+        );
+    }
+
+    #[test]
+    fn test_time_estimate_calibration_scales_and_offsets_total() {
+        use clipper2::Path;
+        let mk_layers = || {
+            let mut v = Vec::new();
+            for i in 0..2 {
+                let mut l = SliceLayer::new(0.2 * (i as f64 + 1.0));
+                let square: Path = vec![(0.0, 0.0), (20.0, 0.0), (20.0, 20.0), (0.0, 20.0)].into();
+                l.paths.push(square);
+                l.path_roles.push(crate::core::ExtrusionRole::OuterWall);
+                v.push(l);
+            }
+            v
+        };
+
+        let base_params = SlicingParams::default();
+        let (_g, base) = GcodeGenerator::new(GcodeFlavor::Marlin)
+            .generate_with_stats(&mk_layers(), &base_params);
+
+        // scale = 2.0 doubles the toolpath portion; warmup/cooldown add on top.
+        let cal_params = SlicingParams {
+            time_estimate_scale: 2.0,
+            time_estimate_warmup_s: 100.0,
+            time_estimate_cooldown_s: 50.0,
+            ..SlicingParams::default()
+        };
+        let (gcode, cal) =
+            GcodeGenerator::new(GcodeFlavor::Marlin).generate_with_stats(&mk_layers(), &cal_params);
+
+        let expected = base.estimated_print_time_s * 2.0 + 150.0;
+        assert!(
+            (cal.estimated_print_time_s - expected).abs() < 1e-6,
+            "calibrated total {} must equal toolpath×2 + 150 = {expected}",
+            cal.estimated_print_time_s
+        );
+
+        // Per-layer markers are scaled (×2) but carry no fixed allowance. They
+        // are formatted to 0.1 s, so compare with rounding slack rather than
+        // exactly. The fixed 150 s allowance must be absent from the markers.
+        let marker_sum: f64 = gcode
+            .lines()
+            .filter_map(|l| l.trim().strip_prefix(";LAYER_TIME:"))
+            .filter_map(|v| v.trim().parse::<f64>().ok())
+            .sum();
+        assert!(
+            marker_sum < cal.estimated_print_time_s - 100.0,
+            "marker sum {marker_sum} must exclude the 150s fixed allowance (total {})",
+            cal.estimated_print_time_s
+        );
+        assert!(
+            marker_sum > base.estimated_print_time_s,
+            "scaled markers {marker_sum} should exceed the unscaled toolpath total {}",
+            base.estimated_print_time_s
         );
     }
 

@@ -104,6 +104,12 @@ pub(crate) struct EstimatorConfig {
     pub default_accel_mm_s2: f64,
     /// Assumed square-corner velocity (mm/s) for the junction-deviation model.
     pub square_corner_velocity_mm_s: f64,
+    /// Machine velocity cap (mm/s) every move is clamped to, or `0` for no cap.
+    ///
+    /// Mirrors the firmware limit the generator emits (`SET_VELOCITY_LIMIT
+    /// VELOCITY=…` / `M203`): the printer runs no faster than this regardless of
+    /// the commanded feedrate, so the estimate honours it too.
+    pub max_velocity_mm_s: f64,
 }
 
 impl Default for EstimatorConfig {
@@ -111,6 +117,7 @@ impl Default for EstimatorConfig {
         Self {
             default_accel_mm_s2: DEFAULT_ACCELERATION_MM_S2,
             square_corner_velocity_mm_s: DEFAULT_SQUARE_CORNER_VELOCITY_MM_S,
+            max_velocity_mm_s: 0.0,
         }
     }
 }
@@ -120,16 +127,25 @@ impl EstimatorConfig {
     ///
     /// The default acceleration follows `params.acceleration` when set (the same
     /// value the generator writes as `M204 P…`); a `0` (acceleration control
-    /// disabled) falls back to [`DEFAULT_ACCELERATION_MM_S2`].
+    /// disabled) falls back to [`DEFAULT_ACCELERATION_MM_S2`]. The square-corner
+    /// velocity follows `params.square_corner_velocity` when set, else
+    /// [`DEFAULT_SQUARE_CORNER_VELOCITY_MM_S`]. `params.max_velocity` (`0` =
+    /// uncapped) is passed straight through.
     pub(crate) fn from_params(params: &crate::settings::params::SlicingParams) -> Self {
         let default_accel_mm_s2 = if params.acceleration > 0.0 {
             params.acceleration
         } else {
             DEFAULT_ACCELERATION_MM_S2
         };
+        let square_corner_velocity_mm_s = if params.square_corner_velocity > 0.0 {
+            params.square_corner_velocity
+        } else {
+            DEFAULT_SQUARE_CORNER_VELOCITY_MM_S
+        };
         Self {
             default_accel_mm_s2,
-            square_corner_velocity_mm_s: DEFAULT_SQUARE_CORNER_VELOCITY_MM_S,
+            square_corner_velocity_mm_s,
+            max_velocity_mm_s: params.max_velocity.max(0.0),
         }
     }
 }
@@ -230,7 +246,7 @@ pub(crate) fn estimate_print_time(body: &str, cfg: &EstimatorConfig) -> TimeEsti
 
         match cmd_up.as_str() {
             "G0" | "G1" => {
-                if let Some(mv) = plan_linear_move(code, &mut state) {
+                if let Some(mv) = plan_linear_move(code, &mut state, cfg.max_velocity_mm_s) {
                     current.push(mv);
                 }
             }
@@ -302,9 +318,16 @@ pub(crate) fn estimate_print_time(body: &str, cfg: &EstimatorConfig) -> TimeEsti
 
 /// Turn one `G0`/`G1` line into a [`PlannedMove`], advancing `state`.
 ///
+/// `max_velocity_mm_s` (`0` = uncapped) clamps the move's nominal speed to the
+/// machine velocity limit the firmware would enforce.
+///
 /// Returns `None` when the line carries no actual motion (e.g. a bare feedrate
 /// change `G1 F1200`).
-fn plan_linear_move(code: &str, state: &mut MotionState) -> Option<PlannedMove> {
+fn plan_linear_move(
+    code: &str,
+    state: &mut MotionState,
+    max_velocity_mm_s: f64,
+) -> Option<PlannedMove> {
     let nx = axis_value(code, 'X').unwrap_or(state.x);
     let ny = axis_value(code, 'Y').unwrap_or(state.y);
     let nz = axis_value(code, 'Z').unwrap_or(state.z);
@@ -328,7 +351,10 @@ fn plan_linear_move(code: &str, state: &mut MotionState) -> Option<PlannedMove> 
     state.e = ne;
 
     let xy = (dx * dx + dy * dy).sqrt();
-    let nominal_mm_s = state.feed_mm_min / 60.0;
+    let mut nominal_mm_s = state.feed_mm_min / 60.0;
+    if max_velocity_mm_s > 0.0 {
+        nominal_mm_s = nominal_mm_s.min(max_velocity_mm_s);
+    }
     if nominal_mm_s <= EPS {
         return None;
     }
@@ -561,6 +587,82 @@ mod tests {
         let est = estimate_print_time("", &EstimatorConfig::default());
         assert_eq!(est.total_s, 0.0);
         assert!(est.per_layer_s.is_empty());
+    }
+
+    #[test]
+    fn max_velocity_cap_slows_a_fast_move() {
+        // A 200 mm move commanded at 300 mm/s (F18000), a = 1000.
+        let body = "\
+;LAYER_TIME:0.0
+M204 P1000
+G1 X0 Y0 F18000
+G1 X200 Y0 E10 F18000
+";
+        let uncapped = estimate_print_time(body, &EstimatorConfig::default());
+        let capped = estimate_print_time(
+            body,
+            &EstimatorConfig {
+                max_velocity_mm_s: 100.0,
+                ..EstimatorConfig::default()
+            },
+        );
+        assert!(
+            capped.total_s > uncapped.total_s,
+            "capping velocity to 100 must slow the move: capped {} vs uncapped {}",
+            capped.total_s,
+            uncapped.total_s
+        );
+    }
+
+    #[test]
+    fn square_corner_velocity_config_changes_cornering_time() {
+        // A square perimeter: four 90° corners. A higher square-corner velocity
+        // lets the head keep more speed through them, so the layer is faster.
+        let body = "\
+;LAYER_TIME:0.0
+M204 P1000
+G1 X0 Y0 F6000
+G1 X20 Y0 E1 F6000
+G1 X20 Y20 E2 F6000
+G1 X0 Y20 E3 F6000
+G1 X0 Y0 E4 F6000
+";
+        let slow_corners = estimate_print_time(
+            body,
+            &EstimatorConfig {
+                square_corner_velocity_mm_s: 1.0,
+                ..EstimatorConfig::default()
+            },
+        );
+        let fast_corners = estimate_print_time(
+            body,
+            &EstimatorConfig {
+                square_corner_velocity_mm_s: 20.0,
+                ..EstimatorConfig::default()
+            },
+        );
+        assert!(
+            fast_corners.total_s < slow_corners.total_s,
+            "faster cornering must shorten the layer: fast {} vs slow {}",
+            fast_corners.total_s,
+            slow_corners.total_s
+        );
+    }
+
+    #[test]
+    fn from_params_maps_zero_scv_to_default_and_passes_velocity() {
+        let mut params = crate::settings::params::SlicingParams::default();
+        params.square_corner_velocity = 0.0; // → estimator default
+        params.max_velocity = 250.0;
+        let cfg = EstimatorConfig::from_params(&params);
+        assert!(
+            (cfg.square_corner_velocity_mm_s - DEFAULT_SQUARE_CORNER_VELOCITY_MM_S).abs() < 1e-9
+        );
+        assert!((cfg.max_velocity_mm_s - 250.0).abs() < 1e-9);
+
+        params.square_corner_velocity = 8.0;
+        let cfg = EstimatorConfig::from_params(&params);
+        assert!((cfg.square_corner_velocity_mm_s - 8.0).abs() < 1e-9);
     }
 
     #[test]
