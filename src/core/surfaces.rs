@@ -673,6 +673,10 @@ pub(super) fn prune_redundant_gap_fill(layers: &mut [SliceLayer], nozzle_diamete
         let mut new_widths = Vec::new();
         let mut new_vwidths = Vec::new();
         let mut new_is_open = Vec::new();
+        // Carry per-path overhang classes only when the layer was graded, so
+        // removing a gap-fill path does not shift the classes off their walls.
+        let grade_overhang = !layer.path_overhang.is_empty();
+        let mut new_overhang = Vec::new();
 
         for (i, path) in layer.paths.iter().enumerate() {
             let role = layer.role_for_path(i);
@@ -702,6 +706,9 @@ pub(super) fn prune_redundant_gap_fill(layers: &mut [SliceLayer], nozzle_diamete
             new_widths.push(layer.width_for_path(i));
             new_vwidths.push(layer.vertex_widths_for_path(i));
             new_is_open.push(layer.is_path_open(i));
+            if grade_overhang {
+                new_overhang.push(layer.overhang_for_path(i));
+            }
         }
 
         layer.paths = new_paths;
@@ -709,6 +716,7 @@ pub(super) fn prune_redundant_gap_fill(layers: &mut [SliceLayer], nozzle_diamete
         layer.path_widths = new_widths;
         layer.path_vertex_widths = new_vwidths;
         layer.path_is_open = new_is_open;
+        layer.path_overhang = new_overhang;
     }
 }
 

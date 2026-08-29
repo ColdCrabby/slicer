@@ -40,6 +40,12 @@ const FIELD_LABELS: Record<string, string> = {
   perimeter_speed: 'Perimeter Speed',
   infill_speed: 'Infill Speed',
   bridge_speed: 'Bridge Speed',
+  enable_overhang_speed: 'Dynamic Overhang Speed',
+  overhang_1_4_speed: 'Overhang Speed (0–25%)',
+  overhang_2_4_speed: 'Overhang Speed (25–50%)',
+  overhang_3_4_speed: 'Overhang Speed (50–75%)',
+  overhang_4_4_speed: 'Overhang Speed (75–100%)',
+  slowdown_for_curled_perimeters: 'Slow Down Curled Perimeters',
   bridge_flow_ratio: 'Bridge Flow Ratio',
   top_surface_speed: 'Top Surface Speed',
   gap_fill_speed: 'Gap Fill Speed',
@@ -53,6 +59,8 @@ const FIELD_LABELS: Record<string, string> = {
   // Cooling
   fan_speed: 'Fan Speed',
   bridge_fan_speed: 'Bridge Fan Speed',
+  overhang_fan_speed: 'Overhang Fan Speed',
+  overhang_fan_threshold: 'Overhang Fan Threshold',
   first_layer_fan_speed: 'First Layer Fan Speed',
   fan_configs: 'Fan Configurations',
   // Temperature

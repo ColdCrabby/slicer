@@ -22,6 +22,18 @@ these notes and acknowledges contributors. `scripts/gen-changelog-draft.sh` and
 
 ### Added
 
+- **Dynamic overhang speed & cooling** — perimeter segments are now graded by
+  *overhang degree* (how much of the extrusion width hangs over unsupported air)
+  and each degree can print at its own speed and with extra part-cooling airflow,
+  mirroring the OrcaSlicer / PrusaSlicer feature (issue #97). New parameters:
+  `enable_overhang_speed` (master toggle), `overhang_1_4_speed`…`overhang_4_4_speed`
+  (per-degree speeds for the 0–25 / 25–50 / 50–75 / 75–100% unsupported bands),
+  `overhang_fan_speed` + `overhang_fan_threshold` (raise the part-cooling fan over
+  steep overhangs), and `slowdown_for_curled_perimeters` (clamp curl-prone steep
+  overhangs to the most conservative overhang speed). Grading only splits a wall
+  where the degree actually changes the printed speed or fan, so unconfigured
+  degrees add no extra travel. Defaults to **off**, so existing output is
+  unchanged.
 - **Volumetric-flow limiter** — the `max_volumetric_speed` parameter (mm³/s) is
   now enforced by the G-code generator. On every extruding move the feedrate is
   capped to `max_volumetric_speed · 60 / (layer_height × width)` so the hotend

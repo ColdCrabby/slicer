@@ -3,7 +3,7 @@ use clipper2::*;
 use crate::settings::params::SlicingParams;
 
 use super::surfaces::perimeter_paths_of;
-use super::types::{ExtrusionRole, SliceLayer};
+use super::types::{ExtrusionRole, OverhangClass, SliceLayer};
 
 /// Apply single-wall restrictions to specific islands and layers based on parameters.
 ///
@@ -234,6 +234,45 @@ fn reduce_first_layer_to_single_wall(layer: &mut SliceLayer, strip_gap_fill: boo
     layer.path_is_open = new_is_open;
 }
 
+/// Nested previous-layer perimeter inflations used to grade a wall segment's
+/// overhang *degree* for dynamic overhang speed (see
+/// [`classify_overhang_perimeters`]).  Each region is an even-odd polygon set;
+/// a segment midpoint's band is the innermost region it falls inside.
+struct OverhangBands {
+    /// `perimeters[i-1]` (centreline inside → fully supported, band 0).
+    b0: Paths,
+    /// `inflate(prev, d/4)` — the 0%/25% (band 1/2) boundary.
+    b1: Paths,
+    /// `inflate(prev, 3d/4)` — the 75% (band 3/4) boundary.
+    b3: Paths,
+}
+
+/// Inputs for dynamic overhang-degree grading passed to
+/// [`classify_overhang_perimeters`] when `enable_overhang_speed` is on.
+#[derive(Clone, Copy)]
+pub(crate) struct OverhangGrading<'a> {
+    /// Pristine per-layer OuterWall outlines; layer `i`'s support is
+    /// `support[i-1]` (snapshotted before any wall splitting).
+    pub support: &'a [Paths],
+    /// Raw band `0..=4` → the [`OverhangClass`] to emit.  The pipeline folds
+    /// bands whose speed & fan behaviour equals a plain wall down to a lower
+    /// class so grading only splits walls where it actually changes output.
+    /// Supported-side entries (indices 0–2) must stay `≤ Deg2` and air-side
+    /// entries (3–4) `≥ Deg3` so the role tag stays consistent.
+    pub band_class: [OverhangClass; 5],
+}
+
+impl OverhangGrading<'_> {
+    /// Grade every band to its own degree (used by tests).
+    pub(crate) const IDENTITY_BAND_CLASS: [OverhangClass; 5] = [
+        OverhangClass::None,
+        OverhangClass::Deg1,
+        OverhangClass::Deg2,
+        OverhangClass::Deg3,
+        OverhangClass::Deg4,
+    ];
+}
+
 /// Classify wall paths whose centerline crosses unsupported air as
 /// [`ExtrusionRole::OverhangPerimeter`], splitting paths at the
 /// supported/unsupported boundary so that only the in-air sub-segment
@@ -286,253 +325,420 @@ fn reduce_first_layer_to_single_wall(layer: &mut SliceLayer, strip_gap_fill: boo
 /// **Do not pre-erode `unsupported_regions`.**  An earlier version eroded by
 /// `0.6 × d`, which moves the strip's outer boundary past the wall centerline
 /// and suppresses all detection.
-pub(crate) fn classify_overhang_perimeters(layers: &mut [SliceLayer], _nozzle_diameter_mm: f64) {
+pub(crate) fn classify_overhang_perimeters(
+    layers: &mut [SliceLayer],
+    nozzle_diameter_mm: f64,
+    grading: Option<OverhangGrading<'_>>,
+) {
+    let overhang_support = grading.map(|g| g.support);
+    // Per raw band 0..=4 → the class the classifier emits for it.  Bands whose
+    // speed & fan behaviour is identical to a plain wall are folded to a lower
+    // class (down to `None`) by the pipeline, so a supported wall is not
+    // fragmented into Deg1/Deg2 arcs where grading would change nothing.
+    // Defaults to the identity map (grade every band) when unset.
+    let band_class: [OverhangClass; 5] = grading
+        .map(|g| g.band_class)
+        .unwrap_or(OverhangGrading::IDENTITY_BAND_CLASS);
+    // Precompute the per-layer overhang *degree* band boundaries when dynamic
+    // overhang speed is enabled.  `overhang_support[i]` is the pristine
+    // OuterWall centreline outline of layer `i` (snapshotted by the pipeline
+    // before any wall splitting), so layer `i`'s support is
+    // `overhang_support[i-1]`.  The bead is `nozzle_diameter_mm` wide about its
+    // centreline, so the unsupported fraction bands map to inflations of the
+    // previous perimeter:
+    //   b0 = prev              (centreline inside prev  → 0% unsupported)
+    //   b1 = inflate(prev,d/4) (→ 25% boundary)
+    //   b3 = inflate(prev,3d/4)(→ 75% boundary)
+    // The 50% boundary is `inflate(prev,d/2)`, which is exactly the envelope
+    // `unsupported_regions` is built from — so the air test (majority in air)
+    // already sits on the Deg2/Deg3 seam and the bands stay consistent with the
+    // binary OverhangPerimeter role.
+    let band_regions: Option<Vec<Option<OverhangBands>>> = overhang_support.map(|support| {
+        let d = nozzle_diameter_mm;
+        let build = |i: usize| -> Option<OverhangBands> {
+            if i == 0 {
+                return None;
+            }
+            let prev = support.get(i - 1)?;
+            if prev.is_empty() {
+                return None;
+            }
+            Some(OverhangBands {
+                b0: prev.clone(),
+                b1: inflate(
+                    prev.clone(),
+                    d * 0.25,
+                    JoinType::Round,
+                    EndType::Polygon,
+                    2.0,
+                ),
+                b3: inflate(
+                    prev.clone(),
+                    d * 0.75,
+                    JoinType::Round,
+                    EndType::Polygon,
+                    2.0,
+                ),
+            })
+        };
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            use rayon::prelude::*;
+            (0..layers.len()).into_par_iter().map(build).collect()
+        }
+        #[cfg(target_arch = "wasm32")]
+        {
+            (0..layers.len()).map(build).collect()
+        }
+    });
+
     // Per-layer work is read-only on the layer's own data (we clone
     // `unsupported_regions` up front) and writes back into a freshly built
     // set of vectors at the end.  No layer reads any other layer's state, so
     // the whole pass parallelises cleanly across layers.
     //
-    // We compute the (paths, roles, widths, is_open) replacement tuples in
-    // parallel on native targets, then apply them serially.  On the Benchy
-    // this drops the phase from ~430 ms to a few tens of ms on a multi-core
-    // host.
+    // We compute the (paths, roles, widths, is_open, overhang) replacement
+    // tuples in parallel on native targets, then apply them serially.  On the
+    // Benchy this drops the phase from ~430 ms to a few tens of ms on a
+    // multi-core host.
     #[allow(clippy::type_complexity)]
-    let process_layer =
-        |layer: &SliceLayer| -> Option<(Paths, Vec<ExtrusionRole>, Vec<Option<f64>>, Vec<bool>)> {
-            if layer.unsupported_regions.is_empty() {
-                return None;
+    let process_layer = |layer_idx: usize,
+                         layer: &SliceLayer|
+     -> Option<(
+        Paths,
+        Vec<ExtrusionRole>,
+        Vec<Option<f64>>,
+        Vec<bool>,
+        Vec<OverhangClass>,
+    )> {
+        if layer.unsupported_regions.is_empty() {
+            return None;
+        }
+        // Local copy of the air region for boundary tests.
+        let air = layer.unsupported_regions.clone();
+
+        // Degree bands for this layer (present only when dynamic overhang
+        // speed is enabled and the previous layer has a perimeter).  When
+        // absent the classifier reduces to the historical binary split.
+        let bands: Option<&OverhangBands> = band_regions
+            .as_ref()
+            .and_then(|b| b.get(layer_idx))
+            .and_then(|o| o.as_ref());
+        let grade = bands.is_some();
+
+        // Combined densification boundaries: the air boundary always, plus
+        // the degree-band boundaries when grading, so every densified
+        // sub-edge lies cleanly on one side of every boundary it must be
+        // classified against.
+        let densify_bounds: Paths = if let Some(b) = bands {
+            let mut acc: Vec<Path> = air.iter().cloned().collect();
+            acc.extend(b.b0.iter().cloned());
+            acc.extend(b.b1.iter().cloned());
+            acc.extend(b.b3.iter().cloned());
+            Paths::new(acc)
+        } else {
+            air.clone()
+        };
+
+        // Pad roles/widths so indices are always valid.  We can't mutate
+        // the layer here (parallel context), so compute padded views
+        // locally.
+        let path_count = layer.paths.len();
+        let mut padded_roles: Vec<ExtrusionRole> = layer.path_roles.clone();
+        while padded_roles.len() < path_count {
+            padded_roles.push(ExtrusionRole::OuterWall);
+        }
+        let mut padded_widths: Vec<Option<f64>> = layer.path_widths.clone();
+        while padded_widths.len() < path_count {
+            padded_widths.push(None);
+        }
+
+        let mut new_paths = Paths::new(vec![]);
+        let mut new_roles: Vec<ExtrusionRole> = Vec::new();
+        let mut new_widths: Vec<Option<f64>> = Vec::new();
+        let mut new_is_open: Vec<bool> = Vec::new();
+        // Populated only when grading (dynamic overhang speed on); left
+        // empty otherwise so `path_overhang` stays absent and the generator
+        // sees no override.
+        let mut new_overhang: Vec<OverhangClass> = Vec::new();
+        // Push a class only while grading, keeping `new_overhang` aligned
+        // with `new_paths` without allocating when the feature is off.
+        let push_class = |v: &mut Vec<OverhangClass>, c: OverhangClass| {
+            if grade {
+                v.push(c);
             }
-            // Local copy of the air region for boundary tests.
-            let air = layer.unsupported_regions.clone();
+        };
 
-            // Pad roles/widths so indices are always valid.  We can't mutate
-            // the layer here (parallel context), so compute padded views
-            // locally.
-            let path_count = layer.paths.len();
-            let mut padded_roles: Vec<ExtrusionRole> = layer.path_roles.clone();
-            while padded_roles.len() < path_count {
-                padded_roles.push(ExtrusionRole::OuterWall);
+        for (path_idx, path) in layer.paths.iter().enumerate() {
+            let role = padded_roles[path_idx];
+            let width = padded_widths.get(path_idx).copied().flatten();
+            // Whether this path was already split into an open arc by an
+            // earlier pass (e.g. clip_walls_against_bridge_region).
+            let is_already_open = layer.is_path_open(path_idx);
+
+            // Only wall roles can be reclassified.
+            if role != ExtrusionRole::OuterWall && role != ExtrusionRole::InnerWall {
+                new_paths.push(path.clone());
+                new_roles.push(role);
+                new_widths.push(width);
+                new_is_open.push(is_already_open);
+                push_class(&mut new_overhang, OverhangClass::None);
+                continue;
             }
-            let mut padded_widths: Vec<Option<f64>> = layer.path_widths.clone();
-            while padded_widths.len() < path_count {
-                padded_widths.push(None);
+
+            let raw_pts: Vec<(f64, f64)> = path.iter().map(|p| (p.x(), p.y())).collect();
+            if raw_pts.len() < 2 {
+                new_paths.push(path.clone());
+                new_roles.push(role);
+                new_widths.push(width);
+                new_is_open.push(is_already_open);
+                push_class(&mut new_overhang, OverhangClass::None);
+                continue;
             }
 
-            let mut new_paths = Paths::new(vec![]);
-            let mut new_roles: Vec<ExtrusionRole> = Vec::new();
-            let mut new_widths: Vec<Option<f64>> = Vec::new();
-            let mut new_is_open: Vec<bool> = Vec::new();
+            // Densify the path by inserting break points at every actual
+            // intersection between a wall edge and a boundary polygon edge.
+            // When grading, the boundary set includes the degree-band
+            // inflations as well as the air boundary, so each resulting
+            // sub-edge lies fully on one side of every boundary it must be
+            // classified against.  This is what keeps an extrusion line in
+            // its original role/degree until the exact point where it
+            // crosses a boundary — earlier vertex-only logic would mark a
+            // whole long edge as overhang as soon as one endpoint crossed.
+            let dense_pts =
+                densify_path_at_air_boundaries(&raw_pts, &densify_bounds, is_already_open);
+            let nd = dense_pts.len();
+            if nd < 2 {
+                new_paths.push(path.clone());
+                new_roles.push(role);
+                new_widths.push(width);
+                new_is_open.push(is_already_open);
+                push_class(&mut new_overhang, OverhangClass::None);
+                continue;
+            }
 
-            for (path_idx, path) in layer.paths.iter().enumerate() {
-                let role = padded_roles[path_idx];
-                let width = padded_widths.get(path_idx).copied().flatten();
-                // Whether this path was already split into an open arc by an
-                // earlier pass (e.g. clip_walls_against_bridge_region).
-                let is_already_open = layer.is_path_open(path_idx);
+            let edge_count = if is_already_open { nd - 1 } else { nd };
+            // Per-edge in-air status (midpoint test against `air`).
+            let mut edge_air: Vec<bool> = (0..edge_count)
+                .map(|i| {
+                    let j = if is_already_open { i + 1 } else { (i + 1) % nd };
+                    let mx = (dense_pts[i].0 + dense_pts[j].0) * 0.5;
+                    let my = (dense_pts[i].1 + dense_pts[j].1) * 0.5;
+                    point_inside_or_on_paths_eo(mx, my, &air)
+                })
+                .collect();
 
-                // Only wall roles can be reclassified.
-                if role != ExtrusionRole::OuterWall && role != ExtrusionRole::InnerWall {
-                    new_paths.push(path.clone());
-                    new_roles.push(role);
-                    new_widths.push(width);
-                    new_is_open.push(is_already_open);
-                    continue;
-                }
+            // Hysteresis filter: collapse short alternating runs that arise
+            // from grazing the air boundary (Centi quantisation noise, slight
+            // wobble in the layer-i-1 perimeter, etc.).  A genuine overhang on
+            // the Benchy hull spans many millimetres of arc; tiny < ~1 mm
+            // flips are noise and turn one wall loop into dozens of fragments
+            // downstream (huge travel/seam/marker overhead).
+            //
+            // Threshold: max(2 × nozzle_diameter, 1.5 mm).  Larger than typical
+            // densifier-inserted noise, smaller than the shortest meaningful
+            // overhang strip we'd want to print at bridge speed.
+            let min_run_len_mm = (2.0 * nozzle_diameter_mm).max(1.5);
+            collapse_short_runs(&mut edge_air, &dense_pts, is_already_open, min_run_len_mm);
 
-                let raw_pts: Vec<(f64, f64)> = path.iter().map(|p| (p.x(), p.y())).collect();
-                if raw_pts.len() < 2 {
-                    new_paths.push(path.clone());
-                    new_roles.push(role);
-                    new_widths.push(width);
-                    new_is_open.push(is_already_open);
-                    continue;
-                }
-
-                // Densify the path by inserting break points at every actual
-                // intersection between a wall edge and an `air` polygon boundary
-                // edge.  After densification each resulting sub-edge lies fully
-                // on one side of the boundary, so a single midpoint test
-                // classifies it unambiguously.  This is what keeps an extrusion
-                // line in its original role until the exact point where it
-                // enters the unsupported region — earlier vertex-only logic
-                // would mark a whole long edge as overhang as soon as one
-                // endpoint crossed the boundary.
-                let dense_pts = densify_path_at_air_boundaries(&raw_pts, &air, is_already_open);
-                let nd = dense_pts.len();
-                if nd < 2 {
-                    new_paths.push(path.clone());
-                    new_roles.push(role);
-                    new_widths.push(width);
-                    new_is_open.push(is_already_open);
-                    continue;
-                }
-
-                let edge_count = if is_already_open { nd - 1 } else { nd };
-                // Per-edge in-air status (midpoint test against `air`).
-                let mut edge_air: Vec<bool> = (0..edge_count)
+            // Per-edge overhang *degree* band (0..=4).  When grading, each
+            // edge is graded against the previous layer's perimeter
+            // inflations (with the collapsed air flag as the ≥Deg3 gate, so
+            // role and degree stay consistent); band hysteresis then
+            // suppresses tiny degree flickers, and a final clamp keeps
+            // `band ≥ 3` exactly equivalent to "in air".  When not grading,
+            // the band is derived purely from the air flag (0 or 3), so the
+            // run split below reduces to the historical binary behaviour.
+            let edge_band: Vec<u8> = if let Some(b) = bands {
+                let mut band: Vec<u8> = (0..edge_count)
                     .map(|i| {
                         let j = if is_already_open { i + 1 } else { (i + 1) % nd };
                         let mx = (dense_pts[i].0 + dense_pts[j].0) * 0.5;
                         let my = (dense_pts[i].1 + dense_pts[j].1) * 0.5;
-                        point_inside_or_on_paths_eo(mx, my, &air)
+                        let raw = if edge_air[i] {
+                            if point_inside_or_on_paths_eo(mx, my, &b.b3) {
+                                3
+                            } else {
+                                4
+                            }
+                        } else if point_inside_or_on_paths_eo(mx, my, &b.b0) {
+                            0
+                        } else if point_inside_or_on_paths_eo(mx, my, &b.b1) {
+                            1
+                        } else {
+                            2
+                        };
+                        // Fold to the emitted class (a band the pipeline deemed
+                        // behaviourally equal to a plainer wall collapses to a
+                        // lower degree, so we never split where output is
+                        // unchanged).  Supported↔air sides are preserved by
+                        // construction, so this never re-tags the role.
+                        band_class[raw as usize].band()
                     })
                     .collect();
-
-                // Hysteresis filter: collapse short alternating runs that arise
-                // from grazing the air boundary (Centi quantisation noise, slight
-                // wobble in the layer-i-1 perimeter, etc.).  A genuine overhang on
-                // the Benchy hull spans many millimetres of arc; tiny < ~1 mm
-                // flips are noise and turn one wall loop into dozens of fragments
-                // downstream (huge travel/seam/marker overhead).
-                //
-                // Threshold: max(2 × nozzle_diameter, 1.5 mm).  Larger than typical
-                // densifier-inserted noise, smaller than the shortest meaningful
-                // overhang strip we'd want to print at bridge speed.
-                let min_run_len_mm = (2.0 * _nozzle_diameter_mm).max(1.5);
-                collapse_short_runs(&mut edge_air, &dense_pts, is_already_open, min_run_len_mm);
-
-                let any_air = edge_air.iter().any(|&b| b);
-                if !any_air {
-                    // Entirely supported — keep as-is.
-                    new_paths.push(path.clone());
-                    new_roles.push(role);
-                    new_widths.push(width);
-                    new_is_open.push(is_already_open);
-                    continue;
-                }
-
-                let any_supported = edge_air.iter().any(|&b| !b);
-                if !any_supported {
-                    // Entirely in air — whole path becomes OverhangPerimeter.
-                    // Preserve the open/closed state of the original path.
-                    new_paths.push(path.clone());
-                    new_roles.push(ExtrusionRole::OverhangPerimeter);
-                    new_widths.push(width);
-                    new_is_open.push(is_already_open);
-                    continue;
-                }
-
-                // ── Mixed path: build runs of consecutive same-status edges ──
-                //
-                // Each run [a..=b] (edge indices, inclusive) becomes a sub-path
-                // with vertices [dense_pts[a], dense_pts[a+1], ..., dense_pts[b+1]]
-                // (vertex indices wrap modulo `nd` for closed paths).  Adjacent
-                // runs share their seam vertex (the exact air-boundary crossing
-                // point inserted during densification), so there is no gap in
-                // the printed path.
-                let next_v = |vi: usize| -> usize {
-                    if is_already_open {
-                        vi + 1
+                collapse_short_runs_u8(&mut band, &dense_pts, is_already_open, min_run_len_mm);
+                for (i, bd) in band.iter_mut().enumerate() {
+                    // Neutralise any cross-air-boundary flip the collapse
+                    // made so the ≥Deg3 ⇔ in-air invariant (hence the role
+                    // tag) is exact.
+                    *bd = if edge_air[i] {
+                        (*bd).max(3)
                     } else {
-                        (vi + 1) % nd
-                    }
-                };
-
-                // Build runs.
-                let mut runs: Vec<(Vec<(f64, f64)>, bool)> = Vec::new();
-
-                if is_already_open {
-                    // Linear walk — no wrap-around.
-                    let mut run_start = 0_usize;
-                    let mut run_air = edge_air[0];
-                    let mut verts: Vec<(f64, f64)> = vec![dense_pts[0]];
-                    for i in 0..edge_count {
-                        if edge_air[i] != run_air {
-                            // Flush previous run up to the seam vertex (which is
-                            // dense_pts[i], the start of the changed edge).
-                            verts.push(dense_pts[i]);
-                            runs.push((verts, run_air));
-                            run_start = i;
-                            run_air = edge_air[i];
-                            verts = vec![dense_pts[i]];
-                        }
-                        verts.push(dense_pts[i + 1]);
-                    }
-                    let _ = run_start;
-                    runs.push((verts, run_air));
-                } else {
-                    // Closed loop: find the first transition between adjacent
-                    // edges and start the walk on the next run so the wrap-around
-                    // is well-defined.
-                    let first_trans = (0..edge_count)
-                        .find(|&i| edge_air[i] != edge_air[(i + 1) % edge_count])
-                        .unwrap(); // safe: any_air && any_supported guarantees ≥ 1 transition
-                    let start_edge = (first_trans + 1) % edge_count;
-
-                    let mut run_air = edge_air[start_edge];
-                    let mut verts: Vec<(f64, f64)> = vec![dense_pts[start_edge]];
-
-                    for k in 0..edge_count {
-                        let ei = (start_edge + k) % edge_count;
-                        let v_next = next_v(ei);
-                        if edge_air[ei] != run_air {
-                            // Seam at dense_pts[ei] (start of the new edge).
-                            // Previous run already ends at dense_pts[ei] because
-                            // edge ei-1 ended there.
-                            runs.push((verts, run_air));
-                            run_air = edge_air[ei];
-                            verts = vec![dense_pts[ei]];
-                        }
-                        verts.push(dense_pts[v_next]);
-                    }
-                    runs.push((verts, run_air));
-
-                    // Wrap-around merge: if the first and last runs have the same
-                    // status (the walk started in the middle of a run), stitch
-                    // them together so the closed loop is preserved as one
-                    // contiguous arc per role.
-                    if runs.len() >= 2 && runs[0].1 == runs.last().unwrap().1 {
-                        let last = runs.pop().unwrap();
-                        debug_assert_eq!(
-                            last.0.last(),
-                            runs[0].0.first(),
-                            "merge invariant: last run's final vertex must equal \
-                             first run's opening vertex (shared seam)"
-                        );
-                        let mut merged = last.0;
-                        merged.extend_from_slice(&runs[0].0[1..]);
-                        runs[0].0 = merged;
-                    }
-                }
-
-                // Emit all runs as paths.
-                for (verts, is_air_seg) in runs {
-                    if verts.len() < 2 {
-                        continue;
-                    }
-                    let seg_role = if is_air_seg {
-                        ExtrusionRole::OverhangPerimeter
-                    } else {
-                        role
+                        (*bd).min(2)
                     };
-                    let seg_path: Path = verts.into();
-                    new_paths.push(seg_path);
-                    new_roles.push(seg_role);
-                    new_widths.push(width);
-                    // All sub-segments from a split are open arcs — the original
-                    // closed loop was broken into polyline fragments.  The G-code
-                    // generator must NOT append a "close contour" move for these.
-                    new_is_open.push(true);
+                }
+                band
+            } else {
+                edge_air.iter().map(|&a| if a { 3 } else { 0 }).collect()
+            };
+
+            // Uniform band → keep the path unsplit (covers both historical
+            // fast paths: all-supported = band 0, all-in-air = band 3/4).
+            let first_band = edge_band[0];
+            if edge_band.iter().all(|&b| b == first_band) {
+                let seg_role = if first_band >= 3 {
+                    ExtrusionRole::OverhangPerimeter
+                } else {
+                    role
+                };
+                new_paths.push(path.clone());
+                new_roles.push(seg_role);
+                new_widths.push(width);
+                new_is_open.push(is_already_open);
+                push_class(&mut new_overhang, OverhangClass::from_band(first_band));
+                continue;
+            }
+
+            // ── Mixed path: build runs of consecutive same-band edges ──
+            //
+            // Each run [a..=b] (edge indices, inclusive) becomes a sub-path
+            // with vertices [dense_pts[a], dense_pts[a+1], ..., dense_pts[b+1]]
+            // (vertex indices wrap modulo `nd` for closed paths).  Adjacent
+            // runs share their seam vertex (the exact boundary crossing
+            // point inserted during densification), so there is no gap in
+            // the printed path.
+            let next_v = |vi: usize| -> usize {
+                if is_already_open {
+                    vi + 1
+                } else {
+                    (vi + 1) % nd
+                }
+            };
+
+            // Build runs keyed by band value (u8).
+            let mut runs: Vec<(Vec<(f64, f64)>, u8)> = Vec::new();
+
+            if is_already_open {
+                // Linear walk — no wrap-around.
+                let mut run_band = edge_band[0];
+                let mut verts: Vec<(f64, f64)> = vec![dense_pts[0]];
+                for i in 0..edge_count {
+                    if edge_band[i] != run_band {
+                        // Flush previous run up to the seam vertex (which is
+                        // dense_pts[i], the start of the changed edge).
+                        verts.push(dense_pts[i]);
+                        runs.push((verts, run_band));
+                        run_band = edge_band[i];
+                        verts = vec![dense_pts[i]];
+                    }
+                    verts.push(dense_pts[i + 1]);
+                }
+                runs.push((verts, run_band));
+            } else {
+                // Closed loop: find the first transition between adjacent
+                // edges and start the walk on the next run so the wrap-around
+                // is well-defined.
+                let first_trans = (0..edge_count)
+                    .find(|&i| edge_band[i] != edge_band[(i + 1) % edge_count])
+                    .unwrap(); // safe: the uniform-band fast path above guarantees ≥ 1 transition
+                let start_edge = (first_trans + 1) % edge_count;
+
+                let mut run_band = edge_band[start_edge];
+                let mut verts: Vec<(f64, f64)> = vec![dense_pts[start_edge]];
+
+                for k in 0..edge_count {
+                    let ei = (start_edge + k) % edge_count;
+                    let v_next = next_v(ei);
+                    if edge_band[ei] != run_band {
+                        // Seam at dense_pts[ei] (start of the new edge).
+                        // Previous run already ends at dense_pts[ei] because
+                        // edge ei-1 ended there.
+                        runs.push((verts, run_band));
+                        run_band = edge_band[ei];
+                        verts = vec![dense_pts[ei]];
+                    }
+                    verts.push(dense_pts[v_next]);
+                }
+                runs.push((verts, run_band));
+
+                // Wrap-around merge: if the first and last runs have the same
+                // band (the walk started in the middle of a run), stitch
+                // them together so the closed loop is preserved as one
+                // contiguous arc per role/degree.
+                if runs.len() >= 2 && runs[0].1 == runs.last().unwrap().1 {
+                    let last = runs.pop().unwrap();
+                    debug_assert_eq!(
+                        last.0.last(),
+                        runs[0].0.first(),
+                        "merge invariant: last run's final vertex must equal \
+                             first run's opening vertex (shared seam)"
+                    );
+                    let mut merged = last.0;
+                    merged.extend_from_slice(&runs[0].0[1..]);
+                    runs[0].0 = merged;
                 }
             }
 
-            Some((new_paths, new_roles, new_widths, new_is_open))
-        };
+            // Emit all runs as paths.
+            for (verts, seg_band) in runs {
+                if verts.len() < 2 {
+                    continue;
+                }
+                let seg_role = if seg_band >= 3 {
+                    ExtrusionRole::OverhangPerimeter
+                } else {
+                    role
+                };
+                let seg_path: Path = verts.into();
+                new_paths.push(seg_path);
+                new_roles.push(seg_role);
+                new_widths.push(width);
+                // All sub-segments from a split are open arcs — the original
+                // closed loop was broken into polyline fragments.  The G-code
+                // generator must NOT append a "close contour" move for these.
+                new_is_open.push(true);
+                push_class(&mut new_overhang, OverhangClass::from_band(seg_band));
+            }
+        }
+
+        Some((new_paths, new_roles, new_widths, new_is_open, new_overhang))
+    };
 
     #[cfg(not(target_arch = "wasm32"))]
     let results: Vec<Option<_>> = {
         use rayon::prelude::*;
-        layers.par_iter().map(process_layer).collect()
+        layers
+            .par_iter()
+            .enumerate()
+            .map(|(i, layer)| process_layer(i, layer))
+            .collect()
     };
     #[cfg(target_arch = "wasm32")]
-    let results: Vec<Option<_>> = layers.iter().map(process_layer).collect();
+    let results: Vec<Option<_>> = layers
+        .iter()
+        .enumerate()
+        .map(|(i, layer)| process_layer(i, layer))
+        .collect();
 
     for (layer, result) in layers.iter_mut().zip(results) {
-        if let Some((new_paths, new_roles, new_widths, new_is_open)) = result {
+        if let Some((new_paths, new_roles, new_widths, new_is_open, new_overhang)) = result {
             layer.paths = new_paths;
             layer.path_roles = new_roles;
             layer.path_widths = new_widths;
             layer.path_is_open = new_is_open;
+            // Empty when not grading (feature off / no previous perimeter), so
+            // `overhang_for_path` keeps returning `None`.
+            layer.path_overhang = new_overhang;
             // Overhang-split arcs drop per-vertex widths; scalar width is used.
             layer.path_vertex_widths = Vec::new();
         }
@@ -775,6 +981,105 @@ fn collapse_short_runs(
     }
 }
 
+/// Degree-band hysteresis: collapse any contiguous run of equal-band edges
+/// whose total arc length is below `min_run_len_mm` by re-labelling it with the
+/// band of its **longer** neighbour.  The multi-valued analogue of
+/// [`collapse_short_runs`], used to suppress tiny overhang-degree flickers so a
+/// long overhang arc is not shattered into dozens of Deg3/Deg4 fragments (and a
+/// supported wall into Deg1/Deg2 fragments).
+///
+/// Cross-air-boundary flips are harmless here: the caller re-clamps the band to
+/// the collapsed air flag afterwards, so any Deg2→Deg3 (or Deg3→Deg2) drift a
+/// merge introduces is neutralised.  Iterated to convergence, bounded by the
+/// edge count.
+fn collapse_short_runs_u8(
+    edge_band: &mut [u8],
+    dense_pts: &[(f64, f64)],
+    is_open: bool,
+    min_run_len_mm: f64,
+) {
+    let n = edge_band.len();
+    if n < 2 || min_run_len_mm <= 0.0 {
+        return;
+    }
+
+    let nd = dense_pts.len();
+    let edge_len: Vec<f64> = (0..n)
+        .map(|i| {
+            let j = if is_open { i + 1 } else { (i + 1) % nd };
+            let dx = dense_pts[j].0 - dense_pts[i].0;
+            let dy = dense_pts[j].1 - dense_pts[i].1;
+            (dx * dx + dy * dy).sqrt()
+        })
+        .collect();
+
+    for _ in 0..n {
+        // Build runs as (start, end_exclusive, band, length).
+        let mut runs: Vec<(usize, usize, u8, f64)> = Vec::new();
+        let mut i = 0;
+        while i < n {
+            let s = edge_band[i];
+            let mut j = i + 1;
+            let mut len = edge_len[i];
+            while j < n && edge_band[j] == s {
+                len += edge_len[j];
+                j += 1;
+            }
+            runs.push((i, j, s, len));
+            i = j;
+        }
+
+        // Cyclic merge: a closed loop whose first and last runs share a band is
+        // one logical run for the length test.
+        let cyclic_pair =
+            if !is_open && runs.len() >= 2 && runs.first().unwrap().2 == runs.last().unwrap().2 {
+                Some((0_usize, runs.len() - 1, runs[0].3 + runs[runs.len() - 1].3))
+            } else {
+                None
+            };
+
+        // Pick the shortest sub-threshold run that has a neighbour to merge into.
+        let mut victim: Option<usize> = None;
+        let mut victim_len = f64::MAX;
+        for (idx, run) in runs.iter().enumerate() {
+            let effective_len = match cyclic_pair {
+                Some((a, b, merged)) if idx == a || idx == b => merged,
+                _ => run.3,
+            };
+            if effective_len >= min_run_len_mm || runs.len() == 1 {
+                continue;
+            }
+            if effective_len < victim_len {
+                victim_len = effective_len;
+                victim = Some(idx);
+            }
+        }
+
+        let Some(v) = victim else {
+            return; // Converged.
+        };
+
+        // Re-label the victim (and its cyclic twin) with the longer neighbour's
+        // band.  The neighbours in run order are v-1 and v+1 (cyclically).
+        let prev_run = if v == 0 { runs.len() - 1 } else { v - 1 };
+        let next_run = if v + 1 == runs.len() { 0 } else { v + 1 };
+        // Merged-pair halves are the same logical run; skip self as neighbour.
+        let neighbour = if runs[prev_run].3 >= runs[next_run].3 {
+            prev_run
+        } else {
+            next_run
+        };
+        let new_band = runs[neighbour].2;
+        edge_band[runs[v].0..runs[v].1].fill(new_band);
+        if let Some((a, b, _)) = cyclic_pair {
+            if v == a || v == b {
+                let other = if v == a { b } else { a };
+                edge_band[runs[other].0..runs[other].1].fill(new_band);
+            }
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -795,7 +1100,7 @@ mod tests {
         layer.unsupported_regions = Paths::new(vec![air]);
 
         let mut layers = vec![layer];
-        classify_overhang_perimeters(&mut layers, 0.4);
+        classify_overhang_perimeters(&mut layers, 0.4, None);
 
         assert_eq!(
             layers[0].path_roles[0],
@@ -819,7 +1124,7 @@ mod tests {
         layer.unsupported_regions = Paths::new(vec![air]);
 
         let mut layers = vec![layer];
-        classify_overhang_perimeters(&mut layers, 0.4);
+        classify_overhang_perimeters(&mut layers, 0.4, None);
 
         assert_eq!(
             layers[0].path_roles[0],
@@ -841,13 +1146,157 @@ mod tests {
         layer.unsupported_regions = Paths::new(vec![air]);
 
         let mut layers = vec![layer];
-        classify_overhang_perimeters(&mut layers, 0.4);
+        classify_overhang_perimeters(&mut layers, 0.4, None);
 
         assert_eq!(
             layers[0].path_roles[0],
             ExtrusionRole::Infill,
             "Infill paths must never be reclassified as OverhangPerimeter"
         );
+    }
+
+    /// Push an open horizontal wall polyline running along `y` from `x0` to `x1`.
+    fn push_open_wall_y(layer: &mut SliceLayer, y: f64, x0: f64, x1: f64, role: ExtrusionRole) {
+        let p: Path = vec![(x0, y), (x1, y)].into();
+        layer.paths.push(p);
+        layer.path_roles.push(role);
+        layer.path_widths.push(None);
+        layer.path_vertex_widths.push(None);
+        layer.path_is_open.push(true);
+    }
+
+    /// With dynamic overhang speed enabled, wall segments must be graded into
+    /// the four overhang degrees by how far past the previous-layer support edge
+    /// their centreline sits (`nozzle = 0.4` → band seams at +0.1 / +0.2 / +0.3
+    /// mm above the top edge at y = 100).
+    #[test]
+    fn test_classify_overhang_degrees_grades_bands() {
+        // Support: a 100×100 square whose top edge is y = 100.
+        let prev: Paths = Paths::new(vec![vec![
+            (0.0, 0.0),
+            (100.0, 0.0),
+            (100.0, 100.0),
+            (0.0, 100.0),
+        ]
+        .into()]);
+
+        let support_layer = SliceLayer::new(0.2);
+        let mut wall_layer = SliceLayer::new(0.4);
+        // Four long walls, each uniform in one degree band.
+        push_open_wall_y(
+            &mut wall_layer,
+            100.05,
+            10.0,
+            90.0,
+            ExtrusionRole::InnerWall,
+        ); // Deg1
+        push_open_wall_y(
+            &mut wall_layer,
+            100.15,
+            10.0,
+            90.0,
+            ExtrusionRole::InnerWall,
+        ); // Deg2
+        push_open_wall_y(
+            &mut wall_layer,
+            100.25,
+            10.0,
+            90.0,
+            ExtrusionRole::InnerWall,
+        ); // Deg3
+        push_open_wall_y(&mut wall_layer, 100.5, 10.0, 90.0, ExtrusionRole::InnerWall); // Deg4
+
+        // Air = everything above the +d/2 (= 0.2 mm) support envelope.
+        let air: Path = vec![
+            (-10.0, 100.2),
+            (110.0, 100.2),
+            (110.0, 200.0),
+            (-10.0, 200.0),
+        ]
+        .into();
+        wall_layer.unsupported_regions = Paths::new(vec![air]);
+
+        // Support at index 0 is the layer below the wall layer (layer 1).
+        let mut layers = vec![support_layer, wall_layer];
+        let support = vec![prev, Paths::default()];
+        classify_overhang_perimeters(
+            &mut layers,
+            0.4,
+            Some(OverhangGrading {
+                support: &support,
+                band_class: OverhangGrading::IDENTITY_BAND_CLASS,
+            }),
+        );
+
+        let l = &layers[1];
+        // Four inputs stayed four outputs (each wall is uniform → not split).
+        assert_eq!(l.paths.len(), 4, "no split expected for uniform-band walls");
+        assert_eq!(l.overhang_for_path(0), OverhangClass::Deg1);
+        assert_eq!(l.overhang_for_path(1), OverhangClass::Deg2);
+        assert_eq!(l.overhang_for_path(2), OverhangClass::Deg3);
+        assert_eq!(l.overhang_for_path(3), OverhangClass::Deg4);
+        // Deg3/Deg4 are in air → OverhangPerimeter role; Deg1/Deg2 stay walls.
+        assert_eq!(l.role_for_path(0), ExtrusionRole::InnerWall);
+        assert_eq!(l.role_for_path(1), ExtrusionRole::InnerWall);
+        assert_eq!(l.role_for_path(2), ExtrusionRole::OverhangPerimeter);
+        assert_eq!(l.role_for_path(3), ExtrusionRole::OverhangPerimeter);
+    }
+
+    /// A fully-unsupported wall far from any support is Deg4, and the role
+    /// tag still becomes `OverhangPerimeter` — degree and role stay consistent.
+    #[test]
+    fn test_classify_overhang_degrees_fully_unsupported_is_deg4() {
+        let wall: Path = vec![(2.5, 2.5), (7.5, 2.5), (7.5, 7.5), (2.5, 7.5)].into();
+        let support_layer = SliceLayer::new(0.2);
+        let mut wall_layer = SliceLayer::new(0.4);
+        wall_layer.paths.push(wall);
+        wall_layer.path_roles.push(ExtrusionRole::OuterWall);
+        let air: Path = vec![(0.0, 0.0), (10.0, 0.0), (10.0, 10.0), (0.0, 10.0)].into();
+        wall_layer.unsupported_regions = Paths::new(vec![air]);
+
+        // Support far away so the whole wall is fully unsupported (Deg4).
+        let prev: Paths = Paths::new(vec![vec![
+            (20.0, 20.0),
+            (25.0, 20.0),
+            (25.0, 25.0),
+            (20.0, 25.0),
+        ]
+        .into()]);
+        let mut layers = vec![support_layer, wall_layer];
+        let support = vec![prev, Paths::default()];
+        classify_overhang_perimeters(
+            &mut layers,
+            0.4,
+            Some(OverhangGrading {
+                support: &support,
+                band_class: OverhangGrading::IDENTITY_BAND_CLASS,
+            }),
+        );
+
+        assert_eq!(layers[1].overhang_for_path(0), OverhangClass::Deg4);
+        assert_eq!(layers[1].role_for_path(0), ExtrusionRole::OverhangPerimeter);
+    }
+
+    /// With the feature off (`overhang_support = None`) no degree data is
+    /// produced, so `path_overhang` stays empty and every path resolves to
+    /// `None` — the OFF path must be byte-identical to the historical behaviour.
+    #[test]
+    fn test_classify_overhang_degrees_off_leaves_path_overhang_empty() {
+        let wall: Path = vec![(2.5, 2.5), (7.5, 2.5), (7.5, 7.5), (2.5, 7.5)].into();
+        let mut layer = SliceLayer::new(0.4);
+        layer.paths.push(wall);
+        layer.path_roles.push(ExtrusionRole::OuterWall);
+        let air: Path = vec![(0.0, 0.0), (10.0, 0.0), (10.0, 10.0), (0.0, 10.0)].into();
+        layer.unsupported_regions = Paths::new(vec![air]);
+
+        let mut layers = vec![layer];
+        classify_overhang_perimeters(&mut layers, 0.4, None);
+
+        assert!(
+            layers[0].path_overhang.is_empty(),
+            "path_overhang must stay empty when dynamic overhang speed is off"
+        );
+        assert_eq!(layers[0].overhang_for_path(0), OverhangClass::None);
     }
 
     /// **Regression** — slightly outward-leaning hulls (typical Benchy hull,
@@ -879,7 +1328,7 @@ mod tests {
         layer.unsupported_regions = Paths::new(vec![cur_outer, prev_outer]);
 
         let mut layers = vec![layer];
-        classify_overhang_perimeters(&mut layers, 0.4);
+        classify_overhang_perimeters(&mut layers, 0.4, None);
 
         assert_eq!(
             layers[0].path_roles[0],
@@ -912,7 +1361,7 @@ mod tests {
         layer.unsupported_regions = Paths::new(vec![cur_outer, prev_outer]);
 
         let mut layers = vec![layer];
-        classify_overhang_perimeters(&mut layers, 0.4);
+        classify_overhang_perimeters(&mut layers, 0.4, None);
 
         assert_eq!(
             layers[0].path_roles[0],
@@ -946,7 +1395,7 @@ mod tests {
         layer.unsupported_regions = Paths::new(vec![air]);
 
         let mut layers = vec![layer];
-        classify_overhang_perimeters(&mut layers, 0.4);
+        classify_overhang_perimeters(&mut layers, 0.4, None);
 
         // Find the OverhangPerimeter sub-segment.
         let layer0 = &layers[0];
@@ -1012,7 +1461,7 @@ mod tests {
 
         let mut layers = vec![layer0, layer1];
         generate_top_bottom_surfaces(&mut layers, 0, 1, 0.2, 45.0);
-        classify_overhang_perimeters(&mut layers, 0.4);
+        classify_overhang_perimeters(&mut layers, 0.4, None);
 
         assert_eq!(
             layers[1].path_roles[0],
@@ -1059,7 +1508,7 @@ mod tests {
         let dup = layers[0].clone();
         layers.insert(0, dup);
         generate_top_bottom_surfaces(&mut layers, 0, 1, 0.2, 45.0);
-        classify_overhang_perimeters(&mut layers, 0.4);
+        classify_overhang_perimeters(&mut layers, 0.4, None);
 
         // Bridge infill must exist: the unsupported ring is filled with bridge lines.
         assert!(

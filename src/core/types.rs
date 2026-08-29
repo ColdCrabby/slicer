@@ -76,6 +76,70 @@ impl ExtrusionRole {
     }
 }
 
+/// Overhang severity class for a single wall path, used by the **dynamic
+/// overhang speed & cooling** feature ([`crate::settings::params::SlicingParams::enable_overhang_speed`]).
+///
+/// A wall bead is centred on its centreline and spans one bead width; the class
+/// records how much of that width overhangs unsupported air below it, measured
+/// against the previous layer's material footprint (`inflate(perimeters[i-1],
+/// +d/2)`).  The four degrees mirror the OrcaSlicer / PrusaSlicer 4-band model:
+///
+/// | Class   | Unsupported fraction | OrcaSlicer speed field |
+/// |---------|----------------------|------------------------|
+/// | `None`  | ≤ 0 % (fully on material) | (normal perimeter speed) |
+/// | `Deg1`  | 0 – 25 %             | `overhang_1_4_speed`   |
+/// | `Deg2`  | 25 – 50 %            | `overhang_2_4_speed`   |
+/// | `Deg3`  | 50 – 75 %            | `overhang_3_4_speed`   |
+/// | `Deg4`  | 75 – 100 %           | `overhang_4_4_speed`   |
+///
+/// `Deg3` / `Deg4` (majority in air) coincide with the segments the binary
+/// [`ExtrusionRole::OverhangPerimeter`] classifier already isolates, so the
+/// role and the class stay consistent: any path tagged `OverhangPerimeter`
+/// carries a class of `Deg3` or `Deg4`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum OverhangClass {
+    /// Fully supported — no dynamic overhang override applies.
+    #[default]
+    None,
+    /// 0–25 % of the bead width unsupported.
+    Deg1,
+    /// 25–50 % unsupported.
+    Deg2,
+    /// 50–75 % unsupported.
+    Deg3,
+    /// 75–100 % unsupported.
+    Deg4,
+}
+
+impl OverhangClass {
+    /// Band index `0..=4` (`0` = fully supported, `4` = fully in air).
+    pub fn band(self) -> u8 {
+        match self {
+            Self::None => 0,
+            Self::Deg1 => 1,
+            Self::Deg2 => 2,
+            Self::Deg3 => 3,
+            Self::Deg4 => 4,
+        }
+    }
+
+    /// Construct from a band index; values `≥ 4` saturate to [`Self::Deg4`].
+    pub fn from_band(band: u8) -> Self {
+        match band {
+            0 => Self::None,
+            1 => Self::Deg1,
+            2 => Self::Deg2,
+            3 => Self::Deg3,
+            _ => Self::Deg4,
+        }
+    }
+
+    /// `true` when this class represents an actual overhang (`Deg1`–`Deg4`).
+    pub fn is_overhang(self) -> bool {
+        self != Self::None
+    }
+}
+
 /// Represents a slice layer in the 3D model
 #[derive(Debug, Clone)]
 pub struct SliceLayer {
@@ -133,6 +197,17 @@ pub struct SliceLayer {
     /// Indexed parallel to [`SliceLayer::paths`] / [`SliceLayer::path_roles`].
     /// Shorter-than-paths vectors default to `false` (closed).
     pub path_is_open: Vec<bool>,
+    /// Per-path overhang severity class for dynamic overhang speed & cooling.
+    ///
+    /// `path_overhang[i]` is the [`OverhangClass`] of `paths[i]`.  Populated by
+    /// [`classify_overhang_perimeters`] **only** when
+    /// [`crate::settings::params::SlicingParams::enable_overhang_speed`] is set;
+    /// otherwise it is left empty and every path resolves to
+    /// [`OverhangClass::None`] via [`SliceLayer::overhang_for_path`].
+    ///
+    /// Indexed parallel to [`SliceLayer::paths`].  Shorter-than-paths vectors
+    /// default to [`OverhangClass::None`] (no override).
+    pub path_overhang: Vec<OverhangClass>,
 }
 
 impl SliceLayer {
@@ -147,6 +222,7 @@ impl SliceLayer {
             solid_regions: Paths::default(),
             unsupported_regions: Paths::default(),
             path_is_open: Vec::new(),
+            path_overhang: Vec::new(),
         }
     }
 
@@ -180,5 +256,15 @@ impl SliceLayer {
     /// Falls back to `false` (closed loop) when the index is out of range.
     pub fn is_path_open(&self, i: usize) -> bool {
         self.path_is_open.get(i).copied().unwrap_or(false)
+    }
+
+    /// Return the overhang severity class for path index `i`.
+    ///
+    /// Falls back to [`OverhangClass::None`] (fully supported, no dynamic
+    /// overhang override) when `path_overhang` has no entry for the index —
+    /// which is the case for every path when
+    /// [`crate::settings::params::SlicingParams::enable_overhang_speed`] is off.
+    pub fn overhang_for_path(&self, i: usize) -> OverhangClass {
+        self.path_overhang.get(i).copied().unwrap_or_default()
     }
 }
