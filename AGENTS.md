@@ -251,9 +251,17 @@ user-facing version number.
   parallel version constant (especially not in the UI).
 - **[CHANGELOG.md](CHANGELOG.md) is embedded** via `include_str!` and republished
   verbatim as GitHub Release notes. Keep an `## [Unreleased]` section at the top.
-- **The UI "What's New" dialog** ([ui/src/app/services/app-version.ts](ui/src/app/services/app-version.ts))
-  compares the running release against `localStorage` and shows skipped notes
-  once per upgrade. Development builds are never nagged.
+- **The UI renders the changelog from exactly one component**
+  ([ui/src/app/components/changelog/changelog-list.ts](ui/src/app/components/changelog/changelog-list.ts)).
+  It always lists *every* release and highlights/scrolls to the one you're
+  running, so the **What's New** settings section (`/settings/changelog`) and the
+  post-upgrade dialog can never drift apart.
+  [ui/src/app/services/app-version.ts](ui/src/app/services/app-version.ts)
+  compares the running release against `localStorage` and shows that dialog once
+  per upgrade; development builds are never nagged and highlight `Unreleased`.
+  **Where dialogs are drawn by the OS** (iOS/iPadOS — see `Dialog.usesNativeDialogs()`)
+  a `UIAlertController` cannot hold the changelog, so the prompt is a short
+  native confirm that navigates to the settings section instead.
 - **Releasing is tag-driven**: [.github/workflows/release.yml](.github/workflows/release.yml)
   fires on `v*` tags, extracts the changelog section, creates the GitHub Release,
   and attaches CLI binaries + desktop bundles. See [RELEASING.md](RELEASING.md).
