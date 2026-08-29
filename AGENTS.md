@@ -551,6 +551,38 @@ last**, after ordering and flow compensation, so its loops are appended cleanly
 and the object's own toolpaths are provably unperturbed — see
 [src/adhesion/README.md](src/adhesion/README.md).
 
+**Perimeter routing & ordering options ([#98](https://github.com/ColdCrabby/slicer/issues/98))** are threaded through several stages:
+
+- `external_perimeters_first` (default `false` = inner walls first, outer wall
+  **last** — the PrusaSlicer/Orca/Cura default), `thin_walls` (default `true`),
+  and `extra_perimeters` are handled **inside the wall generators** at bead
+  assembly. Ordering is a bead-flush concern, not a pipeline pass — the beads are
+  computed outer-first then reversed for inner-first; the greedy-TSP path ordering
+  preserves the per-role group order. Reordering never changes extrusion amounts,
+  so QA baselines are unaffected. See [src/walls/README.md](src/walls/README.md).
+- **`thin_walls` is a classic-generator option, and the schema gates it.**
+  Arachne fills thin features from the medial axis by construction, so it always
+  prints them and ignores the flag (matching PrusaSlicer/Orca, where the
+  equivalent option is classic-only); `emit_residual_medial_fill` is
+  unconditional. This matters because that pass emits the same `GapFill` role for
+  two different things: a bead that *is* the model geometry (a feature too thin
+  for one perimeter) and a bead filling the sliver *between* the innermost walls.
+  Gating the pass on `thin_walls` deleted both — on the Filament Card Caddy it
+  wiped all 37.7 m of gap fill, ~50 card-slot fins, and let sparse infill leak
+  into the freed wall band. **Any wall option only one generator honours must
+  carry an `x-relevant-when` gate** (`thin_walls` and `wall_distribution_count` →
+  classic, `gap_fill_min_length_mm` → arachne), or the UI offers a control that
+  silently does nothing.
+- `ensure_vertical_shell_thickness` is a **second pass in
+  `generate_top_bottom_surfaces_with_interior`** (`apply_vertical_shell_thickness`):
+  it grows each layer's own top/bottom surface inward and fills it solid so a
+  sloped side wall keeps a continuous perpendicular shell. No-op on flat tops and
+  plain vertical walls; default off.
+- `avoid_crossing_perimeters` is a **G-code-generation** concern
+  ([src/gcode/travel.rs](src/gcode/travel.rs)): a per-layer visibility-graph
+  planner detours travel moves around outer walls. It only reshapes travels, so
+  extrusion (and QA baselines) are untouched; default off.
+
 **`pre_strip_infill_regions` must be computed before `apply_single_wall_restrictions`.**
 `apply_single_wall_restrictions` now operates **per island**: an outer-wall path P at
 layer i has its associated inner walls stripped only when P's footprint has an exposed
@@ -820,6 +852,41 @@ behaviour.
 
 `min_infill_extrusion_mm` still guards the residual sub-threshold segments a
 legitimate region's tapering corners produce.
+
+**A connected infill region too small to hold more than one dash is skipped
+entirely** (`INFILL_MIN_REGION_AREA_NOZZLE_MULT × d²`, = 2.0 mm² at a 0.4 mm
+nozzle). Where a cross-section is *locally* thinner than the per-island average
+`walls_per_island`, the interior estimate leaves a small sliver that walls plus
+gap fill already fill — the Benchy bow tip (≈ 1.6 mm² at layer 95) is the
+canonical case. The scanline drops a single ~1.3 mm dash into it: a disconnected
+speck costing a full retract → travel → un-retract, sitting right against the
+wall band.
+
+Two properties make this safe, and both must be preserved:
+
+- **It is an _area_ rule on whole connected regions, never a _width_ rule on the
+  infill area.** A genuinely thin cavity that deserves a lattice (the caddy's
+  hollow-box layers) is a *large* region that merely happens to be narrow. The
+  separation is categorical, not marginal: measured across the QA corpus the
+  caddy has **no** infill region at all between 0.01 mm² and 10 mm², so the
+  threshold sits in an empty band two orders of magnitude wide. This is the same
+  trap the morphological-opening attempt fell into (see above).
+- **It filters the _generated paths_, not the region.** `generate_rectilinear_infill`
+  seeds its scanline phase from the bounding box of the whole infill area, so
+  deleting an outlying sliver *before* generation shifts every infill line on the
+  layer (measured: 27 mm of line movement on a Benchy layer whose dropped regions
+  totalled 0.05 mm²). Filtering afterwards is exactly subtractive — measured
+  −3.6 mm of sparse infill model-wide on the Benchy, with every other role
+  untouched and the caddy byte-identical.
+
+Membership is tested with **segment midpoints**, not vertices: an infill line's
+endpoints lie exactly *on* the region boundary, where the integer-scaled
+point-in-polygon test can land either side.
+
+**Note:** gap-fill length is not bit-reproducible between runs of the same
+binary (measured 7399.6 vs 7401.8 mm on two Benchy slices), so small gap-fill
+deltas are run-to-run noise, not evidence of a change. Sparse infill *is*
+deterministic and can be compared directly.
 
 ### Thin Wall-Band Channels — Opened-Interior Surface Clip
 

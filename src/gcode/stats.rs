@@ -205,6 +205,26 @@ pub(crate) fn settings_summary_lines(params: &SlicingParams) -> Vec<String> {
             params.wall_count,
             params.wall_generator.name(),
         ),
+        format!(
+            "; perimeter_order: {} | extra_perimeters: {} | thin_walls: {} | ensure_vertical_shell: {} | avoid_crossing: {}",
+            if params.external_perimeters_first {
+                "outer-first"
+            } else {
+                "inner-first"
+            },
+            if params.extra_perimeters { "on" } else { "off" },
+            if params.thin_walls { "on" } else { "off" },
+            if params.ensure_vertical_shell_thickness {
+                "on"
+            } else {
+                "off"
+            },
+            if params.avoid_crossing_perimeters {
+                "on"
+            } else {
+                "off"
+            },
+        ),
         format!("; infill_density: {:.0}%", params.infill_density * 100.0),
         "; ---".to_string(),
     ]);

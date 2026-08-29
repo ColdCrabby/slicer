@@ -37,6 +37,103 @@ use super::types::{ExtrusionRole, SliceLayer};
 /// its infill vanished, which the slicing quality gate correctly caught.
 const SOLID_MARGIN_NOZZLE_MULT: f64 = 1.0;
 
+/// Minimum area, as a multiple of `nozzle_diameter²`, that a **connected**
+/// sparse-infill region must have to be worth entering at all.
+///
+/// At a 0.4 mm nozzle this is `12.5 × 0.16 = 2.0 mm²` — a region so small that
+/// the scanline can only lay a single sub-2 mm dash in it.  Reaching that dash
+/// costs a full retract → travel → un-retract to deposit ~0.1 mm³ of
+/// disconnected material: the "tiny infill splat" (the Benchy bow tip, where the
+/// hull narrows to a wedge that walls plus gap fill already fill, is the
+/// canonical case at ≈ 1.6 mm²).
+///
+/// **This is an *area* filter on whole connected regions, never a width filter
+/// on the infill area as a whole.** That distinction is what makes it safe: a
+/// genuinely thin cavity that deserves a lattice — the filament caddy's
+/// hollow-box mid-height layers — is a *large* connected region that merely
+/// happens to be narrow, so it is untouched. Measured across the QA corpus the
+/// separation is not marginal but categorical: the caddy has **no** infill
+/// region at all between `0.01 mm²` and `10 mm²`, so the threshold sits in an
+/// empty band two orders of magnitude wide. Morphologically *opening* the infill
+/// area instead — the earlier attempt recorded on [`SOLID_MARGIN_NOZZLE_MULT`] —
+/// cannot make that distinction and destroyed the caddy lattice.
+const INFILL_MIN_REGION_AREA_NOZZLE_MULT: f64 = 12.5;
+
+/// Identify connected sparse-infill regions smaller than
+/// [`INFILL_MIN_REGION_AREA_NOZZLE_MULT`] × `d²`.
+///
+/// Groups the Clipper2 contour soup into islands (one CCW outer plus the CW
+/// holes it encloses), measures each island's **net** area (outer minus its
+/// holes, so a ring is judged by its material, not its bounding extent), and
+/// returns the islands too small to be worth entering.
+///
+/// The caller removes the *generated paths* that fall inside these regions
+/// rather than removing the regions before generation. That matters: the
+/// scanline seeds its phase from the bounding box of the whole infill area, so
+/// deleting an outlying sliver first would shift every infill line on the layer
+/// (measured: 27 mm of line movement on a Benchy layer whose only dropped
+/// regions totalled 0.05 mm²). Filtering afterwards is exactly subtractive.
+fn splat_infill_regions(area: &Paths, nozzle_diameter_mm: f64) -> Vec<Paths> {
+    let min_area = INFILL_MIN_REGION_AREA_NOZZLE_MULT * nozzle_diameter_mm * nozzle_diameter_mm;
+    if min_area <= 0.0 || area.is_empty() {
+        return Vec::new();
+    }
+
+    let contours: Vec<clipper2::Path> = area.iter().cloned().collect();
+    let holes: Vec<&clipper2::Path> = contours.iter().filter(|p| p.signed_area() < 0.0).collect();
+
+    let mut splats = Vec::new();
+    for outer in contours.iter().filter(|p| p.signed_area() > 0.0) {
+        let enclosed: Vec<&clipper2::Path> = holes
+            .iter()
+            .copied()
+            .filter(|h| outer.surrounds_path(h))
+            .collect();
+        // Net material of this island: outer area minus the holes it encloses.
+        let net =
+            outer.signed_area().abs() - enclosed.iter().map(|h| h.signed_area().abs()).sum::<f64>();
+        if net >= min_area {
+            continue;
+        }
+        let mut island = vec![outer.clone()];
+        island.extend(enclosed.into_iter().cloned());
+        splats.push(Paths::new(island));
+    }
+    splats
+}
+
+/// True when `path` lies inside one of the `splats` regions.
+///
+/// Tests **segment midpoints**, not vertices: a generated infill line has its
+/// endpoints exactly *on* the region boundary, where the integer-scaled
+/// point-in-polygon test can land either side. Midpoints are strictly interior,
+/// and a majority vote tolerates a serpentine whose connector runs along an
+/// edge.
+fn path_is_in_a_splat_region(path: &clipper2::Path, splats: &[Paths]) -> bool {
+    let pts: Vec<(f64, f64)> = path.iter().map(|p| (p.x(), p.y())).collect();
+    if pts.len() < 2 {
+        return pts
+            .first()
+            .is_some_and(|p| splat_contains(p.0, p.1, splats));
+    }
+    let mut inside = 0usize;
+    for w in pts.windows(2) {
+        let mx = 0.5 * (w[0].0 + w[1].0);
+        let my = 0.5 * (w[0].1 + w[1].1);
+        if splat_contains(mx, my, splats) {
+            inside += 1;
+        }
+    }
+    inside * 2 > pts.len() - 1
+}
+
+/// True when `(x, y)` falls in any splat region.
+fn splat_contains(x: f64, y: f64, splats: &[Paths]) -> bool {
+    splats
+        .iter()
+        .any(|s| super::surfaces::vertex_inside_or_on_paths_eo(x, y, s))
+}
+
 /// Calculate the interior region of a layer where solid surfaces and sparse
 /// infill should be printed (i.e. the area enclosed by the **innermost** wall
 /// of every island, optionally shrunk by a configured overlap).
@@ -347,6 +444,11 @@ pub fn add_infill_to_layers(
             remaining
         };
 
+        // Identify regions too small to hold anything but an isolated dash.  The
+        // generated paths inside them are dropped *after* generation so the
+        // scanline phase (seeded from the full area's bounding box) is unchanged.
+        let splats = splat_infill_regions(&infill_area, nozzle_diameter_mm);
+
         let base_angle_rad = infill_base_angle.to_radians();
         let angle_offset = if layer_idx.is_multiple_of(2) {
             base_angle_rad
@@ -354,12 +456,22 @@ pub fn add_infill_to_layers(
             base_angle_rad + std::f64::consts::FRAC_PI_2
         };
 
-        Some(generate_infill(
+        let generated = generate_infill(
             &infill_area,
             infill_pattern,
             infill_density,
             angle_offset,
             layer.z,
+        );
+        if splats.is_empty() {
+            return Some(generated);
+        }
+        Some(Paths::new(
+            generated
+                .iter()
+                .filter(|p| !path_is_in_a_splat_region(p, &splats))
+                .cloned()
+                .collect::<Vec<_>>(),
         ))
     };
 

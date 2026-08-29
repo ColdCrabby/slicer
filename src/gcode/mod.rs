@@ -39,6 +39,7 @@ pub mod simplify;
 pub mod source;
 pub mod stats;
 pub mod time_estimate;
+pub mod travel;
 
 pub use dialect::{GcodeDialect, WarnFn};
 pub use dialects::{KlipperDialect, MarlinDialect};

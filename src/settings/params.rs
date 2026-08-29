@@ -573,7 +573,9 @@ Larger values produce a gradual width ramp at transitions; smaller values create
 
 When space is too narrow for a separate bead, up to this many innermost beads
 are widened proportionally to fill the gap.
-**Typical:** 1–2.", extend("x-group" = "Walls"))]
+
+Classic generator only — Arachne varies bead width along the medial axis instead.
+**Typical:** 1–2.", extend("x-group" = "Walls", "x-relevant-when" = serde_json::json!({"field": "wall_generator", "equals": "classic"})))]
     #[serde(default = "SlicingParams::default_wall_distribution_count")]
     pub wall_distribution_count: usize,
 
@@ -612,6 +614,92 @@ Supported values:
 **Default:** `nearest`.", extend("x-group" = "Walls"))]
     #[serde(default = "SlicingParams::default_seam_position")]
     pub seam_position: SeamPosition,
+
+    #[schemars(description = "Print the outer (external) wall before the inner walls.
+
+- `false` (default) — inner walls first, outer wall **last**.  The outer wall is
+  laid against already-solid inner perimeters, giving the cleanest visible
+  surface and crispest dimensions.  Matches the PrusaSlicer / OrcaSlicer / Cura
+  default.
+- `true` — outer wall first.  Can improve overhang adhesion (the external
+  perimeter is anchored to the layer below before the inner walls push against
+  it) at some cost to surface finish.
+
+Mirrors `external_perimeters_first` (PrusaSlicer/Slic3r) / `wall_sequence`
+(OrcaSlicer).", extend("x-group" = "Walls"))]
+    #[serde(default = "SlicingParams::default_external_perimeters_first")]
+    pub external_perimeters_first: bool,
+
+    #[schemars(description = "Add extra perimeter loops where gaps would otherwise remain.
+
+When a shell is locally thicker than `wall_count` beads but too thin for sparse
+infill to fill cleanly, the leftover core is filled with additional concentric
+perimeter loops instead of being left as a gap.  Only fires in narrow residual
+regions (up to `extra_perimeters_max_gap × nozzle_diameter_mm` wide); wide cores
+still get normal infill, so this never turns a part solid.
+
+Mirrors `extra_perimeters` (PrusaSlicer/Slic3r).
+**Default:** off.", extend("x-group" = "Walls"))]
+    #[serde(default = "SlicingParams::default_extra_perimeters")]
+    pub extra_perimeters: bool,
+
+    #[schemars(
+        description = "Widest residual core (as a multiple of nozzle diameter) that `extra_perimeters` will fill with loops.
+
+A residual core wider than `extra_perimeters_max_gap × nozzle_diameter_mm` is
+left for sparse infill; a narrower one is filled with extra concentric
+perimeters.
+**Typical:** 2–4.",
+        extend("x-group" = "Walls", "x-relevant-when" = serde_json::json!({"field": "extra_perimeters", "equals": true}))
+    )]
+    #[serde(default = "SlicingParams::default_extra_perimeters_max_gap")]
+    pub extra_perimeters_max_gap: f64,
+
+    #[schemars(description = "Detect thin walls and print them as a single centered bead.
+
+A **thin feature** is model material too narrow for even one full perimeter —
+engraved text, a tapering rib, the card-slot fins of a card holder. When on, such
+a feature is traced by a single variable-width bead; when off it is **not printed
+at all** (the feature disappears from the part).
+
+- `true` (default) — thin features are printed.
+- `false` — thin features are skipped.
+
+Classic generator only. Arachne fills thin features from the medial axis by
+construction — that is what the generator is for — so it always prints them and
+ignores this option.
+
+Mirrors `thin_walls` (PrusaSlicer/Slic3r) / `detect_thin_wall` (OrcaSlicer), both
+of which are likewise classic-only.", extend("x-group" = "Walls", "x-relevant-when" = serde_json::json!({"field": "wall_generator", "equals": "classic"})))]
+    #[serde(default = "SlicingParams::default_thin_walls")]
+    pub thin_walls: bool,
+
+    #[schemars(description = "Ensure a minimum solid vertical-shell thickness on sloped surfaces.
+
+On a near-vertical wall whose cross-section drifts layer over layer, the
+perimeters of neighbouring layers may not overlap, leaving a thin spot in the
+side wall.  When enabled, any interior region that is **not** backed by
+perimeters in the layers immediately above *and* below is filled solid, so the
+side wall keeps a continuous shell.
+
+Mirrors `ensure_vertical_shell_thickness` (PrusaSlicer/Slic3r).
+**Default:** off.", extend("x-group" = "Walls"))]
+    #[serde(default = "SlicingParams::default_ensure_vertical_shell_thickness")]
+    pub ensure_vertical_shell_thickness: bool,
+
+    #[schemars(description = "Route travel moves to avoid crossing perimeter walls.
+
+Instead of moving in a straight line to the next extrusion, the nozzle detours
+around the inside of the current island's walls, so a travel move never drags
+the (oozing) nozzle across a finished outer surface.  Reduces surface scarring
+and stringing at the small cost of longer travels and slightly more planning
+time.
+
+Mirrors `avoid_crossing_perimeters` (PrusaSlicer/Slic3r) / `reduce_crossing_wall`
+(OrcaSlicer).
+**Default:** off.", extend("x-group" = "Walls"))]
+    #[serde(default = "SlicingParams::default_avoid_crossing_perimeters")]
+    pub avoid_crossing_perimeters: bool,
 
     #[schemars(description = "Spiral (vase) mode — print a single continuous outer wall whose Z \
 ramps smoothly over each layer, producing a seamless single-wall vase with no Z-seam.
@@ -784,8 +872,11 @@ filament grinding for a mechanically-insignificant dab.  Set to `0` to use the
 automatic default (twice the nozzle diameter), which matches the faceting-noise
 floor used when de-noising the medial skeleton; the residual such short beads
 would have filled is bridged by the squish of the flanking wall beads.
+
+Arachne generator only — the classic generator emits a single residual bead per
+shell rather than walking a medial skeleton.
 **Typical:** 0.4–1.0 mm.",
-        extend("x-group" = "Walls")
+        extend("x-group" = "Walls", "x-relevant-when" = serde_json::json!({"field": "wall_generator", "equals": "arachne"}))
     )]
     #[serde(default = "SlicingParams::default_gap_fill_min_length_mm")]
     pub gap_fill_min_length_mm: f64,
@@ -1665,6 +1756,12 @@ impl Default for SlicingParams {
             wall_transition_angle: Self::default_wall_transition_angle(),
             wall_transition_filter_distance: Self::default_wall_transition_filter_distance(),
             seam_position: Self::default_seam_position(),
+            external_perimeters_first: Self::default_external_perimeters_first(),
+            extra_perimeters: Self::default_extra_perimeters(),
+            extra_perimeters_max_gap: Self::default_extra_perimeters_max_gap(),
+            thin_walls: Self::default_thin_walls(),
+            ensure_vertical_shell_thickness: Self::default_ensure_vertical_shell_thickness(),
+            avoid_crossing_perimeters: Self::default_avoid_crossing_perimeters(),
             spiral_vase: Self::default_spiral_vase(),
             infill_density: 0.2,
             infill_pattern: Self::default_infill_pattern(),
@@ -2023,6 +2120,30 @@ impl SlicingParams {
         SeamPosition::Nearest
     }
 
+    fn default_external_perimeters_first() -> bool {
+        false
+    }
+
+    fn default_extra_perimeters() -> bool {
+        false
+    }
+
+    fn default_extra_perimeters_max_gap() -> f64 {
+        3.0
+    }
+
+    fn default_thin_walls() -> bool {
+        true
+    }
+
+    fn default_ensure_vertical_shell_thickness() -> bool {
+        false
+    }
+
+    fn default_avoid_crossing_perimeters() -> bool {
+        false
+    }
+
     fn default_spiral_vase() -> bool {
         false
     }
@@ -2292,6 +2413,63 @@ pub struct ObjectSettings {
 mod tests {
     use super::*;
 
+    /// Read a property's `x-relevant-when` gate out of the generated schema.
+    fn relevance_gate(field: &str) -> Option<serde_json::Value> {
+        let schema = schemars::schema_for!(SlicingParams);
+        let json = serde_json::to_value(&schema).expect("schema to json");
+        json.get("properties")?
+            .get(field)?
+            .get("x-relevant-when")
+            .cloned()
+    }
+
+    #[test]
+    fn generator_specific_wall_options_are_gated_in_the_schema() {
+        // A wall option only one generator honours must be hidden for the other,
+        // otherwise the UI offers a control that silently does nothing (or worse,
+        // silently changes output — the caddy thin-wall regression).
+        for (field, generator) in [
+            ("thin_walls", "classic"),
+            ("wall_distribution_count", "classic"),
+            ("gap_fill_min_length_mm", "arachne"),
+        ] {
+            let gate = relevance_gate(field)
+                .unwrap_or_else(|| panic!("{field} should carry an x-relevant-when gate"));
+            assert_eq!(
+                gate,
+                serde_json::json!({ "field": "wall_generator", "equals": generator }),
+                "{field} should only be shown for the {generator} generator"
+            );
+        }
+    }
+
+    #[test]
+    fn extra_perimeters_max_gap_is_gated_on_its_parent_toggle() {
+        let gate = relevance_gate("extra_perimeters_max_gap")
+            .expect("extra_perimeters_max_gap should carry an x-relevant-when gate");
+        assert_eq!(
+            gate,
+            serde_json::json!({ "field": "extra_perimeters", "equals": true }),
+            "the gap threshold is meaningless unless extra_perimeters is on"
+        );
+    }
+
+    #[test]
+    fn options_both_generators_honour_are_not_gated() {
+        // Guard against over-gating: these are honoured by classic *and* arachne,
+        // so hiding either would lose a working control.
+        for field in [
+            "external_perimeters_first",
+            "extra_perimeters",
+            "wall_count",
+        ] {
+            assert!(
+                relevance_gate(field).is_none(),
+                "{field} works in both generators and must stay visible"
+            );
+        }
+    }
+
     #[test]
     fn test_cache_fingerprint_excludes_thumbnail_png_payload() {
         // Two requests that differ *only* in the captured thumbnail image must
@@ -2439,6 +2617,56 @@ mod tests {
             params.surface_infill_angle, 45.0,
             "Default surface infill angle should be 45°"
         );
+    }
+
+    #[test]
+    fn test_perimeter_routing_defaults() {
+        let p = SlicingParams::default();
+        assert!(
+            !p.external_perimeters_first,
+            "outer wall prints last by default (ecosystem standard)"
+        );
+        assert!(!p.extra_perimeters, "extra_perimeters off by default");
+        assert_eq!(p.extra_perimeters_max_gap, 3.0);
+        assert!(p.thin_walls, "thin-wall gap fill on by default");
+        assert!(
+            !p.ensure_vertical_shell_thickness,
+            "vertical-shell enforcement off by default"
+        );
+        assert!(
+            !p.avoid_crossing_perimeters,
+            "avoid_crossing_perimeters off by default"
+        );
+    }
+
+    #[test]
+    fn test_perimeter_routing_round_trips_through_json() {
+        let p = SlicingParams {
+            external_perimeters_first: true,
+            extra_perimeters: true,
+            extra_perimeters_max_gap: 2.5,
+            thin_walls: false,
+            ensure_vertical_shell_thickness: true,
+            avoid_crossing_perimeters: true,
+            ..SlicingParams::default()
+        };
+        let json = serde_json::to_string(&p).expect("serialize");
+        let back: SlicingParams = serde_json::from_str(&json).expect("deserialize");
+        assert!(back.external_perimeters_first);
+        assert!(back.extra_perimeters);
+        assert_eq!(back.extra_perimeters_max_gap, 2.5);
+        assert!(!back.thin_walls);
+        assert!(back.ensure_vertical_shell_thickness);
+        assert!(back.avoid_crossing_perimeters);
+    }
+
+    #[test]
+    fn test_perimeter_routing_absent_keys_use_defaults() {
+        // A sparse process-profile params bag omits these keys → engine defaults.
+        let p: SlicingParams = serde_json::from_str(r#"{"wall_count": 2}"#).expect("deserialize");
+        assert!(!p.external_perimeters_first);
+        assert!(p.thin_walls);
+        assert!(!p.avoid_crossing_perimeters);
     }
 
     #[test]

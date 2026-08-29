@@ -212,8 +212,9 @@ impl InternalLayer {
         width: f32,
         height: f32,
         speed: f32,
+        accel: f32,
     ) {
-        let segment_data = [x0, y0, z0, x1, y1, z1, width, height, speed];
+        let segment_data = [x0, y0, z0, x1, y1, z1, width, height, speed, accel];
         if let Some(last) = self.blocks.last_mut() {
             if last.role == role {
                 last.data.extend_from_slice(&segment_data);

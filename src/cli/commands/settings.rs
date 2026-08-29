@@ -495,6 +495,24 @@ impl EmitPayload for ShowResult<'_> {
                 "  wall_overlap_compensation: {}",
                 p.wall_overlap_compensation
             ),
+            format!(
+                "  external_perimeters_first: {}",
+                p.external_perimeters_first
+            ),
+            format!("  extra_perimeters: {}", p.extra_perimeters),
+            format!(
+                "  extra_perimeters_max_gap: {} × nozzle",
+                p.extra_perimeters_max_gap
+            ),
+            format!("  thin_walls: {}", p.thin_walls),
+            format!(
+                "  ensure_vertical_shell_thickness: {}",
+                p.ensure_vertical_shell_thickness
+            ),
+            format!(
+                "  avoid_crossing_perimeters: {}",
+                p.avoid_crossing_perimeters
+            ),
             format!("  infill_density: {:.0}%", p.infill_density * 100.0),
             format!("  print_speed: {} mm/s (fallback)", p.print_speed),
             format!("  perimeter_speed: {} mm/s", p.perimeter_speed),

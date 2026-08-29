@@ -207,6 +207,7 @@ pub fn process_mesh(
                 bridge_noise_filter_mm: params.bridge_noise_filter_mm,
                 bridge_anchor_mm: params.bridge_anchor_mm,
                 infill_overlap_percent: params.infill_overlap_percent,
+                ensure_vertical_shell_thickness: params.ensure_vertical_shell_thickness,
             },
             Some(&interior_regions),
         );
@@ -600,6 +601,7 @@ pub fn process_mesh_debug(
                 bridge_noise_filter_mm: params.bridge_noise_filter_mm,
                 bridge_anchor_mm: params.bridge_anchor_mm,
                 infill_overlap_percent: params.infill_overlap_percent,
+                ensure_vertical_shell_thickness: params.ensure_vertical_shell_thickness,
             },
             Some(&interior_regions),
         );
