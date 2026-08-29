@@ -823,12 +823,16 @@ fn snapshot_msg(scene: &SceneState) -> ServerMessage {
 
 /// Derive a stable content key for a slice request.
 ///
-/// Two requests share a key iff they would produce byte-identical G-code: same
+/// Two requests share a key iff they would produce equivalent G-code: same
 /// engine version, same resolved [`SlicingParams`], and the same ordered list
 /// of placed objects (file id + transform). Object order is preserved because
 /// the merge order affects the combined mesh and therefore the output. The key
 /// is a hex FNV-1a 64-bit hash — collision-free enough for a best-effort cache
 /// and dependency-free (no crypto hash crate).
+///
+/// The params are fingerprinted via [`SlicingParams::cache_fingerprint`], which
+/// omits the ephemeral, camera-derived thumbnail PNG payload — so a fresh
+/// render's bytes never bust the cache (issue #106).
 fn compute_slice_cache_key(
     scene: &[crate::ws_protocol::SceneObjectSliceDto],
     params: &crate::settings::params::SlicingParams,
@@ -837,7 +841,7 @@ fn compute_slice_cache_key(
     canonical.push_str("v=");
     canonical.push_str(crate::version::VERSION);
     canonical.push_str(";params=");
-    canonical.push_str(&serde_json::to_string(params).unwrap_or_default());
+    canonical.push_str(&params.cache_fingerprint());
     canonical.push_str(";scene=");
     for obj in scene {
         let t = &obj.transform;

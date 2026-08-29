@@ -1589,6 +1589,30 @@ impl Default for SlicingParams {
 }
 
 impl SlicingParams {
+    /// Serialize these params into a stable string for the G-code content cache
+    /// key, **excluding the ephemeral thumbnail image payload**
+    /// (`thumbnail_png_base64`).
+    ///
+    /// The embedded PNG is captured fresh from the viewer on every slice, so its
+    /// bytes vary between renders (GPU/driver/anti-alias resolve, or an entirely
+    /// different client) even for an otherwise-identical scene. Hashing it into
+    /// the cache key would turn a re-slice into a miss and defeat cross-client
+    /// reuse — exactly the "must not bust the cache on every camera nudge"
+    /// requirement from issue #106. The thumbnail *settings* (view / theme /
+    /// size / colour) are deliberately retained, so the preview embedded in a
+    /// cached file always matches the request that reused it (the capture is a
+    /// fixed, deterministic viewpoint, so identical settings yield an
+    /// equivalent image).
+    ///
+    /// See the "G-code result cache" contract in AGENTS.md.
+    pub fn cache_fingerprint(&self) -> String {
+        let mut value = serde_json::to_value(self).unwrap_or(serde_json::Value::Null);
+        if let Some(obj) = value.as_object_mut() {
+            obj.remove("thumbnail_png_base64");
+        }
+        value.to_string()
+    }
+
     fn default_first_layer_height() -> f64 {
         0.0
     }
@@ -1991,6 +2015,73 @@ pub struct ObjectSettings {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_cache_fingerprint_excludes_thumbnail_png_payload() {
+        // Two requests that differ *only* in the captured thumbnail image must
+        // share a cache fingerprint — the PNG is camera-derived and re-rendered
+        // every slice, so hashing it would defeat the cache (issue #106).
+        let with_a = SlicingParams {
+            thumbnail_png_base64: Some("iVBORw0KGgoAAAA".to_string()),
+            ..SlicingParams::default()
+        };
+        let with_b = SlicingParams {
+            thumbnail_png_base64: Some("Zm9vYmFyYmF6".to_string()),
+            ..SlicingParams::default()
+        };
+        let without = SlicingParams {
+            thumbnail_png_base64: None,
+            ..SlicingParams::default()
+        };
+        assert_eq!(
+            with_a.cache_fingerprint(),
+            with_b.cache_fingerprint(),
+            "different thumbnail images must not change the fingerprint"
+        );
+        assert_eq!(
+            with_a.cache_fingerprint(),
+            without.cache_fingerprint(),
+            "presence/absence of the thumbnail image must not change the fingerprint"
+        );
+    }
+
+    #[test]
+    fn test_cache_fingerprint_tracks_toolpath_and_thumbnail_settings() {
+        let base = SlicingParams::default();
+
+        // A toolpath-affecting setting must change the fingerprint.
+        let taller_layers = SlicingParams {
+            layer_height: base.layer_height + 0.05,
+            ..SlicingParams::default()
+        };
+        assert_ne!(
+            base.cache_fingerprint(),
+            taller_layers.cache_fingerprint(),
+            "layer height must be part of the cache fingerprint"
+        );
+
+        // Thumbnail *settings* stay in the key so a cached file's embedded
+        // preview always matches the request that reused it.
+        let bigger_thumb = SlicingParams {
+            thumbnail_size_px: base.thumbnail_size_px + 64,
+            ..SlicingParams::default()
+        };
+        assert_ne!(
+            base.cache_fingerprint(),
+            bigger_thumb.cache_fingerprint(),
+            "thumbnail settings must remain part of the cache fingerprint"
+        );
+
+        // The fingerprint must never carry the raw image bytes.
+        let with_png = SlicingParams {
+            thumbnail_png_base64: Some("SHOULD_NOT_APPEAR".to_string()),
+            ..SlicingParams::default()
+        };
+        assert!(
+            !with_png.cache_fingerprint().contains("SHOULD_NOT_APPEAR"),
+            "cache fingerprint must not embed the thumbnail image payload"
+        );
+    }
 
     #[test]
     fn test_object_settings_with_overrides_round_trip() {

@@ -315,17 +315,27 @@ outbound transport to real printers. Today it implements **Moonraker/Klipper**
 ## G-code result cache — skip re-slicing identical scenes
 
 `handle_slice` ([src/server/ws_session.rs](src/server/ws_session.rs)) hashes the
-resolved `SlicingParams` + the ordered scene DTOs (file id + transform) +
-`crate::version::VERSION` into an FNV-1a key. A `gcode_cache` table
-(migration `m20250201_000002`) maps that key → the previously-generated
-`.gcode`. On a hit the pipeline is skipped entirely: the cached file is copied
-under the new workplate UUID and `SliceComplete` is emitted immediately. On a
-miss the fresh slice is stored. Notes:
+resolved `SlicingParams` (via `SlicingParams::cache_fingerprint`) + the ordered
+scene DTOs (file id + transform) + `crate::version::VERSION` into an FNV-1a key.
+A `gcode_cache` table (migration `m20250201_000002`) maps that key → the
+previously-generated `.gcode`. On a hit the pipeline is skipped entirely: the
+cached file is copied under the new workplate UUID and `SliceComplete` is emitted
+immediately. On a miss the fresh slice is stored. The desktop (Tauri) runtime
+keeps an in-memory mirror with the same key
+([ui-desktop/src-tauri/src/bridge/runtime_bridge.rs](ui-desktop/src-tauri/src/bridge/runtime_bridge.rs)).
+Notes:
 
 - **Object order is preserved in the key** (it affects the merged mesh, hence
   the output). Do not sort.
 - **The engine version is part of the key**, so output changes across releases
   bust the cache automatically.
+- **The embedded thumbnail PNG is excluded from the key.**
+  `SlicingParams::cache_fingerprint` drops `thumbnail_png_base64` (the
+  camera-derived preview captured fresh from the viewer on every slice) so its
+  volatile bytes never bust the cache — the issue #106 requirement that camera
+  movement leave the cache-hit rate unaffected. The thumbnail *settings*
+  (`thumbnail_view`/`theme`/`size`/…) stay in the key, so a cached file's
+  embedded preview always matches the request that reused it.
 - Cache is best-effort: a dangling row (file cleaned up) is evicted lazily on
   lookup and the scene re-sliced.
 
