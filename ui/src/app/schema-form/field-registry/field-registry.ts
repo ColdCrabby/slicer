@@ -1,5 +1,6 @@
 import { Type } from '@angular/core';
 import { ColorField } from '../custom-widgets/color-field/color-field';
+import { GcodeField } from '../custom-widgets/gcode-field/gcode-field';
 import { InfillDensitySlider } from '../custom-widgets/infill-density-slider/infill-density-slider';
 import { InfillPatternPicker } from '../custom-widgets/infill-pattern-picker/infill-pattern-picker';
 import { FieldDef } from '../models/field-def';
@@ -15,6 +16,16 @@ import { NumberField } from '../widgets/number-field/number-field';
  * Fields with more options than this threshold render as a `<select>` dropdown.
  */
 const RADIO_MAX_OPTIONS = 3;
+
+/**
+ * `x-widget`-driven widget overrides, keyed by the schema's `x-widget` hint.
+ * A field carrying one of these hints renders its mapped widget regardless of
+ * key or type — the schema is the single source of truth for "this field needs
+ * a special control".
+ */
+const WIDGET_REGISTRY: Record<string, Type<FieldWidget>> = {
+  gcode: GcodeField,
+};
 
 /**
  * Key-specific widget overrides.
@@ -46,8 +57,12 @@ function defaultWidgetFor(field: FieldDef): Type<FieldWidget> {
 
 /**
  * Resolve the widget component class for a given field.
- * Key-specific overrides take precedence over the type-based default.
+ * Precedence: key-specific override → `x-widget` hint → type-based default.
  */
 export function resolveWidget(field: FieldDef): Type<FieldWidget> {
-  return KEY_REGISTRY[field.key] ?? defaultWidgetFor(field);
+  return (
+    KEY_REGISTRY[field.key] ??
+    (field.widget ? WIDGET_REGISTRY[field.widget] : undefined) ??
+    defaultWidgetFor(field)
+  );
 }

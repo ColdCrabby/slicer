@@ -30,11 +30,115 @@ const WIDTH_SIMPLIFY_TOL_MM: f64 = 0.02;
 /// the marker count \u2014 and G-code size \u2014 bounded, fine enough to show the taper.
 const WIDTH_MARKER_STEP_MM: f64 = 0.05;
 
+// ── Spiral (vase) mode helpers ─────────────────────────────────────────────────
+
+/// Outcome of scanning a layer for a spiralizable outer contour.
+enum SpiralDetect {
+    /// No closed outer-wall loop to spiralize.
+    None,
+    /// Exactly one island — the given `SliceLayer::paths` index is its outer
+    /// contour.
+    Single(usize),
+    /// More than one separate island; spiral mode cannot fuse them into a
+    /// single continuous contour.
+    Multi,
+}
+
+/// Even-odd ray-cast point-in-polygon test (winding-independent).
+fn point_in_polygon(pt: (f64, f64), poly: &[(f64, f64)]) -> bool {
+    let (px, py) = pt;
+    let n = poly.len();
+    if n < 3 {
+        return false;
+    }
+    let mut inside = false;
+    let mut j = n - 1;
+    for i in 0..n {
+        let (xi, yi) = poly[i];
+        let (xj, yj) = poly[j];
+        if ((yi > py) != (yj > py)) && (px < (xj - xi) * (py - yi) / (yj - yi) + xi) {
+            inside = !inside;
+        }
+        j = i;
+    }
+    inside
+}
+
+/// Scan a layer for the single outermost closed outer-wall contour to
+/// spiralize.
+///
+/// Only closed [`crate::core::ExtrusionRole::OuterWall`] paths are considered.
+/// A loop whose first vertex lies inside another such loop is treated as a hole
+/// and ignored, so a solid island with holes still spiralizes as one contour.
+/// The count of *outermost* (non-contained) loops is the island count: exactly
+/// one yields [`SpiralDetect::Single`]; more yields [`SpiralDetect::Multi`].
+fn detect_spiral_loop(layer: &SliceLayer) -> SpiralDetect {
+    // Gather (paths-index, points) for every closed outer-wall loop.
+    let mut loops: Vec<(usize, Vec<(f64, f64)>)> = Vec::new();
+    for (i, path) in layer.paths.iter().enumerate() {
+        if layer.role_for_path(i) == crate::core::ExtrusionRole::OuterWall && !layer.is_path_open(i)
+        {
+            let pts: Vec<(f64, f64)> = path.iter().map(|p| (p.x(), p.y())).collect();
+            if pts.len() >= 2 {
+                loops.push((i, pts));
+            }
+        }
+    }
+    if loops.is_empty() {
+        return SpiralDetect::None;
+    }
+
+    // Outermost = whose first vertex is not inside any other loop. A hole's
+    // boundary vertex sits inside its outer contour; separate islands are
+    // disjoint so neither contains the other.
+    let mut outermost: Vec<usize> = Vec::new();
+    for (slot, (_, pts)) in loops.iter().enumerate() {
+        let probe = pts[0];
+        let contained = loops
+            .iter()
+            .enumerate()
+            .any(|(other, (_, o))| other != slot && point_in_polygon(probe, o));
+        if !contained {
+            outermost.push(slot);
+        }
+    }
+
+    match outermost.len() {
+        0 => SpiralDetect::None, // degenerate (mutually contained) — nothing to spiral
+        1 => SpiralDetect::Single(loops[outermost[0]].0),
+        _ => SpiralDetect::Multi,
+    }
+}
+
+/// Rotate a closed loop so its first vertex is the one nearest `target`,
+/// minimising the travel from the previous layer's end into the spiral and
+/// keeping the (invisible) start line aligned across layers.
+fn rotate_loop_nearest(pts: &[(f64, f64)], target: (f64, f64)) -> Vec<(f64, f64)> {
+    let n = pts.len();
+    if n == 0 {
+        return Vec::new();
+    }
+    let mut best = 0;
+    let mut best_d = f64::MAX;
+    for (i, &(x, y)) in pts.iter().enumerate() {
+        let d = (x - target.0).powi(2) + (y - target.1).powi(2);
+        if d < best_d {
+            best_d = d;
+            best = i;
+        }
+    }
+    (0..n).map(|k| pts[(best + k) % n]).collect()
+}
+
 /// Estimate the print time for a layer in seconds.
 ///
 /// Sums the total XY move distance for all paths in the layer and divides by
-/// `print_speed_mm_s`.  Travel moves are not modelled separately; this gives
-/// a conservative lower-bound that is close enough for fan-speed decisions.
+/// `print_speed_mm_s`.  Travel moves are not modelled separately; this is a
+/// deliberately cheap **pre-move** proxy used only for the adaptive fan-speed
+/// decision (which must be emitted *before* the layer's moves are known, so the
+/// accurate trapezoidal estimate is not yet available).  The user-facing ETA and
+/// the `;LAYER_TIME:` markers are replaced afterwards with the
+/// acceleration-aware figure from [`crate::gcode::time_estimate`].
 pub(crate) fn estimate_layer_time(layer: &SliceLayer, print_speed_mm_s: f64) -> f64 {
     if print_speed_mm_s <= 0.0 {
         return 0.0;
@@ -49,6 +153,37 @@ pub(crate) fn estimate_layer_time(layer: &SliceLayer, print_speed_mm_s: f64) -> 
         }
     }
     total_mm / print_speed_mm_s
+}
+
+/// Overwrite the value of each `;LAYER_TIME:` marker in `body` with the
+/// acceleration-aware per-layer estimate.
+///
+/// The generator emits one `;LAYER_TIME:` marker per printed layer (in order)
+/// as a cheap placeholder; this rewrites those values in place with the
+/// trapezoidal figures so the viewer's Layer-Time colouring matches the ETA.
+/// Markers with no corresponding estimate (should not happen — the estimator
+/// keys off the same markers) are left untouched, so the pass is always safe.
+fn patch_layer_time_markers(body: &mut String, per_layer_s: &[f64]) {
+    if per_layer_s.is_empty() || !body.contains(";LAYER_TIME:") {
+        return;
+    }
+    let mut patched = String::with_capacity(body.len());
+    let mut idx = 0usize;
+    // Preserve a trailing newline: `str::lines` drops it, so re-add per line.
+    for line in body.lines() {
+        if line.trim_start().starts_with(";LAYER_TIME:") {
+            if let Some(&t) = per_layer_s.get(idx) {
+                patched.push_str(&format!(";LAYER_TIME:{:.1}", t));
+                idx += 1;
+            } else {
+                patched.push_str(line);
+            }
+        } else {
+            patched.push_str(line);
+        }
+        patched.push('\n');
+    }
+    *body = patched;
 }
 
 /// Compute the extrusion length (mm of filament) needed to print a straight
@@ -313,6 +448,12 @@ pub struct GcodeGenerator {
     custom_end_script: Option<Vec<String>>,
     /// Optional custom G-code emitted at every layer change (after the Z move).
     custom_layer_script: Option<Vec<String>>,
+    /// Optional per-filament start script, emitted after the machine start
+    /// script and before the first print move.
+    custom_filament_start_script: Option<Vec<String>>,
+    /// Optional per-filament end script, emitted after the last print move and
+    /// before the machine end script.
+    custom_filament_end_script: Option<Vec<String>>,
     /// Optional source model name, embedded in the metadata header (issue #15).
     model_name: Option<String>,
 }
@@ -331,6 +472,8 @@ impl GcodeGenerator {
             custom_start_script: None,
             custom_end_script: None,
             custom_layer_script: None,
+            custom_filament_start_script: None,
+            custom_filament_end_script: None,
             model_name: None,
         }
     }
@@ -346,6 +489,8 @@ impl GcodeGenerator {
             custom_start_script: None,
             custom_end_script: None,
             custom_layer_script: None,
+            custom_filament_start_script: None,
+            custom_filament_end_script: None,
             model_name: None,
         }
     }
@@ -448,6 +593,30 @@ impl GcodeGenerator {
         self
     }
 
+    /// Set a per-filament start script, emitted after the machine start script
+    /// (and the pressure-advance line) and before the first print move.
+    ///
+    /// This is the slicer analogue of SuperSlicer/PrusaSlicer's *filament start
+    /// G-code*: material-scoped setup (purge lines, per-material pressure
+    /// advance, temperature tweaks) that logically belongs to the filament
+    /// profile rather than the machine. Each line supports the same
+    /// temperature / material placeholders as the start script.
+    pub fn with_filament_start_script(mut self, script: Vec<String>) -> Self {
+        self.custom_filament_start_script = Some(script);
+        self
+    }
+
+    /// Set a per-filament end script, emitted after the last print move and
+    /// before the machine end script.
+    ///
+    /// The filament counterpart to [`GcodeGenerator::with_filament_start_script`]
+    /// — material-scoped teardown that runs before the machine's own end
+    /// sequence. Each line supports the same placeholders as the end script.
+    pub fn with_filament_end_script(mut self, script: Vec<String>) -> Self {
+        self.custom_filament_end_script = Some(script);
+        self
+    }
+
     /// Set the source model name embedded in the metadata header (issue #15).
     ///
     /// Typically the input file's stem (e.g. `benchy` for `benchy.stl`). When
@@ -467,6 +636,260 @@ impl GcodeGenerator {
         if let Some(f) = &self.warn_fn {
             f(msg);
         }
+    }
+
+    /// Format an extruder-only move (retract / un-retract / prime), honouring
+    /// the absolute-vs-relative E convention.
+    ///
+    /// `de` is the signed incremental filament length; `e_total` is the running
+    /// absolute position *after* applying `de`. In relative mode (`M83`) the
+    /// delta is emitted; in absolute mode (`M82`) the running total is.
+    fn e_only_line(
+        &self,
+        de: f64,
+        e_total: f64,
+        speed_mm_min: f64,
+        params: &SlicingParams,
+    ) -> String {
+        let value = if params.use_relative_e_distances {
+            de
+        } else {
+            e_total
+        };
+        self.dialect.set_extruder_pos(value, speed_mm_min)
+    }
+
+    /// Format an extruding XY move, honouring the absolute-vs-relative E
+    /// convention (see [`GcodeGenerator::e_only_line`]).
+    fn xy_extrude_line(
+        &self,
+        x: f64,
+        y: f64,
+        de: f64,
+        e_total: f64,
+        speed_mm_min: f64,
+        params: &SlicingParams,
+    ) -> String {
+        let value = if params.use_relative_e_distances {
+            de
+        } else {
+            e_total
+        };
+        self.dialect.move_extrude(x, y, value, speed_mm_min)
+    }
+
+    /// Emit the wipe move: retrace `points` (the previous path's trajectory, in
+    /// print order) backward from its end for up to `wipe_distance` mm.
+    ///
+    /// When `retract_during > 0` the retraction is distributed proportionally
+    /// across the wiped length (a combined move-and-retract), smearing ooze onto
+    /// already-printed material; when it is `0` the wipe is a pure travel drag
+    /// (used with firmware retraction, or when the whole retraction happens
+    /// before the wipe). Returns the retraction length actually applied during
+    /// the wipe.
+    fn emit_wipe(
+        &self,
+        out: &mut String,
+        e_total: &mut f64,
+        points: &[(f64, f64)],
+        wipe_distance: f64,
+        retract_during: f64,
+        params: &SlicingParams,
+    ) -> f64 {
+        if points.len() < 2 || wipe_distance <= 0.0 {
+            return 0.0;
+        }
+
+        // Length actually available walking backward from the path end.
+        let mut avail = 0.0_f64;
+        for w in points.windows(2).rev() {
+            let (ax, ay) = w[1];
+            let (bx, by) = w[0];
+            avail += ((ax - bx).powi(2) + (ay - by).powi(2)).sqrt();
+            if avail >= wipe_distance {
+                break;
+            }
+        }
+        let wipe_len = avail.min(wipe_distance);
+        if wipe_len <= 1e-9 {
+            return 0.0;
+        }
+
+        let extruding = retract_during > 1e-9;
+        let e_per_mm = if extruding {
+            retract_during / wipe_len
+        } else {
+            0.0
+        };
+        // Wipe XY feedrate: the retraction speed is a safe, moderate rate for a
+        // combined move-and-retract; a pure-travel wipe uses the travel speed.
+        let feed = if extruding {
+            params.retract_speed_mm_min.max(1.0)
+        } else {
+            params.travel_speed_mm_min.max(1.0)
+        };
+
+        let mut remaining = wipe_len;
+        let mut applied = 0.0_f64;
+        let mut idx = points.len() - 1;
+        while idx > 0 && remaining > 1e-9 {
+            let (ax, ay) = points[idx];
+            let (bx, by) = points[idx - 1];
+            let dx = bx - ax;
+            let dy = by - ay;
+            let seg = (dx * dx + dy * dy).sqrt();
+            if seg < 1e-9 {
+                idx -= 1;
+                continue;
+            }
+            let step = seg.min(remaining);
+            let (tx, ty) = if step >= seg {
+                (bx, by)
+            } else {
+                let t = step / seg;
+                (ax + t * dx, ay + t * dy)
+            };
+            if extruding {
+                let de = -e_per_mm * step;
+                *e_total += de;
+                applied += -de;
+                out.push_str(&format!(
+                    "{} ; wipe\n",
+                    self.xy_extrude_line(tx, ty, de, *e_total, feed, params)
+                ));
+            } else {
+                out.push_str(&format!(
+                    "{} ; wipe\n",
+                    self.dialect.travel_xy(tx, ty, feed)
+                ));
+            }
+            remaining -= step;
+            if step >= seg {
+                idx -= 1;
+            } else {
+                break;
+            }
+        }
+        applied
+    }
+
+    /// Perform a retraction (if not already retracted), updating `e_total` and
+    /// the `retracted` flag.
+    ///
+    /// Dispatches between firmware retraction (`G10`), a plain extruder-axis
+    /// retract, and a wipe-while-retracting sequence, per the retraction
+    /// settings. `last_path_points` is the previous path's trajectory used for
+    /// the wipe; pass `None` to suppress wiping (e.g. the first path of a layer).
+    fn do_retract(
+        &self,
+        out: &mut String,
+        e_total: &mut f64,
+        retracted: &mut bool,
+        last_path_points: Option<&[(f64, f64)]>,
+        params: &SlicingParams,
+    ) {
+        if *retracted {
+            return;
+        }
+
+        let wipe_enabled = params.wipe && params.wipe_distance_mm > 0.0;
+
+        if params.use_firmware_retraction {
+            // Firmware retraction is atomic — the wipe can only precede it, as a
+            // pure-travel drag over already-printed material.
+            if wipe_enabled {
+                if let Some(pts) = last_path_points {
+                    self.emit_wipe(out, e_total, pts, params.wipe_distance_mm, 0.0, params);
+                }
+            }
+            out.push_str(&format!(
+                "{} ; firmware retract\n",
+                self.dialect.firmware_retract()
+            ));
+            *retracted = true;
+            return;
+        }
+
+        let retract_len = params.retract_mm;
+        if retract_len <= 0.0 {
+            // Nothing to retract; leave `retracted` false so the matching
+            // un-retract is also a no-op.
+            return;
+        }
+        let speed = params.retract_speed_mm_min.max(1.0);
+
+        let wipe_pts = if wipe_enabled {
+            last_path_points.filter(|p| p.len() >= 2)
+        } else {
+            None
+        };
+
+        if let Some(pts) = wipe_pts {
+            let before_frac = params.retract_before_wipe_percent.clamp(0.0, 1.0);
+            let pre = retract_len * before_frac;
+            let during = retract_len - pre;
+            let mut applied = 0.0_f64;
+            if pre > 1e-9 {
+                *e_total -= pre;
+                out.push_str(&format!(
+                    "{} ; retract before wipe\n",
+                    self.e_only_line(-pre, *e_total, speed, params)
+                ));
+                applied += pre;
+            }
+            applied += self.emit_wipe(out, e_total, pts, params.wipe_distance_mm, during, params);
+            let remainder = retract_len - applied;
+            if remainder > 1e-9 {
+                *e_total -= remainder;
+                out.push_str(&format!(
+                    "{} ; retract after wipe\n",
+                    self.e_only_line(-remainder, *e_total, speed, params)
+                ));
+            }
+        } else {
+            *e_total -= retract_len;
+            out.push_str(&format!(
+                "{} ; retract\n",
+                self.e_only_line(-retract_len, *e_total, speed, params)
+            ));
+        }
+        *retracted = true;
+    }
+
+    /// Recover from a retraction (if currently retracted), updating `e_total`,
+    /// the deposited-filament total, and the `retracted` flag.
+    ///
+    /// Emits `G11` under firmware retraction, otherwise primes the retracted
+    /// length plus any configured restart-extra.
+    fn do_unretract(
+        &self,
+        out: &mut String,
+        e_total: &mut f64,
+        retracted: &mut bool,
+        total_filament_mm: &mut f64,
+        params: &SlicingParams,
+    ) {
+        if !*retracted {
+            return;
+        }
+        if params.use_firmware_retraction {
+            out.push_str(&format!(
+                "{} ; firmware recover\n",
+                self.dialect.firmware_unretract()
+            ));
+            *retracted = false;
+            return;
+        }
+        let speed = params.retract_speed_mm_min.max(1.0);
+        let restart = params.retract_restart_extra_mm.max(0.0);
+        let de = params.retract_mm + restart;
+        *e_total += de;
+        *total_filament_mm += restart;
+        out.push_str(&format!(
+            "{} ; un-retract\n",
+            self.e_only_line(de, *e_total, speed, params)
+        ));
+        *retracted = false;
     }
 
     /// Resolve the effective print speed (in mm/min) for a given extrusion role
@@ -584,6 +1007,90 @@ impl GcodeGenerator {
         (a > 0.0).then_some(a)
     }
 
+    /// Emit one spiralized (vase-mode) outer contour with a continuous Z ramp.
+    ///
+    /// `pts` is the closed loop rotated so `pts[0]` is the start vertex. The
+    /// nozzle is assumed to already be at `pts[0]` (in XY) and at height
+    /// `z_bottom`. The loop is walked once — `pts[0] → pts[1] → … → pts[n-1] →
+    /// pts[0]` — while Z ramps linearly from `z_bottom` to `z_top` in proportion
+    /// to the distance travelled, so one full perimeter climbs exactly one layer
+    /// height and no discrete Z step or seam remains.
+    ///
+    /// The per-move extrusion is scaled by a flow factor that ramps linearly
+    /// from `flow_start` (at the seam) to `flow_end` (back at the seam), used to
+    /// fade the very first spiral loop in and the very last one out.
+    #[allow(clippy::too_many_arguments)]
+    fn emit_spiral_loop(
+        &self,
+        out: &mut String,
+        pts: &[(f64, f64)],
+        z_bottom: f64,
+        z_top: f64,
+        width_mm: f64,
+        speed_mm_min: f64,
+        flow_start: f64,
+        flow_end: f64,
+        params: &SlicingParams,
+        e_total: &mut f64,
+        total_filament_mm: &mut f64,
+    ) {
+        let n = pts.len();
+        if n < 2 {
+            return;
+        }
+
+        // Total loop length including the closing segment back to pts[0].
+        let mut total_len = 0.0_f64;
+        for i in 0..n {
+            let (ax, ay) = pts[i];
+            let (bx, by) = pts[(i + 1) % n];
+            total_len += ((bx - ax).powi(2) + (by - ay).powi(2)).sqrt();
+        }
+        if total_len < 1e-9 {
+            return;
+        }
+
+        let dz = z_top - z_bottom;
+        let capped_speed = volumetric_capped_speed_mm_min(
+            speed_mm_min,
+            params.layer_height,
+            width_mm,
+            params.max_volumetric_speed,
+        );
+
+        let mut dist = 0.0_f64;
+        for i in 0..n {
+            let (ax, ay) = pts[i];
+            let (bx, by) = pts[(i + 1) % n];
+            let seg = ((bx - ax).powi(2) + (by - ay).powi(2)).sqrt();
+            if seg < 1e-9 {
+                continue;
+            }
+            dist += seg;
+            let t = (dist / total_len).clamp(0.0, 1.0);
+            let z = z_bottom + dz * t;
+            let flow_scale = flow_start + (flow_end - flow_start) * t;
+            // Apply the flow ramp *after* the flow-ratio correction: passing a
+            // zero flow ratio into `extrusion_for_move` would trip its
+            // "non-positive ratio → 1.0" safety guard, so the fade-out would
+            // silently become full flow.
+            let de = extrusion_for_move(
+                seg,
+                params.layer_height,
+                width_mm,
+                params.filament_diameter_mm,
+                params.flow_ratio,
+            ) * flow_scale;
+            *e_total += de;
+            *total_filament_mm += de;
+            out.push_str(&format!(
+                "{}\n",
+                self.dialect
+                    .move_extrude_z(bx, by, z, *e_total, capped_speed)
+            ));
+        }
+    }
+
     /// Generate a complete G-code program from the given layers and parameters.
     ///
     /// The output is a single `String` with lines separated by `'\n'`.
@@ -607,6 +1114,11 @@ impl GcodeGenerator {
         layers: &[SliceLayer],
         params: &SlicingParams,
     ) -> (String, SliceStatistics) {
+        // Spiral (vase) mode forces the same single-wall configuration the
+        // slicing pipeline used, so the header stats and emitted moves agree.
+        let normalized = params.spiral_vase_normalized();
+        let params = normalized.as_ref();
+
         // Warn about any commands the dialect doesn't natively support
         for cmd in self.dialect.unsupported_commands() {
             self.warn(&format!(
@@ -616,6 +1128,45 @@ impl GcodeGenerator {
                 self.dialect.flavor_name()
             ));
         }
+
+        // ── Spiral (vase) mode plan ───────────────────────────────────────────
+        // Spiralizable layers are those at or above `spiral_start_layer` that
+        // expose exactly one closed outer-wall island. Layers below stay flat
+        // (the solid base); layer 0 is always flat since a spiral cannot climb
+        // from Z=0. Multi-island layers fall back to normal printing with a
+        // single warning.
+        let spiral_start_layer = params.bottom_layers.max(1);
+        let spiral_path_indices: Vec<Option<usize>> = if params.spiral_vase {
+            let mut warned = false;
+            layers
+                .iter()
+                .enumerate()
+                .map(|(i, layer)| {
+                    if i < spiral_start_layer {
+                        return None;
+                    }
+                    match detect_spiral_loop(layer) {
+                        SpiralDetect::Single(idx) => Some(idx),
+                        SpiralDetect::Multi => {
+                            if !warned {
+                                self.warn(
+                                    "spiral vase mode: a layer has multiple islands — printing \
+                                     those layers normally (spiral vase works on single-island \
+                                     solid models)",
+                                );
+                                warned = true;
+                            }
+                            None
+                        }
+                        SpiralDetect::None => None,
+                    }
+                })
+                .collect()
+        } else {
+            Vec::new()
+        };
+        let first_spiral_idx = spiral_path_indices.iter().position(Option::is_some);
+        let last_spiral_idx = spiral_path_indices.iter().rposition(Option::is_some);
 
         // The metadata header is prepended once the filament total and geometry
         // are known (see the end of this method); the body starts here.
@@ -631,14 +1182,36 @@ impl GcodeGenerator {
             out.push('\n');
         }
 
-        // The whole generator emits absolute E positions (accumulating `e_total`,
-        // `G92 E0` per layer).  A custom start script or a Klipper `START_PRINT`
-        // macro that primes / uses firmware retraction can leave the extruder in
-        // relative mode (`M83`), which would make every `G1 … E<e_total>` a
-        // relative extrusion of the full running total → gross over-extrusion.
-        // Force absolute mode and zero the counter so the invariant always holds.
-        out.push_str(&format!("{}\n", self.dialect.extruder_absolute_mode()));
+        // The generator tracks a running extruder position `e_total` and, by
+        // default, emits **absolute** E positions (`M82`, `G92 E0` per layer).
+        // A custom start script or a Klipper `START_PRINT` macro that primes /
+        // uses firmware retraction can leave the extruder in an unexpected mode,
+        // so the required mode is forced here to guarantee the invariant:
+        //   - absolute (`M82`) — every `G1 … E<e_total>` is an absolute target;
+        //   - relative (`M83`, when `use_relative_e_distances`) — every move
+        //     carries its incremental filament length instead.
+        if params.use_relative_e_distances {
+            out.push_str(&format!("{}\n", self.dialect.extruder_relative_mode()));
+        } else {
+            out.push_str(&format!("{}\n", self.dialect.extruder_absolute_mode()));
+        }
         out.push_str(&format!("{}\n", self.dialect.reset_extruder()));
+
+        // ── Firmware retraction setup (opt-in) ────────────────────────────────
+        // Sync the firmware's retraction length / speed / restart-extra to the
+        // slicer settings so the `G10`/`G11` moves emitted below use them. The
+        // Z-hop component is left to the slicer's explicit Z moves so behaviour
+        // matches software retraction.
+        if params.use_firmware_retraction {
+            for line in self.dialect.firmware_retract_setup(
+                params.retract_mm,
+                params.retract_speed_mm_min,
+                params.retract_restart_extra_mm,
+            ) {
+                out.push_str(&line);
+                out.push('\n');
+            }
+        }
 
         // ── Pressure / linear advance (opt-in; `0` disables) ──────────────────
         // Emitted once, right after the start script, so it survives custom
@@ -653,17 +1226,61 @@ impl GcodeGenerator {
             ));
         }
 
+        // ── Machine kinematic limits (opt-in; each `0` leaves the default) ────
+        // Emitted once, right after pressure advance, so the firmware corners
+        // (square-corner velocity → junction deviation) and caps velocity
+        // exactly as the acceleration-aware print-time estimate assumes. The
+        // conversion needs an acceleration; use the normal target (falling back
+        // to the estimator default when acceleration control is off).
+        let kinematic_accel = if params.acceleration > 0.0 {
+            params.acceleration
+        } else {
+            crate::gcode::time_estimate::DEFAULT_ACCELERATION_MM_S2
+        };
+        for line in self.dialect.set_kinematic_limits(
+            params.square_corner_velocity,
+            params.max_velocity,
+            kinematic_accel,
+        ) {
+            out.push_str(&line);
+            out.push('\n');
+        }
+
+        // ── Per-filament start script ─────────────────────────────────────────
+        // Emitted after the machine start script (and pressure-advance / kinematic
+        // setup) but before the first print move, so material-scoped setup (purge,
+        // per-material PA / temperature tweaks) contributed by the filament profile
+        // runs last before printing begins.
+        if let Some(lines) = &self.custom_filament_start_script {
+            for line in lines {
+                out.push_str(&render_script_placeholders(line, params));
+                out.push('\n');
+            }
+        }
+
         // ── Per-layer contours ────────────────────────────────────────────────
         let mut e_total = 0.0_f64;
         // Grand total of deposited filament (mm of feedstock) across every
         // layer — accumulated alongside `e_total` at each extrusion move and
         // used to compute filament weight/volume for the metadata header.
         let mut total_filament_mm = 0.0_f64;
+        // Whether the extruder is currently retracted. Normally toggled back to
+        // `false` after every travel, but `retract_on_layer_change` leaves it
+        // set across the layer-change Z move.
+        let mut retracted = false;
+        // Trajectory (print-order XY) of the previous path, captured only when
+        // wiping is enabled, so a retract can retrace it. Reset at each layer so
+        // the first path never wipes across the layer-change Z move.
+        let mut last_path_points: Option<Vec<(f64, f64)>> = None;
         // Track previous fan speed per config index for rate limiting (aux overrides).
         let mut prev_fan_speeds: Vec<Option<f64>> = vec![None; params.fan_configs.len()];
         // Track the last emitted acceleration so we only emit a firmware
         // command when the target changes (persists across layers).
         let mut last_accel: Option<f64> = None;
+        // Persistent nozzle XY across layers — used by spiral mode to travel
+        // into each spiral loop from the true previous position and to keep the
+        // start line aligned. Updated at the end of every layer.
+        let mut cur_xy: Option<(f64, f64)> = None;
 
         // If a custom start script heats for first layer (e.g.
         // `{nozzle_temp_first_layer}` / `{bed_temp_first_layer}`), restore the
@@ -685,6 +1302,25 @@ impl GcodeGenerator {
             params.bed_temp_first_layer > 0.0 && (first_bed - params.bed_temp).abs() > 1e-9;
 
         for (layer_index, layer) in layers.iter().enumerate() {
+            // ── Retract on layer change (opt-in) ─────────────────────────────
+            // Retract *before* the layer-change Z move so the nozzle does not
+            // ooze while lifting and travelling to the next layer's first path.
+            // The wipe (when enabled) retraces the previous layer's last path,
+            // which is correct because the Z move has not happened yet.
+            if layer_index > 0 && params.retract_on_layer_change {
+                self.do_retract(
+                    &mut out,
+                    &mut e_total,
+                    &mut retracted,
+                    last_path_points.as_deref(),
+                    params,
+                );
+            }
+            // A fresh layer starts a new set of paths: never wipe the first path
+            // against the previous layer's geometry (that would drag at the new,
+            // higher Z over material the nozzle is no longer touching).
+            last_path_points = None;
+
             let z_str = format!("{:.3}", layer.z);
             let height_str = format!("{:.3}", params.layer_height);
             // Detect first layer: z within half a layer height of layer_height.
@@ -697,6 +1333,12 @@ impl GcodeGenerator {
             } else {
                 None
             };
+
+            // Spiral (vase) layer? If so, the single outer contour is emitted
+            // with a continuous Z ramp and the usual discrete Z move is skipped
+            // (the nozzle is already at the previous layer's top Z).
+            let spiral_path_idx = spiral_path_indices.get(layer_index).copied().flatten();
+            let is_spiral_layer = spiral_path_idx.is_some();
 
             if self.marker_config.enabled {
                 // Lifecycle block: LAYER_CHANGE → BEFORE_LAYER_CHANGE → Z move → AFTER_LAYER_CHANGE
@@ -743,10 +1385,14 @@ impl GcodeGenerator {
                 out.push_str(&format!("{}\n", self.dialect.reset_extruder()));
                 e_total = 0.0;
 
-                out.push_str(&format!(
-                    "{}\n",
-                    self.dialect.move_z(layer.z, params.travel_speed_mm_min)
-                ));
+                // Spiral layers ramp Z along the perimeter, so no discrete Z
+                // move here — the nozzle is already at the previous layer's top.
+                if !is_spiral_layer {
+                    out.push_str(&format!(
+                        "{}\n",
+                        self.dialect.move_z(layer.z, params.travel_speed_mm_min)
+                    ));
+                }
 
                 let after_lc = self
                     .marker_config
@@ -760,10 +1406,12 @@ impl GcodeGenerator {
                 out.push_str(&format!(";{}\n", z_str));
             } else {
                 out.push_str(&format!("; layer z={}\n", z_str));
-                out.push_str(&format!(
-                    "{}\n",
-                    self.dialect.move_z(layer.z, params.travel_speed_mm_min)
-                ));
+                if !is_spiral_layer {
+                    out.push_str(&format!(
+                        "{}\n",
+                        self.dialect.move_z(layer.z, params.travel_speed_mm_min)
+                    ));
+                }
             }
 
             if layer_index == 1 {
@@ -827,6 +1475,121 @@ impl GcodeGenerator {
             let mut last_role: Option<crate::core::ExtrusionRole> = None;
             let mut last_width: Option<f64> = None;
             let mut last_pos: Option<(f64, f64)> = None;
+
+            // ── Spiral (vase) mode: emit the single outer contour with a
+            //    continuous Z ramp, then move to the next layer ───────────────
+            if let Some(idx) = spiral_path_idx {
+                let path = layer
+                    .paths
+                    .iter()
+                    .nth(idx)
+                    .expect("spiral path index is within the layer's paths");
+                let pts: Vec<(f64, f64)> = path.iter().map(|p| (p.x(), p.y())).collect();
+
+                let role = crate::core::ExtrusionRole::OuterWall;
+                let width_mm = resolve_width_mm(layer.width_for_path(idx), false, role, params);
+                let speed_mm_min = Self::effective_speed_mm_min(role, is_first_layer, params);
+
+                // Adaptive acceleration (opt-in), same policy as normal walls.
+                if let Some(accel) = Self::effective_acceleration(role, is_first_layer, params) {
+                    if last_accel != Some(accel) {
+                        out.push_str(&format!(
+                            "{} ; acceleration\n",
+                            self.dialect.set_acceleration(accel)
+                        ));
+                        last_accel = Some(accel);
+                    }
+                }
+
+                // ;TYPE: / ;WIDTH: annotations so viewers classify the wall.
+                if self.marker_config.enabled {
+                    let width_str = format!("{:.2}", width_mm);
+                    let type_ann = self
+                        .marker_config
+                        .type_annotation
+                        .as_deref()
+                        .unwrap_or(";TYPE:{type}");
+                    out.push_str(&render_marker(
+                        type_ann,
+                        &z_str,
+                        &height_str,
+                        role.type_name(),
+                        &width_str,
+                    ));
+                    out.push('\n');
+                    let width_ann = self
+                        .marker_config
+                        .width_annotation
+                        .as_deref()
+                        .unwrap_or(";WIDTH:{width}mm");
+                    out.push_str(&render_marker(
+                        width_ann,
+                        &z_str,
+                        &height_str,
+                        role.type_name(),
+                        &width_str,
+                    ));
+                    out.push('\n');
+                }
+
+                // Ramp from the previous layer's top Z to this layer's Z over
+                // one perimeter. Start the loop nearest the previous nozzle
+                // position to keep the (invisible) start line aligned.
+                let z_bottom = if layer_index > 0 {
+                    layers[layer_index - 1].z
+                } else {
+                    0.0
+                };
+                let z_top = layer.z;
+                let target = cur_xy.unwrap_or(pts[0]);
+                let rotated = rotate_loop_nearest(&pts, target);
+                let (sx, sy) = rotated[0];
+
+                let need_travel = match cur_xy {
+                    Some((cx, cy)) => ((sx - cx).powi(2) + (sy - cy).powi(2)).sqrt() > 0.05,
+                    None => true,
+                };
+                if need_travel {
+                    out.push_str(&format!(
+                        "{} ; spiral travel\n",
+                        self.dialect.travel_xy(sx, sy, params.travel_speed_mm_min)
+                    ));
+                }
+
+                // Fade flow in on the first spiral loop and out on the last so
+                // the seam disappears at both ends of the vase.
+                let is_first_spiral = first_spiral_idx == Some(layer_index);
+                let is_last_spiral = last_spiral_idx == Some(layer_index);
+                let flow_start = if is_first_spiral && !is_last_spiral {
+                    0.0
+                } else {
+                    1.0
+                };
+                let flow_end = if is_last_spiral && !is_first_spiral {
+                    0.0
+                } else {
+                    1.0
+                };
+
+                self.emit_spiral_loop(
+                    &mut out,
+                    &rotated,
+                    z_bottom,
+                    z_top,
+                    width_mm,
+                    speed_mm_min,
+                    flow_start,
+                    flow_end,
+                    params,
+                    &mut e_total,
+                    &mut total_filament_mm,
+                );
+
+                // The loop closes back to its start vertex; that's where the
+                // next spiral layer begins.
+                cur_xy = Some((sx, sy));
+                continue;
+            }
 
             for (path_idx, path) in layer.paths.iter().enumerate() {
                 let raw_points: Vec<(f64, f64)> = path.iter().map(|p| (p.x(), p.y())).collect();
@@ -978,20 +1741,22 @@ impl GcodeGenerator {
                 };
 
                 let role_changed = last_role != Some(role);
-                // Retract policy:
-                //   - Skip retract for any travel under `MIN_TRAVEL_FOR_RETRACT_MM`,
-                //     even on role change.  A 0.4 mm hop from the inner-wall
-                //     loop end to the outer-wall loop start does not ooze
-                //     enough to justify the 5-line retract+zhop+travel+lower+
-                //     un-retract ceremony (which itself takes longer than the
-                //     hop and pauses extrusion).
-                //   - Long travels always retract, regardless of role.
-                //
-                // Other slicers (PrusaSlicer, Orca, Cura) all use a similar
-                // "min travel for retract" cutoff (typically 1.0–2.0 mm).
-                const MIN_TRAVEL_FOR_RETRACT_MM: f64 = 1.0;
+                // Retract policy (mirrors PrusaSlicer / Orca / Cura):
+                //   - Never retract for travels at or under the configured
+                //     `retract_before_travel_mm` minimum. A 0.4 mm hop from an
+                //     inner-wall loop end to an outer-wall loop start does not
+                //     ooze enough to justify the retract → z-hop → travel →
+                //     lower → un-retract ceremony (which itself takes longer
+                //     than the hop and pauses extrusion).
+                //   - Long travels (> max(2 mm, the minimum)) always retract.
+                //   - Travels between the minimum and that ceiling retract only
+                //     when the extrusion role changes (e.g. infill → outer wall),
+                //     where oozing would show on a visible surface.
+                const ALWAYS_RETRACT_TRAVEL_MM: f64 = 2.0;
+                let min_travel = params.retract_before_travel_mm.max(0.0);
+                let always_retract = min_travel.max(ALWAYS_RETRACT_TRAVEL_MM);
                 let needs_retract =
-                    travel_dist > 2.0 || (role_changed && travel_dist > MIN_TRAVEL_FOR_RETRACT_MM);
+                    travel_dist > always_retract || (role_changed && travel_dist > min_travel);
 
                 // Plan the travel path.  With `avoid_crossing_perimeters` the
                 // planner may return intermediate waypoints that detour around
@@ -1003,12 +1768,18 @@ impl GcodeGenerator {
                 };
 
                 if needs_retract {
-                    // Retract, z-hop, travel (possibly via detour), lower, prime
-                    e_total -= params.retract_mm;
-                    out.push_str(&format!(
-                        "{} ; retract\n",
-                        self.dialect.set_extruder_pos(e_total, 3000.0)
-                    ));
+                    // Retract [+ wipe], z-hop, travel (possibly via detour),
+                    // lower, prime. The retract and prime dispatch on the
+                    // retraction mode (software E move, firmware G10/G11,
+                    // wipe-while-retracting); the z-hop is always slicer-driven
+                    // so behaviour is mode-independent.
+                    self.do_retract(
+                        &mut out,
+                        &mut e_total,
+                        &mut retracted,
+                        last_path_points.as_deref(),
+                        params,
+                    );
                     out.push_str(&format!(
                         "{} ; z-hop\n",
                         self.dialect
@@ -1029,11 +1800,13 @@ impl GcodeGenerator {
                         "{} ; lower\n",
                         self.dialect.move_z(layer.z, params.travel_speed_mm_min)
                     ));
-                    e_total += params.retract_mm;
-                    out.push_str(&format!(
-                        "{} ; un-retract\n",
-                        self.dialect.set_extruder_pos(e_total, 3000.0)
-                    ));
+                    self.do_unretract(
+                        &mut out,
+                        &mut e_total,
+                        &mut retracted,
+                        &mut total_filament_mm,
+                        params,
+                    );
                 } else if travel_dist > 0.05 {
                     // Short travel without stringing mitigation.  Travels under
                     // 0.05 mm are degenerate (floating-point rounding noise from
@@ -1132,8 +1905,14 @@ impl GcodeGenerator {
                             total_filament_mm += de;
                             out.push_str(&format!(
                                 "{}\n",
-                                self.dialect
-                                    .move_extrude(x, y, e_total, capped_speed_mm_min)
+                                self.xy_extrude_line(
+                                    x,
+                                    y,
+                                    de,
+                                    e_total,
+                                    capped_speed_mm_min,
+                                    params
+                                )
                             ));
                         } else if dist_traveled < coasting_start {
                             // Segment straddles the coasting boundary → split it
@@ -1152,8 +1931,14 @@ impl GcodeGenerator {
                             total_filament_mm += de;
                             out.push_str(&format!(
                                 "{}\n",
-                                self.dialect
-                                    .move_extrude(bx, by, e_total, capped_speed_mm_min)
+                                self.xy_extrude_line(
+                                    bx,
+                                    by,
+                                    de,
+                                    e_total,
+                                    capped_speed_mm_min,
+                                    params
+                                )
                             ));
                             // Remainder is a travel move
                             out.push_str(&format!(
@@ -1188,11 +1973,13 @@ impl GcodeGenerator {
                             total_filament_mm += de;
                             out.push_str(&format!(
                                 "{} ; close contour\n",
-                                self.dialect.move_extrude(
+                                self.xy_extrude_line(
                                     start_x,
                                     start_y,
+                                    de,
                                     e_total,
-                                    capped_speed_mm_min
+                                    capped_speed_mm_min,
+                                    params
                                 )
                             ));
                         } else if dist_traveled < coasting_start {
@@ -1211,8 +1998,14 @@ impl GcodeGenerator {
                             total_filament_mm += de;
                             out.push_str(&format!(
                                 "{}\n",
-                                self.dialect
-                                    .move_extrude(bx, by, e_total, capped_speed_mm_min)
+                                self.xy_extrude_line(
+                                    bx,
+                                    by,
+                                    de,
+                                    e_total,
+                                    capped_speed_mm_min,
+                                    params
+                                )
                             ));
                             out.push_str(&format!(
                                 "{} ; coasting close\n",
@@ -1304,7 +2097,7 @@ impl GcodeGenerator {
                         total_filament_mm += de;
                         out.push_str(&format!(
                             "{}\n",
-                            self.dialect.move_extrude(x, y, e_total, seg_speed(sw))
+                            self.xy_extrude_line(x, y, de, e_total, seg_speed(sw), params)
                         ));
                         prev = (x, y);
                     }
@@ -1330,11 +2123,13 @@ impl GcodeGenerator {
                             total_filament_mm += de;
                             out.push_str(&format!(
                                 "{} ; close contour\n",
-                                self.dialect.move_extrude(
+                                self.xy_extrude_line(
                                     start_x,
                                     start_y,
+                                    de,
                                     e_total,
-                                    capped_speed_mm_min
+                                    capped_speed_mm_min,
+                                    params
                                 )
                             ));
                         }
@@ -1343,6 +2138,36 @@ impl GcodeGenerator {
                         last_pos = Some(prev);
                     }
                 }
+
+                // Capture this path's trajectory so a subsequent retract can
+                // wipe along it. Only done when wiping is enabled, to avoid the
+                // per-path clone otherwise. Closed loops end back at their start,
+                // so the closing vertex is appended; the wipe retraces this list
+                // in reverse from the end.
+                if params.wipe && params.wipe_distance_mm > 0.0 {
+                    let mut traj = points.clone();
+                    if is_closed_loop {
+                        traj.push(points[0]);
+                    }
+                    last_path_points = Some(traj);
+                }
+            }
+
+            // Remember where this (non-spiral) layer left the nozzle so a
+            // following spiral layer can travel into its loop from the true
+            // previous position.
+            if last_pos.is_some() {
+                cur_xy = last_pos;
+            }
+        }
+
+        // ── Per-filament end script ───────────────────────────────────────────
+        // Material-scoped teardown, emitted after the last print move and before
+        // the machine end script.
+        if let Some(lines) = &self.custom_filament_end_script {
+            for line in lines {
+                out.push_str(&render_script_placeholders(line, params));
+                out.push('\n');
             }
         }
 
@@ -1356,14 +2181,45 @@ impl GcodeGenerator {
             out.push('\n');
         }
 
+        // ── Acceleration-aware print-time estimate (issue #117) ───────────────
+        // Measure the *emitted* moves — travel, Z lifts, retraction and every
+        // per-role feedrate / acceleration the body above wrote — with the
+        // trapezoidal planner model, then apply the user's estimate calibration
+        // and splice the per-layer figures back into the `;LAYER_TIME:` markers
+        // so the header/footer ETA and the viewer's Layer-Time colouring all read
+        // the same numbers.
+        //
+        // Calibration (issue #117 follow-up): the toolpath physics from the
+        // estimator is corrected by `time_estimate_scale` (a user fudge factor
+        // for systematic error the model rounds off), then the fixed
+        // `time_estimate_warmup_s` (homing / heat-soak / purge) and
+        // `time_estimate_cooldown_s` (e.g. chamber cool-off) allowances — wall
+        // clock the toolpath cannot show — are added. The per-layer markers get
+        // the same scale so they stay consistent with the toolpath total, but
+        // *not* the fixed allowances (those belong to no single layer).
+        let est_cfg = crate::gcode::time_estimate::EstimatorConfig::from_params(params);
+        let estimate = crate::gcode::time_estimate::estimate_print_time(&out, &est_cfg);
+        let scale = if params.time_estimate_scale > 0.0 {
+            params.time_estimate_scale
+        } else {
+            1.0
+        };
+        let scaled_per_layer: Vec<f64> = estimate.per_layer_s.iter().map(|t| t * scale).collect();
+        patch_layer_time_markers(&mut out, &scaled_per_layer);
+        let total_estimate_s = params.time_estimate_warmup_s.max(0.0)
+            + estimate.total_s * scale
+            + params.time_estimate_cooldown_s.max(0.0);
+
         // ── Metadata header (issue #15) ───────────────────────────────────────
-        // Now that the body is emitted we know the measured filament total and
-        // the geometry; build the aggregate statistics and prepend the
-        // flavor-specific header so its figures match the body exactly.
+        // Now that the body is emitted we know the measured filament total, the
+        // geometry, and the print-time estimate; build the aggregate statistics
+        // and prepend the flavor-specific header so its figures match the body
+        // exactly.
         let stats = SliceStatistics::from_layers(
             layers,
             params,
             total_filament_mm,
+            total_estimate_s,
             self.model_name.clone(),
         );
         let mut result = String::with_capacity(out.len() + 512);
@@ -1422,8 +2278,10 @@ pub fn generate_gcode(layers: &[SliceLayer], params: &SlicingParams) -> String {
 ///
 /// This is the entry point used by every *application* slice path (WS server,
 /// WASM, desktop bridge). Unlike [`generate_gcode`] it respects
-/// `params.gcode_flavor` and applies `params.start_gcode`, `params.end_gcode`
-/// and `params.layer_gcode` when present (each split into lines on `'\n'`).
+/// `params.gcode_flavor` and applies `params.start_gcode`, `params.end_gcode`,
+/// `params.layer_gcode`, and the per-filament `params.start_filament_gcode` /
+/// `params.end_filament_gcode` hooks when present (each split into lines on
+/// `'\n'`).
 ///
 /// A non-empty custom block wins over the dialect default; a blank/whitespace
 /// block is ignored so an empty text field falls back to the flavor default.
@@ -1437,6 +2295,12 @@ pub fn generate_gcode_from_params(layers: &[SliceLayer], params: &SlicingParams)
     }
     if let Some(lines) = gcode_block_lines(params.layer_gcode.as_deref()) {
         generator = generator.with_layer_script(lines);
+    }
+    if let Some(lines) = gcode_block_lines(params.start_filament_gcode.as_deref()) {
+        generator = generator.with_filament_start_script(lines);
+    }
+    if let Some(lines) = gcode_block_lines(params.end_filament_gcode.as_deref()) {
+        generator = generator.with_filament_end_script(lines);
     }
     generator.generate(layers, params)
 }
@@ -1550,10 +2414,234 @@ mod tests {
         assert!(gcode.contains("X0.000 Y0.000"), "missing start travel");
     }
 
+    // ── Advanced retraction modes (issue #96) ─────────────────────────────────
+
+    /// A closed square whose lower-left corner is `(x0, y0)`.
+    fn square_at(x0: f64, y0: f64) -> clipper2::Path {
+        vec![
+            (x0, y0),
+            (x0 + 10.0, y0),
+            (x0 + 10.0, y0 + 10.0),
+            (x0, y0 + 10.0),
+        ]
+        .into()
+    }
+
+    fn one_square_layer() -> SliceLayer {
+        let mut layer = SliceLayer::new(0.2);
+        layer.paths.push(square_at(0.0, 0.0));
+        layer
+    }
+
+    /// The first line containing `needle`, or `""` if none.
+    fn line_with<'a>(gcode: &'a str, needle: &str) -> &'a str {
+        gcode.lines().find(|l| l.contains(needle)).unwrap_or("")
+    }
+
     #[test]
-    fn test_extrusion_for_move_positive() {
-        let e = extrusion_for_move(10.0, 0.2, 0.4, 1.75, 1.0);
-        assert!(e > 0.0, "extrusion must be positive");
+    fn default_retraction_is_software_absolute() {
+        // With every advanced mode off the output is a plain absolute-E software
+        // retract — the baseline behaviour must be untouched.
+        let gcode = generate_gcode(&[one_square_layer()], &SlicingParams::default());
+        assert!(gcode.contains("M82"), "default must be absolute E: {gcode}");
+        assert!(!gcode.contains("M83"), "default must not be relative E");
+        assert!(
+            !gcode.contains("G10"),
+            "default must not use firmware retract"
+        );
+        assert!(
+            line_with(&gcode, "; retract").contains("E-1.00000"),
+            "default retract must be a software E move: {gcode}"
+        );
+        assert!(
+            line_with(&gcode, "; un-retract").contains("E0.00000"),
+            "default un-retract returns to the absolute datum: {gcode}"
+        );
+    }
+
+    #[test]
+    fn firmware_retraction_emits_g10_g11_and_setup() {
+        let params = SlicingParams {
+            use_firmware_retraction: true,
+            ..SlicingParams::default()
+        };
+        let gcode = generate_gcode(&[one_square_layer()], &params);
+        assert!(
+            gcode.contains("M207"),
+            "missing firmware retract setup: {gcode}"
+        );
+        assert!(
+            gcode.contains("M208"),
+            "missing firmware recover setup: {gcode}"
+        );
+        assert!(
+            gcode.contains("G10 ; firmware retract"),
+            "missing G10 firmware retract: {gcode}"
+        );
+        assert!(
+            gcode.contains("G11 ; firmware recover"),
+            "missing G11 firmware recover: {gcode}"
+        );
+        // Firmware retraction must not also move the extruder axis for the pull.
+        assert!(
+            !gcode.lines().any(|l| l.ends_with("; retract")),
+            "firmware retraction must not emit a software retract: {gcode}"
+        );
+    }
+
+    #[test]
+    fn firmware_retraction_klipper_uses_set_retraction() {
+        let params = SlicingParams {
+            use_firmware_retraction: true,
+            ..SlicingParams::default()
+        };
+        let gcode =
+            GcodeGenerator::new(GcodeFlavor::Klipper).generate(&[one_square_layer()], &params);
+        assert!(
+            gcode.contains("SET_RETRACTION"),
+            "Klipper firmware retraction setup missing: {gcode}"
+        );
+        assert!(
+            gcode.contains("G10") && gcode.contains("G11"),
+            "missing G10/G11: {gcode}"
+        );
+    }
+
+    #[test]
+    fn relative_e_distances_emit_m83_and_deltas() {
+        let params = SlicingParams {
+            use_relative_e_distances: true,
+            ..SlicingParams::default()
+        };
+        let gcode = generate_gcode(&[one_square_layer()], &params);
+        assert!(
+            gcode.contains("M83"),
+            "missing relative-E mode line: {gcode}"
+        );
+        // The un-retract is the raw retract length as a delta, not an absolute
+        // datum return.
+        assert!(
+            line_with(&gcode, "; un-retract").contains("E1.00000"),
+            "relative un-retract must prime the retract length: {gcode}"
+        );
+        // Every extrusion delta is a per-segment length (well under the running
+        // absolute total an absolute stream would reach on a 40 mm perimeter).
+        let max_e = gcode
+            .lines()
+            .filter(|l| l.contains(" X") && l.contains(" E"))
+            .filter_map(|l| l.split_whitespace().find(|t| t.starts_with('E')))
+            .filter_map(|t| t[1..].parse::<f64>().ok())
+            .fold(0.0_f64, f64::max);
+        assert!(
+            max_e < 5.0,
+            "relative extrusion deltas must stay small, got {max_e}: {gcode}"
+        );
+    }
+
+    #[test]
+    fn restart_extra_adds_prime_on_unretract() {
+        let params = SlicingParams {
+            use_relative_e_distances: true,
+            retract_restart_extra_mm: 0.5,
+            ..SlicingParams::default()
+        };
+        let gcode = generate_gcode(&[one_square_layer()], &params);
+        // retract_mm (1.0) + restart_extra (0.5) = 1.5 mm primed on recover.
+        assert!(
+            line_with(&gcode, "; un-retract").contains("E1.50000"),
+            "restart-extra must be added to the un-retract: {gcode}"
+        );
+    }
+
+    #[test]
+    fn retract_on_layer_change_retracts_before_z() {
+        let mut l1 = SliceLayer::new(0.2);
+        l1.paths.push(square_at(0.0, 0.0));
+        let mut l2 = SliceLayer::new(0.4);
+        l2.paths.push(square_at(0.0, 0.0));
+        let layers = vec![l1, l2];
+
+        let off = generate_gcode(&layers, &SlicingParams::default());
+        let on = generate_gcode(
+            &layers,
+            &SlicingParams {
+                retract_on_layer_change: true,
+                ..SlicingParams::default()
+            },
+        );
+
+        let second_lc = |g: &str| g.match_indices(";LAYER_CHANGE").nth(1).map(|(i, _)| i);
+        let on_idx = second_lc(&on).expect("two layers -> two LAYER_CHANGE markers");
+        let off_idx = second_lc(&off).expect("two layers -> two LAYER_CHANGE markers");
+        assert!(
+            on[..on_idx].trim_end().ends_with("; retract"),
+            "layer-change retract must precede the layer-change marker: {on}"
+        );
+        assert!(
+            !off[..off_idx].trim_end().ends_with("; retract"),
+            "without the flag no retract precedes the layer-change marker: {off}"
+        );
+    }
+
+    #[test]
+    fn wipe_emits_wipe_moves_that_retract() {
+        // Two squares 5 mm apart in one layer: the second path's retract wipes
+        // along the first path's trajectory.
+        let mut layer = SliceLayer::new(0.2);
+        layer.paths.push(square_at(0.0, 0.0));
+        layer.paths.push(square_at(0.0, 5.0));
+
+        let off = generate_gcode(&[layer.clone()], &SlicingParams::default());
+        assert!(!off.contains("; wipe"), "no wipe without the flag: {off}");
+
+        let params = SlicingParams {
+            wipe: true,
+            wipe_distance_mm: 2.0,
+            use_relative_e_distances: true,
+            ..SlicingParams::default()
+        };
+        let on = generate_gcode(&[layer], &params);
+        assert!(
+            on.contains("; wipe"),
+            "wipe flag must emit wipe moves: {on}"
+        );
+        // A wipe combines an XY move with a retraction (negative E delta).
+        assert!(
+            on.lines()
+                .any(|l| l.contains("; wipe") && l.contains(" X") && l.contains("E-")),
+            "wipe move must retract while moving: {on}"
+        );
+    }
+
+    #[test]
+    fn retract_before_travel_threshold_suppresses_short_hops() {
+        // Two squares 5 mm apart. The default retracts on that 5 mm hop; a large
+        // `retract_before_travel_mm` suppresses it (only the always-retract first
+        // path of the layer remains).
+        let mut layer = SliceLayer::new(0.2);
+        layer.paths.push(square_at(0.0, 0.0));
+        layer.paths.push(square_at(0.0, 5.0));
+
+        let count = |g: &str| g.lines().filter(|l| l.ends_with("; retract")).count();
+
+        let default = generate_gcode(&[layer.clone()], &SlicingParams::default());
+        let high = generate_gcode(
+            &[layer],
+            &SlicingParams {
+                retract_before_travel_mm: 20.0,
+                ..SlicingParams::default()
+            },
+        );
+        assert_eq!(
+            count(&default),
+            2,
+            "default retracts on the 5 mm hop: {default}"
+        );
+        assert_eq!(
+            count(&high),
+            1,
+            "a 20 mm minimum suppresses the 5 mm hop retract: {high}"
+        );
     }
 
     #[test]
@@ -2078,8 +3166,10 @@ mod tests {
 
     #[test]
     fn test_generator_emits_pressure_advance_klipper() {
-        let mut params = SlicingParams::default();
-        params.pressure_advance = 0.035;
+        let params = SlicingParams {
+            pressure_advance: 0.035,
+            ..SlicingParams::default()
+        };
         let gcode = GcodeGenerator::new(GcodeFlavor::Klipper).generate(&[], &params);
         assert!(
             gcode.contains("SET_PRESSURE_ADVANCE ADVANCE=0.0350 ; pressure advance"),
@@ -2089,8 +3179,10 @@ mod tests {
 
     #[test]
     fn test_generator_emits_pressure_advance_marlin() {
-        let mut params = SlicingParams::default();
-        params.pressure_advance = 0.06;
+        let params = SlicingParams {
+            pressure_advance: 0.06,
+            ..SlicingParams::default()
+        };
         let gcode = GcodeGenerator::new(GcodeFlavor::Marlin).generate(&[], &params);
         assert!(
             gcode.contains("M900 K0.0600 ; pressure advance"),
@@ -2115,8 +3207,10 @@ mod tests {
 
     #[test]
     fn test_pressure_advance_emitted_after_start_script() {
-        let mut params = SlicingParams::default();
-        params.pressure_advance = 0.04;
+        let params = SlicingParams {
+            pressure_advance: 0.04,
+            ..SlicingParams::default()
+        };
         let gcode = GcodeGenerator::new(GcodeFlavor::Klipper).generate(&[], &params);
         let pa = gcode
             .find("SET_PRESSURE_ADVANCE")
@@ -2155,9 +3249,11 @@ mod tests {
     #[test]
     fn test_generator_emits_first_layer_then_normal_acceleration() {
         use crate::core::ExtrusionRole;
-        let mut params = SlicingParams::default();
-        params.acceleration = 6000.0;
-        params.first_layer_acceleration = 2000.0;
+        let params = SlicingParams {
+            acceleration: 6000.0,
+            first_layer_acceleration: 2000.0,
+            ..SlicingParams::default()
+        };
         // z=0.2 → first layer (layer_height 0.2); z=0.4 → subsequent.
         let layers = [
             layer_with_role(0.2, ExtrusionRole::OuterWall),
@@ -2175,9 +3271,11 @@ mod tests {
     #[test]
     fn test_generator_emits_top_surface_acceleration() {
         use crate::core::ExtrusionRole;
-        let mut params = SlicingParams::default();
-        params.acceleration = 6000.0;
-        params.top_surface_acceleration = 9000.0;
+        let params = SlicingParams {
+            acceleration: 6000.0,
+            top_surface_acceleration: 9000.0,
+            ..SlicingParams::default()
+        };
         // Non-first layer with a wall followed by a top surface.
         let mut layer = SliceLayer::new(0.4);
         let sq1: clipper2::Path = vec![(0.0, 0.0), (10.0, 0.0), (10.0, 10.0), (0.0, 10.0)].into();
@@ -2219,8 +3317,10 @@ mod tests {
     #[test]
     fn test_generator_no_redundant_acceleration() {
         use crate::core::ExtrusionRole;
-        let mut params = SlicingParams::default();
-        params.acceleration = 6000.0;
+        let params = SlicingParams {
+            acceleration: 6000.0,
+            ..SlicingParams::default()
+        };
         // Two non-first layers, same role → the accel command must appear once.
         let layers = [
             layer_with_role(0.4, ExtrusionRole::OuterWall),
@@ -2239,9 +3339,11 @@ mod tests {
     #[test]
     fn test_bridge_acceleration_applies_to_bridge_and_overhang() {
         use crate::core::ExtrusionRole;
-        let mut params = SlicingParams::default();
-        params.acceleration = 6000.0;
-        params.bridge_acceleration = 1500.0;
+        let params = SlicingParams {
+            acceleration: 6000.0,
+            bridge_acceleration: 1500.0,
+            ..SlicingParams::default()
+        };
         for role in [ExtrusionRole::Bridge, ExtrusionRole::OverhangPerimeter] {
             let layers = [layer_with_role(0.4, role)];
             let gcode = GcodeGenerator::new(GcodeFlavor::Marlin).generate(&layers, &params);
@@ -2255,9 +3357,11 @@ mod tests {
     #[test]
     fn test_outer_wall_acceleration_applies_to_outer_wall_only() {
         use crate::core::ExtrusionRole;
-        let mut params = SlicingParams::default();
-        params.acceleration = 6000.0;
-        params.outer_wall_acceleration = 3000.0;
+        let params = SlicingParams {
+            acceleration: 6000.0,
+            outer_wall_acceleration: 3000.0,
+            ..SlicingParams::default()
+        };
         // Outer wall → dedicated accel; inner wall → normal accel.
         let mut layer = SliceLayer::new(0.4);
         let sq1: clipper2::Path = vec![(0.0, 0.0), (10.0, 0.0), (10.0, 10.0), (0.0, 10.0)].into();
@@ -2278,10 +3382,12 @@ mod tests {
     #[test]
     fn test_first_layer_acceleration_overrides_bridge() {
         use crate::core::ExtrusionRole;
-        let mut params = SlicingParams::default();
-        params.acceleration = 6000.0;
-        params.bridge_acceleration = 1500.0;
-        params.first_layer_acceleration = 2000.0;
+        let params = SlicingParams {
+            acceleration: 6000.0,
+            bridge_acceleration: 1500.0,
+            first_layer_acceleration: 2000.0,
+            ..SlicingParams::default()
+        };
         // A bridge on the first layer must still use the first-layer accel.
         let layers = [layer_with_role(0.2, ExtrusionRole::Bridge)];
         let gcode = GcodeGenerator::new(GcodeFlavor::Marlin).generate(&layers, &params);
@@ -2294,8 +3400,10 @@ mod tests {
     #[test]
     fn test_bridge_acceleration_falls_back_to_normal() {
         use crate::core::ExtrusionRole;
-        let mut params = SlicingParams::default();
-        params.acceleration = 6000.0; // bridge_acceleration left at 0
+        let params = SlicingParams {
+            acceleration: 6000.0, // bridge_acceleration left at 0
+            ..SlicingParams::default()
+        };
         let layers = [layer_with_role(0.4, ExtrusionRole::Bridge)];
         let gcode = GcodeGenerator::new(GcodeFlavor::Marlin).generate(&layers, &params);
         assert!(
@@ -2472,6 +3580,192 @@ mod tests {
         assert!(
             gcode.contains(";LAYER_TIME:"),
             ";LAYER_TIME: marker must be present for the viewer's Layer Time mode"
+        );
+    }
+
+    #[test]
+    fn test_acceleration_aware_estimate_patches_markers_and_stats() {
+        use clipper2::Path;
+
+        // Three square-wall layers so travel, Z lifts and ramps all contribute.
+        let mut layers = Vec::new();
+        for i in 0..3 {
+            let z = 0.2 * (i as f64 + 1.0);
+            let mut layer = SliceLayer::new(z);
+            let square: Path = vec![(0.0, 0.0), (20.0, 0.0), (20.0, 20.0), (0.0, 20.0)].into();
+            layer.paths.push(square);
+            layer.path_roles.push(crate::core::ExtrusionRole::OuterWall);
+            layers.push(layer);
+        }
+        let params = SlicingParams::default();
+        let (gcode, stats) =
+            GcodeGenerator::new(GcodeFlavor::Marlin).generate_with_stats(&layers, &params);
+
+        // Collect the patched per-layer marker values.
+        let marker_times: Vec<f64> = gcode
+            .lines()
+            .filter_map(|l| l.trim().strip_prefix(";LAYER_TIME:"))
+            .filter_map(|v| v.trim().parse::<f64>().ok())
+            .collect();
+        assert_eq!(marker_times.len(), 3, "one marker per printed layer");
+        assert!(
+            marker_times.iter().all(|&t| t > 0.0),
+            "every layer must report a positive time: {marker_times:?}"
+        );
+
+        // The acceleration-aware total must exceed the old naive length ÷ speed
+        // sum: ramps, travel, Z lifts and retraction all add real time the naive
+        // model ignored.
+        let naive_total: f64 = layers
+            .iter()
+            .map(|l| estimate_layer_time(l, params.print_speed))
+            .sum();
+        assert!(
+            stats.estimated_print_time_s > naive_total,
+            "accel-aware total {} must exceed naive {naive_total}",
+            stats.estimated_print_time_s
+        );
+
+        // Every marker must have been rewritten away from the naive placeholder.
+        for (i, l) in layers.iter().enumerate() {
+            let naive = estimate_layer_time(l, params.print_speed);
+            assert!(
+                (marker_times[i] - naive).abs() > 1e-6,
+                "layer {i} marker {} must be patched off the naive value {naive}",
+                marker_times[i]
+            );
+        }
+
+        // Per-layer marker sum is a subset of the total (which also counts the
+        // start/end script), so it must not exceed it.
+        let marker_sum: f64 = marker_times.iter().sum();
+        assert!(
+            marker_sum <= stats.estimated_print_time_s + 1e-6,
+            "layer sum {marker_sum} must not exceed total {}",
+            stats.estimated_print_time_s
+        );
+
+        // Header/footer print the same human-formatted figure the stats carry.
+        let human = stats.estimated_time_human();
+        assert!(
+            gcode.contains(&format!("; estimated printing time = {human}")),
+            "header ETA must match stats: {human}"
+        );
+        assert!(
+            gcode.contains(&format!(
+                "; estimated printing time (normal mode) = {human}"
+            )),
+            "footer ETA must match stats: {human}"
+        );
+    }
+
+    #[test]
+    fn test_kinematic_limits_emitted_per_flavor() {
+        use clipper2::Path;
+        let mut layer = SliceLayer::new(0.2);
+        let square: Path = vec![(0.0, 0.0), (10.0, 0.0), (10.0, 10.0), (0.0, 10.0)].into();
+        layer.paths.push(square);
+        layer.path_roles.push(crate::core::ExtrusionRole::OuterWall);
+
+        let params = SlicingParams {
+            square_corner_velocity: 8.0,
+            max_velocity: 300.0,
+            acceleration: 3000.0,
+            ..SlicingParams::default()
+        };
+
+        // Marlin: M203 velocity cap + M205 J junction deviation.
+        let marlin = GcodeGenerator::new(GcodeFlavor::Marlin).generate(&[layer.clone()], &params);
+        assert!(
+            marlin.contains("M203 X300 Y300"),
+            "Marlin must emit the max-feedrate cap: {marlin}"
+        );
+        assert!(
+            marlin.contains("M205 J"),
+            "Marlin must emit a junction-deviation limit: {marlin}"
+        );
+
+        // Klipper: a single SET_VELOCITY_LIMIT with both native fields.
+        let klipper = GcodeGenerator::new(GcodeFlavor::Klipper).generate(&[layer], &params);
+        assert!(
+            klipper.contains("VELOCITY=300"),
+            "Klipper must set the velocity cap: {klipper}"
+        );
+        assert!(
+            klipper.contains("SQUARE_CORNER_VELOCITY=8.00"),
+            "Klipper must set the square-corner velocity: {klipper}"
+        );
+    }
+
+    #[test]
+    fn test_kinematic_limits_absent_when_unset() {
+        let layer = SliceLayer::new(0.2);
+        // Defaults: square_corner_velocity = 0, max_velocity = 0 → no emission.
+        let gcode =
+            GcodeGenerator::new(GcodeFlavor::Marlin).generate(&[layer], &SlicingParams::default());
+        assert!(
+            !gcode.contains("M203"),
+            "no velocity cap must be emitted by default"
+        );
+        assert!(
+            !gcode.contains("M205 J"),
+            "no junction-deviation limit must be emitted by default"
+        );
+    }
+
+    #[test]
+    fn test_time_estimate_calibration_scales_and_offsets_total() {
+        use clipper2::Path;
+        let mk_layers = || {
+            let mut v = Vec::new();
+            for i in 0..2 {
+                let mut l = SliceLayer::new(0.2 * (i as f64 + 1.0));
+                let square: Path = vec![(0.0, 0.0), (20.0, 0.0), (20.0, 20.0), (0.0, 20.0)].into();
+                l.paths.push(square);
+                l.path_roles.push(crate::core::ExtrusionRole::OuterWall);
+                v.push(l);
+            }
+            v
+        };
+
+        let base_params = SlicingParams::default();
+        let (_g, base) = GcodeGenerator::new(GcodeFlavor::Marlin)
+            .generate_with_stats(&mk_layers(), &base_params);
+
+        // scale = 2.0 doubles the toolpath portion; warmup/cooldown add on top.
+        let cal_params = SlicingParams {
+            time_estimate_scale: 2.0,
+            time_estimate_warmup_s: 100.0,
+            time_estimate_cooldown_s: 50.0,
+            ..SlicingParams::default()
+        };
+        let (gcode, cal) =
+            GcodeGenerator::new(GcodeFlavor::Marlin).generate_with_stats(&mk_layers(), &cal_params);
+
+        let expected = base.estimated_print_time_s * 2.0 + 150.0;
+        assert!(
+            (cal.estimated_print_time_s - expected).abs() < 1e-6,
+            "calibrated total {} must equal toolpath×2 + 150 = {expected}",
+            cal.estimated_print_time_s
+        );
+
+        // Per-layer markers are scaled (×2) but carry no fixed allowance. They
+        // are formatted to 0.1 s, so compare with rounding slack rather than
+        // exactly. The fixed 150 s allowance must be absent from the markers.
+        let marker_sum: f64 = gcode
+            .lines()
+            .filter_map(|l| l.trim().strip_prefix(";LAYER_TIME:"))
+            .filter_map(|v| v.trim().parse::<f64>().ok())
+            .sum();
+        assert!(
+            marker_sum < cal.estimated_print_time_s - 100.0,
+            "marker sum {marker_sum} must exclude the 150s fixed allowance (total {})",
+            cal.estimated_print_time_s
+        );
+        assert!(
+            marker_sum > base.estimated_print_time_s,
+            "scaled markers {marker_sum} should exceed the unscaled toolpath total {}",
+            base.estimated_print_time_s
         );
     }
 
@@ -2911,6 +4205,51 @@ CHAMBER={chamber_temp} MATERIAL={filament_type}"
             gcode.contains("END_PRINT"),
             "blank end should fall back: {gcode}"
         );
+    }
+
+    #[test]
+    fn test_filament_gcode_emitted_between_machine_scripts() {
+        let params = SlicingParams {
+            gcode_flavor: GcodeFlavor::Klipper,
+            start_gcode: Some("START_PRINT BED_TEMP={bed_temp}".to_string()),
+            end_gcode: Some("END_PRINT".to_string()),
+            start_filament_gcode: Some("M117 LOADING {filament_type}".to_string()),
+            end_filament_gcode: Some("M117 DONE {filament_type}".to_string()),
+            filament_type: "PETG".to_string(),
+            ..SlicingParams::default()
+        };
+        let gcode = generate_gcode_from_params(&[], &params);
+        // Placeholders in the filament blocks are substituted.
+        assert!(
+            gcode.contains("M117 LOADING PETG"),
+            "filament start not applied: {gcode}"
+        );
+        assert!(
+            gcode.contains("M117 DONE PETG"),
+            "filament end not applied: {gcode}"
+        );
+        // Ordering: machine start → filament start → filament end → machine end.
+        let machine_start = gcode.find("START_PRINT").expect("machine start");
+        let fil_start = gcode.find("M117 LOADING").expect("filament start");
+        let fil_end = gcode.find("M117 DONE").expect("filament end");
+        let machine_end = gcode.find("END_PRINT").expect("machine end");
+        assert!(
+            machine_start < fil_start && fil_start < fil_end && fil_end < machine_end,
+            "unexpected ordering ({machine_start} {fil_start} {fil_end} {machine_end}): {gcode}"
+        );
+    }
+
+    #[test]
+    fn test_filament_gcode_blank_block_is_noop() {
+        let params = SlicingParams {
+            gcode_flavor: GcodeFlavor::Klipper,
+            start_filament_gcode: Some("   \n\t ".to_string()),
+            end_filament_gcode: None,
+            ..SlicingParams::default()
+        };
+        // A blank filament block must not emit stray blank lines or panic.
+        let gcode = generate_gcode_from_params(&[], &params);
+        assert!(gcode.contains("START_PRINT") || gcode.contains("G28"));
     }
 
     #[test]
@@ -4082,6 +5421,298 @@ CHAMBER={chamber_temp} MATERIAL={filament_type}"
         assert!(
             !gcode.contains("speed=0.0000"),
             "bridge boost should raise speed above 0 in:\n{gcode}"
+        );
+    }
+
+    // ── Spiral (vase) mode ─────────────────────────────────────────────────
+
+    /// Build `n` stacked single-square outer-wall layers at 0.2 mm pitch,
+    /// modelling a solid prism suitable for spiralization.
+    fn spiral_square_layers(n: usize) -> Vec<SliceLayer> {
+        use clipper2::Path;
+        (0..n)
+            .map(|i| {
+                let z = 0.2 * (i as f64 + 1.0);
+                let mut layer = SliceLayer::new(z);
+                let square: Path = vec![(0.0, 0.0), (10.0, 0.0), (10.0, 10.0), (0.0, 10.0)].into();
+                layer.paths.push(square);
+                layer.path_roles.push(crate::core::ExtrusionRole::OuterWall);
+                layer
+            })
+            .collect()
+    }
+
+    /// Extract the `Z` value from a `G1 … Z… E…` extruding move (returns `None`
+    /// for non-extruding / Z-less moves).
+    fn extrude_move_z(line: &str) -> Option<f64> {
+        if !line.starts_with("G1 ") || !line.contains(" E") {
+            return None;
+        }
+        for tok in line.split_whitespace() {
+            if let Some(rest) = tok.strip_prefix('Z') {
+                return rest.parse::<f64>().ok();
+            }
+        }
+        None
+    }
+
+    #[test]
+    fn spiral_vase_normalized_forces_single_wall_config() {
+        let params = SlicingParams {
+            spiral_vase: true,
+            wall_count: 4,
+            infill_density: 0.35,
+            top_layers: 5,
+            bottom_layers: 3,
+            retract_mm: 1.5,
+            z_hop_mm: 0.4,
+            ironing_enabled: true,
+            ..SlicingParams::default()
+        };
+        let n = params.spiral_vase_normalized();
+        assert_eq!(n.wall_count, 1);
+        assert_eq!(n.infill_density, 0.0);
+        assert_eq!(n.top_layers, 0);
+        assert_eq!(n.retract_mm, 0.0);
+        assert_eq!(n.z_hop_mm, 0.0);
+        assert!(!n.ironing_enabled);
+        // The base is preserved so the vase has a floor.
+        assert_eq!(n.bottom_layers, 3);
+    }
+
+    #[test]
+    fn spiral_vase_normalized_is_noop_when_disabled() {
+        let params = SlicingParams {
+            wall_count: 4,
+            ..SlicingParams::default()
+        };
+        // Borrowed (unchanged) when the flag is off.
+        assert_eq!(params.spiral_vase_normalized().wall_count, 4);
+    }
+
+    #[test]
+    fn spiral_vase_ramps_z_continuously() {
+        let params = SlicingParams {
+            spiral_vase: true,
+            bottom_layers: 3,
+            ..SlicingParams::default()
+        };
+        let layers = spiral_square_layers(6);
+        let gcode = GcodeGenerator::new(GcodeFlavor::Marlin).generate(&layers, &params);
+
+        // Collect the Z of every extruding move in the spiral body.
+        let zs: Vec<f64> = gcode.lines().filter_map(extrude_move_z).collect();
+        assert!(
+            zs.len() > 10,
+            "expected many ramped extrude moves, got {}:\n{gcode}",
+            zs.len()
+        );
+        // The helix only ever climbs.
+        for w in zs.windows(2) {
+            assert!(
+                w[1] >= w[0] - 1e-9,
+                "spiral Z must be non-decreasing: {} -> {}",
+                w[0],
+                w[1]
+            );
+        }
+        // At least one intermediate Z sits strictly between two layer heights,
+        // proving the rise is distributed along the perimeter (not a step).
+        let has_fractional = zs
+            .iter()
+            .any(|z| (z / 0.2 - (z / 0.2).round()).abs() > 1e-3);
+        assert!(
+            has_fractional,
+            "expected a continuously-ramped (fractional) Z, got {zs:?}"
+        );
+        // The top of the spiral reaches the last layer's Z.
+        let zmax = zs.iter().cloned().fold(f64::MIN, f64::max);
+        assert!(
+            (zmax - 1.2).abs() < 1e-6,
+            "spiral top Z should be 1.2, got {zmax}"
+        );
+    }
+
+    #[test]
+    fn spiral_vase_keeps_flat_base_and_skips_move_z_on_spiral_layers() {
+        let params = SlicingParams {
+            spiral_vase: true,
+            bottom_layers: 3,
+            ..SlicingParams::default()
+        };
+        let layers = spiral_square_layers(6);
+        let gcode = GcodeGenerator::new(GcodeFlavor::Marlin).generate(&layers, &params);
+
+        // Base layers (z = 0.2/0.4/0.6) print flat: a discrete Z move exists.
+        assert!(
+            gcode.contains("G1 Z0.200"),
+            "missing base move to 0.2:\n{gcode}"
+        );
+        assert!(
+            gcode.contains("G1 Z0.600"),
+            "missing base move to 0.6:\n{gcode}"
+        );
+        // Spiral layers (z ≥ 0.8) must NOT get a discrete Z move — the ramp
+        // carries Z inside the extrude moves instead.
+        assert!(
+            !gcode.contains("G1 Z0.800"),
+            "spiral layer must not emit a discrete Z move:\n{gcode}"
+        );
+        // Continuous-Z extrude moves are present.
+        assert!(
+            gcode.lines().any(|l| extrude_move_z(l).is_some()),
+            "expected ramped extrude moves:\n{gcode}"
+        );
+    }
+
+    #[test]
+    fn spiral_vase_warns_and_falls_back_on_multi_island_layer() {
+        use clipper2::Path;
+        use std::cell::RefCell;
+        use std::rc::Rc;
+
+        let params = SlicingParams {
+            spiral_vase: true,
+            bottom_layers: 3,
+            ..SlicingParams::default()
+        };
+        // Layers 0-2 base, layer 3 has TWO disjoint islands, layer 4 single.
+        let mut layers = spiral_square_layers(5);
+        let second: Path = vec![(20.0, 0.0), (30.0, 0.0), (30.0, 10.0), (20.0, 10.0)].into();
+        layers[3].paths.push(second);
+        layers[3]
+            .path_roles
+            .push(crate::core::ExtrusionRole::OuterWall);
+
+        let warnings = Rc::new(RefCell::new(Vec::<String>::new()));
+        let sink = warnings.clone();
+        let gcode = GcodeGenerator::new(GcodeFlavor::Marlin)
+            .with_warn_fn(move |m| sink.borrow_mut().push(m.to_string()))
+            .generate(&layers, &params);
+
+        assert!(
+            warnings
+                .borrow()
+                .iter()
+                .any(|w| w.contains("multiple islands")),
+            "expected a multi-island warning, got {:?}",
+            warnings.borrow()
+        );
+        // The multi-island layer (z = 0.8) falls back to a normal flat print,
+        // so its discrete Z move is present.
+        assert!(
+            gcode.contains("G1 Z0.800"),
+            "multi-island layer should fall back to a flat print:\n{gcode}"
+        );
+        // The single-island layer above it still spiralizes (continuous Z).
+        assert!(
+            gcode.lines().filter_map(extrude_move_z).any(|z| z > 0.8),
+            "layer above the multi-island one should still spiralize:\n{gcode}"
+        );
+    }
+
+    /// Extract the `E` value from a `G1 … E…` move.
+    fn move_e(line: &str) -> Option<f64> {
+        for tok in line.split_whitespace() {
+            if let Some(rest) = tok.strip_prefix('E') {
+                return rest.parse::<f64>().ok();
+            }
+        }
+        None
+    }
+
+    #[test]
+    fn spiral_vase_fades_flow_in_at_start_and_out_at_end() {
+        let params = SlicingParams {
+            spiral_vase: true,
+            bottom_layers: 3,
+            ..SlicingParams::default()
+        };
+        // Spiral layers: 3 (first), 4, 5 (middle), 6 (last).
+        let layers = spiral_square_layers(7);
+        let gcode = GcodeGenerator::new(GcodeFlavor::Marlin).generate(&layers, &params);
+
+        // Group the E of every ramped (spiral) move by layer. E resets to 0 at
+        // each layer, so a drop marks a new layer.
+        let mut groups: Vec<Vec<f64>> = Vec::new();
+        let mut cur: Vec<f64> = Vec::new();
+        let mut last_e = f64::MAX;
+        for line in gcode.lines() {
+            if extrude_move_z(line).is_none() {
+                continue;
+            }
+            let e = move_e(line).expect("ramped move carries E");
+            if e < last_e - 1e-9 && !cur.is_empty() {
+                groups.push(std::mem::take(&mut cur));
+            }
+            cur.push(e);
+            last_e = e;
+        }
+        if !cur.is_empty() {
+            groups.push(cur);
+        }
+        assert_eq!(groups.len(), 4, "expected 4 spiral layers, got {groups:?}");
+
+        let deltas = |es: &[f64]| -> Vec<f64> {
+            let mut d = vec![es[0]];
+            for w in es.windows(2) {
+                d.push(w[1] - w[0]);
+            }
+            d
+        };
+        let first = deltas(&groups[0]);
+        let mid = deltas(&groups[2]);
+        let last = deltas(&groups[3]);
+
+        // First spiral loop fades in: strictly increasing deposition.
+        assert!(
+            first.windows(2).all(|w| w[1] > w[0] - 1e-9) && first[3] > first[0] + 1e-6,
+            "first spiral loop should fade flow in: {first:?}"
+        );
+        // Middle spiral loops are steady full flow (a perfect square → equal
+        // per-segment deposition).
+        let mid_max = mid.iter().cloned().fold(f64::MIN, f64::max);
+        let mid_min = mid.iter().cloned().fold(f64::MAX, f64::min);
+        assert!(
+            mid_min > 0.0 && (mid_max - mid_min) < 1e-3,
+            "middle steady: {mid:?}"
+        );
+        // Last spiral loop fades out to ~zero.
+        assert!(
+            last.windows(2).all(|w| w[1] < w[0] + 1e-9) && last[3] < last[0] - 1e-6,
+            "last spiral loop should fade flow out: {last:?}"
+        );
+        assert!(
+            last.last().unwrap().abs() < 1e-6,
+            "last spiral segment should deposit ~0 (seam fade-out): {last:?}"
+        );
+    }
+
+    #[test]
+    fn spiral_vase_body_has_no_retraction() {
+        // With no base (open tube) every layer above 0 spiralizes; the spiral
+        // body is one continuous extrusion with no retract ceremony.
+        let params = SlicingParams {
+            spiral_vase: true,
+            bottom_layers: 0,
+            ..SlicingParams::default()
+        };
+        let layers = spiral_square_layers(5);
+        let gcode = GcodeGenerator::new(GcodeFlavor::Marlin).generate(&layers, &params);
+
+        // Once the spiral starts it is one uninterrupted extrusion: no retract
+        // or z-hop ceremony appears after the first ramped move. (The initial
+        // approach before the spiral may retract; that is expected.)
+        let lines: Vec<&str> = gcode.lines().collect();
+        let first_spiral = lines
+            .iter()
+            .position(|l| extrude_move_z(l).is_some())
+            .expect("spiral body should contain ramped extrude moves");
+        assert!(
+            lines[first_spiral..]
+                .iter()
+                .all(|l| !l.contains("; retract") && !l.contains("; z-hop")),
+            "spiral vase body must not retract or z-hop:\n{gcode}"
         );
     }
 }

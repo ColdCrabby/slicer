@@ -251,9 +251,17 @@ user-facing version number.
   parallel version constant (especially not in the UI).
 - **[CHANGELOG.md](CHANGELOG.md) is embedded** via `include_str!` and republished
   verbatim as GitHub Release notes. Keep an `## [Unreleased]` section at the top.
-- **The UI "What's New" dialog** ([ui/src/app/services/app-version.ts](ui/src/app/services/app-version.ts))
-  compares the running release against `localStorage` and shows skipped notes
-  once per upgrade. Development builds are never nagged.
+- **The UI renders the changelog from exactly one component**
+  ([ui/src/app/components/changelog/changelog-list.ts](ui/src/app/components/changelog/changelog-list.ts)).
+  It always lists *every* release and highlights/scrolls to the one you're
+  running, so the **What's New** settings section (`/settings/changelog`) and the
+  post-upgrade dialog can never drift apart.
+  [ui/src/app/services/app-version.ts](ui/src/app/services/app-version.ts)
+  compares the running release against `localStorage` and shows that dialog once
+  per upgrade; development builds are never nagged and highlight `Unreleased`.
+  **Where dialogs are drawn by the OS** (iOS/iPadOS — see `Dialog.usesNativeDialogs()`)
+  a `UIAlertController` cannot hold the changelog, so the prompt is a short
+  native confirm that navigates to the settings section instead.
 - **Releasing is tag-driven**: [.github/workflows/release.yml](.github/workflows/release.yml)
   fires on `v*` tags, extracts the changelog section, creates the GitHub Release,
   and attaches CLI binaries + desktop bundles. See [RELEASING.md](RELEASING.md).
@@ -416,17 +424,27 @@ outbound transport to real printers. Today it implements **Moonraker/Klipper**
 ## G-code result cache — skip re-slicing identical scenes
 
 `handle_slice` ([src/server/ws_session.rs](src/server/ws_session.rs)) hashes the
-resolved `SlicingParams` + the ordered scene DTOs (file id + transform) +
-`crate::version::VERSION` into an FNV-1a key. A `gcode_cache` table
-(migration `m20250201_000002`) maps that key → the previously-generated
-`.gcode`. On a hit the pipeline is skipped entirely: the cached file is copied
-under the new workplate UUID and `SliceComplete` is emitted immediately. On a
-miss the fresh slice is stored. Notes:
+resolved `SlicingParams` (via `SlicingParams::cache_fingerprint`) + the ordered
+scene DTOs (file id + transform) + `crate::version::VERSION` into an FNV-1a key.
+A `gcode_cache` table (migration `m20250201_000002`) maps that key → the
+previously-generated `.gcode`. On a hit the pipeline is skipped entirely: the
+cached file is copied under the new workplate UUID and `SliceComplete` is emitted
+immediately. On a miss the fresh slice is stored. The desktop (Tauri) runtime
+keeps an in-memory mirror with the same key
+([ui-desktop/src-tauri/src/bridge/runtime_bridge.rs](ui-desktop/src-tauri/src/bridge/runtime_bridge.rs)).
+Notes:
 
 - **Object order is preserved in the key** (it affects the merged mesh, hence
   the output). Do not sort.
 - **The engine version is part of the key**, so output changes across releases
   bust the cache automatically.
+- **The embedded thumbnail PNG is excluded from the key.**
+  `SlicingParams::cache_fingerprint` drops `thumbnail_png_base64` (the
+  camera-derived preview captured fresh from the viewer on every slice) so its
+  volatile bytes never bust the cache — the issue #106 requirement that camera
+  movement leave the cache-hit rate unaffected. The thumbnail *settings*
+  (`thumbnail_view`/`theme`/`size`/…) stay in the key, so a cached file's
+  embedded preview always matches the request that reused it.
 - Cache is best-effort: a dangling row (file cleaned up) is evicted lazily on
   lookup and the scene re-sliced.
 
@@ -573,6 +591,41 @@ island on the same layer is unaffected. The `pre_strip_infill_regions` snapshot 
 still taken before this step as a defensive measure — the snapshot preserves the correct
 `walls_per_island` count for every island in case future changes ever re-introduce a
 layer-wide strip.
+
+### Spiral (Vase) Mode — Normalize in the Pipeline, Spiralize in the Generator
+
+`spiral_vase` prints a single continuous outer wall whose Z ramps over each
+layer (a seamless single-wall vase). It is split across two boundaries so every
+runtime (CLI / WS / WASM) behaves identically:
+
+- **Normalization** ([`SlicingParams::spiral_vase_normalized`](src/settings/params.rs))
+  forces the incompatible settings off — `wall_count = 1`, `infill_density = 0`,
+  `top_layers = 0`, `retract_mm = 0`, `z_hop_mm = 0`, `ironing_enabled = false` —
+  while **keeping `bottom_layers`** as the solid base. It is a `Cow` (a no-op
+  borrow when the flag is off) and **idempotent**, so it is applied at both
+  boundaries below without double-effect: at the top of `process_mesh` /
+  `process_mesh_debug`, and again at the top of `generate_with_stats`.
+- **The pipeline skips `classify_overhang_perimeters` in spiral mode.** That
+  pass splits closed wall loops into open arcs; the spiral emitter needs each
+  spiral layer's outer wall to stay one closed loop, so it is guarded by
+  `!params.spiral_vase`. Nothing else in the pipeline changes — surface
+  generation still runs (for the base) and everything is a plain single-wall
+  slice.
+- **The generator owns the spiralization** ([src/gcode/generator.rs](src/gcode/generator.rs)).
+  Spiral layers are those at index `≥ bottom_layers.max(1)` (layer 0 is always
+  flat — a spiral cannot climb from Z=0) that expose exactly **one outermost
+  closed `OuterWall` loop** (`detect_spiral_loop`: hole sub-loops are ignored by
+  a winding-independent point-in-polygon containment test, so a solid island
+  with holes still spiralizes as one contour). For those layers the discrete
+  per-layer `move_z` is skipped and `emit_spiral_loop` walks the loop once,
+  ramping Z from the previous layer's top to this layer's Z in proportion to the
+  distance travelled (`move_extrude_z`). Flow **fades in** over the first spiral
+  loop and **out** over the last so both ends of the seam disappear — applied as
+  a multiplier *after* `extrusion_for_move` (a zero passed as `flow_ratio` trips
+  its "non-positive → 1.0" guard). Each loop is rotated to start nearest the
+  previous nozzle position to keep the start line aligned and travel minimal.
+- **Multi-island layers fall back** to a normal flat print (all paths, discrete
+  Z) with a single warning — spiral vase is for solid, single-island models.
 
 ### Arachne Wall Paths — What They Are and Are Not
 
