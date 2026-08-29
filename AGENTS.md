@@ -542,14 +542,19 @@ and the object's own toolpaths are provably unperturbed — see
   computed outer-first then reversed for inner-first; the greedy-TSP path ordering
   preserves the per-role group order. Reordering never changes extrusion amounts,
   so QA baselines are unaffected. See [src/walls/README.md](src/walls/README.md).
-- **`thin_walls` gates only *thin features*, never inter-perimeter gap fill.**
-  `emit_residual_medial_fill` emits the same `GapFill` role for two different
-  things: a bead that *is* the model geometry (a feature too thin for one
-  perimeter) and a bead filling the sliver *between* the innermost walls. Gating
-  the whole pass on `thin_walls` deletes real geometry — on the Filament Card
-  Caddy it wiped all 37.7 m of gap fill, ~50 card-slot fins, and let sparse infill
-  leak into the freed wall band. The two are told apart by depth (an
-  inter-perimeter residual can never come within `d` of the island surface).
+- **`thin_walls` is a classic-generator option, and the schema gates it.**
+  Arachne fills thin features from the medial axis by construction, so it always
+  prints them and ignores the flag (matching PrusaSlicer/Orca, where the
+  equivalent option is classic-only); `emit_residual_medial_fill` is
+  unconditional. This matters because that pass emits the same `GapFill` role for
+  two different things: a bead that *is* the model geometry (a feature too thin
+  for one perimeter) and a bead filling the sliver *between* the innermost walls.
+  Gating the pass on `thin_walls` deleted both — on the Filament Card Caddy it
+  wiped all 37.7 m of gap fill, ~50 card-slot fins, and let sparse infill leak
+  into the freed wall band. **Any wall option only one generator honours must
+  carry an `x-relevant-when` gate** (`thin_walls` and `wall_distribution_count` →
+  classic, `gap_fill_min_length_mm` → arachne), or the UI offers a control that
+  silently does nothing.
 - `ensure_vertical_shell_thickness` is a **second pass in
   `generate_top_bottom_surfaces_with_interior`** (`apply_vertical_shell_thickness`):
   it grows each layer's own top/bottom surface inward and fills it solid so a

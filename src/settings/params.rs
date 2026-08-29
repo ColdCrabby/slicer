@@ -573,7 +573,9 @@ Larger values produce a gradual width ramp at transitions; smaller values create
 
 When space is too narrow for a separate bead, up to this many innermost beads
 are widened proportionally to fill the gap.
-**Typical:** 1–2.", extend("x-group" = "Walls"))]
+
+Classic generator only — Arachne varies bead width along the medial axis instead.
+**Typical:** 1–2.", extend("x-group" = "Walls", "x-relevant-when" = serde_json::json!({"field": "wall_generator", "equals": "classic"})))]
     #[serde(default = "SlicingParams::default_wall_distribution_count")]
     pub wall_distribution_count: usize,
 
@@ -644,11 +646,11 @@ Mirrors `extra_perimeters` (PrusaSlicer/Slic3r).
     #[schemars(
         description = "Widest residual core (as a multiple of nozzle diameter) that `extra_perimeters` will fill with loops.
 
-Only consulted when `extra_perimeters` is enabled.  A residual core wider than
-`extra_perimeters_max_gap × nozzle_diameter_mm` is left for sparse infill; a
-narrower one is filled with extra concentric perimeters.
+A residual core wider than `extra_perimeters_max_gap × nozzle_diameter_mm` is
+left for sparse infill; a narrower one is filled with extra concentric
+perimeters.
 **Typical:** 2–4.",
-        extend("x-group" = "Walls")
+        extend("x-group" = "Walls", "x-relevant-when" = serde_json::json!({"field": "extra_perimeters", "equals": true}))
     )]
     #[serde(default = "SlicingParams::default_extra_perimeters_max_gap")]
     pub extra_perimeters_max_gap: f64,
@@ -663,11 +665,12 @@ at all** (the feature disappears from the part).
 - `true` (default) — thin features are printed.
 - `false` — thin features are skipped.
 
-This does **not** control the gap fill *between* perimeter loops: that residual
-sliver is always filled, because dropping it would leave voids along ordinary
-walls and is not what this option names.
+Classic generator only. Arachne fills thin features from the medial axis by
+construction — that is what the generator is for — so it always prints them and
+ignores this option.
 
-Mirrors `thin_walls` (PrusaSlicer/Slic3r) / `detect_thin_wall` (OrcaSlicer).", extend("x-group" = "Walls"))]
+Mirrors `thin_walls` (PrusaSlicer/Slic3r) / `detect_thin_wall` (OrcaSlicer), both
+of which are likewise classic-only.", extend("x-group" = "Walls", "x-relevant-when" = serde_json::json!({"field": "wall_generator", "equals": "classic"})))]
     #[serde(default = "SlicingParams::default_thin_walls")]
     pub thin_walls: bool,
 
@@ -855,8 +858,11 @@ filament grinding for a mechanically-insignificant dab.  Set to `0` to use the
 automatic default (twice the nozzle diameter), which matches the faceting-noise
 floor used when de-noising the medial skeleton; the residual such short beads
 would have filled is bridged by the squish of the flanking wall beads.
+
+Arachne generator only — the classic generator emits a single residual bead per
+shell rather than walking a medial skeleton.
 **Typical:** 0.4–1.0 mm.",
-        extend("x-group" = "Walls")
+        extend("x-group" = "Walls", "x-relevant-when" = serde_json::json!({"field": "wall_generator", "equals": "arachne"}))
     )]
     #[serde(default = "SlicingParams::default_gap_fill_min_length_mm")]
     pub gap_fill_min_length_mm: f64,
@@ -2106,6 +2112,63 @@ pub struct ObjectSettings {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Read a property's `x-relevant-when` gate out of the generated schema.
+    fn relevance_gate(field: &str) -> Option<serde_json::Value> {
+        let schema = schemars::schema_for!(SlicingParams);
+        let json = serde_json::to_value(&schema).expect("schema to json");
+        json.get("properties")?
+            .get(field)?
+            .get("x-relevant-when")
+            .cloned()
+    }
+
+    #[test]
+    fn generator_specific_wall_options_are_gated_in_the_schema() {
+        // A wall option only one generator honours must be hidden for the other,
+        // otherwise the UI offers a control that silently does nothing (or worse,
+        // silently changes output — the caddy thin-wall regression).
+        for (field, generator) in [
+            ("thin_walls", "classic"),
+            ("wall_distribution_count", "classic"),
+            ("gap_fill_min_length_mm", "arachne"),
+        ] {
+            let gate = relevance_gate(field)
+                .unwrap_or_else(|| panic!("{field} should carry an x-relevant-when gate"));
+            assert_eq!(
+                gate,
+                serde_json::json!({ "field": "wall_generator", "equals": generator }),
+                "{field} should only be shown for the {generator} generator"
+            );
+        }
+    }
+
+    #[test]
+    fn extra_perimeters_max_gap_is_gated_on_its_parent_toggle() {
+        let gate = relevance_gate("extra_perimeters_max_gap")
+            .expect("extra_perimeters_max_gap should carry an x-relevant-when gate");
+        assert_eq!(
+            gate,
+            serde_json::json!({ "field": "extra_perimeters", "equals": true }),
+            "the gap threshold is meaningless unless extra_perimeters is on"
+        );
+    }
+
+    #[test]
+    fn options_both_generators_honour_are_not_gated() {
+        // Guard against over-gating: these are honoured by classic *and* arachne,
+        // so hiding either would lose a working control.
+        for field in [
+            "external_perimeters_first",
+            "extra_perimeters",
+            "wall_count",
+        ] {
+            assert!(
+                relevance_gate(field).is_none(),
+                "{field} works in both generators and must stay visible"
+            );
+        }
+    }
 
     #[test]
     fn test_object_settings_with_overrides_round_trip() {

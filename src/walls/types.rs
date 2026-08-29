@@ -34,8 +34,8 @@ pub struct WallParams {
     /// nozzle_diameter_mm`.
     pub extra_perimeters_max_gap_mm: f64,
     /// Emit beads for **thin features** — model material too narrow for even one
-    /// full perimeter (`true`, the default) — or skip them (`false`).  Does not
-    /// affect the gap fill between perimeter loops, which is always emitted.
+    /// full perimeter.  **Classic generator only**: Arachne fills thin features
+    /// from the medial axis by construction and ignores this flag.
     /// See [`SlicingParams::thin_walls`].
     pub thin_walls: bool,
 }

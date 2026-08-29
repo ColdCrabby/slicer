@@ -46,9 +46,9 @@ these notes and acknowledges contributors. `scripts/gen-changelog-draft.sh` and
     infill's job, so a solid body is never turned into loops. Default off.
   - `thin_walls` — detect **thin features** (model material too narrow for even
     one full perimeter: engraved text, tapering ribs, a card holder's slot fins)
-    and print them as a single centered bead. On by default. Turning it off
-    skips those features; it deliberately does **not** touch the gap fill
-    *between* perimeter loops, which is always emitted.
+    and print them as a single centered bead. **Classic generator only** — Arachne
+    fills them from the medial axis by construction and ignores the option, which
+    the settings UI hides accordingly. On by default.
   - `ensure_vertical_shell_thickness` — back sloped/near-vertical surfaces with
     internal solid infill so the side shell keeps a continuous perpendicular
     thickness. A no-op on flat tops and plain vertical walls. Default off.
@@ -122,6 +122,22 @@ these notes and acknowledges contributors. `scripts/gen-changelog-draft.sh` and
   `tobj`/`ahash` still require). No behavioural changes to sliced output.
 
 ### Fixed
+
+- **Generator-specific wall options are now hidden for the generator that
+  ignores them.** `thin_walls` and `wall_distribution_count` only apply to the
+  classic wall generator, and `gap_fill_min_length_mm` only to Arachne, but all
+  three were shown unconditionally — offering controls that silently did nothing.
+  They now carry schema relevance rules, as does `extra_perimeters_max_gap`
+  (shown only when `extra_perimeters` is on).
+
+  This also removes a way to silently delete geometry: `thin_walls` used to gate
+  Arachne's whole medial pass, which emits the same bead type for *thin features*
+  (material too narrow for one perimeter — a card holder's slot fins) and for
+  ordinary gap fill *between* perimeter loops. Turning it off removed both: on a
+  filament card caddy that wiped ~50 card-slot fins, opened an unfilled void
+  along every wall, and let sparse infill leak into the freed band. Arachne now
+  always prints thin features — that is what the generator is for — matching
+  PrusaSlicer/OrcaSlicer, where the equivalent option is likewise classic-only.
 
 - **Top-surface "squiggles" where solid fill grazes a wall** — a surface whose
   boundary meets the wall band at a shallow angle was filled with a dense

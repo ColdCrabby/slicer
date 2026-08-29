@@ -592,4 +592,29 @@ mod tests {
             beads.len()
         );
     }
+
+    #[test]
+    fn thin_walls_off_drops_the_classic_residual_bead() {
+        // `thin_walls` is the *classic* generator's thin-feature switch (it is
+        // gated to `wall_generator = classic` in the schema).  The 0.4 mm wall of
+        // `test_thin_wall_produces_variable_width_bead` is exactly such a feature:
+        // it is carried entirely by the residual bead, so turning the option off
+        // must drop it.
+        let rect: Path = vec![(0.0, 0.0), (10.0, 0.0), (10.0, 0.4), (0.0, 0.4)].into();
+        let paths = Paths::new(vec![rect]);
+
+        let on = compute_classic_beads(&paths, &default_params());
+        assert!(!on.is_empty(), "control: thin wall should print by default");
+
+        let off_params = WallParams::from_slicing_params(&SlicingParams {
+            thin_walls: false,
+            ..SlicingParams::default()
+        });
+        let off = compute_classic_beads(&paths, &off_params);
+        assert!(
+            off.is_empty(),
+            "thin_walls = false must drop the classic thin-wall bead, got {}",
+            off.len()
+        );
+    }
 }
