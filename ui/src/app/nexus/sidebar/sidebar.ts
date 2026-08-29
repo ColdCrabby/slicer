@@ -34,7 +34,7 @@ const HOVER_CLOSE_DELAY_MS = 240;
     '(mouseleave)': 'onMouseLeave()',
     '[class.is-collapsed]': 'collapsed()',
     '[class.is-expanded]': 'isExpanded()',
-    '[class.is-pinned-open]': 'isPinnedOverlayOpen()',
+    '[class.is-overlay]': 'isOverlay()',
     '[class.is-dragging]': 'isDragging()',
   },
 })
@@ -43,9 +43,12 @@ export class Sidebar {
   private readonly renderer = inject(Renderer2);
   private readonly document = inject(DOCUMENT);
 
+  /** Docked (false) reserves layout space; collapsed (true) floats as an overlay. */
   protected readonly collapsed = signal(this.readCollapsed());
-  protected readonly pinnedOpen = signal(false);
-  protected readonly hovered = signal(false);
+  /** A deliberate tap/click peek that persists until dismissed (scrim/Escape/toggle). */
+  protected readonly overlayOpen = signal(false);
+  /** An ephemeral hover preview (pointer-capable devices only); closes on leave. */
+  protected readonly hoverPreview = signal(false);
   protected readonly isDragging = signal(false);
 
   /** Whether the content has been scrolled far enough to offer a "scroll to top". */
@@ -53,10 +56,21 @@ export class Sidebar {
 
   private readonly scrollContainer = viewChild<ElementRef<HTMLElement>>('scrollContainer');
 
+  // Only arm hover-intent on devices that truly hover. iOS/iPadOS emit synthetic
+  // mouse events on tap with no matching `mouseleave`, which would otherwise leave
+  // a preview stuck open — the exact "sidebar won't close" bug on touch.
+  private readonly supportsHover =
+    typeof window !== 'undefined' && !!window.matchMedia?.('(hover: hover)').matches;
+
   protected readonly isExpanded = computed(
-    () => !this.collapsed() || this.pinnedOpen() || this.hovered(),
+    () => !this.collapsed() || this.overlayOpen() || this.hoverPreview(),
   );
-  protected readonly isPinnedOverlayOpen = computed(() => this.collapsed() && this.pinnedOpen());
+  /** Panel is visible but floating over the scene (collapsed + peeking). */
+  protected readonly isOverlay = computed(
+    () => this.collapsed() && (this.overlayOpen() || this.hoverPreview()),
+  );
+  /** A tap/click peek that warrants a dismissable scrim (hover previews don't). */
+  protected readonly isScrimOpen = computed(() => this.collapsed() && this.overlayOpen());
 
   private dragStartX = 0;
   private dragStartWidth = 0;
@@ -82,8 +96,8 @@ export class Sidebar {
   expand(): void {
     this.clearHoverTimers();
     if (this.collapsed()) {
-      this.hovered.set(false);
-      this.pinnedOpen.set(true);
+      this.hoverPreview.set(false);
+      this.overlayOpen.set(true);
     }
   }
 
@@ -98,55 +112,68 @@ export class Sidebar {
     this.scrollContainer()?.nativeElement.scrollTo({ top: 0, behavior: 'smooth' });
   }
 
+  /**
+   * Dock ⇄ hide toggle. Fully deterministic on every platform: it flips the
+   * persisted docked state and clears any transient peek, so tapping it always
+   * does exactly what it says — no reliance on a follow-up `mouseleave`.
+   */
   protected onCollapseToggle(event: MouseEvent): void {
     event.stopPropagation();
     const next = !this.collapsed();
     this.collapsed.set(next);
     this.clearHoverTimers();
-    this.pinnedOpen.set(false);
-    // Unpinning: keep the panel open as an overlay peek under the cursor so it
-    // doesn't vanish on click; onMouseLeave auto-hides it once the pointer
-    // leaves. Docking: hovered is irrelevant (isExpanded is driven by !collapsed).
-    this.hovered.set(next);
+    this.overlayOpen.set(false);
+    this.hoverPreview.set(false);
     this.saveCollapsed(next);
   }
 
-  /** Hover-intent open: only after a short, deliberate hover. */
+  /** Hover-intent open: only after a short, deliberate hover (pointer devices). */
   protected onMouseEnter(): void {
-    if (!this.collapsed() || this.pinnedOpen()) {
+    if (!this.supportsHover || !this.collapsed() || this.overlayOpen()) {
       return;
     }
     this.clearCloseTimer();
-    if (this.hovered() || this.hoverOpenTimer !== null) {
+    if (this.hoverPreview() || this.hoverOpenTimer !== null) {
       return;
     }
     this.hoverOpenTimer = setTimeout(() => {
       this.hoverOpenTimer = null;
-      this.hovered.set(true);
+      this.hoverPreview.set(true);
     }, HOVER_OPEN_DELAY_MS);
   }
 
   /** Hover-intent close: a brief grace period so the panel doesn't flicker. */
   protected onMouseLeave(): void {
+    if (!this.supportsHover) {
+      return;
+    }
     this.clearOpenTimer();
-    if (!this.hovered()) {
+    if (!this.hoverPreview()) {
       return;
     }
     this.clearCloseTimer();
     this.hoverCloseTimer = setTimeout(() => {
       this.hoverCloseTimer = null;
-      this.hovered.set(false);
+      this.hoverPreview.set(false);
     }, HOVER_CLOSE_DELAY_MS);
   }
 
+  /** Reveal-hint tap: open a persistent overlay peek (the primary touch gesture). */
   protected onOpenPeek(event: MouseEvent): void {
     event.stopPropagation();
     if (!this.collapsed()) {
       return;
     }
     this.clearHoverTimers();
-    this.hovered.set(false);
-    this.pinnedOpen.set(true);
+    this.hoverPreview.set(false);
+    this.overlayOpen.set(true);
+  }
+
+  /** Tap/click the scrim behind an overlay peek to dismiss it (stays hidden). */
+  protected dismissOverlay(): void {
+    this.clearHoverTimers();
+    this.overlayOpen.set(false);
+    this.hoverPreview.set(false);
   }
 
   @HostListener('document:keydown.escape')
@@ -155,8 +182,8 @@ export class Sidebar {
       return;
     }
     this.clearHoverTimers();
-    this.pinnedOpen.set(false);
-    this.hovered.set(false);
+    this.overlayOpen.set(false);
+    this.hoverPreview.set(false);
   }
 
   private clearOpenTimer(): void {
