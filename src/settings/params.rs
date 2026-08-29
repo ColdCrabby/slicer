@@ -1546,14 +1546,14 @@ Caps print speed so the hotend can keep up with the flow.
 
     #[schemars(
         description = "Custom start G-code block, inserted before the first print move. `null` = flavor default.",
-        extend("x-group" = "Output")
+        extend("x-group" = "Output", "x-widget" = "gcode")
     )]
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub start_gcode: Option<String>,
 
     #[schemars(
         description = "Custom end G-code block, inserted after the last print move. `null` = flavor default.",
-        extend("x-group" = "Output")
+        extend("x-group" = "Output", "x-widget" = "gcode")
     )]
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub end_gcode: Option<String>,
@@ -1562,10 +1562,29 @@ Caps print speed so the hotend can keep up with the flow.
         description = "Custom G-code block inserted at every layer change, after the Z move. \
                        Supports `{z}`, `{height}`, and `{layer_num}` (1-based) placeholders. \
                        `null` = none.",
-        extend("x-group" = "Output")
+        extend("x-group" = "Output", "x-widget" = "gcode")
     )]
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub layer_gcode: Option<String>,
+
+    #[schemars(
+        description = "Per-filament start G-code, inserted after the machine start G-code and \
+                       before the first print move. Typically supplied by the filament profile \
+                       (temperatures, purge, pressure advance). Supports the same temperature / \
+                       material placeholders as `start_gcode`. `null` = none.",
+        extend("x-group" = "Filament G-code", "x-widget" = "gcode")
+    )]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub start_filament_gcode: Option<String>,
+
+    #[schemars(
+        description = "Per-filament end G-code, inserted after the last print move and before the \
+                       machine end G-code. Typically supplied by the filament profile. Supports \
+                       the same temperature / material placeholders as `end_gcode`. `null` = none.",
+        extend("x-group" = "Filament G-code", "x-widget" = "gcode")
+    )]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub end_filament_gcode: Option<String>,
 
     #[schemars(
         description = "Embed a PNG thumbnail comment block in generated G-code files. \
@@ -1741,6 +1760,8 @@ impl Default for SlicingParams {
             start_gcode: None,
             end_gcode: None,
             layer_gcode: None,
+            start_filament_gcode: None,
+            end_filament_gcode: None,
             thumbnail_enabled: Self::default_thumbnail_enabled(),
             thumbnail_size_px: Self::default_thumbnail_size_px(),
             thumbnail_view: ThumbnailView::default(),

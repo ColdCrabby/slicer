@@ -66,14 +66,15 @@ const FILAMENT_GROUPS = SETTING_CONTRACTS.find((c) => c.id === 'filament')!.grou
 
 /**
  * The filament-parameter groups rendered in the editor, in the Filament
- * contract's display order (`Temperature`, `Cooling`). Parsed once from the
- * schema (it never changes at runtime); groups owned by other contracts
- * (Hardware, Extrusion, …) are left out so the filament editor only shows
- * material temperature/cooling settings.
+ * contract's display order (`Temperature`, `Cooling`, `Filament G-code`). Parsed
+ * once from the schema (it never changes at runtime); groups owned by other
+ * contracts (Hardware, Extrusion, …) are left out so the filament editor only
+ * shows material settings.
  *
  * Each group's fields are filtered to those `nexus-param-field` can actually
- * render (enum → select, boolean → switch, everything else → number). Plain
- * `string` and array fields are dropped, which excludes `filament_type` and
+ * render (enum → select, boolean → switch, number → number input, and the
+ * `x-widget: "gcode"` string fields → code editor). Plain `string`/array fields
+ * without a widget hint are dropped, which excludes `filament_type` and
  * `fan_configs` automatically. `filament_diameter_mm` (Hardware) stays a
  * bespoke "Diameter" row under Identity, so no param key renders twice.
  */
@@ -88,7 +89,8 @@ const PARAM_GROUPS: SchemaGroup[] = (() => {
           !!f.enumOptions?.length ||
           f.type === 'boolean' ||
           f.type === 'number' ||
-          f.type === 'integer',
+          f.type === 'integer' ||
+          f.widget === 'gcode',
       ),
     }))
     .filter((g) => g.fields.length > 0)
