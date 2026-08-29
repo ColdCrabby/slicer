@@ -199,6 +199,16 @@ pub struct SliceCommand {
     #[arg(long, value_name = "POLICY")]
     pub seam_position: Option<String>,
 
+    /// Spiral (vase) mode: print a single continuous outer wall whose Z ramps
+    /// smoothly over each layer, producing a seamless single-wall vase.
+    ///
+    /// Forces a single perimeter and disables sparse infill, top surfaces,
+    /// retraction and Z-hop. The solid bottom layers are kept as the base (set
+    /// `bottom_layers` to 0 in settings for an open tube). Best on solid,
+    /// single-island models. When omitted, uses the value from settings.
+    #[arg(long)]
+    pub spiral_vase: bool,
+
     /// Dump internal geometry at every pipeline stage to this directory for
     /// visual debugging.  Produces per-layer `layer_NNNN.svg` files
     /// (Inkscape / browser) with each pipeline stage as a coloured group.
@@ -340,6 +350,13 @@ impl SliceCommand {
                     "Unknown seam position: '{}'. Supported: nearest, rear, aligned, sharpest-corner, random",
                     policy_str
                 ))?;
+        }
+
+        // Spiral (vase) mode is a plain on/off flag; enabling it here defers the
+        // actual single-wall normalization to the pipeline/generator so every
+        // runtime shares one code path.
+        if self.spiral_vase {
+            slice_params.spiral_vase = true;
         }
 
         // Validate input file exists
@@ -670,6 +687,7 @@ mod tests {
             align_face: None,
             mesh_quality: None,
             seam_position: None,
+            spiral_vase: false,
             debug_geometry: None,
         };
         assert_eq!(cmd.layer_height, Some(0.2));
@@ -701,6 +719,7 @@ mod tests {
             align_face: None,
             mesh_quality: None,
             seam_position: None,
+            spiral_vase: false,
             debug_geometry: None,
         };
         assert!(cmd.gcode_flavor.is_none());
@@ -731,6 +750,7 @@ mod tests {
             align_face: None,
             mesh_quality: None,
             seam_position: None,
+            spiral_vase: false,
             debug_geometry: None,
         };
         assert_eq!(cmd.gcode_flavor.as_deref(), Some("klipper"));
@@ -761,6 +781,7 @@ mod tests {
             align_face: None,
             mesh_quality: None,
             seam_position: None,
+            spiral_vase: false,
             debug_geometry: None,
         };
         assert_eq!(
@@ -795,6 +816,7 @@ mod tests {
             align_face: None,
             mesh_quality: None,
             seam_position: None,
+            spiral_vase: false,
             debug_geometry: None,
         };
         assert!(cmd_on.lifecycle_markers);
@@ -823,6 +845,7 @@ mod tests {
             align_face: None,
             mesh_quality: None,
             seam_position: None,
+            spiral_vase: false,
             debug_geometry: None,
         };
         assert!(!cmd_off.lifecycle_markers);

@@ -27,6 +27,7 @@ const FIELD_LABELS: Record<string, string> = {
   wall_transition_angle: 'Wall Transition Angle',
   wall_transition_filter_distance: 'Wall Transition Filter Distance',
   seam_position: 'Seam Position',
+  spiral_vase: 'Spiral Vase Mode',
   gap_fill_min_length_mm: 'Min Gap Fill Length',
   wall_overlap_compensation: 'Wall Overlap Compensation',
   // Infill
