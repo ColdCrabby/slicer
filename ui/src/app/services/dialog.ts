@@ -1,5 +1,6 @@
 import { Injectable, Type, signal } from '@angular/core';
-import { Observable, Subject } from 'rxjs';
+import { Observable, Subject, from } from 'rxjs';
+import { isTauriMobile } from '../runtime/domain/runtime-mode.util';
 
 export type DialogType = 'default' | 'warning' | 'danger';
 
@@ -74,6 +75,13 @@ export class Dialog {
   }
 
   #open(config: DialogConfig): Observable<boolean> {
+    // iOS draws its own alerts. A dialog that embeds a component still needs
+    // the HTML implementation — UIKit alerts take a title and message, nothing
+    // richer — so only plain confirm/alert dialogs are handed to the platform.
+    if (isTauriMobile() && !config.content) {
+      return from(this.#openNative(config));
+    }
+
     // Resolve any existing dialog as cancelled before showing the new one.
     const existing = this.activeDialog();
     if (existing) {
@@ -91,5 +99,41 @@ export class Dialog {
 
     this.activeDialog.set(dialog);
     return result$.asObservable();
+  }
+
+  /**
+   * Present the request as a real `UIAlertController`.
+   *
+   * Falls back to the HTML dialog if the command is unavailable, so a missing
+   * or failed native path degrades instead of losing the prompt entirely.
+   */
+  async #openNative(config: DialogConfig): Promise<boolean> {
+    try {
+      const { invoke } = await import('@tauri-apps/api/core');
+      return await invoke<boolean>('show_native_dialog', {
+        request: {
+          title: config.title,
+          message: config.message ?? null,
+          confirm_label: config.confirmLabel ?? 'OK',
+          // `alertOnly` means a single OK button, which UIKit expresses by
+          // simply having no cancel action.
+          cancel_label: config.alertOnly ? null : (config.cancelLabel ?? 'Cancel'),
+          destructive: config.type === 'danger',
+        },
+      });
+    } catch {
+      return await this.#openHtmlFallback(config);
+    }
+  }
+
+  #openHtmlFallback(config: DialogConfig): Promise<boolean> {
+    const result$ = new Subject<boolean>();
+    this.activeDialog.set({
+      id: String(_nextId++),
+      config,
+      isLeaving: false,
+      result$,
+    });
+    return new Promise((resolve) => result$.subscribe((value) => resolve(value)));
   }
 }
