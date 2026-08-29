@@ -1,5 +1,3 @@
-import { save } from '@tauri-apps/plugin-dialog';
-import { writeFile } from '@tauri-apps/plugin-fs';
 import { Injectable, computed, effect, inject, signal, untracked } from '@angular/core';
 import { environment } from '../../environments/environment';
 import { SlicingParams } from '../../generated/slicer-engine-ws-client-message-v1';
@@ -9,10 +7,10 @@ import { RuntimeOrchestrator } from '../runtime/application/runtime-orchestrator
 import { RuntimeSession } from '../runtime/application/runtime-session';
 import { RuntimeHistorySession } from '../runtime/domain/history-models';
 import { RuntimeMode } from '../runtime/domain/runtime-mode';
-import { isTauriMobile } from '../runtime/domain/runtime-mode.util';
 import { RuntimeMeshInput, RuntimeSceneSnapshot } from '../runtime/domain/scene-commands';
 import { createRuntime } from '../runtime/factory/runtime-factory';
 import { RuntimeEvent } from '../runtime/ports/runtime-events';
+import { FileExport } from './file-export';
 import { NotificationService } from './notifications';
 import { ActiveSelection } from './profiles/active-selection';
 import { SceneEngine } from './scene-engine';
@@ -109,6 +107,7 @@ export class Slicer {
   private readonly appVersion = inject(AppVersion);
   private readonly viewerControl = inject(ViewerControl);
   private readonly workplateNames = inject(WorkplateNames);
+  private readonly fileExport = inject(FileExport);
   private readonly runtimeMode = this.resolveRuntimeMode();
   private readonly runtime = createRuntime({
     mode: this.runtimeMode,
@@ -756,84 +755,16 @@ export class Slicer {
     await this.downloadFromUrl(session.download_url, filename);
   }
 
-  private async downloadFromUrl(url: string, filename: string): Promise<void> {
-    // iOS has no Save-As panel. Its export idiom is the share sheet, which lets
-    // the user drop the file into Files, AirDrop it, mail it — and, crucially,
-    // performs the copy itself. Tauri's `save()` does exist on iOS, but it
-    // exports an *empty* placeholder and hands back a URL outside the sandbox,
-    // so the follow-up write lands nowhere and the user gets a 0-byte file.
-    if (isTauriMobile()) {
-      await this.shareViaSystemSheet(url, filename);
-      return;
-    }
-
-    if (this.runtimeMode === 'native') {
-      // Tauri's webview does not reliably honour `<a download>` against a
-      // custom `asset://` URL (it's meant for `<img>`/`<video>` src, not
-      // forcing a save) — depending on OS/WebView the link just navigates or
-      // is silently ignored instead of prompting a save. Use the native
-      // "Save As" dialog + filesystem write instead: fetch the bytes (works
-      // for both `asset://` URLs and blob URLs) and write them to the
-      // user-chosen path.
-      try {
-        const destination = await save({
-          defaultPath: filename,
-          filters: [{ name: 'G-code', extensions: ['gcode', 'gco', 'g'] }],
-        });
-        if (!destination) {
-          return; // user cancelled the dialog
-        }
-        const bytes = new Uint8Array(await (await fetch(url)).arrayBuffer());
-        await writeFile(destination, bytes);
-        this.notifications.success('Saved', `G-code saved to ${destination}`);
-      } catch (error) {
-        const message = error instanceof Error ? error.message : String(error);
-        this.notifications.error('Save failed', message);
-      }
-      return;
-    }
-
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = filename;
-    link.click();
-  }
-
   /**
-   * iOS export: stage the G-code inside the app's own cache directory, then
-   * hand that file to `UIActivityViewController`.
-   *
-   * Staging is what makes this work — the sandbox is always writable, whereas
-   * any location the user picks is not, and the share sheet needs a real file
-   * on disk rather than the `asset://`/blob URL the UI holds.
+   * Hand the G-code to the user. The platform-specific "save a file" idioms
+   * (iOS share sheet, desktop Save-As, browser download) live in
+   * {@link FileExport}; this only supplies the G-code type filter.
    */
-  private async shareViaSystemSheet(url: string, filename: string): Promise<void> {
-    try {
-      const [{ invoke }, { appCacheDir, join }, { mkdir, writeFile: writeFsFile }] =
-        await Promise.all([
-          import('@tauri-apps/api/core'),
-          import('@tauri-apps/api/path'),
-          import('@tauri-apps/plugin-fs'),
-        ]);
-
-      const directory = await appCacheDir();
-      await mkdir(directory, { recursive: true }).catch(() => undefined);
-      const staged = await join(directory, filename);
-
-      const bytes = new Uint8Array(await (await fetch(url)).arrayBuffer());
-      await writeFsFile(staged, bytes);
-
-      // Anchor the iPad popover near the top-right, where the Download control
-      // lives. An unanchored share sheet raises and terminates the app.
-      await invoke('share_file', {
-        path: staged,
-        x: Math.round(window.innerWidth * 0.9),
-        y: Math.round(window.innerHeight * 0.1),
-      });
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      this.notifications.error('Share failed', message);
-    }
+  private async downloadFromUrl(url: string, filename: string): Promise<void> {
+    await this.fileExport.saveFromUrl(url, filename, {
+      filters: [{ name: 'G-code', extensions: ['gcode', 'gco', 'g'] }],
+      savedLabel: 'G-code',
+    });
   }
 
   private resolveRuntimeMode(): RuntimeMode {

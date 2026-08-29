@@ -22,6 +22,16 @@ these notes and acknowledges contributors. `scripts/gen-changelog-draft.sh` and
 
 ### Added
 
+- **Export your profile library** — Settings → General now has a **Backup &
+  Export** section that downloads every printer, filament, print profile and
+  label as TOML. The default export is a ZIP bundle with one file per profile
+  (`printers/01-voron-24.toml`, …); the dropdown offers a single `profiles.toml`
+  instead — the exact file the engine and CLI read, so it can be dropped into a
+  config directory as-is. Concatenating a bundle reproduces that same file, in
+  the original order. The engine renders the export in every runtime (server,
+  desktop, and in-browser), so the files always match what the slicer reads
+  back. Printer API keys are stripped from the export, so it is safe to share or
+  commit — re-enter them after restoring.
 - **Advanced retraction modes** — the G-code generator now supports firmware
   retraction (`G10`/`G11`, synced to the firmware with `M207`/`M208` on Marlin or
   `SET_RETRACTION` on Klipper), relative extruder distances (`M83`), a

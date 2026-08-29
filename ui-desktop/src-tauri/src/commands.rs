@@ -74,6 +74,38 @@ pub fn profiles_save_category(kind: String, items: Value) -> Result<Value, Strin
     serde_json::to_value(library).map_err(|e| e.to_string())
 }
 
+/// A rendered profile export, ready for the webview to save or share.
+#[derive(serde::Serialize)]
+pub struct ProfileExport {
+    /// Suggested save-as filename.
+    pub filename: String,
+    /// MIME type, for the share sheet and the blob the UI builds.
+    pub mime: String,
+    /// File contents.
+    pub bytes: Vec<u8>,
+}
+
+/// Export the on-disk profile library as TOML (`bundle` ZIP or single
+/// `profiles.toml`).
+///
+/// Reads `profiles.toml` rather than taking the UI's copy, so what the user
+/// downloads is exactly what this machine's CLI would read.
+#[tauri::command]
+pub fn profiles_export(format: String) -> Result<ProfileExport, String> {
+    let parsed = slicer_engine::profiles::ProfileExportFormat::parse(&format)
+        .ok_or_else(|| format!("unknown export format '{format}'"))?;
+    let library = slicer_engine::profiles::ProfileStore::new()
+        .load()
+        .map_err(|e| e.to_string())?;
+    let artifact =
+        slicer_engine::profiles::export_library(&library, parsed).map_err(|e| e.to_string())?;
+    Ok(ProfileExport {
+        filename: artifact.filename,
+        mime: artifact.mime.to_string(),
+        bytes: artifact.bytes,
+    })
+}
+
 // ── Printer transport ─────────────────────────────────────────────────────────
 //
 // The desktop runtime talks to printers **from this native process** using the
