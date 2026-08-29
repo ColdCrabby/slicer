@@ -36,6 +36,8 @@ printf '[slicing]\nwall_generator = "classic"\n' > /tmp/classic.toml
 | `render.py` | Two generators side-by-side, red = wall-zone gap. Best for locating gaps. | `render.py <gcodeA> [layer=60] [gcodeB] [out.png]` |
 | `zoom.py` | Zoomed region drawing every bead as a filled capsule at its **actual `;WIDTH:`**, so you can see whether gap-fill beads truly span their gap. | `zoom.py <gcode> [layer] [cx] [cy] [half] [out.png]` |
 | `overlap.py` | **Cross-role double-extrusion**: pairwise footprint intersection between every role pair, with a ¼-nozzle-eroded **BODY** column that strips the expected boundary seam and leaves genuine bead-on-bead overlap (e.g. sparse infill re-extruding over a gap-fill bead). | `overlap.py <gcode> [layer\|all]` |
+| `beaddiff.py` | **Before/after visual diff** of one layer from two gcode files, every bead a capsule at its true `;WIDTH:`, role-coloured on a shared scale, with isolated short paths highlighted and counted. The image to attach to a PR. | `beaddiff.py <before> <after> [layer] [out.png] [cx cy half] [--short=0.8]` |
+| `wallbands.py` | **Wall-band anatomy of one island**: labels every island on a layer, then zooms one and draws its wall loops in print order (outer, inner-1, inner-2, …) as separate colours, so "between the two inner walls" is unambiguous. | `wallbands.py <gcode> <layer> [island] [out.png]` |
 
 ### Examples
 
@@ -57,7 +59,19 @@ python3 tools/gcode-analysis/zoom.py  /tmp/arachne.gcode 60 -11.5 -1 3.5 /tmp/hu
 # Which roles double-extrude over each other (e.g. infill over gap fill)? Compare to classic.
 python3 tools/gcode-analysis/overlap.py /tmp/arachne.gcode all
 python3 tools/gcode-analysis/overlap.py /tmp/classic.gcode all
+
+# Did my change actually fix the layer? Before/after, beads at true width —
+# this is the image to attach to the PR.
+python3 tools/gcode-analysis/beaddiff.py /tmp/before.gcode /tmp/after.gcode 41 /tmp/diff.png
+python3 tools/gcode-analysis/beaddiff.py /tmp/before.gcode /tmp/after.gcode 201 /tmp/rail.png 0.9 -12 2.2 --short=1.5
 ```
+
+> **Attach the picture to the PR.** Slicing changes are geometry; a diff and a
+> table do not let a reviewer see whether the toolpaths are right. See
+> [`.github/instructions/slicing-visual-verification.instructions.md`](../../.github/instructions/slicing-visual-verification.instructions.md)
+> for the full contract, including why a **centerline** plot must never be used
+> to verify one (two beads 0.3 mm apart look separate as lines and overlap as
+> material).
 
 > **Reading `overlap.py`.** Wall×surface and wall×infill body-overlap is largely
 > the *designed* `infill_overlap_percent` bond and shows up in **both**
