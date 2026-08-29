@@ -15,8 +15,12 @@ import type { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js
 const TOUCH_DISABLED = -1 as unknown as TOUCH;
 const TWO_FINGER_DOLLY_DEAD_ZONE_PX = 1.5;
 const TWO_FINGER_ROLL_DEAD_ZONE_RAD = 0.01;
-/** Right-drag travel (px) before it counts as a pan for the auto-ortho revert. */
-const RIGHT_PAN_REVERT_THRESHOLD_PX = 3;
+/**
+ * Right-drag travel (px) before it counts as a genuine pan for releasing the
+ * viewport-cube snap's frozen detent (not the ortho projection — pan is
+ * sticky). Avoids releasing on a bare right-click that never moves.
+ */
+const RIGHT_PAN_RELEASE_THRESHOLD_PX = 3;
 /**
  * Straight-line pointer travel (px) that breaks a viewport-cube snap free.
  *
@@ -145,20 +149,30 @@ export class SceneControls {
   private twoFingerGesture: 'orbit' | 'pan' = 'orbit';
 
   /**
-   * Fired when a gesture breaks a held viewport-cube snap free — a pan, a zoom,
-   * or a rotate dragged past {@link SNAP_BREAKOUT_TRAVEL_PX}. Used by the
-   * auto-ortho behaviour to release the detent and revert the temporary
-   * orthographic projection to the user's chosen view. A rotate inside the
-   * breakout distance and cube-driven camera moves deliberately do not fire it,
+   * Fired when a *rotate* gesture breaks a held viewport-cube snap free — a
+   * drag/swipe past {@link SNAP_BREAKOUT_TRAVEL_PX}. Used by the auto-ortho
+   * behaviour to release the detent and revert the temporary orthographic
+   * projection to the user's chosen view.
+   *
+   * Deliberately **not** fired by pan or zoom: those preserve the dimension-
+   * true flat view (you are moving *around* the same look direction, not away
+   * from it), which is exactly the sticky behaviour the snap exists to give —
+   * e.g. inspecting a sliced face in ortho by panning/zooming around it
+   * without ever popping back to perspective. Only actually orbiting to a new
+   * look direction counts as leaving the snap. A rotate inside the breakout
+   * distance and cube-driven camera moves also deliberately do not fire it,
    * so the snapped view never slips on an accidental nudge. See
    * {@link SceneCamera.notifyUserViewGesture}.
    */
   private revertGestureSink: (() => void) | null = null;
 
-  /** Handlers for the pointer-drag revert detectors, retained for cleanup. */
-  private rightPanPointerDownHandler: ((event: PointerEvent) => void) | null = null;
-  private rightPanPointerMoveHandler: ((event: PointerEvent) => void) | null = null;
-  private rightPanPointerUpHandler: ((event: PointerEvent) => void) | null = null;
+  /** See {@link setPanZoomGestureSink}. */
+  private panZoomGestureSink: (() => void) | null = null;
+
+  /** Handlers for the rotate snap-breakout detector, retained for cleanup. */
+  private rotateBreakoutPointerDownHandler: ((event: PointerEvent) => void) | null = null;
+  private rotateBreakoutPointerMoveHandler: ((event: PointerEvent) => void) | null = null;
+  private rotateBreakoutPointerUpHandler: ((event: PointerEvent) => void) | null = null;
 
   /**
    * @param cancelDragCallback  Called when a two-finger gesture begins so
@@ -182,7 +196,7 @@ export class SceneControls {
     this.installAutoscrollZoom();
     this.installAlwaysOnWheelZoom();
     this.installWebKitGestureZoom();
-    this.installRightPanRevertDetection();
+    this.installRotateBreakoutDetection();
     // Orbit is the fixed cursor mode: left-drag rotates, right-drag pans.
     // Middle mouse is reserved for autoscroll zoom; disable OrbitControls' drag-dolly.
     const MIDDLE = null as unknown as MOUSE;
@@ -200,11 +214,11 @@ export class SceneControls {
   }
 
   /**
-  /**
-   * Register a callback fired whenever the user pans, zooms, or drags the main
-   * viewport far enough to break a viewport-cube snap free (never on a small
-   * rotate inside the detent, nor on a cube gesture). Drives the auto-ortho
-   * revert. Pass `null` to clear.
+   * Register a callback fired whenever the user drags a *rotate* gesture far
+   * enough to break a viewport-cube snap free (never on a small rotate inside
+   * the detent, nor on a cube gesture, nor on any pan/zoom — those are sticky,
+   * see {@link setPanZoomGestureSink}). Drives the auto-ortho revert to
+   * perspective. Pass `null` to clear.
    */
   setRevertGestureSink(sink: (() => void) | null): void {
     this.revertGestureSink = sink;
@@ -212,6 +226,21 @@ export class SceneControls {
 
   private emitRevertGesture(): void {
     this.revertGestureSink?.();
+  }
+
+  /**
+   * Register a callback fired on every pan or zoom gesture in the main
+   * viewport. Used to release the viewport-cube snap's frozen detent (see
+   * {@link SceneCamera.releaseSnapPinForPanZoom}) so the gesture can move the
+   * camera — without reverting the temporary orthographic projection, unlike
+   * {@link setRevertGestureSink}. Pass `null` to clear.
+   */
+  setPanZoomGestureSink(sink: (() => void) | null): void {
+    this.panZoomGestureSink = sink;
+  }
+
+  private emitPanZoomGesture(): void {
+    this.panZoomGestureSink?.();
   }
 
   /** Begin a fresh breakout budget for the next rotate gesture. */
@@ -367,37 +396,39 @@ export class SceneControls {
     this.uninstallAutoscrollZoom();
     this.uninstallRendererPointerListeners();
     this.uninstallWebKitGestureZoom();
-    this.uninstallRightPanRevertDetection();
+    this.uninstallRotateBreakoutDetection();
     this.renderer.domElement.removeEventListener('wheel', this.wheelHandler, { capture: true });
   }
 
   // -------------------------------------------------------------------------
-  // Pointer-drag revert detection (right-drag pan + rotate snap breakout)
+  // Pointer-drag detection (rotate snap breakout + right-drag pan release)
   // -------------------------------------------------------------------------
 
   /**
-   * Watches raw pointer drags to drive the auto-ortho revert. Two cases share
-   * these listeners:
+   * Watches raw pointer drags for two purposes that share the same listeners:
    *
-   * - **Right-drag = pan.** OrbitControls pans internally (not via our helpers),
-   *   so we observe the drag to notify the revert. A tiny travel threshold
-   *   avoids reverting on a bare right-click that never moves.
-   * - **Left-drag / touch / pen = rotate.** Distance from the drag origin is the
-   *   snap-breakout metric. It has to be measured in *pixels* here rather than
-   *   in camera angle, because while a snap is held the camera does not rotate
-   *   at all ({@link SceneCamera.applySnapHold}) — there is no angle to measure.
+   * - **Left-drag / touch / pen = rotate.** Drives the auto-ortho revert (see
+   *   {@link revertGestureSink}). Distance from the drag origin is the
+   *   snap-breakout metric, measured in *pixels* rather than camera angle
+   *   because while a snap is held the camera does not rotate at all
+   *   ({@link SceneCamera.applySnapHold}).
+   * - **Right-drag = pan.** OrbitControls pans internally (not via our
+   *   helpers), so this only needs to release the frozen snap detent (see
+   *   {@link panZoomGestureSink}) once the drag genuinely moves — a tiny
+   *   travel threshold avoids firing on a bare right-click that never moves —
+   *   never the revert-to-perspective sink; pan is sticky.
    *
    * We only observe — never `preventDefault`/`stopPropagation` — so
    * OrbitControls still performs the gesture.
    */
-  private installRightPanRevertDetection(): void {
+  private installRotateBreakoutDetection(): void {
     const el = this.renderer.domElement;
     let panPointerId: number | null = null;
     let panStartX = 0;
     let panStartY = 0;
     let panEmitted = false;
 
-    this.rightPanPointerDownHandler = (event: PointerEvent): void => {
+    this.rotateBreakoutPointerDownHandler = (event: PointerEvent): void => {
       if (event.button === 2) {
         panPointerId = event.pointerId;
         panStartX = event.clientX;
@@ -415,14 +446,14 @@ export class SceneControls {
         this.resetBreakout();
       }
     };
-    this.rightPanPointerMoveHandler = (event: PointerEvent): void => {
+    this.rotateBreakoutPointerMoveHandler = (event: PointerEvent): void => {
       if (event.pointerId === panPointerId && !panEmitted) {
         if (
           Math.hypot(event.clientX - panStartX, event.clientY - panStartY) >
-          RIGHT_PAN_REVERT_THRESHOLD_PX
+          RIGHT_PAN_RELEASE_THRESHOLD_PX
         ) {
           panEmitted = true;
-          this.emitRevertGesture();
+          this.emitPanZoomGesture();
         }
         return;
       }
@@ -432,7 +463,7 @@ export class SceneControls {
         );
       }
     };
-    this.rightPanPointerUpHandler = (event: PointerEvent): void => {
+    this.rotateBreakoutPointerUpHandler = (event: PointerEvent): void => {
       if (event.pointerId === panPointerId) {
         panPointerId = null;
         panEmitted = false;
@@ -443,26 +474,26 @@ export class SceneControls {
       }
     };
 
-    el.addEventListener('pointerdown', this.rightPanPointerDownHandler);
-    el.addEventListener('pointermove', this.rightPanPointerMoveHandler);
-    el.addEventListener('pointerup', this.rightPanPointerUpHandler);
-    el.addEventListener('pointercancel', this.rightPanPointerUpHandler);
+    el.addEventListener('pointerdown', this.rotateBreakoutPointerDownHandler);
+    el.addEventListener('pointermove', this.rotateBreakoutPointerMoveHandler);
+    el.addEventListener('pointerup', this.rotateBreakoutPointerUpHandler);
+    el.addEventListener('pointercancel', this.rotateBreakoutPointerUpHandler);
   }
 
-  private uninstallRightPanRevertDetection(): void {
+  private uninstallRotateBreakoutDetection(): void {
     const el = this.renderer.domElement;
-    if (this.rightPanPointerDownHandler) {
-      el.removeEventListener('pointerdown', this.rightPanPointerDownHandler);
-      this.rightPanPointerDownHandler = null;
+    if (this.rotateBreakoutPointerDownHandler) {
+      el.removeEventListener('pointerdown', this.rotateBreakoutPointerDownHandler);
+      this.rotateBreakoutPointerDownHandler = null;
     }
-    if (this.rightPanPointerMoveHandler) {
-      el.removeEventListener('pointermove', this.rightPanPointerMoveHandler);
-      this.rightPanPointerMoveHandler = null;
+    if (this.rotateBreakoutPointerMoveHandler) {
+      el.removeEventListener('pointermove', this.rotateBreakoutPointerMoveHandler);
+      this.rotateBreakoutPointerMoveHandler = null;
     }
-    if (this.rightPanPointerUpHandler) {
-      el.removeEventListener('pointerup', this.rightPanPointerUpHandler);
-      el.removeEventListener('pointercancel', this.rightPanPointerUpHandler);
-      this.rightPanPointerUpHandler = null;
+    if (this.rotateBreakoutPointerUpHandler) {
+      el.removeEventListener('pointerup', this.rotateBreakoutPointerUpHandler);
+      el.removeEventListener('pointercancel', this.rotateBreakoutPointerUpHandler);
+      this.rotateBreakoutPointerUpHandler = null;
     }
   }
 
@@ -495,7 +526,10 @@ export class SceneControls {
     }
     event.preventDefault();
     event.stopImmediatePropagation();
-    this.emitRevertGesture();
+    // Zoom is sticky — it never breaks a held viewport-cube ortho snap (see
+    // {@link revertGestureSink}), but it does need to release the frozen
+    // detent so the zoom actually shows (see {@link panZoomGestureSink}).
+    this.emitPanZoomGesture();
 
     const zoomSpeed = this.controls.zoomSpeed;
     let normalised: number;
@@ -985,7 +1019,10 @@ export class SceneControls {
    * `factor < 1` zooms in, `factor > 1` zooms out.
    */
   private applyTouchDolly(factor: number, cx: number, cy: number): void {
-    this.emitRevertGesture();
+    // Zoom is sticky — release the frozen snap detent (never the ortho
+    // projection itself) so the dolly actually shows. See
+    // {@link panZoomGestureSink}.
+    this.emitPanZoomGesture();
     const { camera } = this;
     const target = this.controls.target;
     camera.updateMatrixWorld(true);
@@ -1018,7 +1055,10 @@ export class SceneControls {
 
   /** Translate camera + target by a screen-space pixel delta. */
   private applyTouchPan(dxPx: number, dyPx: number): void {
-    this.emitRevertGesture();
+    // Pan is sticky — release the frozen snap detent (never the ortho
+    // projection itself) so the pan actually shows. See
+    // {@link panZoomGestureSink}.
+    this.emitPanZoomGesture();
     const { camera } = this;
     const target = this.controls.target;
     camera.updateMatrix();
@@ -1078,7 +1118,10 @@ export class SceneControls {
     }
     event.preventDefault();
     event.stopPropagation();
-    this.emitRevertGesture();
+    // Autoscroll is a zoom gesture — sticky; release the frozen snap detent so
+    // the continuous zoom each frame actually shows. See
+    // {@link panZoomGestureSink}.
+    this.emitPanZoomGesture();
     const el = this.renderer.domElement;
     el.setPointerCapture(event.pointerId);
     el.style.cursor = 'ns-resize';

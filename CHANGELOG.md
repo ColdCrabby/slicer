@@ -179,6 +179,15 @@ these notes and acknowledges contributors. `scripts/gen-changelog-draft.sh` and
   units with a clear error. Applies to both the CLI file path and the
   byte-upload path used by the UI/WASM and WS server.
 
+- **Viewport-cube ortho snap popped back to perspective on pan/zoom** —
+  clicking a cube face to inspect a model in a flat, dimension-true view (e.g.
+  a selected face of a slice) lost that view the instant you panned or
+  zoomed, which is exactly when you want to hold still: dragging around and
+  zooming in to evaluate detail. Only a genuine **rotate** now breaks the
+  snap free (past the existing sticky threshold); panning and zooming any
+  distance keep the projection flattened, letting you inspect a snapped view
+  up close without it ever popping back to perspective.
+
 ## [0.1.0] - 2026-08-23
 
 ### Added
