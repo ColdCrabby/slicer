@@ -1615,6 +1615,86 @@ mod tests {
         );
     }
 
+    /// A wedge too small to hold more than one isolated dash must get **no**
+    /// sparse infill: reaching that dash costs a full retract → travel →
+    /// un-retract to deposit a disconnected speck (the Benchy bow tip).
+    #[test]
+    fn test_splat_sized_region_gets_no_infill() {
+        use crate::infill::InfillPattern;
+        use clipper2::Path;
+
+        // ~1.6 mm² triangle — the measured size of the Benchy bow-tip sliver,
+        // and below the 2.0 mm² floor at a 0.4 mm nozzle.
+        let mut layer = SliceLayer::new(0.2);
+        let wedge: Path = vec![(0.0, 0.0), (4.0, 0.0), (0.0, 0.8)].into();
+        layer.paths.push(wedge);
+        layer.path_roles.push(ExtrusionRole::OuterWall);
+        layer.path_widths.push(Some(0.4));
+
+        let mut layers = vec![layer];
+        add_infill_to_layers(
+            &mut layers,
+            0.2,
+            InfillPattern::Rectilinear,
+            45.0,
+            0.4,
+            0.0,
+            0.0,
+            None,
+        );
+        let n = layers
+            .iter()
+            .flat_map(|l| l.path_roles.iter())
+            .filter(|&&r| r == ExtrusionRole::Infill)
+            .count();
+        assert_eq!(n, 0, "a splat-sized region must get no sparse infill");
+    }
+
+    /// The splat filter is an **area** rule on whole connected regions, not a
+    /// width rule: a *large* region that merely happens to be narrow (the
+    /// caddy's hollow-box lattice) must keep every line.
+    ///
+    /// Pairs with [`test_thin_cavity_without_solid_surface_keeps_its_infill`] —
+    /// together they pin that "thin" and "tiny" are different things.
+    #[test]
+    fn test_splat_filter_spares_a_large_but_narrow_region() {
+        use crate::infill::InfillPattern;
+        use clipper2::Path;
+
+        let count = |layers: &[SliceLayer]| -> usize {
+            layers
+                .iter()
+                .flat_map(|l| l.path_roles.iter())
+                .filter(|&&r| r == ExtrusionRole::Infill)
+                .count()
+        };
+
+        // 40 × 2.4 mm cavity: narrower than many features but ~90 mm² of area,
+        // far above the splat floor.
+        let mut layer = SliceLayer::new(0.2);
+        let outer: Path = vec![(-20.0, -1.2), (20.0, -1.2), (20.0, 1.2), (-20.0, 1.2)].into();
+        layer.paths.push(outer);
+        layer.path_roles.push(ExtrusionRole::OuterWall);
+        layer.path_widths.push(Some(0.4));
+
+        let mut layers = vec![layer];
+        add_infill_to_layers(
+            &mut layers,
+            0.4,
+            InfillPattern::Rectilinear,
+            45.0,
+            0.4,
+            0.0,
+            0.0,
+            None,
+        );
+        assert!(
+            count(&layers) > 0,
+            "a large-but-narrow cavity must keep its lattice — the splat filter \
+             is an area rule, not a width rule"
+        );
+    }
+
     /// Sparse infill must not be laid in the sub-bead sliver between a solid
     /// surface and the wall: `solid_regions` is grown by
     /// `SOLID_MARGIN_NOZZLE_MULT × nozzle` before being subtracted, so infill

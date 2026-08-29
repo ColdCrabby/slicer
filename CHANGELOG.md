@@ -123,6 +123,19 @@ these notes and acknowledges contributors. `scripts/gen-changelog-draft.sh` and
 
 ### Fixed
 
+- **Isolated infill specks in narrow wedges** — where a cross-section is locally
+  thinner than the average wall count (the 3DBenchy bow tip is the canonical
+  case), the interior estimate left a sliver that the walls and gap fill already
+  fill, and the scanline dropped a single ~1.3 mm dash into it. That speck is
+  disconnected, contributes nothing structurally, and costs a full retract →
+  travel → un-retract to reach. A connected infill region too small to hold more
+  than one dash (2 mm² at a 0.4 mm nozzle) is now skipped.
+
+  This is an **area** rule on whole regions, not a width rule, so a genuinely
+  thin cavity that deserves a lattice keeps every line — and it filters the
+  generated paths rather than the region, so the scanline phase (seeded from the
+  layer's bounding box) is unchanged and the edit is exactly subtractive.
+
 - **Generator-specific wall options are now hidden for the generator that
   ignores them.** `thin_walls` and `wall_distribution_count` only apply to the
   classic wall generator, and `gap_fill_min_length_mm` only to Arachne, but all

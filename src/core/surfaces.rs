@@ -846,7 +846,7 @@ fn expand_to_anchor(unsupported: Paths, bounds: &Paths, anchor_mm: f64) -> Paths
 /// as "outside" (strict test), so the wall survives into
 /// `classify_overhang_perimeters` and becomes an `OverhangPerimeter` arc that
 /// later gets extruded again when bridge infill covers the same area.
-fn vertex_inside_or_on_paths_eo(x: f64, y: f64, paths: &Paths) -> bool {
+pub(super) fn vertex_inside_or_on_paths_eo(x: f64, y: f64, paths: &Paths) -> bool {
     let mut inside_count = 0_usize;
     for path in paths.iter() {
         let result = clipper2::point_in_polygon(clipper2::Point::new(x, y), path);

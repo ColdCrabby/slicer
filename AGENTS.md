@@ -800,6 +800,41 @@ behaviour.
 `min_infill_extrusion_mm` still guards the residual sub-threshold segments a
 legitimate region's tapering corners produce.
 
+**A connected infill region too small to hold more than one dash is skipped
+entirely** (`INFILL_MIN_REGION_AREA_NOZZLE_MULT × d²`, = 2.0 mm² at a 0.4 mm
+nozzle). Where a cross-section is *locally* thinner than the per-island average
+`walls_per_island`, the interior estimate leaves a small sliver that walls plus
+gap fill already fill — the Benchy bow tip (≈ 1.6 mm² at layer 95) is the
+canonical case. The scanline drops a single ~1.3 mm dash into it: a disconnected
+speck costing a full retract → travel → un-retract, sitting right against the
+wall band.
+
+Two properties make this safe, and both must be preserved:
+
+- **It is an _area_ rule on whole connected regions, never a _width_ rule on the
+  infill area.** A genuinely thin cavity that deserves a lattice (the caddy's
+  hollow-box layers) is a *large* region that merely happens to be narrow. The
+  separation is categorical, not marginal: measured across the QA corpus the
+  caddy has **no** infill region at all between 0.01 mm² and 10 mm², so the
+  threshold sits in an empty band two orders of magnitude wide. This is the same
+  trap the morphological-opening attempt fell into (see above).
+- **It filters the _generated paths_, not the region.** `generate_rectilinear_infill`
+  seeds its scanline phase from the bounding box of the whole infill area, so
+  deleting an outlying sliver *before* generation shifts every infill line on the
+  layer (measured: 27 mm of line movement on a Benchy layer whose dropped regions
+  totalled 0.05 mm²). Filtering afterwards is exactly subtractive — measured
+  −3.6 mm of sparse infill model-wide on the Benchy, with every other role
+  untouched and the caddy byte-identical.
+
+Membership is tested with **segment midpoints**, not vertices: an infill line's
+endpoints lie exactly *on* the region boundary, where the integer-scaled
+point-in-polygon test can land either side.
+
+**Note:** gap-fill length is not bit-reproducible between runs of the same
+binary (measured 7399.6 vs 7401.8 mm on two Benchy slices), so small gap-fill
+deltas are run-to-run noise, not evidence of a change. Sparse infill *is*
+deterministic and can be compared directly.
+
 ### Thin Wall-Band Channels — Opened-Interior Surface Clip
 
 `calculate_interior_region` uses a **per-island _average_** wall count
