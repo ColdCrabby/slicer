@@ -19,6 +19,7 @@ import { SceneEngine } from './scene-engine';
 import { AppVersion } from './app-version';
 import { ConnectionStatus, SlicerConnection } from './slicer-connection';
 import { SlicerFile, UploadResponse } from './slicer-file';
+import { WorkplateObjects } from './workplate-objects';
 import {
   ViewerControl,
   type ThumbnailColorMode,
@@ -105,6 +106,7 @@ export class Slicer {
   private readonly slicerFile = inject(SlicerFile);
   private readonly notifications = inject(NotificationService);
   private readonly sceneEngine = inject(SceneEngine);
+  private readonly workplateObjects = inject(WorkplateObjects);
   private readonly activeSelection = inject(ActiveSelection);
   private readonly appVersion = inject(AppVersion);
   private readonly viewerControl = inject(ViewerControl);
@@ -707,6 +709,7 @@ export class Slicer {
    */
   async resetWorkplate(): Promise<void> {
     this.reset();
+    this.workplateObjects.clearPending();
     await this.sceneEngine.clear();
   }
 
@@ -917,6 +920,10 @@ export class Slicer {
         scale: object.scale,
         triangle_count: object.triangle_count,
         world_aabb: object.world_aabb,
+        // Must be carried: this snapshot is what the cloud runtime slices
+        // from, and without the source id every object falls back to the
+        // first upload — slicing one model N times instead of N models.
+        source_id: object.source_id,
       })),
     };
   }

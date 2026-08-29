@@ -49,6 +49,26 @@
   >
     <nexus-icon name="magic-wand"></nexus-icon>
   </button>
+
+  <button
+    class="reset-view-button"
+    type="button"
+    [disabled]="addingObjects()"
+    [tooltip]="'Add a model to this plate'"
+    (click)="promptAddObjects()"
+  >
+    <nexus-icon name="plus"></nexus-icon>
+  </button>
+
+  <!-- Multiple selection so a whole batch of parts can be plated at once. -->
+  <input
+    #addObjectInput
+    class="add-object-input"
+    type="file"
+    accept=".stl,.obj,.3mf"
+    multiple
+    (change)="onAddObjects($event)"
+  />
 </div>
 
 <nexus-card class="button-radio-group icon-group" [(radioGroup)]="selectedObjectMode">

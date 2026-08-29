@@ -740,10 +740,17 @@ async fn dto_to_op(
                 name,
                 format,
                 bytes,
+                // Remember which upload this object came from so a later
+                // slice resolves it without positional guesswork.
+                source_id: Some(file_id),
             })
         }
         SceneOpDto::Remove { id } => Ok(SceneOp::Remove {
             id: crate::scene::ObjectId(id),
+        }),
+        SceneOpDto::Duplicate { id, offset } => Ok(SceneOp::Duplicate {
+            id: crate::scene::ObjectId(id),
+            offset,
         }),
         SceneOpDto::Translate { id, delta } => Ok(SceneOp::Translate {
             id: crate::scene::ObjectId(id),

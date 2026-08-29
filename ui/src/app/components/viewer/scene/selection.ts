@@ -121,6 +121,16 @@ export class SceneSelection {
     }
     delete obj.userData['selectableId'];
     this.selectables.delete(id);
+    // Drop the id from the selection too. Leaving it behind keeps the gizmo
+    // attached to an object that no longer exists, and the next drag then
+    // dispatches a Translate against a dead id — which throws and aborts the
+    // move for every other selected object.
+    if (this.currentSelectedIds.has(id)) {
+      const remaining = new Set(this.currentSelectedIds);
+      remaining.delete(id);
+      this.currentSelectedIds = remaining;
+      this.gizmo.setCentroid(this.computeSelectionCentroid());
+    }
   }
 
   clearAll(): void {

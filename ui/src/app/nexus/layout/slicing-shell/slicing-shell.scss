@@ -52,6 +52,17 @@ $default-inset: 40px;
     pointer-events: none;
   }
 
+  // The plate's object list. Anchored bottom-left of the scene so it never
+  // collides with the transform panel (top-left) or the right rail, and so a
+  // long list grows away from the toolbar rather than under it.
+  .objects-dock {
+    grid-area: scene;
+    place-self: end start;
+    margin: var(--spacing-sm) var(--spacing-lg) var(--spacing-lg);
+    z-index: 2;
+    pointer-events: none;
+  }
+
   // Scene notifications: centered pill in the scene row (always below the
   // toolbar, no magic offsets), sliding down from behind it (lower z-index).
   .scene-notify {

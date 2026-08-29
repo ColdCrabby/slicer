@@ -26,6 +26,16 @@ export interface UploadResponse {
   ofids: string[];
 }
 
+/**
+ * One file that belongs to the active workplate.
+ *
+ * A plate can hold several models, so uploads accumulate rather than replace.
+ */
+export interface WorkplateFile {
+  fileId: string;
+  filename: string;
+}
+
 @Injectable({ providedIn: 'root' })
 export class SlicerFile {
   readonly #http = inject(HttpClient);
@@ -35,8 +45,10 @@ export class SlicerFile {
   readonly sourceFilename = signal<string | null>(null);
   /** Workplate UUID — the `ruuid` from the upload response. */
   readonly requestUuid = signal<string | null>(null);
+  /** Every file placed on {@link requestUuid}, in the order it was added. */
+  readonly files = signal<readonly WorkplateFile[]>([]);
   /** File UUIDs (`ofids`) that belong to {@link requestUuid}. */
-  readonly fileIds = signal<string[]>([]);
+  readonly fileIds = computed(() => this.files().map((f) => f.fileId));
   readonly uploadProgress = signal<number>(0);
   readonly uploadError = signal<string | null>(null);
   readonly isUploading = computed(() => this.uploadProgress() > 0 && this.uploadProgress() < 100);
@@ -49,14 +61,21 @@ export class SlicerFile {
     this.selectedFile.set(file);
     this.sourceFilename.set(file.name);
     this.requestUuid.set(null);
-    this.fileIds.set([]);
+    this.files.set([]);
     this.uploadProgress.set(0);
     this.uploadError.set(null);
   }
 
-  upload(): Promise<UploadResponse> {
-    const file = this.selectedFile();
-    if (!file) {
+  /**
+   * Upload `file` and return its workplate + file UUIDs.
+   *
+   * When a workplate is already open the upload is attached to it, so the
+   * plate accumulates models instead of each one starting a fresh plate.
+   * Pass `attachToWorkplate: false` to force a new plate.
+   */
+  upload(file?: File, options: { attachToWorkplate?: boolean } = {}): Promise<UploadResponse> {
+    const target = file ?? this.selectedFile();
+    if (!target) {
       throw new Error('No file selected');
     }
 
@@ -64,7 +83,13 @@ export class SlicerFile {
     this.uploadError.set(null);
 
     const formData = new FormData();
-    formData.append('file', file);
+    // The server streams multipart fields in order and needs the workplate id
+    // before it starts writing the file, so append `ruuid` first.
+    const existing = options.attachToWorkplate === false ? null : this.requestUuid();
+    if (existing) {
+      formData.append('ruuid', existing);
+    }
+    formData.append('file', target);
 
     return new Promise((resolve, reject) => {
       this.#http
@@ -86,7 +111,7 @@ export class SlicerFile {
                 return;
               }
               this.requestUuid.set(body.ruuid);
-              this.fileIds.set(body.ofids);
+              this.addFiles(body.ofids.map((fileId) => ({ fileId, filename: target.name })));
               this.uploadProgress.set(100);
               resolve(body);
             }
@@ -108,11 +133,32 @@ export class SlicerFile {
     });
   }
 
+  /** Append files to the active workplate, ignoring ones already present. */
+  addFiles(entries: readonly WorkplateFile[]): void {
+    if (entries.length === 0) {
+      return;
+    }
+    const known = new Set(this.files().map((f) => f.fileId));
+    const fresh = entries.filter((e) => e.fileId && !known.has(e.fileId));
+    if (fresh.length === 0) {
+      return;
+    }
+    this.files.update((current) => [...current, ...fresh]);
+    if (!this.sourceFilename()) {
+      this.sourceFilename.set(fresh[0].filename);
+    }
+  }
+
+  /** Drop a file from the active workplate (its object was removed). */
+  removeFile(fileId: string): void {
+    this.files.update((current) => current.filter((f) => f.fileId !== fileId));
+  }
+
   reset(): void {
     this.selectedFile.set(null);
     this.sourceFilename.set(null);
     this.requestUuid.set(null);
-    this.fileIds.set([]);
+    this.files.set([]);
     this.uploadProgress.set(0);
     this.uploadError.set(null);
   }
@@ -142,7 +188,9 @@ export class SlicerFile {
    */
   adopt(meta: RequestMeta): void {
     this.requestUuid.set(meta.ruuid);
-    this.fileIds.set(meta.ofids.map((f) => f.file_uuid));
+    // Adopt every file on the plate, not just the first — a multi-object
+    // workplate must come back with all of its objects.
+    this.files.set(meta.ofids.map((f) => ({ fileId: f.file_uuid, filename: f.original_filename })));
     const firstFilename = meta.ofids[0]?.original_filename?.trim();
     this.sourceFilename.set(firstFilename || null);
   }
@@ -150,7 +198,7 @@ export class SlicerFile {
   /** Mark the selected file as belonging to a local-only workplate. */
   adoptLocal(requestUuid: string): void {
     this.requestUuid.set(requestUuid);
-    this.fileIds.set([]);
+    this.files.set([]);
     this.uploadProgress.set(0);
     this.uploadError.set(null);
     if (!this.sourceFilename()) {
@@ -160,11 +208,14 @@ export class SlicerFile {
   }
 
   /**
-   * Fetch an uploaded file from the backend by its `file_uuid` and restore
-   * it as the currently-selected file so the scene can display it.
-   * Reports download progress via `uploadProgress`.
+   * Download an uploaded file by its `file_uuid` and register it with the
+   * active workplate, **without** making it the primary displayed model.
+   *
+   * Restoring a multi-object plate downloads each file in turn, so this must
+   * not touch `selectedFile` — doing so would retarget the viewer's model
+   * input at every file and leave only the last one on screen.
    */
-  fetchFile(requestUuid: string, fileUuid: string, filename: string): Promise<void> {
+  downloadFile(requestUuid: string, fileUuid: string, filename: string): Promise<File> {
     this.uploadProgress.set(0);
     this.uploadError.set(null);
 
@@ -189,16 +240,17 @@ export class SlicerFile {
                 const file = new File([blob], filename, {
                   type: 'application/octet-stream',
                 });
-                this.selectedFile.set(file);
-                this.sourceFilename.set(filename);
+                this.sourceFilename.set(this.sourceFilename() ?? filename);
                 this.requestUuid.set(requestUuid);
-                this.fileIds.set([fileUuid]);
+                // Append rather than replace: every file on the plate must
+                // stay registered so each object can resolve its own bytes.
+                this.addFiles([{ fileId: fileUuid, filename }]);
                 this.uploadProgress.set(100);
-                resolve();
+                resolve(file);
               } catch (err) {
                 const message = err instanceof Error ? err.message : 'Failed to process file';
                 this.uploadError.set(message);
-                console.error('[SlicerFile] fetchFile processing error:', message);
+                console.error('[SlicerFile] downloadFile processing error:', message);
                 reject(new Error(message));
               }
             }
@@ -213,10 +265,22 @@ export class SlicerFile {
             }
             this.uploadError.set(message);
             this.uploadProgress.set(0);
-            console.error('[SlicerFile] fetchFile error:', message);
+            console.error('[SlicerFile] downloadFile error:', message);
             reject(new Error(message));
           },
         });
     });
+  }
+
+  /**
+   * Download a file and adopt it as the workplate's primary displayed model.
+   *
+   * Use this for the plate's first object only; additional objects go through
+   * {@link downloadFile}.
+   */
+  async fetchFile(requestUuid: string, fileUuid: string, filename: string): Promise<File> {
+    const file = await this.downloadFile(requestUuid, fileUuid, filename);
+    this.selectedFile.set(file);
+    return file;
   }
 }

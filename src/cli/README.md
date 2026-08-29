@@ -26,11 +26,16 @@ graph TB
 
 ## Slice: STL → G-code
 
-Convert a 3D model to printer-ready G-code.
+Convert one or more 3D models to printer-ready G-code. Repeat `--input` to
+slice a multi-object build plate — every model is placed in one scene and
+merged into a single mesh before slicing.
 
 ```bash
 # Basic
 slicer-engine slice --input model.stl --output output.gcode
+
+# Multi-object build plate, packed without overlap
+slicer-engine slice -i part_a.stl -i part_b.stl --arrange --output plate.gcode
 
 # Custom layer height
 slicer-engine slice --input model.stl --output out.gcode --layer-height 0.15
@@ -54,12 +59,18 @@ slicer-engine slice --input model.stl --config ./slicer.json
 slicer-engine slice --input model.stl --center --drop-to-floor --verbose
 ```
 
+Transform flags are plate-wide: `--translate`, `--rotate`, `--scale`,
+`--align-face`, `--center`, and `--drop-to-floor` apply to **every** `--input`
+model, since the CLI has no syntax for addressing a single object. Objects that
+fall outside the build volume or overlap each other are reported as warnings —
+the slice still runs.
+
 **Arguments:**
 
 | Flag | Type | Required | Default | Purpose |
 |------|------|----------|---------|---------|
-| `--input` | path | ✓ | – | Input STL file |
-| `--output` | path | | auto | Output G-code file |
+| `--input` | path | ✓ | – | Input model file; repeat for a multi-object plate |
+| `--output` | path | | auto | Output G-code file (`<first>_plate.gcode` for several models) |
 | `--layer-height` | float | | from settings | Slice spacing (mm) |
 | `--gcode-flavor` | string | | from settings | `marlin` or `klipper` |
 | `--start-print-gcode` | string | | from settings | Custom start G-code or file path |
@@ -67,8 +78,11 @@ slicer-engine slice --input model.stl --center --drop-to-floor --verbose
 | `--lifecycle-markers` | flag | | from settings | Force-enable layer lifecycle markers |
 | `--no-lifecycle-markers` | flag | | from settings | Force-disable layer lifecycle markers |
 | `--config` | path | | auto-discover | Explicit `slicer.json` path |
-| `--center` | flag | | false | Center mesh horizontally |
-| `--drop-to-floor` | flag | | false | Drop mesh to Z=0 |
+| `--center` | flag | | false | Center every model horizontally |
+| `--drop-to-floor` | flag | | false | Drop every model to Z=0 |
+| `--arrange` | flag | | false | Pack all models onto the bed without overlap |
+| `--arrange-spacing` | float | | 2.0 | Gap between arranged models (mm) |
+| `--arrange-auto-orient` | flag | | false | Auto-orient each model while arranging |
 | `--verbose` | flag | | false | Print mesh stats |
 | `--output-format` | string | | human | `json` or `human` |
 

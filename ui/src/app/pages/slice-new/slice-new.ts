@@ -5,6 +5,7 @@ import { Viewer } from '../../components/viewer/viewer';
 import { PrintArea } from '../../services/print-area';
 import { Slicer } from '../../services/slicer';
 import { SlicerFile } from '../../services/slicer-file';
+import { WorkplateObjects } from '../../services/workplate-objects';
 import { EmptyState } from '../../ui/empty-state/empty-state';
 
 @Component({
@@ -17,6 +18,7 @@ export class SliceNew {
   private readonly router = inject(Router);
   private readonly slicer = inject(Slicer);
   private readonly printArea = inject(PrintArea);
+  private readonly workplate = inject(WorkplateObjects);
   private readonly fileInputRef = viewChild.required<ElementRef<HTMLInputElement>>('fileInput');
   readonly slicerFile = inject(SlicerFile);
   private dragDepth = 0;
@@ -36,9 +38,9 @@ export class SliceNew {
 
   onFileSelected(event: Event): void {
     const input = event.target as HTMLInputElement;
-    const file = input.files?.[0];
-    if (file) {
-      this.handleCandidateFile(file);
+    const files = Array.from(input.files ?? []);
+    if (files.length > 0) {
+      this.handleCandidateFiles(files);
     }
     input.value = '';
   }
@@ -65,9 +67,9 @@ export class SliceNew {
     event.preventDefault();
     this.dragDepth = 0;
     this.dragActive.set(false);
-    const file = event.dataTransfer?.files?.[0] ?? null;
-    if (file) {
-      this.handleCandidateFile(file);
+    const files = Array.from(event.dataTransfer?.files ?? []);
+    if (files.length > 0) {
+      this.handleCandidateFiles(files);
     }
   }
 
@@ -80,18 +82,29 @@ export class SliceNew {
     this.fileInputRef().nativeElement.click();
   }
 
-  private handleCandidateFile(file: File): void {
-    if (!/\.(stl|obj|3mf)$/i.test(file.name)) {
+  /**
+   * Open a plate from the picked/dropped models.
+   *
+   * The first valid model opens the plate; the rest are queued and added by
+   * the slice viewer once the scene exists.
+   */
+  private handleCandidateFiles(files: readonly File[]): void {
+    const models = files.filter((f) => /\.(stl|obj|3mf)$/i.test(f.name));
+    if (models.length === 0) {
       this.invalidDropMessage.set('Unsupported file. Use STL, OBJ, or 3MF.');
       return;
     }
-    this.invalidDropMessage.set(null);
-    void this.startWorkplate(file);
+    this.invalidDropMessage.set(
+      models.length < files.length ? 'Some files were skipped — only STL, OBJ, and 3MF.' : null,
+    );
+    void this.startWorkplate(models[0], models.slice(1));
   }
 
-  private async startWorkplate(file: File): Promise<void> {
+  private async startWorkplate(file: File, extras: readonly File[] = []): Promise<void> {
     try {
       const workplate = await this.slicer.startWorkplate(file);
+      // Queue only after the plate exists — `startWorkplate` resets the scene.
+      this.workplate.queuePending(extras);
       // Carry the upload response in router state so the slice viewer can
       // pick up the `ofids` without an extra fetch. On a cold reload the
       // viewer falls back to `GET /api/request/:ruuid`.

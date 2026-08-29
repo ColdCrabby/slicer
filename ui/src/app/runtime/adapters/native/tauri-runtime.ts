@@ -89,6 +89,8 @@ export class TauriRuntime implements RuntimePort {
       switch (op.op) {
         case 'remove':
           return { op: 'Remove', args: { id } };
+        case 'duplicate':
+          return { op: 'Duplicate', args: { id, offset: op.offset ?? [0, 0, 0] } };
         case 'translate':
           return { op: 'Translate', args: { id, delta: op.delta } };
         case 'set_transform':
@@ -129,6 +131,7 @@ export class TauriRuntime implements RuntimePort {
         scale: object.scale,
         triangle_count: object.triangle_count,
         world_aabb: object.world_aabb,
+        source_id: object.source_id,
       })),
     };
   }

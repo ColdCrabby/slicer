@@ -25,6 +25,7 @@ import { RuntimeCapabilities } from '../../ports/runtime-capabilities';
 import { RuntimeError } from '../../ports/runtime-errors';
 import { RuntimeEventListener } from '../../ports/runtime-events';
 import { RuntimePort, RuntimeSubscription } from '../../ports/runtime-port';
+import { toSliceDtos } from './scene-slice-dto';
 
 const CLOUD_SLICE_TIMEOUT_MS = 30 * 60 * 1000;
 const CLOUD_HISTORY_TIMEOUT_MS = 10 * 1000;
@@ -80,9 +81,19 @@ export class CloudRuntime implements RuntimePort {
     const file = new File([uploadBytes], input.fileName, {
       type: 'application/octet-stream',
     });
-    this.slicerFile.selectFile(file);
-    const upload = await this.slicerFile.upload();
-    return upload.ofids[0] ?? '';
+    // Attach to the open workplate so a plate accumulates models. `upload`
+    // appends to the file registry rather than replacing it.
+    const upload = await this.slicerFile.upload(file);
+    const fileId = upload.ofids[0] ?? '';
+    // Stamp the upload id onto the scene object so slicing resolves this
+    // object to these exact bytes instead of guessing by position.
+    const objectId = this.sceneEngine.addMesh(
+      input.fileName,
+      input.format,
+      uploadBytes,
+      fileId || undefined,
+    );
+    return objectId.toString();
   }
 
   async applySceneOps(ops: RuntimeSceneOp[]): Promise<void> {
@@ -94,6 +105,8 @@ export class CloudRuntime implements RuntimePort {
         switch (op.op) {
           case 'remove':
             return { op: 'Remove', args: { id } };
+          case 'duplicate':
+            return { op: 'Duplicate', args: { id, offset: op.offset ?? [0, 0, 0] } };
           case 'translate':
             return { op: 'Translate', args: { id, delta: op.delta } };
           case 'set_transform':
@@ -136,6 +149,7 @@ export class CloudRuntime implements RuntimePort {
         scale: object.scale,
         triangle_count: object.triangle_count,
         world_aabb: object.world_aabb,
+        source_id: object.source_id,
       })),
     };
   }
@@ -330,40 +344,19 @@ export class CloudRuntime implements RuntimePort {
     uploadFileIds: string[],
     requestScene?: RuntimeSceneSnapshot,
   ): SceneObjectSliceDto[] {
-    // Map the i-th scene object to the i-th uploaded file; extra instances
-    // (more objects than files) fall back to the first uploaded file.
-    const fileIdFor = (index: number): string => uploadFileIds[index] ?? uploadFileIds[0];
-    const objects =
-      requestScene?.objects ??
-      this.sceneEngine.objects().map((object) => ({
-        id: object.id.toString(),
-        name: object.name,
-        translation: object.translation,
-        euler_xyz_deg: object.euler_xyz_deg,
-        scale: object.scale,
-        triangle_count: object.triangle_count,
-        world_aabb: object.world_aabb,
-      }));
-    if (objects.length === 0) {
-      return [
-        {
-          file_id: uploadFileIds[0],
-          transform: {
-            translation: [0, 0, 0],
-            euler_xyz_deg: [0, 0, 0],
-            scale: [1, 1, 1],
-          },
-        },
-      ];
-    }
+    return toSliceDtos(requestScene?.objects ?? this.getSceneObjects(), uploadFileIds);
+  }
 
-    return objects.map((o, index) => ({
-      file_id: fileIdFor(index),
-      transform: {
-        translation: o.translation,
-        euler_xyz_deg: o.euler_xyz_deg,
-        scale: o.scale,
-      },
+  private getSceneObjects(): RuntimeSceneSnapshot['objects'] {
+    return this.sceneEngine.objects().map((object) => ({
+      id: object.id.toString(),
+      name: object.name,
+      translation: object.translation,
+      euler_xyz_deg: object.euler_xyz_deg,
+      scale: object.scale,
+      triangle_count: object.triangle_count,
+      world_aabb: object.world_aabb,
+      source_id: object.source_id,
     }));
   }
 

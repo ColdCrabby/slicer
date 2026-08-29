@@ -75,3 +75,9 @@
     color: var(--accent);
   }
 }
+
+/* The picker is driven by the add-object button; keep it out of the layout
+   and out of the tab order. */
+.add-object-input {
+  display: none;
+}

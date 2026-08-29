@@ -153,6 +153,7 @@ fn add_from_bytes_matches_load_from_path() {
             name: "cube".to_string(),
             format: MeshFormat::Stl,
             bytes,
+            source_id: None,
         })
         .expect("add from bytes");
     let id = match receipt.inverse {

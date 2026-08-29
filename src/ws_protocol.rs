@@ -93,6 +93,15 @@ pub enum SceneOpDto {
     },
     /// Remove an object by id.
     Remove { id: u64 },
+    /// Clone an object, sharing the original's mesh and source file.
+    ///
+    /// `offset` (scene mm) nudges the copy so it does not land exactly on
+    /// top of the original.
+    Duplicate {
+        id: u64,
+        #[serde(default)]
+        offset: [f64; 3],
+    },
     /// Translate by `[x, y, z]` mm.
     Translate { id: u64, delta: [f64; 3] },
     /// Replace the full transform: translation (mm), Euler-XYZ degrees, scale.

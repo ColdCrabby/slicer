@@ -22,6 +22,34 @@ these notes and acknowledges contributors. `scripts/gen-changelog-draft.sh` and
 
 ### Added
 
+- **Multiple objects per workplate** — a plate is now a build plate rather than
+  a single file. An **Add model** button in the 3D toolbar (and a multi-select
+  file picker) places more models on the plate you already have, instead of
+  replacing it. A new **Objects panel** lists everything on the plate with its
+  size, lets you select, duplicate and remove each entry, and one-click
+  **arranges** the plate without overlap. Objects that fall outside the build
+  volume or overlap another object are flagged in the list and in the panel
+  header. Reopening a saved workplate now restores **every** object on it, not
+  just the first.
+
+  This also fixes a bug that made multi-object plates unusable: scene objects
+  were paired with their uploaded files *by position*, so a plate holding two
+  different models sliced the first model twice. Objects now carry the id of
+  the file they were loaded from, so each one always slices from its own
+  geometry — and duplicates correctly share a single upload.
+
+- **Multi-object CLI slicing** — `slice` now accepts several models on one
+  build plate: `slicer-engine slice -i part_a.stl -i part_b.stl`. Every model
+  becomes an object in a single scene, is transformed through the scene engine,
+  and is merged into one mesh before slicing — the same path the WebSocket
+  server and UI already use. A new `--arrange` flag (with `--arrange-spacing`,
+  default 2 mm, and opt-in `--arrange-auto-orient`) packs the plate without
+  overlap, and objects that fall outside the build volume or collide are
+  reported as warnings instead of silently printing wrong. Transform flags
+  (`--translate`, `--rotate`, `--scale`, `--align-face`, `--center`,
+  `--drop-to-floor`) apply to every loaded model. Single-input invocations are
+  unchanged; multi-object plates default their output to
+  `<first-model>_plate.gcode`.
 - **iPadOS / iOS target** — the Tauri shell now builds and runs on iPad, with the
   full Rust slicing engine on-device. `pnpm run ios:doctor` checks the toolchain
   (and `ios:setup` installs what it can), `ios:init` generates the Xcode project,

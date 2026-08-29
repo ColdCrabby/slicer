@@ -25,9 +25,25 @@ pub enum SceneOp {
         format: MeshFormat,
         #[serde(with = "serde_bytes")]
         bytes: Vec<u8>,
+        /// Opaque handle to where `bytes` came from, stored on the object.
+        /// See [`crate::scene::SceneObject::source_id`].
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        source_id: Option<String>,
     },
     /// Remove an object.
     Remove { id: ObjectId },
+    /// Clone an object, sharing the original's mesh.
+    ///
+    /// The copy keeps the original's transform and `source_id` and is then
+    /// nudged by `offset` (scene mm) so it does not land exactly on top of
+    /// the original. The inverse is `Remove` of the new object.
+    Duplicate {
+        id: ObjectId,
+        /// Translation applied to the copy. Defaults to no offset, which
+        /// leaves the copy perfectly coincident with its original.
+        #[serde(default)]
+        offset: [f64; 3],
+    },
     /// Translate by a delta in scene millimeters.
     Translate { id: ObjectId, delta: [f64; 3] },
     /// Replace the entire transform.
@@ -166,11 +182,23 @@ impl SceneState {
                 name,
                 format,
                 bytes,
+                source_id,
             } => {
                 let mesh = loader::load_bytes(&bytes, format).map_err(SceneError::Load)?;
-                let id = self.add_mesh(name, Arc::new(mesh));
+                let id = self.add_mesh_from(name, Arc::new(mesh), source_id);
                 Ok(OpReceipt {
                     inverse: SceneOp::Remove { id },
+                })
+            }
+
+            SceneOp::Duplicate { id, offset } => {
+                let new_id = self.duplicate(id).ok_or(SceneError::NotFound(id))?;
+                let copy = self.get_mut(new_id).expect("just inserted");
+                copy.transform.translation[0] += offset[0] as f32;
+                copy.transform.translation[1] += offset[1] as f32;
+                copy.transform.translation[2] += offset[2] as f32;
+                Ok(OpReceipt {
+                    inverse: SceneOp::Remove { id: new_id },
                 })
             }
 
@@ -486,6 +514,7 @@ fn affected_id_for_gravity(op: &SceneOp) -> Option<ObjectId> {
         | SceneOp::CenterOnBed { id } => Some(*id),
         SceneOp::Add { .. }
         | SceneOp::Remove { .. }
+        | SceneOp::Duplicate { .. }
         | SceneOp::DropToFloor { .. }
         | SceneOp::PlaceFaceOnFloor { .. }
         | SceneOp::AutoOrient { .. }

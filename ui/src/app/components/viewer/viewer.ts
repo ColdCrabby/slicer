@@ -137,6 +137,12 @@ const THUMBNAIL_POLAROID_MS = 3200;
 export class Viewer {
   readonly mode = input<ViewerMode>('model');
   readonly model = input<ModelSource | null>(null);
+  /**
+   * Uploaded-file id backing {@link model}, stamped onto the scene object so
+   * a slice can resolve it back to the right bytes. Objects added later carry
+   * their own id from wherever they were added.
+   */
+  readonly modelSourceId = input<string | null>(null);
   readonly showTravel = input(false);
 
   readonly loadComplete = output<{ mode: ViewerMode; segments: number }>();
@@ -468,8 +474,15 @@ export class Viewer {
     // `matrixAutoUpdate = false` so Three.js does not overwrite them.
     effect(() => {
       const objects = this.sceneEngine.objects();
-      if (this.wasmMeshes.size === 0) {
+      if (this.mode() !== 'model' || !this.scene) {
         return;
+      }
+      // Reconcile membership first: an object added or removed by anyone —
+      // the add-object button, a duplicate, an undo — must show up here
+      // without the viewer being told about it.
+      const mirrored = untracked(() => this.wasmMeshes.size);
+      if (objects.length !== mirrored || objects.some((o) => !this.wasmMeshes.has(o.id))) {
+        untracked(() => this.syncWasmMeshes());
       }
       for (const obj of objects) {
         const mesh = this.wasmMeshes.get(obj.id);
@@ -482,6 +495,27 @@ export class Viewer {
         mesh.matrixWorldNeedsUpdate = true;
       }
       this.scene?.invalidate();
+    });
+
+    // Mirror externally-driven selection (the objects panel) into the 3D
+    // scene. `viewerControl.selectedObjectIds` is the shared selection state;
+    // without this the viewer only ever *wrote* it, so clicking a row in the
+    // panel highlighted nothing and left the gizmo unattached.
+    effect(() => {
+      const ids = this.viewerControl.selectedObjectIds();
+      if (!this.scene) {
+        return;
+      }
+      untracked(() => {
+        if (sameIds(ids, this.selectedWasmIds)) {
+          return;
+        }
+        // Only keep ids the viewer actually has a mesh for; a panel row for an
+        // object mid-teardown must not resurrect a dead selectable.
+        this.selectedWasmIds = ids.filter((id) => this.wasmMeshes.has(id));
+        this.scene?.setSelectedIds(new Set(this.selectedWasmIds.map(String)));
+        this.scene?.invalidate();
+      });
     });
 
     // React to layer-range changes from the GcodePreviewService.
@@ -989,33 +1023,95 @@ export class Viewer {
     if (!this.scene) {
       return;
     }
-    const objects = untracked(() => this.sceneEngine.objects());
-    for (const obj of objects) {
-      const buf = this.sceneEngine.getRenderBuffer(obj.id);
-      const geometry = new BufferGeometry();
-      geometry.setAttribute('position', new BufferAttribute(buf.positions, 3));
-      geometry.setAttribute('normal', new BufferAttribute(buf.normals, 3));
-      geometry.setIndex(new BufferAttribute(buf.indices, 1));
-      geometry.computeBoundingBox();
-      geometry.computeBoundingSphere();
-      const material = new MeshPhongMaterial({
-        color: this.currentModelColor(),
-        flatShading: true,
-        shininess: 16,
-      });
-      const mesh = new Mesh(geometry, material);
-      mesh.name = obj.name;
-      mesh.matrixAutoUpdate = false;
-      this.tmpMatrix.fromArray(this.sceneEngine.getMatrix(obj.id));
-      mesh.matrix.copy(this.tmpMatrix);
-      mesh.matrixWorldNeedsUpdate = true;
-      this.scene.contentRoot.add(mesh);
-      this.wasmMeshes.set(obj.id, mesh);
-      mesh.userData['faceGroups'] = this.sceneEngine.getFaceGroups(obj.id);
-      this.scene.registerSelectable(String(obj.id), mesh);
-    }
+    this.syncWasmMeshes();
     this.status.set('ready');
     this.loadComplete.emit({ mode: 'model', segments: 0 });
+  }
+
+  /**
+   * Reconcile the Three.js display nodes with the scene engine's object list.
+   *
+   * The engine is the source of truth for *what* is on the plate, so the
+   * viewer mirrors it rather than tracking adds and removes itself. That is
+   * what lets an object added from anywhere — the add-object button, a
+   * duplicate, an undo — appear without the viewer knowing who did it.
+   *
+   * Objects are diffed by id: new ones get a display mesh, vanished ones are
+   * disposed. Untouched ids keep their existing geometry, so adding a second
+   * model never re-uploads or re-parses the first.
+   */
+  private syncWasmMeshes(): void {
+    const scene = this.scene;
+    if (!scene) {
+      return;
+    }
+    const objects = untracked(() => this.sceneEngine.objects());
+    const live = new Set(objects.map((o) => o.id));
+
+    for (const [id, mesh] of [...this.wasmMeshes]) {
+      if (live.has(id)) {
+        continue;
+      }
+      scene.unregisterSelectable(String(id));
+      scene.contentRoot.remove(mesh);
+      mesh.geometry.dispose();
+      disposeMaterial(mesh.material);
+      this.wasmMeshes.delete(id);
+    }
+
+    // Forget removed objects everywhere the selection is mirrored, so the
+    // transform panel and gizmo cannot act on an id that no longer exists.
+    const pruned = this.selectedWasmIds.filter((id) => live.has(id));
+    if (pruned.length !== this.selectedWasmIds.length) {
+      this.selectedWasmIds = pruned;
+      scene.setSelectedIds(new Set(pruned.map(String)));
+      this.viewerControl.selectedObjectIds.set(pruned);
+    }
+
+    for (const obj of objects) {
+      if (this.wasmMeshes.has(obj.id)) {
+        continue;
+      }
+      const mesh = this.buildDisplayMesh(obj.id, obj.name);
+      scene.contentRoot.add(mesh);
+      this.wasmMeshes.set(obj.id, mesh);
+      scene.registerSelectable(String(obj.id), mesh);
+    }
+
+    scene.invalidate();
+  }
+
+  /**
+   * Build the Three.js display node for one scene-engine object.
+   *
+   * The node is a thin mirror: geometry comes from the WASM render buffer and
+   * the matrix is driven by the engine, so `matrixAutoUpdate` stays off.
+   */
+  private buildDisplayMesh(id: bigint, name: string): Mesh {
+    const buf = this.sceneEngine.getRenderBuffer(id);
+    const geometry = new BufferGeometry();
+    geometry.setAttribute('position', new BufferAttribute(buf.positions, 3));
+    geometry.setAttribute('normal', new BufferAttribute(buf.normals, 3));
+    geometry.setIndex(new BufferAttribute(buf.indices, 1));
+    geometry.computeBoundingBox();
+    geometry.computeBoundingSphere();
+    const material = new MeshPhongMaterial({
+      color: this.currentModelColor(),
+      flatShading: true,
+      shininess: 16,
+    });
+    const mesh = new Mesh(geometry, material);
+    mesh.name = name;
+    mesh.matrixAutoUpdate = false;
+    this.tmpMatrix.fromArray(this.sceneEngine.getMatrix(id));
+    mesh.matrix.copy(this.tmpMatrix);
+    mesh.matrixWorldNeedsUpdate = true;
+    // Precompute coplanar face groups and store in userData so the
+    // pull-to-floor highlight can light up whole flat regions rather than
+    // individual triangles. Groups are computed once here in WASM (O(F) with
+    // union-find) and read O(1) per hover frame afterwards.
+    mesh.userData['faceGroups'] = this.sceneEngine.getFaceGroups(id);
+    return mesh;
   }
 
   private startModelLoad(source: ModelSource): void {
@@ -1049,57 +1145,25 @@ export class Viewer {
     if (token !== this.loadToken || !this.scene) {
       return;
     }
+    const sourceId = untracked(() => this.modelSourceId()) ?? undefined;
     // Time each phase of the WASM round-trip independently so the overlay
     // can break down where wall time is spent (parse vs. render-buffer
     // copy). `performance.now()` returns a high-resolution monotonic clock.
     const tParseStart = performance.now();
-    const id = this.sceneEngine.addMesh(name, format, bytes);
+    const id = this.sceneEngine.addMesh(name, format, bytes, sourceId);
     const tParseEnd = performance.now();
-    const buf = this.sceneEngine.getRenderBuffer(id);
-    const tRenderBufEnd = performance.now();
-    this.wasmParseMs.set(tParseEnd - tParseStart);
-    this.wasmRenderBufMs.set(tRenderBufEnd - tParseEnd);
-    this.wasmRoundtripMs.set(tRenderBufEnd - tParseStart);
-    const geometry = new BufferGeometry();
-    geometry.setAttribute('position', new BufferAttribute(buf.positions, 3));
-    geometry.setAttribute('normal', new BufferAttribute(buf.normals, 3));
-    geometry.setIndex(new BufferAttribute(buf.indices, 1));
-    geometry.computeBoundingBox();
-    geometry.computeBoundingSphere();
-    const material = new MeshPhongMaterial({
-      color: this.currentModelColor(),
-      flatShading: true,
-      shininess: 16,
-    });
-    const mesh = new Mesh(geometry, material);
-    mesh.name = name;
-    mesh.matrixAutoUpdate = false;
-    // Seed initial matrix so first frame renders correctly even before any
-    // op fires the snapshot effect.
-    this.tmpMatrix.fromArray(this.sceneEngine.getMatrix(id));
-    mesh.matrix.copy(this.tmpMatrix);
-    mesh.matrixWorldNeedsUpdate = true;
-    this.scene.contentRoot.add(mesh);
-    this.wasmMeshes.set(id, mesh);
-    // Precompute coplanar face groups and store in userData so the
-    // pull-to-floor highlight can light up whole flat regions rather than
-    // individual triangles. Groups are computed once here in WASM (O(F) with
-    // union-find) and read O(1) per hover frame afterwards.
-    mesh.userData['faceGroups'] = this.sceneEngine.getFaceGroups(id);
-    // Stamp the same id (stringified) on the legacy scene's selectable
-    // registry so the existing raycast / drag pointer plumbing recognises
-    // it. The drag handlers translate it back to a bigint.
-    this.scene.registerSelectable(String(id), mesh);
     // Auto-orient and drop to bed on first load. Applied directly through
     // the engine (not sceneCommand) so the oriented position is the baseline
     // state and Ctrl+Z does not revert back to the un-oriented pose.
     this.sceneEngine.apply({ op: 'AutoOrient', args: { id } });
     this.sceneEngine.apply({ op: 'DropToFloor', args: { id } });
-    // Sync the Three.js mesh matrix to the post-orient transform so the
-    // first rendered frame reflects the correct orientation.
-    this.tmpMatrix.fromArray(this.sceneEngine.getMatrix(id));
-    mesh.matrix.copy(this.tmpMatrix);
-    mesh.matrixWorldNeedsUpdate = true;
+    // Build the display node from the engine's object list rather than by
+    // hand, so this path and every other add share one code path.
+    this.syncWasmMeshes();
+    const tRenderBufEnd = performance.now();
+    this.wasmParseMs.set(tParseEnd - tParseStart);
+    this.wasmRenderBufMs.set(tRenderBufEnd - tParseEnd);
+    this.wasmRoundtripMs.set(tRenderBufEnd - tParseStart);
     this.status.set('ready');
     this.loadComplete.emit({ mode: 'model', segments: 0 });
   }
@@ -1310,6 +1374,21 @@ function messageOf(error: unknown): string {
   return '';
 }
 
+/** Release a mesh's material(s), which Three.js does not dispose with the node. */
+function disposeMaterial(material: Mesh['material']): void {
+  if (Array.isArray(material)) {
+    for (const m of material) {
+      m.dispose();
+    }
+    return;
+  }
+  material.dispose();
+}
+
+/** Same ids in the same order? Used to break selection mirror feedback. */
+function sameIds(a: readonly bigint[], b: readonly bigint[]): boolean {
+  return a.length === b.length && a.every((id, i) => id === b[i]);
+}
 /**
  * Coerce a {@link ModelSource} into the `{ bytes, format, name }` triple
  * expected by `SceneEngineService.addMesh`. The format is detected from the

@@ -10,6 +10,7 @@ import {
 import { RouterOutlet } from '@angular/router';
 import { ThreeDViewToolbar } from '../../../components/3d-view-toolbar/3d-view-toolbar';
 import { Card } from '../../../components/card/card';
+import { ObjectsPanel } from '../../../components/objects-panel/objects-panel';
 import { SettingsPanel } from '../../../components/settings-panel/settings-panel';
 import { SliceSegmentBar } from '../../../components/slice-segment-bar/slice-segment-bar';
 import { TaskProgressBar } from '../../../components/task-progress-bar/task-progress-bar';
@@ -31,6 +32,7 @@ import { SliceControl } from '../../slice-control/slice-control';
     TaskProgressBar,
     ThreeDViewToolbar,
     TransformPanel,
+    ObjectsPanel,
     ViewportCube,
     RouterOutlet,
     SettingsPanel,

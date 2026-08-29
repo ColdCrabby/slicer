@@ -490,15 +490,27 @@ server. [src/profiles/store.rs](src/profiles/store.rs) is the engine-side store.
 [src/scene/](src/scene/) is the **single source of truth** for object placement, orientation, and transforms. Issue #51 introduced it; CLI, WS server, and the Angular UI (via WASM) all consume the same `SceneState::apply()` code path. Every CLI flag and every UI gesture must translate to a `SceneOp`.
 
 - **Math**: `glam::{Vec3, Quat, Mat4}`. Quaternions internally; **Euler-XYZ degrees only at protocol/CLI boundaries** (see `Transform::from_euler_xyz_deg` / `to_euler_xyz_deg`).
-- **Ops** (`SceneOp`): `Add`, `Remove`, `Translate`, `SetTransform`, `Rotate`, `Scale`, `CenterOnBed`, `DropToFloor`, `AlignFaceToFloor`. Each `apply` returns an `OpReceipt { inverse }` — sets up undo without implementing it.
+- **Ops** (`SceneOp`): `Add`, `Remove`, `Duplicate`, `Translate`, `SetTransform`, `Rotate`, `Scale`, `CenterOnBed`, `DropToFloor`, `PlaceFaceOnFloor`, `AutoOrient`, `ArrangeOnBed`, `BatchSetTransform`. Each `apply` returns an `OpReceipt { inverse }` — sets up undo without implementing it.
 - **AlignFaceToFloor**: picks face by index, computes `Quat::from_rotation_arc(world_normal, -Z)`, then drops to floor.
 - **Bake at the slicer boundary only**: `apply_transform(&Mesh, &Transform) -> Mesh` is called once before the slicing pipeline runs. Never bake mid-pipeline.
 - **Object IDs**: `ObjectId(u64)` is monotonically allocated and **never reused**. UUIDs are reserved for the WS protocol's upload tokens, not for scene objects.
-- **Server scenes are ephemeral per WS connection** (no DB persistence). UI uploads bytes via the file-upload endpoint, then dispatches `Scene { ops: [Add { file_id }, …] }`.
+- **`SceneObject::source_id` is the object→bytes link.** Every object records the opaque handle it was loaded from (the WS upload UUID, a CLI path), set at `Add` time and inherited by `Duplicate`. **Never pair the object list against the upload list positionally** — the two are maintained independently, so index-pairing silently slices the wrong mesh the moment their order or length diverges (it collapsed a two-model plate into two copies of the first model). `Duplicate` shares the original's `Arc<Mesh>` *and* its `source_id`, so N instances of one model cost one upload.
+- **Placement is validated in the engine, not per front-end**: `SceneState::placement_report()` returns `out_of_bounds` (via `BedConfig::contains_aabb`, shape-aware) and `collides` (XY-footprint overlap; touching edges do not count, so `ArrangeOnBed` output is clean) for every object. The WASM snapshot carries both flags per object. Its epsilon is `1e-3` mm, not `1e-9` — STL coordinates are `f32`, so a model resting on the bed lands a few `1e-6` mm below zero and a tighter tolerance reports it out of bounds.
+- **Server scenes are ephemeral per WS connection** (no DB persistence). UI uploads bytes via the file-upload endpoint, then dispatches `Scene { ops: [Add { file_id }, …] }`. `POST /api/upload` takes an optional `ruuid` field (sent **before** the file field, since multipart streams in order) that attaches the upload to an existing workplate — that is how one plate accumulates several files so `GET /api/request/:ruuid` can restore all of them.
 - **WASM** (`src/scene/wasm.rs`, `cfg(target_arch="wasm32")`): exposes `SceneHandle` with `addMesh`, `applyOp`, `getRenderBuffer`, `getMatrix`, `snapshot`. JS bindings build via `make build-wasm` → `ui/src/generated/scene-wasm/`.
 - **Wasm vs native deps**: `clipper2`, `zip`, `uuid`, `rayon`, `tobj`, `actix-*`, `tokio`, `rusqlite` are gated `cfg(not(target_arch="wasm32"))`. The wasm build only ships `mesh`, `scene`, `logging`, plus wasm-only `wasm-bindgen`/`js-sys`/`serde-wasm-bindgen`. Module-level `#[cfg]`s in `lib.rs` enforce this.
 - **Deprecated CLI flags**: `--center` / `--drop-to-floor` are kept as aliases that log a deprecation warning and dispatch the equivalent `SceneOp`. Do not add new flags that bypass the scene engine.
 - **Don't add a parallel mesh placement path**. The temptation to "just translate this mesh real quick" in `mesh::transforms` is exactly what issue #51 set out to eliminate.
+
+### Multi-object workplates — UI contract
+
+A workplate is a **build plate, not a file**. It starts from one model and must
+accept more, so the UI keeps a strict split of responsibilities:
+
+- **[`WorkplateObjects`](ui/src/app/services/workplate-objects/workplate-objects.ts) is the only way an object gets onto a plate.** It uploads (cloud), calls `addMesh` with the resulting `source_id`, auto-orients, drops to the bed, and nudges the new object clear of the ones already there. Every entry point — the toolbar's add button, drag-and-drop, restoring a saved plate — goes through it, so they cannot drift apart. Adding **never** clears existing objects; only an explicit clear does.
+- **The viewer mirrors, it does not own.** `Viewer.syncWasmMeshes()` diffs `sceneEngine.objects()` against its Three.js nodes and adds/disposes to match, so an object created by *anyone* (add button, `Duplicate`, undo) renders without the viewer being told. Do not add a second place that constructs display meshes.
+- **`SlicerFile` holds a list, not a file.** `files` accumulates `{fileId, filename}`; `upload(file)` appends and attaches to the open workplate. `fetchFile` adopts a file as the *primary* displayed model (it sets `selectedFile`, which retargets the viewer's `model` input); additional objects must use **`downloadFile`**, which registers without touching `selectedFile` — otherwise restoring an N-object plate leaves only the last file on screen.
+- **`toSliceDtos`** ([scene-slice-dto.ts](ui/src/app/runtime/adapters/cloud/scene-slice-dto.ts)) resolves each object to its file via `source_id` and throws rather than guessing. It is a pure function with tests pinning the regression; keep the mapping there, not inline in the runtime adapter.
 
 ## Slicing Pipeline — Deep Knowledge
 

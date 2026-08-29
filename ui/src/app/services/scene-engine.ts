@@ -47,6 +47,17 @@ export interface SceneObjectSnapshot {
   scale: [number, number, number];
   triangle_count: number;
   world_aabb: [[number, number, number], [number, number, number]];
+  /**
+   * Opaque handle to the bytes this object was loaded from — the uploaded
+   * file's UUID in cloud mode. Lets a caller map an object back to its source
+   * file instead of pairing the two lists positionally, which silently slices
+   * the wrong mesh once they diverge. `null` when nothing was supplied.
+   */
+  source_id: string | null;
+  /** Part of the object falls outside the printable volume. */
+  out_of_bounds: boolean;
+  /** The object's footprint overlaps another object's. */
+  collides: boolean;
 }
 
 export interface SceneBedSnapshot {
@@ -87,6 +98,7 @@ type SceneHandleWithWebSlicer = SceneHandle & {
  */
 export type SceneOp =
   | { op: 'Remove'; args: { id: bigint } }
+  | { op: 'Duplicate'; args: { id: bigint; offset?: [number, number, number] } }
   | { op: 'Translate'; args: { id: bigint; delta: [number, number, number] } }
   | {
       op: 'SetTransform';
@@ -180,6 +192,14 @@ export class SceneEngine {
 
   /** Reactive bed configuration. */
   readonly bed = computed(() => this.snapshotSignal().bed);
+
+  /** Objects that cannot print where they currently sit. */
+  readonly misplacedObjects = computed(() =>
+    this.snapshotSignal().objects.filter((o) => o.out_of_bounds || o.collides),
+  );
+
+  /** `true` when any object is off the bed or overlapping another. */
+  readonly hasPlacementProblem = computed(() => this.misplacedObjects().length > 0);
 
   /** Last-op rolling stats (last/avg over up to 100 samples). */
   readonly opStats = computed(() => this.opStatsSignal());
@@ -292,14 +312,32 @@ export class SceneEngine {
 
   /**
    * Add a mesh to the scene from raw bytes. Returns the assigned object id.
+   *
+   * `sourceId` is stored on the object so a later slice can resolve it back
+   * to the file it came from — pass the uploaded file's UUID in cloud mode.
    */
-  addMesh(name: string, format: 'stl' | 'obj' | '3mf', bytes: Uint8Array): bigint {
+  addMesh(
+    name: string,
+    format: 'stl' | 'obj' | '3mf',
+    bytes: Uint8Array,
+    sourceId?: string,
+  ): bigint {
     const handle = this.requireHandle();
     const stop = this.log.time(`addMesh '${name}' (${format}, ${bytes.byteLength} B)`);
-    const id = handle.addMesh(name, format, bytes);
-    stop({ id: String(id) });
+    const id = handle.addMesh(name, format, bytes, sourceId);
+    stop({ id: String(id), sourceId });
     this.refreshSnapshot();
     return id;
+  }
+
+  /**
+   * Clone an object, sharing the original's mesh and source file.
+   *
+   * `offset` (scene mm) nudges the copy so it does not land exactly on top
+   * of the original.
+   */
+  duplicate(id: bigint, offset: [number, number, number] = [0, 0, 0]): void {
+    this.apply({ op: 'Duplicate', args: { id, offset } });
   }
 
   /** Apply a single scene op and refresh the snapshot signal. */
@@ -448,7 +486,15 @@ export class SceneEngine {
     // never have to think about it.
     const snap: SceneSnapshot = {
       ...raw,
-      objects: raw.objects.map((o) => ({ ...o, id: BigInt(o.id as unknown as string | number) })),
+      objects: raw.objects.map((o) => ({
+        ...o,
+        id: BigInt(o.id as unknown as string | number),
+        // serde omits `None`, so normalise the absent case to null once here
+        // rather than making every consumer handle both.
+        source_id: o.source_id ?? null,
+        out_of_bounds: o.out_of_bounds ?? false,
+        collides: o.collides ?? false,
+      })),
     };
     this.snapshotSignal.set(snap);
   }
