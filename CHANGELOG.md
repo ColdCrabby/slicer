@@ -22,6 +22,17 @@ these notes and acknowledges contributors. `scripts/gen-changelog-draft.sh` and
 
 ### Added
 
+- **iPadOS / iOS target** — the Tauri shell now builds and runs on iPad, with the
+  full Rust slicing engine on-device. `pnpm run ios:doctor` checks the toolchain
+  (and `ios:setup` installs what it can), `ios:init` generates the Xcode project,
+  and `ios:dev` builds, boots an iPad simulator and runs the app with live
+  reload — no interactive device picker. The app wiring moved into
+  `ui-desktop/src-tauri/src/lib.rs` so desktop and mobile share one entry point,
+  and the iOS build drops the CLI, HTTP server and SQLite modules it cannot use
+  (333 dependencies instead of 495). Local-network and App Transport Security
+  entries are declared up front, so Moonraker printers are reachable from an
+  iPad exactly as they are from the desktop app. See
+  [ui-desktop/README.md](ui-desktop/README.md).
 - **Volumetric-flow limiter** — the `max_volumetric_speed` parameter (mm³/s) is
   now enforced by the G-code generator. On every extruding move the feedrate is
   capped to `max_volumetric_speed · 60 / (layer_height × width)` so the hotend
@@ -167,6 +178,15 @@ these notes and acknowledges contributors. `scripts/gen-changelog-draft.sh` and
   `inch`, `foot`, `meter`) to millimeters on import and rejects unrecognized
   units with a clear error. Applies to both the CLI file path and the
   byte-upload path used by the UI/WASM and WS server.
+
+- **Viewport-cube ortho snap popped back to perspective on pan/zoom** —
+  clicking a cube face to inspect a model in a flat, dimension-true view (e.g.
+  a selected face of a slice) lost that view the instant you panned or
+  zoomed, which is exactly when you want to hold still: dragging around and
+  zooming in to evaluate detail. Only a genuine **rotate** now breaks the
+  snap free (past the existing sticky threshold); panning and zooming any
+  distance keep the projection flattened, letting you inspect a snapped view
+  up close without it ever popping back to perspective.
 
 ## [0.1.0] - 2026-08-23
 

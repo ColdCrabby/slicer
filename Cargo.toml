@@ -10,7 +10,6 @@ default = []
 web-slicer = ["dep:clipper2", "dep:boostvoronoi"]
 
 [dependencies]
-clap = { version = "4.5", features = ["derive"] }
 anyhow = "1.0"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = { version = "1.0", features = ["preserve_order"] }
@@ -30,8 +29,33 @@ getrandom = { version = "0.3.4", features = ["wasm_js"] }
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 clipper2 = "0.6"
 boostvoronoi = "0.12"
-uuid = { version = "1.10", features = ["v4", "serde"] }
 rayon = "1.10"
+reqwest = { version = "0.13", default-features = false, features = [
+    "rustls",
+    "json",
+    "multipart",
+    "query",
+] }
+tokio = { version = "1", features = [
+    "rt-multi-thread",
+    "macros",
+    "sync",
+    "fs",
+    "io-util",
+] }
+
+# Host-only dependencies: every native target *except* iOS.
+#
+# iOS links the slicing engine but never the `cli`, `server` or `db` modules —
+# a sandboxed mobile app has no command line and must not bind a listener, and
+# the Tauri shell talks to the engine through `tauri::invoke` instead. Keeping
+# actix-web, sea-orm/sqlx and clap out of the iOS link is what makes the mobile
+# build tractable: it drops hundreds of crates (and their C dependencies) that
+# would otherwise have to cross-compile for `aarch64-apple-ios*` for no gain.
+# Mirrored by the module `cfg`s in `src/lib.rs` — change both together.
+[target.'cfg(all(not(target_arch = "wasm32"), not(target_os = "ios")))'.dependencies]
+clap = { version = "4.5", features = ["derive"] }
+uuid = { version = "1.10", features = ["v4", "serde"] }
 sea-orm = { version = "2.0", features = [
     "sqlx-sqlite",
     "runtime-tokio-rustls",
@@ -50,19 +74,6 @@ actix-multipart = "0.8.1"
 actix-cors = "0.7"
 base64 = "0.23"
 futures-util = "0.3"
-reqwest = { version = "0.13", default-features = false, features = [
-    "rustls",
-    "json",
-    "multipart",
-    "query",
-] }
-tokio = { version = "1", features = [
-    "rt-multi-thread",
-    "macros",
-    "sync",
-    "fs",
-    "io-util",
-] }
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 clipper2 = { version = "0.5", optional = true }
