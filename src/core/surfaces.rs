@@ -4,6 +4,7 @@ use std::time::Instant;
 use clipper2::*;
 
 use super::types::{ExtrusionRole, SliceLayer};
+use crate::settings::params::SlicingParams;
 
 /// Extract only outer-wall paths from a layer for use in surface detection.
 ///
@@ -42,9 +43,92 @@ fn union_or_first(a: Paths, b: Paths) -> Paths {
     }
 }
 
-/// Calculate infill line spacing based on layer height.
-/// Standard extrusion width is typically 1.2× layer height for solid infill.
-const SOLID_INFILL_EXTRUSION_WIDTH_MULTIPLIER: f64 = 1.2;
+/// Union of a layer's detected `bridge`, `bottom`, and `top` surface regions —
+/// the full area that will be solid-filled — for the gap-fill sandwich test in
+/// [`compute_gap_fill_footprint_excluding_sandwiched`].  Borrows its inputs
+/// (unlike [`union_or_first`]) so the detection tuple is left intact.
+fn combined_surface_region(bridge: &Paths, bottom: &Paths, top: &Paths) -> Paths {
+    let mut acc = Paths::new(vec![]);
+    for part in [bridge, bottom, top] {
+        if part.is_empty() {
+            continue;
+        }
+        acc = if acc.is_empty() {
+            part.clone()
+        } else {
+            union(acc, part.clone(), FillRule::EvenOdd).unwrap_or_default()
+        };
+    }
+    acc
+}
+
+/// Center-to-center spacing (mm) for solid top/bottom **surface** fill lines.
+///
+/// Uses the libslic3r/Orca/PrusaSlicer **extrusion-spacing** relation so that
+/// adjacent solid beads *overlap* by the rounded-cap correction and the surface
+/// has no gaps:
+///
+/// ```text
+/// spacing = extrusion_width − layer_height × (1 − π/4)
+/// ```
+///
+/// A round-capped bead of nominal width `w` and height `h` only occupies
+/// `w − h·(1 − π/4)` of lateral pitch when packed solid (its rounded sides
+/// interlock), so the fill lines are laid this far apart — ≈ 0.357 mm at a
+/// 0.4 mm nozzle / 0.2 mm layers — rather than a full `w` apart. The earlier
+/// `1.2 × layer_height` rule packed them far tighter (0.24 mm), heavily
+/// over-extruding every solid surface.
+///
+/// **The returned value is also the effective flow width.** The G-code
+/// generator charges each solid-surface line at `spacing × layer_height`
+/// (see `resolve_width_mm`), *not* the wider nominal bead width, mirroring
+/// PrusaSlicer/Orca's `mm³/mm = spacing × height`. Charging the full nominal
+/// width into the narrower pitch would over-extrude every solid surface by
+/// `width / spacing` (≈ 13 % at nozzle width, ≈ 23 % once `line_width > nozzle`)
+/// — the raised / blobby top-surface defect. Matching the flow to the spacing
+/// fills the surface exactly: no gaps, no bulge.
+pub(crate) fn solid_surface_line_spacing(extrusion_width_mm: f64, layer_height_mm: f64) -> f64 {
+    const CAP_CORRECTION: f64 = 1.0 - std::f64::consts::FRAC_PI_4; // ≈ 0.2146
+    (extrusion_width_mm - layer_height_mm * CAP_CORRECTION).max(0.01)
+}
+
+/// Nominal solid top/bottom **surface** extrusion width (mm), before the
+/// [`solid_surface_line_spacing`] cap-correction.
+///
+/// This is the single source of truth for the width that both the surface fill
+/// *line spacing* (in [`generate_top_bottom_surfaces_with_interior`]) and the
+/// G-code *flow* (`resolve_width_mm`) derive from, so the two always agree and
+/// solid surfaces neither over- nor under-extrude. Resolution mirrors
+/// `resolve_width_mm`: an explicit `top_surface_line_width`, else the generic
+/// `line_width`, else the nozzle diameter (the fill's natural bead width, and
+/// the historical spacing basis).
+pub(crate) fn solid_surface_nominal_width_mm(params: &SlicingParams) -> f64 {
+    if params.top_surface_line_width > 0.0 {
+        params.top_surface_line_width
+    } else if params.line_width > 0.0 {
+        params.line_width
+    } else {
+        params.nozzle_diameter_mm
+    }
+}
+
+/// Solid top/bottom surface fill direction alternates by 90° every layer so
+/// successive solid layers cross-hatch — matching CuraEngine's default
+/// `skin_angles = {45°, 135°}` and the per-layer solid-infill rotation in
+/// Orca/PrusaSlicer.  Cross-hatching welds adjacent solid layers together,
+/// hides the fill direction on the visible top surface, and distributes
+/// anisotropic strength.  `layer_index` is the absolute layer number so the
+/// alternation is stable regardless of where a surface run begins.
+fn surface_infill_angle_for_layer(base_angle_deg: f64, layer_index: usize) -> f64 {
+    let mut angle = base_angle_deg + if layer_index % 2 == 1 { 90.0 } else { 0.0 };
+    while angle >= 180.0 {
+        angle -= 180.0;
+    }
+    while angle < 0.0 {
+        angle += 180.0;
+    }
+    angle
+}
 
 /// Solid top/bottom surface islands below this area (mm²) are dropped.  They are
 /// the thin wall-covered slivers Arachne's per-island-*average* interior
@@ -83,6 +167,30 @@ const SURFACE_MIN_ISLAND_MM2: f64 = 2.0;
 /// keeps the latter with wide margin.
 const SURFACE_MIN_INTERIOR_WIDTH_NOZZLE_MULT: f64 = 2.5;
 
+/// Opening radius, as a fraction of the **solid-surface extrusion width**, used
+/// to erase sub-bead slivers left on a surface region by the wall-band trim.
+///
+/// A value of 0.5 makes the erosion diameter exactly one extrusion width, which
+/// is the physically meaningful threshold: a strip narrower than one bead cannot
+/// hold a bead, so filling it is impossible by construction and the flanking
+/// wall already covers it.  See [`open_surface_region_for_fill`].
+const SURFACE_FILL_MIN_WIDTH_FRACTION: f64 = 0.5;
+
+/// How far the surviving core is re-grown, as a multiple of the erosion radius,
+/// before being clipped back to the original region.
+///
+/// Re-growing by *more* than the erosion radius restores sharp convex corners
+/// exactly (the clip to the original region bounds the result), instead of
+/// leaving them rounded as a plain morphological opening would.  Corner rounding
+/// is not a coverage problem — it is a *stub* problem: the scanline crossing a
+/// rounded corner emits a couple of extra sub-millimetre spans, which is the
+/// very artifact this filter exists to remove.
+///
+/// 2.0 recovers every corner while staying well below the wall-band width that
+/// separates a sliver from the nearest genuine surface, so a dropped sliver is
+/// never re-attached.
+const SURFACE_FILL_REGROW_FACTOR: f64 = 2.0;
+
 /// Maximum horizontal gap (as a multiple of `line_spacing`) allowed when
 /// connecting the end of one scan-line segment to the nearest end of the next
 /// scan-line segment in the serpentine chaining pass.
@@ -114,11 +222,15 @@ const SERPENTINE_ROW_GAP_THRESHOLD: f64 = 1.5;
 /// Generates a rectilinear infill pattern covering only the provided `region`
 /// paths (the already-computed surface area), then appends the resulting paths
 /// to `layer` with the given extrusion `role`.
+///
+/// `line_spacing` is the center-to-center pitch of the fill lines in mm — for
+/// solid surfaces derive it via [`solid_surface_line_spacing`] so adjacent
+/// beads overlap and the surface has no gaps.
 pub(super) fn add_solid_infill_for_region(
     layer: &mut SliceLayer,
     region: &Paths,
     role: ExtrusionRole,
-    layer_height: f64,
+    line_spacing: f64,
     infill_angle: f64,
     min_infill_extrusion_mm: f64,
 ) {
@@ -126,7 +238,7 @@ pub(super) fn add_solid_infill_for_region(
         return;
     }
 
-    let line_spacing = layer_height * SOLID_INFILL_EXTRUSION_WIDTH_MULTIPLIER;
+    let line_spacing = line_spacing.max(0.01);
     let infill_paths =
         generate_rectilinear_infill(region, line_spacing, infill_angle, min_infill_extrusion_mm);
 
@@ -252,6 +364,23 @@ fn morphological_open(paths: Paths, radius_mm: f64) -> Paths {
 /// Bridge detection and solid top/bottom surfaces subtract this so nothing is
 /// deposited on top of an existing wall or gap-fill bead.
 pub(super) fn compute_wall_bead_footprint(layer: &SliceLayer, nozzle_diameter_mm: f64) -> Paths {
+    compute_wall_bead_footprint_filtered(layer, nozzle_diameter_mm, true)
+}
+
+/// Like [`compute_wall_bead_footprint`] but, when `include_gap_fill` is `false`,
+/// omits `GapFill` beads from the footprint.
+///
+/// The solid top/bottom surface trim uses the walls-only footprint because it
+/// carves the gap-fill footprint separately via
+/// [`compute_gap_fill_footprint_excluding_sandwiched`], which drops beads that
+/// are redundant with the surface.  Including gap fill here as well would
+/// re-add those redundant beads and punch the same bead-wide hole back into the
+/// surface (the 3DBenchy rear-rail defect this exclusion targets).
+pub(super) fn compute_wall_bead_footprint_filtered(
+    layer: &SliceLayer,
+    nozzle_diameter_mm: f64,
+    include_gap_fill: bool,
+) -> Paths {
     // Group wall paths by (is_open, radius-bucket) so we can run **one**
     // `inflate` call per group instead of one per path.  Clipper2's `inflate`
     // takes a `Paths` and offsets every contained sub-path together — there
@@ -274,14 +403,14 @@ pub(super) fn compute_wall_bead_footprint(layer: &SliceLayer, nozzle_diameter_mm
         // bridge over.  `OverhangPerimeter` is included because the
         // overhang post-pass relabels in-air wall arcs, and bridges still
         // must not overlap them; `GapFill` deposits material inside the wall
-        // band and must likewise not be bridged over.
-        if !matches!(
+        // band and must likewise not be bridged over — but the surface trim
+        // passes `include_gap_fill = false` because it accounts for gap fill
+        // separately (and drops beads redundant with the surface).
+        let role_included = matches!(
             role,
-            ExtrusionRole::OuterWall
-                | ExtrusionRole::InnerWall
-                | ExtrusionRole::OverhangPerimeter
-                | ExtrusionRole::GapFill
-        ) {
+            ExtrusionRole::OuterWall | ExtrusionRole::InnerWall | ExtrusionRole::OverhangPerimeter
+        ) || (include_gap_fill && role == ExtrusionRole::GapFill);
+        if !role_included {
             continue;
         }
 
@@ -344,11 +473,56 @@ pub(super) fn compute_wall_bead_footprint(layer: &SliceLayer, nozzle_diameter_mm
 /// otherwise account for).  Gap-fill beads number in the tens per layer, so a
 /// per-path inflate + union is ample.
 pub(super) fn compute_gap_fill_footprint(layer: &SliceLayer, nozzle_diameter_mm: f64) -> Paths {
+    compute_gap_fill_footprint_filtered(layer, nozzle_diameter_mm, None)
+}
+
+/// Physical bead footprint of the layer's gap-fill beads, **excluding** any bead
+/// that is sandwiched by (redundant with) `surface_region`.
+///
+/// Used when trimming a solid top/bottom surface: a gap-fill bead running down
+/// the centre of the surface strip is sandwiched by the surface on both sides,
+/// so [`prune_redundant_gap_fill`] deletes it later — and carving its footprint
+/// out of the surface (as the plain [`compute_gap_fill_footprint`] would) leaves
+/// a bead-wide **hole** in the surface region.  On a thin roof (the 3DBenchy
+/// rear rail, ≈ layer 200) that hole both splits the surface serpentine into two
+/// disconnected bands *and* is then re-filled with sparse-infill dashes over the
+/// void the pruned bead left — the "two infill surfaces plus tiny blobs" defect.
+/// Excluding sandwiched beads lets the surface cover the whole strip as one
+/// region; genuine thin necks (surface on only one side) are still carved so the
+/// surface abuts, never welds onto, them.
+fn compute_gap_fill_footprint_excluding_sandwiched(
+    layer: &SliceLayer,
+    nozzle_diameter_mm: f64,
+    surface_region: &Paths,
+) -> Paths {
+    compute_gap_fill_footprint_filtered(layer, nozzle_diameter_mm, Some(surface_region))
+}
+
+/// Shared implementation for [`compute_gap_fill_footprint`] and
+/// [`compute_gap_fill_footprint_excluding_sandwiched`].  When `skip_sandwiched`
+/// is `Some(region)`, a gap-fill bead flanked by that region on both sides is
+/// omitted from the footprint.
+fn compute_gap_fill_footprint_filtered(
+    layer: &SliceLayer,
+    nozzle_diameter_mm: f64,
+    skip_sandwiched: Option<&Paths>,
+) -> Paths {
     let default_radius = nozzle_diameter_mm * 0.5;
     let mut acc = Paths::new(vec![]);
     for (i, path) in layer.paths.iter().enumerate() {
         if layer.role_for_path(i) != ExtrusionRole::GapFill {
             continue;
+        }
+        if let Some(region) = skip_sandwiched {
+            if gap_fill_sandwiched_by_surface(
+                path,
+                layer.vertex_widths_for_path(i).as_deref(),
+                layer.width_for_path(i),
+                nozzle_diameter_mm,
+                region,
+            ) {
+                continue;
+            }
         }
         let radius = layer
             .width_for_path(i)
@@ -382,21 +556,113 @@ pub(super) fn compute_gap_fill_footprint(layer: &SliceLayer, nozzle_diameter_mm:
     acc
 }
 
-/// Remove `GapFill` beads that fall inside a solid-surface region.
+/// Perpendicular over-reach, as a multiple of the nozzle diameter, added to a
+/// gap-fill bead's own half-width when probing for solid surface on either side
+/// (see [`gap_fill_sandwiched_by_surface`]).  The probe point must clear the
+/// gap-fill footprint band that `blocked_for_surface` carved out of the surface
+/// (exactly the bead's half-width) and land a nozzle-fraction *into* the
+/// surface fill beyond it; `0.5·d` (0.2 mm at a 0.4 mm nozzle) clears the band
+/// edge without reaching across a genuine one-sided neck to the surface on its
+/// far flank.
+const GAP_FILL_SURFACE_PROBE_OVERREACH_NOZZLE_MULT: f64 = 0.5;
+
+/// Fraction of a gap-fill bead's vertices that must be flanked by solid surface
+/// on **both** sides for the bead to count as redundant with that surface.
+const GAP_FILL_SANDWICH_MAJORITY: f64 = 0.5;
+
+/// True when a gap-fill `bead` runs *through* a solid-surface region — the
+/// surface abuts it on **both** perpendicular sides — so filling it as gap fill
+/// merely double-extrudes over the surface the pipeline already lays down.
+///
+/// ## Why the plain "inside `solid_regions`" test misses this
+///
+/// `blocked_for_surface` unions the gap-fill footprint out of the surface region
+/// so the surface fill *abuts* rather than welds onto genuine thin necks.  That
+/// leaves a bead-wide corridor in `solid_regions` exactly where each gap-fill
+/// bead sits, so a bead centred in a solid strip is never "inside" the surface —
+/// yet the surface's rectilinear zig-zag, laid at full extrusion width, still
+/// deposits straight over it (measured on the 3DBenchy rear rail, ≈ layer 200:
+/// 6 mm² of GapFill∩TopSurface double-extrusion that a footprint-erosion overlap
+/// scan hides because the bead is thin).
+///
+/// ## The discriminator
+///
+/// Probe each bead vertex a short distance to either perpendicular side
+/// (`half-width + `[`GAP_FILL_SURFACE_PROBE_OVERREACH_NOZZLE_MULT`]`·d`), just
+/// past the carved-out corridor.  A bead the surface *surrounds* (rear rail,
+/// embossed-logo channel) has surface on both probes; a genuine thin neck that
+/// merely *abuts* a surface edge has it on at most one.  Requiring both sides on
+/// a majority of vertices ([`GAP_FILL_SANDWICH_MAJORITY`]) drops the redundant
+/// centre-of-strip beads while keeping every load-bearing thin-neck bead.
+fn gap_fill_sandwiched_by_surface(
+    bead: &clipper2::Path,
+    vertex_widths: Option<&[f64]>,
+    scalar_width: Option<f64>,
+    nozzle_diameter_mm: f64,
+    solid_regions: &Paths,
+) -> bool {
+    let pts: Vec<(f64, f64)> = bead.iter().map(|p| (p.x(), p.y())).collect();
+    if pts.len() < 2 {
+        return false;
+    }
+    let overreach = GAP_FILL_SURFACE_PROBE_OVERREACH_NOZZLE_MULT * nozzle_diameter_mm;
+    let default_half = 0.5 * nozzle_diameter_mm;
+    let mut total = 0_usize;
+    let mut sandwiched = 0_usize;
+    for j in 0..pts.len() {
+        // Tangent from the neighbours (forward/back difference at the ends).
+        let prev = pts[j.saturating_sub(1)];
+        let next = pts[(j + 1).min(pts.len() - 1)];
+        let (tx, ty) = (next.0 - prev.0, next.1 - prev.1);
+        let len = (tx * tx + ty * ty).sqrt();
+        if len <= 1e-9 {
+            continue;
+        }
+        // Perpendicular unit vector.
+        let (px, py) = (-ty / len, tx / len);
+        let half_w = vertex_widths
+            .and_then(|w| w.get(j).copied())
+            .or(scalar_width)
+            .map(|w| 0.5 * w)
+            .unwrap_or(default_half);
+        let reach = half_w + overreach;
+        let (vx, vy) = pts[j];
+        let side_a = vertex_inside_or_on_paths_eo(vx + px * reach, vy + py * reach, solid_regions);
+        let side_b = vertex_inside_or_on_paths_eo(vx - px * reach, vy - py * reach, solid_regions);
+        total += 1;
+        if side_a && side_b {
+            sandwiched += 1;
+        }
+    }
+    total > 0 && (sandwiched as f64) > GAP_FILL_SANDWICH_MAJORITY * (total as f64)
+}
+
+/// Remove `GapFill` beads that are already covered by a solid-surface region.
 ///
 /// Arachne emits medial gap fill over *every* thin residual its offset loops
 /// leave — including thin necks deep inside the solid interior.  On a solid
 /// layer the top/bottom surface fills that interior densely, so a gap bead
 /// there is redundant; since the surface is generated in full first, the bead
 /// would otherwise sit as a scattered variable-width island on the uniform
-/// surface (the isolated dashes visible across the Benchy first layer).
+/// surface (the isolated dashes visible across the Benchy first layer), or —
+/// where it runs down the centre of a thin solid strip — double-extrude
+/// straight under the surface's zig-zag (the Benchy rear-rail "unexplained gap
+/// bead under a top surface" defect).
 ///
-/// Fill priority is **solid surface > gap fill > sparse infill**: a bead whose
-/// majority of vertices lie inside `solid_regions` (even-odd test) loses to the
-/// surface and is dropped; gap fill in sparse zones and thin ribs (outside
-/// `solid_regions`) is kept, because sparse infill would skip those sub-nozzle
-/// channels.  Runs after surface generation, before sparse infill.
-pub(super) fn prune_redundant_gap_fill(layers: &mut [SliceLayer]) {
+/// Fill priority is **solid surface > gap fill > sparse infill**.  A bead is
+/// dropped when either
+///
+/// 1. a majority of its vertices lie **inside** `solid_regions` (the bead sits
+///    in a filled surface), or
+/// 2. it is **sandwiched** by surface on both perpendicular sides
+///    ([`gap_fill_sandwiched_by_surface`]) — the surface surrounds it even
+///    though `blocked_for_surface` carved a bead-wide corridor out of
+///    `solid_regions` so the plain inside-test would miss it.
+///
+/// Gap fill in sparse zones and genuine thin ribs (surface on at most one side)
+/// is kept, because sparse infill would skip those sub-nozzle channels.  Runs
+/// after surface generation, before sparse infill.
+pub(super) fn prune_redundant_gap_fill(layers: &mut [SliceLayer], nozzle_diameter_mm: f64) {
     for layer in layers.iter_mut() {
         if layer.solid_regions.is_empty() || !layer.path_roles.contains(&ExtrusionRole::GapFill) {
             continue;
@@ -419,7 +685,14 @@ pub(super) fn prune_redundant_gap_fill(layers: &mut [SliceLayer]) {
                         inside += 1;
                     }
                 }
-                total > 0 && inside * 2 > total
+                (total > 0 && inside * 2 > total)
+                    || gap_fill_sandwiched_by_surface(
+                        path,
+                        layer.vertex_widths_for_path(i).as_deref(),
+                        layer.width_for_path(i),
+                        nozzle_diameter_mm,
+                        &layer.solid_regions,
+                    )
             };
             if redundant {
                 continue;
@@ -475,6 +748,60 @@ fn open_interior_for_surface(interior: &Paths, nozzle_diameter_mm: f64) -> Paths
         return interior.clone();
     }
     morphological_open(interior.clone(), radius)
+}
+
+/// Erase residual **sub-bead slivers** from a solid top/bottom surface region so
+/// the scanline never fills a strip too narrow to hold a bead.
+///
+/// The wall-band trim subtracts the eroded wall-bead footprint from a surface
+/// region whose outline does not follow that footprint exactly.  Where the two
+/// boundaries meet at a **grazing angle** the subtraction leaves a long crescent
+/// far narrower than one extrusion.  The scanline happily fills such a crescent,
+/// but since the fill direction is then near-parallel to it *every* span is a
+/// stub: the observed artifact is a dense `≈0.8 mm line / ≈0.6 mm connector`
+/// micro-serpentine hugging the wall — a burst of retract-free but pointless
+/// sub-millimetre moves whose material is overwhelmingly already laid down by
+/// the flanking wall bead.
+///
+/// Opening by half the extrusion width erases every feature narrower than one
+/// full bead.  Unlike a plain morphological opening this preserves **sharp
+/// convex corners**: the surviving core is re-grown by
+/// `SURFACE_FILL_REGROW_FACTOR × radius` and then clipped back to the original
+/// region, so thicker geometry is recovered at its exact original shape.  That
+/// matters because a rounded corner makes the scanline emit extra stub spans —
+/// the very artifact being removed.  This is a **width** filter, not an area
+/// filter, so genuinely small *but printable* surfaces are untouched.
+fn open_surface_region_for_fill(region: Paths, surface_width_mm: f64) -> Paths {
+    let radius = surface_width_mm * SURFACE_FILL_MIN_WIDTH_FRACTION;
+    if radius <= 1e-6 || region.is_empty() {
+        return region;
+    }
+
+    // Erode to the printable-width core; a sub-bead sliver contributes nothing.
+    let core = clipper2::inflate(
+        region.clone(),
+        -radius,
+        JoinType::Round,
+        EndType::Polygon,
+        2.0,
+    );
+    if core.is_empty() {
+        return Paths::new(vec![]);
+    }
+
+    // Re-grow past the erosion radius, then clip to the original so corners come
+    // back sharp.  `NonZero` keeps CW hole sub-paths as holes.
+    let grown = clipper2::inflate(
+        core,
+        radius * SURFACE_FILL_REGROW_FACTOR,
+        JoinType::Round,
+        EndType::Polygon,
+        2.0,
+    );
+    if grown.is_empty() {
+        return Paths::new(vec![]);
+    }
+    intersect(region, grown, FillRule::NonZero).unwrap_or_default()
 }
 
 /// Anchor expansion: dilate `unsupported` by `anchor_mm` (clipped to the
@@ -1099,6 +1426,7 @@ pub fn generate_top_bottom_surfaces(
             layer_height,
             infill_angle,
             nozzle_diameter_mm: 0.4,
+            solid_surface_line_width_mm: 0.0,
             min_infill_extrusion_mm: 0.0,
             bridge_flow_ratio: 0.8,
             bridge_min_area_mm2: 0.5,
@@ -1126,12 +1454,28 @@ pub struct SurfaceConfig {
     pub top_layers: usize,
     /// Number of solid layers below any exposed bottom surface.
     pub bottom_layers: usize,
-    /// Layer height in mm, used to derive solid infill line spacing.
+    /// Layer height in mm.
+    ///
+    /// Together with `solid_surface_line_width_mm` it sets the solid top/bottom
+    /// surface line pitch via [`solid_surface_line_spacing`] (the
+    /// libslic3r/Orca stadium relation), and the G-code generator charges each
+    /// fill line at `spacing × layer_height` so surfaces fill flat.
     pub layer_height: f64,
-    /// Angle in degrees for top/bottom solid infill lines (e.g. 45).
+    /// Base angle in degrees for top/bottom solid infill lines (e.g. 45).
+    ///
+    /// The effective angle alternates by 90° every layer (cross-hatch) so
+    /// successive solid layers bond; see `surface_infill_angle_for_layer`.
     pub infill_angle: f64,
     /// Nozzle diameter in mm, used for bridge line spacing and extrusion width.
     pub nozzle_diameter_mm: f64,
+    /// Nominal solid top/bottom surface extrusion width in mm — the width the
+    /// fill line *spacing* is derived from (via [`solid_surface_line_spacing`]),
+    /// kept in lock-step with the G-code flow so surfaces fill exactly.
+    ///
+    /// `0.0` (or any non-positive value) means "derive from `nozzle_diameter_mm`".
+    /// Production callers set it to [`solid_surface_nominal_width_mm`] so an
+    /// explicit `top_surface_line_width` / generic `line_width` is honoured.
+    pub solid_surface_line_width_mm: f64,
     /// Minimum absolute length (mm) for a solid infill scan-line segment to be
     /// emitted.  Segments shorter than this are discarded — they would produce
     /// a tiny, mechanically useless extrusion and waste printhead motion.
@@ -1246,17 +1590,21 @@ pub fn generate_top_bottom_surfaces_with_interior(
     #[cfg(target_arch = "wasm32")]
     let snapshot_ns = 0u128;
 
-    // Per-layer **blocked** region for the solid top/bottom surface trim: the
-    // physical wall-bead footprint eroded by the bond distance, unioned with the
-    // un-eroded gap-fill footprint.  Subtracting it from the surface fill keeps
-    // the fill off the wall band while still welding `infill_overlap_percent × d`
-    // into the innermost wall (and merely abutting gap fill).  Built in parallel
-    // here — a chain of Clipper2 inflate/union calls per layer — so the serial
-    // apply pass only pays for the two cheap `difference` clips, not the whole
-    // footprint construction 240× single-threaded.
+    // `blocked_for_surface` builds a layer's **blocked** region for the solid
+    // top/bottom surface trim (see the gated parallel pass after detection for
+    // the full rationale and why it is now computed lazily).  Defined here as a
+    // closure so both that pass and the wasm fallback share it.
+    //
+    // `surface_region` is the layer's combined (bottom ∪ top ∪ bridge) detected
+    // surface *before* this trim.  It is used to skip gap-fill beads that are
+    // sandwiched by (redundant with) the surface: those beads are pruned by
+    // `prune_redundant_gap_fill`, so carving their footprint out here would
+    // leave a bead-wide hole the surface serpentine has to route around (two
+    // bands) and sparse infill then leaks into.  Genuine one-sided necks are
+    // still carved so the surface abuts them.
     let surface_bond = (config.infill_overlap_percent * nozzle_diameter_mm).max(0.0);
-    let blocked_for_surface = |l: &SliceLayer| -> Paths {
-        let wall_fp = compute_wall_bead_footprint(l, nozzle_diameter_mm);
+    let blocked_for_surface = |l: &SliceLayer, surface_region: &Paths| -> Paths {
+        let wall_fp = compute_wall_bead_footprint_filtered(l, nozzle_diameter_mm, false);
         if wall_fp.is_empty() {
             return Paths::new(vec![]);
         }
@@ -1271,7 +1619,8 @@ pub fn generate_top_bottom_surfaces_with_interior(
         } else {
             wall_fp
         };
-        let gap_fp = compute_gap_fill_footprint(l, nozzle_diameter_mm);
+        let gap_fp =
+            compute_gap_fill_footprint_excluding_sandwiched(l, nozzle_diameter_mm, surface_region);
         if gap_fp.is_empty() {
             eroded
         } else if eroded.is_empty() {
@@ -1280,13 +1629,6 @@ pub fn generate_top_bottom_surfaces_with_interior(
             union(eroded, gap_fp, FillRule::NonZero).unwrap_or_default()
         }
     };
-    #[cfg(not(target_arch = "wasm32"))]
-    let surface_blocked: Vec<Paths> = {
-        use rayon::prelude::*;
-        layers.par_iter().map(blocked_for_surface).collect()
-    };
-    #[cfg(target_arch = "wasm32")]
-    let surface_blocked: Vec<Paths> = layers.iter().map(blocked_for_surface).collect();
 
     // Immutable view of the layers for the parallel detection pass so
     // `clip_to_void` can build a layer's wall-bead footprint on demand.  This
@@ -1775,6 +2117,48 @@ pub fn generate_top_bottom_surfaces_with_interior(
     #[cfg(target_arch = "wasm32")]
     let detection_ns = 0u128;
 
+    // Per-layer **blocked** region for the solid top/bottom surface trim: the
+    // physical wall-bead footprint eroded by the bond distance, unioned with the
+    // un-eroded gap-fill footprint.  Subtracting it from the surface fill keeps
+    // the fill off the wall band while still welding `infill_overlap_percent × d`
+    // into the innermost wall (and merely abutting gap fill).
+    //
+    // Built here — *after* detection — and **only for layers that actually
+    // produced a surface region**.  `blocked_for_surface` is a chain of Clipper2
+    // inflate/union calls over every wall bead (the single most expensive
+    // per-layer artifact in the surface phase); computing it for all layers when
+    // only the top/bottom cap and transition layers carry a surface wasted the
+    // bulk of the phase.  A layer with no surface never reads its entry, so an
+    // empty placeholder there is output-identical.
+    #[cfg(not(target_arch = "wasm32"))]
+    let surface_blocked: Vec<Paths> = {
+        use rayon::prelude::*;
+        (0..total)
+            .into_par_iter()
+            .map(|i| {
+                let (bridge, bottom, top, _) = &regions[i];
+                if bottom.is_empty() && top.is_empty() {
+                    Paths::new(vec![])
+                } else {
+                    let surface_region = combined_surface_region(bridge, bottom, top);
+                    blocked_for_surface(&layers[i], &surface_region)
+                }
+            })
+            .collect()
+    };
+    #[cfg(target_arch = "wasm32")]
+    let surface_blocked: Vec<Paths> = (0..total)
+        .map(|i| {
+            let (bridge, bottom, top, _) = &regions[i];
+            if bottom.is_empty() && top.is_empty() {
+                Paths::new(vec![])
+            } else {
+                let surface_region = combined_surface_region(bridge, bottom, top);
+                blocked_for_surface(&layers[i], &surface_region)
+            }
+        })
+        .collect();
+
     // ── Serial apply pass ─────────────────────────────────────────────────────
     for (i, (bridge_region, bottom_region, top_region, raw_unsupported)) in
         regions.into_iter().enumerate()
@@ -1840,6 +2224,31 @@ pub fn generate_top_bottom_surfaces_with_interior(
             (trim(bottom_region), trim(top_region))
         };
 
+        // Solid top/bottom surface fill direction cross-hatches per layer, and
+        // fill lines overlap (extrusion-spacing relation) so the surface has no
+        // gaps between adjacent beads even under the cross-hatch.
+        let layer_infill_angle = surface_infill_angle_for_layer(infill_angle, i);
+        // Line pitch derives from the solid-surface extrusion width (honouring
+        // `top_surface_line_width` / `line_width`, falling back to the nozzle),
+        // and the G-code generator charges each line at exactly this pitch —
+        // `mm³/mm = spacing × layer_height` — so surfaces fill flat, never
+        // raised/over-extruded.
+        let surface_width = if config.solid_surface_line_width_mm > 0.0 {
+            config.solid_surface_line_width_mm
+        } else {
+            nozzle_diameter_mm
+        };
+        let solid_line_spacing = solid_surface_line_spacing(surface_width, layer_height);
+
+        // Drop sub-bead slivers the wall-band trim above may have left behind,
+        // so the scanline never fills a strip too narrow to hold a bead (that
+        // produces a micro-serpentine of stub segments against the wall).
+        // See `open_surface_region_for_fill` for the full rationale.
+        let (bottom_region, top_region) = (
+            open_surface_region_for_fill(bottom_region, surface_width),
+            open_surface_region_for_fill(top_region, surface_width),
+        );
+
         if !bottom_region.is_empty() {
             #[cfg(not(target_arch = "wasm32"))]
             let t = Instant::now();
@@ -1847,8 +2256,8 @@ pub fn generate_top_bottom_surfaces_with_interior(
                 &mut layers[i],
                 &bottom_region,
                 ExtrusionRole::BottomSurface,
-                layer_height,
-                infill_angle,
+                solid_line_spacing,
+                layer_infill_angle,
                 min_infill_extrusion_mm,
             );
             #[cfg(not(target_arch = "wasm32"))]
@@ -1864,8 +2273,8 @@ pub fn generate_top_bottom_surfaces_with_interior(
                 &mut layers[i],
                 &top_region,
                 ExtrusionRole::TopSurface,
-                layer_height,
-                infill_angle,
+                solid_line_spacing,
+                layer_infill_angle,
                 min_infill_extrusion_mm,
             );
             #[cfg(not(target_arch = "wasm32"))]
@@ -2051,6 +2460,66 @@ fn trim_surfaces_to_walls(layers: &mut [SliceLayer], overlap_percent: f64, nozzl
 mod tests {
     use super::*;
     use clipper2::{Path, Paths};
+
+    #[test]
+    fn test_surface_infill_angle_alternates_per_layer() {
+        // Even layers keep the base angle; odd layers rotate 90° to cross-hatch.
+        assert_eq!(surface_infill_angle_for_layer(45.0, 0), 45.0);
+        assert_eq!(surface_infill_angle_for_layer(45.0, 1), 135.0);
+        assert_eq!(surface_infill_angle_for_layer(45.0, 2), 45.0);
+        assert_eq!(surface_infill_angle_for_layer(45.0, 3), 135.0);
+        // Result is always wrapped into [0, 180).
+        assert_eq!(surface_infill_angle_for_layer(135.0, 1), 45.0);
+        assert_eq!(surface_infill_angle_for_layer(0.0, 1), 90.0);
+        for layer in 0..10 {
+            let a = surface_infill_angle_for_layer(45.0, layer);
+            assert!((0.0..180.0).contains(&a));
+        }
+    }
+
+    #[test]
+    fn test_solid_surface_spacing_overlaps_no_gaps() {
+        // Extrusion-spacing relation: adjacent solid beads must overlap so the
+        // surface has no holes.  At 0.4 mm nozzle / 0.2 mm layers the pitch is
+        // 0.4 − 0.2·(1 − π/4) ≈ 0.357 mm, i.e. below the 0.4 mm bead width
+        // (overlap) yet well above the old over-extruding 0.24 mm.
+        let s = solid_surface_line_spacing(0.4, 0.2);
+        assert!(
+            (s - 0.3571).abs() < 1e-3,
+            "expected ~0.357 mm pitch, got {s}"
+        );
+        // Strictly less than the bead width → guaranteed overlap (no gaps).
+        assert!(s < 0.4, "solid pitch {s} must be < bead width for overlap");
+        // And strictly greater than the old layer-height rule (0.24 mm) → not
+        // the previous heavy over-extrusion.
+        assert!(s > 0.24, "solid pitch {s} must exceed the old 0.24 mm rule");
+        // Larger layer height ⇒ larger cap correction ⇒ tighter pitch.
+        assert!(solid_surface_line_spacing(0.4, 0.3) < solid_surface_line_spacing(0.4, 0.1));
+    }
+
+    #[test]
+    fn test_add_solid_infill_emits_lines() {
+        // A 10×10 mm square filled at 0° with the solid pitch produces a
+        // reasonable line count (neither zero nor the old ~50 over-extruded).
+        let mut layer = SliceLayer::new(0.2);
+        let square: Path = vec![(0.0, 0.0), (10.0, 0.0), (10.0, 10.0), (0.0, 10.0)].into();
+        let square: Paths = Paths::new(vec![square]);
+        let spacing = solid_surface_line_spacing(0.4, 0.2);
+        add_solid_infill_for_region(
+            &mut layer,
+            &square,
+            ExtrusionRole::TopSurface,
+            spacing,
+            0.0,
+            0.0,
+        );
+        let n = layer.paths.len();
+        // 10 mm / 0.357 mm ≈ 28 lines (serpentine chaining may merge some).
+        assert!(
+            n > 0 && n <= 40,
+            "expected overlap-spaced solid lines, got {n} paths"
+        );
+    }
 
     /// A wall path that lies entirely outside the bridge region must be kept
     /// unchanged with path_is_open = false.
@@ -2320,8 +2789,67 @@ mod tests {
         );
     }
 
-    /// **Regression** — a top surface detected over a locally-thin cross-section
-    /// (a thin wall-band channel whose aft end steps back a layer) must NOT be
+    /// **Regression** — the sub-bead sliver the wall-band trim leaves along a
+    /// boundary it meets at a grazing angle must be erased, so the scanline
+    /// never fills it with a micro-serpentine of stub segments.
+    ///
+    /// Measured on the Filament Card Caddy's hexagon logo (0.44 mm extrusion):
+    /// the trim left ≈0.22 mm-wide crescents of ≈4.5 mm² along the two hexagon
+    /// edges lying only 15° off the fill direction, which the scanline filled
+    /// with a repeating 0.8 mm-line / 0.6 mm-connector zig-zag.
+    #[test]
+    fn test_open_surface_region_drops_sub_bead_sliver() {
+        // 0.22 mm-wide crescent — half of the 0.44 mm extrusion width.
+        let sliver: Path = vec![(0.0, 0.0), (20.0, 0.0), (20.0, 0.22), (0.0, 0.22)].into();
+        let region = Paths::new(vec![sliver]);
+
+        let opened = open_surface_region_for_fill(region, 0.44);
+
+        assert!(
+            opened.is_empty(),
+            "a sub-bead sliver must be erased, got {} sub-path(s)",
+            opened.len()
+        );
+    }
+
+    /// A strip exactly one bead wide *can* hold a bead, and anything thicker
+    /// must survive the filter at its **exact original shape** — including
+    /// sharp convex corners, which a plain morphological opening would round
+    /// (and a rounded corner makes the scanline emit extra stub spans).
+    #[test]
+    fn test_open_surface_region_keeps_printable_regions() {
+        // 3×3 mm surface — small in area but far wider than one 0.44 mm bead.
+        let small: Path = vec![(0.0, 0.0), (3.0, 0.0), (3.0, 3.0), (0.0, 3.0)].into();
+        let opened = open_surface_region_for_fill(Paths::new(vec![small]), 0.44);
+        let area: f64 = opened.iter().map(|p| p.signed_area().abs()).sum();
+        assert!(
+            area >= 8.95,
+            "a printable surface must keep its sharp corners (area {area:.3} mm², expected ≈ 9.0)"
+        );
+
+        // A 1.0 mm-wide rib is over two beads wide and must also survive.
+        let rib: Path = vec![(0.0, 0.0), (12.0, 0.0), (12.0, 1.0), (0.0, 1.0)].into();
+        let opened = open_surface_region_for_fill(Paths::new(vec![rib]), 0.44);
+        assert!(
+            !opened.is_empty(),
+            "a 1 mm rib is wider than one bead and must be kept"
+        );
+    }
+
+    /// A zero/negative width must be a no-op rather than erasing the region.
+    #[test]
+    fn test_open_surface_region_degenerate_width_is_noop() {
+        let square: Path = vec![(0.0, 0.0), (5.0, 0.0), (5.0, 5.0), (0.0, 5.0)].into();
+        let region = Paths::new(vec![square]);
+        let opened = open_surface_region_for_fill(region.clone(), 0.0);
+        assert_eq!(
+            opened.len(),
+            region.len(),
+            "a degenerate width must leave the region untouched"
+        );
+    }
+
+    /// **Regression** — a top surface detected over a locally-thin cross-section    /// (a thin wall-band channel whose aft end steps back a layer) must NOT be
     /// filled: the opened interior is empty there, so the surface is dropped,
     /// matching the `classic` generator.  Guards the "tiny top-surface extrudes
     /// in a thin wall channel" defect (Benchy hull sides / funnel transitions).
@@ -2357,6 +2885,7 @@ mod tests {
                 layer_height: 0.2,
                 infill_angle: 45.0,
                 nozzle_diameter_mm: 0.4,
+                solid_surface_line_width_mm: 0.0,
                 min_infill_extrusion_mm: 0.0,
                 bridge_flow_ratio: 1.0,
                 bridge_min_area_mm2: 1.0,
@@ -2370,6 +2899,141 @@ mod tests {
         assert!(
             !layers[0].path_roles.contains(&ExtrusionRole::TopSurface),
             "a top surface over a thin wall-band channel must be dropped"
+        );
+    }
+
+    /// A gap-fill bead running down the centre of a solid-surface strip (surface
+    /// on both perpendicular sides) is redundant with the surface and must be
+    /// pruned — the Benchy rear-rail "gap bead under a top surface" defect.
+    #[test]
+    fn test_prune_gap_fill_sandwiched_by_surface() {
+        let mut layer = SliceLayer::new(0.2);
+        // Gap-fill bead: a horizontal 0.56 mm-wide centreline at y = 0.
+        let bead: Path = vec![(-8.0, 0.0), (8.0, 0.0)].into();
+        layer.paths.push(bead);
+        layer.path_roles.push(ExtrusionRole::GapFill);
+        layer.path_widths.push(Some(0.56));
+        layer.path_vertex_widths.push(Some(vec![0.56, 0.56]));
+        layer.path_is_open.push(true);
+
+        // solid_regions: two surface bands flanking the bead with a bead-wide
+        // corridor carved out (as `blocked_for_surface` does): the corridor is
+        // the bead's half-width (0.28 mm), so the surface starts at y = ±0.3 —
+        // present on BOTH sides.
+        let top_band: Path = vec![(-8.0, 0.3), (8.0, 0.3), (8.0, 1.3), (-8.0, 1.3)].into();
+        let bot_band: Path = vec![(-8.0, -1.3), (8.0, -1.3), (8.0, -0.3), (-8.0, -0.3)].into();
+        layer.solid_regions = Paths::new(vec![top_band, bot_band]);
+
+        let mut layers = vec![layer];
+        prune_redundant_gap_fill(&mut layers, 0.4);
+
+        assert!(
+            !layers[0].path_roles.contains(&ExtrusionRole::GapFill),
+            "a gap bead flanked by surface on both sides must be pruned"
+        );
+    }
+
+    /// A gap-fill bead that a solid surface only abuts on **one** side is a
+    /// genuine thin neck (sparse infill would skip it) and must be kept.
+    #[test]
+    fn test_keep_gap_fill_abutting_surface_one_side() {
+        let mut layer = SliceLayer::new(0.2);
+        let bead: Path = vec![(-8.0, 0.0), (8.0, 0.0)].into();
+        layer.paths.push(bead);
+        layer.path_roles.push(ExtrusionRole::GapFill);
+        layer.path_widths.push(Some(0.56));
+        layer.path_vertex_widths.push(Some(vec![0.56, 0.56]));
+        layer.path_is_open.push(true);
+
+        // Surface present on ONE side only (y ∈ [0.3, 1.3], reachable by the
+        // probe); the other side is open (a wall band the sparse infill can't
+        // reach).
+        let top_band: Path = vec![(-8.0, 0.3), (8.0, 0.3), (8.0, 1.3), (-8.0, 1.3)].into();
+        layer.solid_regions = Paths::new(vec![top_band]);
+
+        let mut layers = vec![layer];
+        prune_redundant_gap_fill(&mut layers, 0.4);
+
+        assert!(
+            layers[0].path_roles.contains(&ExtrusionRole::GapFill),
+            "a gap bead with surface on only one side is a real neck — keep it"
+        );
+    }
+
+    /// The walls-only wall-bead footprint (`include_gap_fill = false`) must omit
+    /// gap-fill beads, so the solid-surface trim does not re-carve a gap bead it
+    /// accounts for separately — the fix for the 3DBenchy rear-rail hole that
+    /// split the surface into two bands and leaked sparse infill.
+    #[test]
+    fn test_wall_footprint_excludes_gap_fill_when_requested() {
+        let mut layer = SliceLayer::new(0.2);
+        // An outer wall loop around a thin strip.
+        let wall: Path = vec![(-8.0, -0.9), (8.0, -0.9), (8.0, 0.9), (-8.0, 0.9)].into();
+        layer.paths.push(wall);
+        layer.path_roles.push(ExtrusionRole::OuterWall);
+        layer.path_widths.push(Some(0.4));
+        layer.path_vertex_widths.push(None);
+        layer.path_is_open.push(false);
+        // A gap-fill bead down the centre.
+        let bead: Path = vec![(-7.0, 0.0), (7.0, 0.0)].into();
+        layer.paths.push(bead);
+        layer.path_roles.push(ExtrusionRole::GapFill);
+        layer.path_widths.push(Some(0.56));
+        layer.path_vertex_widths.push(Some(vec![0.56, 0.56]));
+        layer.path_is_open.push(true);
+
+        let with_gap = compute_wall_bead_footprint_filtered(&layer, 0.4, true);
+        let without_gap = compute_wall_bead_footprint_filtered(&layer, 0.4, false);
+        let area = |p: &Paths| p.iter().map(|q| q.signed_area().abs()).sum::<f64>();
+        assert!(
+            area(&with_gap) > area(&without_gap) + 1.0,
+            "including gap fill must add the centre bead's area ({:.2} vs {:.2})",
+            area(&with_gap),
+            area(&without_gap)
+        );
+    }
+
+    /// The surface-carve gap footprint must exclude a bead sandwiched by the
+    /// surface (it is pruned, so carving it would hole the surface) while still
+    /// carving a genuine one-sided neck (so the surface abuts it).
+    #[test]
+    fn test_gap_footprint_excludes_sandwiched_only() {
+        let mut layer = SliceLayer::new(0.2);
+        // Sandwiched centre bead.
+        let mid: Path = vec![(-7.0, 0.0), (7.0, 0.0)].into();
+        layer.paths.push(mid);
+        layer.path_roles.push(ExtrusionRole::GapFill);
+        layer.path_widths.push(Some(0.56));
+        layer.path_vertex_widths.push(Some(vec![0.56, 0.56]));
+        layer.path_is_open.push(true);
+        // Genuine neck poking out below the surface (surface only above it).
+        let neck: Path = vec![(-7.0, -3.0), (7.0, -3.0)].into();
+        layer.paths.push(neck);
+        layer.path_roles.push(ExtrusionRole::GapFill);
+        layer.path_widths.push(Some(0.56));
+        layer.path_vertex_widths.push(Some(vec![0.56, 0.56]));
+        layer.path_is_open.push(true);
+
+        // Surface flanks the centre bead on both sides (y ∈ ±[0.3,1.3]); the neck
+        // at y=-3 has surface on neither side.
+        let top: Path = vec![(-8.0, 0.3), (8.0, 0.3), (8.0, 1.3), (-8.0, 1.3)].into();
+        let bot: Path = vec![(-8.0, -1.3), (8.0, -1.3), (8.0, -0.3), (-8.0, -0.3)].into();
+        let surface = Paths::new(vec![top, bot]);
+
+        let all = compute_gap_fill_footprint(&layer, 0.4);
+        let excl = compute_gap_fill_footprint_excluding_sandwiched(&layer, 0.4, &surface);
+        let area = |p: &Paths| p.iter().map(|q| q.signed_area().abs()).sum::<f64>();
+        // The excluding footprint keeps the neck but drops the sandwiched centre
+        // bead, so it is strictly smaller than the all-beads footprint.
+        assert!(
+            area(&excl) > 1.0,
+            "the genuine neck must remain in the footprint"
+        );
+        assert!(
+            area(&excl) < area(&all) - 1.0,
+            "the sandwiched centre bead must be dropped ({:.2} vs {:.2})",
+            area(&excl),
+            area(&all)
         );
     }
 }

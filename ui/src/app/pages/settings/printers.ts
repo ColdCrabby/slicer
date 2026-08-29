@@ -33,7 +33,9 @@ import {
 } from '../../models/gcode-templates';
 import { CloudCatalog } from '../../services/catalog/cloud-catalog';
 import { ContextMenuService } from '../../services/context-menu/context-menu.service';
+import { ContextMenuTrigger } from '../../services/context-menu/context-menu-trigger';
 import type { ContextMenuItem } from '../../services/context-menu/context-menu.model';
+import { Dialog } from '../../services/dialog';
 import { PrinterConnectionService } from '../../services/printer-connection';
 import { ActiveSelection } from '../../services/profiles/active-selection';
 import { matchesAllLabels, toggledLabelIds } from '../../services/profiles/label-filtering';
@@ -131,6 +133,7 @@ const PARAM_GROUPS: SchemaGroup[] = (() => {
     Segmented,
     LabelFilterBar,
     LabelPicker,
+    ContextMenuTrigger,
   ],
   templateUrl: './printers.html',
   styleUrl: './printers.scss',
@@ -143,6 +146,7 @@ export class PrintersSettings {
   private readonly filterStore = inject(LabelFilterStore);
   private readonly catalog = inject(CloudCatalog);
   private readonly contextMenu = inject(ContextMenuService);
+  private readonly dialog = inject(Dialog);
   private readonly printerConn = inject(PrinterConnectionService);
   private readonly route = inject(ActivatedRoute);
 
@@ -360,13 +364,18 @@ export class PrintersSettings {
         label: 'Delete\u2026',
         icon: 'trash',
         danger: true,
-        action: () => {
-          this.select(printer.id);
-          this.armDelete();
-        },
+        action: () => this.confirmDeleteFromContextMenu(printer),
       });
     }
     void this.contextMenu.open(event, items);
+  }
+
+  protected toggleDelete(): void {
+    if (this.deleteArmed()) {
+      this.disarmDelete();
+      return;
+    }
+    this.armDelete();
   }
 
   protected armDelete(): void {
@@ -389,15 +398,17 @@ export class PrintersSettings {
     if (!printer || !this.deleteReady()) {
       return;
     }
-    this.store.remove(printer.id);
-    this.disarmDelete();
-    this.selectedId.set(this.store.items()[0]?.id ?? null);
+    this.deletePrinterById(printer.id);
   }
 
   protected readonly pnum = paramNum;
   protected readonly pstr = paramStr;
 
-  /** Slice-parameter groups (Hardware, Retraction) rendered from the schema. */
+  /**
+   * Slice-parameter groups (Hardware, Retraction) rendered from the schema.
+   * Every field is always shown — the profile editor authors presets, so it
+   * never hides gated-off fields (unlike the live slice sidebar).
+   */
   protected readonly paramGroups = PARAM_GROUPS;
 
   protected update(id: string, patch: Partial<PrinterProfile>): void {
@@ -538,6 +549,30 @@ export class PrintersSettings {
   protected setConnectionApiKey(id: string, event: Event): void {
     const key = (event.target as HTMLInputElement).value;
     this.updateConnection(id, { api_key: key || undefined });
+  }
+
+  private confirmDeleteFromContextMenu(printer: PrinterProfile): void {
+    this.dialog
+      .confirm({
+        title: `Delete printer "${printer.name}"?`,
+        message: 'This printer profile will be permanently deleted.',
+        type: 'danger',
+        confirmLabel: 'Delete',
+      })
+      .subscribe((confirmed) => {
+        if (!confirmed) {
+          return;
+        }
+        this.deletePrinterById(printer.id);
+      });
+  }
+
+  private deletePrinterById(id: string): void {
+    this.store.remove(id);
+    this.disarmDelete();
+    if (this.selectedId() === id) {
+      this.selectedId.set(this.store.items()[0]?.id ?? null);
+    }
   }
 
   /** Merge a partial connection into a stored printer's `connection` block. */

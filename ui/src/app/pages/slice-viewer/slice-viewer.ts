@@ -74,16 +74,14 @@ export class SliceViewer {
       // If we just navigated here from `slice-new` we already have the upload
       // response in router state — skip the meta fetch entirely.
       const navState = this.#router.getCurrentNavigation()?.extras?.state as
-        | { uploadMeta?: UploadResponse }
-        | undefined;
+        { uploadMeta?: UploadResponse } | undefined;
       const stateUpload =
         navState?.uploadMeta ?? (history.state?.uploadMeta as UploadResponse | undefined);
 
       let meta: RequestMeta;
       if (stateUpload && stateUpload.ruuid === requestUuid) {
-        // Adopt the upload result; we don't have filenames in the upload
-        // response itself, so fetch the meta in the background only if we
-        // need the original filename later.
+        // Adopt the upload result immediately, then hydrate it with canonical
+        // request metadata (file IDs + original filename) from the backend.
         this.#slicerFile.adopt({
           ruuid: stateUpload.ruuid,
           status: 'upload_complete',
@@ -91,6 +89,7 @@ export class SliceViewer {
           ofids: stateUpload.ofids.map((id) => ({ file_uuid: id, original_filename: 'model' })),
         });
         meta = await this.#slicerFile.getRequestMeta(requestUuid);
+        this.#slicerFile.adopt(meta);
       } else {
         meta = await this.#slicerFile.getRequestMeta(requestUuid);
         this.#slicerFile.adopt(meta);

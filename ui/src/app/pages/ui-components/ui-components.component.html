@@ -4,10 +4,10 @@
       <div>
         <h1 class="page-title">UI Components</h1>
         <p class="page-subtitle">
-          Live gallery for reusable Nexus UI components, interactions, and global feedback patterns.
+          Live gallery for reusable Cold Crabby UI components, interactions, and global feedback
+          patterns.
         </p>
       </div>
-      <nexus-logo />
     </header>
 
     <section class="section">
@@ -350,11 +350,14 @@
         <nexus-card visualSize="small" class="demo-card">
           <h3 class="subheading">Dialogs</h3>
           <p class="hint">
-            Dialogs are rendered by the global dialog outlet attached in the root app shell.
+            Shared dialog variants used across the app (including destructive actions in Settings).
           </p>
           <div class="row wrap">
-            <button nexusButton variant="subtle" (click)="openConfirmDialog()">
-              Confirm dialog
+            <button nexusButton variant="subtle" (click)="openWarningConfirmDialog()">
+              Warning confirm
+            </button>
+            <button nexusButton variant="danger" (click)="openDangerConfirmDialog()">
+              Danger confirm
             </button>
             <button nexusButton variant="secondary" (click)="openAlertDialog()">
               Alert dialog

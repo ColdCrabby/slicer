@@ -13,11 +13,12 @@ import {
   untracked,
   viewChild,
 } from '@angular/core';
-import { BufferAttribute, BufferGeometry, Matrix4, Mesh, MeshPhongMaterial } from 'three';
+import { BufferAttribute, BufferGeometry, Matrix4, Mesh, MeshPhongMaterial, Vector3 } from 'three';
 import { AppTheme } from '../../services/app-theme';
 import { GcodePreview, ROLE_LABELS, scalarChannelFor } from '../../services/gcode-preview';
 import { ObjectTracker } from '../../services/object-tracker';
 import { PrintArea } from '../../services/print-area';
+import { ActiveSelection } from '../../services/profiles/active-selection';
 import { SceneCommand } from '../../services/scene-command/scene-command';
 import { SceneEngine } from '../../services/scene-engine';
 import { ViewerControl } from '../../services/viewer-control';
@@ -25,13 +26,19 @@ import {
   pixelRatioCapFor,
   resolveAntialias,
   type Antialiasing,
+  type SliceThumbnailCapture,
+  type SliceThumbnailRequest,
+  type ThumbnailColorMode,
+  type ThumbnailView,
 } from '../../services/viewer-control';
 
 import { GcodeHoverProbe, type GcodeHoverHit } from './gcode-hover';
 import { GcodeOrchestrator } from './gcode-orchestrator';
+import { preferredHoverPlacement } from './hover-placement';
 import type { GizmoDelta } from './gizmo';
 import { ViewerScene } from './scene';
-import { applyFloating } from '../../shared/floating';
+import type { ViewerView } from './scene';
+import { applyFloating, type FloatingPlacement } from '../../shared/floating';
 
 export type ViewerMode = 'model' | 'gcode';
 
@@ -48,10 +55,64 @@ export type ModelSource = string | URL | File | Blob | ArrayBuffer;
 const MODEL_COLOR_DARK = 0xbcc0c6;
 const MODEL_COLOR_LIGHT = 0xccd0d4;
 
+/**
+ * Triangles per frame full detail may cost *while the user is interacting*.
+ *
+ * Under this, full detail is kept on permanently — including during orbit — so
+ * ordinary plates never visibly change as you move. Geometry is one merged
+ * buffer per role, so every segment in the visible layer range is submitted
+ * wherever the camera points; zoom cannot lower this, but the layer slider can.
+ */
+const INTERACTIVE_TRIANGLE_BUDGET = 12_000_000;
+
+/**
+ * Triangles per frame full detail may cost once the view has *settled*.
+ *
+ * Far larger than the interactive budget because on-demand rendering makes a
+ * still view cost exactly one frame: a heavy frame is a single settle-in, not a
+ * sustained frame rate. This is what lets a million-segment plate still be
+ * inspected at full quality.
+ */
+const SETTLED_TRIANGLE_BUDGET = 120_000_000;
+
+/**
+ * Measured frame time (ms) above which full detail is judged unaffordable on
+ * this machine and auto mode stops promoting to it.
+ *
+ * This is the actual hardware autodetection: rather than guessing from a GPU
+ * name (routinely masked, and no guide to real throughput), auto mode promotes
+ * once, measures, and believes the result.
+ */
+const SETTLE_FRAME_BUDGET_MS = 400;
+
 /** Resolve the model base colour for the active colour scheme. */
 function modelColor(isDark: boolean): number {
   return isDark ? MODEL_COLOR_DARK : MODEL_COLOR_LIGHT;
 }
+
+/**
+ * Fixed camera directions (world Z-up, target → camera) and up vectors for
+ * each thumbnail preset. Directions are normalised on use. A slight elevation
+ * on the side views reads as a product shot rather than a flat elevation.
+ */
+const THUMBNAIL_VIEW_POSES: Record<ThumbnailView, { dir: Vector3; up: Vector3 }> = {
+  isometric: { dir: new Vector3(1, -1, 0.8), up: new Vector3(0, 0, 1) },
+  front: { dir: new Vector3(0, -1, 0.32), up: new Vector3(0, 0, 1) },
+  rear: { dir: new Vector3(0, 1, 0.32), up: new Vector3(0, 0, 1) },
+  left: { dir: new Vector3(-1, 0, 0.32), up: new Vector3(0, 0, 1) },
+  right: { dir: new Vector3(1, 0, 0.32), up: new Vector3(0, 0, 1) },
+  // Pure top-down: nudge off the pole so the view axis isn't parallel to up,
+  // and orient so the bed's far edge (+Y) points to the top of the image.
+  top: { dir: new Vector3(0, 0.001, 1), up: new Vector3(0, -1, 0) },
+};
+
+/** Solid studio background behind the model in each thumbnail theme. */
+const THUMBNAIL_BG_LIGHT = 0xe9ebee;
+const THUMBNAIL_BG_DARK = 0x212327;
+
+/** How long the outbound thumbnail card lingers on screen (ms). */
+const THUMBNAIL_SHUTTER_MS = 460;
+const THUMBNAIL_POLAROID_MS = 3200;
 
 /**
  * Single-component 3D viewer for both raw meshes and sliced G-code.
@@ -90,6 +151,7 @@ export class Viewer {
   private readonly sceneEngine = inject(SceneEngine);
   private readonly sceneCommand = inject(SceneCommand);
   private readonly gcodePreview = inject(GcodePreview);
+  private readonly activeSelection = inject(ActiveSelection);
   private readonly appTheme = inject(AppTheme);
   private readonly destroyRef = inject(DestroyRef);
 
@@ -99,6 +161,12 @@ export class Viewer {
   readonly fps = signal(0);
   /** Smoothed average frame delay in milliseconds. */
   readonly frameDelayMs = signal(0);
+  /** Whether the view has stopped changing (drives the detail promotion). */
+  private viewSettled = false;
+  /** Cleared when a promoted full-detail frame proved too slow on this machine. */
+  private fullDetailAffordable = true;
+  /** Set while waiting to measure the cost of a just-promoted frame. */
+  private probingDetail = false;
   /**
    * End-to-end wall time of the last WASM mesh round-trip, measured from
    * the moment the bytes are handed to `addMesh` to the moment the
@@ -121,8 +189,22 @@ export class Viewer {
   readonly hoverInfo = this.gcodePreview.hoverInfo;
   /** Role display labels for the hover tooltip. */
   protected readonly roleLabels = ROLE_LABELS;
+  /** One-shot white shutter pulse shown while capturing a slice thumbnail. */
+  readonly thumbnailShutterActive = signal(false);
+  /** Data-URL preview card for the outbound thumbnail animation. */
+  readonly thumbnailPolaroidImage = signal<string | null>(null);
+  /** Drives the "slide to top" thumbnail card animation class. */
+  readonly thumbnailPolaroidAnimating = signal(false);
 
   private scene: ViewerScene | null = null;
+  /**
+   * View value most recently pushed *from* the camera into
+   * `viewerControl.view` (a cube snap engaging ortho, or a breakout restoring
+   * the previous preset). Armed only when the write actually changes the
+   * signal, so the effect it triggers can skip echoing it straight back into the
+   * camera. Cleared by that skip.
+   */
+  private cameraOriginatedView: ViewerView | null = null;
   private gcode: GcodeOrchestrator | null = null;
   private gcodeHover: GcodeHoverProbe | null = null;
   private currentAbort: AbortController | null = null;
@@ -166,6 +248,12 @@ export class Viewer {
     },
   };
   private stopGcodeFloating: (() => void) | null = null;
+  /** Preferred side the G-code tooltip is currently floated to; drives re-anchoring when the input hand/side changes. */
+  private gcodeFloatingPlacement: FloatingPlacement | null = null;
+  private shutterTimer: ReturnType<typeof setTimeout> | null = null;
+  private polaroidTimer: ReturnType<typeof setTimeout> | null = null;
+  private readonly captureSliceThumbnailSink = (request: SliceThumbnailRequest) =>
+    this.captureSliceThumbnail(request);
 
   constructor() {
     afterNextRender(() => this.initScene());
@@ -179,22 +267,38 @@ export class Viewer {
       this.scene?.dispose();
       this.scene = null;
       this.viewerControl.orbitSink = null;
+      if (this.viewerControl.sliceThumbnailCaptureSink === this.captureSliceThumbnailSink) {
+        this.viewerControl.sliceThumbnailCaptureSink = null;
+      }
       this.stopGcodeFloating?.();
       this.stopGcodeFloating = null;
+      this.gcodeFloatingPlacement = null;
+      this.clearThumbnailFxTimers();
+      this.thumbnailShutterActive.set(false);
+      this.thumbnailPolaroidAnimating.set(false);
+      this.thumbnailPolaroidImage.set(null);
     });
 
     // Position the G-code inspector tooltip with Floating UI, anchored to a
     // virtual element at the cursor so it flips/shifts to stay on-screen near
-    // the viewport edges instead of clipping.
+    // the viewport edges instead of clipping. The preferred side adapts to the
+    // input: below-right for a mouse, but opposite the hand for a pen (from its
+    // tilt) and above the contact for touch, so the hand never covers it.
     effect(() => {
       const info = this.gcodePreview.hoverInfo();
       const el = this.gcodeTooltipRef()?.nativeElement;
       if (info && el) {
         this.gcodeCursor.x = info.clientX;
         this.gcodeCursor.y = info.clientY;
-        if (!this.stopGcodeFloating) {
+        const placement = preferredHoverPlacement(info);
+        // Placement is fixed when applyFloating is created, so re-anchor when
+        // the desired side changes (e.g. the user switches from mouse to pen,
+        // or tilts the pen across an axis).
+        if (!this.stopGcodeFloating || this.gcodeFloatingPlacement !== placement) {
+          this.stopGcodeFloating?.();
+          this.gcodeFloatingPlacement = placement;
           this.stopGcodeFloating = applyFloating(this.gcodeCursorAnchor, el, {
-            placement: 'right-start',
+            placement,
             strategy: 'fixed',
             offset: 14,
             padding: 8,
@@ -204,6 +308,7 @@ export class Viewer {
       } else if (this.stopGcodeFloating) {
         this.stopGcodeFloating();
         this.stopGcodeFloating = null;
+        this.gcodeFloatingPlacement = null;
       }
     });
 
@@ -218,9 +323,17 @@ export class Viewer {
       this.applySource(mode, model);
     });
 
-    // React to view-preset changes from the toolbar.
+    // React to view-preset changes from the toolbar. Changes the *camera*
+    // originated (a cube snap engaging ortho, or a breakout restoring the
+    // previous preset) are echoed into the same signal so the toolbar button
+    // always matches the screen; those must not be routed back into the camera,
+    // which would cancel the in-flight snap and its detent.
     effect(() => {
       const view = this.viewerControl.view();
+      if (view === this.cameraOriginatedView) {
+        this.cameraOriginatedView = null;
+        return;
+      }
       this.scene?.setView(view);
     });
 
@@ -234,6 +347,12 @@ export class Viewer {
     effect(() => {
       const gesture = this.viewerControl.trackpadTwoFingerGesture();
       this.scene?.setTwoFingerGesture(gesture);
+    });
+
+    // React to the palm-rejection ("wrist detection") preference for stylus use.
+    effect(() => {
+      const enabled = this.viewerControl.palmRejection();
+      this.scene?.setPalmRejectionEnabled(enabled);
     });
 
     // React to field-of-view changes from the 3D-view settings.
@@ -271,7 +390,11 @@ export class Viewer {
     effect(() => {
       const isDark = this.appTheme.isDarkMode();
       this.scene?.setTheme(isDark);
-      const color = modelColor(isDark);
+      const color = resolveModelColor(
+        isDark,
+        this.viewerControl.useFilamentColor(),
+        this.activeSelection.filament()?.color,
+      );
       for (const mesh of this.wasmMeshes.values()) {
         (mesh.material as MeshPhongMaterial).color.setHex(color);
       }
@@ -293,9 +416,8 @@ export class Viewer {
       if (!req) {
         return;
       }
-      this.scene?.animateToDirection(req.direction, req.up);
+      this.scene?.animateToDirection(req.direction, req.up, req.autoOrtho);
     });
-
     // React to roll requests (viewport-cube roll buttons).
     effect(() => {
       const req = this.viewerControl.rollRequest();
@@ -359,6 +481,7 @@ export class Viewer {
         mesh.matrix.copy(this.tmpMatrix);
         mesh.matrixWorldNeedsUpdate = true;
       }
+      this.scene?.invalidate();
     });
 
     // React to layer-range changes from the GcodePreviewService.
@@ -366,6 +489,10 @@ export class Viewer {
       const min = this.gcodePreview.layerMin();
       const max = this.gcodePreview.layerMax();
       this.gcode?.showRange(min, max);
+      // The layer range changes what a frame costs, so it can earn (or lose)
+      // full detail independently of the camera.
+      this.refreshGcodeDetail();
+      this.scene?.invalidate();
     });
 
     // React to nozzle-progress changes.
@@ -373,12 +500,21 @@ export class Viewer {
       const progress = this.gcodePreview.segmentProgress();
       const max = this.gcodePreview.layerMax();
       this.gcode?.applyProgress(max, progress);
+      this.refreshGcodeDetail();
+      this.scene?.invalidate();
     });
 
     // React to role visibility changes.
     effect(() => {
       const hidden = this.gcodePreview.hiddenRoles();
       this.gcode?.applyHiddenRoles(hidden);
+      this.scene?.invalidate();
+    });
+
+    // React to the preview-detail preference.
+    effect(() => {
+      this.viewerControl.previewDetail();
+      this.refreshGcodeDetail();
     });
 
     // React to theme, view-mode, scalar-range, fan-selection, or legend
@@ -390,6 +526,7 @@ export class Viewer {
       const fan = this.gcodePreview.selectedFan();
       const band = this.gcodePreview.hoverBand();
       this.gcode?.applyView(colors, scalarChannelFor(mode), range, fan, band);
+      this.scene?.invalidate();
     });
 
     // The hover-inspect probe is only meaningful in the G-code scalar views.
@@ -430,6 +567,51 @@ export class Viewer {
    * inspector tooltip + legend tick, or clear the readout when nothing
    * extrudable is under the cursor.
    */
+  /**
+   * Pick the G-code detail level from the current view and layer range.
+   *
+   * Full detail requires both that the user is close enough for the rounding to
+   * read *and* that what is on screen fits the triangle budget — the second
+   * condition is the one that matters on big plates, where a merged buffer
+   * submits every visible segment regardless of where the camera looks.
+   */
+  private refreshGcodeDetail(): void {
+    const gcode = this.gcode;
+    if (!gcode) {
+      return;
+    }
+    const detail = this.resolveGcodeDetail(gcode);
+    if (gcode.setDetail(detail)) {
+      // Remember to check what a promotion actually cost.
+      if (detail === 'high') {
+        this.probingDetail = true;
+      }
+      this.scene?.invalidate();
+    }
+  }
+
+  /** Apply the user's preference, falling back to the adaptive policy. */
+  private resolveGcodeDetail(gcode: GcodeOrchestrator): 'high' | 'low' {
+    switch (this.viewerControl.previewDetail()) {
+      case 'performance':
+        return 'low';
+      case 'quality':
+        return 'high';
+      default:
+        break;
+    }
+    // Cheap enough to keep full detail on permanently — no change while moving.
+    if (gcode.canAffordHighDetail(INTERACTIVE_TRIANGLE_BUDGET)) {
+      return 'high';
+    }
+    // Heavy plate: cheap beads while the user is moving, full detail the moment
+    // they stop — which is when they are actually evaluating the result.
+    if (!this.viewSettled || !this.fullDetailAffordable) {
+      return 'low';
+    }
+    return gcode.canAffordHighDetail(SETTLED_TRIANGLE_BUDGET) ? 'high' : 'low';
+  }
+
   private onGcodeHover(hit: GcodeHoverHit | null): void {
     if (!hit) {
       this.gcodePreview.setHoverInfo(null);
@@ -444,13 +626,24 @@ export class Viewer {
 
     const rs = hit.ref.roleSegments;
     const i = hit.instanceId;
+    // Role buffers span every layer, so the layer has to be resolved from the
+    // instance index rather than read off the mesh.
+    const location = hit.ref.resolve(i);
+    // The upper bound is a draw-range prefix, which the raycast already
+    // respects, but the lower bound lives in the vertex shader — invisible to
+    // a raycast. Reject hits below it so "single layer" mode can't report a
+    // segment the user cannot see.
+    if (location.layerIndex < this.gcodePreview.layerMin()) {
+      this.gcodePreview.setHoverInfo(null);
+      return;
+    }
     const width = rs.widths?.[i] ?? 0;
     const height = rs.heights?.[i] ?? 0;
     const speed = rs.speeds?.[i] ?? 0;
     const value =
       channel.scope === 'segment'
         ? channel.extract(width, height, speed)
-        : channel.extractLayer(hit.ref.meta, this.gcodePreview.selectedFan());
+        : channel.extractLayer(location.meta, this.gcodePreview.selectedFan());
     if (value === null) {
       this.gcodePreview.setHoverInfo(null);
       return;
@@ -464,15 +657,33 @@ export class Viewer {
       value,
       valueLabel: channel.format(value),
       role: rs.role,
-      layerIndex: hit.ref.layerIndex,
-      z: hit.ref.z,
+      layerIndex: location.layerIndex,
+      z: location.z,
       width,
       height,
       speed,
       t,
       clientX: hit.clientX,
       clientY: hit.clientY,
+      pointerType: hit.pointerType,
+      tiltX: hit.tiltX,
+      tiltY: hit.tiltY,
     });
+  }
+
+  /**
+   * Mirror a camera-originated projection change into the toolbar's `view`
+   * signal, so the projection button's icon, tooltip and next press always match
+   * what is on screen. Arms {@link cameraOriginatedView} only when the signal
+   * actually changes — that is exactly when the effect will fire and needs to
+   * skip pushing the value back into the camera.
+   */
+  private syncViewFromCamera(view: ViewerView): void {
+    if (this.viewerControl.view() === view) {
+      return;
+    }
+    this.cameraOriginatedView = view;
+    this.viewerControl.view.set(view);
   }
 
   private handleSelect(stringId: string, _additive: boolean): void {
@@ -618,8 +829,24 @@ export class Viewer {
       this.fps.set(fps);
       this.frameDelayMs.set(delayMs);
     };
+    // Pick the geometry detail from the camera: full detail only when the user
+    // is close enough for the rounding to be visible *and* the plate is small
+    // enough to afford it at all.
+    this.scene.lodSink = ({ settled, lastFrameMs }) => {
+      this.viewSettled = settled;
+      // A promotion that turned out to be far too slow demotes permanently for
+      // this model, so the user is not stuck with a lurching viewport.
+      if (this.probingDetail) {
+        this.probingDetail = false;
+        if (lastFrameMs > SETTLE_FRAME_BUDGET_MS) {
+          this.fullDetailAffordable = false;
+        }
+      }
+      this.refreshGcodeDetail();
+    };
     // Allow external gizmos (viewport-cube drag) to orbit the main camera.
     this.viewerControl.orbitSink = (azimuth, polar) => this.scene?.orbitBy(azimuth, polar);
+    this.viewerControl.sliceThumbnailCaptureSink = this.captureSliceThumbnailSink;
     // Bridge raycast hits / gizmo gestures from the scene into the WASM
     // scene engine. Selection is stored locally; object manipulation is
     // driven by the gizmo (translate / rotate / scale) and pull-to-floor.
@@ -636,7 +863,11 @@ export class Viewer {
     // whatever view / object mode the user already had selected.
     this.scene.setObjectMode(this.viewerControl.objectMode());
     this.scene.setView(this.viewerControl.view());
+    // Keep the toolbar's projection button honest when the viewport cube (not
+    // the toolbar) changes the projection.
+    this.scene.setViewChangeSink((view) => this.syncViewFromCamera(view));
     this.scene.setTwoFingerGesture(this.viewerControl.trackpadTwoFingerGesture());
+    this.scene.setPalmRejectionEnabled(this.viewerControl.palmRejection());
     this.scene.setTheme(this.appTheme.isDarkMode());
     this.gcode = new GcodeOrchestrator(this.scene.contentRoot);
     // Hover-inspect probe for the G-code scalar views: raycasts the visible
@@ -682,13 +913,23 @@ export class Viewer {
       this.trackedObjectIds = [];
       for (const id of this.wasmMeshes.keys()) {
         this.scene?.unregisterSelectable(String(id));
+      }
+      this.wasmMeshes.clear();
+      // Evict *every* object from the singleton scene engine — not only the
+      // ones this component mirrored. Navigating between workplates destroys
+      // the viewer component but not the WASM engine, so a previous plate's
+      // object can survive in the engine even though this freshly-created
+      // component never tracked it (its `wasmMeshes` map starts empty). Left
+      // behind, that stale mesh would be sliced into the new plate and skew
+      // its thumbnail. Read untracked so this teardown never subscribes the
+      // enclosing effect to the object list it is about to mutate.
+      for (const obj of untracked(() => this.sceneEngine.objects())) {
         try {
-          this.sceneEngine.apply({ op: 'Remove', args: { id } });
+          this.sceneEngine.apply({ op: 'Remove', args: { id: obj.id } });
         } catch {
           // Object may already be gone if the engine reset; safe to ignore.
         }
       }
-      this.wasmMeshes.clear();
       this.handleClearSelection();
       this.dragApplied.clear();
       this.activeModelSource = model;
@@ -758,7 +999,7 @@ export class Viewer {
       geometry.computeBoundingBox();
       geometry.computeBoundingSphere();
       const material = new MeshPhongMaterial({
-        color: modelColor(this.appTheme.isDarkMode()),
+        color: this.currentModelColor(),
         flatShading: true,
         shininess: 16,
       });
@@ -826,7 +1067,7 @@ export class Viewer {
     geometry.computeBoundingBox();
     geometry.computeBoundingSphere();
     const material = new MeshPhongMaterial({
-      color: modelColor(this.appTheme.isDarkMode()),
+      color: this.currentModelColor(),
       flatShading: true,
       shininess: 16,
     });
@@ -898,6 +1139,12 @@ export class Viewer {
     gcode.showRange(min, max);
     gcode.applyProgress(max, progress);
     gcode.applyHiddenRoles(hidden);
+    // A new plate gets a fresh verdict — the previous one may have been much
+    // heavier (or lighter) than this one.
+    this.fullDetailAffordable = true;
+    this.probingDetail = false;
+    this.refreshGcodeDetail();
+    scene.invalidate();
     this.status.set('ready');
     this.loadComplete.emit({ mode: 'gcode', segments: totalSegments });
   }
@@ -907,6 +1154,148 @@ export class Viewer {
     if (this.currentAbort) {
       this.currentAbort.abort();
       this.currentAbort = null;
+    }
+  }
+
+  private currentModelColor(): number {
+    return resolveModelColor(
+      this.appTheme.isDarkMode(),
+      this.viewerControl.useFilamentColor(),
+      this.activeSelection.filament()?.color,
+    );
+  }
+
+  private async captureSliceThumbnail(
+    request: SliceThumbnailRequest,
+  ): Promise<SliceThumbnailCapture | null> {
+    const scene = this.scene;
+    if (!scene) {
+      return null;
+    }
+
+    const targetSize = clampThumbnailSize(request.sizePx);
+    const pose = THUMBNAIL_VIEW_POSES[request.view] ?? THUMBNAIL_VIEW_POSES.isometric;
+    const isTransparent = request.theme === 'transparent';
+    const thumbIsDark = request.theme === 'dark';
+    const liveIsDark = this.appTheme.isDarkMode();
+
+    // The thumbnail has its own colour mode (generic / filament / custom),
+    // independent of the viewer's live filament-colour toggle.
+    const filamentColor = this.activeSelection.filament()?.color;
+    const thumbColor = resolveThumbnailColor(
+      thumbIsDark,
+      request.colorMode,
+      filamentColor,
+      request.customColor,
+    );
+
+    // Build fresh model meshes from the WASM scene engine so the thumbnail
+    // always depicts the model — even when the viewer is currently showing the
+    // G-code preview (whose toolpaths would otherwise be captured and skew the
+    // framing). These are throwaway meshes, never added to the live scene.
+    const subjects = this.buildThumbnailSubjects(thumbColor);
+
+    let dataUrl: string | null = null;
+    try {
+      dataUrl = scene.captureThumbnail({
+        sizePx: targetSize,
+        direction: pose.dir.clone(),
+        up: pose.up.clone(),
+        isDark: thumbIsDark,
+        liveIsDark,
+        background: isTransparent ? null : thumbIsDark ? THUMBNAIL_BG_DARK : THUMBNAIL_BG_LIGHT,
+        subjects: subjects.length > 0 ? subjects : undefined,
+      });
+    } finally {
+      for (const mesh of subjects) {
+        mesh.geometry.dispose();
+        (mesh.material as MeshPhongMaterial).dispose();
+      }
+    }
+
+    if (!dataUrl) {
+      return null;
+    }
+    const comma = dataUrl.indexOf(',');
+    if (comma < 0) {
+      return null;
+    }
+
+    // Only play the camera-flash + polaroid FX when the user is looking at the
+    // model. Re-slicing repeatedly while fine-tuning in the G-code preview
+    // shouldn't fling a polaroid across the screen every time — the thumbnail
+    // is still captured and embedded, just silently.
+    if (this.mode() === 'model') {
+      this.playThumbnailCaptureFx(dataUrl);
+    }
+    return {
+      pngBase64: dataUrl.slice(comma + 1),
+      sizePx: targetSize,
+    };
+  }
+
+  /**
+   * Build detached Three.js meshes for the current model objects straight from
+   * the WASM scene engine's render buffers, painted in the thumbnail colour.
+   * These are used solely for an off-screen thumbnail render and disposed by
+   * the caller — they are never added to the live scene or the selectable set,
+   * so this works identically whether the viewer is in model or G-code mode.
+   */
+  private buildThumbnailSubjects(color: number): Mesh[] {
+    const subjects: Mesh[] = [];
+    const objects = untracked(() => this.sceneEngine.objects());
+    for (const obj of objects) {
+      let buf: ReturnType<SceneEngine['getRenderBuffer']>;
+      try {
+        buf = this.sceneEngine.getRenderBuffer(obj.id);
+      } catch {
+        continue;
+      }
+      const geometry = new BufferGeometry();
+      geometry.setAttribute('position', new BufferAttribute(buf.positions, 3));
+      geometry.setAttribute('normal', new BufferAttribute(buf.normals, 3));
+      geometry.setIndex(new BufferAttribute(buf.indices, 1));
+      geometry.computeBoundingBox();
+      geometry.computeBoundingSphere();
+      const material = new MeshPhongMaterial({ color, flatShading: true, shininess: 16 });
+      const mesh = new Mesh(geometry, material);
+      mesh.matrixAutoUpdate = false;
+      this.tmpMatrix.fromArray(this.sceneEngine.getMatrix(obj.id));
+      mesh.matrix.copy(this.tmpMatrix);
+      mesh.matrixWorldNeedsUpdate = true;
+      subjects.push(mesh);
+    }
+    return subjects;
+  }
+
+  private playThumbnailCaptureFx(dataUrl: string): void {
+    this.clearThumbnailFxTimers();
+    this.thumbnailShutterActive.set(false);
+    this.thumbnailPolaroidAnimating.set(false);
+    this.thumbnailPolaroidImage.set(dataUrl);
+
+    requestAnimationFrame(() => {
+      this.thumbnailShutterActive.set(true);
+      this.thumbnailPolaroidAnimating.set(true);
+    });
+
+    this.shutterTimer = setTimeout(() => {
+      this.thumbnailShutterActive.set(false);
+    }, THUMBNAIL_SHUTTER_MS);
+    this.polaroidTimer = setTimeout(() => {
+      this.thumbnailPolaroidAnimating.set(false);
+      this.thumbnailPolaroidImage.set(null);
+    }, THUMBNAIL_POLAROID_MS);
+  }
+
+  private clearThumbnailFxTimers(): void {
+    if (this.shutterTimer !== null) {
+      clearTimeout(this.shutterTimer);
+      this.shutterTimer = null;
+    }
+    if (this.polaroidTimer !== null) {
+      clearTimeout(this.polaroidTimer);
+      this.polaroidTimer = null;
     }
   }
 }
@@ -966,4 +1355,60 @@ function parseWasmId(stringId: string): bigint | null {
   } catch {
     return null;
   }
+}
+
+function resolveModelColor(
+  isDark: boolean,
+  useFilamentColor: boolean,
+  filamentColor: string | null | undefined,
+): number {
+  if (!useFilamentColor) {
+    return modelColor(isDark);
+  }
+  const parsed = parseHexColor(filamentColor);
+  return parsed ?? modelColor(isDark);
+}
+
+/**
+ * Resolve the model colour for the thumbnail's own colour mode. `generic` uses
+ * the theme-tuned neutral grey; `filament` uses the active filament colour;
+ * `custom` uses the chosen hex. Any unparseable value falls back to grey.
+ */
+function resolveThumbnailColor(
+  isDark: boolean,
+  mode: ThumbnailColorMode,
+  filamentColor: string | null | undefined,
+  customColor: string,
+): number {
+  switch (mode) {
+    case 'filament':
+      return parseHexColor(filamentColor) ?? modelColor(isDark);
+    case 'custom':
+      return parseHexColor(customColor) ?? modelColor(isDark);
+    case 'generic':
+    default:
+      return modelColor(isDark);
+  }
+}
+
+function parseHexColor(raw: string | null | undefined): number | null {
+  if (!raw) {
+    return null;
+  }
+  const trimmed = raw.trim();
+  const match = /^#([0-9a-f]{3}|[0-9a-f]{6})$/i.exec(trimmed);
+  if (!match) {
+    return null;
+  }
+  const hex = match[1];
+  const normalized =
+    hex.length === 3 ? `${hex[0]}${hex[0]}${hex[1]}${hex[1]}${hex[2]}${hex[2]}` : hex.toLowerCase();
+  return Number.parseInt(normalized, 16);
+}
+
+function clampThumbnailSize(sizePx: number): number {
+  if (!Number.isFinite(sizePx)) {
+    return 320;
+  }
+  return Math.max(64, Math.min(1024, Math.round(sizePx)));
 }

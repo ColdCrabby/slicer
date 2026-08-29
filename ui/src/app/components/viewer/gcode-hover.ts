@@ -7,6 +7,12 @@ export interface GcodeHoverHit {
   instanceId: number;
   clientX: number;
   clientY: number;
+  /** Originating pointer type (`'mouse' | 'pen' | 'touch'`) — drives tooltip placement. */
+  pointerType: string;
+  /** Pen tilt toward +X in degrees (−90…90); 0 for mouse/touch. */
+  tiltX: number;
+  /** Pen tilt toward +Y in degrees (−90…90); 0 for mouse/touch. */
+  tiltY: number;
 }
 
 /**
@@ -95,6 +101,9 @@ export class GcodeHoverProbe {
       instanceId: hit.instanceId,
       clientX: event.clientX,
       clientY: event.clientY,
+      pointerType: event.pointerType,
+      tiltX: event.tiltX ?? 0,
+      tiltY: event.tiltY ?? 0,
     });
   };
 }

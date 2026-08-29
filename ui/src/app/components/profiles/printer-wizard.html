@@ -52,6 +52,15 @@
                 </p>
               }
             }
+            @if (detecting()) {
+              <p class="wz-detect__msg">
+                <nexus-icon name="refresh" />
+                <span>
+                  Querying printer details… this can take up to about a minute on large Klipper /
+                  Klippain setups.
+                </span>
+              </p>
+            }
             @if (!detectResult()?.reachable) {
               <p class="wz-detect__hint">
                 Works best with Klipper / Moonraker (bed size, nozzle and kinematics), and
@@ -81,6 +90,34 @@
                 }
               </dl>
 
+              @if (detectedKlipper()) {
+                <div class="wz-macros">
+                  <div class="wz-macros__head">
+                    <span class="wz-macros__q">Which start / end macros does it use?</span>
+                    <a
+                      class="wz-macros__learn"
+                      [href]="klippainReadmeUrl"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                    >
+                      What's Klippain?
+                      <nexus-icon name="open-new-window" />
+                    </a>
+                  </div>
+
+                  <nexus-segmented
+                    [options]="klipperMacroOptions"
+                    [value]="klipperMacroChoice()"
+                    label="Klipper macro convention"
+                    (valueChange)="setKlipperMacroChoice($event)"
+                  />
+
+                  @if (needsKlipperFlavorChoice()) {
+                    <p class="wz-macros__hint">Pick one to set the correct start / end G-code.</p>
+                  }
+                </div>
+              }
+
               @if (detectionMissing()) {
                 <p class="wz-detected__note">
                   <nexus-icon name="info-circle" />
@@ -102,13 +139,20 @@
                     variant="primary"
                     type="button"
                     (click)="continueFromDetection()"
+                    [disabled]="needsKlipperFlavorChoice()"
                   >
                     <span>Review &amp; add</span>
                     <nexus-icon name="arrow-right" />
                   </button>
                 } @else {
                   <div class="wz-detected__actions-end">
-                    <button nexusButton variant="ghost" type="button" (click)="finish()">
+                    <button
+                      nexusButton
+                      variant="ghost"
+                      type="button"
+                      (click)="finish()"
+                      [disabled]="needsKlipperFlavorChoice()"
+                    >
                       Just add
                     </button>
                     <button
@@ -116,6 +160,7 @@
                       variant="primary"
                       type="button"
                       (click)="finishAndConfigureGcode()"
+                      [disabled]="needsKlipperFlavorChoice()"
                     >
                       <span>Add &amp; check G-code</span>
                       <nexus-icon name="arrow-right" />

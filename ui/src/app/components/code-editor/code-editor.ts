@@ -97,23 +97,43 @@ export class CodeEditor {
   }
 
   private async initMonaco(): Promise<void> {
-    // Tell Monaco where to find its web workers. Blob URLs allow workers
-    // to be spawned without a separate worker bundle entry point.
+    // Tell Monaco where to find its web workers. Each worker is referenced via
+    // `new Worker(new URL(..., import.meta.url))` so the bundler (esbuild)
+    // emits a real, content-hashed worker asset and rewrites the URL relative
+    // to the deployed base href. The previous Blob + `importScripts('bare
+    // specifier')` approach produced URLs that only resolved at the site root,
+    // so on a static/GitHub Pages deploy served from a sub-path the workers
+    // 404'd and Monaco failed to initialise.
     if (!window.MonacoEnvironment) {
       window.MonacoEnvironment = {
         getWorker(_moduleId: string, label: string): Worker {
-          const workerUrls: Record<string, string> = {
-            json: 'monaco-editor/esm/vs/language/json/json.worker',
-            css: 'monaco-editor/esm/vs/language/css/css.worker',
-            html: 'monaco-editor/esm/vs/language/html/html.worker',
-            typescript: 'monaco-editor/esm/vs/language/typescript/ts.worker',
-            javascript: 'monaco-editor/esm/vs/language/typescript/ts.worker',
-          };
-          const workerPath = workerUrls[label] ?? 'monaco-editor/esm/vs/editor/editor.worker';
-          const blob = new Blob([`importScripts('${workerPath}');`], {
-            type: 'application/javascript',
-          });
-          return new Worker(URL.createObjectURL(blob));
+          switch (label) {
+            case 'json':
+              return new Worker(new URL('./workers/json.worker', import.meta.url), {
+                type: 'module',
+              });
+            case 'css':
+            case 'scss':
+            case 'less':
+              return new Worker(new URL('./workers/css.worker', import.meta.url), {
+                type: 'module',
+              });
+            case 'html':
+            case 'handlebars':
+            case 'razor':
+              return new Worker(new URL('./workers/html.worker', import.meta.url), {
+                type: 'module',
+              });
+            case 'typescript':
+            case 'javascript':
+              return new Worker(new URL('./workers/ts.worker', import.meta.url), {
+                type: 'module',
+              });
+            default:
+              return new Worker(new URL('./workers/editor.worker', import.meta.url), {
+                type: 'module',
+              });
+          }
         },
       };
     }

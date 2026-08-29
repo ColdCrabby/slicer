@@ -15,9 +15,11 @@ $transition-easing: ease;
 
   transition: width $transition-duration $transition-easing;
 
-  // Hidden and hover-peek both stay out of layout flow (the panel overlays the
-  // scene); only an explicit pin/dock reserves horizontal space.
-  &.is-collapsed:not(.is-pinned-open) {
+  // Collapsed always floats as an overlay: the host reserves zero width and the
+  // panel slides over the scene. Only a docked (expanded, not collapsed) sidebar
+  // reserves horizontal space. This keeps a peek from ever reflowing the gcode
+  // viewport — the whole point of "peek to tweak, dismiss to view".
+  &.is-collapsed {
     width: 0;
   }
 
@@ -61,6 +63,35 @@ $transition-easing: ease;
     transition:
       transform $transition-duration $transition-easing,
       visibility 0s linear $transition-duration;
+  }
+
+  // A floating peek reads as a raised drawer, not a docked column.
+  :host.is-overlay & {
+    box-shadow: var(--shadow-lg);
+  }
+}
+
+// Dismiss layer for an overlay peek. Gives touch (and mouse) a plain
+// tap-outside-to-close gesture, matching every drawer convention — the piece
+// that was missing, leaving iPad users with no way to close a peek.
+.sidebar-scrim {
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  border: none;
+  padding: 0;
+  margin: 0;
+  background: var(--scrim, rgba(0, 0, 0, 0.32));
+  cursor: default;
+  animation: sidebar-scrim-in $transition-duration $transition-easing;
+}
+
+@keyframes sidebar-scrim-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
   }
 }
 

@@ -7,7 +7,7 @@
         <span class="settings-field-title">Application</span>
         <span class="settings-field-desc">The engine powering previews and prints.</span>
       </span>
-      <span class="settings-value">Slicer Engine</span>
+      <span class="settings-value">Cold Crabby</span>
     </div>
     <div class="settings-field">
       <span class="settings-field-label">
@@ -63,6 +63,36 @@
           (click)="setGesture('pan')"
         >
           Pan
+        </button>
+      </div>
+    </div>
+
+    <div class="settings-field">
+      <span class="settings-field-label">
+        <span class="settings-field-title">Palm rejection</span>
+        <span class="settings-field-desc">
+          Ignore the hand resting on the screen while drawing with an Apple Pencil or stylus, so the
+          palm never orbits or zooms the 3D view. Finger-only gestures are unaffected.
+        </span>
+      </span>
+      <div class="segmented" role="group" aria-label="Palm rejection">
+        <button
+          type="button"
+          class="segmented-btn"
+          [class.is-active]="palmRejection()"
+          [attr.aria-pressed]="palmRejection()"
+          (click)="setPalmRejection(true)"
+        >
+          On
+        </button>
+        <button
+          type="button"
+          class="segmented-btn"
+          [class.is-active]="!palmRejection()"
+          [attr.aria-pressed]="!palmRejection()"
+          (click)="setPalmRejection(false)"
+        >
+          Off
         </button>
       </div>
     </div>
@@ -196,6 +226,76 @@
           (click)="setRenderQuality('quality')"
         >
           Quality
+        </button>
+      </div>
+    </div>
+
+    <div class="settings-field">
+      <span class="settings-field-label">
+        <span class="settings-field-title">Preview detail</span>
+        <span class="settings-field-desc">
+          How finely sliced extrusions are drawn. Auto keeps the full, rounded bead whenever it runs
+          smoothly &mdash; including every time you stop moving &mdash; and only simplifies while
+          you orbit a heavy plate.
+        </span>
+      </span>
+      <div class="segmented" role="group" aria-label="Preview detail">
+        <button
+          type="button"
+          class="segmented-btn"
+          [class.is-active]="previewDetail() === 'auto'"
+          [attr.aria-pressed]="previewDetail() === 'auto'"
+          (click)="setPreviewDetail('auto')"
+        >
+          Auto
+        </button>
+        <button
+          type="button"
+          class="segmented-btn"
+          [class.is-active]="previewDetail() === 'performance'"
+          [attr.aria-pressed]="previewDetail() === 'performance'"
+          (click)="setPreviewDetail('performance')"
+        >
+          Performance
+        </button>
+        <button
+          type="button"
+          class="segmented-btn"
+          [class.is-active]="previewDetail() === 'quality'"
+          [attr.aria-pressed]="previewDetail() === 'quality'"
+          (click)="setPreviewDetail('quality')"
+        >
+          Quality
+        </button>
+      </div>
+    </div>
+
+    <div class="settings-field">
+      <span class="settings-field-label">
+        <span class="settings-field-title">Use filament color for models</span>
+        <span class="settings-field-desc">
+          Color model meshes with the active filament profile color instead of the neutral viewer
+          tone.
+        </span>
+      </span>
+      <div class="segmented" role="group" aria-label="Use filament color for models">
+        <button
+          type="button"
+          class="segmented-btn"
+          [class.is-active]="useFilamentColor()"
+          [attr.aria-pressed]="useFilamentColor()"
+          (click)="setUseFilamentColor(true)"
+        >
+          On
+        </button>
+        <button
+          type="button"
+          class="segmented-btn"
+          [class.is-active]="!useFilamentColor()"
+          [attr.aria-pressed]="!useFilamentColor()"
+          (click)="setUseFilamentColor(false)"
+        >
+          Off
         </button>
       </div>
     </div>

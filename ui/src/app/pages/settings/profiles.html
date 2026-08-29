@@ -64,7 +64,7 @@
                     type="button"
                     [class.is-selected]="selectedId() === profile.id"
                     (click)="select(profile.id)"
-                    (contextmenu)="onContextMenu($event, profile)"
+                    (nexusContextMenu)="onContextMenu($event, profile)"
                   >
                     <span class="mgr__card-icon"><nexus-icon name="menu-scale" /></span>
                     <span class="mgr__card-info">
@@ -121,8 +121,13 @@
                   <nexus-icon name="copy" />
                 </button>
                 @if (profile.source !== 'builtin') {
-                  <button nexusIconButton aria-label="Delete" (click)="armDelete()">
-                    <nexus-icon name="trash" />
+                  <button
+                    nexusIconButton
+                    [attr.aria-label]="deleteArmed() ? 'Cancel delete' : 'Delete'"
+                    [class.is-danger]="deleteArmed()"
+                    (click)="toggleDelete()"
+                  >
+                    <nexus-icon [name]="deleteArmed() ? 'xmark' : 'trash'" />
                   </button>
                 }
               </div>

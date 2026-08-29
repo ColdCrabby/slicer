@@ -4,6 +4,7 @@ import {
   MIN_FIELD_OF_VIEW,
   ViewerControl,
   type Antialiasing,
+  type PreviewDetail,
   type RenderQuality,
   type TwoFingerGesture,
 } from '../../services/viewer-control';
@@ -24,9 +25,12 @@ export class GeneralSettings implements OnInit {
   private readonly appVersion = inject(AppVersion);
   protected readonly gesture = this.viewer.trackpadTwoFingerGesture;
   protected readonly statsVisible = this.viewer.statsVisible;
+  protected readonly palmRejection = this.viewer.palmRejection;
   protected readonly fieldOfView = this.viewer.fieldOfView;
   protected readonly antialiasing = this.viewer.antialiasing;
   protected readonly renderQuality = this.viewer.renderQuality;
+  protected readonly previewDetail = this.viewer.previewDetail;
+  protected readonly useFilamentColor = this.viewer.useFilamentColor;
 
   protected readonly minFov = MIN_FIELD_OF_VIEW;
   protected readonly maxFov = MAX_FIELD_OF_VIEW;
@@ -61,6 +65,10 @@ export class GeneralSettings implements OnInit {
     this.viewer.setStatsVisible(value);
   }
 
+  setPalmRejection(value: boolean): void {
+    this.viewer.setPalmRejection(value);
+  }
+
   setFieldOfView(value: number): void {
     this.viewer.setFieldOfView(value);
   }
@@ -71,5 +79,13 @@ export class GeneralSettings implements OnInit {
 
   setRenderQuality(quality: RenderQuality): void {
     this.viewer.setRenderQuality(quality);
+  }
+
+  setPreviewDetail(detail: PreviewDetail): void {
+    this.viewer.setPreviewDetail(detail);
+  }
+
+  setUseFilamentColor(value: boolean): void {
+    this.viewer.setUseFilamentColor(value);
   }
 }

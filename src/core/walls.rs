@@ -28,8 +28,19 @@ pub(crate) fn apply_single_wall_restrictions(layers: &mut [SliceLayer], params: 
 
     // First layer: strip all inner walls regardless of island (layer-wide is
     // correct here because the first layer is a single flat extrusion zone).
+    //
+    // Also strip the medial **gap-fill** beads Arachne emitted as companions to
+    // those now-removed inner walls.  On a solid first layer (`bottom_layers >
+    // 0`) that gap fill is fully redundant with the outer-wall bead + the solid
+    // bottom surface that fills the interior — measured on a 0.4 mm Benchy, every
+    // one of the 18 surviving beads (457/457 vertices) already lies inside that
+    // coverage, so it only duplicates extrusion the `classic` generator never
+    // lays down (classic's first layer has zero gap fill).  Guarding on a solid
+    // cap means we never remove gap fill that would open a wall-band void when
+    // there is no bottom surface to close it.
     if params.only_one_wall_first_layer {
-        remove_inner_walls_from_layer(&mut layers[0]);
+        let strip_gap_fill = params.bottom_layers > 0;
+        reduce_first_layer_to_single_wall(&mut layers[0], strip_gap_fill);
     }
 
     // Top surface: compute a per-island strip mask and selectively remove.
@@ -189,8 +200,14 @@ fn remove_inner_walls_for_islands(layer: &mut SliceLayer, strip_outer_indices: &
     layer.path_is_open = new_is_open;
 }
 
-/// Remove all inner walls from a layer, keeping outer walls and other paths.
-fn remove_inner_walls_from_layer(layer: &mut SliceLayer) {
+/// Reduce the first layer to a single outer wall: strip every `InnerWall` path
+/// and — when `strip_gap_fill` is set — the orphaned medial `GapFill` beads that
+/// Arachne generated as companions to those inner walls.
+///
+/// Outer walls, surfaces, bridges and every other role are preserved.  See the
+/// call site in [`apply_single_wall_restrictions`] for why removing the
+/// first-layer gap fill is redundant (and therefore safe) on a solid cap.
+fn reduce_first_layer_to_single_wall(layer: &mut SliceLayer, strip_gap_fill: bool) {
     let mut new_paths = Paths::new(vec![]);
     let mut new_roles = Vec::new();
     let mut new_widths = Vec::new();
@@ -199,7 +216,9 @@ fn remove_inner_walls_from_layer(layer: &mut SliceLayer) {
 
     for (i, path) in layer.paths.iter().enumerate() {
         let role = layer.role_for_path(i);
-        if role != ExtrusionRole::InnerWall {
+        let drop =
+            role == ExtrusionRole::InnerWall || (strip_gap_fill && role == ExtrusionRole::GapFill);
+        if !drop {
             new_paths.push(path.clone());
             new_roles.push(role);
             new_widths.push(layer.width_for_path(i));
@@ -1061,6 +1080,85 @@ mod tests {
              with the bridge zone boundary — double-extrusion prevention; \
              roles={:?}",
             layers[2].path_roles
+        );
+    }
+
+    /// Building block for the first-layer restriction tests: a layer carrying an
+    /// outer wall, an inner wall, a gap-fill bead and a bottom surface.
+    fn first_layer_with_all_roles() -> SliceLayer {
+        let outer: Path = vec![(0.0, 0.0), (10.0, 0.0), (10.0, 10.0), (0.0, 10.0)].into();
+        let inner: Path = vec![(1.0, 1.0), (9.0, 1.0), (9.0, 9.0), (1.0, 9.0)].into();
+        let gap: Path = vec![(4.0, 4.0), (6.0, 4.0)].into();
+        let surface: Path = vec![(2.0, 2.0), (8.0, 2.0), (8.0, 8.0), (2.0, 8.0)].into();
+        let mut layer = SliceLayer::new(0.2);
+        for (p, role) in [
+            (outer, ExtrusionRole::OuterWall),
+            (inner, ExtrusionRole::InnerWall),
+            (gap, ExtrusionRole::GapFill),
+            (surface, ExtrusionRole::BottomSurface),
+        ] {
+            layer.paths.push(p);
+            layer.path_roles.push(role);
+        }
+        layer
+    }
+
+    /// On a solid first layer (`bottom_layers > 0`) the single-wall restriction
+    /// must drop both the inner walls **and** their orphaned companion gap-fill
+    /// beads, leaving the outer wall and the bottom surface — matching `classic`,
+    /// which emits no first-layer gap fill.
+    #[test]
+    fn test_first_layer_single_wall_strips_gap_fill_on_solid_cap() {
+        let mut layers = vec![first_layer_with_all_roles()];
+        let params = SlicingParams {
+            only_one_wall_first_layer: true,
+            bottom_layers: 3,
+            ..Default::default()
+        };
+        apply_single_wall_restrictions(&mut layers, &params);
+
+        let roles = &layers[0].path_roles;
+        assert!(
+            !roles.contains(&ExtrusionRole::InnerWall),
+            "inner walls must be stripped on the first layer; roles={roles:?}"
+        );
+        assert!(
+            !roles.contains(&ExtrusionRole::GapFill),
+            "orphaned gap fill must be stripped on a solid first layer; roles={roles:?}"
+        );
+        assert!(
+            roles.contains(&ExtrusionRole::OuterWall)
+                && roles.contains(&ExtrusionRole::BottomSurface),
+            "outer wall and bottom surface must be preserved; roles={roles:?}"
+        );
+        assert_eq!(
+            layers[0].paths.len(),
+            roles.len(),
+            "paths and roles must stay index-aligned after stripping"
+        );
+    }
+
+    /// With no solid bottom (`bottom_layers == 0`) there is no surface to close a
+    /// wall-band void, so first-layer gap fill must be **retained** even though
+    /// inner walls are still stripped.
+    #[test]
+    fn test_first_layer_single_wall_keeps_gap_fill_without_solid_cap() {
+        let mut layers = vec![first_layer_with_all_roles()];
+        let params = SlicingParams {
+            only_one_wall_first_layer: true,
+            bottom_layers: 0,
+            ..Default::default()
+        };
+        apply_single_wall_restrictions(&mut layers, &params);
+
+        let roles = &layers[0].path_roles;
+        assert!(
+            !roles.contains(&ExtrusionRole::InnerWall),
+            "inner walls must still be stripped; roles={roles:?}"
+        );
+        assert!(
+            roles.contains(&ExtrusionRole::GapFill),
+            "gap fill must be kept when there is no solid bottom cap; roles={roles:?}"
         );
     }
 }

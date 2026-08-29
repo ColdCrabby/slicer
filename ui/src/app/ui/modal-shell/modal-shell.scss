@@ -5,6 +5,10 @@
   display: grid;
   place-items: center;
   padding: var(--spacing-xl);
+  padding-top: calc(var(--spacing-xl) + env(safe-area-inset-top, 0px));
+  padding-right: calc(var(--spacing-xl) + env(safe-area-inset-right, 0px));
+  padding-bottom: calc(var(--spacing-xl) + env(safe-area-inset-bottom, 0px));
+  padding-left: calc(var(--spacing-xl) + env(safe-area-inset-left, 0px));
 }
 
 .modal__scrim {
@@ -18,12 +22,24 @@
   display: flex;
   flex-direction: column;
   width: min(560px, 100%);
-  max-height: min(720px, 88vh);
+  max-height: min(
+    720px,
+    calc(100vh - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px) - 64px)
+  );
   background: var(--color-surface);
   border: 1px solid var(--color-border);
   border-radius: var(--radius-lg);
   box-shadow: var(--shadow-lg);
   overflow: hidden;
+}
+
+@supports (height: 100svh) {
+  .modal {
+    max-height: min(
+      720px,
+      calc(100svh - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px) - 64px)
+    );
+  }
 }
 
 .modal__header {

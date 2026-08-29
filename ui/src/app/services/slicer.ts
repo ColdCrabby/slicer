@@ -1,4 +1,6 @@
-import { Injectable, computed, inject, signal } from '@angular/core';
+import { save } from '@tauri-apps/plugin-dialog';
+import { writeFile } from '@tauri-apps/plugin-fs';
+import { Injectable, computed, effect, inject, signal, untracked } from '@angular/core';
 import { environment } from '../../environments/environment';
 import { SlicingParams } from '../../generated/slicer-engine-ws-client-message-v1';
 import type { ProfileSelection } from '../../generated/slicer-engine-ws-client-message-v1';
@@ -7,6 +9,7 @@ import { RuntimeOrchestrator } from '../runtime/application/runtime-orchestrator
 import { RuntimeSession } from '../runtime/application/runtime-session';
 import { RuntimeHistorySession } from '../runtime/domain/history-models';
 import { RuntimeMode } from '../runtime/domain/runtime-mode';
+import { isTauriMobile } from '../runtime/domain/runtime-mode.util';
 import { RuntimeMeshInput, RuntimeSceneSnapshot } from '../runtime/domain/scene-commands';
 import { createRuntime } from '../runtime/factory/runtime-factory';
 import { RuntimeEvent } from '../runtime/ports/runtime-events';
@@ -16,6 +19,13 @@ import { SceneEngine } from './scene-engine';
 import { AppVersion } from './app-version';
 import { ConnectionStatus, SlicerConnection } from './slicer-connection';
 import { SlicerFile, UploadResponse } from './slicer-file';
+import {
+  ViewerControl,
+  type ThumbnailColorMode,
+  type ThumbnailTheme,
+  type ThumbnailView,
+} from './viewer-control';
+import { WorkplateNames } from './workplate-names';
 
 /** Human-readable label for each pipeline phase. */
 export const PHASE_LABELS: Record<string, string> = {
@@ -73,6 +83,7 @@ const PHASE_TOTAL_WEIGHT = Object.values(PHASE_WEIGHTS).reduce((a, b) => a + b, 
 
 /** Maximum time (ms) to wait for a slice operation before timing out. */
 const SLICE_TIMEOUT_MS = 30 * 60 * 1000; // 30 minutes
+const DEFAULT_THUMBNAIL_SIZE_PX = 320;
 
 export type SlicerStatus = 'idle' | 'ready' | 'uploading' | 'slicing' | 'done' | 'error';
 
@@ -96,6 +107,8 @@ export class Slicer {
   private readonly sceneEngine = inject(SceneEngine);
   private readonly activeSelection = inject(ActiveSelection);
   private readonly appVersion = inject(AppVersion);
+  private readonly viewerControl = inject(ViewerControl);
+  private readonly workplateNames = inject(WorkplateNames);
   private readonly runtimeMode = this.resolveRuntimeMode();
   private readonly runtime = createRuntime({
     mode: this.runtimeMode,
@@ -195,6 +208,15 @@ export class Slicer {
   private objectUrl: string | null = null;
 
   /**
+   * The workplate uuid the transient slice state currently belongs to.
+   * `undefined` until the first observation so the initial value is adopted
+   * without flushing anything. A change to any *other* value means the active
+   * plate switched (new upload, opened history entry, deep-link) and the
+   * previous plate's slice results must be discarded.
+   */
+  private lastWorkplateUuid: string | null | undefined = undefined;
+
+  /**
    * Overall slice progress 0–100.
    *
    * - When `status === 'done'`, always returns 100.
@@ -250,6 +272,29 @@ export class Slicer {
         ...log,
         `[error] Runtime initialization failed: ${error instanceof Error ? error.message : String(error)}`,
       ]);
+    });
+
+    // Forget the previous plate's slice the instant the active workplate
+    // changes. `startWorkplate` / `resetWorkplate` also flush imperatively,
+    // but opening a history entry or deep-linking to `/slice/:uuid` swaps the
+    // workplate without going through them — this reactive guard keeps the
+    // download URL, progress rail, thumbnail source and view mode from leaking
+    // across plates in those paths too. A reslice keeps the same uuid, so it
+    // never fires mid-job.
+    effect(() => {
+      const uuid = this.currentRequestUuid();
+      untracked(() => {
+        if (this.lastWorkplateUuid === undefined) {
+          this.lastWorkplateUuid = uuid;
+          return;
+        }
+        if (uuid === this.lastWorkplateUuid) {
+          return;
+        }
+        this.lastWorkplateUuid = uuid;
+        this.clearSliceState();
+        this.viewerControl.viewMode.set('model');
+      });
     });
   }
 
@@ -356,12 +401,14 @@ export class Slicer {
     if (!url) {
       return;
     }
-    const filename =
-      this.selectedFile()?.name.replace(/\.(stl|obj|3mf)$/i, '.gcode') ?? 'output.gcode';
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = filename;
-    link.click();
+    void this.downloadFromUrl(url, this.currentGcodeFilename());
+  }
+
+  currentGcodeFilename(): string {
+    return this.workplateNames.gcodeFilenameFor(
+      this.currentRequestUuid(),
+      this.slicerFile.sourceFilename() ?? this.selectedFile()?.name,
+    );
   }
 
   selectFile(file: File): void {
@@ -401,6 +448,11 @@ export class Slicer {
   }
 
   async startWorkplate(file: File): Promise<WorkplateStart> {
+    // Clear every trace of the previous plate (file, slice results, scene
+    // objects, view mode) before adopting the new model so nothing bleeds
+    // across — the old download URL, thumbnail source or a leftover scene
+    // object would otherwise ride along into the new workplate.
+    await this.resetWorkplate();
     this.selectFile(file);
 
     if (this.runtimeMode !== 'cloud') {
@@ -426,7 +478,7 @@ export class Slicer {
    * The diff is every live setting that differs from the resolved profile
    * baseline; the engine re-resolves `profiles → overrides` authoritatively.
    */
-  private buildProfileSelection(): ProfileSelection {
+  private buildProfileSelection(extraOverrides: Record<string, unknown> = {}): ProfileSelection {
     const baseline = (this.activeSelection.sliceParams() ?? {}) as Record<string, unknown>;
     const settings = this.settings() as unknown as Record<string, unknown>;
     const overrides: Record<string, unknown> = {};
@@ -434,6 +486,9 @@ export class Slicer {
       if (JSON.stringify(settings[key]) !== JSON.stringify(baseline[key])) {
         overrides[key] = settings[key];
       }
+    }
+    for (const [key, value] of Object.entries(extraOverrides)) {
+      overrides[key] = value;
     }
     return {
       printer: this.activeSelection.printer(),
@@ -478,13 +533,46 @@ export class Slicer {
     this.sliceAbort?.abort();
     this.sliceAbort = new AbortController();
 
+    // Hoisted so the catch block can tell a genuine failure from one caused by
+    // this job being superseded (a workplate switch cancels it, nulling
+    // `activeSliceId`). Assigned once the job is actually dispatched below.
+    let sliceId: string | null = null;
+
     try {
       const model = await this.readRuntimeMeshInput(file);
       const scene = await this.ensureRuntimeReadyForSlice(model);
+      const requestSettings = {
+        ...(this.settings() as unknown as Record<string, unknown>),
+      };
+      const thumbnailOverrides: Record<string, unknown> = {};
+
+      if (this.thumbnailEnabled(requestSettings)) {
+        const thumbnail = await this.viewerControl.captureSliceThumbnail({
+          sizePx: this.thumbnailSizePx(requestSettings),
+          view: this.thumbnailView(requestSettings),
+          theme: this.thumbnailTheme(requestSettings),
+          colorMode: this.thumbnailColorMode(requestSettings),
+          customColor: this.thumbnailCustomColor(requestSettings),
+        });
+        if (thumbnail) {
+          requestSettings['thumbnail_size_px'] = thumbnail.sizePx;
+          requestSettings['thumbnail_png_base64'] = thumbnail.pngBase64;
+          thumbnailOverrides['thumbnail_size_px'] = thumbnail.sizePx;
+          thumbnailOverrides['thumbnail_png_base64'] = thumbnail.pngBase64;
+        } else {
+          this.outputLog.update((log) => [
+            ...log,
+            '[warn] Thumbnail capture unavailable — slicing without embedded preview image.',
+          ]);
+        }
+      } else {
+        delete requestSettings['thumbnail_png_base64'];
+      }
+      const profileSelection = this.buildProfileSelection(thumbnailOverrides);
 
       this.status.set('slicing');
       this.sliceStartedAt = performance.now();
-      const sliceId = this.createSliceId();
+      sliceId = this.createSliceId();
       this.activeSliceId = sliceId;
       this.outputLog.update((log) => [...log, `Starting slice job (${this.runtimeMode})…`]);
 
@@ -509,17 +597,31 @@ export class Slicer {
         request_uuid: this.slicerFile.requestUuid() ?? undefined,
         model,
         scene,
-        settings: this.settings() as unknown as Record<string, unknown>,
-        profiles: this.buildProfileSelection(),
+        settings: requestSettings,
+        profiles: profileSelection,
       });
 
+      // A workplate switch (opening another plate / history entry) cancels the
+      // active slice via `clearSliceState`, which nulls `activeSliceId`. If that
+      // happened while we were awaiting, this job has been superseded — bail out
+      // so its results are never published onto whatever plate is now open.
+      if (this.activeSliceId !== sliceId) {
+        return;
+      }
+
+      const preview = await this.orchestrator.getPreviewSource(result.sliceId);
+      if (this.activeSliceId !== sliceId) {
+        return;
+      }
+
+      // No awaits below this point — publish every result synchronously so a
+      // concurrent workplate switch cannot interleave a partial update.
       // Record which objects this slice was produced from so the viewer can
       // preserve its layer/progress/coloring when the same scene is resliced.
       this.slicedObjectIds.set(scene.objects.map((object) => object.id));
       // Snapshot the scene+settings signature so we can detect later drift.
       this.slicedSignature.set(this.sceneSignature());
 
-      const preview = await this.orchestrator.getPreviewSource(result.sliceId);
       if (preview.kind === 'download-url') {
         this.setDownloadUrl(preview.url);
       }
@@ -551,6 +653,12 @@ export class Slicer {
       ]);
       this.activeSliceId = null;
     } catch (error) {
+      // Swallow the failure of a slice that was superseded by a workplate
+      // switch — surfacing an error here would wrongly mark the new plate as
+      // failed.
+      if (this.activeSliceId !== sliceId) {
+        return;
+      }
       this.status.set('error');
       const errorMsg = error instanceof Error ? error.message : String(error);
       this.outputLog.update((log) => [...log, `[error] Slice failed: ${errorMsg}`]);
@@ -559,20 +667,47 @@ export class Slicer {
     }
   }
 
-  reset(): void {
+  /**
+   * Discard the transient results of the current plate — the in-flight job,
+   * slice output, progress timings, download URL and the sliced-scene
+   * signatures — without touching the selected file's identity. Safe to call
+   * repeatedly. The G-code preview clears itself reactively off the workplate
+   * uuid, so it is intentionally not touched here (which would also introduce
+   * a circular dependency).
+   */
+  private clearSliceState(): void {
     if (this.activeSliceId) {
       void this.orchestrator.cancel(this.activeSliceId);
       this.activeSliceId = null;
     }
-    this.pendingNativeMeshInput = null;
-    this.slicerFile.reset();
-    this.status.set('idle');
+    this.status.set(this.selectedFile() ? 'ready' : 'idle');
     this.outputLog.set([]);
     this.phaseTimings.set([]);
     this.currentPhase.set(null);
+    this.sliceStartedAt = null;
+    this.lastSliceElapsedMs.set(null);
     this.setDownloadUrl(null);
     this.slicedObjectIds.set([]);
     this.slicedSignature.set(null);
+  }
+
+  reset(): void {
+    this.pendingNativeMeshInput = null;
+    this.slicerFile.reset();
+    this.clearSliceState();
+    this.viewerControl.viewMode.set('model');
+  }
+
+  /**
+   * Full teardown for opening a brand-new or empty plate: drops the file and
+   * all slice results (via {@link reset}) and empties the scene engine so no
+   * geometry from the previous plate survives. Every "start a workplate" and
+   * "open an empty plate" entry point funnels through here so the reset is
+   * applied uniformly.
+   */
+  async resetWorkplate(): Promise<void> {
+    this.reset();
+    await this.sceneEngine.clear();
   }
 
   getHistory(): Promise<RuntimeHistorySession[]> {
@@ -590,10 +725,15 @@ export class Slicer {
   }
 
   async downloadHistorySession(session: RuntimeHistorySession): Promise<void> {
+    const filename = this.workplateNames.gcodeFilenameFor(
+      session.request_uuid,
+      session.original_filename,
+    );
+
     if (!session.download_url) {
       const preview = await this.orchestrator.getPreviewSource(session.request_uuid);
       if (preview.kind === 'download-url') {
-        this.downloadFromUrl(preview.url, session.original_filename ?? undefined);
+        await this.downloadFromUrl(preview.url, filename);
         return;
       }
       if (preview.kind === 'gcode-inline') {
@@ -602,7 +742,7 @@ export class Slicer {
             type: 'text/plain;charset=utf-8',
           }),
         );
-        this.downloadFromUrl(url, session.original_filename ?? undefined);
+        await this.downloadFromUrl(url, filename);
         URL.revokeObjectURL(url);
         return;
       }
@@ -613,17 +753,87 @@ export class Slicer {
       return;
     }
 
-    this.downloadFromUrl(session.download_url, session.original_filename ?? undefined);
+    await this.downloadFromUrl(session.download_url, filename);
   }
 
-  private downloadFromUrl(url: string, originalFilename?: string): void {
-    const filename =
-      (originalFilename as string | null | undefined)?.replace(/\.(stl|obj|3mf)$/i, '.gcode') ??
-      'output.gcode';
+  private async downloadFromUrl(url: string, filename: string): Promise<void> {
+    // iOS has no Save-As panel. Its export idiom is the share sheet, which lets
+    // the user drop the file into Files, AirDrop it, mail it — and, crucially,
+    // performs the copy itself. Tauri's `save()` does exist on iOS, but it
+    // exports an *empty* placeholder and hands back a URL outside the sandbox,
+    // so the follow-up write lands nowhere and the user gets a 0-byte file.
+    if (isTauriMobile()) {
+      await this.shareViaSystemSheet(url, filename);
+      return;
+    }
+
+    if (this.runtimeMode === 'native') {
+      // Tauri's webview does not reliably honour `<a download>` against a
+      // custom `asset://` URL (it's meant for `<img>`/`<video>` src, not
+      // forcing a save) — depending on OS/WebView the link just navigates or
+      // is silently ignored instead of prompting a save. Use the native
+      // "Save As" dialog + filesystem write instead: fetch the bytes (works
+      // for both `asset://` URLs and blob URLs) and write them to the
+      // user-chosen path.
+      try {
+        const destination = await save({
+          defaultPath: filename,
+          filters: [{ name: 'G-code', extensions: ['gcode', 'gco', 'g'] }],
+        });
+        if (!destination) {
+          return; // user cancelled the dialog
+        }
+        const bytes = new Uint8Array(await (await fetch(url)).arrayBuffer());
+        await writeFile(destination, bytes);
+        this.notifications.success('Saved', `G-code saved to ${destination}`);
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        this.notifications.error('Save failed', message);
+      }
+      return;
+    }
+
     const link = document.createElement('a');
     link.href = url;
     link.download = filename;
     link.click();
+  }
+
+  /**
+   * iOS export: stage the G-code inside the app's own cache directory, then
+   * hand that file to `UIActivityViewController`.
+   *
+   * Staging is what makes this work — the sandbox is always writable, whereas
+   * any location the user picks is not, and the share sheet needs a real file
+   * on disk rather than the `asset://`/blob URL the UI holds.
+   */
+  private async shareViaSystemSheet(url: string, filename: string): Promise<void> {
+    try {
+      const [{ invoke }, { appCacheDir, join }, { mkdir, writeFile: writeFsFile }] =
+        await Promise.all([
+          import('@tauri-apps/api/core'),
+          import('@tauri-apps/api/path'),
+          import('@tauri-apps/plugin-fs'),
+        ]);
+
+      const directory = await appCacheDir();
+      await mkdir(directory, { recursive: true }).catch(() => undefined);
+      const staged = await join(directory, filename);
+
+      const bytes = new Uint8Array(await (await fetch(url)).arrayBuffer());
+      await writeFsFile(staged, bytes);
+
+      // Anchor the iPad popover near the top-right, where the Download control
+      // lives. An unanchored share sheet raises and terminates the app.
+      await invoke('share_file', {
+        path: staged,
+        x: Math.round(window.innerWidth * 0.9),
+        y: Math.round(window.innerHeight * 0.1),
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      this.notifications.error('Share failed', message);
+    }
   }
 
   private resolveRuntimeMode(): RuntimeMode {
@@ -720,6 +930,52 @@ export class Slicer {
       return '3mf';
     }
     return 'stl';
+  }
+
+  private thumbnailEnabled(settings: Record<string, unknown>): boolean {
+    const raw = settings['thumbnail_enabled'];
+    if (raw === undefined || raw === null) {
+      return true;
+    }
+    return raw === true || raw === 'true' || raw === 1;
+  }
+
+  private thumbnailSizePx(settings: Record<string, unknown>): number {
+    const raw = Number(settings['thumbnail_size_px']);
+    if (!Number.isFinite(raw)) {
+      return DEFAULT_THUMBNAIL_SIZE_PX;
+    }
+    return Math.max(64, Math.min(1024, Math.round(raw)));
+  }
+
+  private thumbnailView(settings: Record<string, unknown>): ThumbnailView {
+    const raw = settings['thumbnail_view'];
+    switch (raw) {
+      case 'front':
+      case 'rear':
+      case 'left':
+      case 'right':
+      case 'top':
+      case 'isometric':
+        return raw;
+      default:
+        return 'isometric';
+    }
+  }
+
+  private thumbnailTheme(settings: Record<string, unknown>): ThumbnailTheme {
+    const raw = settings['thumbnail_theme'];
+    return raw === 'dark' || raw === 'transparent' ? raw : 'light';
+  }
+
+  private thumbnailColorMode(settings: Record<string, unknown>): ThumbnailColorMode {
+    const raw = settings['thumbnail_color_mode'];
+    return raw === 'generic' || raw === 'custom' ? raw : 'filament';
+  }
+
+  private thumbnailCustomColor(settings: Record<string, unknown>): string {
+    const raw = settings['thumbnail_custom_color'];
+    return typeof raw === 'string' && /^#[0-9a-fA-F]{6}$/.test(raw) ? raw : '#e0912f';
   }
 
   private setDownloadUrl(url: string | null): void {

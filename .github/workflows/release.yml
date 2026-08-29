@@ -24,7 +24,7 @@ jobs:
       version: ${{ steps.meta.outputs.version }}
       prerelease: ${{ steps.meta.outputs.prerelease }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
 
@@ -41,11 +41,29 @@ jobs:
           fi
 
       - name: Extract release notes from CHANGELOG.md
+        env:
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
         run: |
           if bash scripts/extract-changelog.sh "${{ steps.meta.outputs.version }}" > RELEASE_NOTES.md; then
             echo "Using CHANGELOG.md section for ${{ steps.meta.outputs.version }}"
           else
             echo "No CHANGELOG.md section found — falling back to auto-generated notes." | tee RELEASE_NOTES.md
+          fi
+          # Unsigned macOS bundles are quarantined on download ("damaged"); tell
+          # users how to launch them. Skipped once a real Developer ID is set.
+          if [[ -z "${APPLE_SIGNING_IDENTITY}" ]]; then
+            {
+              echo ""
+              echo "---"
+              echo ""
+              echo "### 🍎 macOS"
+              echo ""
+              echo "This build is unsigned (no paid Apple Developer ID), so macOS Gatekeeper marks the downloaded app as \"damaged\" — **right-click → Open will not clear this**. After moving **Cold Crabby Desktop** to Applications, run this once in Terminal to strip the quarantine flag and launch it:"
+              echo ""
+              echo '```bash'
+              echo 'xattr -cr "/Applications/Cold Crabby Desktop.app"'
+              echo '```'
+            } >> RELEASE_NOTES.md
           fi
           cat RELEASE_NOTES.md
 
@@ -87,7 +105,7 @@ jobs:
       # Guarantee the baked-in version matches the tag even on shallow checkouts.
       SLICER_VERSION: ${{ needs.create-release.outputs.version }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
       - uses: dtolnay/rust-toolchain@stable
@@ -139,17 +157,28 @@ jobs:
     env:
       SLICER_VERSION: ${{ needs.create-release.outputs.version }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: wasm32-unknown-unknown
+      - name: Add macOS universal build targets
+        if: runner.os == 'macOS'
+        run: rustup target add x86_64-apple-darwin aarch64-apple-darwin
       - uses: Swatinem/rust-cache@v2
-      - uses: pnpm/action-setup@v4
-      - uses: actions/setup-node@v4
         with:
-          node-version: 22
+          # ui-desktop/src-tauri is a *separate* Cargo workspace; cache both
+          # target trees (and path-dep crates) so the desktop build reuses work.
+          workspaces: |
+            . -> target
+            ui-desktop/src-tauri -> target
+          cache-all-crates: "true"
+          cache-on-failure: "true"
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .node-version
           cache: pnpm
 
       - name: Install Linux system dependencies
@@ -159,8 +188,11 @@ jobs:
           sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev \
             librsvg2-dev patchelf libgtk-3-dev
 
+      # Prebuilt binary — compiling wasm-bindgen-cli from source cost minutes.
       - name: Install wasm-bindgen-cli
-        run: cargo install wasm-bindgen-cli --version 0.2.126 --locked
+        uses: taiki-e/install-action@v2
+        with:
+          tool: wasm-bindgen-cli@0.2.126
 
       - name: Install workspace dependencies
         run: pnpm install --frozen-lockfile
@@ -168,22 +200,73 @@ jobs:
       - name: Sync desktop bundle version with the tag
         shell: bash
         run: |
+          # Windows MSI/WiX only accepts a numeric-only pre-release identifier,
+          # so strip any `-rc.N` suffix for the *installer* version. The
+          # user-facing version still comes from SLICER_VERSION at build time.
           version="${{ needs.create-release.outputs.version }}"
-          node -e "const f='ui-desktop/src-tauri/tauri.conf.json';const c=require('./'+f);c.version=process.argv[1];require('fs').writeFileSync(f,JSON.stringify(c,null,2)+'\n');" "${version}"
+          bundle_version="${version%%-*}"
+          node -e "const f='ui-desktop/src-tauri/tauri.conf.json';const c=require('./'+f);c.version=process.argv[1];require('fs').writeFileSync(f,JSON.stringify(c,null,2)+'\n');" "${bundle_version}"
 
       - name: Generate WASM bindings and schemas
         run: pnpm run hydrate
 
       - name: Build desktop bundles
-        run: pnpm --filter slicer-ui-desktop build
+        shell: bash
+        env:
+          # Ad-hoc sign by default so the macOS .app launches (after
+          # de-quarantine); switch to real Developer ID + notarization
+          # automatically when these repo secrets are configured.
+          #
+          # GitHub Actions always injects `secrets.X` as an *empty string*
+          # env var when the secret doesn't exist (never unset). tauri-bundler
+          # checks these with Rust's `var_os`, which treats `Some("")` as
+          # "present" -- an empty APPLE_CERTIFICATE then makes it try to
+          # import a blank keychain certificate and fail with
+          # `SecKeychainItemImport: One or more parameters ... not valid`.
+          # So these must only be exported when actually non-empty (below),
+          # not assigned unconditionally here.
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY || '-' }}
+        run: |
+          # Only export the certificate/notarization secrets when they are
+          # actually configured -- see the note above the env: block.
+          if [[ -n "${{ secrets.APPLE_CERTIFICATE }}" ]]; then
+            export APPLE_CERTIFICATE="${{ secrets.APPLE_CERTIFICATE }}"
+            export APPLE_CERTIFICATE_PASSWORD="${{ secrets.APPLE_CERTIFICATE_PASSWORD }}"
+          fi
+          if [[ -n "${{ secrets.APPLE_ID }}" ]]; then
+            export APPLE_ID="${{ secrets.APPLE_ID }}"
+            export APPLE_PASSWORD="${{ secrets.APPLE_PASSWORD }}"
+            export APPLE_TEAM_ID="${{ secrets.APPLE_TEAM_ID }}"
+          fi
+
+          if [[ "$RUNNER_OS" == "macOS" ]]; then
+            # One universal binary so the DMG runs on both Intel and Apple
+            # Silicon (macos-latest runners are arm64-only otherwise).
+            pnpm --filter slicer-ui-desktop exec tauri build --target universal-apple-darwin
+          else
+            pnpm --filter slicer-ui-desktop build
+          fi
 
       - name: Upload desktop bundles to release
         env:
           GH_TOKEN: ${{ github.token }}
         shell: bash
         run: |
-          shopt -s globstar nullglob
-          assets=(ui-desktop/src-tauri/target/release/bundle/**/*.{dmg,app.tar.gz,AppImage,deb,rpm,msi,exe})
+          # macOS bundles land under the universal target triple; other OSes use
+          # the default target dir. macOS ships bash 3.2 (no globstar), so
+          # enumerate with find instead of a `**` glob.
+          if [[ "$RUNNER_OS" == "macOS" ]]; then
+            bundle_dir="ui-desktop/src-tauri/target/universal-apple-darwin/release/bundle"
+          else
+            bundle_dir="ui-desktop/src-tauri/target/release/bundle"
+          fi
+          assets=()
+          while IFS= read -r asset; do
+            assets+=("$asset")
+          done < <(find "$bundle_dir" -type f \( \
+            -name '*.dmg' -o -name '*.app.tar.gz' -o -name '*.AppImage' \
+            -o -name '*.deb' -o -name '*.rpm' -o -name '*.msi' -o -name '*.exe' \
+          \))
           if [[ ${#assets[@]} -eq 0 ]]; then
             echo "No desktop bundles found to upload." >&2
             exit 0

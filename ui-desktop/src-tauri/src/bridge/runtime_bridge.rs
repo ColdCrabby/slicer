@@ -46,6 +46,15 @@ struct SceneObjectPayload {
 
 // Managed application state
 
+/// A previously-generated slice keyed by content hash, so an identical scene +
+/// settings can skip the pipeline entirely (mirrors the cloud server's
+/// `gcode_cache`).
+#[derive(Clone)]
+struct CachedSlice {
+    gcode_path: String,
+    layer_count: usize,
+}
+
 /// Shared state managed by Tauri across all commands.
 pub struct AppState {
     /// Path of the most recently generated GCode file on disk.
@@ -54,6 +63,10 @@ pub struct AppState {
     pub gcode_path_by_slice: Arc<Mutex<HashMap<String, String>>>,
     pub history_sessions: Arc<Mutex<Vec<HistorySession>>>,
     pub cancel_flag: Arc<AtomicBool>,
+    /// Content hash → cached slice result. Lets a re-slice of an identical
+    /// scene + settings reuse the stored G-code instead of re-running the
+    /// pipeline, matching the cloud server's skip-on-cache-hit behaviour.
+    gcode_cache: Arc<Mutex<HashMap<String, CachedSlice>>>,
 }
 
 impl AppState {
@@ -63,6 +76,7 @@ impl AppState {
             gcode_path_by_slice: Arc::new(Mutex::new(HashMap::new())),
             history_sessions: Arc::new(Mutex::new(Vec::new())),
             cancel_flag: Arc::new(AtomicBool::new(false)),
+            gcode_cache: Arc::new(Mutex::new(HashMap::new())),
         }
     }
 }
@@ -85,6 +99,7 @@ pub async fn slice_start(
     let last_gcode_path = Arc::clone(&state.last_gcode_path);
     let gcode_path_by_slice = Arc::clone(&state.gcode_path_by_slice);
     let history_sessions = Arc::clone(&state.history_sessions);
+    let gcode_cache = Arc::clone(&state.gcode_cache);
 
     tauri::async_runtime::spawn_blocking(move || {
         let payload: SliceStartPayload =
@@ -94,21 +109,57 @@ pub async fn slice_start(
         let logger = TauriAppLogger::new(app.clone(), cancel_flag.clone());
         logger.log_info(&format!("slice_id={slice_id}"));
 
-        // Resolve mesh from file path. Rust reads the file directly so that
+        // Resolve the model path up front. Rust reads the file directly so that
         // no bytes cross the IPC boundary.
         let file_path = payload
             .file_path
             .ok_or_else(|| "slice requires a file_path".to_string())?;
-        let mesh = load_model_from_path(&file_path, &logger)?;
         let original_filename = std::path::Path::new(&file_path)
             .file_name()
             .map(|n| n.to_string_lossy().to_string());
 
-        logger.log_info(&format!("mesh loaded: {} faces", mesh.faces.len()));
-
         let params: slicer_engine::settings::params::SlicingParams =
             serde_json::from_value(payload.settings)
                 .map_err(|e| format!("invalid settings: {e}"))?;
+
+        // Cache lookup: an identical scene + settings (+ engine version + source
+        // file identity) sliced before can reuse the stored G-code and skip the
+        // whole pipeline — including the mesh parse — exactly like the cloud
+        // server's `gcode_cache`. This is what keeps repeated desktop slices as
+        // fast as cloud.
+        let cache_key = compute_slice_cache_key(&params, &file_path, &payload.scene);
+        if let Some(hit) = gcode_cache
+            .lock()
+            .ok()
+            .and_then(|cache| cache.get(&cache_key).cloned())
+        {
+            if std::path::Path::new(&hit.gcode_path).exists() {
+                logger.log_info("cache hit: reusing previously-sliced G-code");
+                register_slice_result(
+                    &slice_id,
+                    &hit.gcode_path,
+                    hit.layer_count,
+                    original_filename.clone(),
+                    &last_gcode_path,
+                    &gcode_path_by_slice,
+                    &history_sessions,
+                );
+                return Ok(json!({
+                    "ok": true,
+                    "sliceId": slice_id,
+                    "layer_count": hit.layer_count,
+                    "gcode_path": hit.gcode_path,
+                    "cached": true,
+                }));
+            }
+            // Stale entry (file cleaned up) — drop it and re-slice.
+            if let Ok(mut cache) = gcode_cache.lock() {
+                cache.remove(&cache_key);
+            }
+        }
+
+        let mesh = load_model_from_path(&file_path, &logger)?;
+        logger.log_info(&format!("mesh loaded: {} faces", mesh.faces.len()));
 
         let combined = bake_scene(&mesh, payload.scene, &logger);
 
@@ -140,23 +191,26 @@ pub async fn slice_start(
         let gcode_path = gcode_file.to_string_lossy().to_string();
         logger.log_debug(&format!("GCode written to: {gcode_path}"));
 
-        *last_gcode_path.lock().unwrap() = Some(gcode_path.clone());
-        gcode_path_by_slice
-            .lock()
-            .unwrap()
-            .insert(slice_id.clone(), gcode_path.clone());
-
-        let now = chrono::Utc::now().to_rfc3339();
-        history_sessions.lock().unwrap().insert(
-            0,
-            HistorySession {
-                request_uuid: slice_id.clone(),
-                created_at: now,
-                original_filename: original_filename.clone(),
-                layer_count: Some(layer_count as i32),
-                download_url: String::new(),
-            },
+        register_slice_result(
+            &slice_id,
+            &gcode_path,
+            layer_count,
+            original_filename.clone(),
+            &last_gcode_path,
+            &gcode_path_by_slice,
+            &history_sessions,
         );
+
+        // Remember this result so an identical re-slice skips the pipeline.
+        if let Ok(mut cache) = gcode_cache.lock() {
+            cache.insert(
+                cache_key,
+                CachedSlice {
+                    gcode_path: gcode_path.clone(),
+                    layer_count,
+                },
+            );
+        }
 
         Ok(json!({
             "ok": true,
@@ -173,6 +227,93 @@ pub async fn slice_start(
 pub fn slice_cancel(state: &AppState) -> Result<Value, String> {
     state.cancel_flag.store(true, Ordering::SeqCst);
     Ok(json!({ "ok": true }))
+}
+
+/// Register a finished (or cache-reused) slice in the shared state: mark it the
+/// most-recent result, map its `slice_id` to the G-code path, and prepend a
+/// history entry. Shared by the fresh-slice and cache-hit paths so both record
+/// identical bookkeeping.
+#[allow(clippy::too_many_arguments)]
+fn register_slice_result(
+    slice_id: &str,
+    gcode_path: &str,
+    layer_count: usize,
+    original_filename: Option<String>,
+    last_gcode_path: &Arc<Mutex<Option<String>>>,
+    gcode_path_by_slice: &Arc<Mutex<HashMap<String, String>>>,
+    history_sessions: &Arc<Mutex<Vec<HistorySession>>>,
+) {
+    if let Ok(mut guard) = last_gcode_path.lock() {
+        *guard = Some(gcode_path.to_string());
+    }
+    if let Ok(mut guard) = gcode_path_by_slice.lock() {
+        guard.insert(slice_id.to_string(), gcode_path.to_string());
+    }
+    if let Ok(mut guard) = history_sessions.lock() {
+        guard.insert(
+            0,
+            HistorySession {
+                request_uuid: slice_id.to_string(),
+                created_at: chrono::Utc::now().to_rfc3339(),
+                original_filename,
+                layer_count: Some(layer_count as i32),
+                download_url: String::new(),
+            },
+        );
+    }
+}
+
+/// Hash `settings + scene + engine version + source-file identity` into a stable
+/// cache key. Mirrors the cloud server's `compute_slice_cache_key`
+/// ([src/server/ws_session.rs]) so the two runtimes cache on the same inputs;
+/// the file's length + mtime stand in for the server's content-addressed upload
+/// token, so editing the source model on disk busts the entry.
+fn compute_slice_cache_key(
+    params: &slicer_engine::settings::params::SlicingParams,
+    file_path: &str,
+    scene: &Option<SceneSnapshotPayload>,
+) -> String {
+    let mut canonical = String::new();
+    canonical.push_str("v=");
+    canonical.push_str(slicer_engine::version::VERSION);
+    canonical.push_str(";params=");
+    canonical.push_str(&serde_json::to_string(params).unwrap_or_default());
+
+    canonical.push_str(";file=");
+    canonical.push_str(file_path);
+    if let Ok(meta) = std::fs::metadata(file_path) {
+        canonical.push_str(&format!("|len={}", meta.len()));
+        if let Ok(mtime) = meta.modified() {
+            if let Ok(dur) = mtime.duration_since(std::time::UNIX_EPOCH) {
+                canonical.push_str(&format!("|mtime={}", dur.as_nanos()));
+            }
+        }
+    }
+
+    canonical.push_str(";scene=");
+    if let Some(scene) = scene {
+        for obj in &scene.objects {
+            canonical.push_str(&format!(
+                "[{:?}|{:?}|{:?}]",
+                obj.translation, obj.euler_xyz_deg, obj.scale
+            ));
+        }
+    }
+
+    format!("{:016x}", fnv1a_64(canonical.as_bytes()))
+}
+
+/// FNV-1a 64-bit hash — deterministic across runs and platforms (unlike
+/// `std::hash::DefaultHasher`, whose output is not stability-guaranteed).
+fn fnv1a_64(bytes: &[u8]) -> u64 {
+    const OFFSET: u64 = 0xcbf2_9ce4_8422_2325;
+    const PRIME: u64 = 0x0000_0100_0000_01b3;
+    let mut hash = OFFSET;
+    for &b in bytes {
+        hash ^= b as u64;
+        hash = hash.wrapping_mul(PRIME);
+    }
+    hash
 }
 
 pub fn preview_get_source(state: &AppState, payload: Option<Value>) -> Result<Value, String> {

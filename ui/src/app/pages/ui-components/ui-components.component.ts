@@ -3,7 +3,6 @@ import { ChangeDetectionStrategy, Component, inject, signal } from '@angular/cor
 import type { OnDestroy } from '@angular/core';
 import { Card } from '../../components/card/card';
 import { ConnectionState } from '../../components/connection-state/connection-state';
-import { Logo } from '../../components/logo/logo';
 import { Dialog } from '../../services/dialog';
 import { NotificationService } from '../../services/notifications';
 import { Badge } from '../../shared/badge/badge';
@@ -47,7 +46,6 @@ import { Switch } from '../../ui/switch/switch';
     RadioButtonValue,
     StackWhenCramped,
     Card,
-    Logo,
     Switch,
     Slider,
     RangeSlider,
@@ -155,7 +153,7 @@ export class UiComponentsPage implements OnDestroy {
     }, 220);
   }
 
-  openConfirmDialog(): void {
+  openWarningConfirmDialog(): void {
     this.#dialog
       .confirm({
         title: 'Discard changes?',
@@ -166,6 +164,24 @@ export class UiComponentsPage implements OnDestroy {
       .subscribe((confirmed) => {
         if (confirmed) {
           this.#notifications.success('Changes discarded');
+        }
+      });
+  }
+
+  openDangerConfirmDialog(): void {
+    this.#dialog
+      .confirm({
+        title: 'Delete printer "Voron 2.4"?',
+        message: 'This printer profile will be permanently deleted.',
+        type: 'danger',
+        confirmLabel: 'Delete',
+      })
+      .subscribe((confirmed) => {
+        if (confirmed) {
+          this.#notifications.warning(
+            'Delete confirmed',
+            'Demo only: this action does not remove anything.',
+          );
         }
       });
   }

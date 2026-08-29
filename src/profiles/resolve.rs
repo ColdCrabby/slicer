@@ -60,9 +60,25 @@ pub fn resolve(
     overrides: &serde_json::Value,
 ) -> Result<SlicingParams, serde_json::Error> {
     let mut base = serde_json::to_value(SlicingParams::default())?;
+
+    // Fold the filament profile's typed *domain* density into its sparse
+    // `params` overlay so it resolves at the **filament** precedence layer —
+    // process and the user's overrides can still win. Without this the weight in
+    // the metadata footer would always use the default (PLA) density regardless
+    // of the chosen material. `entry` only inserts when the profile's params (or
+    // a downstream layer) didn't already carry it.
+    let mut filament_overlay = filament.params.clone();
+    if !filament_overlay.is_object() {
+        filament_overlay = serde_json::json!({});
+    }
+    if let Some(fmap) = filament_overlay.as_object_mut() {
+        fmap.entry("filament_density_g_cm3")
+            .or_insert_with(|| serde_json::Value::from(filament.density_g_cm3));
+    }
+
     for overlay in [
         &printer.params,
-        &filament.params,
+        &filament_overlay,
         &process.params,
         overrides,
     ] {
@@ -70,13 +86,24 @@ pub fn resolve(
             deep_merge(&mut base, overlay);
         }
     }
-    // The material family is a typed field on the filament profile, not part of
-    // its sparse `params`; stamp it in last so `{filament_type}` in custom
-    // G-code always reflects the active filament even if its params omit it.
+    // Identity / display fields tied to the *chosen* filament profile. These are
+    // definitional (they name the active filament), so they always reflect the
+    // selected profile regardless of the generic override diff, and are surfaced
+    // in the G-code metadata footer so printer front-ends (Moonraker/Mainsail/
+    // Fluidd, OctoPrint) can show the material, filament name, and a colour
+    // swatch. `{filament_type}` is also exposed to custom start G-code.
     if let Some(map) = base.as_object_mut() {
         map.insert(
             "filament_type".to_string(),
             serde_json::Value::String(filament.material.wire_name().to_string()),
+        );
+        map.insert(
+            "filament_name".to_string(),
+            serde_json::Value::String(filament.meta.name.clone()),
+        );
+        map.insert(
+            "filament_color".to_string(),
+            serde_json::Value::String(filament.color.clone()),
         );
     }
     serde_json::from_value(base)

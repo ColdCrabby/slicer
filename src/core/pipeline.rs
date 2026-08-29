@@ -194,6 +194,7 @@ pub fn process_mesh(
                 layer_height: params.layer_height,
                 infill_angle: params.surface_infill_angle,
                 nozzle_diameter_mm: params.nozzle_diameter_mm,
+                solid_surface_line_width_mm: crate::core::solid_surface_nominal_width_mm(params),
                 min_infill_extrusion_mm: params.min_infill_extrusion_mm,
                 bridge_flow_ratio: params.bridge_flow_ratio,
                 bridge_min_area_mm2: params.bridge_min_area_mm2,
@@ -226,7 +227,7 @@ pub fn process_mesh(
         // islands on the uniform surface.  Genuine gap fill in sparse zones and
         // thin ribs (outside solid_regions) is preserved.
         logger.log_debug("pruning redundant gap fill inside solid surfaces");
-        prune_redundant_gap_fill(&mut layers);
+        prune_redundant_gap_fill(&mut layers, params.nozzle_diameter_mm);
     }
 
     // Add infill
@@ -248,6 +249,7 @@ pub fn process_mesh(
             params.infill_base_angle,
             params.nozzle_diameter_mm,
             params.infill_perimeter_gap_mm,
+            params.min_infill_extrusion_mm,
             pre_strip_infill_regions.as_deref(),
         );
         t_infill.finish();
@@ -591,6 +593,7 @@ pub fn process_mesh_debug(
                 layer_height: params.layer_height,
                 infill_angle: params.surface_infill_angle,
                 nozzle_diameter_mm: params.nozzle_diameter_mm,
+                solid_surface_line_width_mm: crate::core::solid_surface_nominal_width_mm(params),
                 min_infill_extrusion_mm: params.min_infill_extrusion_mm,
                 bridge_flow_ratio: params.bridge_flow_ratio,
                 bridge_min_area_mm2: params.bridge_min_area_mm2,
@@ -623,6 +626,7 @@ pub fn process_mesh_debug(
             params.infill_base_angle,
             params.nozzle_diameter_mm,
             params.infill_perimeter_gap_mm,
+            params.min_infill_extrusion_mm,
             pre_strip_infill_regions.as_deref(),
         );
 

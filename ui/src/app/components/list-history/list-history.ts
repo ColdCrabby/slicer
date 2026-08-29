@@ -2,6 +2,7 @@ import { Component, inject } from '@angular/core';
 import { Router } from '@angular/router';
 import type { RuntimeHistorySession } from '../../runtime/domain/history-models';
 import { ContextMenuService } from '../../services/context-menu/context-menu.service';
+import { ContextMenuTrigger } from '../../services/context-menu/context-menu-trigger';
 import type { ContextMenuItem } from '../../services/context-menu/context-menu.model';
 import { History } from '../../services/history';
 import { WorkplateNames } from '../../services/workplate-names';
@@ -11,7 +12,7 @@ import { Button } from '../../ui/button/button';
 @Component({
   selector: 'nexus-list-history',
   standalone: true,
-  imports: [Button, Icon],
+  imports: [Button, Icon, ContextMenuTrigger],
   templateUrl: './list-history.component.html',
   styleUrl: './list-history.component.scss',
 })
@@ -21,13 +22,9 @@ export class ListHistory {
   readonly #workplateNames = inject(WorkplateNames);
   readonly #contextMenu = inject(ContextMenuService);
 
-  /** Custom workplate name if the user set one, otherwise the source filename. */
+  /** Custom workplate name, or a default derived from the first uploaded model. */
   displayName(session: RuntimeHistorySession): string {
-    return (
-      this.#workplateNames.nameFor(session.request_uuid) ??
-      session.original_filename ??
-      'unknown.stl'
-    );
+    return this.#workplateNames.displayNameFor(session.request_uuid, session.original_filename);
   }
 
   navigate(session: RuntimeHistorySession): void {

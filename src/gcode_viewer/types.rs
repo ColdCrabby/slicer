@@ -166,7 +166,9 @@ pub(super) struct InternalLayer {
 /// per-layer color channels (fan / temperature / tool / layer time).
 #[derive(Debug, Clone, Default)]
 pub(super) struct LayerMeta {
-    /// Nozzle target temperature in °C, if a `M104`/`M109` was seen.
+    /// Nozzle target temperature in °C, captured from temperature commands
+    /// (`M104`/`M109`, `SET_HEATER_TEMPERATURE`) and common start-macro
+    /// key/value args (`EXTRUDER_TEMP=`, `EXTRUDER=`, `HOTEND=`...).
     pub(super) nozzle_temp: Option<f32>,
     /// Active tool/extruder index (`T0` by default).
     pub(super) tool: u32,

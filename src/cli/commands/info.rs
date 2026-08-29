@@ -42,7 +42,7 @@ impl EmitPayload for InfoResult {
             "development"
         };
         let mut s = format!(
-            "Slicer Engine\n  Version: {}\n  Channel: {}\n  Build:   {} ({})\n  Commit:  {}\n  Edition: {}",
+            "Cold Crabby\n  Version: {}\n  Channel: {}\n  Build:   {} ({})\n  Commit:  {}\n  Edition: {}",
             self.version, channel, self.git_describe, self.build_date, self.git_sha, self.edition
         );
         if let Some(f) = self.features {
@@ -136,7 +136,7 @@ mod tests {
             features: None,
         };
         let s = r.display_human();
-        assert!(s.contains("Slicer Engine"));
+        assert!(s.contains("Cold Crabby"));
         assert!(s.contains("0.1.0"));
         assert!(s.contains("Commit:"));
         assert!(s.contains("abc1234"));

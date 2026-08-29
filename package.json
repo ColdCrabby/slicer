@@ -12,6 +12,14 @@
     "ui:build:web-slicer": "pnpm --filter slicer-ui build:web-slicer",
     "desktop:dev": "pnpm --filter slicer-ui-desktop dev",
     "desktop:build": "pnpm --filter slicer-ui-desktop build",
+    "icons": "scripts/gen-icons.sh",
+    "ios:doctor": "scripts/ios-doctor.sh",
+    "ios:setup": "scripts/ios-doctor.sh --fix",
+    "ios:init": "scripts/ios-doctor.sh && pnpm --filter slicer-ui-desktop exec tauri ios init",
+    "ios:simulator": "scripts/ios-simulator.sh",
+    "ios:dev": "scripts/ios-dev.sh",
+    "ios:open": "pnpm --filter slicer-ui-desktop exec tauri ios dev --open",
+    "ios:build": "pnpm --filter slicer-ui-desktop exec tauri ios build",
     "build:wasm": "cargo build --lib --target wasm32-unknown-unknown --release && wasm-bindgen target/wasm32-unknown-unknown/release/slicer_engine.wasm --target web --out-dir ui/src/generated/scene-wasm --out-name scene_engine",
     "build:wasm:web-slicer": "cargo build --lib --target wasm32-unknown-unknown --release --features web-slicer && wasm-bindgen target/wasm32-unknown-unknown/release/slicer_engine.wasm --target web --out-dir ui/src/generated/scene-wasm --out-name scene_engine",
     "gen-schemas": "cargo run -- gen-schemas --output-dir ui/src/schemas",
@@ -28,6 +36,19 @@
   "pnpm": {
     "onlyBuiltDependencies": [
       "lefthook"
-    ]
+    ],
+    "overrides": {
+      "dompurify@<3.4.13": "3.4.14",
+      "fast-uri@<3.1.5": "3.1.5",
+      "hono@<4.12.34": "4.12.34",
+      "@hono/node-server@<1.19.15": "1.19.15",
+      "immutable@>=5.0.0-beta.1 <5.1.8": "5.1.9",
+      "ip-address@<10.3.1": "10.3.1",
+      "js-yaml@>=4.0.0 <4.3.1": "4.3.1",
+      "nanoid@<3.3.18": "3.3.18",
+      "postcss@<8.5.23": "8.5.26",
+      "qs@>=6.11.1 <6.15.2": "6.15.3",
+      "undici@>=7.0.0 <7.29.0": "7.29.0"
+    }
   }
 }

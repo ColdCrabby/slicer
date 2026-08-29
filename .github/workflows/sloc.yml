@@ -1,0 +1,57 @@
+name: SLOC
+
+# Keeps the README's source-lines-of-code badges current without any manual work.
+# On every push to main it recounts git-tracked source with tokei and publishes
+# per-language line counts (Rust and TypeScript, separately) as shields.io
+# endpoint JSON on the dedicated, unprotected `badges` branch. Main is protected
+# (all changes must go through a PR), so the badges are force-pushed to `badges`
+# instead - a single-commit generated branch the README reads from. Pushes made
+# with GITHUB_TOKEN don't trigger further workflow runs, so there's no loop.
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+# Needs write access to force-push the refreshed badge JSON to the badges branch.
+permissions:
+  contents: write
+
+concurrency:
+  group: sloc-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  count:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install tokei
+        run: |
+          ver=v12.1.2
+          curl -sSfL "https://github.com/XAMPPRocky/tokei/releases/download/${ver}/tokei-x86_64-unknown-linux-gnu.tar.gz" \
+            | tar xz
+          sudo install -m 0755 tokei /usr/local/bin/tokei
+
+      - name: Recount SLOC and publish badges
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          read rust ts <<< "$(tokei --output json | python3 -c "import sys,json;d=json.load(sys.stdin);print(d.get('Rust',{}).get('code',0), d.get('TypeScript',{}).get('code',0))")"
+          rust_f=$(python3 -c "print(f'{$rust:,}')")
+          ts_f=$(python3 -c "print(f'{$ts:,}')")
+          echo "Rust=$rust_f  TypeScript=$ts_f"
+
+          # Build the whole badge branch fresh in a scratch dir so it stays a
+          # single commit (no history growth) and force-push it to `badges`.
+          work=$(mktemp -d)
+          cd "$work"
+          git init -q
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git checkout -q --orphan badges
+          printf '{ "schemaVersion": 1, "label": "Rust", "message": "%s", "color": "orange", "namedLogo": "rust", "logoColor": "white" }\n' "$rust_f" > rust.json
+          printf '{ "schemaVersion": 1, "label": "TypeScript", "message": "%s", "color": "3178c6", "namedLogo": "typescript", "logoColor": "white" }\n' "$ts_f" > typescript.json
+          git add rust.json typescript.json
+          git commit -q -m "chore: SLOC Rust ${rust_f}, TypeScript ${ts_f}"
+          git push -q --force "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" badges

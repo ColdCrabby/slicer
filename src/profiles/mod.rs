@@ -86,6 +86,41 @@ mod tests {
     }
 
     #[test]
+    fn resolve_stamps_filament_identity_and_density() {
+        let params = selection().resolve().expect("resolve");
+        // Identity / display fields come from the chosen filament profile and
+        // are surfaced in the G-code metadata footer.
+        assert_eq!(params.filament_type, "PLA");
+        assert_eq!(params.filament_name, "Generic PLA");
+        assert_eq!(params.filament_color, "#d8d8dc");
+        // Density is folded in from the profile's typed domain field.
+        assert_eq!(params.filament_density_g_cm3, 1.24);
+    }
+
+    #[test]
+    fn resolve_uses_material_density_for_weight() {
+        // A PETG filament (1.27 g/cm³) must not fall back to the PLA default
+        // (1.24) — otherwise the metadata weight would be wrong for non-PLA.
+        let mut sel = selection();
+        sel.filament = defaults::default_petg();
+        let params = sel.resolve().expect("resolve");
+        assert_eq!(params.filament_type, "PETG");
+        assert_eq!(params.filament_name, "Generic PETG");
+        assert_eq!(params.filament_color, "#2f7fb8");
+        assert_eq!(params.filament_density_g_cm3, 1.27);
+    }
+
+    #[test]
+    fn override_density_wins_over_profile_density() {
+        // The folded profile density resolves at the *filament* layer, so an
+        // explicit user override still wins.
+        let mut sel = selection();
+        sel.overrides = serde_json::json!({ "filament_density_g_cm3": 2.0 });
+        let params = sel.resolve().expect("resolve");
+        assert_eq!(params.filament_density_g_cm3, 2.0);
+    }
+
+    #[test]
     fn overrides_win_over_profiles() {
         let mut sel = selection();
         sel.overrides = serde_json::json!({

@@ -3,10 +3,15 @@
   "version": "0.0.0",
   "private": true,
   "scripts": {
+    "//": "The generated Xcode 'Build Rust Code' phase invokes `pnpm tauri …` from gen/apple, which resolves scripts against this package. Without this passthrough entry the iOS build fails with 'Command \"tauri\" not found'.",
+    "tauri": "tauri",
     "dev": "tauri dev",
-    "build": "tauri build"
+    "build": "tauri build",
+    "ios:init": "tauri ios init",
+    "ios:dev": "tauri ios dev",
+    "ios:build": "tauri ios build"
   },
   "devDependencies": {
-    "@tauri-apps/cli": "^2.0.0"
+    "@tauri-apps/cli": "^2.11.4"
   }
 }

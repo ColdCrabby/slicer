@@ -1,10 +1,30 @@
 import { enumLabel, fieldLabel } from './field-labels';
-import { EnumOption, FieldDef, FieldType, SchemaGroup } from './field-def';
+import { EnumOption, FieldDef, FieldRelevance, FieldType, SchemaGroup } from './field-def';
 
 type RawProp = Record<string, unknown>;
 type RawDefs = Record<string, { oneOf?: Array<{ const?: unknown; description?: string }> }>;
 
 const UNGROUPED = 'General';
+
+/**
+ * Read the `x-relevant-when` extension from a raw property, defensively.
+ * Returns a `FieldRelevance` only when the value is an object carrying a
+ * string `field`; otherwise `undefined` (the field is always relevant).
+ */
+function resolveRelevantWhen(prop: RawProp): FieldRelevance | undefined {
+  const raw = prop['x-relevant-when'];
+  if (!raw || typeof raw !== 'object') {
+    return undefined;
+  }
+  const rule = raw as Record<string, unknown>;
+  if (typeof rule['field'] !== 'string') {
+    return undefined;
+  }
+  return {
+    field: rule['field'],
+    equals: rule['equals'],
+  };
+}
 
 /**
  * Resolve enum options from a property that either has a direct `oneOf` array
@@ -101,6 +121,7 @@ export function parseSchema(
       maximum: prop['maximum'] as number | undefined,
       group: prop['x-group'] as string | undefined,
       enumOptions: resolveEnumOptions(prop, defs),
+      relevantWhen: resolveRelevantWhen(prop),
     };
     return fieldDef;
   });

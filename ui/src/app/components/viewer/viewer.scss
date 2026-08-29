@@ -13,6 +13,75 @@
   inset: 0;
 }
 
+:host {
+  --thumbnail-shutter-peak-opacity: 0.18;
+}
+
+:host-context(.dark) {
+  --thumbnail-shutter-peak-opacity: 0.12;
+}
+
+.capture-shutter {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 11;
+  opacity: 0;
+  background: color-mix(in oklab, #fff 82%, transparent);
+}
+
+.capture-shutter.is-active {
+  animation: capture-shutter-fade 460ms var(--ease-decelerate) both;
+}
+
+.capture-polaroid {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  pointer-events: none;
+  z-index: 11;
+}
+
+.capture-polaroid-card {
+  // Classic instant-photo proportions: even top/side borders, a deep caption
+  // border along the bottom, and a square image window.
+  width: min(230px, 30vw);
+  padding: 14px 14px 46px;
+  border-radius: 3px;
+  background: linear-gradient(160deg, #fefefc 0%, #f6f5f0 100%);
+  box-shadow:
+    var(--shadow-lg),
+    0 1px 0 rgba(255, 255, 255, 0.7) inset,
+    0 0 0 1px rgba(0, 0, 0, 0.06);
+  opacity: 0;
+  transform: translateY(26px) scale(0.86) rotate(-3deg);
+}
+
+.capture-polaroid-photo {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 1 / 1;
+  overflow: hidden;
+  border-radius: 1px;
+  background: #0d0f12;
+  // Inset frame + gentle vignette so the print reads as a developed photo.
+  box-shadow:
+    inset 0 0 0 1px rgba(0, 0, 0, 0.18),
+    inset 0 2px 10px rgba(0, 0, 0, 0.28);
+
+  img {
+    width: 100%;
+    height: 100%;
+    display: block;
+    object-fit: cover;
+  }
+}
+
+.capture-polaroid.is-animating .capture-polaroid-card {
+  animation: capture-polaroid-flyout 3200ms var(--ease-decelerate) both;
+}
+
 .gcode-tooltip {
   z-index: 10;
   pointer-events: none;
@@ -96,4 +165,54 @@
 .viewer-chip-aux {
   color: var(--color-text-tertiary);
   margin-left: 6px;
+}
+
+@keyframes capture-shutter-fade {
+  0% {
+    opacity: 0;
+  }
+  22% {
+    opacity: var(--thumbnail-shutter-peak-opacity);
+  }
+  100% {
+    opacity: 0;
+  }
+}
+
+@keyframes capture-polaroid-flyout {
+  /* Eject from the "camera": rise into the center, settle with a little tilt,
+     hold, then sail up and off the top with a subtle rotate + drift. It leaves
+     the frame entirely, so it never needs to fade out. */
+  0% {
+    opacity: 0;
+    transform: translateY(30px) scale(0.84) rotate(-3deg);
+  }
+  9% {
+    opacity: 1;
+    transform: translateY(0) scale(1) rotate(-1.5deg);
+  }
+  16% {
+    transform: translateY(-6px) scale(1.02) rotate(1.5deg);
+  }
+  24% {
+    transform: translateY(0) scale(1) rotate(-1.5deg);
+  }
+  62% {
+    opacity: 1;
+    transform: translateY(0) scale(1) rotate(-1.5deg);
+  }
+  78% {
+    transform: translateY(-32vh) scale(0.99) rotate(4deg);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(-140vh) translateX(5%) scale(0.92) rotate(9deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .capture-shutter.is-active,
+  .capture-polaroid.is-animating .capture-polaroid-card {
+    animation: none;
+  }
 }

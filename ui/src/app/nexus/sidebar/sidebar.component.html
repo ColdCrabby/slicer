@@ -3,7 +3,8 @@
   type="button"
   [class.is-pinned]="!collapsed()"
   [attr.aria-pressed]="!collapsed()"
-  [attr.aria-label]="collapsed() ? 'Pin panel open' : 'Unpin panel'"
+  [attr.aria-label]="collapsed() ? 'Dock panel' : 'Hide panel'"
+  [attr.title]="collapsed() ? 'Dock panel' : 'Hide panel'"
   (click)="onCollapseToggle($event)"
 >
   @if (collapsed()) {
@@ -12,6 +13,16 @@
     <nexus-icon name="pin" />
   }
 </button>
+
+@if (isScrimOpen()) {
+  <button
+    class="sidebar-scrim"
+    type="button"
+    aria-label="Dismiss print settings"
+    tabindex="-1"
+    (click)="dismissOverlay()"
+  ></button>
+}
 
 <div class="sidebar-panel">
   <div class="sidebar-content" #scrollContainer (scroll)="onContentScroll($event)">

@@ -158,6 +158,21 @@ export class SceneSelection {
     return this.currentSelectedIds;
   }
 
+  /**
+   * Temporarily remove (or restore) the emissive selection highlight on the
+   * currently-selected objects, without changing the selection itself. Used by
+   * off-screen thumbnail capture so the selection glow never bleeds into the
+   * rendered image.
+   */
+  setHighlightVisible(visible: boolean): void {
+    for (const id of this.currentSelectedIds) {
+      const obj = this.selectables.get(id);
+      if (obj) {
+        this.applyHighlight(obj, visible);
+      }
+    }
+  }
+
   setObjectTransform(
     id: string,
     transform: {
@@ -236,13 +251,15 @@ export class SceneSelection {
     if (event.button !== 0 || !this.selectionHandlers) {
       return;
     }
-    // On touch there is no prior pointermove, so axis is null and isHovering()
-    // returns false even when the finger is directly over a gizmo handle.
-    // hitTest does a live raycast so touch can still pass through to TC.
+    // On touch — and on a stylus tap without a preceding hover move — there is
+    // no prior pointermove, so axis is null and isHovering() returns false even
+    // when the pointer is directly over a gizmo handle. hitTest does a live
+    // raycast so touch and pen can still pass through to TransformControls.
+    const directHitPointer = event.pointerType === 'touch' || event.pointerType === 'pen';
     const onGizmo =
       this.gizmo.isHovering() ||
       this.gizmo.isDragging() ||
-      (event.pointerType === 'touch' && this.gizmo.hitTest(event, this.camera, this.renderer));
+      (directHitPointer && this.gizmo.hitTest(event, this.camera, this.renderer));
     if (onGizmo) {
       return;
     }

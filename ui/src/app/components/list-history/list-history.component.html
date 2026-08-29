@@ -5,7 +5,7 @@
 } @else {
   <ul class="lh-list">
     @for (session of history.sessions(); track session.request_uuid) {
-      <li class="lh-item" (contextmenu)="onContextMenu($event, session)">
+      <li class="lh-item" (nexusContextMenu)="onContextMenu($event, session)">
         <button
           class="lh-open"
           type="button"

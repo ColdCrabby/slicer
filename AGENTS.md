@@ -274,18 +274,135 @@ user-facing version number.
 - **Cross-compilation**: Requires appropriate target toolchains installed. CI verifies these work.
 - **`apply_single_wall_restrictions` is per-island**: Inner walls are stripped only from the specific island whose top-surface run ends on that layer; other islands on the same layer are untouched. The `pre_strip_infill_regions` snapshot is still taken before this step to guard against future regressions — keep that order.
 
+## Native shell targets — desktop and iPadOS/iOS
+
+[ui-desktop/](ui-desktop/README.md) is one Tauri shell that ships to macOS,
+Windows, Linux **and iPadOS/iOS**. Three contracts hold it together.
+
+- **The app entry point is a library, not a `main`.**
+  [ui-desktop/src-tauri/src/lib.rs](ui-desktop/src-tauri/src/lib.rs) builds and
+  runs the `tauri::Builder`; `main.rs` is a three-line desktop launcher. iOS has
+  no Rust `main` — the generated Xcode project links this crate as a
+  **`staticlib`** and calls the symbol `#[cfg_attr(mobile, tauri::mobile_entry_point)]`
+  exports. **Never move app wiring back into `main.rs`**: it would compile fine
+  on desktop and silently never run on mobile. Desktop-only setup (window
+  decorations, accent-colour watcher) belongs inside `#[cfg(desktop)]`.
+- **`cli`, `server` and `db` are excluded from iOS.** Gated in
+  [src/lib.rs](src/lib.rs) with `cfg(all(not(target_arch = "wasm32"), not(target_os = "ios")))`
+  and mirrored by the target-specific dependency tables in
+  [Cargo.toml](Cargo.toml), which keep `clap`, the `actix-web` stack and
+  `sea-orm`/`sqlx` off Apple mobile targets entirely (333 packages vs 495 for
+  macOS). A sandboxed app has no command line and must not bind a listener.
+  `printer` **stays** — sending G-code from an iPad uses the same native,
+  CORS-free transport as desktop. **Change the `cfg`s and the dependency tables
+  together**, and verify with
+  `cargo metadata --filter-platform aarch64-apple-ios-sim`.
+- **Capabilities are split by platform.** `capabilities/default.json` is
+  cross-platform; `capabilities/desktop.json` carries `"platforms": ["macOS", "windows", "linux"]`
+  and holds every window-chrome grant. Do not add window permissions to the
+  default capability.
+
+Supporting details:
+
+- **`Info.ios.plist`** (next to `tauri.conf.json`) is merged into the generated
+  `Info.plist`, so it survives re-running `ios init`. It is what makes LAN
+  printers work at all: iOS 14+ blocks local networking without
+  `NSLocalNetworkUsageDescription`, and ATS blocks Moonraker's plain HTTP
+  without `NSAllowsLocalNetworking`.
+- **`gen/apple` is generated but committed** (only `gen/schemas` and build
+  output are ignored) — it carries signing settings and the merged plist.
+- **UI:** mobile is *not* a new runtime mode. `resolveRuntimeMode()` still
+  reports `native` on iPad; anything that draws or drives **native chrome** asks
+  [`isTauriMobile()` / `isTauriDesktop()`](ui/src/app/runtime/domain/runtime-mode.util.ts)
+  instead. **Gate every `@tauri-apps/api` module that Tauri marks
+  `#[cfg(desktop)]` — `menu` and most of `window` — behind `isTauriDesktop()`,
+  not `isTauriHost()`.** Those commands do not exist on mobile, so the call
+  rejects and the feature silently vanishes instead of falling back. That is
+  exactly how iPad lost its context menus: `ContextMenuService` asked
+  `isTauriHost()` and tried to build an OS menu that iOS has no API for.
+  Measured on the simulator, an iPad reports UA `Macintosh…`, platform
+  `MacIntel` and **no** `iPad` token — a user-agent sniff alone classifies it as
+  a desktop Mac, so the helper keys off `maxTouchPoints` as well.
+- **Long-press is the touch equivalent of right-click.**
+  [`ContextMenuTrigger`](ui/src/app/services/context-menu/context-menu-trigger.ts)
+  synthesises it because iOS never fires `contextmenu` for a long press. Two
+  non-obvious requirements: the trailing `click` produced when the finger lifts
+  must be swallowed **wherever it lands** (the menu opens at the pointer, so
+  restricting the guard to the host lets that click activate a menu item
+  instantly), and the menu is offset further on touch so it does not open under
+  the fingertip. iOS also needs `-webkit-touch-callout: none` on trigger
+  elements (see `styles/base/_reset.scss`) or its own selection callout hijacks
+  the gesture.
+- **Context menus, dialogs and file export are drawn by the OS on iOS too, not
+  just on desktop.** Tauri's `menu` module is desktop-only and UIKit's
+  `UIContextMenuInteraction` cannot be presented imperatively, so
+  [context_menu.rs](ui-desktop/src-tauri/src/context_menu.rs) builds a
+  `UIAlertController` action sheet and
+  [native_dialog.rs](ui-desktop/src-tauri/src/native_dialog.rs) supplies native
+  alerts plus a `UIActivityViewController` share sheet. **The HTML versions are
+  the browser's fallback, not the mobile default**; do not "simplify" mobile
+  back onto them. Two are correctness fixes rather than polish: iOS `save()`
+  writes a 0-byte file (no Save-As panel exists), and the iOS file picker greys
+  out `obj`/`3mf` unless `Info.ios.plist` declares their UTIs. Any popover on
+  iPad (action sheet, share sheet) **must** set `sourceView`/`sourceRect` or
+  UIKit raises and the app terminates. Full rationale in
+  [ui-desktop/README.md](ui-desktop/README.md#which-surfaces-are-native).
+- **Dev environment:** [scripts/ios-doctor.sh](scripts/ios-doctor.sh) verifies
+  the toolchain (full Xcode — *not* Command Line Tools, which lack the iOS SDK —
+  simulator runtimes, Rust `aarch64-apple-ios{,-sim}` targets, CocoaPods) and
+  `--fix` installs what it can. `pnpm run ios:dev` auto-selects an iPad
+  simulator, since `tauri ios dev` otherwise prompts with mostly iPhones.
+- **`sudo xcode-select -s /Applications/Xcode.app` is unavoidable.** Installing
+  Xcode does not switch the active developer directory. `DEVELOPER_DIR` fixes
+  the helper scripts (`simctl`) without sudo, but **`tauri ios dev` builds with
+  a sanitized environment and never forwards it**, so its `xcodebuild` still
+  resolves the Command Line Tools. Do not "fix" this with a `DEVELOPER_DIR`
+  export in the scripts — it silently does nothing for the actual build.
+- **`ui-desktop/package.json` must keep its `"tauri": "tauri"` script.** The
+  generated Xcode "Build Rust Code" phase runs `pnpm tauri …` from `gen/apple`;
+  without that passthrough the iOS build dies with `Command "tauri" not found`.
+- **App icons come from one master via `pnpm run icons`.**
+  `ui-desktop/src-tauri/app-icon.png` (1024², opaque, cropped from
+  `ui/public/logo_source.png`) feeds every platform. Do not hand-edit the
+  generated sets. `tauri ios init` seeds Tauri's *placeholder* logo, so the
+  icons must be regenerated after it — and `tauri icon` writes iOS icons as RGBA
+  even with `--ios-color`, which App Store Connect rejects (`ITMS-90717`), so
+  [scripts/gen-icons.sh](scripts/gen-icons.sh) flattens them back to RGB and
+  prunes the UWP/Android output we never ship.
+- **Xcode 26 ships no simulator runtime** — `xcodebuild -downloadPlatform iOS`
+  fetches ~8 GB separately. A staged *image* (`simctl runtime list`) is not a
+  registered *runtime* (`simctl list runtimes`); if the two disagree the image
+  is broken. All images of a version share one asset, so deleting a duplicate
+  breaks the survivor — purge with `simctl runtime delete all` and re-download.
+
 ## Printer connectivity & G-code cache
 
 [src/printer/](src/printer/) is the **native-only** (`cfg(not(target_arch = "wasm32"))`)
 outbound transport to real printers. Today it implements **Moonraker/Klipper**
-(`check_status`, `send_gcode`) over `reqwest`.
+(`check_status`, `detect_printer`, `send_gcode`) over `reqwest`. It is reached by
+**both** native runtimes over the OS network line — never the browser:
 
-- **Prefer slicer → printer, not browser → printer.** Probes and uploads run
-  server-side (WS `CheckPrinter` / `SendToPrinter` → `PrinterStatus` /
-  `PrinterSendResult`) precisely so they are **not subject to CORS** — Moonraker
+- **Cloud** `serve` WebSocket: `CheckPrinter` / `DetectPrinter` / `SendToPrinter`.
+- **Desktop** Tauri commands: `printer_check` / `printer_detect` / `printer_send`
+  ([ui-desktop/src-tauri/src/commands.rs](ui-desktop/src-tauri/src/commands.rs)),
+  which call the same `crate::printer` functions in-process. Their result types
+  (`PrinterStatusReport`, `PrinterDetection`, `SendOutcome`) are `Serialize`d to
+  the **same field shape** as the WS `PrinterStatus` / `PrinterDetected` /
+  `PrinterSendResult` payloads (minus the envelope), so the UI reuses one set of
+  `fromServer*` mappers for both transports.
+
+- **Prefer slicer → printer, not browser → printer.** Probes and uploads run in
+  the native process precisely so they are **not subject to CORS** — Moonraker
   ships no permissive `Access-Control-*` headers, so a direct browser `fetch`
-  fails for most users. The wasm/`web` build has no native transport and falls
-  back to a browser `fetch`; the UI ([printer-connection.ts](ui/src/app/services/printer-connection.ts))
+  fails for most users. Only the pure wasm/`web` build has no native transport
+  and falls back to a browser `fetch`; the UI
+  ([printer-connection.ts](ui/src/app/services/printer-connection.ts)) picks the
+  transport at runtime — cloud WS when connected, Tauri commands when
+  `isTauriHost()`, browser `fetch` only in `web`. **Do not gate on
+  `environment.runtimeMode` alone**: the desktop build ships the `cloud`
+  environment and only becomes native by detecting Tauri at runtime, so a
+  build-time constant would send the desktop app down the CORS-prone browser
+  path (the bug this contract exists to prevent). The web fallback still
   distinguishes *unreachable* from *reachable-but-CORS-blocked* (via a `no-cors`
   follow-up probe) and surfaces a distinct `cors` status instead of a misleading
   green/offline dot.
@@ -497,6 +614,66 @@ count, ~3× the mean bead length, no void-coverage change). Keep that floor near
 spurs, and a much larger floor erodes genuine sub-millimetre features into
 voids. Walls are untouched, so this never affects the coincidence-free property.
 
+**Isolated gap-fill "splat" beads are dropped by a `2·d` minimum run length.**
+Separate from the *spur* prune above, `emit_medial_beads` and the residual
+pre-filter (`emit_residual_medial_fill`) both discard any emitted gap-fill *run*
+shorter than [`gap_fill_min_run_len_mm`](src/walls/arachne/generate.rs) —
+`gap_fill_min_length_mm` when the user set it (`> 0`), else `2·d` (0.8 mm at a
+0.4 mm nozzle). The old auto-default was `d`, which let ~270 sub-`2·d` beads
+survive on the 3DBenchy: each an isolated dab of material that still costs a full
+retract → travel → un-retract to reach — the "tiny inner-body splat" that wastes
+time and grinds filament. The residual such a splat would fill is bridged by the
+squish of the flanking wall beads, so `classic` (which has no gap fill) leaves
+the same curved/tapering wall corners bead-free with **no** measurable wall-zone
+void (`voids.py`). Matching the spur floor is deliberate: a run below the same
+`2·d` that separates a real gap spine from facet noise *is* facet noise once
+isolated as its own bead.
+
+**Redundant gap fill *under* a solid surface is pruned two ways.**
+[`prune_redundant_gap_fill`](src/core/surfaces.rs) drops a `GapFill` bead when
+either (1) a majority of its vertices lie **inside** `solid_regions`, or (2) it
+is **sandwiched** — solid surface on *both* perpendicular sides
+(`gap_fill_sandwiched_by_surface`). Case (2) exists because
+`blocked_for_surface` unions the gap-fill footprint *out* of the surface region
+(so the surface *abuts* genuine thin necks), which carves a bead-wide corridor
+in `solid_regions` exactly where each bead sits — so a bead running down the
+centre of a thin solid strip is never "inside" the surface, yet the surface's
+full-width rectilinear zig-zag still deposits straight over it. Measured on the
+3DBenchy rear rail (≈ layer 200): 6 mm²/layer of `GapFill × TopSurface`
+double-extrusion that a footprint-erosion overlap scan (`overlap.py`) *hides*
+because the bead is thin — use a true-width capsule intersection to see it. The
+sandwich probe reaches `half-width + 0.5·d` to either side, just past the carved
+corridor: a bead the surface *surrounds* has surface on both probes and is
+dropped; a genuine neck that merely *abuts* a surface edge has it on at most one
+and is kept (sparse infill would skip that sub-nozzle channel). Model-wide this
+took `GapFill × TopSurface` from 7.3 → 0.5 mm² by pruning ~3 long beads, with no
+new wall-zone void where the surface already covers the strip.
+
+**The solid surface must _cover_ a sandwiched gap bead's footprint, not carve
+it out.** Pruning the redundant bead (above) is only half the fix: if the
+surface region still has the bead-wide corridor carved out of it, that corridor
+becomes a **hole** in `solid_regions`. On a thin roof (the 3DBenchy rear rail,
+≈ layer 201) the hole (a) splits the top-surface serpentine into **two
+disconnected bands** and (b) is re-filled by **sparse-infill dashes** over the
+void the pruned bead left — the "two infill surfaces plus tiny blobs of goo"
+defect. The corridor was carved from **two** places, so both must stop carving a
+sandwiched bead:
+
+- `blocked_for_surface`'s explicit gap-fill term now uses
+  `compute_gap_fill_footprint_excluding_sandwiched`, and
+- `compute_wall_bead_footprint` — which also lists `GapFill` — is called with
+  `include_gap_fill = false` for the surface trim (the walls-only variant),
+  because the gap fill is accounted for by that separate, sandwich-aware term.
+
+The sandwich test there runs against the layer's **combined detected surface**
+(`combined_surface_region(bridge, bottom, top)`, pre-trim) so a centre bead is
+recognised as redundant before the trim would hole the surface. Result: the roof
+fills as **one** solid region, the bead is pruned, and no sparse infill leaks in.
+Genuine one-sided necks are still carved (surface abuts, never welds). Verify
+with a true-width capsule render (grey wall + one red top surface, no green bead,
+no orange dash) and the debug SVG (`--debug-geometry`): the rail `solid_surface`
+must be **one CCW polygon**, not a CCW ring with a CW hole.
+
 ### Clipper2 Fill Rules — When to Use Which
 
 | Operation                                                                 | Fill rule  | Why                                                                                                                                    |
@@ -595,6 +772,44 @@ is why the Arachne `gap_fill` role length rises after the fix.
 then subtracts the eroded wall-bead footprint before generating solid infill
 lines.
 
+**`solid_regions` is grown by one bead before being subtracted from the
+sparse-infill area.** `solid_regions` is a nominal polygon, but the surface is
+actually printed as a rectilinear serpentine whose **stepped extent** only
+approximates it, and the surface pass has already trimmed it back off the wall
+band. Subtracting the raw outline therefore leaves a thin crescent **sliver**
+between the solid region and the wall all along a curved perimeter (plainly
+visible on the 3DBenchy hull, layers ≈ 40–42). The scanline shatters that sliver
+into a swarm of sub-millimetre dashes — 31 on layer 41 alone — each an isolated
+dab costing a full retract → travel → un-retract. That cycle pushes ~4.8 mm³ of
+filament back and forth through the nozzle to deposit ~0.04 mm³: the "infill
+produces tiny extrudes" defect, pure waste and a grinding risk, with zero
+structural gain (the space is already flanked by the solid surface on one side
+and a wall bead on the other).
+
+`add_infill_to_layers` therefore subtracts `inflate(solid_regions,
+SOLID_MARGIN_NOZZLE_MULT × nozzle)` — one bead width, since the surface's own
+fill lines are `d` wide about their centerlines and the nominal polygon
+under-states the deposited material by up to half a bead per side. Measured on
+3DBenchy layer 41: isolated sub-1.5 mm infill paths fall 33 → 6 at `1.0`, while
+`0.5` leaves all 33 (the sliver is simply wider than half a bead).
+
+**Key this correction to `solid_regions`, never to the infill area as a whole.**
+Doing so makes it an exact **no-op on layers with no solid surface**, so a
+genuinely thin wall-to-wall cavity keeps its full sparse lattice. A first
+attempt instead morphologically **opened** the whole infill area to erase
+channels narrower than `2.5 × nozzle`. That cannot distinguish an artifact
+sliver from a real thin cavity: it erased the filament caddy's hollow-box
+lattice outright — wall-zone void more than doubled (62 → 146 mm²) and 35 % of
+its infill vanished — and the **slicing quality gate caught it**
+(`caddy/classic: role infill 13170.1 → 8505.5`). A sweep confirmed there is no
+safe threshold for that approach: even `1.0 × nozzle` destroyed the caddy
+lattice while artifacts only cleared at `≥ 1.5`. The regression test
+`test_thin_cavity_without_solid_surface_keeps_its_infill` pins the correct
+behaviour.
+
+`min_infill_extrusion_mm` still guards the residual sub-threshold segments a
+legitimate region's tapering corners produce.
+
 ### Thin Wall-Band Channels — Opened-Interior Surface Clip
 
 `calculate_interior_region` uses a **per-island _average_** wall count
@@ -655,6 +870,49 @@ inside the walls, are rounded). Key points:
   double-extrusion drops (`overlap.py`). After the bridge clip, every
   `… × Bridge` overlap pair on the Benchy matches `classic` to within noise
   (`Gap infill × Bridge` 8.6 → 0, `Inner wall × Bridge` 8.3 → 0.16 = classic).
+
+### Sub-Bead Slivers — Grazing-Angle Surface Fill
+
+The wall-band trim above subtracts the eroded wall-bead footprint from a surface
+region whose outline does **not** follow that footprint exactly. Where the two
+boundaries meet at a **grazing angle** the subtraction leaves a long crescent far
+narrower than one bead. The scanline still fills it, but because the fill
+direction is then near-parallel to the crescent **every span is a stub**.
+
+Measured on the Filament Card Caddy's hexagon logo (0.44 mm extrusion,
+`wall_count = 3`): the `solid_surface` region carried separate sliver sub-paths
+of ≈4.5 mm² and ≈0.22 mm mean width along exactly the two hexagon edges lying
+15° off the fill direction. A 135° scanline crossing a 0.22 mm strip at 150°
+gives span `0.22/sin 15° ≈ 0.85 mm` — matching the observed repeating
+**0.82 mm line / 0.62 mm connector** micro-serpentine. **93 % of that material
+was already covered** by the flanking wall bead or the normal surface, so it
+bought ≈0.5 mm² of real coverage for ~20 mm of sub-millimetre moves.
+
+`open_surface_region_for_fill` (applied to `bottom_region` / `top_region` after
+the wall-band trim, before `add_solid_infill_for_region`) removes them:
+
+- **Threshold is physical, not heuristic.** Erode by
+  `SURFACE_FILL_MIN_WIDTH_FRACTION (0.5) × solid-surface extrusion width`, i.e.
+  an erosion *diameter* of exactly one bead. A strip narrower than one bead
+  cannot hold a bead by construction.
+- **It is a _width_ filter, not an area filter.** Small-but-printable surfaces
+  survive intact (measured: 79 mm² and 37 mm² regions untouched while six
+  slivers went to zero).
+- **Corners are preserved.** A plain morphological opening rounds convex
+  corners, and a rounded corner makes the scanline emit *extra* stub spans —
+  the very artifact being removed (measured +31 stubs on the Voron cube). So
+  the surviving core is re-grown by `SURFACE_FILL_REGROW_FACTOR (2.0) × radius`
+  and **clipped back to the original region**, restoring exact original shape.
+  That took the cube from +31 stubs to −1.
+- Use **`FillRule::NonZero`** for the final clip so CW hole sub-paths stay holes.
+- This defect is **not** Arachne-specific — `arachne` and `classic` produced
+  byte-identical stub measurements on the caddy hexagon, because it originates
+  in the surface fill, not the wall generator.
+
+Measured effect (user profile, whole model): coverage change ≤ 0.004 % on
+Benchy / Voron cube / caddy, with sub-1 mm segments −19 / −1 / −55 and the
+caddy's two grazing edges dropping **22.9 → 2.4 mm** and **24.1 → 2.8 mm** of
+sub-1 mm top surface. QA gate passes with **no baseline drift**.
 
 ### `generate_rectilinear_infill` — Scanline Even-Odd Fill
 

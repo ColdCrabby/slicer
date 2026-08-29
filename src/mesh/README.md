@@ -48,9 +48,12 @@ flowchart LR
    for slicing speed: each `Face` stores its three `Vertex` values inline,
    not indices into `Mesh::vertices`. The `vertices` array exists for AABB
    computation; the slicer reads `faces`.
-4. **Loaders never apply transforms.** A loaded mesh is in the file's native
-   coordinates. Centering, dropping to floor, rotating — all of that is the
-   scene engine's job ([../scene/ops.rs](../scene/ops.rs)).
+4. **Loaders never apply _placement_ transforms.** A loaded mesh is in the
+   file's native coordinates. Centering, dropping to floor, rotating — all of
+   that is the scene engine's job ([../scene/ops.rs](../scene/ops.rs)). The one
+   exception is 3MF: its `<build>` item and `<components>` transforms _are_
+   baked in, because they assemble the object's own geometry (each mesh's
+   triangle indices are local to that mesh), not a user placement on the bed.
 
 ---
 
@@ -162,7 +165,7 @@ flowchart LR
 | STL    | Binary     | [`io::read_stl`](io.rs) | Via `stl_io`; fastest path, normals usually present   |
 | STL    | ASCII      | [`io::read_stl`](io.rs) | Same entry point; `stl_io` auto-detects               |
 | OBJ    | Wavefront  | [`io::read_obj`](io.rs) | Via `tobj`; vertex positions only, materials ignored  |
-| 3MF    | XML-in-ZIP | [`io::read_3mf`](io.rs) | Custom parse (`zip` + `quick-xml`); first object only |
+| 3MF    | XML-in-ZIP | [`io::read_3mf`](io.rs) | Custom parse (`zip` + `quick-xml`); merges all `<build>` items, rebasing each object's local indices and baking item/component transforms |
 
 `SUPPORTED_EXTENSIONS` lists the recognised file extensions for CLI / WS
 validation. The scene loader ([../scene/loader.rs](../scene/loader.rs))

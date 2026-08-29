@@ -1,6 +1,6 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "Slicer Engine Desktop",
+  "productName": "Cold Crabby Desktop",
   "version": "0.1.0",
   "identifier": "com.maxscopp.slicerengine",
   "build": {
@@ -8,6 +8,21 @@
     "devUrl": "http://localhost:4213",
     "beforeBuildCommand": "pnpm --filter slicer-ui build",
     "frontendDist": "../../ui/dist/slicer-ui/browser"
+  },
+  "bundle": {
+    "active": true,
+    "targets": ["dmg", "app", "msi", "nsis"],
+    "category": "GraphicsAndDesign",
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.icns",
+      "icons/icon.ico"
+    ],
+    "iOS": {
+      "minimumSystemVersion": "16.0"
+    }
   },
   "app": {
     "security": {
@@ -19,7 +34,7 @@
     "windows": [
       {
         "label": "main",
-        "title": "Slicer Engine",
+        "title": "Cold Crabby",
         "width": 1400,
         "height": 900,
         "minWidth": 900,

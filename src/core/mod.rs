@@ -18,6 +18,11 @@ pub use surfaces::{
     generate_top_bottom_surfaces, generate_top_bottom_surfaces_with_interior, SurfaceConfig,
     SurfaceSubTimings,
 };
+// Solid-surface line pitch + its nominal-width basis, shared with the G-code
+// generator so the flow it charges for each top/bottom fill line matches the
+// pitch the lines are laid at (deposited volume = spacing × layer_height, no
+// over-extrusion) and both honour `top_surface_line_width` / `line_width`.
+pub(crate) use surfaces::{solid_surface_line_spacing, solid_surface_nominal_width_mm};
 pub use types::{ExtrusionRole, SliceLayer};
 
 #[cfg(test)]
@@ -324,6 +329,7 @@ mod tests {
             45.0,
             0.4,
             0.0,
+            0.0,
             None,
         );
 
@@ -355,6 +361,7 @@ mod tests {
             45.0,
             0.4,
             0.0,
+            0.0,
             None,
         );
 
@@ -373,7 +380,16 @@ mod tests {
         let mut layers = slice_mesh(&mesh, 2.0);
 
         // Add grid infill
-        add_infill_to_layers(&mut layers, 0.3, InfillPattern::Grid, 45.0, 0.4, 0.0, None);
+        add_infill_to_layers(
+            &mut layers,
+            0.3,
+            InfillPattern::Grid,
+            45.0,
+            0.4,
+            0.0,
+            0.0,
+            None,
+        );
 
         // Grid pattern should produce more infill paths than rectilinear
         for layer in &layers {
@@ -433,6 +449,7 @@ mod tests {
             InfillPattern::Rectilinear,
             45.0,
             0.4,
+            0.0,
             0.0,
             None,
         );
@@ -716,7 +733,7 @@ mod tests {
             &mut layer,
             &empty,
             ExtrusionRole::TopSurface,
-            0.2,
+            0.4,
             45.0,
             0.0,
         );
@@ -1234,6 +1251,7 @@ mod tests {
                 layer_height: 0.2,
                 infill_angle: 0.0,
                 nozzle_diameter_mm,
+                solid_surface_line_width_mm: 0.0,
                 bridge_flow_ratio,
                 bridge_min_area_mm2: 0.0,
                 bridge_noise_filter_mm: 0.0,
@@ -1427,6 +1445,7 @@ mod tests {
             45.0,
             0.4,
             0.0,
+            0.0,
             None,
         );
 
@@ -1438,6 +1457,7 @@ mod tests {
             45.0,
             0.4,
             0.2, // 0.2 mm gap from walls
+            0.0,
             None,
         );
 
@@ -1458,6 +1478,203 @@ mod tests {
             "Infill with gap ({} paths) should not have more paths than no-gap ({} paths)",
             gap_count,
             no_gap_count
+        );
+    }
+
+    /// Isolated sparse-infill dashes shorter than `min_infill_extrusion_mm` are
+    /// dropped as splats, while the same scene with the filter disabled keeps
+    /// them — the "tiny inner-body splat" cleanup.
+    #[test]
+    fn test_min_infill_extrusion_drops_sparse_splats() {
+        use crate::infill::InfillPattern;
+
+        // Build a layer with a large interior so rectilinear infill generates a
+        // mix of long lines and — at the rounded corners of the region — short
+        // dashes.  A disc gives the diagonal boundary that yields sub-mm crossings.
+        let make_disc_layer = || {
+            let mut layer = SliceLayer::new(0.2);
+            let mut ring: Vec<(f64, f64)> = Vec::new();
+            let r = 8.0;
+            for k in 0..64 {
+                let a = std::f64::consts::TAU * (k as f64) / 64.0;
+                ring.push((r * a.cos(), r * a.sin()));
+            }
+            let disc: clipper2::Path = ring.into();
+            layer.paths.push(disc);
+            layer.path_roles.push(ExtrusionRole::OuterWall);
+            layer.path_widths.push(Some(0.4));
+            layer
+        };
+
+        let count_short = |layers: &[SliceLayer], max_len: f64| -> usize {
+            let mut n = 0;
+            for l in layers {
+                for (i, p) in l.paths.iter().enumerate() {
+                    if l.role_for_path(i) != ExtrusionRole::Infill {
+                        continue;
+                    }
+                    let pts: Vec<(f64, f64)> = p.iter().map(|q| (q.x(), q.y())).collect();
+                    let len: f64 = pts
+                        .windows(2)
+                        .map(|w| ((w[1].0 - w[0].0).powi(2) + (w[1].1 - w[0].1).powi(2)).sqrt())
+                        .sum();
+                    if len < max_len {
+                        n += 1;
+                    }
+                }
+            }
+            n
+        };
+
+        let mut unfiltered = vec![make_disc_layer()];
+        add_infill_to_layers(
+            &mut unfiltered,
+            0.15,
+            InfillPattern::Rectilinear,
+            45.0,
+            0.4,
+            0.0,
+            0.0, // filter disabled
+            None,
+        );
+
+        let mut filtered = vec![make_disc_layer()];
+        add_infill_to_layers(
+            &mut filtered,
+            0.15,
+            InfillPattern::Rectilinear,
+            45.0,
+            0.4,
+            0.0,
+            0.4, // drop sub-0.4 mm dashes
+            None,
+        );
+
+        // The filter must leave no sub-0.4 mm infill dash …
+        assert_eq!(
+            count_short(&filtered, 0.4),
+            0,
+            "no sub-threshold sparse dash should survive the filter"
+        );
+        // … and must not add paths; it only ever removes.
+        let n_unfiltered: usize = unfiltered.iter().map(|l| l.paths.len()).sum();
+        let n_filtered: usize = filtered.iter().map(|l| l.paths.len()).sum();
+        assert!(
+            n_filtered <= n_unfiltered,
+            "filter must not add paths ({n_filtered} > {n_unfiltered})"
+        );
+    }
+
+    /// A thin wall-to-wall cavity with **no solid surface** on the layer must
+    /// keep its full sparse lattice: the solid-region margin is keyed to
+    /// `solid_regions`, so it must be an exact no-op here.
+    ///
+    /// This is the hollow-box case (filament-caddy mid-height layers). An
+    /// earlier implementation morphologically *opened* the whole infill area and
+    /// erased this lattice outright — its wall-zone void more than doubled —
+    /// which the slicing quality gate caught. This test pins that behaviour so
+    /// the mistake cannot come back.
+    #[test]
+    fn test_thin_cavity_without_solid_surface_keeps_its_infill() {
+        use crate::infill::InfillPattern;
+        use clipper2::Path;
+
+        let count_infill = |layers: &[SliceLayer]| -> usize {
+            layers
+                .iter()
+                .flat_map(|l| l.path_roles.iter())
+                .filter(|&&r| r == ExtrusionRole::Infill)
+                .count()
+        };
+
+        // A tall, narrow cavity between two walls — thin, but genuine: nothing
+        // else on the layer covers it, so it must still be filled.
+        let mut layer = SliceLayer::new(0.2);
+        let outer: Path = vec![(-20.0, -1.2), (20.0, -1.2), (20.0, 1.2), (-20.0, 1.2)].into();
+        layer.paths.push(outer);
+        layer.path_roles.push(ExtrusionRole::OuterWall);
+        layer.path_widths.push(Some(0.4));
+        // Deliberately no solid_regions on this layer.
+        assert!(layer.solid_regions.is_empty());
+
+        let mut layers = vec![layer];
+        add_infill_to_layers(
+            &mut layers,
+            0.4,
+            InfillPattern::Rectilinear,
+            45.0,
+            0.4,
+            0.0,
+            0.0,
+            None,
+        );
+        assert!(
+            count_infill(&layers) > 0,
+            "a thin cavity with no solid surface must keep its sparse lattice"
+        );
+    }
+
+    /// Sparse infill must not be laid in the sub-bead sliver between a solid
+    /// surface and the wall: `solid_regions` is grown by
+    /// `SOLID_MARGIN_NOZZLE_MULT × nozzle` before being subtracted, so infill
+    /// generated against a solid region keeps clear of it.
+    #[test]
+    fn test_solid_margin_keeps_infill_off_the_surface_sliver() {
+        use crate::infill::InfillPattern;
+        use clipper2::Path;
+
+        let infill_area_mm = |layers: &[SliceLayer]| -> f64 {
+            let mut total = 0.0;
+            for l in layers {
+                for (i, p) in l.paths.iter().enumerate() {
+                    if l.role_for_path(i) != ExtrusionRole::Infill {
+                        continue;
+                    }
+                    let pts: Vec<(f64, f64)> = p.iter().map(|q| (q.x(), q.y())).collect();
+                    total += pts
+                        .windows(2)
+                        .map(|w| ((w[1].0 - w[0].0).powi(2) + (w[1].1 - w[0].1).powi(2)).sqrt())
+                        .sum::<f64>();
+                }
+            }
+            total
+        };
+
+        // A 30 mm square whose interior is almost entirely solid surface, save a
+        // thin ring left over against the wall — the sliver.
+        let build = |with_solid: bool| {
+            let mut layer = SliceLayer::new(0.2);
+            let sq: Path = vec![(-15.0, -15.0), (15.0, -15.0), (15.0, 15.0), (-15.0, 15.0)].into();
+            layer.paths.push(sq);
+            layer.path_roles.push(ExtrusionRole::OuterWall);
+            layer.path_widths.push(Some(0.4));
+            if with_solid {
+                let solid: Path =
+                    vec![(-13.0, -13.0), (13.0, -13.0), (13.0, 13.0), (-13.0, 13.0)].into();
+                layer.solid_regions = Paths::new(vec![solid]);
+            }
+            let mut layers = vec![layer];
+            add_infill_to_layers(
+                &mut layers,
+                0.4,
+                InfillPattern::Rectilinear,
+                45.0,
+                0.4,
+                0.0,
+                0.0,
+                None,
+            );
+            layers
+        };
+
+        // With a solid region covering the middle, only the ring outside it can
+        // host infill — and the margin must shrink that ring further, so the
+        // total is strictly less than the un-margined solid outline would allow.
+        let with_solid = infill_area_mm(&build(true));
+        let without_solid = infill_area_mm(&build(false));
+        assert!(
+            with_solid < without_solid,
+            "solid region must reduce infill ({with_solid:.1} !< {without_solid:.1})"
         );
     }
 
@@ -1505,6 +1722,7 @@ mod tests {
                 layer_height: 0.2,
                 infill_angle: 45.0,
                 nozzle_diameter_mm: 0.4,
+                solid_surface_line_width_mm: 0.0,
                 bridge_flow_ratio: 0.8,
                 bridge_min_area_mm2: 1.0,
                 bridge_noise_filter_mm: 0.0,
@@ -1564,6 +1782,7 @@ mod tests {
                 layer_height: 0.2,
                 infill_angle: 0.0,
                 nozzle_diameter_mm: 0.4,
+                solid_surface_line_width_mm: 0.0,
                 bridge_flow_ratio: 0.8,
                 bridge_min_area_mm2: 0.0,
                 bridge_noise_filter_mm: 0.5,
@@ -1621,6 +1840,7 @@ mod tests {
             layer_height: 0.2,
             infill_angle: 0.0,
             nozzle_diameter_mm: 0.4,
+            solid_surface_line_width_mm: 0.0,
             bridge_flow_ratio: 0.8,
             bridge_min_area_mm2: 0.0,
             bridge_noise_filter_mm: 0.0,
@@ -1723,6 +1943,7 @@ mod tests {
                 layer_height: 0.2,
                 infill_angle: 45.0,
                 nozzle_diameter_mm: 0.4,
+                solid_surface_line_width_mm: 0.0,
                 bridge_flow_ratio: 0.8,
                 bridge_min_area_mm2: 0.0, // disable area filter so small porthole still passes
                 bridge_noise_filter_mm: 0.0, // disable noise filter
@@ -1783,6 +2004,7 @@ mod tests {
                 layer_height: 0.2,
                 infill_angle: 45.0,
                 nozzle_diameter_mm: 0.4,
+                solid_surface_line_width_mm: 0.0,
                 bridge_flow_ratio: 0.8,
                 bridge_min_area_mm2: 0.0,
                 bridge_noise_filter_mm: 0.0,
@@ -1901,6 +2123,7 @@ mod tests {
                 layer_height: 0.2,
                 infill_angle: 45.0,
                 nozzle_diameter_mm: 0.4,
+                solid_surface_line_width_mm: 0.0,
                 bridge_flow_ratio: 0.8,
                 bridge_min_area_mm2: 0.0,
                 bridge_noise_filter_mm: 0.0,
@@ -2002,6 +2225,7 @@ mod tests {
                 layer_height: 0.2,
                 infill_angle: 45.0,
                 nozzle_diameter_mm: 0.4,
+                solid_surface_line_width_mm: 0.0,
                 bridge_flow_ratio: 0.8,
                 bridge_min_area_mm2: 0.0,
                 bridge_noise_filter_mm: 0.0,
@@ -2093,6 +2317,7 @@ mod tests {
                 layer_height: 0.2,
                 infill_angle: 45.0,
                 nozzle_diameter_mm: 0.4,
+                solid_surface_line_width_mm: 0.0,
                 bridge_flow_ratio: 0.8,
                 bridge_min_area_mm2: 0.0,
                 bridge_noise_filter_mm: 0.0,
@@ -2173,6 +2398,7 @@ mod tests {
                     layer_height: 0.2,
                     infill_angle: 45.0,
                     nozzle_diameter_mm: 0.4,
+                    solid_surface_line_width_mm: 0.0,
                     bridge_flow_ratio: 0.8,
                     // Keep the noise/area filters off so the ONLY thing that can
                     // suppress the bridge is the opened-interior clip under test.

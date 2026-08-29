@@ -64,7 +64,7 @@
                     type="button"
                     [class.is-selected]="selectedId() === printer.id"
                     (click)="select(printer.id)"
-                    (contextmenu)="onContextMenu($event, printer)"
+                    (nexusContextMenu)="onContextMenu($event, printer)"
                   >
                     <span
                       class="conn-dot"
@@ -122,8 +122,13 @@
                   <nexus-icon name="copy" />
                 </button>
                 @if (printer.source !== 'builtin') {
-                  <button nexusIconButton aria-label="Delete" (click)="armDelete()">
-                    <nexus-icon name="trash" />
+                  <button
+                    nexusIconButton
+                    [attr.aria-label]="deleteArmed() ? 'Cancel delete' : 'Delete'"
+                    [class.is-danger]="deleteArmed()"
+                    (click)="toggleDelete()"
+                  >
+                    <nexus-icon [name]="deleteArmed() ? 'xmark' : 'trash'" />
                   </button>
                 }
               </div>

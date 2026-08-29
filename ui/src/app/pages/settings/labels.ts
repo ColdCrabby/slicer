@@ -4,7 +4,9 @@ import { ColorSwatchPicker } from '../../components/labels/color-swatch-picker';
 import { FieldShell } from '../../components/profiles/field-shell';
 import { LabelChip } from '../../components/labels/label-chip';
 import { ContextMenuService } from '../../services/context-menu/context-menu.service';
+import { ContextMenuTrigger } from '../../services/context-menu/context-menu-trigger';
 import type { ContextMenuItem } from '../../services/context-menu/context-menu.model';
+import { Dialog } from '../../services/dialog';
 import { FilamentsStore } from '../../services/profiles/filaments-store';
 import { LabelsStore } from '../../services/profiles/labels-store';
 import { PrintProfilesStore } from '../../services/profiles/print-profiles-store';
@@ -26,6 +28,7 @@ import { SectionHeader } from '../../ui/section-header/section-header';
     LabelChip,
     ColorSwatchPicker,
     FieldShell,
+    ContextMenuTrigger,
   ],
   templateUrl: './labels.html',
   styleUrl: './labels.scss',
@@ -37,6 +40,7 @@ export class LabelsSettings {
   private readonly filaments = inject(FilamentsStore);
   private readonly profiles = inject(PrintProfilesStore);
   private readonly contextMenu = inject(ContextMenuService);
+  private readonly dialog = inject(Dialog);
 
   protected readonly editingId = signal<string | null>(null);
   protected readonly confirmDeleteId = signal<string | null>(null);
@@ -79,15 +83,10 @@ export class LabelsSettings {
       },
       { separator: true, label: '' },
       {
-        label: 'Delete',
+        label: 'Delete…',
         icon: 'trash',
         danger: true,
-        action: () => {
-          this.store.remove(label.id);
-          if (this.editingId() === label.id) {
-            this.editingId.set(null);
-          }
-        },
+        action: () => this.confirmDeleteFromMenu(label),
       },
     ];
     void this.contextMenu.open(event, items);
@@ -107,11 +106,8 @@ export class LabelsSettings {
 
   protected requestDelete(id: string): void {
     if (this.confirmDeleteId() === id) {
-      this.store.remove(id);
+      this.deleteLabel(id);
       this.confirmDeleteId.set(null);
-      if (this.editingId() === id) {
-        this.editingId.set(null);
-      }
     } else {
       this.confirmDeleteId.set(id);
       setTimeout(() => {
@@ -119,6 +115,36 @@ export class LabelsSettings {
           this.confirmDeleteId.set(null);
         }
       }, 3000);
+    }
+  }
+
+  private confirmDeleteFromMenu(label: Label): void {
+    const usage = this.usageFor(label.id);
+    const name = label.name.trim() || 'Unnamed label';
+    const usageCopy =
+      usage > 0
+        ? ` It will also be removed from ${usage} printer, filament, or profile assignment${usage === 1 ? '' : 's'}.`
+        : '';
+    this.dialog
+      .confirm({
+        title: `Delete label "${name}"?`,
+        message: `This label will be permanently deleted.${usageCopy}`,
+        type: 'danger',
+        confirmLabel: 'Delete',
+      })
+      .subscribe((confirmed) => {
+        if (!confirmed) {
+          return;
+        }
+        this.deleteLabel(label.id);
+        this.confirmDeleteId.set(null);
+      });
+  }
+
+  private deleteLabel(id: string): void {
+    this.store.remove(id);
+    if (this.editingId() === id) {
+      this.editingId.set(null);
     }
   }
 

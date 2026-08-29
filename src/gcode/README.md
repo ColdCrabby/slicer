@@ -164,13 +164,38 @@ flowchart TD
   the _smallest_ coverage found in the window. The old single-comparison
   approach (`diff(layer[i], layer[i+N])`) could silently miss such regions.
 
-### Infill spacing
+### Infill spacing & flow
 
-Line spacing for solid surface infill is derived from `layer_height`:
+Line spacing for solid surface infill uses the libslic3r/Orca/PrusaSlicer
+**extrusion-spacing** relation, derived from the solid-surface extrusion width
+(`top_surface_line_width` → `line_width` → nozzle diameter — see
+`solid_surface_nominal_width_mm`):
 
 ```
-line_spacing = layer_height × SOLID_INFILL_EXTRUSION_WIDTH_MULTIPLIER  (= 1.2)
+line_spacing = extrusion_width − layer_height × (1 − π/4)
 ```
+
+At a 0.4 mm nozzle / 0.2 mm layers this is ≈ 0.357 mm — below the 0.4 mm bead
+width so the rounded bead caps interlock (no gaps), yet well above the earlier
+over-extruding `1.2 × layer_height` rule (0.24 mm).
+
+Crucially, the G-code generator **charges each fill line at exactly this
+spacing** — `mm³/mm = line_spacing × layer_height` — *not* the wider nominal
+bead width (see `resolve_width_mm`). Depositing the full nominal width into the
+narrower pitch would over-extrude every solid surface by `width / spacing`
+(≈ 13 % at nozzle width, ≈ 23 % once `line_width > nozzle`) — the raised,
+"blobby" top-surface defect. Matching the flow to the spacing mirrors
+PrusaSlicer/Orca and fills the surface flat: no gaps, no bulge.
+
+### Infill direction
+
+The solid top/bottom fill angle **alternates by 90° every layer** (cross-hatch),
+matching CuraEngine's default `skin_angles = {45°, 135°}`. Even layers use
+`surface_infill_angle`; odd layers use `surface_infill_angle + 90°`. Cross-
+hatching welds adjacent solid layers and hides the fill direction on the
+visible top surface. Because the fill lines are laid at the interlocking stadium
+pitch (with the flow reduced to match — see spacing above), the cross-hatch does
+not open gaps between beads.
 
 ### Configurable parameters
 

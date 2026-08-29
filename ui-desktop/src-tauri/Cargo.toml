@@ -3,8 +3,18 @@ name = "slicer-ui-desktop"
 version = "0.1.0"
 edition = "2021"
 
+# The app lives in a library so mobile can link it.
+#
+# iOS/Android have no Rust `main`: the generated Xcode/Gradle project links a
+# static (iOS) or shared (Android) library and calls the `start_app` symbol that
+# `tauri::mobile_entry_point` exports from `run()`. `rlib` keeps the desktop
+# binary in `src/main.rs` able to depend on it as a normal crate.
+[lib]
+name = "slicer_ui_desktop_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
 [package.metadata.bundle]
-name = "Slicer Engine Desktop"
+name = "Cold Crabby Desktop"
 identifier = "com.maxscopp.slicerengine"
 icon = [
     "icons/icon.ico",
@@ -24,3 +34,47 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 chrono = { version = "0.4", features = ["clock"] }
 slicer-engine = { path = "../../" }
+
+# UIKit interop for the native iOS context menu (see src/context_menu.rs).
+# Tauri already pulls these in on Apple mobile targets; declaring them here just
+# makes the dependency explicit and enables the specific classes we call.
+[target.'cfg(target_os = "ios")'.dependencies]
+block2 = "0.6"
+objc2 = "0.6"
+objc2-core-foundation = { version = "0.3", features = ["CFCGTypes"] }
+objc2-foundation = { version = "0.3", features = ["NSString"] }
+objc2-ui-kit = { version = "0.3", features = [
+    "block2",
+    "objc2-core-foundation",
+    "UIActivity",
+    "UIActivityViewController",
+    "UIAlertController",
+    "UIApplication",
+    "UIPopoverPresentationController",
+    "UIPopoverSupport",
+    "UIResponder",
+    "UIView",
+    "UIViewController",
+    "UIWindow",
+] }
+
+# Cargo only honours `[profile.*]` from the root of the build graph, and this
+# crate — not `slicer-engine` — is that root for the desktop app. Without these
+# the engine's own profile tuning in the workspace `Cargo.toml` is ignored, so
+# native slicing here builds slower than the cloud/server build of the same
+# engine. Mirror the engine profiles so desktop slicing performance matches:
+#   - dev: opt-level 1 (fast iteration) with boostvoronoi optimized + assertions
+#     off (its robust-predicate arithmetic otherwise trips thousands of expensive
+#     debug_assert unwinds on curved slices, flooding stderr and diverging output)
+#   - release: LTO + single codegen unit, matching the distributed cloud build
+[profile.dev]
+opt-level = 1
+
+[profile.dev.package.boostvoronoi]
+opt-level = 3
+debug-assertions = false
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1

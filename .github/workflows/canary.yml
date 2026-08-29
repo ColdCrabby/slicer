@@ -1,0 +1,257 @@
+name: Canary
+
+# Every push to the default branch (i.e. every merge) refreshes a single rolling
+# "canary" pre-release so the latest Windows and macOS desktop bundles are always
+# one click away in the Releases tab. This is deliberately *not* a real release:
+# the version is a throwaway pre-release string, the notes are just the commit
+# range since the last tag, and everything here is overwritten on the next push.
+# Cutting an actual versioned release stays tag-driven — see release.yml.
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+# Only one canary build at a time; a newer push supersedes an in-flight one so
+# the rolling release always reflects the tip of main.
+concurrency:
+  group: canary
+  cancel-in-progress: true
+
+permissions:
+  contents: write
+
+env:
+  CARGO_TERM_COLOR: always
+  CANARY_TAG: canary
+
+jobs:
+  # ── 1. Refresh the rolling "canary" pre-release ────────────────────────────
+  prepare:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.meta.outputs.version }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Derive canary version
+        id: meta
+        run: |
+          base="$(grep -m1 '^version' Cargo.toml | sed -E 's/.*"(.*)".*/\1/')"
+          version="${base}-canary.${{ github.run_number }}+${GITHUB_SHA::7}"
+          echo "version=${version}" >> "$GITHUB_OUTPUT"
+          echo "Canary version: ${version}"
+
+      - name: Build release notes from the commit range
+        run: |
+          last_tag="$(git describe --tags --abbrev=0 --match 'v[0-9]*' 2>/dev/null || true)"
+          if [[ -n "${last_tag}" ]]; then
+            range="${last_tag}..HEAD"
+            echo "Commits since \`${last_tag}\`:" > NOTES.md
+          else
+            range="HEAD"
+            echo "Recent commits:" > NOTES.md
+          fi
+          {
+            echo ""
+            echo "> ⚠️ **Canary build** — automatically produced from the tip of"
+            echo "> \`main\` (\`${GITHUB_SHA::7}\`) on every merge. Unstable and"
+            echo "> overwritten on every push. For a stable build use a tagged release."
+            echo ""
+            echo "> 🍎 **macOS:** this build is unsigned (no paid Apple"
+            echo "> Developer ID), so Gatekeeper marks the downloaded app as"
+            echo "> \"damaged\" — **right-click → Open will not clear this**. Drag"
+            echo "> **Cold Crabby Desktop** to Applications, then run this once"
+            echo "> in Terminal to strip the quarantine flag and launch it:"
+            echo ">"
+            echo "> \`xattr -cr \"/Applications/Cold Crabby Desktop.app\"\`"
+            echo ""
+            git log --no-merges --format='- %s (%h)' ${range} | head -n 50
+          } >> NOTES.md
+          cat NOTES.md
+
+      - name: Refresh the canary pre-release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          title="Canary (${{ steps.meta.outputs.version }})"
+          if gh release view "${CANARY_TAG}" >/dev/null 2>&1; then
+            # Move the rolling tag to this commit and refresh the notes only.
+            # Deliberately do NOT wipe the existing assets here: the upload step
+            # re-uploads each bundle under a stable, version-less name with
+            # --clobber, overwriting it in place once the new build is ready.
+            # A slow or failed build therefore leaves the previous working
+            # bundles downloadable instead of emptying the release mid-build.
+            gh release edit "${CANARY_TAG}" \
+              --target "${GITHUB_SHA}" \
+              --title "${title}" \
+              --notes-file NOTES.md \
+              --prerelease
+          else
+            gh release create "${CANARY_TAG}" \
+              --target "${GITHUB_SHA}" \
+              --title "${title}" \
+              --notes-file NOTES.md \
+              --prerelease
+          fi
+
+  # ── 2. Build the Tauri desktop app for Windows and macOS ───────────────────
+  desktop:
+    needs: prepare
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-latest
+          - os: windows-latest
+    runs-on: ${{ matrix.os }}
+    env:
+      # Bake the canary version into the binaries even on a shallow checkout.
+      SLICER_VERSION: ${{ needs.prepare.outputs.version }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+      - name: Add macOS universal build targets
+        if: runner.os == 'macOS'
+        run: rustup target add x86_64-apple-darwin aarch64-apple-darwin
+      - uses: Swatinem/rust-cache@v2
+        with:
+          # The desktop app is a *separate* Cargo workspace; its target dir was
+          # never cached, so the whole engine recompiled from scratch every run.
+          # Cache both trees (and path-dep crates) so warm runs are minutes faster.
+          workspaces: |
+            . -> target
+            ui-desktop/src-tauri -> target
+          cache-all-crates: "true"
+          cache-on-failure: "true"
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .node-version
+          cache: pnpm
+
+      # Prebuilt binary — compiling wasm-bindgen-cli from source cost minutes.
+      - name: Install wasm-bindgen-cli
+        uses: taiki-e/install-action@v2
+        with:
+          tool: wasm-bindgen-cli@0.2.126
+
+      - name: Install workspace dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Sync desktop bundle version with the canary version
+        shell: bash
+        run: |
+          # Windows MSI/WiX rejects a non-numeric pre-release identifier
+          # ("canary") and caps it at 65535, so the throwaway canary string
+          # cannot be the *installer* version. Derive a numeric-only
+          # `X.Y.Z-<run>` for bundle metadata; the user-facing version still
+          # comes from SLICER_VERSION baked in at build time.
+          version="${{ needs.prepare.outputs.version }}"
+          base="${version%%-*}"
+          bundle_version="${base}-$(( ${{ github.run_number }} % 65536 ))"
+          node -e "const f='ui-desktop/src-tauri/tauri.conf.json';const c=require('./'+f);c.version=process.argv[1];require('fs').writeFileSync(f,JSON.stringify(c,null,2)+'\n');" "${bundle_version}"
+
+      - name: Generate WASM bindings and schemas
+        run: pnpm run hydrate
+
+      - name: Build desktop bundles
+        shell: bash
+        env:
+          # Ad-hoc sign by default so the .app carries a valid signature and
+          # launches (after de-quarantine) on Apple Silicon; switch to a real
+          # Developer ID + notarization automatically when these repo secrets
+          # are configured.
+          #
+          # GitHub Actions always injects `secrets.X` as an *empty string*
+          # env var when the secret doesn't exist (never unset). tauri-bundler
+          # checks these with Rust's `var_os`, which treats `Some("")` as
+          # "present" -- an empty APPLE_CERTIFICATE then makes it try to
+          # import a blank keychain certificate and fail with
+          # `SecKeychainItemImport: One or more parameters ... not valid`.
+          # So these must only be exported when actually non-empty (below),
+          # not assigned unconditionally here.
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY || '-' }}
+        run: |
+          # Only export the certificate/notarization secrets when they are
+          # actually configured -- see the note above the env: block.
+          if [[ -n "${{ secrets.APPLE_CERTIFICATE }}" ]]; then
+            export APPLE_CERTIFICATE="${{ secrets.APPLE_CERTIFICATE }}"
+            export APPLE_CERTIFICATE_PASSWORD="${{ secrets.APPLE_CERTIFICATE_PASSWORD }}"
+          fi
+          if [[ -n "${{ secrets.APPLE_ID }}" ]]; then
+            export APPLE_ID="${{ secrets.APPLE_ID }}"
+            export APPLE_PASSWORD="${{ secrets.APPLE_PASSWORD }}"
+            export APPLE_TEAM_ID="${{ secrets.APPLE_TEAM_ID }}"
+          fi
+
+          if [[ "$RUNNER_OS" == "macOS" ]]; then
+            # One universal binary so the DMG runs on both Intel and Apple
+            # Silicon (macos-latest runners are arm64-only otherwise).
+            pnpm --filter slicer-ui-desktop exec tauri build --target universal-apple-darwin
+          else
+            pnpm --filter slicer-ui-desktop build
+          fi
+
+      - name: Verify the macOS bundle is validly ad-hoc signed
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          # Ad-hoc signing (not notarization) is what lets Apple Silicon run the
+          # app at all after the user clears quarantine. If Tauri's signing were
+          # incomplete the app would still be "damaged" even after `xattr -cr`,
+          # so fail loudly here rather than shipping an unlaunchable bundle.
+          # Note: `spctl` is intentionally NOT used — it always rejects an
+          # un-notarized app and would give a false failure.
+          app="ui-desktop/src-tauri/target/universal-apple-darwin/release/bundle/macos/Cold Crabby Desktop.app"
+          codesign --verify --deep --strict --verbose=2 "$app"
+          codesign -dvv "$app" 2>&1 | sed -n '1,8p'
+
+      - name: Upload desktop bundles to the canary release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          # macOS bundles land under the universal target triple; other OSes use
+          # the default target dir. macOS ships bash 3.2 (no globstar), so
+          # enumerate with find instead of a `**` glob.
+          if [[ "$RUNNER_OS" == "macOS" ]]; then
+            bundle_dir="ui-desktop/src-tauri/target/universal-apple-darwin/release/bundle"
+          else
+            bundle_dir="ui-desktop/src-tauri/target/release/bundle"
+          fi
+          # Copy each bundle to a *stable*, version-less name before uploading.
+          # Tauri embeds the run-specific version in the filename, which would
+          # (a) accumulate stale assets on the rolling release and (b) break the
+          # download URL every build. Stable names let --clobber overwrite the
+          # previous build's asset in place (so `prepare` no longer needs to
+          # wipe assets) and keep a permanent link, e.g.
+          #   .../releases/download/canary/Slicer-Engine-Desktop-macOS.dmg
+          staging="$(mktemp -d)"
+          stable_name() {
+            case "$1" in
+              *.dmg)        echo "Slicer-Engine-Desktop-macOS.dmg" ;;
+              *.app.tar.gz) echo "Slicer-Engine-Desktop-macOS.app.tar.gz" ;;
+              *.msi)        echo "Slicer-Engine-Desktop-Windows-x64.msi" ;;
+              *.exe)        echo "Slicer-Engine-Desktop-Windows-x64-setup.exe" ;;
+              *)            basename "$1" ;;
+            esac
+          }
+          assets=()
+          while IFS= read -r src; do
+            dest="${staging}/$(stable_name "$src")"
+            cp "$src" "$dest"
+            assets+=("$dest")
+          done < <(find "$bundle_dir" -type f \( \
+            -name '*.dmg' -o -name '*.app.tar.gz' -o -name '*.msi' -o -name '*.exe' \
+          \))
+          if [[ ${#assets[@]} -eq 0 ]]; then
+            echo "No desktop bundles found to upload." >&2
+            exit 1
+          fi
+          gh release upload "${CANARY_TAG}" "${assets[@]}" --clobber

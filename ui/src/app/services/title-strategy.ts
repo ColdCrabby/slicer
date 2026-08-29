@@ -3,11 +3,11 @@ import { TitleStrategy } from '@angular/router';
 import type { RouterStateSnapshot } from '@angular/router';
 import { Title } from '@angular/platform-browser';
 
-const APP_NAME = 'Nexus Slicer';
+const APP_NAME = 'Cold Crabby';
 
 /**
  * Sets the browser tab title from each route's `title`, suffixed with the app
- * name (e.g. "Settings — Nexus Slicer"). Routes without a title fall back to
+ * name (e.g. "Settings — Cold Crabby"). Routes without a title fall back to
  * the bare app name.
  */
 @Injectable({ providedIn: 'root' })

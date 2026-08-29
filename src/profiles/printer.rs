@@ -112,6 +112,7 @@ pub struct PrinterProfile {
     /// (`nozzle_diameter_mm`, `filament_diameter_mm`, `print_speed`,
     /// `travel_speed_mm_min`, `retract_mm`, `retract_speed_mm_min`, `z_hop_mm`,
     /// `gcode_flavor`, `start_gcode`, `end_gcode`, `extruder_count`).
+    #[schemars(schema_with = "crate::settings::params::slicing_params_schema")]
     #[serde(default)]
     pub params: serde_json::Value,
 }

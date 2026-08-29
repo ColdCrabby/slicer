@@ -82,15 +82,12 @@ impl ServeCommand {
         let work_dir = self.work_dir.clone();
 
         if host == "0.0.0.0" {
-            eprintln!(
-                "\nServing Slicer Engine UI on all interfaces (port {})",
-                port
-            );
+            eprintln!("\nServing Cold Crabby UI on all interfaces (port {})", port);
             eprintln!("  Local:   http://localhost:{}/", port);
             eprintln!("  Network: http://<your-ip>:{}/", port);
             eprintln!("WebSocket endpoint: ws://<host>:{}/ws", port);
         } else {
-            eprintln!("\nServing Slicer Engine UI at http://{}:{}/", host, port);
+            eprintln!("\nServing Cold Crabby UI at http://{}:{}/", host, port);
             eprintln!("WebSocket endpoint:        ws://{}:{}/ws", host, port);
         }
         eprintln!("Serving files from: {}", ui_dir);
@@ -195,8 +192,7 @@ async fn run_server(
                     .default_handler(web::to(move || {
                         let path = format!("{}/index.html", fallback_dir);
                         async move {
-                            actix_files::NamedFile::open_async(path)
-                                .await
+                            actix_files::NamedFile::open(path)
                                 .map_err(actix_web::error::ErrorNotFound)
                         }
                     })),

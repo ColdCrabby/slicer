@@ -20,9 +20,7 @@
     background-color var(--duration-fast) var(--ease-standard),
     border-color var(--duration-fast) var(--ease-standard),
     color var(--duration-fast) var(--ease-standard),
-    box-shadow var(--duration-fast) var(--ease-standard),
-    font-weight var(--duration-fast) var(--ease-standard),
-    font-variation-settings var(--duration-fast) var(--ease-standard);
+    box-shadow var(--duration-fast) var(--ease-standard);
 
   &:focus-visible {
     outline: none;
@@ -46,16 +44,6 @@
   flex: none;
   color: currentColor;
   opacity: 0.92;
-}
-
-:host:hover:not(:disabled):not([aria-disabled='true']) {
-  font-weight: var(--font-weight-semibold);
-  font-variation-settings: 'wght' var(--font-weight-semibold);
-}
-
-:host:active:not(:disabled):not([aria-disabled='true']) {
-  font-weight: var(--font-weight-active);
-  font-variation-settings: 'wght' var(--font-weight-active);
 }
 
 // ── Sizes ──

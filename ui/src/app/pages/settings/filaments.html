@@ -64,7 +64,7 @@
                     type="button"
                     [class.is-selected]="selectedId() === filament.id"
                     (click)="select(filament.id)"
-                    (contextmenu)="onContextMenu($event, filament)"
+                    (nexusContextMenu)="onContextMenu($event, filament)"
                   >
                     <span class="mgr__card-swatch" [style.background]="filament.color"></span>
                     <span class="mgr__card-info">
@@ -119,8 +119,13 @@
                   <nexus-icon name="copy" />
                 </button>
                 @if (filament.source !== 'builtin') {
-                  <button nexusIconButton aria-label="Delete" (click)="armDelete()">
-                    <nexus-icon name="trash" />
+                  <button
+                    nexusIconButton
+                    [attr.aria-label]="deleteArmed() ? 'Cancel delete' : 'Delete'"
+                    [class.is-danger]="deleteArmed()"
+                    (click)="toggleDelete()"
+                  >
+                    <nexus-icon [name]="deleteArmed() ? 'xmark' : 'trash'" />
                   </button>
                 }
               </div>

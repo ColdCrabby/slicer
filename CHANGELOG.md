@@ -22,6 +22,24 @@ these notes and acknowledges contributors. `scripts/gen-changelog-draft.sh` and
 
 ### Added
 
+- **iPadOS / iOS target** — the Tauri shell now builds and runs on iPad, with the
+  full Rust slicing engine on-device. `pnpm run ios:doctor` checks the toolchain
+  (and `ios:setup` installs what it can), `ios:init` generates the Xcode project,
+  and `ios:dev` builds, boots an iPad simulator and runs the app with live
+  reload — no interactive device picker. The app wiring moved into
+  `ui-desktop/src-tauri/src/lib.rs` so desktop and mobile share one entry point,
+  and the iOS build drops the CLI, HTTP server and SQLite modules it cannot use
+  (333 dependencies instead of 495). Local-network and App Transport Security
+  entries are declared up front, so Moonraker printers are reachable from an
+  iPad exactly as they are from the desktop app. See
+  [ui-desktop/README.md](ui-desktop/README.md).
+- **Volumetric-flow limiter** — the `max_volumetric_speed` parameter (mm³/s) is
+  now enforced by the G-code generator. On every extruding move the feedrate is
+  capped to `max_volumetric_speed · 60 / (layer_height × width)` so the hotend
+  is never asked to melt faster than it can, honoured per-segment for
+  variable-width Arachne beads and on wall/coasting close moves alike. It stacks
+  with the existing wide-bead throttle (the lower speed wins). Defaults to `0`
+  (unlimited), so existing output is unchanged.
 - **Geometry-aware acceleration** — new `outer_wall_acceleration` and
   `bridge_acceleration` slicing parameters extend layer-type acceleration with
   role-specific limits: a lower outer-wall value cuts ringing on visible
@@ -62,6 +80,113 @@ these notes and acknowledges contributors. `scripts/gen-changelog-draft.sh` and
   the version, the CLI `info` command reports a `Commit:` line (and `git_sha` in
   JSON), so a deployed build can be pinned to a precise source revision instead
   of just an official version number.
+
+### Changed
+
+- **Dependency maintenance** — cleared the outstanding Dependabot backlog. The
+  Angular front-end moves to the 22.x line (all `@angular/*` packages, the
+  Angular CLI/build toolchain, `@angular/cdk`, and `ngx-markdown`) on
+  TypeScript 6.0; the Rust engine moves to `sea-orm` 2.0 and `reqwest` 0.13; and
+  the grouped npm minor/patch bumps (three.js, monaco-editor, vitest, prettier,
+  fuse.js, iconoir, mermaid, the Tauri CLI, …) are applied. Two proposed bumps
+  are intentionally held back and ignored by Dependabot going forward:
+  TypeScript 7 (Angular pins `typescript` to `>=6.0 <6.1`) and `getrandom` 0.4
+  (declared only to enable the `wasm_js` backend for the 0.3 copy that
+  `tobj`/`ahash` still require). No behavioural changes to sliced output.
+
+### Fixed
+
+- **Top-surface "squiggles" where solid fill grazes a wall** — a surface whose
+  boundary meets the wall band at a shallow angle was filled with a dense
+  micro-serpentine of sub-millimetre stubs hugging the wall, interleaved with
+  unfilled wedge voids. The wall-band trim leaves a crescent narrower than one
+  bead there, and because the fill direction is near-parallel to it every
+  scanline span is a stub. On the Filament Card Caddy's hexagon logo the two
+  edges lying 15° off the fill direction carried ≈0.22 mm-wide slivers filled
+  with a repeating 0.8 mm-line / 0.6 mm-connector zig-zag whose material was
+  **93 % already covered** by the flanking wall bead. Solid top/bottom surface
+  regions are now width-filtered before filling: anything narrower than one
+  extrusion width is dropped (it cannot hold a bead by construction), while
+  thicker geometry is preserved at its **exact original shape**, sharp corners
+  included. The two affected caddy edges drop from 22.9 → 2.4 mm and
+  24.1 → 2.8 mm of sub-1 mm top surface with total material coverage unchanged
+  (≤ 0.004 % on Benchy, Voron cube and caddy alike). This was **not** an
+  Arachne-only defect — `classic` produced identical stubs, because the cause
+  is in the surface fill rather than the wall generator.
+
+- **Arachne "splat" gap-fill and gap fill printed under top surfaces** — two
+  Benchy-visible quality defects in the Arachne wall generator:
+  - Isolated sub-millimetre gap-fill beads (≈ 270 on a 3DBenchy) that added
+    nothing but a full retract → travel → un-retract cycle each — wasting time
+    and risking filament grinding — are now dropped. The automatic minimum
+    gap-fill run length rose from one nozzle diameter to `2·d` (0.8 mm at a
+    0.4 mm nozzle), matching the medial-skeleton spur floor. Set
+    `gap_fill_min_length_mm` explicitly to override. The residual such short
+    beads would have filled is covered by the squish of the flanking wall beads,
+    so no wall-zone void opens (verified against the `classic` generator).
+  - A redundant gap-fill bead running down the centre of a thin solid strip
+    (e.g. the Benchy rear-rail roof, ≈ layer 201) that double-extruded straight
+    under the top-surface fill is now pruned **and** the solid surface fills the
+    strip in its place. Gap fill sandwiched by solid surface on both sides is
+    removed as redundant; crucially the surface no longer carves that bead's
+    footprint out of itself (neither via its explicit gap-fill term nor via the
+    shared wall-bead footprint, which also lists gap fill), so the roof fills as
+    **one** coherent top surface instead of a split ring with a central hole
+    that leaked sparse-infill dashes. A bead that merely abuts a surface on one
+    side (a genuine thin neck) is still kept and abutted. Cut model-wide
+    gap-fill-under-surface double-extrusion from 7.3 → 0.5 mm² with no new voids.
+- **Tiny sparse-infill "splat" dashes** — two complementary fixes:
+  - `layer.solid_regions` is now **grown by one bead width before being
+    subtracted** from the sparse-infill area. The solid surface is printed as a
+    stepped serpentine whose extent only approximates its nominal polygon, so
+    subtracting the raw outline left a thin crescent sliver hugging the wall
+    along every curved perimeter; the scanline shattered it into sub-millimetre
+    dashes (31 on one 3DBenchy layer alone), each an isolated dab costing a full
+    retract/travel/un-retract for no structural gain — the space is already
+    flanked by the solid surface on one side and a wall bead on the other.
+    Isolated sub-1.5 mm infill paths on that layer drop 33 → 6. Because the
+    correction is keyed to `solid_regions`, it is an exact **no-op on layers
+    with no solid surface**, so genuinely thin wall-to-wall cavities (hollow-box
+    lattices) keep their infill untouched.
+  - `min_infill_extrusion_mm` (default 0.4 mm) now also filters *sparse* infill,
+    not just solid surface fill, catching the residual sub-threshold segments a
+    legitimate region's tapering corners produce.
+
+  Together with the gap-fill fixes this cut isolated sub-0.8 mm extrusions on the
+  3DBenchy by ~76 % (356 → 87) with no change to strength (the flanking walls and
+  solid surface fill the space).
+
+- **iPad Apple Pencil + two-finger navigation "spazzing"** — palm rejection
+  classified each touch on its own, so a stylus user's two-finger pan/pinch could
+  lose exactly one finger — a firm fingertip read as palm-sized, or a flickering
+  pen hover/grace state — collapsing the gesture into an unwanted single-finger
+  camera rotate. The viewport's pointer arbiter now decides **per gesture
+  group**: the first contact is classified, and any finger that lands while
+  another is already down inherits that verdict, so a two-finger gesture is
+  admitted or rejected as a whole and never split. The palm-by-size heuristic is
+  also gated to _recent_ pen use instead of the whole session, so firm fingertips
+  stop being mistaken for a palm long after the pencil is set down. Stale
+  pointer state is now reclaimed by timeout, so a touch or pen event dropped by
+  the OS (a common iPad backgrounding glitch) can no longer wedge the viewport
+  into ignoring all touch until reload.
+
+- **3MF models loaded at the wrong scale** — the 3MF importer ignored the
+  `<model unit="…">` declaration and read every coordinate as raw millimeters, so
+  files authored in `meter`, `centimeter`, `inch`, or `foot` opened dramatically
+  undersized (e.g. a metre-declared object appeared 1000× too small). The loader
+  now normalizes all six spec units (`micron`, `millimeter`, `centimeter`,
+  `inch`, `foot`, `meter`) to millimeters on import and rejects unrecognized
+  units with a clear error. Applies to both the CLI file path and the
+  byte-upload path used by the UI/WASM and WS server.
+
+- **Viewport-cube ortho snap popped back to perspective on pan/zoom** —
+  clicking a cube face to inspect a model in a flat, dimension-true view (e.g.
+  a selected face of a slice) lost that view the instant you panned or
+  zoomed, which is exactly when you want to hold still: dragging around and
+  zooming in to evaluate detail. Only a genuine **rotate** now breaks the
+  snap free (past the existing sticky threshold); panning and zooming any
+  distance keep the projection flattened, letting you inspect a snapped view
+  up close without it ever popping back to perspective.
 
 ## [0.1.0] - 2026-08-23
 

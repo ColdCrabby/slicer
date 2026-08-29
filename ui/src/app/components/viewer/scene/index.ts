@@ -1,5 +1,7 @@
 import {
   BoxGeometry,
+  Box3,
+  Color,
   DirectionalLight,
   Group,
   HemisphereLight,
@@ -8,8 +10,10 @@ import {
   type Object3D,
   PerspectiveCamera,
   Scene,
+  SRGBColorSpace,
   Vector3,
   WebGLRenderer,
+  WebGLRenderTarget,
 } from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import type { PrintAreaConfig } from '../../../services/print-area';
@@ -18,6 +22,7 @@ import { GizmoManager } from '../gizmo';
 import { INITIAL_CAMERA_UP, INITIAL_PERSPECTIVE_FOV, SceneCamera } from './camera';
 import { SceneControls } from './controls';
 import { SceneGrid } from './grid';
+import { PointerArbiter } from './pointer-arbiter';
 import { SceneSelection } from './selection';
 import type { SceneGizmoHandlers, SceneSelectionHandlers, ViewerView } from './types';
 import { disposeObject } from './utils';
@@ -25,6 +30,24 @@ import { disposeObject } from './utils';
 const CAMERA_NEAR = 0.1;
 const CAMERA_FAR = 1_000_000;
 const MAX_PIXEL_RATIO = 2;
+
+/**
+ * Canvas events that must force a repaint because they can change the image
+ * without moving the camera (hover highlights, gizmo handles, drag feedback).
+ */
+/**
+ * How long the view must be unchanged before it counts as settled. Long enough
+ * not to fire between frames of a gesture, short enough to feel immediate.
+ */
+const SETTLE_DELAY_MS = 200;
+
+const POINTER_INVALIDATING_EVENTS = [
+  'pointerdown',
+  'pointermove',
+  'pointerup',
+  'pointerleave',
+  'wheel',
+] as const;
 
 function shouldDisableAntialias(): boolean {
   return typeof window !== 'undefined' && window.devicePixelRatio >= 2;
@@ -41,6 +64,40 @@ export interface ViewerSceneOptions {
   pixelRatioCap?: number;
   /** Initial perspective field-of-view in degrees. */
   fieldOfView?: number;
+}
+
+/** Field-of-view (deg) used for the fixed-angle thumbnail render. */
+const THUMBNAIL_FOV = 40;
+/** Fit padding — a whisker of margin so the tight box-fit never clips an edge. */
+const THUMBNAIL_FIT_PADDING = 1.02;
+
+/**
+ * Inputs for {@link ViewerScene.captureThumbnail}. The caller resolves the
+ * world-space camera direction/up (from a fixed preset), the thumbnail theme,
+ * and the background — the scene handles framing, an off-screen render, and
+ * full state restoration.
+ */
+export interface ThumbnailCaptureOptions {
+  /** Square output edge length in pixels. */
+  sizePx: number;
+  /** Normalised world-space camera direction (target → camera). */
+  direction: Vector3;
+  /** World-space camera up vector. */
+  up: Vector3;
+  /** Whether the thumbnail uses the dark studio lighting rig. */
+  isDark: boolean;
+  /** The live scene theme to restore after the capture. */
+  liveIsDark: boolean;
+  /** Solid background colour (hex), or `null` for a transparent background. */
+  background: number | null;
+  /**
+   * Explicit objects to frame + render in isolation — typically freshly-built
+   * model meshes. When provided, all live scene content (model *and* G-code
+   * preview) is hidden for the capture and only these subjects are drawn, so
+   * the thumbnail always depicts the model regardless of the viewer's current
+   * mode. When omitted, the live {@link ViewerScene.contentRoot} is framed.
+   */
+  subjects?: Object3D[];
 }
 
 /**
@@ -68,6 +125,7 @@ export class ViewerScene {
   private readonly _controls: SceneControls;
   private readonly _grid: SceneGrid;
   private readonly _selection: SceneSelection;
+  private readonly _pointerArbiter: PointerArbiter;
   private readonly gizmo: GizmoManager;
   private readonly axesGizmo: Group;
   private readonly hemiLight: HemisphereLight;
@@ -83,11 +141,62 @@ export class ViewerScene {
   private pixelRatioCap = MAX_PIXEL_RATIO;
 
   /**
+   * Set when something that affects the image has changed. The render loop is
+   * on-demand: a static scene is not redrawn, which matters enormously for
+   * large G-code plates where a single frame is millions of triangles.
+   */
+  private needsRender = true;
+  /** Whether the previous frame actually drew — used to keep the FPS honest. */
+  private renderedLastFrame = false;
+  /** Timestamp of the last frame that changed the view; drives `settled`. */
+  private lastActivityTime = 0;
+  /** Whether the view is currently considered settled (reported to `lodSink`). */
+  private settled = false;
+  /** Start time of the in-flight render, awaiting a cost measurement. */
+  private frameProbeStart = 0;
+  private frameProbePending = false;
+  /** Wall time of the most recently measured frame, in ms. */
+  private lastFrameMs = 0;
+  /** Camera pose of the last drawn frame, to detect movement generically. */
+  private readonly lastPose = {
+    px: NaN,
+    py: NaN,
+    pz: NaN,
+    qx: NaN,
+    qy: NaN,
+    qz: NaN,
+    qw: NaN,
+    tx: NaN,
+    ty: NaN,
+    tz: NaN,
+    fov: NaN,
+    near: NaN,
+    far: NaN,
+    zoom: NaN,
+  };
+
+  /**
    * Sink called at the end of every rendered frame with the live camera
    * direction (target→camera normalised), up vector, and FOV. Used by
    * the viewport-cube gizmo.
    */
   cameraStateSink: ((direction: Vector3, up: Vector3, fov: number) => void) | null = null;
+
+  /**
+   * Sink asked to pick a level of detail whenever the view settles, starts
+   * moving again, or a fresh frame-cost measurement lands.
+   *
+   * `settled` is the important one. Rendering is on-demand, so a still view
+   * costs exactly *one* frame — which means expensive, good-looking geometry is
+   * affordable precisely when the user has stopped to look at it, and only
+   * interaction needs to be cheap.
+   *
+   * `lastFrameMs` is the wall time from the last render to the following
+   * animation frame. It includes the vsync wait, so it is only meaningful for
+   * spotting frames that are *far* over budget — which is exactly its job:
+   * telling the caller that full detail is not affordable on this machine.
+   */
+  lodSink: ((info: { settled: boolean; lastFrameMs: number }) => void) | null = null;
 
   /**
    * Sink called approximately once per second with the smoothed FPS and
@@ -140,6 +249,13 @@ export class ViewerScene {
     this.renderer.domElement.style.touchAction = 'none';
     host.appendChild(this.renderer.domElement);
 
+    // Palm rejection is installed on `host` (an ancestor of the canvas) in the
+    // capture phase so it runs before OrbitControls, selection, and the
+    // two-finger touch handlers — it can veto a palm/wrist contact before any
+    // of them start a camera gesture. Created before those consumers so its
+    // capture listeners are the first thing every pointer event meets.
+    this._pointerArbiter = new PointerArbiter(host);
+
     this.controls = new OrbitControls(this.camera, this.renderer.domElement);
     this.controls.enableDamping = false;
     this.controls.zoomToCursor = false;
@@ -153,13 +269,40 @@ export class ViewerScene {
     //   SceneCamera → GizmoManager → SceneSelection (needs gizmo)
     //   → SceneControls (needs cancelDrag callback) → SceneGrid
     this._camera = new SceneCamera(this.camera, this.controls, this.contentRoot, printArea);
+    // Seed the perspective preset from the FOV the camera was actually built
+    // with. Without this the preset keeps its built-in default while the camera
+    // runs at the user's configured FOV, so *restoring* perspective — the
+    // toolbar toggle, a cube-snap breakout, or the home reset — would snap the
+    // view to the default instead of the FOV the user chose.
+    this._camera.setPerspectiveFov(this.camera.fov);
     this.gizmo = new GizmoManager(this.scene, this.camera, this.renderer);
     this._selection = new SceneSelection(this.scene, this.camera, this.renderer, this.gizmo);
 
     this._controls = new SceneControls(this.camera, this.controls, this.renderer, () =>
       this._selection.cancelActiveDrag(),
     );
+    // A deliberate rotate dragged past the sticky intent threshold reverts the
+    // viewport-cube's temporary orthographic snap; a small rotate and cube
+    // gestures never fire this, so the mode only changes on a clear user
+    // intent to look elsewhere.
+    this._controls.setRevertGestureSink(() => this._camera.notifyUserViewGesture());
+    // Pan and zoom are sticky — they never revert the snap (see above) — but
+    // still need to release its frozen detent so the gesture actually moves
+    // the camera. This lets the user inspect a snapped ortho view (e.g. a
+    // selected face) up close by panning/zooming without ever popping back to
+    // perspective.
+    this._controls.setPanZoomGestureSink(() => this._camera.releaseSnapPinForPanZoom());
     this._grid = new SceneGrid(this.scene, this.camera, this.controls, this.renderer, printArea);
+
+    // The loop only draws when something changed, and several sub-systems paint
+    // straight from pointer handlers (the pull-to-floor face highlight, gizmo
+    // hover, selection outlines) without touching the camera. Treating any
+    // pointer activity over the canvas as a repaint request keeps those honest
+    // without every sub-system needing a back-reference to the scene. A resting
+    // pointer emits no events, so an idle viewport still costs nothing.
+    for (const type of POINTER_INVALIDATING_EVENTS) {
+      this.renderer.domElement.addEventListener(type, this.requestRender, { passive: true });
+    }
 
     // Wire gizmo callbacks.
     this.gizmo.onDragStart = () => {
@@ -204,6 +347,7 @@ export class ViewerScene {
   setPrintArea(config: PrintAreaConfig): void {
     this._camera.setPrintArea(config);
     this._grid.setPrintArea(config);
+    this.needsRender = true;
   }
 
   /**
@@ -227,6 +371,7 @@ export class ViewerScene {
       this.fillLight.color.setHex(0xffffff);
       this.fillLight.intensity = 0.34;
     }
+    this.needsRender = true;
   }
 
   clearContent(): void {
@@ -237,22 +382,27 @@ export class ViewerScene {
       this.contentRoot.remove(child);
       disposeObject(child);
     }
+    this.needsRender = true;
   }
 
   registerSelectable(id: string, object: Object3D): void {
     this._selection.register(id, object);
+    this.needsRender = true;
   }
 
   unregisterSelectable(id: string): void {
     this._selection.unregister(id);
+    this.needsRender = true;
   }
 
   clearSelectables(): void {
     this._selection.clearAll();
+    this.needsRender = true;
   }
 
   setSelectedIds(ids: ReadonlySet<string>): void {
     this._selection.setSelectedIds(ids);
+    this.needsRender = true;
   }
 
   setObjectTransform(
@@ -264,6 +414,7 @@ export class ViewerScene {
     },
   ): void {
     this._selection.setObjectTransform(id, transform);
+    this.needsRender = true;
   }
 
   fitToContent(padding?: number): void {
@@ -274,12 +425,169 @@ export class ViewerScene {
     this._camera.setView(view);
   }
 
+  /**
+   * Register a listener for projection changes the toolbar did not initiate — a
+   * viewport-cube snap engaging ortho, or a breakout restoring the previous
+   * preset. Lets the UI's `view` signal mirror what is actually on screen. The
+   * listener must not feed the value back into {@link setView}.
+   */
+  setViewChangeSink(sink: ((view: ViewerView) => void) | null): void {
+    this._camera.onViewChange = sink;
+  }
+
   resetView(): void {
     this._camera.resetView();
   }
 
-  animateToDirection(direction: Vector3, up: Vector3): void {
-    this._camera.animateToDirection(direction, up);
+  /**
+   * Render the current model content to a square PNG from a fixed camera angle
+   * and theme, entirely off-screen. The live canvas, camera, controls, lights,
+   * and background are all restored before returning, so this never disturbs
+   * the on-screen view. Returns a `data:image/png;base64,…` URL, or `null` when
+   * there is nothing to frame.
+   */
+  captureThumbnail(options: ThumbnailCaptureOptions): string | null {
+    const size = Math.max(16, Math.round(options.sizePx));
+
+    // When explicit subjects are given (freshly-built model meshes), render
+    // them in isolation from a temporary group so neither the live model nor
+    // the G-code preview toolpaths bleed into the shot or skew the framing.
+    const subjects = options.subjects ?? [];
+    let subjectGroup: Group | null = null;
+    if (subjects.length > 0) {
+      subjectGroup = new Group();
+      for (const s of subjects) {
+        subjectGroup.add(s);
+      }
+      this.scene.add(subjectGroup);
+    }
+    const frameTarget: Object3D = subjectGroup ?? this.contentRoot;
+    frameTarget.updateMatrixWorld(true);
+
+    const box = new Box3().setFromObject(frameTarget);
+    if (box.isEmpty()) {
+      if (subjectGroup) {
+        this.scene.remove(subjectGroup);
+      }
+      return null;
+    }
+    const center = new Vector3();
+    box.getCenter(center);
+
+    // Build the camera basis (forward = viewing direction) so we can fit the
+    // eight box corners tightly — the loose bounding sphere would leave a big
+    // border, especially for elongated prints.
+    const dir = options.direction.clone().normalize();
+    const forward = dir.clone().negate();
+    const right = new Vector3().crossVectors(forward, options.up);
+    if (right.lengthSq() < 1e-8) {
+      right.set(1, 0, 0);
+    }
+    right.normalize();
+    const trueUp = new Vector3().crossVectors(right, forward).normalize();
+
+    const fovRad = (THUMBNAIL_FOV * Math.PI) / 180;
+    const tanHalf = Math.tan(fovRad / 2);
+    const corner = new Vector3();
+    let distance = 0;
+    let maxExtent = 1;
+    for (let cx = 0; cx < 2; cx++) {
+      for (let cy = 0; cy < 2; cy++) {
+        for (let cz = 0; cz < 2; cz++) {
+          corner.set(
+            cx ? box.max.x : box.min.x,
+            cy ? box.max.y : box.min.y,
+            cz ? box.max.z : box.min.z,
+          );
+          corner.sub(center);
+          const px = corner.dot(right);
+          const py = corner.dot(trueUp);
+          const pf = corner.dot(forward);
+          // Distance at which this corner just fits the square frustum.
+          const needed = Math.max(Math.abs(px), Math.abs(py)) / tanHalf - pf;
+          distance = Math.max(distance, needed);
+          maxExtent = Math.max(maxExtent, Math.abs(px), Math.abs(py), Math.abs(pf));
+        }
+      }
+    }
+    distance = Math.max(distance * THUMBNAIL_FIT_PADDING, 0.01);
+
+    const cam = new PerspectiveCamera(THUMBNAIL_FOV, 1, CAMERA_NEAR, CAMERA_FAR);
+    cam.up.copy(options.up);
+    cam.position.copy(center).addScaledVector(dir, distance);
+    cam.near = Math.max(distance - maxExtent * 2, 0.01);
+    cam.far = distance + maxExtent * 4;
+    cam.lookAt(center);
+    cam.updateProjectionMatrix();
+
+    // Hide everything that isn't the frame target or a light (grid, axes,
+    // gizmos — and, when rendering isolated subjects, the live contentRoot too).
+    const keep = new Set<Object3D>([frameTarget, this.hemiLight, this.keyLight, this.fillLight]);
+    const rehide: Object3D[] = [];
+    for (const child of this.scene.children) {
+      if (!keep.has(child) && child.visible) {
+        child.visible = false;
+        rehide.push(child);
+      }
+    }
+
+    // Apply the thumbnail theme, then a solid studio background or a fully
+    // transparent one (`background === null` → the renderer's 0-alpha clear).
+    const prevBackground = this.scene.background;
+    this.setTheme(options.isDark);
+    this.scene.background = options.background === null ? null : new Color(options.background);
+    // Drop the emissive selection glow so a selected object isn't captured lit up.
+    this._selection.setHighlightVisible(false);
+
+    // Disable frustum culling on the framed content for the duration of the
+    // render. G-code preview is drawn with InstancedMesh whose cull volume can
+    // be stale/degenerate, so from the thumbnail camera geometry could be
+    // wrongly culled and the image comes out blank. Culling is a live-view perf
+    // optimisation we don't need here.
+    const unculled: Object3D[] = [];
+    frameTarget.traverse((node) => {
+      if (node.frustumCulled) {
+        node.frustumCulled = false;
+        unculled.push(node);
+      }
+    });
+
+    const target = new WebGLRenderTarget(size, size, { samples: 4 });
+    target.texture.colorSpace = SRGBColorSpace;
+    const prevTarget = this.renderer.getRenderTarget();
+    const buffer = new Uint8Array(size * size * 4);
+    let dataUrl: string | null = null;
+    try {
+      this.renderer.setRenderTarget(target);
+      this.renderer.clear();
+      this.renderer.render(this.scene, cam);
+      this.renderer.readRenderTargetPixels(target, 0, 0, size, size, buffer);
+      dataUrl = encodePixelsToPng(buffer, size);
+    } finally {
+      // Restore everything, regardless of encode outcome.
+      this._selection.setHighlightVisible(true);
+      for (const node of unculled) {
+        node.frustumCulled = true;
+      }
+      this.renderer.setRenderTarget(prevTarget);
+      this.scene.background = prevBackground;
+      this.setTheme(options.liveIsDark);
+      for (const child of rehide) {
+        child.visible = true;
+      }
+      if (subjectGroup) {
+        // Detach subjects so the caller can dispose them; drop the temp group.
+        subjectGroup.clear();
+        this.scene.remove(subjectGroup);
+      }
+      target.dispose();
+    }
+
+    return dataUrl;
+  }
+
+  animateToDirection(direction: Vector3, up: Vector3, forceOrtho = false): void {
+    this._camera.animateToDirection(direction, up, forceOrtho);
   }
 
   orbitBy(azimuth: number, polar: number): void {
@@ -299,6 +607,16 @@ export class ViewerScene {
     this._controls.setTwoFingerGesture(gesture);
   }
 
+  /**
+   * Enable or disable pen-priority palm rejection ("wrist detection"). When
+   * enabled (default) touch contacts from the hand resting on the glass are
+   * swallowed while an Apple Pencil / stylus is in use, so the palm never
+   * orbits or pinches the camera. See {@link PointerArbiter}.
+   */
+  setPalmRejectionEnabled(enabled: boolean): void {
+    this._pointerArbiter.setEnabled(enabled);
+  }
+
   /** Set the perspective field-of-view (degrees); applied live when perspective. */
   setFieldOfView(fov: number): void {
     this._camera.setPerspectiveFov(fov);
@@ -310,6 +628,7 @@ export class ViewerScene {
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, cap));
     const { clientWidth, clientHeight } = this.sizeOf(this.host);
     this.renderer.setSize(clientWidth, clientHeight);
+    this.needsRender = true;
   }
 
   dispose(): void {
@@ -319,9 +638,13 @@ export class ViewerScene {
     this.disposed = true;
     cancelAnimationFrame(this.rafHandle);
     this.resizeObserver.disconnect();
+    for (const type of POINTER_INVALIDATING_EVENTS) {
+      this.renderer.domElement.removeEventListener(type, this.requestRender);
+    }
     this._controls.dispose();
     this._grid.dispose();
     this._selection.dispose();
+    this._pointerArbiter.dispose();
     this.gizmo.dispose();
     this.clearContent();
     this.controls.dispose();
@@ -353,6 +676,14 @@ export class ViewerScene {
       this.controls.update();
       this._controls.applyOrbitInertia(dt);
     }
+    // Re-pin a held viewport-cube snap. Runs *after* OrbitControls and inertia
+    // so their rotation is discarded before drawing — the snapped view stays
+    // perfectly still until the gesture travels far enough to break it free.
+    this._camera.applySnapHold();
+    // Runs on every frame — including frames driven by OrbitControls above — so
+    // the viewport-cube's ortho→perspective revert can animate while the user's
+    // pan/zoom/rotate gesture is still live.
+    this._camera.advanceProjectionTween();
 
     this._grid.updateAdaptiveGrid();
     this._grid.updateGridFade();
@@ -374,10 +705,109 @@ export class ViewerScene {
       }
     });
 
+    // Everything above is cheap bookkeeping; the draw is what costs. Skip it
+    // entirely when nothing moved. Camera pose is compared generically so
+    // orbit damping, inertia, snap-hold, autoscroll and the projection tween
+    // all keep the loop alive without each having to report separately.
+    // Collect the cost of the previously drawn frame before deciding anything,
+    // so a detail promotion can be judged on what it actually cost.
+    let measured = false;
+    if (this.frameProbePending) {
+      this.lastFrameMs = now - this.frameProbeStart;
+      this.frameProbePending = false;
+      measured = true;
+    }
+
+    const moved = this.cameraPoseChanged();
+    const active = moved || this._camera.isAnimating() || this.gizmo.isDragging();
+    const wasInvalidated = this.needsRender;
+
+    if (active) {
+      this.lastActivityTime = now;
+    }
+    // A view is "settled" once nothing has changed it for a beat. The delay
+    // keeps a detail promotion from firing between two frames of a drag.
+    const settled = !active && now - this.lastActivityTime >= SETTLE_DELAY_MS;
+    const settleChanged = settled !== this.settled;
+    this.settled = settled;
+
+    // Give content a chance to change level of detail. Doing this before the
+    // render (and letting the callback call invalidate()) means a promotion is
+    // drawn on this very frame rather than a frame later.
+    if (this.lodSink && (settleChanged || measured || moved)) {
+      this.lodSink({ settled, lastFrameMs: this.lastFrameMs });
+    }
+
+    const shouldRender = this.needsRender || active;
+    if (!shouldRender) {
+      this.renderedLastFrame = false;
+      return;
+    }
+
+    this.needsRender = false;
+    this.frameProbeStart = performance.now();
+    this.frameProbePending = true;
     this.renderer.render(this.scene, this.camera);
     this.publishCameraState();
-    this.publishFps(now, dt);
+    // Only measure between two consecutive drawn frames, otherwise an idle gap
+    // would masquerade as a huge frame time.
+    if (this.renderedLastFrame) {
+      this.publishFps(now, dt);
+    }
+    this.renderedLastFrame = true;
   };
+
+  /**
+   * Request a redraw. Call after anything that changes the image but not the
+   * camera — content rebuilds, selection, gizmo drags, theme or layer changes.
+   */
+  invalidate(): void {
+    this.needsRender = true;
+  }
+
+  /** Listener form of {@link invalidate}, for DOM events. */
+  private readonly requestRender = (): void => {
+    this.needsRender = true;
+  };
+
+  /** True when the camera pose differs from the last drawn frame. */
+  private cameraPoseChanged(): boolean {
+    const cam = this.camera;
+    const t = this.controls.target;
+    const p = this.lastPose;
+    const changed =
+      p.px !== cam.position.x ||
+      p.py !== cam.position.y ||
+      p.pz !== cam.position.z ||
+      p.qx !== cam.quaternion.x ||
+      p.qy !== cam.quaternion.y ||
+      p.qz !== cam.quaternion.z ||
+      p.qw !== cam.quaternion.w ||
+      p.tx !== t.x ||
+      p.ty !== t.y ||
+      p.tz !== t.z ||
+      p.fov !== cam.fov ||
+      p.near !== cam.near ||
+      p.far !== cam.far ||
+      p.zoom !== cam.zoom;
+    if (changed) {
+      p.px = cam.position.x;
+      p.py = cam.position.y;
+      p.pz = cam.position.z;
+      p.qx = cam.quaternion.x;
+      p.qy = cam.quaternion.y;
+      p.qz = cam.quaternion.z;
+      p.qw = cam.quaternion.w;
+      p.tx = t.x;
+      p.ty = t.y;
+      p.tz = t.z;
+      p.fov = cam.fov;
+      p.near = cam.near;
+      p.far = cam.far;
+      p.zoom = cam.zoom;
+    }
+    return changed;
+  }
 
   private publishFps(now: number, dt: number): void {
     if (!this.fpsSink) {
@@ -419,6 +849,7 @@ export class ViewerScene {
     this.camera.aspect = clientWidth / clientHeight;
     this.camera.updateProjectionMatrix();
     this.renderer.setSize(clientWidth, clientHeight);
+    this.needsRender = true;
     this.renderer.render(this.scene, this.camera);
   }
 
@@ -470,4 +901,28 @@ function buildAxesGizmo(length: number, thickness: number): Group {
     group.add(mesh);
   }
   return group;
+}
+
+/**
+ * Encode an RGBA pixel buffer read from a WebGL render target into a PNG data
+ * URL. WebGL returns rows bottom-up, so each row is copied into its mirrored
+ * position to produce a correctly-oriented image.
+ */
+function encodePixelsToPng(buffer: Uint8Array, size: number): string | null {
+  const canvas = document.createElement('canvas');
+  canvas.width = size;
+  canvas.height = size;
+  const ctx = canvas.getContext('2d');
+  if (!ctx) {
+    return null;
+  }
+  const image = ctx.createImageData(size, size);
+  const rowBytes = size * 4;
+  for (let y = 0; y < size; y++) {
+    const srcStart = y * rowBytes;
+    const dstStart = (size - 1 - y) * rowBytes;
+    image.data.set(buffer.subarray(srcStart, srcStart + rowBytes), dstStart);
+  }
+  ctx.putImageData(image, 0, 0);
+  return canvas.toDataURL('image/png');
 }

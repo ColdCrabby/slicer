@@ -79,9 +79,43 @@ pub(crate) fn extrusion_for_move(
     move_len * cross_section / filament_area * flow
 }
 
+/// Cap a linear feedrate (mm/min) so the volumetric extrusion rate stays at or
+/// below `max_volumetric_speed` (mm³/s) — the hotend melt-rate ceiling.
+///
+/// The volumetric rate of an extrusion move is `cross_section × linear_speed`,
+/// where `cross_section = layer_height × width_mm` (mm²).  When the requested
+/// feedrate would exceed the ceiling this returns the highest feedrate that
+/// still respects it (`max_volumetric_speed · 60 / cross_section`); otherwise
+/// the input is returned unchanged.
+///
+/// A non-positive limit (the default `0`) disables the cap, and a degenerate
+/// cross-section (zero height or width) is passed through untouched so a
+/// malformed path can never divide-by-zero or stall the feedrate to zero.
+pub(crate) fn volumetric_capped_speed_mm_min(
+    speed_mm_min: f64,
+    layer_height: f64,
+    width_mm: f64,
+    max_volumetric_speed: f64,
+) -> f64 {
+    if max_volumetric_speed <= 0.0 {
+        return speed_mm_min;
+    }
+    let cross_section = layer_height * width_mm;
+    if cross_section <= 0.0 {
+        return speed_mm_min;
+    }
+    // mm³/s ÷ mm² = mm/s, ×60 → mm/min.
+    let cap_mm_min = max_volumetric_speed * 60.0 / cross_section;
+    speed_mm_min.min(cap_mm_min)
+}
+
 /// Resolve the extrusion width for a path.
 ///
 /// Precedence (first match wins):
+/// 0. **Solid top/bottom surface fill** (no explicit/per-vertex width) is
+///    charged at its *line spacing* (`solid_surface_line_spacing`), not a
+///    nominal bead width, so it deposits `spacing × layer_height` and fills the
+///    surface exactly instead of over-extruding it (see the inline note).
 /// 1. A per-role width override (`outer_wall_line_width`, `inner_wall_line_width`,
 ///    `top_surface_line_width`, `sparse_infill_line_width`) when set (`> 0`) —
 ///    but only for **constant-width** paths (`has_vertex_widths == false`). This
@@ -101,6 +135,26 @@ pub(crate) fn resolve_width_mm(
     params: &SlicingParams,
 ) -> f64 {
     use crate::core::ExtrusionRole;
+
+    // Solid top/bottom surface fill is laid at `solid_surface_line_spacing` (the
+    // libslic3r/Orca stadium pitch, ≈ 0.357 mm at a 0.4 mm nozzle / 0.2 mm
+    // layers), so each line must deposit `spacing × layer_height` of filament —
+    // the volume of the strip it fills — *not* the full nominal bead width.
+    // Charging solid surfaces at the wider nominal width over-extrudes them by
+    // `width / spacing` (≈ 13 % at nozzle width, ≈ 23 % once `line_width` >
+    // nozzle): the raised / blobby top-surface defect. Matching the flow to the
+    // spacing mirrors PrusaSlicer/Orca (`mm³/mm = spacing × height`) and lays a
+    // flat surface. Bridges (their own role, explicit width) are unaffected.
+    if explicit.is_none()
+        && !has_vertex_widths
+        && matches!(
+            role,
+            ExtrusionRole::TopSurface | ExtrusionRole::BottomSurface
+        )
+    {
+        let nominal = crate::core::solid_surface_nominal_width_mm(params);
+        return crate::core::solid_surface_line_spacing(nominal, params.layer_height);
+    }
 
     // A per-role override wins over the constant, generator-stamped width for
     // its role (walls included). Skipped for variable-width beads, whose
@@ -162,6 +216,9 @@ pub(crate) fn render_marker(
 /// `{chamber_temp}`, `{filament_type}`, plus `{layer_height}` and
 /// `{first_layer_height}`.
 ///
+/// For migration convenience, common Orca-style bracket placeholders are also
+/// accepted as aliases (for example `[nozzle_temperature_initial_layer]`).
+///
 /// The `_first_layer` temperatures fall back to the general value when set to
 /// `0` (the "use base value" sentinel), matching the slicer's own resolution.
 /// Longer keys are replaced before their prefixes (e.g. `{nozzle_temp_first_layer}`
@@ -191,6 +248,25 @@ pub(crate) fn render_script_placeholders(line: &str, params: &SlicingParams) -> 
         .replace("{filament_type}", &params.filament_type)
         .replace("{first_layer_height}", &format!("{:.3}", first_height))
         .replace("{layer_height}", &format!("{:.3}", params.layer_height))
+        // Orca-style aliases
+        .replace(
+            "[nozzle_temperature_initial_layer]",
+            &format!("{:.0}", first_nozzle),
+        )
+        .replace(
+            "[bed_temperature_initial_layer_single]",
+            &format!("{:.0}", first_bed),
+        )
+        .replace(
+            "[nozzle_temperature]",
+            &format!("{:.0}", params.nozzle_temp),
+        )
+        .replace("[bed_temperature]", &format!("{:.0}", params.bed_temp))
+        .replace(
+            "[chamber_temperature]",
+            &format!("{:.0}", params.chamber_temp),
+        )
+        .replace("[filament_type]", &params.filament_type)
 }
 
 // ── GcodeGenerator ─────────────────────────────────────────────────────────────
@@ -589,6 +665,25 @@ impl GcodeGenerator {
         // command when the target changes (persists across layers).
         let mut last_accel: Option<f64> = None;
 
+        // If a custom start script heats for first layer (e.g.
+        // `{nozzle_temp_first_layer}` / `{bed_temp_first_layer}`), restore the
+        // normal temperatures when layer 2 starts unless a custom layer script
+        // chooses to override that behavior afterward.
+        let first_nozzle = if params.nozzle_temp_first_layer > 0.0 {
+            params.nozzle_temp_first_layer
+        } else {
+            params.nozzle_temp
+        };
+        let first_bed = if params.bed_temp_first_layer > 0.0 {
+            params.bed_temp_first_layer
+        } else {
+            params.bed_temp
+        };
+        let restore_nozzle_after_first_layer = params.nozzle_temp_first_layer > 0.0
+            && (first_nozzle - params.nozzle_temp).abs() > 1e-9;
+        let restore_bed_after_first_layer =
+            params.bed_temp_first_layer > 0.0 && (first_bed - params.bed_temp).abs() > 1e-9;
+
         for (layer_index, layer) in layers.iter().enumerate() {
             let z_str = format!("{:.3}", layer.z);
             let height_str = format!("{:.3}", params.layer_height);
@@ -663,6 +758,21 @@ impl GcodeGenerator {
                 ));
             }
 
+            if layer_index == 1 {
+                if restore_nozzle_after_first_layer {
+                    out.push_str(&format!(
+                        "{} ; restore normal nozzle temperature\n",
+                        self.dialect.set_nozzle_temp(params.nozzle_temp, false)
+                    ));
+                }
+                if restore_bed_after_first_layer {
+                    out.push_str(&format!(
+                        "{} ; restore normal bed temperature\n",
+                        self.dialect.set_bed_temp(params.bed_temp, false)
+                    ));
+                }
+            }
+
             // ── Custom layer-change G-code (Klipper macros, timelapse, …) ─────
             if let Some(script) = &self.custom_layer_script {
                 let layer_num = (layer_index + 1).to_string();
@@ -732,6 +842,17 @@ impl GcodeGenerator {
 
                 // Resolve per-role print speed.
                 let speed_mm_min = Self::effective_speed_mm_min(role, is_first_layer, params);
+
+                // Global volumetric-flow ceiling for constant-width emissions
+                // (coasting splits and the close-contour move).  Variable-width
+                // beads are capped per-segment in `seg_speed` below, where the
+                // real per-segment width is known.
+                let capped_speed_mm_min = volumetric_capped_speed_mm_min(
+                    speed_mm_min,
+                    params.layer_height,
+                    width_mm,
+                    params.max_volumetric_speed,
+                );
 
                 // ── Adaptive acceleration (opt-in; emitted on change only) ────
                 // Set the firmware acceleration before this path's moves when the
@@ -982,7 +1103,8 @@ impl GcodeGenerator {
                             total_filament_mm += de;
                             out.push_str(&format!(
                                 "{}\n",
-                                self.dialect.move_extrude(x, y, e_total, speed_mm_min)
+                                self.dialect
+                                    .move_extrude(x, y, e_total, capped_speed_mm_min)
                             ));
                         } else if dist_traveled < coasting_start {
                             // Segment straddles the coasting boundary → split it
@@ -1001,7 +1123,8 @@ impl GcodeGenerator {
                             total_filament_mm += de;
                             out.push_str(&format!(
                                 "{}\n",
-                                self.dialect.move_extrude(bx, by, e_total, speed_mm_min)
+                                self.dialect
+                                    .move_extrude(bx, by, e_total, capped_speed_mm_min)
                             ));
                             // Remainder is a travel move
                             out.push_str(&format!(
@@ -1036,8 +1159,12 @@ impl GcodeGenerator {
                             total_filament_mm += de;
                             out.push_str(&format!(
                                 "{} ; close contour\n",
-                                self.dialect
-                                    .move_extrude(start_x, start_y, e_total, speed_mm_min)
+                                self.dialect.move_extrude(
+                                    start_x,
+                                    start_y,
+                                    e_total,
+                                    capped_speed_mm_min
+                                )
                             ));
                         } else if dist_traveled < coasting_start {
                             let dist_to_coast = coasting_start - dist_traveled;
@@ -1055,7 +1182,8 @@ impl GcodeGenerator {
                             total_filament_mm += de;
                             out.push_str(&format!(
                                 "{}\n",
-                                self.dialect.move_extrude(bx, by, e_total, speed_mm_min)
+                                self.dialect
+                                    .move_extrude(bx, by, e_total, capped_speed_mm_min)
                             ));
                             out.push_str(&format!(
                                 "{} ; coasting close\n",
@@ -1084,13 +1212,24 @@ impl GcodeGenerator {
                     // nominal feedrate and under-extrude, so it never squeezes
                     // into the gap.  Slow it in proportion to width so mm³/s
                     // holds at the nozzle-width rate — "extrude more, move slower".
+                    //
+                    // On top of that per-bead throttle, the global
+                    // `max_volumetric_speed` ceiling is applied per-segment using
+                    // the segment's real width, so both the constant- and
+                    // variable-width cases honour the hotend melt-rate limit.
                     let nozzle = params.nozzle_diameter_mm;
                     let seg_speed = |sw: f64| -> f64 {
-                        if vertex_widths.is_some() && nozzle > 0.0 && sw > nozzle {
+                        let base = if vertex_widths.is_some() && nozzle > 0.0 && sw > nozzle {
                             speed_mm_min * (nozzle / sw)
                         } else {
                             speed_mm_min
-                        }
+                        };
+                        volumetric_capped_speed_mm_min(
+                            base,
+                            params.layer_height,
+                            sw,
+                            params.max_volumetric_speed,
+                        )
                     };
                     let mut prev = points[0];
                     for (i, &(x, y)) in points.iter().enumerate().skip(1) {
@@ -1162,8 +1301,12 @@ impl GcodeGenerator {
                             total_filament_mm += de;
                             out.push_str(&format!(
                                 "{} ; close contour\n",
-                                self.dialect
-                                    .move_extrude(start_x, start_y, e_total, speed_mm_min)
+                                self.dialect.move_extrude(
+                                    start_x,
+                                    start_y,
+                                    e_total,
+                                    capped_speed_mm_min
+                                )
                             ));
                         }
                         last_pos = Some((start_x, start_y));
@@ -1199,7 +1342,18 @@ impl GcodeGenerator {
             result.push_str(&line);
             result.push('\n');
         }
+        append_thumbnail_block(&mut result, params);
         result.push_str(&out);
+
+        // ── Metadata footer (Moonraker / PrusaSlicer-compatible config block) ─
+        // Printer front-ends (Mainsail / Fluidd via Moonraker, OctoPrint) scan
+        // the file *footer* — not the header above — for `; key = value`
+        // metadata. Appending it here is what surfaces filament type / colour,
+        // layer height, object height, and filament usage in the printer UI.
+        for line in self.dialect.footer(params, &stats) {
+            result.push_str(&line);
+            result.push('\n');
+        }
 
         (result, stats)
     }
@@ -1266,6 +1420,53 @@ fn gcode_block_lines(block: Option<&str>) -> Option<Vec<String>> {
         return None;
     }
     Some(block.lines().map(str::to_string).collect())
+}
+
+/// Emit a Prusa/Orca-style thumbnail comment block when the current request
+/// carries a PNG payload.
+fn append_thumbnail_block(out: &mut String, params: &SlicingParams) {
+    if !params.thumbnail_enabled {
+        return;
+    }
+    let Some(encoded) = normalize_thumbnail_base64(params.thumbnail_png_base64.as_deref()) else {
+        return;
+    };
+    let size = params.thumbnail_size_px.clamp(64, 1024);
+    out.push_str(&format!(
+        "; thumbnail begin {}x{} {}\n",
+        size,
+        size,
+        encoded.len()
+    ));
+    for chunk in encoded.as_bytes().chunks(78) {
+        if let Ok(line) = std::str::from_utf8(chunk) {
+            out.push_str("; ");
+            out.push_str(line);
+            out.push('\n');
+        }
+    }
+    out.push_str("; thumbnail end\n");
+}
+
+fn normalize_thumbnail_base64(raw: Option<&str>) -> Option<String> {
+    let raw = raw?.trim();
+    if raw.is_empty() {
+        return None;
+    }
+    let payload = raw.strip_prefix("data:image/png;base64,").unwrap_or(raw);
+    let normalized: String = payload.chars().filter(|ch| !ch.is_whitespace()).collect();
+    if normalized.is_empty() {
+        return None;
+    }
+    if !normalized.bytes().all(|b| {
+        matches!(
+            b,
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'+' | b'/' | b'='
+        )
+    }) {
+        return None;
+    }
+    Some(normalized)
 }
 
 // ── Tests ──────────────────────────────────────────────────────────────────────
@@ -1382,6 +1583,87 @@ mod tests {
         );
     }
 
+    // ── Volumetric-flow ceiling (max_volumetric_speed) ─────────────────────────
+
+    #[test]
+    fn volumetric_cap_disabled_is_passthrough() {
+        // A non-positive limit never touches the feedrate.
+        for limit in [0.0, -1.0] {
+            let s = volumetric_capped_speed_mm_min(3000.0, 0.2, 0.4, limit);
+            assert!((s - 3000.0).abs() < 1e-9, "limit {limit} must pass through");
+        }
+    }
+
+    #[test]
+    fn volumetric_cap_leaves_slow_moves_untouched() {
+        // 5 mm³/s ceiling, cross-section 0.2×0.4 = 0.08 mm² → cap = 3750 mm/min.
+        // A 1000 mm/min request is already under the ceiling.
+        let s = volumetric_capped_speed_mm_min(1000.0, 0.2, 0.4, 5.0);
+        assert!(
+            (s - 1000.0).abs() < 1e-9,
+            "under-ceiling speed must be kept"
+        );
+    }
+
+    #[test]
+    fn volumetric_cap_clamps_fast_moves() {
+        // cap = 5.0 * 60 / (0.2 * 0.4) = 3750 mm/min.
+        let s = volumetric_capped_speed_mm_min(6000.0, 0.2, 0.4, 5.0);
+        assert!(
+            (s - 3750.0).abs() < 1e-6,
+            "fast move must clamp to 3750: {s}"
+        );
+    }
+
+    #[test]
+    fn volumetric_cap_degenerate_cross_section_is_passthrough() {
+        // Zero height or width must never divide-by-zero or stall the feedrate.
+        assert!((volumetric_capped_speed_mm_min(6000.0, 0.0, 0.4, 5.0) - 6000.0).abs() < 1e-9);
+        assert!((volumetric_capped_speed_mm_min(6000.0, 0.2, 0.0, 5.0) - 6000.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn volumetric_cap_lowers_gcode_feedrate() {
+        use clipper2::Path;
+        let square: Path = vec![(0.0, 0.0), (10.0, 0.0), (10.0, 10.0), (0.0, 10.0)].into();
+        let mk = || {
+            let mut layer = SliceLayer::new(0.2);
+            layer.paths.push(square.clone());
+            layer
+        };
+        // Highest extruding feedrate on a printing move (has both X and E).
+        // Retract/un-retract moves carry an E but no X and must be excluded.
+        let max_extrude_feedrate = |gcode: &str| -> f64 {
+            gcode
+                .lines()
+                .filter(|l| l.contains(" X") && l.contains(" E"))
+                .filter_map(|l| l.split_whitespace().find(|t| t.starts_with('F')))
+                .filter_map(|t| t[1..].parse::<f64>().ok())
+                .fold(0.0, f64::max)
+        };
+
+        let uncapped = SlicingParams {
+            max_volumetric_speed: 0.0,
+            ..SlicingParams::default()
+        };
+        let capped = SlicingParams {
+            // Deliberately tiny ceiling so it bites at any sane print speed.
+            max_volumetric_speed: 1.0,
+            ..SlicingParams::default()
+        };
+
+        let f_uncapped = max_extrude_feedrate(&generate_gcode(&[mk()], &uncapped));
+        let f_capped = max_extrude_feedrate(&generate_gcode(&[mk()], &capped));
+        assert!(
+            f_uncapped > 0.0 && f_capped > 0.0,
+            "both prints must extrude"
+        );
+        assert!(
+            f_capped < f_uncapped,
+            "volumetric ceiling must lower the feedrate: {f_uncapped} -> {f_capped}"
+        );
+    }
+
     // ── Width resolution (line_width + per-role overrides) ─────────────────────
 
     /// A `SlicingParams` with a specific generic `line_width` and otherwise
@@ -1449,14 +1731,22 @@ mod tests {
     #[test]
     fn resolve_width_line_width_applies_to_infill_and_surfaces() {
         let params = params_with_line_width(0.44);
+        // Sparse infill lays an isolated bead → honours the generic line width.
+        assert_eq!(
+            resolve_width_mm(None, false, crate::core::ExtrusionRole::Infill, &params),
+            0.44
+        );
+        // Solid top/bottom surfaces are charged at the fill *line spacing*
+        // derived from the same 0.44 nominal width, so the flow matches the fill
+        // geometry (`mm³/mm = spacing × height`) and the surface stays flat.
+        let expect = crate::core::solid_surface_line_spacing(0.44, params.layer_height);
         for role in [
-            crate::core::ExtrusionRole::Infill,
             crate::core::ExtrusionRole::TopSurface,
             crate::core::ExtrusionRole::BottomSurface,
         ] {
             assert_eq!(
                 resolve_width_mm(None, false, role, &params),
-                0.44,
+                expect,
                 "{role:?}"
             );
         }
@@ -1515,9 +1805,13 @@ mod tests {
             resolve_width_mm(None, false, crate::core::ExtrusionRole::Infill, &params),
             0.7
         );
+        // Solid surfaces honour the per-role override for their nominal width,
+        // but are charged at the line spacing derived from it so the deposited
+        // volume matches the fill (no over-extrusion).
+        let expect = crate::core::solid_surface_line_spacing(0.35, params.layer_height);
         assert_eq!(
             resolve_width_mm(None, false, crate::core::ExtrusionRole::TopSurface, &params),
-            0.35
+            expect
         );
         // Bottom surfaces share the top-surface override field.
         assert_eq!(
@@ -1527,7 +1821,7 @@ mod tests {
                 crate::core::ExtrusionRole::BottomSurface,
                 &params
             ),
-            0.35
+            expect
         );
     }
 
@@ -1641,6 +1935,14 @@ mod tests {
         assert!(
             gcode.contains("EXTRUDER_TEMP=210"),
             "Klipper START_PRINT missing EXTRUDER_TEMP: {gcode}"
+        );
+        assert!(
+            gcode.contains("BED=60"),
+            "Klipper START_PRINT missing Klippain BED alias: {gcode}"
+        );
+        assert!(
+            gcode.contains("EXTRUDER=210"),
+            "Klipper START_PRINT missing Klippain EXTRUDER alias: {gcode}"
         );
     }
 
@@ -2067,7 +2369,7 @@ mod tests {
         // Should not panic
         let gen = GcodeGenerator::with_dialect(Box::new(NoFanDialect));
         let gcode = gen.generate(&[], &SlicingParams::default());
-        assert!(gcode.contains("; generated by slicer-engine"));
+        assert!(gcode.contains("; generated by Cold Crabby"));
     }
 
     // ── Lifecycle markers ──────────────────────────────────────────────────────
@@ -2460,6 +2762,61 @@ CHAMBER={chamber_temp} MATERIAL={filament_type}"
     }
 
     #[test]
+    fn test_start_script_substitutes_orca_bracket_placeholders() {
+        let params = SlicingParams {
+            nozzle_temp: 210.0,
+            bed_temp: 60.0,
+            nozzle_temp_first_layer: 215.0,
+            bed_temp_first_layer: 65.0,
+            chamber_temp: 45.0,
+            filament_type: "PLA".to_string(),
+            ..SlicingParams::default()
+        };
+        let gen = GcodeGenerator::new(GcodeFlavor::Klipper).with_start_script(vec![
+            "START_PRINT EXTRUDER=[nozzle_temperature_initial_layer] BED=[bed_temperature_initial_layer_single] CHAMBER=[chamber_temperature] MATERIAL=[filament_type]"
+                .to_string(),
+        ]);
+        let gcode = gen.generate(&[], &params);
+        assert!(
+            gcode.contains("START_PRINT EXTRUDER=215 BED=65 CHAMBER=45 MATERIAL=PLA"),
+            "Orca-style bracket placeholders were not substituted: {gcode}"
+        );
+    }
+
+    #[test]
+    fn test_restores_normal_temperatures_on_second_layer_when_first_layer_overridden() {
+        let params = SlicingParams {
+            nozzle_temp: 210.0,
+            bed_temp: 60.0,
+            nozzle_temp_first_layer: 215.0,
+            bed_temp_first_layer: 65.0,
+            ..SlicingParams::default()
+        };
+        let gen = GcodeGenerator::new(GcodeFlavor::Klipper)
+            .with_start_script(vec![
+                "START_PRINT EXTRUDER={nozzle_temp_first_layer} BED={bed_temp_first_layer}"
+                    .to_string(),
+            ])
+            .with_lifecycle_markers(false);
+
+        let layers = vec![SliceLayer::new(0.2), SliceLayer::new(0.4)];
+        let gcode = gen.generate(&layers, &params);
+
+        assert!(
+            gcode.contains("START_PRINT EXTRUDER=215 BED=65"),
+            "first-layer start temperatures missing: {gcode}"
+        );
+        assert!(
+            gcode.contains("M104 S210 ; restore normal nozzle temperature"),
+            "normal nozzle temperature was not restored on layer 2: {gcode}"
+        );
+        assert!(
+            gcode.contains("M140 S60 ; restore normal bed temperature"),
+            "normal bed temperature was not restored on layer 2: {gcode}"
+        );
+    }
+
+    #[test]
     fn test_layer_script_emitted_with_placeholders() {
         let layer = SliceLayer::new(0.2);
         let gen = GcodeGenerator::new(GcodeFlavor::Klipper)
@@ -2488,6 +2845,42 @@ CHAMBER={chamber_temp} MATERIAL={filament_type}"
         assert!(
             gcode.contains("END_PRINT"),
             "blank end should fall back: {gcode}"
+        );
+    }
+
+    #[test]
+    fn test_generate_gcode_from_params_embeds_thumbnail_block() {
+        let params = SlicingParams {
+            thumbnail_enabled: true,
+            thumbnail_size_px: 256,
+            thumbnail_png_base64: Some(
+                "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8Xw8AAoMBgM4n4VwAAAAASUVORK5CYII="
+                    .to_string(),
+            ),
+            ..SlicingParams::default()
+        };
+        let gcode = generate_gcode_from_params(&[], &params);
+        assert!(
+            gcode.contains("; thumbnail begin 256x256 "),
+            "missing thumbnail start marker: {gcode}"
+        );
+        assert!(
+            gcode.contains("; thumbnail end"),
+            "missing thumbnail end marker: {gcode}"
+        );
+    }
+
+    #[test]
+    fn test_generate_gcode_from_params_skips_invalid_thumbnail_payload() {
+        let params = SlicingParams {
+            thumbnail_enabled: true,
+            thumbnail_png_base64: Some("not base64?!".to_string()),
+            ..SlicingParams::default()
+        };
+        let gcode = generate_gcode_from_params(&[], &params);
+        assert!(
+            !gcode.contains("; thumbnail begin"),
+            "invalid payload must be ignored"
         );
     }
 
@@ -2543,7 +2936,7 @@ CHAMBER={chamber_temp} MATERIAL={filament_type}"
         );
         // Provenance, model name, and per-slice statistics.
         assert!(
-            gcode.contains("; generated by slicer-engine"),
+            gcode.contains("; generated by Cold Crabby"),
             "missing provenance line"
         );
         assert!(gcode.contains("; model: widget"), "missing model name");
@@ -2602,6 +2995,91 @@ CHAMBER={chamber_temp} MATERIAL={filament_type}"
             "Klipper must not emit the Marlin header markers"
         );
         assert!(gcode.contains("; flavor: Klipper"), "missing flavor line");
+    }
+
+    #[test]
+    fn test_metadata_footer_is_moonraker_parseable() {
+        use clipper2::Path;
+        let mut layer = SliceLayer::new(0.2);
+        let square: Path = vec![(0.0, 0.0), (10.0, 0.0), (10.0, 10.0), (0.0, 10.0)].into();
+        layer.paths.push(square);
+        layer.path_roles.push(crate::core::ExtrusionRole::OuterWall);
+
+        let params = SlicingParams {
+            filament_type: "PETG".to_string(),
+            filament_name: "Generic PETG".to_string(),
+            filament_color: "#1A9CE0".to_string(),
+            nozzle_diameter_mm: 0.4,
+            filament_diameter_mm: 1.75,
+            ..SlicingParams::default()
+        };
+
+        let (gcode, _stats) =
+            GcodeGenerator::new(GcodeFlavor::Klipper).generate_with_stats(&[layer], &params);
+
+        // The PrusaSlicer-family provenance line Moonraker keys off to select
+        // its (rich) parser: `; generated by <name> on <YYYY-MM-DD at HH:MM:SS>`.
+        assert!(
+            gcode.contains("; generated by Cold Crabby"),
+            "missing provenance line Moonraker identifies us by"
+        );
+
+        // The config block that printer front-ends actually scan (in the footer).
+        for needle in [
+            "; prusaslicer_config = begin",
+            "; prusaslicer_config = end",
+            "; total filament used [g] = ",
+            "; filament used [mm] = ",
+            "; estimated printing time (normal mode) = ",
+            "; total layers count = 1",
+            "; layer_height = 0.2",
+            "; first_layer_height = 0.2",
+            "; nozzle_diameter = 0.4",
+            "; filament_diameter = 1.75",
+            "; filament_type = PETG",
+            "; filament_settings_id = Generic PETG",
+            "; filament_colour = #1A9CE0",
+        ] {
+            assert!(
+                gcode.contains(needle),
+                "footer missing Moonraker field `{needle}`:\n{gcode}"
+            );
+        }
+
+        // The config block is a *footer*: it must come after the print body
+        // (the Klipper `END_PRINT` macro), not in the header.
+        let end_idx = gcode.find("END_PRINT").expect("end script present");
+        let cfg_idx = gcode
+            .find("; prusaslicer_config = begin")
+            .expect("config block present");
+        assert!(
+            cfg_idx > end_idx,
+            "metadata config block must be emitted at the end of the file"
+        );
+    }
+
+    #[test]
+    fn test_metadata_footer_omits_filament_identity_when_unset() {
+        // A flag-only slice (no filament profile) must not advertise an empty
+        // material / name / colour.
+        let gcode =
+            GcodeGenerator::new(GcodeFlavor::Marlin).generate(&[], &SlicingParams::default());
+        assert!(
+            gcode.contains("; prusaslicer_config = begin"),
+            "config block should always be present"
+        );
+        assert!(
+            !gcode.contains("; filament_type ="),
+            "empty filament type must be omitted"
+        );
+        assert!(
+            !gcode.contains("; filament_settings_id ="),
+            "empty filament name must be omitted"
+        );
+        assert!(
+            !gcode.contains("; filament_colour ="),
+            "empty filament colour must be omitted"
+        );
     }
 
     #[test]

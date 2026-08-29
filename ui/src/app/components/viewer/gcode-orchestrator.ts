@@ -1,5 +1,4 @@
 import type { Group, InstancedMesh } from 'three';
-import type { GcodeLayerBuffer } from '../../../generated/scene-wasm/scene_engine';
 import {
   ROLE_COLORS_DARK,
   type ColorChannel,
@@ -9,11 +8,15 @@ import {
 } from '../../services/gcode-preview';
 import {
   applyHiddenRoles,
-  applySegmentProgress,
-  buildLayerGroup,
-  disposeLayerGroup,
-  type LayerInfo,
+  applyLayerVisibility,
+  buildGcodeModel,
+  disposeGcodeModel,
+  type GcodeDetail,
+  type GcodeLayerSource,
+  type GcodeModel,
+  setDetailLevel,
   tagInstanceRefs,
+  TRIS_PER_SEGMENT_HIGH,
   updateViewColors,
 } from './gcode-layer-renderer';
 
@@ -22,57 +25,62 @@ import {
  * Only the fields consumed by GcodeOrchestrator are declared here; the actual
  * WASM object may carry additional members.
  */
-export interface GcodeSource {
-  layerCount(): number;
-  getLayer(index: number): GcodeLayerBuffer;
-}
+export type GcodeSource = GcodeLayerSource;
 
 /**
- * Owns the Three.js layer groups produced from a WASM G-code handle.
+ * Owns the Three.js geometry produced from a WASM G-code handle.
  *
  * All geometry is built from data returned by `GcodeSource` (i.e. the WASM
  * SceneHandle); Three.js is only responsible for layer/segment visibility
  * and role filtering.  No geometry is constructed inside this class.
+ *
+ * The model is stored as one instanced buffer pair *per role* spanning every
+ * layer (see {@link buildGcodeModel}), so frame cost stays flat as plates grow
+ * instead of scaling with layer count.
  */
 export class GcodeOrchestrator {
-  private layers: LayerInfo[] = [];
-  private prevMaxLayer = 0;
-  private _totalSegments = 0;
+  private model: GcodeModel | null = null;
+  private lastMin = 0;
+  private lastMax = 0;
+  private lastProgress = 1;
+  private detail: GcodeDetail = 'low';
 
   constructor(private readonly contentRoot: Group) {}
 
   get count(): number {
-    return this.layers.length;
+    return this.model?.layers.length ?? 0;
   }
 
   get totalSegments(): number {
-    return this._totalSegments;
+    return this.model?.totalSegments ?? 0;
+  }
+
+  /** Segments submitted for the current layer range — what a frame costs. */
+  get visibleSegments(): number {
+    return this.model?.visibleSegments ?? 0;
   }
 
   /**
-   * Cylinder meshes of currently-visible layers/roles, for the hover probe's
-   * raycast. Skips hidden layers, hidden roles, and empty draw ranges so the
-   * raycast only considers what the user can actually see.
+   * Cylinder meshes of currently-visible roles, for the hover probe's raycast.
+   * Skips hidden roles and empty draw ranges so the raycast only considers what
+   * the user can actually see.
    */
   hoverableMeshes(): InstancedMesh[] {
     const out: InstancedMesh[] = [];
-    for (const info of this.layers) {
-      if (!info.group.visible) {
-        continue;
-      }
-      for (const rs of info.roleSegments) {
-        if (rs.mesh?.visible && rs.mesh.count > 0) {
-          out.push(rs.mesh);
-        }
+    if (!this.model) {
+      return out;
+    }
+    for (const rs of this.model.roleSegments) {
+      if (rs.mesh?.visible && rs.mesh.count > 0) {
+        out.push(rs.mesh);
       }
     }
     return out;
   }
 
   /**
-   * Build Three.js line-segment groups for every layer in the handle and
-   * add them to the content root.  Any previously built layers are disposed
-   * first.
+   * Build the Three.js geometry for every layer in the handle and add it to the
+   * content root.  Any previously built model is disposed first.
    */
   buildFromHandle(
     handle: GcodeSource,
@@ -80,42 +88,31 @@ export class GcodeOrchestrator {
   ): { totalSegments: number } {
     this.dispose();
 
-    const count = handle.layerCount();
-    let total = 0;
-
-    for (let i = 0; i < count; i++) {
-      const buf = handle.getLayer(i);
-      const built = buildLayerGroup(buf, colors);
-      const info: LayerInfo = {
-        index: i,
-        z: buf.z ?? i,
-        group: built.group,
-        totalSegments: built.totalSegments,
-        roleSegments: built.roleSegments,
-        blockLayout: built.blockLayout,
-        meta: built.meta,
-      };
-      this.layers.push(info);
-      tagInstanceRefs(info);
-      this.contentRoot.add(built.group);
-      total += built.totalSegments;
-    }
-
-    this._totalSegments = total;
-    return { totalSegments: total };
+    const model = buildGcodeModel(handle, colors);
+    tagInstanceRefs(model);
+    this.contentRoot.add(model.group);
+    this.model = model;
+    this.lastMin = 0;
+    this.lastMax = Math.max(0, model.layers.length - 1);
+    this.lastProgress = 1;
+    // Start cheap; the camera-driven LOD promotes to full detail if the plate
+    // is small enough to afford it.
+    this.detail = 'low';
+    setDetailLevel(model, 'low');
+    return { totalSegments: model.totalSegments };
   }
 
   /**
-   * Show only layers whose index falls within `[min, max]`.
+   * Show only layers whose index falls within `[min, max]`, preserving the
+   * current scrub position on the top layer.
    */
   showRange(min: number, max: number): void {
-    if (this.layers.length === 0) {
+    if (!this.model) {
       return;
     }
-    // Restore draw range on the previous top layer before switching.
-    applySegmentProgress(this.layers, this.prevMaxLayer, 1);
-    showLayerRange(this.layers, min, max, this.prevMaxLayer);
-    this.prevMaxLayer = max;
+    this.lastMin = min;
+    this.lastMax = max;
+    applyLayerVisibility(this.model, min, max, this.lastProgress);
   }
 
   /**
@@ -123,7 +120,12 @@ export class GcodeOrchestrator {
    * `progress` is a fraction [0, 1] of that layer's total segment count.
    */
   applyProgress(topIndex: number, progress: number): void {
-    applySegmentProgress(this.layers, topIndex, progress);
+    if (!this.model) {
+      return;
+    }
+    this.lastMax = topIndex;
+    this.lastProgress = progress;
+    applyLayerVisibility(this.model, this.lastMin, topIndex, progress);
   }
 
   /**
@@ -138,46 +140,63 @@ export class GcodeOrchestrator {
     fanKey: string | null,
     band: { lo: number; hi: number } | null = null,
   ): void {
-    updateViewColors(this.layers, colors, channel, range, fanKey, band);
+    if (!this.model) {
+      return;
+    }
+    updateViewColors(this.model, colors, channel, range, fanKey, band);
   }
 
   /**
-   * Hide all segments belonging to the given roles across all layers.
+   * Hide all segments belonging to the given roles.
    */
   applyHiddenRoles(hidden: ReadonlySet<RoleName>): void {
-    applyHiddenRoles(this.layers, hidden);
+    if (!this.model) {
+      return;
+    }
+    applyHiddenRoles(this.model, hidden);
+    // Role visibility owns the joint meshes too, so re-assert the LOD state.
+    setDetailLevel(this.model, this.detail);
   }
 
   /**
-   * Remove all layer groups from the content root and release their
-   * Three.js resources.
+   * True when what is currently on screen fits `triangleBudget` at full detail.
+   *
+   * Zoom alone cannot decide this: geometry is one merged buffer per role, so
+   * every segment in the visible layer range is submitted no matter where the
+   * camera points — a million-segment plate costs ~78 M triangles at full
+   * detail from *any* distance. The layer slider is the real lever, and it is a
+   * draw-range prefix, so isolating a layer genuinely shrinks the frame and
+   * earns back full detail.
+   */
+  canAffordHighDetail(triangleBudget: number): boolean {
+    return this.visibleSegments * TRIS_PER_SEGMENT_HIGH <= triangleBudget;
+  }
+
+  /**
+   * Choose how much geometry to draw. Returns `true` when the level changed, so
+   * the caller can request a redraw only when it matters.
+   */
+  setDetail(detail: GcodeDetail): boolean {
+    if (!this.model || this.detail === detail) {
+      return false;
+    }
+    this.detail = detail;
+    setDetailLevel(this.model, detail);
+    return true;
+  }
+
+  /**
+   * Remove the model from the content root and release its Three.js resources.
    */
   dispose(): void {
-    for (const info of this.layers) {
-      this.contentRoot.remove(info.group);
-      disposeLayerGroup(info.group);
+    if (!this.model) {
+      return;
     }
-    this.layers = [];
-    this.prevMaxLayer = 0;
-    this._totalSegments = 0;
-  }
-}
-
-// ---------------------------------------------------------------------------
-// Local re-implementation of showLayerRange to avoid mutating prevMax inside
-// the renderer module.
-// ---------------------------------------------------------------------------
-
-function showLayerRange(layers: LayerInfo[], min: number, max: number, prevMax: number): void {
-  const prevInfo = layers[prevMax];
-  if (prevInfo && prevMax !== max) {
-    for (const rs of prevInfo.roleSegments) {
-      if (rs.mesh) rs.mesh.count = rs.count;
-      if (rs.joints) rs.joints.count = rs.count * 2;
-      if (rs.lines) rs.lines.geometry.setDrawRange(0, Infinity);
-    }
-  }
-  for (const info of layers) {
-    info.group.visible = info.index >= min && info.index <= max;
+    this.contentRoot.remove(this.model.group);
+    disposeGcodeModel(this.model);
+    this.model = null;
+    this.lastMin = 0;
+    this.lastMax = 0;
+    this.lastProgress = 1;
   }
 }

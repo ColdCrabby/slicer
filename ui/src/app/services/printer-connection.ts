@@ -2,6 +2,7 @@ import { Injectable, computed, inject, signal } from '@angular/core';
 import { environment } from '../../environments/environment';
 import type { ClientMessage } from '../../generated/slicer-engine-ws-client-message-v1';
 import type { ServerMessage } from '../../generated/slicer-engine-ws-server-message-v1';
+import { isTauriHost } from '../runtime/domain/runtime-mode.util';
 import type {
   BedShape,
   PrinterConnection,
@@ -26,14 +27,7 @@ import { SlicerConnection } from './slicer-connection';
  * - `error`       — the host answered with an error (e.g. bad API key).
  */
 export type PrinterProbeState =
-  | 'local'
-  | 'unknown'
-  | 'checking'
-  | 'online'
-  | 'offline'
-  | 'unsupported'
-  | 'cors'
-  | 'error';
+  'local' | 'unknown' | 'checking' | 'online' | 'offline' | 'unsupported' | 'cors' | 'error';
 
 export interface PrinterLiveStatus {
   state: PrinterProbeState;
@@ -94,23 +88,37 @@ const UNKNOWN_STATUS: PrinterLiveStatus = { state: 'unknown', label: 'Not checke
 const POLL_INTERVAL_MS = 30_000;
 
 /** How long (ms) to wait for a server-side detection reply before giving up. */
-const DETECT_TIMEOUT_MS = 15_000;
+const DETECT_TIMEOUT_MS = 70_000;
+
+/** Browser-side timeout for the lightweight Moonraker info/toolhead probes. */
+const DETECT_FAST_REQUEST_TIMEOUT_MS = 20_000;
+
+/** Browser-side timeout for heavy Moonraker config payloads. */
+const DETECT_SLOW_REQUEST_TIMEOUT_MS = 25_000;
+const BROWSER_PROBE_TIMEOUT_MS = 5_000;
 
 /**
  * Tracks live printer connectivity and drives "send to printer".
  *
- * **Transport preference (matches the engine's SSOT):** when the cloud
- * WebSocket is available, probes and uploads are performed **server-side**
- * (`CheckPrinter` / `SendToPrinter`). This is preferred because the request
- * originates from the slicer process, not the browser, so it is **not subject
- * to CORS** — Moonraker ships no permissive CORS headers, so a direct browser
- * request fails for most users.
+ * **Transport preference (matches the engine's SSOT):** always talk to the
+ * printer over the OS network line, never the browser, whenever one is
+ * available. When the cloud WebSocket is up, probes/uploads run **server-side**
+ * (`CheckPrinter` / `SendToPrinter`); in the desktop app they run **in the
+ * native process** via Tauri commands (`printer_check` / `printer_detect` /
+ * `printer_send`). Both are preferred because the request originates from the
+ * slicer, not the browser, so it is **not subject to CORS** — Moonraker ships
+ * no permissive CORS headers, so a direct browser request fails for most users.
  *
- * When no WebSocket is available (the wasm/`web` build), the service falls back
- * to a direct browser `fetch`. That path is expected to hit CORS for many
+ * Only the pure wasm/`web` build has no OS network line; there the service falls
+ * back to a direct browser `fetch`. That path is expected to hit CORS for many
  * hosts; rather than reporting a misleading "offline", it distinguishes a
  * genuinely unreachable host from a reachable-but-CORS-blocked one (via a
  * follow-up `no-cors` probe) and surfaces an actionable `cors` state.
+ *
+ * On Chromium builds with Local Network Access enabled, browser probes also send
+ * `targetAddressSpace: 'local'` to trigger/grant local-network permission where
+ * needed. This can unblock policy-level local-network checks, but it does not
+ * bypass printer-side CORS headers.
  */
 @Injectable({ providedIn: 'root' })
 export class PrinterConnectionService {
@@ -163,18 +171,31 @@ export class PrinterConnectionService {
 
     this.setStatus(printer.id, { state: 'checking', label: 'Checking…' });
 
-    // In cloud mode the server always performs the probe (no CORS). If the
-    // WebSocket isn't up yet, stay in `checking` — a reconnect-driven re-probe
-    // (see the home dashboard effect) will pick it up rather than falling back
-    // to a CORS-prone browser request.
+    // Prefer the server-side probe (no CORS), exactly like {@link
+    // detectPrinter} and {@link sendToPrinter}. `canUseServer()` (not the raw
+    // `cloud` environment constant) correctly detects Tauri at runtime: the
+    // desktop build also ships the `cloud` environment but its WebSocket never
+    // connects, so checking the constant alone used to leave native `check()`
+    // silently doing nothing instead of using the native transport.
+    if (this.canUseServer()) {
+      this.sendWs({ type: 'CheckPrinter', printer_id: printer.id, connection });
+      return;
+    }
+    // Native desktop (Tauri): probe from the engine process over the OS network
+    // stack (no browser CORS), mirroring the cloud WebSocket probe.
+    if (isTauriHost()) {
+      void this.probeViaNative(printer.id, connection);
+      return;
+    }
     if (environment.runtimeMode === 'cloud') {
-      if (this.ws.isConnected()) {
-        this.sendWs({ type: 'CheckPrinter', printer_id: printer.id, connection });
-      }
+      // WebSocket isn't up yet — stay in `checking`; a reconnect-driven
+      // re-probe (see the home dashboard effect) will pick it up rather than
+      // falling back to a CORS-prone browser request.
       return;
     }
 
-    // Non-cloud (wasm/web, native): probe directly from the browser.
+    // Pure web (wasm) build: no OS network line available, so probe directly
+    // from the browser and honestly surface CORS when it blocks us.
     void this.probeFromBrowser(printer.id, connection);
   }
 
@@ -200,7 +221,20 @@ export class PrinterConnectionService {
     if (this.canUseServer()) {
       return this.detectViaServer(trimmed);
     }
-    return this.detectFromBrowser(trimmed);
+    if (isTauriHost()) {
+      return this.detectViaNative(trimmed);
+    }
+    if (environment.runtimeMode === 'web') {
+      return this.detectFromBrowser(trimmed);
+    }
+    // Cloud build whose WebSocket isn't connected yet — don't fall back to a
+    // CORS-prone browser probe that would misreport a reachable printer.
+    return Promise.resolve({
+      host: trimmed,
+      reachable: false,
+      kind: 'none',
+      message: 'Not connected to the slicer yet — try again in a moment.',
+    });
   }
 
   /**
@@ -234,10 +268,17 @@ export class PrinterConnectionService {
       return;
     }
 
-    // Browser fallback: this reads the sliced G-code from the server's download
-    // endpoint and pushes it to the printer directly. Only viable when a
-    // download URL exists and the printer permits CORS — otherwise it fails the
-    // same way a browser probe does.
+    // Native desktop (Tauri): upload from the engine process over the OS network
+    // stack (no browser CORS), mirroring the cloud WebSocket upload.
+    if (isTauriHost()) {
+      this.beginSendProgress(printer, requestUuid);
+      void this.sendViaNative(printer, requestUuid, connection, options);
+      return;
+    }
+
+    // Browser fallback (pure web build): pushing to the printer directly is
+    // blocked the same way a browser probe is (CORS). Use the desktop app or the
+    // local/cloud server instead.
     this.notifications.error(
       'Direct send unavailable',
       'Sending to a printer from the browser is blocked by CORS. Use the desktop app or the local server to send prints.',
@@ -364,7 +405,8 @@ export class PrinterConnectionService {
             host,
             reachable: false,
             kind: 'none',
-            message: 'The slicer did not answer in time. Check that it is running and try again.',
+            message:
+              'Detection timed out. Some Klipper setups can take up to about a minute; try again, or verify the host address.',
           });
         }
       }, DETECT_TIMEOUT_MS);
@@ -435,7 +477,9 @@ export class PrinterConnectionService {
     base: string,
   ): Promise<PrinterDetectionResult | null> {
     try {
-      const info = await fetch(`${base}/printer/info`, { signal: AbortSignal.timeout(5000) });
+      const info = await fetch(`${base}/printer/info`, {
+        ...this.localNetworkRequestInit(DETECT_FAST_REQUEST_TIMEOUT_MS),
+      });
       if (!info.ok) {
         return null;
       }
@@ -454,15 +498,31 @@ export class PrinterConnectionService {
       };
 
       try {
-        const query = await fetch(`${base}/printer/objects/query?configfile&toolhead`, {
-          signal: AbortSignal.timeout(5000),
+        // Split enrichment calls: `toolhead` is tiny and carries bed spans,
+        // while `configfile` can be large on macro-heavy Klipper setups.
+        const queryToolhead = await fetch(`${base}/printer/objects/query?toolhead`, {
+          ...this.localNetworkRequestInit(DETECT_FAST_REQUEST_TIMEOUT_MS),
         });
-        if (query.ok) {
-          const status = ((await query.json()) as MoonrakerObjectsResponse)?.result?.status ?? {};
+        if (queryToolhead.ok) {
+          const status =
+            ((await queryToolhead.json()) as MoonrakerObjectsResponse)?.result?.status ?? {};
           enrichFromMoonrakerObjects(detection, status);
         }
       } catch {
         // Enrichment is best-effort; a bare Moonraker id is still useful.
+      }
+
+      try {
+        const queryConfig = await fetch(`${base}/printer/objects/query?configfile`, {
+          ...this.localNetworkRequestInit(DETECT_SLOW_REQUEST_TIMEOUT_MS),
+        });
+        if (queryConfig.ok) {
+          const status =
+            ((await queryConfig.json()) as MoonrakerObjectsResponse)?.result?.status ?? {};
+          enrichFromMoonrakerObjects(detection, status);
+        }
+      } catch {
+        // Optional enrichment only (kinematics/nozzle).
       }
 
       detection.message = detection.name
@@ -479,7 +539,9 @@ export class PrinterConnectionService {
     base: string,
   ): Promise<PrinterDetectionResult | null> {
     try {
-      const resp = await fetch(`${base}/api/version`, { signal: AbortSignal.timeout(5000) });
+      const resp = await fetch(`${base}/api/version`, {
+        ...this.localNetworkRequestInit(BROWSER_PROBE_TIMEOUT_MS),
+      });
       if (!resp.ok) {
         return null;
       }
@@ -516,7 +578,79 @@ export class PrinterConnectionService {
 
   /** True when the cloud WebSocket is connected and usable for RPC. */
   private canUseServer(): boolean {
-    return environment.runtimeMode === 'cloud' && this.ws.isConnected();
+    return environment.runtimeMode === 'cloud' && !isTauriHost() && this.ws.isConnected();
+  }
+
+  // ── native (Tauri) transport ──────────────────────────────────────────────
+  //
+  // The desktop app probes/uploads from the engine process over the OS network
+  // stack (`slicer_engine::printer`, via `reqwest`) — the same code path as the
+  // cloud WebSocket — so it is **not** subject to browser CORS. Each command
+  // returns the same field shape as the corresponding WS server message (minus
+  // its envelope), so the existing `fromServer*` mappers are reused verbatim.
+
+  /** Invoke a Tauri command; resolves `null` if the bridge is unavailable. */
+  private async invokeNative<T>(command: string, args: Record<string, unknown>): Promise<T | null> {
+    try {
+      const { invoke } = await import('@tauri-apps/api/core');
+      return await invoke<T>(command, args);
+    } catch {
+      return null;
+    }
+  }
+
+  /** Native equivalent of {@link probeFromBrowser} — no CORS. */
+  private async probeViaNative(printerId: string, connection: PrinterConnection): Promise<void> {
+    const report = await this.invokeNative<NativeStatusReport>('printer_check', { connection });
+    if (!report) {
+      this.setStatus(printerId, {
+        state: 'error',
+        label: 'Error',
+        message: 'Could not reach the desktop runtime to check the printer.',
+        checkedAt: Date.now(),
+      });
+      return;
+    }
+    this.setStatus(
+      printerId,
+      this.fromServerStatus({ type: 'PrinterStatus', printer_id: printerId, ...report }),
+    );
+  }
+
+  /** Native equivalent of {@link detectFromBrowser} — no CORS. */
+  private async detectViaNative(host: string): Promise<PrinterDetectionResult> {
+    const detection = await this.invokeNative<NativeDetection>('printer_detect', { host });
+    if (!detection) {
+      return {
+        host,
+        reachable: false,
+        kind: 'none',
+        message: 'Could not reach the desktop runtime to probe the printer.',
+      };
+    }
+    return this.fromServerDetection({ type: 'PrinterDetected', host, ...detection });
+  }
+
+  /** Native equivalent of the server-side upload — no CORS. */
+  private async sendViaNative(
+    printer: PrinterProfile,
+    requestUuid: string,
+    connection: PrinterConnection,
+    options: { filename?: string; start?: boolean },
+  ): Promise<void> {
+    const result = await this.invokeNative<NativeSendResult>('printer_send', {
+      connection,
+      filename: options.filename ?? null,
+      start: options.start ?? false,
+    });
+    this.finishSend({
+      type: 'PrinterSendResult',
+      printer_id: printer.id,
+      request_uuid: requestUuid,
+      ok: result?.ok ?? false,
+      message: result?.message ?? 'Could not reach the desktop runtime to send the print.',
+      started: result?.started ?? false,
+    });
   }
 
   private sendWs(msg: ClientMessage): void {
@@ -559,7 +693,10 @@ export class PrinterConnectionService {
     }
 
     try {
-      const resp = await fetch(url, { headers, signal: AbortSignal.timeout(5000) });
+      const resp = await fetch(url, {
+        ...this.localNetworkRequestInit(BROWSER_PROBE_TIMEOUT_MS),
+        headers,
+      });
       if (!resp.ok) {
         this.setStatus(printerId, {
           state: 'error',
@@ -588,17 +725,31 @@ export class PrinterConnectionService {
   }
 
   private async classifyBrowserFailure(printerId: string, url: string): Promise<void> {
+    const permissionState = await this.localNetworkPermissionState();
     try {
-      await fetch(url, { mode: 'no-cors', signal: AbortSignal.timeout(5000) });
+      await fetch(url, {
+        ...this.localNetworkRequestInit(BROWSER_PROBE_TIMEOUT_MS),
+        mode: 'no-cors',
+      });
       // Reached the host but the response is opaque → CORS is blocking us.
       this.setStatus(printerId, {
         state: 'cors',
         label: 'Blocked (CORS)',
         message:
-          'The printer is reachable but blocks browser requests (CORS). Use the desktop app or the local server to connect, or enable CORS in your Moonraker config.',
+          'The printer is reachable, but its API blocks browser reads (CORS). If prompted, allow local-network access in Chrome, then use the desktop app/local server or enable CORS in Moonraker.',
         checkedAt: Date.now(),
       });
     } catch {
+      if (permissionState === 'denied') {
+        this.setStatus(printerId, {
+          state: 'error',
+          label: 'Permission denied',
+          message:
+            'Chrome blocked local-network access for this site. Allow local-network access in site settings, then retry.',
+          checkedAt: Date.now(),
+        });
+        return;
+      }
       this.setStatus(printerId, {
         state: 'offline',
         label: 'Offline',
@@ -610,6 +761,28 @@ export class PrinterConnectionService {
 
   /** Interval used by consumers that want periodic refresh. */
   static readonly POLL_INTERVAL_MS = POLL_INTERVAL_MS;
+
+  private localNetworkRequestInit(timeoutMs: number): LocalNetworkRequestInit {
+    return { signal: AbortSignal.timeout(timeoutMs), targetAddressSpace: 'local' };
+  }
+
+  private async localNetworkPermissionState(): Promise<PermissionState | null> {
+    if (!globalThis.isSecureContext) {
+      return null;
+    }
+
+    const permissions = (navigator as NavigatorWithLocalNetworkPermissions).permissions;
+    if (!permissions?.query) {
+      return null;
+    }
+
+    try {
+      const status = await permissions.query({ name: 'local-network-access' });
+      return status.state;
+    } catch {
+      return null;
+    }
+  }
 }
 
 interface MoonrakerQueryResponse {
@@ -620,6 +793,39 @@ interface MoonrakerQueryResponse {
       display_status?: { progress?: number };
     };
   };
+}
+
+/** JSON from the native `printer_check` command (WS `PrinterStatus` minus envelope). */
+interface NativeStatusReport {
+  online: boolean;
+  state?: string | null;
+  print_state?: string | null;
+  progress?: number | null;
+  message?: string | null;
+}
+
+/** JSON from the native `printer_detect` command (WS `PrinterDetected` minus envelope). */
+interface NativeDetection {
+  reachable: boolean;
+  kind: PrinterConnectionKind;
+  message?: string | null;
+  name?: string | null;
+  model?: string | null;
+  vendor?: string | null;
+  firmware?: string | null;
+  bed_shape?: BedShape | null;
+  bed_width?: number | null;
+  bed_depth?: number | null;
+  bed_height?: number | null;
+  origin_at_center?: boolean | null;
+  nozzle_diameter_mm?: number | null;
+}
+
+/** JSON from the native `printer_send` command (WS `PrinterSendResult` minus envelope). */
+interface NativeSendResult {
+  ok: boolean;
+  message: string;
+  started: boolean;
 }
 
 interface MoonrakerInfoResponse {
@@ -646,19 +852,34 @@ interface ApiVersionResponse {
   hostname?: string;
 }
 
+interface LocalNetworkRequestInit extends RequestInit {
+  targetAddressSpace?: 'local';
+}
+
+type NavigatorWithLocalNetworkPermissions = Navigator & {
+  permissions?: Permissions & {
+    query(
+      permissionDesc: PermissionDescriptor | { name: 'local-network-access' },
+    ): Promise<PermissionStatus>;
+  };
+};
+
 /**
- * Pull bed dimensions, kinematics, and nozzle diameter out of a Moonraker
- * `printer/objects/query?configfile&toolhead` status payload. Mirrors the
- * engine's `enrich_from_moonraker_objects`.
+ * Pull any available bed dimensions, kinematics, and nozzle diameter out of a
+ * Moonraker `printer/objects/query?...` status payload. Mirrors the engine's
+ * `enrich_from_moonraker_objects`.
  */
 function enrichFromMoonrakerObjects(
   detection: PrinterDetectionResult,
   status: MoonrakerObjectsStatus,
 ): void {
   const settings = status.configfile?.settings;
-  const isDelta = (settings?.printer?.kinematics ?? '').toLowerCase() === 'delta';
-  detection.bedShape = isDelta ? 'circular' : 'rectangular';
-  detection.originAtCenter = isDelta;
+  const kinematics = settings?.printer?.kinematics?.trim().toLowerCase();
+  if (kinematics) {
+    const isDelta = kinematics === 'delta';
+    detection.bedShape = isDelta ? 'circular' : 'rectangular';
+    detection.originAtCenter = isDelta;
+  }
 
   const max = status.toolhead?.axis_maximum ?? [];
   const min = status.toolhead?.axis_minimum ?? [];

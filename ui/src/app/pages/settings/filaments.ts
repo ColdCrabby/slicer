@@ -22,7 +22,9 @@ import { parseSchema } from '../../schema-form/models/schema-parser';
 import type { SchemaGroup } from '../../schema-form/models/field-def';
 import { CloudCatalog } from '../../services/catalog/cloud-catalog';
 import { ContextMenuService } from '../../services/context-menu/context-menu.service';
+import { ContextMenuTrigger } from '../../services/context-menu/context-menu-trigger';
 import type { ContextMenuItem } from '../../services/context-menu/context-menu.model';
+import { Dialog } from '../../services/dialog';
 import { ActiveSelection } from '../../services/profiles/active-selection';
 import { matchesAllLabels, toggledLabelIds } from '../../services/profiles/label-filtering';
 import { paramNum } from '../../models/params-access';
@@ -113,6 +115,7 @@ const PARAM_GROUPS: SchemaGroup[] = (() => {
     Segmented,
     LabelFilterBar,
     LabelPicker,
+    ContextMenuTrigger,
   ],
   templateUrl: './filaments.html',
   styleUrl: './filaments.scss',
@@ -125,6 +128,7 @@ export class FilamentsSettings {
   private readonly filterStore = inject(LabelFilterStore);
   private readonly catalog = inject(CloudCatalog);
   private readonly contextMenu = inject(ContextMenuService);
+  private readonly dialog = inject(Dialog);
   private readonly route = inject(ActivatedRoute);
 
   protected readonly sourceLabels = PROFILE_SOURCE_LABELS;
@@ -312,13 +316,18 @@ export class FilamentsSettings {
         label: 'Delete\u2026',
         icon: 'trash',
         danger: true,
-        action: () => {
-          this.select(filament.id);
-          this.armDelete();
-        },
+        action: () => this.confirmDeleteFromContextMenu(filament),
       });
     }
     void this.contextMenu.open(event, items);
+  }
+
+  protected toggleDelete(): void {
+    if (this.deleteArmed()) {
+      this.disarmDelete();
+      return;
+    }
+    this.armDelete();
   }
 
   protected armDelete(): void {
@@ -341,12 +350,39 @@ export class FilamentsSettings {
     if (!filament || !this.deleteReady()) {
       return;
     }
-    this.store.remove(filament.id);
+    this.deleteFilamentById(filament.id);
+  }
+
+  private confirmDeleteFromContextMenu(filament: FilamentProfile): void {
+    this.dialog
+      .confirm({
+        title: `Delete filament "${filament.name}"?`,
+        message: 'This filament profile will be permanently deleted.',
+        type: 'danger',
+        confirmLabel: 'Delete',
+      })
+      .subscribe((confirmed) => {
+        if (!confirmed) {
+          return;
+        }
+        this.deleteFilamentById(filament.id);
+      });
+  }
+
+  private deleteFilamentById(id: string): void {
+    this.store.remove(id);
     this.disarmDelete();
-    this.selectedId.set(this.store.items()[0]?.id ?? null);
+    if (this.selectedId() === id) {
+      this.selectedId.set(this.store.items()[0]?.id ?? null);
+    }
   }
 
   protected readonly pnum = paramNum;
+  /**
+   * Filament-parameter sections rendered in the editor. Every field is always
+   * shown — the profile editor is where presets are authored, so it never
+   * hides gated-off fields (unlike the live slice sidebar).
+   */
   protected readonly paramGroups = PARAM_GROUPS;
 
   protected update(id: string, patch: Partial<FilamentProfile>): void {

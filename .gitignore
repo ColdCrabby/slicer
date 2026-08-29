@@ -18,11 +18,24 @@ node_modules/
 # Angular UI
 ui/dist/
 ui/.angular/
+.angular/
 
 # Tauri desktop
 ui-desktop/src-tauri/target
 ui-desktop/src-tauri/target/**
-ui-desktop/src-tauri/gen/
+# `gen/` holds two very different things: `gen/schemas` is regenerated on every
+# build, while `gen/apple` is the *Xcode project* — it carries signing settings,
+# entitlements and the merged Info.plist, so it must be committed or every
+# developer would have to redo `ios init` and re-apply project settings.
+ui-desktop/src-tauri/gen/schemas/
+ui-desktop/src-tauri/gen/android/
+ui-desktop/src-tauri/gen/apple/build/
+ui-desktop/src-tauri/gen/apple/Externals/
+ui-desktop/src-tauri/gen/apple/Pods/
+ui-desktop/src-tauri/gen/apple/.tauri/
+ui-desktop/src-tauri/gen/apple/*.xcodeproj/project.xcworkspace/
+ui-desktop/src-tauri/gen/apple/*.xcodeproj/xcuserdata/
+ui-desktop/src-tauri/gen/apple/*.xcworkspace/xcuserdata/
 
 # VitePress
 docs/.vitepress/dist/
