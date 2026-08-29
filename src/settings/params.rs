@@ -781,6 +781,80 @@ Set to `0` to fall back to `print_speed`.
     pub bridge_speed: f64,
 
     #[schemars(
+        description = "Enable dynamic overhang speed & cooling.
+
+Classifies perimeter segments by *overhang degree* — how much of the extrusion
+width hangs over unsupported air below it — so each degree can print at its own
+speed (`overhang_1_4_speed`…`overhang_4_4_speed`) and with extra part-cooling
+airflow (`overhang_fan_speed`).  Mirrors the OrcaSlicer / PrusaSlicer *slow down
+for overhangs* feature.  Set to `false` to print every overhang wall at a single
+`bridge_speed` instead.
+**Default:** true.",
+        extend("x-group" = "Speed")
+    )]
+    #[serde(default = "SlicingParams::default_enable_overhang_speed")]
+    pub enable_overhang_speed: bool,
+
+    #[schemars(
+        description = "Speed for lightly-overhanging perimeters (0–25% of the line unsupported), in mm/s.
+
+`0` = print at the normal `perimeter_speed` (no slowdown).  This band still sits
+almost entirely on the layer below, so the default leaves it at full speed —
+slowing it taxes a large share of ordinary walls on curved models for no gain.
+**Default:** 0 (no slowdown).",
+        extend("x-group" = "Speed")
+    )]
+    #[serde(default = "SlicingParams::default_overhang_degree_speed")]
+    pub overhang_1_4_speed: f64,
+
+    #[schemars(
+        description = "Speed for moderately-overhanging perimeters (25–50% unsupported), in mm/s.
+
+`0` = print at the normal `perimeter_speed` (no slowdown).  Half of this bead
+still rests on the layer below, so the default leaves it at full speed.
+**Default:** 0 (no slowdown).",
+        extend("x-group" = "Speed")
+    )]
+    #[serde(default = "SlicingParams::default_overhang_degree_speed")]
+    pub overhang_2_4_speed: f64,
+
+    #[schemars(
+        description = "Speed for steep overhanging perimeters (50–75% unsupported), in mm/s.
+
+`0` = inherit `bridge_speed`, so this band tracks that setting instead of
+pinning a second number that can drift out of sync with it.
+**Typical:** 20–35 mm/s.",
+        extend("x-group" = "Speed")
+    )]
+    #[serde(default = "SlicingParams::default_overhang_degree_speed")]
+    pub overhang_3_4_speed: f64,
+
+    #[schemars(
+        description = "Speed for near-fully-unsupported perimeters (75–100% unsupported), in mm/s.
+
+The steepest, most sag-prone band — effectively extruding into air, but without
+a bridge's anchored far end to tension against, so it wants to run slower than
+`bridge_speed`.  `0` = inherit `bridge_speed`.
+**Default:** 15 mm/s.",
+        extend("x-group" = "Speed")
+    )]
+    #[serde(default = "SlicingParams::default_overhang_4_4_speed")]
+    pub overhang_4_4_speed: f64,
+
+    #[schemars(
+        description = "Slow down perimeters that are likely to curl upward.
+
+Clamps both steep overhang degrees (50–100% unsupported) to the slowest
+configured overhang speed, so a curling wall never outruns the most conservative
+setting.  Off by default because it collapses the 50–75% band into the 75–100%
+one, discarding the grading — enable it deliberately when a model curls.
+**Default:** false.",
+        extend("x-group" = "Speed")
+    )]
+    #[serde(default = "SlicingParams::default_slowdown_for_curled_perimeters")]
+    pub slowdown_for_curled_perimeters: bool,
+
+    #[schemars(
         description = "Flow ratio for bridge extrusions (0.0–1.5).
 
 Reducing the flow rate for bridges improves stiffness by letting the strand
@@ -932,6 +1006,32 @@ High fan speeds cool bridge material rapidly, reducing sag.
     )]
     #[serde(default = "SlicingParams::default_bridge_fan_speed")]
     pub bridge_fan_speed: f64,
+
+    #[schemars(
+        description = "Part-cooling fan speed while printing overhang perimeters, as a fraction (0.0–1.0).
+
+While the nozzle prints overhang segments above `overhang_fan_threshold`, the
+part-cooling fan is raised to this speed and restored to the layer's normal
+cooling afterwards, so sag-prone overhangs get a burst of extra airflow.  `0` =
+never override the layer's normal fan speed.
+**Default:** 1.0 (100%).",
+        extend("x-group" = "Cooling")
+    )]
+    #[serde(default = "SlicingParams::default_overhang_fan_speed")]
+    pub overhang_fan_speed: f64,
+
+    #[schemars(
+        description = "Overhang degree above which `overhang_fan_speed` engages, as an unsupported fraction (0.0–1.0).
+
+The default `0.5` cools only the steep 50–100% overhangs, matching where the
+overhang-perimeter classifier already kicks in.  Lowering it also cools the
+milder degrees — at the cost of splitting otherwise-uniform walls into separate
+fan regions.
+**Default:** 0.5.",
+        extend("x-group" = "Cooling")
+    )]
+    #[serde(default = "SlicingParams::default_overhang_fan_threshold")]
+    pub overhang_fan_threshold: f64,
 
     #[schemars(
         description = "Part-cooling fan speed on the first layer as a fraction (0.0–1.0).
@@ -1770,6 +1870,12 @@ impl Default for SlicingParams {
             perimeter_speed: Self::default_perimeter_speed(),
             infill_speed: Self::default_infill_speed(),
             bridge_speed: Self::default_bridge_speed(),
+            enable_overhang_speed: Self::default_enable_overhang_speed(),
+            overhang_1_4_speed: Self::default_overhang_degree_speed(),
+            overhang_2_4_speed: Self::default_overhang_degree_speed(),
+            overhang_3_4_speed: Self::default_overhang_degree_speed(),
+            overhang_4_4_speed: Self::default_overhang_4_4_speed(),
+            slowdown_for_curled_perimeters: Self::default_slowdown_for_curled_perimeters(),
             bridge_flow_ratio: Self::default_bridge_flow_ratio(),
             bridge_min_area_mm2: Self::default_bridge_min_area_mm2(),
             bridge_noise_filter_mm: Self::default_bridge_noise_filter_mm(),
@@ -1781,6 +1887,8 @@ impl Default for SlicingParams {
             first_layer_speed: Self::default_first_layer_speed(),
             fan_speed: Self::default_fan_speed(),
             bridge_fan_speed: Self::default_bridge_fan_speed(),
+            overhang_fan_speed: Self::default_overhang_fan_speed(),
+            overhang_fan_threshold: Self::default_overhang_fan_threshold(),
             first_layer_fan_speed: Self::default_first_layer_fan_speed(),
             coasting_distance_mm: Self::default_coasting_distance_mm(),
             nozzle_temp: 210.0,
@@ -2166,6 +2274,60 @@ impl SlicingParams {
 
     fn default_bridge_speed() -> f64 {
         25.0
+    }
+
+    fn default_enable_overhang_speed() -> bool {
+        // On by default: the steep bands are *already* split off as
+        // `OverhangPerimeter` by the binary classifier, so grading them costs no
+        // extra path fragments — it only lets the near-airborne band print
+        // slower and cooler than a half-supported one.
+        true
+    }
+
+    /// Default for the three milder `overhang_*_speed` bands: `0` = inherit
+    /// (Deg1/Deg2 → `perimeter_speed`, Deg3 → `bridge_speed`).
+    ///
+    /// Deg1/Deg2 centrelines lie *within* the previous layer's bead envelope
+    /// (≥ 50 % supported) — the same "slight lean" geometry the overhang
+    /// classifier deliberately refuses to flag. Slowing them would tax a large
+    /// share of ordinary walls on any curved model for no quality gain, and
+    /// would fragment those loops into arcs that print identically. Deg3
+    /// inherits `bridge_speed`, so it tracks that setting instead of pinning a
+    /// second number that can drift out of sync with it.
+    fn default_overhang_degree_speed() -> f64 {
+        0.0
+    }
+
+    /// Deg4 (75–100 % unsupported) in mm/s.
+    ///
+    /// This band is effectively extruding into air, but unlike a bridge it has
+    /// no anchored far end to tension against — so it wants to be slower than
+    /// `bridge_speed` (25), not equal to it. 15 mm/s gives the strand time to
+    /// set while staying well inside the melt rate (≈ 1.2 mm³/s at 0.4 mm ×
+    /// 0.2 mm).
+    fn default_overhang_4_4_speed() -> f64 {
+        15.0
+    }
+
+    fn default_slowdown_for_curled_perimeters() -> bool {
+        // Opt-in: this clamps every steep band to the *slowest* overhang speed,
+        // which collapses Deg3 into Deg4 and discards the grading. Useful as a
+        // deliberate curl-mitigation, wrong as a default.
+        false
+    }
+
+    fn default_overhang_fan_speed() -> f64 {
+        // Matches `bridge_fan_speed`: material laid over air is the case part
+        // cooling exists for. Gated by `overhang_fan_threshold` so it only fires
+        // on the steep bands.
+        1.0
+    }
+
+    fn default_overhang_fan_threshold() -> f64 {
+        // 50 % unsupported → Deg3/Deg4 only, aligning the fan boost with the
+        // binary OverhangPerimeter classification. Keeping Deg1/Deg2 below the
+        // threshold is also what lets them fold away instead of splitting walls.
+        0.5
     }
 
     fn default_bridge_flow_ratio() -> f64 {

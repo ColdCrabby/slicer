@@ -201,6 +201,26 @@ width (`nozzle_diameter_mm × bridge_flow_ratio`) in the G-code generator and
 trigger the bridge fan boost via `has_bridges`. This eliminates sagging
 walls printed across windows, slots, and similar mid-air features.
 
+### Dynamic overhang speed & cooling
+
+When `enable_overhang_speed` is set, the same pass grades each wall segment by
+**overhang degree** — how far past the previous layer's material footprint its
+centreline sits — and records an `OverhangClass` (`None`/`Deg1`…`Deg4`) per path.
+The degrees are nested inflations of the previous perimeter (`prev`, `+d/4`, the
+existing `d/2` air boundary, `+3d/4`), so `Deg3`/`Deg4` coincide exactly with the
+binary `OverhangPerimeter` region and the role tag stays consistent.
+
+Two invariants:
+
+- **Off ⇒ byte-identical.** With grading off the classifier reduces to the
+  historical air/support split and `path_overhang` stays empty.
+- **Split only where output changes.** `overhang_band_class` folds any degree
+  whose speed and fan match a plainer wall down to that class, so a wall is never
+  fragmented into arcs that print identically — no wasted retracts.
+
+Grading needs the **pristine** previous-layer perimeter, snapshotted before
+bridge clipping splits any walls and passed in as `OverhangGrading`.
+
 Two things to note:
 
 - **Snapshot before strip.** The single-wall-strip step (step 4) removes
@@ -226,7 +246,7 @@ Two things to note:
 | Single-wall strip             | [`walls::apply_single_wall_restrictions`](walls.rs)                           | `paths`, `path_roles`                       | `paths`, `path_roles` (inner walls + first-layer gap fill removed) |
 | Interior regions for surfaces | [`infill::calculate_interior_region`](infill.rs)                              | `paths` (post-strip)                        | `interior_regions` local                     |
 | Top / bottom surfaces         | [`surfaces::generate_top_bottom_surfaces_with_interior`](surfaces.rs)         | `paths`, `interior_regions`                 | `paths`, `path_roles`, `solid_regions`       |
-| Overhang classification       | [`walls::classify_overhang_perimeters`](walls.rs)                             | `paths`, `unsupported_regions`              | `path_roles` (some `OverhangPerimeter`)      |
+| Overhang classification       | [`walls::classify_overhang_perimeters`](walls.rs)                             | `paths`, `unsupported_regions`, `OverhangGrading` (opt) | `path_roles` (some `OverhangPerimeter`), `path_overhang` (when grading) |
 | Sparse infill                 | [`infill::add_infill_to_layers`](infill.rs)                                   | `pre_strip_infill_regions`, `solid_regions` | `paths`, `path_roles`                        |
 | Path ordering & seams         | inline in [`pipeline::process_mesh`](pipeline.rs) (uses `choose_seam_vertex`) | `paths`, `path_roles`, `seam_position`      | `paths` (rotated/reordered)                  |
 

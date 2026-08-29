@@ -518,10 +518,24 @@ impl EmitPayload for ShowResult<'_> {
             format!("  perimeter_speed: {} mm/s", p.perimeter_speed),
             format!("  infill_speed: {} mm/s", p.infill_speed),
             format!("  bridge_speed: {} mm/s", p.bridge_speed),
+            format!("  enable_overhang_speed: {}", p.enable_overhang_speed),
+            format!("  overhang_1_4_speed: {} mm/s", p.overhang_1_4_speed),
+            format!("  overhang_2_4_speed: {} mm/s", p.overhang_2_4_speed),
+            format!("  overhang_3_4_speed: {} mm/s", p.overhang_3_4_speed),
+            format!("  overhang_4_4_speed: {} mm/s", p.overhang_4_4_speed),
+            format!(
+                "  slowdown_for_curled_perimeters: {}",
+                p.slowdown_for_curled_perimeters
+            ),
             format!("  top_surface_speed: {} mm/s", p.top_surface_speed),
             format!("  first_layer_speed: {} mm/s", p.first_layer_speed),
             format!("  fan_speed: {:.0}%", p.fan_speed * 100.0),
             format!("  bridge_fan_speed: {:.0}%", p.bridge_fan_speed * 100.0),
+            format!("  overhang_fan_speed: {:.0}%", p.overhang_fan_speed * 100.0),
+            format!(
+                "  overhang_fan_threshold: {:.0}%",
+                p.overhang_fan_threshold * 100.0
+            ),
             format!(
                 "  first_layer_fan_speed: {:.0}%",
                 p.first_layer_fan_speed * 100.0

@@ -26,7 +26,7 @@
 
 use clipper2::*;
 
-use crate::core::{ExtrusionRole, SliceLayer};
+use crate::core::{ExtrusionRole, OverhangClass, SliceLayer};
 use crate::settings::params::{AdhesionType, BrimType, SlicingParams};
 
 /// Round-join polygon inflate — the offset primitive used throughout this
@@ -120,6 +120,9 @@ fn push_loop(layer: &mut SliceLayer, path: Path, role: ExtrusionRole, width: f64
     layer.path_widths.push(Some(width));
     layer.path_vertex_widths.push(None);
     layer.path_is_open.push(false);
+    if !layer.path_overhang.is_empty() {
+        layer.path_overhang.push(OverhangClass::None);
+    }
 }
 
 /// Pad every parallel per-path array on `layer` up to `layer.paths.len()` so a
@@ -138,6 +141,13 @@ fn normalise(layer: &mut SliceLayer) {
     while layer.path_is_open.len() < n {
         layer.path_is_open.push(false);
     }
+    // Only pad `path_overhang` when the layer was graded (non-empty); an empty
+    // vector is the "not graded" sentinel and must stay empty.
+    if !layer.path_overhang.is_empty() {
+        while layer.path_overhang.len() < n {
+            layer.path_overhang.push(OverhangClass::None);
+        }
+    }
 }
 
 /// Prepend `additions` (a fully-populated adhesion layer) in front of `layer`'s
@@ -147,6 +157,7 @@ fn prepend(layer: &mut SliceLayer, additions: SliceLayer) {
         return;
     }
     normalise(layer);
+    let additions_count = additions.paths.len();
     let mut paths = additions.paths;
     let mut roles = additions.path_roles;
     let mut widths = additions.path_widths;
@@ -161,11 +172,22 @@ fn prepend(layer: &mut SliceLayer, additions: SliceLayer) {
     vwidths.extend(layer.path_vertex_widths.iter().cloned());
     is_open.extend(layer.path_is_open.iter().copied());
 
+    // Prepend `None` for the (unclassified) adhesion loops so the object's own
+    // overhang classes stay aligned to their walls.  Empty stays empty.
+    let overhang = if layer.path_overhang.is_empty() {
+        Vec::new()
+    } else {
+        let mut o = vec![OverhangClass::None; additions_count];
+        o.extend(layer.path_overhang.iter().copied());
+        o
+    };
+
     layer.paths = paths;
     layer.path_roles = roles;
     layer.path_widths = widths;
     layer.path_vertex_widths = vwidths;
     layer.path_is_open = is_open;
+    layer.path_overhang = overhang;
 }
 
 /// Concentric offset loops stepping **outward** from `footprint`, keeping only
