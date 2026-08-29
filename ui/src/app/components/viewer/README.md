@@ -207,12 +207,14 @@ raycaster, gizmo), the viewer applies a clear priority order:
 
 Clicking a viewport-cube face/edge/corner snaps the camera to that view **and
 flattens the projection to orthographic** — the CAD convention that a snapped
-view is dimension-true. The snap is then **pinned**: it survives until a gesture
-breaks it free — a **pan**, a **zoom**, or a **rotate dragged past the breakout
-distance** — at which point the projection reverts to whatever the toolbar preset
-was (normally perspective). Because the revert targets the toolbar `currentView`,
-leaving the snap lands back in perspective only when the user _entered_ it from
-perspective; a toolbar ortho preset stays ortho.
+view is dimension-true. The snap is then **pinned**: it survives pan and zoom
+of any distance — sticky, so a selected face can be inspected up close without
+ever popping back to perspective — and only breaks free on a genuine **rotate
+dragged past the breakout distance**, at which point the projection reverts to
+whatever the toolbar preset was (normally perspective). Because the revert
+targets the toolbar `currentView`, leaving the snap lands back in perspective
+only when the user _entered_ it from perspective; a toolbar ortho preset stays
+ortho.
 
 The rotate behaviour is a true **detent, Shapr3D-style**. While the snap is held
 the camera does **not move at all**: a rotate gesture shorter than
@@ -224,15 +226,20 @@ path. Cross that distance and the snap "pops": the camera starts orbiting from
 the snapped orientation and the projection animates back. Interacting with the
 cube again always keeps ortho.
 
-| Action                                                  | Auto-ortho         |
-| ------------------------------------------------------- | ------------------ |
-| Cube face/edge/corner snap                              | engage (→ ortho)   |
-| Rotate **inside** the breakout distance                 | keep — view frozen |
-| **Rotate past breakout** (1-finger / left-drag / swipe) | **revert** (pops)  |
-| Cube drag-orbit / roll / re-snap                        | keep               |
-| **Pan** (2-finger / right-drag / ⌥-swipe)               | **revert**         |
-| **Zoom** (pinch / wheel / autoscroll)                   | **revert**         |
-| Toolbar view toggle / home reset                        | cancel (manual)    |
+A pan or zoom releases the *freeze* — otherwise the very next frame would pin
+the camera straight back and the gesture would appear to do nothing — but
+never the *projection*: `autoOrtho` stays engaged, so the view keeps its flat,
+dimension-true look while the user pans/zooms around it freely.
+
+| Action                                                   | Auto-ortho          |
+| --------------------------------------------------------- | ------------------- |
+| Cube face/edge/corner snap                                 | engage (→ ortho)    |
+| Rotate **inside** the breakout distance                    | keep — view frozen  |
+| **Rotate past breakout** (1-finger / left-drag / swipe)    | **revert** (pops)   |
+| Cube drag-orbit / roll / re-snap                            | keep                 |
+| Pan (2-finger / right-drag / ⌥-swipe)                      | keep — sticky        |
+| Zoom (pinch / wheel / autoscroll)                           | keep — sticky        |
+| Toolbar view toggle / home reset                           | cancel (manual)      |
 
 This lives across two files. Both the projection override (`autoOrtho`) and the
 detent (`snapHoldPose`) are in [`SceneCamera`](scene/camera.ts). Engaging
@@ -264,7 +271,9 @@ it each frame (rather than accumulating) is what makes the hand-off seamless —
 `OrbitControls` re-derives its orbit frame from the camera's current position
 every update, so the instant the pin is released the view simply starts following
 the pointer from the snapped orientation, with no jump and no replay of the
-absorbed movement.
+absorbed movement. A pan or zoom releases the same pin early via
+`releaseSnapPinForPanZoom()` — a plain `snapHoldPose = null`, nothing else — so
+the gesture is free to move the camera while `autoOrtho` stays engaged.
 
 **Reverting** animates over the same `VIEW_TRANSITION_MS` + easing as the
 toolbar's perspective/ortho toggle, so the morph reads identically whichever
@@ -277,13 +286,16 @@ fights the gesture that triggered it — the render loop advances it on **every*
 frame, including frames where `OrbitControls` is driving the camera, so the user
 can keep dragging/zooming straight through the transition.
 
-The revert trigger is emitted only from the genuine pan/zoom input sites and from
-the pointer-travel breakout detector in [`SceneControls`](scene/controls.ts)
-(`setRevertGestureSink`) — a rotate inside the detent and cube-driven moves never
-emit it. Travel is measured in **pixels**, not camera angle, precisely because a
-held snap does not rotate the camera at all. The budget is per gesture: reset on
-each pointer down/up and, on the trackpad-swipe path (which has no pointer
-brackets), after an idle gap.
+The revert trigger (`setRevertGestureSink` in [`SceneControls`](scene/controls.ts))
+is emitted **only** by the pointer-travel breakout detector for a rotate gesture
+— a rotate inside the detent, cube-driven moves, and any pan/zoom never emit it.
+Travel is measured in **pixels**, not camera angle, precisely because a held
+snap does not rotate the camera at all. The budget is per gesture: reset on each
+pointer down/up and, on the trackpad-swipe path (which has no pointer brackets),
+after an idle gap. Pan/zoom instead emit a separate, lighter
+`setPanZoomGestureSink` that only releases the freeze (see above) — the two
+sinks are deliberately distinct so the projection-reverting side effects of
+`notifyUserViewGesture` never fire for a gesture that is supposed to stay sticky.
 
 ### Pen-priority palm rejection ("wrist detection")
 

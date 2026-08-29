@@ -38,6 +38,18 @@ cargo install tauri-cli --version "^2"
 # OR: pnpm add -g @tauri-apps/cli
 ```
 
+### For iPad / iOS builds (macOS only)
+
+The full **Xcode** app is required — Xcode Command Line Tools do not ship the iOS SDK. Installing it is not enough; you must also point the toolchain at it:
+
+```bash
+sudo xcode-select -s /Applications/Xcode.app
+xcodebuild -downloadPlatform iOS    # simulator runtime, ~8 GB, not bundled with Xcode
+pnpm run ios:setup                  # verifies everything, installs the Rust iOS targets and CocoaPods
+```
+
+Run `pnpm run ios:doctor` at any time for a read-only report of what is missing.
+
 ### Optional
 
 - **C++ toolchain** (clang++ or MSVC) — needed only for full WASM builds with polygon clipping support
@@ -181,6 +193,27 @@ pnpm run desktop:build
 ```
 
 The desktop app automatically uses the bundled native engine for slicing, giving you full offline capability and the best performance. Scene management is shared with the browser UI, so the experience is identical.
+
+---
+
+## iPad / iOS app
+
+The same Tauri shell also builds for iPadOS and iOS, running the full Rust slicing engine on-device.
+
+**Requires macOS with the full [Xcode](https://apps.apple.com/app/xcode/id497799835) app** — Command Line Tools do not include the iOS SDK. Everything else the doctor script installs or explains:
+
+```bash
+sudo xcode-select -s /Applications/Xcode.app   # installing Xcode does not do this for you
+xcodebuild -downloadPlatform iOS               # simulator runtime (~8 GB), sold separately
+pnpm run ios:setup     # check the toolchain, install Rust iOS targets
+pnpm run hydrate       # WASM scene bindings (once, as for every other surface)
+pnpm run ios:init      # generate the Xcode project
+pnpm run ios:dev       # build + run on an iPad simulator, with live reload
+```
+
+`pnpm run ios:doctor` reports without changing anything, and names the exact command to fix whatever is missing.
+
+Full walkthrough, device selection, physical-device signing, and troubleshooting → **[ui-desktop/README.md](ui-desktop/README.md)**.
 
 ---
 

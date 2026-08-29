@@ -64,11 +64,14 @@ export class SceneCamera {
    * True while the projection has been *temporarily* forced to orthographic by
    * a viewport-cube snap (see {@link animateToDirection}). Distinct from the
    * user's `currentView`: the cube engages this without touching the toolbar
-   * preset. It is released together with the {@link snapHoldPose} detent once a
-   * gesture breaks the snap free — a pan, a zoom, or a rotate dragged past
-   * `SNAP_BREAKOUT_TRAVEL_PX` ({@link notifyUserViewGesture}) — reverting to
-   * `currentView`. Everything below that distance, and any further cube
-   * interaction, keeps it engaged.
+   * preset. It is released together with the {@link snapHoldPose} detent only
+   * when a **rotate** gesture is dragged past `SNAP_BREAKOUT_TRAVEL_PX`
+   * ({@link notifyUserViewGesture}) — reverting to `currentView`. A pan or
+   * zoom of any distance keeps it engaged (see
+   * {@link releaseSnapPinForPanZoom}), which is what lets the user inspect a
+   * snapped face up close without the view popping back to perspective.
+   * Everything below the rotate breakout distance, and any further cube
+   * interaction, also keeps it engaged.
    */
   private autoOrtho = false;
 
@@ -78,7 +81,9 @@ export class SceneCamera {
    * frame's `OrbitControls.update()`, so a rotate gesture inside the breakout
    * distance moves the view **not at all** instead of drifting off the snapped
    * orientation. Cleared when the snap breaks free
-   * ({@link notifyUserViewGesture}), when the cube itself orbits/rolls the view
+   * ({@link notifyUserViewGesture}), when a pan/zoom gesture starts
+   * ({@link releaseSnapPinForPanZoom} — the projection stays ortho, only the
+   * freeze is lifted), when the cube itself orbits/rolls the view
    * ({@link orbitBy}), or when a toolbar preset takes over.
    */
   private snapHoldPose: { position: Vector3; up: Vector3; target: Vector3 } | null = null;
@@ -281,13 +286,15 @@ export class SceneCamera {
   }
 
   /**
-   * Called when a gesture breaks a held viewport-cube snap free — a pan, a zoom,
-   * or a rotate dragged past `SNAP_BREAKOUT_TRAVEL_PX` (a rotate inside that
-   * distance never gets here, and neither do cube gestures). Releases both the
-   * {@link snapHoldPose} detent, so the camera starts following the gesture, and
-   * the forced orthographic projection, reverting to the user's `currentView` —
-   * so leaving the snap lands back in perspective only when the user *entered*
-   * it from perspective; a toolbar ortho preset stays ortho.
+   * Called when a **rotate** gesture breaks a held viewport-cube snap free —
+   * dragged past `SNAP_BREAKOUT_TRAVEL_PX` (a rotate inside that distance
+   * never gets here, and neither do cube gestures, nor any pan/zoom — those
+   * are sticky and never call this; see {@link releaseSnapPinForPanZoom}).
+   * Releases both the {@link snapHoldPose} detent, so the camera starts
+   * following the gesture, and the forced orthographic projection, reverting
+   * to the user's `currentView` — so leaving the snap lands back in
+   * perspective only when the user *entered* it from perspective; a toolbar
+   * ortho preset stays ortho.
    *
    * The projection **animates** back over {@link VIEW_TRANSITION_MS} with the
    * same easing as the toolbar's perspective/ortho toggle, so the morph reads
@@ -331,7 +338,10 @@ export class SceneCamera {
    * `OrbitControls.update()` and the inertia step, so whatever rotation those
    * applied this frame is undone before anything is drawn — the snapped view
    * therefore appears completely motionless until the gesture travels past
-   * `SNAP_BREAKOUT_TRAVEL_PX` and {@link notifyUserViewGesture} releases the pin.
+   * `SNAP_BREAKOUT_TRAVEL_PX` and {@link notifyUserViewGesture} releases the pin,
+   * or a pan/zoom gesture releases it early via
+   * {@link releaseSnapPinForPanZoom} so it can move the camera freely while
+   * staying in ortho.
    *
    * Discarding the rotation each frame (rather than accumulating it) is what
    * makes the hand-off seamless: `OrbitControls` derives its orbit frame from
@@ -358,6 +368,23 @@ export class SceneCamera {
       up: this.camera.up.clone(),
       target: this.controls.target.clone(),
     };
+  }
+
+  /**
+   * Release the snap detent so a pan or zoom gesture can move the camera
+   * freely, **without** touching {@link autoOrtho} or reverting the
+   * projection. Pan/zoom are deliberately sticky: they let the user inspect a
+   * snapped ortho view (e.g. a selected face) up close without ever popping
+   * back to perspective — only a genuine rotate past
+   * `SNAP_BREAKOUT_TRAVEL_PX` does that (see {@link notifyUserViewGesture}).
+   *
+   * Without this, {@link applySnapHold} would re-pin the camera back to the
+   * detent on the very next frame and the pan/zoom would appear to do
+   * nothing. A no-op once the pin is already clear, so it is safe to call on
+   * every pan/zoom event.
+   */
+  releaseSnapPinForPanZoom(): void {
+    this.snapHoldPose = null;
   }
 
   /**
