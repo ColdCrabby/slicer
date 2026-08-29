@@ -1,0 +1,144 @@
+:host {
+  display: block;
+}
+
+.changelog__release {
+  padding: var(--spacing-lg);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  background: var(--color-surface);
+  scroll-margin: var(--spacing-lg);
+
+  & + & {
+    margin-top: var(--spacing-md);
+  }
+
+  // The running release is the one the reader is looking for — lift it with the
+  // accent border rather than a fill, so the notes themselves stay readable.
+  &.is-current {
+    border-color: var(--accent-border);
+    box-shadow: inset 0 0 0 1px var(--accent-border);
+  }
+}
+
+.changelog__release-header {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: var(--spacing-sm);
+  margin-bottom: var(--spacing-sm);
+}
+
+.changelog__version {
+  margin: 0;
+  font-size: var(--font-size-lg);
+  font-weight: var(--font-weight-semibold);
+  color: var(--color-text-primary);
+  font-variant-numeric: tabular-nums;
+}
+
+.changelog__date {
+  font-size: var(--font-size-xs);
+  color: var(--color-text-tertiary);
+  font-variant-numeric: tabular-nums;
+}
+
+.changelog__badge {
+  margin-left: auto;
+  padding: 2px var(--spacing-sm);
+  border-radius: var(--radius-sm);
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-size: var(--font-size-2xs);
+  font-weight: var(--font-weight-medium);
+  white-space: nowrap;
+}
+
+.changelog__body {
+  display: block;
+  font-size: var(--font-size-sm);
+  line-height: 1.6;
+  color: var(--color-text-secondary);
+
+  // ngx-markdown writes its output as raw HTML, so those nodes never carry this
+  // component's scoping attribute — `::ng-deep` is the only way to reach them.
+  ::ng-deep {
+    > :first-child {
+      margin-top: 0;
+    }
+
+    > :last-child {
+      margin-bottom: 0;
+    }
+
+    h3,
+    h4 {
+      margin: var(--spacing-lg) 0 var(--spacing-xs);
+      font-size: var(--font-size-xs);
+      font-weight: var(--font-weight-semibold);
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+      color: var(--color-text-tertiary);
+    }
+
+    p {
+      margin: 0 0 var(--spacing-sm);
+    }
+
+    ul,
+    ol {
+      margin: 0 0 var(--spacing-sm);
+      padding-left: var(--spacing-lg);
+    }
+
+    li {
+      margin-bottom: var(--spacing-xs);
+    }
+
+    li::marker {
+      color: var(--color-text-tertiary);
+    }
+
+    strong {
+      font-weight: var(--font-weight-semibold);
+      color: var(--color-text-primary);
+    }
+
+    a {
+      color: var(--accent);
+      text-decoration: none;
+
+      &:hover {
+        text-decoration: underline;
+      }
+    }
+
+    code {
+      padding: 1px 4px;
+      border-radius: var(--radius-sm);
+      background: var(--color-bg-tertiary);
+      font-family: var(--font-family-mono);
+      font-size: 0.92em;
+      font-weight: var(--font-weight-mono-normal);
+      color: var(--color-text-primary);
+    }
+
+    pre {
+      overflow-x: auto;
+      padding: var(--spacing-md);
+      border-radius: var(--radius-md);
+      background: var(--color-bg-tertiary);
+
+      code {
+        padding: 0;
+        background: none;
+      }
+    }
+  }
+}
+
+.changelog__empty {
+  margin: 0;
+  color: var(--color-text-tertiary);
+  font-size: var(--font-size-sm);
+}

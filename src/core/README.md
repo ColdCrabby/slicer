@@ -201,31 +201,25 @@ width (`nozzle_diameter_mm × bridge_flow_ratio`) in the G-code generator and
 trigger the bridge fan boost via `has_bridges`. This eliminates sagging
 walls printed across windows, slots, and similar mid-air features.
 
-### Dynamic overhang speed & cooling (issue #97)
+### Dynamic overhang speed & cooling
 
-When `enable_overhang_speed` is set, the same pass additionally grades each wall
-segment by **overhang degree** — how far past the previous layer's material
-footprint its centreline sits — and records an `OverhangClass`
-(`None`/`Deg1`…`Deg4`) per path. The four degrees map to nested inflations of the
-previous perimeter (`prev`, `inflate(prev, d/4)`, the existing `d/2` air
-boundary, `inflate(prev, 3d/4)`), so the steep `Deg3`/`Deg4` bands coincide
-exactly with the binary `OverhangPerimeter` region and the role tag stays
-consistent. The generator then applies `overhang_1_4_speed`…`overhang_4_4_speed`
-per degree and raises the part-cooling fan to `overhang_fan_speed` over segments
-above `overhang_fan_threshold`.
+When `enable_overhang_speed` is set, the same pass grades each wall segment by
+**overhang degree** — how far past the previous layer's material footprint its
+centreline sits — and records an `OverhangClass` (`None`/`Deg1`…`Deg4`) per path.
+The degrees are nested inflations of the previous perimeter (`prev`, `+d/4`, the
+existing `d/2` air boundary, `+3d/4`), so `Deg3`/`Deg4` coincide exactly with the
+binary `OverhangPerimeter` region and the role tag stays consistent.
 
-Two invariants keep this cheap and non-regressive:
+Two invariants:
 
-- **Off ⇒ byte-identical.** With the feature off (`overhang_support = None`) the
-  edge classifier reduces to the historical two-value air/support split and
-  `path_overhang` stays empty, so the QA baselines don't move.
-- **Split only where output changes.** The pipeline folds any degree whose
-  speed/fan is unset down to a plainer class (`overhang_band_class`), so a
-  supported wall is never fragmented into `Deg1`/`Deg2` arcs when the user only
-  tuned the steep degrees — no wasted retracts.
+- **Off ⇒ byte-identical.** With grading off the classifier reduces to the
+  historical air/support split and `path_overhang` stays empty.
+- **Split only where output changes.** `overhang_band_class` folds any degree
+  whose speed and fan match a plainer wall down to that class, so a wall is never
+  fragmented into arcs that print identically — no wasted retracts.
 
-The grading needs the **pristine** previous-layer perimeter (snapshotted by the
-pipeline before bridge clipping splits any walls), passed in as `OverhangGrading`.
+Grading needs the **pristine** previous-layer perimeter, snapshotted before
+bridge clipping splits any walls and passed in as `OverhangGrading`.
 
 Two things to note:
 

@@ -114,6 +114,33 @@ impl GcodeDialect for KlipperDialect {
         format!("SET_VELOCITY_LIMIT ACCEL={:.0}", accel)
     }
 
+    /// Klipper expresses both kinematic limits with a single `SET_VELOCITY_LIMIT`
+    /// carrying the native `VELOCITY` and `SQUARE_CORNER_VELOCITY` fields — no
+    /// junction-deviation conversion needed (unlike Marlin's `M205 J`). `accel`
+    /// is unused here because Klipper's acceleration is set separately per role.
+    fn set_kinematic_limits(
+        &self,
+        square_corner_velocity_mm_s: f64,
+        max_velocity_mm_s: f64,
+        _accel_mm_s2: f64,
+    ) -> Vec<String> {
+        let mut parts = String::new();
+        if max_velocity_mm_s > 0.0 {
+            parts.push_str(&format!(" VELOCITY={:.0}", max_velocity_mm_s));
+        }
+        if square_corner_velocity_mm_s > 0.0 {
+            parts.push_str(&format!(
+                " SQUARE_CORNER_VELOCITY={:.2}",
+                square_corner_velocity_mm_s
+            ));
+        }
+        if parts.is_empty() {
+            Vec::new()
+        } else {
+            vec![format!("SET_VELOCITY_LIMIT{parts}")]
+        }
+    }
+
     /// Named Klipper fans use `SET_FAN_SPEED fan=<name> speed=<0.0–1.0>`; the
     /// default part-cooling fan uses `M106`/`M107` instead.
     ///
@@ -141,5 +168,24 @@ impl GcodeDialect for KlipperDialect {
                 s
             ),
         }
+    }
+
+    /// Klipper configures firmware retraction at runtime with `SET_RETRACTION`
+    /// (requires a `[firmware_retraction]` section in the printer config), so
+    /// `G10`/`G11` use the slicer's length / speed / restart-extra. The Z-hop
+    /// component is left to the slicer's explicit Z moves.
+    fn firmware_retract_setup(
+        &self,
+        retract_mm: f64,
+        retract_speed_mm_min: f64,
+        restart_extra_mm: f64,
+    ) -> Vec<String> {
+        // Klipper SET_RETRACTION speeds are in mm/s.
+        let speed_mm_s = retract_speed_mm_min / 60.0;
+        vec![format!(
+            "SET_RETRACTION RETRACT_LENGTH={:.3} RETRACT_SPEED={:.1} \
+             UNRETRACT_EXTRA_LENGTH={:.3} UNRETRACT_SPEED={:.1} ; firmware retraction",
+            retract_mm, speed_mm_s, restart_extra_mm, speed_mm_s
+        )]
     }
 }

@@ -1,13 +1,41 @@
 ---
 name: test-changes
-description: Hand the user a short, concise bullet-point checklist of what to test by hand after a change, targeted at the platform they name — remote+web (the default), the wasm browser slicer, the Tauri desktop app, or iOS/iPadOS. Use when the user says "what should I test", "how do I test this", "give me a test plan", "let me test it", "I'll test it", "test on desktop / iPad / wasm", or asks what to check now that the change is done.
+description: Start the parts needed to test a change, hand the user the access details (URL, etc.), then give a short, concise bullet-point checklist of what to test by hand — targeted at the platform they name — remote+web (the default), the wasm browser slicer, the Tauri desktop app, or iOS/iPadOS. Use when the user says "what should I test", "how do I test this", "give me a test plan", "let me test it", "I'll test it", "test on desktop / iPad / wasm", or asks what to check now that the change is done.
 ---
 
-# Suggest What to Test
+# Get the User Testing
 
-The user does the testing; you write the list. Review the change you just made
-and turn it into the shortest set of hand-checks that would actually catch a
-mistake in it, on the platform the user is sitting in front of.
+Do two things, in order: **stand up the thing to test**, then **write the
+checklist**. The user does the testing; you start the servers and write the list.
+Review the change you just made and turn it into the shortest set of hand-checks
+that would actually catch a mistake in it, on the platform the user is sitting in
+front of.
+
+## Launch what's needed
+
+Start the pieces the chosen platform needs as **background/detached** processes,
+then hand the user the access details. Never block or poll waiting on a dev
+server — start it, do a quick liveness check, and move on.
+
+| Platform            | Start (background)                                                                     | Give the user            |
+| ------------------- | ------------------------------------------------------------------------------------- | ------------------------ |
+| Remote + web        | `cargo run -- serve` (backend, :5201) **and** `pnpm run ui:dev` (:4213)                | **http://localhost:4213** |
+| Wasm browser slicer | `pnpm run hydrate:web-slicer` first, then `pnpm run ui:dev:web-slicer` (:4213)         | **http://localhost:4213** (no backend) |
+| Tauri desktop       | `pnpm run desktop:dev`                                                                 | The app window opens — no URL |
+| iOS / iPadOS        | `pnpm run ios:dev`                                                                     | The iPad simulator opens — no URL |
+| CLI                 | Nothing to serve — give the exact command to run                                      | The command line          |
+
+- **Reuse, don't stack.** If a dev server is already up on that port, say so and
+  reuse it instead of starting a second.
+- **Rebuild first when the change isn't live yet.** Wasm changes need
+  `hydrate:web-slicer` (or `build:wasm`); a backend change needs the `serve`
+  process (re)started. Make that the first thing you do, not a checklist bullet.
+- **Report the real access detail.** On web, the UI dev server is on **:4213**
+  and talks to the backend on **:5201** — the user opens :4213. On desktop/iOS
+  the shell opens its own window, so there's no URL to give.
+- Keep the startup note to a line or two, then go straight to the checklist.
+
+## Write the checklist
 
 ## Rules
 

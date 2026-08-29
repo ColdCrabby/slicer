@@ -240,11 +240,14 @@ fn reduce_first_layer_to_single_wall(layer: &mut SliceLayer, strip_gap_fill: boo
 /// a segment midpoint's band is the innermost region it falls inside.
 struct OverhangBands {
     /// `perimeters[i-1]` (centreline inside → fully supported, band 0).
-    b0: Paths,
-    /// `inflate(prev, d/4)` — the 0%/25% (band 1/2) boundary.
-    b1: Paths,
+    /// `None` when bands 0 and 1 map to the same class, so the test is skipped.
+    b0: Option<Paths>,
+    /// `inflate(prev, d/4)` — the 25% (band 1/2) boundary.
+    /// `None` when bands 1 and 2 map to the same class.
+    b1: Option<Paths>,
     /// `inflate(prev, 3d/4)` — the 75% (band 3/4) boundary.
-    b3: Paths,
+    /// `None` when bands 3 and 4 map to the same class.
+    b3: Option<Paths>,
 }
 
 /// Inputs for dynamic overhang-degree grading passed to
@@ -271,6 +274,18 @@ impl OverhangGrading<'_> {
         OverhangClass::Deg3,
         OverhangClass::Deg4,
     ];
+
+    /// Which band boundaries actually separate two *different* emitted classes.
+    ///
+    /// A boundary between bands that map to the same class is pure cost: the
+    /// polygon offset, the extra densification edges, and the per-edge
+    /// point-in-polygon test all produce a split that prints identically.  With
+    /// the shipped defaults (Deg1/Deg2 folded to `None`) only the 75% boundary
+    /// survives, which is what keeps grading affordable enough to leave on.
+    fn needed_boundaries(&self) -> (bool, bool, bool) {
+        let c = &self.band_class;
+        (c[0] != c[1], c[1] != c[2], c[3] != c[4])
+    }
 }
 
 /// Classify wall paths whose centerline crosses unsupported air as
@@ -339,6 +354,12 @@ pub(crate) fn classify_overhang_perimeters(
     let band_class: [OverhangClass; 5] = grading
         .map(|g| g.band_class)
         .unwrap_or(OverhangGrading::IDENTITY_BAND_CLASS);
+    // Which band boundaries separate two different emitted classes.  A boundary
+    // between bands that print identically is skipped entirely — no offset, no
+    // densification against it, no per-edge test.
+    let (need_b0, need_b1, need_b3) = grading
+        .map(|g| g.needed_boundaries())
+        .unwrap_or((false, false, false));
     // Precompute the per-layer overhang *degree* band boundaries when dynamic
     // overhang speed is enabled.  `overhang_support[i]` is the pristine
     // OuterWall centreline outline of layer `i` (snapshotted by the pipeline
@@ -353,44 +374,68 @@ pub(crate) fn classify_overhang_perimeters(
     // `unsupported_regions` is built from — so the air test (majority in air)
     // already sits on the Deg2/Deg3 seam and the bands stay consistent with the
     // binary OverhangPerimeter role.
-    let band_regions: Option<Vec<Option<OverhangBands>>> = overhang_support.map(|support| {
-        let d = nozzle_diameter_mm;
-        let build = |i: usize| -> Option<OverhangBands> {
-            if i == 0 {
-                return None;
+    let band_regions: Option<Vec<Option<OverhangBands>>> = overhang_support
+        .filter(|_| need_b0 || need_b1 || need_b3)
+        .map(|support| {
+            let d = nozzle_diameter_mm;
+            let offset = |prev: &Paths, delta: f64| {
+                inflate(prev.clone(), delta, JoinType::Round, EndType::Polygon, 2.0)
+            };
+            // `b3` is clipped to the neighbourhood of the air strip — the only
+            // place it is ever queried.  A raw offset of the previous perimeter
+            // is a whole-model-sized polygon, while the region that can actually
+            // *discriminate* is the thin ring between the d/2 and 3d/4 offsets;
+            // both the densifier and the point tests scale with that polygon's
+            // edge count.  On a Benchy this is the difference between the
+            // grading pass costing ~750 ms and ~100 ms.
+            //
+            // The clip is grown by a full nozzle diameter first: query points
+            // are edge midpoints lying *on* the air boundary (the wall
+            // centreline forms part of it) and `point_inside_or_on_paths_eo`
+            // counts `IsOn` as inside, so a cut edge running through them would
+            // answer "inside" for points outside the real band.  The margin
+            // keeps every cut edge clear of the query set, leaving `b3`'s own
+            // boundary as the sole discriminator.
+            //
+            // `b0`/`b1` are left unclipped: they are only built when the user
+            // opts into grading the two mild degrees, where correctness is
+            // worth more than the offset they would save.
+            let clip_to_air = |region: Paths, air: &Paths| -> Paths {
+                if region.is_empty() || air.is_empty() {
+                    return region;
+                }
+                let grown = inflate(air.clone(), d, JoinType::Round, EndType::Polygon, 2.0);
+                if grown.is_empty() {
+                    return region;
+                }
+                intersect(region, grown, FillRule::EvenOdd).unwrap_or_default()
+            };
+            let build = |i: usize| -> Option<OverhangBands> {
+                if i == 0 {
+                    return None;
+                }
+                let prev = support.get(i - 1)?;
+                if prev.is_empty() {
+                    return None;
+                }
+                Some(OverhangBands {
+                    b0: need_b0.then(|| prev.clone()),
+                    b1: need_b1.then(|| offset(prev, d * 0.25)),
+                    b3: need_b3.then(|| {
+                        clip_to_air(offset(prev, d * 0.75), &layers[i].unsupported_regions)
+                    }),
+                })
+            };
+            #[cfg(not(target_arch = "wasm32"))]
+            {
+                use rayon::prelude::*;
+                (0..layers.len()).into_par_iter().map(build).collect()
             }
-            let prev = support.get(i - 1)?;
-            if prev.is_empty() {
-                return None;
+            #[cfg(target_arch = "wasm32")]
+            {
+                (0..layers.len()).map(build).collect()
             }
-            Some(OverhangBands {
-                b0: prev.clone(),
-                b1: inflate(
-                    prev.clone(),
-                    d * 0.25,
-                    JoinType::Round,
-                    EndType::Polygon,
-                    2.0,
-                ),
-                b3: inflate(
-                    prev.clone(),
-                    d * 0.75,
-                    JoinType::Round,
-                    EndType::Polygon,
-                    2.0,
-                ),
-            })
-        };
-        #[cfg(not(target_arch = "wasm32"))]
-        {
-            use rayon::prelude::*;
-            (0..layers.len()).into_par_iter().map(build).collect()
-        }
-        #[cfg(target_arch = "wasm32")]
-        {
-            (0..layers.len()).map(build).collect()
-        }
-    });
+        });
 
     // Per-layer work is read-only on the layer's own data (we clone
     // `unsupported_regions` up front) and writes back into a freshly built
@@ -426,18 +471,19 @@ pub(crate) fn classify_overhang_perimeters(
             .and_then(|o| o.as_ref());
         let grade = bands.is_some();
 
-        // Combined densification boundaries: the air boundary always, plus
-        // the degree-band boundaries when grading, so every densified
-        // sub-edge lies cleanly on one side of every boundary it must be
-        // classified against.
-        let densify_bounds: Paths = if let Some(b) = bands {
-            let mut acc: Vec<Path> = air.iter().cloned().collect();
-            acc.extend(b.b0.iter().cloned());
-            acc.extend(b.b1.iter().cloned());
-            acc.extend(b.b3.iter().cloned());
-            Paths::new(acc)
-        } else {
-            air.clone()
+        // Combined densification boundaries: the air boundary always, plus only
+        // those degree-band boundaries that separate two different classes, so
+        // every densified sub-edge lies cleanly on one side of every boundary it
+        // is actually tested against.
+        let densify_bounds: Paths = match bands {
+            Some(b) => {
+                let mut acc: Vec<Path> = air.iter().cloned().collect();
+                for region in [&b.b0, &b.b1, &b.b3].into_iter().flatten() {
+                    acc.extend(region.iter().cloned());
+                }
+                Paths::new(acc)
+            }
+            None => air.clone(),
         };
 
         // Pad roles/widths so indices are always valid.  We can't mutate
@@ -555,18 +601,28 @@ pub(crate) fn classify_overhang_perimeters(
                         let j = if is_already_open { i + 1 } else { (i + 1) % nd };
                         let mx = (dense_pts[i].0 + dense_pts[j].0) * 0.5;
                         let my = (dense_pts[i].1 + dense_pts[j].1) * 0.5;
+                        // Only boundaries kept in `bands` are tested; a skipped
+                        // one means the bands it separates share a class, so any
+                        // representative on that side maps to the same result.
+                        let inside = |region: &Option<Paths>| {
+                            region
+                                .as_ref()
+                                .is_some_and(|r| point_inside_or_on_paths_eo(mx, my, r))
+                        };
                         let raw = if edge_air[i] {
-                            if point_inside_or_on_paths_eo(mx, my, &b.b3) {
+                            if b.b3.is_none() || inside(&b.b3) {
                                 3
                             } else {
                                 4
                             }
-                        } else if point_inside_or_on_paths_eo(mx, my, &b.b0) {
+                        } else if inside(&b.b0) {
                             0
-                        } else if point_inside_or_on_paths_eo(mx, my, &b.b1) {
+                        } else if inside(&b.b1) {
                             1
-                        } else {
+                        } else if b.b0.is_some() || b.b1.is_some() {
                             2
+                        } else {
+                            0
                         };
                         // Fold to the emitted class (a band the pipeline deemed
                         // behaviourally equal to a plainer wall collapses to a
