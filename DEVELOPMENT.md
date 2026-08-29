@@ -19,6 +19,8 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for workflow, [AGENTS.md](AGENTS.md) for 
 
 **G-code diagnostics:** [tools/gcode-analysis/](tools/gcode-analysis/README.md) has Python scripts to measure and visualise sliced output — wall overlap, unfilled gaps, bead-width distribution, and layer/zoom renders.
 
+**Not sure what to check after a change?** Ask the agent "what should I test?" — the [`test-changes` skill](.github/skills/test-changes/SKILL.md) replies with a short checklist for the platform you name (remote + web by default).
+
 ---
 
 ## Architecture at a glance
