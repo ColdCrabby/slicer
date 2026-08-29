@@ -378,7 +378,7 @@ viewer/
 │   └── utils.ts               disposeObject — recursive Three.js geometry/material cleanup
 ├── gizmo.ts                   GizmoManager, computeSelectionCentroid, raycastFace
 ├── gcode-orchestrator.ts      GcodeOrchestrator — owns the built model; Three.js visibility only (no geometry)
-├── gcode-layer-renderer.ts    buildGcodeModel, applyLayerVisibility, applyHiddenRoles, setJointsVisible
+├── gcode-layer-renderer.ts    buildGcodeModel, applyLayerVisibility, applyHiddenRoles, setDetailLevel
 └── index.ts                   Public re-exports
 ```
 
@@ -438,12 +438,33 @@ projection tween), an active animation or gizmo drag, pointer activity over the 
 an explicit `invalidate()` from content changes. A static plate therefore costs nothing —
 previously it was fully redrawn 60 times a second.
 
-#### Joint LOD
+#### Detail levels and the triangle budget
 
-Corner joint balls are just over half of the preview's triangles and only ever fill the
-small wedge on the outside of a bend. Below ~2 px of bead width that wedge is sub-pixel, so
-they are dropped while zoomed out — exactly when the whole plate is on screen and the frame
-is most expensive — and restored when zoomed in.
+Draw calls were only half the story: a 1.14 M-segment plate at full detail is **77.7 M
+triangles per frame**, which no draw-call count makes affordable. So the preview has two
+levels of geometry:
+
+| Level  | Tube               | Joints | Tris/segment |
+| ------ | ------------------ | ------ | ------------ |
+| `high` | octagon, capped    | yes    | 68           |
+| `low`  | open box (4-sided) | no     | 8            |
+
+The box is not a downgrade in kind — a squished extrusion really does have a flat top and
+bottom, so `low` reads as _more_ truthful than the octagon; it only loses the rounded
+silhouette and the corner wedge, both sub-pixel until you zoom right in. Both LODs are
+built up front and share the same instanced attributes, so switching is a geometry pointer
+swap with no instance data touched (and identical extents, so the instance bounding sphere
+stays valid).
+
+Selection is by **triangle budget on the _visible_ segments**, not by zoom alone. Zoom
+cannot decide it: geometry is one merged buffer per role, so every segment in the visible
+layer range is submitted no matter where the camera points. The layer slider is the real
+lever — it is a draw-range prefix, so isolating a layer genuinely shrinks the frame and
+earns back full detail. A bead-width threshold gates the visual upgrade on top.
+
+> A bead-size-only rule was tried first and **failed in practice**: fitting a 115 mm model
+> in a ~1200 px viewport puts a 0.4 mm bead at ~4 px, so any small threshold left full
+> detail on for the default view — the exact view with the whole plate on screen.
 
 ---
 

@@ -74,6 +74,10 @@ export interface RoleSegments {
   layerStart: Int32Array;
   /** Live `uLayerMin` uniform for this role's material (lower layer bound). */
   layerMinUniform: { value: number };
+  /** Full-detail tube geometry (octagonal, capped), swapped in when zoomed in. */
+  meshGeomHigh?: BufferGeometry;
+  /** Low-detail tube geometry (open box), the default for large plates. */
+  meshGeomLow?: BufferGeometry;
   /**
    * Per-segment extrusion width, height and speed (length === `count`).
    * Present only for extrusion roles (not travel or seam) so scalar view modes
@@ -118,6 +122,14 @@ export interface GcodeModel {
   layers: LayerInfo[];
   roleSegments: RoleSegments[];
   totalSegments: number;
+  /**
+   * Segments actually submitted for the current layer range and scrub.
+   *
+   * This — not `totalSegments` — is what a frame costs, so it is what the
+   * detail budget is measured against: isolating one layer of a huge plate is
+   * cheap and can afford full detail.
+   */
+  visibleSegments: number;
 }
 
 // -- Model builder ------------------------------------------------------------
@@ -311,6 +323,31 @@ const OUT_OF_BAND_ALPHA = 0.12;
 const segmentGeometry = new CylinderGeometry(0.5, 0.5, 1, 8, 1, false);
 segmentGeometry.rotateX(Math.PI / 2); // Align along Z
 const jointGeometry = new SphereGeometry(0.5, 6, 4);
+
+/**
+ * Low-detail bead: a four-sided open tube — i.e. a box — at 8 triangles against
+ * the octagon's 32.
+ *
+ * `rotateY(45°)` turns the default diamond cross-section into an axis-aligned
+ * square, so the per-instance `scale(width, height, length)` produces a
+ * `width × height` **rectangle** whose flat faces sit parallel to the bed. That
+ * is what a squished extrusion actually looks like, so this reads as *more*
+ * truthful than the octagon, not less — it only loses the rounded silhouette,
+ * which is sub-pixel until you zoom right in.
+ *
+ * Open-ended is safe because the ends are either butted against the next
+ * segment of the same path or, at a path's tip, a sub-pixel sliver.
+ */
+const segmentGeometryLow = new CylinderGeometry(0.5, 0.5, 1, 4, 1, true);
+segmentGeometryLow.rotateY(Math.PI / 4); // Diamond -> axis-aligned square
+segmentGeometryLow.rotateX(Math.PI / 2); // Align along Z
+
+/** Triangles per segment at each detail level (tube [+ joint ball]). */
+export const TRIS_PER_SEGMENT_HIGH = 32 + 36;
+export const TRIS_PER_SEGMENT_LOW = 8;
+
+/** How much of the preview's geometry is drawn. */
+export type GcodeDetail = 'high' | 'low';
 
 // Seam dots are rendered as larger spheres.  We keep a dedicated geometry so
 // they can be rendered independently of the normal joint spheres.
@@ -522,8 +559,12 @@ export function buildGcodeModel(
     installInstanceShaderHooks(material, layerMinUniform, true);
 
     // Per-mesh geometry clones so each carries its own per-instance attributes
-    // (instanced attributes can't be shared across meshes).
+    // (instanced attributes can't be shared across meshes). Both tube LODs are
+    // built up front and share those attributes, so switching detail is a
+    // geometry pointer swap — no instance data is touched and the instance
+    // bounding sphere stays valid (both LODs have identical extents).
     const segGeom = segmentGeometry.clone();
+    const segGeomLow = segmentGeometryLow.clone();
     const jointGeom = jointGeometry.clone();
     const meshOpacity = new InstancedBufferAttribute(new Float32Array(count).fill(1), 1);
     // One joint ball per segment, placed at its start point. Consecutive
@@ -534,11 +575,13 @@ export function buildGcodeModel(
     meshOpacity.setUsage(35044 /* THREE.DynamicDrawUsage */);
     jointsOpacity.setUsage(35044 /* THREE.DynamicDrawUsage */);
     segGeom.setAttribute('aOpacity', meshOpacity);
+    segGeomLow.setAttribute('aOpacity', meshOpacity);
     jointGeom.setAttribute('aOpacity', jointsOpacity);
 
     const meshLayers = new InstancedBufferAttribute(new Float32Array(count), 1);
     const jointLayers = new InstancedBufferAttribute(new Float32Array(count), 1);
     segGeom.setAttribute('aLayer', meshLayers);
+    segGeomLow.setAttribute('aLayer', meshLayers);
     jointGeom.setAttribute('aLayer', jointLayers);
 
     const mesh = new InstancedMesh(segGeom, material, count);
@@ -558,6 +601,8 @@ export function buildGcodeModel(
       count,
       layerStart,
       layerMinUniform,
+      meshGeomHigh: segGeom,
+      meshGeomLow: segGeomLow,
       widths: new Float32Array(count),
       heights: new Float32Array(count),
       speeds: new Float32Array(count),
@@ -680,7 +725,7 @@ export function buildGcodeModel(
     }
   }
 
-  return { group, layers, roleSegments, totalSegments };
+  return { group, layers, roleSegments, totalSegments, visibleSegments: totalSegments };
 }
 
 /** Release every Three.js resource owned by a built model. */
@@ -694,6 +739,11 @@ export function disposeGcodeModel(model: GcodeModel): void {
         child.material.dispose();
       }
     }
+  }
+  // The inactive tube LOD is not parented, so free it explicitly.
+  for (const rs of model.roleSegments) {
+    const inactive = rs.mesh?.geometry === rs.meshGeomHigh ? rs.meshGeomLow : rs.meshGeomHigh;
+    inactive?.dispose();
   }
   model.group.clear();
 }
@@ -921,18 +971,28 @@ export function applyLayerVisibility(
     }
   }
 
+  const bottom = rs_clampLayer(min, layerCount);
+  let visible = 0;
   for (const rs of model.roleSegments) {
     const shown = rs.layerStart[top] + (visibleCounts[rs.role] || 0);
     if (rs.mesh) {
       rs.mesh.count = shown;
       // Keep the hover raycast in step with the shader's lower bound.
-      rs.mesh.userData[RAYCAST_START_KEY] =
-        rs.layerStart[Math.max(0, Math.min(layerCount - 1, Math.round(min)))];
+      rs.mesh.userData[RAYCAST_START_KEY] = rs.layerStart[bottom];
     }
     if (rs.joints) rs.joints.count = shown;
     if (rs.lines) rs.lines.geometry.setDrawRange(0, shown * 2);
     rs.layerMinUniform.value = min;
+    // Instances below `uLayerMin` are still submitted but collapsed in the
+    // vertex shader, so they cost vertex work; count them out of the budget.
+    visible += Math.max(0, shown - rs.layerStart[bottom]);
   }
+  model.visibleSegments = visible;
+}
+
+/** Clamp a layer index into `[0, layerCount - 1]`. */
+function rs_clampLayer(index: number, layerCount: number): number {
+  return Math.max(0, Math.min(layerCount - 1, Math.round(index)));
 }
 
 export function applyHiddenRoles(model: GcodeModel, hiddenRoles: ReadonlySet<RoleName>): void {
@@ -945,24 +1005,30 @@ export function applyHiddenRoles(model: GcodeModel, hiddenRoles: ReadonlySet<Rol
 }
 
 /**
- * Show or hide the joint balls that round the corner between two segments.
+ * Select how much geometry the preview draws.
  *
- * Joints are just over half of the preview's triangles, and a joint is only
- * ever visible as the small wedge it fills on the outside of a bend. Once a
- * bead projects to about a pixel that wedge is far below a pixel, so drawing
- * ~1 M sub-pixel spheres buys nothing. The caller flips this from the camera
- * distance, which is exactly when the cost is worst (whole plate on screen) and
- * the detail is least visible.
+ * `high` is the octagonal capped tube plus its corner joint ball (68 tris per
+ * segment); `low` is the open box tube alone (8). Detail is a *pointer swap*
+ * plus a visibility flag — no instance data is rebuilt — so it is safe to drive
+ * from the camera every frame.
+ *
+ * Joints only ever fill the small wedge on the outside of a bend, so dropping
+ * them is invisible until the bead is several pixels wide; the box tube loses
+ * only the rounded silhouette.
  */
-export function setJointsVisible(model: GcodeModel, visible: boolean): void {
+export function setDetailLevel(model: GcodeModel, detail: GcodeDetail): void {
+  const high = detail === 'high';
   for (const rs of model.roleSegments) {
+    if (rs.mesh && rs.meshGeomHigh && rs.meshGeomLow) {
+      // Both LODs have identical extents, so the instance bounding sphere
+      // computed for one stays correct for the other — deliberately not
+      // invalidated here, since recomputing it walks every instance matrix.
+      rs.mesh.geometry = high ? rs.meshGeomHigh : rs.meshGeomLow;
+    }
     // Seam markers live in the `joints` slot but are meaningful dots, not
     // corner filler — they must keep their own role visibility.
-    if (rs.role === 'seam' || !rs.joints) {
-      continue;
-    }
-    if (rs.joints.visible !== visible) {
-      rs.joints.visible = visible;
+    if (rs.role !== 'seam' && rs.joints) {
+      rs.joints.visible = high;
     }
   }
 }

@@ -11,11 +11,13 @@ import {
   applyLayerVisibility,
   buildGcodeModel,
   disposeGcodeModel,
+  type GcodeDetail,
   type GcodeLayerSource,
   type GcodeModel,
   maxExtrusionWidth,
-  setJointsVisible,
+  setDetailLevel,
   tagInstanceRefs,
+  TRIS_PER_SEGMENT_HIGH,
   updateViewColors,
 } from './gcode-layer-renderer';
 
@@ -43,7 +45,7 @@ export class GcodeOrchestrator {
   private lastMax = 0;
   private lastProgress = 1;
   private beadWidth = 0.4;
-  private jointsOn = true;
+  private detail: GcodeDetail = 'low';
 
   constructor(private readonly contentRoot: Group) {}
 
@@ -53,6 +55,11 @@ export class GcodeOrchestrator {
 
   get totalSegments(): number {
     return this.model?.totalSegments ?? 0;
+  }
+
+  /** Segments submitted for the current layer range — what a frame costs. */
+  get visibleSegments(): number {
+    return this.model?.visibleSegments ?? 0;
   }
 
   /** Widest extrusion in the current model (mm); drives the joint LOD. */
@@ -96,7 +103,10 @@ export class GcodeOrchestrator {
     this.lastMin = 0;
     this.lastMax = Math.max(0, model.layers.length - 1);
     this.lastProgress = 1;
-    this.jointsOn = true;
+    // Start cheap; the camera-driven LOD promotes to full detail if the plate
+    // is small enough to afford it.
+    this.detail = 'low';
+    setDetailLevel(model, 'low');
     return { totalSegments: model.totalSegments };
   }
 
@@ -153,21 +163,33 @@ export class GcodeOrchestrator {
     }
     applyHiddenRoles(this.model, hidden);
     // Role visibility owns the joint meshes too, so re-assert the LOD state.
-    if (!this.jointsOn) {
-      setJointsVisible(this.model, false);
-    }
+    setDetailLevel(this.model, this.detail);
   }
 
   /**
-   * Turn corner joint balls on/off. Returns `true` when the state changed, so
+   * True when what is currently on screen fits `triangleBudget` at full detail.
+   *
+   * Zoom alone cannot decide this: geometry is one merged buffer per role, so
+   * every segment in the visible layer range is submitted no matter where the
+   * camera points — a million-segment plate costs ~78 M triangles at full
+   * detail from *any* distance. The layer slider is the real lever, and it is a
+   * draw-range prefix, so isolating a layer genuinely shrinks the frame and
+   * earns back full detail.
+   */
+  canAffordHighDetail(triangleBudget: number): boolean {
+    return this.visibleSegments * TRIS_PER_SEGMENT_HIGH <= triangleBudget;
+  }
+
+  /**
+   * Choose how much geometry to draw. Returns `true` when the level changed, so
    * the caller can request a redraw only when it matters.
    */
-  setJointsVisible(visible: boolean): boolean {
-    if (!this.model || this.jointsOn === visible) {
+  setDetail(detail: GcodeDetail): boolean {
+    if (!this.model || this.detail === detail) {
       return false;
     }
-    this.jointsOn = visible;
-    setJointsVisible(this.model, visible);
+    this.detail = detail;
+    setDetailLevel(this.model, detail);
     return true;
   }
 

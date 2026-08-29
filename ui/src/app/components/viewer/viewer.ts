@@ -56,12 +56,27 @@ const MODEL_COLOR_DARK = 0xbcc0c6;
 const MODEL_COLOR_LIGHT = 0xccd0d4;
 
 /**
- * Screen width (CSS px) a bead must reach before the G-code preview draws the
- * joint balls that round its corners. Below this the wedge a joint fills is a
- * sub-pixel sliver, so the ~half of the preview's triangles they cost buys
- * nothing.
+ * Screen width (CSS px) a bead must reach before the G-code preview switches to
+ * full detail (octagonal capped tubes plus corner joint balls). Below this the
+ * rounding is sub-pixel, so the ~8x extra triangles buy nothing visible.
+ *
+ * Sized against real framing rather than guesswork: fitting a 115 mm model in a
+ * ~1200 px viewport puts a 0.4 mm bead at ~4 px, so a threshold in the low
+ * single digits would leave full detail on for the *default* view — which is
+ * exactly the view that has the whole plate on screen and is most expensive.
+ * Full detail is meant for inspecting a handful of beads, not for an overview.
  */
-const JOINT_LOD_MIN_BEAD_PX = 2;
+const DETAIL_MIN_BEAD_PX = 12;
+
+/**
+ * Triangles per frame the preview is allowed to spend on full detail.
+ *
+ * Geometry is one merged buffer per role, so every segment is submitted no
+ * matter where the camera is; a plate that cannot afford full detail cannot
+ * afford it at any zoom. ~12 M leaves room for the model, grid and gizmos while
+ * staying inside a 60 fps budget on integrated GPUs.
+ */
+const DETAIL_TRIANGLE_BUDGET = 12_000_000;
 
 /** Resolve the model base colour for the active colour scheme. */
 function modelColor(isDark: boolean): number {
@@ -139,6 +154,12 @@ export class Viewer {
   readonly fps = signal(0);
   /** Smoothed average frame delay in milliseconds. */
   readonly frameDelayMs = signal(0);
+  /**
+   * View scale (CSS px per world mm) of the last drawn frame, cached so the
+   * G-code detail level can be re-evaluated when the layer range changes
+   * without waiting for the camera to move.
+   */
+  private lastPixelsPerMm = 0;
   /**
    * End-to-end wall time of the last WASM mesh round-trip, measured from
    * the moment the bytes are handed to `addMesh` to the moment the
@@ -461,6 +482,9 @@ export class Viewer {
       const min = this.gcodePreview.layerMin();
       const max = this.gcodePreview.layerMax();
       this.gcode?.showRange(min, max);
+      // The layer range changes what a frame costs, so it can earn (or lose)
+      // full detail independently of the camera.
+      this.refreshGcodeDetail();
       this.scene?.invalidate();
     });
 
@@ -469,6 +493,7 @@ export class Viewer {
       const progress = this.gcodePreview.segmentProgress();
       const max = this.gcodePreview.layerMax();
       this.gcode?.applyProgress(max, progress);
+      this.refreshGcodeDetail();
       this.scene?.invalidate();
     });
 
@@ -529,6 +554,29 @@ export class Viewer {
    * inspector tooltip + legend tick, or clear the readout when nothing
    * extrudable is under the cursor.
    */
+  /**
+   * Pick the G-code detail level from the current view and layer range.
+   *
+   * Full detail requires both that the user is close enough for the rounding to
+   * read *and* that what is on screen fits the triangle budget — the second
+   * condition is the one that matters on big plates, where a merged buffer
+   * submits every visible segment regardless of where the camera looks.
+   */
+  private refreshGcodeDetail(): void {
+    const gcode = this.gcode;
+    if (!gcode) {
+      return;
+    }
+    const beadPx = this.lastPixelsPerMm * gcode.extrusionWidth;
+    const detail =
+      beadPx >= DETAIL_MIN_BEAD_PX && gcode.canAffordHighDetail(DETAIL_TRIANGLE_BUDGET)
+        ? 'high'
+        : 'low';
+    if (gcode.setDetail(detail)) {
+      this.scene?.invalidate();
+    }
+  }
+
   private onGcodeHover(hit: GcodeHoverHit | null): void {
     if (!hit) {
       this.gcodePreview.setHoverInfo(null);
@@ -746,20 +794,12 @@ export class Viewer {
       this.fps.set(fps);
       this.frameDelayMs.set(delayMs);
     };
-    // Corner joint balls are just over half the preview's triangles, and they
-    // only ever fill the small wedge on the outside of a bend. Once a bead is
-    // about a pixel wide that wedge is far below one, so drop them while zoomed
-    // out — which is exactly when the whole plate is on screen and the frame is
-    // most expensive — and bring them back when zoomed in to inspect.
+    // Pick the geometry detail from the camera: full detail only when the user
+    // is close enough for the rounding to be visible *and* the plate is small
+    // enough to afford it at all.
     this.scene.lodSink = (pixelsPerMm) => {
-      const gcode = this.gcode;
-      if (!gcode) {
-        return;
-      }
-      const beadPx = pixelsPerMm * gcode.extrusionWidth;
-      if (gcode.setJointsVisible(beadPx >= JOINT_LOD_MIN_BEAD_PX)) {
-        this.scene?.invalidate();
-      }
+      this.lastPixelsPerMm = pixelsPerMm;
+      this.refreshGcodeDetail();
     };
     // Allow external gizmos (viewport-cube drag) to orbit the main camera.
     this.viewerControl.orbitSink = (azimuth, polar) => this.scene?.orbitBy(azimuth, polar);
@@ -1056,6 +1096,7 @@ export class Viewer {
     gcode.showRange(min, max);
     gcode.applyProgress(max, progress);
     gcode.applyHiddenRoles(hidden);
+    this.refreshGcodeDetail();
     scene.invalidate();
     this.status.set('ready');
     this.loadComplete.emit({ mode: 'gcode', segments: totalSegments });
