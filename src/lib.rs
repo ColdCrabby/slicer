@@ -4,7 +4,7 @@
 //! Powered by Clipper2 for robust polygon clipping operations.
 //!
 //! ## Features
-//! - Cross-platform support (Windows, macOS, WebAssembly)
+//! - Cross-platform support (Windows, macOS, iOS/iPadOS, WebAssembly)
 //! - Optimized for multi-threaded environments
 //! - Type-safe geometric operations
 //! - Mesh loading and spatial analysis (STL binary/ASCII)
@@ -53,18 +53,26 @@ pub mod config;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod ws_protocol;
 
-#[cfg(not(target_arch = "wasm32"))]
+// `cli`, `db` and `server` are host-only: they are the command line, the SQLite
+// history/cache store and the HTTP+WebSocket surface, none of which an iOS app
+// links (it drives the engine through `tauri::invoke` instead, and a sandboxed
+// mobile app must not bind a listener). Excluding them here is what lets
+// `Cargo.toml` keep clap, sea-orm/sqlx and actix-web off the `aarch64-apple-ios*`
+// targets entirely — keep the two in sync.
+#[cfg(all(not(target_arch = "wasm32"), not(target_os = "ios")))]
 pub mod cli;
 
-#[cfg(not(target_arch = "wasm32"))]
+#[cfg(all(not(target_arch = "wasm32"), not(target_os = "ios")))]
 pub mod db;
 
 /// Outbound printer transports (Moonraker/Klipper, …). Native only — a browser
 /// wasm build talks to printers directly over `fetch` instead (CORS-permitting).
+/// Kept on iOS: sending G-code to a printer from an iPad goes through this same
+/// native path, which is what keeps it clear of the browser's CORS restrictions.
 #[cfg(not(target_arch = "wasm32"))]
 pub mod printer;
 
-#[cfg(not(target_arch = "wasm32"))]
+#[cfg(all(not(target_arch = "wasm32"), not(target_os = "ios")))]
 pub mod server;
 
 #[cfg(any(not(target_arch = "wasm32"), feature = "web-slicer"))]
