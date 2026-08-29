@@ -214,17 +214,18 @@ the previous path's end. Whether that travel is wrapped in the
 **retract / z-hop / travel / lower / un-retract** guard depends on a
 _smart retract_ policy that mirrors PrusaSlicer / OrcaSlicer / Cura:
 
-| Travel distance | Role change? | Retract? | Why                                                                             |
-| --------------- | ------------ | -------- | ------------------------------------------------------------------------------- |
-| `> 2.0 mm`      | any          | **yes**  | Long hops always ooze enough to need a retract                                  |
-| `1.0 – 2.0 mm`  | yes          | **yes**  | Crossing role boundaries (e.g. infill → outer wall) shows seams without retract |
-| `1.0 – 2.0 mm`  | no           | no       | Same-role short hops oozing is invisible inside infill                          |
-| `< 1.0 mm`      | any          | no       | Retract ceremony costs more time than the hop itself                            |
+| Travel distance          | Role change? | Retract? | Why                                                                             |
+| ------------------------ | ------------ | -------- | ------------------------------------------------------------------------------- |
+| `> max(2 mm, min)`       | any          | **yes**  | Long hops always ooze enough to need a retract                                  |
+| `min – 2 mm`             | yes          | **yes**  | Crossing role boundaries (e.g. infill → outer wall) shows seams without retract |
+| `min – 2 mm`             | no           | no       | Same-role short hops oozing is invisible inside infill                          |
+| `≤ min`                  | any          | no       | Retract ceremony costs more time than the hop itself                            |
 
-The cutoff is `MIN_TRAVEL_FOR_RETRACT_MM = 1.0` (hard-coded in
-[`generator.rs`](generator.rs)). The role-aware branch eliminates the
-99 %+ of pointless retracts that occurred on every wall-loop end on dense
-benchmarks, while still protecting the visible outer surface from oozing.
+The minimum (`min`) is the configurable `retract_before_travel_mm`
+(default 1.0 mm); travels longer than 2 mm always retract. The role-aware
+branch eliminates the 99 %+ of pointless retracts that occurred on every
+wall-loop end on dense benchmarks, while still protecting the visible outer
+surface from oozing.
 
 When a retract _is_ emitted, the sequence is:
 
@@ -234,19 +235,39 @@ sequenceDiagram
     participant H as Hotend
     participant N as Next path start
 
-    P->>H: G1 E-retract_mm (retract)
+    P->>H: retract (G1 E-retract_mm / G10)
     H->>H: G1 Z+z_hop_mm (z-hop)
     H->>N: G1 X… Y… F travel_speed_mm_min (travel)
     N->>H: G1 Z (lower back)
-    H->>H: G1 E+retract_mm (un-retract)
+    H->>H: un-retract (G1 E+retract_mm(+restart) / G11)
     Note over H,N: then extrude contour at print speed
 ```
 
 Otherwise a single bare `G1 X… Y… F travel_speed_mm_min` move is emitted.
 
-All three distances and the travel speed are configurable via `SlicingParams`
-fields `retract_mm` (default 1.0 mm), `z_hop_mm` (default 0.2 mm), and
+The distances and the travel speed are configurable via `SlicingParams`
+fields `retract_mm` (default 1.0 mm), `z_hop_mm` (default 0.2 mm),
+`retract_speed_mm_min` (default 2400 mm/min = 40 mm/s), and
 `travel_speed_mm_min` (default 9000 mm/min = 150 mm/s).
+
+### Advanced retraction modes
+
+The retract / un-retract steps above adapt to several opt-in modes (all
+default-off, so the baseline output is unchanged):
+
+| Setting                       | Effect                                                                                                              |
+| ----------------------------- | ----------------------------------------------------------------------------------------------------------------- |
+| `use_firmware_retraction`     | Emits `G10`/`G11` instead of `G1 E` moves; syncs the firmware via `M207`/`M208` (Marlin) or `SET_RETRACTION` (Klipper) in the start section |
+| `use_relative_e_distances`    | Emits `M83` and per-move incremental E (`G1 … E<delta>`) instead of `M82` absolute positions                       |
+| `retract_before_travel_mm`    | Minimum travel distance that triggers a retraction (the `min` above)                                              |
+| `retract_restart_extra_mm`    | Extra prime length added on un-retract to compensate for travel ooze                                               |
+| `retract_on_layer_change`     | Forces a retraction before the layer-change Z move                                                                 |
+| `wipe` / `wipe_distance_mm`   | Retraces the tail of the just-printed path while retracting, smearing ooze onto printed material                   |
+| `retract_before_wipe_percent` | Fraction of the retraction performed *before* the wipe move (the rest is distributed *along* it)                   |
+
+Under firmware retraction the slicer still performs the Z-hop with explicit Z
+moves (the firmware Z-hop component of `M207` is set to `0`), so hop behaviour
+is identical across modes; only the filament pull becomes `G10`/`G11`.
 
 ---
 

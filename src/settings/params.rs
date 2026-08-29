@@ -951,6 +951,92 @@ Pulls filament back into the nozzle to reduce oozing and stringing.
     #[serde(default = "SlicingParams::default_retract_mm")]
     pub retract_mm: f64,
 
+    #[schemars(description = "Minimum travel distance in mm before a retraction is triggered.
+
+Short hops between adjacent paths do not ooze enough to justify the
+retract → travel → un-retract cycle (which itself takes longer than the hop).
+Travels longer than 2 mm always retract regardless of this value.
+**Typical:** 1.0–2.0 mm. Set to `0` to retract on every travel.", extend("x-group" = "Retraction"))]
+    #[serde(default = "SlicingParams::default_retract_before_travel_mm")]
+    pub retract_before_travel_mm: f64,
+
+    #[schemars(description = "Extra prime length in mm added when un-retracting after a travel.
+
+Compensates for filament that oozed away during the travel by depositing a
+little extra material on restart. In firmware retraction mode this is forwarded
+to the firmware (`M208`/`SET_RETRACTION`).
+**Typical:** 0.0–0.2 mm. Set to `0` to disable.", extend("x-group" = "Retraction"))]
+    #[serde(default = "SlicingParams::default_retract_restart_extra_mm")]
+    pub retract_restart_extra_mm: f64,
+
+    #[schemars(
+        description = "Force a retraction at every layer change.
+
+Retracts before the layer-change Z move so the nozzle does not ooze while
+lifting and travelling to the first path of the next layer.
+**Recommended:** off (the first travel of each layer already retracts).",
+        extend("x-group" = "Retraction")
+    )]
+    #[serde(default = "SlicingParams::default_retract_on_layer_change")]
+    pub retract_on_layer_change: bool,
+
+    #[schemars(
+        description = "Use firmware retraction (`G10`/`G11`) instead of extruder-axis (`G1 E`) moves.
+
+Delegates retraction to the printer firmware. The slicer emits `G10`/`G11` and
+syncs the firmware's retraction length, speed and restart-extra from the
+retraction settings (`M207`/`M208` on Marlin, `SET_RETRACTION` on Klipper).
+Requires firmware retraction support (`[firmware_retraction]` on Klipper).
+**Recommended:** off unless your firmware is configured for it.",
+        extend("x-group" = "Retraction")
+    )]
+    #[serde(default = "SlicingParams::default_use_firmware_retraction")]
+    pub use_firmware_retraction: bool,
+
+    #[schemars(
+        description = "Emit relative extruder distances (`M83`) instead of absolute (`M82`).
+
+Each extrusion move carries the incremental filament length rather than a
+running absolute position. Relative E is more robust across custom start
+G-code / macros that leave the extruder in an unknown state.
+**Recommended:** off for maximum compatibility; on if your macros expect it.",
+        extend("x-group" = "Retraction")
+    )]
+    #[serde(default = "SlicingParams::default_use_relative_e_distances")]
+    pub use_relative_e_distances: bool,
+
+    #[schemars(
+        description = "Wipe the nozzle along the just-printed path while retracting.
+
+Retraces the tail of the previous path before travelling, smearing any ooze
+onto already-printed material instead of leaving a blob at the seam.
+**Recommended:** off; enable to reduce stringing on some materials.",
+        extend("x-group" = "Retraction")
+    )]
+    #[serde(default = "SlicingParams::default_wipe")]
+    pub wipe: bool,
+
+    #[schemars(description = "Distance in mm to wipe the nozzle when `wipe` is enabled.
+
+The nozzle retraces this far back along the just-printed path. Capped at the
+length of that path.
+**Typical:** 1.0–3.0 mm.", extend("x-group" = "Retraction"))]
+    #[serde(default = "SlicingParams::default_wipe_distance_mm")]
+    pub wipe_distance_mm: f64,
+
+    #[schemars(
+        description = "Fraction of the retraction performed before the wipe move (0.0–1.0).
+
+`0.0` performs the whole retraction *during* the wipe (distributed along the
+wipe move); `1.0` retracts fully *before* wiping. Only used when `wipe` is
+enabled and firmware retraction is off (firmware retraction cannot split a
+retraction).
+**Typical:** 0.0.",
+        extend("x-group" = "Retraction")
+    )]
+    #[serde(default = "SlicingParams::default_retract_before_wipe_percent")]
+    pub retract_before_wipe_percent: f64,
+
     #[schemars(
         description = "Use a single outer wall on the topmost layer of top surfaces.
 
@@ -1528,6 +1614,14 @@ impl Default for SlicingParams {
             travel_speed_mm_min: Self::default_travel_speed_mm_min(),
             z_hop_mm: Self::default_z_hop_mm(),
             retract_mm: Self::default_retract_mm(),
+            retract_before_travel_mm: Self::default_retract_before_travel_mm(),
+            retract_restart_extra_mm: Self::default_retract_restart_extra_mm(),
+            retract_on_layer_change: Self::default_retract_on_layer_change(),
+            use_firmware_retraction: Self::default_use_firmware_retraction(),
+            use_relative_e_distances: Self::default_use_relative_e_distances(),
+            wipe: Self::default_wipe(),
+            wipe_distance_mm: Self::default_wipe_distance_mm(),
+            retract_before_wipe_percent: Self::default_retract_before_wipe_percent(),
             only_one_wall_top: Self::default_only_one_wall_top(),
             only_one_wall_first_layer: Self::default_only_one_wall_first_layer(),
             support_threshold_angle: Self::default_support_threshold_angle(),
@@ -1874,6 +1968,38 @@ impl SlicingParams {
 
     fn default_retract_mm() -> f64 {
         1.0
+    }
+
+    fn default_retract_before_travel_mm() -> f64 {
+        1.0
+    }
+
+    fn default_retract_restart_extra_mm() -> f64 {
+        0.0
+    }
+
+    fn default_retract_on_layer_change() -> bool {
+        false
+    }
+
+    fn default_use_firmware_retraction() -> bool {
+        false
+    }
+
+    fn default_use_relative_e_distances() -> bool {
+        false
+    }
+
+    fn default_wipe() -> bool {
+        false
+    }
+
+    fn default_wipe_distance_mm() -> f64 {
+        1.0
+    }
+
+    fn default_retract_before_wipe_percent() -> f64 {
+        0.0
     }
 
     fn default_only_one_wall_top() -> bool {

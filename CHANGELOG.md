@@ -22,6 +22,18 @@ these notes and acknowledges contributors. `scripts/gen-changelog-draft.sh` and
 
 ### Added
 
+- **Advanced retraction modes** — the G-code generator now supports firmware
+  retraction (`G10`/`G11`, synced to the firmware with `M207`/`M208` on Marlin or
+  `SET_RETRACTION` on Klipper), relative extruder distances (`M83`), a
+  configurable minimum-travel-before-retract, a restart-extra prime on recover,
+  retract-on-layer-change, and wipe-while-retracting (retracing the just-printed
+  path to smear ooze onto printed material, with a configurable
+  before-wipe split). Exposed as `use_firmware_retraction`,
+  `use_relative_e_distances`, `retract_before_travel_mm`,
+  `retract_restart_extra_mm`, `retract_on_layer_change`, `wipe`,
+  `wipe_distance_mm`, and `retract_before_wipe_percent`. All default off / to the
+  previous behaviour, so existing output is unchanged. The retraction feedrate
+  now honours `retract_speed_mm_min` (previously hard-coded). ([#96](https://github.com/max-scopp/slicer-engine/issues/96))
 - **Volumetric-flow limiter** — the `max_volumetric_speed` parameter (mm³/s) is
   now enforced by the G-code generator. On every extruding move the feedrate is
   capped to `max_volumetric_speed · 60 / (layer_height × width)` so the hotend
