@@ -576,6 +576,22 @@ impl SliceCommand {
             generator = generator.with_end_script(lines);
         }
 
+        // Per-filament start/end hooks come from the resolved slice params
+        // (typically contributed by the filament profile). A blank block is
+        // ignored so an empty field is a no-op.
+        if let Some(block) = slice_params.start_filament_gcode.as_deref() {
+            if !block.trim().is_empty() {
+                generator = generator
+                    .with_filament_start_script(block.lines().map(str::to_string).collect());
+            }
+        }
+        if let Some(block) = slice_params.end_filament_gcode.as_deref() {
+            if !block.trim().is_empty() {
+                generator =
+                    generator.with_filament_end_script(block.lines().map(str::to_string).collect());
+            }
+        }
+
         let t_gcode = PhaseTimer::start(phases::GCODE_GENERATION, &logger);
         let (gcode, stats) = generator.generate_with_stats(&layers, &slice_params);
         t_gcode.finish();

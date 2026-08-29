@@ -313,6 +313,12 @@ pub struct GcodeGenerator {
     custom_end_script: Option<Vec<String>>,
     /// Optional custom G-code emitted at every layer change (after the Z move).
     custom_layer_script: Option<Vec<String>>,
+    /// Optional per-filament start script, emitted after the machine start
+    /// script and before the first print move.
+    custom_filament_start_script: Option<Vec<String>>,
+    /// Optional per-filament end script, emitted after the last print move and
+    /// before the machine end script.
+    custom_filament_end_script: Option<Vec<String>>,
     /// Optional source model name, embedded in the metadata header (issue #15).
     model_name: Option<String>,
 }
@@ -331,6 +337,8 @@ impl GcodeGenerator {
             custom_start_script: None,
             custom_end_script: None,
             custom_layer_script: None,
+            custom_filament_start_script: None,
+            custom_filament_end_script: None,
             model_name: None,
         }
     }
@@ -346,6 +354,8 @@ impl GcodeGenerator {
             custom_start_script: None,
             custom_end_script: None,
             custom_layer_script: None,
+            custom_filament_start_script: None,
+            custom_filament_end_script: None,
             model_name: None,
         }
     }
@@ -445,6 +455,30 @@ impl GcodeGenerator {
     /// ```
     pub fn with_layer_script(mut self, script: Vec<String>) -> Self {
         self.custom_layer_script = Some(script);
+        self
+    }
+
+    /// Set a per-filament start script, emitted after the machine start script
+    /// (and the pressure-advance line) and before the first print move.
+    ///
+    /// This is the slicer analogue of SuperSlicer/PrusaSlicer's *filament start
+    /// G-code*: material-scoped setup (purge lines, per-material pressure
+    /// advance, temperature tweaks) that logically belongs to the filament
+    /// profile rather than the machine. Each line supports the same
+    /// temperature / material placeholders as the start script.
+    pub fn with_filament_start_script(mut self, script: Vec<String>) -> Self {
+        self.custom_filament_start_script = Some(script);
+        self
+    }
+
+    /// Set a per-filament end script, emitted after the last print move and
+    /// before the machine end script.
+    ///
+    /// The filament counterpart to [`GcodeGenerator::with_filament_start_script`]
+    /// — material-scoped teardown that runs before the machine's own end
+    /// sequence. Each line supports the same placeholders as the end script.
+    pub fn with_filament_end_script(mut self, script: Vec<String>) -> Self {
+        self.custom_filament_end_script = Some(script);
         self
     }
 
@@ -651,6 +685,18 @@ impl GcodeGenerator {
                 "{} ; pressure advance\n",
                 self.dialect.set_pressure_advance(params.pressure_advance)
             ));
+        }
+
+        // ── Per-filament start script ─────────────────────────────────────────
+        // Emitted after the machine start script (and pressure-advance line) but
+        // before the first print move, so material-scoped setup (purge, per-
+        // material PA / temperature tweaks) contributed by the filament profile
+        // runs last before printing begins.
+        if let Some(lines) = &self.custom_filament_start_script {
+            for line in lines {
+                out.push_str(&render_script_placeholders(line, params));
+                out.push('\n');
+            }
         }
 
         // ── Per-layer contours ────────────────────────────────────────────────
@@ -1317,6 +1363,16 @@ impl GcodeGenerator {
             }
         }
 
+        // ── Per-filament end script ───────────────────────────────────────────
+        // Material-scoped teardown, emitted after the last print move and before
+        // the machine end script.
+        if let Some(lines) = &self.custom_filament_end_script {
+            for line in lines {
+                out.push_str(&render_script_placeholders(line, params));
+                out.push('\n');
+            }
+        }
+
         // ── End script (custom override or flavor default) ────────────────────
         let end_script: Cow<[String]> = match &self.custom_end_script {
             Some(lines) => Cow::Borrowed(lines),
@@ -1393,8 +1449,10 @@ pub fn generate_gcode(layers: &[SliceLayer], params: &SlicingParams) -> String {
 ///
 /// This is the entry point used by every *application* slice path (WS server,
 /// WASM, desktop bridge). Unlike [`generate_gcode`] it respects
-/// `params.gcode_flavor` and applies `params.start_gcode`, `params.end_gcode`
-/// and `params.layer_gcode` when present (each split into lines on `'\n'`).
+/// `params.gcode_flavor` and applies `params.start_gcode`, `params.end_gcode`,
+/// `params.layer_gcode`, and the per-filament `params.start_filament_gcode` /
+/// `params.end_filament_gcode` hooks when present (each split into lines on
+/// `'\n'`).
 ///
 /// A non-empty custom block wins over the dialect default; a blank/whitespace
 /// block is ignored so an empty text field falls back to the flavor default.
@@ -1408,6 +1466,12 @@ pub fn generate_gcode_from_params(layers: &[SliceLayer], params: &SlicingParams)
     }
     if let Some(lines) = gcode_block_lines(params.layer_gcode.as_deref()) {
         generator = generator.with_layer_script(lines);
+    }
+    if let Some(lines) = gcode_block_lines(params.start_filament_gcode.as_deref()) {
+        generator = generator.with_filament_start_script(lines);
+    }
+    if let Some(lines) = gcode_block_lines(params.end_filament_gcode.as_deref()) {
+        generator = generator.with_filament_end_script(lines);
     }
     generator.generate(layers, params)
 }
@@ -2846,6 +2910,51 @@ CHAMBER={chamber_temp} MATERIAL={filament_type}"
             gcode.contains("END_PRINT"),
             "blank end should fall back: {gcode}"
         );
+    }
+
+    #[test]
+    fn test_filament_gcode_emitted_between_machine_scripts() {
+        let params = SlicingParams {
+            gcode_flavor: GcodeFlavor::Klipper,
+            start_gcode: Some("START_PRINT BED_TEMP={bed_temp}".to_string()),
+            end_gcode: Some("END_PRINT".to_string()),
+            start_filament_gcode: Some("M117 LOADING {filament_type}".to_string()),
+            end_filament_gcode: Some("M117 DONE {filament_type}".to_string()),
+            filament_type: "PETG".to_string(),
+            ..SlicingParams::default()
+        };
+        let gcode = generate_gcode_from_params(&[], &params);
+        // Placeholders in the filament blocks are substituted.
+        assert!(
+            gcode.contains("M117 LOADING PETG"),
+            "filament start not applied: {gcode}"
+        );
+        assert!(
+            gcode.contains("M117 DONE PETG"),
+            "filament end not applied: {gcode}"
+        );
+        // Ordering: machine start → filament start → filament end → machine end.
+        let machine_start = gcode.find("START_PRINT").expect("machine start");
+        let fil_start = gcode.find("M117 LOADING").expect("filament start");
+        let fil_end = gcode.find("M117 DONE").expect("filament end");
+        let machine_end = gcode.find("END_PRINT").expect("machine end");
+        assert!(
+            machine_start < fil_start && fil_start < fil_end && fil_end < machine_end,
+            "unexpected ordering ({machine_start} {fil_start} {fil_end} {machine_end}): {gcode}"
+        );
+    }
+
+    #[test]
+    fn test_filament_gcode_blank_block_is_noop() {
+        let params = SlicingParams {
+            gcode_flavor: GcodeFlavor::Klipper,
+            start_filament_gcode: Some("   \n\t ".to_string()),
+            end_filament_gcode: None,
+            ..SlicingParams::default()
+        };
+        // A blank filament block must not emit stray blank lines or panic.
+        let gcode = generate_gcode_from_params(&[], &params);
+        assert!(gcode.contains("START_PRINT") || gcode.contains("G28"));
     }
 
     #[test]

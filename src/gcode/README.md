@@ -30,13 +30,13 @@ flowchart TD
     caller["Caller\n(CLI / WebSocket)"]
     gen["GcodeGenerator::new(flavor)\n.with_*(…)\n.generate(layers, params)"]
     header["① Write metadata header"]
-    start["② Emit start script\n(custom override or dialect default)"]
+    start["② Emit start script\n(custom override or dialect default)\n→ per-filament start script"]
     layers["③ For each SliceLayer"]
     markers["lifecycle markers block\nLAYER_CHANGE · Z · HEIGHT\nBEFORE · reset E · Z move · AFTER"]
     paths["For each path in layer"]
     retract["retract → z-hop → travel → lower → un-retract"]
     extrude["extrude segments\n(compute E per move)"]
-    footer["④ Emit end script"]
+    footer["④ Emit per-filament end script\n→ end script"]
     out["G-code String"]
 
     caller --> gen --> header --> start --> layers
