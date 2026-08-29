@@ -35,6 +35,12 @@ const MAX_PIXEL_RATIO = 2;
  * Canvas events that must force a repaint because they can change the image
  * without moving the camera (hover highlights, gizmo handles, drag feedback).
  */
+/**
+ * How long the view must be unchanged before it counts as settled. Long enough
+ * not to fire between frames of a gesture, short enough to feel immediate.
+ */
+const SETTLE_DELAY_MS = 200;
+
 const POINTER_INVALIDATING_EVENTS = [
   'pointerdown',
   'pointermove',
@@ -142,6 +148,15 @@ export class ViewerScene {
   private needsRender = true;
   /** Whether the previous frame actually drew — used to keep the FPS honest. */
   private renderedLastFrame = false;
+  /** Timestamp of the last frame that changed the view; drives `settled`. */
+  private lastActivityTime = 0;
+  /** Whether the view is currently considered settled (reported to `lodSink`). */
+  private settled = false;
+  /** Start time of the in-flight render, awaiting a cost measurement. */
+  private frameProbeStart = 0;
+  private frameProbePending = false;
+  /** Wall time of the most recently measured frame, in ms. */
+  private lastFrameMs = 0;
   /** Camera pose of the last drawn frame, to detect movement generically. */
   private readonly lastPose = {
     px: NaN,
@@ -168,12 +183,20 @@ export class ViewerScene {
   cameraStateSink: ((direction: Vector3, up: Vector3, fov: number) => void) | null = null;
 
   /**
-   * Sink called before drawing whenever the view changed, with the current
-   * scale in CSS pixels per world millimetre. Lets content choose a level of
-   * detail (the G-code preview drops its corner joints once a bead is thinner
-   * than a pixel).
+   * Sink asked to pick a level of detail whenever the view settles, starts
+   * moving again, or a fresh frame-cost measurement lands.
+   *
+   * `settled` is the important one. Rendering is on-demand, so a still view
+   * costs exactly *one* frame — which means expensive, good-looking geometry is
+   * affordable precisely when the user has stopped to look at it, and only
+   * interaction needs to be cheap.
+   *
+   * `lastFrameMs` is the wall time from the last render to the following
+   * animation frame. It includes the vsync wait, so it is only meaningful for
+   * spotting frames that are *far* over budget — which is exactly its job:
+   * telling the caller that full detail is not affordable on this machine.
    */
-  lodSink: ((pixelsPerMm: number) => void) | null = null;
+  lodSink: ((info: { settled: boolean; lastFrameMs: number }) => void) | null = null;
 
   /**
    * Sink called approximately once per second with the smoothed FPS and
@@ -680,21 +703,44 @@ export class ViewerScene {
     // entirely when nothing moved. Camera pose is compared generically so
     // orbit damping, inertia, snap-hold, autoscroll and the projection tween
     // all keep the loop alive without each having to report separately.
+    // Collect the cost of the previously drawn frame before deciding anything,
+    // so a detail promotion can be judged on what it actually cost.
+    let measured = false;
+    if (this.frameProbePending) {
+      this.lastFrameMs = now - this.frameProbeStart;
+      this.frameProbePending = false;
+      measured = true;
+    }
+
     const moved = this.cameraPoseChanged();
     const active = moved || this._camera.isAnimating() || this.gizmo.isDragging();
     const wasInvalidated = this.needsRender;
-    const shouldRender = wasInvalidated || active;
 
+    if (active) {
+      this.lastActivityTime = now;
+    }
+    // A view is "settled" once nothing has changed it for a beat. The delay
+    // keeps a detail promotion from firing between two frames of a drag.
+    const settled = !active && now - this.lastActivityTime >= SETTLE_DELAY_MS;
+    const settleChanged = settled !== this.settled;
+    this.settled = settled;
+
+    // Give content a chance to change level of detail. Doing this before the
+    // render (and letting the callback call invalidate()) means a promotion is
+    // drawn on this very frame rather than a frame later.
+    if (this.lodSink && (settleChanged || measured || moved)) {
+      this.lodSink({ settled, lastFrameMs: this.lastFrameMs });
+    }
+
+    const shouldRender = this.needsRender || active;
     if (!shouldRender) {
       this.renderedLastFrame = false;
       return;
     }
 
-    if (this.lodSink && (moved || wasInvalidated)) {
-      this.lodSink(this.pixelsPerMm());
-    }
-
     this.needsRender = false;
+    this.frameProbeStart = performance.now();
+    this.frameProbePending = true;
     this.renderer.render(this.scene, this.camera);
     this.publishCameraState();
     // Only measure between two consecutive drawn frames, otherwise an idle gap
@@ -717,18 +763,6 @@ export class ViewerScene {
   private readonly requestRender = (): void => {
     this.needsRender = true;
   };
-
-  /**
-   * Scale of the current view in CSS pixels per world millimetre. The camera is
-   * always a perspective one (the "orthographic" view is a narrow-FOV tween),
-   * so one formula covers every projection state.
-   */
-  private pixelsPerMm(): number {
-    const height = this.renderer.domElement.clientHeight || 1;
-    const dist = this.camera.position.distanceTo(this.controls.target);
-    const visibleMm = 2 * dist * Math.tan((this.camera.fov * Math.PI) / 360);
-    return height / Math.max(1e-6, visibleMm);
-  }
 
   /** True when the camera pose differs from the last drawn frame. */
   private cameraPoseChanged(): boolean {

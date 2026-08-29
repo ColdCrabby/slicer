@@ -232,6 +232,46 @@
 
     <div class="settings-field">
       <span class="settings-field-label">
+        <span class="settings-field-title">Preview detail</span>
+        <span class="settings-field-desc">
+          How finely sliced extrusions are drawn. Auto keeps the full, rounded bead whenever it runs
+          smoothly &mdash; including every time you stop moving &mdash; and only simplifies while
+          you orbit a heavy plate.
+        </span>
+      </span>
+      <div class="segmented" role="group" aria-label="Preview detail">
+        <button
+          type="button"
+          class="segmented-btn"
+          [class.is-active]="previewDetail() === 'auto'"
+          [attr.aria-pressed]="previewDetail() === 'auto'"
+          (click)="setPreviewDetail('auto')"
+        >
+          Auto
+        </button>
+        <button
+          type="button"
+          class="segmented-btn"
+          [class.is-active]="previewDetail() === 'performance'"
+          [attr.aria-pressed]="previewDetail() === 'performance'"
+          (click)="setPreviewDetail('performance')"
+        >
+          Performance
+        </button>
+        <button
+          type="button"
+          class="segmented-btn"
+          [class.is-active]="previewDetail() === 'quality'"
+          [attr.aria-pressed]="previewDetail() === 'quality'"
+          (click)="setPreviewDetail('quality')"
+        >
+          Quality
+        </button>
+      </div>
+    </div>
+
+    <div class="settings-field">
+      <span class="settings-field-label">
         <span class="settings-field-title">Use filament color for models</span>
         <span class="settings-field-desc">
           Color model meshes with the active filament profile color instead of the neutral viewer

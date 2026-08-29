@@ -56,27 +56,34 @@ const MODEL_COLOR_DARK = 0xbcc0c6;
 const MODEL_COLOR_LIGHT = 0xccd0d4;
 
 /**
- * Screen width (CSS px) a bead must reach before the G-code preview switches to
- * full detail (octagonal capped tubes plus corner joint balls). Below this the
- * rounding is sub-pixel, so the ~8x extra triangles buy nothing visible.
+ * Triangles per frame full detail may cost *while the user is interacting*.
  *
- * Sized against real framing rather than guesswork: fitting a 115 mm model in a
- * ~1200 px viewport puts a 0.4 mm bead at ~4 px, so a threshold in the low
- * single digits would leave full detail on for the *default* view — which is
- * exactly the view that has the whole plate on screen and is most expensive.
- * Full detail is meant for inspecting a handful of beads, not for an overview.
+ * Under this, full detail is kept on permanently — including during orbit — so
+ * ordinary plates never visibly change as you move. Geometry is one merged
+ * buffer per role, so every segment in the visible layer range is submitted
+ * wherever the camera points; zoom cannot lower this, but the layer slider can.
  */
-const DETAIL_MIN_BEAD_PX = 12;
+const INTERACTIVE_TRIANGLE_BUDGET = 12_000_000;
 
 /**
- * Triangles per frame the preview is allowed to spend on full detail.
+ * Triangles per frame full detail may cost once the view has *settled*.
  *
- * Geometry is one merged buffer per role, so every segment is submitted no
- * matter where the camera is; a plate that cannot afford full detail cannot
- * afford it at any zoom. ~12 M leaves room for the model, grid and gizmos while
- * staying inside a 60 fps budget on integrated GPUs.
+ * Far larger than the interactive budget because on-demand rendering makes a
+ * still view cost exactly one frame: a heavy frame is a single settle-in, not a
+ * sustained frame rate. This is what lets a million-segment plate still be
+ * inspected at full quality.
  */
-const DETAIL_TRIANGLE_BUDGET = 12_000_000;
+const SETTLED_TRIANGLE_BUDGET = 120_000_000;
+
+/**
+ * Measured frame time (ms) above which full detail is judged unaffordable on
+ * this machine and auto mode stops promoting to it.
+ *
+ * This is the actual hardware autodetection: rather than guessing from a GPU
+ * name (routinely masked, and no guide to real throughput), auto mode promotes
+ * once, measures, and believes the result.
+ */
+const SETTLE_FRAME_BUDGET_MS = 400;
 
 /** Resolve the model base colour for the active colour scheme. */
 function modelColor(isDark: boolean): number {
@@ -154,12 +161,12 @@ export class Viewer {
   readonly fps = signal(0);
   /** Smoothed average frame delay in milliseconds. */
   readonly frameDelayMs = signal(0);
-  /**
-   * View scale (CSS px per world mm) of the last drawn frame, cached so the
-   * G-code detail level can be re-evaluated when the layer range changes
-   * without waiting for the camera to move.
-   */
-  private lastPixelsPerMm = 0;
+  /** Whether the view has stopped changing (drives the detail promotion). */
+  private viewSettled = false;
+  /** Cleared when a promoted full-detail frame proved too slow on this machine. */
+  private fullDetailAffordable = true;
+  /** Set while waiting to measure the cost of a just-promoted frame. */
+  private probingDetail = false;
   /**
    * End-to-end wall time of the last WASM mesh round-trip, measured from
    * the moment the bytes are handed to `addMesh` to the moment the
@@ -504,6 +511,12 @@ export class Viewer {
       this.scene?.invalidate();
     });
 
+    // React to the preview-detail preference.
+    effect(() => {
+      this.viewerControl.previewDetail();
+      this.refreshGcodeDetail();
+    });
+
     // React to theme, view-mode, scalar-range, fan-selection, or legend
     // hover-band changes — recolor all layers in place without rebuilding.
     effect(() => {
@@ -567,14 +580,36 @@ export class Viewer {
     if (!gcode) {
       return;
     }
-    const beadPx = this.lastPixelsPerMm * gcode.extrusionWidth;
-    const detail =
-      beadPx >= DETAIL_MIN_BEAD_PX && gcode.canAffordHighDetail(DETAIL_TRIANGLE_BUDGET)
-        ? 'high'
-        : 'low';
+    const detail = this.resolveGcodeDetail(gcode);
     if (gcode.setDetail(detail)) {
+      // Remember to check what a promotion actually cost.
+      if (detail === 'high') {
+        this.probingDetail = true;
+      }
       this.scene?.invalidate();
     }
+  }
+
+  /** Apply the user's preference, falling back to the adaptive policy. */
+  private resolveGcodeDetail(gcode: GcodeOrchestrator): 'high' | 'low' {
+    switch (this.viewerControl.previewDetail()) {
+      case 'performance':
+        return 'low';
+      case 'quality':
+        return 'high';
+      default:
+        break;
+    }
+    // Cheap enough to keep full detail on permanently — no change while moving.
+    if (gcode.canAffordHighDetail(INTERACTIVE_TRIANGLE_BUDGET)) {
+      return 'high';
+    }
+    // Heavy plate: cheap beads while the user is moving, full detail the moment
+    // they stop — which is when they are actually evaluating the result.
+    if (!this.viewSettled || !this.fullDetailAffordable) {
+      return 'low';
+    }
+    return gcode.canAffordHighDetail(SETTLED_TRIANGLE_BUDGET) ? 'high' : 'low';
   }
 
   private onGcodeHover(hit: GcodeHoverHit | null): void {
@@ -797,8 +832,16 @@ export class Viewer {
     // Pick the geometry detail from the camera: full detail only when the user
     // is close enough for the rounding to be visible *and* the plate is small
     // enough to afford it at all.
-    this.scene.lodSink = (pixelsPerMm) => {
-      this.lastPixelsPerMm = pixelsPerMm;
+    this.scene.lodSink = ({ settled, lastFrameMs }) => {
+      this.viewSettled = settled;
+      // A promotion that turned out to be far too slow demotes permanently for
+      // this model, so the user is not stuck with a lurching viewport.
+      if (this.probingDetail) {
+        this.probingDetail = false;
+        if (lastFrameMs > SETTLE_FRAME_BUDGET_MS) {
+          this.fullDetailAffordable = false;
+        }
+      }
       this.refreshGcodeDetail();
     };
     // Allow external gizmos (viewport-cube drag) to orbit the main camera.
@@ -1096,6 +1139,10 @@ export class Viewer {
     gcode.showRange(min, max);
     gcode.applyProgress(max, progress);
     gcode.applyHiddenRoles(hidden);
+    // A new plate gets a fresh verdict — the previous one may have been much
+    // heavier (or lighter) than this one.
+    this.fullDetailAffordable = true;
+    this.probingDetail = false;
     this.refreshGcodeDetail();
     scene.invalidate();
     this.status.set('ready');

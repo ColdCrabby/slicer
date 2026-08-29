@@ -438,33 +438,73 @@ projection tween), an active animation or gizmo drag, pointer activity over the 
 an explicit `invalidate()` from content changes. A static plate therefore costs nothing —
 previously it was fully redrawn 60 times a second.
 
-#### Detail levels and the triangle budget
+#### Detail levels, and when each is used
 
 Draw calls were only half the story: a 1.14 M-segment plate at full detail is **77.7 M
 triangles per frame**, which no draw-call count makes affordable. So the preview has two
-levels of geometry:
+levels of bead geometry:
 
-| Level  | Tube               | Joints | Tris/segment |
-| ------ | ------------------ | ------ | ------------ |
-| `high` | octagon, capped    | yes    | 68           |
-| `low`  | open box (4-sided) | no     | 8            |
+| Level  | Tube                    | Joints | Tris/segment |
+| ------ | ----------------------- | ------ | ------------ |
+| `high` | octagon, capped         | yes    | 68           |
+| `low`  | 4-sided diamond, capped | no     | 16           |
 
-The box is not a downgrade in kind — a squished extrusion really does have a flat top and
-bottom, so `low` reads as _more_ truthful than the octagon; it only loses the rounded
-silhouette and the corner wedge, both sub-pixel until you zoom right in. Both LODs are
-built up front and share the same instanced attributes, so switching is a geometry pointer
-swap with no instance data touched (and identical extents, so the instance bounding sphere
-stays valid).
+Both LODs are built up front and share the same instanced attributes, so switching is a
+geometry pointer swap — no instance data is touched, and their extents are identical so the
+instance bounding sphere stays valid.
 
-Selection is by **triangle budget on the _visible_ segments**, not by zoom alone. Zoom
-cannot decide it: geometry is one merged buffer per role, so every segment in the visible
-layer range is submitted no matter where the camera points. The layer slider is the real
-lever — it is a draw-range prefix, so isolating a layer genuinely shrinks the frame and
-earns back full detail. A bead-width threshold gates the visual upgrade on top.
+**Two properties of the cheap bead are load-bearing, and both were learned by breaking
+them:**
 
-> A bead-size-only rule was tried first and **failed in practice**: fitting a 115 mm model
-> in a ~1200 px viewport puts a 0.4 mm bead at ~4 px, so any small threshold left full
-> detail on for the default view — the exact view with the whole plate on screen.
+- **Ridge on top, never a flat face.** A first attempt rotated the 4-gon 45° into a
+  flat-topped box, reasoning that a squished extrusion really does have a flat top. But
+  every bead on a layer then has a _horizontal_ top face at exactly the same Z, and beads
+  overlap constantly — at every path corner, and wherever flow deliberately overlaps a
+  neighbour. Coplanar faces at identical depth is textbook **z-fighting**, and it speckled
+  the whole plate. The default diamond orientation puts a ridge on top, so overlapping
+  beads differ in Z almost everywhere. The octagon has the same property, which is why the
+  high LOD never showed the artifact.
+- **Capped ends.** An open tube shows its hollow interior wherever a path ends, which reads
+  as beads being **chopped off mid-air**. Caps cost 8 triangles and remove it. They are
+  invisible mid-path (the next segment covers them), so they only pay off where it matters.
+
+#### Choosing a level — `PreviewDetail`
+
+The user always decides, via **Settings → General → Preview detail**
+(`auto` / `performance` / `quality`, persisted). `auto` is the default and is built around
+one observation:
+
+> Rendering is on-demand, so a **still view costs exactly one frame**.
+
+Expensive, good-looking geometry is therefore affordable precisely when the user has
+stopped to _evaluate_ the plate — and only interaction has to be cheap. `auto` resolves as:
+
+```mermaid
+flowchart TD
+    A[auto] --> B{fits interactive budget?}
+    B -- yes --> H[high, always]
+    B -- no --> C{view settled?}
+    C -- no --> L[low while moving]
+    C -- yes --> D{measured cost OK?}
+    D -- yes --> H2[high]
+    D -- no --> L2[low]
+```
+
+- Plates under the **interactive budget** stay at full detail permanently, so ordinary
+  models never visibly change as you orbit.
+- Heavier plates drop to the cheap bead _only while the view is moving_, and snap back to
+  full detail ~200 ms after it settles.
+- The settled budget is far larger than the interactive one, because it buys a single
+  frame rather than a sustained frame rate.
+
+**Hardware detection is by measurement, not by name.** GPU strings are routinely masked and
+are a poor guide to throughput anyway, so `auto` instead promotes once, measures the real
+frame, and demotes permanently for that model if it blew the budget. This adapts to the
+actual machine, including thermal throttling and integrated GPUs.
+
+Detail is re-evaluated whenever the view settles, the layer range or scrub changes (the
+layer slider is a draw-range prefix, so isolating a layer genuinely shrinks the frame and
+can earn full detail back), or the user changes the preference.
 
 ---
 

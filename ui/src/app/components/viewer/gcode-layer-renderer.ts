@@ -325,26 +325,30 @@ segmentGeometry.rotateX(Math.PI / 2); // Align along Z
 const jointGeometry = new SphereGeometry(0.5, 6, 4);
 
 /**
- * Low-detail bead: a four-sided open tube — i.e. a box — at 8 triangles against
- * the octagon's 32.
+ * Low-detail bead: a four-sided **capped** tube, 16 triangles against the
+ * octagon-plus-joint's 68.
  *
- * `rotateY(45°)` turns the default diamond cross-section into an axis-aligned
- * square, so the per-instance `scale(width, height, length)` produces a
- * `width × height` **rectangle** whose flat faces sit parallel to the bed. That
- * is what a squished extrusion actually looks like, so this reads as *more*
- * truthful than the octagon, not less — it only loses the rounded silhouette,
- * which is sub-pixel until you zoom right in.
+ * Two details matter and were both learned the hard way:
  *
- * Open-ended is safe because the ends are either butted against the next
- * segment of the same path or, at a path's tip, a sub-pixel sliver.
+ * - **Keep the default (diamond) orientation.** Rotating it 45° to get a
+ *   flat-topped box looks more like a squished extrusion in isolation, but
+ *   every bead on a layer then has a *horizontal* top face at exactly the same
+ *   Z — and beads overlap constantly (at every path corner, and wherever the
+ *   flow deliberately overlaps a neighbour). Coplanar faces at identical depth
+ *   are textbook z-fighting, and it speckled the whole plate. The diamond puts
+ *   a ridge at the top instead, so two overlapping beads differ in Z almost
+ *   everywhere and the depth test stays decisive. The octagon used by the high
+ *   LOD has the same ridge property, which is why it never showed the artifact.
+ * - **Keep the caps.** An open tube shows its hollow interior wherever a path
+ *   ends or turns sharply, which reads as beads being chopped off mid-air.
+ *   Capping costs 8 triangles and removes that entirely.
  */
-const segmentGeometryLow = new CylinderGeometry(0.5, 0.5, 1, 4, 1, true);
-segmentGeometryLow.rotateY(Math.PI / 4); // Diamond -> axis-aligned square
+const segmentGeometryLow = new CylinderGeometry(0.5, 0.5, 1, 4, 1, false);
 segmentGeometryLow.rotateX(Math.PI / 2); // Align along Z
 
 /** Triangles per segment at each detail level (tube [+ joint ball]). */
 export const TRIS_PER_SEGMENT_HIGH = 32 + 36;
-export const TRIS_PER_SEGMENT_LOW = 8;
+export const TRIS_PER_SEGMENT_LOW = 16;
 
 /** How much of the preview's geometry is drawn. */
 export type GcodeDetail = 'high' | 'low';
@@ -1031,21 +1035,4 @@ export function setDetailLevel(model: GcodeModel, detail: GcodeDetail): void {
       rs.joints.visible = high;
     }
   }
-}
-
-/** Widest extrusion in the model, used to size the joint LOD threshold. */
-export function maxExtrusionWidth(model: GcodeModel): number {
-  let max = 0;
-  for (const rs of model.roleSegments) {
-    const widths = rs.widths;
-    if (!widths) {
-      continue;
-    }
-    // Sample rather than scan millions of entries; widths are near-uniform.
-    const step = Math.max(1, Math.floor(widths.length / 1000));
-    for (let i = 0; i < widths.length; i += step) {
-      if (widths[i] > max) max = widths[i];
-    }
-  }
-  return max || 0.4;
 }

@@ -14,7 +14,6 @@ import {
   type GcodeDetail,
   type GcodeLayerSource,
   type GcodeModel,
-  maxExtrusionWidth,
   setDetailLevel,
   tagInstanceRefs,
   TRIS_PER_SEGMENT_HIGH,
@@ -44,7 +43,6 @@ export class GcodeOrchestrator {
   private lastMin = 0;
   private lastMax = 0;
   private lastProgress = 1;
-  private beadWidth = 0.4;
   private detail: GcodeDetail = 'low';
 
   constructor(private readonly contentRoot: Group) {}
@@ -60,11 +58,6 @@ export class GcodeOrchestrator {
   /** Segments submitted for the current layer range — what a frame costs. */
   get visibleSegments(): number {
     return this.model?.visibleSegments ?? 0;
-  }
-
-  /** Widest extrusion in the current model (mm); drives the joint LOD. */
-  get extrusionWidth(): number {
-    return this.beadWidth;
   }
 
   /**
@@ -99,7 +92,6 @@ export class GcodeOrchestrator {
     tagInstanceRefs(model);
     this.contentRoot.add(model.group);
     this.model = model;
-    this.beadWidth = maxExtrusionWidth(model);
     this.lastMin = 0;
     this.lastMax = Math.max(0, model.layers.length - 1);
     this.lastProgress = 1;
