@@ -1,0 +1,69 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  Extra Info.plist entries merged into the generated iOS app.
+
+  Tauri looks for `Info.plist` (all Apple platforms) and `Info.ios.plist` (iOS
+  only) next to `tauri.conf.json` and merges them over the template it writes to
+  `gen/apple/<app>_iOS/Info.plist`. Keeping these here means `tauri ios init`
+  can be re-run — regenerating the Xcode project — without losing them.
+-->
+<plist version="1.0">
+<dict>
+	<!--
+	  iOS 14+ requires an explicit, user-facing reason before an app may reach
+	  anything on the local network. Without it every `slicer_engine::printer`
+	  probe/upload to a Moonraker/Klipper box silently fails, which would look
+	  exactly like "printer offline". `NSBonjourServices` must additionally list
+	  every mDNS service type we browse, or the query returns nothing.
+	-->
+	<key>NSLocalNetworkUsageDescription</key>
+	<string>Cold Crabby connects to 3D printers on your local network to check their status and send sliced G-code.</string>
+	<key>NSBonjourServices</key>
+	<array>
+		<string>_moonraker._tcp</string>
+		<string>_octoprint._tcp</string>
+		<string>_http._tcp</string>
+	</array>
+
+	<!--
+	  Printers on a LAN serve plain HTTP and have no publicly trusted
+	  certificate, so App Transport Security would block them. `NSAllowsLocal
+	  Networking` relaxes ATS for local hostnames/IPs *only* — public HTTPS stays
+	  enforced. It also covers `http://localhost:4213`, the dev server the
+	  simulator loads during `tauri ios dev`.
+	-->
+	<key>NSAppTransportSecurity</key>
+	<dict>
+		<key>NSAllowsLocalNetworking</key>
+		<true/>
+	</dict>
+
+	<!--
+	  Expose the app's Documents directory in the Files app so models can be
+	  dropped in (and sliced G-code pulled out) without a share sheet, and let
+	  the app open files in place rather than copying them first.
+	-->
+	<key>UIFileSharingEnabled</key>
+	<true/>
+	<key>LSSupportsOpeningDocumentsInPlace</key>
+	<true/>
+
+	<!-- iPad: allow every orientation, and therefore Split View / Stage Manager. -->
+	<key>UISupportedInterfaceOrientations~ipad</key>
+	<array>
+		<string>UIInterfaceOrientationPortrait</string>
+		<string>UIInterfaceOrientationPortraitUpsideDown</string>
+		<string>UIInterfaceOrientationLandscapeLeft</string>
+		<string>UIInterfaceOrientationLandscapeRight</string>
+	</array>
+
+	<!--
+	  The app's only cryptography is standard HTTPS (rustls), which is exempt
+	  from US export regulations. Declaring it here skips the compliance
+	  questionnaire on every TestFlight/App Store upload.
+	-->
+	<key>ITSAppUsesNonExemptEncryption</key>
+	<false/>
+</dict>
+</plist>

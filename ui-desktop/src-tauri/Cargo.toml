@@ -3,6 +3,16 @@ name = "slicer-ui-desktop"
 version = "0.1.0"
 edition = "2021"
 
+# The app lives in a library so mobile can link it.
+#
+# iOS/Android have no Rust `main`: the generated Xcode/Gradle project links a
+# static (iOS) or shared (Android) library and calls the `start_app` symbol that
+# `tauri::mobile_entry_point` exports from `run()`. `rlib` keeps the desktop
+# binary in `src/main.rs` able to depend on it as a normal crate.
+[lib]
+name = "slicer_ui_desktop_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
 [package.metadata.bundle]
 name = "Cold Crabby Desktop"
 identifier = "com.maxscopp.slicerengine"

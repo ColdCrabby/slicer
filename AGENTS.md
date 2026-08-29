@@ -272,6 +272,68 @@ user-facing version number.
 - **Cross-compilation**: Requires appropriate target toolchains installed. CI verifies these work.
 - **`apply_single_wall_restrictions` is per-island**: Inner walls are stripped only from the specific island whose top-surface run ends on that layer; other islands on the same layer are untouched. The `pre_strip_infill_regions` snapshot is still taken before this step to guard against future regressions — keep that order.
 
+## Native shell targets — desktop and iPadOS/iOS
+
+[ui-desktop/](ui-desktop/README.md) is one Tauri shell that ships to macOS,
+Windows, Linux **and iPadOS/iOS**. Three contracts hold it together.
+
+- **The app entry point is a library, not a `main`.**
+  [ui-desktop/src-tauri/src/lib.rs](ui-desktop/src-tauri/src/lib.rs) builds and
+  runs the `tauri::Builder`; `main.rs` is a three-line desktop launcher. iOS has
+  no Rust `main` — the generated Xcode project links this crate as a
+  **`staticlib`** and calls the symbol `#[cfg_attr(mobile, tauri::mobile_entry_point)]`
+  exports. **Never move app wiring back into `main.rs`**: it would compile fine
+  on desktop and silently never run on mobile. Desktop-only setup (window
+  decorations, accent-colour watcher) belongs inside `#[cfg(desktop)]`.
+- **`cli`, `server` and `db` are excluded from iOS.** Gated in
+  [src/lib.rs](src/lib.rs) with `cfg(all(not(target_arch = "wasm32"), not(target_os = "ios")))`
+  and mirrored by the target-specific dependency tables in
+  [Cargo.toml](Cargo.toml), which keep `clap`, the `actix-web` stack and
+  `sea-orm`/`sqlx` off Apple mobile targets entirely (333 packages vs 495 for
+  macOS). A sandboxed app has no command line and must not bind a listener.
+  `printer` **stays** — sending G-code from an iPad uses the same native,
+  CORS-free transport as desktop. **Change the `cfg`s and the dependency tables
+  together**, and verify with
+  `cargo metadata --filter-platform aarch64-apple-ios-sim`.
+- **Capabilities are split by platform.** `capabilities/default.json` is
+  cross-platform; `capabilities/desktop.json` carries `"platforms": ["macOS", "windows", "linux"]`
+  and holds every window-chrome grant. Do not add window permissions to the
+  default capability.
+
+Supporting details:
+
+- **`Info.ios.plist`** (next to `tauri.conf.json`) is merged into the generated
+  `Info.plist`, so it survives re-running `ios init`. It is what makes LAN
+  printers work at all: iOS 14+ blocks local networking without
+  `NSLocalNetworkUsageDescription`, and ATS blocks Moonraker's plain HTTP
+  without `NSAllowsLocalNetworking`.
+- **`gen/apple` is generated but committed** (only `gen/schemas` and build
+  output are ignored) — it carries signing settings and the merged plist.
+- **UI:** mobile is *not* a new runtime mode. `resolveRuntimeMode()` still
+  reports `native` on iPad; anything that draws or drives **window chrome** asks
+  [`isTauriMobile()`](ui/src/app/runtime/domain/runtime-mode.util.ts) instead.
+  Note iPadOS reports `like Mac OS X` in its user agent, so a naive platform
+  sniff classifies an iPad as a Mac — that helper checks touch points.
+- **Dev environment:** [scripts/ios-doctor.sh](scripts/ios-doctor.sh) verifies
+  the toolchain (full Xcode — *not* Command Line Tools, which lack the iOS SDK —
+  simulator runtimes, Rust `aarch64-apple-ios{,-sim}` targets, CocoaPods) and
+  `--fix` installs what it can. `pnpm run ios:dev` auto-selects an iPad
+  simulator, since `tauri ios dev` otherwise prompts with mostly iPhones.
+- **`sudo xcode-select -s /Applications/Xcode.app` is unavoidable.** Installing
+  Xcode does not switch the active developer directory. `DEVELOPER_DIR` fixes
+  the helper scripts (`simctl`) without sudo, but **`tauri ios dev` builds with
+  a sanitized environment and never forwards it**, so its `xcodebuild` still
+  resolves the Command Line Tools. Do not "fix" this with a `DEVELOPER_DIR`
+  export in the scripts — it silently does nothing for the actual build.
+- **`ui-desktop/package.json` must keep its `"tauri": "tauri"` script.** The
+  generated Xcode "Build Rust Code" phase runs `pnpm tauri …` from `gen/apple`;
+  without that passthrough the iOS build dies with `Command "tauri" not found`.
+- **Xcode 26 ships no simulator runtime** — `xcodebuild -downloadPlatform iOS`
+  fetches ~8 GB separately. A staged *image* (`simctl runtime list`) is not a
+  registered *runtime* (`simctl list runtimes`); if the two disagree the image
+  is broken. All images of a version share one asset, so deleting a duplicate
+  breaks the survivor — purge with `simctl runtime delete all` and re-download.
+
 ## Printer connectivity & G-code cache
 
 [src/printer/](src/printer/) is the **native-only** (`cfg(not(target_arch = "wasm32"))`)

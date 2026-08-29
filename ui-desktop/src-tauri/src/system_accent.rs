@@ -5,7 +5,7 @@
 //! accent cannot be determined, letting the UI keep its brand default.
 
 /// How often the background watcher re-reads the OS accent colour.
-#[cfg(any(target_os = "macos", target_os = "windows"))]
+#[cfg(all(desktop, any(target_os = "macos", target_os = "windows")))]
 const POLL_INTERVAL: std::time::Duration = std::time::Duration::from_secs(2);
 
 /// Event name emitted to the UI when the OS accent colour changes.
@@ -15,7 +15,10 @@ pub const ACCENT_CHANGED_EVENT: &str = "system-accent-changed";
 /// (payload: the new `#rrggbb` string, or `null`) whenever it changes, so the
 /// UI can recolour live without a restart. No-op on platforms without accent
 /// detection.
-#[cfg(any(target_os = "macos", target_os = "windows"))]
+///
+/// Desktop only: mobile has no user-selectable accent colour, and the whole
+/// watcher would be dead code there.
+#[cfg(all(desktop, any(target_os = "macos", target_os = "windows")))]
 pub fn spawn_watcher(app: tauri::AppHandle) {
     use tauri::Emitter;
 
@@ -32,7 +35,7 @@ pub fn spawn_watcher(app: tauri::AppHandle) {
     });
 }
 
-#[cfg(not(any(target_os = "macos", target_os = "windows")))]
+#[cfg(all(desktop, not(any(target_os = "macos", target_os = "windows"))))]
 pub fn spawn_watcher(_app: tauri::AppHandle) {}
 
 /// Detect the current OS accent colour as `#rrggbb`, if available.

@@ -29,3 +29,30 @@ export function isTauriHost(): boolean {
     globals.navigator?.userAgent?.includes('Tauri'),
   );
 }
+
+/**
+ * True when the Tauri host is a mobile OS (iOS/iPadOS today).
+ *
+ * This is deliberately *not* a runtime mode: an iPad runs the same Rust engine
+ * over the same `tauri::invoke` bridge, so {@link resolveRuntimeMode} still
+ * reports `native` and every slicing/persistence decision stays identical. What
+ * differs is the shell — there is no resizable, decorated window — so anything
+ * that draws or drives window chrome has to ask this question separately.
+ *
+ * iPadOS is the awkward case: its user agent says `like Mac OS X` and
+ * `navigator.platform` can report a Mac, so a naive platform sniff classifies an
+ * iPad as a Mac desktop. Touch points are what actually distinguish it.
+ */
+export function isTauriMobile(): boolean {
+  if (!isTauriHost()) {
+    return false;
+  }
+  const nav = (globalThis as unknown as { navigator?: Navigator }).navigator;
+  if (!nav) {
+    return false;
+  }
+  if (/iPad|iPhone|iPod|Android/i.test(nav.userAgent ?? '')) {
+    return true;
+  }
+  return /Mac/i.test(nav.platform ?? '') && (nav.maxTouchPoints ?? 0) > 1;
+}
