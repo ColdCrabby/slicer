@@ -104,7 +104,11 @@ mod imp {
 
         let alert = UIAlertController::alertControllerWithTitle_message_preferredStyle(
             Some(&NSString::from_str(&request.title)),
-            request.message.as_deref().map(NSString::from_str).as_deref(),
+            request
+                .message
+                .as_deref()
+                .map(NSString::from_str)
+                .as_deref(),
             UIAlertControllerStyle::Alert,
             mtm,
         );
@@ -148,7 +152,8 @@ mod imp {
     /// Present the system share sheet for a file already on disk.
     pub fn present_share(path: &str, x: f64, y: f64) -> Result<(), String> {
         let mtm = MainThreadMarker::new().ok_or("share sheet needs the main thread")?;
-        let controller = topmost_view_controller(mtm).ok_or("no view controller to present from")?;
+        let controller =
+            topmost_view_controller(mtm).ok_or("no view controller to present from")?;
 
         let url = NSURL::fileURLWithPath(&NSString::from_str(path));
         // `UIActivityViewController` takes a heterogeneous item list, so the
@@ -207,12 +212,7 @@ pub async fn show_native_dialog(
 /// `x`/`y` anchor the iPad popover — mandatory, or UIKit raises and the app
 /// terminates.
 #[tauri::command]
-pub async fn share_file(
-    app: tauri::AppHandle,
-    path: String,
-    x: f64,
-    y: f64,
-) -> Result<(), String> {
+pub async fn share_file(app: tauri::AppHandle, path: String, x: f64, y: f64) -> Result<(), String> {
     #[cfg(target_os = "ios")]
     {
         let (tx, rx) = std::sync::mpsc::channel::<Result<(), String>>();
