@@ -30,6 +30,106 @@ const WIDTH_SIMPLIFY_TOL_MM: f64 = 0.02;
 /// the marker count \u2014 and G-code size \u2014 bounded, fine enough to show the taper.
 const WIDTH_MARKER_STEP_MM: f64 = 0.05;
 
+// ── Spiral (vase) mode helpers ─────────────────────────────────────────────────
+
+/// Outcome of scanning a layer for a spiralizable outer contour.
+enum SpiralDetect {
+    /// No closed outer-wall loop to spiralize.
+    None,
+    /// Exactly one island — the given `SliceLayer::paths` index is its outer
+    /// contour.
+    Single(usize),
+    /// More than one separate island; spiral mode cannot fuse them into a
+    /// single continuous contour.
+    Multi,
+}
+
+/// Even-odd ray-cast point-in-polygon test (winding-independent).
+fn point_in_polygon(pt: (f64, f64), poly: &[(f64, f64)]) -> bool {
+    let (px, py) = pt;
+    let n = poly.len();
+    if n < 3 {
+        return false;
+    }
+    let mut inside = false;
+    let mut j = n - 1;
+    for i in 0..n {
+        let (xi, yi) = poly[i];
+        let (xj, yj) = poly[j];
+        if ((yi > py) != (yj > py)) && (px < (xj - xi) * (py - yi) / (yj - yi) + xi) {
+            inside = !inside;
+        }
+        j = i;
+    }
+    inside
+}
+
+/// Scan a layer for the single outermost closed outer-wall contour to
+/// spiralize.
+///
+/// Only closed [`crate::core::ExtrusionRole::OuterWall`] paths are considered.
+/// A loop whose first vertex lies inside another such loop is treated as a hole
+/// and ignored, so a solid island with holes still spiralizes as one contour.
+/// The count of *outermost* (non-contained) loops is the island count: exactly
+/// one yields [`SpiralDetect::Single`]; more yields [`SpiralDetect::Multi`].
+fn detect_spiral_loop(layer: &SliceLayer) -> SpiralDetect {
+    // Gather (paths-index, points) for every closed outer-wall loop.
+    let mut loops: Vec<(usize, Vec<(f64, f64)>)> = Vec::new();
+    for (i, path) in layer.paths.iter().enumerate() {
+        if layer.role_for_path(i) == crate::core::ExtrusionRole::OuterWall && !layer.is_path_open(i)
+        {
+            let pts: Vec<(f64, f64)> = path.iter().map(|p| (p.x(), p.y())).collect();
+            if pts.len() >= 2 {
+                loops.push((i, pts));
+            }
+        }
+    }
+    if loops.is_empty() {
+        return SpiralDetect::None;
+    }
+
+    // Outermost = whose first vertex is not inside any other loop. A hole's
+    // boundary vertex sits inside its outer contour; separate islands are
+    // disjoint so neither contains the other.
+    let mut outermost: Vec<usize> = Vec::new();
+    for (slot, (_, pts)) in loops.iter().enumerate() {
+        let probe = pts[0];
+        let contained = loops
+            .iter()
+            .enumerate()
+            .any(|(other, (_, o))| other != slot && point_in_polygon(probe, o));
+        if !contained {
+            outermost.push(slot);
+        }
+    }
+
+    match outermost.len() {
+        0 => SpiralDetect::None, // degenerate (mutually contained) — nothing to spiral
+        1 => SpiralDetect::Single(loops[outermost[0]].0),
+        _ => SpiralDetect::Multi,
+    }
+}
+
+/// Rotate a closed loop so its first vertex is the one nearest `target`,
+/// minimising the travel from the previous layer's end into the spiral and
+/// keeping the (invisible) start line aligned across layers.
+fn rotate_loop_nearest(pts: &[(f64, f64)], target: (f64, f64)) -> Vec<(f64, f64)> {
+    let n = pts.len();
+    if n == 0 {
+        return Vec::new();
+    }
+    let mut best = 0;
+    let mut best_d = f64::MAX;
+    for (i, &(x, y)) in pts.iter().enumerate() {
+        let d = (x - target.0).powi(2) + (y - target.1).powi(2);
+        if d < best_d {
+            best_d = d;
+            best = i;
+        }
+    }
+    (0..n).map(|k| pts[(best + k) % n]).collect()
+}
+
 /// Estimate the print time for a layer in seconds.
 ///
 /// Sums the total XY move distance for all paths in the layer and divides by
@@ -584,6 +684,90 @@ impl GcodeGenerator {
         (a > 0.0).then_some(a)
     }
 
+    /// Emit one spiralized (vase-mode) outer contour with a continuous Z ramp.
+    ///
+    /// `pts` is the closed loop rotated so `pts[0]` is the start vertex. The
+    /// nozzle is assumed to already be at `pts[0]` (in XY) and at height
+    /// `z_bottom`. The loop is walked once — `pts[0] → pts[1] → … → pts[n-1] →
+    /// pts[0]` — while Z ramps linearly from `z_bottom` to `z_top` in proportion
+    /// to the distance travelled, so one full perimeter climbs exactly one layer
+    /// height and no discrete Z step or seam remains.
+    ///
+    /// The per-move extrusion is scaled by a flow factor that ramps linearly
+    /// from `flow_start` (at the seam) to `flow_end` (back at the seam), used to
+    /// fade the very first spiral loop in and the very last one out.
+    #[allow(clippy::too_many_arguments)]
+    fn emit_spiral_loop(
+        &self,
+        out: &mut String,
+        pts: &[(f64, f64)],
+        z_bottom: f64,
+        z_top: f64,
+        width_mm: f64,
+        speed_mm_min: f64,
+        flow_start: f64,
+        flow_end: f64,
+        params: &SlicingParams,
+        e_total: &mut f64,
+        total_filament_mm: &mut f64,
+    ) {
+        let n = pts.len();
+        if n < 2 {
+            return;
+        }
+
+        // Total loop length including the closing segment back to pts[0].
+        let mut total_len = 0.0_f64;
+        for i in 0..n {
+            let (ax, ay) = pts[i];
+            let (bx, by) = pts[(i + 1) % n];
+            total_len += ((bx - ax).powi(2) + (by - ay).powi(2)).sqrt();
+        }
+        if total_len < 1e-9 {
+            return;
+        }
+
+        let dz = z_top - z_bottom;
+        let capped_speed = volumetric_capped_speed_mm_min(
+            speed_mm_min,
+            params.layer_height,
+            width_mm,
+            params.max_volumetric_speed,
+        );
+
+        let mut dist = 0.0_f64;
+        for i in 0..n {
+            let (ax, ay) = pts[i];
+            let (bx, by) = pts[(i + 1) % n];
+            let seg = ((bx - ax).powi(2) + (by - ay).powi(2)).sqrt();
+            if seg < 1e-9 {
+                continue;
+            }
+            dist += seg;
+            let t = (dist / total_len).clamp(0.0, 1.0);
+            let z = z_bottom + dz * t;
+            let flow_scale = flow_start + (flow_end - flow_start) * t;
+            // Apply the flow ramp *after* the flow-ratio correction: passing a
+            // zero flow ratio into `extrusion_for_move` would trip its
+            // "non-positive ratio → 1.0" safety guard, so the fade-out would
+            // silently become full flow.
+            let de = extrusion_for_move(
+                seg,
+                params.layer_height,
+                width_mm,
+                params.filament_diameter_mm,
+                params.flow_ratio,
+            ) * flow_scale;
+            *e_total += de;
+            *total_filament_mm += de;
+            out.push_str(&format!(
+                "{}\n",
+                self.dialect
+                    .move_extrude_z(bx, by, z, *e_total, capped_speed)
+            ));
+        }
+    }
+
     /// Generate a complete G-code program from the given layers and parameters.
     ///
     /// The output is a single `String` with lines separated by `'\n'`.
@@ -607,6 +791,11 @@ impl GcodeGenerator {
         layers: &[SliceLayer],
         params: &SlicingParams,
     ) -> (String, SliceStatistics) {
+        // Spiral (vase) mode forces the same single-wall configuration the
+        // slicing pipeline used, so the header stats and emitted moves agree.
+        let normalized = params.spiral_vase_normalized();
+        let params = normalized.as_ref();
+
         // Warn about any commands the dialect doesn't natively support
         for cmd in self.dialect.unsupported_commands() {
             self.warn(&format!(
@@ -616,6 +805,45 @@ impl GcodeGenerator {
                 self.dialect.flavor_name()
             ));
         }
+
+        // ── Spiral (vase) mode plan ───────────────────────────────────────────
+        // Spiralizable layers are those at or above `spiral_start_layer` that
+        // expose exactly one closed outer-wall island. Layers below stay flat
+        // (the solid base); layer 0 is always flat since a spiral cannot climb
+        // from Z=0. Multi-island layers fall back to normal printing with a
+        // single warning.
+        let spiral_start_layer = params.bottom_layers.max(1);
+        let spiral_path_indices: Vec<Option<usize>> = if params.spiral_vase {
+            let mut warned = false;
+            layers
+                .iter()
+                .enumerate()
+                .map(|(i, layer)| {
+                    if i < spiral_start_layer {
+                        return None;
+                    }
+                    match detect_spiral_loop(layer) {
+                        SpiralDetect::Single(idx) => Some(idx),
+                        SpiralDetect::Multi => {
+                            if !warned {
+                                self.warn(
+                                    "spiral vase mode: a layer has multiple islands — printing \
+                                     those layers normally (spiral vase works on single-island \
+                                     solid models)",
+                                );
+                                warned = true;
+                            }
+                            None
+                        }
+                        SpiralDetect::None => None,
+                    }
+                })
+                .collect()
+        } else {
+            Vec::new()
+        };
+        let first_spiral_idx = spiral_path_indices.iter().position(Option::is_some);
+        let last_spiral_idx = spiral_path_indices.iter().rposition(Option::is_some);
 
         // The metadata header is prepended once the filament total and geometry
         // are known (see the end of this method); the body starts here.
@@ -664,6 +892,10 @@ impl GcodeGenerator {
         // Track the last emitted acceleration so we only emit a firmware
         // command when the target changes (persists across layers).
         let mut last_accel: Option<f64> = None;
+        // Persistent nozzle XY across layers — used by spiral mode to travel
+        // into each spiral loop from the true previous position and to keep the
+        // start line aligned. Updated at the end of every layer.
+        let mut cur_xy: Option<(f64, f64)> = None;
 
         // If a custom start script heats for first layer (e.g.
         // `{nozzle_temp_first_layer}` / `{bed_temp_first_layer}`), restore the
@@ -689,6 +921,12 @@ impl GcodeGenerator {
             let height_str = format!("{:.3}", params.layer_height);
             // Detect first layer: z within half a layer height of layer_height.
             let is_first_layer = layer.z <= params.layer_height + 1e-6;
+
+            // Spiral (vase) layer? If so, the single outer contour is emitted
+            // with a continuous Z ramp and the usual discrete Z move is skipped
+            // (the nozzle is already at the previous layer's top Z).
+            let spiral_path_idx = spiral_path_indices.get(layer_index).copied().flatten();
+            let is_spiral_layer = spiral_path_idx.is_some();
 
             if self.marker_config.enabled {
                 // Lifecycle block: LAYER_CHANGE → BEFORE_LAYER_CHANGE → Z move → AFTER_LAYER_CHANGE
@@ -735,10 +973,14 @@ impl GcodeGenerator {
                 out.push_str(&format!("{}\n", self.dialect.reset_extruder()));
                 e_total = 0.0;
 
-                out.push_str(&format!(
-                    "{}\n",
-                    self.dialect.move_z(layer.z, params.travel_speed_mm_min)
-                ));
+                // Spiral layers ramp Z along the perimeter, so no discrete Z
+                // move here — the nozzle is already at the previous layer's top.
+                if !is_spiral_layer {
+                    out.push_str(&format!(
+                        "{}\n",
+                        self.dialect.move_z(layer.z, params.travel_speed_mm_min)
+                    ));
+                }
 
                 let after_lc = self
                     .marker_config
@@ -752,10 +994,12 @@ impl GcodeGenerator {
                 out.push_str(&format!(";{}\n", z_str));
             } else {
                 out.push_str(&format!("; layer z={}\n", z_str));
-                out.push_str(&format!(
-                    "{}\n",
-                    self.dialect.move_z(layer.z, params.travel_speed_mm_min)
-                ));
+                if !is_spiral_layer {
+                    out.push_str(&format!(
+                        "{}\n",
+                        self.dialect.move_z(layer.z, params.travel_speed_mm_min)
+                    ));
+                }
             }
 
             if layer_index == 1 {
@@ -819,6 +1063,121 @@ impl GcodeGenerator {
             let mut last_role: Option<crate::core::ExtrusionRole> = None;
             let mut last_width: Option<f64> = None;
             let mut last_pos: Option<(f64, f64)> = None;
+
+            // ── Spiral (vase) mode: emit the single outer contour with a
+            //    continuous Z ramp, then move to the next layer ───────────────
+            if let Some(idx) = spiral_path_idx {
+                let path = layer
+                    .paths
+                    .iter()
+                    .nth(idx)
+                    .expect("spiral path index is within the layer's paths");
+                let pts: Vec<(f64, f64)> = path.iter().map(|p| (p.x(), p.y())).collect();
+
+                let role = crate::core::ExtrusionRole::OuterWall;
+                let width_mm = resolve_width_mm(layer.width_for_path(idx), false, role, params);
+                let speed_mm_min = Self::effective_speed_mm_min(role, is_first_layer, params);
+
+                // Adaptive acceleration (opt-in), same policy as normal walls.
+                if let Some(accel) = Self::effective_acceleration(role, is_first_layer, params) {
+                    if last_accel != Some(accel) {
+                        out.push_str(&format!(
+                            "{} ; acceleration\n",
+                            self.dialect.set_acceleration(accel)
+                        ));
+                        last_accel = Some(accel);
+                    }
+                }
+
+                // ;TYPE: / ;WIDTH: annotations so viewers classify the wall.
+                if self.marker_config.enabled {
+                    let width_str = format!("{:.2}", width_mm);
+                    let type_ann = self
+                        .marker_config
+                        .type_annotation
+                        .as_deref()
+                        .unwrap_or(";TYPE:{type}");
+                    out.push_str(&render_marker(
+                        type_ann,
+                        &z_str,
+                        &height_str,
+                        role.type_name(),
+                        &width_str,
+                    ));
+                    out.push('\n');
+                    let width_ann = self
+                        .marker_config
+                        .width_annotation
+                        .as_deref()
+                        .unwrap_or(";WIDTH:{width}mm");
+                    out.push_str(&render_marker(
+                        width_ann,
+                        &z_str,
+                        &height_str,
+                        role.type_name(),
+                        &width_str,
+                    ));
+                    out.push('\n');
+                }
+
+                // Ramp from the previous layer's top Z to this layer's Z over
+                // one perimeter. Start the loop nearest the previous nozzle
+                // position to keep the (invisible) start line aligned.
+                let z_bottom = if layer_index > 0 {
+                    layers[layer_index - 1].z
+                } else {
+                    0.0
+                };
+                let z_top = layer.z;
+                let target = cur_xy.unwrap_or(pts[0]);
+                let rotated = rotate_loop_nearest(&pts, target);
+                let (sx, sy) = rotated[0];
+
+                let need_travel = match cur_xy {
+                    Some((cx, cy)) => ((sx - cx).powi(2) + (sy - cy).powi(2)).sqrt() > 0.05,
+                    None => true,
+                };
+                if need_travel {
+                    out.push_str(&format!(
+                        "{} ; spiral travel\n",
+                        self.dialect.travel_xy(sx, sy, params.travel_speed_mm_min)
+                    ));
+                }
+
+                // Fade flow in on the first spiral loop and out on the last so
+                // the seam disappears at both ends of the vase.
+                let is_first_spiral = first_spiral_idx == Some(layer_index);
+                let is_last_spiral = last_spiral_idx == Some(layer_index);
+                let flow_start = if is_first_spiral && !is_last_spiral {
+                    0.0
+                } else {
+                    1.0
+                };
+                let flow_end = if is_last_spiral && !is_first_spiral {
+                    0.0
+                } else {
+                    1.0
+                };
+
+                self.emit_spiral_loop(
+                    &mut out,
+                    &rotated,
+                    z_bottom,
+                    z_top,
+                    width_mm,
+                    speed_mm_min,
+                    flow_start,
+                    flow_end,
+                    params,
+                    &mut e_total,
+                    &mut total_filament_mm,
+                );
+
+                // The loop closes back to its start vertex; that's where the
+                // next spiral layer begins.
+                cur_xy = Some((sx, sy));
+                continue;
+            }
 
             for (path_idx, path) in layer.paths.iter().enumerate() {
                 let raw_points: Vec<(f64, f64)> = path.iter().map(|p| (p.x(), p.y())).collect();
@@ -1314,6 +1673,13 @@ impl GcodeGenerator {
                         last_pos = Some(prev);
                     }
                 }
+            }
+
+            // Remember where this (non-spiral) layer left the nozzle so a
+            // following spiral layer can travel into its loop from the true
+            // previous position.
+            if last_pos.is_some() {
+                cur_xy = last_pos;
             }
         }
 
@@ -4017,6 +4383,298 @@ CHAMBER={chamber_temp} MATERIAL={filament_type}"
         assert!(
             !gcode.contains("speed=0.0000"),
             "bridge boost should raise speed above 0 in:\n{gcode}"
+        );
+    }
+
+    // ── Spiral (vase) mode ─────────────────────────────────────────────────
+
+    /// Build `n` stacked single-square outer-wall layers at 0.2 mm pitch,
+    /// modelling a solid prism suitable for spiralization.
+    fn spiral_square_layers(n: usize) -> Vec<SliceLayer> {
+        use clipper2::Path;
+        (0..n)
+            .map(|i| {
+                let z = 0.2 * (i as f64 + 1.0);
+                let mut layer = SliceLayer::new(z);
+                let square: Path = vec![(0.0, 0.0), (10.0, 0.0), (10.0, 10.0), (0.0, 10.0)].into();
+                layer.paths.push(square);
+                layer.path_roles.push(crate::core::ExtrusionRole::OuterWall);
+                layer
+            })
+            .collect()
+    }
+
+    /// Extract the `Z` value from a `G1 … Z… E…` extruding move (returns `None`
+    /// for non-extruding / Z-less moves).
+    fn extrude_move_z(line: &str) -> Option<f64> {
+        if !line.starts_with("G1 ") || !line.contains(" E") {
+            return None;
+        }
+        for tok in line.split_whitespace() {
+            if let Some(rest) = tok.strip_prefix('Z') {
+                return rest.parse::<f64>().ok();
+            }
+        }
+        None
+    }
+
+    #[test]
+    fn spiral_vase_normalized_forces_single_wall_config() {
+        let params = SlicingParams {
+            spiral_vase: true,
+            wall_count: 4,
+            infill_density: 0.35,
+            top_layers: 5,
+            bottom_layers: 3,
+            retract_mm: 1.5,
+            z_hop_mm: 0.4,
+            ironing_enabled: true,
+            ..SlicingParams::default()
+        };
+        let n = params.spiral_vase_normalized();
+        assert_eq!(n.wall_count, 1);
+        assert_eq!(n.infill_density, 0.0);
+        assert_eq!(n.top_layers, 0);
+        assert_eq!(n.retract_mm, 0.0);
+        assert_eq!(n.z_hop_mm, 0.0);
+        assert!(!n.ironing_enabled);
+        // The base is preserved so the vase has a floor.
+        assert_eq!(n.bottom_layers, 3);
+    }
+
+    #[test]
+    fn spiral_vase_normalized_is_noop_when_disabled() {
+        let params = SlicingParams {
+            wall_count: 4,
+            ..SlicingParams::default()
+        };
+        // Borrowed (unchanged) when the flag is off.
+        assert_eq!(params.spiral_vase_normalized().wall_count, 4);
+    }
+
+    #[test]
+    fn spiral_vase_ramps_z_continuously() {
+        let params = SlicingParams {
+            spiral_vase: true,
+            bottom_layers: 3,
+            ..SlicingParams::default()
+        };
+        let layers = spiral_square_layers(6);
+        let gcode = GcodeGenerator::new(GcodeFlavor::Marlin).generate(&layers, &params);
+
+        // Collect the Z of every extruding move in the spiral body.
+        let zs: Vec<f64> = gcode.lines().filter_map(extrude_move_z).collect();
+        assert!(
+            zs.len() > 10,
+            "expected many ramped extrude moves, got {}:\n{gcode}",
+            zs.len()
+        );
+        // The helix only ever climbs.
+        for w in zs.windows(2) {
+            assert!(
+                w[1] >= w[0] - 1e-9,
+                "spiral Z must be non-decreasing: {} -> {}",
+                w[0],
+                w[1]
+            );
+        }
+        // At least one intermediate Z sits strictly between two layer heights,
+        // proving the rise is distributed along the perimeter (not a step).
+        let has_fractional = zs
+            .iter()
+            .any(|z| (z / 0.2 - (z / 0.2).round()).abs() > 1e-3);
+        assert!(
+            has_fractional,
+            "expected a continuously-ramped (fractional) Z, got {zs:?}"
+        );
+        // The top of the spiral reaches the last layer's Z.
+        let zmax = zs.iter().cloned().fold(f64::MIN, f64::max);
+        assert!(
+            (zmax - 1.2).abs() < 1e-6,
+            "spiral top Z should be 1.2, got {zmax}"
+        );
+    }
+
+    #[test]
+    fn spiral_vase_keeps_flat_base_and_skips_move_z_on_spiral_layers() {
+        let params = SlicingParams {
+            spiral_vase: true,
+            bottom_layers: 3,
+            ..SlicingParams::default()
+        };
+        let layers = spiral_square_layers(6);
+        let gcode = GcodeGenerator::new(GcodeFlavor::Marlin).generate(&layers, &params);
+
+        // Base layers (z = 0.2/0.4/0.6) print flat: a discrete Z move exists.
+        assert!(
+            gcode.contains("G1 Z0.200"),
+            "missing base move to 0.2:\n{gcode}"
+        );
+        assert!(
+            gcode.contains("G1 Z0.600"),
+            "missing base move to 0.6:\n{gcode}"
+        );
+        // Spiral layers (z ≥ 0.8) must NOT get a discrete Z move — the ramp
+        // carries Z inside the extrude moves instead.
+        assert!(
+            !gcode.contains("G1 Z0.800"),
+            "spiral layer must not emit a discrete Z move:\n{gcode}"
+        );
+        // Continuous-Z extrude moves are present.
+        assert!(
+            gcode.lines().any(|l| extrude_move_z(l).is_some()),
+            "expected ramped extrude moves:\n{gcode}"
+        );
+    }
+
+    #[test]
+    fn spiral_vase_warns_and_falls_back_on_multi_island_layer() {
+        use clipper2::Path;
+        use std::cell::RefCell;
+        use std::rc::Rc;
+
+        let params = SlicingParams {
+            spiral_vase: true,
+            bottom_layers: 3,
+            ..SlicingParams::default()
+        };
+        // Layers 0-2 base, layer 3 has TWO disjoint islands, layer 4 single.
+        let mut layers = spiral_square_layers(5);
+        let second: Path = vec![(20.0, 0.0), (30.0, 0.0), (30.0, 10.0), (20.0, 10.0)].into();
+        layers[3].paths.push(second);
+        layers[3]
+            .path_roles
+            .push(crate::core::ExtrusionRole::OuterWall);
+
+        let warnings = Rc::new(RefCell::new(Vec::<String>::new()));
+        let sink = warnings.clone();
+        let gcode = GcodeGenerator::new(GcodeFlavor::Marlin)
+            .with_warn_fn(move |m| sink.borrow_mut().push(m.to_string()))
+            .generate(&layers, &params);
+
+        assert!(
+            warnings
+                .borrow()
+                .iter()
+                .any(|w| w.contains("multiple islands")),
+            "expected a multi-island warning, got {:?}",
+            warnings.borrow()
+        );
+        // The multi-island layer (z = 0.8) falls back to a normal flat print,
+        // so its discrete Z move is present.
+        assert!(
+            gcode.contains("G1 Z0.800"),
+            "multi-island layer should fall back to a flat print:\n{gcode}"
+        );
+        // The single-island layer above it still spiralizes (continuous Z).
+        assert!(
+            gcode.lines().filter_map(extrude_move_z).any(|z| z > 0.8),
+            "layer above the multi-island one should still spiralize:\n{gcode}"
+        );
+    }
+
+    /// Extract the `E` value from a `G1 … E…` move.
+    fn move_e(line: &str) -> Option<f64> {
+        for tok in line.split_whitespace() {
+            if let Some(rest) = tok.strip_prefix('E') {
+                return rest.parse::<f64>().ok();
+            }
+        }
+        None
+    }
+
+    #[test]
+    fn spiral_vase_fades_flow_in_at_start_and_out_at_end() {
+        let params = SlicingParams {
+            spiral_vase: true,
+            bottom_layers: 3,
+            ..SlicingParams::default()
+        };
+        // Spiral layers: 3 (first), 4, 5 (middle), 6 (last).
+        let layers = spiral_square_layers(7);
+        let gcode = GcodeGenerator::new(GcodeFlavor::Marlin).generate(&layers, &params);
+
+        // Group the E of every ramped (spiral) move by layer. E resets to 0 at
+        // each layer, so a drop marks a new layer.
+        let mut groups: Vec<Vec<f64>> = Vec::new();
+        let mut cur: Vec<f64> = Vec::new();
+        let mut last_e = f64::MAX;
+        for line in gcode.lines() {
+            if extrude_move_z(line).is_none() {
+                continue;
+            }
+            let e = move_e(line).expect("ramped move carries E");
+            if e < last_e - 1e-9 && !cur.is_empty() {
+                groups.push(std::mem::take(&mut cur));
+            }
+            cur.push(e);
+            last_e = e;
+        }
+        if !cur.is_empty() {
+            groups.push(cur);
+        }
+        assert_eq!(groups.len(), 4, "expected 4 spiral layers, got {groups:?}");
+
+        let deltas = |es: &[f64]| -> Vec<f64> {
+            let mut d = vec![es[0]];
+            for w in es.windows(2) {
+                d.push(w[1] - w[0]);
+            }
+            d
+        };
+        let first = deltas(&groups[0]);
+        let mid = deltas(&groups[2]);
+        let last = deltas(&groups[3]);
+
+        // First spiral loop fades in: strictly increasing deposition.
+        assert!(
+            first.windows(2).all(|w| w[1] > w[0] - 1e-9) && first[3] > first[0] + 1e-6,
+            "first spiral loop should fade flow in: {first:?}"
+        );
+        // Middle spiral loops are steady full flow (a perfect square → equal
+        // per-segment deposition).
+        let mid_max = mid.iter().cloned().fold(f64::MIN, f64::max);
+        let mid_min = mid.iter().cloned().fold(f64::MAX, f64::min);
+        assert!(
+            mid_min > 0.0 && (mid_max - mid_min) < 1e-3,
+            "middle steady: {mid:?}"
+        );
+        // Last spiral loop fades out to ~zero.
+        assert!(
+            last.windows(2).all(|w| w[1] < w[0] + 1e-9) && last[3] < last[0] - 1e-6,
+            "last spiral loop should fade flow out: {last:?}"
+        );
+        assert!(
+            last.last().unwrap().abs() < 1e-6,
+            "last spiral segment should deposit ~0 (seam fade-out): {last:?}"
+        );
+    }
+
+    #[test]
+    fn spiral_vase_body_has_no_retraction() {
+        // With no base (open tube) every layer above 0 spiralizes; the spiral
+        // body is one continuous extrusion with no retract ceremony.
+        let params = SlicingParams {
+            spiral_vase: true,
+            bottom_layers: 0,
+            ..SlicingParams::default()
+        };
+        let layers = spiral_square_layers(5);
+        let gcode = GcodeGenerator::new(GcodeFlavor::Marlin).generate(&layers, &params);
+
+        // Once the spiral starts it is one uninterrupted extrusion: no retract
+        // or z-hop ceremony appears after the first ramped move. (The initial
+        // approach before the spiral may retract; that is expected.)
+        let lines: Vec<&str> = gcode.lines().collect();
+        let first_spiral = lines
+            .iter()
+            .position(|l| extrude_move_z(l).is_some())
+            .expect("spiral body should contain ramped extrude moves");
+        assert!(
+            lines[first_spiral..]
+                .iter()
+                .all(|l| !l.contains("; retract") && !l.contains("; z-hop")),
+            "spiral vase body must not retract or z-hop:\n{gcode}"
         );
     }
 }

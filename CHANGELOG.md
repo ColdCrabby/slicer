@@ -22,6 +22,17 @@ these notes and acknowledges contributors. `scripts/gen-changelog-draft.sh` and
 
 ### Added
 
+- **Spiral (vase) mode** — the new `spiral_vase` parameter prints a single
+  continuous outer wall whose Z ramps smoothly over each layer, producing a
+  seamless single-wall vase with no Z-seam. Enabling it forces one perimeter and
+  turns off everything that would break the spiral (sparse infill, top surfaces,
+  retraction, Z-hop); the solid bottom layers are kept as the base (set
+  `bottom_layers` to `0` for an open tube). The layer-height rise is distributed
+  along the perimeter length, flow fades in on the first loop and out on the
+  last so both ends of the seam disappear, and only the outermost contour of
+  each layer is spiralized — multi-island layers fall back to a normal print
+  with a warning. Also available on the CLI as `slice --spiral-vase`. Defaults
+  to off, so existing output is unchanged.
 - **Volumetric-flow limiter** — the `max_volumetric_speed` parameter (mm³/s) is
   now enforced by the G-code generator. On every extruding move the feedrate is
   capped to `max_volumetric_speed · 60 / (layer_height × width)` so the hotend

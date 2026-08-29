@@ -441,6 +441,41 @@ still taken before this step as a defensive measure — the snapshot preserves t
 `walls_per_island` count for every island in case future changes ever re-introduce a
 layer-wide strip.
 
+### Spiral (Vase) Mode — Normalize in the Pipeline, Spiralize in the Generator
+
+`spiral_vase` prints a single continuous outer wall whose Z ramps over each
+layer (a seamless single-wall vase). It is split across two boundaries so every
+runtime (CLI / WS / WASM) behaves identically:
+
+- **Normalization** ([`SlicingParams::spiral_vase_normalized`](src/settings/params.rs))
+  forces the incompatible settings off — `wall_count = 1`, `infill_density = 0`,
+  `top_layers = 0`, `retract_mm = 0`, `z_hop_mm = 0`, `ironing_enabled = false` —
+  while **keeping `bottom_layers`** as the solid base. It is a `Cow` (a no-op
+  borrow when the flag is off) and **idempotent**, so it is applied at both
+  boundaries below without double-effect: at the top of `process_mesh` /
+  `process_mesh_debug`, and again at the top of `generate_with_stats`.
+- **The pipeline skips `classify_overhang_perimeters` in spiral mode.** That
+  pass splits closed wall loops into open arcs; the spiral emitter needs each
+  spiral layer's outer wall to stay one closed loop, so it is guarded by
+  `!params.spiral_vase`. Nothing else in the pipeline changes — surface
+  generation still runs (for the base) and everything is a plain single-wall
+  slice.
+- **The generator owns the spiralization** ([src/gcode/generator.rs](src/gcode/generator.rs)).
+  Spiral layers are those at index `≥ bottom_layers.max(1)` (layer 0 is always
+  flat — a spiral cannot climb from Z=0) that expose exactly **one outermost
+  closed `OuterWall` loop** (`detect_spiral_loop`: hole sub-loops are ignored by
+  a winding-independent point-in-polygon containment test, so a solid island
+  with holes still spiralizes as one contour). For those layers the discrete
+  per-layer `move_z` is skipped and `emit_spiral_loop` walks the loop once,
+  ramping Z from the previous layer's top to this layer's Z in proportion to the
+  distance travelled (`move_extrude_z`). Flow **fades in** over the first spiral
+  loop and **out** over the last so both ends of the seam disappear — applied as
+  a multiplier *after* `extrusion_for_move` (a zero passed as `flow_ratio` trips
+  its "non-positive → 1.0" guard). Each loop is rotated to start nearest the
+  previous nozzle position to keep the start line aligned and travel minimal.
+- **Multi-island layers fall back** to a normal flat print (all paths, discrete
+  Z) with a single warning — spiral vase is for solid, single-island models.
+
 ### Arachne Wall Paths — What They Are and Are Not
 
 Arachne emits **centerline paths**, not filled polygons. Each path is a closed

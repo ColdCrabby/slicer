@@ -43,6 +43,12 @@ pub fn process_mesh(
     params: &SlicingParams,
     logger: &dyn ProcessLogger,
 ) -> Vec<SliceLayer> {
+    // Spiral (vase) mode forces a consistent single-wall configuration
+    // (no infill/top surfaces/retraction) for the whole pipeline. Applied here
+    // so every entry point (CLI, WebSocket, WASM) observes the same rules.
+    let normalized = params.spiral_vase_normalized();
+    let params = normalized.as_ref();
+
     logger.log_info(&format!("processing mesh: {} triangles", mesh.faces.len()));
 
     let t_slicing = PhaseTimer::start(phases::SLICING, logger);
@@ -217,10 +223,16 @@ pub fn process_mesh(
         // OverhangPerimeter so the G-code generator prints them with bridge
         // speed/flow/cooling.  Requires unsupported_regions populated by
         // the surface-generation pass above.
-        logger.log_debug("classifying overhang perimeters");
-        let t_overhang = PhaseTimer::start("Overhang Perimeter Classification", logger);
-        classify_overhang_perimeters(&mut layers, params.nozzle_diameter_mm);
-        t_overhang.finish();
+        //
+        // Skipped in spiral (vase) mode: overhang classification splits closed
+        // wall loops into open arcs, which would break the single continuous
+        // contour the spiral emitter needs.
+        if !params.spiral_vase {
+            logger.log_debug("classifying overhang perimeters");
+            let t_overhang = PhaseTimer::start("Overhang Perimeter Classification", logger);
+            classify_overhang_perimeters(&mut layers, params.nozzle_diameter_mm);
+            t_overhang.finish();
+        }
 
         // Drop gap-fill beads that land inside a solid surface: the solid infill
         // covers them, so they'd otherwise sit as scattered variable-width
@@ -495,6 +507,10 @@ pub fn process_mesh_debug(
 ) -> Vec<SliceLayer> {
     use crate::debug::DebugStage;
 
+    // Match process_mesh: spiral (vase) mode forces a single-wall config.
+    let normalized = params.spiral_vase_normalized();
+    let params = normalized.as_ref();
+
     logger.log_info(&format!(
         "debug pipeline: processing mesh with {} triangles",
         mesh.faces.len()
@@ -587,7 +603,9 @@ pub fn process_mesh_debug(
             },
             Some(&interior_regions),
         );
-        classify_overhang_perimeters(&mut layers, params.nozzle_diameter_mm);
+        if !params.spiral_vase {
+            classify_overhang_perimeters(&mut layers, params.nozzle_diameter_mm);
+        }
 
         // Snapshot solid surface regions.
         for (i, layer) in layers.iter().enumerate() {
