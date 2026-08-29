@@ -2,7 +2,7 @@ import { ChangeDetectionStrategy, Component, computed, signal } from '@angular/c
 import { ConnectionState } from '../../components/connection-state/connection-state';
 import { Logo } from '../../components/logo/logo';
 import { WorkplateName } from '../../components/workplate-name/workplate-name';
-import { isTauriHost, isTauriMobile } from '../../runtime/domain/runtime-mode.util';
+import { isTauriDesktop, isTauriMobile } from '../../runtime/domain/runtime-mode.util';
 import { Icon } from '../../shared/icon/icon';
 import { IconButton } from '../../ui/icon-button/icon-button';
 
@@ -37,7 +37,7 @@ import { IconButton } from '../../ui/icon-button/icon-button';
 export class NexusTitlebar {
   readonly isMobile = signal(isTauriMobile());
   /** A Tauri host *with* a window frame. iPad is a Tauri host but has none. */
-  readonly isDesktop = signal(isTauriHost() && !isTauriMobile());
+  readonly isDesktop = signal(isTauriDesktop());
   readonly isMac = signal(this.detectMac());
 
   /** Custom controls only on non-mac desktop; mac keeps native traffic lights. */

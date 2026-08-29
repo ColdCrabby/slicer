@@ -114,10 +114,14 @@ export class ContextMenuTrigger implements OnDestroy {
   }
 
   /**
-   * Lifting the finger after a long-press still synthesises a `click`, which
-   * would activate the element under it (navigate/select). Swallow that single
-   * trailing click on the host; menu-item taps live in a body-level layer and
-   * are left untouched.
+   * Lifting the finger after a long-press still synthesises a `click`. Swallow
+   * that one click wherever it lands.
+   *
+   * Restricting this to the host is not enough: the menu opens in a body-level
+   * layer at the pointer, so on touch the click can land on a *menu item* and
+   * activate it the instant the finger lifts — the user would never get to
+   * choose. Native long-press menus behave the same way: the lift only opens
+   * the menu, and a second deliberate tap picks an item.
    */
   #suppressTrailingClick(): void {
     const cleanup = (): void => {
@@ -125,10 +129,8 @@ export class ContextMenuTrigger implements OnDestroy {
       clearTimeout(fallback);
     };
     const swallow = (event: Event): void => {
-      if (this.#host.contains(event.target as Node)) {
-        event.stopPropagation();
-        event.preventDefault();
-      }
+      event.stopPropagation();
+      event.preventDefault();
       cleanup();
     };
     const fallback = setTimeout(cleanup, DEDUPE_MS);

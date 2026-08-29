@@ -39,6 +39,17 @@ body {
   -webkit-overflow-scrolling: touch;
 }
 
+// Long-press context-menu targets. iOS/iPadOS answers a long press with its own
+// callout bar and selection magnifier, which appear on top of — and steal the
+// gesture from — the menu `ContextMenuTrigger` is trying to open. Suppressing
+// the callout and text selection is what makes long-press menus usable there;
+// these are interactive rows, not prose, so nothing selectable is lost.
+[nexusContextMenu] {
+  -webkit-touch-callout: none;
+  -webkit-user-select: none;
+  user-select: none;
+}
+
 [hidden] {
   display: none !important;
 }

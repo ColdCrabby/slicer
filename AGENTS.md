@@ -310,10 +310,27 @@ Supporting details:
 - **`gen/apple` is generated but committed** (only `gen/schemas` and build
   output are ignored) — it carries signing settings and the merged plist.
 - **UI:** mobile is *not* a new runtime mode. `resolveRuntimeMode()` still
-  reports `native` on iPad; anything that draws or drives **window chrome** asks
-  [`isTauriMobile()`](ui/src/app/runtime/domain/runtime-mode.util.ts) instead.
-  Note iPadOS reports `like Mac OS X` in its user agent, so a naive platform
-  sniff classifies an iPad as a Mac — that helper checks touch points.
+  reports `native` on iPad; anything that draws or drives **native chrome** asks
+  [`isTauriMobile()` / `isTauriDesktop()`](ui/src/app/runtime/domain/runtime-mode.util.ts)
+  instead. **Gate every `@tauri-apps/api` module that Tauri marks
+  `#[cfg(desktop)]` — `menu` and most of `window` — behind `isTauriDesktop()`,
+  not `isTauriHost()`.** Those commands do not exist on mobile, so the call
+  rejects and the feature silently vanishes instead of falling back. That is
+  exactly how iPad lost its context menus: `ContextMenuService` asked
+  `isTauriHost()` and tried to build an OS menu that iOS has no API for.
+  Measured on the simulator, an iPad reports UA `Macintosh…`, platform
+  `MacIntel` and **no** `iPad` token — a user-agent sniff alone classifies it as
+  a desktop Mac, so the helper keys off `maxTouchPoints` as well.
+- **Long-press is the touch equivalent of right-click.**
+  [`ContextMenuTrigger`](ui/src/app/services/context-menu/context-menu-trigger.ts)
+  synthesises it because iOS never fires `contextmenu` for a long press. Two
+  non-obvious requirements: the trailing `click` produced when the finger lifts
+  must be swallowed **wherever it lands** (the menu opens at the pointer, so
+  restricting the guard to the host lets that click activate a menu item
+  instantly), and the menu is offset further on touch so it does not open under
+  the fingertip. iOS also needs `-webkit-touch-callout: none` on trigger
+  elements (see `styles/base/_reset.scss`) or its own selection callout hijacks
+  the gesture.
 - **Dev environment:** [scripts/ios-doctor.sh](scripts/ios-doctor.sh) verifies
   the toolchain (full Xcode — *not* Command Line Tools, which lack the iOS SDK —
   simulator runtimes, Rust `aarch64-apple-ios{,-sim}` targets, CocoaPods) and
