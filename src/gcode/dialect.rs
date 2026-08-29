@@ -127,6 +127,18 @@ pub trait GcodeDialect: Send + Sync {
         format!("G1 X{:.3} Y{:.3} E{:.5} F{:.0}", x, y, e, speed_mm_min)
     }
 
+    /// Move to `(x, y, z)` while extruding filament to absolute E position `e`
+    /// at `speed_mm_min` mm/min.
+    ///
+    /// Used by spiral (vase) mode, where the Z height ramps continuously along
+    /// the perimeter instead of stepping once per layer.
+    fn move_extrude_z(&self, x: f64, y: f64, z: f64, e: f64, speed_mm_min: f64) -> String {
+        format!(
+            "G1 X{:.3} Y{:.3} Z{:.3} E{:.5} F{:.0}",
+            x, y, z, e, speed_mm_min
+        )
+    }
+
     /// Move the Z axis to `z` at `speed_mm_min` mm/min (no extrusion).
     fn move_z(&self, z: f64, speed_mm_min: f64) -> String {
         format!("G1 Z{:.3} F{:.0}", z, speed_mm_min)

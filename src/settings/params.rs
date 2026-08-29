@@ -613,6 +613,20 @@ Supported values:
     #[serde(default = "SlicingParams::default_seam_position")]
     pub seam_position: SeamPosition,
 
+    #[schemars(description = "Spiral (vase) mode — print a single continuous outer wall whose Z \
+ramps smoothly over each layer, producing a seamless single-wall vase with no Z-seam.
+
+When enabled the slicer forces a single perimeter and turns off everything that would break the \
+continuous spiral: sparse infill, top surfaces, retraction and Z-hop are all disabled. The solid \
+bottom layers (`bottom_layers`) are kept as the base — set `bottom_layers` to `0` for an \
+open-bottomed tube. Best on **solid, single-island** models; only the outermost contour of each \
+layer is spiralized (interior holes are ignored). Layers with more than one island fall back to \
+normal (non-spiral) printing with a warning.
+
+**Default:** `false`.", extend("x-group" = "Walls"))]
+    #[serde(default = "SlicingParams::default_spiral_vase")]
+    pub spiral_vase: bool,
+
     #[schemars(description = "Infill density as a fraction (0.0–1.0).
 
 - `0.0` = completely hollow
@@ -1546,6 +1560,7 @@ impl Default for SlicingParams {
             wall_transition_angle: Self::default_wall_transition_angle(),
             wall_transition_filter_distance: Self::default_wall_transition_filter_distance(),
             seam_position: Self::default_seam_position(),
+            spiral_vase: Self::default_spiral_vase(),
             infill_density: 0.2,
             infill_pattern: Self::default_infill_pattern(),
             infill_base_angle: Self::default_infill_base_angle(),
@@ -1817,6 +1832,42 @@ impl SlicingParams {
 }
 
 impl SlicingParams {
+    /// Return a copy of these parameters with the settings that are
+    /// incompatible with spiral (vase) mode forced off, so the slicing pipeline
+    /// and the G-code generator always observe a consistent single-wall
+    /// configuration.
+    ///
+    /// When [`SlicingParams::spiral_vase`] is `false` this borrows `self`
+    /// unchanged. When it is `true` it forces:
+    /// - `wall_count = 1` (a single continuous perimeter),
+    /// - `infill_density = 0` and `top_layers = 0` (nothing fills the hollow
+    ///   interior of the vase),
+    /// - `retract_mm = 0` and `z_hop_mm = 0` (the spiral is one uninterrupted
+    ///   extrusion, so retraction/Z-hop would only stutter it),
+    /// - `ironing_enabled = false`.
+    ///
+    /// `bottom_layers` is intentionally left untouched: those solid layers form
+    /// the vase's base. A user who wants an open-bottomed tube sets
+    /// `bottom_layers = 0` explicitly.
+    ///
+    /// The method is idempotent, so it is safe to call at more than one pipeline
+    /// boundary (it is applied both before slicing and before G-code emission).
+    pub fn spiral_vase_normalized(&self) -> std::borrow::Cow<'_, SlicingParams> {
+        if !self.spiral_vase {
+            return std::borrow::Cow::Borrowed(self);
+        }
+        let mut p = self.clone();
+        p.wall_count = 1;
+        p.infill_density = 0.0;
+        p.top_layers = 0;
+        p.retract_mm = 0.0;
+        p.z_hop_mm = 0.0;
+        p.ironing_enabled = false;
+        std::borrow::Cow::Owned(p)
+    }
+}
+
+impl SlicingParams {
     fn default_wall_generator() -> WallGenerator {
         WallGenerator::Arachne
     }
@@ -1855,6 +1906,10 @@ impl SlicingParams {
 
     fn default_seam_position() -> SeamPosition {
         SeamPosition::Nearest
+    }
+
+    fn default_spiral_vase() -> bool {
+        false
     }
 
     fn default_infill_pattern() -> InfillPattern {
