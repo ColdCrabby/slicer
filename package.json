@@ -12,6 +12,7 @@
     "ui:build:web-slicer": "pnpm --filter slicer-ui build:web-slicer",
     "desktop:dev": "pnpm --filter slicer-ui-desktop dev",
     "desktop:build": "pnpm --filter slicer-ui-desktop build",
+    "icons": "scripts/gen-icons.sh",
     "ios:doctor": "scripts/ios-doctor.sh",
     "ios:setup": "scripts/ios-doctor.sh --fix",
     "ios:init": "scripts/ios-doctor.sh && pnpm --filter slicer-ui-desktop exec tauri ios init",

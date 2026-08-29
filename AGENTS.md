@@ -328,6 +328,14 @@ Supporting details:
 - **`ui-desktop/package.json` must keep its `"tauri": "tauri"` script.** The
   generated Xcode "Build Rust Code" phase runs `pnpm tauri …` from `gen/apple`;
   without that passthrough the iOS build dies with `Command "tauri" not found`.
+- **App icons come from one master via `pnpm run icons`.**
+  `ui-desktop/src-tauri/app-icon.png` (1024², opaque, cropped from
+  `ui/public/logo_source.png`) feeds every platform. Do not hand-edit the
+  generated sets. `tauri ios init` seeds Tauri's *placeholder* logo, so the
+  icons must be regenerated after it — and `tauri icon` writes iOS icons as RGBA
+  even with `--ios-color`, which App Store Connect rejects (`ITMS-90717`), so
+  [scripts/gen-icons.sh](scripts/gen-icons.sh) flattens them back to RGB and
+  prunes the UWP/Android output we never ship.
 - **Xcode 26 ships no simulator runtime** — `xcodebuild -downloadPlatform iOS`
   fetches ~8 GB separately. A staged *image* (`simctl runtime list`) is not a
   registered *runtime* (`simctl list runtimes`); if the two disagree the image

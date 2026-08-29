@@ -59,8 +59,30 @@ depend on it like any other crate.
 | `tauri.macos.conf.json` | macOS window overrides.                                                 |
 | `tauri.ios.conf.json`   | iOS overrides: product name and minimum deployment target.              |
 | `Info.ios.plist`        | Extra iOS `Info.plist` keys, merged into the generated project.         |
+| `app-icon.png`          | 1024×1024 icon master. See [App icons](#app-icons).                     |
 | `capabilities/`         | Permission grants, split by platform (see below).                       |
 | `gen/apple/`            | **Generated, but committed** Xcode project. Created by `ios:init`.      |
+
+### App icons
+
+Every platform's icon set is generated from one master,
+`ui-desktop/src-tauri/app-icon.png` — a 1024×1024 opaque crop of
+[`ui/public/logo_source.png`](../ui/public/logo_source.png) using the shipping
+app-icon framing. Regenerate after a brand change and commit the result:
+
+```bash
+pnpm run icons
+```
+
+Two things that script exists to get right:
+
+- **iOS forbids an alpha channel.** `tauri icon` writes RGBA even when the source
+  is opaque and `--ios-color` has been applied, and App Store Connect rejects
+  that outright (`ITMS-90717`) regardless of the channel being fully opaque. The
+  script flattens the iOS set back to RGB, which is lossless here.
+- **`tauri icon` emits every platform it knows.** We ship dmg/app/msi/nsis and
+  iOS, none of which read the MSIX/UWP tiles or Android mipmaps it also
+  produces, so those are pruned instead of committed as dead artwork.
 
 ### Capabilities are split by platform
 
