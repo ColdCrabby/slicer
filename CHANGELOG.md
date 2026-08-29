@@ -22,6 +22,18 @@ these notes and acknowledges contributors. `scripts/gen-changelog-draft.sh` and
 
 ### Added
 
+- **Advanced retraction modes** — the G-code generator now supports firmware
+  retraction (`G10`/`G11`, synced to the firmware with `M207`/`M208` on Marlin or
+  `SET_RETRACTION` on Klipper), relative extruder distances (`M83`), a
+  configurable minimum-travel-before-retract, a restart-extra prime on recover,
+  retract-on-layer-change, and wipe-while-retracting (retracing the just-printed
+  path to smear ooze onto printed material, with a configurable
+  before-wipe split). Exposed as `use_firmware_retraction`,
+  `use_relative_e_distances`, `retract_before_travel_mm`,
+  `retract_restart_extra_mm`, `retract_on_layer_change`, `wipe`,
+  `wipe_distance_mm`, and `retract_before_wipe_percent`. All default off / to the
+  previous behaviour, so existing output is unchanged. The retraction feedrate
+  now honours `retract_speed_mm_min` (previously hard-coded). ([#96](https://github.com/max-scopp/slicer-engine/issues/96))
 - **Spiral (vase) mode** — the new `spiral_vase` parameter prints a single
   continuous outer wall whose Z ramps smoothly over each layer, producing a
   seamless single-wall vase with no Z-seam. Enabling it forces one perimeter and

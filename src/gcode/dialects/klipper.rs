@@ -169,4 +169,23 @@ impl GcodeDialect for KlipperDialect {
             ),
         }
     }
+
+    /// Klipper configures firmware retraction at runtime with `SET_RETRACTION`
+    /// (requires a `[firmware_retraction]` section in the printer config), so
+    /// `G10`/`G11` use the slicer's length / speed / restart-extra. The Z-hop
+    /// component is left to the slicer's explicit Z moves.
+    fn firmware_retract_setup(
+        &self,
+        retract_mm: f64,
+        retract_speed_mm_min: f64,
+        restart_extra_mm: f64,
+    ) -> Vec<String> {
+        // Klipper SET_RETRACTION speeds are in mm/s.
+        let speed_mm_s = retract_speed_mm_min / 60.0;
+        vec![format!(
+            "SET_RETRACTION RETRACT_LENGTH={:.3} RETRACT_SPEED={:.1} \
+             UNRETRACT_EXTRA_LENGTH={:.3} UNRETRACT_SPEED={:.1} ; firmware retraction",
+            retract_mm, speed_mm_s, restart_extra_mm, speed_mm_s
+        )]
+    }
 }

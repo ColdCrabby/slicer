@@ -280,4 +280,64 @@ pub trait GcodeDialect: Send + Sync {
     fn extruder_absolute_mode(&self) -> String {
         "M82 ; extruder absolute mode".to_string()
     }
+
+    /// Force **relative** extrusion mode (`M83`).
+    ///
+    /// Emitted instead of [`GcodeDialect::extruder_absolute_mode`] when
+    /// `use_relative_e_distances` is set. In relative mode each extrusion move
+    /// carries the incremental filament length rather than a running absolute
+    /// position.
+    fn extruder_relative_mode(&self) -> String {
+        "M83 ; extruder relative mode".to_string()
+    }
+
+    /// Firmware retraction command (`G10`).
+    ///
+    /// Emitted instead of an extruder-axis move when `use_firmware_retraction`
+    /// is set. The firmware performs the retraction using the length / speed /
+    /// restart configured via [`GcodeDialect::firmware_retract_setup`].
+    fn firmware_retract(&self) -> String {
+        "G10".to_string()
+    }
+
+    /// Firmware un-retraction / recover command (`G11`).
+    ///
+    /// The counterpart to [`GcodeDialect::firmware_retract`]; the firmware
+    /// restores the retracted filament (plus any configured restart-extra).
+    fn firmware_unretract(&self) -> String {
+        "G11".to_string()
+    }
+
+    /// Emit the firmware-retraction setup block that syncs the firmware's
+    /// retraction parameters to the slicer settings.
+    ///
+    /// Called once in the start section when `use_firmware_retraction` is set,
+    /// so `G10`/`G11` use the slicer's configured length, speed and
+    /// restart-extra rather than the printer's compile-time defaults. The Z-hop
+    /// component is deliberately left at `0` — the slicer performs the hop with
+    /// explicit Z moves so behaviour is identical to software retraction.
+    ///
+    /// The default implementation targets Marlin (`M207` retract, `M208`
+    /// recover); Klipper overrides this with `SET_RETRACTION`.
+    ///
+    /// * `retract_mm` — retraction length in mm
+    /// * `retract_speed_mm_min` — retraction / recover speed in mm/min
+    /// * `restart_extra_mm` — extra prime length on recover in mm
+    fn firmware_retract_setup(
+        &self,
+        retract_mm: f64,
+        retract_speed_mm_min: f64,
+        restart_extra_mm: f64,
+    ) -> Vec<String> {
+        vec![
+            format!(
+                "M207 S{:.3} F{:.0} Z0 ; firmware retract length/speed",
+                retract_mm, retract_speed_mm_min
+            ),
+            format!(
+                "M208 S{:.3} F{:.0} ; firmware recover restart-extra/speed",
+                restart_extra_mm, retract_speed_mm_min
+            ),
+        ]
+    }
 }

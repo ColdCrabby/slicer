@@ -73,6 +73,15 @@ const FIELD_LABELS: Record<string, string> = {
   // Retraction
   z_hop_mm: 'Z Hop',
   retract_mm: 'Retraction Distance',
+  retract_speed_mm_min: 'Retraction Speed',
+  retract_before_travel_mm: 'Minimum Travel Before Retract',
+  retract_restart_extra_mm: 'Restart Extra Prime',
+  retract_on_layer_change: 'Retract on Layer Change',
+  use_firmware_retraction: 'Firmware Retraction',
+  use_relative_e_distances: 'Relative Extrusion Distances',
+  wipe: 'Wipe While Retracting',
+  wipe_distance_mm: 'Wipe Distance',
+  retract_before_wipe_percent: 'Retract Before Wipe',
   // Output
   path_tolerance: 'Path Tolerance',
   gcode_flavor: 'G-code Flavor',
