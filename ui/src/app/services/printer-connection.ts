@@ -95,6 +95,7 @@ const DETECT_FAST_REQUEST_TIMEOUT_MS = 20_000;
 
 /** Browser-side timeout for heavy Moonraker config payloads. */
 const DETECT_SLOW_REQUEST_TIMEOUT_MS = 25_000;
+const BROWSER_PROBE_TIMEOUT_MS = 5_000;
 
 /**
  * Tracks live printer connectivity and drives "send to printer".
@@ -113,6 +114,11 @@ const DETECT_SLOW_REQUEST_TIMEOUT_MS = 25_000;
  * hosts; rather than reporting a misleading "offline", it distinguishes a
  * genuinely unreachable host from a reachable-but-CORS-blocked one (via a
  * follow-up `no-cors` probe) and surfaces an actionable `cors` state.
+ *
+ * On Chromium builds with Local Network Access enabled, browser probes also send
+ * `targetAddressSpace: 'local'` to trigger/grant local-network permission where
+ * needed. This can unblock policy-level local-network checks, but it does not
+ * bypass printer-side CORS headers.
  */
 @Injectable({ providedIn: 'root' })
 export class PrinterConnectionService {
@@ -472,7 +478,7 @@ export class PrinterConnectionService {
   ): Promise<PrinterDetectionResult | null> {
     try {
       const info = await fetch(`${base}/printer/info`, {
-        signal: AbortSignal.timeout(DETECT_FAST_REQUEST_TIMEOUT_MS),
+        ...this.localNetworkRequestInit(DETECT_FAST_REQUEST_TIMEOUT_MS),
       });
       if (!info.ok) {
         return null;
@@ -495,7 +501,7 @@ export class PrinterConnectionService {
         // Split enrichment calls: `toolhead` is tiny and carries bed spans,
         // while `configfile` can be large on macro-heavy Klipper setups.
         const queryToolhead = await fetch(`${base}/printer/objects/query?toolhead`, {
-          signal: AbortSignal.timeout(DETECT_FAST_REQUEST_TIMEOUT_MS),
+          ...this.localNetworkRequestInit(DETECT_FAST_REQUEST_TIMEOUT_MS),
         });
         if (queryToolhead.ok) {
           const status =
@@ -508,7 +514,7 @@ export class PrinterConnectionService {
 
       try {
         const queryConfig = await fetch(`${base}/printer/objects/query?configfile`, {
-          signal: AbortSignal.timeout(DETECT_SLOW_REQUEST_TIMEOUT_MS),
+          ...this.localNetworkRequestInit(DETECT_SLOW_REQUEST_TIMEOUT_MS),
         });
         if (queryConfig.ok) {
           const status =
@@ -533,7 +539,9 @@ export class PrinterConnectionService {
     base: string,
   ): Promise<PrinterDetectionResult | null> {
     try {
-      const resp = await fetch(`${base}/api/version`, { signal: AbortSignal.timeout(5000) });
+      const resp = await fetch(`${base}/api/version`, {
+        ...this.localNetworkRequestInit(BROWSER_PROBE_TIMEOUT_MS),
+      });
       if (!resp.ok) {
         return null;
       }
@@ -685,7 +693,10 @@ export class PrinterConnectionService {
     }
 
     try {
-      const resp = await fetch(url, { headers, signal: AbortSignal.timeout(5000) });
+      const resp = await fetch(url, {
+        ...this.localNetworkRequestInit(BROWSER_PROBE_TIMEOUT_MS),
+        headers,
+      });
       if (!resp.ok) {
         this.setStatus(printerId, {
           state: 'error',
@@ -714,17 +725,31 @@ export class PrinterConnectionService {
   }
 
   private async classifyBrowserFailure(printerId: string, url: string): Promise<void> {
+    const permissionState = await this.localNetworkPermissionState();
     try {
-      await fetch(url, { mode: 'no-cors', signal: AbortSignal.timeout(5000) });
+      await fetch(url, {
+        ...this.localNetworkRequestInit(BROWSER_PROBE_TIMEOUT_MS),
+        mode: 'no-cors',
+      });
       // Reached the host but the response is opaque → CORS is blocking us.
       this.setStatus(printerId, {
         state: 'cors',
         label: 'Blocked (CORS)',
         message:
-          'The printer is reachable but blocks browser requests (CORS). Use the desktop app or the local server to connect, or enable CORS in your Moonraker config.',
+          'The printer is reachable, but its API blocks browser reads (CORS). If prompted, allow local-network access in Chrome, then use the desktop app/local server or enable CORS in Moonraker.',
         checkedAt: Date.now(),
       });
     } catch {
+      if (permissionState === 'denied') {
+        this.setStatus(printerId, {
+          state: 'error',
+          label: 'Permission denied',
+          message:
+            'Chrome blocked local-network access for this site. Allow local-network access in site settings, then retry.',
+          checkedAt: Date.now(),
+        });
+        return;
+      }
       this.setStatus(printerId, {
         state: 'offline',
         label: 'Offline',
@@ -736,6 +761,28 @@ export class PrinterConnectionService {
 
   /** Interval used by consumers that want periodic refresh. */
   static readonly POLL_INTERVAL_MS = POLL_INTERVAL_MS;
+
+  private localNetworkRequestInit(timeoutMs: number): LocalNetworkRequestInit {
+    return { signal: AbortSignal.timeout(timeoutMs), targetAddressSpace: 'local' };
+  }
+
+  private async localNetworkPermissionState(): Promise<PermissionState | null> {
+    if (!globalThis.isSecureContext) {
+      return null;
+    }
+
+    const permissions = (navigator as NavigatorWithLocalNetworkPermissions).permissions;
+    if (!permissions?.query) {
+      return null;
+    }
+
+    try {
+      const status = await permissions.query({ name: 'local-network-access' });
+      return status.state;
+    } catch {
+      return null;
+    }
+  }
 }
 
 interface MoonrakerQueryResponse {
@@ -804,6 +851,18 @@ interface ApiVersionResponse {
   server?: string;
   hostname?: string;
 }
+
+interface LocalNetworkRequestInit extends RequestInit {
+  targetAddressSpace?: 'local';
+}
+
+type NavigatorWithLocalNetworkPermissions = Navigator & {
+  permissions?: Permissions & {
+    query(
+      permissionDesc: PermissionDescriptor | { name: 'local-network-access' },
+    ): Promise<PermissionStatus>;
+  };
+};
 
 /**
  * Pull any available bed dimensions, kinematics, and nozzle diameter out of a

@@ -9,6 +9,7 @@ import { RuntimeOrchestrator } from '../runtime/application/runtime-orchestrator
 import { RuntimeSession } from '../runtime/application/runtime-session';
 import { RuntimeHistorySession } from '../runtime/domain/history-models';
 import { RuntimeMode } from '../runtime/domain/runtime-mode';
+import { isTauriMobile } from '../runtime/domain/runtime-mode.util';
 import { RuntimeMeshInput, RuntimeSceneSnapshot } from '../runtime/domain/scene-commands';
 import { createRuntime } from '../runtime/factory/runtime-factory';
 import { RuntimeEvent } from '../runtime/ports/runtime-events';
@@ -756,6 +757,16 @@ export class Slicer {
   }
 
   private async downloadFromUrl(url: string, filename: string): Promise<void> {
+    // iOS has no Save-As panel. Its export idiom is the share sheet, which lets
+    // the user drop the file into Files, AirDrop it, mail it — and, crucially,
+    // performs the copy itself. Tauri's `save()` does exist on iOS, but it
+    // exports an *empty* placeholder and hands back a URL outside the sandbox,
+    // so the follow-up write lands nowhere and the user gets a 0-byte file.
+    if (isTauriMobile()) {
+      await this.shareViaSystemSheet(url, filename);
+      return;
+    }
+
     if (this.runtimeMode === 'native') {
       // Tauri's webview does not reliably honour `<a download>` against a
       // custom `asset://` URL (it's meant for `<img>`/`<video>` src, not
@@ -786,6 +797,43 @@ export class Slicer {
     link.href = url;
     link.download = filename;
     link.click();
+  }
+
+  /**
+   * iOS export: stage the G-code inside the app's own cache directory, then
+   * hand that file to `UIActivityViewController`.
+   *
+   * Staging is what makes this work — the sandbox is always writable, whereas
+   * any location the user picks is not, and the share sheet needs a real file
+   * on disk rather than the `asset://`/blob URL the UI holds.
+   */
+  private async shareViaSystemSheet(url: string, filename: string): Promise<void> {
+    try {
+      const [{ invoke }, { appCacheDir, join }, { mkdir, writeFile: writeFsFile }] =
+        await Promise.all([
+          import('@tauri-apps/api/core'),
+          import('@tauri-apps/api/path'),
+          import('@tauri-apps/plugin-fs'),
+        ]);
+
+      const directory = await appCacheDir();
+      await mkdir(directory, { recursive: true }).catch(() => undefined);
+      const staged = await join(directory, filename);
+
+      const bytes = new Uint8Array(await (await fetch(url)).arrayBuffer());
+      await writeFsFile(staged, bytes);
+
+      // Anchor the iPad popover near the top-right, where the Download control
+      // lives. An unanchored share sheet raises and terminates the app.
+      await invoke('share_file', {
+        path: staged,
+        x: Math.round(window.innerWidth * 0.9),
+        y: Math.round(window.innerHeight * 0.1),
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      this.notifications.error('Share failed', message);
+    }
   }
 
   private resolveRuntimeMode(): RuntimeMode {
