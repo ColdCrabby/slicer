@@ -1,4 +1,5 @@
 import { ChangeDetectionStrategy, Component, computed, inject, OnInit } from '@angular/core';
+import { RouterLink } from '@angular/router';
 import {
   MAX_FIELD_OF_VIEW,
   MIN_FIELD_OF_VIEW,
@@ -9,13 +10,14 @@ import {
   type TwoFingerGesture,
 } from '../../services/viewer-control';
 import { AppVersion } from '../../services/app-version';
+import { Button } from '../../ui/button/button';
 import { SectionHeader } from '../../ui/section-header/section-header';
 import { Slider } from '../../ui/slider/slider';
 import { FovCube } from '../../ui/fov-cube/fov-cube';
 
 @Component({
   selector: 'nexus-settings-general',
-  imports: [SectionHeader, Slider, FovCube],
+  imports: [Button, RouterLink, SectionHeader, Slider, FovCube],
   templateUrl: './general.html',
   styleUrl: './general.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,

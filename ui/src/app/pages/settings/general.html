@@ -21,7 +21,10 @@
         <span class="settings-field-title">Version</span>
         <span class="settings-field-desc">Current build of the app.</span>
       </span>
-      <span class="settings-value">{{ version() }}</span>
+      <span class="settings-version">
+        <span class="settings-value">{{ version() }}</span>
+        <a nexusButton variant="ghost" size="sm" routerLink="/settings/changelog">What's new</a>
+      </span>
     </div>
     @if (commit()) {
       <div class="settings-field">

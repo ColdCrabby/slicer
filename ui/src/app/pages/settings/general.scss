@@ -17,6 +17,19 @@
   letter-spacing: 0.02em;
 }
 
+.settings-version {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+
+  // Pull the ghost button's own padding back out so its label lines up with the
+  // plain values in the rows above rather than sitting inset from them.
+  a[nexusButton] {
+    margin-right: calc(-1 * var(--spacing-md));
+  }
+}
+
 .fov-slider {
   flex: 1;
   min-width: 0;

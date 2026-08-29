@@ -36,9 +36,12 @@ release ever reports a real semver.
 ## The changelog
 
 [CHANGELOG.md](CHANGELOG.md) follows [Keep a Changelog](https://keepachangelog.com/)
-and is embedded into every build via `include_str!`. The UI shows the notes for
-the newly installed version in a one-time **"What's New"** dialog the first time
-a user runs an upgraded release (development builds are never nagged).
+and is embedded into every build via `include_str!`. The UI reads it back out in
+**Settings → What's New**, and shows the same list in a one-time dialog — scrolled
+to the newly installed version — the first time a user runs an upgraded release
+(development builds are never nagged). On iPadOS, where dialogs are drawn by the
+OS and cannot hold that much content, the prompt links to the settings section
+instead.
 
 We maintain it with a **hybrid** workflow: a script drafts the notes from git
 history, then a human (or the [`release` skill](.github/skills/release/SKILL.md))
