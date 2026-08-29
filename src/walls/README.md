@@ -89,6 +89,38 @@ gives the centerline path.
 
 ---
 
+---
+
+## Perimeter routing & ordering options ([#98](https://github.com/ColdCrabby/slicer/issues/98))
+
+Three of these are wall-generation concerns handled in this module; the other two
+live downstream (surfaces, G-code travel) but are listed here for a complete
+picture of the "perimeter routing" family.
+
+| Parameter | Default | Where it acts | Effect |
+| --- | --- | --- | --- |
+| `external_perimeters_first` | `false` | this module ([`beads::order_beads`](beads.rs), [`arachne::generate`](arachne/generate.rs)) | Print order only. `false` = inner walls first, outer wall **last** (ecosystem default, cleanest surface); `true` = outer first. |
+| `thin_walls` | `true` | this module | Toggle the medial / gap-fill beads. `false` suppresses every `GapFill` bead — sub-perimeter features are left unfilled. |
+| `extra_perimeters` | `false` | this module | Fill a *uniformly thin* residual core (narrower than `extra_perimeters_max_gap × d`) with extra concentric loops instead of leaving a gap for infill. A core with any part wider than the threshold stays infill's job, so a solid body is never turned into loops. |
+| `ensure_vertical_shell_thickness` | `false` | [`core::surfaces`](../core/surfaces.rs) | Grow each layer's own top/bottom surface inward so a sloped side wall keeps a continuous perpendicular solid shell. |
+| `avoid_crossing_perimeters` | `false` | [`gcode::travel`](../gcode/travel.rs) | Detour travel moves around outer walls (visibility-graph shortest path) instead of dragging the nozzle across a finished surface. |
+
+**Ordering is applied at bead assembly, not in the pipeline.** Both generators
+compute beads outermost-first, then flush them in the configured order
+([`order_beads`](beads.rs) reverses to inner-first for Classic; Arachne buffers
+each island's loops and flushes them reversed). The pipeline's greedy-TSP path
+ordering preserves the resulting per-role group order, so the choice survives to
+G-code. Reordering never changes extrusion amounts — a closed loop has the same
+perimeter regardless of where it starts — so the slicing-quality baselines are
+unaffected.
+
+**`extra_perimeters` shares the offset walk.** Rather than a separate pass, the
+generators simply lift the loop cap when the post-`wall_count` core is uniformly
+thin, so extra loops reuse the same distance field and never overlap the medial
+fill (Arachne) or the standard beads (Classic).
+
+---
+
 ## Output topology
 
 Both generators emit **centerline paths**, not filled polygons. Each path is a

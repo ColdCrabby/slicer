@@ -690,6 +690,14 @@ impl GcodeGenerator {
             // Detect first layer: z within half a layer height of layer_height.
             let is_first_layer = layer.z <= params.layer_height + 1e-6;
 
+            // Per-layer travel router (opt-in).  Built once per layer so travel
+            // hops can detour around outer walls instead of scarring the surface.
+            let travel_planner = if params.avoid_crossing_perimeters {
+                crate::gcode::travel::TravelPlanner::for_layer(layer)
+            } else {
+                None
+            };
+
             if self.marker_config.enabled {
                 // Lifecycle block: LAYER_CHANGE → BEFORE_LAYER_CHANGE → Z move → AFTER_LAYER_CHANGE
                 let layer_change = self
@@ -985,8 +993,17 @@ impl GcodeGenerator {
                 let needs_retract =
                     travel_dist > 2.0 || (role_changed && travel_dist > MIN_TRAVEL_FOR_RETRACT_MM);
 
+                // Plan the travel path.  With `avoid_crossing_perimeters` the
+                // planner may return intermediate waypoints that detour around
+                // outer walls; otherwise this is a single straight hop to the
+                // destination.  `from` is never included.
+                let travel_route: Vec<(f64, f64)> = match (&travel_planner, last_pos) {
+                    (Some(planner), Some(lp)) => planner.route(lp, (start_x, start_y)),
+                    _ => vec![(start_x, start_y)],
+                };
+
                 if needs_retract {
-                    // Retract, z-hop, travel, lower, prime
+                    // Retract, z-hop, travel (possibly via detour), lower, prime
                     e_total -= params.retract_mm;
                     out.push_str(&format!(
                         "{} ; retract\n",
@@ -997,11 +1014,17 @@ impl GcodeGenerator {
                         self.dialect
                             .move_z(layer.z + params.z_hop_mm, params.travel_speed_mm_min)
                     ));
-                    out.push_str(&format!(
-                        "{} ; travel\n",
-                        self.dialect
-                            .travel_xy(start_x, start_y, params.travel_speed_mm_min)
-                    ));
+                    for (wi, &(wx, wy)) in travel_route.iter().enumerate() {
+                        let tag = if wi + 1 == travel_route.len() {
+                            "travel"
+                        } else {
+                            "travel (avoid crossing)"
+                        };
+                        out.push_str(&format!(
+                            "{} ; {tag}\n",
+                            self.dialect.travel_xy(wx, wy, params.travel_speed_mm_min)
+                        ));
+                    }
                     out.push_str(&format!(
                         "{} ; lower\n",
                         self.dialect.move_z(layer.z, params.travel_speed_mm_min)
@@ -1017,11 +1040,17 @@ impl GcodeGenerator {
                     // path simplification) and are skipped entirely — emitting a
                     // G1 line for a sub-quantum hop just bloats the file and
                     // confuses motion planners on some firmwares.
-                    out.push_str(&format!(
-                        "{} ; short travel\n",
-                        self.dialect
-                            .travel_xy(start_x, start_y, params.travel_speed_mm_min)
-                    ));
+                    for (wi, &(wx, wy)) in travel_route.iter().enumerate() {
+                        let tag = if wi + 1 == travel_route.len() {
+                            "short travel"
+                        } else {
+                            "short travel (avoid crossing)"
+                        };
+                        out.push_str(&format!(
+                            "{} ; {tag}\n",
+                            self.dialect.travel_xy(wx, wy, params.travel_speed_mm_min)
+                        ));
+                    }
                 }
 
                 // Determine if this is a closed-loop role.
@@ -1525,6 +1554,42 @@ mod tests {
     fn test_extrusion_for_move_positive() {
         let e = extrusion_for_move(10.0, 0.2, 0.4, 1.75, 1.0);
         assert!(e > 0.0, "extrusion must be positive");
+    }
+
+    #[test]
+    fn avoid_crossing_perimeters_detours_travel_around_a_wall() {
+        use crate::core::ExtrusionRole;
+        use clipper2::Path;
+
+        // Three outer-wall squares in a row.  Print order A, C, B forces a
+        // travel from A to C whose straight line passes through B.
+        let mut layer = SliceLayer::new(0.2);
+        let push_square = |layer: &mut SliceLayer, x0: f64, y0: f64, x1: f64, y1: f64| {
+            let sq: Path = vec![(x0, y0), (x1, y0), (x1, y1), (x0, y1)].into();
+            layer.paths.push(sq);
+            layer.path_roles.push(ExtrusionRole::OuterWall);
+            layer.path_widths.push(Some(0.4));
+            layer.path_is_open.push(false);
+        };
+        push_square(&mut layer, 0.0, 0.0, 10.0, 10.0); // A
+        push_square(&mut layer, 30.0, 0.0, 40.0, 10.0); // C
+        push_square(&mut layer, 15.0, -5.0, 25.0, 15.0); // B (obstacle in between)
+
+        let base = generate_gcode(&[layer.clone()], &SlicingParams::default());
+        assert!(
+            !base.contains("avoid crossing"),
+            "control: default should not route around walls"
+        );
+
+        let params = SlicingParams {
+            avoid_crossing_perimeters: true,
+            ..SlicingParams::default()
+        };
+        let routed = generate_gcode(&[layer], &params);
+        assert!(
+            routed.contains("avoid crossing"),
+            "avoid_crossing_perimeters should detour the A→C travel around B"
+        );
     }
 
     #[test]

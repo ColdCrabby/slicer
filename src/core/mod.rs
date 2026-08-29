@@ -103,6 +103,7 @@ mod tests {
             wall_count: 3,
             nozzle_diameter_mm: 0.4,
             infill_overlap_percent: 0.25,
+            ensure_vertical_shell_thickness: false,
             ..crate::settings::params::SlicingParams::default()
         };
 
@@ -801,6 +802,7 @@ mod tests {
             wall_count: 3,
             nozzle_diameter_mm: 0.4,
             infill_overlap_percent: 0.25,
+            ensure_vertical_shell_thickness: false,
             ..crate::settings::params::SlicingParams::default()
         };
 
@@ -1255,6 +1257,7 @@ mod tests {
                 bridge_noise_filter_mm: 0.0,
                 bridge_anchor_mm: 0.0,
                 infill_overlap_percent: 0.25,
+                ensure_vertical_shell_thickness: false,
                 min_infill_extrusion_mm: 0.0,
             },
             None,
@@ -1726,6 +1729,7 @@ mod tests {
                 bridge_noise_filter_mm: 0.0,
                 bridge_anchor_mm: 0.0,
                 infill_overlap_percent: 0.25,
+                ensure_vertical_shell_thickness: false,
                 min_infill_extrusion_mm: 0.0,
             },
             None,
@@ -1786,6 +1790,7 @@ mod tests {
                 bridge_noise_filter_mm: 0.5,
                 bridge_anchor_mm: 0.0,
                 infill_overlap_percent: 0.25,
+                ensure_vertical_shell_thickness: false,
                 min_infill_extrusion_mm: 0.0,
             },
             None,
@@ -1844,6 +1849,7 @@ mod tests {
             bridge_noise_filter_mm: 0.0,
             bridge_anchor_mm: anchor,
             infill_overlap_percent: 0.25,
+            ensure_vertical_shell_thickness: false,
             min_infill_extrusion_mm: 0.0,
         };
 
@@ -1947,6 +1953,7 @@ mod tests {
                 bridge_noise_filter_mm: 0.0, // disable noise filter
                 bridge_anchor_mm: 0.0,    // disable anchor so result area is minimal / predictable
                 infill_overlap_percent: 0.25,
+                ensure_vertical_shell_thickness: false,
                 min_infill_extrusion_mm: 0.0,
             },
             Some(&interior_regions),
@@ -2008,6 +2015,7 @@ mod tests {
                 bridge_noise_filter_mm: 0.0,
                 bridge_anchor_mm: 0.0,
                 infill_overlap_percent: 0.25,
+                ensure_vertical_shell_thickness: false,
                 min_infill_extrusion_mm: 0.0,
             },
             None,
@@ -2127,6 +2135,7 @@ mod tests {
                 bridge_noise_filter_mm: 0.0,
                 bridge_anchor_mm: 0.4,
                 infill_overlap_percent: 0.25,
+                ensure_vertical_shell_thickness: false,
                 min_infill_extrusion_mm: 0.0,
             },
             None,
@@ -2229,6 +2238,7 @@ mod tests {
                 bridge_noise_filter_mm: 0.0,
                 bridge_anchor_mm: 0.5,
                 infill_overlap_percent: 0.25,
+                ensure_vertical_shell_thickness: false,
                 min_infill_extrusion_mm: 0.0,
             },
             None,
@@ -2321,6 +2331,7 @@ mod tests {
                 bridge_noise_filter_mm: 0.0,
                 bridge_anchor_mm: 0.5,
                 infill_overlap_percent: 0.25,
+                ensure_vertical_shell_thickness: false,
                 min_infill_extrusion_mm: 0.0,
             },
             Some(&interior_regions),
@@ -2404,6 +2415,7 @@ mod tests {
                     bridge_noise_filter_mm: 0.0,
                     bridge_anchor_mm: 0.5,
                     infill_overlap_percent: 0.25,
+                    ensure_vertical_shell_thickness: false,
                     min_infill_extrusion_mm: 0.0,
                 },
                 Some(&interior_regions),

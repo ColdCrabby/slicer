@@ -1433,6 +1433,7 @@ pub fn generate_top_bottom_surfaces(
             bridge_noise_filter_mm: 0.05,
             bridge_anchor_mm: 0.5,
             infill_overlap_percent: 0.25,
+            ensure_vertical_shell_thickness: false,
         },
         None, // No interior regions - use full perimeters
     );
@@ -1513,6 +1514,16 @@ pub struct SurfaceConfig {
     /// clearance handling in `add_infill_to_layers` and keeps Arachne surfaces
     /// from over-printing the wall band ("Top/Bottom surface × Inner wall").
     pub infill_overlap_percent: f64,
+    /// Ensure a minimum solid vertical-shell thickness on sloped surfaces.
+    ///
+    /// When `true`, a second pass projects the top/bottom solid surfaces of the
+    /// neighbouring layers (within the `top_layers` / `bottom_layers` shell
+    /// depth) onto each layer and fills any resulting interior region solid, so
+    /// the side wall keeps a continuous shell where the cross-section drifts.
+    /// See [`SlicingParams::ensure_vertical_shell_thickness`].
+    ///
+    /// [`SlicingParams::ensure_vertical_shell_thickness`]: crate::settings::params::SlicingParams::ensure_vertical_shell_thickness
+    pub ensure_vertical_shell_thickness: bool,
 }
 
 /// Generate top and bottom solid surface infill for layers.
@@ -2325,10 +2336,142 @@ pub fn generate_top_bottom_surfaces_with_interior(
         }
     }
 
+    // ── Vertical-shell thickness enforcement (opt-in) ─────────────────────────
+    //
+    // Runs after every layer's solid_regions are known: projects neighbouring
+    // solid surfaces onto each layer and back-fills the shell where a sloped
+    // cross-section would otherwise leave a thin side wall.  A no-op unless the
+    // user enables it, so the default surface output is unchanged.
+    if config.ensure_vertical_shell_thickness {
+        #[cfg(not(target_arch = "wasm32"))]
+        let t = Instant::now();
+        apply_vertical_shell_thickness(layers, interior_regions, config);
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            infill_ns += t.elapsed().as_nanos();
+        }
+    }
+
     SurfaceSubTimings {
         perimeter_snapshot_ms: (snapshot_ns / 1_000_000) as u64,
         detection_ms: (detection_ns / 1_000_000) as u64,
         infill_gen_ms: (infill_ns / 1_000_000) as u64,
+    }
+}
+
+/// Enforce a minimum solid vertical-shell thickness (opt-in second pass).
+///
+/// After [`generate_top_bottom_surfaces_with_interior`] has populated every
+/// layer's `solid_regions`, this projects the solid surfaces of the neighbouring
+/// layers — within the `top_layers` / `bottom_layers` shell depth — onto each
+/// layer and fills any resulting interior region solid.  Where the model's
+/// cross-section drifts (a sloped or near-vertical wall), a top/bottom surface on
+/// a nearby layer marks material that must be backed here so the side shell stays
+/// continuous rather than exposing sparse infill.
+///
+/// Enforce a minimum solid vertical-shell thickness (opt-in second pass).
+///
+/// After [`generate_top_bottom_surfaces_with_interior`] has populated every
+/// layer's `solid_regions`, this thickens each layer's **own** top/bottom solid
+/// surface *inward* into the interior by the shell reach.  On a sloped or
+/// near-vertical wall the exposed surface rim of each layer is thin; grown
+/// inward and stacked over the sloped run, those rings build a continuous solid
+/// shell of the intended thickness measured *perpendicular* to the surface — the
+/// gap this feature closes.
+///
+/// The growth is clipped to the layer's `interior_regions` and the layer's
+/// existing solid is subtracted, so it only *adds* backing.  A layer whose
+/// surface already fills the whole interior (a flat top/bottom band) grows to no
+/// more than that interior, so the addition is empty — flat shells keep their
+/// correct solid-layer count.  Interior layers of a solid body carry no surface,
+/// so nothing is added: the pass is a no-op away from surfaces.
+///
+/// Added regions are filled with solid rectilinear infill (tagged
+/// [`ExtrusionRole::BottomSurface`] — the "internal solid infill" role this
+/// engine expresses closest) and merged into `solid_regions` so sparse infill
+/// keeps clear of them.
+fn apply_vertical_shell_thickness(
+    layers: &mut [SliceLayer],
+    interior_regions: Option<&[Paths]>,
+    config: &SurfaceConfig,
+) {
+    let n = layers.len();
+    let interior = match interior_regions {
+        Some(r) if r.len() == n => r,
+        _ => return,
+    };
+    let top = config.top_layers;
+    let bottom = config.bottom_layers;
+    if n == 0 || (top == 0 && bottom == 0) {
+        return;
+    }
+
+    // Snapshot the solid surfaces produced by the main pass (read-only source).
+    let solid: Vec<Paths> = layers.iter().map(|l| l.solid_regions.clone()).collect();
+
+    let surface_width = if config.solid_surface_line_width_mm > 0.0 {
+        config.solid_surface_line_width_mm
+    } else {
+        config.nozzle_diameter_mm
+    };
+    let spacing = solid_surface_line_spacing(surface_width, config.layer_height);
+
+    // How far to grow a surface rim inward.  Ties the in-plane shell reach to the
+    // configured solid-layer count so a shallower slope (needing more backing)
+    // gets a proportionally deeper solid shell.
+    let reach =
+        (top.max(bottom).max(1) as f64 * config.nozzle_diameter_mm).max(config.nozzle_diameter_mm);
+
+    // Per-layer additive backing region (embarrassingly parallel to compute).
+    let compute = |i: usize| -> Option<(usize, Paths)> {
+        if solid[i].is_empty() || interior[i].is_empty() {
+            return None;
+        }
+        // Grow this layer's own surface outward by the shell reach…
+        let grown = inflate(
+            solid[i].clone(),
+            reach,
+            JoinType::Round,
+            EndType::Polygon,
+            2.0,
+        );
+        if grown.is_empty() {
+            return None;
+        }
+        // …keep only what stays inside the wall interior…
+        let within = intersect(grown, interior[i].clone(), FillRule::EvenOdd).unwrap_or_default();
+        if within.is_empty() {
+            return None;
+        }
+        // …and is not already solid here.
+        let add = difference(within, solid[i].clone(), FillRule::EvenOdd).unwrap_or_default();
+        if add.is_empty() {
+            None
+        } else {
+            Some((i, add))
+        }
+    };
+
+    #[cfg(not(target_arch = "wasm32"))]
+    let additions: Vec<(usize, Paths)> = {
+        use rayon::prelude::*;
+        (0..n).into_par_iter().filter_map(compute).collect()
+    };
+    #[cfg(target_arch = "wasm32")]
+    let additions: Vec<(usize, Paths)> = (0..n).filter_map(compute).collect();
+
+    for (i, add) in additions {
+        let angle = surface_infill_angle_for_layer(config.infill_angle, i);
+        add_solid_infill_for_region(
+            &mut layers[i],
+            &add,
+            ExtrusionRole::BottomSurface,
+            spacing,
+            angle,
+            config.min_infill_extrusion_mm,
+        );
+        let merged = union_or_first(layers[i].solid_regions.clone(), add);
+        layers[i].solid_regions = merged;
     }
 }
 
@@ -2460,6 +2603,89 @@ fn trim_surfaces_to_walls(layers: &mut [SliceLayer], overlap_percent: f64, nozzl
 mod tests {
     use super::*;
     use clipper2::{Path, Paths};
+
+    fn square_paths(cx: f64, cy: f64, half: f64) -> Paths {
+        let p: Path = vec![
+            (cx - half, cy - half),
+            (cx + half, cy - half),
+            (cx + half, cy + half),
+            (cx - half, cy + half),
+        ]
+        .into();
+        Paths::new(vec![p])
+    }
+
+    fn vshell_config(enabled: bool) -> SurfaceConfig {
+        SurfaceConfig {
+            top_layers: 1,
+            bottom_layers: 1,
+            layer_height: 0.2,
+            infill_angle: 45.0,
+            nozzle_diameter_mm: 0.4,
+            solid_surface_line_width_mm: 0.4,
+            min_infill_extrusion_mm: 0.0,
+            bridge_flow_ratio: 0.8,
+            bridge_min_area_mm2: 0.5,
+            bridge_noise_filter_mm: 0.05,
+            bridge_anchor_mm: 0.5,
+            infill_overlap_percent: 0.25,
+            ensure_vertical_shell_thickness: enabled,
+        }
+    }
+
+    #[test]
+    fn vertical_shell_grows_a_surface_rim_inward() {
+        // Three layers, each a 10×10 interior.  Only the middle layer carries a
+        // small central solid rim; the vertical-shell pass must back it with an
+        // added ring of BottomSurface infill, and leave the empty-surface layers
+        // untouched.
+        let mut layers: Vec<SliceLayer> = (0..3)
+            .map(|i| SliceLayer::new(0.2 * (i as f64 + 1.0)))
+            .collect();
+        layers[1].solid_regions = square_paths(0.0, 0.0, 1.0); // 2×2 rim
+        let interior: Vec<Paths> = (0..3).map(|_| square_paths(0.0, 0.0, 5.0)).collect();
+
+        let before: usize = layers
+            .iter()
+            .map(|l| {
+                (0..l.paths.len())
+                    .filter(|&i| l.role_for_path(i) == ExtrusionRole::BottomSurface)
+                    .count()
+            })
+            .sum();
+
+        apply_vertical_shell_thickness(&mut layers, Some(&interior), &vshell_config(true));
+
+        let mid_added = (0..layers[1].paths.len())
+            .filter(|&i| layers[1].role_for_path(i) == ExtrusionRole::BottomSurface)
+            .count();
+        assert!(
+            mid_added > before,
+            "middle layer's surface rim should be backed with solid infill"
+        );
+        // The empty-surface neighbours get nothing.
+        assert!(layers[0].paths.is_empty());
+        assert!(layers[2].paths.is_empty());
+    }
+
+    #[test]
+    fn vertical_shell_is_a_noop_where_a_layer_has_no_surface() {
+        // A layer with empty solid_regions (a plain vertical-wall cross-section)
+        // gets no vertical-shell backing.
+        let mut layers: Vec<SliceLayer> = (0..3)
+            .map(|i| SliceLayer::new(0.2 * (i as f64 + 1.0)))
+            .collect();
+        let interior: Vec<Paths> = (0..3).map(|_| square_paths(0.0, 0.0, 5.0)).collect();
+
+        apply_vertical_shell_thickness(&mut layers, Some(&interior), &vshell_config(true));
+
+        for l in &layers {
+            assert!(
+                l.paths.is_empty(),
+                "no surface anywhere ⇒ no vertical-shell infill added"
+            );
+        }
+    }
 
     #[test]
     fn test_surface_infill_angle_alternates_per_layer() {
@@ -2892,6 +3118,7 @@ mod tests {
                 bridge_noise_filter_mm: 0.0,
                 bridge_anchor_mm: 0.0,
                 infill_overlap_percent: 0.25,
+                ensure_vertical_shell_thickness: false,
             },
             Some(&interior_regions),
         );

@@ -613,6 +613,86 @@ Supported values:
     #[serde(default = "SlicingParams::default_seam_position")]
     pub seam_position: SeamPosition,
 
+    #[schemars(description = "Print the outer (external) wall before the inner walls.
+
+- `false` (default) — inner walls first, outer wall **last**.  The outer wall is
+  laid against already-solid inner perimeters, giving the cleanest visible
+  surface and crispest dimensions.  Matches the PrusaSlicer / OrcaSlicer / Cura
+  default.
+- `true` — outer wall first.  Can improve overhang adhesion (the external
+  perimeter is anchored to the layer below before the inner walls push against
+  it) at some cost to surface finish.
+
+Mirrors `external_perimeters_first` (PrusaSlicer/Slic3r) / `wall_sequence`
+(OrcaSlicer).", extend("x-group" = "Walls"))]
+    #[serde(default = "SlicingParams::default_external_perimeters_first")]
+    pub external_perimeters_first: bool,
+
+    #[schemars(description = "Add extra perimeter loops where gaps would otherwise remain.
+
+When a shell is locally thicker than `wall_count` beads but too thin for sparse
+infill to fill cleanly, the leftover core is filled with additional concentric
+perimeter loops instead of being left as a gap.  Only fires in narrow residual
+regions (up to `extra_perimeters_max_gap × nozzle_diameter_mm` wide); wide cores
+still get normal infill, so this never turns a part solid.
+
+Mirrors `extra_perimeters` (PrusaSlicer/Slic3r).
+**Default:** off.", extend("x-group" = "Walls"))]
+    #[serde(default = "SlicingParams::default_extra_perimeters")]
+    pub extra_perimeters: bool,
+
+    #[schemars(
+        description = "Widest residual core (as a multiple of nozzle diameter) that `extra_perimeters` will fill with loops.
+
+Only consulted when `extra_perimeters` is enabled.  A residual core wider than
+`extra_perimeters_max_gap × nozzle_diameter_mm` is left for sparse infill; a
+narrower one is filled with extra concentric perimeters.
+**Typical:** 2–4.",
+        extend("x-group" = "Walls")
+    )]
+    #[serde(default = "SlicingParams::default_extra_perimeters_max_gap")]
+    pub extra_perimeters_max_gap: f64,
+
+    #[schemars(description = "Detect thin walls and fill them with a single centered bead.
+
+Features narrower than one full perimeter (engraved text, tapering ribs, the
+residual between the innermost walls) are traced by a variable-width medial
+gap-fill bead instead of being skipped or double-walled.
+
+- `true` (default) — emit gap-fill / medial beads (Arachne and classic).
+- `false` — suppress them; sub-perimeter features are left unfilled.
+
+Mirrors `thin_walls` (PrusaSlicer/Slic3r).", extend("x-group" = "Walls"))]
+    #[serde(default = "SlicingParams::default_thin_walls")]
+    pub thin_walls: bool,
+
+    #[schemars(description = "Ensure a minimum solid vertical-shell thickness on sloped surfaces.
+
+On a near-vertical wall whose cross-section drifts layer over layer, the
+perimeters of neighbouring layers may not overlap, leaving a thin spot in the
+side wall.  When enabled, any interior region that is **not** backed by
+perimeters in the layers immediately above *and* below is filled solid, so the
+side wall keeps a continuous shell.
+
+Mirrors `ensure_vertical_shell_thickness` (PrusaSlicer/Slic3r).
+**Default:** off.", extend("x-group" = "Walls"))]
+    #[serde(default = "SlicingParams::default_ensure_vertical_shell_thickness")]
+    pub ensure_vertical_shell_thickness: bool,
+
+    #[schemars(description = "Route travel moves to avoid crossing perimeter walls.
+
+Instead of moving in a straight line to the next extrusion, the nozzle detours
+around the inside of the current island's walls, so a travel move never drags
+the (oozing) nozzle across a finished outer surface.  Reduces surface scarring
+and stringing at the small cost of longer travels and slightly more planning
+time.
+
+Mirrors `avoid_crossing_perimeters` (PrusaSlicer/Slic3r) / `reduce_crossing_wall`
+(OrcaSlicer).
+**Default:** off.", extend("x-group" = "Walls"))]
+    #[serde(default = "SlicingParams::default_avoid_crossing_perimeters")]
+    pub avoid_crossing_perimeters: bool,
+
     #[schemars(description = "Infill density as a fraction (0.0–1.0).
 
 - `0.0` = completely hollow
@@ -1496,6 +1576,12 @@ impl Default for SlicingParams {
             wall_transition_angle: Self::default_wall_transition_angle(),
             wall_transition_filter_distance: Self::default_wall_transition_filter_distance(),
             seam_position: Self::default_seam_position(),
+            external_perimeters_first: Self::default_external_perimeters_first(),
+            extra_perimeters: Self::default_extra_perimeters(),
+            extra_perimeters_max_gap: Self::default_extra_perimeters_max_gap(),
+            thin_walls: Self::default_thin_walls(),
+            ensure_vertical_shell_thickness: Self::default_ensure_vertical_shell_thickness(),
+            avoid_crossing_perimeters: Self::default_avoid_crossing_perimeters(),
             infill_density: 0.2,
             infill_pattern: Self::default_infill_pattern(),
             infill_base_angle: Self::default_infill_base_angle(),
@@ -1757,6 +1843,30 @@ impl SlicingParams {
 
     fn default_seam_position() -> SeamPosition {
         SeamPosition::Nearest
+    }
+
+    fn default_external_perimeters_first() -> bool {
+        false
+    }
+
+    fn default_extra_perimeters() -> bool {
+        false
+    }
+
+    fn default_extra_perimeters_max_gap() -> f64 {
+        3.0
+    }
+
+    fn default_thin_walls() -> bool {
+        true
+    }
+
+    fn default_ensure_vertical_shell_thickness() -> bool {
+        false
+    }
+
+    fn default_avoid_crossing_perimeters() -> bool {
+        false
     }
 
     fn default_infill_pattern() -> InfillPattern {
@@ -2072,6 +2182,56 @@ mod tests {
             params.surface_infill_angle, 45.0,
             "Default surface infill angle should be 45°"
         );
+    }
+
+    #[test]
+    fn test_perimeter_routing_defaults() {
+        let p = SlicingParams::default();
+        assert!(
+            !p.external_perimeters_first,
+            "outer wall prints last by default (ecosystem standard)"
+        );
+        assert!(!p.extra_perimeters, "extra_perimeters off by default");
+        assert_eq!(p.extra_perimeters_max_gap, 3.0);
+        assert!(p.thin_walls, "thin-wall gap fill on by default");
+        assert!(
+            !p.ensure_vertical_shell_thickness,
+            "vertical-shell enforcement off by default"
+        );
+        assert!(
+            !p.avoid_crossing_perimeters,
+            "avoid_crossing_perimeters off by default"
+        );
+    }
+
+    #[test]
+    fn test_perimeter_routing_round_trips_through_json() {
+        let p = SlicingParams {
+            external_perimeters_first: true,
+            extra_perimeters: true,
+            extra_perimeters_max_gap: 2.5,
+            thin_walls: false,
+            ensure_vertical_shell_thickness: true,
+            avoid_crossing_perimeters: true,
+            ..SlicingParams::default()
+        };
+        let json = serde_json::to_string(&p).expect("serialize");
+        let back: SlicingParams = serde_json::from_str(&json).expect("deserialize");
+        assert!(back.external_perimeters_first);
+        assert!(back.extra_perimeters);
+        assert_eq!(back.extra_perimeters_max_gap, 2.5);
+        assert!(!back.thin_walls);
+        assert!(back.ensure_vertical_shell_thickness);
+        assert!(back.avoid_crossing_perimeters);
+    }
+
+    #[test]
+    fn test_perimeter_routing_absent_keys_use_defaults() {
+        // A sparse process-profile params bag omits these keys → engine defaults.
+        let p: SlicingParams = serde_json::from_str(r#"{"wall_count": 2}"#).expect("deserialize");
+        assert!(!p.external_perimeters_first);
+        assert!(p.thin_walls);
+        assert!(!p.avoid_crossing_perimeters);
     }
 
     #[test]

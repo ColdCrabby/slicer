@@ -533,6 +533,25 @@ last**, after ordering and flow compensation, so its loops are appended cleanly
 and the object's own toolpaths are provably unperturbed — see
 [src/adhesion/README.md](src/adhesion/README.md).
 
+**Perimeter routing & ordering options ([#98](https://github.com/ColdCrabby/slicer/issues/98))** are threaded through several stages:
+
+- `external_perimeters_first` (default `false` = inner walls first, outer wall
+  **last** — the PrusaSlicer/Orca/Cura default), `thin_walls` (default `true`),
+  and `extra_perimeters` are handled **inside the wall generators** at bead
+  assembly. Ordering is a bead-flush concern, not a pipeline pass — the beads are
+  computed outer-first then reversed for inner-first; the greedy-TSP path ordering
+  preserves the per-role group order. Reordering never changes extrusion amounts,
+  so QA baselines are unaffected. See [src/walls/README.md](src/walls/README.md).
+- `ensure_vertical_shell_thickness` is a **second pass in
+  `generate_top_bottom_surfaces_with_interior`** (`apply_vertical_shell_thickness`):
+  it grows each layer's own top/bottom surface inward and fills it solid so a
+  sloped side wall keeps a continuous perpendicular shell. No-op on flat tops and
+  plain vertical walls; default off.
+- `avoid_crossing_perimeters` is a **G-code-generation** concern
+  ([src/gcode/travel.rs](src/gcode/travel.rs)): a per-layer visibility-graph
+  planner detours travel moves around outer walls. It only reshapes travels, so
+  extrusion (and QA baselines) are untouched; default off.
+
 **`pre_strip_infill_regions` must be computed before `apply_single_wall_restrictions`.**
 `apply_single_wall_restrictions` now operates **per island**: an outer-wall path P at
 layer i has its associated inner walls stripped only when P's footprint has an exposed

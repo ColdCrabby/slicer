@@ -153,16 +153,20 @@ fn generate_arachne_walls_for_layer(layer: &mut SliceLayer, params: &WallParams)
             &mut new_vwidths,
             &mut new_open,
         );
-        emit_residual_medial_fill(
-            &island,
-            &loops,
-            params,
-            &mut new_paths,
-            &mut new_roles,
-            &mut new_widths,
-            &mut new_vwidths,
-            &mut new_open,
-        );
+        // Thin-wall detection is opt-out: when disabled, sub-perimeter residual
+        // features are left unfilled instead of getting a medial gap-fill bead.
+        if params.thin_walls {
+            emit_residual_medial_fill(
+                &island,
+                &loops,
+                params,
+                &mut new_paths,
+                &mut new_roles,
+                &mut new_widths,
+                &mut new_vwidths,
+                &mut new_open,
+            );
+        }
     }
 
     // ── Non-perimeter paths, unchanged and in order ──────────────────────────
@@ -181,10 +185,18 @@ fn generate_arachne_walls_for_layer(layer: &mut SliceLayer, params: &WallParams)
     layer.path_is_open = new_open;
 }
 
-/// Emit up to `wall_count` concentric constant-width (`d`) perimeter loops for
-/// one island (holes included), returning each loop centerline so the caller can
-/// derive the residual the loops leave behind.  The first ring is tagged
+/// Emit concentric constant-width (`d`) perimeter loops for one island (holes
+/// included), returning each loop centerline so the caller can derive the
+/// residual the loops leave behind.  The outermost ring is tagged
 /// [`ExtrusionRole::OuterWall`]; deeper rings are [`ExtrusionRole::InnerWall`].
+///
+/// Up to `wall_count` rings are placed.  When [`WallParams::extra_perimeters`] is
+/// set and the core left after the nominal walls is *uniformly* narrower than
+/// `extra_perimeters_max_gap_mm`, extra rings keep being added until that thin
+/// core collapses, so a narrow gap is filled with perimeters rather than sparse
+/// infill.  Loops are buffered and flushed in the order dictated by
+/// [`WallParams::external_perimeters_first`] (outer-first when `true`, otherwise
+/// innermost-first so the outer wall prints last).
 #[allow(clippy::too_many_arguments)]
 fn emit_offset_loops(
     island: &Paths,
@@ -197,32 +209,49 @@ fn emit_offset_loops(
     open: &mut Vec<bool>,
 ) -> Vec<Path> {
     let d = params.nozzle_diameter_mm;
+    let max_gap_half = params.extra_perimeters_max_gap_mm * 0.5;
     let mut loop_centerlines: Vec<Path> = Vec::new();
+    // (centerline, is_outer) buffered outer→inner; flushed in configured order.
+    let mut buffered: Vec<(Path, bool)> = Vec::new();
     let mut last = island.clone();
-    for k in 0..params.wall_count {
+    let mut k = 0usize;
+    loop {
+        if k >= params.wall_count {
+            // Beyond the nominal walls, only keep going for `extra_perimeters`
+            // and only while the whole residual core is thinner than the gap
+            // threshold (a wider core is left for sparse infill).
+            if !params.extra_perimeters || last.is_empty() {
+                break;
+            }
+            let core_has_thick_part = !inflate(
+                last.clone(),
+                -max_gap_half,
+                JoinType::Miter,
+                EndType::Polygon,
+                2.0,
+            )
+            .is_empty();
+            if core_has_thick_part {
+                break;
+            }
+        }
         let is_outer = k == 0;
         // Erode the current region inward by `d` **once**.  This single result
         // feeds both consumers that previously each recomputed it:
         //   * the inner-loop morphological opening (dilate it back by `d`), and
         //   * the advance to the next shell (`last`).
-        // The old code eroded `last` inside the opening step *and* eroded it
-        // again for the advance — two identical Clipper offsets per inner wall.
-        // Sharing `eroded` halves the offset count for every inner shell while
-        // producing bit-identical geometry.
         let eroded = inflate(last.clone(), -d, JoinType::Round, EndType::Polygon, 2.0);
         // Inner loops are offset from the *opened* remaining region.  A full loop
         // in a neck thinner than 2·d would trace both surfaces on top of itself —
         // the coincident inner beads that render as an over-extruded seam.
         // Opening drops that neck so the loop closes cleanly around it, leaving
-        // the neck to the variable-width medial fill: the single-bead-in-a-thin-
-        // feature behaviour of a proper Arachne pass.  The outer ring is never
+        // the neck to the variable-width medial fill.  The outer ring is never
         // opened so the perimeter keeps tracing the model surface exactly.
         let base = if is_outer {
             last.clone()
         } else if eroded.is_empty() {
             Paths::new(vec![])
         } else {
-            // Morphological opening = dilate the shared erosion back out by `d`.
             simplify(
                 inflate(eroded.clone(), d, JoinType::Round, EndType::Polygon, 2.0),
                 tol,
@@ -239,23 +268,52 @@ fn emit_offset_loops(
             )
         };
         for p in inset.iter() {
-            paths.push(p.clone());
-            roles.push(if is_outer {
-                ExtrusionRole::OuterWall
-            } else {
-                ExtrusionRole::InnerWall
-            });
-            widths.push(Some(d));
-            vwidths.push(None);
-            open.push(false);
+            buffered.push((p.clone(), is_outer));
             loop_centerlines.push(p.clone());
         }
         last = simplify(eroded, tol, false);
         if last.is_empty() {
             break;
         }
+        k += 1;
     }
+
+    // Flush buffered loops in the configured perimeter order.
+    if params.external_perimeters_first {
+        for (p, is_outer) in buffered {
+            push_loop(p, is_outer, d, paths, roles, widths, vwidths, open);
+        }
+    } else {
+        for (p, is_outer) in buffered.into_iter().rev() {
+            push_loop(p, is_outer, d, paths, roles, widths, vwidths, open);
+        }
+    }
+
     loop_centerlines
+}
+
+/// Push a single constant-width (`width`) perimeter loop centerline into the
+/// parallel layer vectors.
+#[allow(clippy::too_many_arguments)]
+fn push_loop(
+    path: Path,
+    is_outer: bool,
+    width: f64,
+    paths: &mut Paths,
+    roles: &mut Vec<ExtrusionRole>,
+    widths: &mut Vec<Option<f64>>,
+    vwidths: &mut Vec<Option<Vec<f64>>>,
+    open: &mut Vec<bool>,
+) {
+    roles.push(if is_outer {
+        ExtrusionRole::OuterWall
+    } else {
+        ExtrusionRole::InnerWall
+    });
+    widths.push(Some(width));
+    vwidths.push(None);
+    open.push(false);
+    paths.push(path);
 }
 
 /// Fill the residual an island's offset `loops` leave uncovered with medial
@@ -597,16 +655,38 @@ mod tests {
         let mut layer = layer_with_square(20.0);
         generate_arachne_walls_for_layer(&mut layer, &wall_params());
 
-        assert_eq!(layer.role_for_path(0), ExtrusionRole::OuterWall);
-        let loops = (0..layer.paths.len())
+        // Default order is inner-first: the single outer wall prints LAST.
+        let closed: Vec<usize> = (0..layer.paths.len())
             .filter(|&i| !layer.is_path_open(i))
-            .count();
-        assert!(
-            loops >= 3,
-            "expected >=3 concentric wall loops, got {loops}"
+            .collect();
+        assert!(closed.len() >= 3, "expected >=3 concentric wall loops");
+        assert_eq!(
+            layer.role_for_path(*closed.last().unwrap()),
+            ExtrusionRole::OuterWall,
+            "outer wall should be the last closed loop by default"
         );
+        let outer_count = (0..layer.paths.len())
+            .filter(|&i| layer.role_for_path(i) == ExtrusionRole::OuterWall)
+            .count();
+        assert_eq!(outer_count, 1, "exactly one outer wall expected");
         // Every bead carries an explicit width.
         assert!(layer.path_widths.iter().all(|w| w.is_some()));
+    }
+
+    #[test]
+    fn external_perimeters_first_puts_outer_wall_first() {
+        let mut layer = layer_with_square(20.0);
+        let params = WallParams::from_slicing_params(&SlicingParams {
+            external_perimeters_first: true,
+            ..SlicingParams::default()
+        });
+        generate_arachne_walls_for_layer(&mut layer, &params);
+
+        assert_eq!(
+            layer.role_for_path(0),
+            ExtrusionRole::OuterWall,
+            "outer wall should print first when external_perimeters_first = true"
+        );
     }
 
     #[test]
@@ -657,6 +737,102 @@ mod tests {
             .filter(|&i| layer.role_for_path(i) == ExtrusionRole::TopSurface)
             .count();
         assert_eq!(tops, 1, "the TopSurface path must survive");
+    }
+
+    #[test]
+    fn thin_walls_off_suppresses_medial_gap_fill() {
+        // The 1.16 mm bar of `residual_gap_gets_a_variable_width_medial_bead`
+        // yields a medial bead by default; with `thin_walls = false` it must not.
+        let bar: Path = vec![(-10.0, -0.58), (10.0, -0.58), (10.0, 0.58), (-10.0, 0.58)].into();
+
+        let mut on = SliceLayer::new(0.2);
+        on.paths.push(bar.clone());
+        on.path_roles.push(ExtrusionRole::OuterWall);
+        on.path_widths.push(None);
+        generate_arachne_walls_for_layer(&mut on, &wall_params());
+        let on_open = (0..on.paths.len()).filter(|&i| on.is_path_open(i)).count();
+        assert!(on_open >= 1, "control: default should emit a medial bead");
+
+        let mut off = SliceLayer::new(0.2);
+        off.paths.push(bar);
+        off.path_roles.push(ExtrusionRole::OuterWall);
+        off.path_widths.push(None);
+        let params = WallParams::from_slicing_params(&SlicingParams {
+            thin_walls: false,
+            ..SlicingParams::default()
+        });
+        generate_arachne_walls_for_layer(&mut off, &params);
+        let off_open = (0..off.paths.len())
+            .filter(|&i| off.is_path_open(i))
+            .count();
+        assert_eq!(
+            off_open, 0,
+            "thin_walls = false must suppress all medial gap-fill beads"
+        );
+    }
+
+    #[test]
+    fn extra_perimeters_fills_a_thin_core_with_loops() {
+        // A 3.4 mm-wide bar: the nominal 3 walls (2.4 mm) fit, leaving a 1.0 mm
+        // core — thin enough for `extra_perimeters` yet wide enough to host one
+        // more loop pair.  By default that core is a medial gap bead; with
+        // `extra_perimeters` it is filled with an additional closed loop instead.
+        let bar =
+            || -> Path { vec![(-15.0, -1.7), (15.0, -1.7), (15.0, 1.7), (-15.0, 1.7)].into() };
+
+        let mut base = SliceLayer::new(0.2);
+        base.paths.push(bar());
+        base.path_roles.push(ExtrusionRole::OuterWall);
+        base.path_widths.push(None);
+        generate_arachne_walls_for_layer(&mut base, &wall_params());
+        let base_loops = (0..base.paths.len())
+            .filter(|&i| !base.is_path_open(i))
+            .count();
+
+        let mut extra = SliceLayer::new(0.2);
+        extra.paths.push(bar());
+        extra.path_roles.push(ExtrusionRole::OuterWall);
+        extra.path_widths.push(None);
+        let params = WallParams::from_slicing_params(&SlicingParams {
+            extra_perimeters: true,
+            ..SlicingParams::default()
+        });
+        generate_arachne_walls_for_layer(&mut extra, &params);
+        let extra_loops = (0..extra.paths.len())
+            .filter(|&i| !extra.is_path_open(i))
+            .count();
+
+        assert!(
+            extra_loops > base_loops,
+            "extra_perimeters should add closed loops in the thin core \
+             (base {base_loops}, extra {extra_loops})"
+        );
+    }
+
+    #[test]
+    fn extra_perimeters_leaves_a_thick_body_alone() {
+        // A 20 mm square has a wide core → extra_perimeters must NOT turn it into
+        // concentric loops; it stays at the nominal wall count.
+        let mut base = layer_with_square(20.0);
+        generate_arachne_walls_for_layer(&mut base, &wall_params());
+        let base_loops = (0..base.paths.len())
+            .filter(|&i| !base.is_path_open(i))
+            .count();
+
+        let mut extra = layer_with_square(20.0);
+        let params = WallParams::from_slicing_params(&SlicingParams {
+            extra_perimeters: true,
+            ..SlicingParams::default()
+        });
+        generate_arachne_walls_for_layer(&mut extra, &params);
+        let extra_loops = (0..extra.paths.len())
+            .filter(|&i| !extra.is_path_open(i))
+            .count();
+
+        assert_eq!(
+            base_loops, extra_loops,
+            "extra_perimeters must not add loops to a wide (infill) core"
+        );
     }
 
     #[test]

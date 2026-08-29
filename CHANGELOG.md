@@ -33,6 +33,31 @@ these notes and acknowledges contributors. `scripts/gen-changelog-draft.sh` and
   entries are declared up front, so Moonraker printers are reachable from an
   iPad exactly as they are from the desktop app. See
   [ui-desktop/README.md](ui-desktop/README.md).
+- **Perimeter routing & ordering options** ([#98](https://github.com/ColdCrabby/slicer/issues/98)) —
+  five new wall parameters, each mirroring the PrusaSlicer / OrcaSlicer keys the
+  profile importer used to drop:
+  - `external_perimeters_first` — print the outer wall **last** (`false`, the new
+    default, matching PrusaSlicer/Orca/Cura for the cleanest visible surface) or
+    first (`true`). Reorders per-island beads in both wall generators; extrusion
+    amounts are unchanged, only print order.
+  - `extra_perimeters` — fill a narrow residual core (thinner than
+    `extra_perimeters_max_gap × nozzle`, default `3×`) with extra concentric
+    perimeter loops instead of leaving a gap for sparse infill. Wide cores stay
+    infill's job, so a solid body is never turned into loops. Default off.
+  - `thin_walls` — toggle the thin-wall medial / gap-fill beads that fill
+    features narrower than one perimeter. On by default (existing behaviour);
+    set `false` to leave sub-perimeter features unfilled.
+  - `ensure_vertical_shell_thickness` — back sloped/near-vertical surfaces with
+    internal solid infill so the side shell keeps a continuous perpendicular
+    thickness. A no-op on flat tops and plain vertical walls. Default off.
+  - `avoid_crossing_perimeters` — route travel moves around the inside of the
+    outer walls (a visibility-graph detour) instead of dragging the nozzle
+    straight across a finished surface. Default off.
+
+  All five default to values that preserve existing behaviour except the
+  ordering flip (inner-first is now the default), and none change the extrusion
+  amounts the slicing-quality baselines measure.
+
 - **Volumetric-flow limiter** — the `max_volumetric_speed` parameter (mm³/s) is
   now enforced by the G-code generator. On every extruding move the feedrate is
   capped to `max_volumetric_speed · 60 / (layer_height × width)` so the hotend

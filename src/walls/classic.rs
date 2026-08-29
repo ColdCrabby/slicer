@@ -36,7 +36,9 @@ use clipper2::*;
 
 #[cfg(not(target_arch = "wasm32"))]
 use super::beads::compute_classic_beads_debug;
-use super::beads::{compute_classic_beads, CLASSIC_BEAD_SHRINK_NS, CLASSIC_COLLAPSE_NS};
+use super::beads::{
+    compute_classic_beads, order_beads, CLASSIC_BEAD_SHRINK_NS, CLASSIC_COLLAPSE_NS,
+};
 use super::types::{WallParams, WallTimings};
 use crate::core::{ExtrusionRole, SliceLayer};
 
@@ -158,7 +160,10 @@ fn generate_classic_walls_for_layer(layer: &mut SliceLayer, params: &WallParams)
         FillRule::EvenOdd,
     )
     .unwrap_or_default();
-    let beads = compute_classic_beads(&normalised, params);
+    let beads = order_beads(
+        compute_classic_beads(&normalised, params),
+        params.external_perimeters_first,
+    );
 
     // Rebuild the layer: wall beads first, then non-perimeter paths.
     layer.paths = Paths::new(vec![]);
@@ -232,7 +237,10 @@ fn generate_classic_walls_for_layer_debug(
     );
 
     let mut inflate_steps: Vec<(usize, Paths)> = Vec::new();
-    let beads = compute_classic_beads_debug(&normalised, params, &mut inflate_steps);
+    let beads = order_beads(
+        compute_classic_beads_debug(&normalised, params, &mut inflate_steps),
+        params.external_perimeters_first,
+    );
 
     for (bead_k, paths) in inflate_steps {
         debug.push(
@@ -301,13 +309,15 @@ mod tests {
             !layer.paths.is_empty(),
             "layer should have paths after wall generation"
         );
-        // First path should be OuterWall, rest should be InnerWall.
+        // Default order is inner-first (external_perimeters_first = false): the
+        // single OuterWall bead prints LAST, inner walls come first.
+        let n = layer.paths.len();
         assert_eq!(
-            layer.role_for_path(0),
+            layer.role_for_path(n - 1),
             ExtrusionRole::OuterWall,
-            "first path should be OuterWall"
+            "outer wall should print last by default"
         );
-        for i in 1..layer.paths.len() {
+        for i in 0..n - 1 {
             assert_eq!(
                 layer.role_for_path(i),
                 ExtrusionRole::InnerWall,
@@ -322,6 +332,34 @@ mod tests {
         );
         for w in &layer.path_widths {
             assert!(w.is_some(), "wall paths must have an explicit width set");
+        }
+    }
+
+    #[test]
+    fn test_classic_external_perimeters_first_orders_outer_first() {
+        let mut layer = SliceLayer::new(0.2);
+        let sq: Path = vec![(0.0, 0.0), (10.0, 0.0), (10.0, 10.0), (0.0, 10.0)].into();
+        layer.paths.push(sq);
+        layer.path_roles.push(ExtrusionRole::OuterWall);
+        layer.path_widths.push(None);
+
+        let params = WallParams::from_slicing_params(&SlicingParams {
+            external_perimeters_first: true,
+            ..SlicingParams::default()
+        });
+        generate_classic_walls_for_layer(&mut layer, &params);
+
+        assert_eq!(
+            layer.role_for_path(0),
+            ExtrusionRole::OuterWall,
+            "outer wall should print first when external_perimeters_first = true"
+        );
+        for i in 1..layer.paths.len() {
+            assert_eq!(
+                layer.role_for_path(i),
+                ExtrusionRole::InnerWall,
+                "path {i} should be InnerWall"
+            );
         }
     }
 
