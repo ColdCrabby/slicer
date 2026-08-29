@@ -4604,6 +4604,65 @@ CHAMBER={chamber_temp} MATERIAL={filament_type}"
             !gcode.contains("; filament_colour ="),
             "empty filament colour must be omitted"
         );
+        assert!(
+            !gcode.contains("; extruder_colour ="),
+            "empty extruder colour must be omitted"
+        );
+        assert!(
+            !gcode.contains("; printer_vendor ="),
+            "empty printer vendor must be omitted"
+        );
+        assert!(
+            !gcode.contains("; printer_model ="),
+            "empty printer model must be omitted"
+        );
+        assert!(
+            !gcode.contains("; total filament cost ="),
+            "unpriced filament must not report a cost"
+        );
+    }
+
+    /// The machine-identity + cost fields printer front-ends display alongside
+    /// a job (issue #23). All are omitted when unset — see the test above.
+    #[test]
+    fn test_metadata_footer_reports_machine_identity_and_cost() {
+        use clipper2::Path;
+        let mut layer = SliceLayer::new(0.2);
+        let square: Path = vec![(0.0, 0.0), (10.0, 0.0), (10.0, 10.0), (0.0, 10.0)].into();
+        layer.paths.push(square);
+        layer.path_roles.push(crate::core::ExtrusionRole::OuterWall);
+
+        let params = SlicingParams {
+            printer_vendor: "Voron".to_string(),
+            printer_model: "Trident 300".to_string(),
+            filament_color: "#1A9CE0".to_string(),
+            filament_cost_per_kg: 25.0,
+            ..SlicingParams::default()
+        };
+
+        let (gcode, stats) =
+            GcodeGenerator::new(GcodeFlavor::Klipper).generate_with_stats(&[layer], &params);
+
+        for needle in [
+            "; printer_vendor = Voron",
+            "; printer_model = Trident 300",
+            "; extruder_colour = #1A9CE0",
+        ] {
+            assert!(
+                gcode.contains(needle),
+                "footer missing `{needle}`:\n{gcode}"
+            );
+        }
+
+        assert!(stats.filament_cost > 0.0, "priced filament must cost money");
+        assert!(
+            gcode.contains(&format!(
+                "; total filament cost = {:.2}",
+                stats.filament_cost
+            )),
+            "footer cost must match the stats figure ({}):\n{gcode}",
+            stats.filament_cost
+        );
     }
 
     #[test]

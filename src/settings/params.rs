@@ -1120,6 +1120,14 @@ metadata header. Typical values:
     #[serde(default = "SlicingParams::default_filament_density_g_cm3")]
     pub filament_density_g_cm3: f64,
 
+    #[schemars(description = "Filament price in currency units per kilogram.
+
+Combined with the filament weight to report a material cost in the G-code
+metadata footer. Populated from the active filament profile at resolve time.
+`0` = unknown, which omits the cost line.", extend("x-group" = "Hardware"))]
+    #[serde(default)]
+    pub filament_cost_per_kg: f64,
+
     #[schemars(description = "Nozzle orifice diameter in mm.
 
 Affects minimum feature resolution and all line-width calculations.
@@ -1134,6 +1142,25 @@ Purely informational: it is tracked for printer integration / diagnostics and
 does **not** affect slicing. Empty = omit the `; bed_type:` header line.", extend("x-group" = "Hardware"))]
     #[serde(default)]
     pub bed_type: String,
+
+    #[schemars(description = "Printer manufacturer recorded in the G-code metadata footer as \
+`printer_vendor`.
+
+Populated from the active printer profile at resolve time so Moonraker
+(Mainsail / Fluidd) and OctoPrint can show which machine the file was sliced
+for. Purely informational — it does **not** affect slicing. Empty = omit the \
+line.", extend("x-group" = "Hardware"))]
+    #[serde(default)]
+    pub printer_vendor: String,
+
+    #[schemars(description = "Printer model recorded in the G-code metadata footer as \
+`printer_model`.
+
+Populated from the active printer profile at resolve time. Printer front-ends
+display it alongside the job, and some use it to warn when a file was sliced for
+a different machine. Empty = omit the line.", extend("x-group" = "Hardware"))]
+    #[serde(default)]
+    pub printer_model: String,
 
     #[schemars(description = "Non-print (travel) move speed in **mm/min**.
 
@@ -1898,8 +1925,11 @@ impl Default for SlicingParams {
             surface_infill_angle: Self::default_surface_infill_angle(),
             filament_diameter_mm: Self::default_filament_diameter_mm(),
             filament_density_g_cm3: Self::default_filament_density_g_cm3(),
+            filament_cost_per_kg: 0.0,
             nozzle_diameter_mm: Self::default_nozzle_diameter_mm(),
             bed_type: String::new(),
+            printer_vendor: String::new(),
+            printer_model: String::new(),
             travel_speed_mm_min: Self::default_travel_speed_mm_min(),
             z_hop_mm: Self::default_z_hop_mm(),
             retract_mm: Self::default_retract_mm(),

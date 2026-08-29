@@ -671,6 +671,7 @@ mod tests {
             filament_mm: 123.45,
             filament_cm3: 0.3,
             filament_g: 0.37,
+            filament_cost: 0.01,
             estimated_print_time_s: 65.0,
             bbox_min: [0.0, 0.0, 0.1],
             bbox_max: [10.0, 10.0, 1.0],
