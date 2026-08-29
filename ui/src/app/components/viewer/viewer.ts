@@ -640,9 +640,10 @@ export class Viewer {
     const width = rs.widths?.[i] ?? 0;
     const height = rs.heights?.[i] ?? 0;
     const speed = rs.speeds?.[i] ?? 0;
+    const accel = rs.accels?.[i] ?? 0;
     const value =
       channel.scope === 'segment'
-        ? channel.extract(width, height, speed)
+        ? channel.extract(width, height, speed, accel)
         : channel.extractLayer(location.meta, this.gcodePreview.selectedFan());
     if (value === null) {
       this.gcodePreview.setHoverInfo(null);
