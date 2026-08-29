@@ -33,8 +33,10 @@ pub struct WallParams {
     /// loops; wider cores are left for infill.  `= extra_perimeters_max_gap ×
     /// nozzle_diameter_mm`.
     pub extra_perimeters_max_gap_mm: f64,
-    /// Emit thin-wall gap-fill / medial beads (`true`, the default) or suppress
-    /// them (`false`).  See [`SlicingParams::thin_walls`].
+    /// Emit beads for **thin features** — model material too narrow for even one
+    /// full perimeter (`true`, the default) — or skip them (`false`).  Does not
+    /// affect the gap fill between perimeter loops, which is always emitted.
+    /// See [`SlicingParams::thin_walls`].
     pub thin_walls: bool,
 }
 

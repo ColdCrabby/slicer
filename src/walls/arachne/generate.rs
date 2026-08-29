@@ -153,20 +153,21 @@ fn generate_arachne_walls_for_layer(layer: &mut SliceLayer, params: &WallParams)
             &mut new_vwidths,
             &mut new_open,
         );
-        // Thin-wall detection is opt-out: when disabled, sub-perimeter residual
-        // features are left unfilled instead of getting a medial gap-fill bead.
-        if params.thin_walls {
-            emit_residual_medial_fill(
-                &island,
-                &loops,
-                params,
-                &mut new_paths,
-                &mut new_roles,
-                &mut new_widths,
-                &mut new_vwidths,
-                &mut new_open,
-            );
-        }
+        // Residual medial fill always runs: it is the *only* thing that fills
+        // the sliver between the innermost walls.  `thin_walls` is applied
+        // inside, where a thin *feature* can be told apart from an
+        // inter-perimeter gap — gating the whole pass on it would silently
+        // delete real geometry (e.g. every card-slot fin of the caddy).
+        emit_residual_medial_fill(
+            &island,
+            &loops,
+            params,
+            &mut new_paths,
+            &mut new_roles,
+            &mut new_widths,
+            &mut new_vwidths,
+            &mut new_open,
+        );
     }
 
     // ── Non-perimeter paths, unchanged and in order ──────────────────────────
@@ -325,6 +326,27 @@ fn push_loop(
 /// walls).  Deriving coverage from the centerlines — rather than the eroded
 /// offset polygon — avoids the dead zone where the onion-peel emits degenerate
 /// sliver loops into a thin band instead of leaving it to be filled.
+///
+/// ## Two different jobs, one bead type
+///
+/// The residual splits into two physically distinct cases, and
+/// [`WallParams::thin_walls`] gates **only the first**:
+///
+/// 1. **Thin feature** — the residual reaches the island's own surface, because
+///    the feature is too thin for even one full perimeter (engraved text, a
+///    tapering rib, the Filament Card Caddy's card-slot fins).  This bead *is*
+///    the model geometry; nothing else prints it.  Mirrors PrusaSlicer's
+///    "Detect thin walls".
+/// 2. **Inter-perimeter gap fill** — the residual is strictly enclosed by loop
+///    coverage (the leftover sliver between the innermost walls).  Dropping it
+///    only leaves a small void, and it is *not* what "thin walls" names, so it
+///    is always emitted.
+///
+/// The discriminator is depth: the outer loop's band covers the island from the
+/// surface to depth `d`, so an inter-perimeter residual can never come closer
+/// than `d` to the surface, while a thin-feature residual touches it.  Testing
+/// against a `SURFACE_BAND_NOZZLE_FRACTION · d` band therefore separates the two
+/// with a 4× margin.
 #[allow(clippy::too_many_arguments)]
 fn emit_residual_medial_fill(
     island: &Paths,
@@ -361,13 +383,60 @@ fn emit_residual_medial_fill(
     // 97 % of Benchy residual slivers fall here; the skip is loss-free.
     let min_len = gap_fill_min_run_len_mm(params);
     let min_area = params.wall_line_width_min_mm * min_len;
+
+    // Only needed to *reject* thin features, so it is not built at all in the
+    // default (`thin_walls = true`) configuration.
+    let surface_band = if params.thin_walls {
+        Paths::new(vec![])
+    } else {
+        island_surface_band(island, SURFACE_BAND_NOZZLE_FRACTION * d)
+    };
+
     for sub in split_islands(&uncovered) {
         let area = sub.iter().map(|p| p.signed_area()).sum::<f64>().abs();
         if area < min_area {
             continue;
         }
+        if !params.thin_walls && reaches_surface(&sub, &surface_band) {
+            continue;
+        }
         medial_fill(&sub, params, paths, roles, widths, vwidths, open);
     }
+}
+
+/// Depth (as a fraction of the nozzle diameter) of the surface band used to tell
+/// a thin-feature residual from an inter-perimeter one.  An inter-perimeter
+/// residual starts at depth `d`, so any value well under `1.0` separates them;
+/// `0.25` keeps a 4× margin against Clipper rounding.
+const SURFACE_BAND_NOZZLE_FRACTION: f64 = 0.25;
+
+/// The thin ring of `island` within `depth` of its own surface.
+fn island_surface_band(island: &Paths, depth: f64) -> Paths {
+    let inner = inflate(
+        island.clone(),
+        -depth,
+        JoinType::Miter,
+        EndType::Polygon,
+        2.0,
+    );
+    if inner.is_empty() {
+        // Island is thinner than the band everywhere: all of it is surface.
+        return island.clone();
+    }
+    difference(island.clone(), inner, FillRule::NonZero).unwrap_or_default()
+}
+
+/// True when residual `sub` reaches the island's surface — i.e. it is a thin
+/// feature rather than a gap between perimeter loops.
+///
+/// A tiny area floor rejects the numerical slivers Clipper leaves where a loop
+/// band ends exactly on the boundary.
+fn reaches_surface(sub: &Paths, surface_band: &Paths) -> bool {
+    if surface_band.is_empty() {
+        return false;
+    }
+    let hit = intersect(sub.clone(), surface_band.clone(), FillRule::NonZero).unwrap_or_default();
+    hit.iter().map(|p| p.signed_area()).sum::<f64>().abs() > 1e-6
 }
 
 /// Build the Voronoi diagram, catching both the crate's `Err` results and its
@@ -740,9 +809,11 @@ mod tests {
     }
 
     #[test]
-    fn thin_walls_off_suppresses_medial_gap_fill() {
-        // The 1.16 mm bar of `residual_gap_gets_a_variable_width_medial_bead`
-        // yields a medial bead by default; with `thin_walls = false` it must not.
+    fn thin_walls_off_keeps_inter_perimeter_gap_fill() {
+        // A 1.16 mm bar (= 2.9·d): one full loop fits from each side, leaving a
+        // ~0.36 mm residual *between* them.  That is inter-perimeter gap fill,
+        // not a thin feature, so `thin_walls = false` must NOT remove it —
+        // dropping it would leave a void along an ordinary wall.
         let bar: Path = vec![(-10.0, -0.58), (10.0, -0.58), (10.0, 0.58), (-10.0, 0.58)].into();
 
         let mut on = SliceLayer::new(0.2);
@@ -766,8 +837,41 @@ mod tests {
             .filter(|&i| off.is_path_open(i))
             .count();
         assert_eq!(
+            off_open, on_open,
+            "inter-perimeter gap fill must survive thin_walls = false"
+        );
+    }
+
+    #[test]
+    fn thin_walls_off_drops_a_standalone_thin_feature() {
+        // A 0.4 mm rib (= 1·d) is too thin for any full perimeter, so its medial
+        // bead *is* the feature.  `thin_walls = false` is exactly the request to
+        // skip such features, so the bead must disappear.
+        let rib: Path = vec![(-8.0, -0.2), (8.0, -0.2), (8.0, 0.2), (-8.0, 0.2)].into();
+
+        let mut on = SliceLayer::new(0.2);
+        on.paths.push(rib.clone());
+        on.path_roles.push(ExtrusionRole::OuterWall);
+        on.path_widths.push(None);
+        generate_arachne_walls_for_layer(&mut on, &wall_params());
+        let on_open = (0..on.paths.len()).filter(|&i| on.is_path_open(i)).count();
+        assert!(on_open >= 1, "control: thin rib should print by default");
+
+        let mut off = SliceLayer::new(0.2);
+        off.paths.push(rib);
+        off.path_roles.push(ExtrusionRole::OuterWall);
+        off.path_widths.push(None);
+        let params = WallParams::from_slicing_params(&SlicingParams {
+            thin_walls: false,
+            ..SlicingParams::default()
+        });
+        generate_arachne_walls_for_layer(&mut off, &params);
+        let off_open = (0..off.paths.len())
+            .filter(|&i| off.is_path_open(i))
+            .count();
+        assert_eq!(
             off_open, 0,
-            "thin_walls = false must suppress all medial gap-fill beads"
+            "a standalone thin feature must be dropped when thin_walls = false"
         );
     }
 

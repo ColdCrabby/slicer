@@ -653,16 +653,21 @@ narrower one is filled with extra concentric perimeters.
     #[serde(default = "SlicingParams::default_extra_perimeters_max_gap")]
     pub extra_perimeters_max_gap: f64,
 
-    #[schemars(description = "Detect thin walls and fill them with a single centered bead.
+    #[schemars(description = "Detect thin walls and print them as a single centered bead.
 
-Features narrower than one full perimeter (engraved text, tapering ribs, the
-residual between the innermost walls) are traced by a variable-width medial
-gap-fill bead instead of being skipped or double-walled.
+A **thin feature** is model material too narrow for even one full perimeter —
+engraved text, a tapering rib, the card-slot fins of a card holder. When on, such
+a feature is traced by a single variable-width bead; when off it is **not printed
+at all** (the feature disappears from the part).
 
-- `true` (default) — emit gap-fill / medial beads (Arachne and classic).
-- `false` — suppress them; sub-perimeter features are left unfilled.
+- `true` (default) — thin features are printed.
+- `false` — thin features are skipped.
 
-Mirrors `thin_walls` (PrusaSlicer/Slic3r).", extend("x-group" = "Walls"))]
+This does **not** control the gap fill *between* perimeter loops: that residual
+sliver is always filled, because dropping it would leave voids along ordinary
+walls and is not what this option names.
+
+Mirrors `thin_walls` (PrusaSlicer/Slic3r) / `detect_thin_wall` (OrcaSlicer).", extend("x-group" = "Walls"))]
     #[serde(default = "SlicingParams::default_thin_walls")]
     pub thin_walls: bool,
 

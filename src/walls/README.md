@@ -100,7 +100,7 @@ picture of the "perimeter routing" family.
 | Parameter | Default | Where it acts | Effect |
 | --- | --- | --- | --- |
 | `external_perimeters_first` | `false` | this module ([`beads::order_beads`](beads.rs), [`arachne::generate`](arachne/generate.rs)) | Print order only. `false` = inner walls first, outer wall **last** (ecosystem default, cleanest surface); `true` = outer first. |
-| `thin_walls` | `true` | this module | Toggle the medial / gap-fill beads. `false` suppresses every `GapFill` bead — sub-perimeter features are left unfilled. |
+| `thin_walls` | `true` | this module | Print **thin features** (material too narrow for one full perimeter) as a single centered bead. `false` skips them. Does **not** disable the gap fill *between* perimeter loops. |
 | `extra_perimeters` | `false` | this module | Fill a *uniformly thin* residual core (narrower than `extra_perimeters_max_gap × d`) with extra concentric loops instead of leaving a gap for infill. A core with any part wider than the threshold stays infill's job, so a solid body is never turned into loops. |
 | `ensure_vertical_shell_thickness` | `false` | [`core::surfaces`](../core/surfaces.rs) | Grow each layer's own top/bottom surface inward so a sloped side wall keeps a continuous perpendicular solid shell. |
 | `avoid_crossing_perimeters` | `false` | [`gcode::travel`](../gcode/travel.rs) | Detour travel moves around outer walls (visibility-graph shortest path) instead of dragging the nozzle across a finished surface. |
@@ -118,6 +118,26 @@ unaffected.
 generators simply lift the loop cap when the post-`wall_count` core is uniformly
 thin, so extra loops reuse the same distance field and never overlap the medial
 fill (Arachne) or the standard beads (Classic).
+
+**`thin_walls` must never gate the whole medial pass.** `emit_residual_medial_fill`
+does two physically different jobs with the same `GapFill` role:
+
+| Residual | What it is | Gated by `thin_walls`? |
+| --- | --- | --- |
+| Reaches the island **surface** | A **thin feature** — the bead *is* the model geometry (engraved text, the caddy's card-slot fins) | **Yes** |
+| Strictly **enclosed** by loop coverage | Ordinary **gap fill** between the innermost walls | **No — always emitted** |
+
+The discriminator is depth: the outer loop's band covers the island from the
+surface down to `d`, so an inter-perimeter residual can never come within `d` of
+the surface while a thin-feature residual touches it. Testing against a
+`0.25 · d` band separates them with a 4× margin.
+
+Gating the *whole* pass on `thin_walls` (the first implementation) deleted every
+gap-fill bead on the model: on the Filament Card Caddy that removed all 37.7 m of
+gap fill, wiping out ~50 card-slot fins **and** opening a red void along every
+wall, and it let sparse infill leak into the freed wall band (8.2 → 12.8 m).
+Splitting the two jobs restores 23.4 m of inter-perimeter fill with
+`thin_walls = false` and keeps the default byte-identical to `main`.
 
 ---
 

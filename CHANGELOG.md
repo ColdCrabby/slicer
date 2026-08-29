@@ -44,9 +44,11 @@ these notes and acknowledges contributors. `scripts/gen-changelog-draft.sh` and
     `extra_perimeters_max_gap × nozzle`, default `3×`) with extra concentric
     perimeter loops instead of leaving a gap for sparse infill. Wide cores stay
     infill's job, so a solid body is never turned into loops. Default off.
-  - `thin_walls` — toggle the thin-wall medial / gap-fill beads that fill
-    features narrower than one perimeter. On by default (existing behaviour);
-    set `false` to leave sub-perimeter features unfilled.
+  - `thin_walls` — detect **thin features** (model material too narrow for even
+    one full perimeter: engraved text, tapering ribs, a card holder's slot fins)
+    and print them as a single centered bead. On by default. Turning it off
+    skips those features; it deliberately does **not** touch the gap fill
+    *between* perimeter loops, which is always emitted.
   - `ensure_vertical_shell_thickness` — back sloped/near-vertical surfaces with
     internal solid infill so the side shell keeps a continuous perpendicular
     thickness. A no-op on flat tops and plain vertical walls. Default off.
