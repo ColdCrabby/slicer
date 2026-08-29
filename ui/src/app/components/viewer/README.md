@@ -377,8 +377,8 @@ viewer/
 │   ├── types.ts               Shared public types (SceneSelectionHandlers, SceneGizmoHandlers, ViewerView, …)
 │   └── utils.ts               disposeObject — recursive Three.js geometry/material cleanup
 ├── gizmo.ts                   GizmoManager, computeSelectionCentroid, raycastFace
-├── gcode-orchestrator.ts      GcodeOrchestrator — owns layer groups; Three.js visibility only (no geometry)
-├── gcode-layer-renderer.ts    buildLayerGroup, showLayerRange, applySegmentProgress, applyHiddenRoles
+├── gcode-orchestrator.ts      GcodeOrchestrator — owns the built model; Three.js visibility only (no geometry)
+├── gcode-layer-renderer.ts    buildGcodeModel, applyLayerVisibility, applyHiddenRoles, setJointsVisible
 └── index.ts                   Public re-exports
 ```
 
@@ -397,15 +397,53 @@ viewer/
 
 All G-code geometry is built exclusively inside `GcodeOrchestrator.buildFromHandle()` by
 calling the WASM-side `GcodeSource.getLayer()`. Three.js receives finished `Float32Array`
-buffers and is responsible only for showing/hiding layer groups and scrubbing segment
-draw-ranges. No geometry is constructed in TypeScript.
+buffers and is responsible only for visibility and scrubbing draw-ranges. No geometry is
+constructed in TypeScript.
 
 ```mermaid
 flowchart LR
     WASM[GcodeSource\nWASM handle] -->|getLayer| GO[GcodeOrchestrator\nbuildFromHandle]
-    GO -->|LineSegments| CR[contentRoot\nThree.js scene]
+    GO -->|per-role InstancedMesh| CR[contentRoot\nThree.js scene]
     GPS[GcodePreviewService\nsignals] -->|showRange\napplyProgress\napplyHiddenRoles| GO
 ```
+
+#### One buffer per _role_, not per _layer_
+
+Geometry is packed into a single instanced buffer pair (tube + joint balls) **per role,
+spanning every layer**, with instances ordered layer-ascending. The obvious alternative —
+a group per layer — costs a draw call per layer per role: a 335-layer plate reached
+**~2 500 draw calls and ~2 500 distinct materials**, which pinned the frame at ~25 fps on
+an M-series Mac purely in driver overhead. Per role it is **~18**.
+
+The packing order is what keeps that cheap to drive:
+
+| Control        | Range shape         | Mechanism                                   |
+| -------------- | ------------------- | ------------------------------------------- |
+| Layer max      | prefix              | `InstancedMesh.count` / `setDrawRange`      |
+| Progress scrub | prefix (within top) | same `count`, split per role by block order |
+| Layer min      | `0` or `== max`     | `uLayerMin` uniform, collapsed in-shader    |
+| Role hiding    | whole role          | `mesh.visible`                              |
+
+`layerMin` is never an arbitrary window (it is `0` when showing all layers, otherwise
+`layerMax`), so the only non-prefix case is "single layer" — handled by a per-instance
+`aLayer` attribute and one uniform rather than by splitting the buffer back up. Because a
+raycast cannot see a shader-side collapse, the hover probe uses an offset-aware
+`raycast` that starts at the first visible instance.
+
+#### On-demand rendering
+
+`ViewerScene` only calls `renderer.render()` when the image can actually have changed:
+camera pose delta (which covers orbit damping, inertia, snap-hold, autoscroll and the
+projection tween), an active animation or gizmo drag, pointer activity over the canvas, or
+an explicit `invalidate()` from content changes. A static plate therefore costs nothing —
+previously it was fully redrawn 60 times a second.
+
+#### Joint LOD
+
+Corner joint balls are just over half of the preview's triangles and only ever fill the
+small wedge on the outside of a bend. Below ~2 px of bead width that wedge is sub-pixel, so
+they are dropped while zoomed out — exactly when the whole plate is on screen and the frame
+is most expensive — and restored when zoomed in.
 
 ---
 

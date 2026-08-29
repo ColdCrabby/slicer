@@ -55,6 +55,14 @@ export type ModelSource = string | URL | File | Blob | ArrayBuffer;
 const MODEL_COLOR_DARK = 0xbcc0c6;
 const MODEL_COLOR_LIGHT = 0xccd0d4;
 
+/**
+ * Screen width (CSS px) a bead must reach before the G-code preview draws the
+ * joint balls that round its corners. Below this the wedge a joint fills is a
+ * sub-pixel sliver, so the ~half of the preview's triangles they cost buys
+ * nothing.
+ */
+const JOINT_LOD_MIN_BEAD_PX = 2;
+
 /** Resolve the model base colour for the active colour scheme. */
 function modelColor(isDark: boolean): number {
   return isDark ? MODEL_COLOR_DARK : MODEL_COLOR_LIGHT;
@@ -445,6 +453,7 @@ export class Viewer {
         mesh.matrix.copy(this.tmpMatrix);
         mesh.matrixWorldNeedsUpdate = true;
       }
+      this.scene?.invalidate();
     });
 
     // React to layer-range changes from the GcodePreviewService.
@@ -452,6 +461,7 @@ export class Viewer {
       const min = this.gcodePreview.layerMin();
       const max = this.gcodePreview.layerMax();
       this.gcode?.showRange(min, max);
+      this.scene?.invalidate();
     });
 
     // React to nozzle-progress changes.
@@ -459,12 +469,14 @@ export class Viewer {
       const progress = this.gcodePreview.segmentProgress();
       const max = this.gcodePreview.layerMax();
       this.gcode?.applyProgress(max, progress);
+      this.scene?.invalidate();
     });
 
     // React to role visibility changes.
     effect(() => {
       const hidden = this.gcodePreview.hiddenRoles();
       this.gcode?.applyHiddenRoles(hidden);
+      this.scene?.invalidate();
     });
 
     // React to theme, view-mode, scalar-range, fan-selection, or legend
@@ -476,6 +488,7 @@ export class Viewer {
       const fan = this.gcodePreview.selectedFan();
       const band = this.gcodePreview.hoverBand();
       this.gcode?.applyView(colors, scalarChannelFor(mode), range, fan, band);
+      this.scene?.invalidate();
     });
 
     // The hover-inspect probe is only meaningful in the G-code scalar views.
@@ -530,13 +543,24 @@ export class Viewer {
 
     const rs = hit.ref.roleSegments;
     const i = hit.instanceId;
+    // Role buffers span every layer, so the layer has to be resolved from the
+    // instance index rather than read off the mesh.
+    const location = hit.ref.resolve(i);
+    // The upper bound is a draw-range prefix, which the raycast already
+    // respects, but the lower bound lives in the vertex shader — invisible to
+    // a raycast. Reject hits below it so "single layer" mode can't report a
+    // segment the user cannot see.
+    if (location.layerIndex < this.gcodePreview.layerMin()) {
+      this.gcodePreview.setHoverInfo(null);
+      return;
+    }
     const width = rs.widths?.[i] ?? 0;
     const height = rs.heights?.[i] ?? 0;
     const speed = rs.speeds?.[i] ?? 0;
     const value =
       channel.scope === 'segment'
         ? channel.extract(width, height, speed)
-        : channel.extractLayer(hit.ref.meta, this.gcodePreview.selectedFan());
+        : channel.extractLayer(location.meta, this.gcodePreview.selectedFan());
     if (value === null) {
       this.gcodePreview.setHoverInfo(null);
       return;
@@ -550,8 +574,8 @@ export class Viewer {
       value,
       valueLabel: channel.format(value),
       role: rs.role,
-      layerIndex: hit.ref.layerIndex,
-      z: hit.ref.z,
+      layerIndex: location.layerIndex,
+      z: location.z,
       width,
       height,
       speed,
@@ -721,6 +745,21 @@ export class Viewer {
     this.scene.fpsSink = (fps, delayMs) => {
       this.fps.set(fps);
       this.frameDelayMs.set(delayMs);
+    };
+    // Corner joint balls are just over half the preview's triangles, and they
+    // only ever fill the small wedge on the outside of a bend. Once a bead is
+    // about a pixel wide that wedge is far below one, so drop them while zoomed
+    // out — which is exactly when the whole plate is on screen and the frame is
+    // most expensive — and bring them back when zoomed in to inspect.
+    this.scene.lodSink = (pixelsPerMm) => {
+      const gcode = this.gcode;
+      if (!gcode) {
+        return;
+      }
+      const beadPx = pixelsPerMm * gcode.extrusionWidth;
+      if (gcode.setJointsVisible(beadPx >= JOINT_LOD_MIN_BEAD_PX)) {
+        this.scene?.invalidate();
+      }
     };
     // Allow external gizmos (viewport-cube drag) to orbit the main camera.
     this.viewerControl.orbitSink = (azimuth, polar) => this.scene?.orbitBy(azimuth, polar);
@@ -1017,6 +1056,7 @@ export class Viewer {
     gcode.showRange(min, max);
     gcode.applyProgress(max, progress);
     gcode.applyHiddenRoles(hidden);
+    scene.invalidate();
     this.status.set('ready');
     this.loadComplete.emit({ mode: 'gcode', segments: totalSegments });
   }
