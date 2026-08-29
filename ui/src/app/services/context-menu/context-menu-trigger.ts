@@ -36,6 +36,11 @@ const DEDUPE_MS = 700;
 @Directive({
   selector: '[nexusContextMenu]',
   standalone: true,
+  // Tagged with a class rather than styled through `[nexusContextMenu]`: that
+  // selector never matches, because `(nexusContextMenu)="…"` is an *output
+  // binding* and Angular does not emit it as a DOM attribute. The class is what
+  // lets `styles/base/_reset.scss` suppress iOS's own long-press callout.
+  host: { class: 'nexus-context-target' },
 })
 export class ContextMenuTrigger implements OnDestroy {
   /** Fires when a context menu is requested (right-click or touch long-press). */

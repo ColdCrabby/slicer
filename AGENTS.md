@@ -331,6 +331,20 @@ Supporting details:
   the fingertip. iOS also needs `-webkit-touch-callout: none` on trigger
   elements (see `styles/base/_reset.scss`) or its own selection callout hijacks
   the gesture.
+- **Context menus, dialogs and file export are drawn by the OS on iOS too, not
+  just on desktop.** Tauri's `menu` module is desktop-only and UIKit's
+  `UIContextMenuInteraction` cannot be presented imperatively, so
+  [context_menu.rs](ui-desktop/src-tauri/src/context_menu.rs) builds a
+  `UIAlertController` action sheet and
+  [native_dialog.rs](ui-desktop/src-tauri/src/native_dialog.rs) supplies native
+  alerts plus a `UIActivityViewController` share sheet. **The HTML versions are
+  the browser's fallback, not the mobile default**; do not "simplify" mobile
+  back onto them. Two are correctness fixes rather than polish: iOS `save()`
+  writes a 0-byte file (no Save-As panel exists), and the iOS file picker greys
+  out `obj`/`3mf` unless `Info.ios.plist` declares their UTIs. Any popover on
+  iPad (action sheet, share sheet) **must** set `sourceView`/`sourceRect` or
+  UIKit raises and the app terminates. Full rationale in
+  [ui-desktop/README.md](ui-desktop/README.md#which-surfaces-are-native).
 - **Dev environment:** [scripts/ios-doctor.sh](scripts/ios-doctor.sh) verifies
   the toolchain (full Xcode — *not* Command Line Tools, which lack the iOS SDK —
   simulator runtimes, Rust `aarch64-apple-ios{,-sim}` targets, CocoaPods) and

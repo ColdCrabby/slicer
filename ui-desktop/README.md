@@ -53,6 +53,8 @@ depend on it like any other crate.
 | `src/lib.rs`            | The app: plugins, state, setup, command handlers. **Start here.**       |
 | `src/main.rs`           | Desktop launcher. Calls `run()` and nothing else.                       |
 | `src/commands.rs`       | `#[tauri::command]` surface exposed to the webview.                     |
+| `src/context_menu.rs`   | Native iOS context menus (UIKit). See [Native menus](#native-menus).    |
+| `src/native_dialog.rs`  | Native iOS alerts/confirmations and the share sheet.                    |
 | `src/bridge/`           | Slice orchestration, G-code cache, and the progress-event logger.       |
 | `src/system_accent.rs`  | OS accent-colour polling. Desktop only — mobile has no user accent.     |
 | `tauri.conf.json`       | Shared configuration.                                                   |
@@ -83,6 +85,84 @@ Two things that script exists to get right:
 - **`tauri icon` emits every platform it knows.** We ship dmg/app/msi/nsis and
   iOS, none of which read the MSIX/UWP tiles or Android mipmaps it also
   produces, so those are pruned instead of committed as dead artwork.
+
+### Which surfaces are native
+
+The rule across the app: **if the OS has a control for it, use the OS control.**
+An HTML lookalike is the browser's fallback, never the mobile default.
+
+| Surface | Desktop | iOS / iPadOS | Browser |
+| --- | --- | --- | --- |
+| Context menu | `@tauri-apps/api/menu` | `UIAlertController` action sheet | HTML menu |
+| Confirm / alert | HTML dialog | `UIAlertController` alert | HTML dialog |
+| Rich dialog (embeds a component) | HTML | HTML | HTML |
+| Open a model | `open()` file dialog | `UIDocumentPickerViewController` | `<input type="file">` |
+| Export G-code | `save()` + write | `UIActivityViewController` share sheet | `<a download>` |
+
+Two of these are not merely nicer natively — the desktop approach is *broken* on
+iOS, which is why they were changed:
+
+- **Export.** iOS has no Save-As panel. Tauri's `save()` does run there, but it
+  exports an empty placeholder file and returns a URL *outside* the sandbox, so
+  the follow-up write silently lands nowhere and the user gets a 0-byte file.
+  The share sheet copies the real bytes, and covers Save to Files, AirDrop and
+  Mail in one control. The G-code is staged into the app's cache directory first
+  because the sandbox is the only reliably writable location.
+- **Import.** The iOS picker filters by **UTType**, not by extension: Tauri maps
+  each filter through `UTType(filenameExtension:)`, which resolves for `stl` but
+  not for `obj` or `3mf`. Without the `UTImportedTypeDeclarations` in
+  `Info.ios.plist`, those files appear greyed out and simply cannot be imported.
+
+Anything presented as a popover on iPad — the action sheet and the share sheet —
+**must** carry a `sourceView`/`sourceRect`. UIKit raises
+`NSInvalidArgumentException` otherwise and the app terminates.
+
+### Native menus
+
+Context menus are drawn by the OS on every platform that has one — an HTML menu
+is the fallback for the browser, not the default.
+
+```mermaid
+flowchart LR
+    T["long-press / right-click"] --> S{"runtime?"}
+    S -->|Tauri desktop| D["@tauri-apps/api/menu<br/>popup()"]
+    S -->|Tauri iOS| I["show_context_menu →<br/>UIAlertController"]
+    S -->|browser| W["HTML ContextMenu"]
+
+    style I fill:#fff9c4
+```
+
+iOS is the interesting branch. Tauri gates its whole `menu` module behind
+`#[cfg(desktop)]`, so there is no API to call — and UIKit's blurred
+`UIContextMenuInteraction` cannot help either, because it binds to a `UIView`
+and is driven by UIKit's own gesture recogniser, which knows nothing about a DOM
+element the webview long-pressed. The one native menu that *can* be presented
+imperatively at a point is a `UIAlertController` in `.actionSheet` style — the
+same control Apple's own apps use for "act on this row". UIKit renders it as a
+popover on iPad and a bottom sheet on iPhone.
+
+[`src/context_menu.rs`](src-tauri/src/context_menu.rs) builds it, giving the app
+system blur, Dynamic Type, dark mode, destructive-red styling, VoiceOver and the
+platform dismissal gestures for free. Points worth knowing before changing it:
+
+- **The popover anchor is mandatory, not cosmetic.** An action sheet presented
+  on iPad without `sourceView`/`sourceRect` raises `NSInvalidArgumentException`
+  and takes the app down.
+- **UIKit is main-thread-only**, so presentation hops via `run_on_main_thread` —
+  and returns immediately. Blocking there would freeze the very sheet it just
+  presented. The choice arrives later on a channel.
+- **Dismissal resolves through channel disconnect.** Tapping outside an iPad
+  popover invokes no handler at all; when UIKit releases the alert it drops the
+  handler blocks, the last sender goes with them, and `recv` reports the
+  disconnect — which *is* "nothing was chosen".
+- **The cancel action matters on iPhone.** Sheets there ignore outside taps, so
+  without it the menu would be inescapable. iPad hides the button automatically.
+- **No per-item icons.** `UIAlertAction` only takes an image through the private
+  `setValue:forKey:` `"image"` key, which risks App Store rejection. The web
+  menu keeps its icons; native drops them.
+- **Separators are dropped**, since action sheets have no divider concept. The
+  returned index still refers to the original array, so the frontend's item list
+  and the reply cannot drift apart.
 
 ### Capabilities are split by platform
 

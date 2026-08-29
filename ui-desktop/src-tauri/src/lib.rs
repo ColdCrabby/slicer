@@ -9,6 +9,11 @@
 
 mod bridge;
 mod commands;
+/// Native context menus. iOS has no Tauri menu API, so this is where the
+/// platform's own action sheet is built.
+mod context_menu;
+/// Native iOS alerts, confirmations and the share sheet.
+mod native_dialog;
 mod system_accent;
 
 /// Build and run the Tauri application.
@@ -59,6 +64,9 @@ pub fn run() {
             commands::printer_check,
             commands::printer_detect,
             commands::printer_send,
+            context_menu::show_context_menu,
+            native_dialog::show_native_dialog,
+            native_dialog::share_file,
         ])
         .run(tauri::generate_context!())
         .expect("failed to run desktop runtime");

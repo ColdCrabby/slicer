@@ -59,6 +59,89 @@
 	</array>
 
 	<!--
+	  Declare the model formats the app opens.
+
+	  The iOS file picker filters by **UTType**, not by extension: Tauri maps
+	  each `open()` filter through `UTType(filenameExtension:)`, which only
+	  resolves for types the system knows. iOS knows `stl`, but not `obj` or
+	  `3mf` — so without these declarations those files render greyed-out and
+	  unselectable in Files, and the model cannot be imported at all.
+	  Declaring them also makes the app a target for "Open with…", which is
+	  what `LSSupportsOpeningDocumentsInPlace` above is for.
+	-->
+	<key>UTImportedTypeDeclarations</key>
+	<array>
+		<dict>
+			<key>UTTypeIdentifier</key>
+			<string>public.standard-tesselated-geometry-format</string>
+			<key>UTTypeDescription</key>
+			<string>STL Model</string>
+			<key>UTTypeConformsTo</key>
+			<array>
+				<string>public.data</string>
+			</array>
+			<key>UTTypeTagSpecification</key>
+			<dict>
+				<key>public.filename-extension</key>
+				<array>
+					<string>stl</string>
+				</array>
+			</dict>
+		</dict>
+		<dict>
+			<key>UTTypeIdentifier</key>
+			<string>public.geometry-definition-format</string>
+			<key>UTTypeDescription</key>
+			<string>Wavefront OBJ Model</string>
+			<key>UTTypeConformsTo</key>
+			<array>
+				<string>public.text</string>
+			</array>
+			<key>UTTypeTagSpecification</key>
+			<dict>
+				<key>public.filename-extension</key>
+				<array>
+					<string>obj</string>
+				</array>
+			</dict>
+		</dict>
+		<dict>
+			<key>UTTypeIdentifier</key>
+			<string>org.3mf.3mf</string>
+			<key>UTTypeDescription</key>
+			<string>3MF Model</string>
+			<key>UTTypeConformsTo</key>
+			<array>
+				<string>com.pkware.zip-archive</string>
+			</array>
+			<key>UTTypeTagSpecification</key>
+			<dict>
+				<key>public.filename-extension</key>
+				<array>
+					<string>3mf</string>
+				</array>
+			</dict>
+		</dict>
+	</array>
+	<key>CFBundleDocumentTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleTypeName</key>
+			<string>3D Model</string>
+			<key>LSHandlerRank</key>
+			<string>Alternate</string>
+			<key>CFBundleTypeRole</key>
+			<string>Viewer</string>
+			<key>LSItemContentTypes</key>
+			<array>
+				<string>public.standard-tesselated-geometry-format</string>
+				<string>public.geometry-definition-format</string>
+				<string>org.3mf.3mf</string>
+			</array>
+		</dict>
+	</array>
+
+	<!--
 	  The app's only cryptography is standard HTTPS (rustls), which is exempt
 	  from US export regulations. Declaring it here skips the compliance
 	  questionnaire on every TestFlight/App Store upload.

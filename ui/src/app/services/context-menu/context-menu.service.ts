@@ -1,6 +1,6 @@
 import { Injectable, inject } from '@angular/core';
 import type { OutputRefSubscription } from '@angular/core';
-import { isTauriDesktop } from '../../runtime/domain/runtime-mode.util';
+import { isTauriDesktop, isTauriHost } from '../../runtime/domain/runtime-mode.util';
 import type { FloatingComponentRef, FloatingReference } from '../../shared/floating';
 import { FloatingService } from '../../shared/floating';
 import { ContextMenu } from './context-menu';
@@ -8,29 +8,30 @@ import type { ContextMenuItem } from './context-menu.model';
 
 /**
  * Gap (px) between the pointer and the menu. A mouse cursor is a single point,
- * so it can sit almost flush; a fingertip covers roughly a 40px disc, and a menu
- * opening underneath it is both hidden and easy to mis-tap.
+ * so the menu can sit almost flush; a fingertip covers roughly a 40px disc, and
+ * a menu opening underneath it is both hidden and easy to mis-tap.
  */
 const POINTER_OFFSET = 2;
 const TOUCH_OFFSET = 14;
 
 /**
- * Opens a context menu at the pointer, native when possible.
+ * Opens a context menu at the pointer, natively wherever the OS offers one.
  *
- * The one call site passes a plain {@link ContextMenuItem} list; this service
- * decides how to paint it:
+ * The call sites pass a plain {@link ContextMenuItem} list; this service decides
+ * how to paint it:
  *
- * - **Native (Tauri *desktop*):** builds a real OS menu via `@tauri-apps/api/menu`
- *   and `popup()`s it at the cursor. Feels native, respects the platform.
- * - **Everything else — browser *and* Tauri mobile:** renders the
- *   {@link ContextMenu} component through `FloatingService`, positioned at the
- *   pointer and dismissed on outside-click or Escape.
+ * - **Tauri desktop:** a real OS menu via `@tauri-apps/api/menu`, popped up at
+ *   the cursor.
+ * - **Tauri iOS/iPadOS:** a real UIKit action sheet via the `show_context_menu`
+ *   command, which UIKit renders as a popover anchored at the touch point. iOS
+ *   has no equivalent of `@tauri-apps/api/menu` (Tauri gates that module behind
+ *   `#[cfg(desktop)]`), so the native menu is built in Rust instead — see
+ *   `ui-desktop/src-tauri/src/context_menu.rs`.
+ * - **Browser only:** the {@link ContextMenu} component through
+ *   `FloatingService`. A web page has no OS menu to borrow, so this is the one
+ *   context where an HTML menu is the *only* option — not a preference.
  *
- * Mobile deliberately takes the web path: Tauri gates its whole `menu` module
- * behind `#[cfg(desktop)]`, so on iPadOS the native call rejects and the user
- * gets no menu at all. iOS has no OS-level context menu to borrow anyway.
- *
- * The Tauri module is imported lazily so the browser bundle never pulls it in.
+ * Tauri modules are imported lazily so the browser bundle never pulls them in.
  */
 @Injectable({ providedIn: 'root' })
 export class ContextMenuService {
@@ -46,6 +47,10 @@ export class ContextMenuService {
 
     if (isTauriDesktop()) {
       await this.#openNative(items);
+      return;
+    }
+    if (isTauriHost()) {
+      await this.#openNativeMobile(event, items);
       return;
     }
     this.#openWeb(event, items);
@@ -70,6 +75,32 @@ export class ContextMenuService {
     await menu.popup();
   }
 
+  /**
+   * iOS/iPadOS: hand the items to UIKit and run whatever comes back.
+   *
+   * The command resolves with the chosen item's index once the user taps, or
+   * `null` if they dismissed the sheet. Indices are used rather than ids
+   * because `action` is a closure that cannot cross the IPC boundary — the Rust
+   * side only ever sees labels and flags.
+   */
+  async #openNativeMobile(event: MouseEvent, items: readonly ContextMenuItem[]): Promise<void> {
+    const { invoke } = await import('@tauri-apps/api/core');
+    const chosen = await invoke<number | null>('show_context_menu', {
+      items: items.map((item) => ({
+        label: item.label,
+        disabled: item.disabled ?? false,
+        separator: item.separator ?? false,
+        danger: item.danger ?? false,
+      })),
+      x: event.clientX,
+      y: event.clientY,
+    });
+
+    if (chosen !== null && chosen !== undefined) {
+      items[chosen]?.action?.();
+    }
+  }
+
   #openWeb(event: MouseEvent, items: readonly ContextMenuItem[]): void {
     this.close();
 
@@ -90,8 +121,9 @@ export class ContextMenuService {
         }) as DOMRect,
     };
 
-    // Touch and pen arrive from the long-press recogniser as PointerEvents; a
-    // plain right-click does not, and reads as `undefined` here.
+    // Browser-only path, but not necessarily a mouse: a tablet or touch laptop
+    // reaches this through the long-press recogniser, and a menu that opens
+    // under the fingertip is hidden by the finger itself.
     const pointerType = (event as PointerEvent).pointerType;
     const isTouch = pointerType === 'touch' || pointerType === 'pen';
 

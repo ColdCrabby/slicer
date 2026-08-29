@@ -9,6 +9,10 @@
 const POLL_INTERVAL: std::time::Duration = std::time::Duration::from_secs(2);
 
 /// Event name emitted to the UI when the OS accent colour changes.
+///
+/// Mobile has no user-selectable accent, so the watcher — and this name with
+/// it — is desktop-only.
+#[cfg(desktop)]
 pub const ACCENT_CHANGED_EVENT: &str = "system-accent-changed";
 
 /// Poll the OS accent in the background and emit [`ACCENT_CHANGED_EVENT`]

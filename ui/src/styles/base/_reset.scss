@@ -40,11 +40,15 @@ body {
 }
 
 // Long-press context-menu targets. iOS/iPadOS answers a long press with its own
-// callout bar and selection magnifier, which appear on top of — and steal the
-// gesture from — the menu `ContextMenuTrigger` is trying to open. Suppressing
+// callout bar ("Copy · Look Up · Translate…") and selection magnifier, which
+// appear on top of the menu we are opening and steal the gesture. Suppressing
 // the callout and text selection is what makes long-press menus usable there;
 // these are interactive rows, not prose, so nothing selectable is lost.
-[nexusContextMenu] {
+//
+// Keyed to the class `ContextMenuTrigger` sets, **not** `[nexusContextMenu]`:
+// that is an Angular output binding, so it never reaches the DOM as an
+// attribute and such a rule would silently match nothing.
+.nexus-context-target {
   -webkit-touch-callout: none;
   -webkit-user-select: none;
   user-select: none;
