@@ -9,11 +9,11 @@
 }
 
 .nexus-logo {
-  width: 24px;
-  height: 24px;
+  width: 86px;
+  height: var(--titlebar-height, 100%);
 
-  object-fit: contain;
-  object-position: center;
+  object-fit: cover;
+  object-position: left -8px;
   border-radius: var(--radius-md);
 
   user-select: none;

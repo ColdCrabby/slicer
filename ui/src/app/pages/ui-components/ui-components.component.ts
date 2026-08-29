@@ -3,7 +3,6 @@ import { ChangeDetectionStrategy, Component, inject, signal } from '@angular/cor
 import type { OnDestroy } from '@angular/core';
 import { Card } from '../../components/card/card';
 import { ConnectionState } from '../../components/connection-state/connection-state';
-import { Logo } from '../../components/logo/logo';
 import { Dialog } from '../../services/dialog';
 import { NotificationService } from '../../services/notifications';
 import { Badge } from '../../shared/badge/badge';
@@ -47,7 +46,6 @@ import { Switch } from '../../ui/switch/switch';
     RadioButtonValue,
     StackWhenCramped,
     Card,
-    Logo,
     Switch,
     Slider,
     RangeSlider,
