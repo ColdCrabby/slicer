@@ -19,7 +19,10 @@
 
     @if (d.config.content) {
       <div class="dialog__body">
-        <ng-container [ngComponentOutlet]="d.config.content" />
+        <ng-container
+          [ngComponentOutlet]="d.config.content"
+          [ngComponentOutletInputs]="d.config.contentInputs ?? {}"
+        />
       </div>
     }
 

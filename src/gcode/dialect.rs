@@ -215,6 +215,43 @@ pub trait GcodeDialect: Send + Sync {
         format!("M204 P{:.0}", accel)
     }
 
+    /// Emit the machine kinematic limits (square-corner velocity + max velocity)
+    /// once at the start of the program, so the firmware corners and caps speed
+    /// exactly as the print-time estimate assumes.
+    ///
+    /// `square_corner_velocity_mm_s` and `max_velocity_mm_s` are each emitted
+    /// only when positive; a `0` leaves that limit at the firmware default.
+    /// Returns the lines to emit (possibly empty).
+    ///
+    /// The default targets Marlin: `M203 X… Y…` for the velocity cap and
+    /// `M205 J<jd>` for cornering, where the square-corner velocity is converted
+    /// to a junction-deviation distance `jd = scv² · (√2 − 1) / accel` using the
+    /// supplied `accel_mm_s2` (the same relation the estimator uses). Klipper
+    /// overrides this with a single `SET_VELOCITY_LIMIT`.
+    fn set_kinematic_limits(
+        &self,
+        square_corner_velocity_mm_s: f64,
+        max_velocity_mm_s: f64,
+        accel_mm_s2: f64,
+    ) -> Vec<String> {
+        let mut lines = Vec::new();
+        if max_velocity_mm_s > 0.0 {
+            // Marlin M203 is per-axis max feedrate in mm/s.
+            lines.push(format!(
+                "M203 X{0:.0} Y{0:.0} ; max feedrate",
+                max_velocity_mm_s
+            ));
+        }
+        if square_corner_velocity_mm_s > 0.0 && accel_mm_s2 > 0.0 {
+            let jd = square_corner_velocity_mm_s
+                * square_corner_velocity_mm_s
+                * (std::f64::consts::SQRT_2 - 1.0)
+                / accel_mm_s2;
+            lines.push(format!("M205 J{:.4} ; junction deviation", jd));
+        }
+        lines
+    }
+
     /// Home all axes (`G28`).
     fn home_axes(&self) -> String {
         "G28".to_string()

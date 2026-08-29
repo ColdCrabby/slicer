@@ -268,6 +268,10 @@ fn register_slice_result(
 /// ([src/server/ws_session.rs]) so the two runtimes cache on the same inputs;
 /// the file's length + mtime stand in for the server's content-addressed upload
 /// token, so editing the source model on disk busts the entry.
+///
+/// The params are fingerprinted via `SlicingParams::cache_fingerprint`, which
+/// omits the ephemeral, camera-derived thumbnail PNG payload — so a fresh
+/// render's bytes never bust the cache (issue #106).
 fn compute_slice_cache_key(
     params: &slicer_engine::settings::params::SlicingParams,
     file_path: &str,
@@ -277,7 +281,7 @@ fn compute_slice_cache_key(
     canonical.push_str("v=");
     canonical.push_str(slicer_engine::version::VERSION);
     canonical.push_str(";params=");
-    canonical.push_str(&serde_json::to_string(params).unwrap_or_default());
+    canonical.push_str(&params.cache_fingerprint());
 
     canonical.push_str(";file=");
     canonical.push_str(file_path);

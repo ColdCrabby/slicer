@@ -33,6 +33,14 @@ these notes and acknowledges contributors. `scripts/gen-changelog-draft.sh` and
   each layer is spiralized — multi-island layers fall back to a normal print
   with a warning. Also available on the CLI as `slice --spiral-vase`. Defaults
   to off, so existing output is unchanged.
+- **Release notes inside the app** — a new **Settings → What's New** section lists
+  every release, newest first, with the version you're running highlighted and
+  scrolled into view. The dialog shown after an upgrade now renders that exact
+  same list instead of a separate filtered one, so you can always read back past
+  releases from the notes you were just shown. On iPadOS, where dialogs are drawn
+  by the OS and can't hold that much content, the update prompt takes you to the
+  settings section instead. The version row in **Settings → General** links there
+  too.
 - **iPadOS / iOS target** — the Tauri shell now builds and runs on iPad, with the
   full Rust slicing engine on-device. `pnpm run ios:doctor` checks the toolchain
   (and `ios:setup` installs what it can), `ios:init` generates the Xcode project,
