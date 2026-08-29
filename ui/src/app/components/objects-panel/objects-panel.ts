@@ -26,6 +26,10 @@ interface ObjectRow {
  * they sit. Selecting a row drives the same selection the 3D gizmo and the
  * transform panel already use, so the list and the viewport never disagree.
  *
+ * Placing objects is deliberately *not* here — that is one command owned by
+ * the toolbar's placement control, so there is a single place to run it and a
+ * single place to configure it.
+ *
  * Deletion follows the two-step inline confirm the design language asks for
  * rather than a blocking modal.
  */
@@ -45,8 +49,14 @@ export class ObjectsPanel {
   /** Id awaiting delete confirmation, if any. */
   protected readonly pendingDelete = signal<bigint | null>(null);
 
-  /** Hidden until the plate holds something worth listing. */
-  protected readonly visible = computed(() => this.sceneEngine.objects().length > 0);
+  /**
+   * Hidden in G-code preview: the list describes the *model* plate, and none
+   * of its actions (select, duplicate, delete) mean anything once the view
+   * has switched to sliced toolpaths.
+   */
+  protected readonly visible = computed(
+    () => this.viewerControl.viewMode() === 'model' && this.sceneEngine.objects().length > 0,
+  );
 
   protected readonly rows = computed<ObjectRow[]>(() => {
     const selected = new Set(this.viewerControl.selectedObjectIds());
@@ -115,10 +125,6 @@ export class ObjectsPanel {
   protected cancelDelete(event: Event): void {
     event.stopPropagation();
     this.pendingDelete.set(null);
-  }
-
-  protected arrange(): void {
-    this.workplate.arrange();
   }
 }
 

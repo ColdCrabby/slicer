@@ -82,7 +82,7 @@ the slice still runs.
 | `--drop-to-floor` | flag | | false | Drop every model to Z=0 |
 | `--arrange` | flag | | false | Pack all models onto the bed without overlap |
 | `--arrange-spacing` | float | | 2.0 | Gap between arranged models (mm) |
-| `--arrange-auto-orient` | flag | | false | Auto-orient each model while arranging |
+| `--arrange-auto-orient` | flag | | false | Auto-orient each model while arranging (applies the machine's `preferred_print_rotation_deg`) |
 | `--verbose` | flag | | false | Print mesh stats |
 | `--output-format` | string | | human | `json` or `human` |
 

@@ -3,13 +3,14 @@ import { toSliceDtos } from './scene-slice-dto';
 
 type TestObject = Parameters<typeof toSliceDtos>[0][number];
 
-function object(name: string, sourceId: string | null, x = 0): TestObject {
+function object(name: string, sourceId: string | null, x = 0, part = 0): TestObject {
   return {
     name,
     translation: [x, 0, 0],
     euler_xyz_deg: [0, 0, 0],
     scale: [1, 1, 1],
     source_id: sourceId,
+    source_part: part,
   };
 }
 
@@ -66,6 +67,7 @@ describe('toSliceDtos', () => {
           euler_xyz_deg: [0, 45, 90],
           scale: [1, 2, 3],
           source_id: 'file-a',
+          source_part: 0,
         },
       ],
       ['file-a'],
@@ -76,6 +78,28 @@ describe('toSliceDtos', () => {
       euler_xyz_deg: [0, 45, 90],
       scale: [1, 2, 3],
     });
+  });
+
+  it('distinguishes parts of one multi-object file', () => {
+    // A 3MF holding "top" and "bottom" becomes two plate objects sharing one
+    // upload. Without the part index the server would re-load the whole file
+    // for each and print every part twice.
+    const dtos = toSliceDtos(
+      [object('top', 'file-3mf', 0, 0), object('bottom', 'file-3mf', 40, 1)],
+      ['file-3mf'],
+    );
+
+    expect(dtos.map((d) => d.file_id)).toEqual(['file-3mf', 'file-3mf']);
+    expect(dtos.map((d) => d.part_index)).toEqual([0, 1]);
+  });
+
+  it('keeps the part index when a multi-object file is duplicated', () => {
+    const dtos = toSliceDtos(
+      [object('bottom', 'file-3mf', 0, 1), object('bottom', 'file-3mf', 60, 1)],
+      ['file-3mf'],
+    );
+
+    expect(dtos.map((d) => d.part_index)).toEqual([1, 1]);
   });
 
   it('falls back to the sole upload for an object with no source', () => {

@@ -21,7 +21,7 @@ import type { RuntimeSceneObject } from '../../domain/scene-commands';
 export function toSliceDtos(
   objects: readonly Pick<
     RuntimeSceneObject,
-    'name' | 'translation' | 'euler_xyz_deg' | 'scale' | 'source_id'
+    'name' | 'translation' | 'euler_xyz_deg' | 'scale' | 'source_id' | 'source_part'
   >[],
   uploadFileIds: readonly string[],
 ): SceneObjectSliceDto[] {
@@ -32,6 +32,7 @@ export function toSliceDtos(
     return [
       {
         file_id: uploadFileIds[0],
+        part_index: 0,
         transform: {
           translation: [0, 0, 0],
           euler_xyz_deg: [0, 0, 0],
@@ -48,6 +49,9 @@ export function toSliceDtos(
     }
     return {
       file_id: fileId,
+      // Which object inside that file — a 3MF backs several plate objects,
+      // so the file id alone does not identify the geometry.
+      part_index: object.source_part ?? 0,
       transform: {
         translation: object.translation,
         euler_xyz_deg: object.euler_xyz_deg,

@@ -3,16 +3,6 @@
     <header class="op-head">
       <span class="op-title">Objects</span>
       <span class="op-count">{{ count() }}</span>
-      @if (count() > 1) {
-        <button
-          class="op-arrange"
-          type="button"
-          [tooltip]="'Arrange all objects on the bed without overlap'"
-          (click)="arrange()"
-        >
-          <nexus-icon name="grid-plus"></nexus-icon>
-        </button>
-      }
     </header>
 
     @if (warning(); as message) {

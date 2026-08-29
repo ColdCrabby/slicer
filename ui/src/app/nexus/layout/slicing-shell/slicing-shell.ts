@@ -14,7 +14,6 @@ import { ObjectsPanel } from '../../../components/objects-panel/objects-panel';
 import { SettingsPanel } from '../../../components/settings-panel/settings-panel';
 import { SliceSegmentBar } from '../../../components/slice-segment-bar/slice-segment-bar';
 import { TaskProgressBar } from '../../../components/task-progress-bar/task-progress-bar';
-import { TransformPanel } from '../../../components/transform-panel/transform-panel';
 import { ViewportCube } from '../../../components/viewport-cube/viewport-cube';
 import { PrintArea } from '../../../services/print-area';
 import { ActiveSelection } from '../../../services/profiles/active-selection';
@@ -31,7 +30,6 @@ import { SliceControl } from '../../slice-control/slice-control';
     SliceSegmentBar,
     TaskProgressBar,
     ThreeDViewToolbar,
-    TransformPanel,
     ObjectsPanel,
     ViewportCube,
     RouterOutlet,

@@ -108,7 +108,7 @@ export class SliceViewer {
     );
     try {
       const results = await this.#workplate.addFiles(files);
-      const added = results.filter((r) => r.objectId !== undefined);
+      const added = results.filter((r) => r.objectIds !== undefined);
       const failed = results.filter((r) => r.error);
 
       if (added.length === 0) {
@@ -159,7 +159,7 @@ export class SliceViewer {
 
   async #flushQueuedModels(): Promise<void> {
     const results = await this.#workplate.flushPending();
-    const added = results.filter((r) => r.objectId !== undefined);
+    const added = results.filter((r) => r.objectIds !== undefined);
     if (added.length > 0) {
       this.#notifications.success(
         added.length === 1 ? 'Model added' : `${added.length} models added`,

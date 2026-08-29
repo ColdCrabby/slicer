@@ -720,19 +720,21 @@ export class Viewer {
     this.viewerControl.view.set(view);
   }
 
-  private handleSelect(stringId: string, _additive: boolean): void {
+  private handleSelect(stringId: string, additive: boolean): void {
     const id = parseWasmId(stringId);
     if (id === null) {
       return;
     }
-    // Multi-select with click-to-toggle: clicking an unselected object
-    // adds it to the selection; clicking an already-selected object
-    // removes it. No modifier keys required.
-    const idx = this.selectedWasmIds.indexOf(id);
-    if (idx === -1) {
-      this.selectedWasmIds = [...this.selectedWasmIds, id];
-    } else {
+    const selected = this.selectedWasmIds.includes(id);
+    if (!additive) {
+      // Plain click replaces the selection, the way every other editor
+      // behaves — clicking objects in turn should walk the selection, not
+      // accumulate one. Clicking the sole selected object deselects it.
+      this.selectedWasmIds = selected && this.selectedWasmIds.length === 1 ? [] : [id];
+    } else if (selected) {
       this.selectedWasmIds = this.selectedWasmIds.filter((existing) => existing !== id);
+    } else {
+      this.selectedWasmIds = [...this.selectedWasmIds, id];
     }
     this.scene?.setSelectedIds(new Set(this.selectedWasmIds.map(String)));
     this.viewerControl.selectedObjectIds.set(this.selectedWasmIds);
@@ -1150,13 +1152,16 @@ export class Viewer {
     // can break down where wall time is spent (parse vs. render-buffer
     // copy). `performance.now()` returns a high-resolution monotonic clock.
     const tParseStart = performance.now();
-    const id = this.sceneEngine.addMesh(name, format, bytes, sourceId);
+    const ids = this.sceneEngine.addMesh(name, format, bytes, sourceId);
     const tParseEnd = performance.now();
     // Auto-orient and drop to bed on first load. Applied directly through
     // the engine (not sceneCommand) so the oriented position is the baseline
     // state and Ctrl+Z does not revert back to the un-oriented pose.
-    this.sceneEngine.apply({ op: 'AutoOrient', args: { id } });
-    this.sceneEngine.apply({ op: 'DropToFloor', args: { id } });
+    // A 3MF can yield several parts, so orient each one.
+    for (const id of ids) {
+      this.sceneEngine.apply({ op: 'AutoOrient', args: { id } });
+      this.sceneEngine.apply({ op: 'DropToFloor', args: { id } });
+    }
     // Build the display node from the engine's object list rather than by
     // hand, so this path and every other add share one code path.
     this.syncWasmMeshes();

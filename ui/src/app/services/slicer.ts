@@ -924,6 +924,7 @@ export class Slicer {
         // from, and without the source id every object falls back to the
         // first upload — slicing one model N times instead of N models.
         source_id: object.source_id,
+        source_part: object.source_part,
       })),
     };
   }

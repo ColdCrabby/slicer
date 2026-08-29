@@ -72,7 +72,7 @@ export class CloudRuntime implements RuntimePort {
     return CLOUD_CAPABILITIES;
   }
 
-  async addMesh(input: RuntimeMeshInput): Promise<string> {
+  async addMesh(input: RuntimeMeshInput): Promise<string[]> {
     this.requireReady();
     if (!input.bytes) {
       throw new Error(`Cloud runtime requires bytes for '${input.fileName}'`);
@@ -85,15 +85,15 @@ export class CloudRuntime implements RuntimePort {
     // appends to the file registry rather than replacing it.
     const upload = await this.slicerFile.upload(file);
     const fileId = upload.ofids[0] ?? '';
-    // Stamp the upload id onto the scene object so slicing resolves this
-    // object to these exact bytes instead of guessing by position.
-    const objectId = this.sceneEngine.addMesh(
+    // Stamp the upload id onto every object the file produced, so slicing
+    // resolves each one to these exact bytes instead of guessing by position.
+    const objectIds = this.sceneEngine.addMesh(
       input.fileName,
       input.format,
       uploadBytes,
       fileId || undefined,
     );
-    return objectId.toString();
+    return objectIds.map((id) => id.toString());
   }
 
   async applySceneOps(ops: RuntimeSceneOp[]): Promise<void> {
@@ -101,6 +101,11 @@ export class CloudRuntime implements RuntimePort {
     const payload: ClientMessage = {
       type: 'Scene',
       ops: ops.map((op) => {
+        // Handled before the shared id lookup: this is the one op that
+        // addresses many objects and therefore carries no single `id`.
+        if (op.op === 'remove_many') {
+          return { op: 'RemoveMany', args: { ids: op.ids.map(Number) } };
+        }
         const id = Number(op.id);
         switch (op.op) {
           case 'remove':
@@ -150,6 +155,7 @@ export class CloudRuntime implements RuntimePort {
         triangle_count: object.triangle_count,
         world_aabb: object.world_aabb,
         source_id: object.source_id,
+        source_part: object.source_part,
       })),
     };
   }
@@ -357,6 +363,7 @@ export class CloudRuntime implements RuntimePort {
       triangle_count: object.triangle_count,
       world_aabb: object.world_aabb,
       source_id: object.source_id,
+      source_part: object.source_part,
     }));
   }
 

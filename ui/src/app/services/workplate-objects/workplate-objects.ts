@@ -1,5 +1,6 @@
 import { Injectable, computed, inject } from '@angular/core';
 import { resolveRuntimeMode } from '../../runtime/domain/runtime-mode.util';
+import { Arrange } from '../arrange';
 import { Logger } from '../logger';
 import { SceneCommand } from '../scene-command/scene-command';
 import { SceneEngine } from '../scene-engine';
@@ -11,13 +12,11 @@ const MODEL_EXTENSIONS = ['stl', 'obj', '3mf'] as const;
 
 export type ModelFormat = (typeof MODEL_EXTENSIONS)[number];
 
-/** Gap left between objects when a new one is placed or duplicated (mm). */
-const PLACEMENT_SPACING_MM = 4;
-
 /** Outcome of adding one file to the plate. */
 export interface AddObjectResult {
   file: File;
-  objectId?: bigint;
+  /** Ids of every object the file produced — a 3MF can yield several. */
+  objectIds?: bigint[];
   error?: string;
 }
 
@@ -48,6 +47,7 @@ export class WorkplateObjects {
   private readonly sceneEngine = inject(SceneEngine);
   private readonly sceneCommand = inject(SceneCommand);
   private readonly slicerFile = inject(SlicerFile);
+  private readonly arrange = inject(Arrange);
 
   /** Live list of objects on the plate. */
   readonly objects = this.sceneEngine.objects;
@@ -120,7 +120,7 @@ export class WorkplateObjects {
         continue;
       }
       try {
-        results.push({ file, objectId: await this.addFile(file) });
+        results.push({ file, objectIds: await this.addFile(file) });
       } catch (error) {
         const message = error instanceof Error ? error.message : 'Failed to add model';
         this.log.error(`addFiles '${file.name}' failed`, message);
@@ -137,12 +137,12 @@ export class WorkplateObjects {
    * Used when reopening a saved workplate: the upload id is known up front,
    * so it is stamped on the object without re-uploading the bytes.
    */
-  async addUploadedFile(file: File, sourceId: string): Promise<bigint> {
+  async addUploadedFile(file: File, sourceId: string): Promise<bigint[]> {
     await this.sceneEngine.ready();
     return this.placeMesh(file.name, new Uint8Array(await file.arrayBuffer()), sourceId);
   }
 
-  private async addFile(file: File): Promise<bigint> {
+  private async addFile(file: File): Promise<bigint[]> {
     const bytes = new Uint8Array(await file.arrayBuffer());
 
     // Upload first: the object must know its file id from the moment it
@@ -156,12 +156,28 @@ export class WorkplateObjects {
     return this.placeMesh(file.name, bytes, sourceId);
   }
 
-  private placeMesh(name: string, bytes: Uint8Array, sourceId?: string): bigint {
-    const id = this.sceneEngine.addMesh(name, formatOf(name), bytes, sourceId);
-    this.sceneEngine.apply({ op: 'AutoOrient', args: { id } });
-    this.sceneEngine.apply({ op: 'DropToFloor', args: { id } });
-    this.placeClear(id);
-    return id;
+  /**
+   * Parse the bytes and place every object they contain.
+   *
+   * A 3MF can hold several parts, so this returns one id per part — each
+   * placed with the same {@link Arrange} settings a "place all" would use, so
+   * dropping a file in and pressing the place button agree on orientation and
+   * on the gap between parts.
+   */
+  private placeMesh(name: string, bytes: Uint8Array, sourceId?: string): bigint[] {
+    const ids = this.sceneEngine.addMesh(name, formatOf(name), bytes, sourceId);
+    const { autoOrient, preferredOrientationDeg } = this.arrange.settings();
+    for (const id of ids) {
+      if (autoOrient) {
+        this.sceneEngine.apply({
+          op: 'AutoOrient',
+          args: { id, options: { preferred_z_rotation_deg: preferredOrientationDeg } },
+        });
+      }
+      this.sceneEngine.apply({ op: 'DropToFloor', args: { id } });
+      this.placeClear(id);
+    }
+    return ids;
   }
 
   /**
@@ -176,7 +192,7 @@ export class WorkplateObjects {
     const [width] = footprintOf(source.world_aabb);
     this.sceneCommand.apply({
       op: 'Duplicate',
-      args: { id, offset: [width + PLACEMENT_SPACING_MM, 0, 0] },
+      args: { id, offset: [width + this.arrange.spacingMm(), 0, 0] },
     });
   }
 
@@ -200,23 +216,6 @@ export class WorkplateObjects {
   }
 
   /**
-   * Repack every object onto the bed without overlap.
-   *
-   * Orientation is left alone — the user may have deliberately posed a model,
-   * and silently re-rotating it on an arrange would throw that away.
-   */
-  arrange(): void {
-    const ids = this.objects().map((o) => o.id);
-    if (ids.length === 0) {
-      return;
-    }
-    this.sceneCommand.apply({
-      op: 'ArrangeOnBed',
-      args: { ids, options: { spacing_mm: PLACEMENT_SPACING_MM, auto_orient: false } },
-    });
-  }
-
-  /**
    * Shift a freshly-added object clear of the ones already on the plate.
    *
    * Walks right along X, each time jumping past the far edge of whichever
@@ -224,7 +223,7 @@ export class WorkplateObjects {
    * not be enough — a neighbour wider than the new object would still overlap
    * after a step, and the walk would give up while sitting inside it.
    *
-   * A plain "arrange everything" would be tidier, but it also moves models the
+   * A plain "place everything" would be tidier, but it also moves models the
    * user already positioned; adding one object should not rearrange the plate.
    * If no free spot is found the object is left where it is and the placement
    * warning flags the overlap.
@@ -241,7 +240,7 @@ export class WorkplateObjects {
       return;
     }
 
-    const dx = clearOffsetX(target.world_aabb, others, PLACEMENT_SPACING_MM);
+    const dx = clearOffsetX(target.world_aabb, others, this.arrange.spacingMm());
     if (dx !== null && dx > 0) {
       this.sceneEngine.apply({ op: 'Translate', args: { id, delta: [dx, 0, 0] } });
     }

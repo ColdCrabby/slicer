@@ -341,11 +341,22 @@ impl SliceCommand {
     /// default is `true`): on the CLI an arrangement that silently re-orients
     /// a model would discard the orientation the user asked for with
     /// `--rotate` / `--align-face`.
-    fn arrange_options(&self) -> crate::orient::ArrangeOptions {
+    ///
+    /// The machine's `preferred_print_rotation_deg` rides along with
+    /// auto-orient — it is a property of the printer (CoreXY users print
+    /// everything at 45°), so it applies wherever auto-orient chooses the pose
+    /// and is inert when the user keeps their own.
+    fn arrange_options(
+        &self,
+        machine: &crate::config::MachineConfig,
+    ) -> crate::orient::ArrangeOptions {
         crate::orient::ArrangeOptions {
             spacing_mm: self.arrange_spacing,
             auto_orient: self.arrange_auto_orient,
-            ..Default::default()
+            orient_options: crate::orient::AutoOrientOptions {
+                preferred_z_rotation_deg: machine.preferred_print_rotation_deg,
+                ..Default::default()
+            },
         }
     }
 
@@ -478,20 +489,39 @@ impl SliceCommand {
         let bed = BedConfig::from(&config.machine);
         let mut scene = SceneState::new(bed);
 
-        // Load each mesh — format is auto-detected from file extension.
+        // Load each input — format is auto-detected from the file extension.
+        // A container format that holds several parts (3MF) becomes several
+        // scene objects, so a multi-model file plates as separate parts.
         let t_load = PhaseTimer::start(phases::MESH_LOAD, &logger);
         for path in &self.input {
-            let raw_mesh = crate::scene::load_path(path)
+            let parts = crate::scene::load_path_multi(path)
                 .map_err(|e| format!("Failed to load mesh '{}': {}", path.display(), e))?;
-            let name = path
+            let file_name = path
                 .file_name()
                 .map(|n| n.to_string_lossy().into_owned())
                 .unwrap_or_else(|| "mesh".to_string());
-            // The path is the CLI's provenance handle, mirroring the WS
-            // server's uploaded-file UUID (see `SceneObject::source_id`).
-            let id =
-                scene.add_mesh_from(name, Arc::new(raw_mesh), Some(path.display().to_string()));
-            logger.log_debug(&format!("loaded {} as {}", path.display(), id));
+            let multi = parts.len() > 1;
+            for (index, part) in parts.into_iter().enumerate() {
+                let name = match (&part.name, multi) {
+                    (Some(part_name), _) => part_name.clone(),
+                    (None, true) => format!("{file_name} #{}", index + 1),
+                    (None, false) => file_name.clone(),
+                };
+                // The path is the CLI's provenance handle, mirroring the WS
+                // server's uploaded-file UUID (see `SceneObject::source_id`).
+                let id = scene.add_mesh_part(
+                    name,
+                    Arc::new(part.mesh),
+                    Some(path.display().to_string()),
+                    index,
+                );
+                logger.log_debug(&format!(
+                    "loaded {} part {} as {}",
+                    path.display(),
+                    index,
+                    id
+                ));
+            }
         }
         t_load.finish();
 
@@ -565,16 +595,18 @@ impl SliceCommand {
             logger.log_debug("applied drop-to-floor transform");
         }
         if self.arrange {
-            let options = self.arrange_options();
+            let options = self.arrange_options(&config.machine);
+            let preferred_deg = options.orient_options.preferred_z_rotation_deg;
             scene.apply(SceneOp::ArrangeOnBed {
                 ids: object_ids.clone(),
                 options,
             })?;
             logger.log_debug(&format!(
-                "arranged {} object(s) with {:.2} mm spacing (auto-orient: {})",
+                "arranged {} object(s) with {:.2} mm spacing (auto-orient: {}, preferred rotation: {:.1}°)",
                 object_ids.len(),
                 self.arrange_spacing,
-                self.arrange_auto_orient
+                self.arrange_auto_orient,
+                preferred_deg
             ));
         }
 
@@ -926,7 +958,7 @@ mod tests {
         ]);
         assert!(cmd.arrange);
 
-        let options = cmd.arrange_options();
+        let options = cmd.arrange_options(&crate::config::MachineConfig::default());
         assert_eq!(options.spacing_mm, 7.5);
         assert!(options.auto_orient);
     }
@@ -936,9 +968,29 @@ mod tests {
         // The library default is `true`; the CLI must not silently discard an
         // orientation the user picked with --rotate / --align-face.
         let cmd = parse(&["-i", "a.stl", "-i", "b.stl", "--arrange"]);
-        let options = cmd.arrange_options();
+        let options = cmd.arrange_options(&crate::config::MachineConfig::default());
         assert!(!options.auto_orient);
         assert_eq!(options.spacing_mm, 2.0);
+    }
+
+    #[test]
+    fn test_machine_preferred_rotation_reaches_arrange_options() {
+        // The machine's preferred print rotation (45° on CoreXY) is a printer
+        // property, so --arrange must carry it without a dedicated flag.
+        let cmd = parse(&[
+            "-i",
+            "a.stl",
+            "-i",
+            "b.stl",
+            "--arrange",
+            "--arrange-auto-orient",
+        ]);
+        let machine = crate::config::MachineConfig {
+            preferred_print_rotation_deg: 45.0,
+            ..Default::default()
+        };
+        let options = cmd.arrange_options(&machine);
+        assert_eq!(options.orient_options.preferred_z_rotation_deg, 45.0);
     }
 
     #[test]

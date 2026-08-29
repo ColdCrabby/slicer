@@ -42,6 +42,13 @@ pub struct SceneObject {
     /// pair them up and has to guess positionally — which silently slices the
     /// wrong mesh once the two lists diverge.
     pub source_id: Option<String>,
+    /// Which object *within* the source file this is (0-based, in build order).
+    ///
+    /// A 3MF holds a whole scene, so one file can back several scene objects.
+    /// Re-loading the file at slice time would otherwise hand back every part
+    /// for each object and print the whole file once per part; this index says
+    /// which one to keep.
+    pub source_part: usize,
 }
 
 impl SceneObject {
@@ -90,6 +97,20 @@ impl SceneState {
         mesh: Arc<Mesh>,
         source_id: Option<String>,
     ) -> ObjectId {
+        self.add_mesh_part(name, mesh, source_id, 0)
+    }
+
+    /// Add one part of a multi-object source file.
+    ///
+    /// `source_part` is the object's 0-based index within that file, so a
+    /// later re-load can pick out the right one.
+    pub fn add_mesh_part(
+        &mut self,
+        name: impl Into<String>,
+        mesh: Arc<Mesh>,
+        source_id: Option<String>,
+        source_part: usize,
+    ) -> ObjectId {
         let id = ObjectId(self.next_id);
         self.next_id += 1;
         self.objects.push(SceneObject {
@@ -98,23 +119,25 @@ impl SceneState {
             mesh,
             transform: Transform::IDENTITY,
             source_id,
+            source_part,
         });
         id
     }
 
     /// Clone an existing object, sharing its mesh.
     ///
-    /// The copy keeps the original's transform, name, and `source_id`; only
-    /// the id differs. The mesh is shared via `Arc`, so duplicating a
+    /// The copy keeps the original's transform, name, and source reference;
+    /// only the id differs. The mesh is shared via `Arc`, so duplicating a
     /// million-triangle model costs a pointer bump rather than a deep copy.
     /// Returns `None` when `id` is unknown.
     pub fn duplicate(&mut self, id: ObjectId) -> Option<ObjectId> {
         let src = self.get(id)?;
-        let (name, mesh, transform, source_id) = (
+        let (name, mesh, transform, source_id, source_part) = (
             src.name.clone(),
             Arc::clone(&src.mesh),
             src.transform,
             src.source_id.clone(),
+            src.source_part,
         );
         let new_id = ObjectId(self.next_id);
         self.next_id += 1;
@@ -124,6 +147,7 @@ impl SceneState {
             mesh,
             transform,
             source_id,
+            source_part,
         });
         Some(new_id)
     }

@@ -90,6 +90,11 @@ A few things worth knowing:
   holding N objects and M uploads has to pair them by position, which slices
   the wrong mesh as soon as the two lists disagree. Duplicates inherit it, so
   every instance of a model resolves to the same bytes.
+- **`source_part` says *which* object inside that file.** A 3MF is a scene, not
+  a model: one upload can back several plate objects. Re-loading the file at
+  slice time hands back *every* part, so the index picks the right one —
+  otherwise a two-part file prints both parts twice. It survives duplication
+  for the same reason `source_id` does.
 
 ---
 
@@ -119,9 +124,10 @@ plate as hanging off it.
 
 | Op                  | Does                                                       | Inverse stored in receipt        |
 | ------------------- | ---------------------------------------------------------- | -------------------------------- |
-| `Add`               | Loads bytes, assigns a new `ObjectId`, identity transform  | `Remove`                         |
+| `Add`               | Loads bytes; **one object per part** (3MF), identity pose  | `RemoveMany` of everything added |
 | `Remove`            | Drops the object                                           | `SetTransform` stub _(see note)_ |
-| `Duplicate`         | Clones an object (shared mesh + `source_id`), offset       | `Remove` of the copy             |
+| `RemoveMany`        | Drops several objects at once                              | `BatchSetTransform` stub         |
+| `Duplicate`         | Clones an object (shared mesh + source ref), offset        | `Remove` of the copy             |
 | `Translate`         | Adds delta to `translation`                                | `SetTransform` to previous       |
 | `SetTransform`      | Replaces the entire transform                              | `SetTransform` to previous       |
 | `Rotate`            | Composes `Quat::from_axis_angle` onto current rotation     | `SetTransform` to previous       |

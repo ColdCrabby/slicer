@@ -1,0 +1,61 @@
+@if (visible()) {
+  <div class="placement-panel" role="group" aria-label="Placement settings">
+    <header class="pp-head">
+      <span class="pp-name">Place objects</span>
+      <button
+        type="button"
+        class="pp-action"
+        [tooltip]="'Close placement settings'"
+        aria-label="Close placement settings"
+        (click)="close()"
+      >
+        <nexus-icon name="xmark"></nexus-icon>
+      </button>
+    </header>
+
+    <div class="pp-body">
+      <div class="pp-row">
+        <span class="pp-label">Auto-orient</span>
+        <nexus-switch
+          size="sm"
+          label="Auto-orient"
+          [checked]="autoOrient()"
+          (checkedChange)="setAutoOrient($event)"
+        />
+      </div>
+      <p class="pp-hint">Rests each part on its flattest face to cut overhangs.</p>
+
+      <div class="pp-field">
+        <span class="pp-label">Gap between objects</span>
+        <nexus-number-input
+          [value]="spacingMm()"
+          [min]="minSpacing"
+          [max]="maxSpacing"
+          [step]="0.5"
+          unit="mm"
+          label="Gap between objects"
+          [wheelHover]="true"
+          (valueChange)="setSpacing($event)"
+        />
+      </div>
+
+      <div class="pp-divider"></div>
+
+      <!-- Read-only: the angle describes the machine, so the printer profile
+           owns it and Settings edits it. Shown because it changes what the
+           button below does. -->
+      <div class="pp-row" [class.is-muted]="!autoOrient()">
+        <span class="pp-label">Preferred angle</span>
+        <span class="pp-readout">{{ preferredLabel() }}</span>
+      </div>
+      <p class="pp-hint">
+        {{ preferredHint() }}
+        <a class="pp-link" routerLink="/settings/printers">Change it in printer settings</a>
+      </p>
+
+      <button class="pp-run" type="button" [disabled]="objectCount() === 0" (click)="run()">
+        {{ actionLabel() }}
+      </button>
+    </div>
+  </div>
+}

@@ -9,8 +9,13 @@
 
 /* ── Floating pill groups ───────────────────────────────────────────────── */
 
-.view-group,
-:host > .button-radio-group {
+/* `:host` is load-bearing, not decoration. `nexus-card` styles itself with
+   `:host(.small) { border-radius: var(--radius-md) }`; a bare `.button-radio-group`
+   ties that on specificity and loses on order, which squares off the pill.
+   The `:host` prefix outweighs it — but do NOT make it a direct-child
+   combinator, since the pill is nested inside `.tool-cluster`. */
+:host .view-group,
+:host .button-radio-group {
   display: inline-flex;
   align-items: center;
   gap: 2px;
@@ -25,7 +30,7 @@
 /* ── Unified icon buttons (loose actions + radio segments) ──────────────── */
 
 .reset-view-button,
-.button-radio-group > button {
+.button-radio-group button {
   display: inline-grid;
   place-items: center;
   width: 34px;
@@ -74,6 +79,49 @@
     background: var(--accent-soft);
     color: var(--accent);
   }
+}
+
+/* The radio semantics wrap only the modes, so the placement action can share
+   the pill without sitting inside a `role="radiogroup"`. */
+.tool-modes {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+}
+
+/* Hairline between the mode switches and the action that follows them —
+   related enough to share the pill, different enough to read apart. */
+.tool-divider {
+  width: 1px;
+  height: 18px;
+  margin: 0 2px;
+  background: var(--color-border-lighter);
+}
+
+/* ── Contextual tool cards ──────────────────────────────────────────────── */
+
+/* Anchor for the cards the tools open. */
+.tool-cluster {
+  position: relative;
+  display: inline-flex;
+}
+
+/* Hangs the open cards directly under the buttons that reveal them, centred on
+   the group. Absolute, so it adds no height to the toolbar; a column, so a
+   transform card and a placement card can be open at once without overlapping.
+   Only the cards themselves take pointer events — the gaps stay click-through
+   to the 3D scene behind. */
+.tool-panels {
+  position: absolute;
+  top: calc(100% + var(--spacing-sm));
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 3;
+
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-sm);
+  pointer-events: none;
 }
 
 /* The picker is driven by the add-object button; keep it out of the layout

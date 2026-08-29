@@ -58,6 +58,9 @@ pub enum SceneOpJs {
     Remove {
         id: u64,
     },
+    RemoveMany {
+        ids: Vec<u64>,
+    },
     Duplicate {
         id: u64,
         #[serde(default)]
@@ -116,6 +119,8 @@ pub struct SceneObjectJs {
     pub world_aabb: [[f64; 3]; 2],
     /// Upload/file handle this object was loaded from, when known.
     pub source_id: Option<String>,
+    /// Index of this object within its source file (0 for single-part files).
+    pub source_part: usize,
     /// Part of the object falls outside the printable volume.
     pub out_of_bounds: bool,
     /// The object's footprint overlaps another object's.
@@ -210,11 +215,16 @@ impl SceneHandle {
     }
 
     /// Add a mesh from raw bytes. `format` must be `"stl"`, `"obj"`, or `"3mf"`.
-    /// Returns the assigned object id.
+    /// Returns the assigned object ids.
+    ///
+    /// A 3MF holding several parts yields **one id per part**, so a multi-model
+    /// file lands on the plate as separate, individually selectable objects.
+    /// STL and OBJ always yield exactly one.
     ///
     /// `source_id` is an opaque handle (typically the uploaded file's UUID)
-    /// stored on the object so the caller can later map it back to the bytes
-    /// it came from. Pass `undefined` when there is nothing to correlate.
+    /// stored on every created object so the caller can later map them back to
+    /// the bytes they came from. Pass `undefined` when there is nothing to
+    /// correlate.
     #[wasm_bindgen(js_name = addMesh)]
     pub fn add_mesh(
         &mut self,
@@ -222,7 +232,7 @@ impl SceneHandle {
         format: &str,
         bytes: &[u8],
         source_id: Option<String>,
-    ) -> Result<u64, JsValue> {
+    ) -> Result<Vec<u64>, JsValue> {
         let format = MeshFormat::from_extension(format)
             .ok_or_else(|| JsValue::from_str(&format!("unknown mesh format '{}'", format)))?;
         let receipt = self
@@ -234,10 +244,10 @@ impl SceneHandle {
                 source_id,
             })
             .map_err(|e| JsValue::from_str(&e.to_string()))?;
-        // The Add op records its inverse as Remove { id }; pluck the id back out.
+        // The Add op records its inverse as RemoveMany { ids }; pluck them back out.
         match receipt.inverse {
-            SceneOp::Remove { id } => Ok(id.0),
-            _ => unreachable!("Add op always returns a Remove inverse"),
+            SceneOp::RemoveMany { ids } => Ok(ids.into_iter().map(|id| id.0).collect()),
+            _ => unreachable!("Add op always returns a RemoveMany inverse"),
         }
     }
 
@@ -380,6 +390,7 @@ impl SceneHandle {
                             [world.max.x, world.max.y, world.max.z],
                         ],
                         source_id: o.source_id.clone(),
+                        source_part: o.source_part,
                         out_of_bounds: p.out_of_bounds,
                         collides: p.collides,
                     }
@@ -553,6 +564,9 @@ fn set_js_num(object: &Object, key: &str, value: f64) {
 fn js_to_op(op: SceneOpJs) -> SceneOp {
     match op {
         SceneOpJs::Remove { id } => SceneOp::Remove { id: ObjectId(id) },
+        SceneOpJs::RemoveMany { ids } => SceneOp::RemoveMany {
+            ids: ids.into_iter().map(ObjectId).collect(),
+        },
         SceneOpJs::Duplicate { id, offset } => SceneOp::Duplicate {
             id: ObjectId(id),
             offset,

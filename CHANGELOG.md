@@ -26,17 +26,46 @@ these notes and acknowledges contributors. `scripts/gen-changelog-draft.sh` and
   a single file. An **Add model** button in the 3D toolbar (and a multi-select
   file picker) places more models on the plate you already have, instead of
   replacing it. A new **Objects panel** lists everything on the plate with its
-  size, lets you select, duplicate and remove each entry, and one-click
-  **arranges** the plate without overlap. Objects that fall outside the build
-  volume or overlap another object are flagged in the list and in the panel
-  header. Reopening a saved workplate now restores **every** object on it, not
-  just the first.
+  size, and lets you select, duplicate and remove each entry. Objects that fall
+  outside the build volume or overlap another object are flagged in the list and
+  in the panel header. Reopening a saved workplate now restores **every** object
+  on it, not just the first.
+
+  **Multi-object 3MF files now land as separate objects.** A 3MF is a scene, not
+  a model: it can place several named parts on the plate. They were previously
+  fused into one mesh, so a two-part file arrived as a single un-selectable
+  blob. Each build item now becomes its own object, labelled with the name the
+  authoring tool wrote (`top`, `bottom`, …), and each slices from its own
+  geometry.
 
   This also fixes a bug that made multi-object plates unusable: scene objects
   were paired with their uploaded files *by position*, so a plate holding two
   different models sliced the first model twice. Objects now carry the id of
-  the file they were loaded from, so each one always slices from its own
-  geometry — and duplicates correctly share a single upload.
+  the file they were loaded from — and, for multi-part files, which object
+  inside it — so each one always slices from its own geometry, and duplicates
+  correctly share a single upload.
+
+- **One placement command, with options** — "Auto-orient" and "Arrange all
+  objects" were two buttons that undid each other's work: orienting left parts
+  overlapping, and arranging could not fix a part lying on a bad face. They are
+  now a single **Place objects** tool sitting with move / rotate / scale, and it
+  behaves like them: pressing it opens a card of settings that hangs directly
+  under the toolbar buttons, alongside the transform card. The card holds the
+  two things worth varying — whether parts are **auto-oriented** and how much
+  **gap** to leave between them — plus the machine's preferred print angle, and
+  `A` still places immediately. The same settings govern how a model is placed
+  when you drop it in, so adding a file and pressing the button no longer
+  disagree about orientation or spacing.
+
+- **Preferred print orientation, per printer** — printers gain a **Preferred
+  orientation** setting (Settings → Printers → Build volume). CoreXY machines
+  move fastest along their diagonals, so setting `45°` turns every auto-oriented
+  part by that much after it has been laid on its best face — the same trick
+  Orca offers. It is shown in the placement card so you can see what the button
+  will do, but edited only on the printer it belongs to. Defaults to `0°`, which
+  leaves orientation untouched. The CLI honours the equivalent machine-config
+  field (`preferred_print_rotation_deg`) during
+  `--arrange --arrange-auto-orient`.
 
 - **Multi-object CLI slicing** — `slice` now accepts several models on one
   build plate: `slicer-engine slice -i part_a.stl -i part_b.stl`. Every model
@@ -124,6 +153,17 @@ these notes and acknowledges contributors. `scripts/gen-changelog-draft.sh` and
 
 ### Fixed
 
+- **The transform panel was blank whenever more than one object was selected**,
+  so a multi-object plate could not be moved, rotated or resized from the
+  numeric fields at all. It now edits the whole selection: **Position** shows
+  the group's centre and shifts every part by the same amount (keeping your
+  layout instead of stacking them), while **Rotation** and **Scale** apply to
+  each part about its own centre — and setting a **Size** measures each part
+  individually, so a mixed batch all reaches the size you asked for. The header
+  now reads "3 objects" instead of a filename that every duplicate shared.
+- **The arrange gap defaulted to 0 mm on a fresh install**, placing parts flush
+  against each other, because an unset preference read back as the number `0`
+  rather than "unset". It now correctly starts at 4 mm.
 - **Top-surface "squiggles" where solid fill grazes a wall** — a surface whose
   boundary meets the wall band at a shallow angle was filled with a dense
   micro-serpentine of sub-millimetre stubs hugging the wall, interleaved with
