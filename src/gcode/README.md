@@ -14,6 +14,7 @@ gcode/
 ├── generator.rs    GcodeGenerator façade + generate_gcode()
 ├── stats.rs        SliceStatistics + metadata/settings header lines
 ├── simplify.rs     Ramer-Douglas-Peucker polyline simplification
+├── time_estimate.rs  acceleration-aware print-time estimator (#117)
 ├── source.rs       resolve_gcode_source() file/string resolver
 └── dialects/
     ├── mod.rs      re-exports
@@ -110,6 +111,46 @@ pushed through `(π r² × E)`.
 Both diameters are configurable via `SlicingParams` (fields `nozzle_diameter_mm`
 and `filament_diameter_mm`). Typical defaults: filament ø = 1.75 mm,
 nozzle ø = 0.40 mm.
+
+---
+
+## Print-time estimation (issue #117)
+
+The header / footer ETA and the viewer's **Layer Time** colouring come from
+[`time_estimate`](./time_estimate.rs), an **acceleration-aware** estimator that
+*parses the emitted program* rather than the slice geometry. Because it measures
+the moves the generator actually wrote, it can never drift from them — the same
+principle behind PrusaSlicer's `GCodeProcessor`.
+
+```mermaid
+flowchart LR
+    body["emitted G-code body"] --> est["time_estimate::estimate_print_time"]
+    est --> total["total_s → SliceStatistics"]
+    est --> per["per_layer_s"]
+    per --> patch["patch ;LAYER_TIME: markers"]
+    total --> hdr["header / footer ETA"]
+    patch --> viewer["viewer Layer-Time mode"]
+```
+
+Each move is timed with a **trapezoidal velocity profile** (accelerate → cruise →
+decelerate). Entry/exit speeds at each corner come from a two-pass planner
+look-ahead, and cornering speed uses the **junction-deviation** model (a right
+angle is taken at `DEFAULT_SQUARE_CORNER_VELOCITY_MM_S`, a straight join keeps
+full speed, a reversal stops). Travel moves, Z lifts and the retract/un-retract
+ceremony are all counted; per-role feedrates and per-role accelerations
+(`M204` / `SET_VELOCITY_LIMIT`) are read straight from the emitted lines.
+
+The old naive `length ÷ print_speed` figure survives only as
+[`generator::estimate_layer_time`](./generator.rs) — a cheap *pre-move* proxy
+still used for the adaptive fan decision (which must be emitted before a layer's
+moves are known); its `;LAYER_TIME:` placeholder is overwritten afterward with
+the trapezoidal figure. On a 30 mm calibration cube the naive model
+under-estimated by ~57 % (≈35 min vs the realistic ≈81 min).
+
+> **Not modelled:** heating waits, arcs, dwell, and per-axis machine limits — a
+> single acceleration plus one cornering constant stand in for a full
+> `M201`/`M203` profile. The slicer does not slow a layer to meet a minimum
+> layer time, so there is no min-layer-time slowdown to account for.
 
 ---
 
