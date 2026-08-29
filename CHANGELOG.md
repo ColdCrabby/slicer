@@ -32,6 +32,13 @@ these notes and acknowledges contributors. `scripts/gen-changelog-draft.sh` and
   desktop, and in-browser), so the files always match what the slicer reads
   back. Printer API keys are stripped from the export, so it is safe to share or
   commit — re-enter them after restoring.
+- **Dynamic overhang speed & cooling** — perimeter segments are graded by how
+  much of the extrusion width hangs over unsupported air, and each degree prints
+  at its own speed with extra part-cooling airflow. Enabled by default, tuned for
+  the 0–25 / 25–50 / 50–75 / 75–100% unsupported bands via `overhang_1_4_speed`…
+  `overhang_4_4_speed`, `overhang_fan_speed`, `overhang_fan_threshold`, and
+  `slowdown_for_curled_perimeters`; set `enable_overhang_speed` to `false` for the
+  previous single-bridge-speed behaviour.
 - **Advanced retraction modes** — the G-code generator now supports firmware
   retraction (`G10`/`G11`, synced to the firmware with `M207`/`M208` on Marlin or
   `SET_RETRACTION` on Klipper), relative extruder distances (`M83`), a

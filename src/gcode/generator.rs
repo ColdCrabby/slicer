@@ -7,7 +7,7 @@ use crate::gcode::dialect::{GcodeDialect, WarnFn};
 use crate::gcode::dialects::{KlipperDialect, MarlinDialect};
 use crate::gcode::flavor::GcodeFlavor;
 use crate::gcode::stats::SliceStatistics;
-use crate::settings::params::{LifecycleMarkerConfig, SlicingParams};
+use crate::settings::params::{fan_index, LifecycleMarkerConfig, SlicingParams};
 
 // ── Private helpers ────────────────────────────────────────────────────────────
 
@@ -242,6 +242,35 @@ pub(crate) fn volumetric_capped_speed_mm_min(
     // mm³/s ÷ mm² = mm/s, ×60 → mm/min.
     let cap_mm_min = max_volumetric_speed * 60.0 / cross_section;
     speed_mm_min.min(cap_mm_min)
+}
+
+/// Slowest strictly-positive `overhang_*_speed` (mm/s), or `None` when no
+/// per-degree overhang speed is configured.  Used by
+/// [`GcodeGenerator::effective_speed_mm_min`] to clamp curl-prone steep
+/// overhangs when `slowdown_for_curled_perimeters` is on.
+fn slowest_overhang_speed_mm_s(params: &SlicingParams) -> Option<f64> {
+    [
+        params.overhang_1_4_speed,
+        params.overhang_2_4_speed,
+        params.overhang_3_4_speed,
+        params.overhang_4_4_speed,
+    ]
+    .into_iter()
+    .filter(|s| *s > 0.0)
+    .min_by(|a, b| a.partial_cmp(b).unwrap())
+}
+
+/// `true` when an overhang class is severe enough to trigger the overhang fan.
+///
+/// The class's *upper* unsupported fraction (Deg1 → 25%, Deg2 → 50%, Deg3 →
+/// 75%, Deg4 → 100%) must exceed `overhang_fan_threshold`, so the default 0.5
+/// threshold engages the fan from Deg3 (50–75%) upward.
+fn overhang_meets_fan_threshold(
+    overhang: crate::core::OverhangClass,
+    params: &SlicingParams,
+) -> bool {
+    let upper_fraction = overhang.band() as f64 * 0.25;
+    upper_fraction > params.overhang_fan_threshold + f64::EPSILON
 }
 
 /// Resolve the extrusion width for a path.
@@ -897,10 +926,15 @@ impl GcodeGenerator {
     ///
     /// The priority order is:
     /// 1. First-layer speed (when `is_first_layer` is true)
-    /// 2. Role-specific speed (perimeter, infill, bridge, top/bottom surface)
-    /// 3. General `print_speed` fallback when a role-specific speed is ≤ 0
+    /// 2. **Dynamic overhang speed** (when `enable_overhang_speed` and the path
+    ///    carries an overhang [`OverhangClass`]): the per-degree
+    ///    `overhang_1_4_speed`…`overhang_4_4_speed` override, or the role's
+    ///    normal speed when that degree is left at `0`.
+    /// 3. Role-specific speed (perimeter, infill, bridge, top/bottom surface)
+    /// 4. General `print_speed` fallback when a role-specific speed is ≤ 0
     fn effective_speed_mm_min(
         role: crate::core::ExtrusionRole,
+        overhang: crate::core::OverhangClass,
         is_first_layer: bool,
         params: &SlicingParams,
     ) -> f64 {
@@ -910,7 +944,10 @@ impl GcodeGenerator {
             let s = params.first_layer_speed;
             return if s > 0.0 { s * 60.0 } else { fallback };
         }
-        match role {
+        // Base role speed (also the fallback for an un-configured overhang
+        // degree — perimeter speed for the mild Deg1/Deg2 walls, bridge speed
+        // for the steep Deg3/Deg4 walls, which carry the OverhangPerimeter role).
+        let base = match role {
             ExtrusionRole::OuterWall | ExtrusionRole::InnerWall => {
                 let s = params.perimeter_speed;
                 if s > 0.0 {
@@ -958,7 +995,30 @@ impl GcodeGenerator {
                 }
             }
             _ => fallback,
+        };
+
+        // Dynamic overhang speed override.
+        if params.enable_overhang_speed && overhang.is_overhang() {
+            let cfg = match overhang {
+                crate::core::OverhangClass::Deg1 => params.overhang_1_4_speed,
+                crate::core::OverhangClass::Deg2 => params.overhang_2_4_speed,
+                crate::core::OverhangClass::Deg3 => params.overhang_3_4_speed,
+                crate::core::OverhangClass::Deg4 => params.overhang_4_4_speed,
+                crate::core::OverhangClass::None => 0.0,
+            };
+            // `0` = keep the role's normal speed for this degree.
+            let mut s = if cfg > 0.0 { cfg * 60.0 } else { base };
+            // Slow curl-prone steep overhangs (Deg3/Deg4) to the most
+            // conservative configured overhang speed.
+            if params.slowdown_for_curled_perimeters && overhang.band() >= 3 {
+                if let Some(slowest) = slowest_overhang_speed_mm_s(params) {
+                    s = s.min(slowest * 60.0);
+                }
+            }
+            return s;
         }
+
+        base
     }
 
     /// Resolve the target acceleration (mm/s²) for a path, or `None` when
@@ -1441,6 +1501,11 @@ impl GcodeGenerator {
             }
 
             // ── Adaptive fan speed ───────────────────────────────────────────
+            // The part-cooling fan's emitted base speed, captured for the
+            // dynamic-overhang fan override so it can restore normal cooling
+            // when leaving an overhang region.
+            let mut part_cooling_base: Option<f64> = None;
+            let mut part_cooling_klipper_name: Option<String> = None;
             if !params.fan_configs.is_empty() {
                 let layer_time = estimate_layer_time(layer, params.print_speed);
                 // Bridge detection: any path tagged Bridge or OverhangPerimeter
@@ -1461,6 +1526,10 @@ impl GcodeGenerator {
                     if let Some(slot) = prev_fan_speeds.get_mut(fan_idx) {
                         *slot = Some(speed);
                     }
+                    if fan.fan_index == fan_index::PART_COOLING && part_cooling_base.is_none() {
+                        part_cooling_base = Some(speed);
+                        part_cooling_klipper_name = fan.klipper_name.clone();
+                    }
                     out.push_str(&format!(
                         "{}\n",
                         self.dialect.set_fan_speed_indexed(
@@ -1471,6 +1540,20 @@ impl GcodeGenerator {
                     ));
                 }
             }
+
+            // Enable the dynamic-overhang fan override only when the feature is
+            // on, an overhang fan speed is set, and there is a part-cooling fan
+            // to drive.  `overhang_fan_state` starts at the base speed the block
+            // above just emitted, so the first overhang segment emits the boost
+            // and a plain layer emits nothing extra.
+            let overhang_base_fan: Option<f64> =
+                if params.enable_overhang_speed && params.overhang_fan_speed > 0.0 {
+                    part_cooling_base
+                } else {
+                    None
+                };
+            let overhang_fan_klipper_name = part_cooling_klipper_name;
+            let mut overhang_fan_state: Option<f64> = overhang_base_fan;
 
             let mut last_role: Option<crate::core::ExtrusionRole> = None;
             let mut last_width: Option<f64> = None;
@@ -1488,7 +1571,14 @@ impl GcodeGenerator {
 
                 let role = crate::core::ExtrusionRole::OuterWall;
                 let width_mm = resolve_width_mm(layer.width_for_path(idx), false, role, params);
-                let speed_mm_min = Self::effective_speed_mm_min(role, is_first_layer, params);
+                // Spiral mode skips overhang classification (it would split the
+                // single continuous contour), so there is never a degree here.
+                let speed_mm_min = Self::effective_speed_mm_min(
+                    role,
+                    crate::core::OverhangClass::None,
+                    is_first_layer,
+                    params,
+                );
 
                 // Adaptive acceleration (opt-in), same policy as normal walls.
                 if let Some(accel) = Self::effective_acceleration(role, is_first_layer, params) {
@@ -1603,6 +1693,7 @@ impl GcodeGenerator {
                 // the per-role width override off, since such beads carry their
                 // own authoritative widths.
                 let role = layer.role_for_path(path_idx);
+                let overhang = layer.overhang_for_path(path_idx);
                 let raw_vertex_widths = layer.vertex_widths_for_path(path_idx);
                 let width_mm = resolve_width_mm(
                     layer.width_for_path(path_idx),
@@ -1611,8 +1702,37 @@ impl GcodeGenerator {
                     params,
                 );
 
-                // Resolve per-role print speed.
-                let speed_mm_min = Self::effective_speed_mm_min(role, is_first_layer, params);
+                // Resolve per-role print speed (with dynamic overhang override).
+                let speed_mm_min =
+                    Self::effective_speed_mm_min(role, overhang, is_first_layer, params);
+
+                // ── Dynamic overhang fan ─────────────────────────────────────
+                // Raise the part-cooling fan for overhang segments at/above the
+                // configured threshold and restore the layer's normal cooling
+                // when leaving them.  Emitted only on change so a run of overhang
+                // arcs (grouped by the OverhangPerimeter role) toggles the fan at
+                // most twice per layer.
+                if let Some(base_fan) = overhang_base_fan {
+                    let want_boost = params.overhang_fan_speed > 0.0
+                        && overhang.is_overhang()
+                        && overhang_meets_fan_threshold(overhang, params);
+                    let target = if want_boost {
+                        params.overhang_fan_speed
+                    } else {
+                        base_fan
+                    };
+                    if overhang_fan_state != Some(target) {
+                        out.push_str(&format!(
+                            "{} ; overhang fan\n",
+                            self.dialect.set_fan_speed_indexed(
+                                fan_index::PART_COOLING,
+                                overhang_fan_klipper_name.as_deref(),
+                                target
+                            )
+                        ));
+                        overhang_fan_state = Some(target);
+                    }
+                }
 
                 // Global volumetric-flow ceiling for constant-width emissions
                 // (coasting splits and the close-contour move).  Variable-width
@@ -4684,7 +4804,12 @@ CHAMBER={chamber_temp} MATERIAL={filament_type}"
             ..SlicingParams::default()
         };
         // When role-specific speed is 0, falls back to print_speed
-        let s = GcodeGenerator::effective_speed_mm_min(ExtrusionRole::OuterWall, false, &params);
+        let s = GcodeGenerator::effective_speed_mm_min(
+            ExtrusionRole::OuterWall,
+            crate::core::OverhangClass::None,
+            false,
+            &params,
+        );
         assert!(
             (s - 60.0 * 60.0).abs() < 1e-6,
             "expected fallback to print_speed * 60"
@@ -4734,12 +4859,22 @@ CHAMBER={chamber_temp} MATERIAL={filament_type}"
             perimeter_speed: 45.0,
             ..SlicingParams::default()
         };
-        let s = GcodeGenerator::effective_speed_mm_min(ExtrusionRole::OuterWall, false, &params);
+        let s = GcodeGenerator::effective_speed_mm_min(
+            ExtrusionRole::OuterWall,
+            crate::core::OverhangClass::None,
+            false,
+            &params,
+        );
         assert!(
             (s - 45.0 * 60.0).abs() < 1e-6,
             "expected perimeter_speed * 60"
         );
-        let s = GcodeGenerator::effective_speed_mm_min(ExtrusionRole::InnerWall, false, &params);
+        let s = GcodeGenerator::effective_speed_mm_min(
+            ExtrusionRole::InnerWall,
+            crate::core::OverhangClass::None,
+            false,
+            &params,
+        );
         assert!(
             (s - 45.0 * 60.0).abs() < 1e-6,
             "inner wall should also use perimeter_speed"
@@ -4812,7 +4947,12 @@ CHAMBER={chamber_temp} MATERIAL={filament_type}"
             infill_speed: 70.0,
             ..SlicingParams::default()
         };
-        let s = GcodeGenerator::effective_speed_mm_min(ExtrusionRole::Infill, false, &params);
+        let s = GcodeGenerator::effective_speed_mm_min(
+            ExtrusionRole::Infill,
+            crate::core::OverhangClass::None,
+            false,
+            &params,
+        );
         assert!((s - 70.0 * 60.0).abs() < 1e-6, "expected infill_speed * 60");
     }
 
@@ -4824,7 +4964,12 @@ CHAMBER={chamber_temp} MATERIAL={filament_type}"
             bridge_speed: 25.0,
             ..SlicingParams::default()
         };
-        let s = GcodeGenerator::effective_speed_mm_min(ExtrusionRole::Bridge, false, &params);
+        let s = GcodeGenerator::effective_speed_mm_min(
+            ExtrusionRole::Bridge,
+            crate::core::OverhangClass::None,
+            false,
+            &params,
+        );
         assert!((s - 25.0 * 60.0).abs() < 1e-6, "expected bridge_speed * 60");
     }
 
@@ -4838,10 +4983,189 @@ CHAMBER={chamber_temp} MATERIAL={filament_type}"
             ..SlicingParams::default()
         };
         // On first layer, all roles get first_layer_speed
-        let s = GcodeGenerator::effective_speed_mm_min(ExtrusionRole::Infill, true, &params);
+        let s = GcodeGenerator::effective_speed_mm_min(
+            ExtrusionRole::Infill,
+            crate::core::OverhangClass::None,
+            true,
+            &params,
+        );
         assert!(
             (s - 20.0 * 60.0).abs() < 1e-6,
             "first_layer_speed should override infill_speed on first layer"
+        );
+    }
+
+    #[test]
+    fn test_effective_speed_dynamic_overhang_per_degree() {
+        use crate::core::{ExtrusionRole, OverhangClass};
+        let params = SlicingParams {
+            print_speed: 60.0,
+            perimeter_speed: 45.0,
+            bridge_speed: 25.0,
+            enable_overhang_speed: true,
+            overhang_1_4_speed: 0.0, // no slowdown → perimeter_speed
+            overhang_2_4_speed: 40.0,
+            overhang_3_4_speed: 30.0,
+            overhang_4_4_speed: 15.0,
+            ..SlicingParams::default()
+        };
+        // Deg1 (0) falls back to the mild wall base (perimeter_speed).
+        let s1 = GcodeGenerator::effective_speed_mm_min(
+            ExtrusionRole::InnerWall,
+            OverhangClass::Deg1,
+            false,
+            &params,
+        );
+        assert!((s1 - 45.0 * 60.0).abs() < 1e-6, "Deg1=0 → perimeter_speed");
+        // Deg2 uses its configured speed even on a still-InnerWall segment.
+        let s2 = GcodeGenerator::effective_speed_mm_min(
+            ExtrusionRole::InnerWall,
+            OverhangClass::Deg2,
+            false,
+            &params,
+        );
+        assert!((s2 - 40.0 * 60.0).abs() < 1e-6, "Deg2 → overhang_2_4_speed");
+        // Deg3/Deg4 carry the OverhangPerimeter role and use their speeds.
+        let s3 = GcodeGenerator::effective_speed_mm_min(
+            ExtrusionRole::OverhangPerimeter,
+            OverhangClass::Deg3,
+            false,
+            &params,
+        );
+        assert!((s3 - 30.0 * 60.0).abs() < 1e-6, "Deg3 → overhang_3_4_speed");
+        let s4 = GcodeGenerator::effective_speed_mm_min(
+            ExtrusionRole::OverhangPerimeter,
+            OverhangClass::Deg4,
+            false,
+            &params,
+        );
+        assert!((s4 - 15.0 * 60.0).abs() < 1e-6, "Deg4 → overhang_4_4_speed");
+    }
+
+    #[test]
+    fn test_effective_speed_overhang_disabled_ignores_degree() {
+        use crate::core::{ExtrusionRole, OverhangClass};
+        // Feature off: an OverhangPerimeter Deg4 path still prints at bridge_speed.
+        let params = SlicingParams {
+            print_speed: 60.0,
+            bridge_speed: 25.0,
+            enable_overhang_speed: false,
+            overhang_4_4_speed: 5.0, // ignored while disabled
+            ..SlicingParams::default()
+        };
+        let s = GcodeGenerator::effective_speed_mm_min(
+            ExtrusionRole::OverhangPerimeter,
+            OverhangClass::Deg4,
+            false,
+            &params,
+        );
+        assert!(
+            (s - 25.0 * 60.0).abs() < 1e-6,
+            "disabled overhang speed must fall back to bridge_speed"
+        );
+    }
+
+    #[test]
+    fn test_effective_speed_slowdown_for_curled_perimeters_clamps_steep() {
+        use crate::core::{ExtrusionRole, OverhangClass};
+        let params = SlicingParams {
+            print_speed: 60.0,
+            enable_overhang_speed: true,
+            slowdown_for_curled_perimeters: true,
+            overhang_2_4_speed: 12.0, // slowest positive → the curl clamp
+            overhang_3_4_speed: 30.0,
+            overhang_4_4_speed: 20.0,
+            ..SlicingParams::default()
+        };
+        // Deg3's own speed (30) is clamped down to the slowest positive (12).
+        let s3 = GcodeGenerator::effective_speed_mm_min(
+            ExtrusionRole::OverhangPerimeter,
+            OverhangClass::Deg3,
+            false,
+            &params,
+        );
+        assert!(
+            (s3 - 12.0 * 60.0).abs() < 1e-6,
+            "curl clamp → slowest speed"
+        );
+    }
+
+    #[test]
+    fn test_overhang_meets_fan_threshold_default_half() {
+        use crate::core::OverhangClass;
+        let params = SlicingParams {
+            overhang_fan_threshold: 0.5,
+            ..SlicingParams::default()
+        };
+        assert!(!overhang_meets_fan_threshold(OverhangClass::Deg1, &params));
+        assert!(!overhang_meets_fan_threshold(OverhangClass::Deg2, &params));
+        assert!(overhang_meets_fan_threshold(OverhangClass::Deg3, &params));
+        assert!(overhang_meets_fan_threshold(OverhangClass::Deg4, &params));
+    }
+
+    #[test]
+    fn test_generator_emits_overhang_fan_command() {
+        use crate::core::{ExtrusionRole, OverhangClass};
+        use clipper2::Path;
+        let mut layer = SliceLayer::new(1.0); // not first layer
+                                              // A supported inner wall then a steep overhang arc.
+        let wall: Path = vec![(0.0, 0.0), (10.0, 0.0), (10.0, 10.0), (0.0, 10.0)].into();
+        let arc: Path = vec![(0.0, 20.0), (10.0, 20.0), (10.0, 30.0)].into();
+        layer.paths.push(wall);
+        layer.path_roles.push(ExtrusionRole::InnerWall);
+        layer.path_overhang.push(OverhangClass::None);
+        layer.paths.push(arc);
+        layer.path_roles.push(ExtrusionRole::OverhangPerimeter);
+        layer.path_overhang.push(OverhangClass::Deg4);
+        layer.path_is_open = vec![false, true];
+
+        let params = SlicingParams {
+            enable_overhang_speed: true,
+            overhang_fan_speed: 1.0,
+            overhang_fan_threshold: 0.5,
+            // Base part-cooling fan tops out at 50% so the overhang boost to
+            // 100% is a genuine change the generator must emit.
+            fan_configs: vec![crate::settings::params::FanConfig {
+                fan_index: 0,
+                klipper_name: None,
+                min_speed: 0.3,
+                max_speed: 0.5,
+                layer_time_fast_s: 10.0,
+                layer_time_slow_s: 30.0,
+                aux_overrides: None,
+            }],
+            ..SlicingParams::default()
+        };
+        let gen = GcodeGenerator::new(GcodeFlavor::Marlin);
+        let gcode = gen.generate(&[layer], &params);
+        assert!(
+            gcode.contains("; overhang fan"),
+            "expected an overhang fan command in:\n{gcode}"
+        );
+    }
+
+    #[test]
+    fn test_generator_no_overhang_fan_when_disabled() {
+        use crate::core::{ExtrusionRole, OverhangClass};
+        use clipper2::Path;
+        let mut layer = SliceLayer::new(1.0);
+        let arc: Path = vec![(0.0, 20.0), (10.0, 20.0), (10.0, 30.0)].into();
+        layer.paths.push(arc);
+        layer.path_roles.push(ExtrusionRole::OverhangPerimeter);
+        layer.path_overhang.push(OverhangClass::Deg4);
+        layer.path_is_open = vec![true];
+
+        // overhang_fan_speed left at 0 → no override.
+        let params = SlicingParams {
+            enable_overhang_speed: true,
+            overhang_fan_speed: 0.0,
+            ..SlicingParams::default()
+        };
+        let gen = GcodeGenerator::new(GcodeFlavor::Marlin);
+        let gcode = gen.generate(&[layer], &params);
+        assert!(
+            !gcode.contains("; overhang fan"),
+            "no overhang fan command expected when overhang_fan_speed is 0:\n{gcode}"
         );
     }
 
