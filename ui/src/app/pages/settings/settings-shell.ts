@@ -48,6 +48,7 @@ export class SettingsShell {
     { path: 'profiles', label: 'Print Profiles', icon: 'reports' },
     { path: 'labels', label: 'Labels', icon: 'label' },
     { path: 'shortcuts', label: 'Shortcuts', icon: 'square-cursor' },
+    { path: 'changelog', label: "What's New", icon: 'sparks' },
     { path: 'danger-zone', label: 'Danger Zone', icon: 'warning-triangle' },
   ];
 

@@ -613,6 +613,20 @@ Supported values:
     #[serde(default = "SlicingParams::default_seam_position")]
     pub seam_position: SeamPosition,
 
+    #[schemars(description = "Spiral (vase) mode — print a single continuous outer wall whose Z \
+ramps smoothly over each layer, producing a seamless single-wall vase with no Z-seam.
+
+When enabled the slicer forces a single perimeter and turns off everything that would break the \
+continuous spiral: sparse infill, top surfaces, retraction and Z-hop are all disabled. The solid \
+bottom layers (`bottom_layers`) are kept as the base — set `bottom_layers` to `0` for an \
+open-bottomed tube. Best on **solid, single-island** models; only the outermost contour of each \
+layer is spiralized (interior holes are ignored). Layers with more than one island fall back to \
+normal (non-spiral) printing with a warning.
+
+**Default:** `false`.", extend("x-group" = "Walls"))]
+    #[serde(default = "SlicingParams::default_spiral_vase")]
+    pub spiral_vase: bool,
+
     #[schemars(description = "Infill density as a fraction (0.0–1.0).
 
 - `0.0` = completely hollow
@@ -951,6 +965,92 @@ Pulls filament back into the nozzle to reduce oozing and stringing.
     #[serde(default = "SlicingParams::default_retract_mm")]
     pub retract_mm: f64,
 
+    #[schemars(description = "Minimum travel distance in mm before a retraction is triggered.
+
+Short hops between adjacent paths do not ooze enough to justify the
+retract → travel → un-retract cycle (which itself takes longer than the hop).
+Travels longer than 2 mm always retract regardless of this value.
+**Typical:** 1.0–2.0 mm. Set to `0` to retract on every travel.", extend("x-group" = "Retraction"))]
+    #[serde(default = "SlicingParams::default_retract_before_travel_mm")]
+    pub retract_before_travel_mm: f64,
+
+    #[schemars(description = "Extra prime length in mm added when un-retracting after a travel.
+
+Compensates for filament that oozed away during the travel by depositing a
+little extra material on restart. In firmware retraction mode this is forwarded
+to the firmware (`M208`/`SET_RETRACTION`).
+**Typical:** 0.0–0.2 mm. Set to `0` to disable.", extend("x-group" = "Retraction"))]
+    #[serde(default = "SlicingParams::default_retract_restart_extra_mm")]
+    pub retract_restart_extra_mm: f64,
+
+    #[schemars(
+        description = "Force a retraction at every layer change.
+
+Retracts before the layer-change Z move so the nozzle does not ooze while
+lifting and travelling to the first path of the next layer.
+**Recommended:** off (the first travel of each layer already retracts).",
+        extend("x-group" = "Retraction")
+    )]
+    #[serde(default = "SlicingParams::default_retract_on_layer_change")]
+    pub retract_on_layer_change: bool,
+
+    #[schemars(
+        description = "Use firmware retraction (`G10`/`G11`) instead of extruder-axis (`G1 E`) moves.
+
+Delegates retraction to the printer firmware. The slicer emits `G10`/`G11` and
+syncs the firmware's retraction length, speed and restart-extra from the
+retraction settings (`M207`/`M208` on Marlin, `SET_RETRACTION` on Klipper).
+Requires firmware retraction support (`[firmware_retraction]` on Klipper).
+**Recommended:** off unless your firmware is configured for it.",
+        extend("x-group" = "Retraction")
+    )]
+    #[serde(default = "SlicingParams::default_use_firmware_retraction")]
+    pub use_firmware_retraction: bool,
+
+    #[schemars(
+        description = "Emit relative extruder distances (`M83`) instead of absolute (`M82`).
+
+Each extrusion move carries the incremental filament length rather than a
+running absolute position. Relative E is more robust across custom start
+G-code / macros that leave the extruder in an unknown state.
+**Recommended:** off for maximum compatibility; on if your macros expect it.",
+        extend("x-group" = "Retraction")
+    )]
+    #[serde(default = "SlicingParams::default_use_relative_e_distances")]
+    pub use_relative_e_distances: bool,
+
+    #[schemars(
+        description = "Wipe the nozzle along the just-printed path while retracting.
+
+Retraces the tail of the previous path before travelling, smearing any ooze
+onto already-printed material instead of leaving a blob at the seam.
+**Recommended:** off; enable to reduce stringing on some materials.",
+        extend("x-group" = "Retraction")
+    )]
+    #[serde(default = "SlicingParams::default_wipe")]
+    pub wipe: bool,
+
+    #[schemars(description = "Distance in mm to wipe the nozzle when `wipe` is enabled.
+
+The nozzle retraces this far back along the just-printed path. Capped at the
+length of that path.
+**Typical:** 1.0–3.0 mm.", extend("x-group" = "Retraction"))]
+    #[serde(default = "SlicingParams::default_wipe_distance_mm")]
+    pub wipe_distance_mm: f64,
+
+    #[schemars(
+        description = "Fraction of the retraction performed before the wipe move (0.0–1.0).
+
+`0.0` performs the whole retraction *during* the wipe (distributed along the
+wipe move); `1.0` retracts fully *before* wiping. Only used when `wipe` is
+enabled and firmware retraction is off (firmware retraction cannot split a
+retraction).
+**Typical:** 0.0.",
+        extend("x-group" = "Retraction")
+    )]
+    #[serde(default = "SlicingParams::default_retract_before_wipe_percent")]
+    pub retract_before_wipe_percent: f64,
+
     #[schemars(
         description = "Use a single outer wall on the topmost layer of top surfaces.
 
@@ -1277,6 +1377,56 @@ tension before the nozzle moves on.
     pub bridge_acceleration: f64,
 
     #[schemars(
+        description = "Square-corner velocity in mm/s — the speed the head keeps through a 90° corner (junction-deviation cornering). `0` = use the estimator/firmware default (5 mm/s).
+
+Higher values corner faster (shorter prints, more ringing); lower values slow into corners for cleaner edges. When set, the slicer emits the firmware limit (Klipper `SET_VELOCITY_LIMIT SQUARE_CORNER_VELOCITY=…`, Marlin `M205 J…` junction deviation) and the print-time estimate uses the same value, so the ETA tracks reality.
+**Typical:** 5–10.",
+        extend("x-group" = "Speed")
+    )]
+    #[serde(default = "SlicingParams::default_square_corner_velocity")]
+    pub square_corner_velocity: f64,
+
+    #[schemars(
+        description = "Maximum travel/print velocity cap in mm/s. `0` = unlimited (no cap).
+
+The machine's top speed: any role feedrate above this is clamped by the firmware, so the estimate honors it too. When set, the slicer emits the firmware limit (Klipper `SET_VELOCITY_LIMIT VELOCITY=…`, Marlin `M203 X… Y…`).
+**Typical:** 150–500.",
+        extend("x-group" = "Speed")
+    )]
+    #[serde(default = "SlicingParams::default_max_velocity")]
+    pub max_velocity: f64,
+
+    #[schemars(
+        description = "Fixed warm-up allowance in seconds added *before* the toolpath in the print-time estimate. `0` = none.
+
+Accounts for wall-clock the toolpath can't show — homing, bed mesh, heat-soak, purge — none of which is derivable from the moves. A flat allowance, not a thermal model.
+**Typical:** 60–300.",
+        extend("x-group" = "Time estimate")
+    )]
+    #[serde(default = "SlicingParams::default_time_estimate_warmup_s")]
+    pub time_estimate_warmup_s: f64,
+
+    #[schemars(
+        description = "Fixed cool-down allowance in seconds added *after* the toolpath in the print-time estimate. `0` = none.
+
+For material/hardware that isn't \"done\" at the last move — e.g. an ABS chamber cool-off or a park-and-cool end sequence — before the print is truly finished.
+**Typical:** 0–120.",
+        extend("x-group" = "Time estimate")
+    )]
+    #[serde(default = "SlicingParams::default_time_estimate_cooldown_s")]
+    pub time_estimate_cooldown_s: f64,
+
+    #[schemars(
+        description = "Calibration multiplier applied to the *toolpath* portion of the print-time estimate. `1.0` = no adjustment.
+
+If real prints consistently run a few percent over/under the estimate (tiny details the model rounds off, firmware smoothing), nudge this to match your machine — `1.05` adds 5 %. Scales only the toolpath; the fixed warm-up/cool-down allowances are added afterward.
+**Typical:** 0.9–1.15.",
+        extend("x-group" = "Time estimate")
+    )]
+    #[serde(default = "SlicingParams::default_time_estimate_scale")]
+    pub time_estimate_scale: f64,
+
+    #[schemars(
         description = "Number of initial layers with the part-cooling fan forced off.
 
 Improves adhesion of the first few layers.
@@ -1515,6 +1665,7 @@ impl Default for SlicingParams {
             wall_transition_angle: Self::default_wall_transition_angle(),
             wall_transition_filter_distance: Self::default_wall_transition_filter_distance(),
             seam_position: Self::default_seam_position(),
+            spiral_vase: Self::default_spiral_vase(),
             infill_density: 0.2,
             infill_pattern: Self::default_infill_pattern(),
             infill_base_angle: Self::default_infill_base_angle(),
@@ -1547,6 +1698,14 @@ impl Default for SlicingParams {
             travel_speed_mm_min: Self::default_travel_speed_mm_min(),
             z_hop_mm: Self::default_z_hop_mm(),
             retract_mm: Self::default_retract_mm(),
+            retract_before_travel_mm: Self::default_retract_before_travel_mm(),
+            retract_restart_extra_mm: Self::default_retract_restart_extra_mm(),
+            retract_on_layer_change: Self::default_retract_on_layer_change(),
+            use_firmware_retraction: Self::default_use_firmware_retraction(),
+            use_relative_e_distances: Self::default_use_relative_e_distances(),
+            wipe: Self::default_wipe(),
+            wipe_distance_mm: Self::default_wipe_distance_mm(),
+            retract_before_wipe_percent: Self::default_retract_before_wipe_percent(),
             only_one_wall_top: Self::default_only_one_wall_top(),
             only_one_wall_first_layer: Self::default_only_one_wall_first_layer(),
             support_threshold_angle: Self::default_support_threshold_angle(),
@@ -1577,6 +1736,11 @@ impl Default for SlicingParams {
             top_surface_acceleration: Self::default_top_surface_acceleration(),
             outer_wall_acceleration: Self::default_outer_wall_acceleration(),
             bridge_acceleration: Self::default_bridge_acceleration(),
+            square_corner_velocity: Self::default_square_corner_velocity(),
+            max_velocity: Self::default_max_velocity(),
+            time_estimate_warmup_s: Self::default_time_estimate_warmup_s(),
+            time_estimate_cooldown_s: Self::default_time_estimate_cooldown_s(),
+            time_estimate_scale: Self::default_time_estimate_scale(),
             disable_fan_first_layers: Self::default_disable_fan_first_layers(),
             max_volumetric_speed: Self::default_max_volumetric_speed(),
             extruder_count: Self::default_extruder_count(),
@@ -1610,6 +1774,30 @@ impl Default for SlicingParams {
 }
 
 impl SlicingParams {
+    /// Serialize these params into a stable string for the G-code content cache
+    /// key, **excluding the ephemeral thumbnail image payload**
+    /// (`thumbnail_png_base64`).
+    ///
+    /// The embedded PNG is captured fresh from the viewer on every slice, so its
+    /// bytes vary between renders (GPU/driver/anti-alias resolve, or an entirely
+    /// different client) even for an otherwise-identical scene. Hashing it into
+    /// the cache key would turn a re-slice into a miss and defeat cross-client
+    /// reuse — exactly the "must not bust the cache on every camera nudge"
+    /// requirement from issue #106. The thumbnail *settings* (view / theme /
+    /// size / colour) are deliberately retained, so the preview embedded in a
+    /// cached file always matches the request that reused it (the capture is a
+    /// fixed, deterministic viewpoint, so identical settings yield an
+    /// equivalent image).
+    ///
+    /// See the "G-code result cache" contract in AGENTS.md.
+    pub fn cache_fingerprint(&self) -> String {
+        let mut value = serde_json::to_value(self).unwrap_or(serde_json::Value::Null);
+        if let Some(obj) = value.as_object_mut() {
+            obj.remove("thumbnail_png_base64");
+        }
+        value.to_string()
+    }
+
     fn default_first_layer_height() -> f64 {
         0.0
     }
@@ -1654,6 +1842,25 @@ impl SlicingParams {
     }
     fn default_bridge_acceleration() -> f64 {
         0.0
+    }
+    fn default_square_corner_velocity() -> f64 {
+        // `0` = defer to the estimator/firmware default (5 mm/s). Kept at 0 so a
+        // profile that never set it doesn't start emitting an `M205`/velocity
+        // limit that changes existing output.
+        0.0
+    }
+    fn default_max_velocity() -> f64 {
+        // `0` = no cap; role feedrates stand as emitted.
+        0.0
+    }
+    fn default_time_estimate_warmup_s() -> f64 {
+        0.0
+    }
+    fn default_time_estimate_cooldown_s() -> f64 {
+        0.0
+    }
+    fn default_time_estimate_scale() -> f64 {
+        1.0
     }
     fn default_disable_fan_first_layers() -> usize {
         1
@@ -1740,6 +1947,42 @@ impl SlicingParams {
 }
 
 impl SlicingParams {
+    /// Return a copy of these parameters with the settings that are
+    /// incompatible with spiral (vase) mode forced off, so the slicing pipeline
+    /// and the G-code generator always observe a consistent single-wall
+    /// configuration.
+    ///
+    /// When [`SlicingParams::spiral_vase`] is `false` this borrows `self`
+    /// unchanged. When it is `true` it forces:
+    /// - `wall_count = 1` (a single continuous perimeter),
+    /// - `infill_density = 0` and `top_layers = 0` (nothing fills the hollow
+    ///   interior of the vase),
+    /// - `retract_mm = 0` and `z_hop_mm = 0` (the spiral is one uninterrupted
+    ///   extrusion, so retraction/Z-hop would only stutter it),
+    /// - `ironing_enabled = false`.
+    ///
+    /// `bottom_layers` is intentionally left untouched: those solid layers form
+    /// the vase's base. A user who wants an open-bottomed tube sets
+    /// `bottom_layers = 0` explicitly.
+    ///
+    /// The method is idempotent, so it is safe to call at more than one pipeline
+    /// boundary (it is applied both before slicing and before G-code emission).
+    pub fn spiral_vase_normalized(&self) -> std::borrow::Cow<'_, SlicingParams> {
+        if !self.spiral_vase {
+            return std::borrow::Cow::Borrowed(self);
+        }
+        let mut p = self.clone();
+        p.wall_count = 1;
+        p.infill_density = 0.0;
+        p.top_layers = 0;
+        p.retract_mm = 0.0;
+        p.z_hop_mm = 0.0;
+        p.ironing_enabled = false;
+        std::borrow::Cow::Owned(p)
+    }
+}
+
+impl SlicingParams {
     fn default_wall_generator() -> WallGenerator {
         WallGenerator::Arachne
     }
@@ -1778,6 +2021,10 @@ impl SlicingParams {
 
     fn default_seam_position() -> SeamPosition {
         SeamPosition::Nearest
+    }
+
+    fn default_spiral_vase() -> bool {
+        false
     }
 
     fn default_infill_pattern() -> InfillPattern {
@@ -1897,6 +2144,38 @@ impl SlicingParams {
         1.0
     }
 
+    fn default_retract_before_travel_mm() -> f64 {
+        1.0
+    }
+
+    fn default_retract_restart_extra_mm() -> f64 {
+        0.0
+    }
+
+    fn default_retract_on_layer_change() -> bool {
+        false
+    }
+
+    fn default_use_firmware_retraction() -> bool {
+        false
+    }
+
+    fn default_use_relative_e_distances() -> bool {
+        false
+    }
+
+    fn default_wipe() -> bool {
+        false
+    }
+
+    fn default_wipe_distance_mm() -> f64 {
+        1.0
+    }
+
+    fn default_retract_before_wipe_percent() -> f64 {
+        0.0
+    }
+
     fn default_only_one_wall_top() -> bool {
         true // Single wall on top surface layers for cleaner finish
     }
@@ -2012,6 +2291,73 @@ pub struct ObjectSettings {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_cache_fingerprint_excludes_thumbnail_png_payload() {
+        // Two requests that differ *only* in the captured thumbnail image must
+        // share a cache fingerprint — the PNG is camera-derived and re-rendered
+        // every slice, so hashing it would defeat the cache (issue #106).
+        let with_a = SlicingParams {
+            thumbnail_png_base64: Some("iVBORw0KGgoAAAA".to_string()),
+            ..SlicingParams::default()
+        };
+        let with_b = SlicingParams {
+            thumbnail_png_base64: Some("Zm9vYmFyYmF6".to_string()),
+            ..SlicingParams::default()
+        };
+        let without = SlicingParams {
+            thumbnail_png_base64: None,
+            ..SlicingParams::default()
+        };
+        assert_eq!(
+            with_a.cache_fingerprint(),
+            with_b.cache_fingerprint(),
+            "different thumbnail images must not change the fingerprint"
+        );
+        assert_eq!(
+            with_a.cache_fingerprint(),
+            without.cache_fingerprint(),
+            "presence/absence of the thumbnail image must not change the fingerprint"
+        );
+    }
+
+    #[test]
+    fn test_cache_fingerprint_tracks_toolpath_and_thumbnail_settings() {
+        let base = SlicingParams::default();
+
+        // A toolpath-affecting setting must change the fingerprint.
+        let taller_layers = SlicingParams {
+            layer_height: base.layer_height + 0.05,
+            ..SlicingParams::default()
+        };
+        assert_ne!(
+            base.cache_fingerprint(),
+            taller_layers.cache_fingerprint(),
+            "layer height must be part of the cache fingerprint"
+        );
+
+        // Thumbnail *settings* stay in the key so a cached file's embedded
+        // preview always matches the request that reused it.
+        let bigger_thumb = SlicingParams {
+            thumbnail_size_px: base.thumbnail_size_px + 64,
+            ..SlicingParams::default()
+        };
+        assert_ne!(
+            base.cache_fingerprint(),
+            bigger_thumb.cache_fingerprint(),
+            "thumbnail settings must remain part of the cache fingerprint"
+        );
+
+        // The fingerprint must never carry the raw image bytes.
+        let with_png = SlicingParams {
+            thumbnail_png_base64: Some("SHOULD_NOT_APPEAR".to_string()),
+            ..SlicingParams::default()
+        };
+        assert!(
+            !with_png.cache_fingerprint().contains("SHOULD_NOT_APPEAR"),
+            "cache fingerprint must not embed the thumbnail image payload"
+        );
+    }
 
     #[test]
     fn test_object_settings_with_overrides_round_trip() {

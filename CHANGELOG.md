@@ -22,6 +22,37 @@ these notes and acknowledges contributors. `scripts/gen-changelog-draft.sh` and
 
 ### Added
 
+- **Advanced retraction modes** — the G-code generator now supports firmware
+  retraction (`G10`/`G11`, synced to the firmware with `M207`/`M208` on Marlin or
+  `SET_RETRACTION` on Klipper), relative extruder distances (`M83`), a
+  configurable minimum-travel-before-retract, a restart-extra prime on recover,
+  retract-on-layer-change, and wipe-while-retracting (retracing the just-printed
+  path to smear ooze onto printed material, with a configurable
+  before-wipe split). Exposed as `use_firmware_retraction`,
+  `use_relative_e_distances`, `retract_before_travel_mm`,
+  `retract_restart_extra_mm`, `retract_on_layer_change`, `wipe`,
+  `wipe_distance_mm`, and `retract_before_wipe_percent`. All default off / to the
+  previous behaviour, so existing output is unchanged. The retraction feedrate
+  now honours `retract_speed_mm_min` (previously hard-coded). ([#96](https://github.com/max-scopp/slicer-engine/issues/96))
+- **Spiral (vase) mode** — the new `spiral_vase` parameter prints a single
+  continuous outer wall whose Z ramps smoothly over each layer, producing a
+  seamless single-wall vase with no Z-seam. Enabling it forces one perimeter and
+  turns off everything that would break the spiral (sparse infill, top surfaces,
+  retraction, Z-hop); the solid bottom layers are kept as the base (set
+  `bottom_layers` to `0` for an open tube). The layer-height rise is distributed
+  along the perimeter length, flow fades in on the first loop and out on the
+  last so both ends of the seam disappear, and only the outermost contour of
+  each layer is spiralized — multi-island layers fall back to a normal print
+  with a warning. Also available on the CLI as `slice --spiral-vase`. Defaults
+  to off, so existing output is unchanged.
+- **Release notes inside the app** — a new **Settings → What's New** section lists
+  every release, newest first, with the version you're running highlighted and
+  scrolled into view. The dialog shown after an upgrade now renders that exact
+  same list instead of a separate filtered one, so you can always read back past
+  releases from the notes you were just shown. On iPadOS, where dialogs are drawn
+  by the OS and can't hold that much content, the update prompt takes you to the
+  settings section instead. The version row in **Settings → General** links there
+  too.
 - **iPadOS / iOS target** — the Tauri shell now builds and runs on iPad, with the
   full Rust slicing engine on-device. `pnpm run ios:doctor` checks the toolchain
   (and `ios:setup` installs what it can), `ios:init` generates the Xcode project,

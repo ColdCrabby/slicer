@@ -14,6 +14,7 @@ gcode/
 ├── generator.rs    GcodeGenerator façade + generate_gcode()
 ├── stats.rs        SliceStatistics + metadata/settings header lines
 ├── simplify.rs     Ramer-Douglas-Peucker polyline simplification
+├── time_estimate.rs  acceleration-aware print-time estimator (#117)
 ├── source.rs       resolve_gcode_source() file/string resolver
 └── dialects/
     ├── mod.rs      re-exports
@@ -110,6 +111,81 @@ pushed through `(π r² × E)`.
 Both diameters are configurable via `SlicingParams` (fields `nozzle_diameter_mm`
 and `filament_diameter_mm`). Typical defaults: filament ø = 1.75 mm,
 nozzle ø = 0.40 mm.
+
+---
+
+## Print-time estimation (issue #117)
+
+The header / footer ETA and the viewer's **Layer Time** colouring come from
+[`time_estimate`](./time_estimate.rs), an **acceleration-aware** estimator that
+*parses the emitted program* rather than the slice geometry. Because it measures
+the moves the generator actually wrote, it can never drift from them — the same
+principle behind PrusaSlicer's `GCodeProcessor`.
+
+```mermaid
+flowchart LR
+    body["emitted G-code body"] --> est["time_estimate::estimate_print_time"]
+    est --> total["total_s → SliceStatistics"]
+    est --> per["per_layer_s"]
+    per --> patch["patch ;LAYER_TIME: markers"]
+    total --> hdr["header / footer ETA"]
+    patch --> viewer["viewer Layer-Time mode"]
+```
+
+Each move is timed with a **trapezoidal velocity profile** (accelerate → cruise →
+decelerate). Entry/exit speeds at each corner come from a two-pass planner
+look-ahead, and cornering speed uses the **junction-deviation** model (a right
+angle is taken at the square-corner velocity, a straight join keeps full speed, a
+reversal stops). Travel moves, Z lifts and the retract/un-retract ceremony are
+all counted; per-role feedrates and per-role accelerations (`M204` /
+`SET_VELOCITY_LIMIT`) are read straight from the emitted lines.
+
+### Machine kinematics (emitted **and** estimated)
+
+To keep the estimate honest — *it must describe the moves the printer actually
+runs* — the kinematic limits are both **emitted** by the generator and **read
+back** by the estimator from the same `SlicingParams`:
+
+| Param                     | Emitted as (Marlin / Klipper)                          | In the estimate                    |
+| ------------------------- | ------------------------------------------------------ | ---------------------------------- |
+| `acceleration`            | `M204 P…` / `SET_VELOCITY_LIMIT ACCEL=…` (per role)    | per-move ramp rate                 |
+| `square_corner_velocity`  | `M205 J<jd>` / `SET_VELOCITY_LIMIT SQUARE_CORNER_VEL…` | junction-deviation corner speed    |
+| `max_velocity`            | `M203 X… Y…` / `SET_VELOCITY_LIMIT VELOCITY=…`         | per-move nominal-speed cap         |
+
+Marlin has no square-corner-velocity command, so it is converted to a
+junction-deviation distance `jd = scv² · (√2 − 1) / accel` — the exact relation
+`junction_speed` inverts. Each limit is emitted only when set (`> 0`), so a
+profile that never touched them produces byte-identical output to before.
+
+### Calibration (Bucket B)
+
+Three `SlicingParams` knobs correct for wall-clock the toolpath physics cannot
+show. `total = warmup_s + (toolpath × scale) + cooldown_s`:
+
+| Param                      | Effect                                                       |
+| -------------------------- | ----------------------------------------------------------- |
+| `time_estimate_scale`      | multiplies the **toolpath** portion (systematic-error fudge) |
+| `time_estimate_warmup_s`   | fixed seconds added **before** (homing, heat-soak, purge)    |
+| `time_estimate_cooldown_s` | fixed seconds added **after** (e.g. chamber cool-off)        |
+
+The per-layer `;LAYER_TIME:` markers are scaled by `scale` too (so they stay
+consistent with the toolpath total) but carry **no** fixed allowance — those
+belong to no single layer. The physics module [`time_estimate`](./time_estimate.rs)
+stays pure; scale/offset are applied at the generator boundary.
+
+The old naive `length ÷ print_speed` figure survives only as
+[`generator::estimate_layer_time`](./generator.rs) — a cheap *pre-move* proxy
+still used for the adaptive fan decision (which must be emitted before a layer's
+moves are known); its `;LAYER_TIME:` placeholder is overwritten afterward with
+the trapezoidal figure. On a 30 mm calibration cube the naive model
+under-estimated by ~57 % (≈35 min vs the realistic ≈81 min).
+
+> **Not modelled:** heating waits (a coarse `warmup`/`cooldown` allowance stands
+> in — not a thermal model), arcs, dwell, and *per-axis* jerk (one scalar
+> square-corner velocity, not an X/Y/E profile). The slicer does not yet slow a
+> layer to meet a minimum layer time, so there is no min-layer-time slowdown to
+> account for — the day that feature lands, the estimator picks it up for free
+> because it reads the emitted moves.
 
 ---
 
@@ -214,17 +290,18 @@ the previous path's end. Whether that travel is wrapped in the
 **retract / z-hop / travel / lower / un-retract** guard depends on a
 _smart retract_ policy that mirrors PrusaSlicer / OrcaSlicer / Cura:
 
-| Travel distance | Role change? | Retract? | Why                                                                             |
-| --------------- | ------------ | -------- | ------------------------------------------------------------------------------- |
-| `> 2.0 mm`      | any          | **yes**  | Long hops always ooze enough to need a retract                                  |
-| `1.0 – 2.0 mm`  | yes          | **yes**  | Crossing role boundaries (e.g. infill → outer wall) shows seams without retract |
-| `1.0 – 2.0 mm`  | no           | no       | Same-role short hops oozing is invisible inside infill                          |
-| `< 1.0 mm`      | any          | no       | Retract ceremony costs more time than the hop itself                            |
+| Travel distance          | Role change? | Retract? | Why                                                                             |
+| ------------------------ | ------------ | -------- | ------------------------------------------------------------------------------- |
+| `> max(2 mm, min)`       | any          | **yes**  | Long hops always ooze enough to need a retract                                  |
+| `min – 2 mm`             | yes          | **yes**  | Crossing role boundaries (e.g. infill → outer wall) shows seams without retract |
+| `min – 2 mm`             | no           | no       | Same-role short hops oozing is invisible inside infill                          |
+| `≤ min`                  | any          | no       | Retract ceremony costs more time than the hop itself                            |
 
-The cutoff is `MIN_TRAVEL_FOR_RETRACT_MM = 1.0` (hard-coded in
-[`generator.rs`](generator.rs)). The role-aware branch eliminates the
-99 %+ of pointless retracts that occurred on every wall-loop end on dense
-benchmarks, while still protecting the visible outer surface from oozing.
+The minimum (`min`) is the configurable `retract_before_travel_mm`
+(default 1.0 mm); travels longer than 2 mm always retract. The role-aware
+branch eliminates the 99 %+ of pointless retracts that occurred on every
+wall-loop end on dense benchmarks, while still protecting the visible outer
+surface from oozing.
 
 When a retract _is_ emitted, the sequence is:
 
@@ -234,19 +311,39 @@ sequenceDiagram
     participant H as Hotend
     participant N as Next path start
 
-    P->>H: G1 E-retract_mm (retract)
+    P->>H: retract (G1 E-retract_mm / G10)
     H->>H: G1 Z+z_hop_mm (z-hop)
     H->>N: G1 X… Y… F travel_speed_mm_min (travel)
     N->>H: G1 Z (lower back)
-    H->>H: G1 E+retract_mm (un-retract)
+    H->>H: un-retract (G1 E+retract_mm(+restart) / G11)
     Note over H,N: then extrude contour at print speed
 ```
 
 Otherwise a single bare `G1 X… Y… F travel_speed_mm_min` move is emitted.
 
-All three distances and the travel speed are configurable via `SlicingParams`
-fields `retract_mm` (default 1.0 mm), `z_hop_mm` (default 0.2 mm), and
+The distances and the travel speed are configurable via `SlicingParams`
+fields `retract_mm` (default 1.0 mm), `z_hop_mm` (default 0.2 mm),
+`retract_speed_mm_min` (default 2400 mm/min = 40 mm/s), and
 `travel_speed_mm_min` (default 9000 mm/min = 150 mm/s).
+
+### Advanced retraction modes
+
+The retract / un-retract steps above adapt to several opt-in modes (all
+default-off, so the baseline output is unchanged):
+
+| Setting                       | Effect                                                                                                              |
+| ----------------------------- | ----------------------------------------------------------------------------------------------------------------- |
+| `use_firmware_retraction`     | Emits `G10`/`G11` instead of `G1 E` moves; syncs the firmware via `M207`/`M208` (Marlin) or `SET_RETRACTION` (Klipper) in the start section |
+| `use_relative_e_distances`    | Emits `M83` and per-move incremental E (`G1 … E<delta>`) instead of `M82` absolute positions                       |
+| `retract_before_travel_mm`    | Minimum travel distance that triggers a retraction (the `min` above)                                              |
+| `retract_restart_extra_mm`    | Extra prime length added on un-retract to compensate for travel ooze                                               |
+| `retract_on_layer_change`     | Forces a retraction before the layer-change Z move                                                                 |
+| `wipe` / `wipe_distance_mm`   | Retraces the tail of the just-printed path while retracting, smearing ooze onto printed material                   |
+| `retract_before_wipe_percent` | Fraction of the retraction performed *before* the wipe move (the rest is distributed *along* it)                   |
+
+Under firmware retraction the slicer still performs the Z-hop with explicit Z
+moves (the firmware Z-hop component of `M207` is set to `0`), so hop behaviour
+is identical across modes; only the filament pull becomes `G10`/`G11`.
 
 ---
 
