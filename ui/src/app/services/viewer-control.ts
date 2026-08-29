@@ -35,6 +35,22 @@ export type Antialiasing = 'auto' | 'on' | 'off';
  */
 export type RenderQuality = 'performance' | 'balanced' | 'quality';
 
+/**
+ * How much geometry the sliced-G-code preview draws.
+ *
+ * Deliberately separate from {@link RenderQuality}, which is render
+ * *resolution* (a pixel-ratio cap). This is the *geometry* axis: how many
+ * triangles each extrusion bead is worth.
+ *
+ * - `'auto'` — full detail whenever it is affordable, which thanks to the
+ *   on-demand render loop includes every still view; only active interaction on
+ *   a heavy plate falls back to the cheap bead. Self-tunes by measuring real
+ *   frame cost, so it adapts to the machine instead of guessing from a GPU name.
+ * - `'performance'` — always the cheap bead.
+ * - `'quality'` — always the full bead, even while orbiting a huge plate.
+ */
+export type PreviewDetail = 'auto' | 'performance' | 'quality';
+
 export interface SliceThumbnailCapture {
   pngBase64: string;
   sizePx: number;
@@ -99,6 +115,7 @@ const STATS_VISIBLE_KEY = 'nexus.viewer.statsVisible';
 const FIELD_OF_VIEW_KEY = 'nexus.viewer.fieldOfView';
 const ANTIALIASING_KEY = 'nexus.viewer.antialiasing';
 const RENDER_QUALITY_KEY = 'nexus.viewer.renderQuality';
+const PREVIEW_DETAIL_KEY = 'nexus.viewer.previewDetail';
 const USE_FILAMENT_COLOR_KEY = 'nexus.viewer.useFilamentColor';
 const PALM_REJECTION_KEY = 'nexus.viewer.palmRejection';
 
@@ -155,6 +172,12 @@ export class ViewerControl {
    * live via the renderer's pixel ratio.
    */
   readonly renderQuality = signal<RenderQuality>(this.readRenderQuality());
+
+  /**
+   * G-code preview geometry detail. Persisted and applied live — no reload or
+   * re-slice needed, since both bead LODs are built up front.
+   */
+  readonly previewDetail = signal<PreviewDetail>(this.readPreviewDetail());
 
   /**
    * Whether model meshes use the active filament profile color instead of the
@@ -311,6 +334,12 @@ export class ViewerControl {
     this.storage.write(RENDER_QUALITY_KEY, quality);
   }
 
+  /** Update G-code preview geometry detail and persist it. */
+  setPreviewDetail(detail: PreviewDetail): void {
+    this.previewDetail.set(detail);
+    this.storage.write(PREVIEW_DETAIL_KEY, detail);
+  }
+
   /** Update model-color source preference and persist it. */
   setUseFilamentColor(value: boolean): void {
     this.useFilamentColor.set(value);
@@ -354,6 +383,11 @@ export class ViewerControl {
   private readRenderQuality(): RenderQuality {
     const raw = this.storage.get(RENDER_QUALITY_KEY)();
     return raw === 'performance' || raw === 'quality' ? raw : 'balanced';
+  }
+
+  private readPreviewDetail(): PreviewDetail {
+    const raw = this.storage.get(PREVIEW_DETAIL_KEY)();
+    return raw === 'performance' || raw === 'quality' ? raw : 'auto';
   }
 
   private readUseFilamentColor(): boolean {

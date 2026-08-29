@@ -5,8 +5,13 @@
 //! 3MF files are ZIP archives containing an XML mesh description, parsed with
 //! `zip` and `quick-xml`.
 //! Loaded meshes are in native file coordinates — no placement transforms are
-//! applied on import. The one exception is 3MF's declared measurement `unit`,
-//! which is normalized to millimeters (the engine's canonical unit) on load.
+//! applied on import, with two 3MF-specific exceptions. First, 3MF's declared
+//! measurement `unit` is normalized to millimeters (the engine's canonical
+//! unit) on load. Second, a 3MF model is a scene of objects placed by the
+//! `<build>` items and assembled from `<components>`; those build-item and
+//! component transforms *are* baked in, because they define the object's own
+//! internal geometry (each mesh's triangle indices are local to that mesh), not
+//! a user placement on the bed.
 
 use std::fs::OpenOptions;
 use std::io::Cursor;
@@ -294,7 +299,141 @@ pub fn read_3mf(path: &Path) -> Result<Mesh, Box<dyn std::error::Error>> {
         .map_err(|e| format!("Failed to parse 3MF file '{}': {}", path.display(), e).into())
 }
 
+/// A single object's mesh with triangle indices **local** to that mesh.
+///
+/// 3MF numbers each object's vertices from zero, so these indices are only
+/// meaningful relative to `vertices` here — they are rebased onto the merged
+/// output during [`instantiate_3mf_object`].
+#[derive(Default)]
+struct Raw3mfMesh {
+    vertices: Vec<Vertex>,
+    triangles: Vec<[usize; 3]>,
+}
+
+/// A `<component>`: another object referenced with an optional placement.
+struct Raw3mfComponent {
+    objectid: String,
+    transform: glam::DMat4,
+}
+
+/// A resolved `<object>`: either mesh geometry, a set of components, or both.
+#[derive(Default)]
+struct Raw3mfObject {
+    mesh: Option<Raw3mfMesh>,
+    components: Vec<Raw3mfComponent>,
+}
+
+/// A `<build><item>`: the top-level placement of an object in the scene.
+struct Raw3mfBuildItem {
+    objectid: String,
+    transform: glam::DMat4,
+}
+
+/// Read a named attribute's value as an owned string, if present.
+fn attr_str(e: &quick_xml::events::BytesStart, name: &str) -> Option<String> {
+    e.attributes()
+        .flatten()
+        .find_map(|a| (a.key.local_name().as_ref() == name).then(|| a.value.as_ref().to_owned()))
+}
+
+/// Parse a 3MF `transform` attribute (12 row-major floats:
+/// `m00 m01 m02 m10 m11 m12 m20 m21 m22 m30 m31 m32`) into a column-vector
+/// [`glam::DMat4`] such that `M.transform_point3(p)` reproduces the 3MF
+/// row-vector product `[x y z 1] · T`.
+fn parse_3mf_transform(s: &str) -> Result<glam::DMat4, Box<dyn std::error::Error>> {
+    let m: Vec<f64> = s
+        .split_whitespace()
+        .map(|t| t.parse::<f64>())
+        .collect::<Result<_, _>>()
+        .map_err(|_| "3MF transform contains a non-numeric value")?;
+    if m.len() != 12 {
+        return Err(format!("3MF transform must have 12 values, got {}", m.len()).into());
+    }
+    Ok(glam::DMat4::from_cols(
+        glam::DVec4::new(m[0], m[1], m[2], 0.0),
+        glam::DVec4::new(m[3], m[4], m[5], 0.0),
+        glam::DVec4::new(m[6], m[7], m[8], 0.0),
+        glam::DVec4::new(m[9], m[10], m[11], 1.0),
+    ))
+}
+
+/// Recursively bake an object (and its components) into the merged output,
+/// applying the accumulated `transform` and `unit_scale`.
+///
+/// Each mesh's local triangle indices are offset by `base` — the number of
+/// vertices already emitted — so concatenating multiple objects never lets one
+/// object's triangles reference another object's vertices.
+fn instantiate_3mf_object(
+    objectid: &str,
+    transform: glam::DMat4,
+    unit_scale: f64,
+    objects: &std::collections::HashMap<String, Raw3mfObject>,
+    depth: usize,
+    out_vertices: &mut Vec<Vertex>,
+    out_faces: &mut Vec<Face>,
+) -> Result<(), Box<dyn std::error::Error>> {
+    const MAX_DEPTH: usize = 32;
+    if depth > MAX_DEPTH {
+        return Err("3MF component nesting too deep (possible cyclic reference)".into());
+    }
+
+    let obj = objects
+        .get(objectid)
+        .ok_or_else(|| format!("3MF references unknown object id '{objectid}'"))?;
+
+    if let Some(mesh) = &obj.mesh {
+        let base = out_vertices.len();
+        for v in &mesh.vertices {
+            let p = transform.transform_point3(glam::DVec3::new(v.x, v.y, v.z));
+            out_vertices.push(Vertex::new(
+                p.x * unit_scale,
+                p.y * unit_scale,
+                p.z * unit_scale,
+            ));
+        }
+        for &[a, b, c] in &mesh.triangles {
+            if a >= mesh.vertices.len() || b >= mesh.vertices.len() || c >= mesh.vertices.len() {
+                return Err(format!(
+                    "3MF triangle references out-of-bounds vertex index \
+                     (v1={a}, v2={b}, v3={c}, vertex count={})",
+                    mesh.vertices.len()
+                )
+                .into());
+            }
+            out_faces.push(Face {
+                vertices: [
+                    out_vertices[base + a],
+                    out_vertices[base + b],
+                    out_vertices[base + c],
+                ],
+                normal: None,
+            });
+        }
+    }
+
+    for comp in &obj.components {
+        instantiate_3mf_object(
+            &comp.objectid,
+            transform * comp.transform,
+            unit_scale,
+            objects,
+            depth + 1,
+            out_vertices,
+            out_faces,
+        )?;
+    }
+
+    Ok(())
+}
+
 /// Load a mesh from raw 3MF bytes.
+///
+/// A 3MF model is a small scene: `<object>` resources hold mesh geometry (with
+/// per-object, zero-based vertex indices) or `<components>` that reference other
+/// objects with a transform, and `<build><item>` elements place objects into the
+/// scene (optionally with their own transform). This resolves that scene into a
+/// single merged [`Mesh`], rebasing each object's local triangle indices and
+/// baking the build-item and component transforms.
 ///
 /// # Errors
 /// Returns an error if the bytes are not a valid 3MF archive or the embedded
@@ -302,6 +441,7 @@ pub fn read_3mf(path: &Path) -> Result<Mesh, Box<dyn std::error::Error>> {
 pub fn read_3mf_from_bytes(bytes: &[u8]) -> Result<Mesh, Box<dyn std::error::Error>> {
     use quick_xml::events::Event;
     use quick_xml::Reader;
+    use std::collections::HashMap;
     use std::io::Read;
 
     let cursor = Cursor::new(bytes);
@@ -332,90 +472,92 @@ pub fn read_3mf_from_bytes(bytes: &[u8]) -> Result<Mesh, Box<dyn std::error::Err
     let mut reader = Reader::from_str(&xml_content);
     reader.config_mut().trim_text(true);
 
-    let mut vertices: Vec<Vertex> = Vec::new();
-    let mut faces: Vec<Face> = Vec::new();
-    let mut buf = Vec::new();
+    // ---- Collect pass: gather objects and build items without baking. ----
+    let mut objects: HashMap<String, Raw3mfObject> = HashMap::new();
+    let mut object_order: Vec<String> = Vec::new();
+    let mut build_items: Vec<Raw3mfBuildItem> = Vec::new();
 
     // The `<model>` element declares the measurement unit for all coordinates.
     // The engine works exclusively in millimeters, so capture the conversion
     // factor (defaults to millimeter per the 3MF spec) and scale every vertex.
-    // `<model>` always precedes the mesh data, so this is known before any vertex.
     let mut unit_scale = 1.0_f64;
 
+    // Parse context: which `<object>` we are inside, and whether inside `<build>`.
+    let mut current_object: Option<String> = None;
+    let mut in_build = false;
+
+    let mut buf = Vec::new();
     loop {
-        match reader.read_event_into(&mut buf)? {
-            Event::Empty(ref e) | Event::Start(ref e) => match e.local_name().as_ref() {
-                "model" => {
-                    for attr in e.attributes().flatten() {
-                        if attr.key.local_name().as_ref() == "unit" {
-                            let unit = attr.value.as_ref();
-                            unit_scale = unit_to_mm_scale(unit).ok_or_else(|| {
-                                format!("3MF model declares an unknown unit '{unit}'")
-                            })?;
-                        }
+        let event = reader.read_event_into(&mut buf)?;
+        match event {
+            // `<object>` and `<build>` open scopes; everything else is a leaf we
+            // process identically whether it arrives as a start or empty element.
+            Event::Start(ref e) if e.local_name().as_ref() == "object" => {
+                if let Some(id) = attr_str(e, "id") {
+                    if !objects.contains_key(&id) {
+                        object_order.push(id.clone());
                     }
+                    objects.entry(id.clone()).or_default();
+                    current_object = Some(id);
                 }
-                "vertex" => {
-                    let mut x = None::<f64>;
-                    let mut y = None::<f64>;
-                    let mut z = None::<f64>;
-                    for attr in e.attributes().flatten() {
-                        let val: f64 = attr
-                            .value
-                            .parse()
-                            .map_err(|_| "3MF vertex coordinate is not a valid number")?;
-                        match attr.key.local_name().as_ref() {
-                            "x" => x = Some(val),
-                            "y" => y = Some(val),
-                            "z" => z = Some(val),
-                            _ => {}
-                        }
-                    }
-                    let (x, y, z) = match (x, y, z) {
-                        (Some(x), Some(y), Some(z)) => (x, y, z),
-                        _ => return Err("3MF vertex is missing x, y, or z attribute".into()),
-                    };
-                    vertices.push(Vertex::new(x * unit_scale, y * unit_scale, z * unit_scale));
-                }
-                "triangle" => {
-                    let mut v1 = None::<usize>;
-                    let mut v2 = None::<usize>;
-                    let mut v3 = None::<usize>;
-                    for attr in e.attributes().flatten() {
-                        let val: usize = attr
-                            .value
-                            .parse()
-                            .map_err(|_| "3MF triangle index is not a valid integer")?;
-                        match attr.key.local_name().as_ref() {
-                            "v1" => v1 = Some(val),
-                            "v2" => v2 = Some(val),
-                            "v3" => v3 = Some(val),
-                            _ => {}
-                        }
-                    }
-                    let (v1, v2, v3) = match (v1, v2, v3) {
-                        (Some(a), Some(b), Some(c)) => (a, b, c),
-                        _ => return Err("3MF triangle is missing v1, v2, or v3 attribute".into()),
-                    };
-                    if v1 >= vertices.len() || v2 >= vertices.len() || v3 >= vertices.len() {
-                        return Err(format!(
-                            "3MF triangle references out-of-bounds vertex index \
-                             (v1={v1}, v2={v2}, v3={v3}, vertex count={})",
-                            vertices.len()
-                        )
-                        .into());
-                    }
-                    faces.push(Face {
-                        vertices: [vertices[v1], vertices[v2], vertices[v3]],
-                        normal: None,
-                    });
-                }
-                _ => {}
-            },
+            }
+            Event::End(ref e) if e.local_name().as_ref() == "object" => {
+                current_object = None;
+            }
+            Event::Start(ref e) if e.local_name().as_ref() == "build" => {
+                in_build = true;
+            }
+            Event::End(ref e) if e.local_name().as_ref() == "build" => {
+                in_build = false;
+            }
+            Event::Start(ref e) | Event::Empty(ref e) => {
+                handle_3mf_leaf(
+                    e,
+                    &mut unit_scale,
+                    &mut objects,
+                    &mut build_items,
+                    current_object.as_deref(),
+                    in_build,
+                )?;
+            }
             Event::Eof => break,
             _ => {}
         }
         buf.clear();
+    }
+
+    // ---- Resolve pass: bake build items (or every mesh object as a fallback). ----
+    let mut vertices: Vec<Vertex> = Vec::new();
+    let mut faces: Vec<Face> = Vec::new();
+
+    if build_items.is_empty() {
+        // No `<build>` items — merge every object that carries a mesh at
+        // identity, preserving the pre-scene "load all geometry" behavior.
+        for id in &object_order {
+            if objects.get(id).is_some_and(|o| o.mesh.is_some()) {
+                instantiate_3mf_object(
+                    id,
+                    glam::DMat4::IDENTITY,
+                    unit_scale,
+                    &objects,
+                    0,
+                    &mut vertices,
+                    &mut faces,
+                )?;
+            }
+        }
+    } else {
+        for item in &build_items {
+            instantiate_3mf_object(
+                &item.objectid,
+                item.transform,
+                unit_scale,
+                &objects,
+                0,
+                &mut vertices,
+                &mut faces,
+            )?;
+        }
     }
 
     Ok(Mesh {
@@ -423,6 +565,127 @@ pub fn read_3mf_from_bytes(bytes: &[u8]) -> Result<Mesh, Box<dyn std::error::Err
         faces,
         aabb: None,
     })
+}
+
+/// Process a leaf 3MF element (`model`, `vertex`, `triangle`, `component`,
+/// `item`) into the collect-pass state. Elements are stored raw — vertices keep
+/// file coordinates and triangles keep local indices — so the resolve pass can
+/// apply transforms and rebasing consistently.
+fn handle_3mf_leaf(
+    e: &quick_xml::events::BytesStart,
+    unit_scale: &mut f64,
+    objects: &mut std::collections::HashMap<String, Raw3mfObject>,
+    build_items: &mut Vec<Raw3mfBuildItem>,
+    current_object: Option<&str>,
+    in_build: bool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    match e.local_name().as_ref() {
+        "model" => {
+            if let Some(unit) = attr_str(e, "unit") {
+                *unit_scale = unit_to_mm_scale(&unit)
+                    .ok_or_else(|| format!("3MF model declares an unknown unit '{unit}'"))?;
+            }
+        }
+        "vertex" => {
+            let Some(id) = current_object else {
+                return Ok(());
+            };
+            let mut x = None::<f64>;
+            let mut y = None::<f64>;
+            let mut z = None::<f64>;
+            for attr in e.attributes().flatten() {
+                let val: f64 = attr
+                    .value
+                    .parse()
+                    .map_err(|_| "3MF vertex coordinate is not a valid number")?;
+                match attr.key.local_name().as_ref() {
+                    "x" => x = Some(val),
+                    "y" => y = Some(val),
+                    "z" => z = Some(val),
+                    _ => {}
+                }
+            }
+            let (x, y, z) = match (x, y, z) {
+                (Some(x), Some(y), Some(z)) => (x, y, z),
+                _ => return Err("3MF vertex is missing x, y, or z attribute".into()),
+            };
+            objects
+                .entry(id.to_owned())
+                .or_default()
+                .mesh
+                .get_or_insert_with(Raw3mfMesh::default)
+                .vertices
+                .push(Vertex::new(x, y, z));
+        }
+        "triangle" => {
+            let Some(id) = current_object else {
+                return Ok(());
+            };
+            let mut v1 = None::<usize>;
+            let mut v2 = None::<usize>;
+            let mut v3 = None::<usize>;
+            for attr in e.attributes().flatten() {
+                let key = attr.key.local_name();
+                if !matches!(key.as_ref(), "v1" | "v2" | "v3") {
+                    continue;
+                }
+                let val: usize = attr
+                    .value
+                    .parse()
+                    .map_err(|_| "3MF triangle index is not a valid integer")?;
+                match key.as_ref() {
+                    "v1" => v1 = Some(val),
+                    "v2" => v2 = Some(val),
+                    "v3" => v3 = Some(val),
+                    _ => {}
+                }
+            }
+            let tri = match (v1, v2, v3) {
+                (Some(a), Some(b), Some(c)) => [a, b, c],
+                _ => return Err("3MF triangle is missing v1, v2, or v3 attribute".into()),
+            };
+            objects
+                .entry(id.to_owned())
+                .or_default()
+                .mesh
+                .get_or_insert_with(Raw3mfMesh::default)
+                .triangles
+                .push(tri);
+        }
+        "component" => {
+            let Some(id) = current_object else {
+                return Ok(());
+            };
+            let objectid =
+                attr_str(e, "objectid").ok_or("3MF component is missing an objectid attribute")?;
+            let transform = match attr_str(e, "transform") {
+                Some(t) => parse_3mf_transform(&t)?,
+                None => glam::DMat4::IDENTITY,
+            };
+            objects
+                .entry(id.to_owned())
+                .or_default()
+                .components
+                .push(Raw3mfComponent {
+                    objectid,
+                    transform,
+                });
+        }
+        "item" if in_build => {
+            let objectid =
+                attr_str(e, "objectid").ok_or("3MF build item is missing an objectid attribute")?;
+            let transform = match attr_str(e, "transform") {
+                Some(t) => parse_3mf_transform(&t)?,
+                None => glam::DMat4::IDENTITY,
+            };
+            build_items.push(Raw3mfBuildItem {
+                objectid,
+                transform,
+            });
+        }
+        _ => {}
+    }
+    Ok(())
 }
 
 /// Load a mesh from a file, automatically detecting the format from the file
@@ -746,6 +1009,184 @@ mod tests {
         let result = read_3mf_from_bytes(&bytes);
         assert!(result.is_err(), "Should fail on unknown unit");
         assert!(result.unwrap_err().to_string().contains("unknown unit"));
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    fn zip_model(xml: &str) -> Vec<u8> {
+        use std::io::Write;
+        let mut zip_buf: Vec<u8> = Vec::new();
+        {
+            let cursor = std::io::Cursor::new(&mut zip_buf);
+            let mut zw = zip::ZipWriter::new(cursor);
+            zw.start_file("3D/3dmodel.model", zip::write::SimpleFileOptions::default())
+                .unwrap();
+            zw.write_all(xml.as_bytes()).unwrap();
+            zw.finish().unwrap();
+        }
+        zip_buf
+    }
+
+    #[test]
+    #[cfg(not(target_arch = "wasm32"))]
+    fn test_read_3mf_multi_object_offsets_local_indices() {
+        // Two objects, each with a triangle whose vertex indices restart at 0.
+        // Object 2 sits far away (x >= 100). The parser must rebase object 2's
+        // local indices onto the merged vertex list; the pre-fix code treated
+        // them as global indices, collapsing object 2 onto object 1's vertices.
+        let xml = r#"<?xml version="1.0" encoding="UTF-8"?>
+<model unit="millimeter" xmlns="http://schemas.microsoft.com/3dmanufacturing/core/2015/02">
+  <resources>
+    <object id="1" type="model">
+      <mesh>
+        <vertices>
+          <vertex x="0" y="0" z="0"/>
+          <vertex x="1" y="0" z="0"/>
+          <vertex x="0" y="1" z="0"/>
+        </vertices>
+        <triangles>
+          <triangle v1="0" v2="1" v3="2"/>
+        </triangles>
+      </mesh>
+    </object>
+    <object id="2" type="model">
+      <mesh>
+        <vertices>
+          <vertex x="100" y="0" z="0"/>
+          <vertex x="101" y="0" z="0"/>
+          <vertex x="100" y="1" z="0"/>
+        </vertices>
+        <triangles>
+          <triangle v1="0" v2="1" v3="2"/>
+        </triangles>
+      </mesh>
+    </object>
+  </resources>
+  <build>
+    <item objectid="1"/>
+    <item objectid="2"/>
+  </build>
+</model>"#;
+
+        let mesh = read_3mf_from_bytes(&zip_model(xml)).expect("Failed to read multi-object 3MF");
+        assert_eq!(mesh.vertices.len(), 6, "both objects' vertices merged");
+        assert_eq!(mesh.faces.len(), 2, "one face per object");
+
+        // The second face belongs to object 2 and must reference its own far
+        // vertices, not object 1's near vertices.
+        assert!(
+            mesh.faces[1].vertices.iter().all(|v| v.x >= 100.0),
+            "object 2's triangle must use object 2's vertices, got {:?}",
+            mesh.faces[1].vertices
+        );
+    }
+
+    #[test]
+    #[cfg(not(target_arch = "wasm32"))]
+    fn test_read_3mf_bakes_build_item_transform() {
+        // A build item may place its object with a transform (row-major 3x4).
+        // Here: identity rotation + translation (10, 20, 30).
+        let xml = r#"<?xml version="1.0" encoding="UTF-8"?>
+<model unit="millimeter" xmlns="http://schemas.microsoft.com/3dmanufacturing/core/2015/02">
+  <resources>
+    <object id="1" type="model">
+      <mesh>
+        <vertices>
+          <vertex x="1" y="0" z="0"/>
+          <vertex x="0" y="0" z="0"/>
+          <vertex x="0" y="0" z="1"/>
+        </vertices>
+        <triangles>
+          <triangle v1="0" v2="1" v3="2"/>
+        </triangles>
+      </mesh>
+    </object>
+  </resources>
+  <build>
+    <item objectid="1" transform="1 0 0 0 1 0 0 0 1 10 20 30"/>
+  </build>
+</model>"#;
+
+        let mesh = read_3mf_from_bytes(&zip_model(xml)).expect("Failed to read transformed 3MF");
+        let v0 = mesh.vertices[0]; // originally (1, 0, 0)
+        assert!(
+            (v0.x - 11.0).abs() < 1e-9 && (v0.y - 20.0).abs() < 1e-9 && (v0.z - 30.0).abs() < 1e-9,
+            "expected (11, 20, 30), got ({}, {}, {})",
+            v0.x,
+            v0.y,
+            v0.z
+        );
+    }
+
+    #[test]
+    #[cfg(not(target_arch = "wasm32"))]
+    fn test_read_3mf_composes_component_and_item_transforms() {
+        // Object 2 is an assembly that references object 1 (a mesh) with a
+        // component transform (+5 in x). The build item places object 2 with a
+        // further transform (+7 in y). The vertex (1,2,3) must end at (6,9,3).
+        let xml = r#"<?xml version="1.0" encoding="UTF-8"?>
+<model unit="millimeter" xmlns="http://schemas.microsoft.com/3dmanufacturing/core/2015/02">
+  <resources>
+    <object id="1" type="model">
+      <mesh>
+        <vertices>
+          <vertex x="1" y="2" z="3"/>
+          <vertex x="1" y="2" z="4"/>
+          <vertex x="1" y="3" z="3"/>
+        </vertices>
+        <triangles>
+          <triangle v1="0" v2="1" v3="2"/>
+        </triangles>
+      </mesh>
+    </object>
+    <object id="2" type="model">
+      <components>
+        <component objectid="1" transform="1 0 0 0 1 0 0 0 1 5 0 0"/>
+      </components>
+    </object>
+  </resources>
+  <build>
+    <item objectid="2" transform="1 0 0 0 1 0 0 0 1 0 7 0"/>
+  </build>
+</model>"#;
+
+        let mesh = read_3mf_from_bytes(&zip_model(xml)).expect("Failed to read component 3MF");
+        assert_eq!(mesh.vertices.len(), 3, "component's mesh baked once");
+        let v0 = mesh.vertices[0]; // (1,2,3) -> +5x (component) -> +7y (item)
+        assert!(
+            (v0.x - 6.0).abs() < 1e-9 && (v0.y - 9.0).abs() < 1e-9 && (v0.z - 3.0).abs() < 1e-9,
+            "expected (6, 9, 3), got ({}, {}, {})",
+            v0.x,
+            v0.y,
+            v0.z
+        );
+    }
+
+    #[test]
+    #[cfg(not(target_arch = "wasm32"))]
+    fn test_read_3mf_without_build_merges_all_mesh_objects() {
+        // A model with no <build> section still loads every mesh object at
+        // identity (backward compatibility with the pre-scene loader).
+        let xml = r#"<?xml version="1.0" encoding="UTF-8"?>
+<model unit="millimeter" xmlns="http://schemas.microsoft.com/3dmanufacturing/core/2015/02">
+  <resources>
+    <object id="1" type="model">
+      <mesh>
+        <vertices>
+          <vertex x="0" y="0" z="0"/>
+          <vertex x="1" y="0" z="0"/>
+          <vertex x="0" y="1" z="0"/>
+        </vertices>
+        <triangles>
+          <triangle v1="0" v2="1" v3="2"/>
+        </triangles>
+      </mesh>
+    </object>
+  </resources>
+</model>"#;
+
+        let mesh = read_3mf_from_bytes(&zip_model(xml)).expect("Failed to read build-less 3MF");
+        assert_eq!(mesh.vertices.len(), 3);
+        assert_eq!(mesh.faces.len(), 1);
     }
 
     #[test]

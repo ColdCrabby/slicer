@@ -31,6 +31,24 @@ const CAMERA_NEAR = 0.1;
 const CAMERA_FAR = 1_000_000;
 const MAX_PIXEL_RATIO = 2;
 
+/**
+ * Canvas events that must force a repaint because they can change the image
+ * without moving the camera (hover highlights, gizmo handles, drag feedback).
+ */
+/**
+ * How long the view must be unchanged before it counts as settled. Long enough
+ * not to fire between frames of a gesture, short enough to feel immediate.
+ */
+const SETTLE_DELAY_MS = 200;
+
+const POINTER_INVALIDATING_EVENTS = [
+  'pointerdown',
+  'pointermove',
+  'pointerup',
+  'pointerleave',
+  'wheel',
+] as const;
+
 function shouldDisableAntialias(): boolean {
   return typeof window !== 'undefined' && window.devicePixelRatio >= 2;
 }
@@ -123,11 +141,62 @@ export class ViewerScene {
   private pixelRatioCap = MAX_PIXEL_RATIO;
 
   /**
+   * Set when something that affects the image has changed. The render loop is
+   * on-demand: a static scene is not redrawn, which matters enormously for
+   * large G-code plates where a single frame is millions of triangles.
+   */
+  private needsRender = true;
+  /** Whether the previous frame actually drew — used to keep the FPS honest. */
+  private renderedLastFrame = false;
+  /** Timestamp of the last frame that changed the view; drives `settled`. */
+  private lastActivityTime = 0;
+  /** Whether the view is currently considered settled (reported to `lodSink`). */
+  private settled = false;
+  /** Start time of the in-flight render, awaiting a cost measurement. */
+  private frameProbeStart = 0;
+  private frameProbePending = false;
+  /** Wall time of the most recently measured frame, in ms. */
+  private lastFrameMs = 0;
+  /** Camera pose of the last drawn frame, to detect movement generically. */
+  private readonly lastPose = {
+    px: NaN,
+    py: NaN,
+    pz: NaN,
+    qx: NaN,
+    qy: NaN,
+    qz: NaN,
+    qw: NaN,
+    tx: NaN,
+    ty: NaN,
+    tz: NaN,
+    fov: NaN,
+    near: NaN,
+    far: NaN,
+    zoom: NaN,
+  };
+
+  /**
    * Sink called at the end of every rendered frame with the live camera
    * direction (target→camera normalised), up vector, and FOV. Used by
    * the viewport-cube gizmo.
    */
   cameraStateSink: ((direction: Vector3, up: Vector3, fov: number) => void) | null = null;
+
+  /**
+   * Sink asked to pick a level of detail whenever the view settles, starts
+   * moving again, or a fresh frame-cost measurement lands.
+   *
+   * `settled` is the important one. Rendering is on-demand, so a still view
+   * costs exactly *one* frame — which means expensive, good-looking geometry is
+   * affordable precisely when the user has stopped to look at it, and only
+   * interaction needs to be cheap.
+   *
+   * `lastFrameMs` is the wall time from the last render to the following
+   * animation frame. It includes the vsync wait, so it is only meaningful for
+   * spotting frames that are *far* over budget — which is exactly its job:
+   * telling the caller that full detail is not affordable on this machine.
+   */
+  lodSink: ((info: { settled: boolean; lastFrameMs: number }) => void) | null = null;
 
   /**
    * Sink called approximately once per second with the smoothed FPS and
@@ -219,6 +288,16 @@ export class ViewerScene {
     this._controls.setRevertGestureSink(() => this._camera.notifyUserViewGesture());
     this._grid = new SceneGrid(this.scene, this.camera, this.controls, this.renderer, printArea);
 
+    // The loop only draws when something changed, and several sub-systems paint
+    // straight from pointer handlers (the pull-to-floor face highlight, gizmo
+    // hover, selection outlines) without touching the camera. Treating any
+    // pointer activity over the canvas as a repaint request keeps those honest
+    // without every sub-system needing a back-reference to the scene. A resting
+    // pointer emits no events, so an idle viewport still costs nothing.
+    for (const type of POINTER_INVALIDATING_EVENTS) {
+      this.renderer.domElement.addEventListener(type, this.requestRender, { passive: true });
+    }
+
     // Wire gizmo callbacks.
     this.gizmo.onDragStart = () => {
       this.controls.enabled = false;
@@ -262,6 +341,7 @@ export class ViewerScene {
   setPrintArea(config: PrintAreaConfig): void {
     this._camera.setPrintArea(config);
     this._grid.setPrintArea(config);
+    this.needsRender = true;
   }
 
   /**
@@ -285,6 +365,7 @@ export class ViewerScene {
       this.fillLight.color.setHex(0xffffff);
       this.fillLight.intensity = 0.34;
     }
+    this.needsRender = true;
   }
 
   clearContent(): void {
@@ -295,22 +376,27 @@ export class ViewerScene {
       this.contentRoot.remove(child);
       disposeObject(child);
     }
+    this.needsRender = true;
   }
 
   registerSelectable(id: string, object: Object3D): void {
     this._selection.register(id, object);
+    this.needsRender = true;
   }
 
   unregisterSelectable(id: string): void {
     this._selection.unregister(id);
+    this.needsRender = true;
   }
 
   clearSelectables(): void {
     this._selection.clearAll();
+    this.needsRender = true;
   }
 
   setSelectedIds(ids: ReadonlySet<string>): void {
     this._selection.setSelectedIds(ids);
+    this.needsRender = true;
   }
 
   setObjectTransform(
@@ -322,6 +408,7 @@ export class ViewerScene {
     },
   ): void {
     this._selection.setObjectTransform(id, transform);
+    this.needsRender = true;
   }
 
   fitToContent(padding?: number): void {
@@ -535,6 +622,7 @@ export class ViewerScene {
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, cap));
     const { clientWidth, clientHeight } = this.sizeOf(this.host);
     this.renderer.setSize(clientWidth, clientHeight);
+    this.needsRender = true;
   }
 
   dispose(): void {
@@ -544,6 +632,9 @@ export class ViewerScene {
     this.disposed = true;
     cancelAnimationFrame(this.rafHandle);
     this.resizeObserver.disconnect();
+    for (const type of POINTER_INVALIDATING_EVENTS) {
+      this.renderer.domElement.removeEventListener(type, this.requestRender);
+    }
     this._controls.dispose();
     this._grid.dispose();
     this._selection.dispose();
@@ -608,10 +699,109 @@ export class ViewerScene {
       }
     });
 
+    // Everything above is cheap bookkeeping; the draw is what costs. Skip it
+    // entirely when nothing moved. Camera pose is compared generically so
+    // orbit damping, inertia, snap-hold, autoscroll and the projection tween
+    // all keep the loop alive without each having to report separately.
+    // Collect the cost of the previously drawn frame before deciding anything,
+    // so a detail promotion can be judged on what it actually cost.
+    let measured = false;
+    if (this.frameProbePending) {
+      this.lastFrameMs = now - this.frameProbeStart;
+      this.frameProbePending = false;
+      measured = true;
+    }
+
+    const moved = this.cameraPoseChanged();
+    const active = moved || this._camera.isAnimating() || this.gizmo.isDragging();
+    const wasInvalidated = this.needsRender;
+
+    if (active) {
+      this.lastActivityTime = now;
+    }
+    // A view is "settled" once nothing has changed it for a beat. The delay
+    // keeps a detail promotion from firing between two frames of a drag.
+    const settled = !active && now - this.lastActivityTime >= SETTLE_DELAY_MS;
+    const settleChanged = settled !== this.settled;
+    this.settled = settled;
+
+    // Give content a chance to change level of detail. Doing this before the
+    // render (and letting the callback call invalidate()) means a promotion is
+    // drawn on this very frame rather than a frame later.
+    if (this.lodSink && (settleChanged || measured || moved)) {
+      this.lodSink({ settled, lastFrameMs: this.lastFrameMs });
+    }
+
+    const shouldRender = this.needsRender || active;
+    if (!shouldRender) {
+      this.renderedLastFrame = false;
+      return;
+    }
+
+    this.needsRender = false;
+    this.frameProbeStart = performance.now();
+    this.frameProbePending = true;
     this.renderer.render(this.scene, this.camera);
     this.publishCameraState();
-    this.publishFps(now, dt);
+    // Only measure between two consecutive drawn frames, otherwise an idle gap
+    // would masquerade as a huge frame time.
+    if (this.renderedLastFrame) {
+      this.publishFps(now, dt);
+    }
+    this.renderedLastFrame = true;
   };
+
+  /**
+   * Request a redraw. Call after anything that changes the image but not the
+   * camera — content rebuilds, selection, gizmo drags, theme or layer changes.
+   */
+  invalidate(): void {
+    this.needsRender = true;
+  }
+
+  /** Listener form of {@link invalidate}, for DOM events. */
+  private readonly requestRender = (): void => {
+    this.needsRender = true;
+  };
+
+  /** True when the camera pose differs from the last drawn frame. */
+  private cameraPoseChanged(): boolean {
+    const cam = this.camera;
+    const t = this.controls.target;
+    const p = this.lastPose;
+    const changed =
+      p.px !== cam.position.x ||
+      p.py !== cam.position.y ||
+      p.pz !== cam.position.z ||
+      p.qx !== cam.quaternion.x ||
+      p.qy !== cam.quaternion.y ||
+      p.qz !== cam.quaternion.z ||
+      p.qw !== cam.quaternion.w ||
+      p.tx !== t.x ||
+      p.ty !== t.y ||
+      p.tz !== t.z ||
+      p.fov !== cam.fov ||
+      p.near !== cam.near ||
+      p.far !== cam.far ||
+      p.zoom !== cam.zoom;
+    if (changed) {
+      p.px = cam.position.x;
+      p.py = cam.position.y;
+      p.pz = cam.position.z;
+      p.qx = cam.quaternion.x;
+      p.qy = cam.quaternion.y;
+      p.qz = cam.quaternion.z;
+      p.qw = cam.quaternion.w;
+      p.tx = t.x;
+      p.ty = t.y;
+      p.tz = t.z;
+      p.fov = cam.fov;
+      p.near = cam.near;
+      p.far = cam.far;
+      p.zoom = cam.zoom;
+    }
+    return changed;
+  }
 
   private publishFps(now: number, dt: number): void {
     if (!this.fpsSink) {
@@ -653,6 +843,7 @@ export class ViewerScene {
     this.camera.aspect = clientWidth / clientHeight;
     this.camera.updateProjectionMatrix();
     this.renderer.setSize(clientWidth, clientHeight);
+    this.needsRender = true;
     this.renderer.render(this.scene, this.camera);
   }
 

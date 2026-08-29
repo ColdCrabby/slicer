@@ -377,8 +377,8 @@ viewer/
 │   ├── types.ts               Shared public types (SceneSelectionHandlers, SceneGizmoHandlers, ViewerView, …)
 │   └── utils.ts               disposeObject — recursive Three.js geometry/material cleanup
 ├── gizmo.ts                   GizmoManager, computeSelectionCentroid, raycastFace
-├── gcode-orchestrator.ts      GcodeOrchestrator — owns layer groups; Three.js visibility only (no geometry)
-├── gcode-layer-renderer.ts    buildLayerGroup, showLayerRange, applySegmentProgress, applyHiddenRoles
+├── gcode-orchestrator.ts      GcodeOrchestrator — owns the built model; Three.js visibility only (no geometry)
+├── gcode-layer-renderer.ts    buildGcodeModel, applyLayerVisibility, applyHiddenRoles, setDetailLevel
 └── index.ts                   Public re-exports
 ```
 
@@ -397,15 +397,114 @@ viewer/
 
 All G-code geometry is built exclusively inside `GcodeOrchestrator.buildFromHandle()` by
 calling the WASM-side `GcodeSource.getLayer()`. Three.js receives finished `Float32Array`
-buffers and is responsible only for showing/hiding layer groups and scrubbing segment
-draw-ranges. No geometry is constructed in TypeScript.
+buffers and is responsible only for visibility and scrubbing draw-ranges. No geometry is
+constructed in TypeScript.
 
 ```mermaid
 flowchart LR
     WASM[GcodeSource\nWASM handle] -->|getLayer| GO[GcodeOrchestrator\nbuildFromHandle]
-    GO -->|LineSegments| CR[contentRoot\nThree.js scene]
+    GO -->|per-role InstancedMesh| CR[contentRoot\nThree.js scene]
     GPS[GcodePreviewService\nsignals] -->|showRange\napplyProgress\napplyHiddenRoles| GO
 ```
+
+#### One buffer per _role_, not per _layer_
+
+Geometry is packed into a single instanced buffer pair (tube + joint balls) **per role,
+spanning every layer**, with instances ordered layer-ascending. The obvious alternative —
+a group per layer — costs a draw call per layer per role: a 335-layer plate reached
+**~2 500 draw calls and ~2 500 distinct materials**, which pinned the frame at ~25 fps on
+an M-series Mac purely in driver overhead. Per role it is **~18**.
+
+The packing order is what keeps that cheap to drive:
+
+| Control        | Range shape         | Mechanism                                   |
+| -------------- | ------------------- | ------------------------------------------- |
+| Layer max      | prefix              | `InstancedMesh.count` / `setDrawRange`      |
+| Progress scrub | prefix (within top) | same `count`, split per role by block order |
+| Layer min      | `0` or `== max`     | `uLayerMin` uniform, collapsed in-shader    |
+| Role hiding    | whole role          | `mesh.visible`                              |
+
+`layerMin` is never an arbitrary window (it is `0` when showing all layers, otherwise
+`layerMax`), so the only non-prefix case is "single layer" — handled by a per-instance
+`aLayer` attribute and one uniform rather than by splitting the buffer back up. Because a
+raycast cannot see a shader-side collapse, the hover probe uses an offset-aware
+`raycast` that starts at the first visible instance.
+
+#### On-demand rendering
+
+`ViewerScene` only calls `renderer.render()` when the image can actually have changed:
+camera pose delta (which covers orbit damping, inertia, snap-hold, autoscroll and the
+projection tween), an active animation or gizmo drag, pointer activity over the canvas, or
+an explicit `invalidate()` from content changes. A static plate therefore costs nothing —
+previously it was fully redrawn 60 times a second.
+
+#### Detail levels, and when each is used
+
+Draw calls were only half the story: a 1.14 M-segment plate at full detail is **77.7 M
+triangles per frame**, which no draw-call count makes affordable. So the preview has two
+levels of bead geometry:
+
+| Level  | Tube                    | Joints | Tris/segment |
+| ------ | ----------------------- | ------ | ------------ |
+| `high` | octagon, capped         | yes    | 68           |
+| `low`  | 4-sided diamond, capped | no     | 16           |
+
+Both LODs are built up front and share the same instanced attributes, so switching is a
+geometry pointer swap — no instance data is touched, and their extents are identical so the
+instance bounding sphere stays valid.
+
+**Two properties of the cheap bead are load-bearing, and both were learned by breaking
+them:**
+
+- **Ridge on top, never a flat face.** A first attempt rotated the 4-gon 45° into a
+  flat-topped box, reasoning that a squished extrusion really does have a flat top. But
+  every bead on a layer then has a _horizontal_ top face at exactly the same Z, and beads
+  overlap constantly — at every path corner, and wherever flow deliberately overlaps a
+  neighbour. Coplanar faces at identical depth is textbook **z-fighting**, and it speckled
+  the whole plate. The default diamond orientation puts a ridge on top, so overlapping
+  beads differ in Z almost everywhere. The octagon has the same property, which is why the
+  high LOD never showed the artifact.
+- **Capped ends.** An open tube shows its hollow interior wherever a path ends, which reads
+  as beads being **chopped off mid-air**. Caps cost 8 triangles and remove it. They are
+  invisible mid-path (the next segment covers them), so they only pay off where it matters.
+
+#### Choosing a level — `PreviewDetail`
+
+The user always decides, via **Settings → General → Preview detail**
+(`auto` / `performance` / `quality`, persisted). `auto` is the default and is built around
+one observation:
+
+> Rendering is on-demand, so a **still view costs exactly one frame**.
+
+Expensive, good-looking geometry is therefore affordable precisely when the user has
+stopped to _evaluate_ the plate — and only interaction has to be cheap. `auto` resolves as:
+
+```mermaid
+flowchart TD
+    A[auto] --> B{fits interactive budget?}
+    B -- yes --> H[high, always]
+    B -- no --> C{view settled?}
+    C -- no --> L[low while moving]
+    C -- yes --> D{measured cost OK?}
+    D -- yes --> H2[high]
+    D -- no --> L2[low]
+```
+
+- Plates under the **interactive budget** stay at full detail permanently, so ordinary
+  models never visibly change as you orbit.
+- Heavier plates drop to the cheap bead _only while the view is moving_, and snap back to
+  full detail ~200 ms after it settles.
+- The settled budget is far larger than the interactive one, because it buys a single
+  frame rather than a sustained frame rate.
+
+**Hardware detection is by measurement, not by name.** GPU strings are routinely masked and
+are a poor guide to throughput anyway, so `auto` instead promotes once, measures the real
+frame, and demotes permanently for that model if it blew the budget. This adapts to the
+actual machine, including thermal throttling and integrated GPUs.
+
+Detail is re-evaluated whenever the view settles, the layer range or scrub changes (the
+layer slider is a draw-range prefix, so isolating a layer genuinely shrinks the frame and
+can earn full detail back), or the user changes the preference.
 
 ---
 

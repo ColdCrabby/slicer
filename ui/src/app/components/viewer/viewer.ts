@@ -55,6 +55,36 @@ export type ModelSource = string | URL | File | Blob | ArrayBuffer;
 const MODEL_COLOR_DARK = 0xbcc0c6;
 const MODEL_COLOR_LIGHT = 0xccd0d4;
 
+/**
+ * Triangles per frame full detail may cost *while the user is interacting*.
+ *
+ * Under this, full detail is kept on permanently — including during orbit — so
+ * ordinary plates never visibly change as you move. Geometry is one merged
+ * buffer per role, so every segment in the visible layer range is submitted
+ * wherever the camera points; zoom cannot lower this, but the layer slider can.
+ */
+const INTERACTIVE_TRIANGLE_BUDGET = 12_000_000;
+
+/**
+ * Triangles per frame full detail may cost once the view has *settled*.
+ *
+ * Far larger than the interactive budget because on-demand rendering makes a
+ * still view cost exactly one frame: a heavy frame is a single settle-in, not a
+ * sustained frame rate. This is what lets a million-segment plate still be
+ * inspected at full quality.
+ */
+const SETTLED_TRIANGLE_BUDGET = 120_000_000;
+
+/**
+ * Measured frame time (ms) above which full detail is judged unaffordable on
+ * this machine and auto mode stops promoting to it.
+ *
+ * This is the actual hardware autodetection: rather than guessing from a GPU
+ * name (routinely masked, and no guide to real throughput), auto mode promotes
+ * once, measures, and believes the result.
+ */
+const SETTLE_FRAME_BUDGET_MS = 400;
+
 /** Resolve the model base colour for the active colour scheme. */
 function modelColor(isDark: boolean): number {
   return isDark ? MODEL_COLOR_DARK : MODEL_COLOR_LIGHT;
@@ -131,6 +161,12 @@ export class Viewer {
   readonly fps = signal(0);
   /** Smoothed average frame delay in milliseconds. */
   readonly frameDelayMs = signal(0);
+  /** Whether the view has stopped changing (drives the detail promotion). */
+  private viewSettled = false;
+  /** Cleared when a promoted full-detail frame proved too slow on this machine. */
+  private fullDetailAffordable = true;
+  /** Set while waiting to measure the cost of a just-promoted frame. */
+  private probingDetail = false;
   /**
    * End-to-end wall time of the last WASM mesh round-trip, measured from
    * the moment the bytes are handed to `addMesh` to the moment the
@@ -445,6 +481,7 @@ export class Viewer {
         mesh.matrix.copy(this.tmpMatrix);
         mesh.matrixWorldNeedsUpdate = true;
       }
+      this.scene?.invalidate();
     });
 
     // React to layer-range changes from the GcodePreviewService.
@@ -452,6 +489,10 @@ export class Viewer {
       const min = this.gcodePreview.layerMin();
       const max = this.gcodePreview.layerMax();
       this.gcode?.showRange(min, max);
+      // The layer range changes what a frame costs, so it can earn (or lose)
+      // full detail independently of the camera.
+      this.refreshGcodeDetail();
+      this.scene?.invalidate();
     });
 
     // React to nozzle-progress changes.
@@ -459,12 +500,21 @@ export class Viewer {
       const progress = this.gcodePreview.segmentProgress();
       const max = this.gcodePreview.layerMax();
       this.gcode?.applyProgress(max, progress);
+      this.refreshGcodeDetail();
+      this.scene?.invalidate();
     });
 
     // React to role visibility changes.
     effect(() => {
       const hidden = this.gcodePreview.hiddenRoles();
       this.gcode?.applyHiddenRoles(hidden);
+      this.scene?.invalidate();
+    });
+
+    // React to the preview-detail preference.
+    effect(() => {
+      this.viewerControl.previewDetail();
+      this.refreshGcodeDetail();
     });
 
     // React to theme, view-mode, scalar-range, fan-selection, or legend
@@ -476,6 +526,7 @@ export class Viewer {
       const fan = this.gcodePreview.selectedFan();
       const band = this.gcodePreview.hoverBand();
       this.gcode?.applyView(colors, scalarChannelFor(mode), range, fan, band);
+      this.scene?.invalidate();
     });
 
     // The hover-inspect probe is only meaningful in the G-code scalar views.
@@ -516,6 +567,51 @@ export class Viewer {
    * inspector tooltip + legend tick, or clear the readout when nothing
    * extrudable is under the cursor.
    */
+  /**
+   * Pick the G-code detail level from the current view and layer range.
+   *
+   * Full detail requires both that the user is close enough for the rounding to
+   * read *and* that what is on screen fits the triangle budget — the second
+   * condition is the one that matters on big plates, where a merged buffer
+   * submits every visible segment regardless of where the camera looks.
+   */
+  private refreshGcodeDetail(): void {
+    const gcode = this.gcode;
+    if (!gcode) {
+      return;
+    }
+    const detail = this.resolveGcodeDetail(gcode);
+    if (gcode.setDetail(detail)) {
+      // Remember to check what a promotion actually cost.
+      if (detail === 'high') {
+        this.probingDetail = true;
+      }
+      this.scene?.invalidate();
+    }
+  }
+
+  /** Apply the user's preference, falling back to the adaptive policy. */
+  private resolveGcodeDetail(gcode: GcodeOrchestrator): 'high' | 'low' {
+    switch (this.viewerControl.previewDetail()) {
+      case 'performance':
+        return 'low';
+      case 'quality':
+        return 'high';
+      default:
+        break;
+    }
+    // Cheap enough to keep full detail on permanently — no change while moving.
+    if (gcode.canAffordHighDetail(INTERACTIVE_TRIANGLE_BUDGET)) {
+      return 'high';
+    }
+    // Heavy plate: cheap beads while the user is moving, full detail the moment
+    // they stop — which is when they are actually evaluating the result.
+    if (!this.viewSettled || !this.fullDetailAffordable) {
+      return 'low';
+    }
+    return gcode.canAffordHighDetail(SETTLED_TRIANGLE_BUDGET) ? 'high' : 'low';
+  }
+
   private onGcodeHover(hit: GcodeHoverHit | null): void {
     if (!hit) {
       this.gcodePreview.setHoverInfo(null);
@@ -530,13 +626,24 @@ export class Viewer {
 
     const rs = hit.ref.roleSegments;
     const i = hit.instanceId;
+    // Role buffers span every layer, so the layer has to be resolved from the
+    // instance index rather than read off the mesh.
+    const location = hit.ref.resolve(i);
+    // The upper bound is a draw-range prefix, which the raycast already
+    // respects, but the lower bound lives in the vertex shader — invisible to
+    // a raycast. Reject hits below it so "single layer" mode can't report a
+    // segment the user cannot see.
+    if (location.layerIndex < this.gcodePreview.layerMin()) {
+      this.gcodePreview.setHoverInfo(null);
+      return;
+    }
     const width = rs.widths?.[i] ?? 0;
     const height = rs.heights?.[i] ?? 0;
     const speed = rs.speeds?.[i] ?? 0;
     const value =
       channel.scope === 'segment'
         ? channel.extract(width, height, speed)
-        : channel.extractLayer(hit.ref.meta, this.gcodePreview.selectedFan());
+        : channel.extractLayer(location.meta, this.gcodePreview.selectedFan());
     if (value === null) {
       this.gcodePreview.setHoverInfo(null);
       return;
@@ -550,8 +657,8 @@ export class Viewer {
       value,
       valueLabel: channel.format(value),
       role: rs.role,
-      layerIndex: hit.ref.layerIndex,
-      z: hit.ref.z,
+      layerIndex: location.layerIndex,
+      z: location.z,
       width,
       height,
       speed,
@@ -721,6 +828,21 @@ export class Viewer {
     this.scene.fpsSink = (fps, delayMs) => {
       this.fps.set(fps);
       this.frameDelayMs.set(delayMs);
+    };
+    // Pick the geometry detail from the camera: full detail only when the user
+    // is close enough for the rounding to be visible *and* the plate is small
+    // enough to afford it at all.
+    this.scene.lodSink = ({ settled, lastFrameMs }) => {
+      this.viewSettled = settled;
+      // A promotion that turned out to be far too slow demotes permanently for
+      // this model, so the user is not stuck with a lurching viewport.
+      if (this.probingDetail) {
+        this.probingDetail = false;
+        if (lastFrameMs > SETTLE_FRAME_BUDGET_MS) {
+          this.fullDetailAffordable = false;
+        }
+      }
+      this.refreshGcodeDetail();
     };
     // Allow external gizmos (viewport-cube drag) to orbit the main camera.
     this.viewerControl.orbitSink = (azimuth, polar) => this.scene?.orbitBy(azimuth, polar);
@@ -1017,6 +1139,12 @@ export class Viewer {
     gcode.showRange(min, max);
     gcode.applyProgress(max, progress);
     gcode.applyHiddenRoles(hidden);
+    // A new plate gets a fresh verdict — the previous one may have been much
+    // heavier (or lighter) than this one.
+    this.fullDetailAffordable = true;
+    this.probingDetail = false;
+    this.refreshGcodeDetail();
+    scene.invalidate();
     this.status.set('ready');
     this.loadComplete.emit({ mode: 'gcode', segments: totalSegments });
   }
