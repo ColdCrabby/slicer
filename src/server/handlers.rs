@@ -126,6 +126,49 @@ pub async fn put_profiles_category_handler(
     }
 }
 
+/// Query for `GET /api/profiles/export`.
+#[derive(serde::Deserialize)]
+pub struct ProfileExportQuery {
+    /// `bundle` (ZIP of one TOML per profile) or `toml` (single
+    /// `profiles.toml`). Defaults to `bundle`.
+    pub format: Option<String>,
+}
+
+/// `GET /api/profiles/export` — download the profile library as TOML.
+///
+/// Exports what is actually persisted beside the engine, so the artifact is the
+/// same data the CLI would read on this machine. See
+/// [`crate::profiles::export`] for the two shapes.
+pub async fn export_profiles_handler(
+    query: web::Query<ProfileExportQuery>,
+) -> actix_web::HttpResponse {
+    let token = query.format.as_deref().unwrap_or("bundle");
+    let Some(format) = crate::profiles::ProfileExportFormat::parse(token) else {
+        return actix_web::HttpResponse::BadRequest()
+            .json(serde_json::json!({ "error": format!("unknown export format '{token}'") }));
+    };
+
+    let library = match crate::profiles::ProfileStore::new().load() {
+        Ok(library) => library,
+        Err(e) => {
+            return actix_web::HttpResponse::InternalServerError()
+                .json(serde_json::json!({ "error": e.to_string() }))
+        }
+    };
+
+    match crate::profiles::export_library(&library, format) {
+        Ok(artifact) => actix_web::HttpResponse::Ok()
+            .content_type(artifact.mime)
+            .insert_header((
+                actix_web::http::header::CONTENT_DISPOSITION,
+                format!("attachment; filename=\"{}\"", artifact.filename),
+            ))
+            .body(artifact.bytes),
+        Err(e) => actix_web::HttpResponse::InternalServerError()
+            .json(serde_json::json!({ "error": e.to_string() })),
+    }
+}
+
 /// `DELETE /api/history` — drop every slicing session, uploaded-file row, and
 /// cached G-code entry (and their on-disk artifacts). Backs the settings Danger
 /// Zone "Clear slice history" action. Profiles and configuration are untouched.

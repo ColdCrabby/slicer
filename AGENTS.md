@@ -460,8 +460,14 @@ server. [src/profiles/store.rs](src/profiles/store.rs) is the engine-side store.
   `slicer.toml` in [`config_dir()`](src/config/io.rs); the UI↔engine transport
   is JSON. The profile structs are JSON-native (`#[serde(flatten)]` meta + a
   dynamic `serde_json::Value` `params` bag) which the `toml` serializer cannot
-  encode directly, so `ProfileStore` bridges through `serde_json::Value` and
-  drops nulls. **Do not try to `toml::to_string` a profile struct directly.**
+  encode directly, so the conversion goes through `serde_json::Value` with nulls
+  dropped. **Do not try to `toml::to_string` a profile struct directly** — call
+  [`toml_bridge::render_library_toml`](src/profiles/toml_bridge.rs), the one
+  renderer behind both `ProfileStore::save` and the exporter.
+- **The library *shape* is target-independent.** `ProfileLibrary`, `Label` and
+  `ProfileKind` live in [library.rs](src/profiles/library.rs) so wasm (which has
+  no filesystem, hence no `store`) can still use them. Only `ProfileStore` is
+  `cfg(not(target_arch = "wasm32"))`.
 - **SQLite is only history + `gcode_cache`.** Profiles never touch the DB.
 - **Whole-category, last-writer-wins sync.** The unit is a category
   (`ProfileKind::{Printers,Filaments,Processes,Labels}`); the UI sends the full
@@ -502,6 +508,56 @@ server. [src/profiles/store.rs](src/profiles/store.rs) is the engine-side store.
 - **The settings-sidebar notice** reflects this: native = "saved on this
   device", cloud = "saved on the slicer" (safe if the browser is wiped), web =
   "kept in this browser only" (losable).
+
+### Export — written once, never revisited
+
+[src/profiles/export.rs](src/profiles/export.rs) renders the library for
+download in two shapes: a **bundle** (`slicer-profiles.zip`, one TOML per
+profile plus `labels.toml`, `manifest.toml`, `README.md`) and a **single**
+`profiles.toml` identical to what the store writes. Both come from the same
+`ProfileLibrary` serialization.
+
+- **Never name a field — or a category.** The exporter walks the *serialized
+  value* and treats every top-level array as a category. A new profile setting,
+  or a whole new category on `ProfileLibrary`, is exported with **zero** changes
+  here. That is the point of the module; do not add per-feature branches to it.
+  The only category-specific rule is one line (`splits_per_item`): labels are a
+  flat vocabulary and stay in one file, everything else is one file per item.
+- **Every file is an array of tables** (`[[printers]]`), and per-item files are
+  **ordinal-prefixed** (`printers/01-voron-24.toml`). Concatenating a bundle in
+  name order therefore reconstructs a valid `profiles.toml` *with the original
+  order intact* — the contract a future importer relies on, pinned by
+  `concatenating_a_bundle_reconstructs_the_library`.
+- **Deterministic:** fixed zip timestamps, so the same library exports
+  byte-identically and the artifact can be diffed or version-controlled.
+- **Credentials are stripped.** An export is built to be *handed over* (git
+  repo, AirDrop, mail), so `redact_secrets` removes any field named in
+  `SECRET_FIELDS` (`api_key`, `token`, …) anywhere in the tree, in **both**
+  shapes. Matched by name at the value level, so a credential added to any
+  profile later is covered for free. The bundle README and the settings copy
+  both say so; the user re-enters keys after restoring.
+- **The export is faithful to the library *as the engine understands it*** —
+  what `ProfileStore::load` produced and what the next save would write — not a
+  verbatim copy of the bytes on disk. A *typed* field written by a different
+  build is dropped by serde at load, before the exporter sees it (exactly as it
+  already is for `GET /api/profiles`). Free-form `params` entries, where new
+  slicing settings actually land, always survive. Don't overstate this in
+  user-facing copy.
+- **Three transports, one renderer:** `GET /api/profiles/export?format=`
+  (cloud), Tauri `profiles_export` (native) — both export what is *persisted*,
+  i.e. what the CLI on that machine would read — and wasm
+  `exportProfileLibrary(library, format)` for the web runtime, where the browser
+  is the engine and the UI's own library is the only truth. The wasm binding
+  exists only in the `web-slicer` build, so
+  [`BrowserProfilePersistence`](ui/src/app/services/profiles/profile-persistence.ts)
+  looks it up dynamically rather than importing a symbol the cloud/native
+  bindings do not declare.
+- **UI:** [`ProfileExport`](ui/src/app/services/profiles/profile-export.ts) picks
+  the transport and hands the bytes to
+  [`FileExport`](ui/src/app/services/file-export.ts) — the one place that knows
+  the three "save a file" idioms (iOS share sheet, desktop Save-As, browser
+  anchor). G-code downloads go through it too; **do not re-implement a download
+  in a feature**.
 
 ## Scene Engine — SSOT Contract
 

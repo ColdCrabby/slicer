@@ -22,6 +22,16 @@ these notes and acknowledges contributors. `scripts/gen-changelog-draft.sh` and
 
 ### Added
 
+- **Export your profile library** — Settings → General now has a **Backup &
+  Export** section that downloads every printer, filament, print profile and
+  label as TOML. The default export is a ZIP bundle with one file per profile
+  (`printers/01-voron-24.toml`, …); the dropdown offers a single `profiles.toml`
+  instead — the exact file the engine and CLI read, so it can be dropped into a
+  config directory as-is. Concatenating a bundle reproduces that same file, in
+  the original order. The engine renders the export in every runtime (server,
+  desktop, and in-browser), so the files always match what the slicer reads
+  back. Printer API keys are stripped from the export, so it is safe to share or
+  commit — re-enter them after restoring.
 - **Dynamic overhang speed & cooling** — perimeter segments are graded by how
   much of the extrusion width hangs over unsupported air, and each degree prints
   at its own speed with extra part-cooling airflow. Enabled by default, tuned for

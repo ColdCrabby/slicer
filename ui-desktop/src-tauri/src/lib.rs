@@ -61,6 +61,7 @@ pub fn run() {
             commands::get_system_accent,
             commands::profiles_load,
             commands::profiles_save_category,
+            commands::profiles_export,
             commands::printer_check,
             commands::printer_detect,
             commands::printer_send,
