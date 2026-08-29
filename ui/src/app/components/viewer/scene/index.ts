@@ -281,11 +281,17 @@ export class ViewerScene {
     this._controls = new SceneControls(this.camera, this.controls, this.renderer, () =>
       this._selection.cancelActiveDrag(),
     );
-    // A deliberate free-view gesture in the main viewport — pan, zoom, or a
-    // rotate dragged past the sticky intent threshold — reverts the viewport-
-    // cube's temporary orthographic snap; a small rotate and cube gestures never
-    // fire this, so the mode only changes on a clear user intent.
+    // A deliberate rotate dragged past the sticky intent threshold reverts the
+    // viewport-cube's temporary orthographic snap; a small rotate and cube
+    // gestures never fire this, so the mode only changes on a clear user
+    // intent to look elsewhere.
     this._controls.setRevertGestureSink(() => this._camera.notifyUserViewGesture());
+    // Pan and zoom are sticky — they never revert the snap (see above) — but
+    // still need to release its frozen detent so the gesture actually moves
+    // the camera. This lets the user inspect a snapped ortho view (e.g. a
+    // selected face) up close by panning/zooming without ever popping back to
+    // perspective.
+    this._controls.setPanZoomGestureSink(() => this._camera.releaseSnapPinForPanZoom());
     this._grid = new SceneGrid(this.scene, this.camera, this.controls, this.renderer, printArea);
 
     // The loop only draws when something changed, and several sub-systems paint

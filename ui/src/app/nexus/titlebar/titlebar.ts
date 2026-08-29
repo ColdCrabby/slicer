@@ -2,6 +2,7 @@ import { ChangeDetectionStrategy, Component, computed, signal } from '@angular/c
 import { ConnectionState } from '../../components/connection-state/connection-state';
 import { Logo } from '../../components/logo/logo';
 import { WorkplateName } from '../../components/workplate-name/workplate-name';
+import { isTauriDesktop, isTauriMobile } from '../../runtime/domain/runtime-mode.util';
 import { Icon } from '../../shared/icon/icon';
 import { IconButton } from '../../ui/icon-button/icon-button';
 
@@ -12,6 +13,9 @@ import { IconButton } from '../../ui/icon-button/icon-button';
  *   traffic lights remain and this bar only reserves space for them + brand.
  * - Windows/Linux: the window is frameless, so this bar draws the
  *   minimize / maximize / close controls.
+ * - iOS/iPadOS: there is no window at all — no traffic lights to clear and
+ *   nothing to minimize — so the bar renders as a brand strip, offset below the
+ *   status bar via the safe-area inset.
  * - Web: there is no window frame; the bar renders as a slim brand strip.
  *
  * The whole bar (minus the controls) is a Tauri drag region.
@@ -27,10 +31,13 @@ import { IconButton } from '../../ui/icon-button/icon-button';
     'data-tauri-drag-region': '',
     '[class.is-desktop]': 'isDesktop()',
     '[class.is-mac]': 'isMac()',
+    '[class.is-mobile]': 'isMobile()',
   },
 })
 export class NexusTitlebar {
-  readonly isDesktop = signal(this.detectDesktop());
+  readonly isMobile = signal(isTauriMobile());
+  /** A Tauri host *with* a window frame. iPad is a Tauri host but has none. */
+  readonly isDesktop = signal(isTauriDesktop());
   readonly isMac = signal(this.detectMac());
 
   /** Custom controls only on non-mac desktop; mac keeps native traffic lights. */
@@ -64,13 +71,6 @@ export class NexusTitlebar {
     } catch {
       return null;
     }
-  }
-
-  private detectDesktop(): boolean {
-    return (
-      typeof globalThis !== 'undefined' &&
-      ('__TAURI_INTERNALS__' in globalThis || '__TAURI__' in globalThis)
-    );
   }
 
   private detectMac(): boolean {

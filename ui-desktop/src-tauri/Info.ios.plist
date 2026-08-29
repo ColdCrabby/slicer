@@ -1,0 +1,152 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  Extra Info.plist entries merged into the generated iOS app.
+
+  Tauri looks for `Info.plist` (all Apple platforms) and `Info.ios.plist` (iOS
+  only) next to `tauri.conf.json` and merges them over the template it writes to
+  `gen/apple/<app>_iOS/Info.plist`. Keeping these here means `tauri ios init`
+  can be re-run — regenerating the Xcode project — without losing them.
+-->
+<plist version="1.0">
+<dict>
+	<!--
+	  iOS 14+ requires an explicit, user-facing reason before an app may reach
+	  anything on the local network. Without it every `slicer_engine::printer`
+	  probe/upload to a Moonraker/Klipper box silently fails, which would look
+	  exactly like "printer offline". `NSBonjourServices` must additionally list
+	  every mDNS service type we browse, or the query returns nothing.
+	-->
+	<key>NSLocalNetworkUsageDescription</key>
+	<string>Cold Crabby connects to 3D printers on your local network to check their status and send sliced G-code.</string>
+	<key>NSBonjourServices</key>
+	<array>
+		<string>_moonraker._tcp</string>
+		<string>_octoprint._tcp</string>
+		<string>_http._tcp</string>
+	</array>
+
+	<!--
+	  Printers on a LAN serve plain HTTP and have no publicly trusted
+	  certificate, so App Transport Security would block them. `NSAllowsLocal
+	  Networking` relaxes ATS for local hostnames/IPs *only* — public HTTPS stays
+	  enforced. It also covers `http://localhost:4213`, the dev server the
+	  simulator loads during `tauri ios dev`.
+	-->
+	<key>NSAppTransportSecurity</key>
+	<dict>
+		<key>NSAllowsLocalNetworking</key>
+		<true/>
+	</dict>
+
+	<!--
+	  Expose the app's Documents directory in the Files app so models can be
+	  dropped in (and sliced G-code pulled out) without a share sheet, and let
+	  the app open files in place rather than copying them first.
+	-->
+	<key>UIFileSharingEnabled</key>
+	<true/>
+	<key>LSSupportsOpeningDocumentsInPlace</key>
+	<true/>
+
+	<!-- iPad: allow every orientation, and therefore Split View / Stage Manager. -->
+	<key>UISupportedInterfaceOrientations~ipad</key>
+	<array>
+		<string>UIInterfaceOrientationPortrait</string>
+		<string>UIInterfaceOrientationPortraitUpsideDown</string>
+		<string>UIInterfaceOrientationLandscapeLeft</string>
+		<string>UIInterfaceOrientationLandscapeRight</string>
+	</array>
+
+	<!--
+	  Declare the model formats the app opens.
+
+	  The iOS file picker filters by **UTType**, not by extension: Tauri maps
+	  each `open()` filter through `UTType(filenameExtension:)`, which only
+	  resolves for types the system knows. iOS knows `stl`, but not `obj` or
+	  `3mf` — so without these declarations those files render greyed-out and
+	  unselectable in Files, and the model cannot be imported at all.
+	  Declaring them also makes the app a target for "Open with…", which is
+	  what `LSSupportsOpeningDocumentsInPlace` above is for.
+	-->
+	<key>UTImportedTypeDeclarations</key>
+	<array>
+		<dict>
+			<key>UTTypeIdentifier</key>
+			<string>public.standard-tesselated-geometry-format</string>
+			<key>UTTypeDescription</key>
+			<string>STL Model</string>
+			<key>UTTypeConformsTo</key>
+			<array>
+				<string>public.data</string>
+			</array>
+			<key>UTTypeTagSpecification</key>
+			<dict>
+				<key>public.filename-extension</key>
+				<array>
+					<string>stl</string>
+				</array>
+			</dict>
+		</dict>
+		<dict>
+			<key>UTTypeIdentifier</key>
+			<string>public.geometry-definition-format</string>
+			<key>UTTypeDescription</key>
+			<string>Wavefront OBJ Model</string>
+			<key>UTTypeConformsTo</key>
+			<array>
+				<string>public.text</string>
+			</array>
+			<key>UTTypeTagSpecification</key>
+			<dict>
+				<key>public.filename-extension</key>
+				<array>
+					<string>obj</string>
+				</array>
+			</dict>
+		</dict>
+		<dict>
+			<key>UTTypeIdentifier</key>
+			<string>org.3mf.3mf</string>
+			<key>UTTypeDescription</key>
+			<string>3MF Model</string>
+			<key>UTTypeConformsTo</key>
+			<array>
+				<string>com.pkware.zip-archive</string>
+			</array>
+			<key>UTTypeTagSpecification</key>
+			<dict>
+				<key>public.filename-extension</key>
+				<array>
+					<string>3mf</string>
+				</array>
+			</dict>
+		</dict>
+	</array>
+	<key>CFBundleDocumentTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleTypeName</key>
+			<string>3D Model</string>
+			<key>LSHandlerRank</key>
+			<string>Alternate</string>
+			<key>CFBundleTypeRole</key>
+			<string>Viewer</string>
+			<key>LSItemContentTypes</key>
+			<array>
+				<string>public.standard-tesselated-geometry-format</string>
+				<string>public.geometry-definition-format</string>
+				<string>org.3mf.3mf</string>
+			</array>
+		</dict>
+	</array>
+
+	<!--
+	  The app's only cryptography is standard HTTPS (rustls), which is exempt
+	  from US export regulations. Declaring it here skips the compliance
+	  questionnaire on every TestFlight/App Store upload.
+	-->
+	<key>ITSAppUsesNonExemptEncryption</key>
+	<false/>
+</dict>
+</plist>

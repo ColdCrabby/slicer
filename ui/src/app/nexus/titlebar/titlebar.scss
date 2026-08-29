@@ -21,6 +21,17 @@
   padding-left: 88px;
 }
 
+// iOS/iPadOS: the webview is full-screen and sits *under* the status bar, so
+// grow the bar by the top inset instead of letting the clock overlap the brand.
+// `is-desktop` is never set here, so the traffic-light padding above cannot
+// apply even though iPadOS reports a Mac-like user agent.
+:host(.is-mobile) {
+  height: calc(var(--titlebar-height) + env(safe-area-inset-top, 0px));
+  padding-top: env(safe-area-inset-top, 0px);
+  padding-left: calc(var(--spacing-xs) + env(safe-area-inset-left, 0px));
+  padding-right: calc(var(--spacing-xs) + env(safe-area-inset-right, 0px));
+}
+
 .tb-leading {
   display: flex;
   align-items: center;
