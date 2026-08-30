@@ -42,9 +42,10 @@ these notes and acknowledges contributors. `scripts/gen-changelog-draft.sh` and
     set.
 
   Both are off by default, and with both off the plate is merged and sliced
-  exactly as before — no change to existing G-code. The **process** settings
-  (`print_sequence`, `exclude_object`, `between_objects_gcode`) live under a new
-  **Objects** group; the two **extruder clearances**
+  exactly as before — no change to existing G-code. **Print order**
+  (`print_sequence`) and the optional between-objects G-code live under a new
+  **Objects** process group; whether the machine can **skip a failed object**
+  (`exclude_object`) and its two **extruder clearances**
   (`extruder_clearance_height_mm`, `extruder_clearance_radius_mm`) describe the
   machine, so they sit with the printer's hardware settings. The CLI exposes
   `--exclude-object` and `--print-sequence by-object`.

@@ -17,6 +17,11 @@ use uuid::Uuid;
 struct WsLogger {
     global: StderrLogger,
     tx: tokio::sync::mpsc::Sender<String>,
+    /// Current object scope as `(index, count)`, both 1-based, or `(0, 0)` for
+    /// "no scope" (a single merged slice). Interior-mutable because the logger
+    /// is shared immutably down the pipeline while `slice_plate` updates the
+    /// scope between objects.
+    object_scope: std::sync::atomic::AtomicU64,
 }
 
 impl WsLogger {
@@ -24,7 +29,19 @@ impl WsLogger {
         Self {
             global: StderrLogger,
             tx,
+            object_scope: std::sync::atomic::AtomicU64::new(0),
         }
+    }
+
+    /// Read the current object scope as optional 1-based `(index, count)`.
+    fn scope(&self) -> (Option<u32>, Option<u32>) {
+        let packed = self.object_scope.load(std::sync::atomic::Ordering::Relaxed);
+        if packed == 0 {
+            return (None, None);
+        }
+        let index = (packed >> 32) as u32;
+        let count = (packed & 0xFFFF_FFFF) as u32;
+        (Some(index), Some(count))
     }
 
     fn send_log(&self, level: &str, msg: &str) {
@@ -63,10 +80,13 @@ impl ProcessLogger for WsLogger {
 
     fn log_phase_start(&self, phase: &str) {
         self.global.log_phase_start(phase);
+        let (object, object_count) = self.scope();
         let server_msg = crate::ws_protocol::ServerMessage::PhaseMarker {
             phase: phase.to_string(),
             event: "start".to_string(),
             elapsed_ms: None,
+            object,
+            object_count,
         };
         let json = serde_json::to_string(&server_msg).unwrap_or_else(|_| {
             format!(
@@ -79,10 +99,13 @@ impl ProcessLogger for WsLogger {
 
     fn log_phase_end(&self, phase: &str, elapsed_ms: u64) {
         self.global.log_phase_end(phase, elapsed_ms);
+        let (object, object_count) = self.scope();
         let server_msg = crate::ws_protocol::ServerMessage::PhaseMarker {
             phase: phase.to_string(),
             event: "end".to_string(),
             elapsed_ms: Some(elapsed_ms),
+            object,
+            object_count,
         };
         let json = serde_json::to_string(&server_msg).unwrap_or_else(|_| {
             format!(
@@ -91,6 +114,17 @@ impl ProcessLogger for WsLogger {
             )
         });
         let _ = self.tx.blocking_send(json);
+    }
+
+    fn set_object_scope(&self, index: usize, count: usize) {
+        let packed = ((index as u64) << 32) | (count as u64 & 0xFFFF_FFFF);
+        self.object_scope
+            .store(packed, std::sync::atomic::Ordering::Relaxed);
+    }
+
+    fn clear_object_scope(&self) {
+        self.object_scope
+            .store(0, std::sync::atomic::Ordering::Relaxed);
     }
 }
 

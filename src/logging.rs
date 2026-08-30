@@ -128,6 +128,25 @@ pub trait ProcessLogger: Send + Sync {
     /// The default implementation is a no-op, preserving backward compatibility.
     fn log_phase_end(&self, _phase: &str, _elapsed_ms: u64) {}
 
+    /// Announce that the phases which follow belong to object `index` of
+    /// `count` on a multi-object plate (both **1-based**).
+    ///
+    /// A plate sliced object-by-object runs the whole pipeline once per object,
+    /// so the same phase names recur. Without this context a progress bar keyed
+    /// on phase names walks *backwards* every time a new object restarts the
+    /// pipeline. Loggers that surface progress record the scope and stamp it
+    /// onto every subsequent phase marker until [`clear_object_scope`] is
+    /// called. The default is a no-op.
+    ///
+    /// [`clear_object_scope`]: ProcessLogger::clear_object_scope
+    fn set_object_scope(&self, _index: usize, _count: usize) {}
+
+    /// Clear the object scope set by [`set_object_scope`], so later phases are
+    /// reported without object context again. The default is a no-op.
+    ///
+    /// [`set_object_scope`]: ProcessLogger::set_object_scope
+    fn clear_object_scope(&self) {}
+
     /// Returns `true` when the pipeline should abort early.
     ///
     /// Checked between major phases in [`crate::core::process_mesh`]. The

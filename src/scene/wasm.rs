@@ -486,12 +486,19 @@ impl SceneHandle {
 #[cfg(feature = "web-slicer")]
 struct WasmSliceLogger {
     callback: Option<Function>,
+    /// Current object scope `(index, count)`, both 1-based, or `(0, 0)` for a
+    /// single merged slice. `Cell` is enough — the logger runs synchronously on
+    /// one worker thread (see the `unsafe impl Sync` note below).
+    object_scope: std::cell::Cell<(u32, u32)>,
 }
 
 #[cfg(feature = "web-slicer")]
 impl WasmSliceLogger {
     fn new(callback: Option<Function>) -> Self {
-        Self { callback }
+        Self {
+            callback,
+            object_scope: std::cell::Cell::new((0, 0)),
+        }
     }
 
     fn emit_log(&self, level: &str, message: &str) {
@@ -509,6 +516,11 @@ impl WasmSliceLogger {
         set_js_str(&event, "event", event_name);
         if let Some(elapsed_ms) = elapsed_ms {
             set_js_num(&event, "elapsed_ms", elapsed_ms as f64);
+        }
+        let (object, count) = self.object_scope.get();
+        if count > 0 {
+            set_js_num(&event, "object", object as f64);
+            set_js_num(&event, "object_count", count as f64);
         }
         self.emit(event);
     }
@@ -548,6 +560,14 @@ impl crate::logging::ProcessLogger for WasmSliceLogger {
 
     fn log_phase_end(&self, phase: &str, elapsed_ms: u64) {
         self.emit_phase(phase, "end", Some(elapsed_ms));
+    }
+
+    fn set_object_scope(&self, index: usize, count: usize) {
+        self.object_scope.set((index as u32, count as u32));
+    }
+
+    fn clear_object_scope(&self) {
+        self.object_scope.set((0, 0));
     }
 }
 

@@ -443,24 +443,25 @@ pub enum BrimType {
     Ears,
 }
 
-/// The order in which a multi-object plate is printed.
+/// How a plate holding several objects is printed.
 ///
-/// Consumed by [`crate::core::slice_plate`] (which decides whether the plate
-/// has to be sliced object-by-object) and by
-/// [`crate::gcode::GcodeGenerator`] (which emits the inter-object move).
+/// The developer-facing rationale (how each order flows through the slicing
+/// pipeline and the G-code generator) lives in the object-identity section of
+/// AGENTS.md; the doc text here stays user-facing because it becomes the
+/// setting's on-screen description.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum PrintSequence {
-    /// Every object advances one layer at a time — the standard FFF order.
+    /// Print every object together, rising one layer at a time.
     #[default]
     ByLayer,
-    /// Each object is finished completely before the next one starts.
+    /// Finish each object completely before starting the next.
     ///
-    /// Reduces the blemishes and stringing of plate-wide travels and lets a
-    /// finished part be removed mid-print, at the cost of requiring the
-    /// gantry to clear everything already on the bed (see
-    /// [`SlicingParams::extruder_clearance_height_mm`] /
-    /// [`SlicingParams::extruder_clearance_radius_mm`]).
+    /// Cuts the stringing and scars that plate-wide travel moves leave on
+    /// finished surfaces, and lets a completed part be lifted off before the
+    /// rest of the plate is done. In return the printhead has to clear whatever
+    /// is already on the bed, so parts that are too tall or too close together
+    /// are flagged before printing.
     ByObject,
 }
 
@@ -1900,35 +1901,35 @@ Caps print speed so the hotend can keep up with the flow.
     pub thumbnail_png_base64: Option<String>,
 
     #[schemars(
-        description = "Print order for a plate holding several objects: `by_layer` (every object advances one layer at a time) or `by_object` (each object is finished before the next one starts).",
+        description = "How a plate with several objects is printed: all objects together, rising one layer at a time — or each object finished completely before the next begins.",
         extend("x-group" = "Objects")
     )]
     #[serde(default)]
     pub print_sequence: PrintSequence,
 
     #[schemars(
-        description = "Wrap each object's moves in firmware object markers (Klipper `EXCLUDE_OBJECT_*`, Marlin/RepRap `M486`) so a single failed object can be cancelled mid-print without aborting the whole plate.",
-        extend("x-group" = "Objects")
+        description = "Let a single object be cancelled while the print continues, if it fails or lifts off the bed — without losing the rest of the plate. Needs a printer that supports skipping objects.",
+        extend("x-group" = "Hardware")
     )]
     #[serde(default)]
     pub exclude_object: bool,
 
     #[schemars(
-        description = "Gantry/X-carriage clearance height in mm: an object shorter than this passes under the moving gantry. A machine property. Used by sequential (`by_object`) printing to warn when a part is too tall to print before another.",
+        description = "Clearance height in mm: an object shorter than this fits under the printhead as it moves. Used when printing objects one at a time to warn before a tall part is left in the printhead's path.",
         extend("x-group" = "Hardware")
     )]
     #[serde(default = "SlicingParams::default_extruder_clearance_height")]
     pub extruder_clearance_height_mm: f64,
 
     #[schemars(
-        description = "Radius in mm the hotend and its fan duct sweep around the nozzle. A machine property. Used by sequential (`by_object`) printing to warn when two parts are too close to print one at a time.",
+        description = "How far the printhead and its fan shroud reach out around the nozzle, in mm. Used when printing objects one at a time to warn before two parts are placed too close to reach safely.",
         extend("x-group" = "Hardware")
     )]
     #[serde(default = "SlicingParams::default_extruder_clearance_radius")]
     pub extruder_clearance_radius_mm: f64,
 
     #[schemars(
-        description = "Custom G-code inserted between two objects in `by_object` order, after the nozzle has lifted clear and travelled to the next object. `null` = nothing.",
+        description = "Custom G-code to run after one object is finished and before the next one starts, when printing objects one at a time. Leave empty for none.",
         extend("x-group" = "Objects", "x-widget" = "gcode", "x-relevant-when" = serde_json::json!({"field": "print_sequence", "equals": "by_object"}))
     )]
     #[serde(default, skip_serializing_if = "Option::is_none")]

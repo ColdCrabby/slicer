@@ -174,18 +174,24 @@ pub fn slice_plate(
     let mut per_object_layers: Vec<Vec<SliceLayer>> = Vec::with_capacity(objects.len());
     let mut used_names: Vec<String> = Vec::with_capacity(objects.len());
 
+    let object_count = objects.len();
     for (index, object) in objects.iter().enumerate() {
         logger.log_debug(&format!(
             "object {}/{}: '{}'",
             index + 1,
-            objects.len(),
+            object_count,
             object.name
         ));
         let name = unique_object_name(&object.name, index, &used_names);
         used_names.push(name.clone());
         identities.push(identity_for(index, name, &object.mesh));
+        // Scope the phase markers to this object so a progress bar keyed on
+        // phase names keeps moving forward as the pipeline restarts per object,
+        // and can label each phase "(i of N)".
+        logger.set_object_scope(index + 1, object_count);
         per_object_layers.push(process_mesh(&object.mesh, slice_params, logger));
     }
+    logger.clear_object_scope();
 
     let layers = if sequential {
         for warning in sequential_warnings(&identities, params) {
