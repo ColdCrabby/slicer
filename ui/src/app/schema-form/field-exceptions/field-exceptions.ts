@@ -76,6 +76,32 @@ export const FIELD_EXCEPTIONS: Record<string, FieldException> = {
         : null,
   },
 
+  // Printing objects one at a time is only safe if the printhead can clear
+  // everything already on the bed — which is a property of the *machine*, not
+  // this process. Be honest that the guarantee lives elsewhere and link the
+  // user straight to where the clearances are set, rather than letting them
+  // discover the dependency only when the slicer warns (or the gantry hits a
+  // finished part). See the extruder-clearance settings on the printer profile.
+  print_sequence: {
+    notice: (value) =>
+      value === 'by_object'
+        ? {
+            tone: 'warning',
+            title: 'Sequential printing depends on your printer',
+            text:
+              'Each object is printed to completion before the next begins, so the printhead ' +
+              'must clear every finished part. A part taller than the gantry clearance, or two ' +
+              'parts closer than the extruder-clearance radius, can collide. The slicer warns ' +
+              'you before slicing, but those clearances describe your machine and have to be ' +
+              'set for it first.',
+            link: {
+              text: 'Set extruder clearances in printer settings',
+              routerLink: '/settings/printers',
+            },
+          }
+        : null,
+  },
+
   // The chamber target belongs to the filament; the chamber *heater* belongs to
   // the printer. Without the machine capability the slicer emits no chamber
   // command at all — deliberately, since an unknown command aborts the print on

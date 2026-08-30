@@ -22,6 +22,34 @@ these notes and acknowledges contributors. `scripts/gen-changelog-draft.sh` and
 
 ### Added
 
+- **Cancel one object mid-print, or print them one at a time.** The plate now
+  keeps track of which part every extrusion belongs to, which unlocks two
+  features that share that segmentation:
+
+  - **Exclude object** — each object's moves are wrapped in firmware object
+    markers (Klipper `EXCLUDE_OBJECT_*`, Marlin / RepRapFirmware `M486`), and
+    the file declares every part up front with its name, centre and footprint.
+    Mainsail, Fluidd and OctoPrint list the plate's objects, so a part that
+    fails halfway can be cancelled while the rest of the plate carries on.
+  - **Sequential printing** — with **Print order → by object** each part is
+    finished completely before the next one starts, front to back, with the
+    nozzle lifting clear of everything already on the bed before it travels
+    across. Optional custom G-code runs between objects. Parts taller than the
+    machine's gantry clearance, or closer together than its extruder clearance
+    radius, are reported as warnings before slicing rather than discovered as a
+    crash. Choosing it in the UI shows an honest heads-up that the feature
+    depends on the printer's clearances, with a link straight to where they are
+    set.
+
+  Both are off by default, and with both off the plate is merged and sliced
+  exactly as before — no change to existing G-code. **Print order**
+  (`print_sequence`) and the optional between-objects G-code live under a new
+  **Objects** process group; whether the machine can **skip a failed object**
+  (`exclude_object`) and its two **extruder clearances**
+  (`extruder_clearance_height_mm`, `extruder_clearance_radius_mm`) describe the
+  machine, so they sit with the printer's hardware settings. The CLI exposes
+  `--exclude-object` and `--print-sequence by-object`.
+
 - **Multiple objects per workplate** — a plate is now a build plate rather than
   a single file. An **Add model** button in the 3D toolbar (and a multi-select
   file picker) places more models on the plate you already have, instead of
@@ -94,7 +122,6 @@ these notes and acknowledges contributors. `scripts/gen-changelog-draft.sh` and
   that already heats the chamber (`START_PRINT … CHAMBER={chamber_temp}` and
   friends) keeps full ownership — the slicer stands down rather than heating and
   soaking twice.
-  ([#8](https://github.com/max-scopp/slicer-engine/issues/8))
 - **Settings tell you when they depend on something else.** A filament setting
   can need a machine capability that the *printer* profile has to provide — and
   until now nothing said so, on a tab where you could not see it. A chamber
@@ -104,7 +131,6 @@ these notes and acknowledges contributors. `scripts/gen-changelog-draft.sh` and
   so the CLI and the slicer log are equally honest — and the CLI now prints
   every "this setting will not take effect" warning, which it had been computing
   for other runtimes but never showing itself.
-  ([#8](https://github.com/max-scopp/slicer-engine/issues/8))
 
 - **Export your profile library** — Settings → General now has a **Backup &
   Export** section that downloads every printer, filament, print profile and
@@ -284,7 +310,6 @@ these notes and acknowledges contributors. `scripts/gen-changelog-draft.sh` and
   can't defeat the first-layer adhesion gate. Material presets were corrected to
   match: the value that used to land in First Layer Fan Speed was really the
   cooling curve's minimum, so PLA would have blown full-speed at the bed.
-  ([#8](https://github.com/max-scopp/slicer-engine/issues/8))
 
 - **Isolated infill specks in narrow wedges** — where a cross-section is locally
   thinner than the average wall count (the 3DBenchy bow tip is the canonical

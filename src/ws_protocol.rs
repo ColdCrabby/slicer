@@ -306,6 +306,15 @@ pub enum ServerMessage {
         /// Elapsed time in milliseconds. Only present when `event` is `"end"`.
         #[serde(skip_serializing_if = "Option::is_none")]
         elapsed_ms: Option<u64>,
+        /// 1-based index of the object this phase belongs to, on a plate sliced
+        /// object-by-object. Absent for a single merged slice.
+        #[serde(skip_serializing_if = "Option::is_none")]
+        object: Option<u32>,
+        /// Total number of objects being sliced individually. Absent for a
+        /// single merged slice. Lets the UI show "(2 of 3)" and keep progress
+        /// moving forward across per-object pipeline restarts.
+        #[serde(skip_serializing_if = "Option::is_none")]
+        object_count: Option<u32>,
     },
     /// Incremental slicing progress.
     Progress {

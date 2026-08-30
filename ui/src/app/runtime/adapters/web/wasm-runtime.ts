@@ -288,7 +288,13 @@ export class WasmRuntime implements RuntimePort {
         });
         break;
       case 'phase-start':
-        this.bus.emit({ type: 'phase-start', sliceId: message.sliceId, phase: message.phase });
+        this.bus.emit({
+          type: 'phase-start',
+          sliceId: message.sliceId,
+          phase: message.phase,
+          object: message.object,
+          objectCount: message.objectCount,
+        });
         break;
       case 'phase-end':
         this.bus.emit({
@@ -296,6 +302,8 @@ export class WasmRuntime implements RuntimePort {
           sliceId: message.sliceId,
           phase: message.phase,
           elapsedMs: message.elapsedMs,
+          object: message.object,
+          objectCount: message.objectCount,
         });
         break;
       case 'progress':

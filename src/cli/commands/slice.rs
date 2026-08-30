@@ -243,6 +243,26 @@ pub struct SliceCommand {
     #[arg(long)]
     pub spiral_vase: bool,
 
+    /// Print order for a plate holding several models.
+    ///
+    /// - `by-layer` — every object advances one layer at a time (default).
+    /// - `by-object` — each object is finished before the next one starts,
+    ///   front to back. Objects taller than the machine's gantry clearance, or
+    ///   closer together than its extruder clearance radius, are reported as
+    ///   warnings before slicing.
+    ///
+    /// When omitted, uses the value from settings.
+    #[arg(long, value_name = "ORDER")]
+    pub print_sequence: Option<String>,
+
+    /// Wrap each object's moves in firmware object markers so a single failed
+    /// part can be cancelled mid-print (Klipper `EXCLUDE_OBJECT_*`,
+    /// Marlin/RepRap `M486`).
+    ///
+    /// When omitted, uses the value from settings.
+    #[arg(long)]
+    pub exclude_object: bool,
+
     /// Dump internal geometry at every pipeline stage to this directory for
     /// visual debugging.  Produces per-layer `layer_NNNN.svg` files
     /// (Inkscape / browser) with each pipeline stage as a coloured group.
@@ -481,6 +501,22 @@ impl SliceCommand {
             slice_params.spiral_vase = true;
         }
 
+        // Object identity (issues #22 / #112). Both are plain opt-ins here; the
+        // decision of *how* to slice a plate lives in `slice_plate`, so every
+        // runtime behaves the same.
+        if let Some(ref order) = self.print_sequence {
+            slice_params.print_sequence = crate::settings::params::PrintSequence::parse(order)
+                .ok_or_else(|| {
+                    format!(
+                        "Unknown print sequence: '{}'. Supported: by-layer, by-object",
+                        order
+                    )
+                })?;
+        }
+        if self.exclude_object {
+            slice_params.exclude_object = true;
+        }
+
         // Validate every input file exists before doing any work, naming the
         // offender so a typo in a long multi-model command is obvious.
         for path in &self.input {
@@ -653,17 +689,21 @@ impl SliceCommand {
         }
 
         // Bake each object's transform exactly once, at the slicer boundary
-        // (SSOT contract in src/scene/README.md), and concatenate the results
-        // into the single mesh the pipeline sees — the same merge the WS
-        // server's `handle_slice` performs. `Face` stores vertices by value,
-        // so concatenation needs no index remapping.
-        let mut baked_mesh = crate::mesh::types::Mesh::new();
-        for object in &scene.objects {
-            let baked = apply_transform(object.mesh.as_ref(), &object.transform);
-            baked_mesh.vertices.extend(baked.vertices);
-            baked_mesh.faces.extend(baked.faces);
-        }
-        if baked_mesh.faces.is_empty() {
+        // (SSOT contract in src/scene/README.md). The objects are kept apart —
+        // `slice_plate` merges them itself unless the configuration needs
+        // per-object identity (exclude-object / sequential printing), which is
+        // the same decision the WS server's `handle_slice` delegates.
+        let mut plate_objects: Vec<crate::core::ObjectInput> = scene
+            .objects
+            .iter()
+            .map(|object| {
+                crate::core::ObjectInput::new(
+                    object.name.clone(),
+                    apply_transform(object.mesh.as_ref(), &object.transform),
+                )
+            })
+            .collect();
+        if plate_objects.iter().all(|o| o.mesh.faces.is_empty()) {
             return Err("Combined scene has no triangles — nothing to slice".into());
         }
 
@@ -674,22 +714,22 @@ impl SliceCommand {
             logger.log_warn(&warning);
         }
 
-        // Apply optional mesh decimation. The original (baked) mesh is kept
-        // in `baked_mesh` for reference; only the pipeline receives the
-        // potentially-decimated copy.
-        let mesh = if slice_params.mesh_quality == MeshQuality::Draft {
-            let before = baked_mesh.faces.len();
-            let decimated =
-                crate::mesh::transforms::decimate_mesh(&baked_mesh, slice_params.mesh_quality);
+        // Apply optional mesh decimation, per object so the plate keeps its
+        // segmentation.
+        if slice_params.mesh_quality == MeshQuality::Draft {
+            let before: usize = plate_objects.iter().map(|o| o.mesh.faces.len()).sum();
+            for object in &mut plate_objects {
+                object.mesh =
+                    crate::mesh::transforms::decimate_mesh(&object.mesh, slice_params.mesh_quality);
+            }
+            let after: usize = plate_objects.iter().map(|o| o.mesh.faces.len()).sum();
             logger.log_debug(&format!(
                 "mesh decimation (draft): {} → {} faces",
-                before,
-                decimated.faces.len()
+                before, after
             ));
-            decimated
-        } else {
-            baked_mesh
-        };
+        }
+        // Whole-plate geometry, for the analysis log and the debug pipeline.
+        let mesh = crate::core::merge_meshes(&plate_objects);
 
         // Compute and log mesh geometry (verbose detail available to this CLI request).
         {
@@ -725,7 +765,7 @@ impl SliceCommand {
 
         // Run the unified slicing pipeline. All step-level logging is handled
         // inside process_mesh and routed through `logger`.
-        let layers = if let Some(ref debug_dir) = self.debug_geometry {
+        let plate = if let Some(ref debug_dir) = self.debug_geometry {
             std::fs::create_dir_all(debug_dir).map_err(|e| {
                 format!(
                     "Failed to create debug directory '{}': {}",
@@ -753,10 +793,11 @@ impl SliceCommand {
                 svg_count,
                 debug_geometry.len()
             ));
-            layers
+            crate::core::PlateSlice::from_layers(layers)
         } else {
-            crate::core::process_mesh(&mesh, &slice_params, &logger)
+            crate::core::slice_plate(&plate_objects, &slice_params, &logger)
         };
+        let layers = &plate.layers;
 
         // Resolve per-flavor lifecycle marker config from config.
         // CLI flags override the enabled field.
@@ -830,8 +871,12 @@ impl SliceCommand {
             }
         }
 
+        // Attach the plate's objects so the dialect can emit firmware object
+        // markers (empty for a plate sliced without object identity).
+        generator = generator.with_objects(plate.objects.clone());
+
         let t_gcode = PhaseTimer::start(phases::GCODE_GENERATION, &logger);
-        let (gcode, stats) = generator.generate_with_stats(&layers, &slice_params);
+        let (gcode, stats) = generator.generate_with_stats(layers, &slice_params);
         t_gcode.finish();
 
         // Determine output path

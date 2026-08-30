@@ -280,6 +280,8 @@ export class CloudRuntime implements RuntimePort {
             type: 'phase-start',
             sliceId: this.pendingSliceId,
             phase: msg.phase,
+            object: msg.object ?? undefined,
+            objectCount: msg.object_count ?? undefined,
           });
         }
         if (msg.event === 'end') {
@@ -288,6 +290,8 @@ export class CloudRuntime implements RuntimePort {
             sliceId: this.pendingSliceId,
             phase: msg.phase,
             elapsedMs: msg.elapsed_ms ?? undefined,
+            object: msg.object ?? undefined,
+            objectCount: msg.object_count ?? undefined,
           });
         }
         break;

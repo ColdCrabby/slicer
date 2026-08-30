@@ -214,4 +214,49 @@ impl GcodeDialect for KlipperDialect {
             retract_mm, speed_mm_s, restart_extra_mm, speed_mm_s
         )]
     }
+
+    /// Klipper's `[exclude_object]` module is name-based, not index-based, and
+    /// wants the footprint up front: `CENTER` positions the object in the
+    /// front-end's cancel UI and `POLYGON` outlines it.
+    ///
+    /// Moonraker also scans the file for these definitions when it builds the
+    /// object list for Mainsail / Fluidd, which is why they are emitted at the
+    /// top of the program rather than lazily at first use.
+    fn object_definitions(&self, objects: &[crate::core::ObjectIdentity]) -> Vec<String> {
+        if objects.is_empty() {
+            return Vec::new();
+        }
+        let mut lines = vec!["EXCLUDE_OBJECT_DEFINE RESET=1".to_string()];
+        for object in objects {
+            let polygon = object
+                .polygon
+                .iter()
+                .map(|(x, y)| format!("[{:.3},{:.3}]", x, y))
+                .collect::<Vec<_>>()
+                .join(",");
+            if polygon.is_empty() {
+                lines.push(format!(
+                    "EXCLUDE_OBJECT_DEFINE NAME={} CENTER={:.3},{:.3}",
+                    object.name, object.center.0, object.center.1
+                ));
+            } else {
+                lines.push(format!(
+                    "EXCLUDE_OBJECT_DEFINE NAME={} CENTER={:.3},{:.3} POLYGON=[{}]",
+                    object.name, object.center.0, object.center.1, polygon
+                ));
+            }
+        }
+        lines
+    }
+
+    /// `EXCLUDE_OBJECT_START NAME=…` — the name is the whole identity here, so
+    /// it is repeated on every block (there is no index shorthand).
+    fn object_start(&self, object: &crate::core::ObjectIdentity, _first_use: bool) -> String {
+        format!("EXCLUDE_OBJECT_START NAME={}", object.name)
+    }
+
+    /// `EXCLUDE_OBJECT_END NAME=…`.
+    fn object_end(&self, object: &crate::core::ObjectIdentity) -> String {
+        format!("EXCLUDE_OBJECT_END NAME={}", object.name)
+    }
 }

@@ -445,29 +445,37 @@ impl SceneHandle {
             ));
         }
 
-        let mut combined = crate::mesh::types::Mesh::new();
-        for object in &self.inner.objects {
-            let baked = crate::scene::apply_transform(object.mesh.as_ref(), &object.transform);
-            combined.vertices.extend(baked.vertices);
-            combined.faces.extend(baked.faces);
-        }
+        // Keep the plate's objects apart and let `slice_plate` decide whether
+        // it can merge them — the browser slicer honours exclude-object and
+        // sequential printing exactly like the CLI and the server do.
+        let plate_objects: Vec<crate::core::ObjectInput> = self
+            .inner
+            .objects
+            .iter()
+            .map(|object| {
+                crate::core::ObjectInput::new(
+                    object.name.clone(),
+                    crate::scene::apply_transform(object.mesh.as_ref(), &object.transform),
+                )
+            })
+            .collect();
 
-        if combined.faces.is_empty() {
+        if plate_objects.iter().all(|o| o.mesh.faces.is_empty()) {
             return Err(JsValue::from_str(
                 "combined scene has no triangles; nothing to slice",
             ));
         }
 
         let logger = WasmSliceLogger::new(callback);
-        let layers = crate::core::process_mesh(&combined, &params, &logger);
-        let layer_count = layers.len();
+        let plate = crate::core::slice_plate(&plate_objects, &params, &logger);
+        let layer_count = plate.layers.len();
         logger.emit_progress(layer_count, layer_count);
 
         let t_gcode =
             crate::logging::PhaseTimer::start(crate::logging::phases::GCODE_GENERATION, &logger);
         let result = SliceResultJs {
             layer_count,
-            gcode: crate::gcode::generate_gcode_from_params(&layers, &params),
+            gcode: crate::gcode::generate_gcode_for_plate(&plate, &params),
         };
         t_gcode.finish();
 
@@ -478,12 +486,19 @@ impl SceneHandle {
 #[cfg(feature = "web-slicer")]
 struct WasmSliceLogger {
     callback: Option<Function>,
+    /// Current object scope `(index, count)`, both 1-based, or `(0, 0)` for a
+    /// single merged slice. `Cell` is enough — the logger runs synchronously on
+    /// one worker thread (see the `unsafe impl Sync` note below).
+    object_scope: std::cell::Cell<(u32, u32)>,
 }
 
 #[cfg(feature = "web-slicer")]
 impl WasmSliceLogger {
     fn new(callback: Option<Function>) -> Self {
-        Self { callback }
+        Self {
+            callback,
+            object_scope: std::cell::Cell::new((0, 0)),
+        }
     }
 
     fn emit_log(&self, level: &str, message: &str) {
@@ -501,6 +516,11 @@ impl WasmSliceLogger {
         set_js_str(&event, "event", event_name);
         if let Some(elapsed_ms) = elapsed_ms {
             set_js_num(&event, "elapsed_ms", elapsed_ms as f64);
+        }
+        let (object, count) = self.object_scope.get();
+        if count > 0 {
+            set_js_num(&event, "object", object as f64);
+            set_js_num(&event, "object_count", count as f64);
         }
         self.emit(event);
     }
@@ -540,6 +560,14 @@ impl crate::logging::ProcessLogger for WasmSliceLogger {
 
     fn log_phase_end(&self, phase: &str, elapsed_ms: u64) {
         self.emit_phase(phase, "end", Some(elapsed_ms));
+    }
+
+    fn set_object_scope(&self, index: usize, count: usize) {
+        self.object_scope.set((index as u32, count as u32));
+    }
+
+    fn clear_object_scope(&self) {
+        self.object_scope.set((0, 0));
     }
 }
 

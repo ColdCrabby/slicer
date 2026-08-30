@@ -39,7 +39,7 @@ Configuration for slicing behavior and printer control. All values stored as JSO
 
 The filament owns the material policy, the printer owns the hardware capability;
 `fan_configs` stays the printer-side adaptive layer-time table. Full precedence
-rules in [gcode/README.md](../gcode/README.md#thermal-management--cooling--chamber-issue-8).
+rules in [gcode/README.md](../gcode/README.md#thermal-management--cooling--chamber).
 
 | Parameter                  | Type | Default | Effect                                                                                    |
 | -------------------------- | ---- | ------- | ----------------------------------------------------------------------------------------- |

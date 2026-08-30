@@ -24,6 +24,15 @@ const WIDTH_EPSILON: f64 = 1e-6;
 /// resolution.
 const WIDTH_SIMPLIFY_TOL_MM: f64 = 0.02;
 
+/// Minimum lift, in mm, above the tallest already-printed object when
+/// sequential printing hands over to the next one.
+///
+/// The nozzle has to reach the far side of a finished part without touching it,
+/// and the layer block that follows will drop straight back down to the new
+/// object's first layer — so the clearance is taken *before* the travel, not
+/// as part of it.  A configured Z-hop larger than this wins.
+const SEQUENTIAL_LIFT_MM: f64 = 1.0;
+
 /// Width step (mm) at which a variable-width bead re-emits a `;WIDTH:` marker
 /// mid-path, so viewers/post-processors render the actual (flow-compensated)
 /// bead width rather than the nominal scalar.  Coarse enough (0.05 mm) to keep
@@ -533,6 +542,12 @@ pub struct GcodeGenerator {
     custom_filament_end_script: Option<Vec<String>>,
     /// Optional source model name, embedded in the metadata header (issue #15).
     model_name: Option<String>,
+    /// Print objects on the plate, in tag order.
+    ///
+    /// Empty for a plate sliced without object identity; non-empty enables the
+    /// firmware object markers (issue #22) and the sequential inter-object move
+    /// (issue #112).
+    objects: Vec<crate::core::ObjectIdentity>,
 }
 
 impl GcodeGenerator {
@@ -552,6 +567,7 @@ impl GcodeGenerator {
             custom_filament_start_script: None,
             custom_filament_end_script: None,
             model_name: None,
+            objects: Vec::new(),
         }
     }
 
@@ -569,6 +585,7 @@ impl GcodeGenerator {
             custom_filament_start_script: None,
             custom_filament_end_script: None,
             model_name: None,
+            objects: Vec::new(),
         }
     }
 
@@ -585,6 +602,18 @@ impl GcodeGenerator {
     /// ```
     pub fn with_warn_fn(mut self, f: impl Fn(&str) + 'static) -> Self {
         self.warn_fn = Some(Box::new(f));
+        self
+    }
+
+    /// Attach the plate's print objects so their moves can be attributed.
+    ///
+    /// With objects attached the generator declares them once at the top of the
+    /// program and wraps each object's moves in the dialect's markers
+    /// (`EXCLUDE_OBJECT_*` / `M486`), driven by the per-path tags in
+    /// [`SliceLayer::path_objects`](crate::core::SliceLayer::path_objects).
+    /// Passing an empty list — the default — leaves the output untouched.
+    pub fn with_objects(mut self, objects: Vec<crate::core::ObjectIdentity>) -> Self {
+        self.objects = objects;
         self
     }
 
@@ -1237,6 +1266,67 @@ impl GcodeGenerator {
             ));
         }
 
+        // ── Print-object runs ─────────────────────────────────────────────────
+        // Who owns each layer, and where that layer sits inside its owner's own
+        // stack. In `by_layer` order there is one run and the two indices are
+        // the same; sequential printing concatenates one stack per object, so
+        // anything that counts "layers so far" — the spiral base, the flow
+        // fade-in/out — has to count *within* the run or it only ever applies
+        // to the first object.
+        let sequential = !self.objects.is_empty()
+            && params.print_sequence == crate::settings::params::PrintSequence::ByObject;
+        let mut layer_owners: Vec<Option<usize>> = layers
+            .iter()
+            .map(|layer| (0..layer.paths.len()).find_map(|i| layer.object_for_path(i)))
+            .collect();
+        if sequential {
+            // A layer with no paths carries no tag, so it would slip past the
+            // hand-over — and its Z move would then descend to the *incoming*
+            // object's first layer while the nozzle is still parked over the
+            // one just finished. Attribute such a layer to the next object that
+            // does have geometry (falling back to the previous one at the end
+            // of the plate), so the hand-over always fires before the descent.
+            // `slice_plate` already filters these out; this keeps a
+            // hand-assembled plate safe too.
+            let mut next: Option<usize> = None;
+            for i in (0..layer_owners.len()).rev() {
+                match layer_owners[i] {
+                    Some(owner) => next = Some(owner),
+                    None => layer_owners[i] = next,
+                }
+            }
+            let mut previous: Option<usize> = None;
+            for owner in layer_owners.iter_mut() {
+                match owner {
+                    Some(o) => previous = Some(*o),
+                    None => *owner = previous,
+                }
+            }
+        }
+        let layer_index_in_run: Vec<usize> = if sequential {
+            let mut indices = Vec::with_capacity(layers.len());
+            let mut run_owner: Option<usize> = None;
+            let mut index_in_run = 0usize;
+            for (i, owner) in layer_owners.iter().enumerate() {
+                // An untagged layer (bed adhesion only) continues the current
+                // run rather than starting a new one.
+                if let Some(owner) = owner {
+                    if i == 0 || run_owner != Some(*owner) {
+                        run_owner = Some(*owner);
+                        index_in_run = 0;
+                    } else {
+                        index_in_run += 1;
+                    }
+                } else if i > 0 {
+                    index_in_run += 1;
+                }
+                indices.push(index_in_run);
+            }
+            indices
+        } else {
+            (0..layers.len()).collect()
+        };
+
         // ── Spiral (vase) mode plan ───────────────────────────────────────────
         // Spiralizable layers are those at or above `spiral_start_layer` that
         // expose exactly one closed outer-wall island. Layers below stay flat
@@ -1250,7 +1340,7 @@ impl GcodeGenerator {
                 .iter()
                 .enumerate()
                 .map(|(i, layer)| {
-                    if i < spiral_start_layer {
+                    if layer_index_in_run[i] < spiral_start_layer {
                         return None;
                     }
                     match detect_spiral_loop(layer) {
@@ -1273,12 +1363,46 @@ impl GcodeGenerator {
         } else {
             Vec::new()
         };
-        let first_spiral_idx = spiral_path_indices.iter().position(Option::is_some);
-        let last_spiral_idx = spiral_path_indices.iter().rposition(Option::is_some);
+        // First / last spiral layer **of each object**, so every vase on a
+        // sequential plate fades its seam in and out — not just the first.
+        let mut first_spiral_of_run: Vec<bool> = vec![false; spiral_path_indices.len()];
+        let mut last_spiral_of_run: Vec<bool> = vec![false; spiral_path_indices.len()];
+        {
+            let mut seen: std::collections::HashMap<Option<usize>, (usize, usize)> =
+                std::collections::HashMap::new();
+            for (i, spiral) in spiral_path_indices.iter().enumerate() {
+                if spiral.is_none() {
+                    continue;
+                }
+                let owner = if sequential { layer_owners[i] } else { None };
+                seen.entry(owner).and_modify(|e| e.1 = i).or_insert((i, i));
+            }
+            for (first, last) in seen.into_values() {
+                first_spiral_of_run[first] = true;
+                last_spiral_of_run[last] = true;
+            }
+        }
 
         // The metadata header is prepended once the filament total and geometry
         // are known (see the end of this method); the body starts here.
         let mut out = String::with_capacity(64 * 1024);
+
+        // ── Object definitions (issue #22) ────────────────────────────────────
+        // Declared before the start script: Klipper's `[exclude_object]` module
+        // and Moonraker both expect to meet every object before the print
+        // begins, so a front-end can list the plate's parts from the moment the
+        // file is loaded rather than discovering them as they are reached.
+        //
+        // Markers are gated on `exclude_object` alone: sequential printing also
+        // needs the plate segmented, but a user who only asked for one part at
+        // a time did not ask for firmware object tracking.
+        let object_markers = !self.objects.is_empty() && params.exclude_object;
+        if object_markers {
+            for line in self.dialect.object_definitions(&self.objects) {
+                out.push_str(&line);
+                out.push('\n');
+            }
+        }
 
         // ── Start script (custom override or flavor default) ──────────────────
         let start_script: Cow<[String]> = match &self.custom_start_script {
@@ -1448,6 +1572,20 @@ impl GcodeGenerator {
         // into each spiral loop from the true previous position and to keep the
         // start line aligned. Updated at the end of every layer.
         let mut cur_xy: Option<(f64, f64)> = None;
+        // ── Object attribution state (issues #22 / #112) ──────────────────────
+        // The object whose marker block is currently open, the set already
+        // introduced to the firmware (so `M486 A"name"` is spent once), and the
+        // highest Z printed so far — the height the nozzle must clear when
+        // sequential printing moves on to the next object.
+        let mut current_object: Option<usize> = None;
+        // Which object the *nozzle* is working on. Distinct from
+        // `current_object` (which marker block is open) because a layer with no
+        // paths never reaches the per-path attribution: tracking the hand-over
+        // on the block state would re-fire it on every such layer.
+        let mut handover_object: Option<usize> = layer_owners.first().copied().flatten();
+        let mut introduced_objects: Vec<bool> = vec![false; self.objects.len()];
+        let mut max_printed_z = 0.0_f64;
+        let between_objects = gcode_block_lines(params.between_objects_gcode.as_deref());
 
         // If a custom start script heats for first layer (e.g.
         // `{nozzle_temp_first_layer}` / `{bed_temp_first_layer}`), restore the
@@ -1467,6 +1605,69 @@ impl GcodeGenerator {
             && (chamber_first_target - params.chamber_temp).abs() > 1e-9;
 
         for (layer_index, layer) in layers.iter().enumerate() {
+            // ── Sequential printing: hand over to the next object (#112) ─────
+            // Everything here has to happen *before* the layer's own Z move,
+            // which drops the nozzle to the new object's first layer: doing it
+            // afterwards would lower into the part just finished.  So: close
+            // the outgoing marker block, retract, lift clear of the tallest
+            // thing on the bed, then travel across.
+            let layer_object = layer_owners[layer_index];
+            if sequential
+                && layer_index > 0
+                && layer_object.is_some()
+                && layer_object != handover_object
+            {
+                handover_object = layer_object;
+                if object_markers {
+                    if let Some(previous) = current_object.and_then(|i| self.objects.get(i)) {
+                        out.push_str(&self.dialect.object_end(previous));
+                        out.push('\n');
+                    }
+                }
+                current_object = None;
+
+                self.do_retract(
+                    &mut out,
+                    &mut e_total,
+                    &mut retracted,
+                    last_path_points.as_deref(),
+                    params,
+                );
+                let clearance_z = max_printed_z + params.z_hop_mm.max(SEQUENTIAL_LIFT_MM);
+                out.push_str(&format!(
+                    "{} ; clear the finished object\n",
+                    self.dialect.move_z(clearance_z, params.travel_speed_mm_min)
+                ));
+                // Aim at the incoming object's first path, falling back to its
+                // centre: an empty first layer would otherwise leave the nozzle
+                // parked over the part just finished when the layer block below
+                // drops back down to Z.
+                let entry = layer
+                    .paths
+                    .iter()
+                    .next()
+                    .and_then(|p| p.iter().next())
+                    .map(|p| (p.x(), p.y()))
+                    .or_else(|| {
+                        layer_object
+                            .and_then(|i| self.objects.get(i))
+                            .map(|object| object.center)
+                    });
+                if let Some((ex, ey)) = entry {
+                    out.push_str(&format!(
+                        "{} ; travel to the next object\n",
+                        self.dialect.travel_xy(ex, ey, params.travel_speed_mm_min)
+                    ));
+                    cur_xy = Some((ex, ey));
+                }
+                if let Some(lines) = &between_objects {
+                    for line in lines {
+                        out.push_str(&render_script_placeholders(line, params));
+                        out.push('\n');
+                    }
+                }
+            }
+
             // ── Retract on layer change (opt-in) ─────────────────────────────
             // Retract *before* the layer-change Z move so the nozzle does not
             // ooze while lifting and travelling to the next layer's first path.
@@ -1689,6 +1890,27 @@ impl GcodeGenerator {
             // ── Spiral (vase) mode: emit the single outer contour with a
             //    continuous Z ramp, then move to the next layer ───────────────
             if let Some(idx) = spiral_path_idx {
+                // A spiral layer is one continuous loop rather than a list of
+                // paths, so it never reaches the per-path attribution below —
+                // it has to open its own object's marker block here.
+                if !self.objects.is_empty() && layer_object != current_object {
+                    if object_markers {
+                        if let Some(previous) = current_object.and_then(|i| self.objects.get(i)) {
+                            out.push_str(&self.dialect.object_end(previous));
+                            out.push('\n');
+                        }
+                        if let Some(index) = layer_object {
+                            if let Some(object) = self.objects.get(index) {
+                                let first_use = !introduced_objects[index];
+                                out.push_str(&self.dialect.object_start(object, first_use));
+                                out.push('\n');
+                                introduced_objects[index] = true;
+                            }
+                        }
+                    }
+                    current_object = layer_object;
+                }
+
                 let path = layer
                     .paths
                     .iter()
@@ -1752,11 +1974,22 @@ impl GcodeGenerator {
                 // Ramp from the previous layer's top Z to this layer's Z over
                 // one perimeter. Start the loop nearest the previous nozzle
                 // position to keep the (invisible) start line aligned.
-                let z_bottom = if layer_index > 0 {
-                    layers[layer_index - 1].z
-                } else {
-                    0.0
-                };
+                // Ramp up from the previous layer of **this** object. In
+                // sequential order the layer before an object's first is the
+                // previous object's *top*, and ramping from there would extrude
+                // a continuous descent from that height straight through the
+                // plate.
+                let z_bottom =
+                    if layer_index > 0 && layer_owners[layer_index - 1] == layer_object {
+                        layers[layer_index - 1].z
+                    } else {
+                        (layer.z - params.layer_height).max(0.0)
+                    }
+                    // A spiral ramp only ever climbs. Capping at this layer's own Z
+                    // makes the "descend while extruding" failure unrepresentable,
+                    // whatever the previous layer turns out to be.
+                    .min(layer.z)
+                    .max(0.0);
                 let z_top = layer.z;
                 let target = cur_xy.unwrap_or(pts[0]);
                 let rotated = rotate_loop_nearest(&pts, target);
@@ -1775,8 +2008,8 @@ impl GcodeGenerator {
 
                 // Fade flow in on the first spiral loop and out on the last so
                 // the seam disappears at both ends of the vase.
-                let is_first_spiral = first_spiral_idx == Some(layer_index);
-                let is_last_spiral = last_spiral_idx == Some(layer_index);
+                let is_first_spiral = first_spiral_of_run[layer_index];
+                let is_last_spiral = last_spiral_of_run[layer_index];
                 let flow_start = if is_first_spiral && !is_last_spiral {
                     0.0
                 } else {
@@ -1805,6 +2038,12 @@ impl GcodeGenerator {
                 // The loop closes back to its start vertex; that's where the
                 // next spiral layer begins.
                 cur_xy = Some((sx, sy));
+                // This branch skips the end-of-layer bookkeeping below, so the
+                // clearance lift would otherwise never see a spiralised object
+                // and would travel straight through it.
+                if layer.z > max_printed_z {
+                    max_printed_z = layer.z;
+                }
                 continue;
             }
 
@@ -1812,6 +2051,32 @@ impl GcodeGenerator {
                 let raw_points: Vec<(f64, f64)> = path.iter().map(|p| (p.x(), p.y())).collect();
                 if raw_points.len() < 2 {
                     continue;
+                }
+
+                // ── Object attribution (issue #22) ───────────────────────────
+                // Switch marker blocks *before* this path's travel, so the hop
+                // between two parts is charged to the one it is heading for —
+                // the convention PrusaSlicer and OrcaSlicer both follow, and
+                // the one that lets a firmware skip a cancelled object's
+                // approach moves along with its extrusions.  A `None` tag
+                // (plate-wide adhesion) closes the block without opening one.
+                let path_object = layer.object_for_path(path_idx);
+                if !self.objects.is_empty() && path_object != current_object {
+                    if object_markers {
+                        if let Some(previous) = current_object.and_then(|i| self.objects.get(i)) {
+                            out.push_str(&self.dialect.object_end(previous));
+                            out.push('\n');
+                        }
+                        if let Some(index) = path_object {
+                            if let Some(object) = self.objects.get(index) {
+                                let first_use = !introduced_objects[index];
+                                out.push_str(&self.dialect.object_start(object, first_use));
+                                out.push('\n');
+                                introduced_objects[index] = true;
+                            }
+                        }
+                    }
+                    current_object = path_object;
                 }
 
                 // Fetch the role and resolve the effective extrusion width.
@@ -2414,6 +2679,20 @@ impl GcodeGenerator {
             if last_pos.is_some() {
                 cur_xy = last_pos;
             }
+
+            // Highest material laid down so far — what the next object has to
+            // clear when sequential printing hands over.
+            if layer.z > max_printed_z {
+                max_printed_z = layer.z;
+            }
+        }
+
+        // The last object's marker block stays open until the print ends.
+        if object_markers {
+            if let Some(object) = current_object.and_then(|i| self.objects.get(i)) {
+                out.push_str(&self.dialect.object_end(object));
+                out.push('\n');
+            }
         }
 
         // ── Per-filament end script ───────────────────────────────────────────
@@ -2558,6 +2837,33 @@ pub fn generate_gcode_from_params(layers: &[SliceLayer], params: &SlicingParams)
         generator = generator.with_filament_end_script(lines);
     }
     generator.generate(layers, params)
+}
+
+/// Generate G-code for a whole plate, including its per-object markers.
+///
+/// The object-aware sibling of [`generate_gcode_from_params`]: identical for a
+/// plate sliced without object identity (`plate.objects` empty), and the one
+/// call every runtime should make so exclude-object and sequential printing
+/// work the same everywhere.
+pub fn generate_gcode_for_plate(plate: &crate::core::PlateSlice, params: &SlicingParams) -> String {
+    let mut generator =
+        GcodeGenerator::new(params.gcode_flavor).with_objects(plate.objects.clone());
+    if let Some(lines) = gcode_block_lines(params.start_gcode.as_deref()) {
+        generator = generator.with_start_script(lines);
+    }
+    if let Some(lines) = gcode_block_lines(params.end_gcode.as_deref()) {
+        generator = generator.with_end_script(lines);
+    }
+    if let Some(lines) = gcode_block_lines(params.layer_gcode.as_deref()) {
+        generator = generator.with_layer_script(lines);
+    }
+    if let Some(lines) = gcode_block_lines(params.start_filament_gcode.as_deref()) {
+        generator = generator.with_filament_start_script(lines);
+    }
+    if let Some(lines) = gcode_block_lines(params.end_filament_gcode.as_deref()) {
+        generator = generator.with_filament_end_script(lines);
+    }
+    generator.generate(&plate.layers, params)
 }
 
 /// Split a multi-line custom G-code block into lines, returning `None` when the
@@ -4397,7 +4703,7 @@ CHAMBER={chamber_temp} MATERIAL={filament_type}"
         );
     }
 
-    // ── Chamber temperature management (issue #8) ─────────────────────────────
+    // ── Chamber temperature management ───────────────────────────────────────
 
     #[test]
     fn test_dialect_default_set_chamber_temp() {
@@ -5715,7 +6021,7 @@ CHAMBER={chamber_temp} MATERIAL={filament_type}"
         );
     }
 
-    // ── Part-cooling material policy (issue #8) ───────────────────────────────
+    // ── Part-cooling material policy ──────────────────────────────────────────
 
     #[test]
     fn test_part_cooling_speed_pins_first_layers() {
@@ -6637,5 +6943,419 @@ CHAMBER={chamber_temp} MATERIAL={filament_type}"
                 .all(|l| !l.contains("; retract") && !l.contains("; z-hop")),
             "spiral vase body must not retract or z-hop:\n{gcode}"
         );
+    }
+}
+
+// ── Object exclusion & sequential printing (issues #22 / #112) ─────────────────
+
+#[cfg(test)]
+mod object_tests {
+    use super::*;
+    use crate::core::{ExtrusionRole, ObjectIdentity, PlateSlice, SliceLayer};
+    use crate::settings::params::PrintSequence;
+
+    fn identity(index: usize, name: &str, x: f64) -> ObjectIdentity {
+        ObjectIdentity {
+            index,
+            name: name.to_string(),
+            center: (x + 5.0, 5.0),
+            polygon: vec![(x, 0.0), (x + 10.0, 0.0), (x + 10.0, 10.0), (x, 10.0)],
+            bbox: (x, 0.0, x + 10.0, 10.0),
+            height_mm: 4.0,
+        }
+    }
+
+    /// One layer holding one square per object, tagged in object order.
+    fn tagged_layer(z: f64, objects: &[usize]) -> SliceLayer {
+        let mut layer = SliceLayer::new(z);
+        for (slot, &object) in objects.iter().enumerate() {
+            let x = slot as f64 * 30.0;
+            let square: clipper2::Path =
+                vec![(x, 0.0), (x + 10.0, 0.0), (x + 10.0, 10.0), (x, 10.0)].into();
+            layer.paths.push(square);
+            layer.path_roles.push(ExtrusionRole::OuterWall);
+            layer.path_widths.push(Some(0.4));
+            layer.path_vertex_widths.push(None);
+            layer.path_is_open.push(false);
+            layer.path_objects.push(Some(object));
+        }
+        layer
+    }
+
+    fn plate(layers: Vec<SliceLayer>, objects: Vec<ObjectIdentity>) -> PlateSlice {
+        PlateSlice { layers, objects }
+    }
+
+    fn klipper_params() -> SlicingParams {
+        SlicingParams {
+            gcode_flavor: crate::gcode::GcodeFlavor::Klipper,
+            exclude_object: true,
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn klipper_defines_every_object_before_the_start_script() {
+        let objects = vec![identity(0, "cube_a", 0.0), identity(1, "cube_b", 30.0)];
+        let gcode = generate_gcode_for_plate(
+            &plate(vec![tagged_layer(0.2, &[0, 1])], objects),
+            &klipper_params(),
+        );
+
+        assert!(gcode.contains("EXCLUDE_OBJECT_DEFINE RESET=1"));
+        assert!(
+            gcode.contains(
+                "EXCLUDE_OBJECT_DEFINE NAME=cube_a CENTER=5.000,5.000 POLYGON=[[0.000,0.000],"
+            ),
+            "missing cube_a definition: {gcode}"
+        );
+        assert!(gcode.contains("EXCLUDE_OBJECT_DEFINE NAME=cube_b"));
+
+        // The definitions must precede the start script — Moonraker and the
+        // Klipper module both expect to meet the objects before printing.
+        let define_at = gcode.find("EXCLUDE_OBJECT_DEFINE NAME=cube_a").unwrap();
+        let start_at = gcode.find("START_PRINT").unwrap();
+        assert!(define_at < start_at, "definitions must come first: {gcode}");
+    }
+
+    #[test]
+    fn klipper_wraps_each_object_and_closes_the_last_one() {
+        let objects = vec![identity(0, "cube_a", 0.0), identity(1, "cube_b", 30.0)];
+        let gcode = generate_gcode_for_plate(
+            &plate(
+                vec![tagged_layer(0.2, &[0, 1]), tagged_layer(0.4, &[0, 1])],
+                objects,
+            ),
+            &klipper_params(),
+        );
+
+        let markers: Vec<&str> = gcode
+            .lines()
+            .filter(|l| {
+                l.starts_with("EXCLUDE_OBJECT_START") || l.starts_with("EXCLUDE_OBJECT_END")
+            })
+            .collect();
+        assert_eq!(
+            markers,
+            vec![
+                "EXCLUDE_OBJECT_START NAME=cube_a",
+                "EXCLUDE_OBJECT_END NAME=cube_a",
+                "EXCLUDE_OBJECT_START NAME=cube_b",
+                "EXCLUDE_OBJECT_END NAME=cube_b",
+                "EXCLUDE_OBJECT_START NAME=cube_a",
+                "EXCLUDE_OBJECT_END NAME=cube_a",
+                "EXCLUDE_OBJECT_START NAME=cube_b",
+                "EXCLUDE_OBJECT_END NAME=cube_b",
+            ],
+            "every block must be opened and closed: {gcode}"
+        );
+    }
+
+    #[test]
+    fn marlin_uses_m486_and_names_each_object_once() {
+        let objects = vec![identity(0, "cube_a", 0.0), identity(1, "cube_b", 30.0)];
+        let params = SlicingParams {
+            exclude_object: true,
+            ..Default::default()
+        };
+        let gcode = generate_gcode_for_plate(
+            &plate(
+                vec![tagged_layer(0.2, &[0, 1]), tagged_layer(0.4, &[0, 1])],
+                objects,
+            ),
+            &params,
+        );
+
+        assert!(gcode.contains("M486 T2 ; object count"));
+        // The name rides along the first `S` only; repeating it on every layer
+        // would bloat the file for no gain.
+        assert_eq!(gcode.matches("M486 S0 A\"cube_a\"").count(), 1);
+        assert_eq!(gcode.matches("M486 S1 A\"cube_b\"").count(), 1);
+        assert_eq!(gcode.matches("\nM486 S0\n").count(), 1);
+        assert_eq!(gcode.matches("M486 S-1").count(), 4);
+    }
+
+    #[test]
+    fn untagged_paths_close_the_block_without_opening_one() {
+        // A plate-wide skirt (tag `None`) printed before the objects.
+        let mut layer = tagged_layer(0.2, &[0, 1]);
+        layer.path_objects[0] = None;
+        layer.path_roles[0] = ExtrusionRole::Skirt;
+
+        let gcode = generate_gcode_for_plate(
+            &plate(
+                vec![layer],
+                vec![identity(0, "cube_a", 0.0), identity(1, "cube_b", 30.0)],
+            ),
+            &klipper_params(),
+        );
+        let markers: Vec<&str> = gcode
+            .lines()
+            .filter(|l| l.starts_with("EXCLUDE_OBJECT_"))
+            .filter(|l| !l.starts_with("EXCLUDE_OBJECT_DEFINE"))
+            .collect();
+        assert_eq!(
+            markers,
+            vec![
+                "EXCLUDE_OBJECT_START NAME=cube_b",
+                "EXCLUDE_OBJECT_END NAME=cube_b",
+            ],
+            "the skirt belongs to no object: {gcode}"
+        );
+    }
+
+    #[test]
+    fn sequential_alone_does_not_emit_object_markers() {
+        // Printing one part at a time is a *motion* choice; firmware object
+        // tracking is a separate opt-in and must not ride along with it.
+        let params = SlicingParams {
+            gcode_flavor: crate::gcode::GcodeFlavor::Klipper,
+            print_sequence: PrintSequence::ByObject,
+            exclude_object: false,
+            ..Default::default()
+        };
+        let gcode = generate_gcode_for_plate(
+            &plate(
+                vec![tagged_layer(0.2, &[0]), tagged_layer(0.2, &[1])],
+                vec![identity(0, "cube_a", 0.0), identity(1, "cube_b", 30.0)],
+            ),
+            &params,
+        );
+        assert!(!gcode.contains("EXCLUDE_OBJECT"), "{gcode}");
+        assert!(!gcode.contains("M486"), "{gcode}");
+        // The hand-over itself still happens.
+        assert!(gcode.contains("; clear the finished object"), "{gcode}");
+    }
+
+    /// One object's worth of layers: `flat` solid base layers then `spiral`
+    /// single-loop layers, starting at `z0` and stepping by 0.2 mm.
+    fn spiral_stack(object: usize, x: f64, z0: f64, flat: usize, spiral: usize) -> Vec<SliceLayer> {
+        (0..flat + spiral)
+            .map(|i| {
+                let mut layer = tagged_layer(z0 + i as f64 * 0.2, &[object]);
+                // Re-place the square so each object sits at its own X.
+                layer.paths = clipper2::Paths::new(vec![vec![
+                    (x, 0.0),
+                    (x + 10.0, 0.0),
+                    (x + 10.0, 10.0),
+                    (x, 10.0),
+                ]
+                .into()]);
+                layer
+            })
+            .collect()
+    }
+
+    #[test]
+    fn sequential_spiral_vase_never_ramps_down_into_the_previous_object() {
+        // Two vases, one after the other. The regression: the second object's
+        // first spiral layer used to take its ramp start from the *previous
+        // object's top* — a continuous extruding descent straight through the
+        // plate — and the clearance lift never saw a spiral layer at all, so it
+        // travelled through the finished vase.
+        let mut layers = spiral_stack(0, 0.0, 0.2, 1, 8);
+        layers.extend(spiral_stack(1, 60.0, 0.2, 1, 4));
+        let params = SlicingParams {
+            gcode_flavor: crate::gcode::GcodeFlavor::Klipper,
+            print_sequence: PrintSequence::ByObject,
+            exclude_object: true,
+            spiral_vase: true,
+            bottom_layers: 1,
+            layer_height: 0.2,
+            ..Default::default()
+        };
+        let gcode = generate_gcode_for_plate(
+            &plate(
+                layers,
+                vec![identity(0, "vase_a", 0.0), identity(1, "vase_b", 60.0)],
+            ),
+            &params,
+        );
+
+        // No move may lose height while extruding.
+        let mut z = 0.0_f64;
+        let mut e = 0.0_f64;
+        for line in gcode.lines() {
+            if line.starts_with("G92 E0") {
+                e = 0.0;
+                continue;
+            }
+            if !line.starts_with("G1 ") {
+                continue;
+            }
+            let field = |tag: char| {
+                line.split_whitespace()
+                    .find_map(|t| t.strip_prefix(tag))
+                    .and_then(|v| v.parse::<f64>().ok())
+            };
+            let (nz, ne) = (field('Z'), field('E'));
+            if let (Some(nz), Some(ne)) = (nz, ne) {
+                assert!(
+                    !(nz < z - 1e-9 && ne > e + 1e-9),
+                    "extruding descent from {z} to {nz}: {line}"
+                );
+            }
+            z = nz.unwrap_or(z);
+            e = ne.unwrap_or(e);
+        }
+
+        // Exactly one hand-over, and it clears the finished vase (top 1.6 mm).
+        assert_eq!(
+            gcode.matches("; clear the finished object").count(),
+            1,
+            "{gcode}"
+        );
+        let lift_line = gcode
+            .lines()
+            .find(|l| l.ends_with("; clear the finished object"))
+            .unwrap();
+        let lift_z: f64 = lift_line
+            .split_whitespace()
+            .find_map(|t| t.strip_prefix('Z'))
+            .unwrap()
+            .parse()
+            .unwrap();
+        assert!(
+            lift_z > 1.6,
+            "lift must clear the spiralised object: {lift_line}"
+        );
+
+        assert_eq!(gcode.matches("EXCLUDE_OBJECT_START NAME=vase_b").count(), 1);
+        assert_eq!(gcode.matches("EXCLUDE_OBJECT_END NAME=vase_b").count(), 1);
+
+        // Each vase keeps its own solid base — `bottom_layers` counts within an
+        // object's stack, not from the start of the plate. A flat layer's
+        // extrusions carry no Z; a spiral layer's ramp always does.
+        let vase_b = &gcode[gcode.find("EXCLUDE_OBJECT_START NAME=vase_b").unwrap()..];
+        let first_extrusion = vase_b
+            .lines()
+            .find(|l| l.starts_with("G1 ") && l.contains(" E"))
+            .expect("vase_b prints something");
+        assert!(
+            !first_extrusion.contains(" Z"),
+            "vase_b must start on a flat base layer, not mid-ramp: {first_extrusion}"
+        );
+    }
+
+    #[test]
+    fn an_empty_first_layer_still_triggers_the_hand_over() {
+        // A layer with no paths carries no object tag. If the hand-over keyed
+        // on the tag alone, such a layer would slip through and its Z move
+        // would descend to the new object's first layer while the nozzle was
+        // still over the finished one.
+        let layers = vec![
+            tagged_layer(0.2, &[0]),
+            tagged_layer(4.0, &[0]),
+            SliceLayer::new(0.2),
+            tagged_layer(0.4, &[1]),
+        ];
+        let params = SlicingParams {
+            print_sequence: PrintSequence::ByObject,
+            ..Default::default()
+        };
+        let gcode = generate_gcode_for_plate(
+            &plate(
+                layers,
+                vec![identity(0, "cube_a", 0.0), identity(1, "cube_b", 80.0)],
+            ),
+            &params,
+        );
+
+        let lift = gcode
+            .find("; clear the finished object")
+            .expect("the hand-over must fire before the empty layer's Z move");
+        let descent = gcode[lift..]
+            .find("G1 Z0.200")
+            .expect("the empty layer still moves Z");
+        assert!(descent > 0, "the descent must follow the lift");
+        assert_eq!(gcode.matches("; clear the finished object").count(), 1);
+    }
+
+    #[test]
+    fn no_objects_means_no_markers_at_all() {
+        let mut layer = SliceLayer::new(0.2);
+        let square: clipper2::Path =
+            vec![(0.0, 0.0), (10.0, 0.0), (10.0, 10.0), (0.0, 10.0)].into();
+        layer.paths.push(square);
+        layer.path_roles.push(ExtrusionRole::OuterWall);
+
+        let gcode = generate_gcode_for_plate(
+            &PlateSlice::from_layers(vec![layer.clone()]),
+            &SlicingParams::default(),
+        );
+        assert!(!gcode.contains("M486"));
+        assert_eq!(gcode, generate_gcode(&[layer], &SlicingParams::default()));
+    }
+
+    #[test]
+    fn sequential_lifts_clear_of_the_finished_object_before_travelling() {
+        // Object 0 printed to z=4.0, then object 1 starts again at z=0.2.
+        let layers = vec![
+            tagged_layer(0.2, &[0]),
+            tagged_layer(4.0, &[0]),
+            {
+                let mut l = tagged_layer(0.2, &[1]);
+                // Put object 1 well away from object 0.
+                l.paths = clipper2::Paths::new(vec![vec![
+                    (80.0, 80.0),
+                    (90.0, 80.0),
+                    (90.0, 90.0),
+                    (80.0, 90.0),
+                ]
+                .into()]);
+                l
+            },
+            tagged_layer(2.0, &[1]),
+        ];
+        let params = SlicingParams {
+            gcode_flavor: crate::gcode::GcodeFlavor::Klipper,
+            print_sequence: PrintSequence::ByObject,
+            exclude_object: true,
+            between_objects_gcode: Some("M117 next object".to_string()),
+            ..Default::default()
+        };
+        let gcode = generate_gcode_for_plate(
+            &plate(
+                layers,
+                vec![identity(0, "cube_a", 0.0), identity(1, "cube_b", 80.0)],
+            ),
+            &params,
+        );
+
+        let lift = gcode
+            .find("; clear the finished object")
+            .expect("expected a clearance lift at the object boundary");
+        let travel = gcode
+            .find("; travel to the next object")
+            .expect("expected a travel to the next object");
+        let hook = gcode
+            .find("M117 next object")
+            .expect("between-objects hook");
+        let drop_back = gcode[travel..]
+            .find("G1 Z0.200")
+            .map(|i| i + travel)
+            .expect("the next object's first layer Z move");
+
+        // Order is the whole point: lift → travel → hook → only then descend.
+        assert!(
+            lift < travel && travel < hook && hook < drop_back,
+            "{gcode}"
+        );
+
+        // The lift clears the 4.0 mm object already on the bed.
+        let lift_line = gcode[..lift].lines().last().unwrap();
+        let z: f64 = lift_line
+            .split_whitespace()
+            .find_map(|t| t.strip_prefix('Z'))
+            .unwrap()
+            .parse()
+            .unwrap();
+        assert!(z > 4.0, "lift must clear the finished object: {lift_line}");
+
+        // Each object's block is opened once and closed once.
+        assert_eq!(gcode.matches("EXCLUDE_OBJECT_START NAME=cube_a").count(), 1);
+        assert_eq!(gcode.matches("EXCLUDE_OBJECT_END NAME=cube_a").count(), 1);
+        assert_eq!(gcode.matches("EXCLUDE_OBJECT_START NAME=cube_b").count(), 1);
+        assert_eq!(gcode.matches("EXCLUDE_OBJECT_END NAME=cube_b").count(), 1);
     }
 }
