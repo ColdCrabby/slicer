@@ -332,8 +332,12 @@ export class PrinterWizard {
     }
   }
 
+  protected onCatalogSearch(query: string): void {
+    void this.catalog.search(query);
+  }
+
   protected retryCatalog(): void {
-    void this.catalog.load(true);
+    void this.catalog.load(true, this.catalog.query());
   }
 
   protected back(): void {

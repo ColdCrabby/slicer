@@ -11,11 +11,15 @@ import { uid } from '../../models/id';
  * consumer changes. Every method may reject (offline / network error);
  * `CloudCatalog` turns that into an `unavailable` state rather than throwing at
  * the call site.
+ *
+ * Each method takes an optional fuzzy `query`. Search is the **server's** job —
+ * the source re-fetches ranked, filtered results for the query rather than the
+ * UI filtering a cached page — so the query flows all the way to the API.
  */
 export interface CatalogSource {
-  printers(): Promise<PrinterProfile[]>;
-  filaments(): Promise<FilamentProfile[]>;
-  profiles(): Promise<PrintProfile[]>;
+  printers(query?: string): Promise<PrinterProfile[]>;
+  filaments(query?: string): Promise<FilamentProfile[]>;
+  profiles(query?: string): Promise<PrintProfile[]>;
 }
 
 /**
@@ -29,13 +33,13 @@ export interface CatalogSource {
  */
 export class UnavailableCatalogSource implements CatalogSource {
   private readonly reason = 'Cloud catalog is not connected.';
-  printers(): Promise<PrinterProfile[]> {
+  printers(_query?: string): Promise<PrinterProfile[]> {
     return Promise.reject(new Error(this.reason));
   }
-  filaments(): Promise<FilamentProfile[]> {
+  filaments(_query?: string): Promise<FilamentProfile[]> {
     return Promise.reject(new Error(this.reason));
   }
-  profiles(): Promise<PrintProfile[]> {
+  profiles(_query?: string): Promise<PrintProfile[]> {
     return Promise.reject(new Error(this.reason));
   }
 }
@@ -77,32 +81,60 @@ export class CloudCatalog {
   private readonly _filaments = signal<FilamentProfile[]>([]);
   private readonly _profiles = signal<PrintProfile[]>([]);
   private readonly _status = signal<CatalogStatus>('idle');
+  private readonly _query = signal('');
 
   readonly printers = this._printers.asReadonly();
   readonly filaments = this._filaments.asReadonly();
   readonly profiles = this._profiles.asReadonly();
   readonly status = this._status.asReadonly();
+  /** The query the currently-shown results were fetched for (empty = browse). */
+  readonly query = this._query.asReadonly();
   readonly available = computed(() => this._status() === 'ready');
   readonly loading = computed(() => this._status() === 'loading');
 
-  /** Fetch all catalog categories. Safe to call repeatedly (in-memory cache). */
-  async load(force = false): Promise<void> {
-    if (!force && (this._status() === 'ready' || this._status() === 'loading')) {
+  /** Monotonic token so a slow in-flight fetch can't overwrite a newer one. */
+  private requestSeq = 0;
+
+  /**
+   * Fetch all catalog categories for `query` (empty = browse everything).
+   * Skips a redundant fetch when the same query is already loaded, unless
+   * `force`. Out-of-order responses are dropped so the latest query always wins.
+   */
+  async load(force = false, query = ''): Promise<void> {
+    const q = query.trim();
+    if (
+      !force &&
+      q === this._query() &&
+      (this._status() === 'ready' || this._status() === 'loading')
+    ) {
       return;
     }
+    const seq = ++this.requestSeq;
+    this._query.set(q);
     this._status.set('loading');
     try {
       const [printers, filaments, profiles] = await Promise.all([
-        this.source.printers(),
-        this.source.filaments(),
-        this.source.profiles(),
+        this.source.printers(q),
+        this.source.filaments(q),
+        this.source.profiles(q),
       ]);
+      if (seq !== this.requestSeq) {
+        return;
+      }
       this._printers.set(printers);
       this._filaments.set(filaments);
       this._profiles.set(profiles);
       this._status.set('ready');
     } catch {
+      if (seq !== this.requestSeq) {
+        return;
+      }
       this._status.set('unavailable');
     }
+  }
+
+  /** Re-fetch the catalog filtered by a fuzzy `query`. Always hits the source. */
+  search(query: string): Promise<void> {
+    return this.load(true, query);
   }
 }

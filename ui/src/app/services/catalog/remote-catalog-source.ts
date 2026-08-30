@@ -35,8 +35,8 @@ type PresetType = NonNullable<PresetSummary['type']>;
 export class RemoteCatalogSource implements CatalogSource {
   constructor(private readonly baseUrl: string) {}
 
-  async printers(): Promise<PrinterProfile[]> {
-    const summaries = await this.browse('printer');
+  async printers(query?: string): Promise<PrinterProfile[]> {
+    const summaries = await this.browse('printer', query);
     return summaries.map((s) =>
       makePrinter({
         id: s.id,
@@ -49,8 +49,8 @@ export class RemoteCatalogSource implements CatalogSource {
     );
   }
 
-  async filaments(): Promise<FilamentProfile[]> {
-    const summaries = await this.browse('filament');
+  async filaments(query?: string): Promise<FilamentProfile[]> {
+    const summaries = await this.browse('filament', query);
     return summaries.map((s) =>
       makeFilament({
         id: s.id,
@@ -63,8 +63,8 @@ export class RemoteCatalogSource implements CatalogSource {
     );
   }
 
-  async profiles(): Promise<PrintProfile[]> {
-    const summaries = await this.browse('process');
+  async profiles(query?: string): Promise<PrintProfile[]> {
+    const summaries = await this.browse('process', query);
     return summaries.map((s) =>
       makePrintProfile({
         id: s.id,
@@ -80,13 +80,18 @@ export class RemoteCatalogSource implements CatalogSource {
     return `${this.baseUrl.replace(/\/$/, '')}/v1/presets/${encodeURIComponent(id)}`;
   }
 
-  /** Walk every page of one preset type, returning all summaries. */
-  private async browse(type: PresetType): Promise<PresetSummary[]> {
+  /**
+   * Walk every page of one preset type, returning all summaries. A non-empty
+   * `query` is passed to the server as `q` for fuzzy, ranked search; an empty
+   * one browses the whole category.
+   */
+  private async browse(type: PresetType, query?: string): Promise<PresetSummary[]> {
+    const q = query?.trim() || undefined;
     const all: PresetSummary[] = [];
     let cursor: string | undefined;
     for (let page = 0; page < MAX_PAGES; page++) {
       const { data, error } = await searchPresets({
-        query: { type, limit: PAGE_LIMIT, cursor },
+        query: { type, q, limit: PAGE_LIMIT, cursor },
       });
       if (error) {
         throw new Error(`Catalog search failed for "${type}".`);
