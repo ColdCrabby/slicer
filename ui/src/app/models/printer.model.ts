@@ -49,6 +49,7 @@ export function defaultPrinterParams(): Record<string, unknown> {
     nozzle_diameter_mm: 0.4,
     filament_diameter_mm: 1.75,
     extruder_count: 1,
+    heated_chamber: false,
     print_speed: 150,
     travel_speed_mm_min: 15000,
     retract_mm: 0.8,

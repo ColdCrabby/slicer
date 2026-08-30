@@ -377,8 +377,8 @@ pub(crate) fn render_marker(
 
 /// Substitute print-parameter placeholders shared by custom start / end / layer
 /// scripts: `{nozzle_temp}`, `{bed_temp}`, their `_first_layer` variants,
-/// `{chamber_temp}`, `{filament_type}`, plus `{layer_height}` and
-/// `{first_layer_height}`.
+/// `{chamber_temp}` (and `{chamber_temp_first_layer}`), `{filament_type}`, plus
+/// `{layer_height}` and `{first_layer_height}`.
 ///
 /// For migration convenience, common Orca-style bracket placeholders are also
 /// accepted as aliases (for example `[nozzle_temperature_initial_layer]`).
@@ -399,6 +399,7 @@ pub(crate) fn render_script_placeholders(line: &str, params: &SlicingParams) -> 
     } else {
         params.bed_temp
     };
+    let first_chamber = params.chamber_temp_first_layer_resolved();
     let first_height = if params.first_layer_height > 0.0 {
         params.first_layer_height
     } else {
@@ -406,6 +407,10 @@ pub(crate) fn render_script_placeholders(line: &str, params: &SlicingParams) -> 
     };
     line.replace("{nozzle_temp_first_layer}", &format!("{:.0}", first_nozzle))
         .replace("{bed_temp_first_layer}", &format!("{:.0}", first_bed))
+        .replace(
+            "{chamber_temp_first_layer}",
+            &format!("{:.0}", first_chamber),
+        )
         .replace("{nozzle_temp}", &format!("{:.0}", params.nozzle_temp))
         .replace("{bed_temp}", &format!("{:.0}", params.bed_temp))
         .replace("{chamber_temp}", &format!("{:.0}", params.chamber_temp))
@@ -422,6 +427,10 @@ pub(crate) fn render_script_placeholders(line: &str, params: &SlicingParams) -> 
             &format!("{:.0}", first_bed),
         )
         .replace(
+            "[chamber_temperature_initial_layer]",
+            &format!("{:.0}", first_chamber),
+        )
+        .replace(
             "[nozzle_temperature]",
             &format!("{:.0}", params.nozzle_temp),
         )
@@ -431,6 +440,45 @@ pub(crate) fn render_script_placeholders(line: &str, params: &SlicingParams) -> 
             &format!("{:.0}", params.chamber_temp),
         )
         .replace("[filament_type]", &params.filament_type)
+}
+
+/// Tokens that mean a custom start script manages the chamber **heater** itself.
+///
+/// A `START_PRINT … CHAMBER={chamber_temp}` macro (Klippain and friends) already
+/// heats and soaks the chamber, so the generator's own sequence would be a
+/// second, conflicting heat-and-wait. Detecting any of these suppresses it.
+///
+/// Every token is uppercase and carries enough context to mean *heating*. A bare
+/// `CHAMBER` would be wrong: enclosed printers routinely drive a chamber
+/// circulation fan (`SET_FAN_SPEED FAN=chamber_fan …`, `M106 P2 S255 ; chamber
+/// fan`) or mention the chamber in a comment, and matching those would silently
+/// disable chamber heating altogether — the exact failure the feature prevents.
+const CUSTOM_CHAMBER_TOKENS: &[&str] = &[
+    // RepRap / Marlin set + wait
+    "M141",
+    "M191",
+    // Macro argument: `START_PRINT … CHAMBER=50`
+    "CHAMBER=",
+    // Placeholders and their Orca aliases, plus `CHAMBER_TEMPERATURE=` macro args:
+    // `{chamber_temp}`, `{chamber_temp_first_layer}`, `[chamber_temperature]`,
+    // `[chamber_temperature_initial_layer]`
+    "CHAMBER_TEMP",
+    // Klipper native heater control
+    "HEATER=CHAMBER",
+    "HEATER_GENERIC CHAMBER",
+];
+
+/// Whether a custom start script already takes care of chamber heating.
+///
+/// Matched against the **raw** (pre-substitution) script so a `{chamber_temp}`
+/// placeholder is still recognisable after it has been rendered to a number.
+fn start_script_handles_chamber(script: &[String]) -> bool {
+    script.iter().any(|line| {
+        let upper = line.to_uppercase();
+        CUSTOM_CHAMBER_TOKENS
+            .iter()
+            .any(|token| upper.contains(token))
+    })
 }
 
 // ── GcodeGenerator ─────────────────────────────────────────────────────────────
@@ -1237,6 +1285,65 @@ impl GcodeGenerator {
             Some(lines) => Cow::Borrowed(lines),
             None => Cow::Owned(self.dialect.start_script(params)),
         };
+
+        // First-layer temperature targets ("0 = inherit the base value").
+        let first_nozzle = if params.nozzle_temp_first_layer > 0.0 {
+            params.nozzle_temp_first_layer
+        } else {
+            params.nozzle_temp
+        };
+        let first_bed = if params.bed_temp_first_layer > 0.0 {
+            params.bed_temp_first_layer
+        } else {
+            params.bed_temp
+        };
+
+        // ── Chamber heating (opt-in via the printer's `heated_chamber`) ───────
+        // The whole block runs *before* the start script, and the ordering is
+        // load-bearing:
+        //
+        //   1. Set the bed target, without waiting. On the great majority of
+        //      enclosed printers the **bed is the chamber's heat source**, so a
+        //      chamber soak with a cold bed would never terminate.
+        //   2. Set the chamber target (Klipper's `TEMPERATURE_WAIT` only waits —
+        //      it does not set — so the target must be armed separately).
+        //   3. Block until the chamber is soaked.
+        //
+        // The soak therefore overlaps the long pole of the warm-up (a 100–110 °C
+        // bed) while the **nozzle is still cold** — waiting after the start
+        // script would park molten filament in the hot end for the length of the
+        // soak, oozing and degrading exactly the PC/Nylon/ABS materials this
+        // feature exists for. Only the comparatively quick nozzle heat, which
+        // the start script owns, is left running after the wait.
+        //
+        // A start script that manages the chamber itself owns the whole job —
+        // emitting our sequence as well would heat and soak twice.
+        let chamber_delegated =
+            params.chamber_heating_active() && start_script_handles_chamber(&start_script);
+        let emit_chamber = params.chamber_heating_active() && !chamber_delegated;
+        let chamber_first_target = params.chamber_temp_first_layer_resolved();
+        if chamber_delegated {
+            out.push_str(&self.dialect.comment(
+                "chamber temperature handled by the custom start G-code; \
+                 slicer chamber directives suppressed",
+            ));
+            out.push('\n');
+        }
+        if emit_chamber {
+            out.push_str(&format!(
+                "{} ; bed target — the chamber's heat source on most enclosures\n",
+                self.dialect.set_bed_temp(first_bed, false)
+            ));
+            out.push_str(&format!(
+                "{} ; set chamber temperature\n",
+                self.dialect.set_chamber_temp(chamber_first_target, false)
+            ));
+            out.push_str(&format!(
+                "{} ; soak the chamber before the nozzle is heated\n",
+                self.dialect.set_chamber_temp(chamber_first_target, true)
+            ));
+        }
+
         for line in start_script.iter() {
             out.push_str(&render_script_placeholders(line, params));
             out.push('\n');
@@ -1345,21 +1452,19 @@ impl GcodeGenerator {
         // If a custom start script heats for first layer (e.g.
         // `{nozzle_temp_first_layer}` / `{bed_temp_first_layer}`), restore the
         // normal temperatures when layer 2 starts unless a custom layer script
-        // chooses to override that behavior afterward.
-        let first_nozzle = if params.nozzle_temp_first_layer > 0.0 {
-            params.nozzle_temp_first_layer
-        } else {
-            params.nozzle_temp
-        };
-        let first_bed = if params.bed_temp_first_layer > 0.0 {
-            params.bed_temp_first_layer
-        } else {
-            params.bed_temp
-        };
+        // chooses to override that behavior afterward. `first_nozzle` /
+        // `first_bed` were resolved above, where the chamber pre-heat needs the
+        // bed target.
         let restore_nozzle_after_first_layer = params.nozzle_temp_first_layer > 0.0
             && (first_nozzle - params.nozzle_temp).abs() > 1e-9;
         let restore_bed_after_first_layer =
             params.bed_temp_first_layer > 0.0 && (first_bed - params.bed_temp).abs() > 1e-9;
+        // The chamber soaked at `chamber_temp_first_layer`; drop it back to the
+        // steady-state target once the first layer is down. Never blocks — the
+        // chamber is already warm and the print must not stall mid-way.
+        let restore_chamber_after_first_layer = emit_chamber
+            && params.chamber_temp_first_layer > 0.0
+            && (chamber_first_target - params.chamber_temp).abs() > 1e-9;
 
         for (layer_index, layer) in layers.iter().enumerate() {
             // ── Retract on layer change (opt-in) ─────────────────────────────
@@ -1487,6 +1592,12 @@ impl GcodeGenerator {
                         self.dialect.set_bed_temp(params.bed_temp, false)
                     ));
                 }
+                if restore_chamber_after_first_layer {
+                    out.push_str(&format!(
+                        "{} ; restore normal chamber temperature\n",
+                        self.dialect.set_chamber_temp(params.chamber_temp, false)
+                    ));
+                }
             }
 
             // ── Custom layer-change G-code (Klipper macros, timelapse, …) ─────
@@ -1502,8 +1613,8 @@ impl GcodeGenerator {
 
             // ── Adaptive fan speed ───────────────────────────────────────────
             // The part-cooling fan's emitted base speed, captured for the
-            // dynamic-overhang fan override so it can restore normal cooling
-            // when leaving an overhang region.
+            // dynamic fan override so it can restore normal cooling when
+            // leaving a bridge or overhang region.
             let mut part_cooling_base: Option<f64> = None;
             let mut part_cooling_klipper_name: Option<String> = None;
             if !params.fan_configs.is_empty() {
@@ -1521,8 +1632,20 @@ impl GcodeGenerator {
 
                 for (fan_idx, fan) in params.fan_configs.iter().enumerate() {
                     let prev = prev_fan_speeds.get(fan_idx).copied().flatten();
-                    let speed = fan.compute_speed(layer_time, has_bridges, prev);
-                    // Store the emitted speed for the next layer's rate-limiting.
+                    let adaptive = fan.compute_speed(layer_time, has_bridges, prev);
+                    // The filament-owned cooling policy (first-layer pinning and
+                    // the `fan_speed` material ceiling) governs the part-cooling
+                    // fan only; hotend / chamber / aux fans stay on the raw
+                    // `fan_configs` curve plus their own aux overrides.
+                    let speed = if fan.fan_index == fan_index::PART_COOLING {
+                        params.part_cooling_speed(layer_index, adaptive)
+                    } else {
+                        adaptive
+                    };
+                    // Store what was actually emitted, which is what
+                    // `max_speed_change_per_layer` rate-limits against: coming off
+                    // a pinned first layer, the fan ramps up instead of slamming
+                    // from off to full.
                     if let Some(slot) = prev_fan_speeds.get_mut(fan_idx) {
                         *slot = Some(speed);
                     }
@@ -1541,19 +1664,23 @@ impl GcodeGenerator {
                 }
             }
 
-            // Enable the dynamic-overhang fan override only when the feature is
-            // on, an overhang fan speed is set, and there is a part-cooling fan
-            // to drive.  `overhang_fan_state` starts at the base speed the block
-            // above just emitted, so the first overhang segment emits the boost
-            // and a plain layer emits nothing extra.
-            let overhang_base_fan: Option<f64> =
-                if params.enable_overhang_speed && params.overhang_fan_speed > 0.0 {
-                    part_cooling_base
-                } else {
-                    None
-                };
-            let overhang_fan_klipper_name = part_cooling_klipper_name;
-            let mut overhang_fan_state: Option<f64> = overhang_base_fan;
+            // ── Dynamic (per-segment) part-cooling override ──────────────────
+            // Bridges and steep overhangs lay material over air and want a burst
+            // of extra airflow for the length of those segments only.  The
+            // override needs a part-cooling fan to drive and at least one of the
+            // two triggers configured; it is suppressed entirely on the layers
+            // where `disable_fan_first_layers` pins the fan, because a single
+            // overhang there would otherwise defeat the adhesion gate.
+            let dynamic_fan_enabled = !params.part_cooling_pinned(layer_index)
+                && (params.bridge_fan_speed > 0.0
+                    || (params.enable_overhang_speed && params.overhang_fan_speed > 0.0));
+            let dynamic_base_fan: Option<f64> = if dynamic_fan_enabled {
+                part_cooling_base
+            } else {
+                None
+            };
+            let dynamic_fan_klipper_name = part_cooling_klipper_name;
+            let mut dynamic_fan_state: Option<f64> = dynamic_base_fan;
 
             let mut last_role: Option<crate::core::ExtrusionRole> = None;
             let mut last_width: Option<f64> = None;
@@ -1706,31 +1833,39 @@ impl GcodeGenerator {
                 let speed_mm_min =
                     Self::effective_speed_mm_min(role, overhang, is_first_layer, params);
 
-                // ── Dynamic overhang fan ─────────────────────────────────────
-                // Raise the part-cooling fan for overhang segments at/above the
-                // configured threshold and restore the layer's normal cooling
-                // when leaving them.  Emitted only on change so a run of overhang
-                // arcs (grouped by the OverhangPerimeter role) toggles the fan at
-                // most twice per layer.
-                if let Some(base_fan) = overhang_base_fan {
-                    let want_boost = params.overhang_fan_speed > 0.0
+                // ── Dynamic fan (bridges + overhangs) ────────────────────────
+                // Raise the part-cooling fan for material laid over air and
+                // restore the layer's normal cooling when leaving it.  Emitted
+                // only on change, so a run of bridge lines or overhang arcs
+                // (grouped by role) toggles the fan at most twice per layer.
+                //
+                // Bridges are unconditional — a bridge is a bridge regardless of
+                // the dynamic-overhang *speed* feature — while the overhang
+                // boost stays tied to `enable_overhang_speed` and its threshold.
+                if let Some(base_fan) = dynamic_base_fan {
+                    let bridge_target = (role == crate::core::ExtrusionRole::Bridge
+                        && params.bridge_fan_speed > 0.0)
+                        .then_some(params.bridge_fan_speed);
+                    let overhang_target = (params.enable_overhang_speed
+                        && params.overhang_fan_speed > 0.0
                         && overhang.is_overhang()
-                        && overhang_meets_fan_threshold(overhang, params);
-                    let target = if want_boost {
-                        params.overhang_fan_speed
-                    } else {
-                        base_fan
+                        && overhang_meets_fan_threshold(overhang, params))
+                    .then_some(params.overhang_fan_speed);
+                    let target = match (bridge_target, overhang_target) {
+                        (Some(a), Some(b)) => a.max(b),
+                        (Some(a), None) | (None, Some(a)) => a,
+                        (None, None) => base_fan,
                     };
-                    if overhang_fan_state != Some(target) {
+                    if dynamic_fan_state != Some(target) {
                         out.push_str(&format!(
-                            "{} ; overhang fan\n",
+                            "{} ; dynamic fan\n",
                             self.dialect.set_fan_speed_indexed(
                                 fan_index::PART_COOLING,
-                                overhang_fan_klipper_name.as_deref(),
+                                dynamic_fan_klipper_name.as_deref(),
                                 target
                             )
                         ));
-                        overhang_fan_state = Some(target);
+                        dynamic_fan_state = Some(target);
                     }
                 }
 
@@ -4262,6 +4397,228 @@ CHAMBER={chamber_temp} MATERIAL={filament_type}"
         );
     }
 
+    // ── Chamber temperature management (issue #8) ─────────────────────────────
+
+    #[test]
+    fn test_dialect_default_set_chamber_temp() {
+        let d = MarlinDialect;
+        assert_eq!(d.set_chamber_temp(50.0, false), "M141 S50");
+        assert_eq!(d.set_chamber_temp(50.0, true), "M191 S50");
+    }
+
+    #[test]
+    fn test_klipper_dialect_set_chamber_temp_is_native() {
+        // Klipper has no built-in M141/M191 and aborts on unknown commands.
+        let d = KlipperDialect;
+        assert_eq!(
+            d.set_chamber_temp(50.0, false),
+            "SET_HEATER_TEMPERATURE HEATER=chamber TARGET=50"
+        );
+        assert_eq!(
+            d.set_chamber_temp(50.0, true),
+            "TEMPERATURE_WAIT SENSOR=\"heater_generic chamber\" MINIMUM=50"
+        );
+    }
+
+    #[test]
+    fn test_chamber_soak_precedes_the_start_script_and_the_bed_leads_it() {
+        let params = SlicingParams {
+            heated_chamber: true,
+            chamber_temp: 50.0,
+            bed_temp: 100.0,
+            bed_temp_first_layer: 105.0,
+            ..SlicingParams::default()
+        };
+        let gen = GcodeGenerator::new(GcodeFlavor::Marlin)
+            .with_start_script(vec!["G28 ; home".to_string()]);
+        let gcode = gen.generate(&[], &params);
+
+        let bed = gcode
+            .find("M140 S105 ; bed target")
+            .expect("expected the bed to be armed before the soak");
+        let set = gcode.find("M141 S50").expect("expected M141");
+        let wait = gcode.find("M191 S50").expect("expected M191");
+        let home = gcode.find("G28 ; home").expect("expected start script");
+        assert!(
+            bed < set && set < wait,
+            "the bed — the chamber's heat source — must be armed before the soak:\n{gcode}"
+        );
+        assert!(
+            wait < home,
+            "the soak must finish before the start script heats the nozzle:\n{gcode}"
+        );
+    }
+
+    #[test]
+    fn test_no_chamber_directives_without_heated_chamber() {
+        // The filament asks for a chamber; the printer has no chamber heater.
+        let params = SlicingParams {
+            heated_chamber: false,
+            chamber_temp: 50.0,
+            ..SlicingParams::default()
+        };
+        let gcode = GcodeGenerator::new(GcodeFlavor::Marlin).generate(&[], &params);
+        assert!(
+            !gcode.contains("M141") && !gcode.contains("M191"),
+            "chamber directives need the printer's heated_chamber capability:\n{gcode}"
+        );
+    }
+
+    #[test]
+    fn test_no_chamber_directives_when_temp_is_zero() {
+        let params = SlicingParams {
+            heated_chamber: true,
+            chamber_temp: 0.0,
+            ..SlicingParams::default()
+        };
+        let gcode = GcodeGenerator::new(GcodeFlavor::Marlin).generate(&[], &params);
+        assert!(
+            !gcode.contains("M141") && !gcode.contains("M191"),
+            "a chamber target of 0 means 'don't manage the chamber':\n{gcode}"
+        );
+    }
+
+    #[test]
+    fn test_custom_start_script_owns_chamber_heating() {
+        let params = SlicingParams {
+            heated_chamber: true,
+            chamber_temp: 50.0,
+            ..SlicingParams::default()
+        };
+        let gen = GcodeGenerator::new(GcodeFlavor::Klipper).with_start_script(vec![
+            "START_PRINT BED=105 CHAMBER={chamber_temp}".to_string(),
+        ]);
+        let gcode = gen.generate(&[], &params);
+        assert!(
+            gcode.contains("CHAMBER=50"),
+            "the macro must still get its substituted value: {gcode}"
+        );
+        assert!(
+            !gcode.contains("SET_HEATER_TEMPERATURE HEATER=chamber")
+                && !gcode.contains("TEMPERATURE_WAIT"),
+            "a start script that heats the chamber must not be doubled up:\n{gcode}"
+        );
+        assert!(
+            gcode.contains("chamber temperature handled by the custom start G-code"),
+            "the suppression should be visible in the output:\n{gcode}"
+        );
+    }
+
+    #[test]
+    fn test_bed_heater_wait_does_not_suppress_chamber_heating() {
+        // A Klipper macro that waits on the *bed* must not be mistaken for one
+        // that manages the chamber.
+        let params = SlicingParams {
+            heated_chamber: true,
+            chamber_temp: 50.0,
+            ..SlicingParams::default()
+        };
+        let gen = GcodeGenerator::new(GcodeFlavor::Klipper).with_start_script(vec![
+            "SET_HEATER_TEMPERATURE HEATER=heater_bed TARGET=105".to_string(),
+            "TEMPERATURE_WAIT SENSOR=\"heater_bed\" MINIMUM=105".to_string(),
+        ]);
+        let gcode = gen.generate(&[], &params);
+        assert!(
+            gcode.contains("SET_HEATER_TEMPERATURE HEATER=chamber TARGET=50"),
+            "bed heater commands must not suppress chamber heating:\n{gcode}"
+        );
+    }
+
+    #[test]
+    fn test_chamber_fan_does_not_suppress_chamber_heating() {
+        // Enclosed printers routinely drive a chamber circulation fan. Matching
+        // a bare "chamber" would silently disable chamber *heating* — the exact
+        // failure this feature prevents.
+        let params = SlicingParams {
+            heated_chamber: true,
+            chamber_temp: 50.0,
+            ..SlicingParams::default()
+        };
+        for script in [
+            "SET_FAN_SPEED FAN=chamber_fan SPEED=1.0",
+            "M106 P2 S255 ; chamber fan",
+            "; keep the chamber door closed",
+        ] {
+            let gen = GcodeGenerator::new(GcodeFlavor::Marlin)
+                .with_start_script(vec![script.to_string()]);
+            let gcode = gen.generate(&[], &params);
+            assert!(
+                gcode.contains("M141 S50") && gcode.contains("M191 S50"),
+                "'{script}' must not be read as chamber heating:\n{gcode}"
+            );
+        }
+    }
+
+    #[test]
+    fn test_klipper_chamber_heater_script_suppresses_chamber_heating() {
+        // The native Klipper form, written by hand, *is* chamber management.
+        let params = SlicingParams {
+            heated_chamber: true,
+            chamber_temp: 50.0,
+            ..SlicingParams::default()
+        };
+        for script in [
+            "SET_HEATER_TEMPERATURE HEATER=chamber TARGET=50",
+            "TEMPERATURE_WAIT SENSOR=\"heater_generic chamber\" MINIMUM=50",
+        ] {
+            let gen = GcodeGenerator::new(GcodeFlavor::Klipper)
+                .with_start_script(vec![script.to_string()]);
+            let gcode = gen.generate(&[], &params);
+            assert!(
+                gcode.contains("chamber temperature handled by the custom start G-code"),
+                "'{script}' should hand chamber management to the script:\n{gcode}"
+            );
+        }
+    }
+
+    #[test]
+    fn test_chamber_soaks_hotter_for_the_first_layer_then_restores() {
+        let params = SlicingParams {
+            heated_chamber: true,
+            chamber_temp: 45.0,
+            chamber_temp_first_layer: 60.0,
+            ..SlicingParams::default()
+        };
+        let gen = GcodeGenerator::new(GcodeFlavor::Marlin)
+            .with_start_script(vec!["G28 ; home".to_string()])
+            .with_lifecycle_markers(false);
+        let layers = vec![SliceLayer::new(0.2), SliceLayer::new(0.4)];
+        let gcode = gen.generate(&layers, &params);
+
+        assert!(
+            gcode.contains("M141 S60"),
+            "first-layer soak target: {gcode}"
+        );
+        assert!(gcode.contains("M191 S60"), "first-layer soak wait: {gcode}");
+        assert!(
+            gcode.contains("M141 S45 ; restore normal chamber temperature"),
+            "chamber must drop back to the steady-state target: {gcode}"
+        );
+        assert!(
+            !gcode.contains("M191 S45"),
+            "the layer-2 restore must never block:\n{gcode}"
+        );
+    }
+
+    #[test]
+    fn test_chamber_first_layer_placeholders_substitute() {
+        let params = SlicingParams {
+            chamber_temp: 45.0,
+            chamber_temp_first_layer: 60.0,
+            ..SlicingParams::default()
+        };
+        let gen = GcodeGenerator::new(GcodeFlavor::Klipper).with_start_script(vec![
+            "START_PRINT SOAK={chamber_temp_first_layer} HOLD=[chamber_temperature] \
+             ORCA=[chamber_temperature_initial_layer]"
+                .to_string(),
+        ]);
+        let gcode = gen.generate(&[], &params);
+        assert!(
+            gcode.contains("SOAK=60 HOLD=45 ORCA=60"),
+            "chamber first-layer placeholders not substituted: {gcode}"
+        );
+    }
+
     #[test]
     fn test_restores_normal_temperatures_on_second_layer_when_first_layer_overridden() {
         let params = SlicingParams {
@@ -5103,12 +5460,27 @@ CHAMBER={chamber_temp} MATERIAL={filament_type}"
         assert!(overhang_meets_fan_threshold(OverhangClass::Deg4, &params));
     }
 
+    /// A plain square wall layer at `z`, used to pad the layer stack so a test's
+    /// interesting layer is not the bed-contact layer (where
+    /// `disable_fan_first_layers` pins the part-cooling fan).
+    fn plain_wall_layer(z: f64) -> SliceLayer {
+        use crate::core::{ExtrusionRole, OverhangClass};
+        use clipper2::Path;
+        let mut layer = SliceLayer::new(z);
+        let wall: Path = vec![(0.0, 0.0), (10.0, 0.0), (10.0, 10.0), (0.0, 10.0)].into();
+        layer.paths.push(wall);
+        layer.path_roles.push(ExtrusionRole::InnerWall);
+        layer.path_overhang.push(OverhangClass::None);
+        layer.path_is_open = vec![false];
+        layer
+    }
+
     #[test]
     fn test_generator_emits_overhang_fan_command() {
         use crate::core::{ExtrusionRole, OverhangClass};
         use clipper2::Path;
-        let mut layer = SliceLayer::new(1.0); // not first layer
-                                              // A supported inner wall then a steep overhang arc.
+        let mut layer = SliceLayer::new(1.0);
+        // A supported inner wall then a steep overhang arc.
         let wall: Path = vec![(0.0, 0.0), (10.0, 0.0), (10.0, 10.0), (0.0, 10.0)].into();
         let arc: Path = vec![(0.0, 20.0), (10.0, 20.0), (10.0, 30.0)].into();
         layer.paths.push(wall);
@@ -5123,6 +5495,8 @@ CHAMBER={chamber_temp} MATERIAL={filament_type}"
             enable_overhang_speed: true,
             overhang_fan_speed: 1.0,
             overhang_fan_threshold: 0.5,
+            // Bridge cooling off so only the overhang trigger can fire here.
+            bridge_fan_speed: 0.0,
             // Base part-cooling fan tops out at 50% so the overhang boost to
             // 100% is a genuine change the generator must emit.
             fan_configs: vec![crate::settings::params::FanConfig {
@@ -5137,9 +5511,10 @@ CHAMBER={chamber_temp} MATERIAL={filament_type}"
             ..SlicingParams::default()
         };
         let gen = GcodeGenerator::new(GcodeFlavor::Marlin);
-        let gcode = gen.generate(&[layer], &params);
+        // The overhang must sit above the layers `disable_fan_first_layers` pins.
+        let gcode = gen.generate(&[plain_wall_layer(0.2), layer], &params);
         assert!(
-            gcode.contains("; overhang fan"),
+            gcode.contains("; dynamic fan"),
             "expected an overhang fan command in:\n{gcode}"
         );
     }
@@ -5155,16 +5530,17 @@ CHAMBER={chamber_temp} MATERIAL={filament_type}"
         layer.path_overhang.push(OverhangClass::Deg4);
         layer.path_is_open = vec![true];
 
-        // overhang_fan_speed left at 0 → no override.
+        // Both dynamic-fan triggers off → no override.
         let params = SlicingParams {
             enable_overhang_speed: true,
             overhang_fan_speed: 0.0,
+            bridge_fan_speed: 0.0,
             ..SlicingParams::default()
         };
         let gen = GcodeGenerator::new(GcodeFlavor::Marlin);
-        let gcode = gen.generate(&[layer], &params);
+        let gcode = gen.generate(&[plain_wall_layer(0.2), layer], &params);
         assert!(
-            !gcode.contains("; overhang fan"),
+            !gcode.contains("; dynamic fan"),
             "no overhang fan command expected when overhang_fan_speed is 0:\n{gcode}"
         );
     }
@@ -5277,6 +5653,170 @@ CHAMBER={chamber_temp} MATERIAL={filament_type}"
         assert!(
             !gcode.contains("M106") && !gcode.contains("M107"),
             "unexpected fan command when fan_configs is empty:\n{gcode}"
+        );
+    }
+
+    // ── Part-cooling material policy (issue #8) ───────────────────────────────
+
+    #[test]
+    fn test_part_cooling_speed_pins_first_layers() {
+        let params = SlicingParams {
+            disable_fan_first_layers: 2,
+            first_layer_fan_speed: 0.0,
+            fan_speed: 1.0,
+            ..SlicingParams::default()
+        };
+        // Pinned layers ignore the adaptive curve entirely.
+        assert_eq!(params.part_cooling_speed(0, 1.0), 0.0);
+        assert_eq!(params.part_cooling_speed(1, 1.0), 0.0);
+        assert!(params.part_cooling_pinned(1));
+        // The first free layer gets the curve back.
+        assert!(!params.part_cooling_pinned(2));
+        assert_eq!(params.part_cooling_speed(2, 1.0), 1.0);
+    }
+
+    #[test]
+    fn test_part_cooling_speed_clamps_to_material_ceiling() {
+        // An ABS-style preset: the adaptive curve wants full cooling, the
+        // material only tolerates 30%.
+        let params = SlicingParams {
+            disable_fan_first_layers: 1,
+            fan_speed: 0.3,
+            ..SlicingParams::default()
+        };
+        assert!((params.part_cooling_speed(5, 1.0) - 0.3).abs() < 1e-9);
+        // The ceiling never *raises* a slower adaptive speed.
+        assert!((params.part_cooling_speed(5, 0.1) - 0.1).abs() < 1e-9);
+    }
+
+    #[test]
+    fn test_generator_part_cooling_fan_off_on_first_layer() {
+        use clipper2::Path;
+        let mut first = SliceLayer::new(0.2);
+        let square: Path = vec![(0.0, 0.0), (10.0, 0.0), (10.0, 10.0), (0.0, 10.0)].into();
+        first.paths.push(square);
+        let second = plain_wall_layer(0.4);
+
+        // Stock defaults: disable_fan_first_layers = 1, first_layer_fan_speed = 0.
+        let params = SlicingParams::default();
+        let gcode = GcodeGenerator::new(GcodeFlavor::Marlin).generate(&[first, second], &params);
+        let fan_lines: Vec<&str> = gcode
+            .lines()
+            .filter(|l| l.starts_with("M106") || l.starts_with("M107"))
+            .collect();
+        assert_eq!(
+            fan_lines.first().copied(),
+            Some("M107"),
+            "part cooling must be off on the bed-contact layer:\n{gcode}"
+        );
+        assert!(
+            fan_lines.iter().skip(1).any(|l| l.starts_with("M106")),
+            "part cooling must come back on above the pinned layers:\n{gcode}"
+        );
+    }
+
+    #[test]
+    fn test_generator_fan_speed_ceiling_caps_part_cooling() {
+        use clipper2::Path;
+        let mut layer = SliceLayer::new(0.4);
+        let square: Path = vec![(0.0, 0.0), (10.0, 0.0), (10.0, 10.0), (0.0, 10.0)].into();
+        layer.paths.push(square);
+
+        let params = SlicingParams {
+            fan_speed: 0.2, // ABS-style ceiling: 0.2 × 255 ≈ 51
+            ..SlicingParams::default()
+        };
+        let gcode = GcodeGenerator::new(GcodeFlavor::Marlin)
+            .generate(&[plain_wall_layer(0.2), layer], &params);
+        assert!(
+            gcode.contains("M106 S51"),
+            "expected the part-cooling fan clamped to the material ceiling in:\n{gcode}"
+        );
+    }
+
+    #[test]
+    fn test_generator_ceiling_does_not_touch_non_part_cooling_fans() {
+        use crate::settings::params::FanConfig;
+        use clipper2::Path;
+        let mut layer = SliceLayer::new(0.4);
+        let square: Path = vec![(0.0, 0.0), (10.0, 0.0), (10.0, 10.0), (0.0, 10.0)].into();
+        layer.paths.push(square);
+
+        let params = SlicingParams {
+            fan_speed: 0.2,
+            fan_configs: vec![FanConfig {
+                fan_index: crate::settings::params::fan_index::AUX,
+                klipper_name: None,
+                min_speed: 1.0,
+                max_speed: 1.0,
+                layer_time_fast_s: 10.0,
+                layer_time_slow_s: 30.0,
+                aux_overrides: None,
+            }],
+            ..SlicingParams::default()
+        };
+        let gcode = GcodeGenerator::new(GcodeFlavor::Marlin)
+            .generate(&[plain_wall_layer(0.2), layer], &params);
+        assert!(
+            gcode.contains("M106 P3 S255"),
+            "the material ceiling governs the part-cooling fan only:\n{gcode}"
+        );
+    }
+
+    #[test]
+    fn test_generator_emits_bridge_fan_override() {
+        use crate::core::{ExtrusionRole, OverhangClass};
+        use clipper2::Path;
+        let mut layer = SliceLayer::new(0.4);
+        // Bridge first, then a supported wall, so both the boost *and* the
+        // restore to the layer's normal cooling are exercised.
+        let span: Path = vec![(0.0, 20.0), (10.0, 20.0)].into();
+        let wall: Path = vec![(0.0, 0.0), (10.0, 0.0), (10.0, 10.0), (0.0, 10.0)].into();
+        layer.paths.push(span);
+        layer.path_roles.push(ExtrusionRole::Bridge);
+        layer.path_overhang.push(OverhangClass::None);
+        layer.paths.push(wall);
+        layer.path_roles.push(ExtrusionRole::InnerWall);
+        layer.path_overhang.push(OverhangClass::None);
+        layer.path_is_open = vec![true, false];
+
+        let params = SlicingParams {
+            bridge_fan_speed: 1.0,
+            // Base cooling tops out at 40% so the bridge boost is a real change.
+            fan_speed: 0.4,
+            ..SlicingParams::default()
+        };
+        let gcode = GcodeGenerator::new(GcodeFlavor::Marlin)
+            .generate(&[plain_wall_layer(0.2), layer], &params);
+        assert!(
+            gcode.contains("M106 S255 ; dynamic fan"),
+            "expected the bridge fan boost in:\n{gcode}"
+        );
+        assert!(
+            gcode.contains("M106 S102 ; dynamic fan"),
+            "expected the fan restored to the layer's normal cooling in:\n{gcode}"
+        );
+    }
+
+    #[test]
+    fn test_generator_bridge_fan_suppressed_on_pinned_first_layer() {
+        use crate::core::{ExtrusionRole, OverhangClass};
+        use clipper2::Path;
+        let mut layer = SliceLayer::new(0.2);
+        let span: Path = vec![(0.0, 20.0), (10.0, 20.0)].into();
+        layer.paths.push(span);
+        layer.path_roles.push(ExtrusionRole::Bridge);
+        layer.path_overhang.push(OverhangClass::None);
+        layer.path_is_open = vec![true];
+
+        let params = SlicingParams {
+            bridge_fan_speed: 1.0,
+            ..SlicingParams::default()
+        };
+        let gcode = GcodeGenerator::new(GcodeFlavor::Marlin).generate(&[layer], &params);
+        assert!(
+            !gcode.contains("; dynamic fan"),
+            "the first-layer adhesion gate must not be defeated by a bridge:\n{gcode}"
         );
     }
 

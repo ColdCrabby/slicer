@@ -58,15 +58,20 @@ const FIELD_LABELS: Record<string, string> = {
   bridge_noise_filter_mm: 'Bridge Noise Filter',
   bridge_anchor_mm: 'Bridge Anchor Length',
   // Cooling
-  fan_speed: 'Fan Speed',
+  fan_speed: 'Fan Speed Limit',
   bridge_fan_speed: 'Bridge Fan Speed',
   overhang_fan_speed: 'Overhang Fan Speed',
   overhang_fan_threshold: 'Overhang Fan Threshold',
   first_layer_fan_speed: 'First Layer Fan Speed',
+  disable_fan_first_layers: 'Fan Off For First Layers',
   fan_configs: 'Fan Configurations',
   // Temperature
   nozzle_temp: 'Nozzle Temperature',
+  nozzle_temp_first_layer: 'First Layer Nozzle Temperature',
   bed_temp: 'Bed Temperature',
+  bed_temp_first_layer: 'First Layer Bed Temperature',
+  chamber_temp: 'Chamber Temperature',
+  chamber_temp_first_layer: 'First Layer Chamber Temperature',
   // Surfaces
   top_layers: 'Top Layers',
   bottom_layers: 'Bottom Layers',
@@ -78,6 +83,7 @@ const FIELD_LABELS: Record<string, string> = {
   // Hardware
   filament_diameter_mm: 'Filament Diameter',
   nozzle_diameter_mm: 'Nozzle Diameter',
+  heated_chamber: 'Heated Chamber',
   // Retraction
   z_hop_mm: 'Z Hop',
   retract_mm: 'Retraction Distance',
