@@ -27,12 +27,38 @@ issue/PR numbers or repo links in the notes. See the tone rules in
 
 ## [Unreleased]
 
+## [0.3.0]
+
+The preset catalog goes live. "Pick it from the catalog" in the printer and
+filament wizards now browses the real Cold Crabby Preset Cloud instead of an
+empty placeholder, so a new profile can start from a genuine vendor preset. Add
+touch-friendly undo/redo in the 3D view and a round of Windows desktop polish.
+
+### Highlights
+
+- **Live preset catalog** — the printer and filament wizards now search the
+  Cold Crabby Preset Cloud for vendor presets and pre-fill a new profile from
+  your pick. Search is ranked server-side across the whole catalog, and if the
+  cloud is unreachable the app falls back to its built-in defaults and keeps
+  working offline.
+- **Undo / redo in the 3D view** — history buttons on the plate toolbar for
+  touch devices where the ⌘/Ctrl+Z shortcut can't be reached.
+
 ### Added
 
+- **Preset catalog picker** — browse and search real vendor presets when
+  creating a printer or filament profile; a pick pre-fills the profile's
+  identity fields, tagged with a link back to its catalog source.
 - **Undo / redo buttons in the 3D view** — forward and backward history buttons
-  on the plate toolbar for touch devices where the ⌘/Ctrl+Z shortcut can't be
-  reached. Shown automatically on keyboard-less tablets and phones; force them on
-  or off in Settings → General → Controls. Auto by default.
+  on the plate toolbar. Shown automatically on keyboard-less tablets and phones;
+  force them on or off in Settings → General → Controls. Auto by default.
+
+### Changed
+
+- **Live accent tracking is event-driven** — the desktop app now updates its
+  accent tint the moment you change it in the OS (Windows registry change
+  notifications; macOS distributed notifications) rather than catching up on a
+  2-second poll.
 
 ### Fixed
 
@@ -45,32 +71,25 @@ issue/PR numbers or repo links in the notes. See the tone rules in
   back, or use the browser's back button, and your objects keep their positions
   and undo history instead of being deleted by the next undo. History now resets
   only when the workplate is genuinely replaced.
-### Fixed
-
 - **The "re-slice" hint no longer clears itself** — moving an object or changing
   a setting *while a slice is running* used to be silently absorbed into the
   preview once it finished, so the "Scene changed — re-slice" hint disappeared
   even though the on-screen G-code predated your edit. The comparison baseline is
   now captured the moment you press Slice, so a mid-slice change correctly keeps
   the hint lit until you re-slice.
-
 - **No more flashing console on Windows** — the desktop app used to re-read the
   OS accent colour every couple of seconds by shelling out, which popped a brief
   `cmd` window on Windows on every check. It now reads the accent directly and
   waits for the OS to signal a change instead of polling, so the flickering after
   login is gone and macOS stops re-checking on a timer too.
-
 - **No more launch hang on Windows** — the desktop app used to open a blank,
   unresponsive window for a moment on Windows before it became usable. Its window
   now stays hidden until the interface has actually drawn, so the app appears
   fully rendered and ready the instant you see it.
 
-### Changed
+### Contributors
 
-- **Live accent tracking is event-driven** — the desktop app now updates its
-  accent tint the moment you change it in the OS (Windows registry change
-  notifications; macOS distributed notifications) rather than catching up on a
-  2-second poll.
+Thanks to @max-scopp for shipping this release.
 
 ## [0.2.0] - 2026-08-30
 
