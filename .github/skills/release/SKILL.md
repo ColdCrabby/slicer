@@ -88,6 +88,8 @@ and why anyone should care. Tight, concrete, energetic — this is the headline.
 
 ### Added
 - Concrete, user-facing additions. One line each.
+- For a large release, break the list into `#### Theme` groups (see the tone
+  rules below) rather than one long undifferentiated run.
 
 ### Changed
 - Behaviour changes and improvements.
@@ -117,6 +119,24 @@ change here. Thank you, and welcome aboard.
   detail under Added/Changed/Fixed.
 - **Facts, not hype.** Enthusiasm rides on real capability. If a claim isn't
   backed by a commit, cut it.
+- **Condensed, not exhaustive.** Each entry is one to three tight lines — what it
+  does, its default, the one number worth quoting. Deep rationale (why an
+  algorithm works, measured bead deltas, pipeline ordering) belongs in
+  `AGENTS.md` and the module READMEs, **not** here. A user skims these notes; a
+  maintainer reads the code docs. If a bullet grows into a paragraph of
+  justification, you're writing the wrong document.
+- **Group a long category under `####` subheadings by theme.** One flat run of 25
+  bullets is unscannable; a handful of themed groups (e.g. *Infill & surfaces*,
+  *Multi-object build plates*, *Printer & firmware output*, *App, platform &
+  tooling*) is a map. Keep the bold `**Feature name**` lead on every bullet.
+- **No issue or PR numbers, and no repo links, in the notes.** Describe the
+  change, not its tracking ticket — `#123`, `(#123)`, `GH-123`, or a full
+  issue URL are all noise to a reader and rot when the repo moves. (A `Closes
+  #NN` line belongs in a PR description, never in the changelog.)
+- **Write for how it renders in-app.** The "What's New" view styles both `###`
+  and `####` as small uppercase labels, so the prominent text is the **bold
+  bullet lead**, not a heading. Name features in bold; use headings only as
+  category and group labels.
 
 **Contributor acknowledgement (make this shine):**
 
