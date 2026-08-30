@@ -72,6 +72,46 @@ impl BedConfig {
             }
         }
     }
+
+    /// Does the whole box fit inside the printable volume?
+    ///
+    /// Height is checked against `height` and the floor (a model sunk below
+    /// z = 0 cannot print). The XY test follows the bed `shape`: a circular
+    /// bed accepts a box only when all four of its footprint corners fall
+    /// within the inscribed disk, so an object hanging off the curved edge is
+    /// still caught.
+    ///
+    /// A small epsilon absorbs float noise, so an object sitting exactly on
+    /// the bed edge or floor is not reported as out of bounds.
+    pub fn contains_aabb(&self, aabb: &crate::mesh::types::AABB) -> bool {
+        // 1 µm — below any printable resolution, but wide enough to absorb the
+        // f32 noise real mesh files carry: STL stores coordinates as f32, so a
+        // model authored flat on z = 0 routinely reports a min z of a few
+        // nanometres either side of it (3DBenchy: −2.7e-6 mm). A tighter
+        // epsilon flags such models as out of bounds on every plate.
+        const EPS: f64 = 1e-3;
+
+        if aabb.min.z < -EPS || aabb.max.z > self.height + EPS {
+            return false;
+        }
+
+        match self.shape {
+            BedShape::Rectangular => {
+                aabb.min.x >= self.origin_offset_x - EPS
+                    && aabb.min.y >= self.origin_offset_y - EPS
+                    && aabb.max.x <= self.origin_offset_x + self.width + EPS
+                    && aabb.max.y <= self.origin_offset_y + self.depth + EPS
+            }
+            BedShape::Circular => {
+                let (cx, cy) = self.center_xy();
+                let radius = self.width.min(self.depth) / 2.0 + EPS;
+                // The farthest footprint corner from the centre decides it.
+                let dx = (aabb.min.x - cx).abs().max((aabb.max.x - cx).abs());
+                let dy = (aabb.min.y - cy).abs().max((aabb.max.y - cy).abs());
+                dx * dx + dy * dy <= radius * radius
+            }
+        }
+    }
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -149,5 +189,31 @@ mod tests {
             shape: BedShape::Rectangular,
         };
         assert_eq!(bed.usable_footprint(), (250.0, 210.0));
+    }
+
+    fn box_aabb(min: (f64, f64, f64), max: (f64, f64, f64)) -> crate::mesh::types::AABB {
+        crate::mesh::types::AABB {
+            min: crate::mesh::types::Vertex::new(min.0, min.1, min.2),
+            max: crate::mesh::types::Vertex::new(max.0, max.1, max.2),
+        }
+    }
+
+    #[test]
+    fn f32_noise_below_the_floor_is_not_out_of_bounds() {
+        // STL coordinates are f32: a model authored flat on z = 0 reports a
+        // min z a few nanometres either side of it (3DBenchy: -2.7e-6 mm).
+        let bed = BedConfig::default();
+        assert!(bed.contains_aabb(&box_aabb((10.0, 10.0, -2.7e-6), (40.0, 40.0, 48.0))));
+    }
+
+    #[test]
+    fn genuinely_sunken_or_overhanging_boxes_are_out_of_bounds() {
+        let bed = BedConfig::default();
+        // Half a millimetre below the bed is a real placement fault.
+        assert!(!bed.contains_aabb(&box_aabb((10.0, 10.0, -0.5), (40.0, 40.0, 48.0))));
+        // Hanging off the far X edge of a 220 mm bed.
+        assert!(!bed.contains_aabb(&box_aabb((200.0, 10.0, 0.0), (240.0, 40.0, 10.0))));
+        // Taller than the build volume.
+        assert!(!bed.contains_aabb(&box_aabb((10.0, 10.0, 0.0), (40.0, 40.0, 300.0))));
     }
 }

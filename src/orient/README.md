@@ -110,6 +110,14 @@ face instead.
 winner.  An optional Z-rotation (`preferred_z_rotation_deg`) is then composed
 in — useful for CoreXY printers that want seam lines at 45°.
 
+**Where that angle comes from.**  It is a property of the *machine*, so callers
+read it off the printer rather than asking per plate:
+`PrinterProfile::preferred_orientation_deg` (see
+[`PrinterProfile::orient_options`](../profiles/printer.rs)) on the profile side,
+and `MachineConfig::preferred_print_rotation_deg` for the CLI.  Because it is
+composed inside `auto_orient`, it only takes effect when auto-orient actually
+runs — an arrange with `auto_orient: false` leaves every pose exactly as it was.
+
 ---
 
 ## `ArrangeOnBed` — Multi-object packing

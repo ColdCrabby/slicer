@@ -319,6 +319,8 @@ struct Raw3mfComponent {
 /// A resolved `<object>`: either mesh geometry, a set of components, or both.
 #[derive(Default)]
 struct Raw3mfObject {
+    /// The optional `name` attribute, used to label the scene object.
+    name: Option<String>,
     mesh: Option<Raw3mfMesh>,
     components: Vec<Raw3mfComponent>,
 }
@@ -426,6 +428,81 @@ fn instantiate_3mf_object(
     Ok(())
 }
 
+/// One object resolved out of a container format, with its authored name.
+///
+/// A 3MF is a *scene*, not a single model: it can place several independent
+/// parts on the plate. Keeping them apart lets each become its own scene
+/// object — selectable, movable and removable on its own — instead of one
+/// fused blob.
+#[derive(Debug, Clone)]
+pub struct NamedMesh {
+    /// The `name` attribute the authoring tool wrote, when present.
+    pub name: Option<String>,
+    pub mesh: Mesh,
+}
+
+/// Load a 3MF's build items as **separate** meshes, in build order.
+///
+/// Each `<build><item>` becomes one entry with its transform baked in. A model
+/// with no `<build>` section falls back to one entry per mesh-bearing
+/// `<object>`, preserving the "load all geometry" behaviour.
+///
+/// Use [`read_3mf_from_bytes`] when a single merged mesh is wanted instead.
+///
+/// # Errors
+/// Returns an error if the bytes are not a valid 3MF archive or the embedded
+/// XML cannot be parsed.
+pub fn read_3mf_objects_from_bytes(
+    bytes: &[u8],
+) -> Result<Vec<NamedMesh>, Box<dyn std::error::Error>> {
+    let (objects, object_order, build_items, unit_scale) = parse_3mf_model(bytes)?;
+
+    let mut out: Vec<NamedMesh> = Vec::new();
+
+    let mut emit =
+        |objectid: &str, transform: glam::DMat4| -> Result<(), Box<dyn std::error::Error>> {
+            let mut vertices: Vec<Vertex> = Vec::new();
+            let mut faces: Vec<Face> = Vec::new();
+            instantiate_3mf_object(
+                objectid,
+                transform,
+                unit_scale,
+                &objects,
+                0,
+                &mut vertices,
+                &mut faces,
+            )?;
+            // An item can resolve to nothing (an object of only empty components);
+            // emitting it would put an invisible, unslice-able entry on the plate.
+            if faces.is_empty() {
+                return Ok(());
+            }
+            out.push(NamedMesh {
+                name: objects.get(objectid).and_then(|o| o.name.clone()),
+                mesh: Mesh {
+                    vertices,
+                    faces,
+                    aabb: None,
+                },
+            });
+            Ok(())
+        };
+
+    if build_items.is_empty() {
+        for id in &object_order {
+            if objects.get(id).is_some_and(|o| o.mesh.is_some()) {
+                emit(id, glam::DMat4::IDENTITY)?;
+            }
+        }
+    } else {
+        for item in &build_items {
+            emit(&item.objectid, item.transform)?;
+        }
+    }
+
+    Ok(out)
+}
+
 /// Load a mesh from raw 3MF bytes.
 ///
 /// A 3MF model is a small scene: `<object>` resources hold mesh geometry (with
@@ -435,10 +512,41 @@ fn instantiate_3mf_object(
 /// single merged [`Mesh`], rebasing each object's local triangle indices and
 /// baking the build-item and component transforms.
 ///
+/// Callers that want the build items kept apart — so each becomes its own
+/// scene object — should use [`read_3mf_objects_from_bytes`] instead.
+///
 /// # Errors
 /// Returns an error if the bytes are not a valid 3MF archive or the embedded
 /// XML cannot be parsed.
 pub fn read_3mf_from_bytes(bytes: &[u8]) -> Result<Mesh, Box<dyn std::error::Error>> {
+    let mut merged = Mesh::new();
+    for part in read_3mf_objects_from_bytes(bytes)? {
+        // Faces carry their vertices inline, so concatenating is safe — each
+        // part already rebased its own indices during instantiation.
+        merged.vertices.extend(part.mesh.vertices);
+        merged.faces.extend(part.mesh.faces);
+    }
+    Ok(merged)
+}
+
+/// Parse a 3MF archive's model XML into raw objects, their declaration order,
+/// the build items, and the unit→mm scale factor.
+///
+/// This is the "collect pass" shared by the merged and split loaders: it stores
+/// elements verbatim (vertices in file coordinates, triangles with local
+/// indices) so the resolve pass can apply transforms and rebasing consistently.
+#[allow(clippy::type_complexity)]
+fn parse_3mf_model(
+    bytes: &[u8],
+) -> Result<
+    (
+        std::collections::HashMap<String, Raw3mfObject>,
+        Vec<String>,
+        Vec<Raw3mfBuildItem>,
+        f64,
+    ),
+    Box<dyn std::error::Error>,
+> {
     use quick_xml::events::Event;
     use quick_xml::Reader;
     use std::collections::HashMap;
@@ -497,7 +605,13 @@ pub fn read_3mf_from_bytes(bytes: &[u8]) -> Result<Mesh, Box<dyn std::error::Err
                     if !objects.contains_key(&id) {
                         object_order.push(id.clone());
                     }
-                    objects.entry(id.clone()).or_default();
+                    let entry = objects.entry(id.clone()).or_default();
+                    // Authoring tools label parts here ("top", "bottom", …);
+                    // it is the only human-readable handle a 3MF carries, so
+                    // it becomes the scene object's display name.
+                    if entry.name.is_none() {
+                        entry.name = attr_str(e, "name").filter(|n| !n.trim().is_empty());
+                    }
                     current_object = Some(id);
                 }
             }
@@ -526,45 +640,7 @@ pub fn read_3mf_from_bytes(bytes: &[u8]) -> Result<Mesh, Box<dyn std::error::Err
         buf.clear();
     }
 
-    // ---- Resolve pass: bake build items (or every mesh object as a fallback). ----
-    let mut vertices: Vec<Vertex> = Vec::new();
-    let mut faces: Vec<Face> = Vec::new();
-
-    if build_items.is_empty() {
-        // No `<build>` items — merge every object that carries a mesh at
-        // identity, preserving the pre-scene "load all geometry" behavior.
-        for id in &object_order {
-            if objects.get(id).is_some_and(|o| o.mesh.is_some()) {
-                instantiate_3mf_object(
-                    id,
-                    glam::DMat4::IDENTITY,
-                    unit_scale,
-                    &objects,
-                    0,
-                    &mut vertices,
-                    &mut faces,
-                )?;
-            }
-        }
-    } else {
-        for item in &build_items {
-            instantiate_3mf_object(
-                &item.objectid,
-                item.transform,
-                unit_scale,
-                &objects,
-                0,
-                &mut vertices,
-                &mut faces,
-            )?;
-        }
-    }
-
-    Ok(Mesh {
-        vertices,
-        faces,
-        aabb: None,
-    })
+    Ok((objects, object_order, build_items, unit_scale))
 }
 
 /// Process a leaf 3MF element (`model`, `vertex`, `triangle`, `component`,
@@ -1199,5 +1275,65 @@ mod tests {
         assert_eq!(unit_to_mm_scale("meter"), Some(1000.0));
         assert_eq!(unit_to_mm_scale("MilliMeter"), Some(1.0));
         assert_eq!(unit_to_mm_scale("parsec"), None);
+    }
+}
+
+#[cfg(test)]
+mod multi_object_3mf_tests {
+    use super::*;
+
+    /// `TopAC.3mf` (courtesy of @max-scopp) holds two named build items —
+    /// "top" and "bottom". It is the regression fixture for a real-world
+    /// multi-object 3MF landing on the plate as separate objects.
+    fn top_ac_bytes() -> Vec<u8> {
+        std::fs::read(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/tests/fixtures/TopAC.3mf"
+        ))
+        .expect("TopAC.3mf fixture is missing")
+    }
+
+    #[test]
+    fn splits_real_multi_object_3mf_into_named_parts() {
+        let parts = read_3mf_objects_from_bytes(&top_ac_bytes()).expect("3MF should load");
+
+        assert_eq!(parts.len(), 2, "expected the two build items to stay apart");
+        assert_eq!(
+            parts.iter().map(|p| p.name.as_deref()).collect::<Vec<_>>(),
+            vec![Some("top"), Some("bottom")],
+        );
+        for part in &parts {
+            assert!(!part.mesh.faces.is_empty(), "each part must carry geometry");
+        }
+    }
+
+    #[test]
+    fn split_parts_together_equal_the_merged_mesh() {
+        // The split loader must not lose or duplicate geometry: merging its
+        // output has to reproduce exactly what the single-mesh loader returns.
+        let bytes = top_ac_bytes();
+        let merged = read_3mf_from_bytes(&bytes).expect("merged load");
+        let parts = read_3mf_objects_from_bytes(&bytes).expect("split load");
+
+        let split_faces: usize = parts.iter().map(|p| p.mesh.faces.len()).sum();
+        let split_verts: usize = parts.iter().map(|p| p.mesh.vertices.len()).sum();
+        assert_eq!(split_faces, merged.faces.len());
+        assert_eq!(split_verts, merged.vertices.len());
+    }
+
+    #[test]
+    fn parts_occupy_distinct_space() {
+        // Two separate parts that reported identical bounds would mean the
+        // per-item transform was dropped — the scrambling bug in a new guise.
+        let parts = read_3mf_objects_from_bytes(&top_ac_bytes()).expect("3MF should load");
+        let boxes: Vec<_> = parts
+            .iter()
+            .map(|p| crate::mesh::analysis::calculate_aabb(&p.mesh))
+            .collect();
+        assert_ne!(
+            (boxes[0].min.z, boxes[0].max.z),
+            (boxes[1].min.z, boxes[1].max.z),
+            "the 'top' and 'bottom' parts should not share a Z span",
+        );
     }
 }
