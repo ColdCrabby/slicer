@@ -27,7 +27,23 @@ issue/PR numbers or repo links in the notes. See the tone rules in
 
 ## [Unreleased]
 
-A big release. Notes are grouped by theme so they're easy to scan.
+## [0.2.0] - 2026-08-30
+
+The build plate grows up. What used to be one model on a plate is now a real
+build plate — add as many objects as you like, cancel a failed one mid-print, or
+print them one at a time — and every infill pattern finally deposits the exact
+density you ask for at any line width.
+
+### Highlights
+
+- **Multi-object build plates** — place several models on one plate, manage them
+  in a new Objects panel, cancel a single failed part from Mainsail/Fluidd, or
+  print parts sequentially front-to-back. Multi-part 3MFs land as separate, named
+  objects instead of one fused blob.
+- **Infill that hits its density** — line spacing and per-line flow now come from
+  the real extrusion width, not a hardcoded 0.4 mm. Grid stopped printing double,
+  honeycomb tiles and stacks like it should, and a 0.6 mm nozzle asked for 20 %
+  no longer prints ~13 %.
 
 ### Added
 
@@ -237,6 +253,10 @@ A big release. Notes are grouped by theme so they're easy to scan.
 - **Viewport-cube ortho snap popped back to perspective on pan/zoom** — only a
   genuine rotate now breaks the flattened, dimension-true view; panning and
   zooming keep it, so you can inspect a snapped view up close.
+
+### Contributors
+
+Thanks to @max-scopp, who built everything in this release. Onward to 0.2.0.
 
 ## [0.1.0] - 2026-08-23
 
