@@ -4,6 +4,7 @@ use std::time::Instant;
 use clipper2::*;
 
 use super::types::{ExtrusionRole, SliceLayer};
+use crate::infill::SurfacePattern;
 use crate::settings::params::SlicingParams;
 
 /// Extract only outer-wall paths from a layer for use in surface detection.
@@ -62,11 +63,8 @@ fn combined_surface_region(bridge: &Paths, bottom: &Paths, top: &Paths) -> Paths
     acc
 }
 
-/// Center-to-center spacing (mm) for solid top/bottom **surface** fill lines.
-///
-/// Uses the libslic3r/Orca/PrusaSlicer **extrusion-spacing** relation so that
-/// adjacent solid beads *overlap* by the rounded-cap correction and the surface
-/// has no gaps:
+/// Lateral pitch (mm) occupied by one round-capped extrusion of nominal width
+/// `extrusion_width_mm` at `layer_height_mm` — libslic3r's `Flow::spacing()`:
 ///
 /// ```text
 /// spacing = extrusion_width − layer_height × (1 − π/4)
@@ -74,26 +72,28 @@ fn combined_surface_region(bridge: &Paths, bottom: &Paths, top: &Paths) -> Paths
 ///
 /// A round-capped bead of nominal width `w` and height `h` only occupies
 /// `w − h·(1 − π/4)` of lateral pitch when packed solid (its rounded sides
-/// interlock), so the fill lines are laid this far apart — ≈ 0.357 mm at a
-/// 0.4 mm nozzle / 0.2 mm layers — rather than a full `w` apart. The earlier
+/// interlock), so solid fill lines are laid this far apart — ≈ 0.357 mm at a
+/// 0.4 mm nozzle / 0.2 mm layers — rather than a full `w` apart. An earlier
 /// `1.2 × layer_height` rule packed them far tighter (0.24 mm), heavily
 /// over-extruding every solid surface.
 ///
-/// **The returned value is also the effective flow width.** The G-code
-/// generator charges each solid-surface line at `spacing × layer_height`
-/// (see `resolve_width_mm`), *not* the wider nominal bead width, mirroring
-/// PrusaSlicer/Orca's `mm³/mm = spacing × height`. Charging the full nominal
-/// width into the narrower pitch would over-extrude every solid surface by
-/// `width / spacing` (≈ 13 % at nozzle width, ≈ 23 % once `line_width > nozzle`)
-/// — the raised / blobby top-surface defect. Matching the flow to the spacing
-/// fills the surface exactly: no gaps, no bulge.
-pub(crate) fn solid_surface_line_spacing(extrusion_width_mm: f64, layer_height_mm: f64) -> f64 {
+/// **This is the engine's single density unit.** Every fill — solid surfaces
+/// and sparse infill alike — lays its lines `spacing / density` apart and is
+/// charged `spacing × layer_height` of filament per mm (see `resolve_width_mm`),
+/// exactly as PrusaSlicer/Orca do (`Fill.cpp:212-228`,
+/// `FillRectilinear.cpp:2778`). Charging the full nominal width into the
+/// narrower pitch instead would over-extrude by `width / spacing` (≈ 13 % at
+/// nozzle width, ≈ 23 % once `line_width > nozzle`) — the raised / blobby
+/// top-surface defect. Keeping the pitch and the flow on the same quantity is
+/// what makes "20 % density" deposit 20 % of a solid layer's volume rather than
+/// something 11 % off in either direction.
+pub(crate) fn extrusion_flow_spacing_mm(extrusion_width_mm: f64, layer_height_mm: f64) -> f64 {
     const CAP_CORRECTION: f64 = 1.0 - std::f64::consts::FRAC_PI_4; // ≈ 0.2146
     (extrusion_width_mm - layer_height_mm * CAP_CORRECTION).max(0.01)
 }
 
 /// Nominal solid top/bottom **surface** extrusion width (mm), before the
-/// [`solid_surface_line_spacing`] cap-correction.
+/// [`extrusion_flow_spacing_mm`] cap-correction.
 ///
 /// This is the single source of truth for the width that both the surface fill
 /// *line spacing* (in [`generate_top_bottom_surfaces_with_interior`]) and the
@@ -105,6 +105,28 @@ pub(crate) fn solid_surface_line_spacing(extrusion_width_mm: f64, layer_height_m
 pub(crate) fn solid_surface_nominal_width_mm(params: &SlicingParams) -> f64 {
     if params.top_surface_line_width > 0.0 {
         params.top_surface_line_width
+    } else if params.line_width > 0.0 {
+        params.line_width
+    } else {
+        params.nozzle_diameter_mm
+    }
+}
+
+/// Nominal **sparse infill** extrusion width (mm), before the
+/// [`extrusion_flow_spacing_mm`] cap-correction.
+///
+/// The sparse-infill twin of [`solid_surface_nominal_width_mm`], and the single
+/// source of truth for the width that both the infill *line pitch* (in
+/// [`crate::infill::generate_infill`]) and the G-code *flow* (`resolve_width_mm`)
+/// derive from. Resolution mirrors `resolve_width_mm`: an explicit
+/// `sparse_infill_line_width`, else the generic `line_width`, else the nozzle
+/// diameter.
+///
+/// Before this existed every pattern generator hardcoded a 0.4 mm reference, so
+/// a 0.6 mm nozzle printed "20 % density" as roughly 13 %.
+pub(crate) fn sparse_infill_nominal_width_mm(params: &SlicingParams) -> f64 {
+    if params.sparse_infill_line_width > 0.0 {
+        params.sparse_infill_line_width
     } else if params.line_width > 0.0 {
         params.line_width
     } else {
@@ -219,12 +241,12 @@ const SERPENTINE_ROW_GAP_THRESHOLD: f64 = 1.5;
 
 /// Add solid infill for a computed surface `region` to a layer.
 ///
-/// Generates a rectilinear infill pattern covering only the provided `region`
-/// paths (the already-computed surface area), then appends the resulting paths
-/// to `layer` with the given extrusion `role`.
+/// Generates a fill pattern covering only the provided `region` paths (the
+/// already-computed surface area), then appends the resulting paths to `layer`
+/// with the given extrusion `role`.
 ///
 /// `line_spacing` is the center-to-center pitch of the fill lines in mm — for
-/// solid surfaces derive it via [`solid_surface_line_spacing`] so adjacent
+/// solid surfaces derive it via [`extrusion_flow_spacing_mm`] so adjacent
 /// beads overlap and the surface has no gaps.
 pub(super) fn add_solid_infill_for_region(
     layer: &mut SliceLayer,
@@ -233,14 +255,20 @@ pub(super) fn add_solid_infill_for_region(
     line_spacing: f64,
     infill_angle: f64,
     min_infill_extrusion_mm: f64,
+    pattern: SurfacePattern,
 ) {
     if region.is_empty() {
         return;
     }
 
     let line_spacing = line_spacing.max(0.01);
-    let infill_paths =
-        generate_rectilinear_infill(region, line_spacing, infill_angle, min_infill_extrusion_mm);
+    let infill_paths = generate_solid_infill(
+        region,
+        line_spacing,
+        infill_angle,
+        min_infill_extrusion_mm,
+        pattern,
+    );
 
     for path in infill_paths {
         layer.paths.push(path);
@@ -1037,17 +1065,29 @@ pub(crate) fn clip_walls_against_bridge_region(layer: &mut SliceLayer, bridge_re
 ///   strand is tensioned from wall-to-wall across the air gap.
 /// - Selects the **optimal bridge direction** by finding the axis that
 ///   minimises the unsupported span length (perpendicular to the longest
-///   bounding dimension of the region).
+///   bounding dimension of the region) — unless `bridge_angle_deg` overrides it.
 /// - Stores a **reduced extrusion width** in `path_widths` based on
 ///   `nozzle_diameter_mm × bridge_flow_ratio` so the G-code generator emits
 ///   proportionally less plastic — this stiffens the strand and reduces sag.
+///
+/// `bridge_angle_deg` follows the PrusaSlicer/Orca convention: `0` means
+/// "detect automatically", so a horizontal (0°) override is spelled `180`.
 pub(super) fn add_bridge_infill_for_region(
     layer: &mut SliceLayer,
     region: &Paths,
     nozzle_diameter_mm: f64,
     bridge_flow_ratio: f64,
+    bridge_angle_deg: f64,
 ) {
     if region.is_empty() {
+        return;
+    }
+
+    // An explicit override wins over detection. Normalising into [0, 180) maps
+    // the documented `180` spelling of "horizontal" back onto 0°.
+    if bridge_angle_deg > 0.0 {
+        let angle = bridge_angle_deg.rem_euclid(180.0);
+        emit_bridge_lines(layer, region, nozzle_diameter_mm, bridge_flow_ratio, angle);
         return;
     }
 
@@ -1097,6 +1137,26 @@ pub(super) fn add_bridge_infill_for_region(
         }
     };
 
+    emit_bridge_lines(
+        layer,
+        region,
+        nozzle_diameter_mm,
+        bridge_flow_ratio,
+        bridge_angle,
+    );
+}
+
+/// Lay the actual bridge strands at a resolved angle.
+///
+/// Split out of [`add_bridge_infill_for_region`] so the auto-detected angle and
+/// the `bridge_angle` override share one emission path.
+fn emit_bridge_lines(
+    layer: &mut SliceLayer,
+    region: &Paths,
+    nozzle_diameter_mm: f64,
+    bridge_flow_ratio: f64,
+    bridge_angle: f64,
+) {
     // Bridge line spacing = nozzle diameter (no overlapping beads on air).
     let line_spacing = nozzle_diameter_mm.max(0.1);
 
@@ -1158,109 +1218,173 @@ pub(super) fn generate_rectilinear_infill(
     angle_degrees: f64,
     min_extrusion_length_mm: f64,
 ) -> Paths {
-    if contours.is_empty() || line_spacing <= 0.0 {
+    let Some(grid) = ScanGrid::build(
+        contours,
+        line_spacing,
+        angle_degrees,
+        min_extrusion_length_mm,
+    ) else {
         return Paths::new(vec![]);
+    };
+    grid.to_paths(chain_serpentine(&grid.rows, line_spacing))
+}
+
+/// Scan-line decomposition of a region: the horizontal spans the fill lines
+/// occupy, expressed in a coordinate system rotated so the fill direction is
+/// the X axis.
+///
+/// Splitting this out of the fill assembly is what lets several
+/// [`SurfacePattern`]s share one geometric pass and differ only in how they
+/// chain the spans back together.
+struct ScanGrid {
+    /// `(scan_y, spans)` per non-empty scan row, bottom to top. Spans within a
+    /// row are sorted left to right.
+    rows: Vec<(f64, Vec<(f64, f64)>)>,
+    cos_a: f64,
+    sin_a: f64,
+}
+
+impl ScanGrid {
+    /// Rotate a point back into the original coordinate system.
+    fn rotate_pos(&self, x: f64, y: f64) -> (f64, f64) {
+        (
+            x * self.cos_a - y * self.sin_a,
+            x * self.sin_a + y * self.cos_a,
+        )
     }
 
-    let angle_rad = angle_degrees.to_radians();
-    let cos_a = angle_rad.cos();
-    let sin_a = angle_rad.sin();
-
-    // Rotate point (x, y) by -angle so infill direction aligns with the X axis
-    let rotate_neg =
-        |x: f64, y: f64| -> (f64, f64) { (x * cos_a + y * sin_a, -x * sin_a + y * cos_a) };
-    // Rotate point (x, y) by +angle to recover the original coordinate system
-    let rotate_pos =
-        |x: f64, y: f64| -> (f64, f64) { (x * cos_a - y * sin_a, x * sin_a + y * cos_a) };
-
-    // Collect rotated polygon vertices for every contour path
-    let rotated_polys: Vec<Vec<(f64, f64)>> = contours
-        .iter()
-        .filter_map(|path| {
-            let pts: Vec<(f64, f64)> = path.iter().map(|pt| rotate_neg(pt.x(), pt.y())).collect();
-            if pts.len() >= 2 {
-                Some(pts)
-            } else {
-                None
+    /// Convert assembled chains (in rotated coordinates) back to output paths.
+    fn to_paths(&self, chains: Vec<Vec<(f64, f64)>>) -> Paths {
+        let mut result_paths = Paths::new(vec![]);
+        for chain in chains {
+            if chain.len() < 2 {
+                continue;
             }
-        })
-        .collect();
-
-    if rotated_polys.is_empty() {
-        return Paths::new(vec![]);
+            let pts: Vec<(f64, f64)> = chain.iter().map(|&(x, y)| self.rotate_pos(x, y)).collect();
+            let path: clipper2::Path = pts.into();
+            result_paths.push(path);
+        }
+        result_paths
     }
 
-    // Bounding Y range in the rotated coordinate system
-    let y_min = rotated_polys
-        .iter()
-        .flat_map(|p| p.iter().map(|&(_, y)| y))
-        .fold(f64::INFINITY, f64::min);
-    let y_max = rotated_polys
-        .iter()
-        .flat_map(|p| p.iter().map(|&(_, y)| y))
-        .fold(f64::NEG_INFINITY, f64::max);
+    fn build(
+        contours: &Paths,
+        line_spacing: f64,
+        angle_degrees: f64,
+        min_extrusion_length_mm: f64,
+    ) -> Option<Self> {
+        if contours.is_empty() || line_spacing <= 0.0 {
+            return None;
+        }
 
-    if y_min >= y_max {
-        return Paths::new(vec![]);
-    }
+        let angle_rad = angle_degrees.to_radians();
+        let cos_a = angle_rad.cos();
+        let sin_a = angle_rad.sin();
 
-    // ── Phase 1: collect all scan-line segments in rotated coordinates ────────
-    //
-    // Each entry is (scan_y, Vec<(x_start, x_end)>) for that horizontal scan.
-    let mut scan_line_data: Vec<(f64, Vec<(f64, f64)>)> = Vec::new();
+        // Rotate point (x, y) by -angle so infill direction aligns with the X axis
+        let rotate_neg =
+            |x: f64, y: f64| -> (f64, f64) { (x * cos_a + y * sin_a, -x * sin_a + y * cos_a) };
+        // Collect rotated polygon vertices for every contour path
+        let rotated_polys: Vec<Vec<(f64, f64)>> = contours
+            .iter()
+            .filter_map(|path| {
+                let pts: Vec<(f64, f64)> =
+                    path.iter().map(|pt| rotate_neg(pt.x(), pt.y())).collect();
+                if pts.len() >= 2 {
+                    Some(pts)
+                } else {
+                    None
+                }
+            })
+            .collect();
 
-    // First scan line aligned to the grid, spanning [y_min, y_max]
-    let start_y = (y_min / line_spacing).floor() * line_spacing;
-    let mut scan_y = start_y;
+        if rotated_polys.is_empty() {
+            return None;
+        }
 
-    // Half a line_spacing is added so the final scan line is not missed when
-    // y_max falls exactly on a grid position (avoids an off-by-one at the top).
-    while scan_y <= y_max + line_spacing * 0.5 {
-        // Collect all X-coordinates where the scan line crosses polygon edges
-        let mut xs: Vec<f64> = Vec::new();
+        // Bounding Y range in the rotated coordinate system
+        let y_min = rotated_polys
+            .iter()
+            .flat_map(|p| p.iter().map(|&(_, y)| y))
+            .fold(f64::INFINITY, f64::min);
+        let y_max = rotated_polys
+            .iter()
+            .flat_map(|p| p.iter().map(|&(_, y)| y))
+            .fold(f64::NEG_INFINITY, f64::max);
 
-        for poly in &rotated_polys {
-            let n = poly.len();
-            for i in 0..n {
-                let (x0, y0) = poly[i];
-                let (x1, y1) = poly[(i + 1) % n];
+        if y_min >= y_max {
+            return None;
+        }
 
-                // Edge straddle check using strict inequality on both sides gives
-                // the standard even-odd scanline rule: each edge is counted exactly
-                // once even when the scan line passes through a shared vertex.
-                if (y0 < scan_y) != (y1 < scan_y) {
-                    let t = (scan_y - y0) / (y1 - y0);
-                    xs.push(x0 + t * (x1 - x0));
+        // ── Phase 1: collect all scan-line segments in rotated coordinates ────────
+        //
+        // Each entry is (scan_y, Vec<(x_start, x_end)>) for that horizontal scan.
+        let mut scan_line_data: Vec<(f64, Vec<(f64, f64)>)> = Vec::new();
+
+        // First scan line aligned to the grid, spanning [y_min, y_max]
+        let start_y = (y_min / line_spacing).floor() * line_spacing;
+        let mut scan_y = start_y;
+
+        // Half a line_spacing is added so the final scan line is not missed when
+        // y_max falls exactly on a grid position (avoids an off-by-one at the top).
+        while scan_y <= y_max + line_spacing * 0.5 {
+            // Collect all X-coordinates where the scan line crosses polygon edges
+            let mut xs: Vec<f64> = Vec::new();
+
+            for poly in &rotated_polys {
+                let n = poly.len();
+                for i in 0..n {
+                    let (x0, y0) = poly[i];
+                    let (x1, y1) = poly[(i + 1) % n];
+
+                    // Edge straddle check using strict inequality on both sides gives
+                    // the standard even-odd scanline rule: each edge is counted exactly
+                    // once even when the scan line passes through a shared vertex.
+                    if (y0 < scan_y) != (y1 < scan_y) {
+                        let t = (scan_y - y0) / (y1 - y0);
+                        xs.push(x0 + t * (x1 - x0));
+                    }
                 }
             }
-        }
 
-        xs.sort_by(|a, b| a.total_cmp(b));
+            xs.sort_by(|a, b| a.total_cmp(b));
 
-        // Collect segments for this scan line
-        let mut segments: Vec<(f64, f64)> = Vec::new();
-        // Always guard against degenerate zero-width segments (coincident edge crossings
-        // produce xs[k] == xs[k+1]).  The user-supplied minimum is applied on top.
-        let effective_min = min_extrusion_length_mm.max(1e-9);
-        let mut k = 0;
-        while k + 1 < xs.len() {
-            let x_start = xs[k];
-            let x_end = xs[k + 1];
-            if x_end - x_start >= effective_min {
-                segments.push((x_start, x_end));
+            // Collect segments for this scan line
+            let mut segments: Vec<(f64, f64)> = Vec::new();
+            // Always guard against degenerate zero-width segments (coincident edge crossings
+            // produce xs[k] == xs[k+1]).  The user-supplied minimum is applied on top.
+            let effective_min = min_extrusion_length_mm.max(1e-9);
+            let mut k = 0;
+            while k + 1 < xs.len() {
+                let x_start = xs[k];
+                let x_end = xs[k + 1];
+                if x_end - x_start >= effective_min {
+                    segments.push((x_start, x_end));
+                }
+                k += 2;
             }
-            k += 2;
+
+            if !segments.is_empty() {
+                scan_line_data.push((scan_y, segments));
+            }
+
+            scan_y += line_spacing;
         }
 
-        if !segments.is_empty() {
-            scan_line_data.push((scan_y, segments));
-        }
-
-        scan_y += line_spacing;
+        Some(Self {
+            rows: scan_line_data,
+            cos_a,
+            sin_a,
+        })
     }
+}
 
-    // ── Phase 2: chain adjacent scan lines into serpentine paths ─────────────
-    //
+/// Chain adjacent scan rows into serpentine (U-turn) paths.
+///
+/// The classic rectilinear assembly: the end of one span is connected directly
+/// to the nearest end of the span above it, so a whole island prints as one
+/// continuous back-and-forth toolpath with no travel moves in between.
+fn chain_serpentine(rows: &[(f64, Vec<(f64, f64)>)], line_spacing: f64) -> Vec<Vec<(f64, f64)>> {
     // Active chains are sorted left-to-right by their last printed X coordinate
     // and matched to scan-line segments in the same sorted order (j-th chain ↔
     // j-th segment).  This **sorted-index correspondence** keeps each chain
@@ -1289,7 +1413,7 @@ pub(super) fn generate_rectilinear_infill(
     // empty rows that were elided from `scan_line_data`.
     let mut prev_sy: Option<f64> = None;
 
-    for (sy, segments) in &scan_line_data {
+    for (sy, segments) in rows {
         // A gap larger than `row_gap_threshold` between two recorded rows means
         // at least one fully-empty scan row was elided between them, so every
         // active island ended in that void.  Finalise **all** active chains
@@ -1366,18 +1490,117 @@ pub(super) fn generate_rectilinear_infill(
         }
     }
 
-    // ── Phase 3: convert chains back to original coordinates ─────────────────
-    let mut result_paths = Paths::new(vec![]);
-    for chain in finished {
-        if chain.len() < 2 {
-            continue;
+    finished
+}
+
+/// Chain scan rows into a **monotonic** sweep.
+///
+/// Every span is extruded in the *same* direction (left to right in the rotated
+/// frame) and the rows are emitted bottom to top, so the nozzle never travels
+/// back across a line it just laid. That consistency is the whole point of a
+/// monotonic top surface: each bead is squished by its neighbour the same way,
+/// which removes the direction-dependent sheen a serpentine leaves behind.
+///
+/// When `connect` is set, a span is joined to the one above it if the next
+/// span *starts* within `connect_threshold` of where this one ended — the
+/// staircase case, where connecting costs nothing and saves a travel. A long
+/// return across the region is never printed. `connect = false` is libslic3r's
+/// `FillMonotonicLines`, which disables joining outright by setting
+/// `anchor_length_max = 0` (`FillRectilinear.cpp:3006-3014`).
+fn chain_monotonic(
+    rows: &[(f64, Vec<(f64, f64)>)],
+    line_spacing: f64,
+    connect: bool,
+) -> Vec<Vec<(f64, f64)>> {
+    let connect_threshold = line_spacing * SERPENTINE_CONNECT_THRESHOLD;
+    let row_gap_threshold = line_spacing * SERPENTINE_ROW_GAP_THRESHOLD;
+
+    let mut finished: Vec<Vec<(f64, f64)>> = Vec::new();
+    // The chain still being extended, plus the row it ended on.
+    let mut open: Option<(Vec<(f64, f64)>, f64)> = None;
+
+    for (sy, segments) in rows {
+        for &(xs, xe) in segments {
+            let joined = if connect {
+                match open.take() {
+                    Some((mut pts, last_sy)) => {
+                        let last = *pts.last().expect("chain is never empty");
+                        let adjacent = *sy - last_sy <= row_gap_threshold;
+                        if adjacent && (last.0 - xs).abs() <= connect_threshold {
+                            pts.push((xs, *sy));
+                            pts.push((xe, *sy));
+                            open = Some((pts, *sy));
+                            true
+                        } else {
+                            if pts.len() >= 2 {
+                                finished.push(pts);
+                            }
+                            false
+                        }
+                    }
+                    None => false,
+                }
+            } else {
+                false
+            };
+
+            if !joined {
+                let span = vec![(xs, *sy), (xe, *sy)];
+                if connect {
+                    open = Some((span, *sy));
+                } else {
+                    finished.push(span);
+                }
+            }
         }
-        let pts: Vec<(f64, f64)> = chain.iter().map(|&(x, y)| rotate_pos(x, y)).collect();
-        let path: clipper2::Path = pts.into();
-        result_paths.push(path);
     }
 
-    result_paths
+    if let Some((pts, _)) = open {
+        if pts.len() >= 2 {
+            finished.push(pts);
+        }
+    }
+
+    finished
+}
+
+/// Fill a solid region with the requested [`SurfacePattern`].
+///
+/// One geometric scan pass ([`ScanGrid`]) feeds every line-based pattern; the
+/// patterns differ only in how the spans are chained back together, which is
+/// what decides how the finished surface looks.
+pub(super) fn generate_solid_infill(
+    contours: &Paths,
+    line_spacing: f64,
+    angle_degrees: f64,
+    min_extrusion_length_mm: f64,
+    pattern: SurfacePattern,
+) -> Paths {
+    if pattern == SurfacePattern::Concentric {
+        // Solid fill, so the loops step inward one full bead at a time.
+        return crate::infill::generate_concentric(
+            contours,
+            line_spacing,
+            1.0,
+            min_extrusion_length_mm,
+        );
+    }
+
+    let Some(grid) = ScanGrid::build(
+        contours,
+        line_spacing,
+        angle_degrees,
+        min_extrusion_length_mm,
+    ) else {
+        return Paths::new(vec![]);
+    };
+
+    let chains = if pattern.is_monotonic() {
+        chain_monotonic(&grid.rows, line_spacing, pattern.connects_lines())
+    } else {
+        chain_serpentine(&grid.rows, line_spacing)
+    };
+    grid.to_paths(chains)
 }
 
 /// Generate solid infill patterns for top and bottom surfaces.
@@ -1442,6 +1665,10 @@ pub fn generate_top_bottom_surfaces(
             bridge_anchor_mm: 0.5,
             infill_overlap_percent: 0.25,
             ensure_vertical_shell_thickness: false,
+            bridge_angle_deg: 0.0,
+            top_pattern: SurfacePattern::Rectilinear,
+            bottom_pattern: SurfacePattern::Rectilinear,
+            internal_solid_pattern: SurfacePattern::Rectilinear,
         },
         None, // No interior regions - use full perimeters
     );
@@ -1466,7 +1693,7 @@ pub struct SurfaceConfig {
     /// Layer height in mm.
     ///
     /// Together with `solid_surface_line_width_mm` it sets the solid top/bottom
-    /// surface line pitch via [`solid_surface_line_spacing`] (the
+    /// surface line pitch via [`extrusion_flow_spacing_mm`] (the
     /// libslic3r/Orca stadium relation), and the G-code generator charges each
     /// fill line at `spacing × layer_height` so surfaces fill flat.
     pub layer_height: f64,
@@ -1478,7 +1705,7 @@ pub struct SurfaceConfig {
     /// Nozzle diameter in mm, used for bridge line spacing and extrusion width.
     pub nozzle_diameter_mm: f64,
     /// Nominal solid top/bottom surface extrusion width in mm — the width the
-    /// fill line *spacing* is derived from (via [`solid_surface_line_spacing`]),
+    /// fill line *spacing* is derived from (via [`extrusion_flow_spacing_mm`]),
     /// kept in lock-step with the G-code flow so surfaces fill exactly.
     ///
     /// `0.0` (or any non-positive value) means "derive from `nozzle_diameter_mm`".
@@ -1512,6 +1739,20 @@ pub struct SurfaceConfig {
     /// the layer footprint) so each strand bites into the supported solid
     /// material on either side.
     pub bridge_anchor_mm: f64,
+    /// Bridging angle override in degrees, `0` = detect automatically.
+    ///
+    /// Follows the PrusaSlicer/Orca convention where `0` is the auto trigger, so
+    /// a horizontal (0°) override is spelled `180`.
+    /// See [`SlicingParams::bridge_angle`].
+    ///
+    /// [`SlicingParams::bridge_angle`]: crate::settings::params::SlicingParams::bridge_angle
+    pub bridge_angle_deg: f64,
+    /// Fill pattern for the **top** solid surface.
+    pub top_pattern: SurfacePattern,
+    /// Fill pattern for the **bottom** solid surface.
+    pub bottom_pattern: SurfacePattern,
+    /// Fill pattern for **internal** solid infill (`solid_infill_every_layers`).
+    pub internal_solid_pattern: SurfacePattern,
     /// Fraction of the nozzle diameter by which solid top/bottom surface infill
     /// is allowed to overlap the innermost wall for a bond weld.
     ///
@@ -2197,6 +2438,7 @@ pub fn generate_top_bottom_surfaces_with_interior(
                 &bridge_region,
                 nozzle_diameter_mm,
                 bridge_flow_ratio,
+                config.bridge_angle_deg,
             );
             #[cfg(not(target_arch = "wasm32"))]
             {
@@ -2257,7 +2499,7 @@ pub fn generate_top_bottom_surfaces_with_interior(
         } else {
             nozzle_diameter_mm
         };
-        let solid_line_spacing = solid_surface_line_spacing(surface_width, layer_height);
+        let solid_line_spacing = extrusion_flow_spacing_mm(surface_width, layer_height);
 
         // Drop sub-bead slivers the wall-band trim above may have left behind,
         // so the scanline never fills a strip too narrow to hold a bead (that
@@ -2278,6 +2520,7 @@ pub fn generate_top_bottom_surfaces_with_interior(
                 solid_line_spacing,
                 layer_infill_angle,
                 min_infill_extrusion_mm,
+                config.bottom_pattern,
             );
             #[cfg(not(target_arch = "wasm32"))]
             {
@@ -2295,6 +2538,7 @@ pub fn generate_top_bottom_surfaces_with_interior(
                 solid_line_spacing,
                 layer_infill_angle,
                 min_infill_extrusion_mm,
+                config.top_pattern,
             );
             #[cfg(not(target_arch = "wasm32"))]
             {
@@ -2422,7 +2666,7 @@ fn apply_vertical_shell_thickness(
     } else {
         config.nozzle_diameter_mm
     };
-    let spacing = solid_surface_line_spacing(surface_width, config.layer_height);
+    let spacing = extrusion_flow_spacing_mm(surface_width, config.layer_height);
 
     // How far to grow a surface rim inward.  Ties the in-plane shell reach to the
     // configured solid-layer count so a shallower slope (needing more backing)
@@ -2477,6 +2721,7 @@ fn apply_vertical_shell_thickness(
             spacing,
             angle,
             config.min_infill_extrusion_mm,
+            config.bottom_pattern,
         );
         let merged = union_or_first(layers[i].solid_regions.clone(), add);
         layers[i].solid_regions = merged;
@@ -2638,6 +2883,10 @@ mod tests {
             bridge_anchor_mm: 0.5,
             infill_overlap_percent: 0.25,
             ensure_vertical_shell_thickness: enabled,
+            bridge_angle_deg: 0.0,
+            top_pattern: SurfacePattern::Rectilinear,
+            bottom_pattern: SurfacePattern::Rectilinear,
+            internal_solid_pattern: SurfacePattern::Rectilinear,
         }
     }
 
@@ -2717,7 +2966,7 @@ mod tests {
         // surface has no holes.  At 0.4 mm nozzle / 0.2 mm layers the pitch is
         // 0.4 − 0.2·(1 − π/4) ≈ 0.357 mm, i.e. below the 0.4 mm bead width
         // (overlap) yet well above the old over-extruding 0.24 mm.
-        let s = solid_surface_line_spacing(0.4, 0.2);
+        let s = extrusion_flow_spacing_mm(0.4, 0.2);
         assert!(
             (s - 0.3571).abs() < 1e-3,
             "expected ~0.357 mm pitch, got {s}"
@@ -2728,7 +2977,147 @@ mod tests {
         // the previous heavy over-extrusion.
         assert!(s > 0.24, "solid pitch {s} must exceed the old 0.24 mm rule");
         // Larger layer height ⇒ larger cap correction ⇒ tighter pitch.
-        assert!(solid_surface_line_spacing(0.4, 0.3) < solid_surface_line_spacing(0.4, 0.1));
+        assert!(extrusion_flow_spacing_mm(0.4, 0.3) < extrusion_flow_spacing_mm(0.4, 0.1));
+    }
+
+    /// The 10×10 mm square every surface-pattern test fills.
+    fn fill_square() -> Paths {
+        let square: Path = vec![(0.0, 0.0), (10.0, 0.0), (10.0, 10.0), (0.0, 10.0)].into();
+        Paths::new(vec![square])
+    }
+
+    /// Signed X extent of each emitted line, so a uniform sweep is detectable.
+    fn line_directions(paths: &Paths) -> Vec<f64> {
+        paths
+            .iter()
+            .filter_map(|p| {
+                let pts: Vec<(f64, f64)> = p.iter().map(|v| (v.x(), v.y())).collect();
+                (pts.len() >= 2).then(|| pts[1].0 - pts[0].0)
+            })
+            .collect()
+    }
+
+    #[test]
+    fn monotonic_patterns_draw_every_line_the_same_way() {
+        // The whole point of a monotonic surface: the nozzle never comes back
+        // across a line it just laid, so each bead is squished identically.
+        let spacing = extrusion_flow_spacing_mm(0.4, 0.2);
+        for pattern in [SurfacePattern::Monotonic, SurfacePattern::MonotonicLine] {
+            let paths = generate_solid_infill(&fill_square(), spacing, 0.0, 0.0, pattern);
+            let dirs = line_directions(&paths);
+            assert!(dirs.len() > 5, "{pattern:?}: expected several lines");
+            assert!(
+                dirs.iter().all(|d| *d > 0.0) || dirs.iter().all(|d| *d < 0.0),
+                "{pattern:?}: lines must all run the same way, got {dirs:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn rectilinear_serpentine_reverses_between_lines() {
+        // The contrast case: the classic serpentine alternates direction, which
+        // is exactly the sheen a monotonic surface avoids.
+        let spacing = extrusion_flow_spacing_mm(0.4, 0.2);
+        let paths = generate_solid_infill(
+            &fill_square(),
+            spacing,
+            0.0,
+            0.0,
+            SurfacePattern::Rectilinear,
+        );
+        let reverses = paths.iter().any(|p| {
+            let xs: Vec<f64> = p.iter().map(|v| v.x()).collect();
+            xs.windows(3)
+                .any(|w| (w[1] - w[0]).signum() != (w[2] - w[1]).signum())
+        });
+        assert!(reverses, "serpentine chaining should double back");
+    }
+
+    #[test]
+    fn monotonic_line_never_connects_its_lines() {
+        // `MonotonicLine` is `Monotonic` with joining switched off, so on a
+        // convex region it must emit one path per fill line.
+        let spacing = extrusion_flow_spacing_mm(0.4, 0.2);
+        let joined =
+            generate_solid_infill(&fill_square(), spacing, 0.0, 0.0, SurfacePattern::Monotonic);
+        let separate = generate_solid_infill(
+            &fill_square(),
+            spacing,
+            0.0,
+            0.0,
+            SurfacePattern::MonotonicLine,
+        );
+        assert!(separate.iter().all(|p| p.len() == 2), "expected bare lines");
+        assert!(
+            separate.len() >= joined.len(),
+            "unjoined lines ({}) cannot be fewer than joined ones ({})",
+            separate.len(),
+            joined.len()
+        );
+    }
+
+    #[test]
+    fn concentric_emits_closed_loops_stepping_inward() {
+        let spacing = extrusion_flow_spacing_mm(0.4, 0.2);
+        let paths = generate_solid_infill(
+            &fill_square(),
+            spacing,
+            0.0,
+            0.0,
+            SurfacePattern::Concentric,
+        );
+        assert!(
+            paths.len() > 3,
+            "expected several loops, got {}",
+            paths.len()
+        );
+        for loop_path in paths.iter() {
+            let pts: Vec<(f64, f64)> = loop_path.iter().map(|v| (v.x(), v.y())).collect();
+            let first = pts[0];
+            let last = *pts.last().expect("non-empty");
+            assert!(
+                (first.0 - last.0).abs() < 1e-6 && (first.1 - last.1).abs() < 1e-6,
+                "a fill loop must close explicitly: {first:?} vs {last:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn bridge_angle_override_replaces_the_detected_direction() {
+        // A long thin region auto-detects strands across its short axis. The
+        // documented spelling of a horizontal override is `180` (because `0`
+        // means "auto"), and it must win over the detected direction.
+        let region: Path = vec![(0.0, 0.0), (40.0, 0.0), (40.0, 6.0), (0.0, 6.0)].into();
+        let region = Paths::new(vec![region]);
+
+        let mut auto = SliceLayer::new(0.2);
+        add_bridge_infill_for_region(&mut auto, &region, 0.4, 0.8, 0.0);
+        let mut forced = SliceLayer::new(0.2);
+        add_bridge_infill_for_region(&mut forced, &region, 0.4, 0.8, 180.0);
+
+        let spans = |layer: &SliceLayer| -> (f64, f64) {
+            let mut dx: f64 = 0.0;
+            let mut dy: f64 = 0.0;
+            for p in layer.paths.iter() {
+                let pts: Vec<(f64, f64)> = p.iter().map(|v| (v.x(), v.y())).collect();
+                for w in pts.windows(2) {
+                    dx = dx.max((w[1].0 - w[0].0).abs());
+                    dy = dy.max((w[1].1 - w[0].1).abs());
+                }
+            }
+            (dx, dy)
+        };
+
+        let (auto_dx, auto_dy) = spans(&auto);
+        let (forced_dx, forced_dy) = spans(&forced);
+        assert!(
+            auto_dy > auto_dx,
+            "auto detection should span the short (Y) axis, got {auto_dx} × {auto_dy}"
+        );
+        assert!(
+            forced_dx > forced_dy,
+            "a 180° (= 0°) override should run the strands along X, got {forced_dx} × {forced_dy}"
+        );
     }
 
     #[test]
@@ -2738,7 +3127,7 @@ mod tests {
         let mut layer = SliceLayer::new(0.2);
         let square: Path = vec![(0.0, 0.0), (10.0, 0.0), (10.0, 10.0), (0.0, 10.0)].into();
         let square: Paths = Paths::new(vec![square]);
-        let spacing = solid_surface_line_spacing(0.4, 0.2);
+        let spacing = extrusion_flow_spacing_mm(0.4, 0.2);
         add_solid_infill_for_region(
             &mut layer,
             &square,
@@ -2746,6 +3135,7 @@ mod tests {
             spacing,
             0.0,
             0.0,
+            SurfacePattern::Rectilinear,
         );
         let n = layer.paths.len();
         // 10 mm / 0.357 mm ≈ 28 lines (serpentine chaining may merge some).
@@ -3127,6 +3517,10 @@ mod tests {
                 bridge_anchor_mm: 0.0,
                 infill_overlap_percent: 0.25,
                 ensure_vertical_shell_thickness: false,
+                bridge_angle_deg: 0.0,
+                top_pattern: SurfacePattern::Rectilinear,
+                bottom_pattern: SurfacePattern::Rectilinear,
+                internal_solid_pattern: SurfacePattern::Rectilinear,
             },
             Some(&interior_regions),
         );

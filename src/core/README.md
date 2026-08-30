@@ -111,7 +111,9 @@ flowchart TD
     I --> SF[generate_top_bottom_surfaces_with_interior<br/>3-stage bridge filter + PCA angle]
     SF --> OV[classify_overhang_perimeters<br/>walls in air → OverhangPerimeter]
     OV --> IN[add_infill_to_layers<br/>uses pre-strip regions − solid_regions]
-    IN --> ORD[order_paths_per_layer<br/>greedy NN + seam vertex rotation]
+    IN --> CB[combine_fill_areas<br/>infill_every_layers · solid_infill_every_layers]
+    CB --> AN[connect_infill<br/>anchor line ends to the perimeter]
+    AN --> ORD[order_paths_per_layer<br/>greedy NN + seam vertex rotation<br/>skipped for monotonic surfaces]
     ORD --> L[Vec~SliceLayer~]
 ```
 
@@ -259,7 +261,7 @@ Two things to note:
 | Interior regions for surfaces | [`infill::calculate_interior_region`](infill.rs)                              | `paths` (post-strip)                        | `interior_regions` local                     |
 | Top / bottom surfaces         | [`surfaces::generate_top_bottom_surfaces_with_interior`](surfaces.rs)         | `paths`, `interior_regions`                 | `paths`, `path_roles`, `solid_regions`       |
 | Overhang classification       | [`walls::classify_overhang_perimeters`](walls.rs)                             | `paths`, `unsupported_regions`, `OverhangGrading` (opt) | `path_roles` (some `OverhangPerimeter`), `path_overhang` (when grading) |
-| Sparse infill                 | [`infill::add_infill_to_layers`](infill.rs)                                   | `pre_strip_infill_regions`, `solid_regions` | `paths`, `path_roles`                        |
+| Sparse infill                 | [`infill::add_infill_to_layers`](infill.rs)                                   | `pre_strip_infill_regions`, `solid_regions` | `paths`, `path_roles`, `path_heights`        |
 | Path ordering & seams         | inline in [`pipeline::process_mesh`](pipeline.rs) (uses `choose_seam_vertex`) | `paths`, `path_roles`, `seam_position`      | `paths` (rotated/reordered)                  |
 
 `pre_strip_infill_regions` is computed only when at least one of

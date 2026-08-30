@@ -797,6 +797,9 @@ apply_single_wall_restrictions()     — strips inner walls from first/last laye
 interior_regions computed            — per-layer interior (for surfaces), post-strip
 generate_top_bottom_surfaces_with_interior()  — top/bottom solid infill within interior
 add_infill_to_layers()               — sparse infill using pre-strip regions minus solid regions
+  ├─ combine_fill_areas()            — stack sparse areas across layers (infill_every_layers);
+  │                                    mark forced solid layers (solid_infill_every_layers)
+  └─ connect_infill()                — anchor line ends to the perimeter, before the splat filters
 path ordering + flow compensation    — greedy-TSP per role group, then wall-overlap flow scaling
 apply_adhesion()                     — skirt/brim prepended to first layer(s); raft prepends layers + Z-shifts object (src/adhesion/)
 ```
@@ -1249,6 +1252,92 @@ Benchy / Voron cube / caddy, with sub-1 mm segments −19 / −1 / −55 and the
 caddy's two grazing edges dropping **22.9 → 2.4 mm** and **24.1 → 2.8 mm** of
 sub-1 mm top surface. QA gate passes with **no baseline drift**.
 
+### Advanced Infill Options ([#99](https://github.com/ColdCrabby/slicer/issues/99))
+
+**`spacing` is the engine's one density unit, and the pitch and the flow must
+both come from it.** [`core::extrusion_flow_spacing_mm`](src/core/surfaces.rs)
+computes libslic3r's `Flow::spacing()` — `width − h·(1 − π/4)` — from the role's
+nominal width (`sparse_infill_nominal_width_mm` /
+`solid_surface_nominal_width_mm`). Fill lines are laid `spacing / density` apart
+and `resolve_width_mm` charges each of them `spacing × layer_height`, so a
+requested density equals the deposited volume. Every infill generator used to
+hardcode a `0.4 mm` reference instead, which made density wrong for any other
+nozzle or `sparse_infill_line_width` (0.6 mm nozzle: "20 %" printed as ~13 %).
+
+**Only `Rectilinear` alternates its angle per layer**
+(`InfillPattern::alternates_per_layer`). The 90° flip exists so consecutive
+layers of *parallel* lines cross instead of stacking into unsupported walls — a
+question that only arises for a single-sweep pattern. Applying it anywhere else
+breaks the pattern, which is why libslic3r's multi-sweep and cellular fills all
+override `_layer_angle` to `0`:
+
+- **`Honeycomb` is cellular** — its walls must stack layer over layer to form
+  tubes, and a 90° flip drops each layer's walls onto the previous layer's
+  voids. Measured on a Voron cube, consecutive layers shared **2 %** of their
+  infill geometry before this was fixed and **79 %** after.
+- `Triangles` / `TriHexagon` / `Cubic` already sweep three directions, so
+  rotating only misregisters the lattice; `Grid` (0°/90°) maps onto itself;
+  `Concentric` / `Gyroid` / `TpmsD` ignore the angle.
+
+**Every lattice must also be phase-anchored to world coordinates**, not to the
+region's bounding box. A fixed orientation is not enough — if the phase is keyed
+to the region, the cells slide as the cross-section changes and still never
+stack. `generate_lines` and `generate_honeycomb` both build their lattice about
+the world origin and use the region only to decide which cells to emit.
+
+**A pattern that lays several sweeps must divide the density first**
+(`fill_surface_by_multilines`, `FillRectilinear.cpp:2956-2970`). Use
+[`rectilinear::generate_multiline`](src/infill/rectilinear.rs), never two calls
+to `generate_rectilinear` — that is how `Grid` came to deposit **double** the
+requested density.
+
+**Infill anchors are not cosmetic.** `connect_infill`
+([src/infill/anchor.rs](src/infill/anchor.rs), a port of libslic3r's
+`Fill::connect_infill`) walks *along the fill boundary* to weld a line end to the
+perimeter and to merge two line ends that a short wall stretch separates. On the
+Filament Card Caddy's hollow-box layers it turned **101 isolated sub-0.8 mm
+infill dashes on one layer into a single continuous serpentine, with none left
+over** — each of those dashes had cost a full retract → travel → un-retract to
+deposit a speck. The extra extrusion the QA baselines record is those connectors.
+Two ordering rules:
+
+- **It must run before the splat and minimum-length filters**, or a line that
+  anchoring would have merged into a long path is discarded as a dash first.
+- **It is for sparse infill only.** libslic3r gives solid fill unlimited anchors,
+  but our monotonic surface fill joins abutting spans itself; running the generic
+  pass over it would reverse lines to make a join and destroy the uniform sweep.
+
+**Monotonic surfaces bypass the greedy-TSP ordering.** "Monotonic" means every
+fill line is drawn in the same direction, so the nozzle never returns across a
+line it just laid. The TSP reverses open paths freely, which would scramble
+exactly that, so `monotonic_surface_role` in
+[pipeline.rs](src/core/pipeline.rs) emits those groups in generation order.
+Measured on the Voron cube, defaulting the top surface to `monotonic-line` also
+removed **106 mm² of `Inner wall × Top surface` double-extrusion** — the
+serpentine's U-turn connectors used to run over the wall band.
+
+**Layer combining stacks the _intersection_, and every layer of the group gives
+it up.** `combine_fill_areas` ([src/core/infill.rs](src/core/infill.rs)) groups
+layers bottom-up (never layer 0, never across a forced-solid layer) until the
+stacked height would exceed `min(N × layer_height,
+infill_combination_max_layer_height_mm, nozzle_diameter)`; the shared area is the
+intersection of the group's sparse areas, so solid surfaces and bridges — already
+subtracted upstream — can never be combined. The patch is removed from **all**
+layers in the group including the top: the tall bead physically occupies all of
+them, so any sliver left behind would be extruded straight into it. It is then
+re-added once on top, eroded by a half-bead clearance and tagged with the group
+height via `SliceLayer::path_heights`.
+
+**`path_heights` is the only per-path height override**, and the G-code generator
+must read it everywhere it reads a height: `extrusion_for_move`, the
+volumetric-speed cap, and the `;HEIGHT:` marker (re-announced on change, or a
+0.4 mm bead is drawn and re-flowed as 0.2 mm). The vector stays **empty** unless
+combining actually set something, so an ordinary print pays nothing.
+
+**Watch the floating-point floor when sizing a group.** `0.6 / 0.2` is
+`2.9999999999999996`, so `(cap / layer_height).floor()` silently combines two
+layers where the user asked for three; the code adds a `1e-6` epsilon.
+
 ### `generate_rectilinear_infill` — Scanline Even-Odd Fill
 
 The scanline fills cells using an even-odd intersection count (pairs of sorted
@@ -1288,5 +1377,5 @@ infill within the ring.
 
 ---
 
-**Last Updated**: 2026-08-23 (versioning + changelog + GitHub Releases)  
+**Last Updated**: 2026-08-30 (advanced infill options + Orca-accurate fill density)  
 **Maintainer Guidance**: Keep this file in sync with project structure changes, new conventions, or significant architectural decisions.

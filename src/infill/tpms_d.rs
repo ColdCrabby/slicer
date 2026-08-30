@@ -11,7 +11,19 @@
 //! For a given Z height, we sample this in 2D and generate lines where
 //! the function crosses zero.
 
-use super::utils::calculate_bounds;
+use super::utils::{calculate_bounds, chain_segments_into_polylines};
+
+/// Density correction for the TPMS-D level set.
+///
+/// Calibrated so the pattern deposits the density it is asked for: measured on a
+/// Voron cube at the default 20 %, TPMS-D lays 34.7 m of line where a
+/// rectilinear fill lays 34.9 m. It is far larger than the gyroid's `2.44`
+/// because one TPMS-D period contributes much less curve length to a horizontal
+/// slice than one gyroid wave does.
+const TPMS_D_DENSITY_ADJUST: f64 = 13.2;
+
+/// Marching-squares samples taken across one pattern period.
+const SAMPLES_PER_PERIOD: f64 = 8.0;
 use clipper2::*;
 
 /// Generate TPMS-D infill pattern.
@@ -22,12 +34,13 @@ use clipper2::*;
 ///
 /// # Arguments
 /// * `region` - The infill region boundaries
+/// * `spacing` - Flow spacing of one bead in mm (`width − h·(1 − π/4)`)
 /// * `density` - Infill density as a fraction (0.0-1.0)
 /// * `z_height` - Z coordinate of the layer (primary source of pattern variation)
 ///
 /// # Returns
 /// Paths containing line segments following the TPMS-D surface
-pub fn generate_tpms_d(region: &Paths, density: f64, z_height: f64) -> Paths {
+pub fn generate_tpms_d(region: &Paths, spacing: f64, density: f64, z_height: f64) -> Paths {
     if density <= 0.0 || region.is_empty() {
         return Paths::default();
     }
@@ -39,13 +52,22 @@ pub fn generate_tpms_d(region: &Paths, density: f64, z_height: f64) -> Paths {
 
     let (min_x, min_y, max_x, max_y) = bounds.unwrap();
 
-    // Pattern scale: controls frequency of the TPMS-D waves
-    // Smaller density → larger waves; larger density → more frequent waves
-    let pattern_scale = 2.0 / density.max(0.1);
+    // Pattern period, in the same `2π × spacing / (density × adjust)` form the
+    // gyroid uses — TPMS-D is the same family of minimal surface, it just packs
+    // a different amount of curve into a period, hence its own constant.
+    //
+    // See [`TPMS_D_DENSITY_ADJUST`]: the previous hand-tuned 2 mm period (at a
+    // 0.4 mm bead) deposited barely a seventh of the requested density.
+    const DENSITY_ADJUST: f64 = TPMS_D_DENSITY_ADJUST;
+    let pattern_scale =
+        (2.0 * std::f64::consts::PI * spacing / (density.max(0.1) * DENSITY_ADJUST)).max(1e-3);
 
-    // Grid resolution - balance between accuracy and performance
-    let mut resolution = ((max_x - min_x).max(max_y - min_y) / pattern_scale * 1.5) as usize;
-    resolution = (resolution as u32).clamp(10, 500) as usize;
+    // Marching-squares resolution. Sampling several points per period is what
+    // keeps the contours smooth; the old 1.5× multiplier left barely a handful
+    // of samples across the whole model and produced visibly faceted waves.
+    let mut resolution =
+        ((max_x - min_x).max(max_y - min_y) / pattern_scale * SAMPLES_PER_PERIOD) as usize;
+    resolution = (resolution as u32).clamp(10, 800) as usize;
 
     let mut lines = Paths::default();
 
@@ -127,7 +149,13 @@ pub fn generate_tpms_d(region: &Paths, density: f64, z_height: f64) -> Paths {
         }
     }
 
-    lines
+    // The marching squares above emit one short segment per grid cell. Printed
+    // as separate paths those are isolated sub-cell dabs — most of them shorter
+    // than `min_infill_extrusion_mm`, so the splat filter would delete them and
+    // the pattern would all but vanish. Chain them back into the curves the
+    // tracer actually found.
+    let tolerance = step_x.min(step_y) * 0.25;
+    chain_segments_into_polylines(&lines, tolerance)
 }
 
 /// Evaluate the TPMS-D surface at a 3D point.
@@ -143,7 +171,7 @@ mod tests {
     #[test]
     fn test_tpms_d_empty_region() {
         let region = Paths::default();
-        let result = generate_tpms_d(&region, 0.2, 0.0);
+        let result = generate_tpms_d(&region, 0.357, 0.2, 0.0);
         assert!(result.is_empty());
     }
 
@@ -152,7 +180,7 @@ mod tests {
         let mut region = Paths::default();
         let square: Path = vec![(0.0, 0.0), (10.0, 0.0), (10.0, 10.0), (0.0, 10.0)].into();
         region.push(square);
-        let result = generate_tpms_d(&region, 0.0, 0.0);
+        let result = generate_tpms_d(&region, 0.357, 0.0, 0.0);
         assert!(result.is_empty());
     }
 
@@ -162,7 +190,7 @@ mod tests {
         let square: Path = vec![(0.0, 0.0), (20.0, 0.0), (20.0, 20.0), (0.0, 20.0)].into();
         region.push(square);
 
-        let result = generate_tpms_d(&region, 0.3, 0.0);
+        let result = generate_tpms_d(&region, 0.357, 0.3, 0.0);
         // Should generate some line segments
         assert!(!result.is_empty());
     }

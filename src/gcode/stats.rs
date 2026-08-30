@@ -232,6 +232,34 @@ pub(crate) fn settings_summary_lines(params: &SlicingParams) -> Vec<String> {
             },
         ),
         format!("; infill_density: {:.0}%", params.infill_density * 100.0),
+        format!(
+            "; infill_pattern: {} | anchor: {:.0}% / {} mm | every: {} layers (max {}) | solid_every: {}",
+            params.infill_pattern.name(),
+            params.infill_anchor_percent,
+            params.infill_anchor_max_mm,
+            params.infill_every_layers,
+            if params.infill_combination_max_layer_height_mm > 0.0 {
+                format!("{} mm", params.infill_combination_max_layer_height_mm)
+            } else {
+                "nozzle".to_string()
+            },
+            if params.solid_infill_every_layers > 0 {
+                format!("{} layers", params.solid_infill_every_layers)
+            } else {
+                "off".to_string()
+            },
+        ),
+        format!(
+            "; surface_pattern: top {} | bottom {} | internal solid {} | bridge_angle: {}",
+            params.top_surface_pattern.name(),
+            params.bottom_surface_pattern.name(),
+            params.internal_solid_infill_pattern.name(),
+            if params.bridge_angle > 0.0 {
+                format!("{}°", params.bridge_angle)
+            } else {
+                "auto".to_string()
+            },
+        ),
         "; ---".to_string(),
     ]);
     lines

@@ -14,14 +14,35 @@ export type PrintProfile = ProcessProfile;
 export type PrintQuality = NonNullable<ProcessProfile['quality']>;
 export const PRINT_QUALITIES: PrintQuality[] = ['draft', 'standard', 'fine'];
 
-export type InfillPattern = 'Rectilinear' | 'Grid' | 'Honeycomb' | 'Gyroid' | 'TpmsD';
-export const INFILL_PATTERNS: { value: InfillPattern; label: string }[] = [
-  { value: 'Rectilinear', label: 'Rectilinear (fast)' },
-  { value: 'Grid', label: 'Grid' },
-  { value: 'Honeycomb', label: 'Honeycomb' },
-  { value: 'Gyroid', label: 'Gyroid (strong)' },
-  { value: 'TpmsD', label: 'TPMS-D (organic)' },
-];
+/**
+ * Infill pattern, taken straight from the engine's generated schema type rather
+ * than re-declared here — a hand-written union silently omitted every pattern
+ * added after it was written.
+ */
+export type InfillPattern = NonNullable<NonNullable<ProcessProfile['params']>['infill_pattern']>;
+
+/**
+ * Every infill pattern the engine offers, in rough order of how often it is
+ * wanted. The list must stay exhaustive: `Record<InfillPattern, string>` makes
+ * the compiler fail the build if the engine gains a pattern and this is not
+ * updated.
+ */
+const INFILL_PATTERN_LABELS: Record<InfillPattern, string> = {
+  Rectilinear: 'Rectilinear (fast)',
+  AlignedRectilinear: 'Aligned rectilinear',
+  Grid: 'Grid',
+  Triangles: 'Triangles',
+  TriHexagon: 'Tri-hexagon',
+  Cubic: 'Cubic (3D)',
+  Honeycomb: 'Honeycomb',
+  Concentric: 'Concentric',
+  Gyroid: 'Gyroid (strong)',
+  TpmsD: 'TPMS-D (organic)',
+};
+
+export const INFILL_PATTERNS: { value: InfillPattern; label: string }[] = (
+  Object.keys(INFILL_PATTERN_LABELS) as InfillPattern[]
+).map((value) => ({ value, label: INFILL_PATTERN_LABELS[value] }));
 
 export type SeamPosition = 'nearest' | 'rear' | 'aligned' | 'sharpest_corner' | 'random';
 export const SEAM_POSITIONS: { value: SeamPosition; label: string }[] = [
