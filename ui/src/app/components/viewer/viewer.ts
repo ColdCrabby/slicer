@@ -1173,6 +1173,12 @@ export class Viewer {
       this.sceneEngine.apply({ op: 'AutoOrient', args: { id } });
       this.sceneEngine.apply({ op: 'DropToFloor', args: { id } });
     }
+    // A freshly loaded primary model gets brand-new object ids, so any undo
+    // history from a previous load now references objects that no longer
+    // exist. Restoring one of those snapshots would delete this new object
+    // instead of reverting an edit (the "everything vanished after browser
+    // back" bug). Void the history here — the load establishes a new baseline.
+    this.sceneCommand.reset();
     // Build the display node from the engine's object list rather than by
     // hand, so this path and every other add share one code path.
     this.syncWasmMeshes();

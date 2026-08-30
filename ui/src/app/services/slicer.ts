@@ -14,6 +14,7 @@ import { FileExport } from './file-export';
 import { NotificationService } from './notifications';
 import { ActiveSelection } from './profiles/active-selection';
 import { SceneEngine } from './scene-engine';
+import { SceneCommand } from './scene-command/scene-command';
 import { AppVersion } from './app-version';
 import { ConnectionStatus, SlicerConnection } from './slicer-connection';
 import { SlicerFile, UploadResponse } from './slicer-file';
@@ -84,6 +85,7 @@ export class Slicer {
   private readonly slicerFile = inject(SlicerFile);
   private readonly notifications = inject(NotificationService);
   private readonly sceneEngine = inject(SceneEngine);
+  private readonly sceneCommand = inject(SceneCommand);
   private readonly workplateObjects = inject(WorkplateObjects);
   private readonly activeSelection = inject(ActiveSelection);
   private readonly appVersion = inject(AppVersion);
@@ -752,6 +754,10 @@ export class Slicer {
     this.reset();
     this.workplateObjects.clearPending();
     await this.sceneEngine.clear();
+    // Drop the undo/redo stack with the scene it described: its snapshots
+    // reference objects from the old plate, and undoing across the reset would
+    // delete the new plate's objects instead of reverting an edit.
+    this.sceneCommand.reset();
   }
 
   getHistory(): Promise<RuntimeHistorySession[]> {
