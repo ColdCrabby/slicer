@@ -55,17 +55,38 @@ export type CatalogStatus = 'idle' | 'loading' | 'ready' | 'unavailable';
 export type CatalogCategory = 'printers' | 'filaments' | 'processes';
 
 /**
+ * Hidden field carrying the cloud catalog's own human-readable spec string
+ * (e.g. "256 × 256 × 256 mm, 0.4 mm nozzle"). The API returns this per summary;
+ * the picker shows it as the right-aligned meta line rather than reconstructing
+ * one from the profile's *defaulted* structured fields (which a summary can't
+ * populate). Set by `RemoteCatalogSource`, read via {@link catalogSpecOf}, and
+ * stripped by {@link toUserCopy} so an imported user copy never carries a stale
+ * summary string.
+ */
+export const CATALOG_SPEC_KEY = 'catalog_spec';
+
+/** Read the {@link CATALOG_SPEC_KEY} spec string off a catalog entry, if any. */
+export function catalogSpecOf(entry: ProfileMeta): string | undefined {
+  const value = entry[CATALOG_SPEC_KEY];
+  return typeof value === 'string' && value.trim() ? value : undefined;
+}
+
+/**
  * Turn a catalog entry into a fresh, fully-owned local copy: new id, marked
  * `user`, with `basedOn` pointing back at the source entry for lineage.
  */
 export function toUserCopy<T extends ProfileMeta>(entry: T, name?: string): T {
-  return {
+  const copy: T = {
     ...structuredClone(entry),
     id: uid(),
     source: 'user',
     based_on: entry.source === 'catalog' ? entry.id : entry.based_on,
     name: name ?? entry.name,
   };
+  // The catalog spec describes the *catalog* entry; a user copy has real,
+  // editable fields, so the summary string would only be stale junk.
+  delete copy[CATALOG_SPEC_KEY];
+  return copy;
 }
 
 /** Mutable per-category state: the results, their status, and the query. */

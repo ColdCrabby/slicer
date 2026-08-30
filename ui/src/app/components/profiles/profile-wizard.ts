@@ -12,7 +12,7 @@ import {
   type PrintQuality,
   type SeamPosition,
 } from '../../models/print-profile.model';
-import { CloudCatalog, toUserCopy } from '../../services/catalog/cloud-catalog';
+import { CloudCatalog, catalogSpecOf, toUserCopy } from '../../services/catalog/cloud-catalog';
 import { ActiveSelection } from '../../services/profiles/active-selection';
 import { PrintProfilesStore } from '../../services/profiles/print-profiles-store';
 import {
@@ -63,7 +63,7 @@ export class ProfileWizard {
         id: p.id,
         name: p.name,
         vendor: p.quality ?? 'standard',
-        meta: `${layer} mm · ${Math.round(infill * 100)}% infill`,
+        meta: catalogSpecOf(p) ?? `${layer} mm · ${Math.round(infill * 100)}% infill`,
         icon: 'menu-scale',
         imported: this.store.items().some((item) => item.based_on === p.id),
       };

@@ -1,3 +1,4 @@
+import { Injector } from '@angular/core';
 import { searchPresets, type PresetSummary } from '../../../generated/catalog-client';
 import {
   FILAMENT_MATERIALS,
@@ -7,7 +8,7 @@ import {
 } from '../../models/filament.model';
 import { makePrinter, type PrinterProfile } from '../../models/printer.model';
 import { makePrintProfile, type PrintProfile } from '../../models/print-profile.model';
-import type { CatalogSource } from './cloud-catalog';
+import { type CatalogSource, CATALOG_SPEC_KEY } from './cloud-catalog';
 
 /** Hard ceiling per the OpenAPI `limit` bound. */
 const PAGE_LIMIT = 100;
@@ -33,7 +34,16 @@ type PresetType = NonNullable<PresetSummary['type']>;
  * `unavailable` state — the app then falls back to "create from scratch".
  */
 export class RemoteCatalogSource implements CatalogSource {
-  constructor(private readonly baseUrl: string) {}
+  /**
+   * `injector` is passed to every request so the hey-api Angular client can
+   * lazily resolve `HttpClient` from DI. The SDK is called here from async
+   * methods — outside any injection context — so without it the client would
+   * throw `NG0203` on the first request.
+   */
+  constructor(
+    private readonly baseUrl: string,
+    private readonly injector: Injector,
+  ) {}
 
   async printers(query?: string): Promise<PrinterProfile[]> {
     const summaries = await this.browse('printer', query);
@@ -45,6 +55,7 @@ export class RemoteCatalogSource implements CatalogSource {
         model: s.model ?? 'Generic',
         source: 'catalog',
         import_url: this.detailUrl(s.id),
+        [CATALOG_SPEC_KEY]: s.spec,
       }),
     );
   }
@@ -59,6 +70,7 @@ export class RemoteCatalogSource implements CatalogSource {
         material: coerceMaterial(s.material),
         source: 'catalog',
         import_url: this.detailUrl(s.id),
+        [CATALOG_SPEC_KEY]: s.spec,
       }),
     );
   }
@@ -71,6 +83,7 @@ export class RemoteCatalogSource implements CatalogSource {
         name: s.name,
         source: 'catalog',
         import_url: this.detailUrl(s.id),
+        [CATALOG_SPEC_KEY]: s.spec,
       }),
     );
   }
@@ -92,6 +105,7 @@ export class RemoteCatalogSource implements CatalogSource {
     for (let page = 0; page < MAX_PAGES; page++) {
       const { data, error } = await searchPresets({
         query: { type, q, limit: PAGE_LIMIT, cursor },
+        injector: this.injector,
       });
       if (error) {
         throw new Error(`Catalog search failed for "${type}".`);

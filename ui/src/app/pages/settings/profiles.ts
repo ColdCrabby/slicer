@@ -13,7 +13,7 @@ import { SETTING_CONTRACTS } from '../../models/setting-contract';
 import globalSettingsSchema from '../../../schemas/slicer-engine-global-settings-v1.json';
 import { parseSchema } from '../../schema-form/models/schema-parser';
 import type { SchemaGroup } from '../../schema-form/models/field-def';
-import { CloudCatalog } from '../../services/catalog/cloud-catalog';
+import { CloudCatalog, catalogSpecOf } from '../../services/catalog/cloud-catalog';
 import { ContextMenuService } from '../../services/context-menu/context-menu.service';
 import { ContextMenuTrigger } from '../../services/context-menu/context-menu-trigger';
 import type { ContextMenuItem } from '../../services/context-menu/context-menu.model';
@@ -222,7 +222,7 @@ export class ProfilesSettings {
         id: p.id,
         name: p.name,
         vendor: p.quality ?? 'standard',
-        meta: `${layer} mm · ${Math.round(infill * 100)}% infill`,
+        meta: catalogSpecOf(p) ?? `${layer} mm · ${Math.round(infill * 100)}% infill`,
         icon: 'menu-scale',
         imported: this.store.items().some((item) => item.based_on === p.id),
       };

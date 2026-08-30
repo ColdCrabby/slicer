@@ -1,6 +1,7 @@
 import { provideHttpClient } from '@angular/common/http';
 import {
   type ApplicationConfig,
+  Injector,
   inject,
   provideAppInitializer,
   provideBrowserGlobalErrorListeners,
@@ -11,7 +12,7 @@ import { environment } from '../environments/environment';
 import { APP_ROUTES } from './app-routes';
 import { AccentService } from './services/accent';
 import { CATALOG_SOURCE } from './services/catalog/cloud-catalog';
-import { configureCatalogClient } from './services/catalog/catalog-client';
+import { provideCatalogClient } from './services/catalog/catalog-client';
 import { RemoteCatalogSource } from './services/catalog/remote-catalog-source';
 import { KeyboardShortcuts } from './services/keyboard-shortcuts/keyboard-shortcuts';
 import { provideProfilePersistence } from './services/profiles/profile-persistence';
@@ -27,13 +28,13 @@ export const appConfig: ApplicationConfig = {
     { provide: TitleStrategy, useClass: NexusTitleStrategy },
     {
       provide: CATALOG_SOURCE,
-      useFactory: () => new RemoteCatalogSource(environment.catalogApiUrl),
+      useFactory: () => new RemoteCatalogSource(environment.catalogApiUrl, inject(Injector)),
     },
     provideHttpClient(),
+    provideCatalogClient(environment.catalogApiUrl),
     provideMarkdown(),
     provideProfilePersistence(),
     provideAppInitializer(() => {
-      configureCatalogClient(environment.catalogApiUrl);
       inject(AccentService);
       inject(KeyboardShortcuts);
       inject(UserInputModality);

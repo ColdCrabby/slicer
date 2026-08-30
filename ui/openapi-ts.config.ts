@@ -17,5 +17,5 @@ export default defineConfig({
     path: './src/generated/catalog-client',
     postProcess: ['prettier'],
   },
-  plugins: ['@hey-api/client-fetch'],
+  plugins: ['@hey-api/client-angular'],
 });
