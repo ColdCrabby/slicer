@@ -46,7 +46,7 @@ export class FilamentWizard {
     label: FILAMENT_MATERIAL_LABELS[m],
   }));
 
-  protected readonly catalogStatus = this.catalog.status;
+  protected readonly catalogStatus = this.catalog.filamentsStatus;
   protected readonly catalogEntries = computed<CatalogEntryVm[]>(() =>
     this.catalog.filaments().map((f) => ({
       id: f.id,
@@ -66,7 +66,7 @@ export class FilamentWizard {
   });
 
   constructor() {
-    void this.catalog.load();
+    void this.catalog.loadFilaments();
   }
 
   protected readonly pnum = paramNum;
@@ -122,11 +122,11 @@ export class FilamentWizard {
   }
 
   protected onCatalogSearch(query: string): void {
-    void this.catalog.search(query);
+    void this.catalog.searchFilaments(query);
   }
 
   protected retryCatalog(): void {
-    void this.catalog.load(true, this.catalog.query());
+    void this.catalog.loadFilaments(true, this.catalog.filamentsQuery());
   }
 
   protected back(): void {

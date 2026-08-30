@@ -212,7 +212,7 @@ export class ProfilesSettings {
     }
   }
 
-  protected readonly catalogStatus = this.catalog.status;
+  protected readonly catalogStatus = this.catalog.profilesStatus;
   protected readonly catalogEntries = computed<CatalogEntryVm[]>(() =>
     this.catalog.profiles().map((p) => {
       const params = (p.params as Record<string, unknown>) ?? {};
@@ -234,12 +234,16 @@ export class ProfilesSettings {
   }
 
   protected openCatalog(): void {
-    void this.catalog.load();
+    void this.catalog.loadProfiles();
     this.catalogOpen.set(true);
   }
 
+  protected onCatalogSearch(query: string): void {
+    void this.catalog.searchProfiles(query);
+  }
+
   protected retryCatalog(): void {
-    void this.catalog.load(true);
+    void this.catalog.loadProfiles(true, this.catalog.profilesQuery());
   }
 
   protected importFromCatalog(id: string): void {

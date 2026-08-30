@@ -254,7 +254,7 @@ export class FilamentsSettings {
     }
   }
 
-  protected readonly catalogStatus = this.catalog.status;
+  protected readonly catalogStatus = this.catalog.filamentsStatus;
   protected readonly catalogEntries = computed<CatalogEntryVm[]>(() =>
     this.catalog.filaments().map((f) => ({
       id: f.id,
@@ -267,12 +267,16 @@ export class FilamentsSettings {
   );
 
   protected openCatalog(): void {
-    void this.catalog.load();
+    void this.catalog.loadFilaments();
     this.catalogOpen.set(true);
   }
 
+  protected onCatalogSearch(query: string): void {
+    void this.catalog.searchFilaments(query);
+  }
+
   protected retryCatalog(): void {
-    void this.catalog.load(true);
+    void this.catalog.loadFilaments(true, this.catalog.filamentsQuery());
   }
 
   protected importFromCatalog(id: string): void {

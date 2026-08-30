@@ -53,7 +53,7 @@ export class ProfileWizard {
   protected readonly seamOptions = SEAM_POSITIONS;
   protected readonly adhesionOptions = ADHESION_TYPES;
 
-  protected readonly catalogStatus = this.catalog.status;
+  protected readonly catalogStatus = this.catalog.profilesStatus;
   protected readonly catalogEntries = computed<CatalogEntryVm[]>(() =>
     this.catalog.profiles().map((p) => {
       const params = (p.params as Record<string, unknown>) ?? {};
@@ -84,7 +84,7 @@ export class ProfileWizard {
   });
 
   constructor() {
-    void this.catalog.load();
+    void this.catalog.loadProfiles();
   }
 
   protected readonly pnum = paramNum;
@@ -141,11 +141,11 @@ export class ProfileWizard {
   }
 
   protected onCatalogSearch(query: string): void {
-    void this.catalog.search(query);
+    void this.catalog.searchProfiles(query);
   }
 
   protected retryCatalog(): void {
-    void this.catalog.load(true, this.catalog.query());
+    void this.catalog.loadProfiles(true, this.catalog.profilesQuery());
   }
 
   protected back(): void {

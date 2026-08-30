@@ -156,7 +156,7 @@ export class PrinterWizard {
   protected readonly klippainReadmeUrl = KLIPPAIN_README_URL;
   protected readonly flavorOptions = PRINTER_GCODE_FLAVORS;
 
-  protected readonly catalogStatus = this.catalog.status;
+  protected readonly catalogStatus = this.catalog.printersStatus;
   protected readonly catalogEntries = computed<CatalogEntryVm[]>(() =>
     this.catalog.printers().map((p) => ({
       id: p.id,
@@ -176,7 +176,7 @@ export class PrinterWizard {
   });
 
   constructor() {
-    void this.catalog.load();
+    void this.catalog.loadPrinters();
   }
 
   protected readonly pnum = paramNum;
@@ -333,11 +333,11 @@ export class PrinterWizard {
   }
 
   protected onCatalogSearch(query: string): void {
-    void this.catalog.search(query);
+    void this.catalog.searchPrinters(query);
   }
 
   protected retryCatalog(): void {
-    void this.catalog.load(true, this.catalog.query());
+    void this.catalog.loadPrinters(true, this.catalog.printersQuery());
   }
 
   protected back(): void {

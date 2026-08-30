@@ -287,7 +287,7 @@ export class PrintersSettings {
     }
   }
 
-  protected readonly catalogStatus = this.catalog.status;
+  protected readonly catalogStatus = this.catalog.printersStatus;
   protected readonly catalogEntries = computed<CatalogEntryVm[]>(() =>
     this.catalog.printers().map((p) => ({
       id: p.id,
@@ -302,12 +302,16 @@ export class PrintersSettings {
   protected readonly editing = computed(() => this.selected());
 
   protected openCatalog(): void {
-    void this.catalog.load();
+    void this.catalog.loadPrinters();
     this.catalogOpen.set(true);
   }
 
+  protected onCatalogSearch(query: string): void {
+    void this.catalog.searchPrinters(query);
+  }
+
   protected retryCatalog(): void {
-    void this.catalog.load(true);
+    void this.catalog.loadPrinters(true, this.catalog.printersQuery());
   }
 
   protected importFromCatalog(id: string): void {
