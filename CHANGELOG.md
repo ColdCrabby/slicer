@@ -37,7 +37,9 @@ these notes and acknowledges contributors. `scripts/gen-changelog-draft.sh` and
     across. Optional custom G-code runs between objects. Parts taller than the
     machine's gantry clearance, or closer together than its extruder clearance
     radius, are reported as warnings before slicing rather than discovered as a
-    crash.
+    crash. Choosing it in the UI shows an honest heads-up that the feature
+    depends on the printer's clearances, with a link straight to where they are
+    set.
 
   Both are off by default, and with both off the plate is merged and sliced
   exactly as before — no change to existing G-code. The **process** settings
