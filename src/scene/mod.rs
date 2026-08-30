@@ -14,7 +14,7 @@ pub mod transform;
 pub mod wasm;
 
 pub use bed::{BedConfig, BedShape};
-pub use loader::{load_bytes, load_path, MeshFormat};
+pub use loader::{load_bytes, load_bytes_multi, load_path, load_path_multi, MeshFormat};
 pub use ops::{OpReceipt, SceneError, SceneOp, SceneOptions};
-pub use state::{ObjectId, SceneObject, SceneState};
+pub use state::{ObjectId, ObjectPlacement, SceneObject, SceneState};
 pub use transform::{apply_transform, transformed_aabb, Transform};

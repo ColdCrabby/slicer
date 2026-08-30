@@ -10,6 +10,8 @@ export interface WorkerSliceObject {
   name: string;
   format: WorkerMeshFormat;
   bytes: Uint8Array;
+  /** Which object inside `bytes` to slice — a 3MF can hold several. */
+  partIndex?: number;
   transform: WorkerSliceTransform;
 }
 

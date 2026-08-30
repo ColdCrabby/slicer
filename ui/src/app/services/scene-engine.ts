@@ -47,6 +47,24 @@ export interface SceneObjectSnapshot {
   scale: [number, number, number];
   triangle_count: number;
   world_aabb: [[number, number, number], [number, number, number]];
+  /**
+   * Opaque handle to the bytes this object was loaded from — the uploaded
+   * file's UUID in cloud mode. Lets a caller map an object back to its source
+   * file instead of pairing the two lists positionally, which silently slices
+   * the wrong mesh once they diverge. `null` when nothing was supplied.
+   */
+  source_id: string | null;
+  /**
+   * Index of this object within its source file (0 for single-part files).
+   *
+   * One 3MF can back several plate objects, so the file id alone does not
+   * identify which geometry to slice.
+   */
+  source_part: number;
+  /** Part of the object falls outside the printable volume. */
+  out_of_bounds: boolean;
+  /** The object's footprint overlaps another object's. */
+  collides: boolean;
 }
 
 export interface SceneBedSnapshot {
@@ -87,6 +105,8 @@ type SceneHandleWithWebSlicer = SceneHandle & {
  */
 export type SceneOp =
   | { op: 'Remove'; args: { id: bigint } }
+  | { op: 'RemoveMany'; args: { ids: bigint[] } }
+  | { op: 'Duplicate'; args: { id: bigint; offset?: [number, number, number] } }
   | { op: 'Translate'; args: { id: bigint; delta: [number, number, number] } }
   | {
       op: 'SetTransform';
@@ -181,6 +201,14 @@ export class SceneEngine {
   /** Reactive bed configuration. */
   readonly bed = computed(() => this.snapshotSignal().bed);
 
+  /** Objects that cannot print where they currently sit. */
+  readonly misplacedObjects = computed(() =>
+    this.snapshotSignal().objects.filter((o) => o.out_of_bounds || o.collides),
+  );
+
+  /** `true` when any object is off the bed or overlapping another. */
+  readonly hasPlacementProblem = computed(() => this.misplacedObjects().length > 0);
+
   /** Last-op rolling stats (last/avg over up to 100 samples). */
   readonly opStats = computed(() => this.opStatsSignal());
 
@@ -211,7 +239,15 @@ export class SceneEngine {
       // angular.json) instead of relying on `import.meta.url`, which after
       // bundling resolves to the chunk URL rather than the directory the
       // generated JS originally lived in.
-      await init({ module_or_path: 'scene_engine_bg.wasm' });
+      //
+      // `cache: 'no-cache'` forces a revalidation (not a re-download — the
+      // server answers 304 when unchanged). The asset ships under a fixed,
+      // unhashed name while its JS glue is bundled into a content-hashed
+      // chunk, so a browser that reuses a cached binary can pair an old
+      // engine with new glue. When the wasm ABI changes that mismatch throws
+      // deep inside generated code ("Cannot mix BigInt and other types"),
+      // which is impossible to diagnose from the message alone.
+      await init({ module_or_path: new Request('scene_engine_bg.wasm', { cache: 'no-cache' }) });
       this.handle = new SceneHandle(bed as unknown as object);
       this.refreshSnapshot();
       stop();
@@ -291,15 +327,41 @@ export class SceneEngine {
   }
 
   /**
-   * Add a mesh to the scene from raw bytes. Returns the assigned object id.
+   * Add a mesh to the scene from raw bytes. Returns the assigned object ids.
+   *
+   * A 3MF holding several parts yields **one id per part**, so a multi-model
+   * file lands on the plate as separate, individually selectable objects.
+   * STL and OBJ always yield exactly one.
+   *
+   * `sourceId` is stored on every created object so a later slice can resolve
+   * them back to the file they came from — pass the uploaded file's UUID in
+   * cloud mode.
    */
-  addMesh(name: string, format: 'stl' | 'obj' | '3mf', bytes: Uint8Array): bigint {
+  addMesh(
+    name: string,
+    format: 'stl' | 'obj' | '3mf',
+    bytes: Uint8Array,
+    sourceId?: string,
+  ): bigint[] {
     const handle = this.requireHandle();
     const stop = this.log.time(`addMesh '${name}' (${format}, ${bytes.byteLength} B)`);
-    const id = handle.addMesh(name, format, bytes);
-    stop({ id: String(id) });
+    const ids = handle.addMesh(name, format, bytes, sourceId);
+    // `serde-wasm-bindgen` hands back a plain array of numbers for Vec<u64>;
+    // every id-taking wasm method expects a real bigint.
+    const normalised = Array.from(ids, (id) => BigInt(id as unknown as string | number));
+    stop({ ids: normalised.map(String).join(','), sourceId });
     this.refreshSnapshot();
-    return id;
+    return normalised;
+  }
+
+  /**
+   * Clone an object, sharing the original's mesh and source file.
+   *
+   * `offset` (scene mm) nudges the copy so it does not land exactly on top
+   * of the original.
+   */
+  duplicate(id: bigint, offset: [number, number, number] = [0, 0, 0]): void {
+    this.apply({ op: 'Duplicate', args: { id, offset } });
   }
 
   /** Apply a single scene op and refresh the snapshot signal. */
@@ -448,7 +510,16 @@ export class SceneEngine {
     // never have to think about it.
     const snap: SceneSnapshot = {
       ...raw,
-      objects: raw.objects.map((o) => ({ ...o, id: BigInt(o.id as unknown as string | number) })),
+      objects: raw.objects.map((o) => ({
+        ...o,
+        id: BigInt(o.id as unknown as string | number),
+        // serde omits `None`, so normalise the absent case to null once here
+        // rather than making every consumer handle both.
+        source_id: o.source_id ?? null,
+        source_part: o.source_part ?? 0,
+        out_of_bounds: o.out_of_bounds ?? false,
+        collides: o.collides ?? false,
+      })),
     };
     this.snapshotSignal.set(snap);
   }

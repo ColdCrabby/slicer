@@ -33,7 +33,7 @@ export class ShortcutsSettings {
     const alt = this.shortcuts.isMac ? '⌥' : 'Alt';
 
     return [
-      { title: 'Editing', rows: pick(['undo', 'redo', 'redo-alt', 'auto-orient']) },
+      { title: 'Editing', rows: pick(['undo', 'redo', 'redo-alt', 'place-objects']) },
       {
         title: 'Object mode',
         rows: pick([

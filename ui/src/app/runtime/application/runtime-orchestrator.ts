@@ -17,7 +17,7 @@ export class RuntimeOrchestrator {
     return this.runtime.init();
   }
 
-  addMesh(input: RuntimeMeshInput): Promise<string> {
+  addMesh(input: RuntimeMeshInput): Promise<string[]> {
     return this.runtime.addMesh(input);
   }
 

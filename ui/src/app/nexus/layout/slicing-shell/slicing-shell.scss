@@ -39,15 +39,18 @@ $default-inset: 40px;
     z-index: 2;
   }
 
-  // Contextual transform sub-settings: floats at the top-left of the scene,
-  // below the toolbar. Placed in the scene area (not the toolbar) so it never
-  // changes the toolbar height — which would otherwise shift the viewport-cube
-  // and the slice rail via --main-scene-inset. Empty (0-size) when nothing is
-  // selected, so it costs no space until it is needed.
-  .transform-dock {
+  // The contextual tool cards (transform, placement) live inside the toolbar,
+  // anchored under the buttons that open them — see 3d-view-toolbar.css. They
+  // are absolutely positioned there, so they add no toolbar height and leave
+  // --main-scene-inset (and hence the viewport-cube and slice rail) alone.
+
+  // The plate's object list. Anchored bottom-left of the scene so it never
+  // collides with the tool cards (top-centre) or the right rail, and so a
+  // long list grows away from the toolbar rather than under it.
+  .objects-dock {
     grid-area: scene;
-    place-self: start start;
-    margin: var(--spacing-sm) var(--spacing-lg);
+    place-self: end start;
+    margin: var(--spacing-sm) var(--spacing-lg) var(--spacing-lg);
     z-index: 2;
     pointer-events: none;
   }

@@ -356,7 +356,8 @@ async fn handle_slice(
     // it is cheap and does not require reading mesh bytes.
     let cache_key = compute_slice_cache_key(&scene_objects, &params);
 
-    let mut slice_inputs: Vec<(std::path::PathBuf, Transform, u64)> =
+    // (path, part index within that file, transform, file size)
+    let mut slice_inputs: Vec<(std::path::PathBuf, usize, Transform, u64)> =
         Vec::with_capacity(scene_objects.len());
 
     for obj in scene_objects {
@@ -394,10 +395,15 @@ async fn handle_slice(
             obj.transform.euler_xyz_deg,
             obj.transform.scale,
         );
-        slice_inputs.push((entry.file_path, transform, entry.file_size as u64));
+        slice_inputs.push((
+            entry.file_path,
+            obj.part_index,
+            transform,
+            entry.file_size as u64,
+        ));
     }
 
-    let total_bytes: u64 = slice_inputs.iter().map(|(_, _, sz)| *sz).sum();
+    let total_bytes: u64 = slice_inputs.iter().map(|(_, _, _, sz)| *sz).sum();
     send_or_return!(ServerMessage::log_info(format!(
         "Slicing {} object(s), {} bytes total…",
         slice_inputs.len(),
@@ -481,22 +487,45 @@ async fn handle_slice(
         // mesh that the slicer pipeline sees.
         let t_load = PhaseTimer::start(phases::MESH_LOAD, &logger);
         let mut combined = crate::mesh::types::Mesh::new();
-        for (path, transform, _) in &slice_inputs {
-            let mesh = match crate::scene::load_path(path) {
-                Ok(m) => m,
-                Err(e) => {
-                    let msg = ServerMessage::error(format!(
-                        "Failed to load mesh {}: {}",
-                        path.display(),
-                        e
-                    ));
-                    let _ = tx.blocking_send(to_json(&msg));
-                    return None;
+        // A multi-part file (3MF) backs several plate objects, so cache its
+        // parsed parts: re-reading and re-parsing the archive once per part
+        // would cost the same work N times for no gain.
+        let mut parts_cache: std::collections::HashMap<
+            std::path::PathBuf,
+            Vec<crate::mesh::io::NamedMesh>,
+        > = std::collections::HashMap::new();
+
+        for (path, part_index, transform, _) in &slice_inputs {
+            if !parts_cache.contains_key(path) {
+                match crate::scene::load_path_multi(path) {
+                    Ok(parts) => {
+                        parts_cache.insert(path.clone(), parts);
+                    }
+                    Err(e) => {
+                        let msg = ServerMessage::error(format!(
+                            "Failed to load mesh {}: {}",
+                            path.display(),
+                            e
+                        ));
+                        let _ = tx.blocking_send(to_json(&msg));
+                        return None;
+                    }
                 }
+            }
+            let parts = &parts_cache[path];
+            let Some(part) = parts.get(*part_index) else {
+                let msg = ServerMessage::error(format!(
+                    "{} has no object at index {} (it contains {})",
+                    path.display(),
+                    part_index,
+                    parts.len()
+                ));
+                let _ = tx.blocking_send(to_json(&msg));
+                return None;
             };
             // Bake the per-object transform exactly once, at the slicer
             // boundary — see the SSOT contract in src/scene/README.md.
-            let baked = crate::scene::apply_transform(&mesh, transform);
+            let baked = crate::scene::apply_transform(&part.mesh, transform);
             combined.vertices.extend(baked.vertices);
             combined.faces.extend(baked.faces);
         }
@@ -740,10 +769,20 @@ async fn dto_to_op(
                 name,
                 format,
                 bytes,
+                // Remember which upload this object came from so a later
+                // slice resolves it without positional guesswork.
+                source_id: Some(file_id),
             })
         }
         SceneOpDto::Remove { id } => Ok(SceneOp::Remove {
             id: crate::scene::ObjectId(id),
+        }),
+        SceneOpDto::RemoveMany { ids } => Ok(SceneOp::RemoveMany {
+            ids: ids.into_iter().map(crate::scene::ObjectId).collect(),
+        }),
+        SceneOpDto::Duplicate { id, offset } => Ok(SceneOp::Duplicate {
+            id: crate::scene::ObjectId(id),
+            offset,
         }),
         SceneOpDto::Translate { id, delta } => Ok(SceneOp::Translate {
             id: crate::scene::ObjectId(id),
@@ -845,9 +884,12 @@ fn compute_slice_cache_key(
     canonical.push_str(";scene=");
     for obj in scene {
         let t = &obj.transform;
+        // `part_index` is part of the identity: two objects can share a
+        // file_id yet be different parts of it, and omitting it would let
+        // distinct plates collide on one cached G-code.
         canonical.push_str(&format!(
-            "[{}|{:?}|{:?}|{:?}]",
-            obj.file_id, t.translation, t.euler_xyz_deg, t.scale
+            "[{}#{}|{:?}|{:?}|{:?}]",
+            obj.file_id, obj.part_index, t.translation, t.euler_xyz_deg, t.scale
         ));
     }
     format!("{:016x}", fnv1a_64(canonical.as_bytes()))

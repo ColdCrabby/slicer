@@ -1,7 +1,29 @@
-<div class="slice-viewer-page">
+<div
+  class="slice-viewer-page"
+  [class.drag-active]="dragActive()"
+  (dragenter)="onDragEnter($event)"
+  (dragover)="onDragOver($event)"
+  (dragleave)="onDragLeave($event)"
+  (drop)="onDrop($event)"
+>
   <div class="viewport-area">
     <div class="viewport-container">
-      <nexus-viewer [mode]="viewerMode()" [model]="modelFile()"></nexus-viewer>
+      <nexus-viewer
+        [mode]="viewerMode()"
+        [model]="modelFile()"
+        [modelSourceId]="modelSourceId()"
+        (loadComplete)="onViewerLoadComplete($event)"
+      ></nexus-viewer>
     </div>
   </div>
+
+  @if (dragActive()) {
+    <div class="drop-overlay" aria-hidden="true">
+      <div class="drop-card">
+        <nexus-icon name="page-plus"></nexus-icon>
+        <p class="drop-title">Add to this plate</p>
+        <p class="drop-hint">Drop STL, OBJ or 3MF models</p>
+      </div>
+    </div>
+  }
 </div>

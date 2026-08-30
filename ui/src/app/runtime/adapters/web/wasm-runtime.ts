@@ -29,6 +29,8 @@ interface CachedMesh {
   name: string;
   format: 'stl' | 'obj' | '3mf';
   bytes: Uint8Array;
+  /** Which object inside those bytes this scene object is (0 for STL/OBJ). */
+  partIndex: number;
 }
 
 export class WasmRuntime implements RuntimePort {
@@ -58,27 +60,40 @@ export class WasmRuntime implements RuntimePort {
     return WEB_CAPABILITIES;
   }
 
-  async addMesh(input: RuntimeMeshInput): Promise<string> {
+  async addMesh(input: RuntimeMeshInput): Promise<string[]> {
     this.requireReady();
     if (!input.bytes) {
       throw new Error(`WASM runtime requires bytes for '${input.fileName}'`);
     }
-    const objectId = this.sceneEngine.addMesh(input.fileName, input.format, input.bytes);
-    this.meshByObjectId.set(objectId.toString(), {
-      name: input.fileName,
-      format: input.format,
-      bytes: new Uint8Array(input.bytes),
+    const objectIds = this.sceneEngine.addMesh(input.fileName, input.format, input.bytes);
+    // Cache the source bytes under *every* id the file produced: the local
+    // slicer re-parses them per object, and a multi-part 3MF backs several
+    // objects that all resolve to these same bytes.
+    objectIds.forEach((objectId, partIndex) => {
+      this.meshByObjectId.set(objectId.toString(), {
+        name: input.fileName,
+        format: input.format,
+        bytes: new Uint8Array(input.bytes as Uint8Array),
+        partIndex,
+      });
     });
-    return objectId.toString();
+    return objectIds.map((id) => id.toString());
   }
 
   async applySceneOps(ops: RuntimeSceneOp[]): Promise<void> {
     this.requireReady();
     const mappedOps: SceneOp[] = ops.map((op) => {
+      // Handled before the shared id lookup: this is the one op that
+      // addresses many objects and therefore carries no single `id`.
+      if (op.op === 'remove_many') {
+        return { op: 'RemoveMany', args: { ids: op.ids.map(BigInt) } };
+      }
       const id = BigInt(op.id);
       switch (op.op) {
         case 'remove':
           return { op: 'Remove', args: { id } };
+        case 'duplicate':
+          return { op: 'Duplicate', args: { id, offset: op.offset ?? [0, 0, 0] } };
         case 'translate':
           return { op: 'Translate', args: { id, delta: op.delta } };
         case 'set_transform':
@@ -124,6 +139,8 @@ export class WasmRuntime implements RuntimePort {
         scale: object.scale,
         triangle_count: object.triangle_count,
         world_aabb: object.world_aabb,
+        source_id: object.source_id,
+        source_part: object.source_part,
       })),
     };
   }
@@ -374,6 +391,7 @@ export class WasmRuntime implements RuntimePort {
         name: cached?.name ?? fallbackModel?.fileName ?? object.name,
         format: cached?.format ?? fallbackModel?.format ?? 'stl',
         bytes,
+        partIndex: cached?.partIndex ?? 0,
         transform: {
           translation: object.translation,
           euler_xyz_deg: object.euler_xyz_deg,

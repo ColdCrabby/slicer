@@ -104,6 +104,16 @@ pub struct PrinterProfile {
     #[serde(default)]
     pub origin_at_center: bool,
 
+    /// Preferred Z-rotation (degrees) applied on top of the orientation
+    /// auto-orient picks, when placing parts on this machine.
+    ///
+    /// A machine characteristic rather than a print setting: CoreXY printers
+    /// move fastest along their diagonals, so many users print everything
+    /// rotated `45°` to keep long walls off the belt axes. `0.0` (default)
+    /// leaves the auto-orient result untouched.
+    #[serde(default)]
+    pub preferred_orientation_deg: f64,
+
     /// Network connection settings.
     #[serde(default)]
     pub connection: PrinterConnection,
@@ -125,5 +135,54 @@ impl PrinterProfile {
             BedShape::Circular => (self.bed_width, self.bed_width),
             BedShape::Rectangular => (self.bed_width, self.bed_depth),
         }
+    }
+
+    /// Auto-orient options this machine prefers, ready to hand to
+    /// [`crate::orient::auto_orient`] or [`crate::orient::ArrangeOptions`].
+    pub fn orient_options(&self) -> crate::orient::AutoOrientOptions {
+        crate::orient::AutoOrientOptions {
+            preferred_z_rotation_deg: self.preferred_orientation_deg,
+            ..Default::default()
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn preferred_orientation_defaults_to_zero_for_older_profiles() {
+        // Profiles persisted before the field existed must still load — a
+        // rejected library would lose every printer the user owns.
+        let stored = serde_json::json!({
+            "id": "p1",
+            "name": "Old printer",
+            "source": "user",
+            "vendor": "Custom",
+            "model": "Generic",
+        });
+
+        let printer: PrinterProfile = serde_json::from_value(stored).expect("legacy profile loads");
+        assert_eq!(printer.preferred_orientation_deg, 0.0);
+        assert_eq!(printer.orient_options().preferred_z_rotation_deg, 0.0);
+    }
+
+    #[test]
+    fn preferred_orientation_reaches_the_orient_options() {
+        let mut printer: PrinterProfile = serde_json::from_value(serde_json::json!({
+            "id": "p1",
+            "name": "CoreXY",
+            "source": "user",
+            "vendor": "Custom",
+            "model": "Generic",
+            "preferred_orientation_deg": 45.0,
+        }))
+        .expect("profile loads");
+
+        assert_eq!(printer.orient_options().preferred_z_rotation_deg, 45.0);
+
+        printer.preferred_orientation_deg = 0.0;
+        assert_eq!(printer.orient_options().preferred_z_rotation_deg, 0.0);
     }
 }

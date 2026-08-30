@@ -50,3 +50,66 @@
   flex-direction: column;
   gap: 16px;
 }
+
+.slice-viewer-page {
+  position: relative;
+}
+
+/* Drop target for adding models to the open plate. This card floats over the
+   live 3D scene, which is one of the few places the shared backdrop-blur token
+   is sanctioned. */
+.drop-overlay {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  z-index: 3;
+  pointer-events: none;
+  background: color-mix(in srgb, var(--color-bg-primary) 45%, transparent);
+  animation: drop-fade var(--duration-fast) var(--ease-standard);
+}
+
+.drop-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--spacing-xs);
+  padding: var(--spacing-xl) var(--spacing-2xl);
+
+  background: var(--backdrop-bg);
+  backdrop-filter: var(--backdrop-blur);
+  border: 2px dashed var(--color-accent);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-md);
+
+  --icon-size: 28px;
+  color: var(--color-accent);
+}
+
+.drop-title {
+  margin: 0;
+  font-size: 0.9375rem;
+  font-weight: 600;
+  color: var(--color-text-primary);
+}
+
+.drop-hint {
+  margin: 0;
+  font-size: 0.75rem;
+  color: var(--color-text-secondary);
+}
+
+@keyframes drop-fade {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .drop-overlay {
+    animation: none;
+  }
+}

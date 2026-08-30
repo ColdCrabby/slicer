@@ -1,7 +1,7 @@
-@if (visible() && selected(); as obj) {
-  <div class="transform-panel" role="group" [attr.aria-label]="'Transform ' + obj.name">
+@if (visible()) {
+  <div class="transform-panel" role="group" aria-label="Transform selection">
     <header class="tp-head">
-      <span class="tp-name" [title]="obj.name">{{ obj.name }}</span>
+      <span class="tp-name">{{ title() }}</span>
 
       <div class="tp-head-right">
         @switch (mode()) {

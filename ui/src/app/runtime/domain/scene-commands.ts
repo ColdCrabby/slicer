@@ -2,6 +2,8 @@ export type RuntimeObjectId = string;
 
 export type RuntimeSceneOp =
   | { op: 'remove'; id: RuntimeObjectId }
+  | { op: 'remove_many'; ids: RuntimeObjectId[] }
+  | { op: 'duplicate'; id: RuntimeObjectId; offset?: [number, number, number] }
   | { op: 'translate'; id: RuntimeObjectId; delta: [number, number, number] }
   | {
       op: 'set_transform';
@@ -36,6 +38,22 @@ export interface RuntimeSceneObject {
   scale: [number, number, number];
   triangle_count: number;
   world_aabb: [[number, number, number], [number, number, number]];
+  /**
+   * Uploaded file this object was loaded from, or `null` when unknown.
+   *
+   * Required (rather than optional) on purpose: this is what a slice uses to
+   * resolve each object to its own bytes, and an omitted field silently falls
+   * back to "the first upload" — slicing one model N times. Making it
+   * mandatory forces every producer of a snapshot to answer the question.
+   */
+  source_id: string | null;
+  /**
+   * Index of this object within its source file (0 for single-part files).
+   *
+   * One 3MF backs several plate objects, so the file id alone does not say
+   * which geometry to slice.
+   */
+  source_part: number;
 }
 
 export interface RuntimeSceneSnapshot {

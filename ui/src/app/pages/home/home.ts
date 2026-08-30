@@ -10,6 +10,7 @@ import {
 } from '../../services/printer-connection';
 import { PrintersStore } from '../../services/profiles/printers-store';
 import { Slicer } from '../../services/slicer';
+import { WorkplateObjects } from '../../services/workplate-objects';
 import { Icon } from '../../shared/icon/icon';
 import { Button } from '../../ui/button/button';
 import { EmptyState } from '../../ui/empty-state/empty-state';
@@ -39,6 +40,7 @@ export class HomeDashboard implements OnDestroy {
   private readonly printerConn = inject(PrinterConnectionService);
   private readonly slicer = inject(Slicer);
   private readonly notifications = inject(NotificationService);
+  private readonly workplate = inject(WorkplateObjects);
 
   /** Re-probe printers periodically so the dashboard reflects live status. */
   private readonly pollTimer = setInterval(
@@ -97,12 +99,12 @@ export class HomeDashboard implements OnDestroy {
 
   async onQuickFileSelected(event: Event): Promise<void> {
     const input = event.target as HTMLInputElement;
-    const file = input.files?.[0];
+    const files = Array.from(input.files ?? []);
     input.value = '';
-    if (!file) {
+    if (files.length === 0) {
       return;
     }
-    await this.openWorkplateFromFile(file);
+    await this.openWorkplateFromFiles(files);
   }
 
   onDragEnter(event: DragEvent): void {
@@ -136,9 +138,9 @@ export class HomeDashboard implements OnDestroy {
     event.preventDefault();
     this.dragDepth = 0;
     this.dragActive.set(false);
-    const file = event.dataTransfer?.files?.[0] ?? null;
-    if (file) {
-      void this.openWorkplateFromFile(file);
+    const files = Array.from(event.dataTransfer?.files ?? []);
+    if (files.length > 0) {
+      void this.openWorkplateFromFiles(files);
     }
   }
 
@@ -147,14 +149,32 @@ export class HomeDashboard implements OnDestroy {
     return Array.from(event.dataTransfer?.types ?? []).includes('Files');
   }
 
-  /** Validate a picked/dropped model and open it as a fresh workplace. */
-  private async openWorkplateFromFile(file: File): Promise<void> {
-    if (!/\.(stl|obj|3mf)$/i.test(file.name)) {
+  /**
+   * Open a fresh workplate from the picked/dropped models.
+   *
+   * The first valid model opens the plate; any others are queued and added by
+   * the slice viewer once the scene exists, so dropping a whole batch of parts
+   * plates all of them instead of silently keeping one.
+   */
+  private async openWorkplateFromFiles(files: readonly File[]): Promise<void> {
+    const models = files.filter((f) => /\.(stl|obj|3mf)$/i.test(f.name));
+    if (models.length === 0) {
       this.notifications.error('Unsupported file', 'Use an STL, OBJ, or 3MF model.');
       return;
     }
+    if (models.length < files.length) {
+      this.notifications.error(
+        'Some files were skipped',
+        'Only STL, OBJ, and 3MF models can be plated.',
+      );
+    }
+
+    const [first, ...rest] = models;
     try {
-      const workplate = await this.slicer.startWorkplate(file);
+      const workplate = await this.slicer.startWorkplate(first);
+      // Queue only after the plate is created — `startWorkplate` resets the
+      // scene, which would otherwise discard these before they are added.
+      this.workplate.queuePending(rest);
       await this.router.navigate(['/slice', workplate.requestUuid], {
         state: workplate.uploadMeta ? { uploadMeta: workplate.uploadMeta } : undefined,
       });

@@ -73,6 +73,7 @@ export function makePrinter(overrides: Partial<PrinterProfile> = {}): PrinterPro
     bed_depth: 220,
     bed_height: 250,
     origin_at_center: false,
+    preferred_orientation_deg: 0,
     connection: { kind: 'none', connected: false },
     params: defaultPrinterParams(),
     ...overrides,

@@ -27,6 +27,7 @@ pub fn base_printer(meta: ProfileMeta) -> PrinterProfile {
         bed_depth: 220.0,
         bed_height: 250.0,
         origin_at_center: false,
+        preferred_orientation_deg: 0.0,
         connection: PrinterConnection::default(),
         params: json!({
             "nozzle_diameter_mm": 0.4,

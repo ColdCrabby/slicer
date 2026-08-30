@@ -49,34 +49,6 @@ export class SceneCommand {
   }
 
   /**
-   * Auto-orient one or more objects to minimise overhangs and maximise flat
-   * bed-contact area.
-   *
-   * If `ids` is provided, only those objects are oriented. If omitted or
-   * empty, **all** objects currently in the scene are oriented.
-   *
-   * All orientations in the batch share a single history entry — a single
-   * undo reverts all of them.
-   */
-  autoOrient(ids?: bigint[]): void {
-    const targets = ids && ids.length > 0 ? ids : this.engine.objects().map((o) => o.id);
-
-    if (targets.length === 0) {
-      return;
-    }
-
-    if (this.gestureStart === null) {
-      this.gestureStart = this.engine.snapshot();
-    }
-
-    for (const id of targets) {
-      this.engine.apply({ op: 'AutoOrient', args: { id } });
-    }
-
-    this.flush();
-  }
-
-  /**
    * Immediately flush any in-progress gesture to history without waiting
    * for the debounce timer.
    *
