@@ -564,6 +564,8 @@ export class Slicer {
     // Reset phase state for fresh run
     this.phaseTimings.set([]);
     this.currentPhase.set(null);
+    this.objectScope.set({ current: 1, count: 1 });
+    this.progressFloor.set(0);
     this.lastSliceElapsedMs.set(null);
     this.sliceStartedAt = null;
     this.setDownloadUrl(null);
