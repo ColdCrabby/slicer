@@ -40,6 +40,27 @@ issue/PR numbers or repo links in the notes. See the tone rules in
   back, or use the browser's back button, and your objects keep their positions
   and undo history instead of being deleted by the next undo. History now resets
   only when the workplate is genuinely replaced.
+### Fixed
+
+- **The "re-slice" hint no longer clears itself** — moving an object or changing
+  a setting *while a slice is running* used to be silently absorbed into the
+  preview once it finished, so the "Scene changed — re-slice" hint disappeared
+  even though the on-screen G-code predated your edit. The comparison baseline is
+  now captured the moment you press Slice, so a mid-slice change correctly keeps
+  the hint lit until you re-slice.
+
+- **No more flashing console on Windows** — the desktop app used to re-read the
+  OS accent colour every couple of seconds by shelling out, which popped a brief
+  `cmd` window on Windows on every check. It now reads the accent directly and
+  waits for the OS to signal a change instead of polling, so the flickering after
+  login is gone and macOS stops re-checking on a timer too.
+
+### Changed
+
+- **Live accent tracking is event-driven** — the desktop app now updates its
+  accent tint the moment you change it in the OS (Windows registry change
+  notifications; macOS distributed notifications) rather than catching up on a
+  2-second poll.
 
 ## [0.2.0] - 2026-08-30
 

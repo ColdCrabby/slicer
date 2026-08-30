@@ -35,6 +35,27 @@ serde_json = "1"
 chrono = { version = "0.4", features = ["clock"] }
 slicer-engine = { path = "../../" }
 
+# Event-driven OS accent watcher (src/system_accent.rs). Windows reads the DWM
+# accent from the registry and blocks on `RegNotifyChangeKeyValue`; macOS
+# observes the accent distributed notification via objc2. Both are transitive
+# deps of Tauri already, so declaring them adds no new versions to the graph.
+[target.'cfg(target_os = "windows")'.dependencies]
+windows = { version = "0.61", features = [
+    "Win32_Foundation",
+    "Win32_System_Registry",
+] }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+block2 = "0.6"
+objc2-foundation = { version = "0.3", features = [
+    "NSDistributedNotificationCenter",
+    "NSNotification",
+    "NSObject",
+    "NSOperation",
+    "NSString",
+    "block2",
+] }
+
 # UIKit interop for the native iOS context menu (see src/context_menu.rs).
 # Tauri already pulls these in on Apple mobile targets; declaring them here just
 # makes the dependency explicit and enables the specific classes we call.
