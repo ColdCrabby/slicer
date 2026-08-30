@@ -19,11 +19,13 @@ export interface CatalogSource {
 }
 
 /**
- * Default source: **none**. The app ships no vendor/product catalog — that
- * dataset is a cloud concern and lives outside this project. Until a real cloud
- * backend is provided, every lookup reports "unavailable", so the UI offers
- * "create from scratch" while the single builtin default per category keeps the
- * app working offline.
+ * Fallback source: **unavailable**. Every lookup rejects, so {@link CloudCatalog}
+ * reports the `unavailable` state and the UI offers "create from scratch" while
+ * the single builtin default per category keeps the app working offline.
+ *
+ * This is the injection default and the offline safety net. The running app
+ * overrides {@link CATALOG_SOURCE} with `RemoteCatalogSource`, which talks to
+ * the real Cold Crabby Preset Cloud (see `app.config.ts`).
  */
 export class UnavailableCatalogSource implements CatalogSource {
   private readonly reason = 'Cloud catalog is not connected.';
