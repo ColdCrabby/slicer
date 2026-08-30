@@ -14,7 +14,7 @@ use std::path::{Path, PathBuf};
 use slicer_engine::core::slice_mesh;
 use slicer_engine::mesh::repair::{analyze, repair, RepairOptions};
 use slicer_engine::mesh::types::Mesh;
-use slicer_engine::scene::{load_path, load_path_reporting};
+use slicer_engine::scene::{load_path, load_path_multi_reporting, load_path_reporting};
 
 fn crate_root() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
@@ -252,6 +252,35 @@ fn every_report_carries_a_readable_summary() {
             "{name}: unhelpful summary {:?}",
             report.summary
         );
+    }
+}
+
+/// The multi-part loader (a 3MF is a scene, not a model) must run the same
+/// validation every other entry point does — otherwise a defective part of a
+/// multi-part file would reach the slicer unrepaired.
+#[test]
+fn multi_part_loading_validates_every_part() {
+    // Single-part formats resolve to exactly one entry, still reported.
+    for name in ["cube-multi-defect.stl", "cube-hole.stl"] {
+        let parts = load_path_multi_reporting(&broken(name), &RepairOptions::default())
+            .unwrap_or_else(|e| panic!("{name}: {e}"));
+        assert_eq!(parts.len(), 1, "{name}: an STL is always one part");
+        let part = &parts[0];
+        assert!(part.report.repaired, "{name}: should have been repaired");
+        assert!(
+            analyze(&part.mesh).is_clean(),
+            "{name}: the returned part must be the repaired mesh"
+        );
+    }
+
+    // A 3MF takes the container path; its parts must be validated there too.
+    let path = crate_root().join("tests/fixtures/simple-cube.3mf");
+    let parts =
+        load_path_multi_reporting(&path, &RepairOptions::default()).expect("load simple-cube.3mf");
+    assert!(!parts.is_empty(), "a 3MF must yield at least one part");
+    for part in &parts {
+        assert!(analyze(&part.mesh).is_clean());
+        assert!(!part.report.repaired, "the fixture is already clean");
     }
 }
 

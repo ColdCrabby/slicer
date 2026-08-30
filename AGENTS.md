@@ -742,6 +742,12 @@ rationale.
   `diagnose` (rightly) does not report `inverted_shells` for a non-watertight
   mesh. Open shells keep the BFS orientation and are oriented only after
   `fill_holes` seals them.
+- **Every part of a multi-part file is validated separately.** A 3MF is a
+  scene, so `load_bytes_multi_reporting` / `load_path_multi_reporting` repair
+  each build item on its own and return a `LoadedPart` with its own report —
+  one bad part says nothing about its siblings. The non-reporting
+  `load_*_multi` wrappers delegate to them, so **no loader entry point can
+  bypass repair**.
 - **Opt-out** is `RepairOptions::analysis_only()` / `--no-mesh-repair`. There is
   deliberately no UI toggle and no `slicer.toml` section; the UI always
   repairs.

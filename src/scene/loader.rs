@@ -94,13 +94,15 @@ pub fn load_bytes(bytes: &[u8], format: MeshFormat) -> Result<Mesh, String> {
 /// Always returns at least one entry; a file that resolves to no geometry is
 /// an error rather than an empty plate.
 pub fn load_bytes_multi(bytes: &[u8], format: MeshFormat) -> Result<Vec<NamedMesh>, String> {
-    Ok(load_bytes_multi_reporting(bytes, format, &RepairOptions::default())?
-        .into_iter()
-        .map(|part| NamedMesh {
-            name: part.name,
-            mesh: part.mesh,
-        })
-        .collect())
+    Ok(
+        load_bytes_multi_reporting(bytes, format, &RepairOptions::default())?
+            .into_iter()
+            .map(|part| NamedMesh {
+                name: part.name,
+                mesh: part.mesh,
+            })
+            .collect(),
+    )
 }
 
 /// Load every object a file contains, each with its own health report.

@@ -282,6 +282,11 @@ through every runtime, worded identically by `repair::log_report`:
 Opting out is `RepairOptions::analysis_only()` in Rust and `--no-mesh-repair`
 on the CLI. The UI always repairs.
 
+**Every part of a multi-part file is validated on its own.** A 3MF is a scene,
+not a model, so `load_*_multi_reporting` repairs each build item separately and
+returns a `LoadedPart` carrying its own report — one defective part says nothing
+about its siblings. Pinned by `multi_part_loading_validates_every_part`.
+
 ---
 
 ## File-format catalog
