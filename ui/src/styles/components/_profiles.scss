@@ -535,3 +535,12 @@
   align-items: center;
   gap: var(--spacing-md);
 }
+
+// The shared modal-shell's close (×) button is a fixed 32×32 grid button that
+// centres its icon with `place-items: center` — but the design language's global
+// `button { padding }` (base/forms) leaks in and shoves the glyph down-right,
+// off-centre. The vendored component doesn't reset it, so neutralise the padding
+// here until that fix lands upstream in @coldcrabby/ui.
+.modal__close {
+  padding: 0;
+}

@@ -1,0 +1,49 @@
+/// Single focus ring on form controls
+/// @group base
+///
+/// Root fix for the recurring "ring inside a ring" when tabbing into a field.
+///
+/// The design language draws focus in two independent places:
+///   • `base/focus` — a global `*:focus-visible { outline }` on **every**
+///     element, for keyboard navigation.
+///   • `base/forms` — an inset `input:focus { box-shadow: inset 0 0 0 1px }`
+///     ring on **every** form control, for both mouse and keyboard.
+///
+/// On a keyboard tab into any bare input, BOTH fire — an outer outline wrapped
+/// around an inner inset ring — which is the doubled ring that kept reappearing
+/// in every new field. Form controls already own their inset ring, so they must
+/// be excluded from the global element outline. The result is exactly one ring
+/// per field, identical on mouse and keyboard, everywhere — no per-component
+/// suppression needed.
+///
+/// This lives after `base/forms` in `main.scss` so it wins on order at equal
+/// specificity. Wrapper "pills" (search boxes, number steppers) keep drawing
+/// their ring on the container via `:focus-within`; their inner control is
+/// reset to be borderless AND — via `has-focus-ring` below — silent, so a
+/// wrapper never stacks a second ring inside its own.
+
+input:focus,
+input:focus-visible,
+select:focus,
+select:focus-visible,
+textarea:focus,
+textarea:focus-visible {
+  // The control's own inset ring (from base/forms) is the single indicator;
+  // never also paint the global element outline on top of it.
+  outline: none;
+}
+
+/// Opt-in for a wrapper that draws the focus ring on itself (a search pill, a
+/// number stepper, …). Add `has-focus-ring` to the container: it silences the
+/// inner control entirely so the container's single `:focus-within` ring is the
+/// only thing shown — no inset ring, no border, no outline leaking through.
+/// This turns the easy-to-forget manual reset every such wrapper used to repeat
+/// into one declarative class.
+.has-focus-ring :is(input, select, textarea) {
+  &:focus,
+  &:focus-visible {
+    outline: none;
+    box-shadow: none;
+    border-color: transparent;
+  }
+}

@@ -20,7 +20,7 @@ import { SETTING_CONTRACTS } from '../../models/setting-contract';
 import globalSettingsSchema from '../../../schemas/slicer-engine-global-settings-v1.json';
 import { parseSchema } from '../../schema-form/models/schema-parser';
 import type { SchemaGroup } from '../../schema-form/models/field-def';
-import { CloudCatalog } from '../../services/catalog/cloud-catalog';
+import { CloudCatalog, catalogSpecOf } from '../../services/catalog/cloud-catalog';
 import { ContextMenuService } from '../../services/context-menu/context-menu.service';
 import { ContextMenuTrigger } from '../../services/context-menu/context-menu-trigger';
 import type { ContextMenuItem } from '../../services/context-menu/context-menu.model';
@@ -254,25 +254,31 @@ export class FilamentsSettings {
     }
   }
 
-  protected readonly catalogStatus = this.catalog.status;
+  protected readonly catalogStatus = this.catalog.filamentsStatus;
   protected readonly catalogEntries = computed<CatalogEntryVm[]>(() =>
     this.catalog.filaments().map((f) => ({
       id: f.id,
       name: f.name,
       vendor: f.vendor,
-      meta: `${f.material} · ${(f.params as Record<string, unknown>)?.['nozzle_temp']}°C`,
+      meta:
+        catalogSpecOf(f) ??
+        `${f.material} · ${(f.params as Record<string, unknown>)?.['nozzle_temp']}°C`,
       color: f.color,
       imported: this.store.items().some((item) => item.based_on === f.id),
     })),
   );
 
   protected openCatalog(): void {
-    void this.catalog.load();
+    void this.catalog.loadFilaments();
     this.catalogOpen.set(true);
   }
 
+  protected onCatalogSearch(query: string): void {
+    void this.catalog.searchFilaments(query);
+  }
+
   protected retryCatalog(): void {
-    void this.catalog.load(true);
+    void this.catalog.loadFilaments(true, this.catalog.filamentsQuery());
   }
 
   protected importFromCatalog(id: string): void {

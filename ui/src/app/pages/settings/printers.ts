@@ -31,7 +31,7 @@ import {
   gcodeTemplateStatus,
   type GcodeTemplateStatus,
 } from '../../models/gcode-templates';
-import { CloudCatalog } from '../../services/catalog/cloud-catalog';
+import { CloudCatalog, catalogSpecOf } from '../../services/catalog/cloud-catalog';
 import { ContextMenuService } from '../../services/context-menu/context-menu.service';
 import { ContextMenuTrigger } from '../../services/context-menu/context-menu-trigger';
 import type { ContextMenuItem } from '../../services/context-menu/context-menu.model';
@@ -287,13 +287,15 @@ export class PrintersSettings {
     }
   }
 
-  protected readonly catalogStatus = this.catalog.status;
+  protected readonly catalogStatus = this.catalog.printersStatus;
   protected readonly catalogEntries = computed<CatalogEntryVm[]>(() =>
     this.catalog.printers().map((p) => ({
       id: p.id,
       name: p.name,
       vendor: p.vendor,
-      meta: `${p.bed_width}×${p.bed_depth} mm · ${(p.params as Record<string, unknown>)?.['nozzle_diameter_mm']} mm`,
+      meta:
+        catalogSpecOf(p) ??
+        `${p.bed_width}×${p.bed_depth} mm · ${(p.params as Record<string, unknown>)?.['nozzle_diameter_mm']} mm`,
       icon: 'printer',
       imported: this.store.items().some((item) => item.based_on === p.id),
     })),
@@ -302,12 +304,16 @@ export class PrintersSettings {
   protected readonly editing = computed(() => this.selected());
 
   protected openCatalog(): void {
-    void this.catalog.load();
+    void this.catalog.loadPrinters();
     this.catalogOpen.set(true);
   }
 
+  protected onCatalogSearch(query: string): void {
+    void this.catalog.searchPrinters(query);
+  }
+
   protected retryCatalog(): void {
-    void this.catalog.load(true);
+    void this.catalog.loadPrinters(true, this.catalog.printersQuery());
   }
 
   protected importFromCatalog(id: string): void {

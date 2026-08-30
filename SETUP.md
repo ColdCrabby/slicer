@@ -85,6 +85,7 @@ After cloning, run these once in order. Skipping any step means the next one fai
 pnpm install
 
 # 2. Build WASM scene bindings + generate JSON schemas + TS types
+#    + the Preset Cloud API client (from the remote OpenAPI document).
 #    Populates ui/src/generated/ — without this, `pnpm ui:build` fails with
 #    "Cannot find module '../../generated/scene-wasm/scene_engine'".
 pnpm run hydrate

@@ -8,7 +8,7 @@ import {
   type PrinterGcodeFlavor,
   type PrinterProfile,
 } from '../../models/printer.model';
-import { CloudCatalog, toUserCopy } from '../../services/catalog/cloud-catalog';
+import { CloudCatalog, catalogSpecOf, toUserCopy } from '../../services/catalog/cloud-catalog';
 import { ActiveSelection } from '../../services/profiles/active-selection';
 import { PrintersStore } from '../../services/profiles/printers-store';
 import {
@@ -156,13 +156,15 @@ export class PrinterWizard {
   protected readonly klippainReadmeUrl = KLIPPAIN_README_URL;
   protected readonly flavorOptions = PRINTER_GCODE_FLAVORS;
 
-  protected readonly catalogStatus = this.catalog.status;
+  protected readonly catalogStatus = this.catalog.printersStatus;
   protected readonly catalogEntries = computed<CatalogEntryVm[]>(() =>
     this.catalog.printers().map((p) => ({
       id: p.id,
       name: p.name,
       vendor: p.vendor,
-      meta: `${p.bed_width}×${p.bed_depth} mm · ${(p.params as Record<string, unknown>)?.['nozzle_diameter_mm']} mm`,
+      meta:
+        catalogSpecOf(p) ??
+        `${p.bed_width}×${p.bed_depth} mm · ${(p.params as Record<string, unknown>)?.['nozzle_diameter_mm']} mm`,
       icon: 'printer',
       imported: this.store.items().some((item) => item.based_on === p.id),
     })),
@@ -176,7 +178,7 @@ export class PrinterWizard {
   });
 
   constructor() {
-    void this.catalog.load();
+    void this.catalog.loadPrinters();
   }
 
   protected readonly pnum = paramNum;
@@ -332,8 +334,12 @@ export class PrinterWizard {
     }
   }
 
+  protected onCatalogSearch(query: string): void {
+    void this.catalog.searchPrinters(query);
+  }
+
   protected retryCatalog(): void {
-    void this.catalog.load(true);
+    void this.catalog.loadPrinters(true, this.catalog.printersQuery());
   }
 
   protected back(): void {
