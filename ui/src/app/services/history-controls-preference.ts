@@ -58,8 +58,7 @@ export class HistoryControlsPreference {
   constructor() {
     if (typeof window !== 'undefined' && typeof window.matchMedia === 'function') {
       const query = window.matchMedia('(pointer: coarse)');
-      const onChange = (event: MediaQueryListEvent) =>
-        this.coarsePrimaryPointer.set(event.matches);
+      const onChange = (event: MediaQueryListEvent) => this.coarsePrimaryPointer.set(event.matches);
       query.addEventListener('change', onChange);
       inject(DestroyRef).onDestroy(() => query.removeEventListener('change', onChange));
     }
