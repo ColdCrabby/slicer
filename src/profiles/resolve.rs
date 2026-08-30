@@ -65,8 +65,9 @@ pub fn resolve(
     // `params` overlay so it resolves at the **filament** precedence layer —
     // process and the user's overrides can still win. Without this the weight in
     // the metadata footer would always use the default (PLA) density regardless
-    // of the chosen material. `entry` only inserts when the profile's params (or
-    // a downstream layer) didn't already carry it.
+    // of the chosen material. The price per kilogram rides along the same way so
+    // the footer can report a material cost. `entry` only inserts when the
+    // profile's params (or a downstream layer) didn't already carry it.
     let mut filament_overlay = filament.params.clone();
     if !filament_overlay.is_object() {
         filament_overlay = serde_json::json!({});
@@ -74,6 +75,8 @@ pub fn resolve(
     if let Some(fmap) = filament_overlay.as_object_mut() {
         fmap.entry("filament_density_g_cm3")
             .or_insert_with(|| serde_json::Value::from(filament.density_g_cm3));
+        fmap.entry("filament_cost_per_kg")
+            .or_insert_with(|| serde_json::Value::from(filament.cost_per_kg));
     }
 
     for overlay in [
@@ -86,12 +89,13 @@ pub fn resolve(
             deep_merge(&mut base, overlay);
         }
     }
-    // Identity / display fields tied to the *chosen* filament profile. These are
-    // definitional (they name the active filament), so they always reflect the
-    // selected profile regardless of the generic override diff, and are surfaced
-    // in the G-code metadata footer so printer front-ends (Moonraker/Mainsail/
-    // Fluidd, OctoPrint) can show the material, filament name, and a colour
-    // swatch. `{filament_type}` is also exposed to custom start G-code.
+    // Identity / display fields tied to the *chosen* profiles. These are
+    // definitional (they name the active filament and machine), so they always
+    // reflect the selected profiles regardless of the generic override diff, and
+    // are surfaced in the G-code metadata footer so printer front-ends
+    // (Moonraker/Mainsail/Fluidd, OctoPrint) can show the material, filament
+    // name, a colour swatch, and which machine the file was sliced for.
+    // `{filament_type}` is also exposed to custom start G-code.
     if let Some(map) = base.as_object_mut() {
         map.insert(
             "filament_type".to_string(),
@@ -104,6 +108,14 @@ pub fn resolve(
         map.insert(
             "filament_color".to_string(),
             serde_json::Value::String(filament.color.clone()),
+        );
+        map.insert(
+            "printer_vendor".to_string(),
+            serde_json::Value::String(printer.vendor.clone()),
+        );
+        map.insert(
+            "printer_model".to_string(),
+            serde_json::Value::String(printer.model.clone()),
         );
     }
     serde_json::from_value(base)
