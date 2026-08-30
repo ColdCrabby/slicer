@@ -33,6 +33,7 @@ make build-release build-windows build-macos build-wasm test lint fmt
 | Component                      | Location                                     | Purpose                                                                                       |
 | ------------------------------ | -------------------------------------------- | --------------------------------------------------------------------------------------------- |
 | **SliceLayer / ExtrusionRole** | [src/core/types.rs](src/core/types.rs)       | Core data structures for a single layer                                                       |
+| **Mesh Repair**                | [src/mesh/repair.rs](src/mesh/repair.rs)     | Import-time validation + auto-fix (welds, holes, winding); no-op on clean meshes               |
 | **Mesh Slicer**                | [src/core/slicer.rs](src/core/slicer.rs)     | Triangle→layer contour extraction (`slice_mesh`)                                              |
 | **Surface Generation**         | [src/core/surfaces.rs](src/core/surfaces.rs) | Top/bottom solid surface detection and infill                                                 |
 | **Wall Restrictions**          | [src/core/walls.rs](src/core/walls.rs)       | Single-wall first/top-layer constraints                                                       |
@@ -53,6 +54,7 @@ src/
 │   ├── mod.rs             # CLI entry point, command dispatcher
 │   ├── commands/          # Command implementations
 │   │   ├── slice.rs       # Slice operation command
+│   │   ├── mesh_check.rs  # Mesh validation / repair report (no slicing)
 │   │   └── info.rs        # Information command
 │   ├── io/                # File I/O layer
 │   │   ├── validation.rs  # Path/file validation
@@ -61,6 +63,12 @@ src/
 │   ├── output.rs          # Output formatting (JSON, GCode)
 │   ├── error.rs           # CLI error types
 │   └── adapters.rs        # Library API adapters
+├── mesh/                  # Triangle mesh: types, loaders, analysis, repair
+│   ├── types.rs           # Mesh, Face, Vertex, AABB
+│   ├── io.rs              # STL (binary/ASCII), OBJ, 3MF loaders
+│   ├── analysis.rs        # AABB, volume, surface area, coplanar face groups
+│   ├── repair.rs          # Diagnostics + auto-repair (issue #114); borrows clean meshes
+│   └── transforms.rs      # Pure translate / scale / rotate helpers
 ├── core/                  # Core slicing operations (split by concern)
 │   ├── mod.rs             # Re-exports public API + integration tests
 │   ├── types.rs           # SliceLayer, ExtrusionRole
@@ -74,7 +82,7 @@ src/
 │   ├── mod.rs             # Re-exports public API
 │   ├── transform.rs       # Transform { translation, rotation: Quat, scale }; apply_transform; Euler-XYZ deg helpers
 │   ├── bed.rs             # BedConfig (width/depth/height/origin offsets); From<&MachineConfig>
-│   ├── loader.rs          # MeshFormat enum + load_bytes / load_path
+│   ├── loader.rs          # MeshFormat enum + load_bytes / load_path (+ *_reporting, runs mesh::repair)
 │   ├── state.rs           # SceneState, SceneObject, ObjectId
 │   ├── ops.rs             # SceneOp (Add/Remove/Translate/Rotate/Scale/SetTransform/Center/Drop/AlignFace) + apply()
 │   └── wasm.rs            # SceneHandle wasm-bindgen exports (cfg(target_arch="wasm32"))
@@ -575,7 +583,7 @@ profile plus `labels.toml`, `manifest.toml`, `README.md`) and a **single**
 - **A multi-part `Add` inverts to `RemoveMany`, not `Remove`.** One `Add` can create many objects, so undo has to take all of them back in one step. `SceneHandle::addMesh` returns an **array** of ids to match.
 - **Placement is validated in the engine, not per front-end**: `SceneState::placement_report()` returns `out_of_bounds` (via `BedConfig::contains_aabb`, shape-aware) and `collides` (XY-footprint overlap; touching edges do not count, so `ArrangeOnBed` output is clean) for every object. The WASM snapshot carries both flags per object. Its epsilon is `1e-3` mm, not `1e-9` — STL coordinates are `f32`, so a model resting on the bed lands a few `1e-6` mm below zero and a tighter tolerance reports it out of bounds.
 - **Server scenes are ephemeral per WS connection** (no DB persistence). UI uploads bytes via the file-upload endpoint, then dispatches `Scene { ops: [Add { file_id }, …] }`. `POST /api/upload` takes an optional `ruuid` field (sent **before** the file field, since multipart streams in order) that attaches the upload to an existing workplate — that is how one plate accumulates several files so `GET /api/request/:ruuid` can restore all of them.
-- **WASM** (`src/scene/wasm.rs`, `cfg(target_arch="wasm32")`): exposes `SceneHandle` with `addMesh`, `applyOp`, `getRenderBuffer`, `getMatrix`, `snapshot`. JS bindings build via `make build-wasm` → `ui/src/generated/scene-wasm/`.
+- **WASM** (`src/scene/wasm.rs`, `cfg(target_arch="wasm32")`): exposes `SceneHandle` with `addMesh`, `applyOp`, `getRenderBuffer`, `getMatrix`, `meshReport`, `snapshot`. JS bindings build via `make build-wasm` → `ui/src/generated/scene-wasm/`.
 - **Wasm vs native deps**: `clipper2`, `zip`, `uuid`, `rayon`, `tobj`, `actix-*`, `tokio`, `rusqlite` are gated `cfg(not(target_arch="wasm32"))`. The wasm build only ships `mesh`, `scene`, `logging`, plus wasm-only `wasm-bindgen`/`js-sys`/`serde-wasm-bindgen`. Module-level `#[cfg]`s in `lib.rs` enforce this.
 - **Deprecated CLI flags**: `--center` / `--drop-to-floor` are kept as aliases that log a deprecation warning and dispatch the equivalent `SceneOp`. Do not add new flags that bypass the scene engine.
 - **Don't add a parallel mesh placement path**. The temptation to "just translate this mesh real quick" in `mesh::transforms` is exactly what issue #51 set out to eliminate.
@@ -683,6 +691,69 @@ so the firmware knows where a cancelled object lives.
 - **The exclusion polygon is a convex hull, resampled to ≤ 64 points.** A turned
   cylinder hulls to one vertex per facet and would push a multi-kilobyte line
   into the file for no added precision.
+
+## Mesh repair — validated at the loader, no-op on clean models
+
+[src/mesh/repair.rs](src/mesh/repair.rs) validates and repairs every model on
+import (issue #114). It is wired into [src/scene/loader.rs](src/scene/loader.rs)
+because that is the one funnel all four runtimes already use — CLI, WS server,
+wasm `SceneHandle`, and the Tauri bridge. See
+[src/mesh/README.md](src/mesh/README.md#validation-and-repair) for the full
+rationale.
+
+- **A clean mesh is returned `Cow::Borrowed`, never rebuilt.** That is what
+  makes default-on repair safe: every fixture in the QA corpus (Benchy, Voron
+  cube, caddy, hinge) is clean, so the slicing-quality baselines cannot drift.
+  Pinned by `known_good_meshes_are_reported_clean_and_never_rewritten` in
+  [tests/mesh_repair.rs](tests/mesh_repair.rs) — **if that test starts failing,
+  the baselines are about to move**, so fix the mesh or the pass, don't
+  re-record.
+- **Repair must stay deterministic.** `SceneOp::PlaceFaceOnFloor { face_index }`
+  is picked in the browser against the wasm-parsed mesh and, in cloud mode,
+  re-resolved by a server that loaded and repaired the same file
+  independently — the two face orderings must match. Vertex and face indices
+  are assigned in strict first-seen order and the union–find always attaches
+  the larger root to the smaller. Never let hash iteration order reach the
+  output.
+- **Pure `std`, no new dependencies** — the pass ships in the wasm bundle
+  unchanged, so the browser slicer gets the same repairs the server does.
+- **`repair::log_report` is the single wording** for the CLI, the WS logger and
+  the desktop bridge. The UI raises its own toast from `SceneEngine.addMesh`
+  via the `meshReport(id)` wasm export; it deduplicates because a model is
+  parsed twice per import (once by the viewer for display, once by the runtime
+  adapter for slicing).
+- **Repairs performed**: two-stage weld (exact, then a tolerance pass over
+  boundary vertices only), degenerate/duplicate removal, per-shell winding
+  unification plus outward orientation, and capping of boundary loops up to
+  `max_hole_edges` (512). **Non-manifold edges are reported, never split** —
+  and neither are self-intersections or T-junctions.
+- **A zero-area boundary loop is a _slit_, not a hole — never patch it.** A
+  T-junction, or the rim left behind by a removed zero-area sliver, yields
+  collinear open edges that enclose nothing. Capping one can only produce
+  zero-area triangles, which close nothing (`diagnose` excludes degenerates
+  from the edge graph) while adding junk to the mesh. Counted as
+  `slit_boundary_edges`, excluded from `holes`/`is_watertight`/`is_clean`, and
+  surfaced only as an informational note. A real Benchy export has nine.
+- **Only ever orient a _closed_ shell by its signed volume.** That figure is
+  the cone volume about the **origin**; it equals the enclosed volume only for
+  a sealed surface. On an open shell it is dominated by the cone over the
+  missing region and its sign depends on where the model sits in space, so
+  using it flips a correctly wound open surface inside out — silently, because
+  `diagnose` (rightly) does not report `inverted_shells` for a non-watertight
+  mesh. Open shells keep the BFS orientation and are oriented only after
+  `fill_holes` seals them.
+- **Every part of a multi-part file is validated separately.** A 3MF is a
+  scene, so `load_bytes_multi_reporting` / `load_path_multi_reporting` repair
+  each build item on its own and return a `LoadedPart` with its own report —
+  one bad part says nothing about its siblings. The non-reporting
+  `load_*_multi` wrappers delegate to them, so **no loader entry point can
+  bypass repair**.
+- **Opt-out** is `RepairOptions::analysis_only()` / `--no-mesh-repair`. There is
+  deliberately no UI toggle and no `slicer.toml` section; the UI always
+  repairs.
+- `slicer-engine mesh-check --input <file> [--output-format json] [--strict]`
+  reports the diagnostics without slicing and exits non-zero when defects
+  remain.
 
 ## Slicing Pipeline — Deep Knowledge
 

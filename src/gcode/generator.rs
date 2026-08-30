@@ -253,6 +253,19 @@ pub(crate) fn volumetric_capped_speed_mm_min(
     speed_mm_min.min(cap_mm_min)
 }
 
+/// Convert a slice-layer Z into the Z actually written to the G-code, applying
+/// the machine's `z_offset_mm` compensation (issue #102).
+///
+/// A negative offset lowers the nozzle (the endstop zeroes too high), a positive
+/// one raises it.  The offset is a *machine* correction, so it is applied here —
+/// at the emission boundary — and nowhere else: the slice layers, the print
+/// statistics and the time estimate all keep the model's own Z.  This mirrors
+/// PrusaSlicer / OrcaSlicer, where `z_offset` is added to every emitted Z
+/// coordinate rather than being pushed into a firmware directive.
+fn machine_z(z: f64, params: &SlicingParams) -> f64 {
+    z + params.z_offset_mm
+}
+
 /// Slowest strictly-positive `overhang_*_speed` (mm/s), or `None` when no
 /// per-degree overhang speed is configured.  Used by
 /// [`GcodeGenerator::effective_speed_mm_min`] to clamp curl-prone steep
@@ -1648,7 +1661,14 @@ impl GcodeGenerator {
                     last_path_points.as_deref(),
                     params,
                 );
-                let clearance_z = max_printed_z + params.z_hop_mm.max(SEQUENTIAL_LIFT_MM);
+                // `max_printed_z` tracks the model Z of the tallest finished
+                // part, so the lift is computed in model space and converted
+                // once — the part it has to clear physically sits at its own
+                // machine Z too.
+                let clearance_z = machine_z(
+                    max_printed_z + params.z_hop_mm.max(SEQUENTIAL_LIFT_MM),
+                    params,
+                );
                 out.push_str(&format!(
                     "{} ; clear the finished object\n",
                     self.dialect.move_z(clearance_z, params.travel_speed_mm_min)
@@ -1702,7 +1722,15 @@ impl GcodeGenerator {
             // higher Z over material the nozzle is no longer touching).
             last_path_points = None;
 
-            let z_str = format!("{:.3}", layer.z);
+            // Emitted (machine) Z carries the `z_offset_mm` compensation; the
+            // model Z does not.  Lifecycle markers describe where the nozzle
+            // actually is, so they use the machine Z (as PrusaSlicer does),
+            // while the custom layer-change script sees the model Z — its
+            // `{z}` is the analogue of PrusaSlicer's offset-free `layer_z`
+            // placeholder, and a macro reasoning about the object must not be
+            // handed an endstop correction.
+            let z_str = format!("{:.3}", machine_z(layer.z, params));
+            let model_z_str = format!("{:.3}", layer.z);
             let height_str = format!("{:.3}", params.layer_height);
             // Last `;HEIGHT:` announced on this layer, so a taller combined-infill
             // bead re-announces it and the next ordinary path announces it back.
@@ -1774,7 +1802,8 @@ impl GcodeGenerator {
                 if !is_spiral_layer {
                     out.push_str(&format!(
                         "{}\n",
-                        self.dialect.move_z(layer.z, params.travel_speed_mm_min)
+                        self.dialect
+                            .move_z(machine_z(layer.z, params), params.travel_speed_mm_min)
                     ));
                 }
 
@@ -1793,7 +1822,8 @@ impl GcodeGenerator {
                 if !is_spiral_layer {
                     out.push_str(&format!(
                         "{}\n",
-                        self.dialect.move_z(layer.z, params.travel_speed_mm_min)
+                        self.dialect
+                            .move_z(machine_z(layer.z, params), params.travel_speed_mm_min)
                     ));
                 }
             }
@@ -1823,7 +1853,9 @@ impl GcodeGenerator {
             if let Some(script) = &self.custom_layer_script {
                 let layer_num = (layer_index + 1).to_string();
                 for line in script {
-                    let rendered = render_marker(line, &z_str, &height_str, "", "")
+                    // `{z}` here is the *model* layer Z, free of the machine
+                    // Z-offset (PrusaSlicer's `layer_z` placeholder semantics).
+                    let rendered = render_marker(line, &model_z_str, &height_str, "", "")
                         .replace("{layer_num}", &layer_num);
                     out.push_str(&render_script_placeholders(&rendered, params));
                     out.push('\n');
@@ -1997,7 +2029,13 @@ impl GcodeGenerator {
                 // previous object's *top*, and ramping from there would extrude
                 // a continuous descent from that height straight through the
                 // plate.
-                let z_bottom =
+                //
+                // The clamps below are deliberately evaluated in *model* space,
+                // before `machine_z` is applied: a `max(0.0)` floor means "the
+                // bed", which a negative Z-offset legitimately sits below.
+                // Offsetting both ends afterwards shifts the ramp bodily while
+                // preserving its exact one-layer-height rise.
+                let z_bottom = machine_z(
                     if layer_index > 0 && layer_owners[layer_index - 1] == layer_object {
                         layers[layer_index - 1].z
                     } else {
@@ -2007,8 +2045,10 @@ impl GcodeGenerator {
                     // makes the "descend while extruding" failure unrepresentable,
                     // whatever the previous layer turns out to be.
                     .min(layer.z)
-                    .max(0.0);
-                let z_top = layer.z;
+                    .max(0.0),
+                    params,
+                );
+                let z_top = machine_z(layer.z, params);
                 let target = cur_xy.unwrap_or(pts[0]);
                 let rotated = rotate_loop_nearest(&pts, target);
                 let (sx, sy) = rotated[0];
@@ -2354,8 +2394,10 @@ impl GcodeGenerator {
                     );
                     out.push_str(&format!(
                         "{} ; z-hop\n",
-                        self.dialect
-                            .move_z(layer.z + params.z_hop_mm, params.travel_speed_mm_min)
+                        self.dialect.move_z(
+                            machine_z(layer.z + params.z_hop_mm, params),
+                            params.travel_speed_mm_min
+                        )
                     ));
                     for (wi, &(wx, wy)) in travel_route.iter().enumerate() {
                         let tag = if wi + 1 == travel_route.len() {
@@ -2370,7 +2412,8 @@ impl GcodeGenerator {
                     }
                     out.push_str(&format!(
                         "{} ; lower\n",
-                        self.dialect.move_z(layer.z, params.travel_speed_mm_min)
+                        self.dialect
+                            .move_z(machine_z(layer.z, params), params.travel_speed_mm_min)
                     ));
                     self.do_unretract(
                         &mut out,
@@ -6994,6 +7037,242 @@ CHAMBER={chamber_temp} MATERIAL={filament_type}"
             "spiral vase body must not retract or z-hop:\n{gcode}"
         );
     }
+
+    // ── Machine Z offset (issue #102) ──────────────────────────────────────
+
+    /// Every `Z` word on a `G1` line, extruding or not.
+    fn all_g1_z(gcode: &str) -> Vec<f64> {
+        gcode
+            .lines()
+            .filter(|l| l.starts_with("G1 "))
+            .filter_map(|l| {
+                l.split_whitespace()
+                    .find_map(|tok| tok.strip_prefix('Z')?.parse::<f64>().ok())
+            })
+            .collect()
+    }
+
+    /// The print body: from the first layer marker through the last extruding
+    /// move. Excludes the machine start/end scripts, which are passed through
+    /// verbatim and must never be rewritten (the Marlin end script's
+    /// `G1 Z5 F3000` is a *relative* `G91` lift — offsetting it would be wrong).
+    fn print_body(gcode: &str) -> String {
+        let lines: Vec<&str> = gcode.lines().collect();
+        let start = lines
+            .iter()
+            .position(|l| l.contains(";LAYER_CHANGE") || l.starts_with("; layer z="))
+            .expect("no layer marker");
+        let end = lines
+            .iter()
+            .rposition(|l| l.starts_with("G1 ") && l.contains(" E"))
+            .expect("no extruding move");
+        lines[start..=end].join("\n")
+    }
+
+    /// Two stacked squares far enough apart to force a retract + z-hop travel
+    /// between them, so a run exercises layer moves, hops and lowers.
+    fn offset_test_layers() -> Vec<SliceLayer> {
+        use clipper2::Path;
+        (0..3)
+            .map(|i| {
+                let mut layer = SliceLayer::new(0.2 * (i as f64 + 1.0));
+                let a: Path = vec![(0.0, 0.0), (10.0, 0.0), (10.0, 10.0), (0.0, 10.0)].into();
+                let b: Path = vec![(50.0, 50.0), (60.0, 50.0), (60.0, 60.0), (50.0, 60.0)].into();
+                layer.paths.push(a);
+                layer.path_roles.push(crate::core::ExtrusionRole::OuterWall);
+                layer.paths.push(b);
+                layer.path_roles.push(crate::core::ExtrusionRole::OuterWall);
+                layer
+            })
+            .collect()
+    }
+
+    #[test]
+    fn z_offset_shifts_every_emitted_z_without_touching_extrusion() {
+        for offset in [0.25_f64, -0.15] {
+            let base = SlicingParams::default();
+            let shifted = SlicingParams {
+                z_offset_mm: offset,
+                ..SlicingParams::default()
+            };
+            let layers = offset_test_layers();
+            let gen = GcodeGenerator::new(GcodeFlavor::Marlin);
+            let plain = gen.generate(&layers, &base);
+            let moved = gen.generate(&layers, &shifted);
+
+            let plain_z = all_g1_z(&print_body(&plain));
+            let moved_z = all_g1_z(&print_body(&moved));
+            assert!(!plain_z.is_empty(), "fixture emitted no Z moves:\n{plain}");
+            assert_eq!(
+                plain_z.len(),
+                moved_z.len(),
+                "the offset must not add or drop moves"
+            );
+            for (p, m) in plain_z.iter().zip(&moved_z) {
+                assert!(
+                    (m - (p + offset)).abs() < 1e-6,
+                    "Z {p} should have become {} with offset {offset}, got {m}",
+                    p + offset
+                );
+            }
+
+            // The machine end script is passed through verbatim: its lift is a
+            // relative (`G91`) 5 mm hop, not a bed-referenced coordinate.
+            assert!(
+                plain.contains("G1 Z5 F3000 ; lift nozzle")
+                    && moved.contains("G1 Z5 F3000 ; lift nozzle"),
+                "machine scripts must not be rewritten by the offset:\n{moved}"
+            );
+
+            // Extrusion is a machine-Z-independent quantity: every E word, and
+            // the line count, must be untouched.
+            let e_of = |g: &str| -> Vec<String> {
+                g.lines()
+                    .filter_map(|l| {
+                        l.split_whitespace()
+                            .find(|tok| tok.starts_with('E'))
+                            .map(str::to_string)
+                    })
+                    .collect()
+            };
+            assert_eq!(e_of(&plain), e_of(&moved), "offset changed extrusion");
+            assert_eq!(
+                plain.lines().count(),
+                moved.lines().count(),
+                "offset changed the emitted line count"
+            );
+        }
+    }
+
+    #[test]
+    fn z_offset_zero_is_byte_identical() {
+        let layers = offset_test_layers();
+        let gen = GcodeGenerator::new(GcodeFlavor::Marlin);
+        let implicit = gen.generate(&layers, &SlicingParams::default());
+        let explicit = gen.generate(
+            &layers,
+            &SlicingParams {
+                z_offset_mm: 0.0,
+                ..SlicingParams::default()
+            },
+        );
+        assert_eq!(implicit, explicit, "a zero offset must be a pure no-op");
+    }
+
+    #[test]
+    fn z_offset_applies_to_hop_and_lower_moves() {
+        let params = SlicingParams {
+            z_offset_mm: 0.5,
+            z_hop_mm: 0.4,
+            retract_mm: 1.0,
+            ..SlicingParams::default()
+        };
+        let gcode =
+            GcodeGenerator::new(GcodeFlavor::Marlin).generate(&offset_test_layers(), &params);
+        let z_on = |tag: &str| -> Vec<f64> {
+            gcode
+                .lines()
+                .filter(|l| l.ends_with(tag))
+                .filter_map(|l| {
+                    l.split_whitespace()
+                        .find_map(|tok| tok.strip_prefix('Z')?.parse::<f64>().ok())
+                })
+                .collect()
+        };
+        let hops = z_on("; z-hop");
+        let lowers = z_on("; lower");
+        assert!(!hops.is_empty(), "fixture produced no z-hop:\n{gcode}");
+        assert_eq!(hops.len(), lowers.len());
+        // First layer sits at 0.2 → lower 0.7, hop 0.7 + 0.4 = 1.1.
+        assert!(
+            hops.iter()
+                .zip(&lowers)
+                .all(|(h, l)| (h - l - 0.4).abs() < 1e-6),
+            "hop must stay exactly z_hop_mm above the lower move: {hops:?} / {lowers:?}"
+        );
+        assert!(
+            lowers.iter().any(|l| (l - 0.7).abs() < 1e-6),
+            "expected a lower move at 0.2 + 0.5 offset: {lowers:?}"
+        );
+    }
+
+    #[test]
+    fn z_offset_shifts_layer_markers_but_not_the_custom_layer_script() {
+        // `;Z:` describes where the nozzle physically is (offset included);
+        // the custom layer script's `{z}` is the model's layer Z (offset free),
+        // mirroring PrusaSlicer's `layer_z` placeholder.
+        let params = SlicingParams {
+            z_offset_mm: 0.3,
+            ..SlicingParams::default()
+        };
+        let gcode = GcodeGenerator::new(GcodeFlavor::Klipper)
+            .with_layer_script(vec!["_ON_LAYER_CHANGE LAYER={layer_num} Z={z}".to_string()])
+            .generate(&[SliceLayer::new(0.2)], &params);
+
+        assert!(
+            gcode.contains(";Z:0.500"),
+            "layer marker should carry the offset:\n{gcode}"
+        );
+        assert!(
+            !gcode.contains(";Z:0.200"),
+            "un-offset layer marker leaked:\n{gcode}"
+        );
+        assert!(
+            gcode.contains("_ON_LAYER_CHANGE LAYER=1 Z=0.200"),
+            "custom layer script must see the model Z:\n{gcode}"
+        );
+    }
+
+    #[test]
+    fn z_offset_shifts_the_spiral_ramp_end_to_end() {
+        let params = SlicingParams {
+            spiral_vase: true,
+            bottom_layers: 1,
+            z_offset_mm: 1.0,
+            ..SlicingParams::default()
+        };
+        let layers = spiral_square_layers(4);
+        let gen = GcodeGenerator::new(GcodeFlavor::Marlin);
+        let plain = gen.generate(
+            &layers,
+            &SlicingParams {
+                z_offset_mm: 0.0,
+                ..params.clone()
+            },
+        );
+        let moved = gen.generate(&layers, &params);
+
+        let plain_ramp: Vec<f64> = plain.lines().filter_map(extrude_move_z).collect();
+        let moved_ramp: Vec<f64> = moved.lines().filter_map(extrude_move_z).collect();
+        assert!(!plain_ramp.is_empty(), "no ramped moves:\n{plain}");
+        assert_eq!(plain_ramp.len(), moved_ramp.len());
+        for (p, m) in plain_ramp.iter().zip(&moved_ramp) {
+            assert!(
+                (m - (p + 1.0)).abs() < 1e-6,
+                "spiral ramp Z {p} should shift to {}, got {m}",
+                p + 1.0
+            );
+        }
+    }
+
+    #[test]
+    fn z_offset_leaves_statistics_on_model_z() {
+        // The offset is a machine correction: `max_z_mm` and the bounding box
+        // describe the object, so they must not move with it.
+        let layers = offset_test_layers();
+        let gen = GcodeGenerator::new(GcodeFlavor::Marlin);
+        let (_, plain) = gen.generate_with_stats(&layers, &SlicingParams::default());
+        let (_, moved) = gen.generate_with_stats(
+            &layers,
+            &SlicingParams {
+                z_offset_mm: 0.75,
+                ..SlicingParams::default()
+            },
+        );
+        assert_eq!(plain.max_z_mm, moved.max_z_mm);
+        assert_eq!(plain.bbox_min, moved.bbox_min);
+        assert_eq!(plain.bbox_max, moved.bbox_max);
+    }
 }
 
 // ── Object exclusion & sequential printing (issues #22 / #112) ─────────────────
@@ -7407,5 +7686,62 @@ mod object_tests {
         assert_eq!(gcode.matches("EXCLUDE_OBJECT_END NAME=cube_a").count(), 1);
         assert_eq!(gcode.matches("EXCLUDE_OBJECT_START NAME=cube_b").count(), 1);
         assert_eq!(gcode.matches("EXCLUDE_OBJECT_END NAME=cube_b").count(), 1);
+    }
+
+    #[test]
+    fn sequential_clearance_lift_carries_the_machine_z_offset() {
+        // The finished part physically sits at its own offset machine Z, so the
+        // lift that clears it has to move by the same amount — otherwise a
+        // negative offset would eat into the clearance the lift exists to
+        // guarantee (issue #102 × #112).
+        let layers = vec![
+            tagged_layer(0.2, &[0]),
+            tagged_layer(4.0, &[0]),
+            {
+                let mut l = tagged_layer(0.2, &[1]);
+                l.paths = clipper2::Paths::new(vec![vec![
+                    (80.0, 80.0),
+                    (90.0, 80.0),
+                    (90.0, 90.0),
+                    (80.0, 90.0),
+                ]
+                .into()]);
+                l
+            },
+            tagged_layer(2.0, &[1]),
+        ];
+        let base = SlicingParams {
+            gcode_flavor: crate::gcode::GcodeFlavor::Klipper,
+            print_sequence: PrintSequence::ByObject,
+            ..Default::default()
+        };
+        let objects = vec![identity(0, "cube_a", 0.0), identity(1, "cube_b", 80.0)];
+
+        let lift_z = |params: &SlicingParams| -> f64 {
+            let gcode = generate_gcode_for_plate(&plate(layers.clone(), objects.clone()), params);
+            let at = gcode
+                .find("; clear the finished object")
+                .expect("expected a clearance lift");
+            gcode[..at]
+                .lines()
+                .last()
+                .unwrap()
+                .split_whitespace()
+                .find_map(|t| t.strip_prefix('Z')?.parse::<f64>().ok())
+                .expect("lift line should carry a Z")
+        };
+
+        let plain = lift_z(&base);
+        for offset in [0.3_f64, -0.3] {
+            let shifted = lift_z(&SlicingParams {
+                z_offset_mm: offset,
+                ..base.clone()
+            });
+            assert!(
+                (shifted - (plain + offset)).abs() < 1e-6,
+                "clearance lift {plain} should shift to {} with offset {offset}, got {shifted}",
+                plain + offset
+            );
+        }
     }
 }

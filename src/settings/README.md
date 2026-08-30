@@ -102,6 +102,12 @@ rules in [gcode/README.md](../gcode/README.md#thermal-management--cooling--chamb
 | `wipe_distance_mm`            | mm   | 1.0     | How far to wipe (capped at the previous path's length) when `wipe` is enabled             |
 | `retract_before_wipe_percent` | 0–1  | 0.0     | Fraction of the retraction performed before the wipe (the rest is distributed along it)   |
 
+### Machine (`params.*`)
+
+| Parameter      | Type | Default | Effect                                                                                         |
+| -------------- | ---- | ------- | ---------------------------------------------------------------------------------------------- |
+| `z_offset_mm`  | mm   | 0.0     | Added to every Z coordinate in the output G-code to compensate a mis-zeroed Z endstop (negative lowers the nozzle). Emitted coordinates and layer markers only — the model, statistics and your start/end G-code are untouched. See [gcode/README.md](../gcode/README.md#machine-z-offset-issue-102). |
+
 
 ### Global Settings (top-level)
 

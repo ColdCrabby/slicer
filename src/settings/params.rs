@@ -1330,6 +1330,22 @@ Affects minimum feature resolution and all line-width calculations.
     #[serde(default = "SlicingParams::default_nozzle_diameter_mm")]
     pub nozzle_diameter_mm: f64,
 
+    #[schemars(
+        description = "Vertical offset in mm added to every Z coordinate in the G-code.
+
+Compensates for a Z endstop that does not zero exactly at the bed:
+- **Negative** lowers the nozzle (endstop leaves it too high — a `0.3 mm` gap needs `-0.3`)
+- **Positive** raises it (first layer is squashed)
+
+Applies to the axis moves and the layer markers only; the model, the slice
+layers and the print statistics are unchanged, and your own start/end G-code is
+never rewritten. **Prefer fixing the endstop** — this is a compensation, not a
+calibration. **Typical:** −0.1 to 0.1 mm. `0` = disabled.",
+        extend("x-group" = "Hardware")
+    )]
+    #[serde(default = "SlicingParams::default_z_offset_mm")]
+    pub z_offset_mm: f64,
+
     #[schemars(description = "Build-plate surface type recorded in the G-code metadata header.
 
 Free-form label (e.g. `Textured PEI Plate`, `Cool Plate`, `Engineering Plate`).
@@ -2201,6 +2217,7 @@ impl Default for SlicingParams {
             filament_density_g_cm3: Self::default_filament_density_g_cm3(),
             filament_cost_per_kg: 0.0,
             nozzle_diameter_mm: Self::default_nozzle_diameter_mm(),
+            z_offset_mm: Self::default_z_offset_mm(),
             bed_type: String::new(),
             heated_chamber: Self::default_heated_chamber(),
             printer_vendor: String::new(),
@@ -2883,6 +2900,11 @@ impl SlicingParams {
 
     fn default_nozzle_diameter_mm() -> f64 {
         0.4
+    }
+
+    /// No Z compensation: emitted Z coordinates are the slice layer heights.
+    fn default_z_offset_mm() -> f64 {
+        0.0
     }
 
     fn default_travel_speed_mm_min() -> f64 {

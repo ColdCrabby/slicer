@@ -524,16 +524,38 @@ async fn handle_slice(
         let mut plate_objects: Vec<crate::core::ObjectInput> = Vec::new();
         // A multi-part file (3MF) backs several plate objects, so cache its
         // parsed parts: re-reading and re-parsing the archive once per part
-        // would cost the same work N times for no gain.
+        // would cost the same work N times for no gain. Each part carries the
+        // health report from its own validation pass.
         let mut parts_cache: std::collections::HashMap<
             std::path::PathBuf,
-            Vec<crate::mesh::io::NamedMesh>,
+            Vec<crate::scene::LoadedPart>,
         > = std::collections::HashMap::new();
 
         for (path, part_index, transform, _) in &slice_inputs {
             if !parts_cache.contains_key(path) {
-                match crate::scene::load_path_multi(path) {
+                match crate::scene::load_path_multi_reporting(
+                    path,
+                    &crate::mesh::repair::RepairOptions::default(),
+                ) {
                     Ok(parts) => {
+                        // Tell the client what shape its models were in — the
+                        // warning is relayed into the UI log alongside every
+                        // other pipeline message. Reported here, on the first
+                        // read, so a file backing several plate objects is
+                        // still only reported once per part.
+                        let file = path
+                            .file_name()
+                            .map(|n| n.to_string_lossy().into_owned())
+                            .unwrap_or_else(|| path.display().to_string());
+                        let multi = parts.len() > 1;
+                        for (index, part) in parts.iter().enumerate() {
+                            let label = match (&part.name, multi) {
+                                (Some(name), _) => format!("{file} ({name})"),
+                                (None, true) => format!("{file} #{}", index + 1),
+                                (None, false) => file.clone(),
+                            };
+                            crate::mesh::repair::log_report(&logger, &label, &part.report);
+                        }
                         parts_cache.insert(path.clone(), parts);
                     }
                     Err(e) => {
