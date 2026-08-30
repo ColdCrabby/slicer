@@ -637,6 +637,17 @@ segmentation, so it is built once, here.
   errors**: the clearances are machine estimates and refusing to slice would be
   worse than saying what to check. Only objects printed *before* another are
   height-checked; the last one has nothing reaching over it.
+- **The extruder clearances describe the machine, not the process.** Two
+  printers can run the same `by_object` process yet have different gantry
+  heights and duct radii, so `extruder_clearance_height_mm` /
+  `extruder_clearance_radius_mm` carry the **Hardware** `x-group` (printer
+  contract), alongside nozzle diameter — mirroring PrusaSlicer's Printer
+  Settings, and the same rationale that put `preferred_orientation_deg` on the
+  printer profile. Only the print-behaviour toggles (`print_sequence`,
+  `exclude_object`, `between_objects_gcode`) are process settings, under the
+  **Objects** group. They are intrinsic machine specs, so they carry **no**
+  `x-relevant-when` gate (a printer always has a clearance) — which also avoids
+  a cross-contract gate pointing at a process field in another tab.
 - **Object names are sanitised and de-duplicated in the engine.** Klipper parses
   `EXCLUDE_OBJECT_DEFINE NAME=…` as a G-code parameter, so a space splits the
   token, and two parts sharing a name would cancel together. Every runtime feeds

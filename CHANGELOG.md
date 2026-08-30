@@ -40,11 +40,12 @@ these notes and acknowledges contributors. `scripts/gen-changelog-draft.sh` and
     crash.
 
   Both are off by default, and with both off the plate is merged and sliced
-  exactly as before — no change to existing G-code. New settings live under
-  **Objects**: `print_sequence`, `exclude_object`,
-  `extruder_clearance_height_mm`, `extruder_clearance_radius_mm` and
-  `between_objects_gcode`; the CLI exposes `--exclude-object` and
-  `--print-sequence by-object`.
+  exactly as before — no change to existing G-code. The **process** settings
+  (`print_sequence`, `exclude_object`, `between_objects_gcode`) live under a new
+  **Objects** group; the two **extruder clearances**
+  (`extruder_clearance_height_mm`, `extruder_clearance_radius_mm`) describe the
+  machine, so they sit with the printer's hardware settings. The CLI exposes
+  `--exclude-object` and `--print-sequence by-object`.
 
 - **Multiple objects per workplate** — a plate is now a build plate rather than
   a single file. An **Add model** button in the 3D toolbar (and a multi-select

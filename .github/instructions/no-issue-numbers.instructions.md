@@ -17,7 +17,7 @@ Do **not** write GitHub issue or PR references — `#123`, `issue #123`,
 full `https://github.com/owner/repo/issues/123` URL — in any of:
 
 - **CHANGELOG.md** entries
-- **Commit messages** and **PR titles / descriptions**
+- **Commit messages** and **PR titles**
 - **Markdown docs** — `README.md`, `AGENTS.md`, module `README.md`s, `RELEASING.md`, etc.
 - **Code comments** and **doc comments** (`///`, `//`, `/* … */`, `#[doc]`, JSDoc)
 - **UI copy** — anything a user reads on screen
@@ -42,9 +42,4 @@ reference in this task. For example:
 When in doubt, leave the number out — it is trivial to add on request and
 tedious to scrub after the fact.
 
-## Applying to existing text
 
-When you touch a file that already contains issue numbers in prose (not in a
-sanctioned auto-close line the user wants kept), remove them as part of the edit
-and reword so the sentence still reads naturally — do not simply delete the
-`(#123)` and leave a dangling clause.

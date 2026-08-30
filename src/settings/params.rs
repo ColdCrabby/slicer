@@ -1914,15 +1914,15 @@ Caps print speed so the hotend can keep up with the flow.
     pub exclude_object: bool,
 
     #[schemars(
-        description = "Height in mm below which the gantry/X-carriage clears an already-printed object. Objects taller than this cannot be safely printed before another one in `by_object` order.",
-        extend("x-group" = "Objects", "x-relevant-when" = serde_json::json!({"field": "print_sequence", "equals": "by_object"}))
+        description = "Gantry/X-carriage clearance height in mm: an object shorter than this passes under the moving gantry. A machine property. Used by sequential (`by_object`) printing to warn when a part is too tall to print before another.",
+        extend("x-group" = "Hardware")
     )]
     #[serde(default = "SlicingParams::default_extruder_clearance_height")]
     pub extruder_clearance_height_mm: f64,
 
     #[schemars(
-        description = "Radius in mm around the nozzle that the hotend/fan duct sweeps. Objects closer together than this cannot be safely printed one at a time.",
-        extend("x-group" = "Objects", "x-relevant-when" = serde_json::json!({"field": "print_sequence", "equals": "by_object"}))
+        description = "Radius in mm the hotend and its fan duct sweep around the nozzle. A machine property. Used by sequential (`by_object`) printing to warn when two parts are too close to print one at a time.",
+        extend("x-group" = "Hardware")
     )]
     #[serde(default = "SlicingParams::default_extruder_clearance_radius")]
     pub extruder_clearance_radius_mm: f64,
