@@ -943,6 +943,20 @@ export class Viewer {
 
     const modelChanged = model !== this.activeModelSource;
 
+    // When the viewer is re-created after navigating away and back to the same
+    // workplate (e.g. dipping into Settings and returning), `activeModelSource`
+    // resets to null so `modelChanged` is true — yet the singleton scene engine
+    // still holds this plate's objects. Recognise that by matching the model's
+    // source id against the engine, so we adopt the existing objects (keeping
+    // their ids — hence the undo/redo history — and their transforms) instead
+    // of evicting and re-parsing them.
+    const sourceId = untracked(() => this.modelSourceId());
+    const reopeningSamePlate =
+      modelChanged &&
+      model !== null &&
+      sourceId != null &&
+      untracked(() => this.sceneEngine.objects()).some((o) => o.source_id === sourceId);
+
     // Always tear down the G-code orchestrator and clear Three.js content —
     // the display layer is rebuilt for every mode/source transition.
     this.gcode?.dispose();
@@ -950,9 +964,10 @@ export class Viewer {
     this.progressSegments.set(0);
     this.errorMessage.set('');
 
-    if (modelChanged) {
-      // New model source — full teardown of WASM engine objects so ids do
-      // not accumulate and the old mesh's transforms are discarded cleanly.
+    if (modelChanged && !reopeningSamePlate) {
+      // New/different model source — full teardown of WASM engine objects so
+      // ids do not accumulate and the old mesh's transforms are discarded
+      // cleanly.
       for (const id of this.trackedObjectIds) {
         this.printArea.forgetObject(id);
         this.objectTracker.remove(id);
@@ -979,6 +994,23 @@ export class Viewer {
       }
       this.handleClearSelection();
       this.dragApplied.clear();
+      // The plate's objects are being replaced with new ids, so the previous
+      // undo/redo history now points at objects that will no longer exist —
+      // restoring one would delete the new plate's objects instead of
+      // reverting an edit. This eviction is the one place identities actually
+      // change, so void the history exactly here.
+      this.sceneCommand.reset();
+      this.activeModelSource = model;
+    } else if (reopeningSamePlate) {
+      // Returning to a plate the engine already holds. Keep its objects (and
+      // the history that references them) intact; only this fresh component's
+      // stale Three.js mirror and selection need clearing before it re-mirrors
+      // the engine below.
+      for (const id of this.wasmMeshes.keys()) {
+        this.scene?.unregisterSelectable(String(id));
+      }
+      this.wasmMeshes.clear();
+      this.handleClearSelection();
       this.activeModelSource = model;
     } else {
       // Mode switch only (e.g. model → gcode → model). The WASM scene engine
@@ -998,10 +1030,10 @@ export class Viewer {
         return;
       }
       // If the WASM engine already holds objects for this source (mode switch,
-      // not a new file), re-render directly from engine state so transforms
-      // are preserved without a second parse round-trip.
+      // or returning to the same plate), re-render directly from engine state
+      // so transforms are preserved without a second parse round-trip.
       const existingObjects = untracked(() => this.sceneEngine.objects());
-      if (!modelChanged && existingObjects.length > 0) {
+      if ((!modelChanged || reopeningSamePlate) && existingObjects.length > 0) {
         void this.rebuildThreeJsMeshes();
       } else {
         this.startModelLoad(model);
@@ -1173,12 +1205,6 @@ export class Viewer {
       this.sceneEngine.apply({ op: 'AutoOrient', args: { id } });
       this.sceneEngine.apply({ op: 'DropToFloor', args: { id } });
     }
-    // A freshly loaded primary model gets brand-new object ids, so any undo
-    // history from a previous load now references objects that no longer
-    // exist. Restoring one of those snapshots would delete this new object
-    // instead of reverting an edit (the "everything vanished after browser
-    // back" bug). Void the history here — the load establishes a new baseline.
-    this.sceneCommand.reset();
     // Build the display node from the engine's object list rather than by
     // hand, so this path and every other add share one code path.
     this.syncWasmMeshes();
