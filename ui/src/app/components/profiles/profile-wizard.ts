@@ -15,13 +15,15 @@ import {
 import { CloudCatalog, toUserCopy } from '../../services/catalog/cloud-catalog';
 import { ActiveSelection } from '../../services/profiles/active-selection';
 import { PrintProfilesStore } from '../../services/profiles/print-profiles-store';
-import { Icon } from '../../shared/icon/icon';
-import { NumberInput } from '../../ui/number-input/number-input';
-import { Segmented } from '../../ui/segmented/segmented';
-import { Select } from '../../ui/select/select';
-import { Switch } from '../../ui/switch/switch';
-import { FieldRow } from '../../ui/field-row/field-row';
-import { WizardShell } from '../../ui/wizard/wizard-shell';
+import {
+  Icon,
+  NumberInput,
+  Segmented,
+  Select,
+  Switch,
+  FieldRow,
+  WizardShell,
+} from '@coldcrabby/ui';
 import { CatalogPicker, type CatalogEntryVm } from './catalog-picker';
 import { paramBool, paramNum, paramStr } from '../../models/params-access';
 

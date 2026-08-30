@@ -6,7 +6,7 @@ import { PrintArea } from '../../services/print-area';
 import { Slicer } from '../../services/slicer';
 import { SlicerFile } from '../../services/slicer-file';
 import { WorkplateObjects } from '../../services/workplate-objects';
-import { EmptyState } from '../../ui/empty-state/empty-state';
+import { EmptyState } from '@coldcrabby/ui';
 
 @Component({
   selector: 'nexus-slice-new',

@@ -1,7 +1,7 @@
 import { Injectable, computed, inject, signal } from '@angular/core';
 import { labelDotColor } from '../../models/label.model';
 import type { SettingContractId } from '../../models/setting-contract';
-import type { SelectOption } from '../../ui/select/select';
+import { type SelectOption } from '@coldcrabby/ui';
 import { BrowserStorage } from '../browser-storage';
 import { FilamentsStore } from './filaments-store';
 import { LabelFilterStore } from './label-filter-store';

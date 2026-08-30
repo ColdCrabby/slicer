@@ -12,12 +12,7 @@ import {
 import { CloudCatalog, toUserCopy } from '../../services/catalog/cloud-catalog';
 import { ActiveSelection } from '../../services/profiles/active-selection';
 import { FilamentsStore } from '../../services/profiles/filaments-store';
-import { Icon } from '../../shared/icon/icon';
-import { NumberInput } from '../../ui/number-input/number-input';
-import { Select } from '../../ui/select/select';
-import { ColorPicker } from '../../ui/color-picker/color-picker';
-import { FieldRow } from '../../ui/field-row/field-row';
-import { WizardShell } from '../../ui/wizard/wizard-shell';
+import { Icon, NumberInput, Select, ColorPicker, FieldRow, WizardShell } from '@coldcrabby/ui';
 import { CatalogPicker, type CatalogEntryVm } from './catalog-picker';
 import { paramNum } from '../../models/params-access';
 

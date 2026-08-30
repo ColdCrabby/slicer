@@ -2,25 +2,30 @@
 /// Imports all style modules using @use
 /// @group styles
 
+// Shared design language from @coldcrabby/ui, resolved via the Sass
+// `includePaths` that point at vendor/coldcrabby-ui/src/styles. Bare specifiers
+// (no leading `./`) resolve there; `./`-prefixed ones stay local to the slicer.
+
 // Theme variables
-@use './theme/root';
-@use './theme/light';
-@use './theme/dark';
-@use './theme/tokens' as *;
+@use 'theme/root';
+@use 'theme/light';
+@use 'theme/dark';
+@use 'theme/tokens' as *;
 
-// Mixins
-@use './mixins' as *;
+// Mixins (drop-aurora, focus-ring, …)
+@use 'mixins' as *;
 
-// Base styles
+// Base styles — the slicer keeps its own viewport-locking reset; the rest is
+// shared.
 @use './base/reset';
-@use './base/focus';
-@use './base/typography';
-@use './base/forms';
-@use './base/scrollbar';
-@use './base/floating';
+@use 'base/focus';
+@use 'base/typography';
+@use 'base/forms';
+@use 'base/scrollbar';
+@use 'base/floating';
 
 // Utilities
-@use './utilities/utilities';
+@use 'utilities/utilities';
 
 // Shared component styles emitted globally (see partial header for rationale).
 @use './components/profiles';

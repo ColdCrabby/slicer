@@ -3,6 +3,8 @@
   "version": "0.0.0",
   "scripts": {
     "ng": "ng",
+    "postinstall": "node scripts/vendor-ui.mjs",
+    "vendor:ui": "node scripts/vendor-ui.mjs",
     "start": "ng serve --host 0.0.0.0",
     "start:web-slicer": "ng serve --host 0.0.0.0 --configuration web-slicer",
     "build": "ng build",

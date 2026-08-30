@@ -1,11 +1,14 @@
 import { ChangeDetectionStrategy, Component, computed, input, output, signal } from '@angular/core';
 import type { FanConfig } from '../../../generated/slicer-engine-global-settings-v1';
-import { Icon } from '../../shared/icon/icon';
-import { Button } from '../../ui/button/button';
-import { IconButton } from '../../ui/icon-button/icon-button';
-import { FieldRow } from '../../ui/field-row/field-row';
-import { NumberInput } from '../../ui/number-input/number-input';
-import { Select, type SelectOption } from '../../ui/select/select';
+import {
+  Icon,
+  Button,
+  IconButton,
+  FieldRow,
+  NumberInput,
+  Select,
+  type SelectOption,
+} from '@coldcrabby/ui';
 
 /**
  * A hardware fan role → its default Klipper object name + Marlin `M106 P<n>`

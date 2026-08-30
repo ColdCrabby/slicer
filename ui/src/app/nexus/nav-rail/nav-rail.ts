@@ -1,6 +1,6 @@
 import { ChangeDetectionStrategy, Component } from '@angular/core';
 import { RouterLink, RouterLinkActive } from '@angular/router';
-import { Icon } from '../../shared/icon/icon';
+import { Icon } from '@coldcrabby/ui';
 
 interface NavItem {
   path: string;

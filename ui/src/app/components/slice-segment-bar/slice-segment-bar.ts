@@ -23,7 +23,7 @@ import {
   speedGradientCss,
   VIEW_MODE_LABELS,
 } from '../../services/gcode-preview';
-import { Select, type SelectOption, Slider } from '../../ui';
+import { Select, type SelectOption, Slider } from '@coldcrabby/ui';
 import { ViewerControl } from '../../services/viewer-control';
 
 @Component({

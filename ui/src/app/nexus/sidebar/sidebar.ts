@@ -11,7 +11,7 @@ import {
   signal,
   viewChild,
 } from '@angular/core';
-import { Icon } from '../../shared/icon/icon';
+import { Icon } from '@coldcrabby/ui';
 
 const STORAGE_WIDTH_KEY = 'nexus.sidebar.width';
 const STORAGE_COLLAPSED_KEY = 'nexus.sidebar.collapsed';

@@ -11,7 +11,7 @@ import {
 } from '@angular/core';
 import { labelDotColor, makeLabel, type Label } from '../../models/label.model';
 import { LabelsStore } from '../../services/profiles/labels-store';
-import { Icon } from '../../shared/icon/icon';
+import { Icon } from '@coldcrabby/ui';
 import { LabelChip } from './label-chip';
 
 /**

@@ -1,7 +1,7 @@
 import { ChangeDetectionStrategy, Component, inject, OnInit } from '@angular/core';
 import { ChangelogList } from '../../components/changelog/changelog-list';
 import { AppVersion } from '../../services/app-version';
-import { SectionHeader } from '../../ui/section-header/section-header';
+import { SectionHeader } from '@coldcrabby/ui';
 
 /**
  * The complete release history. Mounts the same {@link ChangelogList} the

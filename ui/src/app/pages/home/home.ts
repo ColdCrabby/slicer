@@ -11,10 +11,7 @@ import {
 import { PrintersStore } from '../../services/profiles/printers-store';
 import { Slicer } from '../../services/slicer';
 import { WorkplateObjects } from '../../services/workplate-objects';
-import { Icon } from '../../shared/icon/icon';
-import { Button } from '../../ui/button/button';
-import { EmptyState } from '../../ui/empty-state/empty-state';
-import { SectionHeader } from '../../ui/section-header/section-header';
+import { Icon, Button, EmptyState, SectionHeader } from '@coldcrabby/ui';
 
 interface DashboardPrinter {
   id: string;

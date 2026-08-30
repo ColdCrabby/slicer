@@ -24,20 +24,22 @@ import { paramNum } from '../../models/params-access';
 import { LabelFilterStore } from '../../services/profiles/label-filter-store';
 import { LabelsStore } from '../../services/profiles/labels-store';
 import { PrintProfilesStore } from '../../services/profiles/print-profiles-store';
-import { Icon } from '../../shared/icon/icon';
-import { Badge } from '../../shared/badge/badge';
+import {
+  Icon,
+  Badge,
+  Button,
+  EmptyState,
+  FieldRow,
+  IconButton,
+  ModalShell,
+  SectionHeader,
+  Segmented,
+} from '@coldcrabby/ui';
 import { CatalogPicker, type CatalogEntryVm } from '../../components/profiles/catalog-picker';
 import { ParamField } from '../../components/profiles/param-field';
 import { LabelFilterBar } from '../../components/labels/label-filter-bar';
 import { LabelPicker } from '../../components/labels/label-picker';
 import { focusConfigureTarget } from './configure-scroll';
-import { Button } from '../../ui/button/button';
-import { EmptyState } from '../../ui/empty-state/empty-state';
-import { FieldRow } from '../../ui/field-row/field-row';
-import { IconButton } from '../../ui/icon-button/icon-button';
-import { ModalShell } from '../../ui/modal-shell/modal-shell';
-import { SectionHeader } from '../../ui/section-header/section-header';
-import { Segmented } from '../../ui/segmented/segmented';
 
 /**
  * The `SlicingParams` sub-schema extracted from the generated global-settings

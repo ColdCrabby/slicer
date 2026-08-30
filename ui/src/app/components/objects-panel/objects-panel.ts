@@ -2,8 +2,7 @@ import { ChangeDetectionStrategy, Component, computed, inject, signal } from '@a
 import { SceneEngine, type SceneObjectSnapshot } from '../../services/scene-engine';
 import { ViewerControl } from '../../services/viewer-control';
 import { WorkplateObjects } from '../../services/workplate-objects';
-import { Icon } from '../../shared/icon/icon';
-import { TooltipDirective } from '../../shared/tooltip/tooltip.directive';
+import { Icon, TooltipDirective } from '@coldcrabby/ui';
 
 /** One row in the list, with its selection and placement state resolved. */
 interface ObjectRow {

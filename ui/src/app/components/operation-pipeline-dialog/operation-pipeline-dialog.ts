@@ -1,8 +1,7 @@
 import { ChangeDetectionStrategy, Component, computed, inject, signal } from '@angular/core';
 import { SceneEngine } from '../../services/scene-engine';
 import { Slicer } from '../../services/slicer';
-import { Icon } from '../../shared/icon/icon';
-import { TooltipDirective } from '../../shared/tooltip/tooltip.directive';
+import { Icon, TooltipDirective } from '@coldcrabby/ui';
 import { CodeEditor } from '../code-editor/code-editor';
 
 type PipelineSection = 'scene' | 'settings';

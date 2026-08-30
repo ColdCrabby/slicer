@@ -13,10 +13,7 @@ import { PrinterConnectionService } from '../../services/printer-connection';
 import { ActiveSelection } from '../../services/profiles/active-selection';
 import { BrowserStorage } from '../../services/browser-storage';
 import { formatDuration, Slicer } from '../../services/slicer';
-import { FloatingService } from '../../shared/floating';
-import type { FloatingRef } from '../../shared/floating';
-import { Icon } from '../../shared/icon/icon';
-import { TooltipDirective } from '../../shared/tooltip/tooltip.directive';
+import { FloatingService, type FloatingRef, Icon, TooltipDirective } from '@coldcrabby/ui';
 
 /** The action the result split button runs on the sliced G-code. */
 type SliceAction = 'download' | 'upload' | 'print';

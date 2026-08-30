@@ -1,7 +1,6 @@
 import { ChangeDetectionStrategy, Component, EventEmitter, computed, input } from '@angular/core';
-import { ColorPicker } from '../../../ui/color-picker/color-picker';
+import { ColorPicker, TooltipDirective } from '@coldcrabby/ui';
 import { IconButton } from '../../../shared/icon-button/icon-button';
-import { TooltipDirective } from '../../../shared/tooltip/tooltip.directive';
 import type { FieldDef } from '../../models/field-def';
 import type { FieldWidget } from '../../widgets/base-field';
 

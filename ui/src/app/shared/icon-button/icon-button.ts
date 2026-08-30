@@ -1,5 +1,5 @@
 import { ChangeDetectionStrategy, Component, input } from '@angular/core';
-import { Icon } from '../icon/icon';
+import { Icon } from '@coldcrabby/ui';
 
 /**
  * A minimal icon-only button backed by an Iconoir SVG.
