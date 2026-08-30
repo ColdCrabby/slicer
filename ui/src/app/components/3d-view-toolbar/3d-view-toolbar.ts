@@ -10,8 +10,10 @@ import type { ElementRef } from '@angular/core';
 import { Arrange } from '../../services/arrange';
 import { Dialog } from '../../services/dialog';
 import { GcodePreview } from '../../services/gcode-preview';
+import { HistoryControlsPreference } from '../../services/history-controls-preference';
 import { KeyboardShortcuts } from '../../services/keyboard-shortcuts/keyboard-shortcuts';
 import { NotificationService } from '../../services/notifications';
+import { SceneHistory } from '../../services/scene-history/scene-history';
 import { Slicer } from '../../services/slicer';
 import { ViewerControl } from '../../services/viewer-control';
 import { WorkplateObjects } from '../../services/workplate-objects';
@@ -49,6 +51,8 @@ export class ThreeDViewToolbar {
   private readonly workplate = inject(WorkplateObjects);
   private readonly notifications = inject(NotificationService);
   private readonly arrange = inject(Arrange);
+  private readonly history = inject(SceneHistory);
+  protected readonly historyControls = inject(HistoryControlsPreference);
   protected readonly keyboardShortcuts = inject(KeyboardShortcuts);
 
   private readonly addInput = viewChild<ElementRef<HTMLInputElement>>('addObjectInput');
@@ -65,6 +69,27 @@ export class ThreeDViewToolbar {
    * cannot see — the same reason the objects list hides.
    */
   protected readonly editingPlate = computed(() => this.viewMode() === 'model');
+
+  /**
+   * Whether to show the on-canvas undo/redo buttons. They exist for
+   * keyboard-less devices where the ⌘/Ctrl+Z shortcut is unreachable, so they
+   * only appear while editing the plate and when the history preference allows.
+   */
+  protected readonly showHistoryButtons = computed(
+    () => this.editingPlate() && this.historyControls.visible(),
+  );
+
+  /** Whether stepping back/forward through scene history is possible. */
+  protected readonly canUndo = this.history.canUndo;
+  protected readonly canRedo = this.history.canRedo;
+
+  protected undo(): void {
+    this.history.undo();
+  }
+
+  protected redo(): void {
+    this.history.redo();
+  }
 
   /** True while models are being added, so the button can show progress. */
   protected readonly addingObjects = signal(false);

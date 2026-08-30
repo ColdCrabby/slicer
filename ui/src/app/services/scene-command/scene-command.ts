@@ -61,6 +61,24 @@ export class SceneCommand {
     this.commitGesture();
   }
 
+  /**
+   * Abort any in-flight gesture and clear the undo/redo history.
+   *
+   * Called when the scene is torn down (opening a new or empty plate) so that:
+   *
+   * - a pending debounce commit cannot fire afterwards and push a snapshot of
+   *   the *old* plate onto the fresh history, and
+   * - undo never restores objects from a previous plate. Object ids are never
+   *   reused, so a snapshot from the old plate shares no ids with the new one;
+   *   restoring it would remove every new object (as "not in the snapshot")
+   *   rather than revert an edit — silently wiping the freshly loaded model.
+   */
+  reset(): void {
+    this.cancelTimer();
+    this.gestureStart = null;
+    this.history.clear();
+  }
+
   private scheduleCommit(): void {
     this.cancelTimer();
     this.debounceTimer = setTimeout(() => {
