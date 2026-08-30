@@ -29,6 +29,12 @@ issue/PR numbers or repo links in the notes. See the tone rules in
 
 ### Fixed
 
+- **G-code editors render properly in the browser build** — the printer and
+  filament G-code boxes could show up as a plain, unstyled text field instead of
+  the syntax-highlighting editor, most often on the in-browser (WASM) version.
+  The editor now waits for its own styles to load before it appears, so it comes
+  up fully formed every time.
+
 - **No more flashing console on Windows** — the desktop app used to re-read the
   OS accent colour every couple of seconds by shelling out, which popped a brief
   `cmd` window on Windows on every check. It now reads the accent directly and
