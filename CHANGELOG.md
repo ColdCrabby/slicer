@@ -27,6 +27,12 @@ issue/PR numbers or repo links in the notes. See the tone rules in
 
 ## [Unreleased]
 
+### Fixed
+
+- **No more flashing console on Windows** — the desktop app polls the OS accent
+  colour every couple of seconds; on Windows each poll popped a brief `cmd`
+  window. The helper now runs hidden, so the flickering after login is gone.
+
 ## [0.2.0] - 2026-08-30
 
 The build plate grows up. What used to be one model on a plate is now a real

@@ -91,7 +91,13 @@ fn detect_macos() -> Option<String> {
 
 #[cfg(target_os = "windows")]
 fn detect_windows() -> Option<String> {
+    use std::os::windows::process::CommandExt;
     use std::process::Command;
+
+    // Prevent the child `reg` process from spawning a visible console window.
+    // Without this the 2-second watcher poll flashes a cmd window on every
+    // tick (`CREATE_NO_WINDOW`, from Win32 process creation flags).
+    const CREATE_NO_WINDOW: u32 = 0x0800_0000;
 
     let output = Command::new("reg")
         .args([
@@ -100,6 +106,7 @@ fn detect_windows() -> Option<String> {
             "/v",
             "AccentColor",
         ])
+        .creation_flags(CREATE_NO_WINDOW)
         .output()
         .ok()?;
 
