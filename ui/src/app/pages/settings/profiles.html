@@ -187,6 +187,7 @@
                   <nexus-param-field
                     [field]="field"
                     [value]="paramsOf(profile)[field.key]"
+                    [siblings]="siblingsFor(profile)"
                     (valueChange)="setParam(profile.id, field.key, $event)"
                   />
                 }

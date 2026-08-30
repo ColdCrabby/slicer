@@ -33,7 +33,24 @@ Configuration for slicing behavior and printer control. All values stored as JSO
 | `bridge_anchor_mm`       | mm   | 0.4     | Inflate the bridge region outward to anchor strands into solid material     |
 | `bridge_min_area_mm2`    | mm²  | 0.5     | Drop bridge candidates smaller than this; reclassified as `BottomSurface`   |
 | `bridge_noise_filter_mm` | mm   | 0.05    | Morphological-open radius to wipe sub-pixel slivers before bridge detection |
-| `bridge_fan_speed`       | 0–1  | 1.0     | Cooling fan duty for layers that contain bridges                            |
+| `bridge_fan_speed`       | 0–1  | 1.0     | Part-cooling duty while printing `Bridge` segments (per-segment override)   |
+
+### Cooling & chamber (`params.*`)
+
+The filament owns the material policy, the printer owns the hardware capability;
+`fan_configs` stays the printer-side adaptive layer-time table. Full precedence
+rules in [gcode/README.md](../gcode/README.md#thermal-management--cooling--chamber).
+
+| Parameter                  | Type | Default | Effect                                                                                    |
+| -------------------------- | ---- | ------- | ----------------------------------------------------------------------------------------- |
+| `fan_speed`                | 0–1  | 1.0     | **Ceiling** the adaptive `fan_configs` curve is clamped to (the high-temp material gate)   |
+| `first_layer_fan_speed`    | 0–1  | 0.0     | Part-cooling duty while pinned by `disable_fan_first_layers`                               |
+| `disable_fan_first_layers` | n    | 1       | Bottom layers where part cooling is pinned; bridge/overhang overrides are suppressed there |
+| `overhang_fan_speed`       | 0–1  | 1.0     | Part-cooling duty on overhang segments (needs `enable_overhang_speed`)                     |
+| `overhang_fan_threshold`   | 0–1  | 0.5     | Unsupported fraction above which `overhang_fan_speed` engages                              |
+| `heated_chamber`           | bool | `false` | **Printer capability** — without it no `M141`/`M191` is ever emitted                        |
+| `chamber_temp`             | °C   | 0       | Chamber target; bed armed + `M141`/`M191` soak run before the start G-code |
+| `chamber_temp_first_layer` | °C   | 0       | First-layer soak target (`0` = use `chamber_temp`); restored at layer 2                    |
 
 ### Retraction (`params.*`)
 

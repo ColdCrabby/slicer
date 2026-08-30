@@ -707,6 +707,13 @@ impl SliceCommand {
             return Err("Combined scene has no triangles — nothing to slice".into());
         }
 
+        // Report any setting that will not take effect — either unimplemented or
+        // missing a prerequisite — before slicing, so the CLI is as honest about
+        // it as the UI and the WS server already are.
+        for warning in slice_params.unsupported_feature_warnings() {
+            logger.log_warn(&warning);
+        }
+
         // Apply optional mesh decimation, per object so the plate keeps its
         // segmentation.
         if slice_params.mesh_quality == MeshQuality::Draft {

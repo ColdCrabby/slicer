@@ -121,6 +121,22 @@ pub trait GcodeDialect: Send + Sync {
         }
     }
 
+    /// Set the heated-chamber temperature.
+    ///
+    /// When `wait` is `true` the firmware blocks until the chamber reaches the
+    /// target (`M191`); otherwise it sets the target and returns immediately
+    /// (`M141`), letting the chamber heat while the bed and nozzle warm up.
+    ///
+    /// Only emitted when the printer profile declares `heated_chamber` — a
+    /// machine without a chamber heater has no business receiving these.
+    fn set_chamber_temp(&self, temp: f64, wait: bool) -> String {
+        if wait {
+            format!("M191 S{:.0}", temp)
+        } else {
+            format!("M141 S{:.0}", temp)
+        }
+    }
+
     /// Move to `(x, y)` while extruding filament to absolute E position `e`
     /// at `speed_mm_min` mm/min.
     fn move_extrude(&self, x: f64, y: f64, e: f64, speed_mm_min: f64) -> String {

@@ -41,6 +41,7 @@
         <se-field-host
           [field]="f"
           [value]="value()[f.key]"
+          [siblings]="value()"
           (fieldChange)="onFieldChange(f.key, $event)"
         />
       </div>
@@ -102,6 +103,7 @@
                   <se-field-host
                     [field]="f"
                     [value]="value()[f.key]"
+                    [siblings]="value()"
                     (fieldChange)="onFieldChange(f.key, $event)"
                   />
                 </div>

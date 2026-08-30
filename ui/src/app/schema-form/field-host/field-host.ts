@@ -13,9 +13,8 @@ import {
   ViewContainerRef,
 } from '@angular/core';
 import { Subscription } from 'rxjs';
-import { RouterLink } from '@angular/router';
-import { InlineNotice } from '../../ui/inline-notice/inline-notice';
 import { noticeForField } from '../field-exceptions/field-exceptions';
+import { FieldNoticeView } from '../field-notice/field-notice';
 import { resolveWidget } from '../field-registry/field-registry';
 import { FieldDef } from '../models/field-def';
 import { FieldWidget } from '../widgets/base-field';
@@ -30,58 +29,39 @@ import { FieldWidget } from '../widgets/base-field';
  * Beneath the widget it renders any field-specific {@link noticeForField}
  * exception (e.g. the raft-adhesion caution) so the note sits directly against
  * the control it refers to, without the widget-choosing path knowing about it.
+ * A notice may carry a link to wherever it can be acted on — typically a setting
+ * on another profile that this one depends on.
  */
 @Component({
   selector: 'se-field-host',
   standalone: true,
-  imports: [InlineNotice, RouterLink],
+  imports: [FieldNoticeView],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <ng-container #host />
-    @if (notice(); as n) {
-      <nexus-inline-notice
-        class="field-notice"
-        [tone]="n.tone ?? 'info'"
-        [icon]="n.icon"
-        [title]="n.title"
-      >
-        {{ n.text }}
-        @if (n.link; as link) {
-          <a class="field-notice-link" [routerLink]="link.routerLink">{{ link.text }}</a>
-        }
-      </nexus-inline-notice>
-    }
+    <se-field-notice class="field-notice" [notice]="notice()" />
   `,
   styles: `
     .field-notice {
       margin-top: var(--spacing-sm);
-    }
-
-    .field-notice-link {
-      display: inline-block;
-      margin-top: 2px;
-      color: var(--accent);
-      text-decoration: none;
-
-      &:hover {
-        text-decoration: underline;
-      }
-
-      &:focus-visible {
-        outline: 2px solid var(--color-focus-ring);
-        outline-offset: 2px;
-        border-radius: var(--radius-sm);
-      }
     }
   `,
 })
 export class FieldHost {
   readonly field = input.required<FieldDef>();
   readonly value = input<unknown>(undefined);
+  /**
+   * The other values in scope, so a field's notice can express a cross-field
+   * (or cross-contract) condition. Optional: an empty record leaves every such
+   * condition unknown, and therefore silent.
+   */
+  readonly siblings = input<Readonly<Record<string, unknown>>>({});
   readonly fieldChange = output<unknown>();
 
   /** Field-specific caution/hint to render under the control, if any. */
-  protected readonly notice = computed(() => noticeForField(this.field(), this.value()));
+  protected readonly notice = computed(() =>
+    noticeForField(this.field(), this.value(), this.siblings()),
+  );
 
   private readonly vcr = viewChild.required('host', { read: ViewContainerRef });
   private readonly destroyRef = inject(DestroyRef);

@@ -367,6 +367,23 @@ export class ProfilesSettings {
     return (profile.params as Record<string, unknown>) ?? {};
   }
 
+  /**
+   * Sibling values for a process field's cross-contract notices: this profile's
+   * own params over the **active printer's and filament's**, matching the
+   * engine's `printer → filament → process` merge order.
+   *
+   * A process setting can depend on the machine or the material, and both live
+   * on profiles the user is not currently looking at — see
+   * `ui-design-language.instructions.md`, "Cross-contract dependencies".
+   */
+  protected siblingsFor(profile: PrintProfile): Record<string, unknown> {
+    return {
+      ...((this.active.printer()?.params as Record<string, unknown>) ?? {}),
+      ...((this.active.filament()?.params as Record<string, unknown>) ?? {}),
+      ...this.paramsOf(profile),
+    };
+  }
+
   /** Apply a single param field edit (templates can't build computed keys). */
   protected setParam(id: string, key: string, value: unknown): void {
     this.updateParams(id, { [key]: value });

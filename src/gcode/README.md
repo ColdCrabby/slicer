@@ -178,6 +178,110 @@ print.
 
 ---
 
+## Thermal management — cooling & chamber
+
+Two contracts meet here. The **filament** says how hot the chamber should be and
+how much airflow the material tolerates; the **printer** says whether the machine
+can actually heat a chamber. Neither one alone emits anything.
+
+### Chamber heating
+
+`chamber_temp` used to be a `{chamber_temp}` placeholder and nothing else. It is
+now a real directive — but **only** when the printer profile sets
+`heated_chamber`. That gate is not a preference, it is a safety interlock:
+Klipper *aborts the print* on an unknown command, and every ABS/ASA/PC filament
+preset carries a chamber temperature whether or not the machine has a chamber
+heater.
+
+The set and the soak both run **before** the start script, and the ordering
+inside that block is load-bearing:
+
+```mermaid
+sequenceDiagram
+    participant G as Generator
+    participant P as Printer
+    G->>P: M140 S105           (bed target — no wait)
+    Note over P: on most enclosures the bed<br/>IS the chamber's heat source
+    G->>P: M141 S50            (chamber target)
+    G->>P: M191 S50            (block until soaked — nozzle still cold)
+    G->>P: start script / START_PRINT
+    Note over P: bed already at temp, so only<br/>the quick nozzle heat is left
+    G->>P: layer 1 …
+    G->>P: M141 S45            (layer 2: drop to chamber_temp)
+```
+
+Two mistakes are avoided here, and both are worth stating because the obvious
+alternatives hit them:
+
+- **Waiting after the start script** would park molten filament in a hot end for
+  the length of the soak. The materials that carry a chamber target are exactly
+  the ones that suffer for it — ABS/ASA at 250 °C, PC at 270 °C, Nylon at 260 °C.
+- **Soaking without arming the bed** would never terminate on a bed-heated
+  enclosure. The bed target is therefore emitted first, non-blocking; the start
+  script sets it again and its own `M190` returns immediately.
+
+`chamber_temp_first_layer` (`0` = inherit `chamber_temp`) is the soak target; the
+layer-2 restore mirrors how `nozzle_temp_first_layer` / `bed_temp_first_layer`
+already work and never blocks.
+
+Klipper has no built-in `M141`/`M191`, so `KlipperDialect` overrides
+`set_chamber_temp` with `SET_HEATER_TEMPERATURE HEATER=chamber TARGET=…` and
+`TEMPERATURE_WAIT SENSOR="heater_generic chamber" MINIMUM=…` — needing a
+`[heater_generic chamber]` section exactly as `SET_RETRACTION` needs
+`[firmware_retraction]`. (`TEMPERATURE_WAIT` only *waits*, which is why the
+target is armed as its own command rather than folded into the wait.)
+
+**A start script that heats the chamber owns the whole job.** If the custom start
+G-code contains `M141`, `CHAMBER=`, `CHAMBER_TEMP`, `HEATER=chamber` or
+`heater_generic chamber`, the generator emits a note and suppresses its own
+sequence rather than heating and soaking twice. A
+`START_PRINT … CHAMBER={chamber_temp}` macro keeps behaving exactly as it did
+before this feature existed. The tokens deliberately require a *heating* context:
+a bare `chamber` would also match a chamber **fan** (`SET_FAN_SPEED FAN=chamber_fan`,
+`M106 P2 ; chamber fan`) or a comment, and silently disabling chamber heating is
+the failure this feature exists to prevent.
+
+The chamber heater is **not** switched off by the end script: ABS and PC want a
+slow cool-down, and `time_estimate_cooldown_s` already exists for that allowance.
+
+### Part-cooling fan
+
+`fan_configs` is the printer-side adaptive table (per-fan layer-time curve, plus
+`AuxFanOverrides` for RSCS-style hybrid cooling). On top of it sits the
+filament-owned **material policy**, resolved by
+[`SlicingParams::part_cooling_speed`](../settings/params.rs) and applied to the
+part-cooling fan (`fan_index` 0) only — hotend, chamber and aux fans keep the raw
+curve:
+
+| Precedence | Condition                                | Emitted speed                                 |
+| ---------- | ---------------------------------------- | --------------------------------------------- |
+| 1          | `layer_index < disable_fan_first_layers` | `first_layer_fan_speed` (default `0.0` = off) |
+| 2          | segment role `Bridge`                    | `bridge_fan_speed`                            |
+| 3          | segment overhang ≥ `overhang_fan_threshold` | `overhang_fan_speed`                       |
+| 4          | otherwise                                | `min(fan_configs curve, fan_speed)`           |
+
+Two properties are load-bearing:
+
+- **`fan_speed` is a ceiling, not a duty.** Clamping the adaptive curve is what
+  gates high-temperature materials: an ABS preset caps at 30 % so the part fan
+  cannot fight the chamber heater it just asked for. At the default `1.0` it is
+  a no-op, so an unchanged profile emits unchanged G-code.
+- **Rows 2 and 3 are suppressed while row 1 applies.** A single overhang on
+  layer 1 must not defeat the adhesion gate, so the per-segment override is not
+  even armed on pinned layers.
+
+Bridge cooling is unconditional (a bridge is a bridge), while the overhang boost
+stays tied to `enable_overhang_speed`; when a segment somehow qualifies for both
+the higher of the two wins. Both are emitted **on change only**, so a run of
+bridge lines toggles the fan at most twice per layer.
+
+> **Behaviour change.** Before this landed, `fan_speed`, `bridge_fan_speed`,
+> `first_layer_fan_speed` and `disable_fan_first_layers` were read by nothing —
+> the generator drove fans purely from `fan_configs`, so the part-cooling fan ran
+> on layer 1 for every material. It no longer does.
+
+---
+
 ## Print-time estimation (issue #117)
 
 The header / footer ETA and the viewer's **Layer Time** colouring come from

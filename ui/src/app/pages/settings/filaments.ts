@@ -406,6 +406,25 @@ export class FilamentsSettings {
     return (filament.params as Record<string, unknown>) ?? {};
   }
 
+  /**
+   * Sibling values for a filament field's cross-contract notices: this
+   * filament's own params over the **active printer's**.
+   *
+   * A material setting can depend on the machine — a chamber temperature only
+   * becomes a real heat command on a printer that says it has a chamber heater
+   * — and that machine setting lives on a profile the user is not looking at.
+   * Passing the printer's params in is what lets the notice say so here, where
+   * the value is being set, instead of leaving it to fail silently at slice
+   * time. See `ui-design-language.instructions.md`, "Cross-contract
+   * dependencies".
+   */
+  protected siblingsFor(filament: FilamentProfile): Record<string, unknown> {
+    return {
+      ...((this.active.printer()?.params as Record<string, unknown>) ?? {}),
+      ...this.paramsOf(filament),
+    };
+  }
+
   /** Apply a single param field edit (templates can't build computed keys). */
   protected setParam(id: string, key: string, value: unknown): void {
     this.updateParams(id, { [key]: value });

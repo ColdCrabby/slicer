@@ -1185,6 +1185,21 @@ does **not** affect slicing. Empty = omit the `; bed_type:` header line.", exten
     #[serde(default)]
     pub bed_type: String,
 
+    #[schemars(
+        description = "Machine has an **actively heated** chamber.
+
+A hardware capability, not a preference: it is what allows the filament's
+`chamber_temp` to be emitted as a real heat directive (`M141`/`M191`, or Klipper's
+`SET_HEATER_TEMPERATURE` / `TEMPERATURE_WAIT`). Leave it off for a passive
+enclosure or a machine with no chamber heater — an unknown chamber command
+aborts the print on Klipper.
+
+`chamber_temp` still reaches custom start G-code as `{chamber_temp}` either way.",
+        extend("x-group" = "Hardware")
+    )]
+    #[serde(default = "SlicingParams::default_heated_chamber")]
+    pub heated_chamber: bool,
+
     #[schemars(description = "Printer manufacturer recorded in the G-code metadata footer as \
 `printer_vendor`.
 
@@ -1534,12 +1549,31 @@ under/over-extrusion.",
 
     #[schemars(
         description = "Chamber temperature in °C for enclosed printers. `0` = no active \
-chamber heating. Exposed to custom start G-code as `{chamber_temp}` (e.g. Klippain \
-`START_PRINT … CHAMBER={chamber_temp}`).",
+chamber heating.
+
+Emitted as a real heat directive — the bed target is armed, then `M141`/`M191`
+soak the chamber, all before the start G-code so the nozzle is still cold — but
+**only when the printer profile sets `heated_chamber`**. Always available to
+custom start G-code as `{chamber_temp}` (e.g. Klippain
+`START_PRINT … CHAMBER={chamber_temp}`); a start script that heats the chamber
+itself suppresses the automatic directives so the chamber is never heated twice.
+**Typical:** 0 for PLA/PETG, 50–60 for ABS/ASA/PC.",
         extend("x-group" = "Temperature")
     )]
     #[serde(default = "SlicingParams::default_chamber_temp")]
     pub chamber_temp: f64,
+
+    #[schemars(
+        description = "First-layer chamber temperature in °C. `0` = use `chamber_temp`.
+
+A hotter initial soak helps the first layer bond on high-temperature materials;
+the chamber drops back to `chamber_temp` once the first layer finishes.
+Equivalent to OrcaSlicer's `chamber_temperature_initial_layer` and exposed to
+custom start G-code as `{chamber_temp_first_layer}`.",
+        extend("x-group" = "Temperature")
+    )]
+    #[serde(default = "SlicingParams::default_chamber_temp_first_layer")]
+    pub chamber_temp_first_layer: f64,
 
     #[schemars(
         description = "Material family name (e.g. `PLA`, `PETG`, `ABS`). Populated from the \
@@ -2005,6 +2039,7 @@ impl Default for SlicingParams {
             filament_cost_per_kg: 0.0,
             nozzle_diameter_mm: Self::default_nozzle_diameter_mm(),
             bed_type: String::new(),
+            heated_chamber: Self::default_heated_chamber(),
             printer_vendor: String::new(),
             printer_model: String::new(),
             travel_speed_mm_min: Self::default_travel_speed_mm_min(),
@@ -2039,6 +2074,7 @@ impl Default for SlicingParams {
             nozzle_temp_first_layer: Self::default_nozzle_temp_first_layer(),
             bed_temp_first_layer: Self::default_bed_temp_first_layer(),
             chamber_temp: Self::default_chamber_temp(),
+            chamber_temp_first_layer: Self::default_chamber_temp_first_layer(),
             filament_type: String::new(),
             filament_name: String::new(),
             filament_color: String::new(),
@@ -2174,6 +2210,12 @@ impl SlicingParams {
     fn default_chamber_temp() -> f64 {
         0.0
     }
+    fn default_chamber_temp_first_layer() -> f64 {
+        0.0
+    }
+    fn default_heated_chamber() -> bool {
+        false
+    }
     fn default_pressure_advance() -> f64 {
         0.0
     }
@@ -2262,13 +2304,20 @@ impl SlicingParams {
 }
 
 impl SlicingParams {
-    /// Human-readable warnings for profile features that are represented in the
-    /// parameter set but **not yet implemented** by the pipeline.
+    /// Human-readable warnings for settings that will **not** take effect.
     ///
     /// This is the "document + dummy logic" seam: rather than silently dropping
     /// a setting the user enabled, the slice path surfaces a warning so intent
-    /// is visible. Each entry corresponds to a `TODO(profiles): …` marker at the
-    /// (future) implementation site.
+    /// is visible. It covers two kinds of gap —
+    ///
+    /// 1. **Not implemented yet** — the feature is in the parameter set but not
+    ///    in the pipeline. Each corresponds to a `TODO(profiles): …` marker at
+    ///    the (future) implementation site.
+    /// 2. **Unmet dependency** — the feature exists, but another setting it
+    ///    needs is not configured. Typically cross-contract: the filament asks
+    ///    for something the printer must provide. The UI shows these next to the
+    ///    offending control with a link to the fix (see the field-exceptions
+    ///    registry); this is the same honesty for every other front end.
     ///
     /// Implementation checklist (remove the branch here when each lands):
     /// - `TODO(profiles): ironing` — top-surface ironing pass.
@@ -2290,6 +2339,18 @@ impl SlicingParams {
         }
         if self.extruder_count > 1 {
             w.push("multiple extruders configured but multi-material slicing is not yet implemented — using tool 0".into());
+        }
+        // A chamber target without the machine capability emits nothing at all,
+        // and a chamber that never heats looks exactly like one that does until
+        // the part warps. `heated_chamber` is deliberately required (an unknown
+        // chamber command aborts the print on Klipper), so say why and where.
+        if !self.heated_chamber && self.chamber_temp_first_layer_resolved() > 0.0 {
+            w.push(format!(
+                "chamber temperature of {:.0} °C is set but the printer profile does not enable \
+                 `heated_chamber` — no chamber command will be emitted; enable it on the printer \
+                 if the machine has a chamber heater",
+                self.chamber_temp_first_layer_resolved()
+            ));
         }
         w
     }
@@ -2328,6 +2389,66 @@ impl SlicingParams {
         p.z_hop_mm = 0.0;
         p.ironing_enabled = false;
         std::borrow::Cow::Owned(p)
+    }
+}
+
+/// Thermal management — chamber targets and the part-cooling fan policy.
+///
+/// These resolve the "`0` = inherit" sentinels and the precedence between the
+/// filament-owned cooling scalars and the `fan_configs` adaptive table, so the
+/// G-code generator never re-derives the rules and they stay unit-testable.
+impl SlicingParams {
+    /// Chamber target for the first layer: [`SlicingParams::chamber_temp_first_layer`]
+    /// when set, otherwise [`SlicingParams::chamber_temp`].
+    pub fn chamber_temp_first_layer_resolved(&self) -> f64 {
+        if self.chamber_temp_first_layer > 0.0 {
+            self.chamber_temp_first_layer
+        } else {
+            self.chamber_temp
+        }
+    }
+
+    /// Whether the slicer should emit real chamber heat directives.
+    ///
+    /// Requires the machine to declare [`SlicingParams::heated_chamber`] *and* a
+    /// target above ambient — a chamber temperature of `0` means "don't manage
+    /// the chamber", not "cool it down".
+    pub fn chamber_heating_active(&self) -> bool {
+        self.heated_chamber
+            && (self.chamber_temp > 0.0 || self.chamber_temp_first_layer_resolved() > 0.0)
+    }
+
+    /// Whether the part-cooling fan is **pinned** to
+    /// [`SlicingParams::first_layer_fan_speed`] on the given 0-based layer.
+    ///
+    /// True for the bottom [`SlicingParams::disable_fan_first_layers`] layers,
+    /// where adhesion beats cooling. While pinned, the per-segment bridge and
+    /// overhang fan overrides are suppressed too — otherwise a single overhang
+    /// on layer 1 would defeat the whole point.
+    pub fn part_cooling_pinned(&self, layer_index: usize) -> bool {
+        layer_index < self.disable_fan_first_layers
+    }
+
+    /// Apply the filament-owned part-cooling policy on top of an adaptive speed
+    /// computed from the `fan_configs` table.
+    ///
+    /// Precedence:
+    /// 1. bottom `disable_fan_first_layers` layers → `first_layer_fan_speed`
+    ///    (default `0.0`, i.e. fan off);
+    /// 2. otherwise the adaptive speed, capped at `fan_speed` — the material's
+    ///    cooling ceiling, which is what keeps ABS/ASA/PC from being blasted at
+    ///    100 % while the chamber is trying to hold temperature.
+    ///
+    /// Applies to the part-cooling fan (`fan_index` 0) only; hotend, chamber and
+    /// auxiliary fans keep their pure `fan_configs` + [`AuxFanOverrides`]
+    /// behaviour.
+    pub fn part_cooling_speed(&self, layer_index: usize, adaptive_speed: f64) -> f64 {
+        if self.part_cooling_pinned(layer_index) {
+            return self.first_layer_fan_speed.clamp(0.0, 1.0);
+        }
+        adaptive_speed
+            .clamp(0.0, 1.0)
+            .min(self.fan_speed.clamp(0.0, 1.0))
     }
 }
 
@@ -2718,6 +2839,59 @@ pub struct ObjectSettings {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn chamber_target_without_a_heated_chamber_is_reported() {
+        // The filament asks for a chamber; the printer never said it has one.
+        // Silence here is the failure mode — the print warps and nothing said why.
+        let params = SlicingParams {
+            heated_chamber: false,
+            chamber_temp: 50.0,
+            ..SlicingParams::default()
+        };
+        let warnings = params.unsupported_feature_warnings();
+        assert!(
+            warnings.iter().any(|w| w.contains("heated_chamber")),
+            "expected a chamber warning, got: {warnings:?}"
+        );
+    }
+
+    #[test]
+    fn a_configured_chamber_is_not_warned_about() {
+        let params = SlicingParams {
+            heated_chamber: true,
+            chamber_temp: 50.0,
+            ..SlicingParams::default()
+        };
+        assert!(params
+            .unsupported_feature_warnings()
+            .iter()
+            .all(|w| !w.contains("chamber")));
+    }
+
+    #[test]
+    fn no_chamber_target_is_not_a_misconfiguration() {
+        // The default (no chamber wanted, no heater) must stay silent — warning
+        // about it would train users to ignore warnings.
+        assert!(SlicingParams::default()
+            .unsupported_feature_warnings()
+            .iter()
+            .all(|w| !w.contains("chamber")));
+    }
+
+    #[test]
+    fn a_first_layer_only_chamber_target_is_still_reported() {
+        let params = SlicingParams {
+            heated_chamber: false,
+            chamber_temp: 0.0,
+            chamber_temp_first_layer: 60.0,
+            ..SlicingParams::default()
+        };
+        assert!(params
+            .unsupported_feature_warnings()
+            .iter()
+            .any(|w| w.contains("heated_chamber")));
+    }
 
     /// Read a property's `x-relevant-when` gate out of the generated schema.
     fn relevance_gate(field: &str) -> Option<serde_json::Value> {

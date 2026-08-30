@@ -107,6 +107,31 @@ these notes and acknowledges contributors. `scripts/gen-changelog-draft.sh` and
   `--drop-to-floor`) apply to every loaded model. Single-input invocations are
   unchanged; multi-object plates default their output to
   `<first-model>_plate.gcode`.
+
+- **Chamber temperature management** — an enclosed printer can now actually heat
+  its chamber. The filament says how warm it wants the chamber (`chamber_temp`,
+  plus a hotter first-layer soak via `chamber_temp_first_layer`) and the printer
+  says whether it can deliver it (`heated_chamber`); only when both agree does
+  the slicer emit real directives. The soak runs before your start G-code, with
+  the bed armed first — on most enclosures the bed *is* what heats the chamber,
+  so waiting on a cold bed would never finish — and with the nozzle still cold,
+  so molten filament is never parked in a hot end for the length of a soak. The
+  chamber drops back to its steady-state target once the first layer is down.
+  Klipper gets its native `SET_HEATER_TEMPERATURE` / `TEMPERATURE_WAIT` pair
+  instead of `M141`/`M191`, which it has no built-in support for. A start G-code
+  that already heats the chamber (`START_PRINT … CHAMBER={chamber_temp}` and
+  friends) keeps full ownership — the slicer stands down rather than heating and
+  soaking twice.
+- **Settings tell you when they depend on something else.** A filament setting
+  can need a machine capability that the *printer* profile has to provide — and
+  until now nothing said so, on a tab where you could not see it. A chamber
+  temperature set for a printer that has not been told it has a chamber heater
+  now says plainly what will happen ("no chamber command will be emitted"), and
+  links straight to the switch that fixes it. The engine reports the same thing,
+  so the CLI and the slicer log are equally honest — and the CLI now prints
+  every "this setting will not take effect" warning, which it had been computing
+  for other runtimes but never showing itself.
+
 - **Export your profile library** — Settings → General now has a **Backup &
   Export** section that downloads every printer, filament, print profile and
   label as TOML. The default export is a ZIP bundle with one file per profile
@@ -267,6 +292,25 @@ these notes and acknowledges contributors. `scripts/gen-changelog-draft.sh` and
 - **The arrange gap defaulted to 0 mm on a fresh install**, placing parts flush
   against each other, because an unset preference read back as the number `0`
   rather than "unset". It now correctly starts at 4 mm.
+
+- **Your filament's cooling settings are now actually used.** Fan Speed, Bridge
+  Fan Speed, First Layer Fan Speed and Fan Off For First Layers were shown in the
+  filament editor and written by every material preset, but the G-code generator
+  read none of them — it drove the fan purely from the adaptive fan table. The
+  most visible consequence: **the part-cooling fan ran during the first layer for
+  every material**, quietly costing bed adhesion on every print. It no longer
+  does.
+
+  Fan Speed is now the material's cooling **ceiling** — the adaptive curve is
+  clamped to it — which is what keeps ABS/ASA/PC from being blasted at full
+  airflow while a heated chamber is trying to hold temperature. Bridge Fan Speed
+  became a per-segment boost over bridges (matching how overhang cooling already
+  worked) rather than a whole-layer setting, and both it and the overhang boost
+  are held back on the layers where cooling is switched off, so a single overhang
+  can't defeat the first-layer adhesion gate. Material presets were corrected to
+  match: the value that used to land in First Layer Fan Speed was really the
+  cooling curve's minimum, so PLA would have blown full-speed at the bed.
+
 - **Isolated infill specks in narrow wedges** — where a cross-section is locally
   thinner than the average wall count (the 3DBenchy bow tip is the canonical
   case), the interior estimate left a sliver that the walls and gap fill already

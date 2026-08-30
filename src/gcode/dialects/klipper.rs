@@ -170,6 +170,32 @@ impl GcodeDialect for KlipperDialect {
         }
     }
 
+    /// Klipper has **no built-in `M141`/`M191`** — those are RepRap/Marlin
+    /// codes that a Klipper install only understands if the user has added
+    /// `[gcode_macro M141]` / `[gcode_macro M191]` by hand, and an unknown
+    /// command *aborts the print*. The native equivalents are used instead:
+    ///
+    /// ```text
+    /// SET_HEATER_TEMPERATURE HEATER=chamber TARGET=50
+    /// TEMPERATURE_WAIT SENSOR="heater_generic chamber" MINIMUM=50
+    /// ```
+    ///
+    /// This requires a `[heater_generic chamber]` section in `printer.cfg`, the
+    /// same way [`GcodeDialect::firmware_retract_setup`]'s `SET_RETRACTION`
+    /// requires `[firmware_retraction]`. A chamber heater under a different name
+    /// is served by the `{chamber_temp}` custom-start-G-code placeholder, which
+    /// suppresses this emission entirely.
+    fn set_chamber_temp(&self, temp: f64, wait: bool) -> String {
+        if wait {
+            format!(
+                "TEMPERATURE_WAIT SENSOR=\"heater_generic chamber\" MINIMUM={:.0}",
+                temp
+            )
+        } else {
+            format!("SET_HEATER_TEMPERATURE HEATER=chamber TARGET={:.0}", temp)
+        }
+    }
+
     /// Klipper configures firmware retraction at runtime with `SET_RETRACTION`
     /// (requires a `[firmware_retraction]` section in the printer config), so
     /// `G10`/`G11` use the slicer's length / speed / restart-extra. The Z-hop

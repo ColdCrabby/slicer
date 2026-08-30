@@ -319,6 +319,10 @@ pub(crate) fn config_block_lines(params: &SlicingParams, stats: &SliceStatistics
             first_layer_bed_temp
         ),
         format!("; chamber_temperature = {:.0}", params.chamber_temp),
+        format!(
+            "; chamber_temperature_initial_layer = {:.0}",
+            params.chamber_temp_first_layer_resolved()
+        ),
         format!("; fill_density = {:.0}%", params.infill_density * 100.0),
     ]);
 
