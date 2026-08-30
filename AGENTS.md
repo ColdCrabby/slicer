@@ -589,6 +589,59 @@ profile plus `labels.toml`, `manifest.toml`, `README.md`) and a **single**
   anchor). G-code downloads go through it too; **do not re-implement a download
   in a feature**.
 
+## Preset catalog — generated client, real cloud source
+
+The **catalog** is the read-only library of vendor presets the profile wizards
+browse ("Pick it from the catalog"). Its data lives in a separate service — the
+**Cold Crabby Preset Cloud** (repo `cloud-presets`) — not in this project.
+
+- **The client is generated from the *remote* OpenAPI, not a vendored copy.**
+  [ui/openapi-ts.config.ts](ui/openapi-ts.config.ts) feeds
+  `@hey-api/openapi-ts` the document on the cloud repo's `main` branch, so
+  `pnpm --filter slicer-ui gen-catalog-client` (folded into `gen`/`hydrate`)
+  always tracks the deployed contract — the frontend cannot silently drift from
+  the API. It uses the **Angular** client (`@hey-api/client-angular`), so
+  requests go through Angular's `HttpClient` and its interceptors, not a bare
+  `fetch`. Output lands in `ui/src/generated/catalog-client/` (git-ignored, like
+  every other generated artifact). **Never hand-edit it, and never re-add the
+  vendored spec** — regenerate instead.
+- **The served API is search-only.** Today the contract exposes `GET /v1/health`
+  and `GET /v1/presets` (fuzzy search returning *summaries* — id, type, name,
+  vendor, model/material, a short human `spec` string), **not** full preset
+  bodies. There is no detail or bulk endpoint yet.
+- **`CatalogSource` is the seam.**
+  [`CloudCatalog`](ui/src/app/services/catalog/cloud-catalog.ts) talks only to
+  the `CatalogSource` interface, so the backend is a one-line provider override.
+  Each of the three categories is **loaded and searched independently** — opening
+  the printer picker fetches only printers — with its own status, active query
+  and out-of-order guard (`loadPrinters`/`searchPrinters`/… ).
+  [`RemoteCatalogSource`](ui/src/app/services/catalog/remote-catalog-source.ts)
+  is the real implementation: it *browses* each category (an empty query filtered
+  by `type`, paged through the cursor) and widens every summary into the profile
+  shape the wizards consume, using the `make*` factories for the structured
+  fields a summary cannot carry and tagging the result `source: 'catalog'` with
+  an `import_url` back to the preset's canonical detail URL. It also carries the
+  summary's `spec` string through the hidden `CATALOG_SPEC_KEY` so the picker
+  shows the *catalog's own* spec line rather than one reconstructed from
+  defaulted fields; `toUserCopy` strips it on import. It passes an `Injector`
+  on every SDK call so the Angular client can resolve `HttpClient` (the SDK runs
+  from async methods, outside any injection context). Any transport/HTTP error
+  rejects, which `CloudCatalog` turns into its `unavailable` state — the UI then
+  offers "create from scratch" and the single builtin default per category keeps
+  the app working offline.
+- **The base URL is configured once at startup.** `environment.catalogApiUrl`
+  feeds both the `RemoteCatalogSource` provider and `provideCatalogClient()` in
+  [app.config.ts](ui/src/app/app.config.ts) — which wires the client's
+  `HttpClient` (`provideHeyApiClient`) and sets its base URL. The generated
+  client's default base URL is the raw-GitHub host of the spec and is **never**
+  what you want for requests. **Dev builds point at a local cloud-presets**
+  (`http://<host>:8787`, the repo's `pnpm sample-api` — canned presets with open
+  CORS); prod/web builds point at the deployed cloud
+  (`https://cloud-presets.onrender.com`).
+- **Non-goal (for now):** importing a *complete* preset body. The summary lacks
+  the ~92 slicing parameters, so a catalog pick can only pre-fill identity fields
+  until the cloud grows a detail/bulk endpoint and the client is regenerated.
+
 ## Scene Engine — SSOT Contract
 
 [src/scene/](src/scene/) is the **single source of truth** for object placement, orientation, and transforms. Issue #51 introduced it; CLI, WS server, and the Angular UI (via WASM) all consume the same `SceneState::apply()` code path. Every CLI flag and every UI gesture must translate to a `SceneOp`.

@@ -21,6 +21,9 @@
 @use 'base/focus';
 @use 'base/typography';
 @use 'base/forms';
+// Local override: collapse the outline+inset double ring on form controls to a
+// single ring. MUST come after `base/forms` so it wins on order.
+@use './base/field-focus';
 @use 'base/scrollbar';
 @use 'base/floating';
 

@@ -12,6 +12,10 @@ import {
 import { ProfileExportButton } from '../../components/profiles/profile-export-button';
 import { resolveRuntimeMode } from '../../runtime/domain/runtime-mode.util';
 import { AppVersion } from '../../services/app-version';
+import {
+  HistoryControlsPreference,
+  type HistoryControlsMode,
+} from '../../services/history-controls-preference';
 import { Button, SectionHeader, Slider } from '@coldcrabby/ui';
 import { FovCube } from '../../ui/fov-cube/fov-cube';
 
@@ -25,6 +29,7 @@ import { FovCube } from '../../ui/fov-cube/fov-cube';
 export class GeneralSettings implements OnInit {
   protected readonly viewer = inject(ViewerControl);
   private readonly appVersion = inject(AppVersion);
+  protected readonly historyControls = inject(HistoryControlsPreference);
   protected readonly gesture = this.viewer.trackpadTwoFingerGesture;
   protected readonly statsVisible = this.viewer.statsVisible;
   protected readonly palmRejection = this.viewer.palmRejection;
@@ -99,5 +104,9 @@ export class GeneralSettings implements OnInit {
 
   setUseFilamentColor(value: boolean): void {
     this.viewer.setUseFilamentColor(value);
+  }
+
+  setHistoryControls(mode: HistoryControlsMode): void {
+    this.historyControls.setMode(mode);
   }
 }

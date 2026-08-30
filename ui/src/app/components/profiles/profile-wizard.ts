@@ -12,7 +12,7 @@ import {
   type PrintQuality,
   type SeamPosition,
 } from '../../models/print-profile.model';
-import { CloudCatalog, toUserCopy } from '../../services/catalog/cloud-catalog';
+import { CloudCatalog, catalogSpecOf, toUserCopy } from '../../services/catalog/cloud-catalog';
 import { ActiveSelection } from '../../services/profiles/active-selection';
 import { PrintProfilesStore } from '../../services/profiles/print-profiles-store';
 import {
@@ -53,7 +53,7 @@ export class ProfileWizard {
   protected readonly seamOptions = SEAM_POSITIONS;
   protected readonly adhesionOptions = ADHESION_TYPES;
 
-  protected readonly catalogStatus = this.catalog.status;
+  protected readonly catalogStatus = this.catalog.profilesStatus;
   protected readonly catalogEntries = computed<CatalogEntryVm[]>(() =>
     this.catalog.profiles().map((p) => {
       const params = (p.params as Record<string, unknown>) ?? {};
@@ -63,7 +63,7 @@ export class ProfileWizard {
         id: p.id,
         name: p.name,
         vendor: p.quality ?? 'standard',
-        meta: `${layer} mm · ${Math.round(infill * 100)}% infill`,
+        meta: catalogSpecOf(p) ?? `${layer} mm · ${Math.round(infill * 100)}% infill`,
         icon: 'menu-scale',
         imported: this.store.items().some((item) => item.based_on === p.id),
       };
@@ -84,7 +84,7 @@ export class ProfileWizard {
   });
 
   constructor() {
-    void this.catalog.load();
+    void this.catalog.loadProfiles();
   }
 
   protected readonly pnum = paramNum;
@@ -140,8 +140,12 @@ export class ProfileWizard {
     }
   }
 
+  protected onCatalogSearch(query: string): void {
+    void this.catalog.searchProfiles(query);
+  }
+
   protected retryCatalog(): void {
-    void this.catalog.load(true);
+    void this.catalog.loadProfiles(true, this.catalog.profilesQuery());
   }
 
   protected back(): void {

@@ -106,6 +106,11 @@ turns into a notification when it's done.
 what you do to the plate — moving, rotating, scaling, adding, deleting,
 arranging.
 
+On a touch device without a keyboard, undo and redo buttons appear in the 3D
+view toolbar so you can step through history without a shortcut. They show up
+automatically on touch tablets and phones; force them on or off any device in
+**Settings → General → Controls**.
+
 Settings and profile edits are **not** undoable. They're saved deliberately, and
 changing a value back is the undo.
 

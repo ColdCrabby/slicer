@@ -6,6 +6,7 @@ type Environment = {
   apiUrl: string;
   wsUrl: string;
   runtimeMode: 'native' | 'cloud' | 'web';
+  catalogApiUrl: string;
 };
 
 export const environment: Environment = {
@@ -13,4 +14,5 @@ export const environment: Environment = {
   apiUrl: `${httpProtocol}//${window.location.host}/api`,
   wsUrl: `${wsProtocol}//${window.location.host}/ws`,
   runtimeMode: 'web',
+  catalogApiUrl: 'https://cloud-presets.onrender.com',
 };

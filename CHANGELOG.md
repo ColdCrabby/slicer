@@ -27,6 +27,13 @@ issue/PR numbers or repo links in the notes. See the tone rules in
 
 ## [Unreleased]
 
+### Added
+
+- **Undo / redo buttons in the 3D view** — forward and backward history buttons
+  on the plate toolbar for touch devices where the ⌘/Ctrl+Z shortcut can't be
+  reached. Shown automatically on keyboard-less tablets and phones; force them on
+  or off in Settings → General → Controls. Auto by default.
+
 ### Fixed
 
 - **G-code editors render properly in the browser build** — the printer and
@@ -34,6 +41,18 @@ issue/PR numbers or repo links in the notes. See the tone rules in
   the syntax-highlighting editor, most often on the in-browser (WASM) version.
   The editor now waits for its own styles to load before it appears, so it comes
   up fully formed every time.
+- **Undo no longer wipes the plate after navigating** — dip into Settings and
+  back, or use the browser's back button, and your objects keep their positions
+  and undo history instead of being deleted by the next undo. History now resets
+  only when the workplate is genuinely replaced.
+### Fixed
+
+- **The "re-slice" hint no longer clears itself** — moving an object or changing
+  a setting *while a slice is running* used to be silently absorbed into the
+  preview once it finished, so the "Scene changed — re-slice" hint disappeared
+  even though the on-screen G-code predated your edit. The comparison baseline is
+  now captured the moment you press Slice, so a mid-slice change correctly keeps
+  the hint lit until you re-slice.
 
 - **No more flashing console on Windows** — the desktop app used to re-read the
   OS accent colour every couple of seconds by shelling out, which popped a brief

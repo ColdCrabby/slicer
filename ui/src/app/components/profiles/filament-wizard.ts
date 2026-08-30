@@ -9,7 +9,7 @@ import {
   type FilamentMaterial,
   type FilamentProfile,
 } from '../../models/filament.model';
-import { CloudCatalog, toUserCopy } from '../../services/catalog/cloud-catalog';
+import { CloudCatalog, catalogSpecOf, toUserCopy } from '../../services/catalog/cloud-catalog';
 import { ActiveSelection } from '../../services/profiles/active-selection';
 import { FilamentsStore } from '../../services/profiles/filaments-store';
 import { Icon, NumberInput, Select, ColorPicker, FieldRow, WizardShell } from '@coldcrabby/ui';
@@ -46,13 +46,15 @@ export class FilamentWizard {
     label: FILAMENT_MATERIAL_LABELS[m],
   }));
 
-  protected readonly catalogStatus = this.catalog.status;
+  protected readonly catalogStatus = this.catalog.filamentsStatus;
   protected readonly catalogEntries = computed<CatalogEntryVm[]>(() =>
     this.catalog.filaments().map((f) => ({
       id: f.id,
       name: f.name,
       vendor: f.vendor,
-      meta: `${f.material} · ${(f.params as Record<string, unknown>)?.['nozzle_temp']}°C`,
+      meta:
+        catalogSpecOf(f) ??
+        `${f.material} · ${(f.params as Record<string, unknown>)?.['nozzle_temp']}°C`,
       color: f.color,
       imported: this.store.items().some((item) => item.based_on === f.id),
     })),
@@ -66,7 +68,7 @@ export class FilamentWizard {
   });
 
   constructor() {
-    void this.catalog.load();
+    void this.catalog.loadFilaments();
   }
 
   protected readonly pnum = paramNum;
@@ -121,8 +123,12 @@ export class FilamentWizard {
     }
   }
 
+  protected onCatalogSearch(query: string): void {
+    void this.catalog.searchFilaments(query);
+  }
+
   protected retryCatalog(): void {
-    void this.catalog.load(true);
+    void this.catalog.loadFilaments(true, this.catalog.filamentsQuery());
   }
 
   protected back(): void {

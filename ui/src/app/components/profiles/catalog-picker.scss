@@ -34,6 +34,9 @@
     font-size: var(--font-size-md);
     font-family: inherit;
     color: var(--color-text-primary);
+    // The container owns the focus ring (`:focus-within` above); the `.catalog`
+    // wrapper carries `has-focus-ring`, which silences this inner control
+    // globally so no second ring is painted inside it.
   }
 }
 
@@ -173,6 +176,13 @@
   border: 2px solid var(--color-border);
   border-top-color: var(--accent);
   animation: catalog-spin 0.7s linear infinite;
+}
+
+.catalog__spinner--inline {
+  flex: none;
+  width: 15px;
+  height: 15px;
+  border-width: 2px;
 }
 
 @keyframes catalog-spin {

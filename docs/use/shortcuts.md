@@ -79,5 +79,9 @@ Hover-scrolling is the fast one — you don't have to click into the field first
 stops moving the camera. Turn it off in **Settings → General** if you don't use
 a pen.
 
+Without a keyboard, undo and redo appear as buttons in the 3D view toolbar
+instead of shortcuts. They show automatically on touch devices; you can force
+them on or off in **Settings → General → Controls**.
+
 On iPad, long-press opens the system action sheet rather than an in-app menu —
 it's the OS's own control, so it behaves the way the rest of iPadOS does.
