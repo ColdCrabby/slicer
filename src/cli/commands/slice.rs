@@ -449,6 +449,13 @@ impl SliceCommand {
         let scene_object = scene.get(object_id).expect("object just added");
         let baked_mesh = apply_transform(scene_object.mesh.as_ref(), &scene_object.transform);
 
+        // Report any setting that will not take effect — either unimplemented or
+        // missing a prerequisite — before slicing, so the CLI is as honest about
+        // it as the UI and the WS server already are.
+        for warning in slice_params.unsupported_feature_warnings() {
+            logger.log_warn(&warning);
+        }
+
         // Apply optional mesh decimation. The original (baked) mesh is kept
         // in `baked_mesh` for reference; only the pipeline receives the
         // potentially-decimated copy.

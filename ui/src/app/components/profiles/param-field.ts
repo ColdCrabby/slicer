@@ -1,5 +1,7 @@
 import { ChangeDetectionStrategy, Component, computed, input, output } from '@angular/core';
 import type { FieldDef } from '../../schema-form/models/field-def';
+import { noticeForField } from '../../schema-form/field-exceptions/field-exceptions';
+import { FieldNoticeView } from '../../schema-form/field-notice/field-notice';
 import { GcodeField } from '../../schema-form/custom-widgets/gcode-field/gcode-field';
 import { NumberInput } from '../../ui/number-input/number-input';
 import { Select, type SelectOption } from '../../ui/select/select';
@@ -25,11 +27,18 @@ import { FieldShell } from './field-shell';
  * widget is the exception — it needs a full-width, stacked layout, so it
  * renders the shared {@link GcodeField} directly (label + editor) rather than
  * the beside-the-label shell.
+ *
+ * It also renders the field's {@link noticeForField} exception, sharing one
+ * registry with the slice sidebar so a caution cannot exist in one surface and
+ * not the other. That matters most for **cross-contract** cautions: a filament
+ * setting that depends on the machine (chamber temperature needing a chamber
+ * heater) can only be flagged here, because this editor is the one place the
+ * user sets it.
  */
 @Component({
   selector: 'nexus-param-field',
   standalone: true,
-  imports: [NumberInput, Select, Switch, FieldShell, GcodeField],
+  imports: [NumberInput, Select, Switch, FieldShell, GcodeField, FieldNoticeView],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     @if (kind() === 'gcode') {
@@ -63,6 +72,7 @@ import { FieldShell } from './field-shell';
         }
       </nexus-field-shell>
     }
+    <se-field-notice class="param-field-notice" [notice]="notice()" />
   `,
   styles: [
     `
@@ -74,6 +84,10 @@ import { FieldShell } from './field-shell';
       :host + :host {
         border-top: 1px solid var(--color-border-light);
       }
+
+      .param-field-notice {
+        margin-bottom: var(--spacing-sm);
+      }
     `,
   ],
 })
@@ -82,6 +96,12 @@ export class ParamField {
   readonly field = input.required<FieldDef>();
   /** Current value from the profile's `params` bag. */
   readonly value = input<unknown>(undefined);
+  /**
+   * Other values in scope for cross-field notices. The profile editors pass the
+   * profile's own params **merged with the active printer's**, so a filament
+   * setting can ask about the machine it will run on.
+   */
+  readonly siblings = input<Readonly<Record<string, unknown>>>({});
   /** Emits the edited value (number, boolean, or enum string). */
   readonly valueChange = output<unknown>();
 
@@ -117,6 +137,15 @@ export class ParamField {
    * default (rather than a misleading `0`) keeps the editor honest.
    */
   private readonly resolved = computed(() => this.value() ?? this.field().default);
+
+  /**
+   * Field-specific caution to render with the control, if any. Evaluated
+   * against the **resolved** value (schema default when the sparse `params`
+   * bag omits the key) so the notice reflects what will actually be sliced.
+   */
+  protected readonly notice = computed(() =>
+    noticeForField(this.field(), this.resolved(), this.siblings()),
+  );
 
   protected readonly stringValue = computed(() => {
     const v = this.resolved();

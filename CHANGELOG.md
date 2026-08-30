@@ -37,6 +37,16 @@ these notes and acknowledges contributors. `scripts/gen-changelog-draft.sh` and
   friends) keeps full ownership — the slicer stands down rather than heating and
   soaking twice.
   ([#8](https://github.com/max-scopp/slicer-engine/issues/8))
+- **Settings tell you when they depend on something else.** A filament setting
+  can need a machine capability that the *printer* profile has to provide — and
+  until now nothing said so, on a tab where you could not see it. A chamber
+  temperature set for a printer that has not been told it has a chamber heater
+  now says plainly what will happen ("no chamber command will be emitted"), and
+  links straight to the switch that fixes it. The engine reports the same thing,
+  so the CLI and the slicer log are equally honest — and the CLI now prints
+  every "this setting will not take effect" warning, which it had been computing
+  for other runtimes but never showing itself.
+  ([#8](https://github.com/max-scopp/slicer-engine/issues/8))
 
 - **Export your profile library** — Settings → General now has a **Backup &
   Export** section that downloads every printer, filament, print profile and

@@ -2160,13 +2160,20 @@ impl SlicingParams {
 }
 
 impl SlicingParams {
-    /// Human-readable warnings for profile features that are represented in the
-    /// parameter set but **not yet implemented** by the pipeline.
+    /// Human-readable warnings for settings that will **not** take effect.
     ///
     /// This is the "document + dummy logic" seam: rather than silently dropping
     /// a setting the user enabled, the slice path surfaces a warning so intent
-    /// is visible. Each entry corresponds to a `TODO(profiles): …` marker at the
-    /// (future) implementation site.
+    /// is visible. It covers two kinds of gap —
+    ///
+    /// 1. **Not implemented yet** — the feature is in the parameter set but not
+    ///    in the pipeline. Each corresponds to a `TODO(profiles): …` marker at
+    ///    the (future) implementation site.
+    /// 2. **Unmet dependency** — the feature exists, but another setting it
+    ///    needs is not configured. Typically cross-contract: the filament asks
+    ///    for something the printer must provide. The UI shows these next to the
+    ///    offending control with a link to the fix (see the field-exceptions
+    ///    registry); this is the same honesty for every other front end.
     ///
     /// Implementation checklist (remove the branch here when each lands):
     /// - `TODO(profiles): ironing` — top-surface ironing pass.
@@ -2188,6 +2195,18 @@ impl SlicingParams {
         }
         if self.extruder_count > 1 {
             w.push("multiple extruders configured but multi-material slicing is not yet implemented — using tool 0".into());
+        }
+        // A chamber target without the machine capability emits nothing at all,
+        // and a chamber that never heats looks exactly like one that does until
+        // the part warps. `heated_chamber` is deliberately required (an unknown
+        // chamber command aborts the print on Klipper), so say why and where.
+        if !self.heated_chamber && self.chamber_temp_first_layer_resolved() > 0.0 {
+            w.push(format!(
+                "chamber temperature of {:.0} °C is set but the printer profile does not enable \
+                 `heated_chamber` — no chamber command will be emitted; enable it on the printer \
+                 if the machine has a chamber heater",
+                self.chamber_temp_first_layer_resolved()
+            ));
         }
         w
     }
@@ -2676,6 +2695,59 @@ pub struct ObjectSettings {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn chamber_target_without_a_heated_chamber_is_reported() {
+        // The filament asks for a chamber; the printer never said it has one.
+        // Silence here is the failure mode — the print warps and nothing said why.
+        let params = SlicingParams {
+            heated_chamber: false,
+            chamber_temp: 50.0,
+            ..SlicingParams::default()
+        };
+        let warnings = params.unsupported_feature_warnings();
+        assert!(
+            warnings.iter().any(|w| w.contains("heated_chamber")),
+            "expected a chamber warning, got: {warnings:?}"
+        );
+    }
+
+    #[test]
+    fn a_configured_chamber_is_not_warned_about() {
+        let params = SlicingParams {
+            heated_chamber: true,
+            chamber_temp: 50.0,
+            ..SlicingParams::default()
+        };
+        assert!(params
+            .unsupported_feature_warnings()
+            .iter()
+            .all(|w| !w.contains("chamber")));
+    }
+
+    #[test]
+    fn no_chamber_target_is_not_a_misconfiguration() {
+        // The default (no chamber wanted, no heater) must stay silent — warning
+        // about it would train users to ignore warnings.
+        assert!(SlicingParams::default()
+            .unsupported_feature_warnings()
+            .iter()
+            .all(|w| !w.contains("chamber")));
+    }
+
+    #[test]
+    fn a_first_layer_only_chamber_target_is_still_reported() {
+        let params = SlicingParams {
+            heated_chamber: false,
+            chamber_temp: 0.0,
+            chamber_temp_first_layer: 60.0,
+            ..SlicingParams::default()
+        };
+        assert!(params
+            .unsupported_feature_warnings()
+            .iter()
+            .any(|w| w.contains("heated_chamber")));
+    }
 
     /// Read a property's `x-relevant-when` gate out of the generated schema.
     fn relevance_gate(field: &str) -> Option<serde_json::Value> {

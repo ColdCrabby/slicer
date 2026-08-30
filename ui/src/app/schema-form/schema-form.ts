@@ -213,7 +213,7 @@ export class SchemaForm {
     const values = this.value();
     const names = new Set<string>();
     for (const group of this.relevantGroups()) {
-      if (group.fields.some((f) => noticeForField(f, values[f.key]) !== null)) {
+      if (group.fields.some((f) => noticeForField(f, values[f.key], values) !== null)) {
         names.add(group.name);
       }
     }
