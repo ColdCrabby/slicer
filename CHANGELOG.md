@@ -22,6 +22,34 @@ these notes and acknowledges contributors. `scripts/gen-changelog-draft.sh` and
 
 ### Added
 
+- **Cancel one object mid-print, or print them one at a time.** The plate now
+  keeps track of which part every extrusion belongs to, which unlocks two
+  features that share that segmentation:
+
+  - **Exclude object** — each object's moves are wrapped in firmware object
+    markers (Klipper `EXCLUDE_OBJECT_*`, Marlin / RepRapFirmware `M486`), and
+    the file declares every part up front with its name, centre and footprint.
+    Mainsail, Fluidd and OctoPrint list the plate's objects, so a part that
+    fails halfway can be cancelled while the rest of the plate carries on.
+  - **Sequential printing** — with **Print order → by object** each part is
+    finished completely before the next one starts, front to back, with the
+    nozzle lifting clear of everything already on the bed before it travels
+    across. Optional custom G-code runs between objects. Parts taller than the
+    machine's gantry clearance, or closer together than its extruder clearance
+    radius, are reported as warnings before slicing rather than discovered as a
+    crash. Choosing it in the UI shows an honest heads-up that the feature
+    depends on the printer's clearances, with a link straight to where they are
+    set.
+
+  Both are off by default, and with both off the plate is merged and sliced
+  exactly as before — no change to existing G-code. **Print order**
+  (`print_sequence`) and the optional between-objects G-code live under a new
+  **Objects** process group; whether the machine can **skip a failed object**
+  (`exclude_object`) and its two **extruder clearances**
+  (`extruder_clearance_height_mm`, `extruder_clearance_radius_mm`) describe the
+  machine, so they sit with the printer's hardware settings. The CLI exposes
+  `--exclude-object` and `--print-sequence by-object`.
+
 - **Multiple objects per workplate** — a plate is now a build plate rather than
   a single file. An **Add model** button in the 3D toolbar (and a multi-select
   file picker) places more models on the plate you already have, instead of

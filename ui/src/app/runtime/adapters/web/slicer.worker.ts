@@ -153,9 +153,9 @@ function forwardWasmEvent(sliceId: string, event: WasmSliceEvent): void {
       break;
     case 'phase':
       if (event.event === 'start') {
-        emitPhaseStart(sliceId, event.phase);
+        emitPhaseStart(sliceId, event.phase, event.object, event.object_count);
       } else {
-        emitPhaseEnd(sliceId, event.phase, event.elapsed_ms ?? 0);
+        emitPhaseEnd(sliceId, event.phase, event.elapsed_ms ?? 0, event.object, event.object_count);
       }
       break;
     case 'progress':
@@ -169,12 +169,23 @@ function forwardWasmEvent(sliceId: string, event: WasmSliceEvent): void {
   }
 }
 
-function emitPhaseStart(sliceId: string, phase: string): void {
-  self.postMessage({ type: 'phase-start', sliceId, phase });
+function emitPhaseStart(
+  sliceId: string,
+  phase: string,
+  object?: number,
+  objectCount?: number,
+): void {
+  self.postMessage({ type: 'phase-start', sliceId, phase, object, objectCount });
 }
 
-function emitPhaseEnd(sliceId: string, phase: string, elapsedMs: number): void {
-  self.postMessage({ type: 'phase-end', sliceId, phase, elapsedMs });
+function emitPhaseEnd(
+  sliceId: string,
+  phase: string,
+  elapsedMs: number,
+  object?: number,
+  objectCount?: number,
+): void {
+  self.postMessage({ type: 'phase-end', sliceId, phase, elapsedMs, object, objectCount });
 }
 
 function elapsedSince(start: number): number {

@@ -38,6 +38,7 @@ make build-release build-windows build-macos build-wasm test lint fmt
 | **Wall Restrictions**          | [src/core/walls.rs](src/core/walls.rs)       | Single-wall first/top-layer constraints                                                       |
 | **Infill Boundary**            | [src/core/infill.rs](src/core/infill.rs)     | Interior region calculation and sparse infill                                                 |
 | **Pipeline**                   | [src/core/pipeline.rs](src/core/pipeline.rs) | `process_mesh` — orchestrates the full slicing pipeline                                       |
+| **Multi-object plates**        | [src/core/objects.rs](src/core/objects.rs)   | `slice_plate` — per-object identity for exclude-object & sequential printing                  |
 | **Scene Engine**               | [src/scene/](src/scene/)                     | Single source of truth for object placement (CLI / WS / WASM all consume `SceneState::apply`) |
 | **Clipper2 Integration**       | [src/core/](src/core/)                       | Geometric polygon clipping operations throughout                                              |
 | **Library Interface**          | [src/lib.rs](src/lib.rs)                     | Public API exposing core functionality                                                        |
@@ -67,7 +68,8 @@ src/
 │   ├── surfaces.rs        # generate_top_bottom_surfaces*, rectilinear infill fill
 │   ├── walls.rs           # apply_single_wall_restrictions (per-island), compute_per_island_strip_masks
 │   ├── infill.rs          # calculate_interior_region, add_infill_to_layers
-│   └── pipeline.rs        # process_mesh (full pipeline orchestrator)
+│   ├── pipeline.rs        # process_mesh (full pipeline orchestrator)
+│   └── objects.rs         # slice_plate — multi-object plates, object identity (#22/#112)
 ├── scene/                 # Unified scene engine (issue #51 — SSOT for object placement)
 │   ├── mod.rs             # Re-exports public API
 │   ├── transform.rs       # Transform { translation, rotation: Quat, scale }; apply_transform; Euler-XYZ deg helpers
@@ -592,6 +594,95 @@ accept more, so the UI keeps a strict split of responsibilities:
 - **The viewer mirrors, it does not own.** `Viewer.syncWasmMeshes()` diffs `sceneEngine.objects()` against its Three.js nodes and adds/disposes to match, so an object created by *anyone* (add button, `Duplicate`, undo) renders without the viewer being told. Do not add a second place that constructs display meshes.
 - **`SlicerFile` holds a list, not a file.** `files` accumulates `{fileId, filename}`; `upload(file)` appends and attaches to the open workplate. `fetchFile` adopts a file as the *primary* displayed model (it sets `selectedFile`, which retargets the viewer's `model` input); additional objects must use **`downloadFile`**, which registers without touching `selectedFile` — otherwise restoring an N-object plate leaves only the last file on screen.
 - **`toSliceDtos`** ([scene-slice-dto.ts](ui/src/app/runtime/adapters/cloud/scene-slice-dto.ts)) resolves each object to its file via `source_id` and throws rather than guessing. It is a pure function with tests pinning the regression; keep the mapping there, not inline in the runtime adapter.
+
+## Object identity through slicing — exclude-object & sequential printing
+
+[src/core/objects.rs](src/core/objects.rs) is where a *plate* (several placed
+objects) becomes *layers* without losing track of which part is which. Issues
+#22 (exclude object) and #112 (sequential printing) need exactly the same
+segmentation, so it is built once, here.
+
+- **[`slice_plate`](src/core/objects.rs) is the single slicing entry point.**
+  CLI, WS server, wasm `web-slicer` and the desktop Tauri bridge all hand it a
+  `&[ObjectInput]` instead of merging meshes themselves. Do not re-introduce a
+  "just concatenate the faces and call `process_mesh`" site — that is the merge
+  that erased object identity in the first place.
+- **The merged fast path is not optional.** When
+  [`SlicingParams::object_aware()`](src/settings/params.rs) is false (neither
+  `exclude_object` nor `print_sequence = by_object`), `slice_plate` merges and
+  calls `process_mesh` exactly as before, so the default configuration produces
+  **byte-identical G-code**. Object-aware slicing runs the pipeline once *per
+  object*, which is **not** output-equivalent: `calculate_interior_region`
+  averages the wall-bead count across a layer's islands, so an island's interior
+  estimate depends on what else shares its layer. Slicing a part alone is the
+  more faithful result, but it is still a change and must only happen when asked
+  for. `merged_path_matches_a_plain_process_mesh` pins this.
+- **`SliceLayer::path_objects` is a parallel array with an empty sentinel**, like
+  `path_overhang`: empty means "not sliced object-aware", and `None` at an index
+  means "belongs to no object". Every helper that rebuilds a layer's parallel
+  arrays — notably [`adhesion::prepend`](src/adhesion/mod.rs) — must carry it
+  along or the tags silently shift onto the wrong paths.
+- **Adhesion is plate-wide in `by_layer`, object-owned in `by_object`.** In
+  layer order the skirt/brim is generated **once on the merged stack** and
+  tagged `None`, so cancelling one part does not take the plate's adhesion with
+  it; in object order each object is a self-contained print and owns its own.
+- **Layers merge by Z slot, not by index.** Two parts resting on the bed slice
+  onto the same grid, but a part lifted off the bed keeps its own (its bottom
+  layers are *its* bottom layers). `merge_layers_by_z` groups within a quarter
+  layer and takes at most one layer per object per slot, so emitted Z is always
+  strictly ascending.
+- **Sequential order is front-to-back** (`min_y`, then `min_x`) — the gantry
+  sweeps from behind, so finishing the nearest part first keeps the carriage
+  away from finished work longest. Clearance problems are **warnings, not
+  errors**: the clearances are machine estimates and refusing to slice would be
+  worse than saying what to check. Only objects printed *before* another are
+  height-checked; the last one has nothing reaching over it.
+- **What lives on the printer vs. the process.** Whether the machine *can*
+  cancel an object (`exclude_object`) and how much room its printhead needs
+  (`extruder_clearance_height_mm` / `extruder_clearance_radius_mm`) are
+  properties of the **machine**, so all three carry the **Hardware** `x-group`
+  (printer contract), alongside nozzle diameter — mirroring PrusaSlicer's
+  Printer Settings and the rationale that put `preferred_orientation_deg` on the
+  printer profile. Two printers can run the same `by_object` process yet differ
+  in gantry height, duct radius, and firmware object support. Only the
+  print-behaviour choices (`print_sequence`, `between_objects_gcode`) are
+  process settings, under the **Objects** group. The clearances are intrinsic
+  machine specs, so they carry **no** `x-relevant-when` gate (a printer always
+  has a clearance) — which also avoids a cross-contract gate pointing at a
+  process field in another tab.
+- **Object names are sanitised and de-duplicated in the engine.** Klipper parses
+  `EXCLUDE_OBJECT_DEFINE NAME=…` as a G-code parameter, so a space splits the
+  token, and two parts sharing a name would cancel together. Every runtime feeds
+  user-chosen filenames straight in, so `unique_object_name` fixes both centrally
+  rather than at each call site.
+
+### Emitting the markers
+
+Three `GcodeDialect` methods carry it into firmware syntax:
+`object_definitions`, `object_start`, `object_end`. The **defaults implement
+`M486`** (Marlin 2.0.9.3+, RepRapFirmware, Prusa); `KlipperDialect` overrides
+them with `EXCLUDE_OBJECT_*`, which additionally carries `CENTER` and `POLYGON`
+so the firmware knows where a cancelled object lives.
+
+- **Definitions are emitted before the start script.** Klipper's
+  `[exclude_object]` module and Moonraker both expect to meet every object
+  before the print begins, so a front-end can list the parts the moment the file
+  loads.
+- **The marker block switches *before* a path's travel**, so the hop between two
+  parts is charged to the one it is heading for — the PrusaSlicer/OrcaSlicer
+  convention, and what lets a firmware skip a cancelled object's approach moves
+  along with its extrusions.
+- **`M486 A"name"` is spent once per object** (`first_use`); repeating the name
+  on every layer would bloat the file for no gain.
+- **The sequential hand-over happens before the layer's own Z move.** Order is
+  load-bearing: close the marker block → retract → lift above the tallest thing
+  already printed → travel across → `between_objects_gcode`. The layer block
+  that follows then drops to the new object's first layer *over empty bed*.
+  Doing any of it afterwards lowers the nozzle into the part just finished.
+  Pinned by `sequential_lifts_clear_of_the_finished_object_before_travelling`.
+- **The exclusion polygon is a convex hull, resampled to ≤ 64 points.** A turned
+  cylinder hulls to one vertex per facet and would push a multi-kilobyte line
+  into the file for no added precision.
 
 ## Slicing Pipeline — Deep Knowledge
 

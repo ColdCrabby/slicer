@@ -13,6 +13,7 @@ import {
   ViewContainerRef,
 } from '@angular/core';
 import { Subscription } from 'rxjs';
+import { RouterLink } from '@angular/router';
 import { InlineNotice } from '../../ui/inline-notice/inline-notice';
 import { noticeForField } from '../field-exceptions/field-exceptions';
 import { resolveWidget } from '../field-registry/field-registry';
@@ -33,7 +34,7 @@ import { FieldWidget } from '../widgets/base-field';
 @Component({
   selector: 'se-field-host',
   standalone: true,
-  imports: [InlineNotice],
+  imports: [InlineNotice, RouterLink],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <ng-container #host />
@@ -45,12 +46,32 @@ import { FieldWidget } from '../widgets/base-field';
         [title]="n.title"
       >
         {{ n.text }}
+        @if (n.link; as link) {
+          <a class="field-notice-link" [routerLink]="link.routerLink">{{ link.text }}</a>
+        }
       </nexus-inline-notice>
     }
   `,
   styles: `
     .field-notice {
       margin-top: var(--spacing-sm);
+    }
+
+    .field-notice-link {
+      display: inline-block;
+      margin-top: 2px;
+      color: var(--accent);
+      text-decoration: none;
+
+      &:hover {
+        text-decoration: underline;
+      }
+
+      &:focus-visible {
+        outline: 2px solid var(--color-focus-ring);
+        outline-offset: 2px;
+        border-radius: var(--radius-sm);
+      }
     }
   `,
 })

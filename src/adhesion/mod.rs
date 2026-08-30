@@ -123,6 +123,9 @@ fn push_loop(layer: &mut SliceLayer, path: Path, role: ExtrusionRole, width: f64
     if !layer.path_overhang.is_empty() {
         layer.path_overhang.push(OverhangClass::None);
     }
+    if !layer.path_objects.is_empty() {
+        layer.path_objects.push(None);
+    }
 }
 
 /// Pad every parallel per-path array on `layer` up to `layer.paths.len()` so a
@@ -146,6 +149,13 @@ fn normalise(layer: &mut SliceLayer) {
     if !layer.path_overhang.is_empty() {
         while layer.path_overhang.len() < n {
             layer.path_overhang.push(OverhangClass::None);
+        }
+    }
+    // Same sentinel rule for object tags: an empty vector means "this layer was
+    // not sliced object-aware" and must stay empty.
+    if !layer.path_objects.is_empty() {
+        while layer.path_objects.len() < n {
+            layer.path_objects.push(None);
         }
     }
 }
@@ -182,12 +192,23 @@ fn prepend(layer: &mut SliceLayer, additions: SliceLayer) {
         o
     };
 
+    // Adhesion belongs to the plate, not to any one object: a skirt or brim
+    // still has to print when a single part is cancelled, so its tag is `None`.
+    let objects = if layer.path_objects.is_empty() {
+        Vec::new()
+    } else {
+        let mut o = vec![None; additions_count];
+        o.extend(layer.path_objects.iter().copied());
+        o
+    };
+
     layer.paths = paths;
     layer.path_roles = roles;
     layer.path_widths = widths;
     layer.path_vertex_widths = vwidths;
     layer.path_is_open = is_open;
     layer.path_overhang = overhang;
+    layer.path_objects = objects;
 }
 
 /// Concentric offset loops stepping **outward** from `footprint`, keeping only
