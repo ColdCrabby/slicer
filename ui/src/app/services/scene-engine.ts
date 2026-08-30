@@ -7,7 +7,14 @@ import init, {
   type RenderBuffer,
 } from '../../generated/scene-wasm/scene_engine';
 import type { SlicingParams } from '../../generated/slicer-engine-ws-client-message-v1';
+import {
+  describeMeshDefects,
+  describeMeshRepairs,
+  meshReportIsNoteworthy,
+  type MeshReport,
+} from '../models/mesh-report.model';
 import { Logger } from './logger';
+import { NotificationService } from './notifications';
 
 /**
  * Build-time version snapshot exposed by the WASM bundle. Mirrors the Rust
@@ -89,6 +96,10 @@ export interface LocalSliceResult {
 
 type SceneHandleWithSetBed = SceneHandle & {
   setBed: (bed: object) => void;
+};
+
+type SceneHandleWithMeshReport = SceneHandle & {
+  meshReport: (id: bigint) => MeshReport | null;
 };
 
 type SceneHandleWithWebSlicer = SceneHandle & {
@@ -175,11 +186,21 @@ const DEFAULT_BED: SceneBedSnapshot = {
 @Injectable({ providedIn: 'root' })
 export class SceneEngine {
   private readonly log = inject(Logger).scope('SceneEngine');
+  private readonly notifications = inject(NotificationService);
   private handle: SceneHandle | null = null;
   private initPromise: Promise<void> | null = null;
   private pendingBed: SceneBedSnapshot | null = null;
 
   private readonly snapshotSignal = signal<SceneSnapshot>({ objects: [], bed: DEFAULT_BED });
+  /**
+   * Health reports already surfaced to the user, keyed by file name + summary.
+   *
+   * A model is parsed here twice on import — once by the viewer for display and
+   * once by the web/native runtime adapter for slicing — and both produce the
+   * same report, so without this the user would get the same toast twice.
+   * Cleared whenever the scene is reset, so re-importing warns again.
+   */
+  private readonly notifiedMeshReports = new Set<string>();
   /**
    * Rolling-window stats for the most recent op label dispatched through
    * {@link apply}. Updated after every op so on-screen overlays can show
@@ -267,6 +288,7 @@ export class SceneEngine {
     this.log.info('resetWithBed', { bed });
     this.disposeHandle();
     this.handle = new SceneHandle(bed as unknown as object);
+    this.notifiedMeshReports.clear();
     this.refreshSnapshot();
   }
 
@@ -350,6 +372,12 @@ export class SceneEngine {
     // every id-taking wasm method expects a real bigint.
     const normalised = Array.from(ids, (id) => BigInt(id as unknown as string | number));
     stop({ ids: normalised.map(String).join(','), sourceId });
+    // One report per part — a 3MF's parts are independent models, so one being
+    // defective says nothing about its siblings.
+    for (const [index, objectId] of normalised.entries()) {
+      const label = normalised.length > 1 ? `${name} #${index + 1}` : name;
+      this.announceMeshHealth(label, objectId);
+    }
     this.refreshSnapshot();
     return normalised;
   }
@@ -362,6 +390,59 @@ export class SceneEngine {
    */
   duplicate(id: bigint, offset: [number, number, number] = [0, 0, 0]): void {
     this.apply({ op: 'Duplicate', args: { id, offset } });
+  }
+
+  /**
+   * Health report for an object, as produced by the engine's repair pass when
+   * the mesh was loaded. `null` when the running WASM bundle predates the
+   * `meshReport` export.
+   */
+  meshReport(id: bigint): MeshReport | null {
+    const handle = this.handle as unknown as Partial<SceneHandleWithMeshReport> | null;
+    if (!handle || typeof handle.meshReport !== 'function') {
+      return null;
+    }
+    try {
+      return handle.meshReport(id) ?? null;
+    } catch (err) {
+      this.log.warn('meshReport failed', err);
+      return null;
+    }
+  }
+
+  /**
+   * Tell the user when an imported model was defective.
+   *
+   * Repaired-and-clean is a warning rather than an error — the print will be
+   * fine, but the source file is not, and silently patching geometry is
+   * exactly the kind of thing that should be visible.
+   */
+  private announceMeshHealth(name: string, id: bigint): void {
+    const report = this.meshReport(id);
+    if (!report || !meshReportIsNoteworthy(report)) {
+      return;
+    }
+
+    const key = `${name}|${report.summary}`;
+    if (this.notifiedMeshReports.has(key)) {
+      return;
+    }
+    this.notifiedMeshReports.add(key);
+    this.log.warn(`mesh health '${name}': ${report.summary}`);
+
+    const remaining = describeMeshDefects(report.after);
+    if (remaining) {
+      this.notifications.warning(
+        `${name} has mesh defects`,
+        `${remaining} could not be repaired. Slicing will continue, but the result may have gaps.`,
+      );
+      return;
+    }
+
+    const fixed = describeMeshRepairs(report.actions);
+    if (fixed) {
+      this.notifications.warning(`Repaired ${name}`, `${fixed}. The model is now watertight.`);
+    }
   }
 
   /** Apply a single scene op and refresh the snapshot signal. */

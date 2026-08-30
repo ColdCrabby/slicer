@@ -7,6 +7,7 @@ use crate::gcode::{resolve_gcode_source, GcodeFlavor, GcodeGenerator};
 use crate::infill::InfillPattern;
 use crate::logging::{phases, PhaseTimer, ProcessLogger};
 use crate::mesh::analysis::{calculate_aabb, calculate_surface_area, calculate_volume};
+use crate::mesh::repair::{log_report, RepairOptions};
 use crate::scene::{apply_transform, BedConfig, SceneOp, SceneState};
 use crate::settings::params::{LifecycleMarkerConfig, MeshQuality};
 use clap::Parser;
@@ -270,6 +271,17 @@ pub struct SliceCommand {
     /// steps can be captured.  Has no effect on the G-code output.
     #[arg(long, value_name = "DIR")]
     pub debug_geometry: Option<PathBuf>,
+
+    /// Skip the mesh validation/repair pass and slice the model exactly as it
+    /// was authored.
+    ///
+    /// By default every model is checked for holes, flipped normals, cracked
+    /// (unwelded) vertices and degenerate/duplicate triangles, and repaired
+    /// where it can be. A clean model is never modified, so this flag only
+    /// matters for defective ones — use it when you want to see what the raw
+    /// geometry slices to.
+    #[arg(long)]
+    pub no_mesh_repair: bool,
 }
 
 /// Result payload emitted by the `slice` command.
@@ -284,6 +296,10 @@ struct SliceResult {
     stats: crate::gcode::SliceStatistics,
     /// Build-plate surface, when the profile specified one.
     bed_type: Option<String>,
+    /// Health of the source mesh, and what the repair pass did to it.
+    /// Health of every loaded part, in plate order. A multi-part 3MF or a
+    /// multi-file plate contributes one entry each.
+    mesh_reports: Vec<crate::mesh::repair::MeshReport>,
 }
 
 impl SliceResult {
@@ -333,6 +349,9 @@ impl EmitPayload for SliceResult {
         if let Some(bed) = &self.bed_type {
             s.push_str(&format!("\n  Bed type: {}", bed));
         }
+        for report in self.mesh_reports.iter().filter(|r| r.is_noteworthy()) {
+            s.push_str(&format!("\n  Mesh: {}", report.summary));
+        }
         if let Some(path) = &self.output_path {
             s.push_str(&format!("\n  Output: {}", path.display()));
         }
@@ -360,6 +379,7 @@ impl EmitPayload for SliceResult {
                 "bbox_min_mm": self.stats.bbox_min,
                 "bbox_max_mm": self.stats.bbox_max,
             },
+            "meshes": self.mesh_reports,
         })
     }
 }
@@ -544,10 +564,18 @@ impl SliceCommand {
 
         // Load each input — format is auto-detected from the file extension.
         // A container format that holds several parts (3MF) becomes several
-        // scene objects, so a multi-model file plates as separate parts.
+        // scene objects, so a multi-model file plates as separate parts. Every
+        // part passes a validation/repair check on the way in; a clean one is
+        // handed back untouched.
         let t_load = PhaseTimer::start(phases::MESH_LOAD, &logger);
+        let repair_options = if self.no_mesh_repair {
+            RepairOptions::analysis_only()
+        } else {
+            RepairOptions::default()
+        };
+        let mut mesh_reports: Vec<crate::mesh::repair::MeshReport> = Vec::new();
         for path in &self.input {
-            let parts = crate::scene::load_path_multi(path)
+            let parts = crate::scene::load_path_multi_reporting(path, &repair_options)
                 .map_err(|e| format!("Failed to load mesh '{}': {}", path.display(), e))?;
             let file_name = path
                 .file_name()
@@ -560,13 +588,16 @@ impl SliceCommand {
                     (None, true) => format!("{file_name} #{}", index + 1),
                     (None, false) => file_name.clone(),
                 };
+                log_report(&logger, &name, &part.report);
+                mesh_reports.push(part.report.clone());
                 // The path is the CLI's provenance handle, mirroring the WS
                 // server's uploaded-file UUID (see `SceneObject::source_id`).
-                let id = scene.add_mesh_part(
+                let id = scene.add_mesh_part_with_report(
                     name,
                     Arc::new(part.mesh),
                     Some(path.display().to_string()),
                     index,
+                    Some(part.report),
                 );
                 logger.log_debug(&format!(
                     "loaded {} part {} as {}",
@@ -910,6 +941,7 @@ impl SliceCommand {
             gcode_flavor: flavor.to_string(),
             bed_type: Some(slice_params.bed_type.clone()).filter(|b| !b.trim().is_empty()),
             stats,
+            mesh_reports,
         };
 
         emitter.emit(&result);
@@ -934,6 +966,11 @@ mod tests {
     }
 
     /// A non-zero sample statistics bundle for `SliceResult` tests.
+    /// A clean report for the `SliceResult` payload tests.
+    fn sample_mesh_report() -> crate::mesh::repair::MeshReport {
+        crate::mesh::repair::repair(&crate::mesh::types::Mesh::new(), &RepairOptions::default()).1
+    }
+
     fn sample_stats() -> crate::gcode::SliceStatistics {
         crate::gcode::SliceStatistics {
             layer_count: 5,
@@ -1146,6 +1183,7 @@ mod tests {
             gcode_flavor: "marlin".to_string(),
             bed_type: None,
             stats: sample_stats(),
+            mesh_reports: vec![sample_mesh_report()],
         };
         assert_eq!(r.schema(), "slicer-engine/slice-result-v1");
     }
@@ -1160,6 +1198,7 @@ mod tests {
             gcode_flavor: "marlin".to_string(),
             bed_type: Some("Textured PEI Plate".to_string()),
             stats: sample_stats(),
+            mesh_reports: vec![sample_mesh_report()],
         };
         let s = r.display_human();
         assert!(s.contains("model.stl"));
@@ -1188,6 +1227,7 @@ mod tests {
             gcode_flavor: "marlin".to_string(),
             bed_type: None,
             stats: sample_stats(),
+            mesh_reports: vec![sample_mesh_report()],
         };
         let s = r.display_human();
         assert!(s.contains("Sliced 2 models"), "missing model count: {s}");
@@ -1204,6 +1244,7 @@ mod tests {
             gcode_flavor: "klipper".to_string(),
             bed_type: None,
             stats: sample_stats(),
+            mesh_reports: vec![sample_mesh_report()],
         };
         let s = r.display_human();
         assert!(s.contains("klipper"));
@@ -1221,6 +1262,7 @@ mod tests {
             gcode_flavor: "marlin".to_string(),
             bed_type: None,
             stats: sample_stats(),
+            mesh_reports: vec![sample_mesh_report()],
         };
         let s = r.display_human();
         assert!(s.contains("model.gcode"));
@@ -1236,6 +1278,7 @@ mod tests {
             gcode_flavor: "marlin".to_string(),
             bed_type: Some("Cool Plate".to_string()),
             stats: sample_stats(),
+            mesh_reports: vec![sample_mesh_report()],
         };
         let v = r.to_json();
         assert_eq!(v["status"], "success");
@@ -1264,6 +1307,7 @@ mod tests {
             gcode_flavor: "marlin".to_string(),
             bed_type: None,
             stats: sample_stats(),
+            mesh_reports: vec![sample_mesh_report()],
         };
         let v = r.to_json();
         assert_eq!(v["input"], "a.stl, b.stl");

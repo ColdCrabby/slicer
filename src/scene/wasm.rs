@@ -363,6 +363,27 @@ impl SceneHandle {
         Ok(Uint32Array::from(groups.as_slice()))
     }
 
+    /// Health report for the mesh identified by `id`.
+    ///
+    /// Produced by [`crate::mesh::repair`] when the model was added, so it
+    /// describes the mesh the viewer is actually showing. Returns `null` when
+    /// the object was created without going through a loader.
+    ///
+    /// The shape mirrors `MeshReport`: `{ before, after, actions, repaired,
+    /// summary }`.
+    #[wasm_bindgen(js_name = meshReport)]
+    pub fn mesh_report(&self, id: u64) -> Result<JsValue, JsValue> {
+        let obj = self
+            .inner
+            .get(ObjectId(id))
+            .ok_or_else(|| JsValue::from_str(&format!("object {} not found", id)))?;
+        match &obj.report {
+            Some(report) => serde_wasm_bindgen::to_value(report)
+                .map_err(|e| JsValue::from_str(&format!("serialize mesh report: {}", e))),
+            None => Ok(JsValue::NULL),
+        }
+    }
+
     /// Full scene snapshot suitable for driving Angular signals.
     #[wasm_bindgen]
     pub fn snapshot(&self) -> Result<JsValue, JsValue> {

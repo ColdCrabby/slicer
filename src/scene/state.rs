@@ -1,6 +1,7 @@
 //! Scene state: objects, transforms, and bed.
 
 use crate::mesh::analysis::calculate_aabb;
+use crate::mesh::repair::MeshReport;
 use crate::mesh::types::{Mesh, AABB};
 use crate::scene::bed::BedConfig;
 use crate::scene::transform::{transformed_aabb, Transform};
@@ -49,6 +50,11 @@ pub struct SceneObject {
     /// for each object and print the whole file once per part; this index says
     /// which one to keep.
     pub source_part: usize,
+    /// Health report produced when the mesh was loaded, when one is available.
+    ///
+    /// Populated by [`SceneOp::Add`](crate::scene::SceneOp::Add); `None` for
+    /// meshes handed in directly through [`SceneState::add_mesh`].
+    pub report: Option<MeshReport>,
 }
 
 impl SceneObject {
@@ -111,6 +117,22 @@ impl SceneState {
         source_id: Option<String>,
         source_part: usize,
     ) -> ObjectId {
+        self.add_mesh_part_with_report(name, mesh, source_id, source_part, None)
+    }
+
+    /// Add one part of a multi-object source file together with the
+    /// [`MeshReport`] produced when it was loaded.
+    ///
+    /// The bottom of the `add_mesh*` chain — every other variant funnels here.
+    #[allow(clippy::too_many_arguments)]
+    pub fn add_mesh_part_with_report(
+        &mut self,
+        name: impl Into<String>,
+        mesh: Arc<Mesh>,
+        source_id: Option<String>,
+        source_part: usize,
+        report: Option<MeshReport>,
+    ) -> ObjectId {
         let id = ObjectId(self.next_id);
         self.next_id += 1;
         self.objects.push(SceneObject {
@@ -120,6 +142,7 @@ impl SceneState {
             transform: Transform::IDENTITY,
             source_id,
             source_part,
+            report,
         });
         id
     }
@@ -132,12 +155,15 @@ impl SceneState {
     /// Returns `None` when `id` is unknown.
     pub fn duplicate(&mut self, id: ObjectId) -> Option<ObjectId> {
         let src = self.get(id)?;
-        let (name, mesh, transform, source_id, source_part) = (
+        // A copy is the same geometry, so it inherits the original's health
+        // report along with its mesh and provenance.
+        let (name, mesh, transform, source_id, source_part, report) = (
             src.name.clone(),
             Arc::clone(&src.mesh),
             src.transform,
             src.source_id.clone(),
             src.source_part,
+            src.report.clone(),
         );
         let new_id = ObjectId(self.next_id);
         self.next_id += 1;
@@ -148,6 +174,7 @@ impl SceneState {
             transform,
             source_id,
             source_part,
+            report,
         });
         Some(new_id)
     }

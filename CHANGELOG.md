@@ -132,6 +132,19 @@ these notes and acknowledges contributors. `scripts/gen-changelog-draft.sh` and
   every "this setting will not take effect" warning, which it had been computing
   for other runtimes but never showing itself.
 
+- **Automatic mesh repair on import** — every model is now checked as it loads
+  and, where possible, fixed: holes are capped, cracked (unwelded) vertices are
+  merged, inside-out and inconsistently-wound triangles are turned the right
+  way round, and zero-area or duplicate triangles are dropped. Defective STLs
+  used to slice into broken contours and missing top/bottom surfaces with
+  nothing explaining why; now the UI raises a toast on import, the CLI logs a
+  warning during `slice`, and the new `slicer-engine mesh-check --input
+  model.stl` prints a full report (with `--output-format json` and a `--strict`
+  exit code for pipelines) without slicing anything. A clean model is never
+  touched, so nothing changes for well-formed files, and harmless zero-width
+  slits (T-junctions, which most exported STLs have) are recognised as such
+  rather than flagged. Pass `--no-mesh-repair` to slice the raw geometry as
+  authored.
 - **Export your profile library** — Settings → General now has a **Backup &
   Export** section that downloads every printer, filament, print profile and
   label as TOML. The default export is a ZIP bundle with one file per profile
