@@ -20,9 +20,11 @@ these notes and acknowledges contributors. `scripts/gen-changelog-draft.sh` and
 
 ## [Unreleased]
 
-A large release. The highlights, grouped so they're easy to scan.
+A big release. Notes are grouped by theme so they're easy to scan.
 
 ### Added
+
+#### Infill & surfaces
 
 - **Advanced infill options** — infill anchors (weld sparse lines to the wall and
   merge broken dashes into one continuous move — the biggest quality win here),
@@ -33,6 +35,12 @@ A large release. The highlights, grouped so they're easy to scan.
 - **Five more infill patterns** — `aligned-rectilinear`, `triangles`,
   `tri-hexagon`, `cubic` and `concentric`. OrcaSlicer's pattern names are accepted
   as-is, so imported profiles map without a translation table.
+- **Spiral (vase) mode** — `spiral_vase` (CLI `--spiral-vase`) prints a single
+  continuous outer wall whose Z ramps smoothly over each layer, for a seamless
+  single-wall vase with no Z-seam. Off by default.
+
+#### Multi-object build plates
+
 - **Cancel one object mid-print, or print objects one at a time** — the plate now
   tracks which part every extrusion belongs to. *Exclude object* wraps each part
   in firmware markers (Klipper `EXCLUDE_OBJECT_*`, Marlin / RepRapFirmware `M486`)
@@ -58,26 +66,17 @@ A large release. The highlights, grouped so they're easy to scan.
   plate. A new `--arrange` flag (with `--arrange-spacing` and
   `--arrange-auto-orient`) packs it without overlap, and the transform flags apply
   to every loaded model.
+
+#### Printer & firmware output
+
 - **Chamber temperature management** — the filament asks for a chamber temperature
   (with a hotter first-layer soak) and the printer says whether it can deliver it;
   only when both agree are directives emitted, with a safe soak sequence and
   Klipper's native commands. A start G-code that already heats the chamber keeps
   ownership.
-- **Settings tell you when they depend on something else** — a chamber temperature
-  set for a printer with no chamber heater now says plainly it won't take effect
-  and links to the fix. The CLI prints these warnings too.
 - **Z offset** — a per-printer `z_offset_mm` (Settings → Printers → Hardware)
   added to every Z coordinate written to the G-code, so it works on any firmware
   with no macro to maintain. Same meaning as in PrusaSlicer and OrcaSlicer.
-- **Automatic mesh repair on import** — holes are capped, cracked vertices welded,
-  inside-out triangles turned right-side-out, and zero-area or duplicate triangles
-  dropped. The UI raises a toast, the CLI logs a warning, and a new
-  `mesh-check` command prints a full report without slicing. Clean models are
-  never touched; pass `--no-mesh-repair` to slice the raw geometry.
-- **Export your profile library** — Settings → General downloads every printer,
-  filament, print profile and label as TOML (a ZIP bundle, or a single
-  `profiles.toml` the engine reads directly). Printer API keys are stripped, so
-  the export is safe to share.
 - **Dynamic overhang speed & cooling** — perimeter segments are graded by how much
   hangs over unsupported air, and each degree prints at its own speed with extra
   part-cooling. On by default.
@@ -85,15 +84,6 @@ A large release. The highlights, grouped so they're easy to scan.
   extruder distances, minimum-travel-before-retract, restart-extra prime,
   retract-on-layer-change, and wipe-while-retracting. All default to the previous
   behaviour.
-- **Spiral (vase) mode** — `spiral_vase` (CLI `--spiral-vase`) prints a single
-  continuous outer wall whose Z ramps smoothly over each layer, for a seamless
-  single-wall vase with no Z-seam. Off by default.
-- **Release notes inside the app** — Settings → What's New lists every release,
-  newest first, with the version you're running highlighted. The post-upgrade
-  dialog shows that same list.
-- **iPadOS / iOS target** — the Tauri shell now builds and runs on iPad with the
-  full slicing engine on-device. The `pnpm run ios:*` scripts drive the toolchain,
-  Xcode project generation, and a live-reload simulator build.
 - **Perimeter routing & ordering options** — `external_perimeters_first` (outer
   wall now printed last by default, matching PrusaSlicer/Orca/Cura),
   `extra_perimeters`, `thin_walls` (classic generator), and
@@ -116,6 +106,30 @@ A large release. The highlights, grouped so they're easy to scan.
   block: slicer version and timestamp, model name, layer count, height, filament
   usage, time estimate and bounding box. A new `filament_density_g_cm3` drives the
   weight.
+
+#### Models & profiles
+
+- **Automatic mesh repair on import** — holes are capped, cracked vertices welded,
+  inside-out triangles turned right-side-out, and zero-area or duplicate triangles
+  dropped. The UI raises a toast, the CLI logs a warning, and a new
+  `mesh-check` command prints a full report without slicing. Clean models are
+  never touched; pass `--no-mesh-repair` to slice the raw geometry.
+- **Export your profile library** — Settings → General downloads every printer,
+  filament, print profile and label as TOML (a ZIP bundle, or a single
+  `profiles.toml` the engine reads directly). Printer API keys are stripped, so
+  the export is safe to share.
+- **Settings tell you when they depend on something else** — a chamber temperature
+  set for a printer with no chamber heater now says plainly it won't take effect
+  and links to the fix. The CLI prints these warnings too.
+
+#### App, platform & tooling
+
+- **Release notes inside the app** — Settings → What's New lists every release,
+  newest first, with the version you're running highlighted. The post-upgrade
+  dialog shows that same list.
+- **iPadOS / iOS target** — the Tauri shell now builds and runs on iPad with the
+  full slicing engine on-device. The `pnpm run ios:*` scripts drive the toolchain,
+  Xcode project generation, and a live-reload simulator build.
 - **Slice diagnostics & bed-type tracking** — a `bed_type` setting is recorded in
   the header, and the `slice` CLI reports model height, filament usage and the
   estimated print time.
@@ -129,6 +143,8 @@ A large release. The highlights, grouped so they're easy to scan.
   hash, shown in Settings → General and reported by the CLI `info` command.
 
 ### Changed
+
+#### Infill accuracy & patterns
 
 - **Infill density is now accurate at every line width** — line spacing and the
   flow charged for each line both come from the real extrusion width, not a
@@ -148,6 +164,9 @@ A large release. The highlights, grouped so they're easy to scan.
 - **Top surfaces default to monotonic line, bottoms to monotonic** — a cleaner,
   direction-consistent finish that also stopped 106 mm² of top-surface material
   printing over the inner wall on a Voron cube.
+
+#### Docs & dependencies
+
 - **The documentation now leads with the product, not the architecture** — a
   proper guide to *using* Cold Crabby plus a teams track for self-hosting and
   configuration, with the engineering docs slimmed to a map. A banner notes the
@@ -159,15 +178,8 @@ A large release. The highlights, grouped so they're easy to scan.
 
 ### Fixed
 
-- **The documentation site failed to build** — a line of prose wrapped an inline
-  code span across a line break, leaking its placeholders out as raw, unclosed
-  HTML.
-- **The transform panel was blank whenever more than one object was selected** —
-  it now edits the whole selection: **Position** shifts every part by the same
-  amount (keeping your layout), while **Rotation**, **Scale** and **Size** apply
-  per part about each one's own centre.
-- **The arrange gap defaulted to 0 mm on a fresh install** — an unset preference
-  read back as `0` rather than "unset". It now starts at 4 mm.
+#### Print quality
+
 - **Your filament's cooling settings are now actually used** — Fan Speed, Bridge
   Fan Speed, First Layer Fan Speed and Fan Off For First Layers were shown and
   saved but ignored by the generator, so the part-cooling fan ran during the first
@@ -197,6 +209,18 @@ A large release. The highlights, grouped so they're easy to scan.
   scanline shattered into dashes), and `min_infill_extrusion_mm` also filters
   sparse infill. Together with the gap-fill fixes this cut isolated sub-0.8 mm
   extrusions on a 3DBenchy by ~76 %.
+
+#### Interface & import
+
+- **The documentation site failed to build** — a line of prose wrapped an inline
+  code span across a line break, leaking its placeholders out as raw, unclosed
+  HTML.
+- **The transform panel was blank whenever more than one object was selected** —
+  it now edits the whole selection: **Position** shifts every part by the same
+  amount (keeping your layout), while **Rotation**, **Scale** and **Size** apply
+  per part about each one's own centre.
+- **The arrange gap defaulted to 0 mm on a fresh install** — an unset preference
+  read back as `0` rather than "unset". It now starts at 4 mm.
 - **iPad Apple Pencil + two-finger navigation "spazzing"** — the viewport's
   pointer arbiter now classifies a whole gesture group at once, so a two-finger
   pan/pinch is never split into a stray single-finger camera rotate.
