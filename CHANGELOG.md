@@ -55,6 +55,11 @@ issue/PR numbers or repo links in the notes. See the tone rules in
   waits for the OS to signal a change instead of polling, so the flickering after
   login is gone and macOS stops re-checking on a timer too.
 
+- **No more launch hang on Windows** — the desktop app used to open a blank,
+  unresponsive window for a moment on Windows before it became usable. Its window
+  now stays hidden until the interface has actually drawn, so the app appears
+  fully rendered and ready the instant you see it.
+
 ### Changed
 
 - **Live accent tracking is event-driven** — the desktop app now updates its
