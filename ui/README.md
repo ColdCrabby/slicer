@@ -275,7 +275,7 @@ The UI follows the project [`.editorconfig`](.editorconfig) and is formatted wit
 - **No client-side slicing.** The browser only handles scene placement and preview. The slice runs on the server, against the same Rust core.
 - **No second source of truth for transforms.** All placement state lives in the WASM `SceneHandle`. The UI reads from it, never duplicates it.
 - **No hand-written API types.** If a Rust struct changes, regenerate; do not patch the `.d.ts`.
-- **No bundled meshes.** Test fixtures live in [`/stls`](../stls/) and [`/tests/fixtures`](../tests/fixtures/) at the repo root.
+- **No bundled meshes.** Test fixtures live in `/stls` and [`/tests/fixtures`](../tests/fixtures/) at the repo root.
 - **No undo across sessions.** The `SceneHistory` stack is in-memory and is cleared on page reload or navigation. Persistence is a future concern.
 - **No undo for mesh uploads / removes.** Re-adding an object requires the original mesh bytes, which are not retained in the history stack. Only transforms are restored on undo.
 

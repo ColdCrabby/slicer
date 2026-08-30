@@ -551,6 +551,6 @@ can earn full detail back), or the user changes the preference.
 - [gcode-layer-renderer.ts](gcode-layer-renderer.ts) — layer builder and visibility helpers
 - [viewer.ts](viewer.ts) — Angular component wiring
 - [../../services/viewer-control.ts](../../services/viewer-control.ts) — `ObjectMode`, `ViewerControl` signal store
-- [../../services/scene-engine.service.ts](../../services/scene-engine.service.ts) — `SceneEngineService`, `getFaceGroups`
+- [../../services/scene-engine.ts](../../services/scene-engine.ts) — `SceneEngine`, `getFaceGroups`
 - [../../../../src/mesh/README.md](../../../../../src/mesh/README.md) — coplanar group algorithm
 - [../../../../src/scene/README.md](../../../../../src/scene/README.md) — scene engine SSOT contract

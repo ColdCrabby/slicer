@@ -138,5 +138,5 @@ let gcode = generate_gcode(&layers, &params);
 
 - [Mesh Loading](mesh/README.md) – How STL is parsed
 - [Settings](settings/README.md) – Layer height configuration
-- [G-code](../gcode.rs) – Converting layers to printer commands
+- [G-code](gcode/README.md) – Converting layers to printer commands
 - [Root](../README.md) – Overview
