@@ -58,6 +58,14 @@ pub enum SceneOpJs {
     Remove {
         id: u64,
     },
+    RemoveMany {
+        ids: Vec<u64>,
+    },
+    Duplicate {
+        id: u64,
+        #[serde(default)]
+        offset: [f64; 3],
+    },
     Translate {
         id: u64,
         delta: [f64; 3],
@@ -109,6 +117,14 @@ pub struct SceneObjectJs {
     pub scale: [f32; 3],
     pub triangle_count: usize,
     pub world_aabb: [[f64; 3]; 2],
+    /// Upload/file handle this object was loaded from, when known.
+    pub source_id: Option<String>,
+    /// Index of this object within its source file (0 for single-part files).
+    pub source_part: usize,
+    /// Part of the object falls outside the printable volume.
+    pub out_of_bounds: bool,
+    /// The object's footprint overlaps another object's.
+    pub collides: bool,
 }
 
 /// JS-friendly snapshot of the bed.
@@ -199,9 +215,24 @@ impl SceneHandle {
     }
 
     /// Add a mesh from raw bytes. `format` must be `"stl"`, `"obj"`, or `"3mf"`.
-    /// Returns the assigned object id.
+    /// Returns the assigned object ids.
+    ///
+    /// A 3MF holding several parts yields **one id per part**, so a multi-model
+    /// file lands on the plate as separate, individually selectable objects.
+    /// STL and OBJ always yield exactly one.
+    ///
+    /// `source_id` is an opaque handle (typically the uploaded file's UUID)
+    /// stored on every created object so the caller can later map them back to
+    /// the bytes they came from. Pass `undefined` when there is nothing to
+    /// correlate.
     #[wasm_bindgen(js_name = addMesh)]
-    pub fn add_mesh(&mut self, name: String, format: &str, bytes: &[u8]) -> Result<u64, JsValue> {
+    pub fn add_mesh(
+        &mut self,
+        name: String,
+        format: &str,
+        bytes: &[u8],
+        source_id: Option<String>,
+    ) -> Result<Vec<u64>, JsValue> {
         let format = MeshFormat::from_extension(format)
             .ok_or_else(|| JsValue::from_str(&format!("unknown mesh format '{}'", format)))?;
         let receipt = self
@@ -210,12 +241,13 @@ impl SceneHandle {
                 name,
                 format,
                 bytes: bytes.to_vec(),
+                source_id,
             })
             .map_err(|e| JsValue::from_str(&e.to_string()))?;
-        // The Add op records its inverse as Remove { id }; pluck the id back out.
+        // The Add op records its inverse as RemoveMany { ids }; pluck them back out.
         match receipt.inverse {
-            SceneOp::Remove { id } => Ok(id.0),
-            _ => unreachable!("Add op always returns a Remove inverse"),
+            SceneOp::RemoveMany { ids } => Ok(ids.into_iter().map(|id| id.0).collect()),
+            _ => unreachable!("Add op always returns a RemoveMany inverse"),
         }
     }
 
@@ -334,12 +366,17 @@ impl SceneHandle {
     /// Full scene snapshot suitable for driving Angular signals.
     #[wasm_bindgen]
     pub fn snapshot(&self) -> Result<JsValue, JsValue> {
+        // Placement is O(n²) over objects but n is the number of models on a
+        // plate (tens at most), and this runs once per snapshot rather than
+        // per frame.
+        let placement = self.inner.placement_report();
         let snap = SceneSnapshotJs {
             objects: self
                 .inner
                 .objects
                 .iter()
-                .map(|o| {
+                .zip(placement.iter())
+                .map(|(o, p)| {
                     let world = o.world_aabb();
                     SceneObjectJs {
                         id: o.id.0,
@@ -352,6 +389,10 @@ impl SceneHandle {
                             [world.min.x, world.min.y, world.min.z],
                             [world.max.x, world.max.y, world.max.z],
                         ],
+                        source_id: o.source_id.clone(),
+                        source_part: o.source_part,
+                        out_of_bounds: p.out_of_bounds,
+                        collides: p.collides,
                     }
                 })
                 .collect(),
@@ -404,29 +445,37 @@ impl SceneHandle {
             ));
         }
 
-        let mut combined = crate::mesh::types::Mesh::new();
-        for object in &self.inner.objects {
-            let baked = crate::scene::apply_transform(object.mesh.as_ref(), &object.transform);
-            combined.vertices.extend(baked.vertices);
-            combined.faces.extend(baked.faces);
-        }
+        // Keep the plate's objects apart and let `slice_plate` decide whether
+        // it can merge them — the browser slicer honours exclude-object and
+        // sequential printing exactly like the CLI and the server do.
+        let plate_objects: Vec<crate::core::ObjectInput> = self
+            .inner
+            .objects
+            .iter()
+            .map(|object| {
+                crate::core::ObjectInput::new(
+                    object.name.clone(),
+                    crate::scene::apply_transform(object.mesh.as_ref(), &object.transform),
+                )
+            })
+            .collect();
 
-        if combined.faces.is_empty() {
+        if plate_objects.iter().all(|o| o.mesh.faces.is_empty()) {
             return Err(JsValue::from_str(
                 "combined scene has no triangles; nothing to slice",
             ));
         }
 
         let logger = WasmSliceLogger::new(callback);
-        let layers = crate::core::process_mesh(&combined, &params, &logger);
-        let layer_count = layers.len();
+        let plate = crate::core::slice_plate(&plate_objects, &params, &logger);
+        let layer_count = plate.layers.len();
         logger.emit_progress(layer_count, layer_count);
 
         let t_gcode =
             crate::logging::PhaseTimer::start(crate::logging::phases::GCODE_GENERATION, &logger);
         let result = SliceResultJs {
             layer_count,
-            gcode: crate::gcode::generate_gcode_from_params(&layers, &params),
+            gcode: crate::gcode::generate_gcode_for_plate(&plate, &params),
         };
         t_gcode.finish();
 
@@ -437,12 +486,19 @@ impl SceneHandle {
 #[cfg(feature = "web-slicer")]
 struct WasmSliceLogger {
     callback: Option<Function>,
+    /// Current object scope `(index, count)`, both 1-based, or `(0, 0)` for a
+    /// single merged slice. `Cell` is enough — the logger runs synchronously on
+    /// one worker thread (see the `unsafe impl Sync` note below).
+    object_scope: std::cell::Cell<(u32, u32)>,
 }
 
 #[cfg(feature = "web-slicer")]
 impl WasmSliceLogger {
     fn new(callback: Option<Function>) -> Self {
-        Self { callback }
+        Self {
+            callback,
+            object_scope: std::cell::Cell::new((0, 0)),
+        }
     }
 
     fn emit_log(&self, level: &str, message: &str) {
@@ -460,6 +516,11 @@ impl WasmSliceLogger {
         set_js_str(&event, "event", event_name);
         if let Some(elapsed_ms) = elapsed_ms {
             set_js_num(&event, "elapsed_ms", elapsed_ms as f64);
+        }
+        let (object, count) = self.object_scope.get();
+        if count > 0 {
+            set_js_num(&event, "object", object as f64);
+            set_js_num(&event, "object_count", count as f64);
         }
         self.emit(event);
     }
@@ -500,6 +561,14 @@ impl crate::logging::ProcessLogger for WasmSliceLogger {
     fn log_phase_end(&self, phase: &str, elapsed_ms: u64) {
         self.emit_phase(phase, "end", Some(elapsed_ms));
     }
+
+    fn set_object_scope(&self, index: usize, count: usize) {
+        self.object_scope.set((index as u32, count as u32));
+    }
+
+    fn clear_object_scope(&self) {
+        self.object_scope.set((0, 0));
+    }
 }
 
 // The callback is invoked synchronously on the worker thread that owns the
@@ -523,6 +592,13 @@ fn set_js_num(object: &Object, key: &str, value: f64) {
 fn js_to_op(op: SceneOpJs) -> SceneOp {
     match op {
         SceneOpJs::Remove { id } => SceneOp::Remove { id: ObjectId(id) },
+        SceneOpJs::RemoveMany { ids } => SceneOp::RemoveMany {
+            ids: ids.into_iter().map(ObjectId).collect(),
+        },
+        SceneOpJs::Duplicate { id, offset } => SceneOp::Duplicate {
+            id: ObjectId(id),
+            offset,
+        },
         SceneOpJs::Translate { id, delta } => SceneOp::Translate {
             id: ObjectId(id),
             delta,

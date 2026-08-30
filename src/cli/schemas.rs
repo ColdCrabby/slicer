@@ -47,7 +47,12 @@ pub struct InfoResultSchema {
 #[derive(Serialize, Deserialize, JsonSchema, Debug, Clone)]
 pub struct SliceResultSchema {
     pub status: String,
+    /// Comma-joined summary of every model on the plate.
     pub input: String,
+    /// File name of every model on the plate, in placement order.
+    pub inputs: Vec<String>,
+    /// Number of models merged into this slice.
+    pub input_count: u32,
     pub layer_height: f64,
     pub layer_count: u32,
     #[serde(skip_serializing_if = "Option::is_none")]

@@ -227,6 +227,19 @@ pub struct SliceLayer {
     /// full stacked height. Nothing else overrides it, so this vector is empty
     /// on an ordinary print.
     pub path_heights: Vec<Option<f64>>,
+    /// Per-path owning **print object** index, for firmware object exclusion
+    /// (`EXCLUDE_OBJECT` / `M486`) and sequential printing.
+    ///
+    /// `path_objects[i]` identifies which object on the plate produced
+    /// `paths[i]`, indexing into the plate's object list
+    /// ([`crate::core::PlateSlice::objects`]).  `None` — and any index past the
+    /// end of the vector — means the path belongs to **no** object: bed
+    /// adhesion (skirt / brim / raft) covers the whole plate and must never be
+    /// cancelled with a single part.
+    ///
+    /// Left empty by the single-mesh pipeline; populated only when the plate is
+    /// sliced object by object (see [`crate::core::slice_plate`]).
+    pub path_objects: Vec<Option<usize>>,
 }
 
 impl SliceLayer {
@@ -243,6 +256,7 @@ impl SliceLayer {
             path_is_open: Vec::new(),
             path_overhang: Vec::new(),
             path_heights: Vec::new(),
+            path_objects: Vec::new(),
         }
     }
 
@@ -294,5 +308,13 @@ impl SliceLayer {
     /// sets it.
     pub fn height_for_path(&self, i: usize) -> Option<f64> {
         self.path_heights.get(i).copied().flatten()
+    }
+
+    /// Return the owning print-object index for path `i`, if any.
+    ///
+    /// `None` for plate-wide geometry (bed adhesion) and for every path of a
+    /// layer that was not sliced object-aware.
+    pub fn object_for_path(&self, i: usize) -> Option<usize> {
+        self.path_objects.get(i).copied().flatten()
     }
 }

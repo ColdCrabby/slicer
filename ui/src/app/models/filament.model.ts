@@ -49,16 +49,20 @@ export const MATERIAL_DENSITY: Record<FilamentMaterial, number> = {
  * Typical starting slice params per material (engine-native units: fan speeds
  * are fractions 0–1). Used to pre-fill the wizard when the user picks a
  * material, mirroring the engine's `FilamentMaterial::default_params`.
+ *
+ * `fanMax` is the material's cooling *ceiling* — the process's adaptive fan
+ * curve is clamped to it — and `chamber` only becomes a real heat directive
+ * when the selected printer declares `heated_chamber`.
  */
 export const MATERIAL_PARAMS: Record<FilamentMaterial, Record<string, unknown>> = {
-  PLA: mat(210, 215, 60, 60, 1.0, 1.0, 15),
-  PETG: mat(240, 245, 80, 80, 0.4, 0.6, 12),
-  ABS: mat(250, 255, 100, 105, 0.0, 0.3, 11),
-  ASA: mat(250, 255, 100, 105, 0.0, 0.3, 11),
-  TPU: mat(230, 235, 40, 45, 0.5, 0.8, 4),
-  PC: mat(270, 275, 110, 110, 0.0, 0.2, 10),
-  Nylon: mat(260, 265, 90, 90, 0.0, 0.2, 10),
-  PVA: mat(215, 220, 60, 60, 0.3, 0.5, 6),
+  PLA: mat(210, 215, 60, 60, 1.0, 1.0, 15, 0),
+  PETG: mat(240, 245, 80, 80, 0.6, 1.0, 12, 0),
+  ABS: mat(250, 255, 100, 105, 0.3, 0.4, 11, 50),
+  ASA: mat(250, 255, 100, 105, 0.3, 0.4, 11, 50),
+  TPU: mat(230, 235, 40, 45, 0.8, 1.0, 4, 0),
+  PC: mat(270, 275, 110, 110, 0.2, 0.3, 10, 60),
+  Nylon: mat(260, 265, 90, 90, 0.2, 0.3, 10, 45),
+  PVA: mat(215, 220, 60, 60, 0.5, 1.0, 6, 0),
 };
 
 function mat(
@@ -66,17 +70,20 @@ function mat(
   nozzleFirst: number,
   bed: number,
   bedFirst: number,
-  fanMin: number,
   fanMax: number,
+  bridgeFan: number,
   vmax: number,
+  chamber: number,
 ): Record<string, unknown> {
   return {
     nozzle_temp: nozzle,
     nozzle_temp_first_layer: nozzleFirst,
     bed_temp: bed,
     bed_temp_first_layer: bedFirst,
-    first_layer_fan_speed: fanMin,
+    chamber_temp: chamber,
+    first_layer_fan_speed: 0.0,
     fan_speed: fanMax,
+    bridge_fan_speed: bridgeFan,
     max_volumetric_speed: vmax,
     disable_fan_first_layers: 1,
     flow_ratio: 1.0,

@@ -32,8 +32,11 @@ function so the order is impossible to misread.
 
 ## The contract
 
-1. **`process_mesh` is the only public entry point** for the full pipeline.
-   The CLI, the WS server, and the wasm preview all call it. There is no
+1. **`process_mesh` is the only public entry point** for the full pipeline —
+   and [`slice_plate`](objects.rs) is the only way to reach *it*. The CLI, the
+   WS server, the wasm preview and the desktop bridge all hand `slice_plate` a
+   list of placed objects; it decides whether the plate can be merged into one
+   mesh (the default) or has to be sliced object by object. There is no
    "subset" pipeline; partial slicing is achieved by feeding fewer params,
    not by skipping steps.
 2. **All progress is reported through `ProcessLogger`.** No `eprintln!`,
@@ -45,6 +48,10 @@ function so the order is impossible to misread.
 4. **`SliceLayer` is the sole carrier between phases.** Each phase reads from
    and writes back into the same `Vec<SliceLayer>`; nothing escapes to
    global state.
+5. **Object identity is added around the pipeline, never inside it.** A part
+   knows nothing of its neighbours: [`objects.rs`](objects.rs) slices each one
+   with the untouched pipeline and only then tags and interleaves the results.
+   No phase branches on "which object is this?".
 
 ---
 
@@ -59,6 +66,7 @@ classDiagram
         +path_widths: Vec~Option~f64~~
         +solid_regions: Paths
         +unsupported_regions: Paths
+        +path_objects: Vec~Option~usize~~
     }
     class ExtrusionRole {
         <<enum>>
@@ -75,8 +83,12 @@ classDiagram
     SliceLayer "1" *-- "*" ExtrusionRole : path_roles
 ```
 
-`paths`, `path_roles`, and `path_widths` are parallel arrays — index `i`
-identifies the same emitted contour across all three. `solid_regions` is a
+`paths`, `path_roles`, `path_widths` and `path_objects` are parallel arrays —
+index `i` identifies the same emitted contour across all of them. `path_objects`
+follows the `path_overhang` convention: **empty means "not sliced object-aware"**
+and a `None` entry means "belongs to no object" (plate-wide bed adhesion). Any
+helper that rebuilds these arrays has to carry every one of them, or the tags
+shift onto the wrong paths. `solid_regions` is a
 union of every top / bottom surface area on this layer; sparse infill
 subtracts from it to avoid double-printing. `unsupported_regions` is the raw
 layer footprint that has nothing solid in the layer below; the wall-

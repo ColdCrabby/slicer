@@ -17,6 +17,7 @@ import { SceneEngine } from './scene-engine';
 import { AppVersion } from './app-version';
 import { ConnectionStatus, SlicerConnection } from './slicer-connection';
 import { SlicerFile, UploadResponse } from './slicer-file';
+import { WorkplateObjects } from './workplate-objects';
 import {
   ViewerControl,
   type ThumbnailColorMode,
@@ -24,6 +25,7 @@ import {
   type ThumbnailView,
 } from './viewer-control';
 import { WorkplateNames } from './workplate-names';
+import { sliceProgressPercent, type ObjectScope, type PhaseTimingData } from './slicer-progress';
 
 /** Human-readable label for each pipeline phase. */
 export const PHASE_LABELS: Record<string, string> = {
@@ -64,33 +66,12 @@ export function formatDuration(ms: number): string {
  * Proportional weights per phase derived from typical Benchy timings.
  * `total` is the outer span and excluded from progress accumulation.
  */
-const PHASE_WEIGHTS: Record<string, number> = {
-  mesh_load: 6,
-  mesh_analysis: 1,
-  slicing: 46,
-  wall_generation: 11,
-  infill_region_snapshot: 4,
-  wall_restrictions: 7,
-  interior_regions: 4,
-  surfaces: 8,
-  infill: 2,
-  gcode_generation: 13,
-  file_write: 1,
-};
-const PHASE_TOTAL_WEIGHT = Object.values(PHASE_WEIGHTS).reduce((a, b) => a + b, 0);
 
 /** Maximum time (ms) to wait for a slice operation before timing out. */
 const SLICE_TIMEOUT_MS = 30 * 60 * 1000; // 30 minutes
 const DEFAULT_THUMBNAIL_SIZE_PX = 320;
 
 export type SlicerStatus = 'idle' | 'ready' | 'uploading' | 'slicing' | 'done' | 'error';
-
-export interface PhaseTimingData {
-  phase: string;
-  startTime?: number;
-  endTime?: number;
-  elapsedMs?: number;
-}
 
 export interface WorkplateStart {
   requestUuid: string;
@@ -103,6 +84,7 @@ export class Slicer {
   private readonly slicerFile = inject(SlicerFile);
   private readonly notifications = inject(NotificationService);
   private readonly sceneEngine = inject(SceneEngine);
+  private readonly workplateObjects = inject(WorkplateObjects);
   private readonly activeSelection = inject(ActiveSelection);
   private readonly appVersion = inject(AppVersion);
   private readonly viewerControl = inject(ViewerControl);
@@ -204,6 +186,28 @@ export class Slicer {
 
   /** Name of the pipeline phase currently executing, or `null` when idle. */
   readonly currentPhase = signal<string | null>(null);
+
+  /**
+   * Object scope of the running slice. `{ current: 1, count: 1 }` for a single
+   * merged slice; on a plate sliced object-by-object the engine reports which
+   * object of how many each phase belongs to.
+   */
+  readonly objectScope = signal<ObjectScope>({ current: 1, count: 1 });
+
+  /**
+   * Phase label for the status line, suffixed with "(i of N)" while a
+   * multi-object plate is being sliced object-by-object so the user sees the
+   * pipeline advance through each part instead of the same phase name
+   * apparently repeating.
+   */
+  readonly currentPhaseLabel = computed(() => {
+    const phase = this.currentPhase();
+    if (!phase) return null;
+    const label = PHASE_LABELS[phase] ?? phase;
+    const { current, count } = this.objectScope();
+    return count > 1 ? `${label} (${current} of ${count})` : label;
+  });
+
   private objectUrl: string | null = null;
 
   /**
@@ -219,24 +223,29 @@ export class Slicer {
    * Overall slice progress 0–100.
    *
    * - When `status === 'done'`, always returns 100.
-   * - Each phase has a known proportional weight. Completed phases (those with
-   *   an `endTime`) are stacked in order; their cumulative weight over the
-   *   total determines the percentage.
+   * - Each phase has a known proportional weight. On a plate sliced
+   *   object-by-object the pipeline runs once per object, so progress is the
+   *   fraction of objects already finished plus the weighted fraction of the
+   *   current object's phases — never the raw sum, which would jump backwards
+   *   every time a new object restarts the pipeline.
+   * - Wrapped in a monotonic floor ({@link progressFloor}) so a late-arriving
+   *   or out-of-order marker can never make the bar retreat mid-slice.
    * - Capped at 99 until `SliceComplete` arrives to avoid a premature 100%.
    */
+  private readonly progressCandidate = computed(() =>
+    sliceProgressPercent(this.phaseTimings(), this.objectScope()),
+  );
+
+  /**
+   * High-water mark of {@link progressCandidate} for the running slice, reset
+   * to 0 when the slice state is cleared. This is what guarantees the bar only
+   * ever moves forward, whatever order the phase markers arrive in.
+   */
+  private readonly progressFloor = signal(0);
+
   readonly sliceProgress = computed(() => {
     if (this.status() === 'done') return 100;
-
-    const timings = this.phaseTimings();
-    let completedWeight = 0;
-
-    for (const t of timings) {
-      if (t.endTime != null && t.phase !== 'total' && PHASE_WEIGHTS[t.phase] != null) {
-        completedWeight += PHASE_WEIGHTS[t.phase];
-      }
-    }
-
-    return Math.min(99, Math.round((completedWeight / PHASE_TOTAL_WEIGHT) * 100));
+    return Math.min(99, Math.max(this.progressCandidate(), this.progressFloor()));
   });
 
   /**
@@ -264,6 +273,18 @@ export class Slicer {
 
   constructor() {
     this.orchestrator.onEvent((event) => this.handleRuntimeEvent(event));
+
+    // Raise the monotonic progress floor whenever the candidate advances, so
+    // the bar never retreats even as the per-object pipeline restarts.
+    effect(() => {
+      const candidate = this.progressCandidate();
+      untracked(() => {
+        if (candidate > this.progressFloor()) {
+          this.progressFloor.set(candidate);
+        }
+      });
+    });
+
     this.orchestrator.init().catch((error) => {
       this.runtimeConnected.set(false);
       this.status.set('error');
@@ -301,8 +322,20 @@ export class Slicer {
     phase: string;
     event: string;
     elapsed_ms?: number | null;
+    object?: number | null;
+    objectCount?: number | null;
   }): void {
     const now = Date.now();
+    const object = msg.object ?? undefined;
+
+    // Adopt the object scope reported alongside the marker. A merged slice
+    // reports none, which resolves to the default single-object scope.
+    if (msg.objectCount != null && msg.objectCount > 0) {
+      this.objectScope.set({ current: msg.object ?? 1, count: msg.objectCount });
+    }
+
+    const sameEntry = (t: PhaseTimingData): boolean =>
+      t.phase === msg.phase && (t.object ?? undefined) === object;
 
     if (msg.event === 'start') {
       // Phase started - track as the current active phase and add timing entry
@@ -310,21 +343,21 @@ export class Slicer {
         this.currentPhase.set(msg.phase);
       }
       this.phaseTimings.update((timings) => {
-        const existing = timings.find((t) => t.phase === msg.phase);
+        const existing = timings.find(sameEntry);
         if (existing) {
           existing.startTime = now;
           existing.endTime = undefined;
           existing.elapsedMs = undefined;
           return [...timings];
         } else {
-          return [...timings, { phase: msg.phase, startTime: now }];
+          return [...timings, { phase: msg.phase, startTime: now, object }];
         }
       });
       this.outputLog.update((l) => [...l, `[phase] ${msg.phase} → start`]);
     } else if (msg.event === 'end' && msg.elapsed_ms != null) {
       // Phase ended - update with elapsed time
       this.phaseTimings.update((timings) => {
-        const existing = timings.find((t) => t.phase === msg.phase);
+        const existing = timings.find(sameEntry);
         if (existing) {
           existing.endTime = now;
           existing.elapsedMs = msg.elapsed_ms ?? undefined;
@@ -333,7 +366,7 @@ export class Slicer {
           // Phase end without start (shouldn't happen, but handle it)
           return [
             ...timings,
-            { phase: msg.phase, endTime: now, elapsedMs: msg.elapsed_ms ?? undefined },
+            { phase: msg.phase, endTime: now, elapsedMs: msg.elapsed_ms ?? undefined, object },
           ];
         }
       });
@@ -356,13 +389,20 @@ export class Slicer {
         this.outputLog.update((log) => [...log, `[${event.level}] ${event.message}`]);
         break;
       case 'phase-start':
-        this.handlePhaseMarker({ phase: event.phase, event: 'start' });
+        this.handlePhaseMarker({
+          phase: event.phase,
+          event: 'start',
+          object: event.object ?? null,
+          objectCount: event.objectCount ?? null,
+        });
         break;
       case 'phase-end':
         this.handlePhaseMarker({
           phase: event.phase,
           event: 'end',
           elapsed_ms: event.elapsedMs ?? null,
+          object: event.object ?? null,
+          objectCount: event.objectCount ?? null,
         });
         break;
       case 'progress':
@@ -524,6 +564,8 @@ export class Slicer {
     // Reset phase state for fresh run
     this.phaseTimings.set([]);
     this.currentPhase.set(null);
+    this.objectScope.set({ current: 1, count: 1 });
+    this.progressFloor.set(0);
     this.lastSliceElapsedMs.set(null);
     this.sliceStartedAt = null;
     this.setDownloadUrl(null);
@@ -683,6 +725,8 @@ export class Slicer {
     this.outputLog.set([]);
     this.phaseTimings.set([]);
     this.currentPhase.set(null);
+    this.objectScope.set({ current: 1, count: 1 });
+    this.progressFloor.set(0);
     this.sliceStartedAt = null;
     this.lastSliceElapsedMs.set(null);
     this.setDownloadUrl(null);
@@ -706,6 +750,7 @@ export class Slicer {
    */
   async resetWorkplate(): Promise<void> {
     this.reset();
+    this.workplateObjects.clearPending();
     await this.sceneEngine.clear();
   }
 
@@ -848,6 +893,11 @@ export class Slicer {
         scale: object.scale,
         triangle_count: object.triangle_count,
         world_aabb: object.world_aabb,
+        // Must be carried: this snapshot is what the cloud runtime slices
+        // from, and without the source id every object falls back to the
+        // first upload — slicing one model N times instead of N models.
+        source_id: object.source_id,
+        source_part: object.source_part,
       })),
     };
   }

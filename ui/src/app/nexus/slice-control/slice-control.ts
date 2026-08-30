@@ -12,7 +12,7 @@ import { GcodePreview } from '../../services/gcode-preview';
 import { PrinterConnectionService } from '../../services/printer-connection';
 import { ActiveSelection } from '../../services/profiles/active-selection';
 import { BrowserStorage } from '../../services/browser-storage';
-import { formatDuration, PHASE_LABELS, Slicer } from '../../services/slicer';
+import { formatDuration, Slicer } from '../../services/slicer';
 import { FloatingService } from '../../shared/floating';
 import type { FloatingRef } from '../../shared/floating';
 import { Icon } from '../../shared/icon/icon';
@@ -108,8 +108,7 @@ export class SliceControl {
     if (s === 'error') return 'Slice failed — check the status panel';
     if (s === 'uploading') return 'Uploading model…';
     if (s === 'slicing') {
-      const phase = this.slicer.currentPhase();
-      return phase ? (PHASE_LABELS[phase] ?? phase) : 'Preparing…';
+      return this.slicer.currentPhaseLabel() ?? 'Preparing…';
     }
     if (this.isStale()) return 'Scene changed — re-slice to update';
     if (s === 'done') {

@@ -73,6 +73,13 @@ impl Default for TransformDto {
 pub struct SceneObjectSliceDto {
     /// File identifier from `ofids` in the upload response.
     pub file_id: String,
+    /// Which object *within* that file this refers to (0-based, build order).
+    ///
+    /// A 3MF holds a whole scene, so one upload can back several plate
+    /// objects. Without this the server would re-load the entire file for
+    /// each of them and print every part once per part.
+    #[serde(default)]
+    pub part_index: usize,
     /// Transform to bake into the mesh before slicing.
     #[serde(default)]
     pub transform: TransformDto,
@@ -93,6 +100,17 @@ pub enum SceneOpDto {
     },
     /// Remove an object by id.
     Remove { id: u64 },
+    /// Remove several objects at once (the inverse of adding a multi-part file).
+    RemoveMany { ids: Vec<u64> },
+    /// Clone an object, sharing the original's mesh and source file.
+    ///
+    /// `offset` (scene mm) nudges the copy so it does not land exactly on
+    /// top of the original.
+    Duplicate {
+        id: u64,
+        #[serde(default)]
+        offset: [f64; 3],
+    },
     /// Translate by `[x, y, z]` mm.
     Translate { id: u64, delta: [f64; 3] },
     /// Replace the full transform: translation (mm), Euler-XYZ degrees, scale.
@@ -288,6 +306,15 @@ pub enum ServerMessage {
         /// Elapsed time in milliseconds. Only present when `event` is `"end"`.
         #[serde(skip_serializing_if = "Option::is_none")]
         elapsed_ms: Option<u64>,
+        /// 1-based index of the object this phase belongs to, on a plate sliced
+        /// object-by-object. Absent for a single merged slice.
+        #[serde(skip_serializing_if = "Option::is_none")]
+        object: Option<u32>,
+        /// Total number of objects being sliced individually. Absent for a
+        /// single merged slice. Lets the UI show "(2 of 3)" and keep progress
+        /// moving forward across per-object pipeline restarts.
+        #[serde(skip_serializing_if = "Option::is_none")]
+        object_count: Option<u32>,
     },
     /// Incremental slicing progress.
     Progress {

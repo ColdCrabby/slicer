@@ -651,9 +651,11 @@ G1 X0 Y0 E4 F6000
 
     #[test]
     fn from_params_maps_zero_scv_to_default_and_passes_velocity() {
-        let mut params = crate::settings::params::SlicingParams::default();
-        params.square_corner_velocity = 0.0; // → estimator default
-        params.max_velocity = 250.0;
+        let mut params = crate::settings::params::SlicingParams {
+            square_corner_velocity: 0.0, // → estimator default
+            max_velocity: 250.0,
+            ..Default::default()
+        };
         let cfg = EstimatorConfig::from_params(&params);
         assert!(
             (cfg.square_corner_velocity_mm_s - DEFAULT_SQUARE_CORNER_VELOCITY_MM_S).abs() < 1e-9

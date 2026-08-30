@@ -218,6 +218,7 @@
                   <nexus-param-field
                     [field]="field"
                     [value]="paramsOf(filament)[field.key]"
+                    [siblings]="siblingsFor(filament)"
                     (valueChange)="setParam(filament.id, field.key, $event)"
                   />
                 }

@@ -121,6 +121,22 @@ pub trait GcodeDialect: Send + Sync {
         }
     }
 
+    /// Set the heated-chamber temperature.
+    ///
+    /// When `wait` is `true` the firmware blocks until the chamber reaches the
+    /// target (`M191`); otherwise it sets the target and returns immediately
+    /// (`M141`), letting the chamber heat while the bed and nozzle warm up.
+    ///
+    /// Only emitted when the printer profile declares `heated_chamber` — a
+    /// machine without a chamber heater has no business receiving these.
+    fn set_chamber_temp(&self, temp: f64, wait: bool) -> String {
+        if wait {
+            format!("M191 S{:.0}", temp)
+        } else {
+            format!("M141 S{:.0}", temp)
+        }
+    }
+
     /// Move to `(x, y)` while extruding filament to absolute E position `e`
     /// at `speed_mm_min` mm/min.
     fn move_extrude(&self, x: f64, y: f64, e: f64, speed_mm_min: f64) -> String {
@@ -339,5 +355,55 @@ pub trait GcodeDialect: Send + Sync {
                 restart_extra_mm, retract_speed_mm_min
             ),
         ]
+    }
+
+    // ── Object exclusion (issue #22) ─────────────────────────────────────────
+    //
+    // Three commands let a firmware attribute every move to a named object and
+    // cancel one mid-print.  The defaults implement the **`M486`** standard
+    // (Marlin 2.0.9.3+, RepRapFirmware, Prusa); Klipper overrides them with its
+    // `EXCLUDE_OBJECT_*` macros, which additionally carry the footprint so the
+    // firmware knows where a cancelled object lives.
+
+    /// Declare the plate's objects, once, before the first print move.
+    ///
+    /// `objects` are the plate's [`ObjectIdentity`](crate::core::ObjectIdentity)
+    /// records in index order.  Returns the lines to emit; empty for a plate
+    /// with no tracked objects.
+    fn object_definitions(&self, objects: &[crate::core::ObjectIdentity]) -> Vec<String> {
+        if objects.is_empty() {
+            return Vec::new();
+        }
+        // `M486 T<n>` tells the firmware how many objects to expect so its
+        // cancel UI can list them before any has been started.
+        let mut lines = vec![format!("M486 T{} ; object count", objects.len())];
+        for object in objects {
+            lines.push(format!(
+                "; object {} = {} (center {:.3},{:.3})",
+                object.index, object.name, object.center.0, object.center.1
+            ));
+        }
+        lines
+    }
+
+    /// Begin the block of moves belonging to `object`.
+    ///
+    /// `first_use` is `true` the first time this object is started, which is
+    /// where a dialect that names objects inline (`M486 A"…"`) should do so
+    /// instead of repeating the name on every layer.
+    fn object_start(&self, object: &crate::core::ObjectIdentity, first_use: bool) -> String {
+        if first_use {
+            format!("M486 S{} A\"{}\"", object.index, object.name)
+        } else {
+            format!("M486 S{}", object.index)
+        }
+    }
+
+    /// End the block of moves belonging to `object`.
+    ///
+    /// `M486 S-1` marks the following moves as belonging to no object, which is
+    /// how the standard expresses "end of object".
+    fn object_end(&self, _object: &crate::core::ObjectIdentity) -> String {
+        "M486 S-1".to_string()
     }
 }

@@ -16,7 +16,9 @@ export interface RuntimePort {
    *  Only implemented by runtimes that support native file access (e.g. Tauri).
    *  Returns `null` when the user cancels the dialog. */
   openFilePicker?(): Promise<RuntimeMeshInput | null>;
-  addMesh(input: RuntimeMeshInput): Promise<string>;
+  /** Add a mesh, returning the id of every scene object it created.
+   *  A multi-part file (3MF) yields one id per part; STL/OBJ yield one. */
+  addMesh(input: RuntimeMeshInput): Promise<string[]>;
   applySceneOps(ops: RuntimeSceneOp[]): Promise<void>;
   getSceneSnapshot(): Promise<RuntimeSceneSnapshot>;
   getHistory(): Promise<RuntimeHistorySession[]>;

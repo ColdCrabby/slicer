@@ -168,15 +168,25 @@ pub async fn slice_start(
         }
 
         logger.log_info(&format!("slicing {} faces\u{2026}", combined.faces.len()));
-        let layers = slicer_engine::core::process_mesh(&combined, &params, &logger);
-        logger.log_info(&format!("{} layers produced", layers.len()));
+        // One object per plate here (see `bake_scene`), but it still goes
+        // through `slice_plate` so the desktop honours exclude-object exactly
+        // like the CLI and the server.
+        let object_name = original_filename
+            .clone()
+            .unwrap_or_else(|| "object".to_string());
+        let plate = slicer_engine::core::slice_plate(
+            &[slicer_engine::core::ObjectInput::new(object_name, combined)],
+            &params,
+            &logger,
+        );
+        logger.log_info(&format!("{} layers produced", plate.layers.len()));
 
         if cancel_flag.load(Ordering::SeqCst) {
             return Err("Slice cancelled by user".to_string());
         }
 
-        let gcode = slicer_engine::gcode::generate_gcode_from_params(&layers, &params);
-        let layer_count = layers.len();
+        let gcode = slicer_engine::gcode::generate_gcode_for_plate(&plate, &params);
+        let layer_count = plate.layers.len();
         logger.log_info(&format!("GCode generated ({} chars)", gcode.len()));
 
         // Write GCode to the app cache directory. This avoids returning a

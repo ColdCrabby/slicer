@@ -172,6 +172,41 @@ For schema-driven settings specifically, declare the caution in the
 **field-exceptions registry** rather than special-casing the generic form — see
 the component-structure instruction's "Exceptions beside a generic resolver."
 
+### Cross-contract dependencies — say so, and link to the fix
+
+Settings are split across three profile **contracts** (Printer / Filament /
+Process — see `models/setting-contract.ts`). A setting in one contract regularly
+depends on a setting in **another**: the filament asks for a heated chamber, the
+printer is what has one; sequential printing needs the machine's extruder
+clearances. The user sees only the tab they are on, so the dependency is
+invisible right up until the feature quietly does nothing.
+
+**Be transparent about it. A setting that cannot take effect must say so, where
+it is set, while it is set.** Silence is the worst option: a chamber temperature
+that is never emitted looks identical to one that is — until the print warps.
+
+- **Warn at the dependent setting, not at the prerequisite.** The user is
+  looking at the filament's chamber temperature; that is where the note belongs.
+  The printer's own control has nothing to apologise for.
+- **State the actual consequence in plain words** — "no chamber command will be
+  emitted", not "this setting may be ignored." Say what the slicer will *do*.
+- **Link to where the prerequisite is configured** via `FieldNotice.link`
+  (`{ text, routerLink }`). Most of the time the user simply has not set it yet,
+  and the honest response is a one-click path to fixing it rather than a
+  dead-end complaint. Name the destination in the link text ("Enable it in
+  printer settings"), never "click here."
+- **Distinguish "misconfigured" from "deliberately off."** Only warn when the
+  intent is real and unmet — a chamber temperature of `0` is not a mistake, so
+  it gets no notice. `tone: 'warning'` for "you asked for something you will not
+  get"; `tone: 'info'` for a consequence worth knowing that is not a mistake.
+- **Mirror it in the engine.** The UI is not the only front end. If a setting
+  can be silently inert, `SlicingParams::unsupported_feature_warnings` should say
+  so too, so the CLI and the WS log are equally honest.
+
+Evaluating a cross-contract condition needs sibling values, which is why
+`FieldException.notice` receives the whole values record and why the profile
+editors pass the **active printer's** params alongside the profile being edited.
+
 ## Angular Styling Gotchas (this project)
 
 - **HMR does NOT cascade `@use`d SCSS partials.** After editing a theme partial,

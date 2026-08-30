@@ -1,6 +1,7 @@
 //! Core slicing operations and data structures
 
 mod infill;
+mod objects;
 mod pipeline;
 mod slicer;
 mod surfaces;
@@ -8,6 +9,10 @@ mod types;
 mod walls;
 
 pub use infill::{add_infill_to_layers, InfillConfig};
+pub use objects::{
+    merge_meshes, sequential_order, sequential_warnings, slice_plate, ObjectIdentity, ObjectInput,
+    PlateSlice,
+};
 pub use pipeline::process_mesh;
 #[cfg(not(target_arch = "wasm32"))]
 pub use pipeline::process_mesh_debug;

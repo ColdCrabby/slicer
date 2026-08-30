@@ -1,0 +1,188 @@
+:host {
+  display: block;
+  pointer-events: none;
+}
+
+/* Same surface, radius, shadow and drop-in as the transform card: this is the
+   sibling sub-settings panel for the placement tool, so the two must be
+   indistinguishable as a family. Keep them in step if either changes. */
+.placement-panel {
+  pointer-events: auto;
+  width: 216px;
+  padding: var(--spacing-sm);
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-xs);
+
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-md);
+
+  animation: pp-in var(--duration-fast) var(--ease-standard);
+}
+
+@keyframes pp-in {
+  from {
+    opacity: 0;
+    transform: translateY(-6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .placement-panel {
+    animation: none;
+  }
+}
+
+.pp-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--spacing-sm);
+  min-height: 22px;
+}
+
+.pp-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-medium);
+  color: var(--color-text-secondary);
+}
+
+.pp-action {
+  display: inline-grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--color-text-secondary);
+  cursor: pointer;
+  --icon-size: 15px;
+  transition:
+    background-color var(--duration-fast) var(--ease-standard),
+    color var(--duration-fast) var(--ease-standard);
+
+  &:hover {
+    background: var(--color-surface-hover);
+    color: var(--color-text-primary);
+  }
+
+  &:focus-visible {
+    outline: none;
+    border-color: var(--color-focus-ring);
+    box-shadow: inset 0 0 0 1px var(--color-focus-ring);
+  }
+}
+
+.pp-body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-xs);
+}
+
+.pp-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--spacing-sm);
+  min-height: 22px;
+
+  &.is-muted {
+    opacity: 0.55;
+  }
+}
+
+/* Label above the control so the number field gets the panel's full width —
+   at 216px a side-by-side layout leaves the steppers and unit hiding the
+   value. */
+.pp-field {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+
+  nexus-number-input {
+    width: 100%;
+  }
+}
+
+.pp-label {
+  font-size: var(--font-size-xs);
+  color: var(--color-text-secondary);
+}
+
+.pp-readout {
+  flex: none;
+  font-size: var(--font-size-xs);
+  font-variant-numeric: tabular-nums;
+  color: var(--color-text-primary);
+}
+
+.pp-hint {
+  margin: 0;
+  font-size: var(--font-size-2xs);
+  line-height: 1.4;
+  color: var(--color-text-tertiary);
+}
+
+.pp-link {
+  color: var(--accent);
+  text-decoration: none;
+
+  &:hover {
+    text-decoration: underline;
+  }
+
+  &:focus-visible {
+    outline: 2px solid var(--color-focus-ring);
+    outline-offset: 2px;
+    border-radius: var(--radius-sm);
+  }
+}
+
+.pp-divider {
+  height: 1px;
+  margin: 2px 0;
+  background: var(--color-border-light);
+}
+
+.pp-run {
+  margin-top: 2px;
+  padding: 7px 10px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-md);
+  background: var(--accent);
+  color: var(--accent-contrast);
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-medium);
+  cursor: pointer;
+  transition: filter var(--duration-fast) var(--ease-standard);
+
+  &:hover {
+    filter: brightness(1.08);
+  }
+
+  &:focus-visible {
+    outline: none;
+    border-color: var(--color-focus-ring);
+    box-shadow: 0 0 0 2px var(--color-focus-ring);
+  }
+
+  &:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+  }
+}

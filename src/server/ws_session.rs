@@ -17,6 +17,11 @@ use uuid::Uuid;
 struct WsLogger {
     global: StderrLogger,
     tx: tokio::sync::mpsc::Sender<String>,
+    /// Current object scope as `(index, count)`, both 1-based, or `(0, 0)` for
+    /// "no scope" (a single merged slice). Interior-mutable because the logger
+    /// is shared immutably down the pipeline while `slice_plate` updates the
+    /// scope between objects.
+    object_scope: std::sync::atomic::AtomicU64,
 }
 
 impl WsLogger {
@@ -24,7 +29,19 @@ impl WsLogger {
         Self {
             global: StderrLogger,
             tx,
+            object_scope: std::sync::atomic::AtomicU64::new(0),
         }
+    }
+
+    /// Read the current object scope as optional 1-based `(index, count)`.
+    fn scope(&self) -> (Option<u32>, Option<u32>) {
+        let packed = self.object_scope.load(std::sync::atomic::Ordering::Relaxed);
+        if packed == 0 {
+            return (None, None);
+        }
+        let index = (packed >> 32) as u32;
+        let count = (packed & 0xFFFF_FFFF) as u32;
+        (Some(index), Some(count))
     }
 
     fn send_log(&self, level: &str, msg: &str) {
@@ -63,10 +80,13 @@ impl ProcessLogger for WsLogger {
 
     fn log_phase_start(&self, phase: &str) {
         self.global.log_phase_start(phase);
+        let (object, object_count) = self.scope();
         let server_msg = crate::ws_protocol::ServerMessage::PhaseMarker {
             phase: phase.to_string(),
             event: "start".to_string(),
             elapsed_ms: None,
+            object,
+            object_count,
         };
         let json = serde_json::to_string(&server_msg).unwrap_or_else(|_| {
             format!(
@@ -79,10 +99,13 @@ impl ProcessLogger for WsLogger {
 
     fn log_phase_end(&self, phase: &str, elapsed_ms: u64) {
         self.global.log_phase_end(phase, elapsed_ms);
+        let (object, object_count) = self.scope();
         let server_msg = crate::ws_protocol::ServerMessage::PhaseMarker {
             phase: phase.to_string(),
             event: "end".to_string(),
             elapsed_ms: Some(elapsed_ms),
+            object,
+            object_count,
         };
         let json = serde_json::to_string(&server_msg).unwrap_or_else(|_| {
             format!(
@@ -91,6 +114,17 @@ impl ProcessLogger for WsLogger {
             )
         });
         let _ = self.tx.blocking_send(json);
+    }
+
+    fn set_object_scope(&self, index: usize, count: usize) {
+        let packed = ((index as u64) << 32) | (count as u64 & 0xFFFF_FFFF);
+        self.object_scope
+            .store(packed, std::sync::atomic::Ordering::Relaxed);
+    }
+
+    fn clear_object_scope(&self) {
+        self.object_scope
+            .store(0, std::sync::atomic::Ordering::Relaxed);
     }
 }
 
@@ -356,7 +390,8 @@ async fn handle_slice(
     // it is cheap and does not require reading mesh bytes.
     let cache_key = compute_slice_cache_key(&scene_objects, &params);
 
-    let mut slice_inputs: Vec<(std::path::PathBuf, Transform, u64)> =
+    // (path, part index within that file, transform, file size)
+    let mut slice_inputs: Vec<(std::path::PathBuf, usize, Transform, u64)> =
         Vec::with_capacity(scene_objects.len());
 
     for obj in scene_objects {
@@ -394,10 +429,15 @@ async fn handle_slice(
             obj.transform.euler_xyz_deg,
             obj.transform.scale,
         );
-        slice_inputs.push((entry.file_path, transform, entry.file_size as u64));
+        slice_inputs.push((
+            entry.file_path,
+            obj.part_index,
+            transform,
+            entry.file_size as u64,
+        ));
     }
 
-    let total_bytes: u64 = slice_inputs.iter().map(|(_, _, sz)| *sz).sum();
+    let total_bytes: u64 = slice_inputs.iter().map(|(_, _, _, sz)| *sz).sum();
     send_or_return!(ServerMessage::log_info(format!(
         "Slicing {} object(s), {} bytes total…",
         slice_inputs.len(),
@@ -476,31 +516,64 @@ async fn handle_slice(
         // Start overall timing for the entire process
         let t_total = PhaseTimer::start(phases::TOTAL, &logger);
 
-        // Load each scene object (auto-detecting format from its extension),
-        // bake its transform, and concatenate faces into a single combined
-        // mesh that the slicer pipeline sees.
+        // Load each scene object (auto-detecting format from its extension) and
+        // bake its transform.  The objects stay separate: `slice_plate` decides
+        // whether the plate can be merged into one mesh (the default) or has to
+        // keep per-object identity for exclude-object / sequential printing.
         let t_load = PhaseTimer::start(phases::MESH_LOAD, &logger);
-        let mut combined = crate::mesh::types::Mesh::new();
-        for (path, transform, _) in &slice_inputs {
-            let mesh = match crate::scene::load_path(path) {
-                Ok(m) => m,
-                Err(e) => {
-                    let msg = ServerMessage::error(format!(
-                        "Failed to load mesh {}: {}",
-                        path.display(),
-                        e
-                    ));
-                    let _ = tx.blocking_send(to_json(&msg));
-                    return None;
+        let mut plate_objects: Vec<crate::core::ObjectInput> = Vec::new();
+        // A multi-part file (3MF) backs several plate objects, so cache its
+        // parsed parts: re-reading and re-parsing the archive once per part
+        // would cost the same work N times for no gain.
+        let mut parts_cache: std::collections::HashMap<
+            std::path::PathBuf,
+            Vec<crate::mesh::io::NamedMesh>,
+        > = std::collections::HashMap::new();
+
+        for (path, part_index, transform, _) in &slice_inputs {
+            if !parts_cache.contains_key(path) {
+                match crate::scene::load_path_multi(path) {
+                    Ok(parts) => {
+                        parts_cache.insert(path.clone(), parts);
+                    }
+                    Err(e) => {
+                        let msg = ServerMessage::error(format!(
+                            "Failed to load mesh {}: {}",
+                            path.display(),
+                            e
+                        ));
+                        let _ = tx.blocking_send(to_json(&msg));
+                        return None;
+                    }
                 }
+            }
+            let parts = &parts_cache[path];
+            let Some(part) = parts.get(*part_index) else {
+                let msg = ServerMessage::error(format!(
+                    "{} has no object at index {} (it contains {})",
+                    path.display(),
+                    part_index,
+                    parts.len()
+                ));
+                let _ = tx.blocking_send(to_json(&msg));
+                return None;
             };
             // Bake the per-object transform exactly once, at the slicer
             // boundary — see the SSOT contract in src/scene/README.md.
-            let baked = crate::scene::apply_transform(&mesh, transform);
-            combined.vertices.extend(baked.vertices);
-            combined.faces.extend(baked.faces);
+            let baked = crate::scene::apply_transform(&part.mesh, transform);
+            // Name the object after the part inside its file, falling back to
+            // the file stem — this is what the firmware's cancel UI shows.
+            let name = part
+                .name
+                .as_deref()
+                .map(str::trim)
+                .filter(|n| !n.is_empty())
+                .map(str::to_string)
+                .or_else(|| path.file_stem().map(|s| s.to_string_lossy().into_owned()))
+                .unwrap_or_else(|| format!("object_{}", plate_objects.len()));
+            plate_objects.push(crate::core::ObjectInput::new(name, baked));
         }
-        if combined.faces.is_empty() {
+        if plate_objects.iter().all(|o| o.mesh.faces.is_empty()) {
             let msg = ServerMessage::error(
                 "Combined scene has no triangles — nothing to slice".to_string(),
             );
@@ -513,8 +586,8 @@ async fn handle_slice(
             logger.log_warn(&format!("[slice] {warning}"));
         }
 
-        let layers = crate::core::process_mesh(&combined, &params, &logger);
-        let layer_count = layers.len();
+        let plate = crate::core::slice_plate(&plate_objects, &params, &logger);
+        let layer_count = plate.layers.len();
 
         let progress = ServerMessage::Progress {
             current_layer: layer_count,
@@ -523,7 +596,7 @@ async fn handle_slice(
         let _ = tx.blocking_send(to_json(&progress));
 
         let t_gcode = PhaseTimer::start(phases::GCODE_GENERATION, &logger);
-        let gcode = crate::gcode::generate_gcode_from_params(&layers, &params);
+        let gcode = crate::gcode::generate_gcode_for_plate(&plate, &params);
         t_gcode.finish();
 
         // Write G-code to disk
@@ -740,10 +813,20 @@ async fn dto_to_op(
                 name,
                 format,
                 bytes,
+                // Remember which upload this object came from so a later
+                // slice resolves it without positional guesswork.
+                source_id: Some(file_id),
             })
         }
         SceneOpDto::Remove { id } => Ok(SceneOp::Remove {
             id: crate::scene::ObjectId(id),
+        }),
+        SceneOpDto::RemoveMany { ids } => Ok(SceneOp::RemoveMany {
+            ids: ids.into_iter().map(crate::scene::ObjectId).collect(),
+        }),
+        SceneOpDto::Duplicate { id, offset } => Ok(SceneOp::Duplicate {
+            id: crate::scene::ObjectId(id),
+            offset,
         }),
         SceneOpDto::Translate { id, delta } => Ok(SceneOp::Translate {
             id: crate::scene::ObjectId(id),
@@ -845,9 +928,12 @@ fn compute_slice_cache_key(
     canonical.push_str(";scene=");
     for obj in scene {
         let t = &obj.transform;
+        // `part_index` is part of the identity: two objects can share a
+        // file_id yet be different parts of it, and omitting it would let
+        // distinct plates collide on one cached G-code.
         canonical.push_str(&format!(
-            "[{}|{:?}|{:?}|{:?}]",
-            obj.file_id, t.translation, t.euler_xyz_deg, t.scale
+            "[{}#{}|{:?}|{:?}|{:?}]",
+            obj.file_id, obj.part_index, t.translation, t.euler_xyz_deg, t.scale
         ));
     }
     format!("{:016x}", fnv1a_64(canonical.as_bytes()))

@@ -104,6 +104,27 @@ mod tests {
         assert_eq!(params.filament_density_g_cm3, 1.24);
     }
 
+    /// Machine identity and filament price reach the G-code metadata footer, so
+    /// Moonraker / OctoPrint can show which printer a job was sliced for and
+    /// what the material cost (issue #23).
+    #[test]
+    fn resolve_stamps_machine_identity_and_filament_price() {
+        let params = selection().resolve().expect("resolve");
+        assert_eq!(params.printer_vendor, "Generic");
+        assert_eq!(params.printer_model, "FDM 220");
+        assert_eq!(params.filament_cost_per_kg, 25.0);
+    }
+
+    #[test]
+    fn override_price_wins_over_profile_price() {
+        // Price is folded in at the *filament* precedence layer, like density,
+        // so an explicit user override still wins.
+        let mut sel = selection();
+        sel.overrides = serde_json::json!({ "filament_cost_per_kg": 42.0 });
+        let params = sel.resolve().expect("resolve");
+        assert_eq!(params.filament_cost_per_kg, 42.0);
+    }
+
     #[test]
     fn resolve_uses_material_density_for_weight() {
         // A PETG filament (1.27 g/cm³) must not fall back to the PLA default

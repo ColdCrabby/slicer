@@ -55,6 +55,115 @@ these notes and acknowledges contributors. `scripts/gen-changelog-draft.sh` and
   instead of cross-hatching), `triangles`, `tri-hexagon`, `cubic` (a 3D lattice
   that shifts with height) and `concentric`. The pattern names OrcaSlicer uses
   are accepted as-is, so an imported profile maps without a translation table.
+- **Cancel one object mid-print, or print them one at a time.** The plate now
+  keeps track of which part every extrusion belongs to, which unlocks two
+  features that share that segmentation:
+
+  - **Exclude object** — each object's moves are wrapped in firmware object
+    markers (Klipper `EXCLUDE_OBJECT_*`, Marlin / RepRapFirmware `M486`), and
+    the file declares every part up front with its name, centre and footprint.
+    Mainsail, Fluidd and OctoPrint list the plate's objects, so a part that
+    fails halfway can be cancelled while the rest of the plate carries on.
+  - **Sequential printing** — with **Print order → by object** each part is
+    finished completely before the next one starts, front to back, with the
+    nozzle lifting clear of everything already on the bed before it travels
+    across. Optional custom G-code runs between objects. Parts taller than the
+    machine's gantry clearance, or closer together than its extruder clearance
+    radius, are reported as warnings before slicing rather than discovered as a
+    crash. Choosing it in the UI shows an honest heads-up that the feature
+    depends on the printer's clearances, with a link straight to where they are
+    set.
+
+  Both are off by default, and with both off the plate is merged and sliced
+  exactly as before — no change to existing G-code. **Print order**
+  (`print_sequence`) and the optional between-objects G-code live under a new
+  **Objects** process group; whether the machine can **skip a failed object**
+  (`exclude_object`) and its two **extruder clearances**
+  (`extruder_clearance_height_mm`, `extruder_clearance_radius_mm`) describe the
+  machine, so they sit with the printer's hardware settings. The CLI exposes
+  `--exclude-object` and `--print-sequence by-object`.
+
+- **Multiple objects per workplate** — a plate is now a build plate rather than
+  a single file. An **Add model** button in the 3D toolbar (and a multi-select
+  file picker) places more models on the plate you already have, instead of
+  replacing it. A new **Objects panel** lists everything on the plate with its
+  size, and lets you select, duplicate and remove each entry. Objects that fall
+  outside the build volume or overlap another object are flagged in the list and
+  in the panel header. Reopening a saved workplate now restores **every** object
+  on it, not just the first.
+
+  **Multi-object 3MF files now land as separate objects.** A 3MF is a scene, not
+  a model: it can place several named parts on the plate. They were previously
+  fused into one mesh, so a two-part file arrived as a single un-selectable
+  blob. Each build item now becomes its own object, labelled with the name the
+  authoring tool wrote (`top`, `bottom`, …), and each slices from its own
+  geometry.
+
+  This also fixes a bug that made multi-object plates unusable: scene objects
+  were paired with their uploaded files *by position*, so a plate holding two
+  different models sliced the first model twice. Objects now carry the id of
+  the file they were loaded from — and, for multi-part files, which object
+  inside it — so each one always slices from its own geometry, and duplicates
+  correctly share a single upload.
+
+- **One placement command, with options** — "Auto-orient" and "Arrange all
+  objects" were two buttons that undid each other's work: orienting left parts
+  overlapping, and arranging could not fix a part lying on a bad face. They are
+  now a single **Place objects** tool sitting with move / rotate / scale, and it
+  behaves like them: pressing it opens a card of settings that hangs directly
+  under the toolbar buttons, alongside the transform card. The card holds the
+  two things worth varying — whether parts are **auto-oriented** and how much
+  **gap** to leave between them — plus the machine's preferred print angle, and
+  `A` still places immediately. The same settings govern how a model is placed
+  when you drop it in, so adding a file and pressing the button no longer
+  disagree about orientation or spacing.
+
+- **Preferred print orientation, per printer** — printers gain a **Preferred
+  orientation** setting (Settings → Printers → Build volume). CoreXY machines
+  move fastest along their diagonals, so setting `45°` turns every auto-oriented
+  part by that much after it has been laid on its best face — the same trick
+  Orca offers. It is shown in the placement card so you can see what the button
+  will do, but edited only on the printer it belongs to. Defaults to `0°`, which
+  leaves orientation untouched. The CLI honours the equivalent machine-config
+  field (`preferred_print_rotation_deg`) during
+  `--arrange --arrange-auto-orient`.
+
+- **Multi-object CLI slicing** — `slice` now accepts several models on one
+  build plate: `slicer-engine slice -i part_a.stl -i part_b.stl`. Every model
+  becomes an object in a single scene, is transformed through the scene engine,
+  and is merged into one mesh before slicing — the same path the WebSocket
+  server and UI already use. A new `--arrange` flag (with `--arrange-spacing`,
+  default 2 mm, and opt-in `--arrange-auto-orient`) packs the plate without
+  overlap, and objects that fall outside the build volume or collide are
+  reported as warnings instead of silently printing wrong. Transform flags
+  (`--translate`, `--rotate`, `--scale`, `--align-face`, `--center`,
+  `--drop-to-floor`) apply to every loaded model. Single-input invocations are
+  unchanged; multi-object plates default their output to
+  `<first-model>_plate.gcode`.
+
+- **Chamber temperature management** — an enclosed printer can now actually heat
+  its chamber. The filament says how warm it wants the chamber (`chamber_temp`,
+  plus a hotter first-layer soak via `chamber_temp_first_layer`) and the printer
+  says whether it can deliver it (`heated_chamber`); only when both agree does
+  the slicer emit real directives. The soak runs before your start G-code, with
+  the bed armed first — on most enclosures the bed *is* what heats the chamber,
+  so waiting on a cold bed would never finish — and with the nozzle still cold,
+  so molten filament is never parked in a hot end for the length of a soak. The
+  chamber drops back to its steady-state target once the first layer is down.
+  Klipper gets its native `SET_HEATER_TEMPERATURE` / `TEMPERATURE_WAIT` pair
+  instead of `M141`/`M191`, which it has no built-in support for. A start G-code
+  that already heats the chamber (`START_PRINT … CHAMBER={chamber_temp}` and
+  friends) keeps full ownership — the slicer stands down rather than heating and
+  soaking twice.
+- **Settings tell you when they depend on something else.** A filament setting
+  can need a machine capability that the *printer* profile has to provide — and
+  until now nothing said so, on a tab where you could not see it. A chamber
+  temperature set for a printer that has not been told it has a chamber heater
+  now says plainly what will happen ("no chamber command will be emitted"), and
+  links straight to the switch that fixes it. The engine reports the same thing,
+  so the CLI and the slicer log are equally honest — and the CLI now prints
+  every "this setting will not take effect" warning, which it had been computing
+  for other runtimes but never showing itself.
 
 - **Export your profile library** — Settings → General now has a **Backup &
   Export** section that downloads every printer, filament, print profile and
@@ -228,6 +337,36 @@ these notes and acknowledges contributors. `scripts/gen-changelog-draft.sh` and
   `tobj`/`ahash` still require). No behavioural changes to sliced output.
 
 ### Fixed
+
+- **The transform panel was blank whenever more than one object was selected**,
+  so a multi-object plate could not be moved, rotated or resized from the
+  numeric fields at all. It now edits the whole selection: **Position** shows
+  the group's centre and shifts every part by the same amount (keeping your
+  layout instead of stacking them), while **Rotation** and **Scale** apply to
+  each part about its own centre — and setting a **Size** measures each part
+  individually, so a mixed batch all reaches the size you asked for. The header
+  now reads "3 objects" instead of a filename that every duplicate shared.
+- **The arrange gap defaulted to 0 mm on a fresh install**, placing parts flush
+  against each other, because an unset preference read back as the number `0`
+  rather than "unset". It now correctly starts at 4 mm.
+
+- **Your filament's cooling settings are now actually used.** Fan Speed, Bridge
+  Fan Speed, First Layer Fan Speed and Fan Off For First Layers were shown in the
+  filament editor and written by every material preset, but the G-code generator
+  read none of them — it drove the fan purely from the adaptive fan table. The
+  most visible consequence: **the part-cooling fan ran during the first layer for
+  every material**, quietly costing bed adhesion on every print. It no longer
+  does.
+
+  Fan Speed is now the material's cooling **ceiling** — the adaptive curve is
+  clamped to it — which is what keeps ABS/ASA/PC from being blasted at full
+  airflow while a heated chamber is trying to hold temperature. Bridge Fan Speed
+  became a per-segment boost over bridges (matching how overhang cooling already
+  worked) rather than a whole-layer setting, and both it and the overhang boost
+  are held back on the layers where cooling is switched off, so a single overhang
+  can't defeat the first-layer adhesion gate. Material presets were corrected to
+  match: the value that used to land in First Layer Fan Speed was really the
+  cooling curve's minimum, so PLA would have blown full-speed at the bed.
 
 - **Isolated infill specks in narrow wedges** — where a cross-section is locally
   thinner than the average wall count (the 3DBenchy bow tip is the canonical
