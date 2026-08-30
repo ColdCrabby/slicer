@@ -1,5 +1,8 @@
 <div class="catalog">
-  <div class="catalog__search" [class.catalog__search--busy]="loading() && entries().length > 0">
+  <div
+    class="catalog__search has-focus-ring"
+    [class.catalog__search--busy]="loading() && entries().length > 0"
+  >
     <nexus-icon name="search" />
     <input
       type="text"

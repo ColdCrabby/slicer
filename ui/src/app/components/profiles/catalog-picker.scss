@@ -34,16 +34,9 @@
     font-size: var(--font-size-md);
     font-family: inherit;
     color: var(--color-text-primary);
-
-    // The container owns the focus ring (`:focus-within` above). Suppress the
-    // design-system's global `input:focus` border/shadow so the input doesn't
-    // paint a second, inset ring inside it — that was the doubled ring on tab.
-    &:focus,
-    &:focus-visible {
-      outline: none;
-      box-shadow: none;
-      border-color: transparent;
-    }
+    // The container owns the focus ring (`:focus-within` above); the `.catalog`
+    // wrapper carries `has-focus-ring`, which silences this inner control
+    // globally so no second ring is painted inside it.
   }
 }
 
