@@ -624,7 +624,10 @@ browse ("Pick it from the catalog"). Its data lives in a separate service — th
   wrapper) in [app.config.ts](ui/src/app/app.config.ts) — mirroring
   cloud-presets' own `configureCloudPresetsClient`. The generated client's
   default base URL is the raw-GitHub host of the spec and is **never** what you
-  want for requests.
+  want for requests. **Dev builds point at a local cloud-presets**
+  (`http://<host>:8787`, the repo's `pnpm sample-api` — canned presets with open
+  CORS); prod/web builds point at the deployed cloud
+  (`https://cloud-presets.onrender.com`).
 - **Non-goal (for now):** importing a *complete* preset body. The summary lacks
   the ~92 slicing parameters, so a catalog pick can only pre-fill identity fields
   until the cloud grows a detail/bulk endpoint and the client is regenerated.
