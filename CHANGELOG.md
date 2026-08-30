@@ -36,6 +36,11 @@ issue/PR numbers or repo links in the notes. See the tone rules in
 
 ### Fixed
 
+- **G-code editors render properly in the browser build** — the printer and
+  filament G-code boxes could show up as a plain, unstyled text field instead of
+  the syntax-highlighting editor, most often on the in-browser (WASM) version.
+  The editor now waits for its own styles to load before it appears, so it comes
+  up fully formed every time.
 - **Undo no longer wipes the plate after navigating** — dip into Settings and
   back, or use the browser's back button, and your objects keep their positions
   and undo history instead of being deleted by the next undo. History now resets

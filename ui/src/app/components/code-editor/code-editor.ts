@@ -22,6 +22,62 @@ declare global {
 }
 
 /**
+ * Monaco's structural stylesheet — the concatenated `editor.main.css` from the
+ * `min` distribution, copied to `/assets/monaco` by the build (see
+ * `angular.json`). It carries the layout rules (`.view-lines`,
+ * `.inputarea { position: absolute }`, …) and inlines the codicon font as a
+ * base64 data URI, so it is fully self-contained.
+ */
+const MONACO_CSS_ASSET = 'assets/monaco/min/vs/editor/editor.main.css';
+
+/**
+ * Shared promise that resolves once Monaco's structural CSS has been applied.
+ *
+ * Angular's esbuild output splits the CSS that Monaco's ESM modules import into
+ * a lazy chunk that is *not* reliably attached to the page when the
+ * dynamically-imported `monaco-editor` JS resolves. When `editor.create()` wins
+ * that race the editor renders with **no layout rules** — the hidden input
+ * textarea falls back to `position: static` and appears as a bare, resizable
+ * `<textarea>` (the token colours still show because Monaco injects those at
+ * runtime via JS). This was intermittent locally but reproduced reliably on the
+ * slower GitHub Pages / WASM deploy.
+ *
+ * Loading the self-contained `editor.main.css` ourselves and awaiting it before
+ * `editor.create()` removes the race entirely. The href is resolved against the
+ * document base so it works under a sub-path base href too.
+ */
+let monacoStylesReady: Promise<void> | null = null;
+
+function ensureMonacoStyles(): Promise<void> {
+  if (monacoStylesReady) {
+    return monacoStylesReady;
+  }
+
+  monacoStylesReady = new Promise<void>((resolve) => {
+    const href = new URL(MONACO_CSS_ASSET, document.baseURI).href;
+
+    const existing = document.querySelector<HTMLLinkElement>(
+      `link[rel="stylesheet"][href="${href}"]`,
+    );
+    if (existing) {
+      resolve();
+      return;
+    }
+
+    const link = document.createElement('link');
+    link.rel = 'stylesheet';
+    link.href = href;
+    // Never block editor creation forever: resolve on load *or* error. A missing
+    // stylesheet only degrades styling, and the lazy chunk may still supply it.
+    link.addEventListener('load', () => resolve(), { once: true });
+    link.addEventListener('error', () => resolve(), { once: true });
+    document.head.appendChild(link);
+  });
+
+  return monacoStylesReady;
+}
+
+/**
  * Thin Angular wrapper around the Monaco editor.
  *
  * The component initialises the editor exactly once, after the host element
@@ -141,6 +197,11 @@ export class CodeEditor {
     // Dynamic import keeps the large Monaco bundle out of the initial
     // chunk — it is only fetched when the panel is first opened.
     const monaco = await import('monaco-editor');
+
+    // Guarantee Monaco's structural CSS is applied before the editor is
+    // created, otherwise it renders as a bare, unstyled textarea (see
+    // `ensureMonacoStyles`).
+    await ensureMonacoStyles();
 
     registerGcodeLanguage(monaco);
 
