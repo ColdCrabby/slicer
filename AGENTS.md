@@ -727,6 +727,13 @@ rationale.
   unification plus outward orientation, and capping of boundary loops up to
   `max_hole_edges` (512). **Non-manifold edges are reported, never split** —
   and neither are self-intersections or T-junctions.
+- **A zero-area boundary loop is a _slit_, not a hole — never patch it.** A
+  T-junction, or the rim left behind by a removed zero-area sliver, yields
+  collinear open edges that enclose nothing. Capping one can only produce
+  zero-area triangles, which close nothing (`diagnose` excludes degenerates
+  from the edge graph) while adding junk to the mesh. Counted as
+  `slit_boundary_edges`, excluded from `holes`/`is_watertight`/`is_clean`, and
+  surfaced only as an informational note. A real Benchy export has nine.
 - **Only ever orient a _closed_ shell by its signed volume.** That figure is
   the cone volume about the **origin**; it equals the enclosed volume only for
   a sealed surface. On an open shell it is dominated by the cone over the

@@ -89,6 +89,36 @@ fn assert_slices(name: &str) {
 }
 
 #[test]
+fn a_zero_area_slit_is_reported_but_never_patched() {
+    // Regression (found by importing a real Benchy export in the browser): a
+    // T-junction leaves three collinear half-edges that read as a boundary
+    // loop but enclose no area. Patching it could only add zero-area triangles
+    // — which close nothing, since `diagnose` excludes degenerates from the
+    // edge graph — so the model would be reported as permanently defective
+    // *and* gain junk geometry.
+    let path = broken("cube-tjunction.stl");
+    let raw = load_raw(&path);
+    let before = analyze(&raw);
+
+    assert_eq!(before.slit_boundary_edges, 3, "the T-junction rim");
+    assert_eq!(before.holes, 0, "a zero-area loop is not a hole");
+    assert_eq!(before.boundary_edges, 0);
+    assert!(before.is_watertight(), "a slit encloses nothing");
+    assert!(before.is_clean());
+
+    let (_, report) =
+        load_path_reporting(&path, &RepairOptions::default()).expect("load cube-tjunction.stl");
+    assert!(!report.repaired, "nothing to fix");
+    assert_eq!(report.actions.added_fill_triangles, 0);
+    assert!(
+        !report.is_noteworthy(),
+        "must not warn the user about a slit"
+    );
+
+    assert_slices("cube-tjunction.stl");
+}
+
+#[test]
 fn hole_is_detected_and_capped() {
     let raw = load_raw(&broken("cube-hole.stl"));
     let before = analyze(&raw);

@@ -18,8 +18,14 @@ export interface MeshDiagnostics {
   duplicate_faces: number;
   /** Edges with more than two incident triangles. */
   non_manifold_edges: number;
-  /** Edges with exactly one incident triangle — the rim of a hole. */
+  /** Edges with exactly one incident triangle that bound real area. */
   boundary_edges: number;
+  /**
+   * Open edges whose loop encloses *no* area — a zero-width slit (typically a
+   * T-junction), not a hole. The surface bounds the same solid with or without
+   * it and no patch can close it, so it is never treated as a defect.
+   */
+  slit_boundary_edges: number;
   /** Closed loops formed by the boundary edges, i.e. the number of holes. */
   holes: number;
   largest_hole_edges: number;

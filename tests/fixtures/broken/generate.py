@@ -111,6 +111,20 @@ def main() -> None:
         tris.append(tri)
     write("cube-unwelded.stl", tris)
 
+    # A T-junction: the bottom face is split at the midpoint of one cube edge
+    # while the neighbouring side face still spans the whole edge. No triangle
+    # is degenerate, but the three half-edges around the join have only one
+    # incident face each, so they read as a boundary loop — a *collinear* one,
+    # enclosing zero area. This is a slit, not a hole: patching it could only
+    # ever add zero-area triangles. Extremely common in exported STLs.
+    tris = cube()
+    p0, p1, p2 = P[0], P[1], P[2]
+    mid = tuple((a + b) / 2 for a, b in zip(p0, p1))
+    tris = [t for t in tris if t != (p0, p2, p1)]
+    tris.append((p2, p1, mid))
+    tris.append((p2, mid, p0))
+    write("cube-tjunction.stl", tris)
+
     # Everything at once, to pin the interaction between the repair steps.
     tris = cube()
     tris[2] = flip(tris[2])

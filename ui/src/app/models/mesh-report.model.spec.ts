@@ -18,6 +18,7 @@ const CLEAN: MeshDiagnostics = {
   duplicate_faces: 0,
   non_manifold_edges: 0,
   boundary_edges: 0,
+  slit_boundary_edges: 0,
   holes: 0,
   largest_hole_edges: 0,
   inconsistent_winding_edges: 0,
@@ -71,6 +72,16 @@ describe('mesh report', () => {
     });
     expect(meshHasRemainingDefects(r)).toBe(true);
     expect(meshReportIsNoteworthy(r)).toBe(true);
+  });
+
+  it('never treats a zero-area slit as a defect', () => {
+    const r = report({
+      before: { ...CLEAN, slit_boundary_edges: 3 },
+      after: { ...CLEAN, slit_boundary_edges: 3 },
+    });
+    expect(meshWasClean(r)).toBe(true);
+    expect(meshReportIsNoteworthy(r)).toBe(false);
+    expect(describeMeshDefects(r.after)).toBeNull();
   });
 
   it('counts an inside-out but otherwise sound mesh as defective', () => {

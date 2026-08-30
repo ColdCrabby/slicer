@@ -206,7 +206,8 @@ corners would fabricate defects that aren't there.
 | ---------------------------- | ------------------------------------------------ |
 | `degenerate_faces`           | Repeated corner, or effectively zero area        |
 | `duplicate_faces`            | Repeats another triangle's corner set            |
-| `boundary_edges` / `holes`   | Edges used once, chained into closed loops       |
+| `boundary_edges` / `holes`   | Edges used once, chained into loops that enclose real area |
+| `slit_boundary_edges`        | Edges used once whose loop encloses **no** area  |
 | `non_manifold_edges`         | More than two incident triangles                 |
 | `inconsistent_winding_edges` | Both triangles traverse the shared edge the same way |
 | `inverted_shells`            | Closed shell with negative signed volume         |
@@ -246,6 +247,17 @@ flowchart TD
   Open shells therefore keep whatever the BFS produced, and if `fill_holes`
   seals them the pass runs again and orients them then. Pinned by
   `an_uncappable_hole_never_inverts_the_surface`.
+- **A zero-area boundary loop is a _slit_, not a hole**, and is never patched.
+  A T-junction (or the rim left by a zero-area sliver) produces collinear open
+  edges enclosing nothing: the surface bounds exactly the same solid with or
+  without them, and any patch across one would itself be zero-area — so it
+  would close nothing (`diagnose` excludes degenerate triangles from the edge
+  graph) while adding junk geometry. This is not a corner case: a real 225 706-
+  triangle Benchy export has nine of them, and an earlier version of this pass
+  added 15 useless triangles to it and then reported it as permanently
+  defective. Slits are counted separately, reported for information only, and
+  never make a mesh "unclean". Pinned by
+  `a_zero_area_slit_is_not_a_hole_and_is_never_patched`.
 - **Hole capping** reuses each boundary half-edge *in reverse*, so the patch is
   consistently wound with the surface it closes without any extra reasoning. A
   3-edge loop becomes one triangle; anything larger is fanned from a new

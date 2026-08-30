@@ -130,9 +130,21 @@ pub struct MeshDiagnostics {
     pub duplicate_faces: usize,
     /// Edges with more than two incident triangles.
     pub non_manifold_edges: usize,
-    /// Edges with exactly one incident triangle (the rim of a hole).
+    /// Edges with exactly one incident triangle that bound a region of real
+    /// area (the rim of an actual hole).
     pub boundary_edges: usize,
+    /// Edges with exactly one incident triangle whose loop encloses **no**
+    /// area — a zero-width slit, not a hole.
+    ///
+    /// These are what a zero-area sliver leaves behind: the sliver itself is
+    /// excluded from the edge graph as degenerate, so its rim reads as
+    /// "boundary" even though the surface encloses exactly the same solid with
+    /// or without it. They are extremely common in exported STLs, cannot be
+    /// meaningfully capped (any patch would itself be zero-area), and are
+    /// therefore reported for information but never treated as a defect.
+    pub slit_boundary_edges: usize,
     /// Closed loops formed by the boundary edges — i.e. the number of holes.
+    /// Zero-area slit loops are excluded.
     pub holes: usize,
     /// Edge count of the largest hole, or 0 when there are none.
     pub largest_hole_edges: usize,
@@ -144,7 +156,9 @@ pub struct MeshDiagnostics {
 }
 
 impl MeshDiagnostics {
-    /// No holes: every edge has at least two incident triangles.
+    /// No holes: every edge bounding real area has at least two incident
+    /// triangles. Zero-area slits do not count — they enclose nothing, so a
+    /// surface carrying them still bounds the same solid.
     pub fn is_watertight(&self) -> bool {
         self.boundary_edges == 0
     }
@@ -473,7 +487,9 @@ pub fn repair<'a>(mesh: &'a Mesh, options: &RepairOptions) -> (Cow<'a, Mesh>, Me
 
     let mut actions = RepairActions::default();
 
-    if before.boundary_edges > 0 {
+    // Weld against *any* open edge, slits included: a crack narrow enough to
+    // read as zero-area is exactly the kind welding exists to close.
+    if before.boundary_edges + before.slit_boundary_edges > 0 {
         actions.welded_vertices = indexed.weld_within(options.weld_tolerance_mm);
     }
     if options.remove_degenerate {
@@ -583,12 +599,28 @@ impl Indexed {
 
         let graph = EdgeGraph::build(&self.tris, &live);
         d.non_manifold_edges = graph.non_manifold_edges;
-        d.boundary_edges = graph.boundary.len();
         d.inconsistent_winding_edges = graph.inconsistent_edges;
 
         let loops = graph.boundary_loops();
-        d.holes = loops.len();
-        d.largest_hole_edges = loops.iter().map(|l| l.len()).max().unwrap_or(0);
+        // A boundary loop enclosing no area is a slit, not a hole: it is what a
+        // zero-area sliver leaves behind once the sliver itself is excluded as
+        // degenerate. Capping it could only ever produce more zero-area
+        // triangles, so it is counted separately and never treated as a defect.
+        for boundary in &loops {
+            let edges = boundary.len();
+            if self.loop_area(boundary) > DEGENERATE_AREA_MM2 {
+                d.holes += 1;
+                d.boundary_edges += edges;
+                d.largest_hole_edges = d.largest_hole_edges.max(edges);
+            } else {
+                d.slit_boundary_edges += edges;
+            }
+        }
+        // Boundary half-edges that never formed a closed loop (a dangling
+        // chain) are still genuine open edges; attribute them to holes so they
+        // are not silently dropped from the count.
+        let looped: usize = loops.iter().map(|l| l.len()).sum();
+        d.boundary_edges += graph.boundary.len().saturating_sub(looped);
 
         let shells = graph.shells(self.tris.len());
         d.shells = shells.count;
@@ -617,6 +649,20 @@ impl Indexed {
             *slot += 1;
         }
         dupes
+    }
+
+    /// Area enclosed by a boundary loop, via Newell's method so it is valid
+    /// for a non-planar rim too. Zero means the loop is a slit.
+    fn loop_area(&self, boundary: &[u32]) -> f64 {
+        let mut n = [0.0f64; 3];
+        for i in 0..boundary.len() {
+            let p = self.positions[boundary[i] as usize];
+            let q = self.positions[boundary[(i + 1) % boundary.len()] as usize];
+            n[0] += (p.y - q.y) * (p.z + q.z);
+            n[1] += (p.z - q.z) * (p.x + q.x);
+            n[2] += (p.x - q.x) * (p.y + q.y);
+        }
+        0.5 * (n[0] * n[0] + n[1] * n[1] + n[2] * n[2]).sqrt()
     }
 
     fn signed_volume(&self, tri: &[u32; 3]) -> f64 {
@@ -876,7 +922,20 @@ impl Indexed {
 
         let mut outcome = FillOutcome::default();
         for boundary in &loops {
-            if boundary.len() < 3 || boundary.len() > max_edges {
+            if boundary.len() < 3 {
+                continue;
+            }
+            // A loop enclosing no area is a slit left by a zero-area sliver,
+            // not a hole. Any patch across it would itself be zero-area — it
+            // would close nothing (`diagnose` excludes degenerate triangles
+            // from the edge graph, so the rim would still read as boundary)
+            // while adding junk geometry to every model that has one, which
+            // real-world STLs very often do. Leave it alone and don't count it
+            // as unfilled either: there was never a hole to fill.
+            if self.loop_area(boundary) <= DEGENERATE_AREA_MM2 {
+                continue;
+            }
+            if boundary.len() > max_edges {
                 outcome.skipped += 1;
                 continue;
             }
@@ -1655,6 +1714,86 @@ mod tests {
             volume > 0.0,
             "sealed shell should face outward, got {volume}"
         );
+    }
+
+    #[test]
+    fn a_zero_area_slit_is_not_a_hole_and_is_never_patched() {
+        // Regression: a T-junction leaves three collinear half-edges with one
+        // incident face each. That reads as a boundary loop, but it encloses
+        // *no area* — patching it could only ever add zero-area triangles,
+        // which close nothing (they are excluded from the edge graph as
+        // degenerate) while polluting the mesh. Measured on a real 225 706-tri
+        // Benchy export: 9 such loops, 15 junk triangles added, and the mesh
+        // then reported as still defective.
+        let s = 10.0;
+        let p = [
+            v(0.0, 0.0, 0.0),
+            v(s, 0.0, 0.0),
+            v(s, s, 0.0),
+            v(0.0, s, 0.0),
+        ];
+        let mut tris = cube(s);
+        // Split the bottom face at the midpoint of the p0–p1 edge while the
+        // front face keeps spanning the whole edge.
+        let mid = v(s / 2.0, 0.0, 0.0);
+        tris.retain(|t| *t != [p[0], p[2], p[1]]);
+        tris.push([p[2], p[1], mid]);
+        tris.push([p[2], mid, p[0]]);
+
+        let mesh = mesh_from(&tris);
+        let d = analyze(&mesh);
+        assert_eq!(d.slit_boundary_edges, 3, "the T-junction rim");
+        assert_eq!(d.holes, 0, "a zero-area loop is not a hole");
+        assert_eq!(d.boundary_edges, 0);
+        assert!(d.is_watertight(), "a slit encloses nothing");
+        assert!(d.is_clean());
+
+        let (out, report) = repair(&mesh, &RepairOptions::default());
+        assert!(
+            matches!(out, Cow::Borrowed(_)),
+            "nothing to fix — must not rebuild"
+        );
+        assert_eq!(report.actions.added_fill_triangles, 0);
+        assert_eq!(report.actions.unfilled_holes, 0);
+        assert!(!report.is_noteworthy(), "must not warn about a slit");
+    }
+
+    #[test]
+    fn a_slit_alongside_a_real_hole_is_told_apart() {
+        // The slit must not mask a genuine void, nor vice versa.
+        let s = 10.0;
+        let p = [
+            v(0.0, 0.0, 0.0),
+            v(s, 0.0, 0.0),
+            v(s, s, 0.0),
+            v(0.0, s, 0.0),
+        ];
+        let mut tris = cube(s);
+        // Punch out a real hole first (both triangles of the top face), while
+        // the indices still match the pristine cube ordering.
+        tris.remove(3);
+        tris.remove(2);
+        // Then introduce the T-junction on the bottom face.
+        let mid = v(s / 2.0, 0.0, 0.0);
+        tris.retain(|t| *t != [p[0], p[2], p[1]]);
+        tris.push([p[2], p[1], mid]);
+        tris.push([p[2], mid, p[0]]);
+
+        let mesh = mesh_from(&tris);
+        let d = analyze(&mesh);
+        assert_eq!(d.slit_boundary_edges, 3);
+        assert_eq!(d.holes, 1, "the top face is a genuine void");
+        assert_eq!(d.boundary_edges, 4);
+        assert!(!d.is_watertight());
+
+        let (_, report) = repair(&mesh, &RepairOptions::default());
+        assert_eq!(report.actions.filled_holes, 1, "real hole capped");
+        assert_eq!(report.actions.added_fill_triangles, 4);
+        assert_eq!(
+            report.after.slit_boundary_edges, 3,
+            "the slit is left exactly as it was"
+        );
+        assert!(report.after.is_clean());
     }
 
     #[test]

@@ -14,10 +14,13 @@ repair pass regressed".
 | `cube-degenerate.stl`      | Two zero-area triangles (collinear points, and a repeated corner)    |
 | `cube-duplicate-faces.stl` | One triangle written twice                                           |
 | `cube-unwelded.stl`        | A crack: the bottom face uses a corner nudged 1e-5 mm off its neighbours' |
+| `cube-tjunction.stl`       | A T-junction — three collinear open edges enclosing **zero** area    |
 | `cube-multi-defect.stl`    | Hole + flipped triangle + duplicate + degenerate, all at once        |
 
 Every one of them must come out of the repair pass watertight, manifold,
-outward-facing and shaped like a ~1000 mm³ cube.
+outward-facing and shaped like a ~1000 mm³ cube — except `cube-tjunction.stl`,
+which is the deliberate *counter*-example: its open edges enclose no area, so it
+is already sound and the pass must leave it completely alone.
 
 ## Regenerating
 

@@ -123,6 +123,17 @@ impl EmitPayload for MeshCheckResult {
             _ => {}
         }
 
+        // Informational, never a defect: a zero-area boundary loop (typically a
+        // T-junction) encloses nothing, so the surface still bounds the same
+        // solid. Worth showing because it explains stray open edges.
+        let slits = self.report.after.slit_boundary_edges;
+        if slits > 0 {
+            s.push_str(&format!(
+                "\n  Note:      {slits} zero-area slit {} (no enclosed volume — nothing to fill)",
+                if slits == 1 { "edge" } else { "edges" }
+            ));
+        }
+
         s
     }
 
