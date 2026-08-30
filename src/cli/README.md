@@ -1,30 +1,43 @@
 # Command-Line Interface
 
-User-friendly commands for slicing, settings, and build info.
+User-friendly commands for slicing, configuration, and build info.
 
 ## Commands
+
+| Command | Does |
+| --- | --- |
+| `slice` | Model(s) → G-code |
+| `settings` | `show` · `get` · `set` · `validate` · `diff` |
+| `config` | `show` · `init` · `path` — the layered `slicer.toml` |
+| `serve` | Host the web UI and WebSocket API |
+| `info` | Version and build information |
+| `changelog` | Release notes embedded in this build |
+| `gen-schemas` | Regenerate the JSON schemas the UI consumes |
 
 ```mermaid
 graph TB
     CLI["$ slicer-engine<br/>COMMAND"]
-    
+
     CLI --> SLICE["slice"]
-    CLI --> SETTINGS["settings"]
+    CLI --> CONFIG["config / settings"]
+    CLI --> SERVE["serve"]
     CLI --> INFO["info"]
-    
-    SLICE --> SU["Load STL<br/>Slice mesh<br/>Generate G-code"]
-    
-    SETTINGS --> SV["validate<br/>diff<br/>show<br/>get / set"]
-    
-    INFO --> IV["Show version<br/>Build info"]
-    
+
+    SLICE --> SU["Load model<br/>Slice mesh<br/>Generate G-code"]
+
+    CONFIG --> SV["show · init · path<br/>get / set<br/>validate · diff"]
+
+    SERVE --> SS["HTTP + WebSocket<br/>serves the UI"]
+
+    INFO --> IV["Version<br/>Build info"]
+
     style CLI fill:#fff9c4
     style SU fill:#c8e6c9
     style SV fill:#f8bbd0
     style IV fill:#e1f5ff
 ```
 
-## Slice: STL → G-code
+## Slice: model → G-code
 
 Convert one or more 3D models to printer-ready G-code. Repeat `--input` to
 slice a multi-object build plate — every model is placed in one scene and
@@ -53,7 +66,7 @@ slicer-engine slice --input model.stl --lifecycle-markers
 slicer-engine slice --input model.stl --no-lifecycle-markers
 
 # Use an explicit project config file
-slicer-engine slice --input model.stl --config ./slicer.json
+slicer-engine slice --input model.stl --config ./slicer.toml
 
 # Center and drop mesh to Z=0 before slicing
 slicer-engine slice --input model.stl --center --drop-to-floor --verbose
@@ -64,6 +77,11 @@ Transform flags are plate-wide: `--translate`, `--rotate`, `--scale`,
 model, since the CLI has no syntax for addressing a single object. Objects that
 fall outside the build volume or overlap each other are reported as warnings —
 the slice still runs.
+
+`--center` and `--drop-to-floor` are retained aliases that log a deprecation
+warning and dispatch the equivalent scene operation. Every transform goes
+through the [scene engine](../scene/README.md); do not add a flag that bypasses
+it.
 
 **Arguments:**
 
@@ -77,7 +95,7 @@ the slice still runs.
 | `--end-print-gcode` | string | | from settings | Custom end G-code or file path |
 | `--lifecycle-markers` | flag | | from settings | Force-enable layer lifecycle markers |
 | `--no-lifecycle-markers` | flag | | from settings | Force-disable layer lifecycle markers |
-| `--config` | path | | auto-discover | Explicit `slicer.json` path |
+| `--config` | path | | auto-discover | Explicit project `slicer.toml` path |
 | `--center` | flag | | false | Center every model horizontally |
 | `--drop-to-floor` | flag | | false | Drop every model to Z=0 |
 | `--arrange` | flag | | false | Pack all models onto the bed without overlap |
@@ -89,7 +107,7 @@ the slice still runs.
 ## Settings: Manage Configuration
 
 Validate, compare, and modify slicing parameters.  
-Settings are persisted in `~/.config/slicer-engine/settings.json`.
+Settings are persisted in `~/.config/slicer-engine/slicer.toml`.
 
 ### Get / Set
 
@@ -151,15 +169,14 @@ Shows: version, Rust info, Clipper2 details.
 slicer-engine settings set gcode_flavor klipper
 slicer-engine settings set params.nozzle_temp 215
 
-# 2. Add a project-specific slicer.json (overrides user settings for this project)
-cat > slicer.json << 'EOF'
-{
-  "params": { "layer_height": 0.15 },
-  "gcode_flavor": "klipper"
-}
+# 2. Add a project-specific slicer.toml (overrides user settings for this project)
+cat > slicer.toml << 'EOF'
+[slicing]
+layer_height = 0.15
+gcode_flavor = "klipper"
 EOF
 
-# 3. Slice — picks up slicer.json automatically
+# 3. Slice — picks up slicer.toml automatically
 slicer-engine slice --input cube.stl --output cube.gcode
 ```
 
@@ -168,8 +185,10 @@ slicer-engine slice --input cube.stl --output cube.gcode
 | Format | Type | Supported | Example |
 |--------|------|-----------|---------|
 | **STL** | Input | ASCII, Binary | `model.stl` |
+| **OBJ** | Input | Wavefront | `model.obj` |
+| **3MF** | Input | Multi-part; each build item becomes an object | `plate.3mf` |
 | **G-code** | Output | FFF printer | `model.gcode` |
-| **JSON** | Settings | Global & Object | `settings.json` |
+| **TOML** | Config    | User & project  | `slicer.toml` |
 
 ### Example G-code Snippet
 
@@ -209,14 +228,16 @@ slicer-engine slice --help  # Command help
 |-------|-----|
 | `Cannot read input file` | Check STL path exists |
 | `Invalid STL format` | Re-export from CAD tool |
-| `Invalid settings JSON` | Fix JSON syntax |
+| `Invalid config file` | Fix the TOML syntax |
 | `Settings validation failed` | Check parameter ranges |
 | `Cannot write output` | Check disk space & permissions |
 | `Invalid gcode_flavor` | Use `marlin` or `klipper` |
 
 ## See Also
 
-- [Mesh Loading](../mesh/README.md) – STL parsing
+- [Mesh Loading](../mesh/README.md) – STL, OBJ and 3MF parsing
+- [Scene engine](../scene/README.md) – where every transform flag ends up
 - [Slicing](../SLICING.md) – How slicing works
 - [Settings](../settings/README.md) – Parameter reference and priority cascade
+- [Config](../config/README.md) – `slicer.toml` discovery and merge order
 - [Root](../../README.md) – Project overview

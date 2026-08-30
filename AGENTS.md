@@ -138,9 +138,29 @@ slicer-engine slice --help
 
 ### Documentation
 
+Docs are split by audience, and a change usually belongs in exactly one place.
+
+| Audience | Lives in | Style |
+| --- | --- | --- |
+| **Users** — how to use the app | [docs/use/](docs/use/) | Plain language, task-first. Simple by default; advanced detail kept but terse, in `::: details` blocks. |
+| **Teams / businesses** — deploying and operating it | [docs/teams/](docs/teams/) | Self-hosting, shared config, automation, data & licensing. Assumes an administrator. |
+| **Brand** | [docs/brand.md](docs/brand.md) | Name, mascot, assets, palette, voice. |
+| **Contributors** — how it works | Module `README.md`s, [ARCHITECTURE.md](ARCHITECTURE.md) | Explanation, not reference. See house style below. |
+
 - Use doc comments (`///`) for public types and functions
 - Include usage examples in doc comments for core APIs
-- Update [README.md](README.md) for user-facing changes
+- **A user-visible change is not done until [docs/use/](docs/use/) reflects it.**
+  A new setting, a new button, a changed shortcut — all of it.
+- Keep [ARCHITECTURE.md](ARCHITECTURE.md) a *map*. Depth belongs in the module
+  README it points at.
+- Update [README.md](README.md) for headline feature changes only.
+
+**The docs site carries a temporary "early docs" banner** while the structure
+and tone settle. It is a `layout-top` slot in
+[docs/.vitepress/theme/](docs/.vitepress/theme/); delete `Banner.vue`,
+`banner.css`, and the `theme/` directory's registration in `index.ts` to remove
+it. `--vp-layout-top-height` in `banner.css` is what reserves its space — drop
+that with it, or the nav keeps a gap above it.
 
 #### Module READMEs — house style
 
@@ -191,7 +211,7 @@ _Note: Keep clipper2 dependency current for bug fixes and performance improvemen
 5. Add error handling with `CliError` conversions
 6. Test with `cargo run -- your-command --help`
 
-See [architecture-cli-layer-1.md](plan/architecture-cli-layer-1.md) for detailed implementation phases.
+See [src/cli/README.md](src/cli/README.md) for the command catalog and argument reference.
 
 ### Adding a New Data Structure
 
@@ -688,7 +708,7 @@ so the firmware knows where a cancelled object lives.
 
 This section records hard-won understanding of how the slicing pipeline works and
 why specific design decisions were made. Read this before touching anything in
-[src/core/](src/core/) or [src/arachne/mod.rs](src/arachne/mod.rs).
+[src/core/](src/core/) or [src/walls/](src/walls/).
 
 **Validate, don't guess.** [tools/gcode-analysis/](tools/gcode-analysis/README.md)
 measures sliced G-code directly — wall overlap (`coincident.py`), unfilled
@@ -1189,8 +1209,9 @@ infill within the ring.
 - [README.md](README.md) - User guide and feature overview
 - [RELEASING.md](RELEASING.md) - Versioning + changelog + GitHub Release process
 - [CHANGELOG.md](CHANGELOG.md) - Embedded, user-facing release notes
-- [SETUP_COMPLETE.md](SETUP_COMPLETE.md) - Initial setup record
-- [architecture-cli-layer-1.md](plan/architecture-cli-layer-1.md) - CLI layer implementation plan
+- [SETUP.md](SETUP.md) - Prerequisites and first-run steps
+- [docs/use/](docs/use/) - End-user documentation
+- [docs/teams/](docs/teams/) - Self-hosting, configuration, automation
 - [tools/gcode-analysis/](tools/gcode-analysis/README.md) - G-code quality diagnostics (wall overlap, unfilled gaps, bead widths, render/zoom)
 - [Clipper2 Documentation](https://github.com/AngusJohnson/Clipper2) - Polygon clipping reference
 

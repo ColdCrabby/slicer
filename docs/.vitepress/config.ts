@@ -155,9 +155,9 @@ for (const source of discovered.keys()) {
 // https://vitepress.dev/reference/site-config
 export default withMermaid(
   defineConfig({
-    title: "Slicer Engine",
+    title: "Cold Crabby",
     description:
-      "A high-performance 3D model slicer engine written in Rust, powered by Clipper2.",
+      "Slice your 3D models anywhere — in your browser, on your desktop, on an iPad, or on your own server.",
     lastUpdated: true,
     cleanUrls: true,
     base: "/docs/",
@@ -169,35 +169,96 @@ export default withMermaid(
       },
 
       nav: [
-        { text: "Guide", link: "/guide/", activeMatch: "/guide/" },
+        { text: "Use it", link: "/use/", activeMatch: "/use/" },
+        { text: "For teams", link: "/teams/", activeMatch: "/teams/" },
+        { text: "Brand", link: "/brand", activeMatch: "/brand" },
         {
-          text: "Architecture",
-          link: "/architecture/core",
-          activeMatch: "/architecture/",
+          text: "Contribute",
+          activeMatch: "/(guide|architecture)/",
+          items: [
+            { text: "Project overview", link: "/guide/" },
+            { text: "Architecture", link: "/guide/architecture" },
+            { text: "Contributing", link: "/guide/contributing" },
+            { text: "Module reference", link: "/architecture/core" },
+          ],
         },
       ],
 
       sidebar: {
-        "/guide/": [
+        "/use/": [
           {
-            text: "Overview",
-            items: [{ text: "Project Overview", link: "/guide/" }],
+            text: "Using Cold Crabby",
+            items: [
+              { text: "Getting started", link: "/use/" },
+              { text: "The interface", link: "/use/interface" },
+              { text: "The build plate", link: "/use/plate" },
+              { text: "Print settings", link: "/use/settings" },
+              { text: "Printers & profiles", link: "/use/profiles" },
+              { text: "Reading the preview", link: "/use/preview" },
+              { text: "Sending to your printer", link: "/use/printing" },
+              { text: "Keyboard & gestures", link: "/use/shortcuts" },
+              { text: "Troubleshooting", link: "/use/troubleshooting" },
+            ],
           },
           {
-            text: "Working on the engine",
+            text: "More",
             items: [
-              { text: "Architecture", link: "/guide/architecture" },
+              { text: "For teams & businesses", link: "/teams/" },
+              { text: "What's new", link: "/guide/changelog" },
+              { text: "Brand", link: "/brand" },
+            ],
+          },
+        ],
+        "/teams/": [
+          {
+            text: "For teams & businesses",
+            items: [
+              { text: "Overview", link: "/teams/" },
+              { text: "Self-hosting", link: "/teams/self-host" },
+              { text: "Configuration", link: "/teams/configuration" },
+              { text: "Automation & the CLI", link: "/teams/automation" },
+              { text: "Data, privacy & licensing", link: "/teams/data" },
+            ],
+          },
+          {
+            text: "More",
+            items: [
+              { text: "Using the app", link: "/use/" },
+              { text: "Building from source", link: "/guide/building" },
+              { text: "Brand", link: "/brand" },
+            ],
+          },
+        ],
+        "/guide/": [
+          {
+            text: "Contributing",
+            items: [
+              { text: "Project overview", link: "/guide/" },
+              { text: "Setup", link: "/guide/setup" },
+              { text: "Building from source", link: "/guide/building" },
+              { text: "Development", link: "/guide/development" },
               { text: "Contributing", link: "/guide/contributing" },
               { text: "Releasing", link: "/guide/releasing" },
               { text: "Agents (AI)", link: "/guide/agents" },
             ],
           },
           {
-            text: "UI",
+            text: "Architecture",
+            items: [
+              { text: "Overview", link: "/guide/architecture" },
+              { text: "Module reference", link: "/architecture/core" },
+            ],
+          },
+          {
+            text: "Front-end",
             items: [
               { text: "Angular UI", link: "/guide/ui" },
               { text: "Theme", link: "/guide/ui-theme" },
               { text: "Styles", link: "/guide/ui-src-styles" },
+              {
+                text: "3D viewer",
+                link: "/guide/ui-src-app-components-viewer",
+              },
             ],
           },
         ],
@@ -205,18 +266,20 @@ export default withMermaid(
           {
             text: "Pipeline",
             items: [
-              { text: "Slicing Pipeline (core)", link: "/architecture/core" },
+              { text: "Slicing pipeline (core)", link: "/architecture/core" },
               { text: "Slicing algorithm", link: "/architecture/slicing" },
               { text: "Mesh", link: "/architecture/mesh" },
-              { text: "Arachne (walls)", link: "/architecture/arachne" },
+              { text: "Walls", link: "/architecture/walls" },
               { text: "Infill patterns", link: "/architecture/infill" },
+              { text: "Adhesion", link: "/architecture/adhesion" },
               { text: "G-code", link: "/architecture/gcode" },
             ],
           },
           {
-            text: "Scene & Settings",
+            text: "Scene & settings",
             items: [
-              { text: "Scene Engine (SSOT)", link: "/architecture/scene" },
+              { text: "Scene engine (SSOT)", link: "/architecture/scene" },
+              { text: "Auto-orientation", link: "/architecture/orient" },
               { text: "Settings", link: "/architecture/settings" },
               { text: "Config (TOML)", link: "/architecture/config" },
             ],
@@ -228,6 +291,13 @@ export default withMermaid(
               { text: "Server (HTTP + WS)", link: "/architecture/server" },
               { text: "Database (SQLite)", link: "/architecture/db" },
               { text: "Logging", link: "/architecture/logging" },
+            ],
+          },
+          {
+            text: "Back to",
+            items: [
+              { text: "Contributing", link: "/guide/" },
+              { text: "Using the app", link: "/use/" },
             ],
           },
         ],

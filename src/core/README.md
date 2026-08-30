@@ -253,7 +253,7 @@ Two things to note:
 | Phase                         | Function                                                                      | Reads                                       | Writes                                       |
 | ----------------------------- | ----------------------------------------------------------------------------- | ------------------------------------------- | -------------------------------------------- |
 | Slice                         | [`slice_mesh`](slicer.rs)                                                     | `Mesh`                                      | `paths` (OuterWall)                          |
-| Arachne walls                 | [`arachne::generate_arachne_walls`](../arachne/mod.rs)                        | `paths`                                     | `paths`, `path_roles`, `path_widths`         |
+| Arachne walls                 | [`walls::arachne::generate_arachne_walls`](../walls/arachne/mod.rs)                        | `paths`                                     | `paths`, `path_roles`, `path_widths`         |
 | Infill snapshot               | [`infill::calculate_interior_region`](infill.rs)                              | `paths` (all walls)                         | `pre_strip_infill_regions` local             |
 | Single-wall strip             | [`walls::apply_single_wall_restrictions`](walls.rs)                           | `paths`, `path_roles`                       | `paths`, `path_roles` (inner walls + first-layer gap fill removed) |
 | Interior regions for surfaces | [`infill::calculate_interior_region`](infill.rs)                              | `paths` (post-strip)                        | `interior_regions` local                     |
@@ -394,7 +394,7 @@ infill is then generated through the void. The `−0.5 × d` correction in
 the inflate accounts for the fact that `OuterWall` centerlines are already
 inset half a bead width from the model surface.
 
-See [`../arachne/README.md`](../arachne/README.md) for the wall-side
+See [`../walls/README.md`](../walls/README.md) for the wall-side
 implications and [`../../AGENTS.md`](../../AGENTS.md) for fill-rule
 guidance across the whole engine.
 
@@ -422,7 +422,7 @@ guidance across the whole engine.
 - [surfaces.rs](surfaces.rs) — top / bottom solid surface detection and infill
 - [infill.rs](infill.rs) — `calculate_interior_region`, sparse infill driver
 - [types.rs](types.rs) — `SliceLayer`, `ExtrusionRole`
-- [../arachne/README.md](../arachne/README.md) — variable-width wall generation
+- [../walls/README.md](../walls/README.md) — wall generation (Arachne + classic)
 - [../infill/README.md](../infill/README.md) — sparse infill pattern catalog
 - [../SLICING.md](../SLICING.md) — slicing-algorithm walkthrough
 - [../../AGENTS.md](../../AGENTS.md) — pipeline-wide invariants and fill-rule guidance
