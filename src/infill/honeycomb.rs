@@ -54,14 +54,16 @@ pub fn generate_honeycomb(region: &Paths, spacing: f64, density: f64, angle_offs
 
     let cos_a = angle_offset.cos();
     let sin_a = angle_offset.sin();
-    let cx = (min_x + max_x) / 2.0;
-    let cy = (min_y + max_y) / 2.0;
 
-    // Generate in an axis-aligned pattern space large enough that, once rotated
-    // about the region's centre, it still covers the whole bounding box.
-    let radius = ((max_x - min_x).powi(2) + (max_y - min_y).powi(2)).sqrt() / 2.0;
-    let place =
-        |x: f64, y: f64| -> (f64, f64) { (cx + x * cos_a - y * sin_a, cy + x * sin_a + y * cos_a) };
+    // The lattice lives in a pattern space that is the world rotated about the
+    // **origin** — not about the region's centre.  Anchoring to world
+    // coordinates is what makes the cells of every layer land on top of one
+    // another; keying the phase to the region's bounding box instead let the
+    // lattice slide by a fraction of a cell whenever the interior changed shape,
+    // so the walls never stacked into tubes.
+    let place = |x: f64, y: f64| -> (f64, f64) { (x * cos_a - y * sin_a, x * sin_a + y * cos_a) };
+    let to_pattern =
+        |x: f64, y: f64| -> (f64, f64) { (x * cos_a + y * sin_a, -x * sin_a + y * cos_a) };
 
     // Pointy-top hexagons: centres at (i·hex_width + row_offset, j·row_pitch),
     // odd rows shifted half a cell. Vertices sit at (0, ±side) and
@@ -69,10 +71,30 @@ pub fn generate_honeycomb(region: &Paths, spacing: f64, density: f64, angle_offs
     let half_w = hex_width / 2.0;
     let half_s = hex_side / 2.0;
 
-    let j_min = (-(radius + hex_side) / row_pitch).floor() as i64;
-    let j_max = ((radius + hex_side) / row_pitch).ceil() as i64;
-    let i_min = (-(radius + hex_width) / hex_width).floor() as i64;
-    let i_max = ((radius + hex_width) / hex_width).ceil() as i64;
+    // Cover the region's bounding box in pattern space: rotate its four corners
+    // and take their extent, padded by one cell so partial cells at the edge are
+    // still drawn.
+    let corners = [
+        to_pattern(min_x, min_y),
+        to_pattern(max_x, min_y),
+        to_pattern(max_x, max_y),
+        to_pattern(min_x, max_y),
+    ];
+    let px_min = corners.iter().map(|c| c.0).fold(f64::INFINITY, f64::min);
+    let px_max = corners
+        .iter()
+        .map(|c| c.0)
+        .fold(f64::NEG_INFINITY, f64::max);
+    let py_min = corners.iter().map(|c| c.1).fold(f64::INFINITY, f64::min);
+    let py_max = corners
+        .iter()
+        .map(|c| c.1)
+        .fold(f64::NEG_INFINITY, f64::max);
+
+    let j_min = ((py_min - hex_side) / row_pitch).floor() as i64;
+    let j_max = ((py_max + hex_side) / row_pitch).ceil() as i64;
+    let i_min = ((px_min - hex_width) / hex_width).floor() as i64;
+    let i_max = ((px_max + hex_width) / hex_width).ceil() as i64;
 
     let mut lines = Paths::default();
 
@@ -160,6 +182,47 @@ mod tests {
     fn test_honeycomb_generates_cells() {
         let result = generate_honeycomb(&square(20.0), SPACING, 0.2, 0.0);
         assert!(!result.is_empty(), "Should generate honeycomb pattern");
+    }
+
+    #[test]
+    fn lattice_is_anchored_to_world_coordinates() {
+        // Honeycomb is a *cellular* pattern: its walls only become tubes if
+        // every layer's cells land on the layer below. Two differently-sized
+        // regions must therefore produce the same lattice, not one keyed to
+        // each region's own centre.
+        let mut offset_region = Paths::default();
+        let inner: Path = vec![(7.0, 3.0), (53.0, 3.0), (53.0, 49.0), (7.0, 49.0)].into();
+        offset_region.push(inner);
+
+        let wide = generate_honeycomb(&square(60.0), 0.4, 0.2, 0.0);
+        let narrow = generate_honeycomb(&offset_region, 0.4, 0.2, 0.0);
+
+        // Compare the vertical cell walls that fall inside the shared area.
+        let walls = |paths: &Paths| -> Vec<(i64, i64)> {
+            let mut v: Vec<(i64, i64)> = paths
+                .iter()
+                .filter_map(|p| {
+                    let pts: Vec<(f64, f64)> = p.iter().map(|v| (v.x(), v.y())).collect();
+                    (pts.len() == 2 && (pts[0].0 - pts[1].0).abs() < 1e-9).then(|| {
+                        (
+                            (pts[0].0 * 100.0).round() as i64,
+                            (pts[0].1 * 100.0).round() as i64,
+                        )
+                    })
+                })
+                .filter(|(x, y)| (1000..=5000).contains(x) && (1000..=4000).contains(y))
+                .collect();
+            v.sort_unstable();
+            v
+        };
+
+        let a = walls(&wide);
+        let b = walls(&narrow);
+        assert!(!a.is_empty(), "expected cell walls in the sampled window");
+        assert_eq!(
+            a, b,
+            "the lattice moved when the region changed — cells will not stack"
+        );
     }
 
     #[test]

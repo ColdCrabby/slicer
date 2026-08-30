@@ -122,11 +122,25 @@ impl InfillPattern {
 
     /// Whether the fill angle alternates by 90° between layers.
     ///
-    /// Aligned rectilinear deliberately does not, so every layer's lines stack;
-    /// the 3D patterns derive their variation from Z instead and ignore the
-    /// layer angle entirely.
+    /// **Only single-sweep rectilinear does.** Alternation exists so that
+    /// consecutive layers of parallel lines cross instead of stacking into
+    /// unsupported walls — a question that only arises when the layer draws
+    /// lines in *one* direction.
+    ///
+    /// Every other pattern is harmed by it, which is why libslic3r's
+    /// multi-sweep and cellular fills all override `_layer_angle` to `0`:
+    ///
+    /// - `Honeycomb` is a **cellular** pattern. Its walls have to stack layer
+    ///   over layer to form tubes; rotating the lattice 90° drops each layer's
+    ///   walls onto the previous layer's voids, so nothing stacks and the walls
+    ///   print over air.
+    /// - `Triangles` / `TriHexagon` / `Cubic` already sweep three directions, so
+    ///   rotating only misregisters the lattice against the layer below.
+    /// - `Grid` sweeps 0° and 90°, so a 90° rotation maps it onto itself.
+    /// - `AlignedRectilinear` opts out by definition.
+    /// - `Concentric`, `Gyroid` and `TpmsD` ignore the angle entirely.
     pub fn alternates_per_layer(&self) -> bool {
-        !matches!(self, Self::AlignedRectilinear)
+        matches!(self, Self::Rectilinear)
     }
 
     /// Whether the generated paths still need clipping to the region.
@@ -480,6 +494,64 @@ mod tests {
             fill.iter().all(|p| p.len() > 4),
             "loops must stay whole, not be chopped into segments"
         );
+    }
+
+    #[test]
+    fn only_single_sweep_rectilinear_alternates_per_layer() {
+        // Alternation exists so consecutive layers of *parallel* lines cross.
+        // Applying it to a cellular or multi-sweep pattern is actively harmful:
+        // a 90° flip drops honeycomb's walls onto the previous layer's voids,
+        // so nothing stacks into a tube.
+        assert!(InfillPattern::Rectilinear.alternates_per_layer());
+        for pattern in [
+            InfillPattern::AlignedRectilinear,
+            InfillPattern::Grid,
+            InfillPattern::Triangles,
+            InfillPattern::TriHexagon,
+            InfillPattern::Cubic,
+            InfillPattern::Honeycomb,
+            InfillPattern::Concentric,
+            InfillPattern::Gyroid,
+            InfillPattern::TpmsD,
+        ] {
+            assert!(
+                !pattern.alternates_per_layer(),
+                "{pattern:?} must keep one orientation across layers"
+            );
+        }
+    }
+
+    #[test]
+    fn cellular_patterns_repeat_identically_across_layers() {
+        // The same region at two heights must give honeycomb the same lattice —
+        // that identity is what turns its walls into vertical tubes.
+        let square: Path = vec![(0.0, 0.0), (40.0, 0.0), (40.0, 40.0), (0.0, 40.0)].into();
+        let region = Paths::new(vec![square]);
+        let at = |z: f64| -> Vec<(i64, i64)> {
+            generate_infill(
+                &region,
+                &FillParams {
+                    pattern: InfillPattern::Honeycomb,
+                    density: 0.2,
+                    spacing_mm: 0.4,
+                    angle_offset: 0.0,
+                    z_height: z,
+                },
+            )
+            .iter()
+            .flat_map(|p| {
+                p.iter()
+                    .map(|v| {
+                        (
+                            (v.x() * 100.0).round() as i64,
+                            (v.y() * 100.0).round() as i64,
+                        )
+                    })
+                    .collect::<Vec<_>>()
+            })
+            .collect()
+        };
+        assert_eq!(at(0.2), at(0.4), "honeycomb cells must stack");
     }
 
     #[test]

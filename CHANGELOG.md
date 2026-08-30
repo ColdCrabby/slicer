@@ -315,6 +315,13 @@ these notes and acknowledges contributors. `scripts/gen-changelog-draft.sh` and
 - **Honeycomb is a real hexagonal tiling.** It used to stamp whole hexagons on
   an inconsistent grid, drawing every shared cell wall twice; the walls are now
   continuous zig-zags drawn once.
+- **Honeycomb cells stack again.** The pattern was rotated 90° on every other
+  layer, so each layer's walls landed on the layer below's voids — no vertical
+  cells, and walls printed over air. Its lattice was also keyed to the region's
+  bounding box, so it slid as the cross-section changed. Consecutive layers of a
+  Voron cube shared 2 % of their infill geometry before; they now share 79 %.
+  The same fix applies to triangles, tri-hexagon and cubic, which were being
+  misregistered against the layer below for the same reason.
 - **TPMS-D actually prints now.** It emitted one loose segment per grid cell, and
   nearly all of them were short enough for the tiny-extrusion filter to delete —
   the pattern was laying about a seventh of the density you asked for. The

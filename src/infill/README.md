@@ -39,10 +39,11 @@ The infill generators must fill it as-is, with no further offsetting.
    spacing.** `0.0` returns empty paths; values outside the range are clamped.
    See [The density unit](#the-density-unit) — this is the single most
    important invariant in the module.
-4. **Layer rotation comes in as `angle_offset` (radians).** Callers
-   alternate this per layer so rectilinear / grid lines cross between
-   layers. 3D patterns (gyroid, TPMS-D) ignore it and use `z_height`
-   instead.
+4. **Layer rotation comes in as `angle_offset` (radians), and only
+   `Rectilinear` alternates it.** See
+   [Per-layer rotation](#per-layer-rotation) — applying the 90° flip to any
+   other pattern breaks it. 3D patterns (gyroid, TPMS-D) ignore the angle and
+   use `z_height` instead.
 
 ---
 
@@ -144,6 +145,34 @@ Because that ordering *is* the feature, [`core::pipeline`](../core/pipeline.rs)
 skips the greedy-TSP path reordering for a monotonic surface group — the TSP is
 free to reverse an open path, which would scramble the sweep and leave the
 surface looking no different from a plain serpentine.
+
+---
+
+## Per-layer rotation
+
+`InfillPattern::alternates_per_layer()` is **true for `Rectilinear` alone.**
+
+Alternation exists for one reason: a layer of parallel lines that stacked
+directly on the identical layer below would build unsupported walls instead of a
+lattice, so consecutive layers are crossed by 90°. That question only arises when
+a layer draws its lines in *one* direction.
+
+Every other pattern is actively harmed by the flip, which is why libslic3r's
+multi-sweep and cellular fills all override `_layer_angle` to `0`:
+
+- **`Honeycomb` is cellular.** Its walls have to stack layer over layer to form
+  tubes — that vertical structure *is* the pattern. Rotating the lattice 90°
+  drops each layer's walls onto the previous layer's voids. Measured on a Voron
+  cube before this was fixed, consecutive layers shared **2 %** of their infill
+  geometry; they now share **79 %**.
+- **`Triangles` / `TriHexagon` / `Cubic`** already sweep three directions, so
+  rotating only misregisters the lattice against the layer below.
+- **`Grid`** sweeps 0° and 90°, so a 90° rotation maps it onto itself.
+- **`Concentric`, `Gyroid`, `TpmsD`** ignore the angle entirely.
+
+The companion invariant is [world-anchored phase](#3-line-phase-is-anchored-to-world-coordinates):
+a fixed orientation is not enough if the lattice slides. Both are needed for
+cells to stack, and both are pinned by tests.
 
 ---
 
@@ -277,6 +306,12 @@ one shared utility.
 region's own centre. Successive layers have slightly different interior
 regions, so a centre-relative phase would drift the infill a fraction of a pitch
 per layer and the lattice would never stack.
+
+`generate_honeycomb` obeys the same rule: its lattice is built in a pattern
+space rotated about the **world origin**, and the region's bounding box only
+decides which cells to emit. Keying the phase to the region's centre instead
+made the cells wander as the cross-section changed — fatal for a pattern whose
+walls are supposed to stack into tubes.
 
 ### 4. Scanline fill correctly handles holes
 

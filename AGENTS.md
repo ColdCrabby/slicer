@@ -1173,6 +1173,27 @@ requested density equals the deposited volume. Every infill generator used to
 hardcode a `0.4 mm` reference instead, which made density wrong for any other
 nozzle or `sparse_infill_line_width` (0.6 mm nozzle: "20 %" printed as ~13 %).
 
+**Only `Rectilinear` alternates its angle per layer**
+(`InfillPattern::alternates_per_layer`). The 90° flip exists so consecutive
+layers of *parallel* lines cross instead of stacking into unsupported walls — a
+question that only arises for a single-sweep pattern. Applying it anywhere else
+breaks the pattern, which is why libslic3r's multi-sweep and cellular fills all
+override `_layer_angle` to `0`:
+
+- **`Honeycomb` is cellular** — its walls must stack layer over layer to form
+  tubes, and a 90° flip drops each layer's walls onto the previous layer's
+  voids. Measured on a Voron cube, consecutive layers shared **2 %** of their
+  infill geometry before this was fixed and **79 %** after.
+- `Triangles` / `TriHexagon` / `Cubic` already sweep three directions, so
+  rotating only misregisters the lattice; `Grid` (0°/90°) maps onto itself;
+  `Concentric` / `Gyroid` / `TpmsD` ignore the angle.
+
+**Every lattice must also be phase-anchored to world coordinates**, not to the
+region's bounding box. A fixed orientation is not enough — if the phase is keyed
+to the region, the cells slide as the cross-section changes and still never
+stack. `generate_lines` and `generate_honeycomb` both build their lattice about
+the world origin and use the region only to decide which cells to emit.
+
 **A pattern that lays several sweeps must divide the density first**
 (`fill_surface_by_multilines`, `FillRectilinear.cpp:2956-2970`). Use
 [`rectilinear::generate_multiline`](src/infill/rectilinear.rs), never two calls
