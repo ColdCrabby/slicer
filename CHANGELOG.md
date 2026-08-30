@@ -29,9 +29,18 @@ issue/PR numbers or repo links in the notes. See the tone rules in
 
 ### Fixed
 
-- **No more flashing console on Windows** — the desktop app polls the OS accent
-  colour every couple of seconds; on Windows each poll popped a brief `cmd`
-  window. The helper now runs hidden, so the flickering after login is gone.
+- **No more flashing console on Windows** — the desktop app used to re-read the
+  OS accent colour every couple of seconds by shelling out, which popped a brief
+  `cmd` window on Windows on every check. It now reads the accent directly and
+  waits for the OS to signal a change instead of polling, so the flickering after
+  login is gone and macOS stops re-checking on a timer too.
+
+### Changed
+
+- **Live accent tracking is event-driven** — the desktop app now updates its
+  accent tint the moment you change it in the OS (Windows registry change
+  notifications; macOS distributed notifications) rather than catching up on a
+  2-second poll.
 
 ## [0.2.0] - 2026-08-30
 
