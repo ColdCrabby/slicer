@@ -55,6 +55,33 @@
     </button>
   }
 
+  <!-- Undo / redo as on-canvas buttons for keyboard-less devices, where the
+       ⌘/Ctrl+Z shortcut is unreachable. Visibility is auto-detected but can be
+       forced on or off from Settings → General → Controls. -->
+  @if (showHistoryButtons()) {
+    <button
+      class="reset-view-button"
+      type="button"
+      [disabled]="!canUndo()"
+      [tooltip]="'Undo the last change'"
+      [tooltipShortcut]="keyboardShortcuts.shortcutFor('undo')"
+      (click)="undo()"
+    >
+      <nexus-icon name="undo"></nexus-icon>
+    </button>
+
+    <button
+      class="reset-view-button"
+      type="button"
+      [disabled]="!canRedo()"
+      [tooltip]="'Redo the last undone change'"
+      [tooltipShortcut]="keyboardShortcuts.shortcutFor('redo')"
+      (click)="redo()"
+    >
+      <nexus-icon name="redo"></nexus-icon>
+    </button>
+  }
+
   <!-- Multiple selection so a whole batch of parts can be plated at once. -->
   <input
     #addObjectInput
