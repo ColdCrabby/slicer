@@ -124,12 +124,6 @@ export const APP_ROUTES: Routes = [
           },
         ],
       },
-      {
-        path: 'components',
-        title: 'UI Components',
-        loadComponent: () =>
-          import('./pages/ui-components/ui-components.component').then((m) => m.UiComponentsPage),
-      },
     ],
   },
 ];

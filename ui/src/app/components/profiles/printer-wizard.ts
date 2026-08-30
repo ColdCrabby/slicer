@@ -16,14 +16,16 @@ import {
   type PrinterDetectionResult,
 } from '../../services/printer-connection';
 import { defaultGcodeTemplateIdForFlavor, gcodeTemplatePatch } from '../../models/gcode-templates';
-import { Icon } from '../../shared/icon/icon';
-import { Button } from '../../ui/button/button';
-import { NumberInput } from '../../ui/number-input/number-input';
-import { Segmented } from '../../ui/segmented/segmented';
-import { Select } from '../../ui/select/select';
-import { Switch } from '../../ui/switch/switch';
-import { FieldRow } from '../../ui/field-row/field-row';
-import { WizardShell } from '../../ui/wizard/wizard-shell';
+import {
+  Icon,
+  Button,
+  NumberInput,
+  Segmented,
+  Select,
+  Switch,
+  FieldRow,
+  WizardShell,
+} from '@coldcrabby/ui';
 import { CatalogPicker, type CatalogEntryVm } from './catalog-picker';
 import { paramNum, paramStr } from '../../models/params-access';
 

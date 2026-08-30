@@ -3,10 +3,7 @@ import { KeyboardShortcuts } from '../../services/keyboard-shortcuts/keyboard-sh
 import { SceneCommand } from '../../services/scene-command/scene-command';
 import { SceneEngine, type SceneObjectSnapshot } from '../../services/scene-engine';
 import { ViewerControl } from '../../services/viewer-control';
-import { Icon } from '../../shared/icon/icon';
-import { TooltipDirective } from '../../shared/tooltip/tooltip.directive';
-import { NumberInput } from '../../ui/number-input/number-input';
-import { Segmented, type SegmentOption } from '../../ui/segmented/segmented';
+import { Icon, TooltipDirective, NumberInput, Segmented, type SegmentOption } from '@coldcrabby/ui';
 
 /** Which numeric readout the scale mode edits. */
 type ScaleUnit = 'percent' | 'size';

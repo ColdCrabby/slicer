@@ -1,6 +1,6 @@
 import { ChangeDetectionStrategy, Component, input, output } from '@angular/core';
 import { LABEL_HUES, LABEL_TONES, type Label, type LabelTone } from '../../models/label.model';
-import { Icon } from '../../shared/icon/icon';
+import { Icon } from '@coldcrabby/ui';
 import { LabelChip } from './label-chip';
 
 /**

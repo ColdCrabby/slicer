@@ -15,10 +15,12 @@ import { NotificationService } from '../../services/notifications';
 import { Slicer } from '../../services/slicer';
 import { ViewerControl } from '../../services/viewer-control';
 import { WorkplateObjects } from '../../services/workplate-objects';
-import { Icon } from '../../shared/icon/icon';
-import { RadioButtonValue } from '../../shared/radio-group/radio-button-value';
-import { RadioGroup } from '../../shared/radio-group/radio-group';
-import { TooltipDirective } from '../../shared/tooltip/tooltip.directive';
+import {
+  Icon,
+  RadioButtonValue,
+  RadioGroupDirective as RadioGroup,
+  TooltipDirective,
+} from '@coldcrabby/ui';
 import { Card } from '../card/card';
 import { OperationPipelineDialog } from '../operation-pipeline-dialog/operation-pipeline-dialog';
 import { PlacementPanel } from '../placement-panel/placement-panel';

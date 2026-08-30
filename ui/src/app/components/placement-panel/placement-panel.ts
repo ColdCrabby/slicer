@@ -3,10 +3,7 @@ import { RouterLink } from '@angular/router';
 import { Arrange, MAX_ARRANGE_SPACING_MM, MIN_ARRANGE_SPACING_MM } from '../../services/arrange';
 import { ActiveSelection } from '../../services/profiles/active-selection';
 import { ViewerControl } from '../../services/viewer-control';
-import { Icon } from '../../shared/icon/icon';
-import { TooltipDirective } from '../../shared/tooltip/tooltip.directive';
-import { NumberInput } from '../../ui/number-input/number-input';
-import { Switch } from '../../ui/switch/switch';
+import { Icon, TooltipDirective, NumberInput, Switch } from '@coldcrabby/ui';
 
 /**
  * Contextual placement settings, hanging off the placement tool.

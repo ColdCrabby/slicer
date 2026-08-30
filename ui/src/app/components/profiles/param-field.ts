@@ -3,9 +3,7 @@ import type { FieldDef } from '../../schema-form/models/field-def';
 import { noticeForField } from '../../schema-form/field-exceptions/field-exceptions';
 import { FieldNoticeView } from '../../schema-form/field-notice/field-notice';
 import { GcodeField } from '../../schema-form/custom-widgets/gcode-field/gcode-field';
-import { NumberInput } from '../../ui/number-input/number-input';
-import { Select, type SelectOption } from '../../ui/select/select';
-import { Switch } from '../../ui/switch/switch';
+import { NumberInput, Select, type SelectOption, Switch } from '@coldcrabby/ui';
 import { FieldShell } from './field-shell';
 
 /**

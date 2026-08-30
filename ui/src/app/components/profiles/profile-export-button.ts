@@ -9,9 +9,7 @@ import {
 import type { ElementRef, TemplateRef } from '@angular/core';
 import { ProfileExport } from '../../services/profiles/profile-export';
 import type { ProfileExportFormat } from '../../services/profiles/profile-persistence';
-import { FloatingService } from '../../shared/floating';
-import type { FloatingRef } from '../../shared/floating';
-import { Icon } from '../../shared/icon/icon';
+import { FloatingService, type FloatingRef, Icon } from '@coldcrabby/ui';
 
 /** One row of the export menu. */
 interface ExportOption {

@@ -38,7 +38,7 @@ import { preferredHoverPlacement } from './hover-placement';
 import type { GizmoDelta } from './gizmo';
 import { ViewerScene } from './scene';
 import type { ViewerView } from './scene';
-import { applyFloating, type FloatingPlacement } from '../../shared/floating';
+import { applyFloating, type FloatingPlacement } from '@coldcrabby/ui';
 
 export type ViewerMode = 'model' | 'gcode';
 

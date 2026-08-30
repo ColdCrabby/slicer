@@ -15,7 +15,7 @@ import { Slicer } from '../../services/slicer';
 import { SlicerFile, type RequestMeta, type UploadResponse } from '../../services/slicer-file';
 import { ViewerControl } from '../../services/viewer-control';
 import { WorkplateObjects } from '../../services/workplate-objects';
-import { Icon } from '../../shared/icon/icon';
+import { Icon } from '@coldcrabby/ui';
 
 @Component({
   selector: 'nexus-slice-viewer',

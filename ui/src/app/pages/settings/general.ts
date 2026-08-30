@@ -12,9 +12,7 @@ import {
 import { ProfileExportButton } from '../../components/profiles/profile-export-button';
 import { resolveRuntimeMode } from '../../runtime/domain/runtime-mode.util';
 import { AppVersion } from '../../services/app-version';
-import { Button } from '../../ui/button/button';
-import { SectionHeader } from '../../ui/section-header/section-header';
-import { Slider } from '../../ui/slider/slider';
+import { Button, SectionHeader, Slider } from '@coldcrabby/ui';
 import { FovCube } from '../../ui/fov-cube/fov-cube';
 
 @Component({

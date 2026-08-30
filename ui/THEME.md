@@ -1,7 +1,9 @@
 # Theming
 
-How light/dark mode and the accent colour work. For the SCSS file layout, see
-[`src/styles/README.md`](src/styles/README.md); for the visual rules that govern
+How light/dark mode and the accent colour work. The SCSS design language —
+tokens, base elements, utilities — lives in the shared
+[`@coldcrabby/ui`](https://github.com/ColdCrabby/ui) repo, vendored at
+`vendor/coldcrabby-ui/` (see [README → Shared UI](README.md#shared-ui-coldcrabbyui)); for the visual rules that govern
 what you build with these tokens, see
 [the design language](../.github/instructions/ui-design-language.instructions.md).
 
@@ -10,7 +12,8 @@ what you build with these tokens, see
 Dark mode is a class on `<html>`. Light is the default; `html.dark` swaps the
 token values.
 
-Tokens are defined per mode in [`src/styles/theme/`](src/styles/theme/):
+Tokens are defined per mode in the vendored
+[`vendor/coldcrabby-ui/src/styles/theme/`](vendor/coldcrabby-ui/src/styles/theme/):
 `_tokens.scss` holds what doesn't change (spacing, radii, durations),
 `_light.scss` and `_dark.scss` hold the colours.
 

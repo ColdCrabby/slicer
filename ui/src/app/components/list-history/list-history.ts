@@ -6,8 +6,7 @@ import { ContextMenuTrigger } from '../../services/context-menu/context-menu-tri
 import type { ContextMenuItem } from '../../services/context-menu/context-menu.model';
 import { History } from '../../services/history';
 import { WorkplateNames } from '../../services/workplate-names';
-import { Icon } from '../../shared/icon/icon';
-import { Button } from '../../ui/button/button';
+import { Icon, Button } from '@coldcrabby/ui';
 
 @Component({
   selector: 'nexus-list-history',

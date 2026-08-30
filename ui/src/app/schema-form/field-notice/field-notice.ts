@@ -1,6 +1,6 @@
 import { ChangeDetectionStrategy, Component, input } from '@angular/core';
 import { RouterLink } from '@angular/router';
-import { InlineNotice } from '../../ui/inline-notice/inline-notice';
+import { InlineNotice } from '@coldcrabby/ui';
 import type { FieldNotice } from '../field-exceptions/field-exceptions';
 
 /**

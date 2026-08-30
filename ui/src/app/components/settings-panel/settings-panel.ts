@@ -14,10 +14,7 @@ import { ActivePresets } from '../../services/profiles/active-presets';
 import { LabelFilterStore } from '../../services/profiles/label-filter-store';
 import { LabelFilterBar } from '../labels/label-filter-bar';
 import { Slicer } from '../../services/slicer';
-import { Icon } from '../../shared/icon/icon';
-import { IconButton } from '../../ui/icon-button/icon-button';
-import { Segmented, type SegmentOption } from '../../ui/segmented/segmented';
-import { Select } from '../../ui/select/select';
+import { Icon, IconButton, Segmented, type SegmentOption, Select } from '@coldcrabby/ui';
 
 // Extract the SlicingParams sub-schema so the form renders all slicer settings.
 // (`SlicingParams` is now the wire-format type — the legacy `WsSlicingParams`

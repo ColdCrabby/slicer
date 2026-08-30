@@ -14,7 +14,7 @@ import { provideProfilePersistence } from './services/profiles/profile-persisten
 import { ProfileSync } from './services/profiles/profile-sync';
 import { NexusTitleStrategy } from './services/title-strategy';
 import { UploadGuard } from './services/upload-guard';
-import { UserInputModality } from './shared/input-modality/input-modality';
+import { UserInputModality } from '@coldcrabby/ui';
 
 export const appConfig: ApplicationConfig = {
   providers: [

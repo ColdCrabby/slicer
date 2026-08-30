@@ -1,4 +1,4 @@
-import type { InlineNoticeTone } from '../../ui/inline-notice/inline-notice';
+import { type InlineNoticeTone } from '@coldcrabby/ui';
 import type { FieldDef } from '../models/field-def';
 
 /**

@@ -1,6 +1,6 @@
 import { Component, computed, inject } from '@angular/core';
 import { Slicer } from '../../services/slicer';
-import { Badge, BadgeVariant } from '../../shared/badge/badge';
+import { Badge, BadgeVariant } from '@coldcrabby/ui';
 
 interface StatusConfig {
   label: string;

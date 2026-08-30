@@ -2,8 +2,7 @@ import { ChangeDetectionStrategy, Component, computed, inject, signal } from '@a
 import { FormsModule } from '@angular/forms';
 import { DangerZone } from '../../services/danger-zone';
 import { NotificationService } from '../../services/notifications';
-import { Button } from '../../ui/button/button';
-import { SectionHeader } from '../../ui/section-header/section-header';
+import { Button, SectionHeader } from '@coldcrabby/ui';
 
 /** The word the user must type to unlock an irreversible reset. */
 const CONFIRM_WORD = 'RESET';

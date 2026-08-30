@@ -1,7 +1,6 @@
 import { ChangeDetectionStrategy, Component, EventEmitter, input } from '@angular/core';
-import { Switch } from '../../../ui/switch/switch';
+import { Switch, TooltipDirective } from '@coldcrabby/ui';
 import { IconButton } from '../../../shared/icon-button/icon-button';
-import { TooltipDirective } from '../../../shared/tooltip/tooltip.directive';
 import type { FieldDef } from '../../models/field-def';
 import type { FieldWidget } from '../base-field';
 

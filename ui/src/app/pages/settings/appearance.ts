@@ -5,8 +5,7 @@ import {
   ColorPickerPreference,
   type ColorPickerMode,
 } from '../../services/color-picker-preference';
-import { Icon } from '../../shared/icon/icon';
-import { SectionHeader } from '../../ui/section-header/section-header';
+import { Icon, SectionHeader } from '@coldcrabby/ui';
 
 type ThemeMode = 'light' | 'dark' | 'system';
 

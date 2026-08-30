@@ -11,11 +11,7 @@ import { FilamentsStore } from '../../services/profiles/filaments-store';
 import { LabelsStore } from '../../services/profiles/labels-store';
 import { PrintProfilesStore } from '../../services/profiles/print-profiles-store';
 import { PrintersStore } from '../../services/profiles/printers-store';
-import { Icon } from '../../shared/icon/icon';
-import { Button } from '../../ui/button/button';
-import { EmptyState } from '../../ui/empty-state/empty-state';
-import { IconButton } from '../../ui/icon-button/icon-button';
-import { SectionHeader } from '../../ui/section-header/section-header';
+import { Icon, Button, EmptyState, IconButton, SectionHeader } from '@coldcrabby/ui';
 
 @Component({
   selector: 'nexus-settings-labels',

@@ -11,6 +11,9 @@
 npm-debug.log
 yarn-error.log
 
+# Vendored shared UI source (ColdCrabby/ui) — fetched via `pnpm vendor:ui`
+/vendor
+
 # IDEs and editors
 .idea/
 .project

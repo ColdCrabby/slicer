@@ -10,7 +10,7 @@ import { RouterLink, RouterLinkActive, RouterOutlet } from '@angular/router';
 import { resolveRuntimeMode } from '../../runtime/domain/runtime-mode.util';
 import { SAVE_DEBOUNCE_MS } from '../../services/profiles/engine-write-through';
 import { ProfileSync, type ProfileSyncStatus } from '../../services/profiles/profile-sync';
-import { Icon } from '../../shared/icon/icon';
+import { Icon } from '@coldcrabby/ui';
 
 interface SettingsSection {
   path: string;

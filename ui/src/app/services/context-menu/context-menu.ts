@@ -1,5 +1,5 @@
 import { Component, input, output } from '@angular/core';
-import { Icon } from '../../shared/icon/icon';
+import { Icon } from '@coldcrabby/ui';
 import type { ContextMenuItem } from './context-menu.model';
 
 /**

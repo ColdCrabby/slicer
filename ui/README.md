@@ -75,8 +75,12 @@ ui/src/app/
 │   └── app-theme.ts                  light / dark token switcher
 ├── schema-form/           generic form renderer driven by JSON Schema
 ├── models/                shared types (mostly re-exports from generated/)
-└── shared/                cross-cutting widgets, directives, input-modality
+└── shared/                slicer-only cross-cutting bits — dialog service, icon-button
 ```
+
+> **Presentational primitives and the design language live in
+> [`@coldcrabby/ui`](https://github.com/ColdCrabby/ui), not here.** See
+> [Shared UI](#shared-ui-coldcrabbyui) below.
 
 ```mermaid
 sequenceDiagram
@@ -99,6 +103,38 @@ sequenceDiagram
     S-->>UI: WS Progress · PhaseMarker · SliceComplete
     UI-->>U: layered G-code preview + estimates
 ```
+
+---
+
+## Shared UI (@coldcrabby/ui)
+
+The presentational primitives (button, select, segmented, slider, modal-shell,
+…) and the **design language** (theme tokens, base elements, utilities, mixins)
+are not defined here — they live in the shared
+[`ColdCrabby/ui`](https://github.com/ColdCrabby/ui) repo and are consumed as
+**raw source**, so what the slicer renders and what other Cold Crabby apps
+render stay identical.
+
+- **Vendored, not published.** `pnpm vendor:ui` clones `ColdCrabby/ui` (tracking
+  `main`) into `vendor/coldcrabby-ui/`, which is git-ignored. It also runs on
+  `postinstall`, so a fresh `pnpm install` fetches it automatically. To pull the
+  latest shared UI, re-run `pnpm vendor:ui`.
+- **Imported as `@coldcrabby/ui`.** A tsconfig `paths` entry maps the package to
+  `vendor/coldcrabby-ui/src/public-api.ts`; components import primitives from
+  `@coldcrabby/ui` directly.
+- **Styles via `includePaths`.** `angular.json` adds
+  `vendor/coldcrabby-ui/src/styles` to the Sass load path, so
+  [src/styles/main.scss](src/styles/main.scss) pulls the shared theme, base,
+  utilities, and mixins with bare `@use 'theme/…'` specifiers. Slicer-only
+  styles stay local: the **viewport-locking reset** (the app pins the viewport;
+  the shared reset scrolls), the global `components/` partials, and the
+  `drop-aurora` emit.
+- **What stays here.** Slicer-specific UI only: the app shell (`nexus/`), the
+  3D viewer, the schema-driven forms, the `fov-cube`, the `dialog` service, and
+  the local `icon-button`.
+
+Change a primitive or a token in `ColdCrabby/ui`, open a PR there, and once it
+lands, `pnpm vendor:ui` brings it in.
 
 ---
 
