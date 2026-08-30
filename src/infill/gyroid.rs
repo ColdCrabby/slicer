@@ -20,12 +20,13 @@ use std::f64::consts::PI;
 ///
 /// # Arguments
 /// * `region` - The infill region boundaries
+/// * `spacing` - Flow spacing of one bead in mm (`width − h·(1 − π/4)`)
 /// * `density` - Infill density as a fraction (0.0-1.0)
 /// * `z_height` - The Z coordinate of the current layer in mm
 ///
 /// # Returns
 /// Paths representing the gyroid surface at the current Z-height
-pub fn generate_gyroid(region: &Paths, density: f64, z_height: f64) -> Paths {
+pub fn generate_gyroid(region: &Paths, spacing: f64, density: f64, z_height: f64) -> Paths {
     if density <= 0.0 || region.is_empty() {
         return Paths::default();
     }
@@ -36,22 +37,21 @@ pub fn generate_gyroid(region: &Paths, density: f64, z_height: f64) -> Paths {
     }
     let (min_x, min_y, max_x, max_y) = bounds.unwrap();
 
-    // Calculate line distance from density
-    // Standard line width is 0.4mm, spacing inversely proportional to density
-    let line_width = 0.4;
-    let line_distance = if density > 0.0 {
-        line_width / density
-    } else {
-        return Paths::default();
-    };
+    // libslic3r's `FillGyroid::DensityAdjust`: the sinusoidal surface packs more
+    // line length into a period than a straight sweep does, so the naive
+    // `spacing / density` pitch would badly over-fill. The corrected wave period
+    // is `2π × spacing / (density × 2.44)` — within 7 % of the `line_distance ×
+    // 2.41` Cura relation this generator was originally built on, but now driven
+    // by the real bead spacing instead of a hardcoded 0.4 mm.
+    const DENSITY_ADJUST: f64 = 2.44;
+    let density_adjusted = (density * DENSITY_ADJUST).max(1e-6);
+    let pitch_f = (2.0 * PI * spacing / density_adjusted).max(1e-3);
 
-    // Pitch calculation from Cura: produces similar density to line infill.
     // Cura works in microns and uses `while step > 500` to subdivide. We work
     // in millimeters (step ≈ 1mm), so that condition would never trigger and
     // we'd be left with only 4 sample points per pitch — producing extremely
     // jagged waves. Always force at least 16 samples per pitch, matching the
     // smoothness Cura achieves in its native units.
-    let pitch_f = line_distance * 2.41;
     let num_steps: i32 = 16;
     let step_f = pitch_f / num_steps as f64;
 
@@ -270,7 +270,7 @@ mod tests {
     #[test]
     fn test_gyroid_empty_region() {
         let region = Paths::default();
-        let result = generate_gyroid(&region, 0.2, 0.2);
+        let result = generate_gyroid(&region, 0.357, 0.2, 0.2);
         assert!(result.is_empty());
     }
 
@@ -280,7 +280,7 @@ mod tests {
         let square: Path = vec![(0.0, 0.0), (20.0, 0.0), (20.0, 20.0), (0.0, 20.0)].into();
         region.push(square);
 
-        let result = generate_gyroid(&region, 0.0, 0.2);
+        let result = generate_gyroid(&region, 0.357, 0.0, 0.2);
         assert!(result.is_empty());
     }
 
@@ -290,7 +290,7 @@ mod tests {
         let square: Path = vec![(0.0, 0.0), (20.0, 0.0), (20.0, 20.0), (0.0, 20.0)].into();
         region.push(square);
 
-        let result = generate_gyroid(&region, 0.2, 0.2);
+        let result = generate_gyroid(&region, 0.357, 0.2, 0.2);
         assert!(!result.is_empty(), "Should generate gyroid pattern");
 
         // Verify lines have multiple points (wavy lines, not straight)
@@ -305,8 +305,8 @@ mod tests {
         let square: Path = vec![(0.0, 0.0), (20.0, 0.0), (20.0, 20.0), (0.0, 20.0)].into();
         region.push(square);
 
-        let result1 = generate_gyroid(&region, 0.2, 0.2);
-        let result2 = generate_gyroid(&region, 0.2, 0.4);
+        let result1 = generate_gyroid(&region, 0.357, 0.2, 0.2);
+        let result2 = generate_gyroid(&region, 0.357, 0.2, 0.4);
 
         // Different Z heights should produce different patterns
         assert!(!result1.is_empty());

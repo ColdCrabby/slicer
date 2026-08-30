@@ -24,6 +24,39 @@ Configuration for slicing behavior and printer control. All values stored as JSO
 | `thumbnail_color_mode`    | enum | `filament` | generic/filament/custom            | Model colour in the thumbnail: neutral / filament / chosen     |
 | `thumbnail_custom_color`  | hex  | `#e0912f` | `#rrggbb`                           | Model colour used when `thumbnail_color_mode = custom`         |
 
+### Infill (`params.*`)
+
+| Parameter                                | Type  | Default          | Effect                                                                        |
+| ---------------------------------------- | ----- | ---------------- | ----------------------------------------------------------------------------- |
+| `infill_pattern`                         | enum  | `Rectilinear`    | see below                                                                     |
+| `infill_base_angle`                      | °     | 45               | Sparse fill direction; alternating layers add 90°                             |
+| `infill_anchor_percent`                  | %     | 400              | How far a lone infill line end runs along the wall, as a % of the bead spacing |
+| `infill_anchor_max_mm`                   | mm    | 20               | Longest wall stretch that may join two infill lines; `0` = no anchoring        |
+| `infill_every_layers`                    | count | 1                | Print sparse infill once every N layers, at N× the height (`1` = off)          |
+| `infill_combination_max_layer_height_mm` | mm    | 0                | Cap on the combined height; `0` = use the nozzle diameter                      |
+| `solid_infill_every_layers`              | count | 0                | Force a solid internal layer every N layers (`0` = off)                        |
+
+Infill patterns: `Rectilinear`, `AlignedRectilinear`, `Grid`, `Triangles`,
+`TriHexagon`, `Cubic`, `Honeycomb`, `Concentric`, `Gyroid`, `TpmsD`.
+
+Density is measured against the **bead spacing** (`width − h·(1 − π/4)`), so a
+requested density equals the deposited volume at any line width — and every
+pattern deposits the same amount. See
+[src/infill/README.md](../infill/README.md).
+
+### Surfaces (`params.*`)
+
+| Parameter                       | Type | Default           | Effect                                        |
+| ------------------------------- | ---- | ----------------- | --------------------------------------------- |
+| `surface_infill_angle`          | °    | 45                | Solid fill direction; alternates 90° per layer |
+| `top_surface_pattern`           | enum | `monotonic-line`  | Fill pattern for the visible top surface       |
+| `bottom_surface_pattern`        | enum | `monotonic`       | Fill pattern for the bottom surface            |
+| `internal_solid_infill_pattern` | enum | `monotonic`       | Fill pattern for forced internal solid layers  |
+
+Surface patterns: `rectilinear`, `aligned-rectilinear`, `monotonic`,
+`monotonic-line`, `concentric`. "Monotonic" draws every line in the same
+direction, so the nozzle never travels back over a line it just laid.
+
 ### Bridge & overhang (`params.*`)
 
 | Parameter                | Type | Default | Effect                                                                      |
@@ -34,6 +67,7 @@ Configuration for slicing behavior and printer control. All values stored as JSO
 | `bridge_min_area_mm2`    | mm²  | 0.5     | Drop bridge candidates smaller than this; reclassified as `BottomSurface`   |
 | `bridge_noise_filter_mm` | mm   | 0.05    | Morphological-open radius to wipe sub-pixel slivers before bridge detection |
 | `bridge_fan_speed`       | 0–1  | 1.0     | Part-cooling duty while printing `Bridge` segments (per-segment override)   |
+| `bridge_angle`           | °    | 0       | Force one bridging direction; `0` = auto-detect, `180` = horizontal         |
 
 ### Cooling & chamber (`params.*`)
 

@@ -504,6 +504,12 @@ fn merge_layers_by_z(per_object: &[Vec<SliceLayer>], layer_height: f64) -> Vec<S
         if slot.path_overhang.iter().all(|c| *c == OverhangClass::None) {
             slot.path_overhang.clear();
         }
+        // Same sentinel for the per-path extrusion height: only combined sparse
+        // infill sets one, and dropping it would print a stacked bead at the
+        // layer height — a hard under-extrusion.
+        if slot.path_heights.iter().all(|h| h.is_none()) {
+            slot.path_heights.clear();
+        }
         out.push(slot);
     }
 
@@ -520,6 +526,7 @@ fn append_tagged(slot: &mut SliceLayer, layer: &SliceLayer, object_index: usize)
             .push(layer.vertex_widths_for_path(path_index));
         slot.path_is_open.push(layer.is_path_open(path_index));
         slot.path_overhang.push(layer.overhang_for_path(path_index));
+        slot.path_heights.push(layer.height_for_path(path_index));
         slot.path_objects.push(Some(object_index));
     }
     for region in layer.solid_regions.iter() {
