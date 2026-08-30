@@ -123,10 +123,21 @@ const ENUM_LABELS: Record<string, string> = {
   random: 'Random',
   // InfillPattern
   Rectilinear: 'Rectilinear',
+  AlignedRectilinear: 'Aligned Rectilinear',
   Grid: 'Grid',
+  Triangles: 'Triangles',
+  TriHexagon: 'Tri-Hexagon',
+  Cubic: 'Cubic',
   Honeycomb: 'Honeycomb',
+  Concentric: 'Concentric',
   Gyroid: 'Gyroid',
   TpmsD: 'TPMS-D',
+  // SurfacePattern
+  rectilinear: 'Rectilinear',
+  'aligned-rectilinear': 'Aligned Rectilinear',
+  monotonic: 'Monotonic',
+  'monotonic-line': 'Monotonic Line',
+  concentric: 'Concentric',
   // MeshQuality
   Normal: 'Normal',
   HighQuality: 'High Quality',
@@ -158,7 +169,7 @@ const TOKEN_OVERRIDES: Record<string, string> = {
 export function humanize(id: string): string {
   return id
     .replace(/([a-z0-9])([A-Z])/g, '$1 $2')
-    .split(/[_\s]+/)
+    .split(/[-_\s]+/)
     .filter(Boolean)
     .map((word) => {
       const lower = word.toLowerCase();

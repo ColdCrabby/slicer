@@ -2,7 +2,6 @@ import { Type } from '@angular/core';
 import { ColorField } from '../custom-widgets/color-field/color-field';
 import { GcodeField } from '../custom-widgets/gcode-field/gcode-field';
 import { InfillDensitySlider } from '../custom-widgets/infill-density-slider/infill-density-slider';
-import { InfillPatternPicker } from '../custom-widgets/infill-pattern-picker/infill-pattern-picker';
 import { FieldDef } from '../models/field-def';
 import { FieldWidget } from '../widgets/base-field';
 import { BooleanField } from '../widgets/boolean-field/boolean-field';
@@ -33,7 +32,11 @@ const WIDGET_REGISTRY: Record<string, Type<FieldWidget>> = {
  */
 const KEY_REGISTRY: Record<string, Type<FieldWidget>> = {
   infill_density: InfillDensitySlider,
-  infill_pattern: InfillPatternPicker,
+  // `infill_pattern` deliberately has **no** override: it falls through to the
+  // enum default (a dropdown, since it has far more than RADIO_MAX_OPTIONS
+  // choices) so every pattern the engine offers is selectable and carries its
+  // schema description. A hand-written picker here previously hard-coded five
+  // of them, which silently hid the rest as the engine grew.
   thumbnail_custom_color: ColorField,
 };
 
