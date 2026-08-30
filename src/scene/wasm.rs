@@ -445,29 +445,37 @@ impl SceneHandle {
             ));
         }
 
-        let mut combined = crate::mesh::types::Mesh::new();
-        for object in &self.inner.objects {
-            let baked = crate::scene::apply_transform(object.mesh.as_ref(), &object.transform);
-            combined.vertices.extend(baked.vertices);
-            combined.faces.extend(baked.faces);
-        }
+        // Keep the plate's objects apart and let `slice_plate` decide whether
+        // it can merge them — the browser slicer honours exclude-object and
+        // sequential printing exactly like the CLI and the server do.
+        let plate_objects: Vec<crate::core::ObjectInput> = self
+            .inner
+            .objects
+            .iter()
+            .map(|object| {
+                crate::core::ObjectInput::new(
+                    object.name.clone(),
+                    crate::scene::apply_transform(object.mesh.as_ref(), &object.transform),
+                )
+            })
+            .collect();
 
-        if combined.faces.is_empty() {
+        if plate_objects.iter().all(|o| o.mesh.faces.is_empty()) {
             return Err(JsValue::from_str(
                 "combined scene has no triangles; nothing to slice",
             ));
         }
 
         let logger = WasmSliceLogger::new(callback);
-        let layers = crate::core::process_mesh(&combined, &params, &logger);
-        let layer_count = layers.len();
+        let plate = crate::core::slice_plate(&plate_objects, &params, &logger);
+        let layer_count = plate.layers.len();
         logger.emit_progress(layer_count, layer_count);
 
         let t_gcode =
             crate::logging::PhaseTimer::start(crate::logging::phases::GCODE_GENERATION, &logger);
         let result = SliceResultJs {
             layer_count,
-            gcode: crate::gcode::generate_gcode_from_params(&layers, &params),
+            gcode: crate::gcode::generate_gcode_for_plate(&plate, &params),
         };
         t_gcode.finish();
 

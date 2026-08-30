@@ -89,10 +89,44 @@ classDiagram
         +with_marker_config(cfg) Self
         +with_start_script(lines) Self
         +with_end_script(lines) Self
+        +with_objects(identities) Self
         +generate(layers, params) String
     }
     GcodeGenerator --> GcodeDialect
 ```
+
+---
+
+## Object markers (issues #22, #112)
+
+Three trait methods let a firmware attribute every move to a named part and
+cancel one mid-print. The **defaults implement `M486`** — the RepRap standard,
+understood by Marlin 2.0.9.3+, RepRapFirmware and Prusa — and `KlipperDialect`
+overrides them with `EXCLUDE_OBJECT_*`, which also carries the footprint so the
+firmware knows *where* a cancelled object lives.
+
+| Method               | Default (`M486`)         | Klipper                                          |
+| -------------------- | ------------------------ | ------------------------------------------------ |
+| `object_definitions` | `M486 T<n>` + comments   | `EXCLUDE_OBJECT_DEFINE NAME= CENTER= POLYGON=`   |
+| `object_start`       | `M486 S<i> [A"name"]`    | `EXCLUDE_OBJECT_START NAME=`                     |
+| `object_end`         | `M486 S-1`               | `EXCLUDE_OBJECT_END NAME=`                       |
+
+The generator drives them from the per-path tags in `SliceLayer::path_objects`
+(see [src/core/objects.rs](../core/objects.rs)); with no objects attached the
+output is unchanged. Three placement rules matter:
+
+- **Definitions precede the start script.** Klipper's `[exclude_object]` module
+  and Moonraker both expect to meet every object before the print begins.
+- **The block switches before a path's travel**, so the hop between two parts is
+  charged to the one it is heading for — the PrusaSlicer / OrcaSlicer convention,
+  and what lets a firmware skip a cancelled object's approach moves too.
+- **A `None` tag closes the block without opening one.** Bed adhesion belongs to
+  the plate, so it must still print when a single part is cancelled.
+
+In `by_object` (sequential) order the generator additionally hands over between
+objects **before the layer's own Z move**: close the block → retract → lift
+above the tallest thing already printed → travel across → `between_objects_gcode`.
+Doing any of that afterwards would lower the nozzle into the part just finished.
 
 ---
 

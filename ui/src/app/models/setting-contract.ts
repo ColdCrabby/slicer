@@ -64,6 +64,7 @@ export const SETTING_CONTRACTS: readonly SettingContract[] = [
       'Quality',
       'Surfaces',
       'Adhesion',
+      'Objects',
       'Thumbnail',
       'Mesh',
     ],
@@ -91,6 +92,7 @@ export const GROUP_ICONS: Record<string, string> = {
   Extrusion: 'extrude',
   Support: 'view-structure-down',
   Adhesion: 'magnet-energy',
+  Objects: 'packages',
   Thumbnail: 'media-image',
 };
 

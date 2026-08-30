@@ -443,6 +443,47 @@ pub enum BrimType {
     Ears,
 }
 
+/// The order in which a multi-object plate is printed.
+///
+/// Consumed by [`crate::core::slice_plate`] (which decides whether the plate
+/// has to be sliced object-by-object) and by
+/// [`crate::gcode::GcodeGenerator`] (which emits the inter-object move).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum PrintSequence {
+    /// Every object advances one layer at a time — the standard FFF order.
+    #[default]
+    ByLayer,
+    /// Each object is finished completely before the next one starts.
+    ///
+    /// Reduces the blemishes and stringing of plate-wide travels and lets a
+    /// finished part be removed mid-print, at the cost of requiring the
+    /// gantry to clear everything already on the bed (see
+    /// [`SlicingParams::extruder_clearance_height_mm`] /
+    /// [`SlicingParams::extruder_clearance_radius_mm`]).
+    ByObject,
+}
+
+impl PrintSequence {
+    /// Parse a sequence name from a CLI argument or config string
+    /// (case-insensitive, hyphens and underscores both accepted).
+    pub fn parse(s: &str) -> Option<Self> {
+        match s.to_lowercase().replace('-', "_").as_str() {
+            "by_layer" | "layer" => Some(Self::ByLayer),
+            "by_object" | "object" | "sequential" => Some(Self::ByObject),
+            _ => None,
+        }
+    }
+
+    /// Canonical name for emitting back into config / G-code comments.
+    pub fn name(self) -> &'static str {
+        match self {
+            Self::ByLayer => "by_layer",
+            Self::ByObject => "by_object",
+        }
+    }
+}
+
 /// Camera angle used when the UI renders the embedded G-code thumbnail.
 ///
 /// The thumbnail is produced from a fixed, repeatable viewpoint (not the
@@ -1857,6 +1898,41 @@ Caps print speed so the hotend can keep up with the flow.
     #[schemars(skip)]
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub thumbnail_png_base64: Option<String>,
+
+    #[schemars(
+        description = "Print order for a plate holding several objects: `by_layer` (every object advances one layer at a time) or `by_object` (each object is finished before the next one starts).",
+        extend("x-group" = "Objects")
+    )]
+    #[serde(default)]
+    pub print_sequence: PrintSequence,
+
+    #[schemars(
+        description = "Wrap each object's moves in firmware object markers (Klipper `EXCLUDE_OBJECT_*`, Marlin/RepRap `M486`) so a single failed object can be cancelled mid-print without aborting the whole plate.",
+        extend("x-group" = "Objects")
+    )]
+    #[serde(default)]
+    pub exclude_object: bool,
+
+    #[schemars(
+        description = "Height in mm below which the gantry/X-carriage clears an already-printed object. Objects taller than this cannot be safely printed before another one in `by_object` order.",
+        extend("x-group" = "Objects", "x-relevant-when" = serde_json::json!({"field": "print_sequence", "equals": "by_object"}))
+    )]
+    #[serde(default = "SlicingParams::default_extruder_clearance_height")]
+    pub extruder_clearance_height_mm: f64,
+
+    #[schemars(
+        description = "Radius in mm around the nozzle that the hotend/fan duct sweeps. Objects closer together than this cannot be safely printed one at a time.",
+        extend("x-group" = "Objects", "x-relevant-when" = serde_json::json!({"field": "print_sequence", "equals": "by_object"}))
+    )]
+    #[serde(default = "SlicingParams::default_extruder_clearance_radius")]
+    pub extruder_clearance_radius_mm: f64,
+
+    #[schemars(
+        description = "Custom G-code inserted between two objects in `by_object` order, after the nozzle has lifted clear and travelled to the next object. `null` = nothing.",
+        extend("x-group" = "Objects", "x-widget" = "gcode", "x-relevant-when" = serde_json::json!({"field": "print_sequence", "equals": "by_object"}))
+    )]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub between_objects_gcode: Option<String>,
 }
 
 /// Schema helper: emit the full [`SlicingParams`] schema for a
@@ -2004,11 +2080,27 @@ impl Default for SlicingParams {
             thumbnail_color_mode: ThumbnailColorMode::default(),
             thumbnail_custom_color: Self::default_thumbnail_custom_color(),
             thumbnail_png_base64: None,
+            print_sequence: PrintSequence::default(),
+            exclude_object: false,
+            extruder_clearance_height_mm: Self::default_extruder_clearance_height(),
+            extruder_clearance_radius_mm: Self::default_extruder_clearance_radius(),
+            between_objects_gcode: None,
         }
     }
 }
 
 impl SlicingParams {
+    /// Does this configuration need the plate sliced **object by object**?
+    ///
+    /// Object identity survives slicing only when something downstream needs
+    /// it: firmware object markers ([`Self::exclude_object`]) or sequential
+    /// printing ([`Self::print_sequence`]). When neither is on, the plate is
+    /// merged into one mesh and sliced exactly as it always was, so the default
+    /// configuration produces byte-identical G-code.
+    pub fn object_aware(&self) -> bool {
+        self.exclude_object || self.print_sequence == PrintSequence::ByObject
+    }
+
     /// Serialize these params into a stable string for the G-code content cache
     /// key, **excluding the ephemeral thumbnail image payload**
     /// (`thumbnail_png_base64`).
@@ -2026,16 +2118,37 @@ impl SlicingParams {
     ///
     /// See the "G-code result cache" contract in AGENTS.md.
     pub fn cache_fingerprint(&self) -> String {
-        let mut value = serde_json::to_value(self).unwrap_or(serde_json::Value::Null);
-        if let Some(obj) = value.as_object_mut() {
-            obj.remove("thumbnail_png_base64");
-        }
-        value.to_string()
+        let value = serde_json::to_value(self).unwrap_or(serde_json::Value::Null);
+        let Some(object) = value.as_object() else {
+            return value.to_string();
+        };
+        // Rebuild the map instead of `Map::remove`: with serde_json's
+        // preserve-order backing, removing a key that is not the last one
+        // *swaps the last entry into its slot*, so the surviving fields would
+        // be ordered differently depending on whether the thumbnail was
+        // present — two identical requests, two different cache keys.
+        let filtered: serde_json::Map<String, serde_json::Value> = object
+            .iter()
+            .filter(|(key, _)| key.as_str() != "thumbnail_png_base64")
+            .map(|(key, value)| (key.clone(), value.clone()))
+            .collect();
+        serde_json::Value::Object(filtered).to_string()
     }
 
     fn default_first_layer_height() -> f64 {
         0.0
     }
+    /// Typical FFF gantry clearance — a 25 mm tall part passes under most
+    /// X-carriages. Matches PrusaSlicer's `extruder_clearance_height` default.
+    fn default_extruder_clearance_height() -> f64 {
+        25.0
+    }
+    /// Radius swept by the hotend and its fan duct. Matches PrusaSlicer's
+    /// `extruder_clearance_radius` default.
+    fn default_extruder_clearance_radius() -> f64 {
+        45.0
+    }
+
     fn default_line_width() -> f64 {
         0.0
     }

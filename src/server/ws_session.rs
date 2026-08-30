@@ -482,11 +482,12 @@ async fn handle_slice(
         // Start overall timing for the entire process
         let t_total = PhaseTimer::start(phases::TOTAL, &logger);
 
-        // Load each scene object (auto-detecting format from its extension),
-        // bake its transform, and concatenate faces into a single combined
-        // mesh that the slicer pipeline sees.
+        // Load each scene object (auto-detecting format from its extension) and
+        // bake its transform.  The objects stay separate: `slice_plate` decides
+        // whether the plate can be merged into one mesh (the default) or has to
+        // keep per-object identity for exclude-object / sequential printing.
         let t_load = PhaseTimer::start(phases::MESH_LOAD, &logger);
-        let mut combined = crate::mesh::types::Mesh::new();
+        let mut plate_objects: Vec<crate::core::ObjectInput> = Vec::new();
         // A multi-part file (3MF) backs several plate objects, so cache its
         // parsed parts: re-reading and re-parsing the archive once per part
         // would cost the same work N times for no gain.
@@ -526,10 +527,19 @@ async fn handle_slice(
             // Bake the per-object transform exactly once, at the slicer
             // boundary — see the SSOT contract in src/scene/README.md.
             let baked = crate::scene::apply_transform(&part.mesh, transform);
-            combined.vertices.extend(baked.vertices);
-            combined.faces.extend(baked.faces);
+            // Name the object after the part inside its file, falling back to
+            // the file stem — this is what the firmware's cancel UI shows.
+            let name = part
+                .name
+                .as_deref()
+                .map(str::trim)
+                .filter(|n| !n.is_empty())
+                .map(str::to_string)
+                .or_else(|| path.file_stem().map(|s| s.to_string_lossy().into_owned()))
+                .unwrap_or_else(|| format!("object_{}", plate_objects.len()));
+            plate_objects.push(crate::core::ObjectInput::new(name, baked));
         }
-        if combined.faces.is_empty() {
+        if plate_objects.iter().all(|o| o.mesh.faces.is_empty()) {
             let msg = ServerMessage::error(
                 "Combined scene has no triangles — nothing to slice".to_string(),
             );
@@ -542,8 +552,8 @@ async fn handle_slice(
             logger.log_warn(&format!("[slice] {warning}"));
         }
 
-        let layers = crate::core::process_mesh(&combined, &params, &logger);
-        let layer_count = layers.len();
+        let plate = crate::core::slice_plate(&plate_objects, &params, &logger);
+        let layer_count = plate.layers.len();
 
         let progress = ServerMessage::Progress {
             current_layer: layer_count,
@@ -552,7 +562,7 @@ async fn handle_slice(
         let _ = tx.blocking_send(to_json(&progress));
 
         let t_gcode = PhaseTimer::start(phases::GCODE_GENERATION, &logger);
-        let gcode = crate::gcode::generate_gcode_from_params(&layers, &params);
+        let gcode = crate::gcode::generate_gcode_for_plate(&plate, &params);
         t_gcode.finish();
 
         // Write G-code to disk
