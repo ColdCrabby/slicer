@@ -387,7 +387,17 @@ fn load_model_from_path(path: &str, logger: &dyn ProcessLogger) -> Result<Mesh, 
     let format = parse_format(ext)?;
     let bytes = std::fs::read(path).map_err(|e| format!("failed to read {path}: {e}"))?;
     logger.log_debug(&format!("read {} bytes from disk", bytes.len()));
-    slicer_engine::scene::load_bytes(&bytes, format)
+    let (mesh, report) = slicer_engine::scene::load_bytes_reporting(
+        &bytes,
+        format,
+        &slicer_engine::mesh::repair::RepairOptions::default(),
+    )?;
+    let label = std::path::Path::new(path)
+        .file_name()
+        .map(|n| n.to_string_lossy().into_owned())
+        .unwrap_or_else(|| path.to_string());
+    slicer_engine::mesh::repair::log_report(logger, &label, &report);
+    Ok(mesh)
 }
 
 /// Apply the scene transform to `mesh`.
