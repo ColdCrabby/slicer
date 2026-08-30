@@ -7,10 +7,11 @@ use crate::settings::params::{SeamPosition, SlicingParams};
 use super::infill::{add_infill_to_layers, calculate_interior_region};
 use super::slicer::slice_mesh;
 use super::surfaces::{
-    generate_top_bottom_surfaces_with_interior, prune_redundant_gap_fill, SurfaceConfig,
+    generate_top_bottom_surfaces_with_interior, perimeter_paths_of, prune_redundant_gap_fill,
+    SurfaceConfig,
 };
-use super::types::{ExtrusionRole, SliceLayer};
-use super::walls::{apply_single_wall_restrictions, classify_overhang_perimeters};
+use super::types::{ExtrusionRole, OverhangClass, SliceLayer};
+use super::walls::{apply_single_wall_restrictions, classify_overhang_perimeters, OverhangGrading};
 
 /// Central entry point for the complete slicing pipeline.
 ///
@@ -43,6 +44,12 @@ pub fn process_mesh(
     params: &SlicingParams,
     logger: &dyn ProcessLogger,
 ) -> Vec<SliceLayer> {
+    // Spiral (vase) mode forces a consistent single-wall configuration
+    // (no infill/top surfaces/retraction) for the whole pipeline. Applied here
+    // so every entry point (CLI, WebSocket, WASM) observes the same rules.
+    let normalized = params.spiral_vase_normalized();
+    let params = normalized.as_ref();
+
     logger.log_info(&format!("processing mesh: {} triangles", mesh.faces.len()));
 
     let t_slicing = PhaseTimer::start(phases::SLICING, logger);
@@ -179,6 +186,13 @@ pub fn process_mesh(
         vec![]
     };
 
+    // Snapshot pristine OuterWall perimeters for dynamic overhang-degree grading
+    // *before* surface generation splits any walls via bridge clipping.  Layer
+    // `i`'s support outline is `snapshot[i-1]`; the snapshot is consumed by
+    // `classify_overhang_perimeters` to grade each wall segment's overhang
+    // degree.  Only taken when the feature is enabled.
+    let overhang_support: Option<Vec<Paths>> = snapshot_overhang_support(&layers, params);
+
     // Now generate top/bottom surfaces INSIDE the walls
     if params.top_layers > 0 || params.bottom_layers > 0 {
         let t_surfaces = PhaseTimer::start(phases::SURFACES, logger);
@@ -201,6 +215,7 @@ pub fn process_mesh(
                 bridge_noise_filter_mm: params.bridge_noise_filter_mm,
                 bridge_anchor_mm: params.bridge_anchor_mm,
                 infill_overlap_percent: params.infill_overlap_percent,
+                ensure_vertical_shell_thickness: params.ensure_vertical_shell_thickness,
             },
             Some(&interior_regions),
         );
@@ -217,10 +232,20 @@ pub fn process_mesh(
         // OverhangPerimeter so the G-code generator prints them with bridge
         // speed/flow/cooling.  Requires unsupported_regions populated by
         // the surface-generation pass above.
-        logger.log_debug("classifying overhang perimeters");
-        let t_overhang = PhaseTimer::start("Overhang Perimeter Classification", logger);
-        classify_overhang_perimeters(&mut layers, params.nozzle_diameter_mm);
-        t_overhang.finish();
+        //
+        // Skipped in spiral (vase) mode: overhang classification splits closed
+        // wall loops into open arcs, which would break the single continuous
+        // contour the spiral emitter needs.
+        if !params.spiral_vase {
+            logger.log_debug("classifying overhang perimeters");
+            let t_overhang = PhaseTimer::start("Overhang Perimeter Classification", logger);
+            let grading = overhang_support.as_deref().map(|support| OverhangGrading {
+                support,
+                band_class: overhang_band_class(params),
+            });
+            classify_overhang_perimeters(&mut layers, params.nozzle_diameter_mm, grading);
+            t_overhang.finish();
+        }
 
         // Drop gap-fill beads that land inside a solid surface: the solid infill
         // covers them, so they'd otherwise sit as scattered variable-width
@@ -270,6 +295,7 @@ pub fn process_mesh(
         let mut ordered_widths = Vec::with_capacity(path_count);
         let mut ordered_vertex_widths: Vec<Option<Vec<f64>>> = Vec::with_capacity(path_count);
         let mut ordered_is_open = Vec::with_capacity(path_count);
+        let mut ordered_overhang = Vec::with_capacity(path_count);
 
         let mut current_pos = (0.0, 0.0);
 
@@ -430,6 +456,7 @@ pub fn process_mesh(
                     }
                 }));
                 ordered_is_open.push(layer.is_path_open(best_path_idx));
+                ordered_overhang.push(layer.overhang_for_path(best_path_idx));
             }
         }
 
@@ -438,6 +465,13 @@ pub fn process_mesh(
         layer.path_widths = ordered_widths;
         layer.path_vertex_widths = ordered_vertex_widths;
         layer.path_is_open = ordered_is_open;
+        // Keep `path_overhang` populated only when it was graded; an all-`None`
+        // (empty source) layer collapses back to empty.
+        layer.path_overhang = if layer.path_overhang.is_empty() {
+            Vec::new()
+        } else {
+            ordered_overhang
+        };
     }
     t_tsp.finish();
 
@@ -494,6 +528,10 @@ pub fn process_mesh_debug(
     debug: &mut crate::debug::DebugGeometry,
 ) -> Vec<SliceLayer> {
     use crate::debug::DebugStage;
+
+    // Match process_mesh: spiral (vase) mode forces a single-wall config.
+    let normalized = params.spiral_vase_normalized();
+    let params = normalized.as_ref();
 
     logger.log_info(&format!(
         "debug pipeline: processing mesh with {} triangles",
@@ -569,6 +607,7 @@ pub fn process_mesh_debug(
 
     // Surfaces.
     if params.top_layers > 0 || params.bottom_layers > 0 {
+        let overhang_support = snapshot_overhang_support(&layers, params);
         generate_top_bottom_surfaces_with_interior(
             &mut layers,
             &SurfaceConfig {
@@ -584,10 +623,20 @@ pub fn process_mesh_debug(
                 bridge_noise_filter_mm: params.bridge_noise_filter_mm,
                 bridge_anchor_mm: params.bridge_anchor_mm,
                 infill_overlap_percent: params.infill_overlap_percent,
+                ensure_vertical_shell_thickness: params.ensure_vertical_shell_thickness,
             },
             Some(&interior_regions),
         );
-        classify_overhang_perimeters(&mut layers, params.nozzle_diameter_mm);
+        if !params.spiral_vase {
+            classify_overhang_perimeters(
+                &mut layers,
+                params.nozzle_diameter_mm,
+                overhang_support.as_deref().map(|support| OverhangGrading {
+                    support,
+                    band_class: overhang_band_class(params),
+                }),
+            );
+        }
 
         // Snapshot solid surface regions.
         for (i, layer) in layers.iter().enumerate() {
@@ -651,6 +700,63 @@ pub fn process_mesh_debug(
     crate::flow::compensate(&mut layers, params);
 
     layers
+}
+
+/// Snapshot each layer's pristine OuterWall perimeter outline for dynamic
+/// overhang-degree grading, or `None` when the feature is disabled.
+///
+/// Must be called **before** surface generation, which splits walls via bridge
+/// clipping — the grader needs the un-split centrelines so a layer's support
+/// outline (`snapshot[i-1]`) matches the geometry `unsupported_regions` was
+/// built from.
+fn snapshot_overhang_support(layers: &[SliceLayer], params: &SlicingParams) -> Option<Vec<Paths>> {
+    if !params.enable_overhang_speed {
+        return None;
+    }
+    #[cfg(not(target_arch = "wasm32"))]
+    let snapshot = {
+        use rayon::prelude::*;
+        layers.par_iter().map(perimeter_paths_of).collect()
+    };
+    #[cfg(target_arch = "wasm32")]
+    let snapshot = layers.iter().map(perimeter_paths_of).collect();
+    Some(snapshot)
+}
+
+/// Fold each raw overhang band `0..=4` to the [`OverhangClass`] the classifier
+/// should emit, so a wall is only split where the degree actually changes the
+/// printed speed or fan.
+///
+/// A supported-side band (Deg1/Deg2) whose per-degree speed is unset **and**
+/// which is below the overhang-fan threshold behaves exactly like a plain wall,
+/// so it folds to [`OverhangClass::None`] — avoiding thousands of pointless
+/// wall-fragment splits (each an extra retract/travel) when the user only tuned
+/// the steep degrees.  The steep bands (Deg3/Deg4) always stay distinct: they
+/// carry the `OverhangPerimeter` role and its bridge speed differs from a wall.
+fn overhang_band_class(params: &SlicingParams) -> [OverhangClass; 5] {
+    // A degree's *upper* unsupported fraction, matched against the fan threshold
+    // the same way the generator does.
+    let fan_targets = |upper_fraction: f64| {
+        params.overhang_fan_speed > 0.0
+            && upper_fraction > params.overhang_fan_threshold + f64::EPSILON
+    };
+    let deg1 = if params.overhang_1_4_speed > 0.0 || fan_targets(0.25) {
+        OverhangClass::Deg1
+    } else {
+        OverhangClass::None
+    };
+    let deg2 = if params.overhang_2_4_speed > 0.0 || fan_targets(0.5) {
+        OverhangClass::Deg2
+    } else {
+        OverhangClass::None
+    };
+    [
+        OverhangClass::None,
+        deg1,
+        deg2,
+        OverhangClass::Deg3,
+        OverhangClass::Deg4,
+    ]
 }
 
 /// Pick the start vertex of a closed loop according to the configured

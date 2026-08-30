@@ -251,9 +251,17 @@ user-facing version number.
   parallel version constant (especially not in the UI).
 - **[CHANGELOG.md](CHANGELOG.md) is embedded** via `include_str!` and republished
   verbatim as GitHub Release notes. Keep an `## [Unreleased]` section at the top.
-- **The UI "What's New" dialog** ([ui/src/app/services/app-version.ts](ui/src/app/services/app-version.ts))
-  compares the running release against `localStorage` and shows skipped notes
-  once per upgrade. Development builds are never nagged.
+- **The UI renders the changelog from exactly one component**
+  ([ui/src/app/components/changelog/changelog-list.ts](ui/src/app/components/changelog/changelog-list.ts)).
+  It always lists *every* release and highlights/scrolls to the one you're
+  running, so the **What's New** settings section (`/settings/changelog`) and the
+  post-upgrade dialog can never drift apart.
+  [ui/src/app/services/app-version.ts](ui/src/app/services/app-version.ts)
+  compares the running release against `localStorage` and shows that dialog once
+  per upgrade; development builds are never nagged and highlight `Unreleased`.
+  **Where dialogs are drawn by the OS** (iOS/iPadOS — see `Dialog.usesNativeDialogs()`)
+  a `UIAlertController` cannot hold the changelog, so the prompt is a short
+  native confirm that navigates to the settings section instead.
 - **Releasing is tag-driven**: [.github/workflows/release.yml](.github/workflows/release.yml)
   fires on `v*` tags, extracts the changelog section, creates the GitHub Release,
   and attaches CLI binaries + desktop bundles. See [RELEASING.md](RELEASING.md).
@@ -416,17 +424,27 @@ outbound transport to real printers. Today it implements **Moonraker/Klipper**
 ## G-code result cache — skip re-slicing identical scenes
 
 `handle_slice` ([src/server/ws_session.rs](src/server/ws_session.rs)) hashes the
-resolved `SlicingParams` + the ordered scene DTOs (file id + transform) +
-`crate::version::VERSION` into an FNV-1a key. A `gcode_cache` table
-(migration `m20250201_000002`) maps that key → the previously-generated
-`.gcode`. On a hit the pipeline is skipped entirely: the cached file is copied
-under the new workplate UUID and `SliceComplete` is emitted immediately. On a
-miss the fresh slice is stored. Notes:
+resolved `SlicingParams` (via `SlicingParams::cache_fingerprint`) + the ordered
+scene DTOs (file id + transform) + `crate::version::VERSION` into an FNV-1a key.
+A `gcode_cache` table (migration `m20250201_000002`) maps that key → the
+previously-generated `.gcode`. On a hit the pipeline is skipped entirely: the
+cached file is copied under the new workplate UUID and `SliceComplete` is emitted
+immediately. On a miss the fresh slice is stored. The desktop (Tauri) runtime
+keeps an in-memory mirror with the same key
+([ui-desktop/src-tauri/src/bridge/runtime_bridge.rs](ui-desktop/src-tauri/src/bridge/runtime_bridge.rs)).
+Notes:
 
 - **Object order is preserved in the key** (it affects the merged mesh, hence
   the output). Do not sort.
 - **The engine version is part of the key**, so output changes across releases
   bust the cache automatically.
+- **The embedded thumbnail PNG is excluded from the key.**
+  `SlicingParams::cache_fingerprint` drops `thumbnail_png_base64` (the
+  camera-derived preview captured fresh from the viewer on every slice) so its
+  volatile bytes never bust the cache — the issue #106 requirement that camera
+  movement leave the cache-hit rate unaffected. The thumbnail *settings*
+  (`thumbnail_view`/`theme`/`size`/…) stay in the key, so a cached file's
+  embedded preview always matches the request that reused it.
 - Cache is best-effort: a dangling row (file cleaned up) is evicted lazily on
   lookup and the scene re-sliced.
 
@@ -442,8 +460,14 @@ server. [src/profiles/store.rs](src/profiles/store.rs) is the engine-side store.
   `slicer.toml` in [`config_dir()`](src/config/io.rs); the UI↔engine transport
   is JSON. The profile structs are JSON-native (`#[serde(flatten)]` meta + a
   dynamic `serde_json::Value` `params` bag) which the `toml` serializer cannot
-  encode directly, so `ProfileStore` bridges through `serde_json::Value` and
-  drops nulls. **Do not try to `toml::to_string` a profile struct directly.**
+  encode directly, so the conversion goes through `serde_json::Value` with nulls
+  dropped. **Do not try to `toml::to_string` a profile struct directly** — call
+  [`toml_bridge::render_library_toml`](src/profiles/toml_bridge.rs), the one
+  renderer behind both `ProfileStore::save` and the exporter.
+- **The library *shape* is target-independent.** `ProfileLibrary`, `Label` and
+  `ProfileKind` live in [library.rs](src/profiles/library.rs) so wasm (which has
+  no filesystem, hence no `store`) can still use them. Only `ProfileStore` is
+  `cfg(not(target_arch = "wasm32"))`.
 - **SQLite is only history + `gcode_cache`.** Profiles never touch the DB.
 - **Whole-category, last-writer-wins sync.** The unit is a category
   (`ProfileKind::{Printers,Filaments,Processes,Labels}`); the UI sends the full
@@ -484,6 +508,56 @@ server. [src/profiles/store.rs](src/profiles/store.rs) is the engine-side store.
 - **The settings-sidebar notice** reflects this: native = "saved on this
   device", cloud = "saved on the slicer" (safe if the browser is wiped), web =
   "kept in this browser only" (losable).
+
+### Export — written once, never revisited
+
+[src/profiles/export.rs](src/profiles/export.rs) renders the library for
+download in two shapes: a **bundle** (`slicer-profiles.zip`, one TOML per
+profile plus `labels.toml`, `manifest.toml`, `README.md`) and a **single**
+`profiles.toml` identical to what the store writes. Both come from the same
+`ProfileLibrary` serialization.
+
+- **Never name a field — or a category.** The exporter walks the *serialized
+  value* and treats every top-level array as a category. A new profile setting,
+  or a whole new category on `ProfileLibrary`, is exported with **zero** changes
+  here. That is the point of the module; do not add per-feature branches to it.
+  The only category-specific rule is one line (`splits_per_item`): labels are a
+  flat vocabulary and stay in one file, everything else is one file per item.
+- **Every file is an array of tables** (`[[printers]]`), and per-item files are
+  **ordinal-prefixed** (`printers/01-voron-24.toml`). Concatenating a bundle in
+  name order therefore reconstructs a valid `profiles.toml` *with the original
+  order intact* — the contract a future importer relies on, pinned by
+  `concatenating_a_bundle_reconstructs_the_library`.
+- **Deterministic:** fixed zip timestamps, so the same library exports
+  byte-identically and the artifact can be diffed or version-controlled.
+- **Credentials are stripped.** An export is built to be *handed over* (git
+  repo, AirDrop, mail), so `redact_secrets` removes any field named in
+  `SECRET_FIELDS` (`api_key`, `token`, …) anywhere in the tree, in **both**
+  shapes. Matched by name at the value level, so a credential added to any
+  profile later is covered for free. The bundle README and the settings copy
+  both say so; the user re-enters keys after restoring.
+- **The export is faithful to the library *as the engine understands it*** —
+  what `ProfileStore::load` produced and what the next save would write — not a
+  verbatim copy of the bytes on disk. A *typed* field written by a different
+  build is dropped by serde at load, before the exporter sees it (exactly as it
+  already is for `GET /api/profiles`). Free-form `params` entries, where new
+  slicing settings actually land, always survive. Don't overstate this in
+  user-facing copy.
+- **Three transports, one renderer:** `GET /api/profiles/export?format=`
+  (cloud), Tauri `profiles_export` (native) — both export what is *persisted*,
+  i.e. what the CLI on that machine would read — and wasm
+  `exportProfileLibrary(library, format)` for the web runtime, where the browser
+  is the engine and the UI's own library is the only truth. The wasm binding
+  exists only in the `web-slicer` build, so
+  [`BrowserProfilePersistence`](ui/src/app/services/profiles/profile-persistence.ts)
+  looks it up dynamically rather than importing a symbol the cloud/native
+  bindings do not declare.
+- **UI:** [`ProfileExport`](ui/src/app/services/profiles/profile-export.ts) picks
+  the transport and hands the bytes to
+  [`FileExport`](ui/src/app/services/file-export.ts) — the one place that knows
+  the three "save a file" idioms (iOS share sheet, desktop Save-As, browser
+  anchor). G-code downloads go through it too; **do not re-implement a download
+  in a feature**.
 
 ## Scene Engine — SSOT Contract
 
@@ -552,6 +626,38 @@ last**, after ordering and flow compensation, so its loops are appended cleanly
 and the object's own toolpaths are provably unperturbed — see
 [src/adhesion/README.md](src/adhesion/README.md).
 
+**Perimeter routing & ordering options ([#98](https://github.com/ColdCrabby/slicer/issues/98))** are threaded through several stages:
+
+- `external_perimeters_first` (default `false` = inner walls first, outer wall
+  **last** — the PrusaSlicer/Orca/Cura default), `thin_walls` (default `true`),
+  and `extra_perimeters` are handled **inside the wall generators** at bead
+  assembly. Ordering is a bead-flush concern, not a pipeline pass — the beads are
+  computed outer-first then reversed for inner-first; the greedy-TSP path ordering
+  preserves the per-role group order. Reordering never changes extrusion amounts,
+  so QA baselines are unaffected. See [src/walls/README.md](src/walls/README.md).
+- **`thin_walls` is a classic-generator option, and the schema gates it.**
+  Arachne fills thin features from the medial axis by construction, so it always
+  prints them and ignores the flag (matching PrusaSlicer/Orca, where the
+  equivalent option is classic-only); `emit_residual_medial_fill` is
+  unconditional. This matters because that pass emits the same `GapFill` role for
+  two different things: a bead that *is* the model geometry (a feature too thin
+  for one perimeter) and a bead filling the sliver *between* the innermost walls.
+  Gating the pass on `thin_walls` deleted both — on the Filament Card Caddy it
+  wiped all 37.7 m of gap fill, ~50 card-slot fins, and let sparse infill leak
+  into the freed wall band. **Any wall option only one generator honours must
+  carry an `x-relevant-when` gate** (`thin_walls` and `wall_distribution_count` →
+  classic, `gap_fill_min_length_mm` → arachne), or the UI offers a control that
+  silently does nothing.
+- `ensure_vertical_shell_thickness` is a **second pass in
+  `generate_top_bottom_surfaces_with_interior`** (`apply_vertical_shell_thickness`):
+  it grows each layer's own top/bottom surface inward and fills it solid so a
+  sloped side wall keeps a continuous perpendicular shell. No-op on flat tops and
+  plain vertical walls; default off.
+- `avoid_crossing_perimeters` is a **G-code-generation** concern
+  ([src/gcode/travel.rs](src/gcode/travel.rs)): a per-layer visibility-graph
+  planner detours travel moves around outer walls. It only reshapes travels, so
+  extrusion (and QA baselines) are untouched; default off.
+
 **`pre_strip_infill_regions` must be computed before `apply_single_wall_restrictions`.**
 `apply_single_wall_restrictions` now operates **per island**: an outer-wall path P at
 layer i has its associated inner walls stripped only when P's footprint has an exposed
@@ -560,6 +666,41 @@ island on the same layer is unaffected. The `pre_strip_infill_regions` snapshot 
 still taken before this step as a defensive measure — the snapshot preserves the correct
 `walls_per_island` count for every island in case future changes ever re-introduce a
 layer-wide strip.
+
+### Spiral (Vase) Mode — Normalize in the Pipeline, Spiralize in the Generator
+
+`spiral_vase` prints a single continuous outer wall whose Z ramps over each
+layer (a seamless single-wall vase). It is split across two boundaries so every
+runtime (CLI / WS / WASM) behaves identically:
+
+- **Normalization** ([`SlicingParams::spiral_vase_normalized`](src/settings/params.rs))
+  forces the incompatible settings off — `wall_count = 1`, `infill_density = 0`,
+  `top_layers = 0`, `retract_mm = 0`, `z_hop_mm = 0`, `ironing_enabled = false` —
+  while **keeping `bottom_layers`** as the solid base. It is a `Cow` (a no-op
+  borrow when the flag is off) and **idempotent**, so it is applied at both
+  boundaries below without double-effect: at the top of `process_mesh` /
+  `process_mesh_debug`, and again at the top of `generate_with_stats`.
+- **The pipeline skips `classify_overhang_perimeters` in spiral mode.** That
+  pass splits closed wall loops into open arcs; the spiral emitter needs each
+  spiral layer's outer wall to stay one closed loop, so it is guarded by
+  `!params.spiral_vase`. Nothing else in the pipeline changes — surface
+  generation still runs (for the base) and everything is a plain single-wall
+  slice.
+- **The generator owns the spiralization** ([src/gcode/generator.rs](src/gcode/generator.rs)).
+  Spiral layers are those at index `≥ bottom_layers.max(1)` (layer 0 is always
+  flat — a spiral cannot climb from Z=0) that expose exactly **one outermost
+  closed `OuterWall` loop** (`detect_spiral_loop`: hole sub-loops are ignored by
+  a winding-independent point-in-polygon containment test, so a solid island
+  with holes still spiralizes as one contour). For those layers the discrete
+  per-layer `move_z` is skipped and `emit_spiral_loop` walks the loop once,
+  ramping Z from the previous layer's top to this layer's Z in proportion to the
+  distance travelled (`move_extrude_z`). Flow **fades in** over the first spiral
+  loop and **out** over the last so both ends of the seam disappear — applied as
+  a multiplier *after* `extrusion_for_move` (a zero passed as `flow_ratio` trips
+  its "non-positive → 1.0" guard). Each loop is rotated to start nearest the
+  previous nozzle position to keep the start line aligned and travel minimal.
+- **Multi-island layers fall back** to a normal flat print (all paths, discrete
+  Z) with a single warning — spiral vase is for solid, single-island models.
 
 ### Arachne Wall Paths — What They Are and Are Not
 
@@ -786,6 +927,41 @@ behaviour.
 
 `min_infill_extrusion_mm` still guards the residual sub-threshold segments a
 legitimate region's tapering corners produce.
+
+**A connected infill region too small to hold more than one dash is skipped
+entirely** (`INFILL_MIN_REGION_AREA_NOZZLE_MULT × d²`, = 2.0 mm² at a 0.4 mm
+nozzle). Where a cross-section is *locally* thinner than the per-island average
+`walls_per_island`, the interior estimate leaves a small sliver that walls plus
+gap fill already fill — the Benchy bow tip (≈ 1.6 mm² at layer 95) is the
+canonical case. The scanline drops a single ~1.3 mm dash into it: a disconnected
+speck costing a full retract → travel → un-retract, sitting right against the
+wall band.
+
+Two properties make this safe, and both must be preserved:
+
+- **It is an _area_ rule on whole connected regions, never a _width_ rule on the
+  infill area.** A genuinely thin cavity that deserves a lattice (the caddy's
+  hollow-box layers) is a *large* region that merely happens to be narrow. The
+  separation is categorical, not marginal: measured across the QA corpus the
+  caddy has **no** infill region at all between 0.01 mm² and 10 mm², so the
+  threshold sits in an empty band two orders of magnitude wide. This is the same
+  trap the morphological-opening attempt fell into (see above).
+- **It filters the _generated paths_, not the region.** `generate_rectilinear_infill`
+  seeds its scanline phase from the bounding box of the whole infill area, so
+  deleting an outlying sliver *before* generation shifts every infill line on the
+  layer (measured: 27 mm of line movement on a Benchy layer whose dropped regions
+  totalled 0.05 mm²). Filtering afterwards is exactly subtractive — measured
+  −3.6 mm of sparse infill model-wide on the Benchy, with every other role
+  untouched and the caddy byte-identical.
+
+Membership is tested with **segment midpoints**, not vertices: an infill line's
+endpoints lie exactly *on* the region boundary, where the integer-scaled
+point-in-polygon test can land either side.
+
+**Note:** gap-fill length is not bit-reproducible between runs of the same
+binary (measured 7399.6 vs 7401.8 mm on two Benchy slices), so small gap-fill
+deltas are run-to-run noise, not evidence of a change. Sparse infill *is*
+deterministic and can be compared directly.
 
 ### Thin Wall-Band Channels — Opened-Interior Surface Clip
 

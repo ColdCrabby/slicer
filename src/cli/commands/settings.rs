@@ -495,15 +495,47 @@ impl EmitPayload for ShowResult<'_> {
                 "  wall_overlap_compensation: {}",
                 p.wall_overlap_compensation
             ),
+            format!(
+                "  external_perimeters_first: {}",
+                p.external_perimeters_first
+            ),
+            format!("  extra_perimeters: {}", p.extra_perimeters),
+            format!(
+                "  extra_perimeters_max_gap: {} × nozzle",
+                p.extra_perimeters_max_gap
+            ),
+            format!("  thin_walls: {}", p.thin_walls),
+            format!(
+                "  ensure_vertical_shell_thickness: {}",
+                p.ensure_vertical_shell_thickness
+            ),
+            format!(
+                "  avoid_crossing_perimeters: {}",
+                p.avoid_crossing_perimeters
+            ),
             format!("  infill_density: {:.0}%", p.infill_density * 100.0),
             format!("  print_speed: {} mm/s (fallback)", p.print_speed),
             format!("  perimeter_speed: {} mm/s", p.perimeter_speed),
             format!("  infill_speed: {} mm/s", p.infill_speed),
             format!("  bridge_speed: {} mm/s", p.bridge_speed),
+            format!("  enable_overhang_speed: {}", p.enable_overhang_speed),
+            format!("  overhang_1_4_speed: {} mm/s", p.overhang_1_4_speed),
+            format!("  overhang_2_4_speed: {} mm/s", p.overhang_2_4_speed),
+            format!("  overhang_3_4_speed: {} mm/s", p.overhang_3_4_speed),
+            format!("  overhang_4_4_speed: {} mm/s", p.overhang_4_4_speed),
+            format!(
+                "  slowdown_for_curled_perimeters: {}",
+                p.slowdown_for_curled_perimeters
+            ),
             format!("  top_surface_speed: {} mm/s", p.top_surface_speed),
             format!("  first_layer_speed: {} mm/s", p.first_layer_speed),
             format!("  fan_speed: {:.0}%", p.fan_speed * 100.0),
             format!("  bridge_fan_speed: {:.0}%", p.bridge_fan_speed * 100.0),
+            format!("  overhang_fan_speed: {:.0}%", p.overhang_fan_speed * 100.0),
+            format!(
+                "  overhang_fan_threshold: {:.0}%",
+                p.overhang_fan_threshold * 100.0
+            ),
             format!(
                 "  first_layer_fan_speed: {:.0}%",
                 p.first_layer_fan_speed * 100.0

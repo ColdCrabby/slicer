@@ -150,6 +150,11 @@ async fn run_server(
                 http::header::CONTENT_TYPE,
                 http::header::AUTHORIZATION,
             ])
+            // `Content-Disposition` is not CORS-safelisted, so a cross-origin
+            // client (the dev server, or any UI served from another origin)
+            // cannot read the filename the engine chose for a download unless
+            // it is explicitly exposed.
+            .expose_headers(vec![http::header::CONTENT_DISPOSITION])
             .supports_credentials();
 
         App::new()
@@ -174,6 +179,10 @@ async fn run_server(
                     .route("/config", web::get().to(handlers::get_config_handler))
                     .route("/config", web::patch().to(handlers::patch_config_handler))
                     .route("/profiles", web::get().to(handlers::get_profiles_handler))
+                    .route(
+                        "/profiles/export",
+                        web::get().to(handlers::export_profiles_handler),
+                    )
                     .route(
                         "/profiles/{kind}",
                         web::put().to(handlers::put_profiles_category_handler),

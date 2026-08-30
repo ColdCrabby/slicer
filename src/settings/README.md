@@ -35,6 +35,23 @@ Configuration for slicing behavior and printer control. All values stored as JSO
 | `bridge_noise_filter_mm` | mm   | 0.05    | Morphological-open radius to wipe sub-pixel slivers before bridge detection |
 | `bridge_fan_speed`       | 0–1  | 1.0     | Cooling fan duty for layers that contain bridges                            |
 
+### Retraction (`params.*`)
+
+| Parameter                     | Type | Default | Effect                                                                                   |
+| ----------------------------- | ---- | ------- | ---------------------------------------------------------------------------------------- |
+| `retract_mm`                  | mm   | 1.0     | Filament pulled back on a retracting travel                                               |
+| `retract_speed_mm_min`        | mm/min | 2400  | Retract / un-retract feedrate                                                             |
+| `z_hop_mm`                    | mm   | 0.2     | Nozzle lift during a retracting travel                                                    |
+| `retract_before_travel_mm`    | mm   | 1.0     | Minimum travel distance before a retraction is triggered                                  |
+| `retract_restart_extra_mm`    | mm   | 0.0     | Extra prime length added on un-retract to compensate for travel ooze                     |
+| `retract_on_layer_change`     | bool | `false` | Retract before every layer-change Z move                                                  |
+| `use_firmware_retraction`     | bool | `false` | Emit `G10`/`G11` and sync the firmware (`M207`/`M208` or `SET_RETRACTION`)                |
+| `use_relative_e_distances`    | bool | `false` | Emit `M83` + incremental E (`G1 … E<delta>`) instead of `M82` absolute positions          |
+| `wipe`                        | bool | `false` | Retrace the just-printed path while retracting to smear ooze onto printed material        |
+| `wipe_distance_mm`            | mm   | 1.0     | How far to wipe (capped at the previous path's length) when `wipe` is enabled             |
+| `retract_before_wipe_percent` | 0–1  | 0.0     | Fraction of the retraction performed before the wipe (the rest is distributed along it)   |
+
+
 ### Global Settings (top-level)
 
 | Field               | Type           | Default    | Description                                          |

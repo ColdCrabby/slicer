@@ -258,6 +258,16 @@ export class Viewer {
   private gcodeFloatingPlacement: FloatingPlacement | null = null;
   private shutterTimer: ReturnType<typeof setTimeout> | null = null;
   private polaroidTimer: ReturnType<typeof setTimeout> | null = null;
+  /**
+   * Base64 PNG of the most recently captured slice thumbnail. The capture FX
+   * (shutter flash + polaroid) only plays when a fresh capture differs from
+   * this, so re-slicing an unchanged scene doesn't re-fling an identical
+   * preview. Reliable within one client: the same model + thumbnail settings
+   * render byte-identical from the fixed capture viewpoint (the cross-client
+   * byte variance that keeps the PNG out of the server cache key doesn't occur
+   * when the *same* renderer re-shoots the *same* scene).
+   */
+  private lastThumbnailImage: string | null = null;
   private readonly captureSliceThumbnailSink = (request: SliceThumbnailRequest) =>
     this.captureSliceThumbnail(request);
 
@@ -674,9 +684,10 @@ export class Viewer {
     const width = rs.widths?.[i] ?? 0;
     const height = rs.heights?.[i] ?? 0;
     const speed = rs.speeds?.[i] ?? 0;
+    const accel = rs.accels?.[i] ?? 0;
     const value =
       channel.scope === 'segment'
-        ? channel.extract(width, height, speed)
+        ? channel.extract(width, height, speed, accel)
         : channel.extractLayer(location.meta, this.gcodePreview.selectedFan());
     if (value === null) {
       this.gcodePreview.setHoverInfo(null);
@@ -1289,16 +1300,22 @@ export class Viewer {
     if (comma < 0) {
       return null;
     }
+    const pngBase64 = dataUrl.slice(comma + 1);
 
-    // Only play the camera-flash + polaroid FX when the user is looking at the
-    // model. Re-slicing repeatedly while fine-tuning in the G-code preview
-    // shouldn't fling a polaroid across the screen every time — the thumbnail
-    // is still captured and embedded, just silently.
-    if (this.mode() === 'model') {
+    // Fling the shutter-flash + polaroid FX only when the user is looking at
+    // the model *and* this capture is actually a different image from the last
+    // one. Re-slicing an unchanged scene — tweaking a non-visual setting, or a
+    // cache-hit re-slice — reproduces a byte-identical thumbnail from the fixed
+    // capture viewpoint, so re-playing the same polaroid would just be noise.
+    // The reference is refreshed on every capture (in either mode) so it always
+    // tracks the thumbnail currently embedded in the print.
+    const changed = pngBase64 !== this.lastThumbnailImage;
+    this.lastThumbnailImage = pngBase64;
+    if (changed && this.mode() === 'model') {
       this.playThumbnailCaptureFx(dataUrl);
     }
     return {
-      pngBase64: dataUrl.slice(comma + 1),
+      pngBase64,
       sizePx: targetSize,
     };
   }

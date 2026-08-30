@@ -111,6 +111,12 @@ export const APP_ROUTES: Routes = [
               import('./pages/settings/shortcuts').then((m) => m.ShortcutsSettings),
           },
           {
+            path: 'changelog',
+            title: "What's New",
+            loadComponent: () =>
+              import('./pages/settings/changelog').then((m) => m.ChangelogSettings),
+          },
+          {
             path: 'danger-zone',
             title: 'Danger Zone',
             loadComponent: () =>

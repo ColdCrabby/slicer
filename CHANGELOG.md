@@ -79,6 +79,54 @@ these notes and acknowledges contributors. `scripts/gen-changelog-draft.sh` and
   `--drop-to-floor`) apply to every loaded model. Single-input invocations are
   unchanged; multi-object plates default their output to
   `<first-model>_plate.gcode`.
+- **Export your profile library** — Settings → General now has a **Backup &
+  Export** section that downloads every printer, filament, print profile and
+  label as TOML. The default export is a ZIP bundle with one file per profile
+  (`printers/01-voron-24.toml`, …); the dropdown offers a single `profiles.toml`
+  instead — the exact file the engine and CLI read, so it can be dropped into a
+  config directory as-is. Concatenating a bundle reproduces that same file, in
+  the original order. The engine renders the export in every runtime (server,
+  desktop, and in-browser), so the files always match what the slicer reads
+  back. Printer API keys are stripped from the export, so it is safe to share or
+  commit — re-enter them after restoring.
+- **Dynamic overhang speed & cooling** — perimeter segments are graded by how
+  much of the extrusion width hangs over unsupported air, and each degree prints
+  at its own speed with extra part-cooling airflow. Enabled by default, tuned for
+  the 0–25 / 25–50 / 50–75 / 75–100% unsupported bands via `overhang_1_4_speed`…
+  `overhang_4_4_speed`, `overhang_fan_speed`, `overhang_fan_threshold`, and
+  `slowdown_for_curled_perimeters`; set `enable_overhang_speed` to `false` for the
+  previous single-bridge-speed behaviour.
+- **Advanced retraction modes** — the G-code generator now supports firmware
+  retraction (`G10`/`G11`, synced to the firmware with `M207`/`M208` on Marlin or
+  `SET_RETRACTION` on Klipper), relative extruder distances (`M83`), a
+  configurable minimum-travel-before-retract, a restart-extra prime on recover,
+  retract-on-layer-change, and wipe-while-retracting (retracing the just-printed
+  path to smear ooze onto printed material, with a configurable
+  before-wipe split). Exposed as `use_firmware_retraction`,
+  `use_relative_e_distances`, `retract_before_travel_mm`,
+  `retract_restart_extra_mm`, `retract_on_layer_change`, `wipe`,
+  `wipe_distance_mm`, and `retract_before_wipe_percent`. All default off / to the
+  previous behaviour, so existing output is unchanged. The retraction feedrate
+  now honours `retract_speed_mm_min` (previously hard-coded). ([#96](https://github.com/max-scopp/slicer-engine/issues/96))
+- **Spiral (vase) mode** — the new `spiral_vase` parameter prints a single
+  continuous outer wall whose Z ramps smoothly over each layer, producing a
+  seamless single-wall vase with no Z-seam. Enabling it forces one perimeter and
+  turns off everything that would break the spiral (sparse infill, top surfaces,
+  retraction, Z-hop); the solid bottom layers are kept as the base (set
+  `bottom_layers` to `0` for an open tube). The layer-height rise is distributed
+  along the perimeter length, flow fades in on the first loop and out on the
+  last so both ends of the seam disappear, and only the outermost contour of
+  each layer is spiralized — multi-island layers fall back to a normal print
+  with a warning. Also available on the CLI as `slice --spiral-vase`. Defaults
+  to off, so existing output is unchanged.
+- **Release notes inside the app** — a new **Settings → What's New** section lists
+  every release, newest first, with the version you're running highlighted and
+  scrolled into view. The dialog shown after an upgrade now renders that exact
+  same list instead of a separate filtered one, so you can always read back past
+  releases from the notes you were just shown. On iPadOS, where dialogs are drawn
+  by the OS and can't hold that much content, the update prompt takes you to the
+  settings section instead. The version row in **Settings → General** links there
+  too.
 - **iPadOS / iOS target** — the Tauri shell now builds and runs on iPad, with the
   full Rust slicing engine on-device. `pnpm run ios:doctor` checks the toolchain
   (and `ios:setup` installs what it can), `ios:init` generates the Xcode project,
@@ -90,6 +138,33 @@ these notes and acknowledges contributors. `scripts/gen-changelog-draft.sh` and
   entries are declared up front, so Moonraker printers are reachable from an
   iPad exactly as they are from the desktop app. See
   [ui-desktop/README.md](ui-desktop/README.md).
+- **Perimeter routing & ordering options** ([#98](https://github.com/ColdCrabby/slicer/issues/98)) —
+  five new wall parameters, each mirroring the PrusaSlicer / OrcaSlicer keys the
+  profile importer used to drop:
+  - `external_perimeters_first` — print the outer wall **last** (`false`, the new
+    default, matching PrusaSlicer/Orca/Cura for the cleanest visible surface) or
+    first (`true`). Reorders per-island beads in both wall generators; extrusion
+    amounts are unchanged, only print order.
+  - `extra_perimeters` — fill a narrow residual core (thinner than
+    `extra_perimeters_max_gap × nozzle`, default `3×`) with extra concentric
+    perimeter loops instead of leaving a gap for sparse infill. Wide cores stay
+    infill's job, so a solid body is never turned into loops. Default off.
+  - `thin_walls` — detect **thin features** (model material too narrow for even
+    one full perimeter: engraved text, tapering ribs, a card holder's slot fins)
+    and print them as a single centered bead. **Classic generator only** — Arachne
+    fills them from the medial axis by construction and ignores the option, which
+    the settings UI hides accordingly. On by default.
+  - `ensure_vertical_shell_thickness` — back sloped/near-vertical surfaces with
+    internal solid infill so the side shell keeps a continuous perpendicular
+    thickness. A no-op on flat tops and plain vertical walls. Default off.
+  - `avoid_crossing_perimeters` — route travel moves around the inside of the
+    outer walls (a visibility-graph detour) instead of dragging the nozzle
+    straight across a finished surface. Default off.
+
+  All five default to values that preserve existing behaviour except the
+  ordering flip (inner-first is now the default), and none change the extrusion
+  amounts the slicing-quality baselines measure.
+
 - **Volumetric-flow limiter** — the `max_volumetric_speed` parameter (mm³/s) is
   now enforced by the G-code generator. On every extruding move the feedrate is
   capped to `max_volumetric_speed · 60 / (layer_height × width)` so the hotend
@@ -164,6 +239,35 @@ these notes and acknowledges contributors. `scripts/gen-changelog-draft.sh` and
 - **The arrange gap defaulted to 0 mm on a fresh install**, placing parts flush
   against each other, because an unset preference read back as the number `0`
   rather than "unset". It now correctly starts at 4 mm.
+- **Isolated infill specks in narrow wedges** — where a cross-section is locally
+  thinner than the average wall count (the 3DBenchy bow tip is the canonical
+  case), the interior estimate left a sliver that the walls and gap fill already
+  fill, and the scanline dropped a single ~1.3 mm dash into it. That speck is
+  disconnected, contributes nothing structurally, and costs a full retract →
+  travel → un-retract to reach. A connected infill region too small to hold more
+  than one dash (2 mm² at a 0.4 mm nozzle) is now skipped.
+
+  This is an **area** rule on whole regions, not a width rule, so a genuinely
+  thin cavity that deserves a lattice keeps every line — and it filters the
+  generated paths rather than the region, so the scanline phase (seeded from the
+  layer's bounding box) is unchanged and the edit is exactly subtractive.
+
+- **Generator-specific wall options are now hidden for the generator that
+  ignores them.** `thin_walls` and `wall_distribution_count` only apply to the
+  classic wall generator, and `gap_fill_min_length_mm` only to Arachne, but all
+  three were shown unconditionally — offering controls that silently did nothing.
+  They now carry schema relevance rules, as does `extra_perimeters_max_gap`
+  (shown only when `extra_perimeters` is on).
+
+  This also removes a way to silently delete geometry: `thin_walls` used to gate
+  Arachne's whole medial pass, which emits the same bead type for *thin features*
+  (material too narrow for one perimeter — a card holder's slot fins) and for
+  ordinary gap fill *between* perimeter loops. Turning it off removed both: on a
+  filament card caddy that wiped ~50 card-slot fins, opened an unfilled void
+  along every wall, and let sparse infill leak into the freed band. Arachne now
+  always prints thin features — that is what the generator is for — matching
+  PrusaSlicer/OrcaSlicer, where the equivalent option is likewise classic-only.
+
 - **Top-surface "squiggles" where solid fill grazes a wall** — a surface whose
   boundary meets the wall band at a shallow angle was filled with a dense
   micro-serpentine of sub-millimetre stubs hugging the wall, interleaved with

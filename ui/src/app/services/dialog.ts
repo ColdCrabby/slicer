@@ -14,6 +14,8 @@ export interface DialogConfig {
   alertOnly?: boolean;
   /** Optional component rendered as the dialog body below the message. */
   content?: Type<unknown>;
+  /** Inputs bound on {@link content} when it is instantiated. */
+  contentInputs?: Record<string, unknown>;
   /** Optional preferred width for the dialog (e.g. '600px'). Capped by the default max-width rule. */
   preferredWidth?: string;
 }
@@ -52,6 +54,19 @@ export class Dialog {
     return this.#open({ ...config, alertOnly: true });
   }
 
+  /**
+   * True when this host draws dialogs itself (iOS/iPadOS `UIAlertController`)
+   * rather than rendering the HTML one.
+   *
+   * A native alert takes a title, a message and buttons — nothing richer — so
+   * callers that would embed a component have to offer an alternative route to
+   * the same content instead. Ask this rather than re-deriving the platform
+   * check, so callers and {@link #open} can never disagree.
+   */
+  usesNativeDialogs(): boolean {
+    return isTauriMobile();
+  }
+
   /** Called by the outlet to resolve and close the current dialog. */
   resolve(confirmed: boolean): void {
     const dialog = this.activeDialog();
@@ -78,7 +93,7 @@ export class Dialog {
     // iOS draws its own alerts. A dialog that embeds a component still needs
     // the HTML implementation — UIKit alerts take a title and message, nothing
     // richer — so only plain confirm/alert dialogs are handed to the platform.
-    if (isTauriMobile() && !config.content) {
+    if (this.usesNativeDialogs() && !config.content) {
       return from(this.#openNative(config));
     }
 

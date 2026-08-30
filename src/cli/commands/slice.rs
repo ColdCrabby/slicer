@@ -233,6 +233,16 @@ pub struct SliceCommand {
     #[arg(long, value_name = "POLICY")]
     pub seam_position: Option<String>,
 
+    /// Spiral (vase) mode: print a single continuous outer wall whose Z ramps
+    /// smoothly over each layer, producing a seamless single-wall vase.
+    ///
+    /// Forces a single perimeter and disables sparse infill, top surfaces,
+    /// retraction and Z-hop. The solid bottom layers are kept as the base (set
+    /// `bottom_layers` to 0 in settings for an open tube). Best on solid,
+    /// single-island models. When omitted, uses the value from settings.
+    #[arg(long)]
+    pub spiral_vase: bool,
+
     /// Dump internal geometry at every pipeline stage to this directory for
     /// visual debugging.  Produces per-layer `layer_NNNN.svg` files
     /// (Inkscape / browser) with each pipeline stage as a coloured group.
@@ -462,6 +472,13 @@ impl SliceCommand {
                     "Unknown seam position: '{}'. Supported: nearest, rear, aligned, sharpest-corner, random",
                     policy_str
                 ))?;
+        }
+
+        // Spiral (vase) mode is a plain on/off flag; enabling it here defers the
+        // actual single-wall normalization to the pipeline/generator so every
+        // runtime shares one code path.
+        if self.spiral_vase {
+            slice_params.spiral_vase = true;
         }
 
         // Validate every input file exists before doing any work, naming the
@@ -788,6 +805,22 @@ impl SliceCommand {
             let lines = resolve_gcode_source(src)
                 .map_err(|e| format!("Failed to read end G-code: {}", e))?;
             generator = generator.with_end_script(lines);
+        }
+
+        // Per-filament start/end hooks come from the resolved slice params
+        // (typically contributed by the filament profile). A blank block is
+        // ignored so an empty field is a no-op.
+        if let Some(block) = slice_params.start_filament_gcode.as_deref() {
+            if !block.trim().is_empty() {
+                generator = generator
+                    .with_filament_start_script(block.lines().map(str::to_string).collect());
+            }
+        }
+        if let Some(block) = slice_params.end_filament_gcode.as_deref() {
+            if !block.trim().is_empty() {
+                generator =
+                    generator.with_filament_end_script(block.lines().map(str::to_string).collect());
+            }
         }
 
         let t_gcode = PhaseTimer::start(phases::GCODE_GENERATION, &logger);

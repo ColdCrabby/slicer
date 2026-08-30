@@ -1,0 +1,22 @@
+@for (entry of entries(); track entry.version) {
+  @let isCurrent = entry.version === currentVersion();
+  <section
+    class="changelog__release"
+    [class.is-current]="isCurrent"
+    [attr.data-current]="isCurrent ? 'true' : null"
+    [attr.aria-current]="isCurrent ? 'true' : null"
+  >
+    <header class="changelog__release-header">
+      <h3 class="changelog__version">{{ entry.version }}</h3>
+      @if (entry.date) {
+        <time class="changelog__date">{{ entry.date }}</time>
+      }
+      @if (isCurrent) {
+        <span class="changelog__badge">You're on this version</span>
+      }
+    </header>
+    <markdown class="changelog__body" [data]="entry.body" />
+  </section>
+} @empty {
+  <p class="changelog__empty">No release notes available.</p>
+}

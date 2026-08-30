@@ -88,6 +88,10 @@ pub(super) fn parse_gcode_bytes(bytes: &[u8]) -> Vec<InternalLayer> {
     // Feedrate (mm/min) is sticky across moves, exactly like the position
     // registers, so we track it as parser state and update it on any G0/G1 `F`.
     let mut feedrate: f32 = 0.0;
+    // Commanded print acceleration (mm/s²), sticky across moves.  Set by Marlin
+    // `M204 P<accel>` (falling back to the legacy combined `S<accel>`) or Klipper
+    // `SET_VELOCITY_LIMIT ACCEL=<accel>`.  `0` means the G-code never set one.
+    let mut acceleration: f32 = 0.0;
     let mut width: f32 = 0.4;
     let mut height: f32 = 0.2;
     let mut absolute_xyz = true;
@@ -147,6 +151,7 @@ pub(super) fn parse_gcode_bytes(bytes: &[u8]) -> Vec<InternalLayer> {
                     seam_radius,
                     seam_radius,
                     feedrate / 60.0,
+                    0.0,
                 );
             }
         }
@@ -241,8 +246,35 @@ pub(super) fn parse_gcode_bytes(bytes: &[u8]) -> Vec<InternalLayer> {
                     || (z - prev_z).abs() > 1e-6;
                 if moved {
                     current.push_segment(
-                        seg_role, prev_x, prev_y, prev_z, x, y, z, width, height, speed,
+                        seg_role,
+                        prev_x,
+                        prev_y,
+                        prev_z,
+                        x,
+                        y,
+                        z,
+                        width,
+                        height,
+                        speed,
+                        acceleration,
                     );
+                }
+            }
+            // Marlin print acceleration: `M204 P<accel>` (or the legacy combined
+            // `S<accel>`).  `P` wins when both are present; `R`/`T` (retract /
+            // travel) are ignored — the viewer colors extrusion moves.
+            "M204" => {
+                let mut s_accel: Option<f32> = None;
+                let mut p_accel: Option<f32> = None;
+                for param in parts {
+                    if let Some(rest) = param.strip_prefix(['P', 'p']) {
+                        p_accel = rest.parse().ok();
+                    } else if let Some(rest) = param.strip_prefix(['S', 's']) {
+                        s_accel = rest.parse().ok();
+                    }
+                }
+                if let Some(v) = p_accel.or(s_accel) {
+                    acceleration = v;
                 }
             }
             // ── Non-geometric state for the fan / temperature / tool views ──
@@ -314,6 +346,17 @@ pub(super) fn parse_gcode_bytes(bytes: &[u8]) -> Vec<InternalLayer> {
                 if let Some(name) = name {
                     sticky.set_fan(name, speed.clamp(0.0, 1.0));
                     sticky.seed(&mut current);
+                }
+            }
+            "SET_VELOCITY_LIMIT" => {
+                // Klipper acceleration: `SET_VELOCITY_LIMIT ACCEL=<accel>`
+                // (the `VELOCITY=`/`ACCEL_TO_DECEL=` fields are ignored).
+                for param in parts {
+                    if let Some(v) = strip_prefix_ci(param, "accel=") {
+                        if let Some(a) = parse_leading_f32(v) {
+                            acceleration = a;
+                        }
+                    }
                 }
             }
             tool_cmd
@@ -561,13 +604,95 @@ G1 X10 Y10 Z0.2 E2.0
             .iter()
             .flat_map(|l| &l.blocks)
             .filter(|b| b.role == Role::Infill)
-            .flat_map(|b| b.data.chunks_exact(9).map(|c| c[8]))
+            .flat_map(|b| b.data.chunks_exact(10).map(|c| c[8]))
             .collect();
         assert!(!speeds.is_empty(), "expected infill segments");
         assert!(
             speeds.iter().all(|&s| (s - 40.0).abs() < 1e-4),
             "all infill segments should be 40 mm/s, got {speeds:?}"
         );
+    }
+
+    #[test]
+    fn marlin_m204_acceleration_is_captured_in_slot_9() {
+        // `M204 P3000` sets the sticky print acceleration; it must land in the
+        // segment's 10th float (index 9) for every following extrusion move.
+        let gcode = "\
+;TYPE:Outer wall
+M204 P3000
+G1 X0 Y0 Z0.2 E0 F1800
+G1 X10 Y0 Z0.2 E1.0
+";
+        let layers = parse_gcode_bytes(gcode.as_bytes());
+        let accel = layers
+            .iter()
+            .flat_map(|l| &l.blocks)
+            .find(|b| b.role == Role::OuterWall)
+            .map(|b| b.data[9])
+            .expect("outer-wall segment");
+        assert!(
+            (accel - 3000.0).abs() < 1e-4,
+            "M204 P3000 should be 3000 mm/s², got {accel}"
+        );
+    }
+
+    #[test]
+    fn m204_prefers_p_over_legacy_s() {
+        // When both are present, the print-specific `P` wins over the combined `S`.
+        let gcode = "\
+;TYPE:Outer wall
+M204 S1000 P3000
+G1 X0 Y0 Z0.2 E0 F1800
+G1 X10 Y0 Z0.2 E1.0
+";
+        let layers = parse_gcode_bytes(gcode.as_bytes());
+        let accel = layers
+            .iter()
+            .flat_map(|l| &l.blocks)
+            .find(|b| b.role == Role::OuterWall)
+            .map(|b| b.data[9])
+            .expect("outer-wall segment");
+        assert!((accel - 3000.0).abs() < 1e-4, "P should win, got {accel}");
+    }
+
+    #[test]
+    fn klipper_set_velocity_limit_accel_is_captured() {
+        // Klipper sets acceleration via `SET_VELOCITY_LIMIT ACCEL=<val>`.
+        let gcode = "\
+;TYPE:Outer wall
+SET_VELOCITY_LIMIT ACCEL=2500
+G1 X0 Y0 Z0.2 E0 F1800
+G1 X10 Y0 Z0.2 E1.0
+";
+        let layers = parse_gcode_bytes(gcode.as_bytes());
+        let accel = layers
+            .iter()
+            .flat_map(|l| &l.blocks)
+            .find(|b| b.role == Role::OuterWall)
+            .map(|b| b.data[9])
+            .expect("outer-wall segment");
+        assert!(
+            (accel - 2500.0).abs() < 1e-4,
+            "SET_VELOCITY_LIMIT ACCEL=2500 should be 2500 mm/s², got {accel}"
+        );
+    }
+
+    #[test]
+    fn acceleration_defaults_to_zero_without_any_command() {
+        // G-code that never sets acceleration reports 0 (the "no data" sentinel).
+        let gcode = "\
+;TYPE:Outer wall
+G1 X0 Y0 Z0.2 E0 F1800
+G1 X10 Y0 Z0.2 E1.0
+";
+        let layers = parse_gcode_bytes(gcode.as_bytes());
+        let accel = layers
+            .iter()
+            .flat_map(|l| &l.blocks)
+            .find(|b| b.role == Role::OuterWall)
+            .map(|b| b.data[9])
+            .expect("outer-wall segment");
+        assert_eq!(accel, 0.0, "no M204 ⇒ acceleration should be 0");
     }
 
     #[test]

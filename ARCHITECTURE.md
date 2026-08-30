@@ -389,7 +389,12 @@ flowchart TD
 **Hardware:**
 - `nozzle_diameter_mm`, `filament_diameter_mm`: Physical constraints
 - `print_speed`, `travel_speed_mm_min`: Movement speeds
-- `z_hop_mm`, `retract_mm`: Travel settings
+- `z_hop_mm`, `retract_mm`, `retract_speed_mm_min`: Travel settings
+
+**Retraction (advanced):**
+- `use_firmware_retraction`, `use_relative_e_distances`: Firmware `G10`/`G11` + `M83` modes
+- `retract_before_travel_mm`, `retract_restart_extra_mm`, `retract_on_layer_change`: Retraction policy
+- `wipe`, `wipe_distance_mm`, `retract_before_wipe_percent`: Wipe-while-retracting
 
 **Temperatures:**
 - `nozzle_temp`, `bed_temp`: Heating targets (°C)

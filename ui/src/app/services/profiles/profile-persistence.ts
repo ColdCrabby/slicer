@@ -20,6 +20,21 @@ export interface ProfileLibrarySnapshot {
 }
 
 /**
+ * Shape of a profile export. Mirrors the engine's `ProfileExportFormat`.
+ *
+ * - `bundle` — a ZIP with one TOML file per profile.
+ * - `toml` — a single `profiles.toml`, the file the engine and CLI read.
+ */
+export type ProfileExportFormat = 'bundle' | 'toml';
+
+/** A rendered export, ready to be saved. */
+export interface ProfileExportArtifact {
+  filename: string;
+  mime: string;
+  bytes: Uint8Array;
+}
+
+/**
  * Persists the user-owned profile library *next to the engine* so it survives a
  * browser cache wipe. There is one implementation per runtime mode:
  *
@@ -76,6 +91,22 @@ export abstract class ProfilePersistence {
     return this.loadLibrary();
   }
 
+  /**
+   * Render the profile library as TOML for download.
+   *
+   * The engine does the rendering in every runtime, so the artifact is exactly
+   * what the CLI reads — there is no TypeScript TOML writer to drift.
+   *
+   * `local` is the UI's own copy of the library. Engine-backed runtimes ignore
+   * it and export what is actually persisted next to the engine (the source of
+   * truth the CLI would read); the web runtime, where the browser *is* the
+   * engine, has nothing else to export, so it hands this to the WASM exporter.
+   */
+  abstract exportLibrary(
+    format: ProfileExportFormat,
+    local: ProfileLibrarySnapshot,
+  ): Promise<ProfileExportArtifact>;
+
   /** Backend-specific whole-library fetch. Only called when engine-backed. */
   protected abstract fetchLibrary(): Promise<ProfileLibrarySnapshot>;
   /** Backend-specific whole-category write. */
@@ -90,6 +121,35 @@ export class BrowserProfilePersistence extends ProfilePersistence {
   }
   protected async persistCategory(): Promise<void> {
     // No engine store — the profile store already wrote localStorage.
+  }
+
+  /**
+   * Export through the WASM engine: in this runtime the browser *is* the
+   * engine, so the library the UI holds is the library, and the same Rust
+   * renderer the server and desktop use produces the bytes.
+   *
+   * The binding ships with the `web-slicer` WASM build — the one this runtime
+   * always loads. It is looked up dynamically because the cloud/native bundles
+   * are generated from a WASM build without the profile bindings (they export
+   * through REST / Tauri instead), and their type declarations therefore do not
+   * declare it.
+   */
+  async exportLibrary(
+    format: ProfileExportFormat,
+    local: ProfileLibrarySnapshot,
+  ): Promise<ProfileExportArtifact> {
+    const wasm = (await import('../../../generated/scene-wasm/scene_engine')) as unknown as {
+      default: (options: { module_or_path: string }) => Promise<unknown>;
+      exportProfileLibrary?: (
+        library: ProfileLibrarySnapshot,
+        format: ProfileExportFormat,
+      ) => ProfileExportArtifact;
+    };
+    await wasm.default({ module_or_path: 'scene_engine_bg.wasm' });
+    if (!wasm.exportProfileLibrary) {
+      throw new Error('This build cannot export profiles');
+    }
+    return wasm.exportProfileLibrary(local, format);
   }
 }
 
@@ -120,6 +180,19 @@ export class RemoteProfilePersistence extends ProfilePersistence {
       throw new Error(`PUT /profiles/${category} failed (${response.status})`);
     }
   }
+
+  async exportLibrary(format: ProfileExportFormat): Promise<ProfileExportArtifact> {
+    const response = await fetch(`${this.base}/profiles/export?format=${format}`);
+    if (!response.ok) {
+      throw new Error(`GET /profiles/export failed (${response.status})`);
+    }
+    const bytes = new Uint8Array(await response.arrayBuffer());
+    return {
+      filename: filenameFromDisposition(response.headers.get('Content-Disposition'), format),
+      mime: response.headers.get('Content-Type') ?? mimeFor(format),
+      bytes,
+    };
+  }
 }
 
 /** Native backend: Tauri `invoke` into the engine's on-disk store. */
@@ -135,6 +208,26 @@ export class NativeProfilePersistence extends ProfilePersistence {
     const { invoke } = await import('@tauri-apps/api/core');
     await invoke('profiles_save_category', { kind: category, items });
   }
+
+  async exportLibrary(format: ProfileExportFormat): Promise<ProfileExportArtifact> {
+    const { invoke } = await import('@tauri-apps/api/core');
+    const artifact = await invoke<{ filename: string; mime: string; bytes: number[] }>(
+      'profiles_export',
+      { format },
+    );
+    return { ...artifact, bytes: Uint8Array.from(artifact.bytes) };
+  }
+}
+
+/** Fallback MIME type when a response does not state one. */
+function mimeFor(format: ProfileExportFormat): string {
+  return format === 'bundle' ? 'application/zip' : 'application/toml';
+}
+
+/** Read the server's suggested filename, falling back to the engine's naming. */
+function filenameFromDisposition(header: string | null, format: ProfileExportFormat): string {
+  const match = header?.match(/filename="?([^"]+)"?/i);
+  return match?.[1] ?? (format === 'bundle' ? 'slicer-profiles.zip' : 'profiles.toml');
 }
 
 /**

@@ -1,5 +1,6 @@
 import { ChangeDetectionStrategy, Component, computed, input, output } from '@angular/core';
 import type { FieldDef } from '../../schema-form/models/field-def';
+import { GcodeField } from '../../schema-form/custom-widgets/gcode-field/gcode-field';
 import { NumberInput } from '../../ui/number-input/number-input';
 import { Select, type SelectOption } from '../../ui/select/select';
 import { Switch } from '../../ui/switch/switch';
@@ -14,42 +15,54 @@ import { FieldShell } from './field-shell';
  * Dumb by design: it knows nothing about profiles or the store. Give it a
  * parsed {@link FieldDef} and the current value; it emits the edited value. The
  * control is chosen from the field's shape — enum → select, boolean → switch,
- * everything else → number input — so any new `SlicingParams` field appears
- * automatically with no per-field wiring.
+ * an `x-widget: "gcode"` hint → code editor, everything else → number input —
+ * so any new `SlicingParams` field appears automatically with no per-field
+ * wiring.
  *
  * A thin wrapper around {@link FieldShell}: this component only picks the
  * control and maps schema → title/description, delegating all row markup and
- * styling to the shell so the row rhythm lives in a single place.
+ * styling to the shell so the row rhythm lives in a single place. The `gcode`
+ * widget is the exception — it needs a full-width, stacked layout, so it
+ * renders the shared {@link GcodeField} directly (label + editor) rather than
+ * the beside-the-label shell.
  */
 @Component({
   selector: 'nexus-param-field',
   standalone: true,
-  imports: [NumberInput, Select, Switch, FieldShell],
+  imports: [NumberInput, Select, Switch, FieldShell, GcodeField],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
-    <nexus-field-shell [title]="field().title ?? field().key" [description]="descriptionText()">
-      @switch (kind()) {
-        @case ('enum') {
-          <nexus-select
-            [options]="selectOptions()"
-            [value]="stringValue()"
-            (valueChange)="valueChange.emit($event)"
-          />
+    @if (kind() === 'gcode') {
+      <se-gcode-field
+        [field]="field()"
+        [value]="value()"
+        (valueChange)="valueChange.emit($event)"
+      />
+    } @else {
+      <nexus-field-shell [title]="field().title ?? field().key" [description]="descriptionText()">
+        @switch (kind()) {
+          @case ('enum') {
+            <nexus-select
+              [options]="selectOptions()"
+              [value]="stringValue()"
+              (valueChange)="valueChange.emit($event)"
+            />
+          }
+          @case ('boolean') {
+            <nexus-switch [checked]="boolValue()" (checkedChange)="valueChange.emit($event)" />
+          }
+          @default {
+            <nexus-number-input
+              [value]="numberValue()"
+              [min]="min()"
+              [max]="max()"
+              [step]="step()"
+              (valueChange)="valueChange.emit($event)"
+            />
+          }
         }
-        @case ('boolean') {
-          <nexus-switch [checked]="boolValue()" (checkedChange)="valueChange.emit($event)" />
-        }
-        @default {
-          <nexus-number-input
-            [value]="numberValue()"
-            [min]="min()"
-            [max]="max()"
-            [step]="step()"
-            (valueChange)="valueChange.emit($event)"
-          />
-        }
-      }
-    </nexus-field-shell>
+      </nexus-field-shell>
+    }
   `,
   styles: [
     `
@@ -72,9 +85,12 @@ export class ParamField {
   /** Emits the edited value (number, boolean, or enum string). */
   readonly valueChange = output<unknown>();
 
-  /** Which control to render, derived purely from the field's shape. */
-  protected readonly kind = computed<'enum' | 'boolean' | 'number'>(() => {
+  /** Which control to render, derived from the field's `x-widget` hint or shape. */
+  protected readonly kind = computed<'enum' | 'boolean' | 'number' | 'gcode'>(() => {
     const f = this.field();
+    if (f.widget === 'gcode') {
+      return 'gcode';
+    }
     if (f.enumOptions?.length) {
       return 'enum';
     }

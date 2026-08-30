@@ -39,6 +39,13 @@ export interface FieldDef {
   maximum?: number;
   /** x-group value from the schema, used for visual grouping. */
   group?: string;
+  /**
+   * `x-widget` schema extension: an explicit widget hint that overrides the
+   * default control chosen from the field's shape. E.g. `"gcode"` selects a
+   * code editor for a multiline G-code string that would otherwise fall through
+   * to a plain text/number input.
+   */
+  widget?: string;
   /** Populated when the field is an enum type. */
   enumOptions?: EnumOption[];
   /**

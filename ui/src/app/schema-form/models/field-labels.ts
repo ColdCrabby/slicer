@@ -27,6 +27,7 @@ const FIELD_LABELS: Record<string, string> = {
   wall_transition_angle: 'Wall Transition Angle',
   wall_transition_filter_distance: 'Wall Transition Filter Distance',
   seam_position: 'Seam Position',
+  spiral_vase: 'Spiral Vase Mode',
   gap_fill_min_length_mm: 'Min Gap Fill Length',
   wall_overlap_compensation: 'Wall Overlap Compensation',
   // Infill
@@ -40,6 +41,12 @@ const FIELD_LABELS: Record<string, string> = {
   perimeter_speed: 'Perimeter Speed',
   infill_speed: 'Infill Speed',
   bridge_speed: 'Bridge Speed',
+  enable_overhang_speed: 'Dynamic Overhang Speed',
+  overhang_1_4_speed: 'Overhang Speed (0–25%)',
+  overhang_2_4_speed: 'Overhang Speed (25–50%)',
+  overhang_3_4_speed: 'Overhang Speed (50–75%)',
+  overhang_4_4_speed: 'Overhang Speed (75–100%)',
+  slowdown_for_curled_perimeters: 'Slow Down Curled Perimeters',
   bridge_flow_ratio: 'Bridge Flow Ratio',
   top_surface_speed: 'Top Surface Speed',
   gap_fill_speed: 'Gap Fill Speed',
@@ -53,6 +60,8 @@ const FIELD_LABELS: Record<string, string> = {
   // Cooling
   fan_speed: 'Fan Speed',
   bridge_fan_speed: 'Bridge Fan Speed',
+  overhang_fan_speed: 'Overhang Fan Speed',
+  overhang_fan_threshold: 'Overhang Fan Threshold',
   first_layer_fan_speed: 'First Layer Fan Speed',
   fan_configs: 'Fan Configurations',
   // Temperature
@@ -72,6 +81,15 @@ const FIELD_LABELS: Record<string, string> = {
   // Retraction
   z_hop_mm: 'Z Hop',
   retract_mm: 'Retraction Distance',
+  retract_speed_mm_min: 'Retraction Speed',
+  retract_before_travel_mm: 'Minimum Travel Before Retract',
+  retract_restart_extra_mm: 'Restart Extra Prime',
+  retract_on_layer_change: 'Retract on Layer Change',
+  use_firmware_retraction: 'Firmware Retraction',
+  use_relative_e_distances: 'Relative Extrusion Distances',
+  wipe: 'Wipe While Retracting',
+  wipe_distance_mm: 'Wipe Distance',
+  retract_before_wipe_percent: 'Retract Before Wipe',
   // Output
   path_tolerance: 'Path Tolerance',
   gcode_flavor: 'G-code Flavor',

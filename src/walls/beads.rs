@@ -50,6 +50,47 @@ pub fn drop_degenerate_beads(paths: Paths, min_area: f64) -> Paths {
     Paths::new(kept)
 }
 
+/// Reorder beads for the configured perimeter sequence.
+///
+/// Beads are computed outermost-first (the `is_outer` bead is at index 0).  When
+/// [`WallParams::external_perimeters_first`] is `false` (the default) the outer
+/// wall must print **last**, so the whole sequence is reversed to innermost-first
+/// — the PrusaSlicer / OrcaSlicer / Cura ordering.  When `true` the outer-first
+/// order the generator produces is kept as-is.
+pub fn order_beads(mut beads: Vec<Bead>, external_perimeters_first: bool) -> Vec<Bead> {
+    if !external_perimeters_first {
+        beads.reverse();
+    }
+    beads
+}
+
+/// Effective wall-loop cap once `extra_perimeters` is taken into account.
+///
+/// Returns [`usize::MAX`] — keep adding full loops until the geometry collapses —
+/// when `extra_perimeters` is enabled and the core left after the nominal
+/// `wall_count` loops is *uniformly* narrower than `extra_perimeters_max_gap_mm`
+/// (a thin gap better filled with perimeters than sparse infill).  Otherwise
+/// returns `wall_count`: a core with any part wider than the threshold stays
+/// infill's job, so a solid body is never turned into concentric loops.
+fn effective_wall_count(input: &Paths, params: &WallParams, tol: f64) -> usize {
+    if !params.extra_perimeters || params.wall_count == 0 {
+        return params.wall_count;
+    }
+    let d = params.nozzle_diameter_mm;
+    let core = shrink(input, params.wall_count as f64 * d, tol);
+    if core.is_empty() {
+        return params.wall_count;
+    }
+    // Erosion empty ⟺ no part of the core is wider than the gap ⟺ uniformly thin.
+    let half = params.extra_perimeters_max_gap_mm * 0.5;
+    let eroded = inflate(core, -half, JoinType::Miter, EndType::Polygon, 2.0);
+    if eroded.is_empty() {
+        usize::MAX
+    } else {
+        params.wall_count
+    }
+}
+
 /// Cheap collapse probe using Miter join — only checks whether the result is
 /// empty.  Much faster than `shrink` for emptiness tests because Miter never
 /// inserts arc approximation vertices.
@@ -142,7 +183,11 @@ pub fn compute_classic_beads(input: &Paths, params: &WallParams) -> Vec<Bead> {
     let mut first_miss_depth: f64 = (params.wall_count as f64 + 0.5) * d; // upper bound
     let mut n_fit: usize = 0;
 
-    for k in 0..params.wall_count {
+    // `extra_perimeters` may lift the cap so a thin residual core is filled with
+    // full loops instead of sparse infill; see [`effective_wall_count`].
+    let wall_cap = effective_wall_count(input, params, tol);
+
+    for k in 0..wall_cap {
         let depth = (k as f64 + 0.5) * d;
         #[cfg(not(target_arch = "wasm32"))]
         let t = std::time::Instant::now();
@@ -169,8 +214,8 @@ pub fn compute_classic_beads(input: &Paths, params: &WallParams) -> Vec<Bead> {
         n_fit += 1;
     }
 
-    // Were we stopped by geometry (polygon collapsed) or by wall_count cap?
-    let geometry_limited = n_fit < params.wall_count;
+    // Were we stopped by geometry (polygon collapsed) or by the wall cap?
+    let geometry_limited = n_fit < wall_cap;
 
     // ── Thin-wall residual bead ───────────────────────────────────────────────
     //
@@ -187,6 +232,12 @@ pub fn compute_classic_beads(input: &Paths, params: &WallParams) -> Vec<Bead> {
     // distributing the gap across up to `wall_distribution_count` beads.
     if !geometry_limited {
         return beads; // count-limited: remaining space belongs to infill
+    }
+
+    // Thin-wall detection is opt-out: when `thin_walls` is disabled we stop at
+    // the standard beads and leave sub-perimeter features unfilled.
+    if !params.thin_walls {
+        return beads;
     }
 
     // Narrow search for the exact collapse depth within the tight bracket
@@ -303,7 +354,9 @@ pub fn compute_classic_beads_debug(
     let mut first_miss_depth: f64 = (params.wall_count as f64 + 0.5) * d;
     let mut n_fit: usize = 0;
 
-    for k in 0..params.wall_count {
+    let wall_cap = effective_wall_count(input, params, tol);
+
+    for k in 0..wall_cap {
         let depth = (k as f64 + 0.5) * d;
         let paths = shrink(input, depth, tol);
         // Capture the intermediate regardless of whether it's empty.
@@ -325,9 +378,13 @@ pub fn compute_classic_beads_debug(
         n_fit += 1;
     }
 
-    let geometry_limited = n_fit < params.wall_count;
+    let geometry_limited = n_fit < wall_cap;
 
     if !geometry_limited {
+        return beads;
+    }
+
+    if !params.thin_walls {
         return beads;
     }
 
@@ -533,6 +590,31 @@ mod tests {
             beads.is_empty(),
             "0.2mm wall (< min_w=0.34mm) should produce no beads, got {}",
             beads.len()
+        );
+    }
+
+    #[test]
+    fn thin_walls_off_drops_the_classic_residual_bead() {
+        // `thin_walls` is the *classic* generator's thin-feature switch (it is
+        // gated to `wall_generator = classic` in the schema).  The 0.4 mm wall of
+        // `test_thin_wall_produces_variable_width_bead` is exactly such a feature:
+        // it is carried entirely by the residual bead, so turning the option off
+        // must drop it.
+        let rect: Path = vec![(0.0, 0.0), (10.0, 0.0), (10.0, 0.4), (0.0, 0.4)].into();
+        let paths = Paths::new(vec![rect]);
+
+        let on = compute_classic_beads(&paths, &default_params());
+        assert!(!on.is_empty(), "control: thin wall should print by default");
+
+        let off_params = WallParams::from_slicing_params(&SlicingParams {
+            thin_walls: false,
+            ..SlicingParams::default()
+        });
+        let off = compute_classic_beads(&paths, &off_params);
+        assert!(
+            off.is_empty(),
+            "thin_walls = false must drop the classic thin-wall bead, got {}",
+            off.len()
         );
     }
 }

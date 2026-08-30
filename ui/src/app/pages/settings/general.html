@@ -21,7 +21,10 @@
         <span class="settings-field-title">Version</span>
         <span class="settings-field-desc">Current build of the app.</span>
       </span>
-      <span class="settings-value">{{ version() }}</span>
+      <span class="settings-version">
+        <span class="settings-value">{{ version() }}</span>
+        <a nexusButton variant="ghost" size="sm" routerLink="/settings/changelog">What's new</a>
+      </span>
     </div>
     @if (commit()) {
       <div class="settings-field">
@@ -124,6 +127,22 @@
           Off
         </button>
       </div>
+    </div>
+  </div>
+
+  <h2 class="subhead">Backup &amp; Export</h2>
+  <div class="settings-card">
+    <div class="settings-field">
+      <span class="settings-field-label">
+        <span class="settings-field-title">Profile library</span>
+        <span class="settings-field-desc">
+          Download your printers, filaments, print profiles and labels as TOML — the same format the
+          slicer reads. Export a bundle of separate files, or one
+          <code>profiles.toml</code> for the command line. {{ exportScopeNote }} Printer API keys
+          are left out, so the file is safe to share.
+        </span>
+      </span>
+      <nexus-profile-export-button />
     </div>
   </div>
 

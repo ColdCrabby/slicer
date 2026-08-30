@@ -20,6 +20,7 @@ import {
 } from 'three';
 import type { GcodeLayerBuffer } from '../../../generated/scene-wasm/scene_engine';
 import {
+  ACCEL_OFFSET,
   FLOATS_PER_SEGMENT,
   ROLE_COLORS_DARK,
   ROLE_ORDER,
@@ -79,13 +80,15 @@ export interface RoleSegments {
   /** Low-detail tube geometry (open box), the default for large plates. */
   meshGeomLow?: BufferGeometry;
   /**
-   * Per-segment extrusion width, height and speed (length === `count`).
-   * Present only for extrusion roles (not travel or seam) so scalar view modes
-   * can recolor via a {@link ScalarChannel} without re-reading the WASM buffer.
+   * Per-segment extrusion width, height, speed and acceleration
+   * (length === `count`). Present only for extrusion roles (not travel or seam)
+   * so scalar view modes can recolor via a {@link ScalarChannel} without
+   * re-reading the WASM buffer.
    */
   widths?: Float32Array;
   heights?: Float32Array;
   speeds?: Float32Array;
+  accels?: Float32Array;
   /**
    * Per-instance opacity attributes (segment cylinders and their joints) used
    * to fade out-of-band extrusions while hovering the legend. `1` = opaque.
@@ -610,6 +613,7 @@ export function buildGcodeModel(
       widths: new Float32Array(count),
       heights: new Float32Array(count),
       speeds: new Float32Array(count),
+      accels: new Float32Array(count),
       meshOpacity,
       jointsOpacity,
     };
@@ -687,6 +691,7 @@ export function buildGcodeModel(
           if (rs.widths) rs.widths[globalI] = width;
           if (rs.heights) rs.heights[globalI] = height;
           if (rs.speeds) rs.speeds[globalI] = data[offset + SPEED_OFFSET];
+          if (rs.accels) rs.accels[globalI] = data[offset + ACCEL_OFFSET];
 
           const length = _p0.distanceTo(_p1);
           _mid.addVectors(_p0, _p1).multiplyScalar(0.5);
@@ -795,9 +800,9 @@ export function updateViewColors(
       continue;
     }
 
-    const { mesh, joints, widths, heights, speeds, count } = rs;
+    const { mesh, joints, widths, heights, speeds, accels, count } = rs;
 
-    if (channel && channel.scope === 'segment' && mesh && widths && heights && speeds) {
+    if (channel && channel.scope === 'segment' && mesh && widths && heights && speeds && accels) {
       // Per-instance color; keep the material white (and unlit emissive off)
       // so the per-instance scalar tint shows unmodulated.
       const mm = mesh.material as MeshPhongMaterial;
@@ -813,7 +818,7 @@ export function updateViewColors(
       const meshAlpha = rs.meshOpacity?.array as Float32Array | undefined;
       const jointAlpha = rs.jointsOpacity?.array as Float32Array | undefined;
       for (let i = 0; i < count; i++) {
-        const value = channel.extract(widths[i], heights[i], speeds[i]);
+        const value = channel.extract(widths[i], heights[i], speeds[i], accels[i]);
         const t = span > 0 ? (value - range.min) / span : 0.5;
         c.set(sampleSpeedColor(t));
         const dim = outOfBand(value);

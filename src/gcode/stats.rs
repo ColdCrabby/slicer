@@ -38,16 +38,21 @@ pub struct SliceStatistics {
 
 impl SliceStatistics {
     /// Build statistics from the sliced layers, the resolved parameters, the
-    /// running filament length the generator measured while emitting moves, and
-    /// an optional model name.
+    /// running filament length the generator measured while emitting moves, the
+    /// acceleration-aware print-time estimate, and an optional model name.
     ///
-    /// Geometric fields (layer count, height, bounding box, print time) are
-    /// derived purely from `layers`; the filament weight is derived from
-    /// `filament_mm` and `params.filament_density_g_cm3`.
+    /// Geometric fields (layer count, height, bounding box) are derived purely
+    /// from `layers`; the filament weight is derived from `filament_mm` and
+    /// `params.filament_density_g_cm3`.  The print time is **not** recomputed
+    /// here — it is measured from the emitted G-code by
+    /// [`crate::gcode::time_estimate::estimate_print_time`] and passed in as
+    /// `estimated_print_time_s`, so the header/footer figure matches the moves
+    /// the printer will actually run.
     pub fn from_layers(
         layers: &[SliceLayer],
         params: &SlicingParams,
         filament_mm: f64,
+        estimated_print_time_s: f64,
         model_name: Option<String>,
     ) -> Self {
         let filament_radius_mm = params.filament_diameter_mm / 2.0;
@@ -59,12 +64,9 @@ impl SliceStatistics {
         let mut max_z_mm = 0.0_f64;
         let mut min = [f64::INFINITY; 3];
         let mut max = [f64::NEG_INFINITY; 3];
-        let mut estimated_print_time_s = 0.0_f64;
 
         for layer in layers {
             max_z_mm = max_z_mm.max(layer.z);
-            estimated_print_time_s +=
-                super::generator::estimate_layer_time(layer, params.print_speed);
             for path in layer.paths.iter() {
                 for pt in path.iter() {
                     let (x, y) = (pt.x(), pt.y());
@@ -203,6 +205,26 @@ pub(crate) fn settings_summary_lines(params: &SlicingParams) -> Vec<String> {
             params.wall_count,
             params.wall_generator.name(),
         ),
+        format!(
+            "; perimeter_order: {} | extra_perimeters: {} | thin_walls: {} | ensure_vertical_shell: {} | avoid_crossing: {}",
+            if params.external_perimeters_first {
+                "outer-first"
+            } else {
+                "inner-first"
+            },
+            if params.extra_perimeters { "on" } else { "off" },
+            if params.thin_walls { "on" } else { "off" },
+            if params.ensure_vertical_shell_thickness {
+                "on"
+            } else {
+                "off"
+            },
+            if params.avoid_crossing_perimeters {
+                "on"
+            } else {
+                "off"
+            },
+        ),
         format!("; infill_density: {:.0}%", params.infill_density * 100.0),
         "; ---".to_string(),
     ]);
@@ -306,7 +328,7 @@ mod tests {
     #[test]
     fn empty_slice_has_zeroed_stats() {
         let params = SlicingParams::default();
-        let stats = SliceStatistics::from_layers(&[], &params, 0.0, None);
+        let stats = SliceStatistics::from_layers(&[], &params, 0.0, 0.0, None);
         assert_eq!(stats.layer_count, 0);
         assert_eq!(stats.max_z_mm, 0.0);
         assert_eq!(stats.filament_mm, 0.0);
@@ -326,7 +348,7 @@ mod tests {
             filament_density_g_cm3: 1.24,
             ..SlicingParams::default()
         };
-        let stats = SliceStatistics::from_layers(&[], &params, 1000.0, None);
+        let stats = SliceStatistics::from_layers(&[], &params, 1000.0, 0.0, None);
         assert!(
             (stats.filament_cm3 - 2.4053).abs() < 1e-3,
             "cm3 = {}",
@@ -350,7 +372,7 @@ mod tests {
         l1.paths.push(sq2);
 
         let params = SlicingParams::default();
-        let stats = SliceStatistics::from_layers(&[l0, l1], &params, 0.0, None);
+        let stats = SliceStatistics::from_layers(&[l0, l1], &params, 0.0, 0.0, None);
         assert_eq!(stats.layer_count, 2);
         assert!((stats.max_z_mm - 0.4).abs() < 1e-9);
         assert_eq!(stats.bbox_min, [0.0, 0.0, 0.2]);

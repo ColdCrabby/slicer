@@ -33,28 +33,35 @@
 //! `max_print_speed`), and the user's explicit overrides win over everything.
 
 pub mod defaults;
+pub mod export;
 pub mod filament;
+pub mod library;
 pub mod meta;
 pub mod printer;
 pub mod process;
 pub mod resolve;
+pub mod toml_bridge;
 
 // On-disk profile persistence (TOML). Native/server only — the wasm build has
 // no filesystem and keeps the library in the browser's localStorage instead.
+// The library *shape* and its TOML rendering live in `library` / `toml_bridge`,
+// which every target (including wasm, for export) compiles.
 #[cfg(not(target_arch = "wasm32"))]
 pub mod store;
 
 #[cfg(all(target_arch = "wasm32", feature = "web-slicer"))]
 pub mod wasm;
 
+pub use export::{export_library, ProfileExportArtifact, ProfileExportFormat};
 pub use filament::{material_density, FilamentMaterial, FilamentProfile};
+pub use library::{Label, LabelTone, ProfileKind, ProfileLibrary};
 pub use meta::{ProfileMeta, ProfileSource};
 pub use printer::{BedShape, PrinterConnection, PrinterConnectionKind, PrinterProfile};
 pub use process::{PrintQuality, ProcessProfile};
 pub use resolve::{resolve, ProfileSelection};
 
 #[cfg(not(target_arch = "wasm32"))]
-pub use store::{Label, LabelTone, ProfileKind, ProfileLibrary, ProfileStore};
+pub use store::ProfileStore;
 
 #[cfg(test)]
 mod tests {
