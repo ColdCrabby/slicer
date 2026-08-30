@@ -84,6 +84,7 @@ const FIELD_LABELS: Record<string, string> = {
   filament_diameter_mm: 'Filament Diameter',
   nozzle_diameter_mm: 'Nozzle Diameter',
   heated_chamber: 'Heated Chamber',
+  z_offset_mm: 'Z Offset',
   // Retraction
   z_hop_mm: 'Z Hop',
   retract_mm: 'Retraction Distance',
