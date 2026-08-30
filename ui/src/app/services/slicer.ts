@@ -142,16 +142,20 @@ export class Slicer {
   readonly gcodeDownloadUrl = signal<string | null>(null);
 
   /**
-   * Object IDs (stringified) of the scene captured for the most recent slice.
-   * Consumers compare successive sets to tell a resliced scene (shared ids)
-   * from a brand-new one (fully disjoint ids).
+   * Object IDs (stringified) of the scene dispatched for the most recent slice.
+   * Captured when the slice is *pressed*, not when it completes, so it reflects
+   * exactly what was sent to the pipeline. Consumers compare successive sets to
+   * tell a resliced scene (shared ids) from a brand-new one (fully disjoint ids).
    */
   readonly slicedObjectIds = signal<readonly string[]>([]);
 
   /**
-   * Signature of the scene + settings at the moment the current preview was
-   * sliced. `null` until the first slice; compared against the live signature
-   * to detect when the on-screen G-code no longer matches the main scene.
+   * Signature of the scene + settings at the moment the slice was *dispatched*
+   * (the Slice press), which is the state the resulting G-code reflects. `null`
+   * until the first slice; compared against the live signature to detect when
+   * the on-screen G-code no longer matches the main scene. Committing this at
+   * dispatch (not completion) is what makes an edit made *while* a slice runs
+   * correctly register as drift instead of being absorbed into the baseline.
    */
   private readonly slicedSignature = signal<string | null>(null);
 
@@ -617,6 +621,18 @@ export class Slicer {
       this.activeSliceId = sliceId;
       this.outputLog.update((log) => [...log, `Starting slice job (${this.runtimeMode})…`]);
 
+      // Commit the drift baseline NOW — the instant the slice is dispatched —
+      // not when it completes. The G-code produced by this job reflects the
+      // scene + settings as they are at *this* moment (the scene is already
+      // baked and `requestSettings` snapshotted above). Capturing the baseline
+      // at completion instead would fold any edit the user makes *during* the
+      // slice into "what was sliced", so the preview-stale hint would wrongly
+      // read clean even though the on-screen G-code predates that edit.
+      // `slicedObjectIds` comes from the dispatched scene; `slicedSignature`
+      // from the live signature, which equals the sliced state at press time.
+      this.slicedObjectIds.set(scene.objects.map((object) => object.id));
+      this.slicedSignature.set(this.sceneSignature());
+
       const timeoutHandle = setTimeout(() => {
         if (this.status() === 'slicing') {
           this.status.set('error');
@@ -656,12 +672,9 @@ export class Slicer {
       }
 
       // No awaits below this point — publish every result synchronously so a
-      // concurrent workplate switch cannot interleave a partial update.
-      // Record which objects this slice was produced from so the viewer can
-      // preserve its layer/progress/coloring when the same scene is resliced.
-      this.slicedObjectIds.set(scene.objects.map((object) => object.id));
-      // Snapshot the scene+settings signature so we can detect later drift.
-      this.slicedSignature.set(this.sceneSignature());
+      // concurrent workplate switch cannot interleave a partial update. The
+      // drift baseline (`slicedObjectIds` / `slicedSignature`) was already
+      // committed at dispatch above, so it reflects exactly what was sliced.
 
       if (preview.kind === 'download-url') {
         this.setDownloadUrl(preview.url);
