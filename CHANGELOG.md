@@ -353,6 +353,17 @@ these notes and acknowledges contributors. `scripts/gen-changelog-draft.sh` and
   surfaces to monotonic. Besides the cleaner finish this removed 106 mm² of
   top-surface material printed on top of the inner wall on a Voron cube — the
   serpentine's U-turns used to run over the wall band.
+- **The documentation now leads with the product, not the architecture.** There
+  is a proper guide to *using* Cold Crabby — the interface, the build plate,
+  what every settings group means, printers and profiles, reading the G-code
+  preview, keyboard shortcuts and troubleshooting — plus a separate track for
+  teams covering self-hosting, shared configuration, automating the CLI, and
+  what data lives where. Simple by default: advanced detail is still there, just
+  short and folded away. The engineering docs stay, slimmed to a map that points
+  at the module guides, and `ARCHITECTURE.md` no longer describes modules that
+  were renamed long ago. A new brand page collects the name, mascot, assets,
+  palette and voice in one place. The site carries a banner saying so: the docs
+  are early, and their structure and tone may still change drastically.
 
 - **Dependency maintenance** — cleared the outstanding Dependabot backlog. The
   Angular front-end moves to the 22.x line (all `@angular/*` packages, the
@@ -366,6 +377,11 @@ these notes and acknowledges contributors. `scripts/gen-changelog-draft.sh` and
   `tobj`/`ahash` still require). No behavioural changes to sliced output.
 
 ### Fixed
+
+- **The documentation site failed to build**, so it could not be published at
+  all. A line of prose in the G-code module guide wrapped an inline code span
+  across a line break, which leaked its angle-bracket placeholders out as raw,
+  unclosed HTML.
 
 - **The transform panel was blank whenever more than one object was selected**,
   so a multi-object plate could not be moved, rotated or resized from the

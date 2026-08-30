@@ -1,8 +1,10 @@
 # Setup & running
 
-Everything you need to run Cold Crabby yourself — as a self-hosted web UI, an in-browser slicer, or a desktop app.
+Everything you need to build and run Cold Crabby from source — as a self-hosted web UI, an in-browser slicer, a desktop app, or on an iPad.
 
-> Just want to slice? No setup needed → **[slicer.maxscopp.de](https://slicer.maxscopp.de/)**.
+> **Just want to slice?** No setup needed → **[slicer.maxscopp.de](https://slicer.maxscopp.de/)**.
+> **Want to know how to *use* it?** → **[Getting started](https://slicer.maxscopp.de/docs/use/)**.
+> **Deploying it for a team?** → **[For teams](https://slicer.maxscopp.de/docs/teams/self-host)**.
 
 ---
 
@@ -126,8 +128,9 @@ port = 5201
 Manage it from the CLI:
 
 ```bash
-slicer-engine config show
-slicer-engine config set slicing.layer_height 0.15
+slicer-engine config show                       # the fully merged result
+slicer-engine config init                       # write a starter ./slicer.toml
+slicer-engine settings set layer_height 0.15    # change one value
 slicer-engine slice --input model.stl --config ./slicer.toml
 ```
 

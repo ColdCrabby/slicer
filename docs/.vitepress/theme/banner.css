@@ -1,0 +1,28 @@
+/*
+ * "Early docs" banner.
+ *
+ * `--vp-layout-top-height` reserves the space the banner occupies — VitePress
+ * offsets its fixed nav, sidebar and local-nav by it, so it must be a real
+ * length on :root; a scoped style inside Banner.vue cannot define it. Keep the
+ * two values in sync with Banner.vue's own breakpoint.
+ *
+ * The fill is the brand's molten amber (see brand.md) rather than VitePress's
+ * yellow scale, which inverts between modes and lands on a muddy dark gold in
+ * light mode.
+ */
+:root {
+  --vp-layout-top-height: 40px;
+
+  --cc-banner-bg: #e0730f;
+  --cc-banner-fg: #1c1204;
+}
+
+.dark {
+  --cc-banner-bg: #f5883a;
+}
+
+@media (max-width: 719px) {
+  :root {
+    --vp-layout-top-height: 64px;
+  }
+}
