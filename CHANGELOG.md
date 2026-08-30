@@ -27,6 +27,20 @@ issue/PR numbers or repo links in the notes. See the tone rules in
 
 ## [Unreleased]
 
+### Added
+
+- **Undo / redo buttons in the 3D view** — forward and backward history buttons
+  on the plate toolbar for touch devices where the ⌘/Ctrl+Z shortcut can't be
+  reached. Shown automatically on keyboard-less tablets and phones; force them on
+  or off in Settings → General → Controls. Auto by default.
+
+### Fixed
+
+- **Undo no longer wipes the plate after navigating** — dip into Settings and
+  back, or use the browser's back button, and your objects keep their positions
+  and undo history instead of being deleted by the next undo. History now resets
+  only when the workplate is genuinely replaced.
+
 ## [0.2.0] - 2026-08-30
 
 The build plate grows up. What used to be one model on a plate is now a real
