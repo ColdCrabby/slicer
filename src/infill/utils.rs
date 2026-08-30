@@ -337,6 +337,104 @@ fn point_in_region_even_odd(x: f64, y: f64, region: &Paths) -> bool {
     crossings % 2 == 1
 }
 
+/// Join loose 2-point segments into continuous polylines.
+///
+/// A marching-squares contour tracer emits one short segment per grid cell it
+/// crosses. Left as separate paths those segments are printed as isolated dabs —
+/// each one costing a retract, travel and un-retract — and most are shorter than
+/// `min_infill_extrusion_mm`, so the splat filter simply deletes them and the
+/// pattern all but disappears. Chaining them by shared endpoints recovers the
+/// curve the tracer actually found.
+///
+/// `tolerance_mm` is how close two endpoints must be to count as the same point;
+/// it should be well under the tracer's cell size.
+pub fn chain_segments_into_polylines(segments: &Paths, tolerance_mm: f64) -> Paths {
+    if segments.is_empty() {
+        return Paths::default();
+    }
+
+    // Quantising endpoints to a grid turns "is there a segment starting here?"
+    // into a hash lookup instead of an O(n²) scan.
+    let cell = tolerance_mm.max(1e-6);
+    let key = |p: (f64, f64)| -> (i64, i64) {
+        ((p.0 / cell).round() as i64, (p.1 / cell).round() as i64)
+    };
+
+    let mut segs: Vec<Vec<(f64, f64)>> = Vec::with_capacity(segments.len());
+    for path in segments.iter() {
+        let pts: Vec<(f64, f64)> = path.iter().map(|p| (p.x(), p.y())).collect();
+        if pts.len() >= 2 {
+            segs.push(pts);
+        }
+    }
+
+    let mut ends: std::collections::HashMap<(i64, i64), Vec<usize>> =
+        std::collections::HashMap::new();
+    for (i, seg) in segs.iter().enumerate() {
+        ends.entry(key(seg[0])).or_default().push(i);
+        ends.entry(key(*seg.last().expect("len >= 2")))
+            .or_default()
+            .push(i);
+    }
+
+    let mut used = vec![false; segs.len()];
+    let mut out = Paths::default();
+
+    for start in 0..segs.len() {
+        if used[start] {
+            continue;
+        }
+        used[start] = true;
+        let mut chain = segs[start].clone();
+
+        // Extend from both ends until nothing more connects.
+        for at_front in [false, true] {
+            loop {
+                let tip = if at_front {
+                    chain[0]
+                } else {
+                    *chain.last().expect("chain is never empty")
+                };
+                let Some(candidates) = ends.get(&key(tip)) else {
+                    break;
+                };
+                let Some(&next) = candidates.iter().find(|&&i| !used[i]) else {
+                    break;
+                };
+                used[next] = true;
+
+                let mut seg = segs[next].clone();
+                let touches_head = dist2(seg[0], tip) <= cell * cell;
+                if at_front {
+                    // Prepend, so the segment must end at the current head.
+                    if touches_head {
+                        seg.reverse();
+                    }
+                    seg.pop();
+                    seg.extend(chain);
+                    chain = seg;
+                } else {
+                    if !touches_head {
+                        seg.reverse();
+                    }
+                    chain.extend(seg.into_iter().skip(1));
+                }
+            }
+        }
+
+        if chain.len() >= 2 {
+            let path: Path = chain.into();
+            out.push(path);
+        }
+    }
+
+    out
+}
+
+fn dist2(a: (f64, f64), b: (f64, f64)) -> f64 {
+    (b.0 - a.0).powi(2) + (b.1 - a.1).powi(2)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -514,6 +514,29 @@ impl EmitPayload for ShowResult<'_> {
                 p.avoid_crossing_perimeters
             ),
             format!("  infill_density: {:.0}%", p.infill_density * 100.0),
+            format!("  infill_pattern: {}", p.infill_pattern.name()),
+            format!("  infill_base_angle: {}°", p.infill_base_angle),
+            format!("  infill_anchor_percent: {:.0}%", p.infill_anchor_percent),
+            format!("  infill_anchor_max_mm: {} mm", p.infill_anchor_max_mm),
+            format!("  infill_every_layers: {}", p.infill_every_layers),
+            format!(
+                "  infill_combination_max_layer_height_mm: {} mm",
+                p.infill_combination_max_layer_height_mm
+            ),
+            format!(
+                "  solid_infill_every_layers: {}",
+                p.solid_infill_every_layers
+            ),
+            format!("  top_surface_pattern: {}", p.top_surface_pattern.name()),
+            format!(
+                "  bottom_surface_pattern: {}",
+                p.bottom_surface_pattern.name()
+            ),
+            format!(
+                "  internal_solid_infill_pattern: {}",
+                p.internal_solid_infill_pattern.name()
+            ),
+            format!("  bridge_angle: {}° (0 = auto)", p.bridge_angle),
             format!("  print_speed: {} mm/s (fallback)", p.print_speed),
             format!("  perimeter_speed: {} mm/s", p.perimeter_speed),
             format!("  infill_speed: {} mm/s", p.infill_speed),

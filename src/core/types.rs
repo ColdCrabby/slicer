@@ -27,6 +27,11 @@ pub enum ExtrusionRole {
     TopSurface,
     /// Solid bottom-surface infill.
     BottomSurface,
+    /// Dense solid infill **inside** the part — the hidden floors
+    /// [`crate::settings::params::SlicingParams::solid_infill_every_layers`]
+    /// inserts to brace tall sparse regions. Not a visible surface, so it is
+    /// tagged separately from top/bottom.
+    InternalSolid,
     /// Variable-width gap fill: thin-wall medial beads laid into spaces too
     /// narrow for a full perimeter. Emitted as OrcaSlicer `;TYPE:Gap infill`.
     GapFill,
@@ -51,6 +56,7 @@ impl ExtrusionRole {
             Self::Bridge => "Bridge",
             Self::TopSurface => "Top surface",
             Self::BottomSurface => "Bottom surface",
+            Self::InternalSolid => "Internal solid infill",
             Self::GapFill => "Gap infill",
             Self::Support => "Support material",
             Self::Skirt => "Skirt",
@@ -68,7 +74,8 @@ impl ExtrusionRole {
             | Self::Infill
             | Self::Bridge
             | Self::TopSurface
-            | Self::BottomSurface => 0.4,
+            | Self::BottomSurface
+            | Self::InternalSolid => 0.4,
             Self::GapFill => 0.4,
             Self::Support => 0.4,
             Self::Skirt => 0.4,
@@ -208,6 +215,18 @@ pub struct SliceLayer {
     /// Indexed parallel to [`SliceLayer::paths`].  Shorter-than-paths vectors
     /// default to [`OverhangClass::None`] (no override).
     pub path_overhang: Vec<OverhangClass>,
+    /// Per-path extrusion **height** override in mm.
+    ///
+    /// `path_heights[i]` is the layer height the G-code generator should charge
+    /// `paths[i]` at. `None` (or a missing entry) means the print's normal layer
+    /// height.
+    ///
+    /// Set by sparse-infill layer combining
+    /// ([`crate::settings::params::SlicingParams::infill_every_layers`]), where
+    /// the top layer of a group prints the infill it stood in for at the group's
+    /// full stacked height. Nothing else overrides it, so this vector is empty
+    /// on an ordinary print.
+    pub path_heights: Vec<Option<f64>>,
 }
 
 impl SliceLayer {
@@ -223,6 +242,7 @@ impl SliceLayer {
             unsupported_regions: Paths::default(),
             path_is_open: Vec::new(),
             path_overhang: Vec::new(),
+            path_heights: Vec::new(),
         }
     }
 
@@ -266,5 +286,13 @@ impl SliceLayer {
     /// [`crate::settings::params::SlicingParams::enable_overhang_speed`] is off.
     pub fn overhang_for_path(&self, i: usize) -> OverhangClass {
         self.path_overhang.get(i).copied().unwrap_or_default()
+    }
+
+    /// Return the extrusion height override in mm for path index `i`.
+    ///
+    /// `None` means "use the print's layer height"; only combined sparse infill
+    /// sets it.
+    pub fn height_for_path(&self, i: usize) -> Option<f64> {
+        self.path_heights.get(i).copied().flatten()
     }
 }

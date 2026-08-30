@@ -276,10 +276,11 @@ fn overhang_meets_fan_threshold(
 /// Resolve the extrusion width for a path.
 ///
 /// Precedence (first match wins):
-/// 0. **Solid top/bottom surface fill** (no explicit/per-vertex width) is
-///    charged at its *line spacing* (`solid_surface_line_spacing`), not a
-///    nominal bead width, so it deposits `spacing × layer_height` and fills the
-///    surface exactly instead of over-extruding it (see the inline note).
+/// 0. **Fill roles** (solid top/bottom surface fill and sparse infill, with no
+///    explicit/per-vertex width) are charged at their *line spacing*
+///    (`extrusion_flow_spacing_mm` of their nominal width), not the nominal bead
+///    width, so each line deposits `spacing × layer_height` and fills its strip
+///    exactly instead of over-extruding it (see the inline note).
 /// 1. A per-role width override (`outer_wall_line_width`, `inner_wall_line_width`,
 ///    `top_surface_line_width`, `sparse_infill_line_width`) when set (`> 0`) —
 ///    but only for **constant-width** paths (`has_vertex_widths == false`). This
@@ -300,24 +301,33 @@ pub(crate) fn resolve_width_mm(
 ) -> f64 {
     use crate::core::ExtrusionRole;
 
-    // Solid top/bottom surface fill is laid at `solid_surface_line_spacing` (the
-    // libslic3r/Orca stadium pitch, ≈ 0.357 mm at a 0.4 mm nozzle / 0.2 mm
-    // layers), so each line must deposit `spacing × layer_height` of filament —
-    // the volume of the strip it fills — *not* the full nominal bead width.
-    // Charging solid surfaces at the wider nominal width over-extrudes them by
-    // `width / spacing` (≈ 13 % at nozzle width, ≈ 23 % once `line_width` >
-    // nozzle): the raised / blobby top-surface defect. Matching the flow to the
-    // spacing mirrors PrusaSlicer/Orca (`mm³/mm = spacing × height`) and lays a
-    // flat surface. Bridges (their own role, explicit width) are unaffected.
-    if explicit.is_none()
-        && !has_vertex_widths
-        && matches!(
-            role,
-            ExtrusionRole::TopSurface | ExtrusionRole::BottomSurface
-        )
-    {
-        let nominal = crate::core::solid_surface_nominal_width_mm(params);
-        return crate::core::solid_surface_line_spacing(nominal, params.layer_height);
+    // Fill roles are laid at their flow spacing (the libslic3r/Orca stadium
+    // pitch, ≈ 0.357 mm at a 0.4 mm nozzle / 0.2 mm layers), so each line must
+    // deposit `spacing × layer_height` of filament — the volume of the strip it
+    // fills — *not* the full nominal bead width. Charging them at the wider
+    // nominal width over-extrudes by `width / spacing` (≈ 13 % at nozzle width,
+    // ≈ 23 % once `line_width` > nozzle): the raised / blobby top-surface
+    // defect. Matching the flow to the spacing mirrors PrusaSlicer/Orca
+    // (`mm³/mm = spacing × height`) and lays a flat surface.
+    //
+    // Sparse infill obeys the same identity: `add_infill_to_layers` pitches its
+    // lines `spacing / density` apart, so charging them at `spacing` is what
+    // makes the deposited volume equal the requested density. Bridges (their own
+    // role, explicit width) are unaffected.
+    if explicit.is_none() && !has_vertex_widths {
+        match role {
+            ExtrusionRole::TopSurface
+            | ExtrusionRole::BottomSurface
+            | ExtrusionRole::InternalSolid => {
+                let nominal = crate::core::solid_surface_nominal_width_mm(params);
+                return crate::core::extrusion_flow_spacing_mm(nominal, params.layer_height);
+            }
+            ExtrusionRole::Infill => {
+                let nominal = crate::core::sparse_infill_nominal_width_mm(params);
+                return crate::core::extrusion_flow_spacing_mm(nominal, params.layer_height);
+            }
+            _ => {}
+        }
     }
 
     // A per-role override wins over the constant, generator-stamped width for
@@ -329,9 +339,9 @@ pub(crate) fn resolve_width_mm(
                 params.outer_wall_line_width
             }
             ExtrusionRole::InnerWall => params.inner_wall_line_width,
-            ExtrusionRole::TopSurface | ExtrusionRole::BottomSurface => {
-                params.top_surface_line_width
-            }
+            ExtrusionRole::TopSurface
+            | ExtrusionRole::BottomSurface
+            | ExtrusionRole::InternalSolid => params.top_surface_line_width,
             ExtrusionRole::Infill => params.sparse_infill_line_width,
             _ => 0.0,
         };
@@ -347,7 +357,10 @@ pub(crate) fn resolve_width_mm(
     // Generic `line_width` still applies only to solid infill and surfaces.
     let line_width_role = matches!(
         role,
-        ExtrusionRole::Infill | ExtrusionRole::TopSurface | ExtrusionRole::BottomSurface
+        ExtrusionRole::Infill
+            | ExtrusionRole::TopSurface
+            | ExtrusionRole::BottomSurface
+            | ExtrusionRole::InternalSolid
     );
     if params.line_width > 0.0 && line_width_role {
         params.line_width
@@ -972,7 +985,9 @@ impl GcodeGenerator {
                     fallback
                 }
             }
-            ExtrusionRole::TopSurface | ExtrusionRole::BottomSurface => {
+            ExtrusionRole::TopSurface
+            | ExtrusionRole::BottomSurface
+            | ExtrusionRole::InternalSolid => {
                 let s = params.top_surface_speed;
                 if s > 0.0 {
                     s * 60.0
@@ -1383,6 +1398,9 @@ impl GcodeGenerator {
 
             let z_str = format!("{:.3}", layer.z);
             let height_str = format!("{:.3}", params.layer_height);
+            // Last `;HEIGHT:` announced on this layer, so a taller combined-infill
+            // bead re-announces it and the next ordinary path announces it back.
+            let mut last_height: Option<String> = Some(height_str.clone());
             // Detect first layer: z within half a layer height of layer_height.
             let is_first_layer = layer.z <= params.layer_height + 1e-6;
 
@@ -1701,6 +1719,40 @@ impl GcodeGenerator {
                     role,
                     params,
                 );
+                // Combined sparse infill prints one bead for several layers, so
+                // its flow, its `;HEIGHT:` annotation and its volumetric-speed
+                // cap are all charged at the stacked height rather than the
+                // layer height. Every other path leaves this `None`.
+                let path_height = layer
+                    .height_for_path(path_idx)
+                    .filter(|h| *h > 0.0)
+                    .unwrap_or(params.layer_height);
+                let path_height_str = format!("{:.3}", path_height);
+
+                // Combined infill prints taller than the layer it sits on, so
+                // re-announce `;HEIGHT:` whenever it changes. Viewers and
+                // post-processors read that marker to size the bead; without it a
+                // 0.4 mm-tall infill bead would be drawn (and re-flowed) as
+                // 0.2 mm. Emitted on change only, so an ordinary layer is
+                // untouched.
+                if self.marker_config.enabled
+                    && last_height.as_deref() != Some(path_height_str.as_str())
+                {
+                    let height_marker = self
+                        .marker_config
+                        .height_marker
+                        .as_deref()
+                        .unwrap_or(";HEIGHT:{height}");
+                    out.push_str(&render_marker(
+                        height_marker,
+                        &z_str,
+                        &path_height_str,
+                        "",
+                        "",
+                    ));
+                    out.push('\n');
+                    last_height = Some(path_height_str.clone());
+                }
 
                 // Resolve per-role print speed (with dynamic overhang override).
                 let speed_mm_min =
@@ -1740,7 +1792,7 @@ impl GcodeGenerator {
                 // real per-segment width is known.
                 let capped_speed_mm_min = volumetric_capped_speed_mm_min(
                     speed_mm_min,
-                    params.layer_height,
+                    path_height,
                     width_mm,
                     params.max_volumetric_speed,
                 );
@@ -1825,7 +1877,7 @@ impl GcodeGenerator {
                         out.push_str(&render_marker(
                             type_ann,
                             &z_str,
-                            &height_str,
+                            &path_height_str,
                             type_name,
                             &width_str,
                         ));
@@ -1839,7 +1891,7 @@ impl GcodeGenerator {
                         out.push_str(&render_marker(
                             width_ann,
                             &z_str,
-                            &height_str,
+                            &path_height_str,
                             type_name,
                             &width_str,
                         ));
@@ -2016,7 +2068,7 @@ impl GcodeGenerator {
                             // Entirely before coasting point → extrude normally
                             let de = extrusion_for_move(
                                 seg_len,
-                                params.layer_height,
+                                path_height,
                                 width_mm,
                                 params.filament_diameter_mm,
                                 params.flow_ratio,
@@ -2042,7 +2094,7 @@ impl GcodeGenerator {
                             let by = prev.1 + t * dy;
                             let de = extrusion_for_move(
                                 dist_to_coast,
-                                params.layer_height,
+                                path_height,
                                 width_mm,
                                 params.filament_diameter_mm,
                                 params.flow_ratio,
@@ -2084,7 +2136,7 @@ impl GcodeGenerator {
                         if dist_traveled + seg_len <= coasting_start {
                             let de = extrusion_for_move(
                                 seg_len,
-                                params.layer_height,
+                                path_height,
                                 width_mm,
                                 params.filament_diameter_mm,
                                 params.flow_ratio,
@@ -2109,7 +2161,7 @@ impl GcodeGenerator {
                             let by = prev.1 + t * dy;
                             let de = extrusion_for_move(
                                 dist_to_coast,
-                                params.layer_height,
+                                path_height,
                                 width_mm,
                                 params.filament_diameter_mm,
                                 params.flow_ratio,
@@ -2168,7 +2220,7 @@ impl GcodeGenerator {
                         };
                         volumetric_capped_speed_mm_min(
                             base,
-                            params.layer_height,
+                            path_height,
                             sw,
                             params.max_volumetric_speed,
                         )
@@ -2199,7 +2251,7 @@ impl GcodeGenerator {
                             out.push_str(&render_marker(
                                 width_ann,
                                 &z_str,
-                                &height_str,
+                                &path_height_str,
                                 role.type_name(),
                                 &width_str,
                             ));
@@ -2208,7 +2260,7 @@ impl GcodeGenerator {
                         }
                         let de = extrusion_for_move(
                             len,
-                            params.layer_height,
+                            path_height,
                             sw,
                             params.filament_diameter_mm,
                             params.flow_ratio,
@@ -2234,7 +2286,7 @@ impl GcodeGenerator {
                         if len >= 1e-6 {
                             let de = extrusion_for_move(
                                 len,
-                                params.layer_height,
+                                path_height,
                                 width_mm,
                                 params.filament_diameter_mm,
                                 params.flow_ratio,
@@ -3004,16 +3056,13 @@ mod tests {
     #[test]
     fn resolve_width_line_width_applies_to_infill_and_surfaces() {
         let params = params_with_line_width(0.44);
-        // Sparse infill lays an isolated bead → honours the generic line width.
-        assert_eq!(
-            resolve_width_mm(None, false, crate::core::ExtrusionRole::Infill, &params),
-            0.44
-        );
-        // Solid top/bottom surfaces are charged at the fill *line spacing*
-        // derived from the same 0.44 nominal width, so the flow matches the fill
-        // geometry (`mm³/mm = spacing × height`) and the surface stays flat.
-        let expect = crate::core::solid_surface_line_spacing(0.44, params.layer_height);
+        // Every fill role is charged at the *line spacing* derived from the same
+        // 0.44 nominal width, so the flow matches the pitch its lines are laid at
+        // (`mm³/mm = spacing × height`): surfaces stay flat and sparse infill
+        // deposits exactly the requested density.
+        let expect = crate::core::extrusion_flow_spacing_mm(0.44, params.layer_height);
         for role in [
+            crate::core::ExtrusionRole::Infill,
             crate::core::ExtrusionRole::TopSurface,
             crate::core::ExtrusionRole::BottomSurface,
         ] {
@@ -3033,11 +3082,11 @@ mod tests {
             resolve_width_mm(None, false, crate::core::ExtrusionRole::OuterWall, &params),
             crate::core::ExtrusionRole::OuterWall.default_width_mm()
         );
-        // line_width = 0 means "derive from nozzle" → role default.
+        // line_width = 0 means "derive from nozzle" → the nozzle-derived spacing.
         let params = params_with_line_width(0.0);
         assert_eq!(
             resolve_width_mm(None, false, crate::core::ExtrusionRole::Infill, &params),
-            crate::core::ExtrusionRole::Infill.default_width_mm()
+            crate::core::extrusion_flow_spacing_mm(params.nozzle_diameter_mm, params.layer_height)
         );
     }
 
@@ -3070,18 +3119,19 @@ mod tests {
 
     #[test]
     fn resolve_width_per_role_override_beats_generic_line_width() {
-        // For infill, the per-role override wins over the generic line_width.
+        // For infill, the per-role override supplies the nominal width the
+        // spacing is derived from, winning over the generic line_width.
         let mut params = params_with_line_width(0.44);
         params.sparse_infill_line_width = 0.7;
         params.top_surface_line_width = 0.35;
         assert_eq!(
             resolve_width_mm(None, false, crate::core::ExtrusionRole::Infill, &params),
-            0.7
+            crate::core::extrusion_flow_spacing_mm(0.7, params.layer_height)
         );
         // Solid surfaces honour the per-role override for their nominal width,
         // but are charged at the line spacing derived from it so the deposited
         // volume matches the fill (no over-extrusion).
-        let expect = crate::core::solid_surface_line_spacing(0.35, params.layer_height);
+        let expect = crate::core::extrusion_flow_spacing_mm(0.35, params.layer_height);
         assert_eq!(
             resolve_width_mm(None, false, crate::core::ExtrusionRole::TopSurface, &params),
             expect

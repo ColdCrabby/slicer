@@ -7,7 +7,7 @@ mod surfaces;
 mod types;
 mod walls;
 
-pub use infill::add_infill_to_layers;
+pub use infill::{add_infill_to_layers, InfillConfig};
 pub use pipeline::process_mesh;
 #[cfg(not(target_arch = "wasm32"))]
 pub use pipeline::process_mesh_debug;
@@ -20,13 +20,18 @@ pub use surfaces::{
 // generator so the flow it charges for each top/bottom fill line matches the
 // pitch the lines are laid at (deposited volume = spacing × layer_height, no
 // over-extrusion) and both honour `top_surface_line_width` / `line_width`.
-pub(crate) use surfaces::{solid_surface_line_spacing, solid_surface_nominal_width_mm};
+// `sparse_infill_nominal_width_mm` is the sparse-infill twin, and
+// `extrusion_flow_spacing_mm` the shared `Flow::spacing()` relation both rest on.
+pub(crate) use surfaces::{
+    extrusion_flow_spacing_mm, solid_surface_nominal_width_mm, sparse_infill_nominal_width_mm,
+};
 pub use types::{ExtrusionRole, OverhangClass, SliceLayer};
 
 #[cfg(test)]
 mod tests {
     use super::surfaces::{add_solid_infill_for_region, generate_rectilinear_infill};
     use super::*;
+    use crate::infill::SurfacePattern;
     use crate::mesh::types::{Face, Mesh, Vertex};
     use clipper2::{Path, Paths};
 
@@ -323,12 +328,23 @@ mod tests {
         // Add infill
         add_infill_to_layers(
             &mut layers,
-            0.2,
-            InfillPattern::Rectilinear,
-            45.0,
-            0.4,
-            0.0,
-            0.0,
+            &InfillConfig {
+                density: 0.2,
+                pattern: InfillPattern::Rectilinear,
+                base_angle_deg: 45.0,
+                spacing_mm: 0.4,
+                nozzle_diameter_mm: 0.4,
+                perimeter_gap_mm: 0.0,
+                min_extrusion_mm: 0.0,
+                anchor_length_mm: 0.0,
+                anchor_length_max_mm: 0.0,
+                every_layers: 1,
+                combination_max_layer_height_mm: 0.0,
+                layer_height_mm: 0.2,
+                solid_every_layers: 0,
+                solid_spacing_mm: 0.357,
+                solid_pattern: SurfacePattern::Monotonic,
+            },
             None,
         );
 
@@ -355,12 +371,23 @@ mod tests {
         // Add zero-density infill (should do nothing)
         add_infill_to_layers(
             &mut layers,
-            0.0,
-            InfillPattern::Rectilinear,
-            45.0,
-            0.4,
-            0.0,
-            0.0,
+            &InfillConfig {
+                density: 0.0,
+                pattern: InfillPattern::Rectilinear,
+                base_angle_deg: 45.0,
+                spacing_mm: 0.4,
+                nozzle_diameter_mm: 0.4,
+                perimeter_gap_mm: 0.0,
+                min_extrusion_mm: 0.0,
+                anchor_length_mm: 0.0,
+                anchor_length_max_mm: 0.0,
+                every_layers: 1,
+                combination_max_layer_height_mm: 0.0,
+                layer_height_mm: 0.2,
+                solid_every_layers: 0,
+                solid_spacing_mm: 0.357,
+                solid_pattern: SurfacePattern::Monotonic,
+            },
             None,
         );
 
@@ -381,12 +408,23 @@ mod tests {
         // Add grid infill
         add_infill_to_layers(
             &mut layers,
-            0.3,
-            InfillPattern::Grid,
-            45.0,
-            0.4,
-            0.0,
-            0.0,
+            &InfillConfig {
+                density: 0.3,
+                pattern: InfillPattern::Grid,
+                base_angle_deg: 45.0,
+                spacing_mm: 0.4,
+                nozzle_diameter_mm: 0.4,
+                perimeter_gap_mm: 0.0,
+                min_extrusion_mm: 0.0,
+                anchor_length_mm: 0.0,
+                anchor_length_max_mm: 0.0,
+                every_layers: 1,
+                combination_max_layer_height_mm: 0.0,
+                layer_height_mm: 0.2,
+                solid_every_layers: 0,
+                solid_spacing_mm: 0.357,
+                solid_pattern: SurfacePattern::Monotonic,
+            },
             None,
         );
 
@@ -444,12 +482,23 @@ mod tests {
         // Now add sparse infill.
         add_infill_to_layers(
             &mut layers,
-            0.3,
-            InfillPattern::Rectilinear,
-            45.0,
-            0.4,
-            0.0,
-            0.0,
+            &InfillConfig {
+                density: 0.3,
+                pattern: InfillPattern::Rectilinear,
+                base_angle_deg: 45.0,
+                spacing_mm: 0.4,
+                nozzle_diameter_mm: 0.4,
+                perimeter_gap_mm: 0.0,
+                min_extrusion_mm: 0.0,
+                anchor_length_mm: 0.0,
+                anchor_length_max_mm: 0.0,
+                every_layers: 1,
+                combination_max_layer_height_mm: 0.0,
+                layer_height_mm: 0.2,
+                solid_every_layers: 0,
+                solid_spacing_mm: 0.357,
+                solid_pattern: SurfacePattern::Monotonic,
+            },
             None,
         );
 
@@ -735,6 +784,7 @@ mod tests {
             0.4,
             45.0,
             0.0,
+            crate::infill::SurfacePattern::Rectilinear,
         );
         // Should handle empty region gracefully – no paths added
         assert!(layer.paths.is_empty());
@@ -744,6 +794,159 @@ mod tests {
     fn test_extrusion_role_bottom_surface() {
         assert_eq!(ExtrusionRole::BottomSurface.type_name(), "Bottom surface");
         assert!(ExtrusionRole::BottomSurface.default_width_mm() > 0.0);
+    }
+
+    /// A 40×40×40 mm box: tall enough that the middle layers are plain walls
+    /// plus sparse infill, which is what the combining and forced-solid options
+    /// act on.
+    fn make_tall_box_mesh() -> Mesh {
+        let s = 40.0;
+        let v = [
+            Vertex::new(0.0, 0.0, 0.0),
+            Vertex::new(s, 0.0, 0.0),
+            Vertex::new(s, s, 0.0),
+            Vertex::new(0.0, s, 0.0),
+            Vertex::new(0.0, 0.0, s),
+            Vertex::new(s, 0.0, s),
+            Vertex::new(s, s, s),
+            Vertex::new(0.0, s, s),
+        ];
+        let faces = [
+            [0, 2, 1],
+            [0, 3, 2],
+            [4, 5, 6],
+            [4, 6, 7],
+            [0, 1, 5],
+            [0, 5, 4],
+            [1, 2, 6],
+            [1, 6, 5],
+            [2, 3, 7],
+            [2, 7, 6],
+            [3, 0, 4],
+            [3, 4, 7],
+        ];
+        Mesh {
+            vertices: v.to_vec(),
+            faces: faces
+                .iter()
+                .map(|idx| Face::new([v[idx[0]], v[idx[1]], v[idx[2]]]))
+                .collect(),
+            aabb: None,
+        }
+    }
+
+    #[test]
+    fn solid_infill_every_layers_inserts_internal_solid_floors() {
+        use crate::logging::NullLogger;
+        let mesh = make_tall_box_mesh();
+        let base = crate::settings::params::SlicingParams {
+            layer_height: 0.4,
+            ..Default::default()
+        };
+
+        let plain = process_mesh(&mesh, &base, &NullLogger);
+        assert!(
+            !plain
+                .iter()
+                .any(|l| l.path_roles.contains(&ExtrusionRole::InternalSolid)),
+            "internal solid floors must not appear unless asked for"
+        );
+
+        let every = 10;
+        let forced = process_mesh(
+            &mesh,
+            &crate::settings::params::SlicingParams {
+                solid_infill_every_layers: every,
+                ..base
+            },
+            &NullLogger,
+        );
+
+        let solid_layers: Vec<usize> = forced
+            .iter()
+            .enumerate()
+            .filter(|(_, l)| l.path_roles.contains(&ExtrusionRole::InternalSolid))
+            .map(|(i, _)| i)
+            .collect();
+        assert!(
+            !solid_layers.is_empty(),
+            "expected forced solid layers every {every}"
+        );
+        for i in &solid_layers {
+            assert_eq!(
+                i % every as usize,
+                0,
+                "layer {i} is solid but is not a multiple of {every}"
+            );
+        }
+    }
+
+    #[test]
+    fn infill_every_layers_prints_taller_beads_on_fewer_layers() {
+        use crate::logging::NullLogger;
+        let mesh = make_tall_box_mesh();
+        // A 0.6 mm nozzle at 0.2 mm layers leaves room for three combined layers.
+        let base = crate::settings::params::SlicingParams {
+            layer_height: 0.2,
+            nozzle_diameter_mm: 0.6,
+            ..Default::default()
+        };
+
+        let plain = process_mesh(&mesh, &base, &NullLogger);
+        assert!(
+            plain.iter().all(|l| l.path_heights.is_empty()),
+            "an ordinary print must carry no height overrides at all"
+        );
+
+        let combined = process_mesh(
+            &mesh,
+            &crate::settings::params::SlicingParams {
+                infill_every_layers: 3,
+                ..base
+            },
+            &NullLogger,
+        );
+
+        let infill_length = |layers: &[SliceLayer]| -> f64 {
+            layers
+                .iter()
+                .flat_map(|l| {
+                    l.paths
+                        .iter()
+                        .enumerate()
+                        .filter(|(i, _)| l.role_for_path(*i) == ExtrusionRole::Infill)
+                        .map(|(_, p)| {
+                            let pts: Vec<(f64, f64)> = p.iter().map(|v| (v.x(), v.y())).collect();
+                            pts.windows(2)
+                                .map(|w| {
+                                    ((w[1].0 - w[0].0).powi(2) + (w[1].1 - w[0].1).powi(2)).sqrt()
+                                })
+                                .sum::<f64>()
+                        })
+                })
+                .sum()
+        };
+
+        let tall: Vec<f64> = combined
+            .iter()
+            .flat_map(|l| l.path_heights.iter().filter_map(|h| *h))
+            .collect();
+        assert!(
+            !tall.is_empty(),
+            "combining should tag some infill with a stacked height"
+        );
+        assert!(
+            tall.iter().all(|h| (*h - 0.6).abs() < 1e-9),
+            "three 0.2 mm layers should stack to 0.6 mm, got {tall:?}"
+        );
+
+        // Far less infill is drawn, because most of it is printed once, taller.
+        let before = infill_length(&plain);
+        let after = infill_length(&combined);
+        assert!(
+            after < before * 0.6,
+            "combined infill ({after:.0} mm) should be well under the per-layer total ({before:.0} mm)"
+        );
     }
 
     #[test]
@@ -1258,6 +1461,10 @@ mod tests {
                 bridge_anchor_mm: 0.0,
                 infill_overlap_percent: 0.25,
                 ensure_vertical_shell_thickness: false,
+                bridge_angle_deg: 0.0,
+                top_pattern: SurfacePattern::Rectilinear,
+                bottom_pattern: SurfacePattern::Rectilinear,
+                internal_solid_pattern: SurfacePattern::Rectilinear,
                 min_infill_extrusion_mm: 0.0,
             },
             None,
@@ -1441,24 +1648,46 @@ mod tests {
         let mut layers_no_gap = slice_mesh(&mesh, 2.0);
         add_infill_to_layers(
             &mut layers_no_gap,
-            0.5,
-            InfillPattern::Rectilinear,
-            45.0,
-            0.4,
-            0.0,
-            0.0,
+            &InfillConfig {
+                density: 0.5,
+                pattern: InfillPattern::Rectilinear,
+                base_angle_deg: 45.0,
+                spacing_mm: 0.4,
+                nozzle_diameter_mm: 0.4,
+                perimeter_gap_mm: 0.0,
+                min_extrusion_mm: 0.0,
+                anchor_length_mm: 0.0,
+                anchor_length_max_mm: 0.0,
+                every_layers: 1,
+                combination_max_layer_height_mm: 0.0,
+                layer_height_mm: 0.2,
+                solid_every_layers: 0,
+                solid_spacing_mm: 0.357,
+                solid_pattern: SurfacePattern::Monotonic,
+            },
             None,
         );
 
         let mut layers_with_gap = slice_mesh(&mesh, 2.0);
         add_infill_to_layers(
             &mut layers_with_gap,
-            0.5,
-            InfillPattern::Rectilinear,
-            45.0,
-            0.4,
-            0.2, // 0.2 mm gap from walls
-            0.0,
+            &InfillConfig {
+                density: 0.5,
+                pattern: InfillPattern::Rectilinear,
+                base_angle_deg: 45.0,
+                spacing_mm: 0.4,
+                nozzle_diameter_mm: 0.4,
+                perimeter_gap_mm: 0.2, // 0.2 mm gap from walls
+                min_extrusion_mm: 0.0,
+                anchor_length_mm: 0.0,
+                anchor_length_max_mm: 0.0,
+                every_layers: 1,
+                combination_max_layer_height_mm: 0.0,
+                layer_height_mm: 0.2,
+                solid_every_layers: 0,
+                solid_spacing_mm: 0.357,
+                solid_pattern: SurfacePattern::Monotonic,
+            },
             None,
         );
 
@@ -1530,24 +1759,46 @@ mod tests {
         let mut unfiltered = vec![make_disc_layer()];
         add_infill_to_layers(
             &mut unfiltered,
-            0.15,
-            InfillPattern::Rectilinear,
-            45.0,
-            0.4,
-            0.0,
-            0.0, // filter disabled
+            &InfillConfig {
+                density: 0.15,
+                pattern: InfillPattern::Rectilinear,
+                base_angle_deg: 45.0,
+                spacing_mm: 0.4,
+                nozzle_diameter_mm: 0.4,
+                perimeter_gap_mm: 0.0,
+                min_extrusion_mm: 0.0, // filter disabled
+                anchor_length_mm: 0.0,
+                anchor_length_max_mm: 0.0,
+                every_layers: 1,
+                combination_max_layer_height_mm: 0.0,
+                layer_height_mm: 0.2,
+                solid_every_layers: 0,
+                solid_spacing_mm: 0.357,
+                solid_pattern: SurfacePattern::Monotonic,
+            },
             None,
         );
 
         let mut filtered = vec![make_disc_layer()];
         add_infill_to_layers(
             &mut filtered,
-            0.15,
-            InfillPattern::Rectilinear,
-            45.0,
-            0.4,
-            0.0,
-            0.4, // drop sub-0.4 mm dashes
+            &InfillConfig {
+                density: 0.15,
+                pattern: InfillPattern::Rectilinear,
+                base_angle_deg: 45.0,
+                spacing_mm: 0.4,
+                nozzle_diameter_mm: 0.4,
+                perimeter_gap_mm: 0.0,
+                min_extrusion_mm: 0.4, // drop sub-0.4 mm dashes
+                anchor_length_mm: 0.0,
+                anchor_length_max_mm: 0.0,
+                every_layers: 1,
+                combination_max_layer_height_mm: 0.0,
+                layer_height_mm: 0.2,
+                solid_every_layers: 0,
+                solid_spacing_mm: 0.357,
+                solid_pattern: SurfacePattern::Monotonic,
+            },
             None,
         );
 
@@ -1601,12 +1852,23 @@ mod tests {
         let mut layers = vec![layer];
         add_infill_to_layers(
             &mut layers,
-            0.4,
-            InfillPattern::Rectilinear,
-            45.0,
-            0.4,
-            0.0,
-            0.0,
+            &InfillConfig {
+                density: 0.4,
+                pattern: InfillPattern::Rectilinear,
+                base_angle_deg: 45.0,
+                spacing_mm: 0.4,
+                nozzle_diameter_mm: 0.4,
+                perimeter_gap_mm: 0.0,
+                min_extrusion_mm: 0.0,
+                anchor_length_mm: 0.0,
+                anchor_length_max_mm: 0.0,
+                every_layers: 1,
+                combination_max_layer_height_mm: 0.0,
+                layer_height_mm: 0.2,
+                solid_every_layers: 0,
+                solid_spacing_mm: 0.357,
+                solid_pattern: SurfacePattern::Monotonic,
+            },
             None,
         );
         assert!(
@@ -1634,12 +1896,23 @@ mod tests {
         let mut layers = vec![layer];
         add_infill_to_layers(
             &mut layers,
-            0.2,
-            InfillPattern::Rectilinear,
-            45.0,
-            0.4,
-            0.0,
-            0.0,
+            &InfillConfig {
+                density: 0.2,
+                pattern: InfillPattern::Rectilinear,
+                base_angle_deg: 45.0,
+                spacing_mm: 0.4,
+                nozzle_diameter_mm: 0.4,
+                perimeter_gap_mm: 0.0,
+                min_extrusion_mm: 0.0,
+                anchor_length_mm: 0.0,
+                anchor_length_max_mm: 0.0,
+                every_layers: 1,
+                combination_max_layer_height_mm: 0.0,
+                layer_height_mm: 0.2,
+                solid_every_layers: 0,
+                solid_spacing_mm: 0.357,
+                solid_pattern: SurfacePattern::Monotonic,
+            },
             None,
         );
         let n = layers
@@ -1680,12 +1953,23 @@ mod tests {
         let mut layers = vec![layer];
         add_infill_to_layers(
             &mut layers,
-            0.4,
-            InfillPattern::Rectilinear,
-            45.0,
-            0.4,
-            0.0,
-            0.0,
+            &InfillConfig {
+                density: 0.4,
+                pattern: InfillPattern::Rectilinear,
+                base_angle_deg: 45.0,
+                spacing_mm: 0.4,
+                nozzle_diameter_mm: 0.4,
+                perimeter_gap_mm: 0.0,
+                min_extrusion_mm: 0.0,
+                anchor_length_mm: 0.0,
+                anchor_length_max_mm: 0.0,
+                every_layers: 1,
+                combination_max_layer_height_mm: 0.0,
+                layer_height_mm: 0.2,
+                solid_every_layers: 0,
+                solid_spacing_mm: 0.357,
+                solid_pattern: SurfacePattern::Monotonic,
+            },
             None,
         );
         assert!(
@@ -1737,12 +2021,23 @@ mod tests {
             let mut layers = vec![layer];
             add_infill_to_layers(
                 &mut layers,
-                0.4,
-                InfillPattern::Rectilinear,
-                45.0,
-                0.4,
-                0.0,
-                0.0,
+                &InfillConfig {
+                    density: 0.4,
+                    pattern: InfillPattern::Rectilinear,
+                    base_angle_deg: 45.0,
+                    spacing_mm: 0.4,
+                    nozzle_diameter_mm: 0.4,
+                    perimeter_gap_mm: 0.0,
+                    min_extrusion_mm: 0.0,
+                    anchor_length_mm: 0.0,
+                    anchor_length_max_mm: 0.0,
+                    every_layers: 1,
+                    combination_max_layer_height_mm: 0.0,
+                    layer_height_mm: 0.2,
+                    solid_every_layers: 0,
+                    solid_spacing_mm: 0.357,
+                    solid_pattern: SurfacePattern::Monotonic,
+                },
                 None,
             );
             layers
@@ -1810,6 +2105,10 @@ mod tests {
                 bridge_anchor_mm: 0.0,
                 infill_overlap_percent: 0.25,
                 ensure_vertical_shell_thickness: false,
+                bridge_angle_deg: 0.0,
+                top_pattern: SurfacePattern::Rectilinear,
+                bottom_pattern: SurfacePattern::Rectilinear,
+                internal_solid_pattern: SurfacePattern::Rectilinear,
                 min_infill_extrusion_mm: 0.0,
             },
             None,
@@ -1871,6 +2170,10 @@ mod tests {
                 bridge_anchor_mm: 0.0,
                 infill_overlap_percent: 0.25,
                 ensure_vertical_shell_thickness: false,
+                bridge_angle_deg: 0.0,
+                top_pattern: SurfacePattern::Rectilinear,
+                bottom_pattern: SurfacePattern::Rectilinear,
+                internal_solid_pattern: SurfacePattern::Rectilinear,
                 min_infill_extrusion_mm: 0.0,
             },
             None,
@@ -1930,6 +2233,10 @@ mod tests {
             bridge_anchor_mm: anchor,
             infill_overlap_percent: 0.25,
             ensure_vertical_shell_thickness: false,
+            bridge_angle_deg: 0.0,
+            top_pattern: SurfacePattern::Rectilinear,
+            bottom_pattern: SurfacePattern::Rectilinear,
+            internal_solid_pattern: SurfacePattern::Rectilinear,
             min_infill_extrusion_mm: 0.0,
         };
 
@@ -2034,6 +2341,10 @@ mod tests {
                 bridge_anchor_mm: 0.0,    // disable anchor so result area is minimal / predictable
                 infill_overlap_percent: 0.25,
                 ensure_vertical_shell_thickness: false,
+                bridge_angle_deg: 0.0,
+                top_pattern: SurfacePattern::Rectilinear,
+                bottom_pattern: SurfacePattern::Rectilinear,
+                internal_solid_pattern: SurfacePattern::Rectilinear,
                 min_infill_extrusion_mm: 0.0,
             },
             Some(&interior_regions),
@@ -2096,6 +2407,10 @@ mod tests {
                 bridge_anchor_mm: 0.0,
                 infill_overlap_percent: 0.25,
                 ensure_vertical_shell_thickness: false,
+                bridge_angle_deg: 0.0,
+                top_pattern: SurfacePattern::Rectilinear,
+                bottom_pattern: SurfacePattern::Rectilinear,
+                internal_solid_pattern: SurfacePattern::Rectilinear,
                 min_infill_extrusion_mm: 0.0,
             },
             None,
@@ -2216,6 +2531,10 @@ mod tests {
                 bridge_anchor_mm: 0.4,
                 infill_overlap_percent: 0.25,
                 ensure_vertical_shell_thickness: false,
+                bridge_angle_deg: 0.0,
+                top_pattern: SurfacePattern::Rectilinear,
+                bottom_pattern: SurfacePattern::Rectilinear,
+                internal_solid_pattern: SurfacePattern::Rectilinear,
                 min_infill_extrusion_mm: 0.0,
             },
             None,
@@ -2319,6 +2638,10 @@ mod tests {
                 bridge_anchor_mm: 0.5,
                 infill_overlap_percent: 0.25,
                 ensure_vertical_shell_thickness: false,
+                bridge_angle_deg: 0.0,
+                top_pattern: SurfacePattern::Rectilinear,
+                bottom_pattern: SurfacePattern::Rectilinear,
+                internal_solid_pattern: SurfacePattern::Rectilinear,
                 min_infill_extrusion_mm: 0.0,
             },
             None,
@@ -2412,6 +2735,10 @@ mod tests {
                 bridge_anchor_mm: 0.5,
                 infill_overlap_percent: 0.25,
                 ensure_vertical_shell_thickness: false,
+                bridge_angle_deg: 0.0,
+                top_pattern: SurfacePattern::Rectilinear,
+                bottom_pattern: SurfacePattern::Rectilinear,
+                internal_solid_pattern: SurfacePattern::Rectilinear,
                 min_infill_extrusion_mm: 0.0,
             },
             Some(&interior_regions),
@@ -2496,6 +2823,10 @@ mod tests {
                     bridge_anchor_mm: 0.5,
                     infill_overlap_percent: 0.25,
                     ensure_vertical_shell_thickness: false,
+                    bridge_angle_deg: 0.0,
+                    top_pattern: SurfacePattern::Rectilinear,
+                    bottom_pattern: SurfacePattern::Rectilinear,
+                    internal_solid_pattern: SurfacePattern::Rectilinear,
                     min_infill_extrusion_mm: 0.0,
                 },
                 Some(&interior_regions),

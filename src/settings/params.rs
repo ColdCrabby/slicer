@@ -1,7 +1,7 @@
 //! Slicing parameters: per-print and per-object settings.
 
 use crate::gcode::GcodeFlavor;
-use crate::infill::InfillPattern;
+use crate::infill::{InfillPattern, SurfacePattern};
 pub use crate::mesh::transforms::MeshQuality;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
@@ -726,9 +726,18 @@ normal (non-spiral) printing with a warning.
 
 Supported values:
 - `rectilinear` — alternating straight lines (fastest)
+- `aligned-rectilinear` — straight lines that keep the same angle on every layer
 - `grid` — crossed lines forming a grid
+- `triangles` — three line sets 60° apart
+- `tri-hexagon` — triangles with every third set offset, forming stars
+- `cubic` — three line sets whose phase walks with height, forming stacked cubes
 - `honeycomb` — hexagonal cells (good strength-to-weight ratio)
-- `gyroid` — smooth triply-periodic surface (excellent isotropy)", extend("x-group" = "Infill"))]
+- `concentric` — loops following the outline
+- `gyroid` — smooth triply-periodic surface (excellent isotropy)
+- `tpms-d` — triply-periodic minimal surface, diamond variant
+
+Every pattern deposits the density you ask for: a pattern that draws several
+line sets across the same area splits the density between them.", extend("x-group" = "Infill"))]
     #[serde(default = "SlicingParams::default_infill_pattern")]
     pub infill_pattern: InfillPattern,
 
@@ -738,6 +747,91 @@ Alternating layers rotate by +90° on top of this base angle to create a crossin
 **Default:** 45°.", extend("x-group" = "Infill"))]
     #[serde(default = "SlicingParams::default_infill_base_angle")]
     pub infill_base_angle: f64,
+
+    #[schemars(
+        description = "How far a sparse-infill line may run along the inner wall to anchor itself, \
+as a percentage of the infill line spacing.
+
+Every sparse-infill line ends in mid-air against the wall.  Letting it turn and
+follow the wall for a short distance welds it to the perimeter, so the infill
+actually braces the shell instead of just touching it — and two lines that meet
+around a short stretch of wall can be joined into one continuous move, removing
+a retract/travel pair.
+
+- `400` — OrcaSlicer's default; a good balance of bonding and travel savings.
+- `0` — never extend a lone line end along the wall (lines may still be joined
+  in pairs when the wall between them is shorter than `infill_anchor_max_mm`).
+
+Has no effect when `infill_anchor_max_mm` is `0`.
+**Typical:** 0–1000 %.",
+        extend("x-group" = "Infill")
+    )]
+    #[serde(default = "SlicingParams::default_infill_anchor_percent")]
+    pub infill_anchor_percent: f64,
+
+    #[schemars(
+        description = "Longest stretch of inner wall, in mm, that may be used to join two \
+sparse-infill lines into one continuous path.
+
+When the wall between the end of one infill line and the start of the next is
+shorter than this, the two are merged and the wall segment is printed as part of
+the infill — one move instead of two plus a travel.
+
+- `20` — OrcaSlicer's default.
+- `0` — turns anchoring off completely; every infill line is printed on its own.
+
+**Typical:** 0–50 mm.",
+        extend("x-group" = "Infill")
+    )]
+    #[serde(default = "SlicingParams::default_infill_anchor_max_mm")]
+    pub infill_anchor_max_mm: f64,
+
+    #[schemars(
+        description = "Print sparse infill only every N layers, at N× the height.
+
+Sparse infill does not need to be as finely layered as the walls.  Combining it
+saves a lot of print time: the walls still print every layer, but the infill is
+skipped until the top layer of each group, where it is extruded thicker to make
+up for the layers it stood in for.
+
+Only infill that exists on *every* layer of a group is combined, so solid
+surfaces, bridges and changing cross-sections are never affected.  The combined
+height is capped by `infill_combination_max_layer_height_mm` (and never exceeds
+the nozzle diameter) — going beyond that would ask the nozzle to lay a bead
+taller than its own orifice.
+
+**Default:** `1` (no combining).",
+        extend("x-group" = "Infill")
+    )]
+    #[serde(default = "SlicingParams::default_infill_every_layers")]
+    pub infill_every_layers: u32,
+
+    #[schemars(
+        description = "Tallest combined sparse-infill layer in mm, used with `infill_every_layers`.
+
+Set to `0` to use the nozzle diameter, which is the practical ceiling — a bead
+cannot reliably be laid taller than the orifice that extrudes it.  A smaller
+value combines fewer layers per group.
+**Default:** `0` (use the nozzle diameter).",
+        extend("x-group" = "Infill")
+    )]
+    #[serde(default = "SlicingParams::default_infill_combination_max_layer_height_mm")]
+    pub infill_combination_max_layer_height_mm: f64,
+
+    #[schemars(
+        description = "Force a fully solid layer inside the part every N layers.
+
+Adds internal solid layers that a normal shell calculation would not produce —
+they act like hidden floors bracing the sparse infill, which stiffens tall
+hollow parts and gives the layers above a dense base to print on.
+
+`0` disables it.  Set it very high (e.g. `9999`) and only the layers a solid
+sheet still fits under will be filled.
+**Default:** `0` (off).",
+        extend("x-group" = "Infill")
+    )]
+    #[serde(default = "SlicingParams::default_solid_infill_every_layers")]
+    pub solid_infill_every_layers: u32,
 
     #[schemars(description = "Default print speed in mm/s used as a fallback.
 
@@ -912,6 +1006,23 @@ anchoring.",
     )]
     #[serde(default = "SlicingParams::default_bridge_anchor_mm")]
     pub bridge_anchor_mm: f64,
+
+    #[schemars(
+        description = "Bridging angle override in degrees (0–180).
+
+Leave at `0` to detect the direction automatically: the slicer picks the axis
+that makes every strand span the *short* dimension of the gap, which is what
+keeps a bridge from sagging.  Any other value is used for **every** bridge on
+the model — useful when a part's bridges all run one way and the automatic
+choice flip-flops between layers.
+
+Following PrusaSlicer/OrcaSlicer, `0` is the auto trigger, so use **180** to
+force a horizontal (0°) bridge direction.
+**Default:** `0` (automatic).",
+        extend("x-group" = "Quality")
+    )]
+    #[serde(default = "SlicingParams::default_bridge_angle")]
+    pub bridge_angle: f64,
 
     #[schemars(
         description = "Speed for top and bottom solid surface infill in mm/s.
@@ -1101,6 +1212,48 @@ Changing from the default can improve finish on curved or organic models.
     )]
     #[serde(default = "SlicingParams::default_surface_infill_angle")]
     pub surface_infill_angle: f64,
+
+    #[schemars(
+        description = "Fill pattern for the **top** solid surface.
+
+Supported values:
+- `monotonic-line` — parallel lines all drawn in the same direction, never
+  connected (**default**, matching OrcaSlicer). The most uniform-looking top.
+- `monotonic` — same one-way sweep, but consecutive line ends are joined along
+  the surface boundary, so there is less travel.
+- `rectilinear` — classic back-and-forth serpentine.
+- `aligned-rectilinear` — serpentine that keeps the same angle on every layer
+  instead of cross-hatching.
+- `concentric` — loops following the surface outline.
+
+\"Monotonic\" means every line is drawn in the same direction: the nozzle never
+returns across a finished line, which is what removes the mottled, direction-
+dependent sheen a serpentine leaves on a visible top surface.",
+        extend("x-group" = "Surfaces")
+    )]
+    #[serde(default = "SlicingParams::default_top_surface_pattern")]
+    pub top_surface_pattern: SurfacePattern,
+
+    #[schemars(
+        description = "Fill pattern for the **bottom** solid surface.
+
+Same choices as `top_surface_pattern`. **Default:** `monotonic` — the bottom is
+against the bed, so the short boundary connectors cost nothing visually and save
+travel.",
+        extend("x-group" = "Surfaces")
+    )]
+    #[serde(default = "SlicingParams::default_bottom_surface_pattern")]
+    pub bottom_surface_pattern: SurfacePattern,
+
+    #[schemars(
+        description = "Fill pattern for **internal** solid infill.
+
+Used for the dense layers `solid_infill_every_layers` inserts inside the part.
+Same choices as `top_surface_pattern`. **Default:** `monotonic`.",
+        extend("x-group" = "Surfaces")
+    )]
+    #[serde(default = "SlicingParams::default_internal_solid_infill_pattern")]
+    pub internal_solid_infill_pattern: SurfacePattern,
 
     #[schemars(description = "Filament diameter in mm.
 
@@ -1866,6 +2019,12 @@ impl Default for SlicingParams {
             infill_density: 0.2,
             infill_pattern: Self::default_infill_pattern(),
             infill_base_angle: Self::default_infill_base_angle(),
+            infill_anchor_percent: Self::default_infill_anchor_percent(),
+            infill_anchor_max_mm: Self::default_infill_anchor_max_mm(),
+            infill_every_layers: Self::default_infill_every_layers(),
+            infill_combination_max_layer_height_mm:
+                Self::default_infill_combination_max_layer_height_mm(),
+            solid_infill_every_layers: Self::default_solid_infill_every_layers(),
             print_speed: 60.0,
             perimeter_speed: Self::default_perimeter_speed(),
             infill_speed: Self::default_infill_speed(),
@@ -1880,6 +2039,7 @@ impl Default for SlicingParams {
             bridge_min_area_mm2: Self::default_bridge_min_area_mm2(),
             bridge_noise_filter_mm: Self::default_bridge_noise_filter_mm(),
             bridge_anchor_mm: Self::default_bridge_anchor_mm(),
+            bridge_angle: Self::default_bridge_angle(),
             top_surface_speed: Self::default_top_surface_speed(),
             gap_fill_speed: Self::default_gap_fill_speed(),
             gap_fill_min_length_mm: Self::default_gap_fill_min_length_mm(),
@@ -1896,6 +2056,9 @@ impl Default for SlicingParams {
             top_layers: Self::default_top_layers(),
             bottom_layers: Self::default_bottom_layers(),
             surface_infill_angle: Self::default_surface_infill_angle(),
+            top_surface_pattern: Self::default_top_surface_pattern(),
+            bottom_surface_pattern: Self::default_bottom_surface_pattern(),
+            internal_solid_infill_pattern: Self::default_internal_solid_infill_pattern(),
             filament_diameter_mm: Self::default_filament_diameter_mm(),
             filament_density_g_cm3: Self::default_filament_density_g_cm3(),
             nozzle_diameter_mm: Self::default_nozzle_diameter_mm(),
@@ -2264,6 +2427,30 @@ impl SlicingParams {
         45.0
     }
 
+    fn default_infill_anchor_percent() -> f64 {
+        // OrcaSlicer's default: 400 % of the sparse-infill line spacing.
+        400.0
+    }
+
+    fn default_infill_anchor_max_mm() -> f64 {
+        // OrcaSlicer's default cap on a wall stretch used to join two lines.
+        20.0
+    }
+
+    fn default_infill_every_layers() -> u32 {
+        1
+    }
+
+    fn default_infill_combination_max_layer_height_mm() -> f64 {
+        // 0 = fall back to the nozzle diameter, the practical ceiling for how
+        // tall a single bead can be laid.
+        0.0
+    }
+
+    fn default_solid_infill_every_layers() -> u32 {
+        0
+    }
+
     fn default_perimeter_speed() -> f64 {
         45.0
     }
@@ -2400,6 +2587,24 @@ impl SlicingParams {
 
     fn default_surface_infill_angle() -> f64 {
         45.0
+    }
+
+    fn default_top_surface_pattern() -> SurfacePattern {
+        // OrcaSlicer's default: the most uniform-looking visible surface.
+        SurfacePattern::MonotonicLine
+    }
+
+    fn default_bottom_surface_pattern() -> SurfacePattern {
+        SurfacePattern::Monotonic
+    }
+
+    fn default_internal_solid_infill_pattern() -> SurfacePattern {
+        SurfacePattern::Monotonic
+    }
+
+    fn default_bridge_angle() -> f64 {
+        // 0 = detect automatically (PrusaSlicer/Orca convention).
+        0.0
     }
 
     fn default_filament_diameter_mm() -> f64 {

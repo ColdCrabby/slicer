@@ -1,136 +1,216 @@
 //! Honeycomb (hexagonal) infill pattern implementation.
 //!
-//! Generates hexagonal cells that provide excellent strength-to-weight ratio,
-//! mimicking natural honeycomb structures.
+//! Generates a true hexagonal tiling — every cell wall drawn exactly once —
+//! following libslic3r's `FillHoneycomb` cell relations.
 
+use super::line_pitch_mm;
 use super::utils::calculate_bounds;
 use clipper2::*;
 
 /// Generate honeycomb (hexagonal) infill pattern.
 ///
-/// Creates a tessellation of hexagonal cells. This pattern provides excellent
-/// strength-to-weight ratio but is more complex to generate and slower to print
-/// than rectilinear or grid patterns.
+/// The lattice is built from libslic3r's `FillHoneycomb` relations:
+///
+/// ```text
+/// distance = spacing / density          // column pitch
+/// hex_side = distance / (√3 / 2)        // cell side length
+/// hex_width = 2 × distance = √3 × side  // vertex-to-vertex across the flats
+/// ```
+///
+/// which is exactly the geometry that makes the deposited material equal
+/// `density`: a hexagon of side `a` owns three walls of length `a` (each shared
+/// with a neighbour) over an area of `(3√3/2)·a²`, so line length per unit area
+/// is `2/(√3·a)` — and with `a = 2·spacing/(√3·density)` that comes to
+/// `density / spacing`.
+///
+/// The tiling is emitted as **continuous zig-zag polylines** plus the vertical
+/// walls between them, so every wall is extruded once. The previous
+/// implementation stamped whole 6-edge hexagons on an inconsistent lattice,
+/// which drew shared walls twice and used an ad-hoc cell size unrelated to the
+/// bead width.
 ///
 /// # Arguments
 /// * `region` - The infill region boundaries
+/// * `spacing` - Flow spacing of one bead in mm (`width − h·(1 − π/4)`)
 /// * `density` - Infill density as a fraction (0.0-1.0)
 /// * `angle_offset` - Rotation angle in radians for this layer
 ///
 /// # Returns
-/// Paths containing hexagonal cell edges
-pub fn generate_honeycomb(region: &Paths, density: f64, angle_offset: f64) -> Paths {
+/// Paths containing the hexagonal cell walls
+pub fn generate_honeycomb(region: &Paths, spacing: f64, density: f64, angle_offset: f64) -> Paths {
     if density <= 0.0 || region.is_empty() {
         return Paths::default();
     }
 
-    let bounds = calculate_bounds(region);
-    if bounds.is_none() {
+    let Some((min_x, min_y, max_x, max_y)) = calculate_bounds(region) else {
         return Paths::default();
-    }
-    let (min_x, min_y, max_x, max_y) = bounds.unwrap();
+    };
 
-    // Calculate hexagon size based on density
-    // Higher density = smaller hexagons
-    let line_width = 0.4;
-    let hex_size = (line_width / density) * 1.5; // Slightly larger spacing for honeycomb
+    // libslic3r cell relations.
+    let distance = line_pitch_mm(spacing, density);
+    let hex_side = distance / (3.0_f64.sqrt() / 2.0);
+    let hex_width = 2.0 * distance; // == √3 × hex_side
+    let row_pitch = 1.5 * hex_side;
 
     let cos_a = angle_offset.cos();
     let sin_a = angle_offset.sin();
+    let cx = (min_x + max_x) / 2.0;
+    let cy = (min_y + max_y) / 2.0;
+
+    // Generate in an axis-aligned pattern space large enough that, once rotated
+    // about the region's centre, it still covers the whole bounding box.
+    let radius = ((max_x - min_x).powi(2) + (max_y - min_y).powi(2)).sqrt() / 2.0;
+    let place =
+        |x: f64, y: f64| -> (f64, f64) { (cx + x * cos_a - y * sin_a, cy + x * sin_a + y * cos_a) };
+
+    // Pointy-top hexagons: centres at (i·hex_width + row_offset, j·row_pitch),
+    // odd rows shifted half a cell. Vertices sit at (0, ±side) and
+    // (±hex_width/2, ±side/2).
+    let half_w = hex_width / 2.0;
+    let half_s = hex_side / 2.0;
+
+    let j_min = (-(radius + hex_side) / row_pitch).floor() as i64;
+    let j_max = ((radius + hex_side) / row_pitch).ceil() as i64;
+    let i_min = (-(radius + hex_width) / hex_width).floor() as i64;
+    let i_max = ((radius + hex_width) / hex_width).ceil() as i64;
 
     let mut lines = Paths::default();
 
-    // Hexagon geometry constants
-    let hex_width = hex_size * 2.0;
-    let hex_height = hex_size * 1.732; // sqrt(3)
-    let hex_vert_spacing = hex_height * 0.75;
+    for j in j_min..=j_max {
+        let y = j as f64 * row_pitch;
+        let row_shift = if j.rem_euclid(2) == 1 { half_w } else { 0.0 };
 
-    // Generate hexagonal grid
-    let mut row = 0;
-    let mut y = min_y - hex_height;
-
-    while y < max_y + hex_height {
-        let offset_x = if row % 2 == 0 { 0.0 } else { hex_width / 2.0 };
-        let mut x = min_x - hex_width + offset_x;
-
-        while x < max_x + hex_width {
-            // Generate hexagon centered at (x, y)
-            let hexagon = generate_hexagon(x, y, hex_size, cos_a, sin_a);
-
-            // Add hexagon edges as separate line segments
-            for i in 0..6 {
-                let start = hexagon[i];
-                let end = hexagon[(i + 1) % 6];
-                let path: Path = vec![start, end].into();
-                lines.push(path);
+        // The row's *upper* pair of walls on every cell chain into one
+        // continuous zig-zag; the row below emits its own, which doubles as this
+        // row's lower walls. Extending the row range by one below covers the
+        // bottom edge of the pattern.
+        let mut zigzag: Vec<(f64, f64)> = Vec::with_capacity(((i_max - i_min) * 2 + 2) as usize);
+        for i in i_min..=i_max {
+            let x = row_shift + i as f64 * hex_width;
+            if i == i_min {
+                zigzag.push(place(x - half_w, y + half_s));
             }
-
-            x += hex_width;
+            zigzag.push(place(x, y + hex_side));
+            zigzag.push(place(x + half_w, y + half_s));
+        }
+        if zigzag.len() >= 2 {
+            let path: Path = zigzag.into();
+            lines.push(path);
         }
 
-        y += hex_vert_spacing;
-        row += 1;
+        // Vertical walls joining this row's lower zig-zag to its upper one.
+        for i in i_min..=i_max {
+            let x = row_shift + i as f64 * hex_width - half_w;
+            let seg: Path = vec![place(x, y - half_s), place(x, y + half_s)].into();
+            lines.push(seg);
+        }
     }
 
     lines
-}
-
-/// Generate vertices of a hexagon centered at (cx, cy) with given size and rotation.
-fn generate_hexagon(cx: f64, cy: f64, size: f64, cos_a: f64, sin_a: f64) -> [(f64, f64); 6] {
-    let mut vertices = [(0.0, 0.0); 6];
-
-    for (i, vertex) in vertices.iter_mut().enumerate() {
-        let angle = (i as f64) * std::f64::consts::PI / 3.0; // 60 degrees apart
-        let local_x = size * angle.cos();
-        let local_y = size * angle.sin();
-
-        // Apply rotation and translation
-        *vertex = (
-            cx + local_x * cos_a - local_y * sin_a,
-            cy + local_x * sin_a + local_y * cos_a,
-        );
-    }
-
-    vertices
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
+    const SPACING: f64 = 0.357;
+
+    fn square(size: f64) -> Paths {
+        let mut region = Paths::default();
+        let path: Path = vec![(0.0, 0.0), (size, 0.0), (size, size), (0.0, size)].into();
+        region.push(path);
+        region
+    }
+
+    /// Wall length inside a central window, counting each segment whose
+    /// midpoint falls in it.
+    ///
+    /// Measuring by midpoint keeps the estimate unbiased: clipping segments at
+    /// the window edge would systematically drop the ones that straddle it and
+    /// under-report by roughly `edge_length / window_width`.
+    fn length_in_window(paths: &Paths, lo: f64, hi: f64) -> f64 {
+        let mut length = 0.0;
+        for path in paths.iter() {
+            let pts: Vec<(f64, f64)> = path.iter().map(|v| (v.x(), v.y())).collect();
+            for w in pts.windows(2) {
+                let mx = 0.5 * (w[0].0 + w[1].0);
+                let my = 0.5 * (w[0].1 + w[1].1);
+                if mx >= lo && mx <= hi && my >= lo && my <= hi {
+                    length += ((w[1].0 - w[0].0).powi(2) + (w[1].1 - w[0].1).powi(2)).sqrt();
+                }
+            }
+        }
+        length
+    }
+
     #[test]
     fn test_honeycomb_empty_region() {
         let region = Paths::default();
-        let result = generate_honeycomb(&region, 0.2, 0.0);
+        let result = generate_honeycomb(&region, SPACING, 0.2, 0.0);
         assert!(result.is_empty());
     }
 
     #[test]
     fn test_honeycomb_zero_density() {
-        let mut region = Paths::default();
-        let square: Path = vec![(0.0, 0.0), (20.0, 0.0), (20.0, 20.0), (0.0, 20.0)].into();
-        region.push(square);
-
-        let result = generate_honeycomb(&region, 0.0, 0.0);
+        let result = generate_honeycomb(&square(20.0), SPACING, 0.0, 0.0);
         assert!(result.is_empty());
     }
 
     #[test]
-    fn test_honeycomb_generates_hexagons() {
-        let mut region = Paths::default();
-        let square: Path = vec![(0.0, 0.0), (20.0, 0.0), (20.0, 20.0), (0.0, 20.0)].into();
-        region.push(square);
-
-        let result = generate_honeycomb(&region, 0.2, 0.0);
+    fn test_honeycomb_generates_cells() {
+        let result = generate_honeycomb(&square(20.0), SPACING, 0.2, 0.0);
         assert!(!result.is_empty(), "Should generate honeycomb pattern");
-
-        // Each hexagon has 6 edges, so should be divisible by 6
-        assert_eq!(result.len() % 6, 0, "Should generate complete hexagons");
     }
 
     #[test]
-    fn test_generate_hexagon_has_six_vertices() {
-        let hexagon = generate_hexagon(10.0, 10.0, 2.0, 1.0, 0.0);
-        assert_eq!(hexagon.len(), 6);
+    fn honeycomb_line_length_matches_requested_density() {
+        // Wall length per unit area must be `density / spacing`, i.e. the same
+        // material a rectilinear fill at that density would lay.
+        let spacing = 0.4;
+        let density = 0.2;
+        let size = 60.0;
+        let lines = generate_honeycomb(&square(size), spacing, density, 0.0);
+
+        let (lo, hi) = (size * 0.25, size * 0.75);
+        let observed = length_in_window(&lines, lo, hi) / ((hi - lo) * (hi - lo)) * spacing;
+        assert!(
+            (observed - density).abs() < 0.01,
+            "honeycomb deposited {observed:.3} where {density:.3} was requested"
+        );
+    }
+
+    /// Distance between neighbouring vertical cell walls.
+    ///
+    /// Rows are offset by half a cell, so consecutive walls across the whole
+    /// lattice sit `distance` apart — libslic3r's `m.distance = spacing / density`,
+    /// half the `hex_width` between two walls of the *same* row.
+    fn wall_pitch(paths: &Paths) -> f64 {
+        let mut xs: Vec<f64> = paths
+            .iter()
+            .filter_map(|p| {
+                let pts: Vec<(f64, f64)> = p.iter().map(|v| (v.x(), v.y())).collect();
+                (pts.len() == 2 && (pts[0].0 - pts[1].0).abs() < 1e-9).then_some(pts[0].0)
+            })
+            .collect();
+        xs.sort_by(|a, b| a.partial_cmp(b).unwrap());
+        xs.dedup_by(|a, b| (*a - *b).abs() < 1e-3);
+        assert!(xs.len() > 3, "expected several columns, got {}", xs.len());
+        xs[2] - xs[1]
+    }
+
+    #[test]
+    fn honeycomb_cells_scale_with_bead_width() {
+        // Cell size follows libslic3r's `distance = spacing / density`, so a wider
+        // bead at the same density means proportionally larger cells.
+        for (spacing, density) in [(0.35, 0.2), (0.70, 0.2), (0.4, 0.35)] {
+            let pitch = wall_pitch(&generate_honeycomb(&square(60.0), spacing, density, 0.0));
+            let expected = spacing / density;
+            // Clipper2 stores coordinates at Centi (0.01 mm) precision, so two
+            // quantised x values can differ from the exact pitch by up to 0.02.
+            assert!(
+                (pitch - expected).abs() < 0.02,
+                "spacing {spacing} at density {density}: expected {expected} mm wall pitch, got {pitch}"
+            );
+        }
     }
 }

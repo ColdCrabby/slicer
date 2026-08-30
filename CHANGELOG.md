@@ -22,6 +22,40 @@ these notes and acknowledges contributors. `scripts/gen-changelog-draft.sh` and
 
 ### Added
 
+- **Advanced infill options** — the infill controls that profile import used to
+  drop on the floor:
+  - **Infill anchors** (`infill_anchor_percent`, default 400 % of the bead;
+    `infill_anchor_max_mm`, default 20 mm) let a sparse-infill line turn and
+    follow the wall it ends against, welding it to the shell — and merge two
+    lines that a short stretch of wall separates into one continuous move. This
+    is the biggest quality win in the release: on the hollow-box layers of a
+    filament caddy it turned **101 isolated sub-millimetre infill dabs on a
+    single layer into one continuous serpentine, with none left over**. Each of
+    those dabs previously cost a full retract, travel and un-retract to deposit
+    a speck. Set `infill_anchor_max_mm` to `0` for the old disconnected lines.
+  - **Sparse infill layer combining** (`infill_every_layers`, plus
+    `infill_combination_max_layer_height_mm`) prints the infill shared by a run
+    of layers **once**, at the stacked height. Walls still print every layer.
+    On a Voron cube at three combined layers this cut print time by 14 % for
+    slightly *less* filament. Off by default.
+  - **Internal solid layers** (`solid_infill_every_layers`) inserts a fully
+    solid layer inside the part every N layers — hidden floors that brace the
+    sparse infill in tall hollow prints. Off by default.
+  - **Separate top and bottom surface patterns** (`top_surface_pattern`,
+    `bottom_surface_pattern`, `internal_solid_infill_pattern`): monotonic line,
+    monotonic, rectilinear, aligned rectilinear or concentric. Monotonic fill
+    draws every line in the same direction so the nozzle never travels back
+    across a line it just laid, which removes the mottled, direction-dependent
+    sheen a back-and-forth fill leaves on a visible top.
+  - **Bridging angle override** (`bridge_angle`) forces every bridge to run one
+    way instead of letting the slicer pick per bridge. `0` keeps the automatic
+    detection; use `180` for a horizontal (0°) direction, matching
+    PrusaSlicer/OrcaSlicer.
+- **Five more infill patterns** — `aligned-rectilinear` (lines that stack
+  instead of cross-hatching), `triangles`, `tri-hexagon`, `cubic` (a 3D lattice
+  that shifts with height) and `concentric`. The pattern names OrcaSlicer uses
+  are accepted as-is, so an imported profile maps without a translation table.
+
 - **Export your profile library** — Settings → General now has a **Backup &
   Export** section that downloads every printer, filament, print profile and
   label as TOML. The default export is a ZIP bundle with one file per profile
@@ -157,6 +191,30 @@ these notes and acknowledges contributors. `scripts/gen-changelog-draft.sh` and
   of just an official version number.
 
 ### Changed
+
+- **Infill density is now accurate at every line width.** Line spacing is
+  derived from the real extrusion flow (`width − layer_height × (1 − π/4)`,
+  the relation PrusaSlicer and OrcaSlicer use) instead of a hardcoded 0.4 mm
+  reference, and the flow charged for each line comes from the same number. A
+  0.6 mm nozzle asked for 20 % infill used to print roughly 13 %; it now prints
+  20 %. Expect slightly more infill on a 0.4 mm nozzle too (the old reference
+  over-stated the bead by about 12 %).
+- **Grid infill no longer prints double.** It laid two full-density passes
+  instead of two half-density ones, so "20 % grid" deposited about 40 %.
+  Honeycomb cells and the gyroid period are likewise on the libslic3r
+  relations now, and all of them scale with the configured line width.
+- **Honeycomb is a real hexagonal tiling.** It used to stamp whole hexagons on
+  an inconsistent grid, drawing every shared cell wall twice; the walls are now
+  continuous zig-zags drawn once.
+- **TPMS-D actually prints now.** It emitted one loose segment per grid cell, and
+  nearly all of them were short enough for the tiny-extrusion filter to delete —
+  the pattern was laying about a seventh of the density you asked for. The
+  segments are chained into continuous curves and the period is recalibrated, so
+  it now deposits the same material as any other pattern.
+- **Top surfaces default to monotonic line** (OrcaSlicer's default), bottom
+  surfaces to monotonic. Besides the cleaner finish this removed 106 mm² of
+  top-surface material printed on top of the inner wall on a Voron cube — the
+  serpentine's U-turns used to run over the wall band.
 
 - **Dependency maintenance** — cleared the outstanding Dependabot backlog. The
   Angular front-end moves to the 22.x line (all `@angular/*` packages, the
