@@ -627,6 +627,39 @@ behaves exactly as before.
 
 ---
 
+## Machine Z offset (issue #102)
+
+`z_offset_mm` (default `0.0`) compensates for a Z endstop that does not zero at
+the bed: a negative value lowers the nozzle (endstop leaves a gap), a positive
+one raises it. It follows the PrusaSlicer / OrcaSlicer `z_offset` semantics —
+**the value is added to every Z coordinate written to the file**, and *no*
+firmware directive (`SET_GCODE_OFFSET`, `M290`, `M851`) is emitted. That keeps
+the correction firmware-agnostic and makes the importer's mapping of a foreign
+`z_offset` a straight rename.
+
+`machine_z(z, params)` is the single conversion, applied at the emission
+boundary only:
+
+| Carries the offset                                | Stays on model Z                                     |
+| ------------------------------------------------- | ---------------------------------------------------- |
+| Layer-change `G1 Z`                               | `SliceLayer::z` and the whole slicing pipeline       |
+| Z-hop lift and the matching `; lower` move        | First-layer detection (`is_first_layer`)             |
+| Spiral (vase) Z ramp, both ends                   | `SliceStatistics` (`max_z_mm`, bbox) — it describes the object |
+| `;LAYER_CHANGE` / `;Z:` / `;HEIGHT` bare markers  | `{z}` inside the **custom layer-change script**      |
+
+The last row is the one asymmetry, and it is deliberate: markers describe where
+the nozzle physically is (PrusaSlicer writes `;Z:` from the offset-included
+print Z), while a user macro reasoning about the object should not be handed an
+endstop correction — the same split PrusaSlicer draws with its offset-free
+`layer_z` placeholder. Start/end G-code is never rewritten either, so a
+`G1 Z5 ; lift nozzle` in a machine script means exactly what it says.
+
+Because the offset only reshapes emitted Z, extrusion amounts, path geometry
+and the print-time estimate are untouched, and the default `0.0` is a
+byte-for-byte no-op.
+
+---
+
 ## Script priority chain
 
 ```

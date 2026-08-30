@@ -132,6 +132,15 @@ these notes and acknowledges contributors. `scripts/gen-changelog-draft.sh` and
   every "this setting will not take effect" warning, which it had been computing
   for other runtimes but never showing itself.
 
+- **Z offset** — printers gain a `z_offset_mm` setting (Settings → Printers →
+  Hardware) that compensates for a Z endstop which doesn't zero exactly at the
+  bed: a negative value lowers the nozzle, a positive one raises it. The value is
+  added to every Z coordinate written to the G-code — layer moves, z-hops, the
+  vase-mode ramp and the layer markers — so it works on any firmware, with no
+  `SET_GCODE_OFFSET`/`M290` macro to maintain. Your own start/end G-code is never
+  rewritten, and the model, print statistics and time estimate are unchanged.
+  Same meaning as `z_offset` in PrusaSlicer and OrcaSlicer, so imported profiles
+  will carry over.
 - **Export your profile library** — Settings → General now has a **Backup &
   Export** section that downloads every printer, filament, print profile and
   label as TOML. The default export is a ZIP bundle with one file per profile
