@@ -172,6 +172,36 @@ filesystem). `capabilities/desktop.json` is fenced with
 minimize, maximize, close, drag. Mobile has no window to minimize, so granting
 those there would hand the webview commands the platform cannot honour.
 
+### The window is frameless and hidden on Windows/Linux — by config, not at runtime
+
+macOS keeps native decorations (`titleBarStyle: Overlay`, so the traffic lights
+overlay our custom title bar) and is visible from the first frame — WKWebView
+paints fast enough that there is nothing to hide. Windows and Linux instead
+create the window **frameless and hidden** in
+[`tauri.windows.conf.json`](src-tauri/tauri.windows.conf.json) /
+[`tauri.linux.conf.json`](src-tauri/tauri.linux.conf.json) (platform overrides
+that RFC 7386-merge over [`tauri.conf.json`](src-tauri/tauri.conf.json), so their
+`app.windows` array replaces the base one wholesale — hence the full window
+object is duplicated there).
+
+Both settings fix a Windows launch hang:
+
+- **Frameless at creation, never a runtime `set_decorations(false)`.** Toggling
+  decorations after the window exists forces a WebView2 relayout that visibly
+  froze the app for a moment on launch. Creating it frameless avoids the toggle
+  entirely.
+- **Hidden until the UI paints.** WebView2's cold start is slow, so a
+  visible-from-creation window sat blank and unresponsive first. The frontend
+  reveals it with `getCurrentWindow().show()` from `afterNextRender`
+  ([`app.ts`](../ui/src/app/app.ts)) — gated on `isTauriDesktop()`, so it is a
+  no-op on the web and on mobile. A Rust safety-net timer in
+  [`lib.rs`](src-tauri/src/lib.rs) shows the window anyway if that call never
+  arrives, so a frontend failure can never leave it permanently invisible. This
+  is why `desktop.json` grants `core:window:allow-show` / `allow-set-focus`.
+
+Do **not** re-add a runtime decoration toggle, and do **not** drop `visible: false`
+from the desktop platform configs — either one brings the launch hang back.
+
 ---
 
 ## What the engine looks like on iOS

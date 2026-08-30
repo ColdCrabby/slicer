@@ -31,18 +31,37 @@ pub fn run() {
             // decorated window to correct.
             #[cfg(desktop)]
             {
-                // The window is configured with `decorations: true` +
-                // `titleBarStyle: Overlay` so macOS keeps its native traffic
-                // lights overlaid on our custom title bar. On Windows/Linux there
-                // is no overlay style, so native decorations would draw a second
-                // title bar on top of ours — strip them here so those platforms
-                // stay frameless and use the custom min/max/close controls.
+                // macOS keeps native decorations (`titleBarStyle: Overlay`, so
+                // the traffic lights overlay our custom title bar) and shows the
+                // window from the start — WKWebView paints fast enough that there
+                // is nothing to hide. Windows and Linux instead create the window
+                // frameless *and* hidden (see tauri.windows.conf.json /
+                // tauri.linux.conf.json):
+                //
+                //  - Frameless at creation avoids a runtime `set_decorations(false)`,
+                //    whose window-style change forced a WebView2 relayout on
+                //    Windows that visibly froze the app for a moment on launch.
+                //  - Staying hidden until the web UI paints its first frame hides
+                //    WebView2's slow cold start, which otherwise left a blank,
+                //    unresponsive window on screen.
+                //
+                // Together those were the "app hangs for a bit before it works"
+                // report. The frontend calls `getCurrentWindow().show()` once it
+                // has rendered; this timer is a safety net so a frontend failure
+                // can never leave the window permanently invisible.
                 #[cfg(not(target_os = "macos"))]
                 {
                     use tauri::Manager;
-                    if let Some(window) = _app.get_webview_window("main") {
-                        let _ = window.set_decorations(false);
-                    }
+                    let handle = _app.handle().clone();
+                    std::thread::spawn(move || {
+                        std::thread::sleep(std::time::Duration::from_secs(5));
+                        if let Some(window) = handle.get_webview_window("main") {
+                            if !window.is_visible().unwrap_or(true) {
+                                let _ = window.show();
+                                let _ = window.set_focus();
+                            }
+                        }
+                    });
                 }
 
                 // Track live OS accent changes and push them to the UI.
