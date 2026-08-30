@@ -59,6 +59,20 @@ pub struct SliceResultSchema {
     pub output: Option<String>,
 }
 
+/// Result of a mesh validation / repair check
+#[derive(Serialize, Deserialize, JsonSchema, Debug, Clone)]
+pub struct MeshCheckResultSchema {
+    pub input: String,
+    /// `false` when `--no-mesh-repair` was passed.
+    pub repair_enabled: bool,
+    /// `true` when the model had no defects at all.
+    pub clean: bool,
+    /// `true` when defects survived the repair pass.
+    pub remaining_defects: bool,
+    /// Health before, health after, and the actions taken in between.
+    pub mesh: crate::mesh::repair::MeshReport,
+}
+
 /// Result of settings validation
 #[derive(Serialize, Deserialize, JsonSchema, Debug, Clone)]
 pub struct ValidateResultSchema {
@@ -138,6 +152,11 @@ pub fn all_schemas() -> Vec<SchemaDefinition> {
                 .expect("failed to serialize SliceResultSchema"),
         },
         SchemaDefinition {
+            schema_id: "slicer-engine/mesh-check-result-v1",
+            schema: serde_json::to_value(schemars::schema_for!(MeshCheckResultSchema))
+                .expect("failed to serialize MeshCheckResultSchema"),
+        },
+        SchemaDefinition {
             schema_id: "slicer-engine/settings-validate-result-v1",
             schema: serde_json::to_value(schemars::schema_for!(ValidateResultSchema))
                 .expect("failed to serialize ValidateResultSchema"),
@@ -197,7 +216,7 @@ mod tests {
     #[test]
     fn test_all_schemas_generates_definitions() {
         let schemas = all_schemas();
-        assert_eq!(schemas.len(), 15);
+        assert_eq!(schemas.len(), 16);
     }
 
     #[test]

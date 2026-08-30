@@ -3,9 +3,18 @@
 //! Wraps [`crate::mesh::io`] with a single entry point that takes raw bytes
 //! plus a [`MeshFormat`] enum. Phase-5 cleanup will fold the underlying
 //! parsers into this module.
+//!
+//! # Repair is part of loading
+//!
+//! Every runtime reaches a mesh through this module — the CLI, the WS server,
+//! the wasm `SceneHandle`, and the Tauri bridge — so it is the one place a
+//! validation/repair pass belongs. [`crate::mesh::repair`] runs by default;
+//! a clean mesh is returned untouched (see the no-op contract there), so this
+//! costs one analysis pass and changes nothing for well-formed models.
 
 use crate::mesh::io;
 use crate::mesh::io::NamedMesh;
+use crate::mesh::repair::{self, MeshReport, RepairOptions};
 use crate::mesh::types::Mesh;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
@@ -50,16 +59,29 @@ impl MeshFormat {
     }
 }
 
+/// One object loaded from a source file, with the health report produced when
+/// it was validated.
+///
+/// The reporting counterpart of [`crate::mesh::io::NamedMesh`].
+#[derive(Debug, Clone)]
+pub struct LoadedPart {
+    /// The part's own name inside the file, when it declares one.
+    pub name: Option<String>,
+    /// The (possibly repaired) mesh.
+    pub mesh: Mesh,
+    /// What the repair pass found and did.
+    pub report: MeshReport,
+}
+
 /// Load a mesh from raw bytes, given an explicit format.
 ///
 /// Container formats that hold several parts (3MF) are **merged** into one
 /// mesh. Use [`load_bytes_multi`] to keep the parts separate.
+///
+/// Defective meshes are repaired on the way in — see
+/// [`load_bytes_reporting`] when you also want the health report.
 pub fn load_bytes(bytes: &[u8], format: MeshFormat) -> Result<Mesh, String> {
-    match format {
-        MeshFormat::Stl => io::read_stl_from_bytes(bytes).map_err(|e| e.to_string()),
-        MeshFormat::Obj => io::read_obj_from_bytes(bytes).map_err(|e| e.to_string()),
-        MeshFormat::Threemf => io::read_3mf_from_bytes(bytes).map_err(|e| e.to_string()),
-    }
+    load_bytes_reporting(bytes, format, &RepairOptions::default()).map(|(mesh, _)| mesh)
 }
 
 /// Load every object a file contains, keeping multi-part files apart.
@@ -72,18 +94,50 @@ pub fn load_bytes(bytes: &[u8], format: MeshFormat) -> Result<Mesh, String> {
 /// Always returns at least one entry; a file that resolves to no geometry is
 /// an error rather than an empty plate.
 pub fn load_bytes_multi(bytes: &[u8], format: MeshFormat) -> Result<Vec<NamedMesh>, String> {
+    Ok(load_bytes_multi_reporting(bytes, format, &RepairOptions::default())?
+        .into_iter()
+        .map(|part| NamedMesh {
+            name: part.name,
+            mesh: part.mesh,
+        })
+        .collect())
+}
+
+/// Load every object a file contains, each with its own health report.
+///
+/// Every part is validated and repaired individually — a 3MF's parts are
+/// independent models, so one being defective says nothing about the others.
+pub fn load_bytes_multi_reporting(
+    bytes: &[u8],
+    format: MeshFormat,
+    options: &RepairOptions,
+) -> Result<Vec<LoadedPart>, String> {
     match format {
         MeshFormat::Threemf => {
             let parts = io::read_3mf_objects_from_bytes(bytes).map_err(|e| e.to_string())?;
             if parts.is_empty() {
                 return Err("3MF contains no printable geometry".to_string());
             }
-            Ok(parts)
+            Ok(parts
+                .into_iter()
+                .map(|part| {
+                    let (mesh, report) = finish(part.mesh, options);
+                    LoadedPart {
+                        name: part.name,
+                        mesh,
+                        report,
+                    }
+                })
+                .collect())
         }
-        _ => Ok(vec![NamedMesh {
-            name: None,
-            mesh: load_bytes(bytes, format)?,
-        }]),
+        _ => {
+            let (mesh, report) = load_bytes_reporting(bytes, format, options)?;
+            Ok(vec![LoadedPart {
+                name: None,
+                mesh,
+                report,
+            }])
+        }
     }
 }
 
@@ -92,21 +146,80 @@ pub fn load_bytes_multi(bytes: &[u8], format: MeshFormat) -> Result<Vec<NamedMes
 /// See [`load_bytes_multi`] — this is the on-disk counterpart, used by the
 /// server and CLI where meshes are read from files rather than uploads.
 pub fn load_path_multi(path: &Path) -> Result<Vec<NamedMesh>, String> {
+    Ok(load_path_multi_reporting(path, &RepairOptions::default())?
+        .into_iter()
+        .map(|part| NamedMesh {
+            name: part.name,
+            mesh: part.mesh,
+        })
+        .collect())
+}
+
+/// Load every object at `path`, each with its own health report.
+///
+/// See [`load_bytes_multi_reporting`] — this is the on-disk counterpart.
+pub fn load_path_multi_reporting(
+    path: &Path,
+    options: &RepairOptions,
+) -> Result<Vec<LoadedPart>, String> {
     match MeshFormat::from_path(path) {
         Some(format @ MeshFormat::Threemf) => {
             let bytes = std::fs::read(path).map_err(|e| e.to_string())?;
-            load_bytes_multi(&bytes, format)
+            load_bytes_multi_reporting(&bytes, format, options)
         }
-        _ => Ok(vec![NamedMesh {
-            name: None,
-            mesh: load_path(path)?,
-        }]),
+        _ => {
+            let (mesh, report) = load_path_reporting(path, options)?;
+            Ok(vec![LoadedPart {
+                name: None,
+                mesh,
+                report,
+            }])
+        }
     }
 }
 
 /// Load a mesh from a path, auto-detecting the format from the extension.
+///
+/// Defective meshes are repaired on the way in — see
+/// [`load_path_reporting`] when you also want the health report.
 pub fn load_path(path: &Path) -> Result<Mesh, String> {
-    io::read_mesh(path).map_err(|e| e.to_string())
+    load_path_reporting(path, &RepairOptions::default()).map(|(mesh, _)| mesh)
+}
+
+/// Load a mesh from raw bytes and report its topological health.
+///
+/// With [`RepairOptions::analysis_only`] the mesh is measured but returned
+/// verbatim.
+pub fn load_bytes_reporting(
+    bytes: &[u8],
+    format: MeshFormat,
+    options: &RepairOptions,
+) -> Result<(Mesh, MeshReport), String> {
+    let raw = match format {
+        MeshFormat::Stl => io::read_stl_from_bytes(bytes).map_err(|e| e.to_string())?,
+        MeshFormat::Obj => io::read_obj_from_bytes(bytes).map_err(|e| e.to_string())?,
+        MeshFormat::Threemf => io::read_3mf_from_bytes(bytes).map_err(|e| e.to_string())?,
+    };
+    Ok(finish(raw, options))
+}
+
+/// Load a mesh from a path and report its topological health.
+pub fn load_path_reporting(
+    path: &Path,
+    options: &RepairOptions,
+) -> Result<(Mesh, MeshReport), String> {
+    let raw = io::read_mesh(path).map_err(|e| e.to_string())?;
+    Ok(finish(raw, options))
+}
+
+/// Run the repair pass and unwrap the `Cow` — a clean mesh is moved out
+/// untouched, a repaired one replaces it.
+fn finish(raw: Mesh, options: &RepairOptions) -> (Mesh, MeshReport) {
+    let (repaired, report) = repair::repair(&raw, options);
+    match repaired {
+        std::borrow::Cow::Borrowed(_) => (raw, report),
+        std::borrow::Cow::Owned(mesh) => (mesh, report),
+    }
 }
 
 #[cfg(test)]

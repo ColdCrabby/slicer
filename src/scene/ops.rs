@@ -4,6 +4,7 @@
 //! Each successfully-applied op returns an [`OpReceipt`] containing the
 //! inverse op, so undo can be added later without redesigning the API.
 
+use crate::mesh::repair::RepairOptions;
 use crate::mesh::types::Vertex;
 use crate::scene::loader::{self, MeshFormat};
 use crate::scene::state::{ObjectId, SceneObject, SceneState};
@@ -194,7 +195,11 @@ impl SceneState {
                 bytes,
                 source_id,
             } => {
-                let parts = loader::load_bytes_multi(&bytes, format).map_err(SceneError::Load)?;
+                // Each part is validated and repaired on its own — one bad
+                // part in a 3MF says nothing about its siblings.
+                let parts =
+                    loader::load_bytes_multi_reporting(&bytes, format, &RepairOptions::default())
+                        .map_err(SceneError::Load)?;
                 let multi = parts.len() > 1;
                 let ids: Vec<ObjectId> = parts
                     .into_iter()
@@ -208,7 +213,13 @@ impl SceneState {
                             (None, true) => format!("{name} #{}", index + 1),
                             (None, false) => name.clone(),
                         };
-                        self.add_mesh_part(label, Arc::new(part.mesh), source_id.clone(), index)
+                        self.add_mesh_part_with_report(
+                            label,
+                            Arc::new(part.mesh),
+                            source_id.clone(),
+                            index,
+                            Some(part.report),
+                        )
                     })
                     .collect();
                 Ok(OpReceipt {

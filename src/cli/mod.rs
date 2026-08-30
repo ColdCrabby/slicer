@@ -12,8 +12,8 @@ pub mod schemas;
 
 use clap::Parser;
 use commands::{
-    ChangelogCommand, ConfigCommand, GenSchemasCommand, InfoCommand, ServeCommand, SettingsCommand,
-    SliceCommand,
+    ChangelogCommand, ConfigCommand, GenSchemasCommand, InfoCommand, MeshCheckCommand,
+    ServeCommand, SettingsCommand, SliceCommand,
 };
 
 /// Cold Crabby CLI
@@ -36,6 +36,10 @@ pub enum Commands {
 
     /// Display build and library information
     Info(InfoCommand),
+
+    /// Validate a 3D model and report (or repair) its defects
+    #[command(name = "mesh-check")]
+    MeshCheck(MeshCheckCommand),
 
     /// Show the changelog (embedded at build time)
     Changelog(ChangelogCommand),
@@ -66,6 +70,7 @@ impl CliArgs {
         match &self.command {
             Commands::Slice(cmd) => cmd.execute(),
             Commands::Info(cmd) => cmd.execute(),
+            Commands::MeshCheck(cmd) => cmd.execute(),
             Commands::Changelog(cmd) => cmd.execute(),
             Commands::Settings(cmd) => cmd.execute(),
             Commands::Config(cmd) => cmd.execute(),
