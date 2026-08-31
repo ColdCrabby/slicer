@@ -125,7 +125,8 @@
         "serve": {
           "builder": "@angular/build:dev-server",
           "options": {
-            "port": 4213
+            "port": 4213,
+            "proxyConfig": "proxy.conf.mjs"
           },
           "configurations": {
             "production": {

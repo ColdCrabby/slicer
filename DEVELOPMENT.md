@@ -6,9 +6,19 @@
 cargo build                                                 # fast iteration (debug)
 cargo test
 cargo fmt && cargo clippy --all-targets --all-features -- -D warnings
+pnpm run dev                                                # engine + UI on a random seeded port pair
 pnpm --filter slicer-engine-docs docs:dev                   # live docs site
 sea-orm-cli migrate generate "my_migration" -d src/db       # scaffold DB migration
 ```
+
+**Dev servers run on a seeded port pair.** `pnpm run dev` rolls a three-digit
+seed and serves the UI on `4<seed>` and the engine on `5<seed>`, with a work
+directory of its own — so a second worktree, a colleague on the same box, or an
+agent session never collides with yours. It prints the URL to open; the UI dev
+server proxies `/api` and `/ws` to the engine, so that one URL is all you need.
+Add `-- --seed 742` to pin it, `-- --ui-only` / `-- --backend-only` for half the
+stack, and use `pnpm run dev:web-slicer` or `pnpm run dev:desktop` for the other
+runtimes.
 
 **Git hooks (autoformat on commit):** `pnpm install` sets up [Lefthook](https://lefthook.dev)
 via the `prepare` script. On every commit it formats just the **staged** files so they already

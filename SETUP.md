@@ -149,15 +149,35 @@ pnpm run ui:build            # once (or after UI changes)
 cargo run --release -- serve # http://localhost:5201/
 ```
 
-Dev flow (Angular hot-reload, backend runs separately — both must be running):
+Dev flow (Angular hot-reload, engine runs alongside it):
 
 ```bash
 pnpm run hydrate             # once (or when Rust bindings/schemas change)
-pnpm run ui:dev              # Angular dev server → http://localhost:4200
-cargo run -- serve           # WebSocket/HTTP server  → http://localhost:5201
+pnpm run dev                 # engine + UI on a seeded pair of ports
 ```
 
-The UI sends slicing jobs to the local server. Scene management runs in the browser for instant feedback.
+`pnpm run dev` rolls a random three-digit **seed** and derives every port from
+it — the UI on `4<seed>`, the engine on `5<seed>` — so several checkouts (or
+several people on one box) can run at the same time without colliding. It prints
+the URL to open:
+
+```
+Seed 742
+  UI      http://localhost:4742/   <- open this
+  Engine  http://127.0.0.1:5742/  (proxied at /api and /ws)
+```
+
+Open the UI URL only: the dev server proxies `/api` and `/ws` to the engine, so
+the browser talks to a single origin (as it does in production). Pass
+`--seed 742` to pin one, `--ui-only` / `--backend-only` to start half the stack,
+or `--print` to see the ports without starting anything:
+
+```bash
+pnpm run dev -- --seed 742
+```
+
+The UI sends slicing jobs to the local engine. Scene management runs in the
+browser for instant feedback.
 
 ---
 
@@ -171,8 +191,8 @@ The full slicing pipeline runs in-browser. Building this locally requires a wasm
 # Build the full WASM bundle (scene + slicer)
 pnpm run hydrate:web-slicer
 
-# Dev server — no backend required
-pnpm run ui:dev:web-slicer   # http://localhost:4200
+# Dev server — no backend required (seeded port, printed on start)
+pnpm run dev:web-slicer
 
 # Production build
 pnpm run ui:build:web-slicer
