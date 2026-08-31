@@ -27,56 +27,40 @@ issue/PR numbers or repo links in the notes. See the tone rules in
 
 ## [Unreleased]
 
-### Fixed
+## [0.4.0] - 2026-08-31
 
-- **Tapping a model on a tablet now selects it** — two separate faults made touch
-  and Pencil selection fail. An invisible transform-gizmo hit area sat parked at
-  the centre of the bed whenever nothing was selected, and swallowed any tap that
-  landed on it; that check runs only for touch and pen, so a mouse never saw it.
-  Selection was also judged by a mouse-sized 4px tolerance, and a fingertip is a
-  ~10mm disc whose reported centre wanders as the skin flattens, so most real
-  taps were discarded as drags. Taps are now judged per pointer — 4px for a
-  mouse, 9 for a pen, 16 for a finger — and a hidden gizmo no longer intercepts
-  anything.
-- **Plates holding several models now slice correctly everywhere** — a workplate
-  is a build plate, not a file, but only the hosted slicer treated it that way.
-  The desktop app sliced every object out of the *first* model, so a second one
-  came out as a copy of the first; the in-browser slicer refused outright with
-  "Missing mesh bytes". Each object now resolves to the file it was actually
-  loaded from, in every runtime.
+The biggest release so far — 181 files and about 15,000 new lines — and it pulls
+in two directions at once. Print quality gains the three settings that were
+missing or only pretended to work: ironing, dimensional compensation and a real
+first layer height. And the app itself stops being desktop-only: an iPad or a
+phone now gets a layout, gestures and controls built for it, on a home screen
+that draws in a fraction of the time.
 
-- **The desktop app now prints the plate you arranged, not the file you opened**
-  — models were sliced exactly as their source file defined them, ignoring every
-  move, rotation and drop-to-bed. A multi-part 3MF came out with its parts still
-  stacked as the authoring tool assembled them, and duplicates or extra parts
-  were dropped entirely.
+### Highlights
 
-- **Pinching to zoom no longer spins the model on a touchscreen** — rotation is
-  measured as an angle, so its noise floor grows as your fingers close; a
-  measured pinch-in sprayed ~16° of unwanted roll. Twist now has to be a
-  sustained, deliberate turn, and once you have clearly started pinching the
-  view is locked against rolling for the rest of the gesture.
-- **Slow pinches now zoom** — a gentle pinch moves well under a pixel per event
-  on a 120 Hz iPad, and every one of those was discarded rather than banked, so
-  the camera simply refused to move. Small movements now accumulate.
-- **A palm can no longer hijack a two-finger gesture** — a hand settling while
-  two fingers were already pinching was let through, and took over the gesture
-  the moment a real finger lifted.
-- **Losing a finger no longer freezes the camera** — a touch released over the
-  toolbar, or the app being backgrounded mid-pinch, could strand the viewport
-  with navigation disabled until the page was reloaded.
-- **The "Print settings" tab no longer flickers when you hover it** — pointing at
-  the tab used to open the drawer, which hid the tab, which closed the drawer, in
-  a loop. Resting at the very edge of the screen still peeks at the panel; the
-  tab itself now only responds to a click.
-- **Dialogs no longer collapse in Safari** — a dialog with a body ("Running in
-  your browser", "What's New", the operation pipeline) drew as a title with the
-  buttons jammed underneath and its content squashed to one clipped line. It now
-  opens at its full height and scrolls when taller than the screen. Affected
-  iPad, iPhone and the macOS app; the in-browser slicer worst of all, since its
-  welcome notice is a dialog.
+- **Ironing, dimensional compensation and a real first layer height** — the
+  finishing controls a print actually needs. Ironing re-melts top surfaces flat,
+  XY/hole compensation corrects a machine that prints over- or under-sized, and
+  the bottom layer is finally sliced *and* extruded at the thickness the profile
+  asks for.
+- **Elephant-foot compensation that keeps thin detail** — the flare at the base
+  of a print is removed without erasing the first layer's fine geometry. Unlike a
+  plain shrink, the correction is limited by how thin the model is at each point,
+  so embossed text, logo strokes and thin ribs survive where a uniform 0.3 mm
+  offset would delete every feature under 0.6 mm.
+- **A slicer that fits a tablet and a phone** — an iPad keeps the desktop layout
+  but folds panels away from the plate, tap, long-press and drag work with a
+  finger or a Pencil, and below 640px the whole interface rearranges into a
+  bottom tab bar, a settings drawer and a slice sheet. Previously a 390px screen
+  gave the 3D view about 50px of width.
+- **A home screen that appears immediately** — 691 kB to first draw, down from
+  1.58 MB, with the slicing engine, the 3D viewer and the code editor loaded only
+  when you reach for them. Blocked main-thread time on arrival falls from about
+  2 s to under 30 ms.
 
 ### Added
+
+#### Print quality
 
 - **Ironing** — the top-surface smoothing toggle now does something. Previously
   it could be switched on in the profile wizard, was documented as working, and
@@ -90,20 +74,16 @@ issue/PR numbers or repo links in the notes. See the tone rules in
 - **Elephant-foot compensation** — corrects the flare the bed's squish leaves at
   the base of a print. Unlike a plain shrink it is limited by how thin the
   geometry is at each point, so embossed text, logo strokes and thin ribs on the
-  first layer keep their width instead of being erased — a uniform 0.3 mm offset
-  deletes every feature under 0.6 mm, including any fin attached to a body. It
-  also holds back where the model itself flares steeply outward, and switches
-  itself off on a raft. Off by default; 0.1–0.2 mm suits most machines.
+  first layer keep their width instead of being erased. It also holds back where
+  the model itself flares steeply outward, and switches itself off on a raft. Off
+  by default; 0.1–0.2 mm suits most machines.
 - **First layer height** — now affects the print instead of only the file
   header. The bottom layer is sliced and extruded at its own thickness, so a
   profile asking for 0.24 mm no longer silently prints 0.2 mm. Skirt and brim
   follow it; a raft suppresses it.
-- **Fold the G-code legend out of the way** — the inspector now has a header you
-  can tap to collapse it to a single row, keeping the layer counter and the Slice
-  button in place. Unfolded it sizes itself to the room actually available, so on
-  an iPad the whole legend and both sliders are visible without scrolling. It
-  starts folded on tablets, phones and narrow windows, open on a large screen,
-  and remembers whichever you choose.
+
+#### Tablets, phones and touch
+
 - **Tablet layout** — an iPad keeps the full desktop arrangement but stops
   leaving panels open over the plate: the G-code inspector and the object list
   both start folded, and the print-settings tab moved out of the middle of the
@@ -111,6 +91,12 @@ issue/PR numbers or repo links in the notes. See the tone rules in
   plate behind it — you are peeking at the settings, not leaving the model.
   Applies to any window under 1024px, so Split View and a docked desktop window
   get it too.
+- **Phone layout** — the whole UI rearranges itself below 640px instead of
+  overflowing. Navigation moves to a bottom tab bar, print settings become a
+  drawer with a pull tab on the left edge, and Slice sits in a full-width sheet
+  along the bottom with the G-code inspector scrolling inside it. Settings
+  sections become a scrollable chip strip and the printer/filament/profile
+  editors stack instead of splitting into two columns.
 - **Finger-sized controls on touch screens** — buttons, dropdowns, legend chips
   and the layer slider are now sized for a fingertip on every touch device rather
   than only on phones. The layer slider's grip went from 18px to 26px; scrubbing
@@ -127,13 +113,15 @@ issue/PR numbers or repo links in the notes. See the tone rules in
   model and then drag it. Dragging anywhere else still orbits, so nothing moves
   unless you picked it first. The move handles are also drawn larger on touch,
   so a fingertip can pick one axis instead of all three.
-- **Phone layout** — the whole UI rearranges itself below 640px instead of
-  overflowing. Navigation moves to a bottom tab bar, print settings become a
-  drawer with a pull tab on the left edge, and Slice sits in a full-width sheet
-  along the bottom with the G-code inspector scrolling inside it. Settings
-  sections become a scrollable chip strip and the printer/filament/profile
-  editors stack instead of splitting into two columns. Previously a 390px screen
-  gave the 3D view about 50px of width.
+- **Fold the G-code legend out of the way** — the inspector now has a header you
+  can tap to collapse it to a single row, keeping the layer counter and the Slice
+  button in place. Unfolded it sizes itself to the room actually available, so on
+  an iPad the whole legend and both sliders are visible without scrolling. It
+  starts folded on tablets, phones and narrow windows, open on a large screen,
+  and remembers whichever you choose.
+
+#### Loading and startup
+
 - **A loading screen on first open** — the logo now appears immediately with a
   progress bar beneath it, instead of a blank page while the app downloads. A
   tiny embedded copy shows straight away and sharpens once the full artwork
@@ -145,24 +133,45 @@ issue/PR numbers or repo links in the notes. See the tone rules in
 - **Reload prompt for stale tabs** — if a page can no longer be loaded because
   the app was redeployed under an open tab, the existing update banner now
   offers a reload instead of the click doing nothing.
+
+#### Platform
+
 - **Keep the app on an iPhone or iPad without a Mac attached** —
   `pnpm run ios:install` builds the release app, signs it with a free Apple ID
   and installs it on a connected device, so it keeps working after the dev
   server stops. No paid Apple Developer Program: the trade is that a free
   signature lasts seven days, and re-running with `--renew` resets the clock
   without touching your models, profiles or settings.
+- **Preset catalog picking got faster and more honest** — the picker loads a page
+  at a time instead of walking the whole category, fetches the complete preset
+  when you import it (so its slicing parameters really arrive), and shows a busy
+  state on the entry you picked while it does.
+- **GitHub links in the title bar and catalog picker** — a direct route to the
+  project, and to the source of any catalog preset.
 
 ### Changed
+
+#### Speed and size
 
 - **Faster startup** — the app now downloads 691 kB before it can draw, down
   from 1.58 MB. The 3D viewer, the settings workspace and the code editor are
   fetched when you actually open them, not before the home screen appears.
+- **The home screen appears without waiting for the slicing engine** — the
+  ~750 kB WebAssembly engine and its worker used to load before the first screen
+  could draw, even though nothing there needs them. They now load once the
+  browser is idle, or the moment you open a model, whichever comes first. Blocked
+  main-thread time on arrival falls from about 2 s to under 30 ms, and the page
+  weighs 536 kB less.
 - **Smaller install and deploy** — the bundled code editor no longer ships ~90
   programming-language grammars and four language servers it never used. Total
   deployed JavaScript falls from 17.7 MB to 8.4 MB.
 - **Settings pages open without loading the code editor** — the G-code editors
   on the printer and filament pages sit well below the fold, but still cost
   ~4 MB the moment the page opened. They now load when you scroll to them.
+- **The in-app logo is 74% smaller** — 52 kB of PNG became 14 kB of WebP.
+
+#### Interface
+
 - **Touch targets and form rows on phones** — controls grow from 34px to 40px,
   labelled rows stack so a dropdown gets the full width, toasts move to the top
   of the screen (the bottom now belongs to the slice sheet), and the object list
@@ -174,22 +183,92 @@ issue/PR numbers or repo links in the notes. See the tone rules in
   it cannot receive, and the projection toggle and operation-pipeline inspector,
   which do not fit alongside the tools that get a model sliced. All three return
   on any wider screen.
-- **The home screen appears without waiting for the slicing engine** — the
-  ~750 kB WebAssembly engine and its worker used to load before the first screen
-  could draw, even though nothing there needs them. They now load once the
-  browser is idle, or the moment you open a model, whichever comes first. Blocked
-  main-thread time on arrival falls from about 2 s to under 30 ms, and the page
-  weighs 536 kB less.
 - **You can pinch to zoom the interface again** — zoom was disabled across the
   whole page to keep gestures away from the 3D view. Only the 3D view holds onto
   them now, so settings, prose and small print can be magnified everywhere else.
 - **Muted text is legible** — the quietest text tone sat below the contrast
   minimum in both themes, and well below it in light mode. It has been darkened
   (light) and lightened (dark) enough to pass on every surface it appears on.
-- **The in-app logo is 74% smaller** — 52 kB of PNG became 14 kB of WebP.
 - **"Running in your browser" appears when you open a model**, not the instant
   the page loads. Same message, but it now arrives when you have something to
   slice — and it is no longer the first thing a new visitor meets.
+
+#### Development
+
+- **The dev stack starts on a seeded pair of random ports**, so a second
+  worktree, a colleague on the same machine or a parallel agent session never
+  collides with yours.
+- **The documentation site now wears the app's own design language**, built from
+  the same theme tokens the product uses, so the two cannot drift apart.
+
+### Fixed
+
+#### Touch and gestures
+
+- **Tapping a model on a tablet now selects it** — two separate faults made touch
+  and Pencil selection fail. An invisible transform-gizmo hit area sat parked at
+  the centre of the bed whenever nothing was selected, and swallowed any tap that
+  landed on it; that check runs only for touch and pen, so a mouse never saw it.
+  Selection was also judged by a mouse-sized 4px tolerance, and a fingertip is a
+  ~10mm disc whose reported centre wanders as the skin flattens, so most real
+  taps were discarded as drags. Taps are now judged per pointer — 4px for a
+  mouse, 9 for a pen, 16 for a finger — and a hidden gizmo no longer intercepts
+  anything.
+- **Pinching to zoom no longer spins the model on a touchscreen** — rotation is
+  measured as an angle, so its noise floor grows as your fingers close; a
+  measured pinch-in sprayed ~16° of unwanted roll. Twist now has to be a
+  sustained, deliberate turn, and once you have clearly started pinching the
+  view is locked against rolling for the rest of the gesture.
+- **Slow pinches now zoom** — a gentle pinch moves well under a pixel per event
+  on a 120 Hz iPad, and every one of those was discarded rather than banked, so
+  the camera simply refused to move. Small movements now accumulate.
+- **A palm can no longer hijack a two-finger gesture** — a hand settling while
+  two fingers were already pinching was let through, and took over the gesture
+  the moment a real finger lifted.
+- **Losing a finger no longer freezes the camera** — a touch released over the
+  toolbar, or the app being backgrounded mid-pinch, could strand the viewport
+  with navigation disabled until the page was reloaded.
+
+#### Plates and slicing
+
+- **Plates holding several models now slice correctly everywhere** — a workplate
+  is a build plate, not a file, but only the hosted slicer treated it that way.
+  The desktop app sliced every object out of the *first* model, so a second one
+  came out as a copy of the first; the in-browser slicer refused outright with
+  "Missing mesh bytes". Each object now resolves to the file it was actually
+  loaded from, in every runtime.
+- **The desktop app now prints the plate you arranged, not the file you opened**
+  — models were sliced exactly as their source file defined them, ignoring every
+  move, rotation and drop-to-bed. A multi-part 3MF came out with its parts still
+  stacked as the authoring tool assembled them, and duplicates or extra parts
+  were dropped entirely.
+
+#### Interface
+
+- **The "Print settings" tab no longer flickers when you hover it** — pointing at
+  the tab used to open the drawer, which hid the tab, which closed the drawer, in
+  a loop. Resting at the very edge of the screen still peeks at the panel; the
+  tab itself now only responds to a click.
+- **Dialogs no longer collapse in Safari** — a dialog with a body ("Running in
+  your browser", "What's New", the operation pipeline) drew as a title with the
+  buttons jammed underneath and its content squashed to one clipped line. It now
+  opens at its full height and scrolls when taller than the screen. Affected
+  iPad, iPhone and the macOS app; the in-browser slicer worst of all, since its
+  welcome notice is a dialog.
+
+### Next up
+
+Two big ones are being worked on right now:
+
+- **Support structures** — the last major gap in the pipeline. Overhangs that
+  need holding up will finally get held up.
+- **Importing your existing profiles** — bring the printer, filament and process
+  profiles you have already tuned in another slicer straight into this one,
+  instead of rebuilding them by hand.
+
+### Contributors
+
+Thanks to @max-scopp for shipping this release.
 
 ## [0.3.0]
 
