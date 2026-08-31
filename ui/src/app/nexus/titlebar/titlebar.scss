@@ -98,10 +98,16 @@ button.tb-close:hover {
     flex: none;
   }
 
-  // Crop the logo strip back to its square mark, hiding the baked-in wordmark.
+  // The logo asset is a square crab; the desktop bar renders it as a wide, short
+  // crop (86×40 with a -8px vertical offset) so it sits beside the wordmark.
+  // With the wordmark gone that crop has nothing to justify it, and keeping the
+  // offset against a narrow box slices the crab's bottom off. Show the whole
+  // mark in a square box instead.
   .tb-brand ::ng-deep .nexus-logo {
-    width: 30px;
-    object-position: left -8px;
+    width: 28px;
+    height: 28px;
+    object-fit: contain;
+    object-position: center;
   }
 
   .tb-brand ::ng-deep .nexus-product-name {
