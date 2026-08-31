@@ -8,6 +8,7 @@ import {
   PointerArbiter,
   TOUCH_VERDICT_STALE_MS,
 } from './pointer-arbiter';
+import { markSyntheticPointerEvent } from './synthetic-pointer';
 
 describe('isPalmTouch', () => {
   const base = {
@@ -74,6 +75,15 @@ describe('PointerArbiter', () => {
     canvas.dispatchEvent(pointerEvent(type, props));
     canvas.removeEventListener(type, spy);
     return reached;
+  }
+
+  /**
+   * Dispatch an event the viewport made up for itself — the reset the
+   * two-finger controller sends to clear OrbitControls' drag state while the
+   * fingers are still down.
+   */
+  function dispatchSynthetic(type: string, props: Partial<PointerEvent>): void {
+    canvas.dispatchEvent(markSyntheticPointerEvent(pointerEvent(type, props)));
   }
 
   beforeEach(() => {
@@ -192,6 +202,75 @@ describe('PointerArbiter', () => {
     expect(
       dispatch('pointerdown', { pointerType: 'touch', pointerId: 2, width: 20, height: 20 }),
     ).toBe(true);
+  });
+
+  it('rejects a palm that lands while two fingers are already pinching', () => {
+    // Arm the size heuristic, then park the pencil in the user's hand.
+    dispatch('pointerdown', { pointerType: 'pen', pointerId: 9 });
+    dispatch('pointerout', { pointerType: 'pen', pointerId: 9 });
+    clock.t += PEN_GRACE_MS + 100;
+    // A genuine two-finger pinch is under way.
+    expect(
+      dispatch('pointerdown', { pointerType: 'touch', pointerId: 1, width: 20, height: 20 }),
+    ).toBe(true);
+    expect(
+      dispatch('pointerdown', { pointerType: 'touch', pointerId: 2, width: 20, height: 20 }),
+    ).toBe(true);
+    // The heel of the hand now settles. Inheriting "admit" here would let it
+    // become half of the gesture the moment a real finger lifts, and the camera
+    // would lurch with the wandering contact patch.
+    expect(
+      dispatch('pointerdown', {
+        pointerType: 'touch',
+        pointerId: 3,
+        width: PALM_CONTACT_MIN_PX + 20,
+        height: PALM_CONTACT_MIN_PX + 20,
+      }),
+    ).toBe(false);
+  });
+
+  it('still admits a genuine third finger while two are down', () => {
+    // No pen this session, so nothing arms the size heuristic.
+    expect(
+      dispatch('pointerdown', { pointerType: 'touch', pointerId: 1, width: 20, height: 20 }),
+    ).toBe(true);
+    expect(
+      dispatch('pointerdown', { pointerType: 'touch', pointerId: 2, width: 20, height: 20 }),
+    ).toBe(true);
+    expect(
+      dispatch('pointerdown', { pointerType: 'touch', pointerId: 3, width: 20, height: 20 }),
+    ).toBe(true);
+  });
+
+  it('ignores a synthetic reset instead of forgetting a live finger', () => {
+    dispatch('pointerdown', { pointerType: 'pen', pointerId: 9 });
+    dispatch('pointerout', { pointerType: 'pen', pointerId: 9 });
+    clock.t += PEN_GRACE_MS + 100;
+    dispatch('pointerdown', { pointerType: 'touch', pointerId: 1, width: 20, height: 20 });
+    dispatch('pointerdown', { pointerType: 'touch', pointerId: 2, width: 20, height: 20 });
+
+    // The two-finger controller resets OrbitControls by dispatching a cancel per
+    // live finger. Both fingers are still on the glass.
+    dispatchSynthetic('pointercancel', { pointerType: 'touch', pointerId: 1 });
+    dispatchSynthetic('pointercancel', { pointerType: 'touch', pointerId: 2 });
+
+    // The group must be intact, so a palm arriving next is still a third contact
+    // and is still rejected. Taking the synthetic cancels at face value would
+    // empty the live set and admit this as a fresh first contact.
+    expect(
+      dispatch('pointerdown', {
+        pointerType: 'touch',
+        pointerId: 3,
+        width: PALM_CONTACT_MIN_PX + 20,
+        height: PALM_CONTACT_MIN_PX + 20,
+      }),
+    ).toBe(false);
+  });
+
+  it('does not let a synthetic pen cancel clear the pen-active latch', () => {
+    dispatch('pointerdown', { pointerType: 'pen', pointerId: 9 });
+    dispatchSynthetic('pointercancel', { pointerType: 'pen', pointerId: 9 });
+    expect(arbiter.isPenActive()).toBe(true);
   });
 
   it('rejects both contacts of a resting hand while a pen is down', () => {

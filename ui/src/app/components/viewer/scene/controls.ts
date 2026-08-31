@@ -11,10 +11,94 @@ import {
   type WebGLRenderer,
 } from 'three';
 import type { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
+import { isSyntheticPointerEvent, markSyntheticPointerEvent } from './synthetic-pointer';
+import { type TwoFingerSample, TwoFingerGestureTracker } from './two-finger-gesture';
 
 const TOUCH_DISABLED = -1 as unknown as TOUCH;
+/**
+ * Separation change (px, accumulated since the last applied dolly) before a
+ * pinch starts zooming. Accumulated rather than measured per frame: at 120 Hz a
+ * deliberate slow pinch moves well under a pixel per event, so a per-frame test
+ * discarded the whole gesture and the camera never zoomed at all.
+ */
 const TWO_FINGER_DOLLY_DEAD_ZONE_PX = 1.5;
+/**
+ * Twist (rad, accumulated since the last applied roll) before an *engaged* roll
+ * moves the camera. Only consulted after {@link ROLL_ENGAGE_ANGLE_RAD} has
+ * already qualified the gesture as a twist — this is fine-grain smoothing, not
+ * the gate.
+ */
 const TWO_FINGER_ROLL_DEAD_ZONE_RAD = 0.01;
+/**
+ * Total twist (rad ≈ 9°) that must accumulate from the start of a two-finger
+ * gesture before roll engages at all.
+ *
+ * The old code had no such gate: it rolled whenever a single frame's angle
+ * delta cleared {@link TWO_FINGER_ROLL_DEAD_ZONE_RAD}. Because that delta is
+ * `perpendicular_jitter / separation`, the test gets *easier* the closer the
+ * fingers are — 2 px of noise at 40 px apart is already 2.9°, and pinching in
+ * drives the separation down. So an ordinary zoom sprayed roll every frame:
+ * the "zooming makes it rotate" spin. Requiring a real, sustained twist first
+ * puts the gate on the user's intent instead of on their tremor.
+ */
+const ROLL_ENGAGE_ANGLE_RAD = 0.16;
+/**
+ * Minimum finger separation (px) for roll to be considered. Angular resolution
+ * collapses as the fingers meet, so below this a twist reading is noise by
+ * construction — no threshold on the angle itself can rescue it.
+ */
+const ROLL_MIN_SEPARATION_PX = 70;
+/**
+ * How much more tangential travel than radial travel a gesture needs before it
+ * counts as a twist. Compares like with like — both in pixels of fingertip
+ * movement — so it holds at any separation. A pinch that also drifts a little
+ * in rotation stays a pinch.
+ */
+const ROLL_DOMINANCE_RATIO = 1.6;
+/**
+ * Radial travel (px) that permanently disqualifies roll for the rest of the
+ * gesture. Once the user has clearly pinched, later rotational drift — the
+ * wrist unavoidably turning as the fingers close — must never be honoured.
+ * This latch is what makes "a zoom never becomes a spin" a guarantee rather
+ * than a threshold that a jittery frame can beat.
+ */
+const ROLL_LOCKOUT_PINCH_PX = 24;
+/**
+ * Largest roll applied from a single event (rad ≈ 17°). A jump beyond this is
+ * not a wrist — it is a contact patch morphing, a palm being adopted into the
+ * pair, or coalesced events after a stall. Clamping keeps such an artefact from
+ * whipping the camera around.
+ */
+const ROLL_MAX_STEP_RAD = 0.3;
+/**
+ * Largest per-event dolly ratio. Guards the same class of discontinuity as
+ * {@link ROLL_MAX_STEP_RAD}: a pair re-anchoring onto a different pair of
+ * contacts can halve or double the separation in one event.
+ */
+const DOLLY_MAX_STEP_FACTOR = 1.6;
+/**
+ * Largest centroid pan applied from a single event (px). A real fingertip
+ * cannot cross this much between events; a re-anchor or a palm can.
+ */
+const PAN_MAX_STEP_PX = 160;
+/**
+ * How long a tracked touch survives without any event before the two-finger
+ * controller reclaims it.
+ *
+ * Without this a dropped `pointerup` — a finger lifted over the toolbar, a
+ * pointer stolen by the OS, the app backgrounded mid-pinch — strands a phantom
+ * contact. The gesture never sees `touches.size === 0`, so it never ends, and
+ * `controls.enabled` stays `false`: the camera is dead until the page reloads.
+ *
+ * Pruning deliberately runs **only when a new contact lands**, never on move. A
+ * stationary finger emits no events, so a user who pauses mid-pinch to think
+ * would otherwise have their live gesture torn down underneath them. Waiting
+ * for the next `pointerdown` costs nothing — the user is touching the screen
+ * again, which is exactly when a stuck gesture needs clearing — and the window
+ * and visibility listeners already cover every case where the lift is merely
+ * delivered somewhere else.
+ */
+const TOUCH_STALE_MS = 3000;
 /**
  * Right-drag travel (px) before it counts as a genuine pan for releasing the
  * viewport-cube snap's frozen detent (not the ortho projection — pan is
@@ -173,6 +257,13 @@ export class SceneControls {
   private rotateBreakoutPointerDownHandler: ((event: PointerEvent) => void) | null = null;
   private rotateBreakoutPointerMoveHandler: ((event: PointerEvent) => void) | null = null;
   private rotateBreakoutPointerUpHandler: ((event: PointerEvent) => void) | null = null;
+
+  /**
+   * Removes the window/document-level safety nets the two-finger controller
+   * installs for lifts the canvas never sees. Those outlive the canvas, so they
+   * must be torn down explicitly.
+   */
+  private twoFingerTeardown: (() => void) | null = null;
 
   /**
    * @param cancelDragCallback  Called when a two-finger gesture begins so
@@ -397,6 +488,8 @@ export class SceneControls {
     this.uninstallRendererPointerListeners();
     this.uninstallWebKitGestureZoom();
     this.uninstallRotateBreakoutDetection();
+    this.twoFingerTeardown?.();
+    this.twoFingerTeardown = null;
     this.renderer.domElement.removeEventListener('wheel', this.wheelHandler, { capture: true });
   }
 
@@ -824,14 +917,16 @@ export class SceneControls {
     const el = this.renderer.domElement;
     const activeTouches = new Set<number>();
     const onDown = (event: PointerEvent): void => {
-      if (event.pointerType !== 'touch') {
+      if (event.pointerType !== 'touch' || isSyntheticPointerEvent(event)) {
         return;
       }
       activeTouches.add(event.pointerId);
       this.controls.zoomToCursor = true;
     };
     const onEnd = (event: PointerEvent): void => {
-      if (event.pointerType !== 'touch') {
+      // A synthetic cancel does not mean the finger left — dropping the contact
+      // here would clear `zoomToCursor` in the middle of a live pinch.
+      if (event.pointerType !== 'touch' || isSyntheticPointerEvent(event)) {
         return;
       }
       activeTouches.delete(event.pointerId);
@@ -852,31 +947,97 @@ export class SceneControls {
    * {@link PointerArbiter} installed on the canvas host swallows them in the
    * capture phase, upstream of these listeners. So a resting hand can't be
    * mistaken for the second finger of a pinch. See `scene/pointer-arbiter.ts`.
+   *
+   * Which of pinch, pan and roll a gesture actually performs is decided by
+   * {@link TwoFingerGestureTracker}, not by raw per-frame thresholds — that is
+   * what stops a zoom from spinning the view. This method owns only the DOM
+   * bookkeeping: which contacts are live, which two of them drive the camera,
+   * and how the gesture recovers when the OS never tells us a finger left.
    */
   private installCustomTwoFingerControls(): void {
     const el = this.renderer.domElement;
-    const touches = new Map<number, { x: number; y: number }>();
+    const touches = new Map<number, { x: number; y: number; lastSeenMs: number }>();
+    const tracker = new TwoFingerGestureTracker(
+      {
+        engageAngleRad: ROLL_ENGAGE_ANGLE_RAD,
+        minSeparationPx: ROLL_MIN_SEPARATION_PX,
+        dominanceRatio: ROLL_DOMINANCE_RATIO,
+        lockoutPinchPx: ROLL_LOCKOUT_PINCH_PX,
+        deadZoneRad: TWO_FINGER_ROLL_DEAD_ZONE_RAD,
+        maxStepRad: ROLL_MAX_STEP_RAD,
+      },
+      {
+        deadZonePx: TWO_FINGER_DOLLY_DEAD_ZONE_PX,
+        maxStepFactor: DOLLY_MAX_STEP_FACTOR,
+        maxPanStepPx: PAN_MAX_STEP_PX,
+      },
+    );
     const state = {
       active: false,
-      lastDist: 0,
-      lastAngle: 0,
-      lastCx: 0,
-      lastCy: 0,
       savedControlsEnabled: true,
       suppressOwnCancel: false,
+      /**
+       * The two pointer ids currently driving the camera. Pinned explicitly
+       * rather than read off the front of the map each frame, so a third
+       * contact cannot quietly become half of the gesture and so a re-anchor
+       * happens exactly once, when the pair really changes.
+       */
+      pair: [] as number[],
     };
 
-    const recomputeAnchors = (): void => {
-      const pts = [...touches.values()];
-      if (pts.length < 2) {
+    const now = (): number => (typeof performance !== 'undefined' ? performance.now() : Date.now());
+
+    /**
+     * Drop contacts whose `pointerup` the OS never delivered — a finger lifted
+     * over the toolbar, a pointer stolen mid-gesture, the app backgrounded.
+     * Without this the gesture never ends and `controls.enabled` stays `false`,
+     * leaving the camera dead until a reload.
+     */
+    const pruneStaleTouches = (): void => {
+      const cutoff = now() - TOUCH_STALE_MS;
+      for (const [id, contact] of touches) {
+        if (contact.lastSeenMs < cutoff) {
+          touches.delete(id);
+        }
+      }
+    };
+
+    const sampleOf = (ids: number[]): TwoFingerSample | null => {
+      const a = touches.get(ids[0]);
+      const b = touches.get(ids[1]);
+      if (!a || !b) {
+        return null;
+      }
+      return {
+        dist: Math.hypot(b.x - a.x, b.y - a.y),
+        angle: Math.atan2(b.y - a.y, b.x - a.x),
+        cx: (a.x + b.x) / 2,
+        cy: (a.y + b.y) / 2,
+      };
+    };
+
+    /** The two longest-standing live contacts — insertion order is arrival order. */
+    const currentPair = (): number[] => [...touches.keys()].slice(0, 2);
+
+    const samePair = (next: number[]): boolean =>
+      next.length === state.pair.length && next.every((id, i) => id === state.pair[i]);
+
+    /**
+     * Re-point the gesture at `next` without emitting motion. The jump between
+     * two different pairs of contacts is a bookkeeping artefact, never
+     * something the user's hand did.
+     */
+    const adoptPair = (next: number[], mode: 'begin' | 'reanchor'): void => {
+      state.pair = next;
+      const sample = sampleOf(next);
+      if (!sample) {
         return;
       }
-      const a = pts[0];
-      const b = pts[1];
-      state.lastDist = Math.hypot(b.x - a.x, b.y - a.y);
-      state.lastAngle = Math.atan2(b.y - a.y, b.x - a.x);
-      state.lastCx = (a.x + b.x) / 2;
-      state.lastCy = (a.y + b.y) / 2;
+      if (mode === 'begin') {
+        tracker.begin(sample);
+      } else {
+        tracker.reanchor(sample);
+      }
     };
 
     const beginTwoFinger = (): void => {
@@ -888,13 +1049,18 @@ export class SceneControls {
       this.orbitVelTarget.set(0, 0, 0);
       this.cancelDragCallback();
       // Fire synthetic pointercancel events so OrbitControls clears its
-      // internal pointer state before we re-disable it.
+      // internal pointer state before we re-disable it. They are marked so the
+      // palm-rejection arbiter and the touch tuning — which model *physical*
+      // contacts — ignore them; treating them as real lifts would forget both
+      // live fingers and let a palm be admitted into the gesture.
       this.controls.enabled = true;
       state.suppressOwnCancel = true;
       for (const id of touches.keys()) {
         try {
           el.dispatchEvent(
-            new PointerEvent('pointercancel', { pointerId: id, pointerType: 'touch' }),
+            markSyntheticPointerEvent(
+              new PointerEvent('pointercancel', { pointerId: id, pointerType: 'touch' }),
+            ),
           );
         } catch {
           // Older browsers may reject the constructor; harmless.
@@ -902,7 +1068,7 @@ export class SceneControls {
       }
       state.suppressOwnCancel = false;
       this.controls.enabled = false;
-      recomputeAnchors();
+      adoptPair(currentPair(), 'begin');
     };
 
     const endTwoFinger = (): void => {
@@ -910,104 +1076,148 @@ export class SceneControls {
         return;
       }
       state.active = false;
+      state.pair = [];
       this.controls.enabled = state.savedControlsEnabled;
     };
 
     const onDown = (event: PointerEvent): void => {
-      if (event.pointerType !== 'touch') {
+      if (event.pointerType !== 'touch' || isSyntheticPointerEvent(event)) {
         return;
       }
-      touches.set(event.pointerId, { x: event.clientX, y: event.clientY });
+      pruneStaleTouches();
+      // If pruning emptied the set, the previous gesture was stranded by a lift
+      // the OS never delivered. End it here so this contact starts clean rather
+      // than being absorbed into a gesture that no longer has any fingers.
+      if (state.active && touches.size === 0) {
+        endTwoFinger();
+      }
+      touches.set(event.pointerId, { x: event.clientX, y: event.clientY, lastSeenMs: now() });
       if (touches.size === 2 && !state.active) {
         beginTwoFinger();
-        event.preventDefault();
-        event.stopPropagation();
-        event.stopImmediatePropagation();
       } else if (state.active) {
-        recomputeAnchors();
-        event.preventDefault();
-        event.stopPropagation();
-        event.stopImmediatePropagation();
+        // A third contact does not displace the pair that is already driving.
+        if (!samePair(currentPair())) {
+          adoptPair(currentPair(), 'reanchor');
+        }
+      } else {
+        return;
       }
+      event.preventDefault();
+      event.stopPropagation();
+      event.stopImmediatePropagation();
     };
 
     const onMove = (event: PointerEvent): void => {
-      if (event.pointerType !== 'touch') {
+      if (event.pointerType !== 'touch' || isSyntheticPointerEvent(event)) {
         return;
       }
-      const t = touches.get(event.pointerId);
-      if (!t) {
+      const contact = touches.get(event.pointerId);
+      if (!contact) {
         return;
       }
-      t.x = event.clientX;
-      t.y = event.clientY;
-      if (state.active) {
-        event.preventDefault();
-        event.stopPropagation();
-        event.stopImmediatePropagation();
-      }
-      if (!state.active || touches.size < 2) {
-        return;
-      }
-      const pts = [...touches.values()];
-      const a = pts[0];
-      const b = pts[1];
-      const dist = Math.hypot(b.x - a.x, b.y - a.y);
-      const angle = Math.atan2(b.y - a.y, b.x - a.x);
-      const cx = (a.x + b.x) / 2;
-      const cy = (a.y + b.y) / 2;
-
-      if (state.lastDist > 0 && Math.abs(dist - state.lastDist) > TWO_FINGER_DOLLY_DEAD_ZONE_PX) {
-        const factor = state.lastDist / Math.max(dist, 1e-3);
-        this.applyTouchDolly(factor, cx, cy);
-      }
-
-      let dAngle = angle - state.lastAngle;
-      if (dAngle > Math.PI) dAngle -= 2 * Math.PI;
-      else if (dAngle < -Math.PI) dAngle += 2 * Math.PI;
-      if (Math.abs(dAngle) > TWO_FINGER_ROLL_DEAD_ZONE_RAD) {
-        this.applyTouchRoll(-dAngle);
-      }
-
-      const dx = cx - state.lastCx;
-      const dy = cy - state.lastCy;
-      if (dx !== 0 || dy !== 0) {
-        this.applyTouchPan(dx, dy);
-      }
-
-      state.lastDist = dist;
-      state.lastAngle = angle;
-      state.lastCx = cx;
-      state.lastCy = cy;
-    };
-
-    const onUp = (event: PointerEvent): void => {
-      if (event.pointerType !== 'touch') {
-        return;
-      }
-      if (state.suppressOwnCancel) {
-        return;
-      }
-      if (!touches.delete(event.pointerId)) {
-        return;
-      }
+      contact.x = event.clientX;
+      contact.y = event.clientY;
+      contact.lastSeenMs = now();
       if (!state.active) {
         return;
       }
       event.preventDefault();
       event.stopPropagation();
       event.stopImmediatePropagation();
+      if (state.pair.length < 2 || !state.pair.includes(event.pointerId)) {
+        return;
+      }
+      const sample = sampleOf(state.pair);
+      if (!sample) {
+        return;
+      }
+      const motion = tracker.update(sample);
+      if (motion.dollyFactor !== null) {
+        this.applyTouchDolly(motion.dollyFactor, sample.cx, sample.cy);
+      }
+      if (motion.rollRad !== 0) {
+        this.applyTouchRoll(-motion.rollRad);
+      }
+      if (motion.panDx !== 0 || motion.panDy !== 0) {
+        this.applyTouchPan(motion.panDx, motion.panDy);
+      }
+    };
+
+    /**
+     * Retire one contact. Shared by the canvas listeners and the window-level
+     * safety net, so a lift that never reaches the canvas still ends the
+     * gesture cleanly.
+     */
+    const releaseTouch = (pointerId: number): boolean => {
+      if (!touches.delete(pointerId)) {
+        return false;
+      }
+      if (!state.active) {
+        return false;
+      }
       if (touches.size === 0) {
         endTwoFinger();
-      } else {
-        recomputeAnchors();
+      } else if (!samePair(currentPair())) {
+        adoptPair(currentPair(), 'reanchor');
       }
+      return true;
+    };
+
+    const onUp = (event: PointerEvent): void => {
+      if (event.pointerType !== 'touch' || isSyntheticPointerEvent(event)) {
+        return;
+      }
+      if (state.suppressOwnCancel) {
+        return;
+      }
+      if (!releaseTouch(event.pointerId)) {
+        return;
+      }
+      event.preventDefault();
+      event.stopPropagation();
+      event.stopImmediatePropagation();
+    };
+
+    /**
+     * Safety net for lifts the canvas never sees. `pointerup` is delivered to
+     * whatever element the finger is over, so releasing above the toolbar or a
+     * settings panel bypasses the canvas listeners entirely and would otherwise
+     * strand the contact.
+     */
+    const onWindowUp = (event: PointerEvent): void => {
+      if (event.pointerType !== 'touch' || isSyntheticPointerEvent(event)) {
+        return;
+      }
+      if (state.suppressOwnCancel || event.target === el) {
+        return;
+      }
+      releaseTouch(event.pointerId);
+    };
+
+    /**
+     * Abandon the gesture wholesale when the page loses the input stream —
+     * backgrounding an iPad mid-pinch delivers no `pointerup` at all.
+     */
+    const onInterrupt = (): void => {
+      touches.clear();
+      endTwoFinger();
     };
 
     el.addEventListener('pointerdown', onDown, { capture: true });
     el.addEventListener('pointermove', onMove, { capture: true });
     el.addEventListener('pointerup', onUp, { capture: true });
     el.addEventListener('pointercancel', onUp, { capture: true });
+    window.addEventListener('pointerup', onWindowUp, { capture: true });
+    window.addEventListener('pointercancel', onWindowUp, { capture: true });
+    window.addEventListener('blur', onInterrupt);
+    document.addEventListener('visibilitychange', onInterrupt);
+
+    this.twoFingerTeardown = (): void => {
+      window.removeEventListener('pointerup', onWindowUp, { capture: true });
+      window.removeEventListener('pointercancel', onWindowUp, { capture: true });
+      window.removeEventListener('blur', onInterrupt);
+      document.removeEventListener('visibilitychange', onInterrupt);
+    };
   }
 
   // -------------------------------------------------------------------------

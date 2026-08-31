@@ -41,10 +41,26 @@
  * if the arbiter ever swallowed exactly one finger of a two-finger gesture, the
  * surviving finger would spin the camera — the "spazzing" a stylus user sees
  * when a palm-sized fingertip, or a flickering pen hover/grace state, splits the
- * pair. To prevent that, only the *first* contact of a fresh group (nothing else
- * down) is classified from scratch; every touch that lands while another is
- * already down inherits that group's verdict (admit wins over palm). A
- * navigation gesture is thus admitted or rejected as a whole, never split.
+ * pair. To prevent that, a touch that lands while **exactly one** other touch is
+ * down inherits that group's verdict (admit wins over palm), so a pair is
+ * admitted or rejected as a whole and never split.
+ *
+ * **The inheritance stops at the pair.** Once two touches are already down, a
+ * further contact cannot possibly split them — the pair is complete and driving
+ * the camera — so a third or later touch is classified from scratch instead of
+ * inheriting `'admit'`. This is what keeps a palm from *joining* a live pinch:
+ * the two-finger controller re-anchors onto whichever contacts remain when a
+ * finger lifts, so an admitted palm becomes half of the gesture the moment a
+ * real finger leaves, and the camera lurches with the wandering contact patch.
+ * Inheriting only across the 1 → 2 step gets the no-tear guarantee without that
+ * hole.
+ *
+ * **Synthetic events are ignored.** The two-finger controller dispatches a
+ * `pointercancel` per live finger to reset OrbitControls' internal drag state.
+ * Those events travel the host's capture phase like real ones, and taking them
+ * at face value would empty the live set while both fingers are still down —
+ * destroying the group coherence above at the exact moment it matters most.
+ * They carry a marker ({@link isSyntheticPointerEvent}) and are skipped.
  *
  * **Self-healing live set.** Because a mid-group contact inherits the group
  * verdict, a leaked `'palm'` entry (an iPad that drops a `pointerup`/
@@ -55,6 +71,8 @@
  * {@link PEN_CONTACT_STALE_MS}. A pointer really still down keeps refreshing its
  * timestamp, so only phantom contacts are reclaimed.
  */
+
+import { isSyntheticPointerEvent } from './synthetic-pointer';
 
 /**
  * How long after a pen lifts off the glass touch input stays suppressed.
@@ -144,6 +162,14 @@ export function isPalmTouch(state: PalmRejectionState): boolean {
   }
   return false;
 }
+
+/**
+ * Number of live touches after which a new contact stops inheriting the group
+ * verdict and is classified on its own merits. Inheritance exists purely to
+ * keep a *pair* from being split (see the module doc); once a pair is down,
+ * rejecting a newcomer cannot split anything, so palms are filtered again.
+ */
+const GROUP_INHERITANCE_MAX_LIVE_TOUCHES = 1;
 
 /** Whether a live touch pointer is being passed through or swallowed. */
 type TouchVerdict = 'admit' | 'palm';
@@ -304,7 +330,13 @@ export class PointerArbiter {
       return 'admit';
     }
     this.pruneStaleTouches();
-    if (this.touchVerdicts.size > 0) {
+    // Inherit only while a pair is still forming. Beyond that, a newcomer is a
+    // third contact that cannot split anything — classify it properly so a palm
+    // never joins (and later becomes half of) a live gesture.
+    if (
+      this.touchVerdicts.size > 0 &&
+      this.touchVerdicts.size <= GROUP_INHERITANCE_MAX_LIVE_TOUCHES
+    ) {
       for (const record of this.touchVerdicts.values()) {
         if (record.verdict === 'admit') {
           return 'admit';
@@ -316,6 +348,9 @@ export class PointerArbiter {
   }
 
   private readonly onPointerDown = (event: PointerEvent): void => {
+    if (isSyntheticPointerEvent(event)) {
+      return;
+    }
     if (event.pointerType === 'pen') {
       this.notePenActivity();
       return;
@@ -331,6 +366,9 @@ export class PointerArbiter {
   };
 
   private readonly onPointerMove = (event: PointerEvent): void => {
+    if (isSyntheticPointerEvent(event)) {
+      return;
+    }
     if (event.pointerType === 'pen') {
       this.notePenActivity();
       return;
@@ -353,6 +391,12 @@ export class PointerArbiter {
   };
 
   private readonly onPointerUp = (event: PointerEvent): void => {
+    // A synthetic reset means "OrbitControls, forget this drag", never "the
+    // finger left the glass". Honouring it would drop a live contact from the
+    // group and let the next one — often the palm — be admitted alongside it.
+    if (isSyntheticPointerEvent(event)) {
+      return;
+    }
     if (event.pointerType === 'pen') {
       this.penContact = false;
       this.lastPenActivityMs = this.now();
@@ -374,6 +418,9 @@ export class PointerArbiter {
   };
 
   private readonly onPointerOut = (event: PointerEvent): void => {
+    if (isSyntheticPointerEvent(event)) {
+      return;
+    }
     // Pen left hover range (or the surface). Drop the "in contact" flag so the
     // grace window starts counting down; touch resumes once it elapses.
     if (event.pointerType === 'pen') {
