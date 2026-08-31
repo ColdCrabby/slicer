@@ -29,6 +29,28 @@ issue/PR numbers or repo links in the notes. See the tone rules in
 
 ### Fixed
 
+- **Supports now work on sloped overhangs** — a cone or chamfer steeper than the
+  threshold angle used to come out with essentially no support, because the
+  overhang-classification pass had already retagged its walls and left nothing
+  for the support stage to measure. The threshold angle was inert as a result;
+  it now does what it says. A 60° cone goes from nothing to full support, while
+  a self-supporting 30° one is still left alone.
+- **Support prints as continuous loops instead of dabs** — each support island
+  gets a perimeter, and runs shorter than two nozzle widths are dropped. On a
+  3DBenchy that took degenerate sub-millimetre extrusions from 37% of tree
+  support runs to 1.5%, for the same amount of material.
+- **Support no longer over-extrudes** — it is charged at its flow spacing like
+  every other fill role, rather than a full nozzle-width bead (about 12% too
+  much, and a density that drifted with nozzle size). A new **support line
+  width** setting sits alongside the other per-role widths.
+- **Rafts and skirts account for supports** — a raft built only from the object
+  left support columns starting in mid-air just above the plate.
+- **The slice progress bar tracks real work** — its phase weights came from a
+  single guess and mis-ranked everything: mesh slicing counted for nearly half
+  the bar despite taking a few percent of the time, while wall generation, the
+  most expensive phase, counted for a tenth. Four phases had no weight at all
+  and froze the bar completely while they ran.
+
 - **Dialogs no longer collapse in Safari** — a dialog with a body ("Running in
   your browser", "What's New", the operation pipeline) drew as a title with the
   buttons jammed underneath and its content squashed to one clipped line. It now
