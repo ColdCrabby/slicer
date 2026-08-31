@@ -44,22 +44,10 @@ html.is-handheld {
   }
 
   // ── Touch targets ───────────────────────────────────────────────────────
-  // 34px controls are sized for a cursor; under a fingertip they are a
-  // coin-flip. 40px is the smallest that stops feeling like a miss.
-  nexus-select .trigger,
-  nexus-number-input .field {
-    height: 40px;
-  }
-
-  input:not([type='checkbox']):not([type='radio']):not([type='range']),
-  select {
-    min-height: 40px;
-  }
-
-  // A dropdown's own options are the same problem one level down.
-  nexus-select .option {
-    min-height: 40px;
-  }
+  // Sizing lives in `_touch.scss`, keyed to the pointer rather than the
+  // viewport — every phone is a coarse pointer, and so is the tablet this rule
+  // used to miss. Only the phone-specific *layout* of these controls is left
+  // here.
 
   // Segmented controls are the app's tab metaphor; on a phone they are also a
   // primary target, so let them use the full width.

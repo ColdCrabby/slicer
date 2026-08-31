@@ -499,39 +499,98 @@ paid Apple Developer Program membership.
   stream with `awk` and a NUL separator does not work in the awk macOS ships
   either — the loop is plain `read`.
 
-## Phones — one breakpoint, two answers
+## Phones and tablets — three questions, never one
 
 A handset is not a small desktop: the chrome that surrounds the 3D view (a 60px
 nav rail, a 280px docked settings column, a 380px slice rail) is wider than the
-screen. The UI therefore has **one** definition of "phone", and everything that
-adapts goes through it — never an ad-hoc `max-width` query.
+screen. A **tablet** is the case a single flag gets wrong in both directions — an
+iPad has a desktop's width and a phone's input. Treat it as a phone and it loses
+a docked column it has room for; treat it as a desktop and every panel floating
+over the plate stays open forever, with no cursor to dismiss it, over targets
+sized for a mouse. So there are **three** questions, asked separately, and
+everything that adapts goes through one of them — never an ad-hoc `max-width`.
 
-- **`handheld()`** in [ui/src/styles/\_breakpoints.scss](ui/src/styles/_breakpoints.scss)
-  is the SCSS half: 640px wide, plus a **width-bounded** short-landscape arm so a
-  docked-but-short desktop window is not mistaken for a handset. Tablets keep the
-  desktop layout deliberately — an iPad has the width and the pointer precision.
-  Component styles reach it with `@use 'breakpoints' as *;` (`src/styles` is on
-  the Sass `includePaths`).
-- **[`Viewport`](ui/src/app/services/viewport.ts)** is the TypeScript half, for
-  decisions CSS cannot make — *which controls exist* (the projection toggle, the
-  operation-pipeline inspector) and *whether the settings column may dock at
-  all*. **Its `HANDHELD_MEDIA_QUERY` is a copy of the mixin's condition and the
-  two must never diverge**, or chrome ends up styled for one layout and wired for
-  the other. Keep layout itself in media queries so a phone lays out correctly
-  before any script runs.
-- **`html.is-handheld` exists only to reach the shared components.**
-  [ui/src/styles/base/\_handheld.scss](ui/src/styles/base/_handheld.scss) adapts
-  `@coldcrabby/ui` primitives that live in another repo (stacking
-  `nexus-field-row`, growing 34px controls to 40px). A primitive's `:host` block
-  compiles to an attribute selector, which a bare element selector loses to; the
-  class buys exactly that specificity without `!important`. It is set before
-  first paint by the inline script in `index.html` and kept live by `Viewport`,
-  which `AppShell` constructs so it exists on every route.
+| Question                               | SCSS mixin         | Signal              | Matches                       |
+| -------------------------------------- | ------------------ | ------------------- | ----------------------------- |
+| May the layout keep its desktop shape? | `handheld()`       | `isHandheld()`      | phones                        |
+| Must chrome over the scene fold away?  | `compact()`        | `isCompact()`       | phones, tablets, ≤1024px      |
+| How big must a target be?              | `coarse-pointer()` | `isCoarsePointer()` | phones, tablets, touchscreens |
+
+- **All three live in exactly two files** —
+  [ui/src/styles/\_breakpoints.scss](ui/src/styles/_breakpoints.scss) and
+  [`Viewport`](ui/src/app/services/viewport.ts) — **and their query strings are
+  copies of each other that must never diverge**, or chrome ends up styled for
+  one answer and wired for another. `handheld()` keeps its **width-bounded**
+  short-landscape arm so a docked-but-short desktop window is not mistaken for a
+  handset. Component styles reach the mixins with `@use 'breakpoints' as *;`
+  (`src/styles` is on the Sass `includePaths`).
+- **Width and pointer are orthogonal — do not collapse them into one flag.**
+  `compact()` is about *room*; `coarse-pointer()` is about *precision*. A narrow
+  desktop window needs the first and not the second; a 12.9" iPad needs the
+  second and arguably not the first. Size a target by the pointer, fold a panel
+  by the room. CSS decides layout, TypeScript decides *which controls exist*, and
+  layout stays in media queries so a page lays out correctly before any script.
+- **A phone matches all three, so source order decides.** Where two blocks set
+  the same property at the same specificity, order them **compact → handheld →
+  coarse-pointer** and prefer setting a value in exactly one of them. This is a
+  live foot-gun: a roomier `compact()` ceiling once silently overrode the
+  phone's deliberate one, because both set `max-height` and the wrong block came
+  last.
+- **Size a floating panel by the room above it, not by a `vh` fraction.** A
+  fraction is wrong in both directions at once — too small on a short landscape
+  viewport, too generous on a tall portrait one — so the G-code inspector
+  scrolled on a landscape iPad while wasting space in portrait. The rail card is
+  bounded instead by `100dvh` minus the chrome that actually precedes it
+  (titlebar, safe area, toolbar inset, its own margins), and the inspector simply
+  opens to its natural height inside that. Two things make the squeeze safe when
+  the room really does run out: the inspector carries `min-height: 0` so flexbox
+  may shrink it, and the slice row is `flex: none` so the loss never lands on the
+  Slice button. If `dvh` is unsupported the whole `calc()` is invalid and
+  `max-height` falls back to `none` — the old unbounded behaviour, not a broken
+  one.
+- **`html.is-handheld` / `html.is-coarse-pointer` exist only to reach the shared
+  components.** [\_handheld.scss](ui/src/styles/base/_handheld.scss) adapts the
+  *layout* of `@coldcrabby/ui` primitives that live in another repo (stacking
+  `nexus-field-row`, trimming modal gutters);
+  [\_touch.scss](ui/src/styles/base/_touch.scss) adapts their *size* (34px
+  controls to 44px, an 18px slider thumb to 26px — the layer scrubber is a drag
+  gesture and was the worst offender). A primitive's `:host` block compiles to an
+  attribute selector, which a bare element selector loses to; the class buys
+  exactly that specificity without `!important`. Both are set before first paint
+  by the inline script in `index.html` and kept live by `Viewport`, which
+  `AppShell` constructs so they exist on every route.
+- **Anything floating over the plate must fold, and remember.** The G-code
+  inspector and the object list both take a header-with-a-chevron that keeps the
+  one readout worth having (`Layer 42 / 180`, the object count) and hides the
+  rest. The preference is a **tri-state**: `null` until the user states one, at
+  which point the derived default (`!isCompact()`) stops applying and their
+  choice persists across sessions *and* viewports. Do not add a floating panel
+  without one.
 - **Dropping a control is a legitimate answer, hiding a needed one is not.** The
-  viewport cube goes because a drag gizmo has no touch equivalent; projection and
-  the pipeline inspector go because eleven pill buttons do not fit and neither is
-  part of getting a model sliced. Anything on the path to a slice — the object
-  tools, add, undo/redo, the G-code toggle, Slice itself — stays.
+  viewport cube goes on a phone because a drag gizmo has no touch equivalent;
+  projection and the pipeline inspector go because eleven pill buttons do not fit
+  and neither is part of getting a model sliced. Anything on the path to a slice
+  — the object tools, add, undo/redo, the G-code toggle, Slice itself — stays.
+- **Hover-intent must never be armed by a control that unmounts.** The sidebar's
+  peek was armed by the host's own `mouseenter`; hovering the "Print settings"
+  tab opened the drawer, which `@if`-unmounted the tab, which put the pointer on
+  the scene, which fired the matching `mouseleave` — an open/close oscillation
+  that read as flickering. Both arming and closing are now **pointer geometry**
+  (a document `pointermove` compared against the collapsed host's left edge, and
+  against the panel's right edge) rather than element events, because a panel
+  that mounts, unmounts and slides under a stationary pointer emits enter/leave
+  pairs that say nothing about intent. **An invisible edge strip is not the
+  answer** — it needs `pointer-events: auto` to receive `mouseenter`, and since
+  the collapsed host is zero-width it lands on the leftmost slice of the 3D scene
+  for its whole height, swallowing camera drags, click-to-select and (the sidebar
+  being a *sibling* of `<main>`) file drops. The same reasoning applies to the
+  tab's *position*: permanent affordances hang under the toolbar, not at
+  `top: 50%`, which is where the model is.
+- **The `tooltip` directive contributes no accessible name.** An icon-only button
+  whose only label is `[tooltip]` is unlabelled to VoiceOver *and* unlabelled on
+  a tablet, which has no hover to reveal it. Give every icon-only control an
+  `aria-label` mirroring its tooltip at the call site — the directive is in the
+  shared repo and is not ours to change here.
 - **Pinch-to-zoom belongs to the browser everywhere except the 3D canvas.** The
   viewport meta carries no `user-scalable=no` / `maximum-scale`, and
   `touch-action: none` sits on the viewer's `:host`
@@ -541,9 +600,9 @@ adapts goes through it — never an ad-hoc `max-width` query.
   low-vision user has on a phone, and an outright accessibility failure. Lock a
   gesture on the specific surface that claims it; never on the document.
 
-The layout contract (tab bar, drawer, bottom sheet, chip strip) is catalogued in
-[ui/README.md](ui/README.md#phones); the user-facing tour is in
-[docs/use/interface.md](docs/use/interface.md).
+The layout contract (tab bar, drawer, bottom sheet, chip strip, the fold pattern)
+is catalogued in [ui/README.md](ui/README.md#phones-and-tablets); the user-facing
+tour is in [docs/use/interface.md](docs/use/interface.md).
 
 ## Printer connectivity & G-code cache
 

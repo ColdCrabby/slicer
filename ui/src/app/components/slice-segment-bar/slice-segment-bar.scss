@@ -4,15 +4,130 @@
   display: contents;
 }
 
+/* ── Fold header ─────────────────────────────────────────────────────────
+   The inspector is the tallest thing floating over the plate, so it gets the
+   same header-with-a-chevron treatment as the object list: the one readout
+   worth keeping stays visible, the rest folds away. Quiet chrome — no border,
+   no fill at rest — because it is on screen the entire time the preview is.
+
+   Folded, this row plus the card's padding is the entire cost of the inspector,
+   so it is kept close to the height of its own text rather than padded out to a
+   button's usual size. It sits flush against the divider below it — the divider
+   is the separation, and a margin on top of it only doubles the gap. */
+.insp-toggle {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-xs);
+  width: 100%;
+  min-height: 26px;
+  padding: 0 var(--spacing-xs);
+  border: 1px solid transparent;
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: var(--color-text-secondary);
+  cursor: pointer;
+  user-select: none;
+  -webkit-user-select: none;
+  touch-action: manipulation;
+  animation: insp-toggle-in var(--duration-normal) var(--ease-decelerate);
+  transition:
+    background-color var(--duration-fast) var(--ease-standard),
+    color var(--duration-fast) var(--ease-standard);
+
+  &:hover {
+    background: var(--color-surface-hover);
+    color: var(--color-text-primary);
+  }
+
+  &:focus-visible {
+    outline: none;
+    border-color: var(--color-focus-ring);
+    box-shadow: inset 0 0 0 1px var(--color-focus-ring);
+  }
+}
+
+.insp-toggle-chevron {
+  flex: none;
+  display: inline-grid;
+  place-items: center;
+  color: var(--color-text-tertiary);
+  /* Folded points right, open points down — the direction the content will go. */
+  transform: rotate(-90deg);
+  transition: transform var(--inspector-duration, 440ms)
+    var(--inspector-ease, cubic-bezier(0.16, 1, 0.3, 1));
+
+  .insp-toggle.is-open & {
+    transform: rotate(0deg);
+  }
+}
+
+.insp-toggle-title {
+  flex: 1;
+  text-align: left;
+  font-size: var(--font-size-2xs);
+  font-weight: var(--font-weight-semibold);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--color-text-tertiary);
+}
+
+.insp-toggle-summary {
+  flex: none;
+  display: flex;
+  align-items: baseline;
+  gap: 4px;
+  font-family: var(--font-family-mono);
+  font-variant-numeric: tabular-nums;
+
+  .cur {
+    font-size: var(--font-size-sm);
+    font-weight: var(--font-weight-mono-emphasis);
+    font-variation-settings: 'wght' var(--font-weight-mono-emphasis);
+    color: var(--color-text-primary);
+    line-height: 1;
+  }
+
+  .tot {
+    font-size: var(--font-size-2xs);
+    color: var(--color-text-tertiary);
+    line-height: 1;
+  }
+}
+
+@keyframes insp-toggle-in {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .insp-toggle {
+    animation: none;
+  }
+
+  .insp-toggle-chevron {
+    transition: none;
+  }
+}
+
 /* Animated reveal: JS measures the inspector's natural scrollHeight before
    opening and sets --inspector-height so max-height animates over the exact
    pixel range — the easing curve maps 1:1 to the visible motion. The mask
    pins a soft fade to the bottom edge at every frame. */
 .insp-shell {
-  --inspector-fade: 24px;
+  --inspector-fade: 16px;
 
   overflow: hidden;
   max-height: 0;
+  /* Lets flexbox squeeze the shell when the card runs out of room. Without it a
+     flex item refuses to shrink below its content, and the overflow lands on
+     the card instead — clipping the Slice button off the bottom. */
+  min-height: 0;
 
   -webkit-mask-image: linear-gradient(
     to bottom,
@@ -30,6 +145,18 @@
        declare --inspector-height locally here — a local declaration would shadow
        the inherited host value and always win. */
     max-height: var(--inspector-height, 600px);
+    /* Only bites where the card's bound is tighter than the natural height —
+       a short window, or a phone. The scrollbar itself stays hidden: this is a
+       small panel floating over the scene, the mask already fades the cut edge
+       to say "more below", and a stripe would show through the whole reveal
+       animation, when the content is mid-way out by definition. */
+    overflow-y: auto;
+    scrollbar-width: none;
+
+    &::-webkit-scrollbar {
+      width: 0;
+      height: 0;
+    }
   }
 }
 
@@ -57,8 +184,11 @@
   flex-direction: column;
   gap: 10px;
 
+  /* Clearance for the mask's fade, so the last slider is never drawn into it.
+     Kept equal to --inspector-fade: any more is dead space at the bottom of the
+     tallest panel on screen. */
   &:last-child {
-    padding-bottom: var(--spacing-lg);
+    padding-bottom: var(--inspector-fade, 16px);
   }
 }
 
@@ -338,22 +468,57 @@
   flex-shrink: 0;
 }
 
+/* A tablet has room for the whole inspector — the card above now bounds it by
+   the space actually available, so the only job left here is to let it shrink
+   and scroll on the rare viewport where that space runs out. No `vh` cap: it
+   would either waste room in portrait or force scrolling in landscape. */
+@include compact {
+  .insp-shell.is-open {
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    -webkit-overflow-scrolling: touch;
+  }
+}
+
 /* ── Phone ────────────────────────────────────────────────────────────────
    In the bottom sheet the inspector shares a card with the Slice button, and
-   the button must never be the thing that scrolls out of reach. So the
-   inspector takes a fixed share of the screen and scrolls within it — the
-   mask already fades its bottom edge, which reads as "there is more below". */
+   the button must never be the thing that scrolls out of reach. A phone has
+   genuinely too little height for both, so here the fixed share is right. */
 @include handheld {
-  .insp-shell {
-    &.is-open {
-      max-height: min(var(--inspector-height, 600px), 34vh);
-      overflow-y: auto;
-      overscroll-behavior: contain;
-    }
+  .insp-shell.is-open {
+    max-height: min(var(--inspector-height, 600px), 34vh);
+  }
+}
+
+/* ── Fingertip sizing ────────────────────────────────────────────────────
+   Keyed to the pointer, not the viewport: these are the same targets on a
+   phone and on a 12.9" iPad, and only the latter was missing the treatment. */
+@include coarse-pointer {
+  .insp-toggle {
+    min-height: 44px;
   }
 
-  /* Role chips are a grid of small targets; a finger needs the taller row. */
+  /* 36px rather than the 44px floor: the legend is ~15 chips in a wrap grid, and
+     44 would add ~150px of card for a control used far less than the sliders
+     below it. This clears the 26px cursor size by enough to stop being a
+     coin-flip while keeping the legend scannable in one glance. */
   .role-badge {
-    min-height: 32px;
+    min-height: 36px;
+    padding: 0 12px 0 10px;
+  }
+
+  .stack-toggle {
+    width: 40px;
+    height: 40px;
+  }
+
+  /* The gradient doubles as a scrub track, so it is a drag target — 12px of it
+     is unaimable. Grow the bar and pad the row to keep the legend's rhythm. */
+  .scalar-gradient {
+    height: 20px;
+  }
+
+  .scalar-legend {
+    min-height: 40px;
   }
 }

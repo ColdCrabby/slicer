@@ -257,20 +257,39 @@
     // A quarter of the screen at most — the plate has to stay the subject.
     max-height: 26vh;
   }
+}
+
+// Fingertip sizing, keyed to the pointer so a tablet gets it too. A 22px action
+// under a 34px row was a cursor's target; on touch these were the two buttons
+// most likely to hit the wrong row.
+@include coarse-pointer {
+  .op-head-toggle {
+    min-height: 44px;
+  }
 
   .op-row {
     min-height: 44px;
   }
 
-  // Row actions reveal on hover, which a finger cannot do. Show them outright.
+  // Row actions reveal on hover, which a finger cannot do. Selecting the row
+  // also reveals them, but that makes duplicating a two-tap affair and leaves
+  // the actions undiscoverable until then — so show them outright.
   .op-row-actions {
     opacity: 1;
   }
 
   .op-action {
-    height: 32px;
-    min-width: 32px;
+    height: 36px;
+    min-width: 36px;
 
-    --icon-size: 16px;
+    --icon-size: 17px;
+  }
+
+  // The list is a nested scroller inside a floating card; without this iOS
+  // hands the gesture to the page instead of the list.
+  .op-list {
+    -webkit-overflow-scrolling: touch;
+    touch-action: pan-y;
+    overscroll-behavior: contain;
   }
 }

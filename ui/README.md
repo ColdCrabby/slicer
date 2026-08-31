@@ -141,12 +141,25 @@ lands, `pnpm vendor:ui` brings it in.
 
 ---
 
-## Phones
+## Phones and tablets
 
 The desktop layout assumes horizontal room the slicer does not have on a
 handset: a 60px nav rail, a 280px docked settings column and a 380px slice rail
 add up to more than a 390px screen _is_. Rather than a second app, the same
 shell rearranges itself.
+
+A tablet is the case a single "is it small?" flag gets wrong in both directions.
+An iPad has a desktop's width and a phone's input. Treat it as a phone and it
+loses a docked settings column it has ample room for; treat it as a desktop —
+which is what a lone `handheld()` did — and every panel that floats over the
+plate stays open forever, with no cursor to dismiss it, over targets sized for a
+mouse. So the shell asks three separate questions and answers them independently.
+
+| Question                               | CSS                | TypeScript          | True on                       |
+| -------------------------------------- | ------------------ | ------------------- | ----------------------------- |
+| May the layout keep its desktop shape? | `handheld()`       | `isHandheld()`      | phones                        |
+| Must chrome over the scene fold away?  | `compact()`        | `isCompact()`       | phones, tablets, ≤1024px      |
+| How big must a target be?              | `coarse-pointer()` | `isCoarsePointer()` | phones, tablets, touchscreens |
 
 ```mermaid
 flowchart LR
@@ -154,34 +167,72 @@ flowchart LR
       direction LR
       dr[nav rail] --- ds[settings column] --- dsc[scene] --- drc[slice rail]
     end
+    subgraph T["Tablet"]
+      direction LR
+      tr[nav rail] --- ts[settings drawer] --- tsc[scene] --- trc[folded rail]
+    end
     subgraph P["Phone"]
       direction TB
       pt[toolbar] --- psc[scene] --- prc[slice sheet] --- pn[tab bar]
     end
-    D -->|"handheld()"| P
+    D -->|"compact()"| T
+    T -->|"handheld()"| P
 ```
 
-- **One definition of "phone".** [`styles/_breakpoints.scss`](src/styles/_breakpoints.scss)
-  provides `handheld()` — 640px wide, plus a bounded short-landscape arm for a
-  handset held sideways. Tablets keep the desktop layout: an iPad has the width
-  for a docked column and the pointer precision for the gizmos. Anything that
-  adapts goes through the mixin, so the layout switches over as one piece.
-- **CSS decides the layout; TypeScript decides the controls.**
-  [`services/viewport.ts`](src/app/services/viewport.ts) answers the same
-  question for code that must _not render_ something (the projection toggle, the
-  operation-pipeline inspector, the sidebar's docked state). Its query string is
-  a copy of the mixin's and **must stay identical**. Layout itself stays in media
-  queries so a phone lays out correctly before any script runs.
-- **`html.is-handheld` is for the shared components only.**
-  [`styles/base/_handheld.scss`](src/styles/base/_handheld.scss) adapts
-  `@coldcrabby/ui` primitives we do not own — stacking `nexus-field-row`,
-  growing 34px controls to 40px, trimming modal gutters. A component's own
-  `:host` block compiles to an attribute selector, which a plain element
-  selector loses to; the class buys exactly the specificity needed without
-  `!important`. It is set before first paint by the inline script in
-  `index.html`, and `Viewport` keeps it live.
+- **One definition of each.** [`styles/_breakpoints.scss`](src/styles/_breakpoints.scss)
+  holds all three mixins and [`services/viewport.ts`](src/app/services/viewport.ts)
+  holds their three signals. **The query strings are copies of each other and
+  must stay identical** — CSS switches the layout, TypeScript switches the
+  _controls_ (which ones render at all, whether the settings column may dock),
+  and a disagreement shows up as chrome styled for one answer and wired for
+  another. Layout itself stays in media queries so a page lays out correctly
+  before any script runs.
+- **Width and pointer are orthogonal; do not conflate them.** `compact()` is
+  about _room_, `coarse-pointer()` about _precision_. A narrow desktop window
+  needs the first and not the second; a 12.9" iPad needs the second and not
+  obviously the first. Size a target with the pointer, fold a panel with the room.
+- **Source order matters more than usual.** A phone matches all three queries,
+  so where two blocks set the same property at the same specificity the later
+  one wins. Order them **compact → handheld → coarse-pointer**, and prefer
+  setting a value in exactly one of them.
+- **`html.is-handheld` / `html.is-coarse-pointer` are for the shared components
+  only.** [`_handheld.scss`](src/styles/base/_handheld.scss) adapts the layout of
+  `@coldcrabby/ui` primitives we do not own (stacking `nexus-field-row`, trimming
+  modal gutters); [`_touch.scss`](src/styles/base/_touch.scss) adapts their
+  _size_ (34px controls to 44px, an 18px slider thumb to 26px). A component's own
+  `:host` block compiles to an attribute selector, which a plain element selector
+  loses to; the class buys exactly the specificity needed without `!important`.
+  Both are set before first paint by the inline script in `index.html`, and
+  `Viewport` keeps them live.
 
-What changes, and why:
+### Folding the chrome over the plate
+
+Everything that hovers over the 3D scene can be folded to a header, because on a
+tablet there is no cursor to move away from it and on a phone it is most of the
+screen. The pattern is the same in each: a full-width header button with a
+chevron, the one readout worth keeping while folded, and a preference that
+persists once the user states it.
+
+| Panel            | Header keeps | Default folded |
+| ---------------- | ------------ | -------------- |
+| G-code inspector | Layer N / M  | `isCompact()`  |
+| Object list      | Object count | `isCompact()`  |
+
+Until the user folds or unfolds one, the default is derived; afterwards their
+choice is remembered across sessions **and viewports**, because a stated
+preference outranks a guess.
+
+**Unfolded, a panel gets the room that is actually there.** The rail card is
+bounded by `100dvh` minus the chrome above it — titlebar, safe area, toolbar
+inset, its own margins — and the inspector opens to its natural height inside
+that, so on any iPad the whole legend and both sliders are visible without
+scrolling. A `vh` fraction cannot do this: the same number is too small in
+landscape and too generous in portrait. When the room genuinely runs out (a short
+desktop window, a phone) the inspector is the thing that shrinks and scrolls —
+`min-height: 0` lets flexbox squeeze it, and `flex: none` on the slice row means
+the Slice button is never what gets clipped.
+
+What changes on a phone specifically, and why:
 
 | Surface               | Phone form               | Reason                                                                                            |
 | --------------------- | ------------------------ | ------------------------------------------------------------------------------------------------- |
@@ -195,6 +246,35 @@ What changes, and why:
 | Viewport cube         | Hidden                   | A click-and-drag widget with no touch equivalent, in the corner a phone can least spare           |
 | Projection · pipeline | Hidden                   | Eleven pill buttons do not fit; neither is part of getting a model sliced                         |
 | Object list           | Collapsible chip         | Expanded it covers a third of the plate it describes                                              |
+
+### The edge tab, and why hover is armed by geometry
+
+Collapsed, the settings drawer leaves a **"Print settings" tab** on the left
+edge. Two things about it are deliberate:
+
+- **It hangs just under the toolbar, not at `top: 50%`.** Vertically centred is
+  precisely where the model sits, which is the worst place for a permanent
+  affordance. The dock nub shares the same anchor, so toggling the drawer changes
+  the control's form without moving it. Its hover state is **tone and elevation
+  only, never a transform** — the tab's left edge is flush against the nav rail,
+  so nudging it sideways tears a gap open between the two.
+- **The peek has no backdrop.** The scrim element stays (it is what gives touch a
+  tap-outside-to-close gesture) but it is fully transparent: a peek is not a
+  modal, and the point of peeking at the settings is to keep watching the plate
+  while you change them.
+- **The tab does not arm the hover peek — the pointer's own position does.**
+  While the peek was armed by the host's own `mouseenter`, hovering the tab
+  opened the drawer, which unmounted the tab, which put the pointer on the scene,
+  which fired the matching `mouseleave` — open, close, open. Arming now reads
+  `clientX` from a document `pointermove` while the panel is collapsed, so there
+  is no element to unmount. **Do not "simplify" this back to an invisible edge
+  strip**: the strip would need `pointer-events: auto` to receive `mouseenter`,
+  the collapsed host is zero-width, and it would therefore lie over the leftmost
+  slice of the 3D scene for its whole height — swallowing camera drags,
+  click-to-select and, since the sidebar is a _sibling_ of `<main>`, file drops.
+  Closing is the same idea: pointer geometry measured against the panel's edge,
+  not `mouseleave`, because a panel that mounts, unmounts and slides under a
+  stationary pointer emits enter/leave pairs that say nothing about intent.
 
 ---
 
