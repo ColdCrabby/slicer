@@ -1,13 +1,16 @@
 #!/usr/bin/env bash
 #
-# ios-install.sh — put a standalone build on a physical iPad or iPhone.
+# ios-install.sh — put a standalone build on a physical iPhone or iPad.
 #
 # `pnpm run ios:dev` leaves the app pointed at the Angular dev server running on
 # this Mac, so it goes blank the moment that process stops. This builds the
 # *release* app instead: the whole UI is compiled into the binary and the
 # slicing engine already runs on-device, so nothing is fetched at runtime. It
 # then signs the result with a free Apple ID and installs it over the pairing
-# you already have. Afterwards the iPad prints with no Mac anywhere in sight.
+# you already have. Afterwards the device prints with no Mac anywhere in sight.
+#
+# The app is universal (iPhone and iPad), so this script does not care which one
+# is plugged in. With more than one paired it refuses to guess — pass --device.
 #
 # No paid Apple Developer Program membership is involved. The trade is time: a
 # free Apple ID signs for seven days, after which iOS refuses to launch the app
@@ -16,7 +19,7 @@
 # Usage:
 #   scripts/ios-install.sh                        # build, sign, install
 #   scripts/ios-install.sh --list                 # show connected devices, then exit
-#   scripts/ios-install.sh --device 'Max iPad'    # pick a device by name
+#   scripts/ios-install.sh --device 'Max iPhone'  # pick a device by name
 #   scripts/ios-install.sh --reinstall            # install the last build, skip building
 #   scripts/ios-install.sh --renew                # discard the cached profile first
 #   scripts/ios-install.sh --launch               # start the app once it is installed
@@ -176,8 +179,8 @@ fi
 
 if [[ -z "$devices" ]]; then
   die "no iOS device is connected." \
-      "Plug the iPad in (or keep it on the same Wi-Fi once paired), unlock it," \
-      "and tap Trust if it asks. Then: scripts/ios-install.sh --list"
+      "Plug the iPhone or iPad in (or keep it on the same Wi-Fi once paired)," \
+      "unlock it, and tap Trust if it asks. Then: scripts/ios-install.sh --list"
 fi
 
 if [[ -n "$requested_device" ]]; then
@@ -185,6 +188,17 @@ if [[ -n "$requested_device" ]]; then
   [[ -n "$match" ]] || die "no connected iOS device named '$requested_device'." \
       "Available: $(cut -f2 <<<"$devices" | paste -sd', ' -)"
 else
+  # Never guess between devices. Picking the first one alphabetically would send
+  # a multi-minute build to the wrong phone/tablet and only say so in passing.
+  paired_count="$(awk -F'\t' '$5 == "paired"' <<<"$devices" | wc -l | tr -d ' ')"
+  if [[ "$paired_count" -gt 1 ]]; then
+    printf 'error: %s connected devices are paired — name the one you want.\n' "$paired_count" >&2
+    while IFS=$'\t' read -r _ name model _ pairing _; do
+      [[ "$pairing" == "paired" ]] || continue
+      printf "         scripts/ios-install.sh --device '%s'   # %s\n" "$name" "$model" >&2
+    done <<<"$devices"
+    exit 1
+  fi
   match="$(head -1 <<<"$devices")"
 fi
 

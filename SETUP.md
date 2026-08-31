@@ -237,7 +237,7 @@ pnpm run ios:dev       # build + run on an iPad simulator, with live reload
 
 `pnpm run ios:doctor` reports without changing anything, and names the exact command to fix whatever is missing.
 
-To keep the app on a real iPad — no dev server, no paid Apple Developer Program — build the standalone app and install it over the pairing you already have:
+To keep the app on a real iPhone or iPad — no dev server, no paid Apple Developer Program — build the standalone app and install it over the pairing you already have:
 
 ```bash
 pnpm run ios:install

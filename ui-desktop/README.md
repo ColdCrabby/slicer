@@ -360,7 +360,22 @@ features for web developers**, then use **Develop → Simulator → localhost**.
 
 ---
 
-## Physical iPads
+## Physical iPhones and iPads
+
+The app is **universal** (`TARGETED_DEVICE_FAMILY = "1,2"`), so everything below
+applies to an iPhone exactly as it does to an iPad — same script, same signing,
+same seven-day clock. The UI adapts on its own: an iPhone falls under the
+handheld breakpoint and gets the bottom tab bar, settings drawer and slice
+sheet described in [ui/README.md](../ui/README.md#phones), and iOS draws the
+context menu as a bottom sheet rather than the popover it uses on iPad.
+
+The only wrinkle is having both plugged in at once. The script will not guess
+between them — a wrong choice costs a multi-minute build — so it lists them and
+asks:
+
+```bash
+pnpm run ios:install --device 'Max iPhone'
+```
 
 There are two ways onto a real device and they answer different questions.
 
@@ -385,13 +400,13 @@ Both need signing — the simulator needs none, a real device needs all of it:
   Decline it and every printer looks permanently offline; re-enable under
   **Settings → Cold Crabby → Local Network**.
 
-### Keeping it on the iPad, with no Mac and no Apple Developer Program
+### Keeping it on the device, with no Mac and no Apple Developer Program
 
 `tauri ios dev` installs an app whose `devUrl` points at the Angular dev server
 on your Mac, so it is a white screen the moment that process stops. Turning the
-iPad into something you can actually print from means shipping the *release*
-app, where the whole UI is compiled into the binary and the slicing engine —
-which already runs on-device — has nothing left to phone home to.
+iPhone or iPad into something you can actually print from means shipping the
+*release* app, where the whole UI is compiled into the binary and the slicing
+engine — which already runs on-device — has nothing left to phone home to.
 
 ```bash
 pnpm run ios:install
@@ -399,7 +414,7 @@ pnpm run ios:install
 
 That is the whole story: build, sign with your free Apple ID, install over the
 pairing you already have. There is no paid Apple Developer Program membership
-anywhere in it, and afterwards the iPad slices with the Mac switched off.
+anywhere in it, and afterwards the device slices with the Mac switched off.
 
 ```mermaid
 flowchart LR
@@ -447,7 +462,7 @@ Useful flags:
 
 ```bash
 pnpm run ios:install -- --list                 # what is connected
-pnpm run ios:install -- --device 'Max iPad'    # pick one by name
+pnpm run ios:install -- --device 'Max iPhone'  # required when two are paired
 pnpm run ios:install -- --reinstall            # install the last build, skip building
 pnpm run ios:install -- --launch               # start the app afterwards
 ```

@@ -467,6 +467,11 @@ the UI and `tauri-build` compiles it into the binary.
 `--export-method debugging` → `xcrun devicectl device install app`. It needs no
 paid Apple Developer Program membership.
 
+- **The app is universal** (`TARGETED_DEVICE_FAMILY = "1,2"`), so iPhone and
+  iPad take the same path — the script filters on `platform == "iOS"` and never
+  on device type. **It refuses to pick between two paired devices**, because
+  guessing wrong costs a multi-minute build and would only be mentioned in
+  passing; `--device` names one.
 - **A free Apple ID signs for seven days**, so the script is expected to be
   re-run and prints the profile's expiry after every install. Automatic signing
   *reuses* a still-valid profile, so a plain rebuild on day six inherits one day

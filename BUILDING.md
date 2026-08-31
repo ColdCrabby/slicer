@@ -31,8 +31,9 @@ pnpm run ios:install  # build + install a standalone app on a connected iPad
 
 `ios:install` is the one that leaves something usable behind: it compiles the UI
 into the app instead of pointing it at a dev server, signs it with a free Apple
-ID, and installs it over the existing pairing. No paid Apple Developer Program —
-the trade is that a free signature lasts seven days, after which you re-run it.
+ID, and installs it over the existing pairing. The app is universal, so it works
+on an iPhone as well as an iPad. No paid Apple Developer Program — the trade is
+that a free signature lasts seven days, after which you re-run it.
 
 Details → [ui-desktop/README.md](ui-desktop/README.md).
 

@@ -25,7 +25,7 @@ help:
 	@echo "  ios-simulator      - Boot an iPad simulator"
 	@echo "  ios-dev            - Run the app on an iPad simulator with live reload"
 	@echo "  ios-build          - Build a release .ipa"
-	@echo "  ios-install        - Build and install a standalone app on a connected iPad"
+	@echo "  ios-install        - Build and install a standalone app on a connected iPhone/iPad"
 
 build:
 	cargo build --verbose
