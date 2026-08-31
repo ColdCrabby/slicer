@@ -210,7 +210,7 @@ cargo install tauri-cli --version "^2"
 # or: pnpm add -g @tauri-apps/cli
 
 # Dev mode (hot-reloads Angular, rebuilds Rust on change)
-pnpm run desktop:dev
+pnpm run dev:desktop
 
 # Production build (outputs a platform installer)
 pnpm run desktop:build

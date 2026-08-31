@@ -265,6 +265,8 @@ The `postinstall` script in [package.json](package.json) wires this up: cloning 
 # From the repo root, build the WASM scene engine first
 make build-wasm                                  # writes ui/src/generated/scene-wasm/
 
+pnpm install                                     # also runs `pnpm run gen`
+
 # Then, from the repo root, start the engine + dev server together
 pnpm run dev                                     # seeded ports: UI 4<seed>, engine 5<seed>
 ```

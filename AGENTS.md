@@ -1448,5 +1448,5 @@ infill within the ring.
 
 ---
 
-**Last Updated**: 2026-08-30 (advanced infill options + Orca-accurate fill density)  
+**Last Updated**: 2026-08-31 (seeded dev-server ports + same-origin dev proxy)  
 **Maintainer Guidance**: Keep this file in sync with project structure changes, new conventions, or significant architectural decisions.

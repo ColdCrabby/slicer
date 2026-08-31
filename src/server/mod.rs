@@ -151,9 +151,10 @@ async fn run_server(
                 http::header::AUTHORIZATION,
             ])
             // `Content-Disposition` is not CORS-safelisted, so a cross-origin
-            // client (the dev server, or any UI served from another origin)
-            // cannot read the filename the engine chose for a download unless
-            // it is explicitly exposed.
+            // client — any UI served from another origin — cannot read the
+            // filename the engine chose for a download unless it is explicitly
+            // exposed. (The Angular dev server proxies `/api`, so it is
+            // same-origin and does not rely on this.)
             .expose_headers(vec![http::header::CONTENT_DISPOSITION])
             .supports_credentials();
 
