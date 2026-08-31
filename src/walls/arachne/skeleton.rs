@@ -364,22 +364,29 @@ fn point_inside(rings: &[Vec<(f64, f64)>], x: f64, y: f64) -> bool {
 }
 
 /// Minimum distance from `(x, y)` to any boundary edge in `rings` (mm).
+/// Distance from `(x, y)` to the nearest boundary segment of any ring.
+///
+/// Called once per skeleton node against every boundary segment, so it is
+/// O(nodes × segments) and the hottest slicer-owned symbol in a profile of wall
+/// generation (~5% of it). **Two obvious optimisations were tried and both
+/// changed the output — do not re-apply them without new evidence:**
+///
+/// - *Squared distances with one final `sqrt`.* The comparison is equivalent,
+///   but `sqrt(d*d) != d` — squaring drops bits `sqrt` cannot recover — so the
+///   returned radius shifts, and that radius sets bead widths.
+/// - *A bounding-box prune* (skip a segment whose axis gap already exceeds the
+///   best distance so far). Exact in real arithmetic, but not in floating
+///   point: near a tie the projection-and-`sqrt` here can land marginally below
+///   the bound, so pruning changes which of two near-equal values wins.
+///
+/// Both were worth about 2% of wall generation and both moved the QA baselines
+/// (the hinge's gap fill by 4.1 mm). Note the quality gate's tolerances let the
+/// first one through, and a 3DBenchy byte-compare is too noisy to catch either
+/// — only a byte-compare against a deterministic fixture found them.
+///
+/// The real cost in this phase is Clipper2's scanline machinery (~45%) and
+/// rayon load imbalance, not this function.
 fn dist_to_boundary(rings: &[Vec<(f64, f64)>], x: f64, y: f64) -> f64 {
-    // Called once per skeleton node against every boundary segment, so it is
-    // O(nodes × segments) and the hottest slicer-owned symbol in a profile of
-    // wall generation.
-    //
-    // The bounding-box test below is the only safe way to speed it up: each
-    // axis gap to a segment's box is on its own a lower bound on the true
-    // distance, so a segment whose gap already exceeds the best distance found
-    // cannot beat it and can be skipped without changing the result.
-    //
-    // **Do not "optimise" this into squared distances with one final `sqrt`.**
-    // The comparison would be equivalent, but `sqrt(d*d) != d` — squaring drops
-    // bits that `sqrt` cannot recover — so the returned radius shifts, and that
-    // radius sets bead widths. Measured on a Benchy: filament 3924.74 →
-    // 3924.58 mm for a 4 % gain. The quality gate's tolerances let it through,
-    // which is exactly why it is called out here.
     let mut best = f64::INFINITY;
     for pts in rings {
         let n = pts.len();
@@ -389,13 +396,6 @@ fn dist_to_boundary(rings: &[Vec<(f64, f64)>], x: f64, y: f64) -> f64 {
         for i in 0..n {
             let (ax, ay) = pts[i];
             let (bx, by) = pts[(i + 1) % n];
-
-            let gap_x = (ax.min(bx) - x).max(x - ax.max(bx));
-            let gap_y = (ay.min(by) - y).max(y - ay.max(by));
-            if gap_x > best || gap_y > best {
-                continue;
-            }
-
             let d = dist_point_segment(x, y, ax, ay, bx, by);
             if d < best {
                 best = d;

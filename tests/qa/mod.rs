@@ -53,30 +53,49 @@ pub struct Fixture {
     /// Included in the fast local gate (plain `cargo test`). Heavy models are
     /// `false` and only run under `QA_FULL=1` / `QA_REPORT=1`.
     pub fast_gate: bool,
+    /// Slice this fixture with support generation on.
+    ///
+    /// Supports are off by default, so without a fixture that switches them on
+    /// the `support` role column is always empty and every support regression
+    /// is invisible to the gate.
+    pub supports: bool,
 }
 
-/// The prepared fixture corpus (Voron cube, hinge, caddy, Benchy).
+/// The prepared fixture corpus (Voron cube, hinge, caddy, overhang, Benchy).
 pub fn corpus() -> Vec<Fixture> {
     vec![
         Fixture {
             name: "voron",
             file: "Voron_Design_Cube_v7.stl",
             fast_gate: true,
+            supports: false,
         },
         Fixture {
             name: "hinge",
             file: "bottom_panel_hinge_x2.stl",
             fast_gate: true,
+            supports: false,
         },
         Fixture {
             name: "caddy",
             file: "Filament_Card_Caddy_25.stl",
             fast_gate: true,
+            supports: false,
+        },
+        // A post, a ~53° flare and a hard 90° ledge — the three things support
+        // has to handle, in one 36-triangle model that slices in well under a
+        // second and reproduces byte for byte.
+        Fixture {
+            name: "overhang",
+            file: "tests/fixtures/support-overhang.stl",
+            fast_gate: true,
+            supports: true,
         },
         Fixture {
             name: "benchy",
             file: "3DBenchy.stl",
             fast_gate: false,
+            supports: false,
         },
     ]
 }
@@ -159,18 +178,19 @@ pub fn prepare(path: &Path) -> anyhow::Result<Mesh> {
 
 const LAYER_HEIGHT: f64 = 0.2;
 
-fn slice_params(g: WallGenerator) -> SlicingParams {
+fn slice_params(g: WallGenerator, supports: bool) -> SlicingParams {
     SlicingParams {
         wall_generator: g,
         layer_height: LAYER_HEIGHT,
+        support_enabled: supports,
         ..Default::default()
     }
 }
 
 /// Slice a placed mesh to G-code via the production (parallel) pipeline. This
 /// is the only path metrics are measured from.
-pub fn slice_to_gcode(mesh: &Mesh, g: WallGenerator) -> String {
-    let params = slice_params(g);
+pub fn slice_to_gcode(mesh: &Mesh, g: WallGenerator, supports: bool) -> String {
+    let params = slice_params(g, supports);
     let layers = slicer_engine::core::process_mesh(mesh, &params, &NullLogger);
     GcodeGenerator::new(GcodeFlavor::Marlin).generate(&layers, &params)
 }
@@ -178,8 +198,8 @@ pub fn slice_to_gcode(mesh: &Mesh, g: WallGenerator) -> String {
 /// Capture per-stage geometry for the visual gallery only. This uses the debug
 /// pipeline (sequential Arachne), which can emit slightly different medial
 /// gap-fill than production, so it is deliberately **not** used for metrics.
-pub fn debug_geometry(mesh: &Mesh, g: WallGenerator) -> DebugGeometry {
-    let params = slice_params(g);
+pub fn debug_geometry(mesh: &Mesh, g: WallGenerator, supports: bool) -> DebugGeometry {
+    let params = slice_params(g, supports);
     let mut dg = DebugGeometry::new();
     let _ = slicer_engine::core::process_mesh_debug(mesh, &params, &NullLogger, &mut dg);
     dg
