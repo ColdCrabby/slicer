@@ -30,7 +30,7 @@ const TWO_FINGER_DOLLY_DEAD_ZONE_PX = 1.5;
  */
 const TWO_FINGER_ROLL_DEAD_ZONE_RAD = 0.01;
 /**
- * Total twist (rad ≈ 9°) that must accumulate from the start of a two-finger
+ * Net twist (rad ≈ 8°) that must build up from the start of a two-finger
  * gesture before roll engages at all.
  *
  * The old code had no such gate: it rolled whenever a single frame's angle
@@ -41,26 +41,31 @@ const TWO_FINGER_ROLL_DEAD_ZONE_RAD = 0.01;
  * the "zooming makes it rotate" spin. Requiring a real, sustained twist first
  * puts the gate on the user's intent instead of on their tremor.
  */
-const ROLL_ENGAGE_ANGLE_RAD = 0.16;
+const ROLL_ENGAGE_ANGLE_RAD = 0.14;
 /**
  * Minimum finger separation (px) for roll to be considered. Angular resolution
  * collapses as the fingers meet, so below this a twist reading is noise by
  * construction — no threshold on the angle itself can rescue it.
  */
-const ROLL_MIN_SEPARATION_PX = 70;
+const ROLL_MIN_SEPARATION_PX = 60;
 /**
- * How much more tangential travel than radial travel a gesture needs before it
- * counts as a twist. Compares like with like — both in pixels of fingertip
- * movement — so it holds at any separation. A pinch that also drifts a little
- * in rotation stays a pinch.
+ * How much more net tangential than net radial displacement a gesture needs
+ * before it counts as a twist. Compares like with like — both in pixels of
+ * fingertip movement measured from the gesture's origin — so it holds at any
+ * separation.
  */
 const ROLL_DOMINANCE_RATIO = 1.6;
 /**
- * Radial travel (px) that permanently disqualifies roll for the rest of the
- * gesture. Once the user has clearly pinched, later rotational drift — the
- * wrist unavoidably turning as the fingers close — must never be honoured.
+ * Net radial displacement (px) that permanently disqualifies roll for the rest
+ * of the gesture. Once the user has clearly pinched, later rotational drift —
+ * the wrist unavoidably turning as the fingers close — must never be honoured.
  * This latch is what makes "a zoom never becomes a spin" a guarantee rather
  * than a threshold that a jittery frame can beat.
+ *
+ * Measured as displacement from the gesture's origin, **not** as summed
+ * per-event travel: the latter integrates contact jitter, which at 120 Hz
+ * crosses this figure from noise alone in well under a second and locks roll
+ * out of every gesture. See the module doc in `two-finger-gesture.ts`.
  */
 const ROLL_LOCKOUT_PINCH_PX = 24;
 /**

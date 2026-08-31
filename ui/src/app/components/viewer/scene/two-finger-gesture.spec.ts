@@ -9,8 +9,8 @@ import {
 
 /** Mirrors the production tuning in `controls.ts`. */
 const ROLL_GATE: RollGate = {
-  engageAngleRad: 0.16,
-  minSeparationPx: 70,
+  engageAngleRad: 0.14,
+  minSeparationPx: 60,
   dominanceRatio: 1.6,
   lockoutPinchPx: 24,
   deadZoneRad: 0.01,
@@ -49,6 +49,28 @@ function* pinchFrames(
     // Deterministic pseudo-jitter, so the test cannot flake.
     const jitter = jitterPx === 0 ? 0 : Math.sin(i * 2.399) * (jitterPx / dist);
     yield sample(dist, twistRad * t + jitter);
+  }
+}
+
+/**
+ * A twist as a real hand performs it: the fingers sweep round while their
+ * reported separation jitters every event.
+ *
+ * The jitter is the whole point. Fixtures that hold `dist` perfectly constant
+ * describe no hardware that exists, and they hid a bug that made roll
+ * impossible to trigger on a real iPad — the gate summed per-event separation
+ * travel, so noise alone accumulated past the pinch lockout in under a second.
+ */
+function* twistFrames(
+  degrees: number,
+  frames: number,
+  opts: { dist?: number; jitterPx?: number } = {},
+): Generator<TwoFingerSample> {
+  const { dist = 200, jitterPx = 0.3 } = opts;
+  for (let i = 1; i <= frames; i++) {
+    // Deterministic pseudo-jitter, so the test cannot flake.
+    const noise = Math.sin(i * 2.399) * jitterPx + Math.sin(i * 5.7) * (jitterPx * 0.67);
+    yield sample(dist + noise, ((degrees * Math.PI) / 180) * (i / frames));
   }
 }
 
@@ -104,26 +126,50 @@ describe('TwoFingerGestureTracker — a zoom never becomes a spin', () => {
 });
 
 describe('TwoFingerGestureTracker — a deliberate twist still rolls', () => {
-  it('engages roll for a sustained twist at a workable separation', () => {
+  it('engages roll for a sustained twist on real, jittery hardware', () => {
     const t = tracker();
-    t.begin(sample(240));
+    t.begin(sample(200));
     let totalRoll = 0;
-    for (let i = 1; i <= 40; i++) {
-      totalRoll += t.update(sample(240, (i / 40) * 0.9)).rollRad;
+    // 120 events ~= 1s at 120Hz, the rate a real iPad reports.
+    for (const frame of twistFrames(25, 120)) {
+      totalRoll += t.update(frame).rollRad;
     }
     expect(t.isRollEngaged()).toBe(true);
+    expect(t.isRollLocked()).toBe(false);
     // The twist beyond the engage threshold reaches the camera; the qualifying
     // part deliberately does not, so engaging never jolts the view.
-    expect(totalRoll).toBeGreaterThan(0.5);
-    expect(totalRoll).toBeLessThan(0.9);
+    const total = (25 * Math.PI) / 180;
+    expect(totalRoll).toBeGreaterThan(total - ROLL_GATE.engageAngleRad - 0.02);
+    expect(totalRoll).toBeLessThan(total);
+  });
+
+  it('is not locked out by separation jitter during a long twist', () => {
+    const t = tracker();
+    t.begin(sample(200));
+    // Three seconds of slow twisting. Summing per-event travel would have
+    // crossed the 24px pinch lockout from noise alone within the first second.
+    for (const frame of twistFrames(30, 360)) {
+      t.update(frame);
+    }
+    expect(t.isRollLocked()).toBe(false);
+    expect(t.isRollEngaged()).toBe(true);
+  });
+
+  it('engages roll even with heavy contact noise', () => {
+    const t = tracker();
+    t.begin(sample(200));
+    for (const frame of twistFrames(25, 120, { jitterPx: 1.5 })) {
+      t.update(frame);
+    }
+    expect(t.isRollEngaged()).toBe(true);
   });
 
   it('never dumps the qualifying twist as a single jump when roll engages', () => {
     const t = tracker();
-    t.begin(sample(240));
+    t.begin(sample(200));
     let maxStep = 0;
-    for (let i = 1; i <= 40; i++) {
-      maxStep = Math.max(maxStep, Math.abs(t.update(sample(240, (i / 40) * 0.9)).rollRad));
+    for (const frame of twistFrames(25, 120)) {
+      maxStep = Math.max(maxStep, Math.abs(t.update(frame).rollRad));
     }
     expect(maxStep).toBeLessThanOrEqual(ROLL_GATE.maxStepRad);
     expect(maxStep).toBeLessThan(0.1);
@@ -133,8 +179,8 @@ describe('TwoFingerGestureTracker — a deliberate twist still rolls', () => {
     const t = tracker();
     t.begin(sample(40));
     let totalRoll = 0;
-    for (let i = 1; i <= 40; i++) {
-      totalRoll += Math.abs(t.update(sample(40, (i / 40) * 1.0)).rollRad);
+    for (const frame of twistFrames(40, 60, { dist: 40, jitterPx: 0.2 })) {
+      totalRoll += Math.abs(t.update(frame).rollRad);
     }
     expect(t.isRollEngaged()).toBe(false);
     expect(totalRoll).toBe(0);

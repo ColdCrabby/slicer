@@ -22,6 +22,18 @@
  * {@link RollGate.lockoutPinchPx} the gesture is a pinch **for good** and roll
  * is latched off — a guarantee, not a threshold a jittery frame can beat.
  *
+ * **Travel is measured as net displacement, never as accumulated path length.**
+ * This is the difference between a gate that works on real hardware and one
+ * that cannot fire at all. A fingertip's reported separation jitters every
+ * event, so summing `|Δdist|` integrates the *absolute value* of that noise: it
+ * only ever grows, and at 120 Hz even 0.3 px of jitter accumulates past a 24 px
+ * pinch threshold in **0.58 s** — locking roll out mid-twist, from noise alone,
+ * before the user has rotated far enough to engage. Measuring from the
+ * gesture's origin instead lets the noise cancel: the same pure twist reads
+ * 0.4 px of radial movement against 43.6 px of tangential. Both channels are
+ * compared in pixels of real fingertip movement, so the ratio holds at any
+ * separation.
+ *
  * **Dead zones accumulate, they do not discard.** Each channel keeps its own
  * anchor and only moves it when it actually applies motion, so sub-threshold
  * movement is *stored* rather than thrown away. The previous code re-based
@@ -58,13 +70,13 @@ export interface TwoFingerMotion {
 
 /** Tuning for the roll gate. See the module doc for the reasoning. */
 export interface RollGate {
-  /** Net twist from gesture start needed before roll engages. */
+  /** Net twist from the gesture origin needed before roll engages. */
   engageAngleRad: number;
   /** Separation below which a twist reading is noise by construction. */
   minSeparationPx: number;
-  /** Required ratio of tangential to radial fingertip travel. */
+  /** Required ratio of net tangential to net radial fingertip displacement. */
   dominanceRatio: number;
-  /** Radial travel that latches roll off for the rest of the gesture. */
+  /** Net radial displacement that latches roll off for the rest of the gesture. */
   lockoutPinchPx: number;
   /** Fine-grain dead zone applied once roll is engaged. */
   deadZoneRad: number;
@@ -112,14 +124,12 @@ export class TwoFingerGestureTracker {
   private panAnchorCx = 0;
   private panAnchorCy = 0;
 
-  /** Previous raw sample, used to accumulate travel for the roll gate. */
-  private prevDist = 0;
+  /** Previous raw angle, used to accumulate net twist across the gesture. */
   private prevAngle = 0;
 
-  /** Path length of the separation change — how much the user has pinched. */
-  private radialTravelPx = 0;
-  /** Path length each fingertip has swept tangentially — how much they twisted. */
-  private tangentialTravelPx = 0;
+  /** Separation when the gesture (or the current pair) began. */
+  private originDist = 0;
+
   /** Net signed twist since the gesture began. */
   private netAngleRad = 0;
 
@@ -134,9 +144,7 @@ export class TwoFingerGestureTracker {
   /** Start a fresh gesture anchored at `sample`. Clears all arbitration state. */
   begin(sample: TwoFingerSample): void {
     this.setAnchors(sample);
-    this.radialTravelPx = 0;
-    this.tangentialTravelPx = 0;
-    this.netAngleRad = 0;
+    this.resetArbitrationOrigin(sample);
     this.rollEngaged = false;
     this.rollLocked = false;
   }
@@ -146,12 +154,15 @@ export class TwoFingerGestureTracker {
    * changes identity (a finger lifts, another is adopted). The discontinuity is
    * absorbed instead of being applied as a huge one-frame jump.
    *
-   * Arbitration state deliberately survives: a gesture that has already been
-   * judged a pinch stays a pinch across a re-anchor, so swapping fingers is
-   * never a backdoor to the roll the lockout just denied.
+   * The arbitration *origin* is re-based too: distances between two different
+   * pairs of contacts are not comparable, and carrying the old one over would
+   * read the swap as a huge pinch and latch roll off. The *verdicts* however
+   * deliberately survive — a gesture already judged a pinch stays a pinch, so
+   * swapping fingers is never a backdoor to the roll the lockout just denied.
    */
   reanchor(sample: TwoFingerSample): void {
     this.setAnchors(sample);
+    this.resetArbitrationOrigin(sample);
   }
 
   /** True once the gesture has been judged a twist. Exposed for tests. */
@@ -169,33 +180,43 @@ export class TwoFingerGestureTracker {
     this.rollAnchorAngle = sample.angle;
     this.panAnchorCx = sample.cx;
     this.panAnchorCy = sample.cy;
-    this.prevDist = sample.dist;
     this.prevAngle = sample.angle;
   }
 
-  /** Accumulate evidence and decide whether the gesture is a twist. */
-  private arbitrate(sample: TwoFingerSample): void {
-    const dDist = sample.dist - this.prevDist;
-    const dAngle = wrapAngle(sample.angle - this.prevAngle);
-    this.prevDist = sample.dist;
+  /** Re-base the reference the net-displacement measurements are taken from. */
+  private resetArbitrationOrigin(sample: TwoFingerSample): void {
+    this.originDist = sample.dist;
     this.prevAngle = sample.angle;
+    this.netAngleRad = 0;
+  }
 
-    this.radialTravelPx += Math.abs(dDist);
-    // Arc length each fingertip sweeps, so twist and pinch are compared in the
-    // same unit — pixels of actual finger movement — at any separation.
-    this.tangentialTravelPx += Math.abs(dAngle) * (sample.dist / 2);
-    this.netAngleRad += dAngle;
+  /**
+   * Accumulate net twist and decide whether the gesture is a twist.
+   *
+   * Both measurements are **net displacement from the origin**, never summed
+   * per-event travel — see the module doc for why that distinction decides
+   * whether roll can fire at all on real hardware.
+   */
+  private arbitrate(sample: TwoFingerSample): void {
+    this.netAngleRad += wrapAngle(sample.angle - this.prevAngle);
+    this.prevAngle = sample.angle;
 
     if (this.rollEngaged || this.rollLocked) {
       return;
     }
-    if (this.radialTravelPx > this.rollGate.lockoutPinchPx) {
+
+    // How far the fingers have genuinely separated, and how far they have
+    // genuinely swept round. Jitter cancels in both instead of piling up.
+    const netRadialPx = Math.abs(sample.dist - this.originDist);
+    const netTangentialPx = Math.abs(this.netAngleRad) * (sample.dist / 2);
+
+    if (netRadialPx > this.rollGate.lockoutPinchPx) {
       this.rollLocked = true;
       return;
     }
     const twistedEnough = Math.abs(this.netAngleRad) >= this.rollGate.engageAngleRad;
     const wideEnough = sample.dist >= this.rollGate.minSeparationPx;
-    const dominant = this.tangentialTravelPx > this.radialTravelPx * this.rollGate.dominanceRatio;
+    const dominant = netTangentialPx > netRadialPx * this.rollGate.dominanceRatio;
     if (twistedEnough && wideEnough && dominant) {
       this.rollEngaged = true;
     }

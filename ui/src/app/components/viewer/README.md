@@ -394,11 +394,22 @@ Two properties carry the design:
   zooms — which is why an ordinary pinch used to spray roll every frame (~16° of
   unwanted spin on a single measured pinch-in). Roll now engages only after a
   sustained twist (`ROLL_ENGAGE_ANGLE_RAD`) at a separation where the angle means
-  something (`ROLL_MIN_SEPARATION_PX`), and only while tangential fingertip
-  travel dominates radial travel (`ROLL_DOMINANCE_RATIO`). Once radial travel
-  passes `ROLL_LOCKOUT_PINCH_PX` the gesture is a pinch **for good** — a latch,
-  not a threshold a jittery frame can beat, and it survives a re-anchor so
-  swapping fingers is not a backdoor.
+  something (`ROLL_MIN_SEPARATION_PX`), and only while tangential displacement
+  dominates radial (`ROLL_DOMINANCE_RATIO`). Once radial displacement passes
+  `ROLL_LOCKOUT_PINCH_PX` the gesture is a pinch **for good** — a latch, not a
+  threshold a jittery frame can beat, and it survives a re-anchor so swapping
+  fingers is not a backdoor.
+- **Travel is net displacement from the gesture's origin, never summed per-event
+  path length.** This distinction decides whether roll can fire _at all_ on real
+  hardware, and getting it wrong is subtle because it still looks correct in a
+  clean test. A fingertip's reported separation jitters every event, so summing
+  `|Δdist|` integrates the _absolute value_ of that noise and only ever grows: at
+  120 Hz even 0.3 px of jitter crosses a 24 px pinch threshold in **0.58 s**,
+  latching roll off mid-twist before the user has rotated far enough to engage
+  it. Measured from the origin, the same pure twist reads 0.4 px radial against
+  43.6 px tangential. The fixtures in `two-finger-gesture.spec.ts` therefore
+  **model contact jitter deliberately** — a constant-separation twist describes
+  no hardware that exists, and hides exactly this class of bug.
 - **Dead zones accumulate, they do not discard.** Each channel keeps its own
   anchor and moves it only when it actually applies motion, so sub-threshold
   movement is stored rather than thrown away. The previous code re-based every
