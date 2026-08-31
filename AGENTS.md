@@ -1189,18 +1189,21 @@ capsule/gap renders (`render.py`, `zoom.py`). Compare a change against the
 ### Pipeline Execution Order
 
 ```
-slice_mesh()                         — raw mesh → OuterWall contours per layer
+slice_mesh()                         — raw mesh → OuterWall contours per layer (layer 0 spans first_layer_height)
+apply_dimensional_compensation()     — XY size / hole offset on the raw contours (src/core/compensation.rs)
 generate_arachne_walls()             — replaces OuterWall contours with bead paths
 pre_strip_infill_regions computed    — interior regions snapshotted before wall stripping
 apply_single_wall_restrictions()     — strips inner walls from first/last layers if configured
 interior_regions computed            — per-layer interior (for surfaces), post-strip
 generate_top_bottom_surfaces_with_interior()  — top/bottom solid infill within interior
+  └─ add_ironing_for_region()        — near-dry smoothing sweep over the finished top surface
 add_infill_to_layers()               — sparse infill using pre-strip regions minus solid regions
   ├─ combine_fill_areas()            — stack sparse areas across layers (infill_every_layers);
   │                                    mark forced solid layers (solid_infill_every_layers)
   └─ connect_infill()                — anchor line ends to the perimeter, before the splat filters
 path ordering + flow compensation    — greedy-TSP per role group, then wall-overlap flow scaling
 apply_adhesion()                     — skirt/brim prepended to first layer(s); raft prepends layers + Z-shifts object (src/adhesion/)
+mark_first_layer_height()            — charges layer 0 at first_layer_height via path_heights, after adhesion so the skirt matches
 ```
 
 Order matters critically. Surfaces are computed **after** Arachne walls so that
@@ -1209,6 +1212,41 @@ Order matters critically. Surfaces are computed **after** Arachne walls so that
 last**, after ordering and flow compensation, so its loops are appended cleanly
 and the object's own toolpaths are provably unperturbed — see
 [src/adhesion/README.md](src/adhesion/README.md).
+
+**Dimensional compensation runs first, on the raw contours, and nowhere else.**
+Every later stage measures relative to the contour the wall generator consumed —
+`calculate_interior_region`'s `−0.5·d` correction, the wall-bead-footprint clip,
+adhesion's recovery of the outline by inflating layer-0 `OuterWall` by `d/2` — so
+correcting the contour leaves all of them true. Never offset the bead
+centrelines instead: moving `OuterWall` by δ after generation leaves `InnerWall`
+where it was, and the footprint clip corrects bead-*count* error, not centreline
+displacement. Winding out of the slicer is not guaranteed, so the pass
+normalises with an `EvenOdd` union first and then uses **`NonZero`** throughout;
+`Positive` would discard the CW hole sub-paths and fill every hole solid.
+
+**`first_layer_height` is split across the two ends of the pipeline.** The
+slicer gives layer 0 its own Z span (sampled at its own mid-plane, so an unset
+value reproduces the uniform slicer plane-for-plane and the QA baselines cannot
+move); `mark_first_layer_height` then charges it through `path_heights` *after*
+adhesion, so a skirt sharing that layer's Z is charged at the same height. Both
+ends resolve the value through `resolved_first_layer_height`, which the G-code
+generator also uses to decide which layer gets first-layer speeds and
+temperatures — the two must never disagree about which layer is the first. It is
+suppressed under a raft, which owns bed contact and prints at `layer_height`.
+
+**Ironing is generated in place, where `top_region` is still live**, and must
+touch **no region field**. It is a surface *treatment*, not solid material: were
+its footprint ever folded into `solid_regions`, `add_infill_to_layers` would
+subtract it (grown by a full bead) and punch a hole in the sparse infill
+underneath. It carries its own `ExtrusionRole::Ironing` rather than reusing
+`TopSurface`, because `resolve_width_mm` returns `top_surface_line_width` before
+it ever reads an explicit width — sharing the role would silently iron at full
+flow on any profile that sets one — and because a shared role would merge the
+two into one path-ordering group, letting the TSP interleave ironing with
+not-yet-printed fill. Its flow reduction is folded into the **width**
+(`ironing_spacing × ironing_flow`), deliberately keeping it out of
+`extrusion_for_move`'s `flow_ratio`, which reads a non-positive value as `1.0`
+so a malformed profile cannot zero out a print.
 
 **Perimeter routing & ordering options ([#98](https://github.com/ColdCrabby/slicer/issues/98))** are threaded through several stages:
 

@@ -37,6 +37,11 @@ On a trackpad or tablet, a two-finger swipe orbits by default. If you'd rather
 it panned, change it in **Settings → General → Controls**. Palm rejection is on
 by default for pen input.
 
+On a touchscreen, two fingers pinch to zoom and slide to pan — both at once, as
+you'd expect. Twisting rotates the view, but only if you clearly mean it: once
+you've started pinching, the view won't tip just because your wrist turned. Rest
+your hand on the glass while drawing with a pencil and it's ignored.
+
 ## The tool cluster
 
 Floating under the model, this is where you manipulate what's on the plate.

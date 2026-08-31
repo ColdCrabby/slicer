@@ -29,6 +29,20 @@ issue/PR numbers or repo links in the notes. See the tone rules in
 
 ### Fixed
 
+- **Pinching to zoom no longer spins the model on a touchscreen** — rotation is
+  measured as an angle, so its noise floor grows as your fingers close; a
+  measured pinch-in sprayed ~16° of unwanted roll. Twist now has to be a
+  sustained, deliberate turn, and once you have clearly started pinching the
+  view is locked against rolling for the rest of the gesture.
+- **Slow pinches now zoom** — a gentle pinch moves well under a pixel per event
+  on a 120 Hz iPad, and every one of those was discarded rather than banked, so
+  the camera simply refused to move. Small movements now accumulate.
+- **A palm can no longer hijack a two-finger gesture** — a hand settling while
+  two fingers were already pinching was let through, and took over the gesture
+  the moment a real finger lifted.
+- **Losing a finger no longer freezes the camera** — a touch released over the
+  toolbar, or the app being backgrounded mid-pinch, could strand the viewport
+  with navigation disabled until the page was reloaded.
 - **The "Print settings" tab no longer flickers when you hover it** — pointing at
   the tab used to open the drawer, which hid the tab, which closed the drawer, in
   a loop. Resting at the very edge of the screen still peeks at the panel; the
@@ -42,6 +56,19 @@ issue/PR numbers or repo links in the notes. See the tone rules in
 
 ### Added
 
+- **Ironing** — the top-surface smoothing toggle now does something. Previously
+  it could be switched on in the profile wizard, was documented as working, and
+  logged "not yet implemented" at slice time. A near-dry pass re-melts finished
+  top surfaces flat, with its own type, flow (10 %), spacing (0.1 mm), speed and
+  angle, and its own colour in the preview.
+- **Dimensional compensation** — correct a machine that prints consistently
+  over- or under-sized. **XY size compensation** offsets every contour;
+  **hole compensation** adjusts holes on their own, so a tight press-fit can be
+  freed without moving the outside of the part. Both default to off.
+- **First layer height** — now affects the print instead of only the file
+  header. The bottom layer is sliced and extruded at its own thickness, so a
+  profile asking for 0.24 mm no longer silently prints 0.2 mm. Skirt and brim
+  follow it; a raft suppresses it.
 - **Fold the G-code legend out of the way** — the inspector now has a header you
   can tap to collapse it to a single row, keeping the layer counter and the Slice
   button in place. Unfolded it sizes itself to the room actually available, so on
