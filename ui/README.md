@@ -41,7 +41,7 @@ flowchart LR
 ```
 ui/src/app/
 ├── app.config.ts          providers (router, http, markdown, input-modality, keyboard-shortcuts)
-├── app-routes.ts          /, /slice/(new|:requestUuid)
+├── app-routes.ts          /, /slice/(new|:requestUuid), /settings/* — all lazily loaded
 ├── pages/
 │   ├── home/              landing dashboard
 │   ├── slice-new/         upload + initial slice
@@ -226,11 +226,12 @@ The panel contains two read-only Monaco editor instances, each updated live as s
 
 A thin Angular wrapper around Monaco editor:
 
-- **Lazy-loaded** — the Monaco bundle is not included in the initial chunk. It is fetched once, the first time the panel is opened.
+- **Lazy-loaded, narrowly, and not until it is looked at** — the editor is composed from Monaco's modular entry points (`editor/editor.api` + `features/register.all`) rather than the package root, and is fetched only once an instance comes within 400 px of the viewport. The root export is `editor.main`, which would register ~90 language grammars and the TypeScript/CSS/HTML language services: a 2.7 MB chunk plus 9.6 MB of web workers, for an app that shows G-code and JSON. **A dynamic `import()` is lazy in the bundle but still runs the moment the component is created** — the printer settings page mounts three editors about six screens below the fold, which used to fetch ~4 MB before the user had scrolled anywhere near them.
 - **Inputs**: `content` (string signal), `language` (Monaco language ID, default `'plaintext'`), `readOnly` (boolean).
 - **Live updates** — an `effect()` pushes content and readOnly changes into the live editor instance, so Angular signals drive Monaco without re-creating the editor.
 - **Resource cleanup** — `DestroyRef.onDestroy` disposes the editor and releases its DOM/worker resources when the component is destroyed.
-- **Workers** — language workers (JSON, CSS, TypeScript, …) are spawned via `Blob` URLs so no separate worker bundle entry-point is needed. `MonacoEnvironment` is set once globally on `window`.
+- **Languages** — `gcode` is ours (a Monarch grammar in `gcode-language.ts`, registered together with the shared `nexus-code` theme, so it loads for every editor). `json` is Monaco's own language service and is fetched only when a JSON editor mounts.
+- **Workers** — declared as real module entry points under `workers/`, referenced via `new Worker(new URL(…, import.meta.url))` so the bundler emits base-href-relative assets (a bare specifier only resolved at the site root, which broke sub-path deploys). Only `editor` and `json` are listed: naming a worker in `MonacoEnvironment.getWorker` is what makes the bundler emit it.
 - **Options**: dark theme (`vs-dark`), auto-layout, word-wrap on, minimap off, folding on.
 
 ### `EditorPanel` service (`services/editor-panel.ts`)
@@ -302,6 +303,88 @@ Shortcuts are no-ops when the corresponding history direction is unavailable (gu
 
 ---
 
+## Route chunking and navigation feedback
+
+Every screen below `AppShell` is a lazily-loaded chunk, and the initial-bundle
+budgets in [angular.json](angular.json) exist to keep it that way. The rules for
+what may and may not join the initial download — and why three.js, Monaco and
+`marked` each ended up there — are in
+[AGENTS.md](../AGENTS.md#bundle-chunking--what-may-sit-in-the-initial-download).
+The short version: **anything routed uses `loadComponent`**, and a root-provided
+service's imports are initial-bundle imports.
+
+Two pieces keep splitting from turning into waiting:
+
+```mermaid
+flowchart LR
+    router["Router events"]
+    prog["NavigationProgress\n(when to speak)"]
+    bar["RouteProgress\nhairline"]
+    rails["Nav rail ·\nSettings sub-nav"]
+    banner["Update banner"]
+    idle["IdleRoutePreload"]
+
+    router --> prog
+    prog --> bar
+    prog --> rails
+    prog -->|chunk fetch failed| banner
+    idle -.->|warms chunks so\nmost clicks never wait| router
+```
+
+- [`IdleRoutePreload`](src/app/services/route-preload.ts) fetches lazy chunks
+  during `requestIdleCallback`, skipping Data Saver and 2G-class connections.
+- [`NavigationProgress`](src/app/services/navigation-progress.ts) is the single
+  source of truth for "a navigation is taking long enough to mention". It stays
+  silent below 120 ms so instant transitions never flash, marks the destination
+  rail item as pending, and turns a failed chunk fetch — the signature of a
+  redeploy under a long-lived tab — into the existing reload banner via
+  `AppVersion.reportStaleAssets()`.
+
+**Because preloading usually wins, the route bar is rarely seen — that is the
+intended outcome, not a broken feature.** It appears when a chunk is genuinely
+cold: a hard reload straight into a deep link, a slow connection, or a client
+where preloading was skipped.
+
+### The boot splash
+
+Route feedback cannot cover the *first* load, because Angular is the thing being
+waited for. That gap belongs to
+[index.html](src/index.html), which paints a logo, a progress bar and a label
+before a single byte of the bundle has run, and tears itself down from
+[main.ts](src/main.ts) once the app is on screen.
+
+- **It has to be inline.** A splash component ships inside the bundle it is
+  meant to cover, so it could only appear once the wait was already over. Same
+  reason its colours are literals rather than design tokens — the stylesheet
+  carrying those tokens is part of what is still loading. Keep them in step with
+  `--accent` and `--color-bg-primary` by hand.
+- **The logo arrives in two stages, and neither is animated.** A ~700-byte WebP
+  is embedded in the document as base64, so it paints with the HTML at no
+  request cost; `public/splash-logo.webp` (240 px, 22 kB) then cross-fades over
+  it. Progressive JPEG, the usual answer for "rough now, sharp later", is not
+  available: the logo is RGBA and JPEG has no alpha channel. Neither WebP nor
+  AVIF decodes progressively, so the refinement is staged explicitly — which is
+  faster anyway, since a progressive format's first pass still costs a round
+  trip and an inlined placeholder costs none. Regenerate both with
+  `pnpm run splash-logo`; never hand-edit the base64.
+- **The progress bar is the only thing that animates.** It is real: the build
+  lists every initial chunk in the document as `<link rel="modulepreload">`, and
+  a `PerformanceObserver` reports each one as it lands, so the bar tracks actual
+  downloads instead of easing along a timer. Downloads map to 0–90 %; the last
+  tenth is parse + bootstrap, closed by `__nexusSplashDone()`.
+- **Survey the chunk list on every tick, never once at startup.** The build
+  appends those `modulepreload` links *after* this inline script, so a single
+  survey at parse time finds nothing and the bar never moves — which is exactly
+  how it was first written, and what measuring caught.
+- **The full-resolution logo is `rel="preload"`ed at high priority**, or it
+  queues behind the chunks and arrives after the splash it belongs to has gone.
+- Degrades quietly: with no `modulepreload` links (the dev server) or no
+  `PerformanceObserver`, the splash still covers the blank page and still
+  clears. If the app never boots at all, the label admits it after 30 s rather
+  than leaving a bar frozen mid-way.
+
+---
+
 ## Generated artifacts
 
 Anything under `src/generated/` is **regenerated, not edited**. Each file maps 1:1 to a Rust type or wasm-pack output, and any drift is treated as a bug in the generator, not in this folder.
@@ -311,6 +394,7 @@ Anything under `src/generated/` is **regenerated, not edited**. Each file maps 1
 | `src/generated/*.d.ts`      | Rust schemas via `slicer-engine gen-schemas`      | `pnpm run gen` (also runs on `install`) |
 | `src/generated/scene-wasm/` | `src/scene/wasm.rs` (`cfg(target_arch="wasm32")`) | `make build-wasm` at the repo root      |
 | `src/schemas/*.json`        | JSON Schema emitted by the Rust CLI               | `pnpm run gen-schemas`                  |
+| `public/splash-logo.webp` + the base64 blob in `src/index.html` | `public/logo_still@3x.png` | `pnpm run splash-logo` at the repo root |
 
 The `postinstall` script in [package.json](package.json) wires this up: cloning the repo and running `pnpm install` (with the WASM bundle already built) is enough to get a working dev environment.
 
@@ -361,7 +445,7 @@ The UI follows the project [`.editorconfig`](.editorconfig) and is formatted wit
 ## Tech stack
 
 - **Angular 21** — standalone components, signals, `provideRouter` with view transitions, zoneless-ready.
-- **Monaco Editor** — VS Code's editor component, lazy-loaded for the transmit-preview panel. Workers spawned via Blob URLs; no separate worker bundle entry point required.
+- **Monaco Editor** — VS Code's editor component, composed from its modular entry points so only the G-code and JSON languages ship, and deferred until an editor nears the viewport.
 - **three.js 0.184** — 3D viewer, custom camera/orbit controls (`viewer-control.ts`), `viewport-cube` orientation widget.
 - **Iconoir 7** — icon set.
 - **fuse.js 7** — fuzzy search inside settings/history.

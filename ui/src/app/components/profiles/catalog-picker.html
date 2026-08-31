@@ -14,6 +14,19 @@
     @if (loading() && entries().length > 0) {
       <span class="catalog__spinner catalog__spinner--inline" aria-hidden="true"></span>
     }
+
+    <a
+      nexusIconButton
+      size="sm"
+      class="catalog__github"
+      href="https://github.com/ColdCrabby/cloud-presets"
+      target="_blank"
+      rel="noopener noreferrer"
+      aria-label="Open the preset catalog repository on GitHub"
+      title="View catalog source on GitHub"
+    >
+      <nexus-icon name="github" />
+    </a>
   </div>
 
   @if (unavailable()) {

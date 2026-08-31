@@ -7,7 +7,7 @@ import {
   output,
   signal,
 } from '@angular/core';
-import { Icon } from '@coldcrabby/ui';
+import { Icon, IconButton } from '@coldcrabby/ui';
 
 /**
  * View-model for one catalog entry, decoupled from the concrete profile type so
@@ -43,7 +43,7 @@ const SEARCH_DEBOUNCE_MS = 250;
 @Component({
   selector: 'nexus-catalog-picker',
   standalone: true,
-  imports: [Icon],
+  imports: [Icon, IconButton],
   templateUrl: './catalog-picker.html',
   styleUrl: './catalog-picker.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,

@@ -185,6 +185,11 @@
   border-width: 2px;
 }
 
+.catalog__github {
+  flex: none;
+  color: var(--color-text-tertiary);
+}
+
 @keyframes catalog-spin {
   to {
     transform: rotate(360deg);

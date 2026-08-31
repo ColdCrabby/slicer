@@ -3,7 +3,6 @@ import { DOCUMENT } from '@angular/common';
 import { Router } from '@angular/router';
 import { firstValueFrom } from 'rxjs';
 import { environment } from '../../environments/environment';
-import { ChangelogList } from '../components/changelog/changelog-list';
 import { AppInfo, ChangelogEntry, SceneEngine } from './scene-engine';
 import { BrowserStorage } from './browser-storage';
 import { Dialog } from './dialog';
@@ -98,7 +97,8 @@ export class AppVersion {
    * Two independent detectors set this: {@link reportServerVersion} (cloud/WS
    * deployments, from the server's announced version) and
    * {@link checkDeployedVersion} (static/Pages deployments, from a published
-   * `version.json`). Either is sufficient.
+   * `version.json`). Either is sufficient. {@link reportStaleAssets} raises it
+   * a third way, from a chunk that could no longer be fetched.
    */
   readonly updateAvailable = signal(false);
 
@@ -188,8 +188,13 @@ export class AppVersion {
    * Where dialogs are drawn by the OS (iOS/iPadOS) a `UIAlertController` takes a
    * title and a message and nothing richer, so the changelog cannot live inside
    * it. There the prompt is a short native confirm that hands the user off to
-   * the settings page instead. Everywhere else the same {@link ChangelogList}
-   * the page uses is embedded directly in the dialog.
+   * the settings page instead. Everywhere else the same `ChangelogList` the page
+   * uses is embedded directly in the dialog.
+   *
+   * That component is imported *dynamically*. This service is `providedIn:
+   * 'root'` and constructed during startup, so a static import would make its
+   * markdown renderer part of the initial bundle for the sake of a dialog most
+   * sessions never see.
    */
   private async showWhatsNew(version: string): Promise<void> {
     if (this.dialog.usesNativeDialogs()) {
@@ -211,7 +216,10 @@ export class AppVersion {
       return;
     }
 
-    await this.loadChangelog();
+    const [{ ChangelogList }] = await Promise.all([
+      import('../components/changelog/changelog-list'),
+      this.loadChangelog(),
+    ]);
 
     this.dialog.alert({
       title: `What's New in ${version}`,
@@ -255,6 +263,27 @@ export class AppVersion {
       `Server is on ${serverVersion} but this UI is running ${running.version} — a reload is needed`,
     );
     this.serverVersion.set(serverVersion);
+    this.updateAvailable.set(true);
+  }
+
+  /**
+   * Flag this tab as running assets the server no longer serves.
+   *
+   * Called when a lazily-loaded chunk fails to arrive (see
+   * {@link NavigationProgress}). The bundle's hashed filenames are pinned at
+   * build time, so a redeploy under a long-lived tab leaves it asking for files
+   * that have been swept away — every screen it has not visited yet is
+   * unreachable until it reloads.
+   *
+   * No version is claimed here: the failure says the assets moved, not what
+   * they moved to, and the banner reads fine without one. Idempotent, so a user
+   * clicking through several broken links only ever sees one prompt.
+   */
+  reportStaleAssets(): void {
+    if (this.updateAvailable()) {
+      return;
+    }
+    this.log.info('An app chunk could no longer be fetched — prompting for a reload');
     this.updateAvailable.set(true);
   }
 

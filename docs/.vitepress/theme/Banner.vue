@@ -25,12 +25,13 @@
 
   box-sizing: border-box;
   height: var(--vp-layout-top-height);
-  padding: 0 24px;
+  padding: 0 var(--spacing-xl);
 
   background: var(--cc-banner-bg);
   color: var(--cc-banner-fg);
-  font-size: 13px;
-  font-weight: 500;
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-medium);
+  font-variation-settings: "wght" var(--font-weight-medium);
   line-height: 1.4;
   text-align: center;
 }
@@ -38,11 +39,12 @@
 .cc-banner-tag {
   flex: none;
   padding: 2px 8px;
-  border-radius: 10px;
+  border-radius: var(--radius-sm);
   background: rgb(0 0 0 / 0.18);
-  font-size: 11px;
+  font-size: var(--font-size-2xs);
   font-weight: 700;
-  letter-spacing: 0.02em;
+  font-variation-settings: "wght" 700;
+  letter-spacing: 0.04em;
   text-transform: uppercase;
 }
 
@@ -50,9 +52,9 @@
   .cc-banner {
     flex-direction: column;
     justify-content: center;
-    gap: 4px;
-    padding: 0 16px;
-    font-size: 12px;
+    gap: var(--spacing-xs);
+    padding: 0 var(--spacing-lg);
+    font-size: var(--font-size-xs);
   }
 }
 </style>

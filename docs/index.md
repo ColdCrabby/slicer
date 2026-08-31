@@ -18,9 +18,6 @@ hero:
     - theme: alt
       text: For teams
       link: /teams/
-    - theme: alt
-      text: GitHub
-      link: https://github.com/max-scopp/slicer-engine
 
 features:
   - title: Nothing to install

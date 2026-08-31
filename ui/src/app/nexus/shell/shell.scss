@@ -12,6 +12,9 @@
   flex: 1 1 auto;
   min-height: 0;
   display: flex;
+  // Anchors the route-progress hairline, which overlays the top edge of the
+  // work area (below the titlebar) without taking a row of its own.
+  position: relative;
 }
 
 .shell-content-area {

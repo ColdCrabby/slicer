@@ -432,7 +432,11 @@ export class Viewer {
       if (!req) {
         return;
       }
-      this.scene?.animateToDirection(req.direction, req.up, req.autoOrtho);
+      this.scene?.animateToDirection(
+        new Vector3(req.direction.x, req.direction.y, req.direction.z),
+        new Vector3(req.up.x, req.up.y, req.up.z),
+        req.autoOrtho,
+      );
     });
     // React to roll requests (viewport-cube roll buttons).
     effect(() => {
@@ -865,11 +869,16 @@ export class Viewer {
     this.lastAntialiasing = this.viewerControl.antialiasing();
     // Mirror the live camera direction/up into ViewerControl so external
     // overlays (the viewport-cube gizmo) can read it without going through
-    // Angular's change-detection.
+    // Angular's change-detection. Copied component-wise because ViewerControl
+    // deliberately holds plain vectors, not three's — see its `Vec3`.
     const state = this.viewerControl.cameraState;
     this.scene.cameraStateSink = (dir, up, fov) => {
-      state.direction.copy(dir);
-      state.up.copy(up);
+      state.direction.x = dir.x;
+      state.direction.y = dir.y;
+      state.direction.z = dir.z;
+      state.up.x = up.x;
+      state.up.y = up.y;
+      state.up.z = up.z;
       state.fov = fov;
     };
     this.scene.fpsSink = (fps, delayMs) => {

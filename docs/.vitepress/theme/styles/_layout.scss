@@ -1,0 +1,208 @@
+/// App chrome — nav, sidebar, aside, footer.
+/// @group docs-theme
+///
+/// The rule this file exists to enforce: **structural chrome is separated by
+/// surface tone, not by lines.** The nav and sidebar sit on the canvas
+/// (`--color-bg-primary`), the content column on the reading surface
+/// (`--color-bg-secondary`), and the boundary between them is the tone change
+/// itself. Every hairline VitePress draws around that chrome is removed here.
+
+/* ── Nav bar ──────────────────────────────────────────────────────────── */
+.VPNavBar,
+.VPNavBar.has-sidebar .content-body,
+.VPNavBar:not(.home.top) {
+  border-bottom: none;
+  background-color: var(--vp-nav-bg-color);
+}
+
+.VPNavBar .divider,
+.VPNavBar .divider-line,
+.VPNavBar.has-sidebar .divider {
+  display: none;
+}
+
+.VPNavBar .title {
+  border-bottom: none;
+}
+
+.VPNavBarTitle .title {
+  font-size: var(--font-size-lg);
+  letter-spacing: -0.01em;
+}
+
+.VPNavBarTitle .logo {
+  height: 26px;
+  margin-right: var(--spacing-sm);
+}
+
+/* The search trigger is a control, so it reads as one: the `secondary`
+   button recipe — a surface, a real border, a hairline shadow. */
+.VPNavBarSearch .DocSearch-Button {
+  height: 32px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+  box-shadow: var(--shadow-xs);
+  transition:
+    background-color var(--duration-fast) var(--ease-standard),
+    border-color var(--duration-fast) var(--ease-standard);
+
+  &:hover {
+    background: var(--color-surface-hover);
+  }
+
+  /* DocSearch's own `.DocSearch-Button:focus` outranks the global focus rule
+     and would drop the browser's default ring on the most prominent control
+     in the nav. */
+  &:focus-visible {
+    outline: 2px solid var(--color-focus-ring);
+    outline-offset: 1px;
+  }
+}
+
+.VPNavBarSearch .DocSearch-Button-Key {
+  border-radius: var(--radius-sm);
+  background: var(--color-bg-tertiary);
+  box-shadow: none;
+  color: var(--color-text-tertiary);
+  font-family: var(--font-family-mono);
+  font-size: var(--font-size-2xs);
+}
+
+/* ── Local nav (the mobile "On this page" bar) ────────────────────────── */
+.VPLocalNav {
+  border-bottom: 1px solid var(--color-border-light);
+  background-color: var(--vp-local-nav-bg-color);
+}
+
+/* ── Sidebar ──────────────────────────────────────────────────────────── */
+.VPSidebar {
+  padding-top: var(--spacing-lg);
+}
+
+.VPSidebar .group + .group {
+  border-top: none;
+  margin-top: var(--spacing-xl);
+  padding-top: 0;
+}
+
+/* Section titles are a quiet label, not a second heading level. */
+.VPSidebarItem.level-0 > .item > .text {
+  color: var(--color-text-tertiary);
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-semibold);
+  font-variation-settings: "wght" var(--font-weight-semibold);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+/* Leaf links behave like rows in the app's own lists: a ghost hover, an
+   `--accent-soft` fill when selected. The colour-only active state VitePress
+   ships is easy to lose against a wall of links. */
+.VPSidebarItem.is-link > .item {
+  margin-inline: calc(var(--spacing-sm) * -1);
+  padding-inline: var(--spacing-sm);
+  border-radius: var(--radius-md);
+  transition: background-color var(--duration-fast) var(--ease-standard);
+}
+
+.VPSidebarItem.is-link:hover > .item {
+  background: var(--color-surface-hover);
+}
+
+.VPSidebarItem.is-link.is-active > .item {
+  background: var(--accent-soft);
+}
+
+.VPSidebarItem.is-link.is-active > .item > .indicator {
+  background-color: transparent;
+}
+
+.VPSidebarItem .link .text {
+  transition: color var(--duration-fast) var(--ease-standard);
+}
+
+/* ── Aside / outline ──────────────────────────────────────────────────── */
+.VPDocAsideOutline .content {
+  border-left-color: var(--color-border-light);
+}
+
+.VPDocOutlineItem .outline-link {
+  transition: color var(--duration-fast) var(--ease-standard);
+
+  &.active {
+    color: var(--vp-c-brand-1);
+    font-weight: var(--font-weight-medium);
+    font-variation-settings: "wght" var(--font-weight-medium);
+  }
+}
+
+.VPDocAside .outline-title {
+  color: var(--color-text-tertiary);
+  font-size: var(--font-size-xs);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+/* ── Doc footer ───────────────────────────────────────────────────────── */
+.VPDoc .VPDocFooter {
+  border-top: none;
+}
+
+.VPDocFooter .prev-next {
+  border-top: 1px solid var(--color-border-light);
+}
+
+/* Prev/next are islands on the reading surface: a tone shift and a radius,
+   no outline. */
+.VPDocFooter .pager-link {
+  border: none;
+  border-radius: var(--radius-lg);
+  background: var(--color-bg-primary);
+  transition:
+    background-color var(--duration-fast) var(--ease-standard),
+    transform var(--duration-fast) var(--ease-standard);
+
+  &:hover {
+    background: var(--color-bg-tertiary);
+
+    .title {
+      color: var(--vp-c-brand-1);
+    }
+  }
+}
+
+.VPDocFooter .pager-link .desc {
+  color: var(--color-text-tertiary);
+  font-size: var(--font-size-xs);
+}
+
+.VPDocFooter .edit-info .edit-link-button,
+.VPDocFooter .edit-info .last-updated {
+  color: var(--color-text-tertiary);
+  font-size: var(--font-size-sm);
+}
+
+/* ── Flyouts and menus ────────────────────────────────────────────────── */
+.VPMenu {
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  background: var(--color-surface);
+  box-shadow: var(--shadow-md);
+}
+
+.VPMenuLink .link,
+.VPMenuGroup .VPMenuLink .link {
+  border-radius: var(--radius-md);
+  transition: background-color var(--duration-fast) var(--ease-standard);
+
+  &:hover {
+    background: var(--color-surface-hover);
+  }
+}
+
+/* ── Footer ───────────────────────────────────────────────────────────── */
+.VPFooter {
+  border-top: none;
+  background-color: var(--color-bg-primary);
+}

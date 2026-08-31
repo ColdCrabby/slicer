@@ -61,7 +61,14 @@
 .tb-status {
   display: inline-flex;
   align-items: center;
+  gap: var(--spacing-xs);
   margin-right: var(--spacing-sm);
+}
+
+.tb-github,
+.tb-catalog,
+.tb-sponsor {
+  color: var(--color-text-secondary);
 }
 
 .tb-spacer {

@@ -32,6 +32,7 @@ All in [`ui/public/`](https://github.com/max-scopp/slicer-engine/tree/main/ui/pu
 | `logo.png`, `logo@2x.png`, `logo@3x.png` | The animated mark |
 | `logo_still.png`, `logo_still@2x.png`, `logo_still@3x.png` | The static mark, used in the app's own chrome |
 | `logo_source.png` | The 1024² master everything else is cut from |
+| `splash-logo.webp` | The boot splash's mark — generated, see below |
 | `apple-touch-icon.png`, `favicon*` | Web and home-screen icons |
 
 **Application icons are generated, never hand-edited.** One master —
@@ -39,29 +40,55 @@ All in [`ui/public/`](https://github.com/max-scopp/slicer-engine/tree/main/ui/pu
 platform via `pnpm run icons`. If an icon looks wrong, fix the master and
 regenerate.
 
+**The boot splash's logo is generated too**, from `logo_still@3x.png` via
+`pnpm run splash-logo` (needs `brew install webp`). It emits two things: the
+`splash-logo.webp` asset, and a tiny base64 stand-in embedded directly in
+`ui/src/index.html` that shows before any request completes. Never hand-edit
+that blob — change the artwork and regenerate.
+
 ## Colour
 
-The default accent is **molten amber**.
+The default accent is **molten amber**. It lightens a little in dark mode so it
+stays legible on graphite — the chip below is whichever you're reading in right
+now, read straight off this page's own theme.
 
-| | Light | Dark |
-| --- | --- | --- |
-| Accent | `#e0730f` | `#f5883a` |
+<Swatches :items="[{ name: 'Molten Amber', value: 'var(--accent)', note: 'Default accent' }]" />
 
 Five alternates ship alongside it, and users can pick any colour they like:
 
-| | |
-| --- | --- |
-| Teal | `#0d8f86` |
-| Indigo | `#5b62e0` |
-| Violet | `#7c5cff` |
-| Rose | `#e0568b` |
-| Forest | `#3f9d5a` |
+<Swatches :items="[
+  { name: 'Teal', value: '#0d8f86' },
+  { name: 'Indigo', value: '#5b62e0' },
+  { name: 'Violet', value: '#7c5cff' },
+  { name: 'Rose', value: '#e0568b' },
+  { name: 'Forest', value: '#3f9d5a' }
+]" />
 
 On macOS and Windows the app can inherit the **system accent** instead. That's
 not a compromise — it's the intent. See below.
 
-Everything else is neutral: near-white surfaces in light mode, deep graphite in
-dark. Models render in neutral grey unless you turn on filament colouring.
+Everything else is neutral: warm graphite, near-white in light mode and deep in
+dark. These are the surfaces the app is built from, and the ones this page is
+drawn on.
+
+<Swatches :items="[
+  { name: 'Canvas', value: 'var(--color-bg-primary)' },
+  { name: 'Surface', value: 'var(--color-surface)' },
+  { name: 'Border', value: 'var(--color-border)' },
+  { name: 'Text', value: 'var(--color-text-primary)' },
+  { name: 'Muted text', value: 'var(--color-text-secondary)' }
+]" />
+
+Three more carry meaning, and only meaning — a green that says something worked,
+an amber that says check this, a red that says this will destroy something:
+
+<Swatches :items="[
+  { name: 'Success', value: 'var(--color-success)' },
+  { name: 'Warning', value: 'var(--color-warning)' },
+  { name: 'Danger', value: 'var(--color-danger)' }
+]" />
+
+Models render in neutral grey unless you turn on filament colouring.
 
 ## The design language
 

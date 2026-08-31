@@ -8,6 +8,7 @@ import {
 } from '@angular/core';
 import { RouterLink, RouterLinkActive, RouterOutlet } from '@angular/router';
 import { resolveRuntimeMode } from '../../runtime/domain/runtime-mode.util';
+import { NavigationProgress } from '../../services/navigation-progress';
 import { SAVE_DEBOUNCE_MS } from '../../services/profiles/engine-write-through';
 import { ProfileSync, type ProfileSyncStatus } from '../../services/profiles/profile-sync';
 import { Icon } from '@coldcrabby/ui';
@@ -39,6 +40,7 @@ type StorageMode = 'device' | 'server' | 'browser';
 })
 export class SettingsShell {
   private readonly profileSync = inject(ProfileSync);
+  private readonly navigation = inject(NavigationProgress);
 
   protected readonly sections: SettingsSection[] = [
     { path: 'general', label: 'General', icon: 'control-slider' },
@@ -84,6 +86,17 @@ export class SettingsShell {
 
   /** True when the shown status is an error, for the danger styling. */
   protected readonly syncIsError = computed(() => this.shownStatus() === 'error');
+
+  /**
+   * Whether this section is the one currently being loaded.
+   *
+   * Every settings section is its own lazy chunk, so the first visit to one can
+   * involve a fetch. `path` is relative to `/settings`, matching the template's
+   * `routerLink`.
+   */
+  protected isPending(path: string): boolean {
+    return this.navigation.isPendingUnder(`/settings/${path}`);
+  }
 
   constructor() {
     effect((onCleanup) => {

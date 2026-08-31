@@ -51,6 +51,12 @@ worktree or teammate already running on this host. **Never hardcode 4213/5201.**
 - **iOS is the one fixed-port flow.** `pnpm run ios:dev` uses the port pinned in
   `tauri.conf.json` because the generated Xcode project builds against it. If it
   is busy, that is the one case worth sorting out by hand.
+- **Fresh workspace? Hydrate before anything else.** If `ui/src/generated/`
+  (or `ui/src/generated/scene-wasm/`) is missing — a brand-new clone, or after
+  `pnpm install` alone — every platform's UI build fails with `Cannot find
+  module '../../generated/scene-wasm/scene_engine'`. Run `pnpm install &&
+  pnpm run hydrate` (or `hydrate:web-slicer` for the wasm browser slicer) once,
+  first, before starting any dev server.
 - **Rebuild first when the change isn't live yet.** Wasm changes need
   `hydrate:web-slicer` (or `build:wasm`); a backend change needs the launcher
   restarted so `cargo run` picks it up. Make that the first thing you do, not a

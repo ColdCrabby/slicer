@@ -79,6 +79,48 @@
   letter-spacing: 0.01em;
 }
 
+// The pending state overlays the icon rather than replacing it, so a rail item
+// never changes size mid-navigation — the icon stays exactly where it was and
+// the ring is drawn around it.
+.rail-icon {
+  position: relative;
+  display: grid;
+  place-items: center;
+  inline-size: var(--icon-size);
+  block-size: var(--icon-size);
+}
+
+.rail-item.is-pending {
+  color: var(--accent);
+
+  .rail-icon nexus-icon {
+    opacity: 0.35;
+  }
+}
+
+.rail-spinner {
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  border: 2px solid var(--accent-softer);
+  border-top-color: var(--accent);
+  animation: rail-spinner-spin 0.7s linear infinite;
+}
+
+@keyframes rail-spinner-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+// No spin when motion is unwelcome: a static ring plus the dimmed icon still
+// reads unambiguously as "this one is loading".
+@media (prefers-reduced-motion: reduce) {
+  .rail-spinner {
+    animation: none;
+  }
+}
+
 // ── Phone: a bottom tab bar ───────────────────────────────────────────────
 //
 // The shell reverses its row into a column on phones (shell.scss), which drops
