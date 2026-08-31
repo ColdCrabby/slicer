@@ -1,0 +1,215 @@
+/// Prose — headings, tables, code, and the rest of the reading column.
+/// @group docs-theme
+
+.vp-doc {
+  h1,
+  h2,
+  h3,
+  h4 {
+    letter-spacing: -0.011em;
+  }
+
+  h1 {
+    font-size: var(--font-size-3xl);
+    line-height: var(--line-height-tight);
+  }
+
+  h2 {
+    /* Spacing does the separating; the rule is a whisper, not a divider. */
+    margin-top: 44px;
+    padding-top: 22px;
+    border-top: 1px solid var(--color-border-lighter);
+    font-size: var(--font-size-2xl);
+    letter-spacing: -0.014em;
+  }
+
+  h3 {
+    margin-top: 30px;
+    font-size: var(--font-size-xl);
+  }
+
+  h4 {
+    font-size: var(--font-size-lg);
+  }
+
+  p,
+  li {
+    color: var(--color-text-secondary);
+  }
+
+  a {
+    font-weight: var(--font-weight-medium);
+    font-variation-settings: "wght" var(--font-weight-medium);
+    text-decoration: none;
+    text-underline-offset: 3px;
+    transition: color var(--duration-fast) var(--ease-standard);
+
+    &:hover {
+      color: var(--vp-c-brand-2);
+      text-decoration: underline;
+      text-decoration-color: var(--accent-border);
+    }
+  }
+
+  hr {
+    border-top-color: var(--color-border-lighter);
+  }
+
+  /* ── Inline code ────────────────────────────────────────────────────
+     Also carries every keyboard shortcut in the docs, so it has to read as
+     a discrete chip at a glance. */
+  code {
+    padding: 2px 6px;
+    border-radius: var(--radius-sm);
+    font-size: var(--font-size-sm);
+    font-variation-settings: "wght" var(--font-weight-mono-emphasis);
+  }
+
+  a > code {
+    color: var(--vp-c-brand-1);
+  }
+
+  /* ── Code blocks ────────────────────────────────────────────────────
+     Islands on the reading surface: a tone shift and a radius, no outline. */
+  div[class*="language-"] {
+    border-radius: var(--radius-lg);
+    background-color: var(--vp-code-block-bg);
+  }
+
+  div[class*="language-"] > span.lang {
+    font-family: var(--font-family-mono);
+    font-size: var(--font-size-2xs);
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+  }
+
+  [class*="language-"] pre {
+    font-variation-settings: "wght" var(--font-weight-mono-normal);
+  }
+
+  .vp-code-group .tabs {
+    border-radius: var(--radius-lg) var(--radius-lg) 0 0;
+    box-shadow: none;
+  }
+
+  /* ── Tables ─────────────────────────────────────────────────────────
+     The docs lean on tables for catalogs of settings, formats and keys.
+     VitePress boxes every cell, which turns a reference table into a grid
+     of little boxes. Rules between rows are enough; the header earns the
+     one solid line on the page. */
+  table {
+    display: table;
+    width: 100%;
+    margin: var(--spacing-xl) 0;
+    border-collapse: collapse;
+    font-size: var(--font-size-sm);
+  }
+
+  th,
+  td {
+    padding: 10px var(--spacing-md);
+    border: none;
+    border-bottom: 1px solid var(--color-border-lighter);
+    text-align: left;
+    vertical-align: top;
+  }
+
+  th {
+    border-bottom: 1px solid var(--color-border);
+    background: transparent;
+    color: var(--color-text-tertiary);
+    font-size: var(--font-size-xs);
+    font-weight: var(--font-weight-semibold);
+    font-variation-settings: "wght" var(--font-weight-semibold);
+    letter-spacing: 0.03em;
+    text-transform: uppercase;
+    white-space: nowrap;
+  }
+
+  td {
+    color: var(--color-text-secondary);
+  }
+
+  /* No zebra striping — the row rules already separate them, and the tint
+     fights every inline code chip sitting in the cell. */
+  tr,
+  tr:nth-child(2n) {
+    background-color: transparent;
+    border-top: none;
+    transition: background-color var(--duration-fast) var(--ease-standard);
+  }
+
+  tbody tr:hover,
+  tbody tr:nth-child(2n):hover {
+    background-color: var(--color-surface-hover);
+  }
+
+  tbody tr:last-child td {
+    border-bottom: none;
+  }
+
+  th:first-child,
+  td:first-child {
+    padding-left: 0;
+  }
+
+  th:last-child,
+  td:last-child {
+    padding-right: 0;
+  }
+
+  /* ── Quotes ─────────────────────────────────────────────────────────*/
+  blockquote {
+    border-left: 2px solid var(--accent-border);
+    padding-left: var(--spacing-lg);
+
+    > p {
+      color: var(--color-text-tertiary);
+      font-size: var(--font-size-md);
+    }
+  }
+
+  /* ── Images ─────────────────────────────────────────────────────────*/
+  img {
+    border-radius: var(--radius-lg);
+  }
+
+  /* ── Mermaid ────────────────────────────────────────────────────────
+     Diagrams are a figure, not a code block — sit them on the canvas so
+     they separate from the prose the same way a card does. */
+  .mermaid {
+    margin: var(--spacing-xl) 0;
+    padding: var(--spacing-lg);
+    border-radius: var(--radius-lg);
+    background: var(--color-bg-primary);
+    text-align: center;
+  }
+}
+
+/* ── "Rendered from…" note on generated wrapper pages ────────────────────
+   Every contributor page is a thin shell around a README that lives in the
+   repository (see `writeWrapper` in `.vitepress/config.ts`). The note says
+   where to edit it, so it belongs above the title as quiet metadata — not as
+   a callout competing with the page's own first sentence. */
+.vp-doc .doc-source {
+  margin-bottom: var(--spacing-xl);
+  color: var(--color-text-tertiary);
+  font-size: var(--font-size-xs);
+
+  code {
+    padding: 1px 5px;
+    background: var(--color-surface-alt);
+    color: inherit;
+    font-size: var(--font-size-2xs);
+  }
+
+  a {
+    color: inherit;
+    font-weight: var(--font-weight-normal);
+    font-variation-settings: "wght" var(--font-weight-normal);
+
+    &:hover {
+      color: var(--vp-c-brand-1);
+    }
+  }
+}
