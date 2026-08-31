@@ -17,22 +17,44 @@ Start the pieces the chosen platform needs as **background/detached** processes,
 then hand the user the access details. Never block or poll waiting on a dev
 server — start it, do a quick liveness check, and move on.
 
-| Platform            | Start (background)                                                                     | Give the user            |
-| ------------------- | ------------------------------------------------------------------------------------- | ------------------------ |
-| Remote + web        | `cargo run -- serve` (backend, :5201) **and** `pnpm run ui:dev` (:4213)                | **http://localhost:4213** |
-| Wasm browser slicer | `pnpm run hydrate:web-slicer` first, then `pnpm run ui:dev:web-slicer` (:4213)         | **http://localhost:4213** (no backend) |
-| Tauri desktop       | `pnpm run desktop:dev`                                                                 | The app window opens — no URL |
-| iOS / iPadOS        | `pnpm run ios:dev`                                                                     | The iPad simulator opens — no URL |
-| CLI                 | Nothing to serve — give the exact command to run                                      | The command line          |
+**Every dev server runs on a random seed.** `pnpm run dev` rolls a three-digit
+seed (200–999) and derives every port from it — UI on `4<seed>`, engine on
+`5<seed>`, work directory `slicer-engine-dev-<seed>` — then checks they are
+free. That is what keeps this session off the ports of the other checkout,
+worktree or teammate already running on this host. **Never hardcode 4213/5201.**
 
-- **Reuse, don't stack.** If a dev server is already up on that port, say so and
-  reuse it instead of starting a second.
+| Platform            | Start (background)                                                              | Give the user                          |
+| ------------------- | ------------------------------------------------------------------------------- | -------------------------------------- |
+| Remote + web        | `pnpm run dev`                                                                  | **http://localhost:4\<seed\>/**        |
+| Wasm browser slicer | `pnpm run hydrate:web-slicer` first, then `pnpm run dev:web-slicer`             | **http://localhost:4\<seed\>/** (no backend) |
+| Tauri desktop       | `pnpm run dev:desktop`                                                          | The app window opens — no URL          |
+| iOS / iPadOS        | `pnpm run ios:dev`                                                              | The iPad simulator opens — no URL      |
+| CLI                 | Nothing to serve — give the exact command to run                                | The command line                       |
+
+- **Read the seed back, don't guess it.** The launcher prints its banner first:
+
+  ```
+  Seed 742
+    UI      http://localhost:4742/   <- open this
+    Engine  http://127.0.0.1:5742/  (proxied at /api and /ws)
+  ```
+
+  Give the user **that** URL. `node scripts/dev.mjs --print` resolves a free
+  seed and prints the ports as JSON without starting anything, and
+  `pnpm run dev -- --seed 742` pins one when you need it stable across restarts.
+- **One URL is all they need.** The dev server proxies `/api` and `/ws` to the
+  engine, so the engine's port is an internal detail — never ask the user to
+  open it.
+- **Reuse your own, never someone else's.** If *this* session already has a
+  stack up, reuse it. A server on some other port belongs to another instance —
+  leave it alone and roll a fresh seed instead of killing it.
+- **iOS is the one fixed-port flow.** `pnpm run ios:dev` uses the port pinned in
+  `tauri.conf.json` because the generated Xcode project builds against it. If it
+  is busy, that is the one case worth sorting out by hand.
 - **Rebuild first when the change isn't live yet.** Wasm changes need
-  `hydrate:web-slicer` (or `build:wasm`); a backend change needs the `serve`
-  process (re)started. Make that the first thing you do, not a checklist bullet.
-- **Report the real access detail.** On web, the UI dev server is on **:4213**
-  and talks to the backend on **:5201** — the user opens :4213. On desktop/iOS
-  the shell opens its own window, so there's no URL to give.
+  `hydrate:web-slicer` (or `build:wasm`); a backend change needs the launcher
+  restarted so `cargo run` picks it up. Make that the first thing you do, not a
+  checklist bullet.
 - Keep the startup note to a line or two, then go straight to the checklist.
 
 ## Write the checklist

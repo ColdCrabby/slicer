@@ -6,6 +6,9 @@
   "scripts": {
     "hydrate": "pnpm run build:wasm && pnpm run gen",
     "hydrate:web-slicer": "pnpm run build:wasm:web-slicer && pnpm run gen",
+    "dev": "node scripts/dev.mjs",
+    "dev:web-slicer": "node scripts/dev.mjs --web-slicer",
+    "dev:desktop": "node scripts/dev.mjs --desktop",
     "ui:dev": "pnpm --filter slicer-ui start",
     "ui:dev:web-slicer": "pnpm --filter slicer-ui start:web-slicer",
     "ui:build": "pnpm --filter slicer-ui build",
