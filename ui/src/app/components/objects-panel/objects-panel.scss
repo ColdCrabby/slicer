@@ -20,6 +20,13 @@
   box-shadow: var(--shadow-md);
 
   animation: op-in var(--duration-fast) var(--ease-standard);
+
+  // Folded, this is just a label: let it shrink to the words. Not scoped to
+  // phones — the panel folds on any compact viewport, and a tablet holding a
+  // 232px-wide chip with one word in it is the thing folding was meant to fix.
+  &.is-collapsed {
+    width: auto;
+  }
 }
 
 @keyframes op-in {
@@ -246,11 +253,6 @@
   .objects-panel {
     width: min(74vw, 232px);
     padding: var(--spacing-xs) var(--spacing-sm);
-  }
-
-  .objects-panel.is-collapsed {
-    // Folded, this is just a label: let it shrink to the words.
-    width: auto;
   }
 
   .op-list {

@@ -2,8 +2,10 @@ import {
   ChangeDetectionStrategy,
   Component,
   computed,
+  effect,
   inject,
   signal,
+  untracked,
   viewChild,
 } from '@angular/core';
 import type { ElementRef } from '@angular/core';
@@ -13,6 +15,7 @@ import { GcodePreview } from '../../services/gcode-preview';
 import { HistoryControlsPreference } from '../../services/history-controls-preference';
 import { KeyboardShortcuts } from '../../services/keyboard-shortcuts/keyboard-shortcuts';
 import { NotificationService } from '../../services/notifications';
+import { SceneEngine } from '../../services/scene-engine';
 import { SceneHistory } from '../../services/scene-history/scene-history';
 import { Slicer } from '../../services/slicer';
 import { ViewerControl } from '../../services/viewer-control';
@@ -54,6 +57,7 @@ export class ThreeDViewToolbar {
   private readonly arrange = inject(Arrange);
   private readonly history = inject(SceneHistory);
   private readonly viewport = inject(Viewport);
+  private readonly sceneEngine = inject(SceneEngine);
   protected readonly historyControls = inject(HistoryControlsPreference);
   protected readonly keyboardShortcuts = inject(KeyboardShortcuts);
 
@@ -83,6 +87,40 @@ export class ThreeDViewToolbar {
    * cannot see — the same reason the objects list hides.
    */
   protected readonly editingPlate = computed(() => this.viewMode() === 'model');
+
+  /** Whether taps add to the selection instead of replacing it. */
+  protected readonly multiSelect = this.viewerControl.additiveSelection;
+
+  /**
+   * Whether to offer the multi-select toggle.
+   *
+   * A mouse already has ⌘/Ctrl-click, so the button would be redundant chrome
+   * there; a finger and a pencil have no modifier at all, which is what used to
+   * make the objects list the only way to select a batch. Pointless with fewer
+   * than two objects on the plate, so it only appears once there is something
+   * to add to.
+   */
+  protected readonly showMultiSelect = computed(
+    () =>
+      this.editingPlate() &&
+      this.viewport.isCoarsePointer() &&
+      this.sceneEngine.objects().length > 1,
+  );
+
+  protected toggleMultiSelect(): void {
+    this.multiSelect.update((on) => !on);
+  }
+
+  constructor() {
+    // Never leave the mode on with no control to turn it off — dropping to one
+    // object, or switching to G-code preview, would otherwise strand an
+    // invisible setting that quietly changes what the next tap does.
+    effect(() => {
+      if (!this.showMultiSelect() && untracked(this.multiSelect)) {
+        this.multiSelect.set(false);
+      }
+    });
+  }
 
   /**
    * Whether to show the on-canvas undo/redo buttons. They exist for

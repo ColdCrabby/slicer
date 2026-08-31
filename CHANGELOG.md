@@ -29,6 +29,15 @@ issue/PR numbers or repo links in the notes. See the tone rules in
 
 ### Fixed
 
+- **Tapping a model on a tablet now selects it** — two separate faults made touch
+  and Pencil selection fail. An invisible transform-gizmo hit area sat parked at
+  the centre of the bed whenever nothing was selected, and swallowed any tap that
+  landed on it; that check runs only for touch and pen, so a mouse never saw it.
+  Selection was also judged by a mouse-sized 4px tolerance, and a fingertip is a
+  ~10mm disc whose reported centre wanders as the skin flattens, so most real
+  taps were discarded as drags. Taps are now judged per pointer — 4px for a
+  mouse, 9 for a pen, 16 for a finger — and a hidden gizmo no longer intercepts
+  anything.
 - **Plates holding several models now slice correctly everywhere** — a workplate
   is a build plate, not a file, but only the hosted slicer treated it that way.
   The desktop app sliced every object out of the *first* model, so a second one
@@ -99,6 +108,18 @@ issue/PR numbers or repo links in the notes. See the tone rules in
   and the layer slider are now sized for a fingertip on every touch device rather
   than only on phones. The layer slider's grip went from 18px to 26px; scrubbing
   through layers on a tablet was the worst of it.
+- **A context menu on the plate** — right-click a model, or press and hold it on
+  a touch screen, for Duplicate, Drop to floor, Centre on bed and Remove, acting
+  on the whole selection when you have one. Holding empty bed offers select all,
+  clear, place objects and reset view.
+- **Multi-select for touch and pen** — a tool-cluster toggle that makes each tap
+  add or remove an object, standing in for the ⌘/Ctrl a tablet has no key for.
+  It appears once there are two objects to choose between, and turns itself off
+  when it can no longer be reached.
+- **Drag a selected model across the bed** — with a finger or a pen, select a
+  model and then drag it. Dragging anywhere else still orbits, so nothing moves
+  unless you picked it first. The move handles are also drawn larger on touch,
+  so a fingertip can pick one axis instead of all three.
 - **Phone layout** — the whole UI rearranges itself below 640px instead of
   overflowing. Navigation moves to a bottom tab bar, print settings become a
   drawer with a pull tab on the left edge, and Slice sits in a full-width sheet
@@ -139,6 +160,9 @@ issue/PR numbers or repo links in the notes. See the tone rules in
   labelled rows stack so a dropdown gets the full width, toasts move to the top
   of the screen (the bottom now belongs to the slice sheet), and the object list
   folds to a chip that still flags a part that cannot print.
+- **The object list remembers whether you folded it** — it starts folded on a
+  tablet or a narrow window, and unfolding it now sticks instead of resetting on
+  the next visit.
 - **Two controls are hidden on phones** — the viewport cube, which needs a drag
   it cannot receive, and the projection toggle and operation-pipeline inspector,
   which do not fit alongside the tools that get a model sliced. All three return

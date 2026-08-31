@@ -5,6 +5,12 @@ export interface SceneSelectionHandlers {
   select(id: string, additive: boolean): void;
   /** Click landed on empty space (deselect). */
   clearSelection(): void;
+  /**
+   * A context menu was asked for over the scene — a right-click, or the touch
+   * and pen long-press that stands in for one. `id` is the object under the
+   * pointer, or `null` when the press landed on empty bed.
+   */
+  contextMenu?(id: string | null, event: MouseEvent): void;
 }
 
 export interface SceneGizmoHandlers {

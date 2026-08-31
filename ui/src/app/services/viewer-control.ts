@@ -241,6 +241,17 @@ export class ViewerControl {
   readonly selectedObjectIds = signal<readonly bigint[]>([]);
 
   /**
+   * Whether a tap adds to the selection instead of replacing it.
+   *
+   * A mouse builds a multi-object selection by holding ⌘/Ctrl or Shift. Touch
+   * has no such key, so on a tablet a batch selection could only be assembled
+   * from the objects list — the thing this toggle exists to make unnecessary.
+   * It is offered on touch-primary devices and stays off elsewhere, where the
+   * modifier is faster and already familiar.
+   */
+  readonly additiveSelection = signal(false);
+
+  /**
    * Monotonically increasing counter that is bumped every time the user
    * asks the viewer to reset its camera. The viewer reacts to changes of
    * this signal — the value itself is irrelevant.

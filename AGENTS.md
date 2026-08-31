@@ -604,6 +604,76 @@ The layout contract (tab bar, drawer, bottom sheet, chip strip, the fold pattern
 is catalogued in [ui/README.md](ui/README.md#phones-and-tablets); the user-facing
 tour is in [docs/use/interface.md](docs/use/interface.md).
 
+## Touch and pen in the 3D viewport
+
+A tablet keeps the desktop layout but not the desktop pointer. Everything the
+viewport does about that lives in
+[scene/selection.ts](ui/src/app/components/viewer/scene/selection.ts), gated on
+`Viewport.isCoarsePointer()` rather than on size. The catalogue is in
+[ui/README.md](ui/README.md#touch-and-pen); the load-bearing rules:
+
+- **Tap tolerance is per pointer type** (`TAP_SLOP_PX`: mouse 4px, pen 9, touch
+  16). One mouse-sized threshold for all three is what made tapping a model on
+  an iPad do *nothing* — a fingertip is a ~10mm disc whose reported centre
+  wanders as the skin flattens, so most real taps drifted past 4px and were
+  discarded as drags, leaving the objects list as the only way to select
+  anything. Pinned by
+  [selection.spec.ts](ui/src/app/components/viewer/scene/selection.spec.ts).
+- **A tap resolves on the lift, never the press**, so a mis-aimed press can be
+  dragged off to cancel. That includes pull-to-floor, where the press only
+  *paints* the candidate face — there is no hover on touch to paint it earlier.
+- **Additive selection is a mode, not a modifier.** `ViewerControl.additiveSelection`
+  is offered from the tool cluster on touch-primary devices only, and the
+  toolbar clears it whenever the button is not shown, so the mode can never be
+  left on with no control to turn it off.
+- **Long-press is the right-click**, recognised in `SceneSelection` because iOS
+  never fires `contextmenu` for one. The gesture only *asks* — the viewer owns
+  what goes in the menu, via `SceneSelectionHandlers.contextMenu`. **Right-click
+  is driven off the mouse button's own press and release**, not the `contextmenu`
+  event: Windows raises that after the button comes up and macOS the moment it
+  goes down, so only the button's travel can separate a right *click* from the
+  right *drag* that pans the camera.
+- **Direct drag is deliberately narrow** — touch or pen, translate mode, and an
+  object that is *already selected*. Requiring a prior tap means a stray swipe
+  can never shove a model across the plate, and drag-to-orbit stays everywhere
+  else.
+- **The camera is shut out at `pointerdown`, and only for a press the drag will
+  claim.** At the target the DOM runs capture-flagged listeners before
+  non-capture ones **whatever the registration order** — OrbitControls listens
+  on the same canvas without capture, so a `stopPropagation()` from
+  `SceneSelection`'s capture handler stops it starting a rotate at all, and
+  there is nothing to wrestle it away from once the drag begins. Every *other*
+  press on a model is deliberately let through: dragging from a model the user
+  has not picked used to do nothing at all, which on a touch screen makes a dead
+  zone of most of the scene. Both directions are pinned by a bubble-phase probe
+  in the spec; break the invariant and the view spins under the dragged object.
+- **Never stop the lift.** Because only *some* presses are withheld, blocking a
+  `pointerup` strands OrbitControls mid-gesture in the ones it *was* let into —
+  its pointer-up handler is on the **document**, so a stop at the canvas reaches
+  it, and without it the pointer stays tracked, `state` never returns to `NONE`,
+  and the next button-less move orbits the view. On touch it is worse: the next
+  single finger reads as a second contact, and one-finger orbit stops working
+  entirely after the first tap on a model. The only stops that survive are on
+  `pointermove` inside a live drag, whose `pointerdown` was withheld too, so a
+  bubble consumer is absent for the whole gesture rather than half of it.
+- **A raycast hit is not a visible hit.** Three's `Raycaster` filters on
+  `layers` and **never on `visible`**, so hidden geometry reports hits like any
+  other. This is not academic: `GizmoManager.hitTest` — the touch/pen-only path
+  that asks "did this press land on a transform handle?" — raycasts
+  TransformControls' *pickers*, which are invisible-by-design shapes much larger
+  than the handles they stand for. A detached gizmo parks them at the origin,
+  i.e. the middle of the bed, so every tap near the centre of an empty plate was
+  swallowed as "on the gizmo" and **no model could be selected by touch or pen at
+  all** — the original iPad complaint, and invisible to a mouse, which reaches
+  `isHovering()` instead. Anything deciding "did the user touch this?" from a
+  raycast must apply visibility itself (`isVisibleWithin`), and check that the
+  gizmo is attached and enabled first. Pinned by
+  [gizmo.spec.ts](ui/src/app/components/viewer/gizmo.spec.ts), which also asserts
+  the three.js behaviour so a future release changing it is noticed.
+- **Palm rejection sits above all of it** ([pointer-arbiter.ts](ui/src/app/components/viewer/scene/pointer-arbiter.ts)),
+  on the host element in the capture phase, so a resting wrist never reaches
+  these handlers at all.
+
 ## Printer connectivity & G-code cache
 
 [src/printer/](src/printer/) is the **native-only** (`cfg(not(target_arch = "wasm32"))`)
@@ -1019,7 +1089,7 @@ accept more, so the UI keeps a strict split of responsibilities:
 - **Contextual tool cards hang off the tools that open them.** Both cards render inside [3d-view-toolbar.html](ui/src/app/components/3d-view-toolbar/3d-view-toolbar.html), in a `.tool-panels` column **absolutely positioned** under the `.tool-cluster` and centred on it, so they follow the buttons instead of sitting in a screen corner the user has to connect them to. Absolute positioning is what makes this safe: the toolbar's own `contentRect` height is unchanged, so the shell's `--main-scene-inset` (and with it the viewport-cube and slice rail) never shifts as cards appear — that invariant is why the transform card originally lived in the shell. The column stacks, so transform + placement can be open at once; the container is `pointer-events: none` so gaps stay click-through to the scene. The toolbar's own pill rules must keep their `:host ` prefix — `nexus-card` styles itself with `:host(.small){border-radius:var(--radius-md)}`, which a bare class selector ties on specificity and loses to on order, squaring off the pill.
 - **[`TransformPanel`](ui/src/app/components/transform-panel/transform-panel.ts) edits the whole selection, not one object.** It used to render nothing unless *exactly one* object was selected, which made a multi-object plate untransformable. Position edits apply as a **delta** off the selection's combined AABB centre (so a spread-out arrangement keeps its layout rather than collapsing onto one coordinate); rotation and scale are set **per object** about each one's own centre, and `setSize` measures each object's own AABB so a batch of different-sized parts all reach the requested size. A single-object selection is the exact previous behaviour — the anchor is then its own translation, so an edit is still an absolute set. The header shows `"N objects"` for a batch and **nothing** for one; it deliberately does not name the file (every duplicate shares a name, so it identified nothing).
 - **`preferred_orientation_deg` lives on the printer profile**, not in the plate preferences, because it describes the machine (CoreXY prints everything at 45°). Settings → Printers is the **only** editor; the placement popover shows it read-only and links there, so one machine's angle is never changed from a plate-scoped surface. It rides along inside `orient_options.preferred_z_rotation_deg` and is therefore **only applied when auto-orient runs** — the popover says so rather than showing a live-looking value that does nothing. The CLI's equivalent is `MachineConfig::preferred_print_rotation_deg`, fed in by `SliceCommand::arrange_options`.
-- **Plate-editing chrome hides in G-code preview.** The placement control, add-model button, gravity toggle, gizmo-mode group and objects list are all gated on `viewMode() === 'model'`, and the `A` shortcut matches only there. Preview shows toolpaths, so an edit made from it changes something the user cannot see change.
+- **Plate-editing chrome hides in G-code preview.** The placement control, add-model button, gravity toggle, multi-select toggle, gizmo-mode group and objects list are all gated on `viewMode() === 'model'`, and the `A` shortcut matches only there. Preview shows toolpaths, so an edit made from it changes something the user cannot see change. The scene's context menu is gated the same way.
 - **The viewer mirrors, it does not own.** `Viewer.syncWasmMeshes()` diffs `sceneEngine.objects()` against its Three.js nodes and adds/disposes to match, so an object created by *anyone* (add button, `Duplicate`, undo) renders without the viewer being told. Do not add a second place that constructs display meshes.
 - **`SlicerFile` holds a list, not a file.** `files` accumulates `{fileId, filename}`; `upload(file)` appends and attaches to the open workplate. `fetchFile` adopts a file as the *primary* displayed model (it sets `selectedFile`, which retargets the viewer's `model` input); additional objects must use **`downloadFile`**, which registers without touching `selectedFile` — otherwise restoring an N-object plate leaves only the last file on screen.
 - **`toSliceDtos`** ([scene-slice-dto.ts](ui/src/app/runtime/adapters/cloud/scene-slice-dto.ts)) resolves each object to its file via `source_id` and throws rather than guessing. It is a pure function with tests pinning the regression; keep the mapping there, not inline in the runtime adapter.
@@ -1816,5 +1886,5 @@ infill within the ring.
 
 ---
 
-**Last Updated**: 2026-08-31 (standalone iOS installs on a free Apple ID; docs site consumes the shared UI design tokens; UI bundle-chunking contract)  
+**Last Updated**: 2026-08-31 (touch, pen and the context menu in the 3D viewport; standalone iOS installs on a free Apple ID; docs site consumes the shared UI design tokens)  
 **Maintainer Guidance**: Keep this file in sync with project structure changes, new conventions, or significant architectural decisions.
