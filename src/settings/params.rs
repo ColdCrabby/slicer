@@ -1674,6 +1674,18 @@ Overrides the width used for sparse-infill paths and their `;TYPE:Sparse infill`
     pub sparse_infill_line_width: f64,
 
     #[schemars(
+        description = "Per-role support extrusion width in mm. `0` = derive from \
+`line_width` / nozzle diameter.
+
+Overrides the width used for support strands and their `;WIDTH:` annotations. Support is laid at
+`spacing / density`, so this sets the pitch and the flow together — a wider bead spends less time
+per unit area but is coarser to break off.",
+        extend("x-group" = "Support", "x-relevant-when" = serde_json::json!({"field": "support_enabled", "equals": true}))
+    )]
+    #[serde(default = "SlicingParams::default_role_line_width")]
+    pub support_line_width: f64,
+
+    #[schemars(
         description = "Retraction speed in **mm/min**.
 
 Convert from mm/s by multiplying by 60.
@@ -2310,6 +2322,7 @@ impl Default for SlicingParams {
             inner_wall_line_width: Self::default_role_line_width(),
             top_surface_line_width: Self::default_role_line_width(),
             sparse_infill_line_width: Self::default_role_line_width(),
+            support_line_width: Self::default_role_line_width(),
             retract_speed_mm_min: Self::default_retract_speed_mm_min(),
             flow_ratio: Self::default_flow_ratio(),
             nozzle_temp_first_layer: Self::default_nozzle_temp_first_layer(),

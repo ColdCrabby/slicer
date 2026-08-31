@@ -348,6 +348,10 @@ pub(crate) fn resolve_width_mm(
                 let nominal = crate::core::sparse_infill_nominal_width_mm(params);
                 return crate::core::extrusion_flow_spacing_mm(nominal, params.layer_height);
             }
+            ExtrusionRole::Support => {
+                let nominal = crate::core::support_nominal_width_mm(params);
+                return crate::core::extrusion_flow_spacing_mm(nominal, params.layer_height);
+            }
             _ => {}
         }
     }
@@ -365,6 +369,7 @@ pub(crate) fn resolve_width_mm(
             | ExtrusionRole::BottomSurface
             | ExtrusionRole::InternalSolid => params.top_surface_line_width,
             ExtrusionRole::Infill => params.sparse_infill_line_width,
+            ExtrusionRole::Support => params.support_line_width,
             _ => 0.0,
         };
         if role_override > 0.0 {

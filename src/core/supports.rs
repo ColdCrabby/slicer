@@ -71,6 +71,31 @@ const TREE_TRUNK_NOZZLE_MULT: f64 = 1.5;
 /// diameter.  Sparser than a grid column, so tree uses less material.
 const TREE_TIP_SPACING_NOZZLE_MULT: f64 = 6.0;
 
+/// Minimum length of an emitted support run, as a multiple of the nozzle
+/// diameter.  Mirrors the gap-fill splat filter: a run below this is an
+/// isolated dab that still costs a full retract → travel → un-retract to
+/// reach, and supports nothing at that size.  Tree clipping in particular
+/// leaves sub-bead trunk fragments against the model boundary.
+const SUPPORT_MIN_RUN_LEN_NOZZLE_MULT: f64 = 2.0;
+
+/// Total drawn length of a path, counting the closing segment when it is a
+/// closed loop.
+fn path_run_len(path: &Path, closed: bool) -> f64 {
+    let pts: Vec<(f64, f64)> = path.iter().map(|p| (p.x(), p.y())).collect();
+    if pts.len() < 2 {
+        return 0.0;
+    }
+    let mut total = 0.0;
+    for w in pts.windows(2) {
+        total += (w[1].0 - w[0].0).hypot(w[1].1 - w[0].1);
+    }
+    if closed {
+        let (a, b) = (pts[pts.len() - 1], pts[0]);
+        total += (b.0 - a.0).hypot(b.1 - a.1);
+    }
+    total
+}
+
 /// ── Clipper2 helpers with empty-input guards ──────────────────────────────
 ///
 /// Clipper2 boolean ops on an empty operand can throw; these wrappers keep the
@@ -119,12 +144,77 @@ fn filter_small(paths: &Paths, min_area_mm2: f64) -> Paths {
     )
 }
 
+/// Morphological close: dilate by `r`, then erode by `r`.
+///
+/// Welds sub-`r` gaps between neighbouring sub-paths shut while leaving the
+/// outer boundary where it was.  Note it cannot *widen* an isolated feature —
+/// only bridge the space between two of them.
+fn morphological_close(paths: &Paths, r: f64) -> Paths {
+    if paths.is_empty() || r <= 1e-9 {
+        return paths.clone();
+    }
+    let grown = poly_inflate(paths, r);
+    if grown.is_empty() {
+        return paths.clone();
+    }
+    let shrunk = poly_inflate(&grown, -r);
+    if shrunk.is_empty() {
+        paths.clone()
+    } else {
+        shrunk
+    }
+}
+
+/// Accumulate the per-layer contacts top-down into the region that needs
+/// support at each layer, **before** any model clearance is taken out.
+///
+/// A contact is only the *newly* exposed sliver at its layer
+/// (`footprint[i] − inflate(footprint[i−1], max_step)`), so down a continuous
+/// slope successive contacts are concentric rings separated by exactly
+/// `max_step`.  Accumulated verbatim they never touch: a 60° frustum produced
+/// 94 sub-paths about 0.1 mm wide — hairlines the fill scanline then discarded,
+/// which is why a plain 60° overhang came out with essentially no support at
+/// any threshold.
+///
+/// Closing the accumulation by just over half that gap welds the rings into the
+/// solid annulus between the model and the widest overhang above it, which is
+/// what the support body physically is.  The close only bridges *between*
+/// rings; it never pushes the outer boundary out, so the supported area is
+/// unchanged — only its connectivity is.
+fn accumulate_support_area(add_at: &[Paths], n: usize, close_r: f64) -> Vec<Paths> {
+    let mut acc = Paths::new(vec![]);
+    let mut out = vec![Paths::new(vec![]); n];
+    for i in (0..n).rev() {
+        if !add_at[i].is_empty() {
+            acc = poly_union(&acc, &add_at[i]);
+            acc = morphological_close(&acc, close_r);
+        }
+        out[i] = acc.clone();
+    }
+    out
+}
+
 /// Generate support structures for all layers, appending
 /// [`ExtrusionRole::Support`] paths in place.
 ///
+/// `pristine` is each layer's **un-split** `OuterWall` centreline outline,
+/// snapshotted by the pipeline before surface generation and overhang
+/// classification.  It is not an optimisation: `classify_overhang_perimeters`
+/// retags an overhanging wall as [`ExtrusionRole::OverhangPerimeter`] and
+/// splits the loop into open arcs, so by the time supports run a steep slope
+/// has **no** `OuterWall` paths left to read.  Deriving the footprint from the
+/// mutated layer therefore saw nothing on exactly the models that need support
+/// most — a 60° frustum reported 49 of 50 footprints empty and got no support
+/// at any threshold.  Pass `None` only when the layers have not been through
+/// that pass (unit tests build them directly).
+///
 /// A no-op when `support_enabled` is false or the model has fewer than two
 /// layers (nothing can overhang the bed on the first layer).
-pub fn generate_supports(layers: &mut [SliceLayer], params: &SlicingParams) {
+pub fn generate_supports(
+    layers: &mut [SliceLayer],
+    params: &SlicingParams,
+    pristine: Option<&[Paths]>,
+) {
     if !params.support_enabled {
         return;
     }
@@ -144,10 +234,12 @@ pub fn generate_supports(layers: &mut [SliceLayer], params: &SlicingParams) {
     let max_step = lh * angle.to_radians().tan() + OVERHANG_FACET_TOLERANCE_MM;
 
     // ── 1. Model footprint per layer (union of OuterWall contours) ──────────
-    let footprints: Vec<Paths> = layers
-        .iter()
-        .map(|layer| {
-            let outer = perimeter_paths_of(layer);
+    let footprints: Vec<Paths> = (0..n)
+        .map(|i| {
+            let outer = match pristine {
+                Some(snapshot) if i < snapshot.len() => snapshot[i].clone(),
+                _ => perimeter_paths_of(&layers[i]),
+            };
             if outer.is_empty() {
                 Paths::new(vec![])
             } else {
@@ -231,10 +323,30 @@ pub fn generate_supports(layers: &mut [SliceLayer], params: &SlicingParams) {
     let is_tree = params.support_type == SupportType::Tree;
     let iface = params.support_interface_layers;
 
+    // Weld the per-layer contact rings into a printable body before either
+    // style consumes them.  Half the inter-ring gap is the minimum that closes
+    // it; 0.6 leaves margin for the round-join approximation, and the nozzle
+    // floor covers a near-vertical threshold where `max_step` is tiny.
+    let close_r = (max_step * 0.6).max(ext_w * 0.5);
+    let support_area = accumulate_support_area(&add_at, n, close_r);
+
+    // The support area that first appears at each layer — the welded equivalent
+    // of `add_at`.  Tree seeds its contact tips here and the top interface caps
+    // are cut from it, so neither works off the raw hairline rings.
+    let new_area: Vec<Paths> = (0..n)
+        .map(|i| {
+            if i + 1 < n {
+                poly_difference(&support_area[i], &support_area[i + 1])
+            } else {
+                support_area[i].clone()
+            }
+        })
+        .collect();
+
     let columns: Vec<Paths> = if is_tree {
-        simulate_tree_columns(&add_at, &footprints, &covered, n, lh, ext_w, xy)
+        simulate_tree_columns(&new_area, &footprints, &covered, n, lh, ext_w, xy)
     } else {
-        project_normal_columns(&add_at, &footprints, &covered, n, xy)
+        project_normal_columns(&support_area, &footprints, &covered, n, xy)
     };
 
     // Per-layer printed regions, split into interface (dense) and body.
@@ -247,12 +359,14 @@ pub fn generate_supports(layers: &mut [SliceLayer], params: &SlicingParams) {
         // Horizontal clearance frame for this layer (model + XY distance).
         let clip = poly_inflate(&footprints[i], xy);
 
-        // Top interface: the full overhang pad(s) whose contact band covers this
-        // layer — [i, i+iface-1] — giving a dense, flat surface under the
-        // overhang regardless of how thin the load-bearing trunk is.
+        // Top interface: the welded contact pad(s) whose band covers this layer
+        // — [i, i+iface-1] — giving a dense, flat surface under the overhang
+        // regardless of how thin the load-bearing trunk is.  Cut from
+        // `new_area` rather than the raw contacts, so a sloped overhang gets a
+        // real cap instead of a hairline ring.
         let mut top_full = Paths::new(vec![]);
         if iface > 0 {
-            for pad in add_at.iter().take((i + iface).min(n)).skip(i) {
+            for pad in new_area.iter().take((i + iface).min(n)).skip(i) {
                 if !pad.is_empty() {
                     top_full = poly_union(&top_full, pad);
                 }
@@ -289,15 +403,24 @@ pub fn generate_supports(layers: &mut [SliceLayer], params: &SlicingParams) {
     // ── 5. Fill each layer's support regions and append Support paths ───────
     let body_dens = params.support_density.clamp(0.02, 1.0);
     let iface_dens = params.support_interface_density.clamp(0.05, 1.0);
+    // Density is expressed against the flow *spacing*, not the nominal bead
+    // width — the same identity the infill and surface fills obey. Pitching on
+    // the raw nozzle diameter while the generator charges each line at its
+    // spacing is what makes a requested density come out wrong on any nozzle
+    // but the reference one.
+    let fill_spacing = crate::core::extrusion_flow_spacing_mm(
+        crate::core::support_nominal_width_mm(params),
+        params.layer_height,
+    );
     // Tree trunks are already thin and sparse (few columns), so they are filled
     // near-solid for strength; normal support fills the whole overhang area at
     // the configured (sparse) density.
     let body_spacing = if is_tree {
-        ext_w / body_dens.max(0.6)
+        fill_spacing / body_dens.max(0.6)
     } else {
-        ext_w / body_dens
+        fill_spacing / body_dens
     };
-    let iface_spacing = ext_w / iface_dens;
+    let iface_spacing = fill_spacing / iface_dens;
     let min_len = params.min_infill_extrusion_mm;
 
     for i in 0..n {
@@ -312,28 +435,69 @@ pub fn generate_supports(layers: &mut [SliceLayer], params: &SlicingParams) {
         let body_angle = if even { 0.0 } else { 90.0 };
         let iface_angle = if even { 45.0 } else { 135.0 };
 
-        let mut support_paths: Vec<Path> = Vec::new();
+        let mut loops: Vec<Path> = Vec::new();
+        let mut fills: Vec<Path> = Vec::new();
 
-        if !body.is_empty() {
-            let lines = generate_rectilinear_infill(body, body_spacing, body_angle, min_len);
-            support_paths.extend(lines.iter().cloned());
+        // One contour around each support island, then the fill inside it.
+        //
+        // Without a contour the scanline is the only thing drawn, so any island
+        // narrower than a couple of line pitches degenerates into a row of
+        // disconnected dashes — each one paying a full retract → travel →
+        // un-retract to deposit a speck. A tree trunk is a ~1.2 mm disc, which
+        // came out as one or two sub-bead specks per layer; on a Benchy 93.8 %
+        // of tree support segments were under 2 mm. A loop turns each island
+        // into one continuous extrusion and gives the fill something to tie
+        // into.
+        let printed = poly_union(body, iface_r);
+        let half = fill_spacing * 0.5;
+        let contour = poly_inflate(&printed, -half);
+
+        // An island thinner than one bead cannot hold a contour; fall back to
+        // filling it directly rather than dropping it.
+        let (body_fill, iface_fill) = if contour.is_empty() {
+            (body.clone(), iface_r.clone())
+        } else {
+            loops.extend(contour.iter().cloned());
+            let inner = poly_inflate(&printed, -fill_spacing);
+            if inner.is_empty() {
+                (Paths::new(vec![]), Paths::new(vec![]))
+            } else {
+                (
+                    poly_intersect(&inner, body),
+                    poly_intersect(&inner, iface_r),
+                )
+            }
+        };
+
+        if !body_fill.is_empty() {
+            let lines = generate_rectilinear_infill(&body_fill, body_spacing, body_angle, min_len);
+            fills.extend(lines.iter().cloned());
         }
-        if !iface_r.is_empty() {
-            let lines = generate_rectilinear_infill(iface_r, iface_spacing, iface_angle, min_len);
-            support_paths.extend(lines.iter().cloned());
+        if !iface_fill.is_empty() {
+            let lines =
+                generate_rectilinear_infill(&iface_fill, iface_spacing, iface_angle, min_len);
+            fills.extend(lines.iter().cloned());
         }
 
-        for path in support_paths {
-            push_support_path(&mut layers[i], path, ext_w);
+        let min_run = ext_w * SUPPORT_MIN_RUN_LEN_NOZZLE_MULT;
+        for path in loops {
+            if path_run_len(&path, true) >= min_run {
+                push_support_path(&mut layers[i], path, false);
+            }
+        }
+        for path in fills {
+            if path_run_len(&path, false) >= min_run {
+                push_support_path(&mut layers[i], path, true);
+            }
         }
     }
 }
 
-/// Project each overhang footprint straight down (classic grid support).
+/// Project the accumulated support area straight down (classic grid support).
 ///
 /// Returns a per-layer load-bearing column with the model + XY clearance already
-/// subtracted.  The overhang registered at `add_at[i]` is accumulated top-down
-/// into a running region and clipped by `inflate(footprint, xy)` each layer.
+/// subtracted.  `support_area[i]` is the welded region from
+/// [`accumulate_support_area`], clipped here by `inflate(footprint, xy)`.
 ///
 /// `covered` is the build-plate-only mask (empty when the option is off): the
 /// accumulated model footprint below each layer.  Contacts are already filtered
@@ -341,23 +505,19 @@ pub fn generate_supports(layers: &mut [SliceLayer], params: &SlicingParams) {
 /// is belt-and-braces — it makes "no support ever rests on the model" hold by
 /// construction rather than by argument.
 fn project_normal_columns(
-    add_at: &[Paths],
+    support_area: &[Paths],
     footprints: &[Paths],
     covered: &[Paths],
     n: usize,
     xy: f64,
 ) -> Vec<Paths> {
-    let mut acc = Paths::new(vec![]);
     let mut out = vec![Paths::new(vec![]); n];
-    for i in (0..n).rev() {
-        if !add_at[i].is_empty() {
-            acc = poly_union(&acc, &add_at[i]);
-        }
-        if acc.is_empty() {
+    for i in 0..n {
+        if support_area[i].is_empty() {
             continue;
         }
         let clip = poly_inflate(&footprints[i], xy);
-        let mut column = poly_difference(&acc, &clip);
+        let mut column = poly_difference(&support_area[i], &clip);
         if let Some(below) = covered.get(i) {
             column = poly_difference(&column, below);
         }
@@ -388,7 +548,7 @@ fn project_normal_columns(
 /// Returns a per-layer load-bearing column (model already subtracted).  It is
 /// deterministic: sampling, merging and migration are all order-stable.
 fn simulate_tree_columns(
-    add_at: &[Paths],
+    new_area: &[Paths],
     footprints: &[Paths],
     covered: &[Paths],
     n: usize,
@@ -406,9 +566,9 @@ fn simulate_tree_columns(
     let mut out = vec![Paths::new(vec![]); n];
 
     for i in (0..n).rev() {
-        // 1. Seed new contact tips from this layer's activated overhang pads.
-        if !add_at[i].is_empty() {
-            for p in sample_region_points(&add_at[i], sample_sp) {
+        // 1. Seed new contact tips from the support area first appearing here.
+        if !new_area[i].is_empty() {
+            for p in sample_region_points(&new_area[i], sample_sp) {
                 nodes.push(p);
             }
         }
@@ -660,16 +820,24 @@ fn point_in_paths_eo(x: f64, y: f64, paths: &Paths) -> bool {
     inside
 }
 
-/// Append a single support polyline to `layer`, keeping the parallel per-path
-/// vectors aligned.  Support strands are **open** polylines (never closed
-/// loops) and carry an explicit extrusion width equal to the nozzle diameter.
-fn push_support_path(layer: &mut SliceLayer, path: Path, width: f64) {
+/// Append a single support path to `layer`, keeping the parallel per-path
+/// vectors aligned.
+///
+/// `open` distinguishes a fill strand (open polyline) from an island contour
+/// (closed loop, which the generator closes back to its first vertex).
+///
+/// Support carries **no** explicit width: an explicit width short-circuits the
+/// generator's fill-role branch in `resolve_width_mm`, which is what charges a
+/// support line the volume of the strip it fills rather than a full nominal
+/// bead. Leaving it `None` keeps the pitch and the flow deriving from the same
+/// nominal width.
+fn push_support_path(layer: &mut SliceLayer, path: Path, open: bool) {
     let target = layer.paths.len();
     // Pad any parallel vectors that lagged behind (earlier stages such as
-    // infill only push `paths` + `path_roles`); the accessors already treat a
-    // missing entry as the default we pad with here, so this is lossless.
+    // infill only push `paths` + `path_roles`); pad with each accessor's own
+    // default so a short vector cannot silently relabel an earlier path.
     while layer.path_roles.len() < target {
-        layer.path_roles.push(ExtrusionRole::OuterWall);
+        layer.path_roles.push(ExtrusionRole::default());
     }
     while layer.path_widths.len() < target {
         layer.path_widths.push(None);
@@ -683,9 +851,9 @@ fn push_support_path(layer: &mut SliceLayer, path: Path, width: f64) {
 
     layer.paths.push(path);
     layer.path_roles.push(ExtrusionRole::Support);
-    layer.path_widths.push(Some(width));
+    layer.path_widths.push(None);
     layer.path_vertex_widths.push(None);
-    layer.path_is_open.push(true);
+    layer.path_is_open.push(open);
 }
 
 #[cfg(test)]
@@ -753,7 +921,7 @@ mod tests {
             support_enabled: false,
             ..params_with_supports()
         };
-        generate_supports(&mut layers, &params);
+        generate_supports(&mut layers, &params, None);
         assert_eq!(support_path_count(&layers[0]), 0);
         assert_eq!(support_path_count(&layers[1]), 0);
     }
@@ -766,7 +934,7 @@ mod tests {
             square_layer(0.4, 0.0, 0.0, 5.0),
         ];
         let params = params_with_supports();
-        generate_supports(&mut layers, &params);
+        generate_supports(&mut layers, &params, None);
         assert_eq!(support_path_count(&layers[1]), 0);
         assert_eq!(support_path_count(&layers[0]), 0);
     }
@@ -785,7 +953,7 @@ mod tests {
             layers.push(square_layer(0.2 * (k as f64 + 1.0), 30.0, 0.0, 6.0));
         }
         let params = params_with_supports();
-        generate_supports(&mut layers, &params);
+        generate_supports(&mut layers, &params, None);
 
         // The overhang shelf sits at layers 3..6; support must be produced on at
         // least one layer below it (with the default 1-layer Z gap).
@@ -794,15 +962,31 @@ mod tests {
             total_support > 0,
             "expected support paths under the floating overhang"
         );
-        // Support strands must be open polylines tagged Support.
+        // Support is emitted as closed island contours plus open fill strands,
+        // and carries no explicit width override — the generator resolves it to
+        // the role's flow spacing so pitch and flow agree.
+        let mut closed = 0;
+        let mut open = 0;
         for layer in &layers {
             for i in 0..layer.paths.len() {
                 if layer.role_for_path(i) == ExtrusionRole::Support {
-                    assert!(layer.is_path_open(i), "support paths must be open");
-                    assert_eq!(layer.width_for_path(i), Some(0.4));
+                    if layer.is_path_open(i) {
+                        open += 1;
+                    } else {
+                        closed += 1;
+                    }
+                    assert!(
+                        layer.path_widths.get(i).copied().flatten().is_none(),
+                        "support must not pin an explicit width"
+                    );
                 }
             }
         }
+        assert!(
+            closed > 0,
+            "each support island should get a perimeter contour"
+        );
+        assert!(open > 0, "support islands should also be filled");
     }
 
     #[test]
@@ -819,7 +1003,7 @@ mod tests {
                 support_type: ty,
                 ..params_with_supports()
             };
-            generate_supports(&mut layers, &params);
+            generate_supports(&mut layers, &params, None);
             layers.iter().map(support_path_count).sum::<usize>()
         };
         assert!(build(SupportType::Normal) > 0, "normal support expected");
@@ -845,7 +1029,7 @@ mod tests {
                 support_type: ty,
                 ..params_with_supports()
             };
-            generate_supports(&mut layers, &params);
+            generate_supports(&mut layers, &params, None);
             support_total_len(&layers)
         };
         let normal = build(SupportType::Normal);
@@ -904,7 +1088,7 @@ mod tests {
                 support_on_build_plate_only: plate_only,
                 ..params_with_supports()
             };
-            generate_supports(&mut layers, &params);
+            generate_supports(&mut layers, &params, None);
             layers
         };
 
@@ -948,7 +1132,7 @@ mod tests {
             support_on_build_plate_only: true,
             ..params_with_supports()
         };
-        generate_supports(&mut layers, &params);
+        generate_supports(&mut layers, &params, None);
         assert_eq!(
             support_total_len(&layers),
             0.0,
@@ -958,7 +1142,7 @@ mod tests {
         // Same geometry without the option still gets its (model-borne) support,
         // so the emptiness above is the option talking and not dead geometry.
         let mut baseline = tiered_stack(20.0, 15.0);
-        generate_supports(&mut baseline, &params_with_supports());
+        generate_supports(&mut baseline, &params_with_supports(), None);
         assert!(
             support_total_len(&baseline) > 0.0,
             "without the option this overhang is supported off the model"
@@ -975,7 +1159,7 @@ mod tests {
             support_on_build_plate_only: true,
             ..params_with_supports()
         };
-        generate_supports(&mut layers, &params);
+        generate_supports(&mut layers, &params, None);
         assert!(
             support_total_len(&layers) > 0.0,
             "tree must still support the reachable overhang"

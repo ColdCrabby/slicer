@@ -27,10 +27,12 @@ pub use surfaces::{
 // generator so the flow it charges for each top/bottom fill line matches the
 // pitch the lines are laid at (deposited volume = spacing × layer_height, no
 // over-extrusion) and both honour `top_surface_line_width` / `line_width`.
-// `sparse_infill_nominal_width_mm` is the sparse-infill twin, and
-// `extrusion_flow_spacing_mm` the shared `Flow::spacing()` relation both rest on.
+// `sparse_infill_nominal_width_mm` is the sparse-infill twin,
+// `support_nominal_width_mm` the support twin, and `extrusion_flow_spacing_mm`
+// the shared `Flow::spacing()` relation all of them rest on.
 pub(crate) use surfaces::{
     extrusion_flow_spacing_mm, solid_surface_nominal_width_mm, sparse_infill_nominal_width_mm,
+    support_nominal_width_mm,
 };
 pub use types::{ExtrusionRole, OverhangClass, SliceLayer};
 

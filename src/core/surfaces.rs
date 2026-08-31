@@ -134,6 +134,25 @@ pub(crate) fn sparse_infill_nominal_width_mm(params: &SlicingParams) -> f64 {
     }
 }
 
+/// Nominal **support** extrusion width (mm), before the
+/// [`extrusion_flow_spacing_mm`] cap-correction.
+///
+/// The support twin of [`sparse_infill_nominal_width_mm`]. Support is a fill
+/// role — its strands are laid at a pitch of `spacing / density` — so it obeys
+/// the same identity: charge each line the volume of the strip it fills, not
+/// the full nominal bead width. Charging at the nominal width instead
+/// over-extrudes by `width / spacing` (≈ 12 % at nozzle width) and makes the
+/// requested density wrong on any nozzle other than the reference one.
+pub(crate) fn support_nominal_width_mm(params: &SlicingParams) -> f64 {
+    if params.support_line_width > 0.0 {
+        params.support_line_width
+    } else if params.line_width > 0.0 {
+        params.line_width
+    } else {
+        params.nozzle_diameter_mm
+    }
+}
+
 /// Solid top/bottom surface fill direction alternates by 90° every layer so
 /// successive solid layers cross-hatch — matching CuraEngine's default
 /// `skin_angles = {45°, 135°}` and the per-layer solid-infill rotation in

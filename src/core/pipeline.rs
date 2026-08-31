@@ -244,6 +244,17 @@ pub fn process_mesh(
     // degree.  Only taken when the feature is enabled.
     let overhang_support: Option<Vec<Paths>> = snapshot_overhang_support(&layers, params);
 
+    // Supports need the same un-split outlines, and for the same reason: the
+    // classification pass below retags an overhanging wall as
+    // `OverhangPerimeter` and splits its loop, so a steep slope keeps no
+    // `OuterWall` path for `generate_supports` to measure. Taken here — before
+    // that happens — rather than at the support step further down.
+    let support_footprints: Option<Vec<Paths>> = if params.support_enabled {
+        Some(snapshot_perimeters(&layers))
+    } else {
+        None
+    };
+
     // Now generate top/bottom surfaces INSIDE the walls
     if params.top_layers > 0 || params.bottom_layers > 0 {
         let t_surfaces = PhaseTimer::start(phases::SURFACES, logger);
@@ -342,7 +353,7 @@ pub fn process_mesh(
             params.support_density * 100.0
         ));
         let t_support = PhaseTimer::start("Support Generation", logger);
-        crate::core::generate_supports(&mut layers, params);
+        crate::core::generate_supports(&mut layers, params, support_footprints.as_deref());
         t_support.finish();
         logger.log_debug("support generation complete");
     }
@@ -808,14 +819,24 @@ fn snapshot_overhang_support(layers: &[SliceLayer], params: &SlicingParams) -> O
     if !params.enable_overhang_speed {
         return None;
     }
+    Some(snapshot_perimeters(layers))
+}
+
+/// Snapshot every layer's `OuterWall` centreline outline as it stands now.
+///
+/// Shared by overhang grading and support generation, both of which must read
+/// the outlines *before* bridge clipping and overhang classification split and
+/// retag them.
+fn snapshot_perimeters(layers: &[SliceLayer]) -> Vec<Paths> {
     #[cfg(not(target_arch = "wasm32"))]
-    let snapshot = {
+    {
         use rayon::prelude::*;
         layers.par_iter().map(perimeter_paths_of).collect()
-    };
+    }
     #[cfg(target_arch = "wasm32")]
-    let snapshot = layers.iter().map(perimeter_paths_of).collect();
-    Some(snapshot)
+    {
+        layers.iter().map(perimeter_paths_of).collect()
+    }
 }
 
 /// Fold each raw overhang band `0..=4` to the [`OverhangClass`] the classifier
