@@ -52,10 +52,49 @@ pattern deposits the same amount. See
 | `top_surface_pattern`           | enum | `monotonic-line`  | Fill pattern for the visible top surface       |
 | `bottom_surface_pattern`        | enum | `monotonic`       | Fill pattern for the bottom surface            |
 | `internal_solid_infill_pattern` | enum | `monotonic`       | Fill pattern for forced internal solid layers  |
+| `ironing_enabled`               | bool | `false`           | Sweep finished top surfaces with a near-dry smoothing pass |
+| `ironing_type`                  | enum | `top_surfaces`    | `top_surfaces` / `topmost_only` / `all_solid`  |
+| `ironing_flow`                  | %    | 10                | Material deposited, as a share of a normal bead |
+| `ironing_spacing`               | mm   | 0.1               | Pitch between ironing passes                   |
+| `ironing_speed`                 | mm/s | 20                | `0` = fall back to `top_surface_speed`         |
+| `ironing_angle`                 | °    | -1                | `-1` = follow the layer's own fill angle       |
 
 Surface patterns: `rectilinear`, `aligned-rectilinear`, `monotonic`,
 `monotonic-line`, `concentric`. "Monotonic" draws every line in the same
 direction, so the nozzle never travels back over a line it just laid.
+
+Ironing carries the `Ironing` role (`;TYPE:Ironing`) and its own speed and
+acceleration. Its width is `ironing_spacing × ironing_flow`, which keeps the
+flow reduction out of the G-code generator's flow-ratio parameter — that
+deliberately reads a non-positive ratio as `1.0`, so routing a "wipe only"
+setting through it would lay a full-width bead at 0.1 mm pitch.
+
+### Dimensional compensation (`params.*`)
+
+| Parameter               | Type | Default | Effect                                                    |
+| ----------------------- | ---- | ------- | --------------------------------------------------------- |
+| `xy_size_compensation`  | mm   | 0       | Grow (+) or shrink (−) every contour; also tightens holes |
+| `xy_hole_compensation`  | mm   | 0       | Enlarge (+) or tighten (−) holes only, applied after      |
+
+Both are applied to the raw contours between slicing and wall generation — the
+only point at which the rest of the pipeline's measurements stay true. See
+[src/core/compensation.rs](../core/compensation.rs).
+
+`xy_size_compensation` follows the PrusaSlicer/Slic3r meaning (one number, and
+growing the part necessarily tightens its holes); `xy_hole_compensation` follows
+Orca/Bambu's separate hole delta. They are separate fields because collapsing
+them into one signed value gets imported Orca profiles wrong by `2δ` on every
+hole.
+
+### First layer (`params.*`)
+
+| Parameter            | Type | Default | Effect                                              |
+| -------------------- | ---- | ------- | ---------------------------------------------------- |
+| `first_layer_height` | mm   | 0       | Thickness of the bottom layer; `0` = use `layer_height` |
+
+Affects both geometry and flow: the slicer gives layer 0 its own Z span, and the
+generator charges it at that height via `path_heights`. Suppressed when a raft
+is present, since the raft then owns bed contact.
 
 ### Bridge & overhang (`params.*`)
 

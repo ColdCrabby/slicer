@@ -457,6 +457,48 @@ Supporting details:
   is broken. All images of a version share one asset, so deleting a duplicate
   breaks the survivor — purge with `simctl runtime delete all` and re-download.
 
+### Standalone installs — `pnpm run ios:install`
+
+`tauri ios dev` installs an app pinned to the `devUrl` in `tauri.conf.json`, so
+it is a white screen the moment the Mac's dev server stops. **A device that has
+to keep working needs the release build**, where `beforeBuildCommand` produces
+the UI and `tauri-build` compiles it into the binary.
+[scripts/ios-install.sh](scripts/ios-install.sh) is that path: release build →
+`--export-method debugging` → `xcrun devicectl device install app`. It needs no
+paid Apple Developer Program membership.
+
+- **The app is universal** (`TARGETED_DEVICE_FAMILY = "1,2"`), so iPhone and
+  iPad take the same path — the script filters on `platform == "iOS"` and never
+  on device type. **It refuses to pick between two paired devices**, because
+  guessing wrong costs a multi-minute build and would only be mentioned in
+  passing; `--device` names one.
+- **A free Apple ID signs for seven days**, so the script is expected to be
+  re-run and prints the profile's expiry after every install. Automatic signing
+  *reuses* a still-valid profile, so a plain rebuild on day six inherits one day
+  — `--renew` deletes the cached profiles for the bundle ID first, which is the
+  only way to actually reset the clock. Do not paper over this by re-installing
+  and assuming a fresh week.
+- **The team ID is the signing certificate's `OU`, not the identifier in its
+  common name.** A personal team has no Membership page to read it off, so the
+  script extracts it from the keychain — and only from certificates
+  `security find-identity -v` still considers valid, or an expired cert from an
+  old employer turns a working machine into "several teams found".
+- **`tauri ios build` writes `DEVELOPMENT_TEAM` into `project.pbxproj`**, which
+  is committed. The script restores the file from an EXIT trap so one
+  contributor's team ID never lands in everyone else's checkout, and clears a
+  line left behind by an interrupted run before snapshotting — otherwise the
+  next run preserves the leftover forever. Anything else the CLI mutates in
+  `gen/apple` needs the same treatment.
+- **`*.xcodeproj/project.xcworkspace/contents.xcworkspacedata` must stay
+  tracked.** `tauri ios build` passes it to `xcodebuild -workspace`, so a
+  checkout without it fails with a bare `project.xcworkspace does not exist`
+  before the build starts. `.gitignore` therefore ignores only the `xcuserdata`
+  and `xcshareddata` beneath it — not the directory.
+- **macOS ships bash 3.2.** The iOS helper scripts run on a stock machine, so no
+  `mapfile`, no `${var,,}`, no associative arrays. Splitting a concatenated PEM
+  stream with `awk` and a NUL separator does not work in the awk macOS ships
+  either — the loop is plain `read`.
+
 ## Phones — one breakpoint, two answers
 
 A handset is not a small desktop: the chrome that surrounds the 3D view (a 60px
@@ -1090,18 +1132,21 @@ capsule/gap renders (`render.py`, `zoom.py`). Compare a change against the
 ### Pipeline Execution Order
 
 ```
-slice_mesh()                         — raw mesh → OuterWall contours per layer
+slice_mesh()                         — raw mesh → OuterWall contours per layer (layer 0 spans first_layer_height)
+apply_dimensional_compensation()     — XY size / hole offset on the raw contours (src/core/compensation.rs)
 generate_arachne_walls()             — replaces OuterWall contours with bead paths
 pre_strip_infill_regions computed    — interior regions snapshotted before wall stripping
 apply_single_wall_restrictions()     — strips inner walls from first/last layers if configured
 interior_regions computed            — per-layer interior (for surfaces), post-strip
 generate_top_bottom_surfaces_with_interior()  — top/bottom solid infill within interior
+  └─ add_ironing_for_region()        — near-dry smoothing sweep over the finished top surface
 add_infill_to_layers()               — sparse infill using pre-strip regions minus solid regions
   ├─ combine_fill_areas()            — stack sparse areas across layers (infill_every_layers);
   │                                    mark forced solid layers (solid_infill_every_layers)
   └─ connect_infill()                — anchor line ends to the perimeter, before the splat filters
 path ordering + flow compensation    — greedy-TSP per role group, then wall-overlap flow scaling
 apply_adhesion()                     — skirt/brim prepended to first layer(s); raft prepends layers + Z-shifts object (src/adhesion/)
+mark_first_layer_height()            — charges layer 0 at first_layer_height via path_heights, after adhesion so the skirt matches
 ```
 
 Order matters critically. Surfaces are computed **after** Arachne walls so that
@@ -1110,6 +1155,41 @@ Order matters critically. Surfaces are computed **after** Arachne walls so that
 last**, after ordering and flow compensation, so its loops are appended cleanly
 and the object's own toolpaths are provably unperturbed — see
 [src/adhesion/README.md](src/adhesion/README.md).
+
+**Dimensional compensation runs first, on the raw contours, and nowhere else.**
+Every later stage measures relative to the contour the wall generator consumed —
+`calculate_interior_region`'s `−0.5·d` correction, the wall-bead-footprint clip,
+adhesion's recovery of the outline by inflating layer-0 `OuterWall` by `d/2` — so
+correcting the contour leaves all of them true. Never offset the bead
+centrelines instead: moving `OuterWall` by δ after generation leaves `InnerWall`
+where it was, and the footprint clip corrects bead-*count* error, not centreline
+displacement. Winding out of the slicer is not guaranteed, so the pass
+normalises with an `EvenOdd` union first and then uses **`NonZero`** throughout;
+`Positive` would discard the CW hole sub-paths and fill every hole solid.
+
+**`first_layer_height` is split across the two ends of the pipeline.** The
+slicer gives layer 0 its own Z span (sampled at its own mid-plane, so an unset
+value reproduces the uniform slicer plane-for-plane and the QA baselines cannot
+move); `mark_first_layer_height` then charges it through `path_heights` *after*
+adhesion, so a skirt sharing that layer's Z is charged at the same height. Both
+ends resolve the value through `resolved_first_layer_height`, which the G-code
+generator also uses to decide which layer gets first-layer speeds and
+temperatures — the two must never disagree about which layer is the first. It is
+suppressed under a raft, which owns bed contact and prints at `layer_height`.
+
+**Ironing is generated in place, where `top_region` is still live**, and must
+touch **no region field**. It is a surface *treatment*, not solid material: were
+its footprint ever folded into `solid_regions`, `add_infill_to_layers` would
+subtract it (grown by a full bead) and punch a hole in the sparse infill
+underneath. It carries its own `ExtrusionRole::Ironing` rather than reusing
+`TopSurface`, because `resolve_width_mm` returns `top_surface_line_width` before
+it ever reads an explicit width — sharing the role would silently iron at full
+flow on any profile that sets one — and because a shared role would merge the
+two into one path-ordering group, letting the TSP interleave ironing with
+not-yet-printed fill. Its flow reduction is folded into the **width**
+(`ironing_spacing × ironing_flow`), deliberately keeping it out of
+`extrusion_for_move`'s `flow_ratio`, which reads a non-positive value as `1.0`
+so a malformed profile cannot zero out a print.
 
 **Perimeter routing & ordering options ([#98](https://github.com/ColdCrabby/slicer/issues/98))** are threaded through several stages:
 
@@ -1677,5 +1757,5 @@ infill within the ring.
 
 ---
 
-**Last Updated**: 2026-08-31 (docs site consumes the shared UI design tokens; UI bundle-chunking contract)  
+**Last Updated**: 2026-08-31 (standalone iOS installs on a free Apple ID; docs site consumes the shared UI design tokens; UI bundle-chunking contract)  
 **Maintainer Guidance**: Keep this file in sync with project structure changes, new conventions, or significant architectural decisions.

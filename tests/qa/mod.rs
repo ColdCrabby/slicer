@@ -209,6 +209,11 @@ pub fn canon_role(t: &str) -> String {
     let l = t.trim().to_ascii_lowercase();
     let key = if l.contains("bridge") {
         "bridge"
+    } else if l.contains("ironing") {
+        // Ahead of the "top" test: ironing sweeps a top surface but is measured
+        // separately, and without this it would fall through to `other` and trip
+        // the "new role appeared" check the moment anyone enables it.
+        "ironing"
     } else if l.contains("overhang") {
         "overhang_wall"
     } else if l.contains("skirt") || l.contains("brim") {

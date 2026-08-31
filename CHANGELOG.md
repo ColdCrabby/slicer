@@ -42,6 +42,21 @@ issue/PR numbers or repo links in the notes. See the tone rules in
   stacked as the authoring tool assembled them, and duplicates or extra parts
   were dropped entirely.
 
+- **Pinching to zoom no longer spins the model on a touchscreen** — rotation is
+  measured as an angle, so its noise floor grows as your fingers close; a
+  measured pinch-in sprayed ~16° of unwanted roll. Twist now has to be a
+  sustained, deliberate turn, and once you have clearly started pinching the
+  view is locked against rolling for the rest of the gesture.
+- **Slow pinches now zoom** — a gentle pinch moves well under a pixel per event
+  on a 120 Hz iPad, and every one of those was discarded rather than banked, so
+  the camera simply refused to move. Small movements now accumulate.
+- **A palm can no longer hijack a two-finger gesture** — a hand settling while
+  two fingers were already pinching was let through, and took over the gesture
+  the moment a real finger lifted.
+- **Losing a finger no longer freezes the camera** — a touch released over the
+  toolbar, or the app being backgrounded mid-pinch, could strand the viewport
+  with navigation disabled until the page was reloaded.
+
 - **Dialogs no longer collapse in Safari** — a dialog with a body ("Running in
   your browser", "What's New", the operation pipeline) drew as a title with the
   buttons jammed underneath and its content squashed to one clipped line. It now
@@ -51,6 +66,19 @@ issue/PR numbers or repo links in the notes. See the tone rules in
 
 ### Added
 
+- **Ironing** — the top-surface smoothing toggle now does something. Previously
+  it could be switched on in the profile wizard, was documented as working, and
+  logged "not yet implemented" at slice time. A near-dry pass re-melts finished
+  top surfaces flat, with its own type, flow (10 %), spacing (0.1 mm), speed and
+  angle, and its own colour in the preview.
+- **Dimensional compensation** — correct a machine that prints consistently
+  over- or under-sized. **XY size compensation** offsets every contour;
+  **hole compensation** adjusts holes on their own, so a tight press-fit can be
+  freed without moving the outside of the part. Both default to off.
+- **First layer height** — now affects the print instead of only the file
+  header. The bottom layer is sliced and extruded at its own thickness, so a
+  profile asking for 0.24 mm no longer silently prints 0.2 mm. Skirt and brim
+  follow it; a raft suppresses it.
 - **Phone layout** — the whole UI rearranges itself below 640px instead of
   overflowing. Navigation moves to a bottom tab bar, print settings become a
   drawer with a pull tab on the left edge, and Slice sits in a full-width sheet
@@ -69,6 +97,12 @@ issue/PR numbers or repo links in the notes. See the tone rules in
 - **Reload prompt for stale tabs** — if a page can no longer be loaded because
   the app was redeployed under an open tab, the existing update banner now
   offers a reload instead of the click doing nothing.
+- **Keep the app on an iPhone or iPad without a Mac attached** —
+  `pnpm run ios:install` builds the release app, signs it with a free Apple ID
+  and installs it on a connected device, so it keeps working after the dev
+  server stops. No paid Apple Developer Program: the trade is that a free
+  signature lasts seven days, and re-running with `--renew` resets the clock
+  without touching your models, profiles or settings.
 
 ### Changed
 

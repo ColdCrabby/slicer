@@ -69,8 +69,8 @@ that touch nothing are wasted plastic and a worse surface.
 | **Infill** | Density, pattern, angle |
 | **Support** | On/off, type, density, overhang threshold |
 | **Speed** | Per-role print speeds and travel speed |
-| **Quality** | Ironing, spiral (vase) mode, other finish options |
-| **Surfaces** | Top and bottom solid layer counts, surface fill behaviour |
+| **Quality** | Bridging, dimensional compensation, other accuracy options |
+| **Surfaces** | Top and bottom solid layer counts, surface fill, ironing |
 | **Adhesion** | Skirt, brim, raft |
 | **Objects** | Print order, G-code run between objects |
 | **Thumbnail** | The preview image embedded in the G-code file |
@@ -92,14 +92,51 @@ doesn't use — so the panel never offers you a control that would do nothing.
 
 ## Two special modes
 
-**Spiral (vase) mode** (Process → Quality) prints a single continuous wall that
+**Spiral (vase) mode** (Process → Walls) prints a single continuous wall that
 climbs as it goes — no seam, no layer changes. For open, single-walled models
 only. Turning it on forces the settings it's incompatible with (extra walls,
 infill, top layers, retraction) off for you, and keeps your bottom layers as the
 base.
 
-**Ironing** (Process → Quality) makes a second, hot, barely-extruding pass over
+**Ironing** (Process → Surfaces) makes a second, hot, barely-extruding pass over
 top surfaces to smooth them. Slow, and only worth it on visible flat tops.
+
+::: details Advanced — tuning the ironing pass
+**Type** chooses what gets swept: every top surface, only the single highest one
+(much faster on a tall model, and usually the only face anyone sees), or all
+solid surfaces.
+
+**Flow** is how much material the pass adds, as a percentage of a normal bead —
+around 10 % is enough to re-melt the surface without raising it. **Spacing** is
+how far apart the passes run; well under a bead width is what flattens the
+ridges between them. **Speed** should stay low, because the nozzle needs dwell
+time to melt what it crosses. **Angle** defaults to following the layer's own
+fill direction; set an explicit angle to cross the fill instead, which flattens
+it more effectively.
+:::
+
+## Getting parts to the right size
+
+A printer lays a bead slightly wider than asked, so parts come out a little
+large and holes a little tight. Both are consistent for a given machine, so both
+can be measured once and corrected (Process → Quality).
+
+**XY size compensation** grows or shrinks every contour by a fixed amount. Print
+a test cube, measure it, and set the difference as a negative value if the cube
+came out oversized. Because the material spreads inward as well as outward, this
+also tightens holes.
+
+**Hole compensation** adjusts holes on their own, so a peg that will not fit can
+be freed without changing the outside of the part.
+
+Both default to off. Start from a measurement, not a guess — and keep the values
+small; a shrink larger than a thin feature will erase it, which the slice log
+warns you about.
+
+**First layer height** (Process → Extrusion) prints the bottom layer thicker
+than the rest. The extra material absorbs what mesh bed levelling only
+approximates, which is why almost every profile sets it. It has no effect when
+you print on a raft, since the raft takes over contact with the bed.
 
 ## Where your settings are saved
 

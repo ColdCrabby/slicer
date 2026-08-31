@@ -59,6 +59,46 @@ fn edge_intersect(a: Vertex, b: Vertex, z: f64) -> (f64, f64) {
 /// assert!(!layers.is_empty());
 /// ```
 pub fn slice_mesh(mesh: &Mesh, layer_height: f64) -> Vec<SliceLayer> {
+    slice_mesh_with_first_layer(mesh, layer_height, layer_height)
+}
+
+/// Slice a mesh whose **first layer** is a different thickness from the rest.
+///
+/// A thicker first layer is the standard remedy for an imperfect bed: the extra
+/// material absorbs the variation a mesh bed levels out only approximately, so
+/// almost every shipped profile sets one. Only the bottom-most layer is
+/// affected; everything above it is spaced by `layer_height` as usual.
+///
+/// Layer planes are sampled at the **middle** of the material each layer
+/// deposits, which is what keeps the cross-section representative of the whole
+/// slab rather than of one of its faces. That convention is preserved exactly:
+/// passing `first_layer_height == layer_height` reproduces [`slice_mesh`]
+/// plane-for-plane.
+///
+/// ```text
+///   first_layer_height = 0.24, layer_height = 0.20
+///
+///   0.00 ─────────────────  bed
+///                    · 0.12 ← layer 0 sampled here, prints 0.24mm
+///   0.24 ─────────────────
+///                    · 0.34 ← layer 1 sampled here, prints 0.20mm
+///   0.44 ─────────────────
+/// ```
+///
+/// # Arguments
+/// * `mesh`               – triangle mesh in millimetres
+/// * `layer_height`       – distance between layer planes in mm (must be > 0)
+/// * `first_layer_height` – thickness of the bottom layer in mm; values `<= 0`
+///   fall back to `layer_height`
+///
+/// # Returns
+/// A `Vec<SliceLayer>` ordered from bottom to top. Empty if the mesh has no
+/// faces or `layer_height` is not positive.
+pub fn slice_mesh_with_first_layer(
+    mesh: &Mesh,
+    layer_height: f64,
+    first_layer_height: f64,
+) -> Vec<SliceLayer> {
     if mesh.faces.is_empty() || layer_height <= 0.0 {
         return Vec::new();
     }
@@ -79,13 +119,21 @@ pub fn slice_mesh(mesh: &Mesh, layer_height: f64) -> Vec<SliceLayer> {
         return Vec::new();
     }
 
-    // Layer planes start half a layer above the mesh bottom
-    let first_z = z_min + layer_height * 0.5;
+    // Layer planes are sampled at the middle of the material each layer lays
+    // down, so the first plane sits half a *first* layer above the mesh bottom
+    // and the step into layer 1 spans half of each.
+    let first_h = if first_layer_height > 0.0 {
+        first_layer_height
+    } else {
+        layer_height
+    };
+    let first_z = z_min + first_h * 0.5;
     let layer_count = ((z_max - first_z) / layer_height).ceil() as usize + 1;
 
     let mut layers = Vec::with_capacity(layer_count);
 
     let mut z = first_z;
+    let mut index = 0usize;
     while z < z_max {
         // Sample the cross-section a hair above the nominal layer plane.  A
         // model's horizontal faces (decks, floors) frequently sit *exactly* on a
@@ -108,7 +156,15 @@ pub fn slice_mesh(mesh: &Mesh, layer_height: f64) -> Vec<SliceLayer> {
         }
 
         layers.push(layer);
-        z += layer_height;
+        // Stepping off layer 0 crosses half of it and half of layer 1; every
+        // step after that is a whole `layer_height`. When the two heights are
+        // equal this is exactly `z += layer_height` throughout.
+        z += if index == 0 {
+            (first_h + layer_height) * 0.5
+        } else {
+            layer_height
+        };
+        index += 1;
     }
 
     layers
