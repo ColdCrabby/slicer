@@ -358,29 +358,141 @@ opens the project instead of running it.
 Safari owns the inspector for iOS. Enable **Safari → Settings → Advanced → Show
 features for web developers**, then use **Develop → Simulator → localhost**.
 
-### Release build
+---
+
+## Physical iPhones and iPads
+
+The app is **universal** (`TARGETED_DEVICE_FAMILY = "1,2"`), so everything below
+applies to an iPhone exactly as it does to an iPad — same script, same signing,
+same seven-day clock. The UI adapts on its own: an iPhone falls under the
+handheld breakpoint and gets the bottom tab bar, settings drawer and slice
+sheet described in [ui/README.md](../ui/README.md#phones), and iOS draws the
+context menu as a bottom sheet rather than the popover it uses on iPad.
+
+The only wrinkle is having both plugged in at once. The script will not guess
+between them — a wrong choice costs a multi-minute build — so it lists them and
+asks:
+
+```bash
+pnpm run ios:install --device 'Max iPhone'
+```
+
+There are two ways onto a real device and they answer different questions.
+
+| | `tauri ios dev --host` | `pnpm run ios:install` |
+| --- | --- | --- |
+| Where the UI comes from | streamed from this Mac | compiled into the app |
+| Survives closing the terminal | no — the app goes blank | yes |
+| Rebuild to see a UI change | no, it live-reloads | yes, a few minutes |
+| For | editing the front-end | *using* the slicer |
+
+Both need signing — the simulator needs none, a real device needs all of it:
+
+- **Team ID.** Detected from the signing certificate in your keychain, or set
+  `APPLE_DEVELOPMENT_TEAM` explicitly. It is the certificate's **OU**, not the
+  identifier printed in its common name, and a free Apple ID has no Membership
+  page to read it off — which is why `ios-install.sh` digs it out for you.
+- **The dev server must be reachable over the network** *for the dev loop only*.
+  `tauri ios dev --host` publishes the address as `TAURI_DEV_HOST` and rewrites
+  the dev URL to match. The Angular dev server already binds `0.0.0.0`, so it
+  will answer.
+- **Local network permission.** iOS prompts once, on the first printer probe.
+  Decline it and every printer looks permanently offline; re-enable under
+  **Settings → Cold Crabby → Local Network**.
+
+### Keeping it on the device, with no Mac and no Apple Developer Program
+
+`tauri ios dev` installs an app whose `devUrl` points at the Angular dev server
+on your Mac, so it is a white screen the moment that process stops. Turning the
+iPhone or iPad into something you can actually print from means shipping the
+*release* app, where the whole UI is compiled into the binary and the slicing
+engine — which already runs on-device — has nothing left to phone home to.
+
+```bash
+pnpm run ios:install
+```
+
+That is the whole story: build, sign with your free Apple ID, install over the
+pairing you already have. There is no paid Apple Developer Program membership
+anywhere in it, and afterwards the device slices with the Mac switched off.
+
+```mermaid
+flowchart LR
+    A["ng build<br/><i>beforeBuildCommand</i>"] --> B["cargo --release<br/>aarch64-apple-ios"]
+    B --> C["xcodebuild archive<br/><i>-allowProvisioningUpdates</i>"]
+    C --> D["export<br/><i>method: debugging</i>"]
+    D --> E["devicectl install"]
+
+    style A fill:#e3f2fd
+    style E fill:#fff9c4
+```
+
+**The price of not paying is seven days.** A free Apple ID gets a *personal
+team*, and personal teams sign for a week; on day eight iOS refuses to launch
+the app until it is re-signed. Re-running the script fixes that, and your
+models, profiles and settings survive because the app is *replaced*, not
+removed:
+
+```bash
+pnpm run ios:install -- --renew
+```
+
+`--renew` matters because automatic signing happily reuses a profile that is
+still technically valid, so a plain rebuild on day six inherits one day rather
+than starting a fresh week. It deletes the cached profiles for this bundle ID
+first, which forces Xcode to mint a new one. The script prints the expiry date
+either way, so you never have to guess.
+
+The other limits of a free account, in the order they bite:
+
+| Limit | What it means here |
+| --- | --- |
+| App IDs are globally unique | If somebody else registered `com.maxscopp.slicerengine`, pick your own `identifier` in `tauri.conf.json` and re-run `ios:init`. |
+| 10 App IDs per 7 days | Only a problem if you keep renaming the bundle. |
+| 3 side-loaded apps per device | Uninstall an old build before the fourth. |
+| No push, App Groups or iCloud | None of which the slicer uses. |
+
+**One tap on the device, once per certificate:** Settings → General → VPN &
+Device Management → Developer App → Trust. Until then iOS installs the app but
+will not launch it. Developer Mode (Settings → Privacy & Security) must also be
+on; the script refuses to continue if it is not, because the install otherwise
+fails with a far less obvious error.
+
+Useful flags:
+
+```bash
+pnpm run ios:install -- --list                 # what is connected
+pnpm run ios:install -- --device 'Max iPhone'  # required when two are paired
+pnpm run ios:install -- --reinstall            # install the last build, skip building
+pnpm run ios:install -- --launch               # start the app afterwards
+```
+
+#### Two things it cleans up after Tauri
+
+Both exist because `gen/apple` is a *committed* Xcode project, which is unusual
+and makes anything the build writes into it everybody's problem:
+
+- **`tauri ios build` writes `DEVELOPMENT_TEAM` into `project.pbxproj`.** That
+  would put one contributor's team ID into everyone else's checkout, so the
+  script snapshots the file and restores it on exit — including when you
+  interrupt a long build — and clears the line if an earlier run was killed
+  before it could. The team is supplied per-build through the environment and
+  does not belong in the repository.
+- **`project.xcworkspace/contents.xcworkspacedata` must stay tracked.**
+  `tauri ios build` passes it to `xcodebuild -workspace`; a checkout without it
+  fails with a bare `project.xcworkspace does not exist` long before anything
+  interesting happens. Only the `xcuserdata`/`xcshareddata` beneath it are
+  ignored.
+
+### Release build (no install)
 
 ```bash
 pnpm run ios:build
 ```
 
-The `.ipa` lands in `ui-desktop/src-tauri/gen/apple/build/arm64/`.
-
----
-
-## Physical iPads
-
-The simulator needs no signing; a real device needs all of it.
-
-- **Team ID.** Set `TAURI_APPLE_DEVELOPMENT_TEAM` to the value from
-  [developer.apple.com](https://developer.apple.com/account) → Membership
-  details. Without it Xcode cannot sign the app.
-- **The dev server must be reachable over the network.** `tauri ios dev --host`
-  publishes the address as `TAURI_DEV_HOST` and rewrites the dev URL to match.
-  The Angular dev server already binds `0.0.0.0`, so it will answer.
-- **Local network permission.** iOS prompts once, on the first printer probe.
-  Decline it and every printer looks permanently offline; re-enable under
-  **Settings → Cold Crabby → Local Network**.
+The `.ipa` lands in `ui-desktop/src-tauri/gen/apple/build/arm64/`. This is what
+`ios:install` runs underneath; use it directly when you want the artifact
+rather than a device.
 
 ---
 
@@ -416,7 +528,7 @@ entries there exist for concrete reasons:
 ## See also
 
 - [`src/lib.rs`](src-tauri/src/lib.rs) — the entry point
-- [`scripts/ios-doctor.sh`](../scripts/ios-doctor.sh) · [`ios-simulator.sh`](../scripts/ios-simulator.sh) · [`ios-dev.sh`](../scripts/ios-dev.sh)
+- [`scripts/ios-doctor.sh`](../scripts/ios-doctor.sh) · [`ios-simulator.sh`](../scripts/ios-simulator.sh) · [`ios-dev.sh`](../scripts/ios-dev.sh) · [`ios-install.sh`](../scripts/ios-install.sh)
 - [SETUP.md](../SETUP.md) — prerequisites for every surface
 - [AGENTS.md](../AGENTS.md) — "Native shell targets" contract
 - [Tauri: iOS distribution](https://v2.tauri.app/distribute/app-store/)

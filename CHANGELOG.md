@@ -56,6 +56,12 @@ issue/PR numbers or repo links in the notes. See the tone rules in
 - **Reload prompt for stale tabs** — if a page can no longer be loaded because
   the app was redeployed under an open tab, the existing update banner now
   offers a reload instead of the click doing nothing.
+- **Keep the app on an iPhone or iPad without a Mac attached** —
+  `pnpm run ios:install` builds the release app, signs it with a free Apple ID
+  and installs it on a connected device, so it keeps working after the dev
+  server stops. No paid Apple Developer Program: the trade is that a free
+  signature lasts seven days, and re-running with `--renew` resets the clock
+  without touching your models, profiles or settings.
 
 ### Changed
 

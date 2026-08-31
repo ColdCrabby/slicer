@@ -457,6 +457,48 @@ Supporting details:
   is broken. All images of a version share one asset, so deleting a duplicate
   breaks the survivor — purge with `simctl runtime delete all` and re-download.
 
+### Standalone installs — `pnpm run ios:install`
+
+`tauri ios dev` installs an app pinned to the `devUrl` in `tauri.conf.json`, so
+it is a white screen the moment the Mac's dev server stops. **A device that has
+to keep working needs the release build**, where `beforeBuildCommand` produces
+the UI and `tauri-build` compiles it into the binary.
+[scripts/ios-install.sh](scripts/ios-install.sh) is that path: release build →
+`--export-method debugging` → `xcrun devicectl device install app`. It needs no
+paid Apple Developer Program membership.
+
+- **The app is universal** (`TARGETED_DEVICE_FAMILY = "1,2"`), so iPhone and
+  iPad take the same path — the script filters on `platform == "iOS"` and never
+  on device type. **It refuses to pick between two paired devices**, because
+  guessing wrong costs a multi-minute build and would only be mentioned in
+  passing; `--device` names one.
+- **A free Apple ID signs for seven days**, so the script is expected to be
+  re-run and prints the profile's expiry after every install. Automatic signing
+  *reuses* a still-valid profile, so a plain rebuild on day six inherits one day
+  — `--renew` deletes the cached profiles for the bundle ID first, which is the
+  only way to actually reset the clock. Do not paper over this by re-installing
+  and assuming a fresh week.
+- **The team ID is the signing certificate's `OU`, not the identifier in its
+  common name.** A personal team has no Membership page to read it off, so the
+  script extracts it from the keychain — and only from certificates
+  `security find-identity -v` still considers valid, or an expired cert from an
+  old employer turns a working machine into "several teams found".
+- **`tauri ios build` writes `DEVELOPMENT_TEAM` into `project.pbxproj`**, which
+  is committed. The script restores the file from an EXIT trap so one
+  contributor's team ID never lands in everyone else's checkout, and clears a
+  line left behind by an interrupted run before snapshotting — otherwise the
+  next run preserves the leftover forever. Anything else the CLI mutates in
+  `gen/apple` needs the same treatment.
+- **`*.xcodeproj/project.xcworkspace/contents.xcworkspacedata` must stay
+  tracked.** `tauri ios build` passes it to `xcodebuild -workspace`, so a
+  checkout without it fails with a bare `project.xcworkspace does not exist`
+  before the build starts. `.gitignore` therefore ignores only the `xcuserdata`
+  and `xcshareddata` beneath it — not the directory.
+- **macOS ships bash 3.2.** The iOS helper scripts run on a stock machine, so no
+  `mapfile`, no `${var,,}`, no associative arrays. Splitting a concatenated PEM
+  stream with `awk` and a NUL separator does not work in the awk macOS ships
+  either — the loop is plain `read`.
+
 ## Phones — one breakpoint, two answers
 
 A handset is not a small desktop: the chrome that surrounds the 3D view (a 60px
@@ -1675,5 +1717,5 @@ infill within the ring.
 
 ---
 
-**Last Updated**: 2026-08-31 (docs site consumes the shared UI design tokens; UI bundle-chunking contract)  
+**Last Updated**: 2026-08-31 (standalone iOS installs on a free Apple ID; docs site consumes the shared UI design tokens; UI bundle-chunking contract)  
 **Maintainer Guidance**: Keep this file in sync with project structure changes, new conventions, or significant architectural decisions.
