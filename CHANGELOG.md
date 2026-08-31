@@ -29,6 +29,21 @@ issue/PR numbers or repo links in the notes. See the tone rules in
 
 ### Fixed
 
+- **Pinching to zoom no longer spins the model on a touchscreen** — rotation is
+  measured as an angle, so its noise floor grows as your fingers close; a
+  measured pinch-in sprayed ~16° of unwanted roll. Twist now has to be a
+  sustained, deliberate turn, and once you have clearly started pinching the
+  view is locked against rolling for the rest of the gesture.
+- **Slow pinches now zoom** — a gentle pinch moves well under a pixel per event
+  on a 120 Hz iPad, and every one of those was discarded rather than banked, so
+  the camera simply refused to move. Small movements now accumulate.
+- **A palm can no longer hijack a two-finger gesture** — a hand settling while
+  two fingers were already pinching was let through, and took over the gesture
+  the moment a real finger lifted.
+- **Losing a finger no longer freezes the camera** — a touch released over the
+  toolbar, or the app being backgrounded mid-pinch, could strand the viewport
+  with navigation disabled until the page was reloaded.
+
 - **Dialogs no longer collapse in Safari** — a dialog with a body ("Running in
   your browser", "What's New", the operation pipeline) drew as a title with the
   buttons jammed underneath and its content squashed to one clipped line. It now
