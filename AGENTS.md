@@ -1518,5 +1518,5 @@ infill within the ring.
 
 ---
 
-**Last Updated**: 2026-08-31 (seeded dev-server ports + same-origin dev proxy)  
+**Last Updated**: 2026-08-31 (seeded dev-server ports + same-origin dev proxy; UI bundle-chunking contract)  
 **Maintainer Guidance**: Keep this file in sync with project structure changes, new conventions, or significant architectural decisions.
