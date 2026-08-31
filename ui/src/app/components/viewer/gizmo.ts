@@ -54,6 +54,27 @@ const AXIS_COLORS = {
 const GIZMO_SCREEN_SIZE = 0.85;
 
 /**
+ * Gizmo size where the pointer is a fingertip.
+ *
+ * TransformControls draws handles a cursor can land on to the pixel; a finger
+ * covers roughly a 10mm disc, so at the mouse size the axis arrows sit inside
+ * one contact patch and picking the one you meant is a coin toss. Scaling the
+ * whole gizmo up scales its pickable geometry with it, which is what actually
+ * makes the arrows separable — and it stays proportional, so nothing about the
+ * gesture has to change.
+ */
+const GIZMO_SCREEN_SIZE_TOUCH = 1.4;
+
+/** Whether the device's primary pointer is coarse (a finger, not a cursor). */
+function isCoarsePointer(): boolean {
+  return (
+    typeof window !== 'undefined' &&
+    typeof window.matchMedia === 'function' &&
+    window.matchMedia('(pointer: coarse)').matches
+  );
+}
+
+/**
  * Snap step values applied to TransformControls when the user holds
  * Shift during a drag. When Shift is released, snapping is disabled
  * (`null`) so motion is continuous again.
@@ -190,7 +211,7 @@ export class GizmoManager {
     tc.setMode(mode);
     tc.setSpace('world');
     tc.setColors(AXIS_COLORS.x, AXIS_COLORS.y, AXIS_COLORS.z, AXIS_COLORS.active);
-    tc.setSize(GIZMO_SCREEN_SIZE);
+    tc.setSize(isCoarsePointer() ? GIZMO_SCREEN_SIZE_TOUCH : GIZMO_SCREEN_SIZE);
     tc.enabled = false;
 
     // The visual helper must be added to the scene separately; the

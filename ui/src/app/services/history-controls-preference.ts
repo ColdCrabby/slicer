@@ -1,5 +1,6 @@
-import { computed, DestroyRef, inject, Injectable, signal } from '@angular/core';
+import { computed, inject, Injectable } from '@angular/core';
 import { BrowserStorage } from './browser-storage';
+import { Viewport } from './viewport';
 
 /**
  * When the on-canvas undo/redo buttons are shown in the 3D-view toolbar.
@@ -21,21 +22,16 @@ const HISTORY_CONTROLS_KEY = 'general.historyControls';
  * they are the *only* way to step through history, so `auto` reveals them there
  * and hides them elsewhere. The user can override with `always`/`never`.
  *
- * The `auto` detection keys off the primary pointer being coarse
- * (`(pointer: coarse)`), which is what distinguishes a touch tablet/phone from a
- * mouse- or trackpad-driven desktop. It is reactive: plugging in or removing a
- * pointing device flips the media query, and with it the buttons.
+ * The `auto` detection is {@link Viewport.isCoarsePointer} — the primary pointer
+ * being coarse, which is what distinguishes a touch tablet/phone from a mouse-
+ * or trackpad-driven desktop. It is reactive: plugging in or removing a pointing
+ * device flips the media query, and with it the buttons.
  */
 @Injectable({ providedIn: 'root' })
 export class HistoryControlsPreference {
   private readonly storage = inject(BrowserStorage);
+  private readonly viewport = inject(Viewport);
   private readonly stored = this.storage.get(HISTORY_CONTROLS_KEY, 'local');
-
-  /**
-   * True when the device is likely keyboard-less — the primary pointer is
-   * coarse (touch), as on an iPad or phone. Reactive to device changes.
-   */
-  private readonly coarsePrimaryPointer = signal(this.detectCoarsePointer());
 
   /** The user's chosen mode; defaults to `auto`. */
   readonly mode = computed<HistoryControlsMode>(() => {
@@ -51,27 +47,11 @@ export class HistoryControlsPreference {
       case 'never':
         return false;
       default:
-        return this.coarsePrimaryPointer();
+        return this.viewport.isCoarsePointer();
     }
   });
 
-  constructor() {
-    if (typeof window !== 'undefined' && typeof window.matchMedia === 'function') {
-      const query = window.matchMedia('(pointer: coarse)');
-      const onChange = (event: MediaQueryListEvent) => this.coarsePrimaryPointer.set(event.matches);
-      query.addEventListener('change', onChange);
-      inject(DestroyRef).onDestroy(() => query.removeEventListener('change', onChange));
-    }
-  }
-
   setMode(mode: HistoryControlsMode): void {
     this.storage.write(HISTORY_CONTROLS_KEY, mode, 'local');
-  }
-
-  private detectCoarsePointer(): boolean {
-    if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') {
-      return false;
-    }
-    return window.matchMedia('(pointer: coarse)').matches;
   }
 }

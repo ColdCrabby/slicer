@@ -137,8 +137,7 @@
    remaining pills are a few pixels wider than a 375px screen. Wrapping is the
    honest answer: every control stays reachable and the toolbar simply grows a
    second row, which --main-scene-inset already tracks, so the scene chrome
-   below re-inserts itself correctly. Buttons grow to a proper touch target in
-   the process — 34px is a mouse-sized hit area. */
+   below re-inserts itself correctly. */
 @include handheld {
   :host {
     flex-wrap: wrap;

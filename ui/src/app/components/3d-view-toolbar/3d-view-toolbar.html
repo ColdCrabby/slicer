@@ -151,6 +151,26 @@
            It is an action rather than a mode, hence outside the radio group;
            like its neighbours it reveals a card of sub-settings below. -->
       <span class="tool-divider" aria-hidden="true"></span>
+
+      <!-- Touch and pen have no ⌘/Ctrl to hold, so building a multi-object
+           selection needs a control of its own. Offered only where there is no
+           modifier key to reach for. -->
+      @if (showMultiSelect()) {
+        <button
+          type="button"
+          [class.active]="multiSelect()"
+          [attr.aria-pressed]="multiSelect()"
+          [tooltip]="
+            multiSelect()
+              ? 'Multi-select on — each tap adds or removes an object'
+              : 'Multi-select — tap several objects to work on them together'
+          "
+          (click)="toggleMultiSelect()"
+        >
+          <nexus-icon name="frame-select"></nexus-icon>
+        </button>
+      }
+
       <button
         type="button"
         [class.active]="placementOpen()"

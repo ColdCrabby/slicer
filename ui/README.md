@@ -278,6 +278,91 @@ edge. Two things about it are deliberate:
 
 ---
 
+## Touch and pen
+
+A tablet keeps the desktop *layout* — it has the width — but not the desktop
+*pointer*. Everything below is about the second half, and lives behind
+`Viewport.isCoarsePointer()` rather than `isHandheld()`.
+
+```mermaid
+flowchart TB
+    down["pointerdown"] --> hit{"raycast hit?"}
+    hit -->|object| grab{"selected object,<br/>translate mode,<br/>touch or pen?"}
+    hit -->|empty| press2["press: null"]
+    grab -->|yes| claim["press: hitId<br/>camera shut out"]
+    grab -->|no| press["press: hitId<br/>camera keeps it"]
+    claim --> drift{"drift &gt; slop?"}
+    press --> drift
+    press2 --> drift
+    drift -->|no, held 500ms| menu["context menu"]
+    drift -->|no, lifted| act["select / clear"]
+    drift -->|"yes, and claimed"| drag["slide across bed"]
+    drift -->|"yes, otherwise"| orbit["camera orbits"]
+```
+
+Everything in that flow is [`scene/selection.ts`](src/app/components/viewer/scene/selection.ts).
+The rules worth knowing before editing it:
+
+- **Tap slop is per pointer type** (`TAP_SLOP_PX`): 4px for a mouse, 9 for a pen,
+  16 for a finger. One mouse-sized threshold for all three is what made tapping a
+  model on an iPad do nothing at all — a fingertip is a ~10mm disc whose reported
+  centre wanders as the skin flattens, so most real taps drifted past it and were
+  discarded as drags. Any change here is a change to whether touch selection
+  works; [`selection.spec.ts`](src/app/components/viewer/scene/selection.spec.ts)
+  pins it.
+- **A tap resolves on the lift, never the press.** That is what lets a
+  mis-aimed press be dragged off to cancel — including in pull-to-floor, where
+  the press only *paints* the candidate face (there is no hover on touch to paint
+  it earlier) and the lift commits it.
+- **Additive selection has no modifier on touch**, so `ViewerControl.additiveSelection`
+  is a real mode, toggled from the tool cluster and offered only on
+  touch-primary devices with more than one object on the plate. Without it a
+  multi-object selection could only be built from the objects list.
+- **The long press is the right-click.** iOS never fires `contextmenu` for one,
+  so it is recognised from the press itself; the menu is asked for through
+  `SceneSelectionHandlers.contextMenu`, and the viewer decides what goes in it.
+  **Right-click is driven off the button's press and release, not the
+  `contextmenu` event** — Windows raises that after the button comes up and macOS
+  the moment it goes down, so only the button's own travel can tell a right
+  *click* from the right *drag* that pans the camera.
+- **Direct drag is deliberately narrow**: touch or pen, translate mode, and an
+  object that is *already* selected. Requiring a prior tap means a model can
+  never be shoved across the plate by a stray swipe, and drag-to-orbit stays
+  available everywhere else.
+- **OrbitControls listens on the same canvas without capture**, and at the target
+  the DOM runs capture-flagged listeners before non-capture ones *whatever the
+  registration order*. So a `stopPropagation()` from `SceneSelection`'s capture
+  handler at `pointerdown` stops the camera starting a rotate at all — which is
+  why the drag needs no hand-off once it begins. It is applied only to a press
+  the drag will claim; every other press on a model is let through, because
+  dragging from a model the user has not picked used to do nothing, making a
+  dead zone of most of the scene. A bubble-phase probe in the spec pins both
+  directions; break the invariant and the view spins under the dragged object.
+- **The lift is never stopped**, whatever the press turned out to be. Since only
+  *some* presses are withheld, blocking a `pointerup` strands OrbitControls
+  mid-gesture in the ones it *was* let into: its pointer-up handler lives on the
+  **document**, so a stop at the canvas reaches it, and without it the pointer
+  stays tracked, `state` never returns to `NONE`, and the next button-less move
+  orbits the view — on touch, the next single finger reads as a second contact
+  and one-finger orbit dies outright. The only surviving stops are on
+  `pointermove` inside a live drag, whose `pointerdown` was withheld too, so a
+  bubble consumer is absent for the whole gesture rather than half of it.
+- **Palm rejection sits above all of it** in
+  [`scene/pointer-arbiter.ts`](src/app/components/viewer/scene/pointer-arbiter.ts),
+  on the host element in the capture phase, so a resting wrist never reaches any
+  of these handlers.
+
+| Surface        | Touch form                     | Reason                                                                    |
+| -------------- | ------------------------------ | ------------------------------------------------------------------------- |
+| Tap on a model | Selects it                     | The objects list was the only working path                                |
+| Multi-select   | Tool-cluster toggle            | There is no ⌘/Ctrl to hold                                                 |
+| Long press     | Object / plate context menu    | Puts duplicate, drop, centre, remove where the model is                   |
+| Selected model | Drags across the bed           | Three axis arrows inside one contact patch is a coin toss                 |
+| Gizmo          | Scaled up (`setSize` 1.4)      | Scaling the helper scales its pickable geometry with it                   |
+| Object list    | Starts folded, 44px rows       | It sits on the plate it describes, and cannot be hovered out of the way   |
+
+---
+
 ## Monaco Transmit Preview
 
 The **transmit preview panel** is a toggleable side panel that shows, in real time, the exact JSON payloads that the UI would send to the server when a slice job starts.
