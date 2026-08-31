@@ -31,6 +31,7 @@ flowchart LR
 ```
 
 - The Angular app **never reimplements** scene math. Translate, rotate, drop-to-floor, align-face — every gesture becomes a `SceneOp` and is applied by the Rust scene engine compiled to WASM. See [src/scene/README.md](../src/scene/README.md) for the SSOT contract.
+- **A plate holds objects from several files, so every object carries its own `source_id`** and resolves it through [`ModelSourceRegistry`](src/app/services/model-source/model-source-registry.ts). Never answer "which model does this object slice from?" per *plate* — by list position, by "the first upload", or by one path for everything. Every runtime that did got it wrong: the browser slicer refused to slice a second model, the desktop app sliced it as a copy of the first.
 - Schemas and TypeScript types are **generated from the Rust definitions**, not hand-written. See "Generated artifacts" below.
 - The G-code preview is decoded from the same `SliceResult` produced by the CLI's `slice` command.
 
@@ -64,6 +65,8 @@ ui/src/app/
 │   ├── slicer.ts                     high-level slice orchestration
 │   ├── slicer-connection.ts          WebSocket transport (typed messages)
 │   ├── slicer-file.ts                mesh upload (REST), download
+│   ├── workplate-objects/            the one way an object gets onto a plate
+│   ├── model-source/                 object `source_id` → the file it slices from
 │   ├── upload-guard.ts               CanDeactivate guard for in-flight uploads
 │   ├── viewer-control.ts             camera / framing helpers
 │   ├── object-tracker/               per-object UI state

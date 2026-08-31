@@ -1,3 +1,4 @@
+import { ModelSourceRegistry } from '../../../services/model-source';
 import { SceneEngine, SceneOp } from '../../../services/scene-engine';
 import { RuntimeHistorySession } from '../../domain/history-models';
 import { RuntimePreviewSource } from '../../domain/preview-models';
@@ -47,7 +48,10 @@ export class WasmRuntime implements RuntimePort {
   } | null = null;
   private initialized = false;
 
-  constructor(private readonly sceneEngine: SceneEngine) {}
+  constructor(
+    private readonly sceneEngine: SceneEngine,
+    private readonly modelSources: ModelSourceRegistry,
+  ) {}
 
   async init(): Promise<void> {
     await this.sceneEngine.ready();
@@ -62,18 +66,32 @@ export class WasmRuntime implements RuntimePort {
 
   async addMesh(input: RuntimeMeshInput): Promise<string[]> {
     this.requireReady();
-    if (!input.bytes) {
+    const bytes = input.bytes;
+    if (!bytes) {
       throw new Error(`WASM runtime requires bytes for '${input.fileName}'`);
     }
-    const objectIds = this.sceneEngine.addMesh(input.fileName, input.format, input.bytes);
-    // Cache the source bytes under *every* id the file produced: the local
-    // slicer re-parses them per object, and a multi-part 3MF backs several
-    // objects that all resolve to these same bytes.
+    // Register the file once, then stamp its handle on every object it makes.
+    // A multi-part 3MF and a duplicated model both resolve back to this single
+    // entry, so the bytes are held once rather than once per object.
+    const source = this.modelSources.register({
+      sourceId: input.sourceId,
+      fileName: input.fileName,
+      format: input.format,
+      bytes,
+    });
+    const objectIds = this.sceneEngine.addMesh(
+      input.fileName,
+      input.format,
+      bytes,
+      source.sourceId,
+    );
+    // The per-object cache additionally remembers *which part* of the file each
+    // object is — the registry is keyed by file and cannot know that.
     objectIds.forEach((objectId, partIndex) => {
       this.meshByObjectId.set(objectId.toString(), {
         name: input.fileName,
         format: input.format,
-        bytes: new Uint8Array(input.bytes as Uint8Array),
+        bytes: source.bytes ?? bytes,
         partIndex,
       });
     });
@@ -365,41 +383,37 @@ export class WasmRuntime implements RuntimePort {
     objects: WorkerSliceObject[];
     transferables: Transferable[];
   } {
-    const sceneObjects =
-      request.scene?.objects ??
-      this.sceneEngine.snapshot().objects.map((object) => ({
-        id: object.id.toString(),
-        name: object.name,
-        translation: object.translation,
-        euler_xyz_deg: object.euler_xyz_deg,
-        scale: object.scale,
-        triangle_count: object.triangle_count,
-        world_aabb: object.world_aabb,
-      }));
+    const sceneObjects = request.scene?.objects ?? this.sceneSnapshotObjects();
     if (sceneObjects.length === 0) {
       throw new Error('Cannot slice an empty scene.');
     }
 
     const transferables: Transferable[] = [];
+    // One copy per *file*, not per object. A 300 MB 3MF with several parts, or
+    // a model duplicated across the plate, would otherwise allocate the whole
+    // file once per object and can exhaust memory before the message is even
+    // posted. Structured clone preserves shared references within a single
+    // message, so every object that shares a file also shares its buffer on the
+    // worker side — and each buffer is transferred exactly once.
+    const copies = new Map<Uint8Array, Uint8Array>();
     const objects = sceneObjects.map((object) => {
-      const cached = this.meshByObjectId.get(object.id);
-      const fallbackModel = sceneObjects.length === 1 ? request.model : undefined;
-      const source = cached ?? fallbackModel;
+      const source = this.resolveSource(object, sceneObjects.length, request);
 
-      if (!source?.bytes) {
-        throw new Error(
-          `Missing mesh bytes for scene object '${object.name}'. Reload the model before slicing locally.`,
-        );
+      // Copy rather than transfer the original: transferring detaches the
+      // buffer on this side, and the registry has to keep its bytes for the
+      // next slice.
+      let bytes = copies.get(source.bytes);
+      if (!bytes) {
+        bytes = new Uint8Array(source.bytes);
+        copies.set(source.bytes, bytes);
+        transferables.push(bytes.buffer as ArrayBuffer);
       }
 
-      const bytes = cached ? new Uint8Array(source.bytes) : transferableView(source.bytes);
-      transferables.push(bytes.buffer as ArrayBuffer);
-
       return {
-        name: cached?.name ?? fallbackModel?.fileName ?? object.name,
-        format: cached?.format ?? fallbackModel?.format ?? 'stl',
+        name: source.name,
+        format: source.format,
         bytes,
-        partIndex: cached?.partIndex ?? 0,
+        partIndex: source.partIndex,
         transform: {
           translation: object.translation,
           euler_xyz_deg: object.euler_xyz_deg,
@@ -409,6 +423,71 @@ export class WasmRuntime implements RuntimePort {
     });
 
     return { objects, transferables };
+  }
+
+  /**
+   * Find the bytes one scene object slices from.
+   *
+   * Resolution is by the object's own `source_id`, so a plate holding several
+   * different models slices each from its own file. The per-object-id cache is
+   * consulted first only because it also remembers which *part* of a
+   * multi-part file the object is; the registry is the authority on the bytes.
+   */
+  private resolveSource(
+    object: { id: string; name: string; source_id?: string | null; source_part?: number },
+    sceneObjectCount: number,
+    request: RuntimeSliceRequest,
+  ): { name: string; format: 'stl' | 'obj' | '3mf'; bytes: Uint8Array; partIndex: number } {
+    const cached = this.meshByObjectId.get(object.id);
+    if (cached) {
+      return {
+        name: cached.name,
+        format: cached.format,
+        bytes: cached.bytes,
+        partIndex: cached.partIndex,
+      };
+    }
+
+    const registered = this.modelSources.get(object.source_id);
+    if (registered?.bytes) {
+      return {
+        name: registered.fileName,
+        format: registered.format,
+        bytes: registered.bytes,
+        partIndex: object.source_part ?? 0,
+      };
+    }
+
+    // Last resort, and only ever right for a single-object plate: the model
+    // the slice request was built around. An object that reaches here on a
+    // multi-object plate cannot be told apart from its neighbours, so guessing
+    // would slice the wrong mesh silently.
+    if (sceneObjectCount === 1 && request.model?.bytes) {
+      return {
+        name: request.model.fileName,
+        format: request.model.format,
+        bytes: request.model.bytes,
+        partIndex: object.source_part ?? 0,
+      };
+    }
+
+    throw new Error(
+      `Missing mesh bytes for scene object '${object.name}'. Reload the model before slicing locally.`,
+    );
+  }
+
+  private sceneSnapshotObjects(): RuntimeSceneSnapshot['objects'] {
+    return this.sceneEngine.snapshot().objects.map((object) => ({
+      id: object.id.toString(),
+      name: object.name,
+      translation: object.translation,
+      euler_xyz_deg: object.euler_xyz_deg,
+      scale: object.scale,
+      triangle_count: object.triangle_count,
+      world_aabb: object.world_aabb,
+      source_id: object.source_id,
+      source_part: object.source_part,
+    }));
   }
 
   private resolvePendingSlice(result: RuntimeSliceResult): void {
@@ -438,14 +517,6 @@ export class WasmRuntime implements RuntimePort {
       throw new Error(error.message);
     }
   }
-}
-
-function transferableView(bytes: Uint8Array): Uint8Array {
-  if (bytes.byteOffset === 0 && bytes.byteLength === bytes.buffer.byteLength) {
-    return bytes;
-  }
-
-  return bytes.slice();
 }
 
 function errorOf(error: unknown): Error {

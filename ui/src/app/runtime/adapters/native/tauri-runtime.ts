@@ -4,6 +4,7 @@ import { appCacheDir, join } from '@tauri-apps/api/path';
 import { open } from '@tauri-apps/plugin-dialog';
 import { mkdir, readFile, writeFile } from '@tauri-apps/plugin-fs';
 
+import { ModelSourceRegistry } from '../../../services/model-source';
 import { SceneEngine, SceneOp } from '../../../services/scene-engine';
 import { RuntimeHistorySession } from '../../domain/history-models';
 import { RuntimePreviewSource } from '../../domain/preview-models';
@@ -28,12 +29,31 @@ const NATIVE_CAPABILITIES: RuntimeCapabilities = {
 
 const MODEL_EXTENSIONS: string[] = ['stl', 'obj', '3mf'];
 
+/**
+ * The scene as the Rust bridge consumes it.
+ *
+ * Each object names the file it slices from, so the plate the user arranged is
+ * reproduced object by object rather than approximated from one model.
+ */
+interface NativeSceneSnapshot {
+  objects: {
+    translation: [number, number, number];
+    euler_xyz_deg: [number, number, number];
+    scale: [number, number, number];
+    source_part: number;
+    file_path?: string;
+  }[];
+}
+
 export class TauriRuntime implements RuntimePort {
   private readonly bus = new RuntimeEventBus();
   private readonly previewBySlice = new Map<string, RuntimePreviewSource>();
   private initialized = false;
 
-  constructor(private readonly sceneEngine: SceneEngine) {}
+  constructor(
+    private readonly sceneEngine: SceneEngine,
+    private readonly modelSources: ModelSourceRegistry,
+  ) {}
 
   async init(): Promise<void> {
     // Ensure WASM scene engine is ready before any scene or slice operations.
@@ -78,7 +98,22 @@ export class TauriRuntime implements RuntimePort {
     if (!bytes) {
       throw new Error(`Cannot add mesh '${input.fileName}': no bytes and no file path`);
     }
-    const objectIds = this.sceneEngine.addMesh(input.fileName, input.format, bytes);
+    // Record the file so each object it produces can be resolved back to *this*
+    // model at slice time. A native path is preferred: Rust then reads the
+    // model straight off disk and the bytes never cross the IPC channel.
+    const source = this.modelSources.register({
+      sourceId: input.sourceId,
+      fileName: input.fileName,
+      format: input.format,
+      bytes,
+      filePath: input.filePath,
+    });
+    const objectIds = this.sceneEngine.addMesh(
+      input.fileName,
+      input.format,
+      bytes,
+      source.sourceId,
+    );
     return objectIds.map((id) => id.toString());
   }
 
@@ -193,16 +228,29 @@ export class TauriRuntime implements RuntimePort {
     );
 
     try {
-      // Resolve a native filesystem path for the model before invoking.
-      // When the user opened a file via the native dialog, request.model.filePath
-      // is already set. For drag-dropped files it is absent, so we cache the
-      // bytes to the app cache dir here — async, off the main thread via the
-      // fs plugin — and pass the resulting path. This avoids the catastrophic
+      // Resolve a native filesystem path for every object on the plate, so a
+      // plate holding several different models slices each from its own file.
+      // Rust reads them straight off disk — bytes never cross the IPC channel,
+      // which is what avoids the catastrophic
       // Array.from(Uint8Array) → JSON.stringify(number[]) path that would
       // serialise ~300 MB of text synchronously on the main thread.
-      const filePath = request.model
-        ? (request.model.filePath ?? (await this.cacheModelFile(request.model)))
-        : undefined;
+      const scene = await this.sceneWithNativePaths(request);
+      // Fallback for a scene whose objects name no file of their own — an
+      // object that *does* name one has already been resolved above, or the
+      // slice has failed. Deliberately not "some other object's path": that is
+      // how a mixed plate ends up slicing the wrong model.
+      const needsFallback = !scene || scene.objects.some((object) => !object.file_path);
+      const filePath =
+        needsFallback && request.model
+          ? (request.model.filePath ??
+            (request.model.bytes
+              ? await this.cacheModelFile(
+                  request.model.fileName,
+                  request.model.bytes,
+                  'request-model',
+                )
+              : undefined))
+          : undefined;
 
       const response = await invoke<{
         layer_count?: number;
@@ -214,7 +262,7 @@ export class TauriRuntime implements RuntimePort {
           request_uuid: request.request_uuid,
           // Rust reads the model directly from disk — bytes never cross IPC.
           file_path: filePath,
-          scene: request.scene,
+          scene,
           settings: request.settings,
         },
       });
@@ -301,23 +349,100 @@ export class TauriRuntime implements RuntimePort {
     this.bus.clear();
   }
 
+  /**
+   * Give every scene object the native path of the file it came from.
+   *
+   * A workplate can hold several different models, so "which file?" is a
+   * per-object question. Sending one `file_path` for the whole plate — which is
+   * what this used to do — made every object resolve into the *first* file, so
+   * a second model was silently sliced as a copy of the first.
+   *
+   * Each object's `source_id` resolves through the registry to a file; one
+   * without a native path yet (a drag-dropped model) is written to the app
+   * cache directory once and the path recorded, so re-slicing does not write it
+   * out again.
+   */
+  private async sceneWithNativePaths(
+    request: RuntimeSliceRequest,
+  ): Promise<NativeSceneSnapshot | undefined> {
+    const scene = request.scene;
+    if (!scene) {
+      return undefined;
+    }
+
+    // Resolve each distinct file once, not once per object — a 3MF's parts and
+    // a duplicated model all share one file and must not be written N times.
+    const pathBySource = new Map<string, string>();
+    for (const object of scene.objects) {
+      const sourceId = object.source_id;
+      if (!sourceId || pathBySource.has(sourceId)) {
+        continue;
+      }
+      pathBySource.set(sourceId, await this.nativePathFor(sourceId));
+    }
+
+    return {
+      objects: scene.objects.map((object) => ({
+        translation: object.translation,
+        euler_xyz_deg: object.euler_xyz_deg,
+        scale: object.scale,
+        source_part: object.source_part,
+        // Left unset only for an object that names no file at all, which the
+        // Rust side answers with the request-level path.
+        file_path: object.source_id ? pathBySource.get(object.source_id) : undefined,
+      })),
+    };
+  }
+
+  /** The on-disk path for a registered file, caching its bytes if needed. */
+  private async nativePathFor(sourceId: string): Promise<string> {
+    const source = this.modelSources.get(sourceId);
+    // An object that names a file we cannot produce must fail loudly. Returning
+    // "no path" would let it fall back to the request-level path — which is
+    // some *other* object's file — and slice the wrong model in silence.
+    if (!source) {
+      throw new Error(
+        `Scene object references an unknown model source. Re-add the model before slicing.`,
+      );
+    }
+    if (source.filePath) {
+      return source.filePath;
+    }
+    if (!source.bytes) {
+      throw new Error(
+        `Missing model data for '${source.fileName}'. Re-add the model before slicing.`,
+      );
+    }
+    const path = await this.cacheModelFile(source.fileName, source.bytes, sourceId);
+    this.modelSources.attachFilePath(sourceId, path);
+    return path;
+  }
+
   /** Write model bytes to the app cache dir and return the absolute path.
    *
-   * Called only for drag-and-dropped files (no native FS path, bytes present).
-   * The write goes through the fs plugin's binary IPC — efficient and async —
-   * so the main thread is never blocked by large byte serialisation. */
-  private async cacheModelFile(model: RuntimeMeshInput): Promise<string> {
-    if (!model.bytes) {
-      throw new Error(`Cannot cache '${model.fileName}': no bytes available`);
-    }
+   * Called only for models with no filesystem path of their own. The write goes
+   * through the fs plugin's binary IPC — efficient and async — so the main
+   * thread is never blocked by large byte serialisation.
+   *
+   * The file is named after its **source handle**, not just the model: a plate
+   * can hold two different files that happen to share a basename, and writing
+   * both to `part.stl` would leave the second overwriting the first — after
+   * which both objects resolve to one path and the same mesh is sliced twice.
+   * The extension is preserved because Rust picks the parser from it.
+   */
+  private async cacheModelFile(
+    fileName: string,
+    bytes: Uint8Array,
+    sourceId: string,
+  ): Promise<string> {
     const dir = await appCacheDir();
     // The app cache directory is not guaranteed to exist yet — the fs plugin's
     // writeFile does not create parent directories, so a missing cache dir
     // surfaces later as a confusing "No such file or directory" when Rust
     // tries to read the model path. Create it up front (idempotent).
     await mkdir(dir, { recursive: true });
-    const path = await join(dir, model.fileName);
-    await writeFile(path, model.bytes);
+    const path = await join(dir, `${safeSegment(sourceId)}-${safeSegment(fileName)}`);
+    await writeFile(path, bytes);
     return path;
   }
 
@@ -331,4 +456,15 @@ export class TauriRuntime implements RuntimePort {
       throw new Error(error.message);
     }
   }
+}
+
+/**
+ * Make a string safe to use as a single filename component.
+ *
+ * Model names and source handles both reach the cache path, and a name
+ * carrying `/` or `..` would otherwise write outside the cache directory.
+ */
+function safeSegment(value: string): string {
+  const cleaned = value.replace(/[^A-Za-z0-9._-]+/g, '_').replace(/^\.+/, '');
+  return cleaned.length > 0 ? cleaned.slice(0, 120) : 'model';
 }

@@ -243,11 +243,14 @@ export class SliceViewer {
       // The first file seeds the viewer through its `model` input; the rest
       // are added straight to the scene so a plate saved with several objects
       // comes back whole instead of losing everything after the first.
-      await this.#slicerFile.fetchFile(
+      const primary = await this.#slicerFile.fetchFile(
         requestUuid,
         firstFile.file_uuid,
         firstFile.original_filename,
       );
+      // The viewer adds that first object itself, so register its file here or
+      // it would be the one object on the plate that cannot name its source.
+      await this.#workplate.registerExistingFile(primary, firstFile.file_uuid);
 
       for (const extra of extraFiles) {
         const file = await this.#slicerFile.downloadFile(
