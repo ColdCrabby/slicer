@@ -29,6 +29,13 @@ issue/PR numbers or repo links in the notes. See the tone rules in
 
 ### Fixed
 
+- **The desktop app now prints the plate you arranged, not the file you opened**
+  — models were sliced exactly as their source file defined them, ignoring every
+  move, rotation and drop-to-bed. A multi-part 3MF came out with its parts still
+  stacked as the authoring tool assembled them, and duplicates or extra parts
+  were dropped entirely. Only the desktop app was affected; the browser slicer
+  and the hosted slicer already placed objects correctly.
+
 - **Dialogs no longer collapse in Safari** — a dialog with a body ("Running in
   your browser", "What's New", the operation pipeline) drew as a title with the
   buttons jammed underneath and its content squashed to one clipped line. It now

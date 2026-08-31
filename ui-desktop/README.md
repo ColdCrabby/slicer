@@ -65,6 +65,31 @@ depend on it like any other crate.
 | `capabilities/`         | Permission grants, split by platform (see below).                       |
 | `gen/apple/`            | **Generated, but committed** Xcode project. Created by `ios:init`.      |
 
+### Slicing slices the plate, not the file
+
+`bridge/runtime_bridge.rs` receives a model path plus the scene snapshot the
+webview is drawing, and it must reproduce that plate exactly. Two properties do
+the work, and both are easy to lose:
+
+- **Multi-part files stay apart.** A 3MF is a scene, not a model. Its build
+  items are separate objects on the plate, and each build item's transform is
+  already baked into that part's vertices — so a *merged* load hands back the
+  file as its author assembled it: parts stacked, geometry floating above the
+  bed. The bridge loads with `load_path_multi_reporting` and resolves each scene
+  object through its `source_part` index.
+- **Every object is placed, with its own transform.** One `ObjectInput` per
+  scene object, each baked once at the slicer boundary. Baking only the first
+  object's transform silently drops duplicates and every part after the first.
+
+Both were broken here once, and the symptom is the same either way: the print
+comes out as the file describes rather than as the plate shows, and no amount of
+moving things on screen changes the G-code. `slice_plate` receives the objects
+separately so the desktop honours exclude-object and sequential printing exactly
+like the CLI and the server.
+
+A `source_part` the file cannot satisfy is an **error**. Falling back to part 0
+would slice the wrong geometry without telling anyone.
+
 ### `dev:desktop` overrides `devUrl` at launch
 
 `tauri.conf.json` pins `build.devUrl` to the default UI port and names a

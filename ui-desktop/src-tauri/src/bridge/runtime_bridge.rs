@@ -1,7 +1,7 @@
 use crate::bridge::tauri_logger::TauriAppLogger;
 use serde_json::{json, Value};
+use slicer_engine::core::ObjectInput;
 use slicer_engine::logging::ProcessLogger;
-use slicer_engine::mesh::types::Mesh;
 use slicer_engine::scene::loader::MeshFormat;
 use slicer_engine::scene::transform::Transform;
 use std::collections::HashMap;
@@ -42,6 +42,30 @@ struct SceneObjectPayload {
     euler_xyz_deg: Option<[f32; 3]>,
     #[serde(default)]
     scale: Option<[f32; 3]>,
+    /// Which object inside the source file this one is (0 for single-part
+    /// files).
+    ///
+    /// A 3MF is a scene: its build items become separate plate objects that
+    /// all share one file, so the path alone does not say which geometry to
+    /// slice.
+    #[serde(default)]
+    source_part: Option<usize>,
+}
+
+impl SceneObjectPayload {
+    /// The object's placement on the plate.
+    fn transform(&self) -> Transform {
+        Transform::from_euler_xyz_deg(
+            self.translation.unwrap_or([0.0, 0.0, 0.0]),
+            self.euler_xyz_deg.unwrap_or([0.0, 0.0, 0.0]),
+            self.scale.unwrap_or([1.0, 1.0, 1.0]),
+        )
+    }
+
+    /// Index of this object's geometry within its source file.
+    fn part_index(&self) -> usize {
+        self.source_part.unwrap_or(0)
+    }
 }
 
 // Managed application state
@@ -158,27 +182,21 @@ pub async fn slice_start(
             }
         }
 
-        let mesh = load_model_from_path(&file_path, &logger)?;
-        logger.log_info(&format!("mesh loaded: {} faces", mesh.faces.len()));
+        let plate_objects = load_plate_objects(&file_path, payload.scene.as_ref(), &logger)?;
 
-        let combined = bake_scene(&mesh, payload.scene, &logger);
-
-        if combined.faces.is_empty() {
+        if plate_objects.iter().all(|o| o.mesh.faces.is_empty()) {
             return Err("combined scene has no triangles; nothing to slice".to_string());
         }
 
-        logger.log_info(&format!("slicing {} faces\u{2026}", combined.faces.len()));
-        // One object per plate here (see `bake_scene`), but it still goes
-        // through `slice_plate` so the desktop honours exclude-object exactly
-        // like the CLI and the server.
-        let object_name = original_filename
-            .clone()
-            .unwrap_or_else(|| "object".to_string());
-        let plate = slicer_engine::core::slice_plate(
-            &[slicer_engine::core::ObjectInput::new(object_name, combined)],
-            &params,
-            &logger,
-        );
+        let total_faces: usize = plate_objects.iter().map(|o| o.mesh.faces.len()).sum();
+        logger.log_info(&format!(
+            "slicing {} object(s), {total_faces} faces\u{2026}",
+            plate_objects.len()
+        ));
+        // The objects stay apart so the desktop honours exclude-object and
+        // sequential printing exactly like the CLI and the server; `slice_plate`
+        // merges them itself when the settings do not need per-object identity.
+        let plate = slicer_engine::core::slice_plate(&plate_objects, &params, &logger);
         logger.log_info(&format!("{} layers produced", plate.layers.len()));
 
         if cancel_flag.load(Ordering::SeqCst) {
@@ -307,9 +325,15 @@ fn compute_slice_cache_key(
     canonical.push_str(";scene=");
     if let Some(scene) = scene {
         for obj in &scene.objects {
+            // `source_part` is part of the identity: two objects can share a
+            // file yet be different parts of it, and omitting it would let
+            // distinct plates collide on one cached G-code.
             canonical.push_str(&format!(
-                "[{:?}|{:?}|{:?}]",
-                obj.translation, obj.euler_xyz_deg, obj.scale
+                "[#{}|{:?}|{:?}|{:?}]",
+                obj.part_index(),
+                obj.translation,
+                obj.euler_xyz_deg,
+                obj.scale
             ));
         }
     }
@@ -377,63 +401,218 @@ pub fn history_clear(state: &AppState) -> Result<Value, String> {
     Ok(json!({ "ok": true }))
 }
 
-/// Load a mesh from a filesystem path, reading bytes directly in the Rust
-/// process. The bytes never cross the IPC boundary.
-fn load_model_from_path(path: &str, logger: &dyn ProcessLogger) -> Result<Mesh, String> {
-    let ext = std::path::Path::new(path)
-        .extension()
-        .and_then(|e| e.to_str())
-        .ok_or_else(|| format!("cannot determine format from path: {path}"))?;
-    let format = parse_format(ext)?;
-    let bytes = std::fs::read(path).map_err(|e| format!("failed to read {path}: {e}"))?;
-    logger.log_debug(&format!("read {} bytes from disk", bytes.len()));
-    let (mesh, report) = slicer_engine::scene::load_bytes_reporting(
-        &bytes,
-        format,
+/// Load a model from disk and place every object the plate holds.
+///
+/// Reading happens in the Rust process, so the bytes never cross the IPC
+/// boundary.
+///
+/// Multi-part files are kept apart. A 3MF is a *scene*, not a model: its build
+/// items are independent parts that land on the plate as separate objects, each
+/// free to be moved, rotated and dropped to the bed on its own. Fusing them
+/// back into one mesh and baking a single transform prints the file exactly as
+/// its author assembled it — stacked parts, floating geometry and all — instead
+/// of the plate the user is looking at.
+///
+/// The objects are returned separately rather than merged; `slice_plate` decides
+/// whether the plate can be merged (the default) or has to keep per-object
+/// identity for exclude-object and sequential printing.
+fn load_plate_objects(
+    path: &str,
+    scene: Option<&SceneSnapshotPayload>,
+    logger: &dyn ProcessLogger,
+) -> Result<Vec<ObjectInput>, String> {
+    let file = std::path::Path::new(path);
+    if MeshFormat::from_path(file).is_none() {
+        return Err(format!("cannot determine format from path: {path}"));
+    }
+
+    let parts = slicer_engine::scene::load_path_multi_reporting(
+        file,
         &slicer_engine::mesh::repair::RepairOptions::default(),
     )?;
-    let label = std::path::Path::new(path)
+
+    let file_name = file
         .file_name()
         .map(|n| n.to_string_lossy().into_owned())
         .unwrap_or_else(|| path.to_string());
-    slicer_engine::mesh::repair::log_report(logger, &label, &report);
-    Ok(mesh)
-}
 
-/// Apply the scene transform to `mesh`.
-///
-/// When the scene contains multiple objects a warning is emitted, since only
-/// the first object's transform is applied. Multi-model native slicing is not
-/// yet supported.
-fn bake_scene(
-    mesh: &Mesh,
-    scene: Option<SceneSnapshotPayload>,
-    logger: &dyn ProcessLogger,
-) -> Mesh {
-    let objects = scene.unwrap_or_default().objects;
-    if objects.len() > 1 {
-        logger.log_warn(&format!(
-            "scene contains {} objects; only the first will be sliced \
-             (multi-model native slicing is not yet supported)",
-            objects.len()
+    // Report each part's health once, on the single read, however many plate
+    // objects it ends up backing.
+    let multi = parts.len() > 1;
+    for (index, part) in parts.iter().enumerate() {
+        let label = match (&part.name, multi) {
+            (Some(name), _) => format!("{file_name} ({name})"),
+            (None, true) => format!("{file_name} #{}", index + 1),
+            (None, false) => file_name.clone(),
+        };
+        slicer_engine::mesh::repair::log_report(logger, &label, &part.report);
+    }
+    logger.log_debug(&format!(
+        "loaded {} object(s) from {file_name}",
+        parts.len()
+    ));
+
+    // Without a scene there is nothing placing the parts, so print the file as
+    // authored: every part, untransformed.
+    let placements: Vec<(usize, Transform)> = match scene {
+        Some(scene) if !scene.objects.is_empty() => scene
+            .objects
+            .iter()
+            .map(|object| (object.part_index(), object.transform()))
+            .collect(),
+        _ => (0..parts.len())
+            .map(|index| (index, Transform::IDENTITY))
+            .collect(),
+    };
+
+    let mut objects = Vec::with_capacity(placements.len());
+    for (part_index, transform) in placements {
+        let part = parts.get(part_index).ok_or_else(|| {
+            format!(
+                "{file_name} has no object at index {part_index} (it contains {})",
+                parts.len()
+            )
+        })?;
+        // Name the object after the part inside its file, falling back to the
+        // file stem — this is what the firmware's cancel UI shows.
+        let name = part
+            .name
+            .as_deref()
+            .map(str::trim)
+            .filter(|n| !n.is_empty())
+            .map(str::to_string)
+            .or_else(|| file.file_stem().map(|s| s.to_string_lossy().into_owned()))
+            .unwrap_or_else(|| format!("object_{}", objects.len()));
+        // Bake the per-object transform exactly once, at the slicer boundary —
+        // see the SSOT contract in src/scene/README.md.
+        objects.push(ObjectInput::new(
+            name,
+            slicer_engine::scene::apply_transform(&part.mesh, &transform),
         ));
     }
-    let transform = objects
-        .into_iter()
-        .next()
-        .map(|object| {
-            Transform::from_euler_xyz_deg(
-                object.translation.unwrap_or([0.0, 0.0, 0.0]),
-                object.euler_xyz_deg.unwrap_or([0.0, 0.0, 0.0]),
-                object.scale.unwrap_or([1.0, 1.0, 1.0]),
-            )
-        })
-        .unwrap_or(Transform::IDENTITY);
 
-    slicer_engine::scene::apply_transform(mesh, &transform)
+    Ok(objects)
 }
 
-fn parse_format(format_str: &str) -> Result<MeshFormat, String> {
-    MeshFormat::from_extension(format_str)
-        .ok_or_else(|| format!("unsupported mesh format: {format_str}"))
+#[cfg(test)]
+mod plate_loading_tests {
+    use super::*;
+    use slicer_engine::logging::NullLogger;
+    use slicer_engine::mesh::types::AABB;
+
+    /// A 3MF whose two build items ("top" and "bottom") are stacked as the
+    /// authoring tool assembled them: bottom spans z 0..42, top z 42..67.
+    fn top_ac_path() -> String {
+        format!(
+            "{}/../../tests/fixtures/TopAC.3mf",
+            env!("CARGO_MANIFEST_DIR")
+        )
+    }
+
+    fn object(part: usize, translation: [f32; 3]) -> SceneObjectPayload {
+        SceneObjectPayload {
+            translation: Some(translation),
+            euler_xyz_deg: None,
+            scale: None,
+            source_part: Some(part),
+        }
+    }
+
+    fn aabb_of(object: &ObjectInput) -> AABB {
+        let mut mesh = object.mesh.clone();
+        mesh.calculate_aabb().expect("object has geometry").clone()
+    }
+
+    #[test]
+    fn a_multi_part_3mf_becomes_one_plate_object_per_part() {
+        let scene = SceneSnapshotPayload {
+            objects: vec![object(0, [0.0; 3]), object(1, [0.0; 3])],
+        };
+        let objects = load_plate_objects(&top_ac_path(), Some(&scene), &NullLogger).unwrap();
+
+        assert_eq!(objects.len(), 2);
+        assert_eq!(objects[0].name, "top");
+        assert_eq!(objects[1].name, "bottom");
+        // Each object carries only its own part — not the whole merged file.
+        assert!(objects
+            .iter()
+            .all(|o| o.mesh.faces.len() < 42_108 && !o.mesh.faces.is_empty()));
+    }
+
+    /// The regression this fix exists for: the plate used to be sliced as the
+    /// file defines it (parts stacked, one transform for the lot) rather than
+    /// as the user arranged it.
+    #[test]
+    fn every_object_is_placed_where_the_scene_puts_it() {
+        // What the UI does with this file: drop each part to the bed and stand
+        // them side by side.
+        let scene = SceneSnapshotPayload {
+            objects: vec![object(0, [0.0, 0.0, -42.0]), object(1, [150.0, 0.0, 0.0])],
+        };
+        let objects = load_plate_objects(&top_ac_path(), Some(&scene), &NullLogger).unwrap();
+
+        let top = aabb_of(&objects[0]);
+        let bottom = aabb_of(&objects[1]);
+
+        // The top part was lowered onto the bed instead of floating at z 42.
+        assert!((top.min.z - 0.0).abs() < 1e-3, "top.min.z = {}", top.min.z);
+        // The bottom part moved 150 mm along X and stayed on the bed.
+        assert!(
+            (bottom.min.x - 92.5).abs() < 1e-3,
+            "bottom.min.x = {}",
+            bottom.min.x
+        );
+        assert!((bottom.min.z - 0.0).abs() < 1e-3);
+    }
+
+    #[test]
+    fn two_objects_sharing_one_part_are_both_placed() {
+        // Duplicating a model produces two scene objects backed by one part —
+        // the plate must slice both, not just the first.
+        let scene = SceneSnapshotPayload {
+            objects: vec![object(1, [0.0; 3]), object(1, [150.0, 0.0, 0.0])],
+        };
+        let objects = load_plate_objects(&top_ac_path(), Some(&scene), &NullLogger).unwrap();
+
+        assert_eq!(objects.len(), 2);
+        let first = aabb_of(&objects[0]);
+        let second = aabb_of(&objects[1]);
+        assert!((second.min.x - first.min.x - 150.0).abs() < 1e-3);
+    }
+
+    #[test]
+    fn a_scene_referencing_a_missing_part_is_an_error_not_wrong_geometry() {
+        let scene = SceneSnapshotPayload {
+            objects: vec![object(7, [0.0; 3])],
+        };
+        let error = load_plate_objects(&top_ac_path(), Some(&scene), &NullLogger).unwrap_err();
+        assert!(error.contains("no object at index 7"), "{error}");
+    }
+
+    #[test]
+    fn without_a_scene_the_file_is_sliced_as_authored() {
+        let objects = load_plate_objects(&top_ac_path(), None, &NullLogger).unwrap();
+
+        assert_eq!(objects.len(), 2);
+        // Untransformed: the parts keep the stack the 3MF describes.
+        assert!((aabb_of(&objects[0]).min.z - 42.0).abs() < 1e-3);
+        assert!((aabb_of(&objects[1]).min.z - 0.0).abs() < 1e-3);
+    }
+
+    #[test]
+    fn the_cache_key_distinguishes_two_parts_of_one_file() {
+        let params = slicer_engine::settings::params::SlicingParams::default();
+        let path = top_ac_path();
+        let first = Some(SceneSnapshotPayload {
+            objects: vec![object(0, [0.0; 3])],
+        });
+        let second = Some(SceneSnapshotPayload {
+            objects: vec![object(1, [0.0; 3])],
+        });
+
+        assert_ne!(
+            compute_slice_cache_key(&params, &path, &first),
+            compute_slice_cache_key(&params, &path, &second)
+        );
+    }
 }
