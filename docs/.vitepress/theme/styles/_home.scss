@@ -1,0 +1,141 @@
+/// Home page — hero and feature islands.
+/// @group docs-theme
+
+/* ── Buttons ──────────────────────────────────────────────────────────────
+   VitePress ships 20px pills. The app's buttons are `--radius-md` rectangles
+   at a fixed height, so these are too — a pill on the landing page and a
+   rounded rectangle everywhere in the product is a visible seam.
+
+   The radius is set through a doubled class because VitePress's own rule is
+   a *scoped* style (`.VPButton.medium[data-v-…]`), which a plain
+   `.VPButton.medium` loses to on specificity. */
+.VPButton.VPButton {
+  font-weight: var(--font-weight-medium);
+  font-variation-settings: "wght" var(--font-weight-medium);
+  transition:
+    background-color var(--duration-fast) var(--ease-standard),
+    border-color var(--duration-fast) var(--ease-standard),
+    color var(--duration-fast) var(--ease-standard);
+
+  &.medium,
+  &.big {
+    border-radius: var(--radius-md);
+    padding: 0 var(--spacing-xl);
+  }
+
+  &.medium {
+    font-size: var(--font-size-md);
+    line-height: 38px;
+  }
+
+  &.big {
+    font-size: var(--font-size-lg);
+    line-height: 42px;
+  }
+
+  &.alt {
+    box-shadow: var(--shadow-xs);
+  }
+}
+
+/* ── Hero ─────────────────────────────────────────────────────────────── */
+.VPHero {
+  .name {
+    font-size: 54px;
+    font-weight: var(--font-weight-semibold);
+    font-variation-settings: "wght" 700;
+    letter-spacing: -0.028em;
+    line-height: 1.05;
+  }
+
+  .text {
+    max-width: 20ch;
+    color: var(--color-text-primary);
+    font-size: 30px;
+    font-weight: var(--font-weight-medium);
+    font-variation-settings: "wght" var(--font-weight-medium);
+    letter-spacing: -0.018em;
+    line-height: 1.2;
+  }
+
+  .tagline {
+    max-width: 52ch;
+    padding-top: var(--spacing-md);
+    color: var(--color-text-secondary);
+    font-size: var(--font-size-lg);
+    line-height: 1.6;
+  }
+
+  .actions {
+    padding-top: var(--spacing-xl);
+    gap: var(--spacing-sm);
+  }
+
+  /* The mascot stands on its own — no gradient blob behind it. */
+  .image-bg {
+    display: none;
+  }
+
+  .VPImage {
+    filter: none;
+  }
+}
+
+@media (min-width: 960px) {
+  .VPHero .name {
+    font-size: 62px;
+  }
+
+  .VPHero .text {
+    font-size: 34px;
+  }
+}
+
+/* ── Feature islands ──────────────────────────────────────────────────────
+   Rounded solid surfaces separated from the page by tone, not outlined. They
+   lift on hover only enough to say they are clickable. */
+.VPFeatures .VPFeature {
+  border: none;
+  border-radius: var(--radius-lg);
+  background-color: var(--color-bg-primary);
+  transition:
+    background-color var(--duration-normal) var(--ease-standard),
+    box-shadow var(--duration-normal) var(--ease-standard),
+    transform var(--duration-normal) var(--ease-standard);
+
+  .title {
+    font-size: var(--font-size-lg);
+    font-weight: var(--font-weight-semibold);
+    font-variation-settings: "wght" var(--font-weight-semibold);
+    letter-spacing: -0.008em;
+  }
+
+  .details {
+    color: var(--color-text-secondary);
+    font-size: var(--font-size-sm);
+    line-height: 1.6;
+  }
+
+  .link-text {
+    padding-top: var(--spacing-md);
+  }
+
+  .link-text-value {
+    color: var(--vp-c-brand-1);
+    font-size: var(--font-size-sm);
+    font-weight: var(--font-weight-medium);
+    font-variation-settings: "wght" var(--font-weight-medium);
+  }
+}
+
+.VPFeatures a.VPFeature:hover {
+  background-color: var(--color-bg-tertiary);
+  box-shadow: var(--shadow-sm);
+  transform: translateY(-2px);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .VPFeatures a.VPFeature:hover {
+    transform: none;
+  }
+}

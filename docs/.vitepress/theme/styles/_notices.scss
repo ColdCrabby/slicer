@@ -1,0 +1,163 @@
+/// Custom blocks as `nexus-inline-notice`.
+/// @group docs-theme
+///
+/// The app has exactly one way to raise a contextual note: a solid tinted
+/// surface (never blurred), a tone-coloured icon and title, and quieter body
+/// text. `::: tip` / `::: warning` / `::: danger` are the same idea in prose,
+/// so they get the same shape.
+///
+/// Each severity sets one `--notice-tone`; the base rule mixes it into the
+/// icon and title colour. That is the library's own pattern — one line per
+/// tone, not a repeated block.
+
+.vp-doc .custom-block,
+.custom-block {
+  --notice-tone: var(--color-text-tertiary);
+
+  padding: var(--spacing-md) var(--spacing-lg);
+  border-radius: var(--radius-md);
+  font-size: var(--font-size-sm);
+  line-height: var(--line-height-base);
+
+  p,
+  li {
+    color: inherit;
+    font-size: var(--font-size-sm);
+  }
+
+  a {
+    color: var(--vp-c-brand-1);
+    font-weight: var(--font-weight-medium);
+    font-variation-settings: "wght" var(--font-weight-medium);
+    text-decoration: none;
+
+    &:hover {
+      text-decoration: underline;
+    }
+  }
+
+  code {
+    font-size: var(--font-size-xs);
+  }
+}
+
+.custom-block.tip {
+  --notice-tone: var(--color-secondary);
+}
+
+.custom-block.warning {
+  --notice-tone: var(--color-warning);
+}
+
+.custom-block.danger,
+.custom-block.caution {
+  --notice-tone: var(--color-danger);
+}
+
+.custom-block.important {
+  --notice-tone: var(--color-tertiary);
+}
+
+/* ── Title row — icon, bold lead line ─────────────────────────────────── */
+.custom-block .custom-block-title {
+  display: flex;
+  gap: var(--spacing-sm);
+  align-items: center;
+  margin-bottom: var(--spacing-xs);
+  color: var(--color-text-primary);
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-semibold);
+  font-variation-settings: "wght" var(--font-weight-semibold);
+  letter-spacing: 0.01em;
+}
+
+/* Icons are masked SVGs so a single `background-color` tints them from
+   `--notice-tone`, matching how `nexus-icon` inherits `color`. Stroke width
+   is the app's `--icon-stroke-width`. */
+.custom-block.tip .custom-block-title::before,
+.custom-block.warning .custom-block-title::before,
+.custom-block.danger .custom-block-title::before,
+.custom-block.caution .custom-block-title::before,
+.custom-block.important .custom-block-title::before {
+  content: "";
+  flex: none;
+  width: 15px;
+  height: 15px;
+  background-color: var(--notice-tone);
+  mask-repeat: no-repeat;
+  mask-position: center;
+  mask-size: contain;
+}
+
+.custom-block.tip .custom-block-title::before,
+.custom-block.important .custom-block-title::before {
+  mask-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'><circle cx='12' cy='12' r='10'/><path d='M12 11.5v5'/><path d='M12 7.51l.01-.011'/></svg>");
+}
+
+.custom-block.warning .custom-block-title::before,
+.custom-block.danger .custom-block-title::before,
+.custom-block.caution .custom-block-title::before {
+  mask-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'><path d='M10.615 3.892L2.39 18.098c-.569.982.14 2.212 1.276 2.212h16.667c1.135 0 1.845-1.23 1.276-2.212L13.385 3.892c-.567-.98-1.982-.98-2.55 0z'/><path d='M12 9v4'/><path d='M12 16h.01'/></svg>");
+}
+
+/* ── Details — progressive disclosure ─────────────────────────────────────
+   The `use/` pages hide advanced material behind these, so the summary is a
+   real affordance: a caret that turns, and a hover that says it is clickable. */
+.vp-doc .custom-block.details,
+.custom-block.details {
+  padding: 0;
+  background: var(--color-bg-primary);
+
+  > summary {
+    display: flex;
+    gap: var(--spacing-sm);
+    align-items: center;
+    margin: 0;
+    padding: var(--spacing-md) var(--spacing-lg);
+    border-radius: var(--radius-md);
+    color: var(--color-text-secondary);
+    font-size: var(--font-size-sm);
+    font-weight: var(--font-weight-medium);
+    font-variation-settings: "wght" var(--font-weight-medium);
+    cursor: pointer;
+    list-style: none;
+    transition: color var(--duration-fast) var(--ease-standard);
+
+    &::-webkit-details-marker {
+      display: none;
+    }
+
+    &::before {
+      content: "";
+      flex: none;
+      width: 14px;
+      height: 14px;
+      background-color: currentColor;
+      mask-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'><path d='M9 6l6 6-6 6'/></svg>");
+      mask-repeat: no-repeat;
+      mask-position: center;
+      mask-size: contain;
+      transition: transform var(--duration-fast) var(--ease-standard);
+    }
+
+    &:hover {
+      color: var(--color-text-primary);
+    }
+  }
+
+  &[open] > summary {
+    color: var(--color-text-primary);
+
+    &::before {
+      transform: rotate(90deg);
+    }
+  }
+
+  > *:not(summary) {
+    margin-inline: var(--spacing-lg);
+  }
+
+  > *:last-child:not(summary) {
+    margin-bottom: var(--spacing-lg);
+  }
+}
