@@ -1091,6 +1091,17 @@ Set to `0` to fall back to `perimeter_speed` (then `print_speed`).
     pub gap_fill_speed: f64,
 
     #[schemars(
+        description = "Speed for support material in mm/s.
+
+Support is sacrificial and sparse, so it is usually run faster than the model — but it is also
+poorly anchored, so going too fast knocks columns over. Set to `0` to fall back to `print_speed`.
+**Typical:** 40–80 mm/s.",
+        extend("x-group" = "Speed", "x-relevant-when" = serde_json::json!({"field": "support_enabled", "equals": true}))
+    )]
+    #[serde(default = "SlicingParams::default_support_speed")]
+    pub support_speed: f64,
+
+    #[schemars(
         description = "Minimum length in mm for a gap-fill bead to be kept.
 
 Gap-fill beads shorter than this are dropped to avoid stringy sub-millimetre
@@ -1992,7 +2003,9 @@ Typical: 0.6–1.0 mm.",
 it supports (Z distance, expressed in layers).
 
 A gap of 1–2 layers leaves a small air pocket so the support detaches cleanly without fusing to
-the model. Set to `0` for supports that touch the overhang directly (strongest, hardest to remove).",
+the model. Set to `0` for supports that touch the overhang directly (strongest, hardest to remove) —
+note that the first model layer above support is still printed with bridging speed and cooling
+either way.",
         extend("x-group" = "Support", "x-relevant-when" = serde_json::json!({"field": "support_enabled", "equals": true}))
     )]
     #[serde(default = "SlicingParams::default_support_z_gap_layers")]
@@ -2269,6 +2282,7 @@ impl Default for SlicingParams {
             bridge_angle: Self::default_bridge_angle(),
             top_surface_speed: Self::default_top_surface_speed(),
             gap_fill_speed: Self::default_gap_fill_speed(),
+            support_speed: Self::default_support_speed(),
             gap_fill_min_length_mm: Self::default_gap_fill_min_length_mm(),
             wall_overlap_compensation: Self::default_wall_overlap_compensation(),
             first_layer_speed: Self::default_first_layer_speed(),
@@ -2924,6 +2938,14 @@ impl SlicingParams {
     }
 
     fn default_gap_fill_speed() -> f64 {
+        0.0
+    }
+
+    /// `0` = inherit `print_speed`. Support has no sensible absolute default:
+    /// what is safe depends on how tall and thin the columns are, so the
+    /// conservative choice is to print it like the rest of the model until a
+    /// profile says otherwise.
+    fn default_support_speed() -> f64 {
         0.0
     }
 

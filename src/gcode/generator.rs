@@ -1104,6 +1104,16 @@ impl GcodeGenerator {
                     fallback
                 }
             }
+            ExtrusionRole::Support => {
+                // Support (and the raft, which shares this role) is sacrificial
+                // and sparse. `0` inherits the model's print speed.
+                let s = params.support_speed;
+                if s > 0.0 {
+                    s * 60.0
+                } else {
+                    fallback
+                }
+            }
             _ => fallback,
         };
 
@@ -5774,6 +5784,45 @@ CHAMBER={chamber_temp} MATERIAL={filament_type}"
             &params,
         );
         assert!((s - 70.0 * 60.0).abs() < 1e-6, "expected infill_speed * 60");
+    }
+
+    #[test]
+    fn test_effective_speed_mm_min_support_role() {
+        use crate::core::ExtrusionRole;
+        let params = SlicingParams {
+            print_speed: 60.0,
+            support_speed: 45.0,
+            ..SlicingParams::default()
+        };
+        let s = GcodeGenerator::effective_speed_mm_min(
+            ExtrusionRole::Support,
+            crate::core::OverhangClass::None,
+            false,
+            &params,
+        );
+        assert!(
+            (s - 45.0 * 60.0).abs() < 1e-6,
+            "expected support_speed * 60"
+        );
+    }
+
+    #[test]
+    fn test_effective_speed_support_falls_back_to_print_speed() {
+        // `0` inherits, so a profile that never heard of support speed still
+        // prints support rather than stalling at zero feedrate.
+        use crate::core::ExtrusionRole;
+        let params = SlicingParams {
+            print_speed: 60.0,
+            support_speed: 0.0,
+            ..SlicingParams::default()
+        };
+        let s = GcodeGenerator::effective_speed_mm_min(
+            ExtrusionRole::Support,
+            crate::core::OverhangClass::None,
+            false,
+            &params,
+        );
+        assert!((s - 60.0 * 60.0).abs() < 1e-6, "expected print_speed * 60");
     }
 
     #[test]

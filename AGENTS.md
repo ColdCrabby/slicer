@@ -1128,10 +1128,31 @@ geometry, and appends `ExtrusionRole::Support` **open** polylines.
   tolerance and a `SUPPORT_MIN_OVERHANG_AREA_MM2` filter reject near-vertical
   faceted-wall slicing noise. Fill rule **NonZero** throughout (footprints are
   Clipper2-normalised frames with CW holes; `Positive` would erase interiors).
+- **`footprints` come from a pristine snapshot, never from the live layer.**
+  `classify_overhang_perimeters` retags an overhanging wall as
+  `OverhangPerimeter` and splits its loop, so on a steep slope there is **no
+  `OuterWall` path left** by the time supports run — a 60° cone reported 49 of
+  50 footprints empty and got no support at any threshold, while every
+  hand-built unit test passed. `process_mesh` therefore calls
+  `snapshot_perimeters` before surface generation and hands the result to
+  `generate_supports`, exactly as overhang grading already did. **Any test for
+  support behaviour must go through `process_mesh`** ([tests/support_slice.rs](tests/support_slice.rs));
+  a unit test that builds `SliceLayer`s by hand cannot see this class of bug.
+- **Per-layer contacts are welded before use.** A contact is only the *newly*
+  exposed sliver at its layer, so down a continuous slope successive contacts
+  are concentric rings separated by exactly `max_step` — 94 sub-paths ≈0.1 mm
+  wide on a 60° frustum, which the fill scanline discards.
+  `accumulate_support_area` closes the accumulation by just over half that gap,
+  fusing them into the solid annulus between the model and the widest overhang
+  above. The close only bridges *between* rings, so the supported area is
+  unchanged — only its connectivity.
 - **Downward projection**: each overhang is registered at its top-contact
   (activation) layer `i − 1 − support_z_gap_layers`, leaving a Z air-gap for
   clean removal, then accumulated top-down. The carried column is subtracted by
-  `inflate(footprint[i], support_xy_distance_mm)` (horizontal clearance).
+  `inflate(footprint[i], support_xy_distance_mm + ½ outer-wall width)` —
+  the half bead matters because footprints are wall **centrelines**, so
+  inflating by the raw distance leaves only `xy − ½d` of real air (0.6 mm of a
+  requested 0.8 mm at defaults).
 - **Interface layers**: the top contact under an overhang and the bottom contact
   resting on the model — within `support_interface_layers` — are filled at the
   denser `support_interface_density`; the body uses `support_density`.
@@ -1159,9 +1180,36 @@ geometry, and appends `ExtrusionRole::Support` **open** polylines.
   `unsupported_feature_warnings()`. Validate the converging shape with an XZ
   (front-elevation) projection of the `Support material` beads.
 - **G-code**: `ExtrusionRole::Support` already emits `;TYPE:Support material`
-  (issue #6); strands are open polylines (never closed loops), each carrying an
-  explicit nozzle-diameter width. Verified on the Benchy: support concentrates
-  on the real overhangs (deck flare ≈ Z8.5 mm, cabin roof ≈ Z36 mm).
+  (issue #6). Each island is drawn as a **closed contour plus open fill
+  strands**, and carries **no** explicit width — an explicit width would
+  short-circuit `resolve_width_mm`'s fill-role branch, which is what charges a
+  support line the volume of the strip it fills (`support_line_width` →
+  `extrusion_flow_spacing_mm`) rather than a full nominal bead. The contour is
+  what keeps a thin column from degenerating into disconnected dashes; runs
+  below `2 × nozzle` are dropped, the same splat rule gap fill uses.
+
+#### Supports are generated *after* bridge classification — deliberately
+
+`generate_supports` runs late, so bridge detection never learns that an overhang
+is supported. With the default `support_z_gap_layers ≥ 1` that is **correct**:
+the gap is real air, so the first model layer above support genuinely bridges
+and wants bridge speed and full cooling — the same thing PrusaSlicer/Orca do at
+a non-zero contact distance. Measured on a cap-on-post model, support stops at
+Z 9.70 and the cap's first layer at Z 10.10 spans a 0.4 mm void.
+
+At `support_z_gap_layers = 0` the support does touch the overhang, and that
+layer is still classified `Bridge`. Feeding support back into bridge *detection*
+is the only way to change that, and this file warns repeatedly against
+perturbing that pass. The asymmetry decides it: bridge settings over supported
+material print a slightly worse surface, while normal settings over real air
+**fail**. So the conservative classification stands, the setting's own copy says
+so, and nothing silently depends on it.
+
+**If you do ever reorder it**, note that supports no longer need to run late for
+their own sake — they read a pristine perimeter snapshot taken before wall
+splitting, not the mutated layer. The only remaining reason for the current
+position is that support strands are ordered by the TSP with the rest of the
+layer.
 
 **Perimeter routing & ordering options ([#98](https://github.com/ColdCrabby/slicer/issues/98))** are threaded through several stages:
 
@@ -1499,6 +1547,18 @@ point-in-polygon test can land either side.
 binary (measured 7399.6 vs 7401.8 mm on two Benchy slices), so small gap-fill
 deltas are run-to-run noise, not evidence of a change. Sparse infill *is*
 deterministic and can be compared directly.
+
+**So never judge "did my change alter the output?" on a 3DBenchy.** The whole
+file moves: three consecutive slices of the *same binary* reported 3924.69,
+3924.87 and 3924.86 mm of filament, and `diff` says they differ. A refactor
+measured that way looks like a regression when it is noise — and, worse, a real
+regression smaller than that spread looks clean. Use a **deterministic fixture**
+and compare the G-code byte for byte (skipping the timestamp header):
+`Voron_Design_Cube_v7.stl`, `bottom_panel_hinge_x2.stl` and
+`Filament_Card_Caddy_25.stl` all reproduce exactly. The quality gate's
+tolerances exist to absorb the Benchy's jitter, so **a passing gate is not
+evidence that output is unchanged** — only a byte-compare on a deterministic
+fixture is.
 
 ### Thin Wall-Band Channels — Opened-Interior Surface Clip
 

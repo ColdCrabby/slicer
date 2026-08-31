@@ -50,6 +50,7 @@ const FIELD_LABELS: Record<string, string> = {
   bridge_flow_ratio: 'Bridge Flow Ratio',
   top_surface_speed: 'Top Surface Speed',
   gap_fill_speed: 'Gap Fill Speed',
+  support_speed: 'Support Speed',
   first_layer_speed: 'First Layer Speed',
   coasting_distance_mm: 'Coasting Distance',
   travel_speed_mm_min: 'Travel Speed',

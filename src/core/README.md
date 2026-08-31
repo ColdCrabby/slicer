@@ -18,11 +18,14 @@ specific order, each consuming what the previous one produced:
 4. Strip inner walls from first-layer / top-surface islands when configured.
 5. Detect and fill top / bottom solid surfaces (with bridge sub-classification).
 6. Re-tag perimeters that cross unsupported air as `OverhangPerimeter`.
-7. Add sparse infill to whatever is left, then order all paths per layer to
-   minimise travel — including rotating closed loops to start at the
-   configured seam vertex.
+7. Add sparse infill to whatever is left.
 8. Generate support structures under overhangs steeper than the threshold
-   angle (`support_enabled`), tagged `ExtrusionRole::Support`.
+   angle (`support_enabled`), tagged `ExtrusionRole::Support`. These read a
+   perimeter snapshot taken back at step 5, before step 6 retags and splits
+   the overhanging walls they would otherwise measure.
+9. Order all paths per layer to minimise travel — including rotating closed
+   loops to start at the configured seam vertex — so support strands are
+   ordered alongside everything else.
 
 Each step depends on the geometric output of the one before. Putting them in
 the wrong order — or running surface detection on the original contours

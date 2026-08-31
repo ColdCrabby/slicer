@@ -264,7 +264,20 @@ pub fn generate_supports(
     // An overhang at layer i is contacted `z_gap` layers below it, leaving an
     // air gap for clean removal.
     let z_gap = params.support_z_gap_layers;
-    let xy = params.support_xy_distance_mm.max(0.0);
+    // The clearance is measured from the model's **surface**, but `footprints`
+    // are outer-wall bead *centrelines*, which sit half a bead inside it. So
+    // inflating by `support_xy_distance_mm` alone leaves only
+    // `xy − half_bead` of real air — 0.6 mm of a requested 0.8 mm at defaults.
+    // Add the half bead back so the number in the settings is the gap the user
+    // actually gets.
+    let outer_w = if params.outer_wall_line_width > 0.0 {
+        params.outer_wall_line_width
+    } else if params.line_width > 0.0 {
+        params.line_width
+    } else {
+        ext_w
+    };
+    let xy = params.support_xy_distance_mm.max(0.0) + outer_w * 0.5;
     let mut add_at: Vec<Paths> = vec![Paths::new(vec![]); n];
     #[allow(clippy::needless_range_loop)]
     for i in 1..n {

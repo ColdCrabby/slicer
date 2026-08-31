@@ -348,3 +348,55 @@ fn support_density_tracks_the_nozzle_size() {
          (0.6mm={wide:.0}mm, 0.4mm={narrow:.0}mm)"
     );
 }
+
+#[test]
+fn the_xy_clearance_is_measured_from_the_model_surface() {
+    // `support_xy_distance_mm` is the air gap a user expects between the print
+    // and its support. The footprints it is applied to are outer-wall bead
+    // *centrelines*, which sit half a bead inside the surface, so inflating by
+    // the raw distance left only `xy - half_bead` of real air — 0.6 mm of a
+    // requested 0.8 mm at defaults.
+    let mut m = Mesh::new();
+    add_box(&mut m, (20.0, 20.0, 0.0), (30.0, 30.0, 10.0)); // post
+    add_box(&mut m, (0.0, 0.0, 10.0), (30.0, 30.0, 12.0)); // cap overhangs to x=0
+    m.vertices = m.faces.iter().flat_map(|f| f.vertices).collect();
+    m.calculate_aabb();
+
+    let requested = 0.8;
+    let params = SlicingParams {
+        support_xy_distance_mm: requested,
+        ..support_params(45.0)
+    };
+    let layers = process_mesh(&m, &params, &NullLogger);
+
+    // Half the support bead, which extends from its centreline toward the model.
+    let half_bead = 0.5 * (0.4 - 0.2 * (1.0 - std::f64::consts::FRAC_PI_4));
+
+    // Closest approach to the post's x = 20 face, over the post's own height.
+    let mut nearest_edge = f64::MIN;
+    for layer in &layers {
+        if layer.z <= 1.0 || layer.z >= 9.0 {
+            continue;
+        }
+        for (i, path) in layer.paths.iter().enumerate() {
+            if layer.role_for_path(i) != ExtrusionRole::Support {
+                continue;
+            }
+            for p in path.iter() {
+                if p.y() > 20.0 && p.y() < 30.0 {
+                    nearest_edge = nearest_edge.max(p.x() + half_bead);
+                }
+            }
+        }
+    }
+
+    assert!(
+        nearest_edge > f64::MIN,
+        "the cap overhang must produce support beside the post"
+    );
+    let gap = 20.0 - nearest_edge;
+    assert!(
+        (gap - requested).abs() < 0.12,
+        "support should stand {requested} mm off the model surface, measured {gap:.3} mm"
+    );
+}
