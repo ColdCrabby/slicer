@@ -75,6 +75,46 @@
     font-weight: var(--font-weight-active);
     font-variation-settings: 'wght' var(--font-weight-active);
   }
+
+  // Overlays the icon rather than replacing it, so the row never changes size
+  // while its chunk is in flight.
+  &.is-pending {
+    color: var(--accent);
+
+    .settings-nav-icon nexus-icon {
+      opacity: 0.35;
+    }
+  }
+}
+
+.settings-nav-icon {
+  position: relative;
+  display: grid;
+  place-items: center;
+  flex: none;
+  inline-size: var(--icon-size);
+  block-size: var(--icon-size);
+}
+
+.settings-nav-spinner {
+  position: absolute;
+  inset: -2px;
+  border-radius: 50%;
+  border: 2px solid var(--accent-softer);
+  border-top-color: var(--accent);
+  animation: settings-nav-spin 0.7s linear infinite;
+}
+
+@keyframes settings-nav-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .settings-nav-spinner {
+    animation: none;
+  }
 }
 
 .settings-storage-note {

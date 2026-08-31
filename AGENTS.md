@@ -635,7 +635,95 @@ profile plus `labels.toml`, `manifest.toml`, `README.md`) and a **single**
   anchor). G-code downloads go through it too; **do not re-implement a download
   in a feature**.
 
-## Preset catalog — generated client, real cloud source
+## Bundle chunking — what may sit in the initial download
+
+The **initial bundle is the code the browser must have before it can draw
+anything**, so it belongs to the *first* screen — not to the app as a whole.
+Everything below the app shell is lazily loaded, and the budgets in
+[ui/angular.json](ui/angular.json) are the enforcement. Left unwatched this
+regresses silently: the app still works, it just starts slower every release,
+and the usual response is to raise the budget until it means nothing (it had
+reached 2 MB against a 1.58 MB bundle).
+
+- **A route's `component:` is a static import.** Naming a component in the route
+  table pulls its entire import graph into the initial bundle, no matter how
+  deeply nested the route is. `NexusSlicingShell` reaches three.js, the viewer
+  toolbar, the schema-driven settings panel and fuse.js, so a single
+  `component: NexusSlicingShell` put ~700 kB of the slice workspace in front of
+  the home screen. **Everything routed uses `loadComponent`**; `AppShell` is the
+  only exception, because it is the chrome every route renders inside.
+- **A root-provided service drags its whole import graph in with it**, because
+  something in `provideAppInitializer` constructs it during startup. That is how
+  three.js got in *twice*: `KeyboardShortcuts` injects `ViewerControl`, and
+  `ViewerControl` imported one class from three. **three's ESM build is a single
+  pre-bundled module, so importing `Vector3` costs all ~550 kB of it** — nothing
+  is tree-shaken. `ViewerControl` therefore holds a plain
+  [`Vec3`](ui/src/app/services/viewer-control.ts) that three's `Vector3` is
+  structurally assignable to, and the three-aware components convert at their own
+  boundary. Watch for the same trap with any pre-bundled library.
+- **Import the narrow entry point, not the package root.** Monaco's root export
+  is `editor.main`, which registers ~90 language grammars and the TypeScript,
+  CSS and HTML language services — a 2.7 MB chunk plus **9.6 MB of web workers**
+  (the TypeScript one alone is 7 MB) for an app that shows G-code and JSON.
+  [code-editor.ts](ui/src/app/components/code-editor/code-editor.ts) composes the
+  editor from `editor/editor.api` + `features/register.all` and pulls the JSON
+  language only when a JSON editor mounts. **Naming a worker in
+  `MonacoEnvironment.getWorker` is what makes the bundler emit it**, so the
+  switch there lists only the two that can be asked for.
+- **A dynamic `import()` is lazy in the *bundle*, not in *time*.** It still runs
+  the moment the component is created, so a heavy off-screen widget charges its
+  download to the page the user is actually reading. `CodeEditor` therefore
+  waits for an `IntersectionObserver` before touching Monaco: the printer
+  settings page mounts three editors ~4 500 px below a 720 px fold, which
+  fetched **4.1 MB** before anyone had scrolled near them. Deferring made
+  opening that page cost **0 kB** of editor, while a visible editor (the
+  operation-pipeline dialog) still loads immediately. Waiting for a widget you
+  are looking at is fine; making the rest of the app wait for one you are not is
+  the thing to avoid.
+- **`provideMarkdown()` stays at the root**, even though it is 54 kB of the
+  initial bundle. The shared UI's tooltip renders markdown and tooltips appear
+  everywhere, including in dialogs drawn from the root outlet — moving the
+  provider under a route trades 54 kB for a `NullInjectorError` in whichever
+  surface was overlooked.
+- **Measure before concluding.** Build with `--source-map`, then attribute each
+  initial chunk's bytes back to its modules through the source map. Chunk names
+  are hashes and the sizes alone tell you nothing about *why* something is there.
+
+### Making lazy loading honest
+
+Splitting the app moves the wait rather than removing it, so two pieces exist to
+pay it back:
+
+- **[`IdleRoutePreload`](ui/src/app/services/route-preload.ts)** warms lazy
+  chunks during `requestIdleCallback`, so a click is usually instant anyway. It
+  waits for idle rather than starting on first navigation (what Angular's
+  `PreloadAllModules` does, precisely when the app is busiest) and skips
+  entirely on Data Saver or a 2G-class connection.
+- **[`NavigationProgress`](ui/src/app/services/navigation-progress.ts)** owns
+  every decision about *when* to admit a wait; `RouteProgress` and the two
+  navigation rails only render it. It stays silent below 120 ms, so an instant
+  transition never flashes a bar. It also turns a failed chunk fetch — a
+  redeploy under a long-lived tab — into `AppVersion.reportStaleAssets()`, which
+  raises the existing reload banner instead of leaving a dead click.
+- **The first load is a separate problem, and it belongs to
+  [index.html](ui/src/index.html).** Nothing shipped in the bundle can report on
+  loading that bundle, so the boot splash is inline markup + inline CSS, torn
+  down from [main.ts](ui/src/main.ts) once Angular paints. Its progress is real:
+  the build names every initial chunk as `<link rel="modulepreload">` and a
+  `PerformanceObserver` counts them as they land (0–90 %), leaving the last
+  tenth for parse + bootstrap. **Re-survey that list on every tick** — the build
+  appends those links *after* the inline script, so surveying once at parse time
+  finds nothing and the bar never moves.
+- **The splash logo is staged, not animated.** A ~700-byte WebP is inlined in
+  the document (no request, so it paints with the HTML) and the full 240 px
+  asset cross-fades over it. Progressive JPEG cannot be used — the logo is RGBA
+  and JPEG has no alpha — and neither WebP nor AVIF decodes progressively, so
+  the two stages are explicit. Both come from
+  [scripts/gen-splash-logo.sh](scripts/gen-splash-logo.sh) (`pnpm run
+  splash-logo`, `--check` verifies); **never hand-edit the base64**, and note
+  that Prettier rewrites CSS `url()` to single quotes, which the generator has
+  to tolerate or it stops finding its own output.
+
 
 The **catalog** is the read-only library of vendor presets the profile wizards
 browse ("Pick it from the catalog"). Its data lives in a separate service — the
@@ -1476,5 +1564,5 @@ infill within the ring.
 
 ---
 
-**Last Updated**: 2026-08-31 (docs site consumes the shared UI design tokens)  
+**Last Updated**: 2026-08-31 (docs site consumes the shared UI design tokens; UI bundle-chunking contract)  
 **Maintainer Guidance**: Keep this file in sync with project structure changes, new conventions, or significant architectural decisions.

@@ -100,6 +100,26 @@ Messages appear bottom-left. Info and success fade after a few seconds; errors
 stay until you dismiss them. Longer jobs get a progress strip at the top that
 turns into a notification when it's done.
 
+## Moving between Home, Slice and Settings
+
+When you first open the app it shows the Cold Crabby logo with a progress bar
+beneath it. The logo appears immediately as a soft, low-detail version and
+sharpens a moment later once the full artwork has downloaded. The bar follows
+the real download, so it tells you how much is genuinely left.
+
+The rail on the left switches between the three areas. The app loads each one
+the first time you open it, so on a slow connection the first visit can take a
+moment.
+
+When it does, you'll see it: a thin amber line runs along the top of the work
+area, and the rail item you're heading to shows a spinner. Nothing appears for a
+switch that's already instant — which is most of them, because the app quietly
+fetches the other areas in the background once it's finished starting up.
+
+If the app was updated while your tab stayed open, a part it hasn't loaded yet
+may have already been replaced on the server. Rather than failing silently, it
+offers you a **Reload** banner. Take it — a reloaded tab is a consistent one.
+
 ## Undo
 
 `Ctrl`/`⌘ + Z` undoes, `Ctrl`/`⌘ + Y` (or `⌘ + Shift + Z`) redoes. This covers

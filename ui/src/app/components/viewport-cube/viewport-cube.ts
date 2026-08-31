@@ -31,7 +31,7 @@ import {
   Vector3,
   WebGLRenderer,
 } from 'three';
-import { ViewerControl } from '../../services/viewer-control';
+import { ViewerControl, vec3Equals, type Vec3 } from '../../services/viewer-control';
 
 /**
  * The scene is Z-up. The six cardinal look directions (target → camera) map to
@@ -484,12 +484,12 @@ export class ViewportCube {
     const state = this.viewerControl.cameraState;
     this.updateFaceOn(state.direction);
     if (
-      !this.lastRenderedDirection.equals(state.direction) ||
-      !this.lastRenderedUp.equals(state.up) ||
+      !vec3Equals(this.lastRenderedDirection, state.direction) ||
+      !vec3Equals(this.lastRenderedUp, state.up) ||
       this.lastRenderedFov !== state.fov
     ) {
-      this.lastRenderedDirection.copy(state.direction);
-      this.lastRenderedUp.copy(state.up);
+      this.lastRenderedDirection.set(state.direction.x, state.direction.y, state.direction.z);
+      this.lastRenderedUp.set(state.up.x, state.up.y, state.up.z);
       this.lastRenderedFov = state.fov;
       this.needsRender = true;
     }
@@ -513,8 +513,8 @@ export class ViewportCube {
     this.camera.near = Math.max(distance - fitRadius * 2, 0.01);
     this.camera.far = distance + fitRadius * 2;
     this.camera.updateProjectionMatrix();
-    this.camera.position.copy(state.direction).multiplyScalar(distance);
-    this.camera.up.copy(state.up);
+    this.camera.position.copy(this.lastRenderedDirection).multiplyScalar(distance);
+    this.camera.up.copy(this.lastRenderedUp);
     this.camera.lookAt(0, 0, 0);
     this.renderer.render(this.scene, this.camera);
     this.needsRender = false;
@@ -630,10 +630,10 @@ export class ViewportCube {
   }
 
   /** Toggle the rotate arrows when the camera looks (nearly) straight at a face. */
-  private updateFaceOn(direction: Vector3): void {
+  private updateFaceOn(direction: Vec3): void {
     let best = -Infinity;
     for (const c of CARDINALS) {
-      const d = direction.dot(c);
+      const d = direction.x * c.x + direction.y * c.y + direction.z * c.z;
       if (d > best) {
         best = d;
       }

@@ -13,6 +13,25 @@ const __dirname = dirname(__filename);
 // runtime URLs. Allowing the entire monorepo root covers both ui/node_modules
 // symlinks and their real targets under <repo>/node_modules/.pnpm/*.
 export default defineConfig({
+  // The code editor imports Monaco's *modular* entry points rather than the
+  // package root (see ui/src/app/components/code-editor/code-editor.ts for why).
+  // Vite pre-bundles dependencies it finds by crawling static imports, but these
+  // are reached through a lazy `import()` inside a lazily-routed component, so it
+  // only discovers them the first time an editor mounts — mid-session, after the
+  // page has loaded. Re-optimising then invalidates the module graph the tab is
+  // already running against, and the fetch that triggered it fails with
+  // "504 (Outdated Optimize Dep)": the editor silently never appears.
+  //
+  // Naming them here makes them part of the initial pre-bundle, so the specifier
+  // is stable from the first request. Keep this list in step with the dynamic
+  // imports in code-editor.ts.
+  optimizeDeps: {
+    include: [
+      'monaco-editor/editor/editor.api',
+      'monaco-editor/features/register.all',
+      'monaco-editor/language/json/monaco.contribution',
+    ],
+  },
   server: {
     fs: {
       // Monaco's ESM runtime can resolve CSS asset requests to absolute

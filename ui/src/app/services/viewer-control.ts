@@ -1,7 +1,36 @@
 import { inject, Injectable, signal } from '@angular/core';
-import { Vector3 } from 'three';
 import type { ViewerMode } from '../components/viewer';
 import { BrowserStorage } from './browser-storage';
+
+/**
+ * A plain 3-component vector.
+ *
+ * Deliberately *not* three.js's `Vector3`. This service is constructed during
+ * app startup (the keyboard-shortcut registry injects it), and three's ESM
+ * build is a single pre-bundled module — importing one class from it pulls in
+ * all ~550 kB. That put the whole renderer in front of the home screen for the
+ * sake of a camera direction. A structural type costs nothing and `Vector3` is
+ * assignable to it, so three-aware callers pass their vectors unchanged; only
+ * this service has to do its own arithmetic.
+ */
+export interface Vec3 {
+  x: number;
+  y: number;
+  z: number;
+}
+
+/** Component-wise equality, for change detection against a stored vector. */
+export function vec3Equals(a: Vec3, b: Vec3): boolean {
+  return a.x === b.x && a.y === b.y && a.z === b.z;
+}
+
+/** `v` scaled to unit length. A zero-length vector is returned unchanged. */
+function normalized(v: Vec3): Vec3 {
+  const length = Math.hypot(v.x, v.y, v.z);
+  return length > 0
+    ? { x: v.x / length, y: v.y / length, z: v.z / length }
+    : { x: v.x, y: v.y, z: v.z };
+}
 
 export type ViewerView = 'perspective' | 'ortho';
 /**
@@ -225,9 +254,9 @@ export class ViewerControl {
    */
   readonly cameraState = {
     /** Unit vector from the controls target toward the camera. */
-    direction: new Vector3(1, -1, 0.8).normalize(),
+    direction: normalized({ x: 1, y: -1, z: 0.8 }),
     /** Camera up vector. */
-    up: new Vector3(0, 0, 1),
+    up: { x: 0, y: 0, z: 1 } as Vec3,
     /**
      * Live perspective field-of-view (degrees) of the main camera. The
      * viewport-cube mirrors this so its own projection matches — small FOV
@@ -252,8 +281,8 @@ export class ViewerControl {
    * pan/zoom.
    */
   readonly lookRequest = signal<{
-    direction: Vector3;
-    up: Vector3;
+    direction: Vec3;
+    up: Vec3;
     tick: number;
     autoOrtho: boolean;
   } | null>(null);
@@ -408,11 +437,11 @@ export class ViewerControl {
    * @param autoOrtho  When `true` (viewport-cube snaps), also flatten the
    *   projection to orthographic until the next free pan/zoom in the viewport.
    */
-  lookFrom(direction: Vector3, up: Vector3, autoOrtho = false): void {
+  lookFrom(direction: Vec3, up: Vec3, autoOrtho = false): void {
     this.lookTick += 1;
     this.lookRequest.set({
-      direction: direction.clone().normalize(),
-      up: up.clone().normalize(),
+      direction: normalized(direction),
+      up: normalized(up),
       tick: this.lookTick,
       autoOrtho,
     });
