@@ -656,6 +656,20 @@ viewport does about that lives in
   entirely after the first tap on a model. The only stops that survive are on
   `pointermove` inside a live drag, whose `pointerdown` was withheld too, so a
   bubble consumer is absent for the whole gesture rather than half of it.
+- **A raycast hit is not a visible hit.** Three's `Raycaster` filters on
+  `layers` and **never on `visible`**, so hidden geometry reports hits like any
+  other. This is not academic: `GizmoManager.hitTest` — the touch/pen-only path
+  that asks "did this press land on a transform handle?" — raycasts
+  TransformControls' *pickers*, which are invisible-by-design shapes much larger
+  than the handles they stand for. A detached gizmo parks them at the origin,
+  i.e. the middle of the bed, so every tap near the centre of an empty plate was
+  swallowed as "on the gizmo" and **no model could be selected by touch or pen at
+  all** — the original iPad complaint, and invisible to a mouse, which reaches
+  `isHovering()` instead. Anything deciding "did the user touch this?" from a
+  raycast must apply visibility itself (`isVisibleWithin`), and check that the
+  gizmo is attached and enabled first. Pinned by
+  [gizmo.spec.ts](ui/src/app/components/viewer/gizmo.spec.ts), which also asserts
+  the three.js behaviour so a future release changing it is noticed.
 - **Palm rejection sits above all of it** ([pointer-arbiter.ts](ui/src/app/components/viewer/scene/pointer-arbiter.ts)),
   on the host element in the capture phase, so a resting wrist never reaches
   these handlers at all.

@@ -448,9 +448,25 @@ export class GizmoManager {
    * Raycast the active gizmo helper's hit meshes for a pointer position.
    * Used on touch where no prior hover move has set `axis`, so `isHovering()`
    * would incorrectly return false at the moment of touchdown.
+   *
+   * **Visibility has to be checked by hand.** Three's raycaster tests an
+   * object's `layers`, never its `visible` flag, so a hidden helper still
+   * reports hits — and TransformControls' pickers are invisible-by-design
+   * geometry that is far larger than the handles they stand for. A detached
+   * gizmo parks that geometry at the origin, i.e. the middle of the bed, so
+   * without these guards *every* tap near the centre of an empty plate was
+   * swallowed as "on the gizmo" and no model could be selected by touch or pen
+   * at all. A mouse was unaffected, because it reaches `isHovering()` instead.
    */
   hitTest(event: PointerEvent, camera: Camera, renderer: WebGLRenderer): boolean {
-    if (!this.active) {
+    const active = this.active;
+    // Detached (nothing selected) or disabled: there are no handles to hit,
+    // whatever the picker geometry still lying in the scene says.
+    if (!active || !active.enabled) {
+      return false;
+    }
+    const helper = active.getHelper();
+    if (!helper.visible) {
       return false;
     }
     const el = renderer.domElement;
@@ -460,9 +476,10 @@ export class GizmoManager {
     const ndc = new Vector2(ndcX, ndcY);
     const rc = new Raycaster();
     rc.setFromCamera(ndc, camera);
-    const helper = this.active.getHelper();
     const hits = rc.intersectObject(helper, true);
-    return hits.length > 0;
+    // TransformControls also toggles individual handles per mode and axis, so a
+    // hit is only real if the thing hit — and everything above it — is showing.
+    return hits.some((hit) => isVisibleWithin(hit.object, helper));
   }
 
   /** Currently active object-manipulation mode. */
@@ -491,6 +508,29 @@ export class GizmoManager {
     this.lastQuaternion.copy(this.ghost.quaternion);
     this.lastScale.copy(this.ghost.scale);
   }
+}
+
+/**
+ * Whether `object` and every ancestor up to (and including) `root` is visible.
+ *
+ * Exported for tests. Needed because {@link Raycaster} deliberately ignores
+ * `visible` — it filters on `layers` only — so a hit against hidden geometry is
+ * reported like any other. Anything deciding "did the user touch this?" from a
+ * raycast has to apply the visibility rule itself.
+ */
+export function isVisibleWithin(object: Object3D, root: Object3D): boolean {
+  let node: Object3D | null = object;
+  while (node) {
+    if (!node.visible) {
+      return false;
+    }
+    if (node === root) {
+      return true;
+    }
+    node = node.parent;
+  }
+  // Ran past the root without meeting it — not part of this subtree.
+  return false;
 }
 
 /**

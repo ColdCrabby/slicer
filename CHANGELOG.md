@@ -29,11 +29,15 @@ issue/PR numbers or repo links in the notes. See the tone rules in
 
 ### Fixed
 
-- **Tapping a model on a tablet now selects it** — a fingertip never lands and
-  lifts on the same pixel, and the viewport judged every tap by a mouse-sized
-  4px tolerance, so most taps with a finger or an Apple Pencil were discarded as
-  drags and the objects list was the only way to select anything. Taps are now
-  judged per pointer: 4px for a mouse, 9 for a pen, 16 for a finger.
+- **Tapping a model on a tablet now selects it** — two separate faults made touch
+  and Pencil selection fail. An invisible transform-gizmo hit area sat parked at
+  the centre of the bed whenever nothing was selected, and swallowed any tap that
+  landed on it; that check runs only for touch and pen, so a mouse never saw it.
+  Selection was also judged by a mouse-sized 4px tolerance, and a fingertip is a
+  ~10mm disc whose reported centre wanders as the skin flattens, so most real
+  taps were discarded as drags. Taps are now judged per pointer — 4px for a
+  mouse, 9 for a pen, 16 for a finger — and a hidden gizmo no longer intercepts
+  anything.
 - **Plates holding several models now slice correctly everywhere** — a workplate
   is a build plate, not a file, but only the hosted slicer treated it that way.
   The desktop app sliced every object out of the *first* model, so a second one
