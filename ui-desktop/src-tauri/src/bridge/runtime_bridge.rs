@@ -50,6 +50,13 @@ struct SceneObjectPayload {
     /// slice.
     #[serde(default)]
     source_part: Option<usize>,
+    /// The file this object was loaded from.
+    ///
+    /// A plate can hold several *different* models, so the file is a property
+    /// of the object, not of the request. Absent for a client that has not
+    /// resolved one, in which case the request-level `file_path` is used.
+    #[serde(default)]
+    file_path: Option<String>,
 }
 
 impl SceneObjectPayload {
@@ -135,12 +142,17 @@ pub async fn slice_start(
 
         // Resolve the model path up front. Rust reads the file directly so that
         // no bytes cross the IPC boundary.
-        let file_path = payload
-            .file_path
-            .ok_or_else(|| "slice requires a file_path".to_string())?;
-        let original_filename = std::path::Path::new(&file_path)
-            .file_name()
-            .map(|n| n.to_string_lossy().to_string());
+        // The request-level path is a fallback now that each scene object names
+        // its own file — a plate can hold several different models.
+        let file_path = payload.file_path.clone();
+        // Name the download after whichever file the plate's first object came
+        // from, falling back to the request-level one.
+        let original_filename = payload
+            .scene
+            .as_ref()
+            .and_then(|scene| scene.objects.iter().find_map(|o| o.file_path.as_deref()))
+            .or(file_path.as_deref())
+            .map(file_name_of);
 
         let params: slicer_engine::settings::params::SlicingParams =
             serde_json::from_value(payload.settings)
@@ -151,7 +163,7 @@ pub async fn slice_start(
         // whole pipeline — including the mesh parse — exactly like the cloud
         // server's `gcode_cache`. This is what keeps repeated desktop slices as
         // fast as cloud.
-        let cache_key = compute_slice_cache_key(&params, &file_path, &payload.scene);
+        let cache_key = compute_slice_cache_key(&params, file_path.as_deref(), &payload.scene);
         if let Some(hit) = gcode_cache
             .lock()
             .ok()
@@ -182,7 +194,8 @@ pub async fn slice_start(
             }
         }
 
-        let plate_objects = load_plate_objects(&file_path, payload.scene.as_ref(), &logger)?;
+        let plate_objects =
+            load_plate_objects(file_path.as_deref(), payload.scene.as_ref(), &logger)?;
 
         if plate_objects.iter().all(|o| o.mesh.faces.is_empty()) {
             return Err("combined scene has no triangles; nothing to slice".to_string());
@@ -294,15 +307,19 @@ fn register_slice_result(
 /// Hash `settings + scene + engine version + source-file identity` into a stable
 /// cache key. Mirrors the cloud server's `compute_slice_cache_key`
 /// ([src/server/ws_session.rs]) so the two runtimes cache on the same inputs;
-/// the file's length + mtime stand in for the server's content-addressed upload
-/// token, so editing the source model on disk busts the entry.
+/// a file's length + mtime stand in for the server's content-addressed upload
+/// token, so editing a source model on disk busts the entry.
+///
+/// **Every file the plate references is fingerprinted**, not just one: a plate
+/// can hold several different models, and hashing only the first would let two
+/// plates that differ in their *second* model collide on one cached G-code.
 ///
 /// The params are fingerprinted via `SlicingParams::cache_fingerprint`, which
 /// omits the ephemeral, camera-derived thumbnail PNG payload — so a fresh
-/// render's bytes never bust the cache (issue #106).
+/// render's bytes never bust the cache.
 fn compute_slice_cache_key(
     params: &slicer_engine::settings::params::SlicingParams,
-    file_path: &str,
+    file_path: Option<&str>,
     scene: &Option<SceneSnapshotPayload>,
 ) -> String {
     let mut canonical = String::new();
@@ -311,25 +328,42 @@ fn compute_slice_cache_key(
     canonical.push_str(";params=");
     canonical.push_str(&params.cache_fingerprint());
 
-    canonical.push_str(";file=");
-    canonical.push_str(file_path);
-    if let Ok(meta) = std::fs::metadata(file_path) {
-        canonical.push_str(&format!("|len={}", meta.len()));
-        if let Ok(mtime) = meta.modified() {
-            if let Ok(dur) = mtime.duration_since(std::time::UNIX_EPOCH) {
-                canonical.push_str(&format!("|mtime={}", dur.as_nanos()));
+    canonical.push_str(";files=");
+    let mut seen: Vec<&str> = Vec::new();
+    let paths = scene
+        .iter()
+        .flat_map(|s| s.objects.iter())
+        .filter_map(|o| o.file_path.as_deref())
+        .chain(file_path);
+    for path in paths {
+        if seen.contains(&path) {
+            continue;
+        }
+        seen.push(path);
+        canonical.push_str(path);
+        if let Ok(meta) = std::fs::metadata(path) {
+            canonical.push_str(&format!("|len={}", meta.len()));
+            if let Ok(mtime) = meta.modified() {
+                if let Ok(dur) = mtime.duration_since(std::time::UNIX_EPOCH) {
+                    canonical.push_str(&format!("|mtime={}", dur.as_nanos()));
+                }
             }
         }
+        canonical.push(';');
     }
 
     canonical.push_str(";scene=");
     if let Some(scene) = scene {
         for obj in &scene.objects {
-            // `source_part` is part of the identity: two objects can share a
-            // file yet be different parts of it, and omitting it would let
-            // distinct plates collide on one cached G-code.
+            // The **effective** file is part of the identity, not the raw
+            // optional one: an object with no file of its own resolves to the
+            // request-level path, so two plates whose fallbacks differ would
+            // otherwise hash identically while loading different geometry.
+            // `source_part` matters for the same reason — two objects can share
+            // a file yet be different parts of it.
             canonical.push_str(&format!(
-                "[#{}|{:?}|{:?}|{:?}]",
+                "[{}#{}|{:?}|{:?}|{:?}]",
+                obj.file_path.as_deref().or(file_path).unwrap_or(""),
                 obj.part_index(),
                 obj.translation,
                 obj.euler_xyz_deg,
@@ -401,72 +435,67 @@ pub fn history_clear(state: &AppState) -> Result<Value, String> {
     Ok(json!({ "ok": true }))
 }
 
-/// Load a model from disk and place every object the plate holds.
+/// Load every model the plate references and place each object on it.
 ///
 /// Reading happens in the Rust process, so the bytes never cross the IPC
 /// boundary.
 ///
-/// Multi-part files are kept apart. A 3MF is a *scene*, not a model: its build
-/// items are independent parts that land on the plate as separate objects, each
-/// free to be moved, rotated and dropped to the bed on its own. Fusing them
-/// back into one mesh and baking a single transform prints the file exactly as
-/// its author assembled it — stacked parts, floating geometry and all — instead
-/// of the plate the user is looking at.
+/// Two properties make this reproduce the plate the user arranged, and both
+/// were once missing:
 ///
-/// The objects are returned separately rather than merged; `slice_plate` decides
-/// whether the plate can be merged (the default) or has to keep per-object
-/// identity for exclude-object and sequential printing.
+/// - **Each object names its own file.** A workplate is a build plate, not a
+///   file: it can hold several different models. Slicing them all out of one
+///   path prints the first model as many times as there are objects.
+/// - **Multi-part files stay apart.** A 3MF is a scene, not a model, and each
+///   build item's transform is already baked into its vertices — so a *merged*
+///   load hands back the file exactly as its author assembled it: parts
+///   stacked, geometry floating above the bed.
+///
+/// Every distinct file is read and repaired **once**, however many plate
+/// objects it backs, and the objects are returned separately so `slice_plate`
+/// can honour exclude-object and sequential printing.
 fn load_plate_objects(
-    path: &str,
+    fallback_path: Option<&str>,
     scene: Option<&SceneSnapshotPayload>,
     logger: &dyn ProcessLogger,
 ) -> Result<Vec<ObjectInput>, String> {
-    let file = std::path::Path::new(path);
-    if MeshFormat::from_path(file).is_none() {
-        return Err(format!("cannot determine format from path: {path}"));
-    }
-
-    let parts = slicer_engine::scene::load_path_multi_reporting(
-        file,
-        &slicer_engine::mesh::repair::RepairOptions::default(),
-    )?;
-
-    let file_name = file
-        .file_name()
-        .map(|n| n.to_string_lossy().into_owned())
-        .unwrap_or_else(|| path.to_string());
-
-    // Report each part's health once, on the single read, however many plate
-    // objects it ends up backing.
-    let multi = parts.len() > 1;
-    for (index, part) in parts.iter().enumerate() {
-        let label = match (&part.name, multi) {
-            (Some(name), _) => format!("{file_name} ({name})"),
-            (None, true) => format!("{file_name} #{}", index + 1),
-            (None, false) => file_name.clone(),
-        };
-        slicer_engine::mesh::repair::log_report(logger, &label, &part.report);
-    }
-    logger.log_debug(&format!(
-        "loaded {} object(s) from {file_name}",
-        parts.len()
-    ));
-
-    // Without a scene there is nothing placing the parts, so print the file as
-    // authored: every part, untransformed.
-    let placements: Vec<(usize, Transform)> = match scene {
-        Some(scene) if !scene.objects.is_empty() => scene
-            .objects
-            .iter()
-            .map(|object| (object.part_index(), object.transform()))
-            .collect(),
-        _ => (0..parts.len())
-            .map(|index| (index, Transform::IDENTITY))
-            .collect(),
+    // (path, part index, transform) — one entry per object on the plate.
+    let placements: Vec<(String, usize, Transform)> = match scene {
+        Some(scene) if !scene.objects.is_empty() => {
+            let mut placements = Vec::with_capacity(scene.objects.len());
+            for object in &scene.objects {
+                let path = object
+                    .file_path
+                    .as_deref()
+                    .or(fallback_path)
+                    .ok_or_else(|| {
+                        "slice requires a file_path, either per object or for the request"
+                            .to_string()
+                    })?
+                    .to_string();
+                placements.push((path, object.part_index(), object.transform()));
+            }
+            placements
+        }
+        // Without a scene there is nothing placing the parts, so print the file
+        // as authored: every part, untransformed.
+        _ => {
+            let path = fallback_path
+                .ok_or_else(|| "slice requires a file_path".to_string())?
+                .to_string();
+            let count = load_parts(&path, logger, &mut HashMap::new())?;
+            (0..count)
+                .map(|index| (path.clone(), index, Transform::IDENTITY))
+                .collect()
+        }
     };
 
+    let mut cache: HashMap<String, Vec<slicer_engine::scene::LoadedPart>> = HashMap::new();
     let mut objects = Vec::with_capacity(placements.len());
-    for (part_index, transform) in placements {
+    for (path, part_index, transform) in placements {
+        load_parts(&path, logger, &mut cache)?;
+        let parts = &cache[&path];
+        let file_name = file_name_of(&path);
         let part = parts.get(part_index).ok_or_else(|| {
             format!(
                 "{file_name} has no object at index {part_index} (it contains {})",
@@ -481,7 +510,11 @@ fn load_plate_objects(
             .map(str::trim)
             .filter(|n| !n.is_empty())
             .map(str::to_string)
-            .or_else(|| file.file_stem().map(|s| s.to_string_lossy().into_owned()))
+            .or_else(|| {
+                std::path::Path::new(&path)
+                    .file_stem()
+                    .map(|s| s.to_string_lossy().into_owned())
+            })
             .unwrap_or_else(|| format!("object_{}", objects.len()));
         // Bake the per-object transform exactly once, at the slicer boundary —
         // see the SSOT contract in src/scene/README.md.
@@ -494,6 +527,60 @@ fn load_plate_objects(
     Ok(objects)
 }
 
+/// Read and repair a model's parts, memoised by path.
+///
+/// A file backing several plate objects — a multi-part 3MF, or a model
+/// duplicated across the plate — is parsed once, not once per object. Returns
+/// how many parts it holds.
+fn load_parts(
+    path: &str,
+    logger: &dyn ProcessLogger,
+    cache: &mut HashMap<String, Vec<slicer_engine::scene::LoadedPart>>,
+) -> Result<usize, String> {
+    if let Some(parts) = cache.get(path) {
+        return Ok(parts.len());
+    }
+
+    let file = std::path::Path::new(path);
+    if MeshFormat::from_path(file).is_none() {
+        return Err(format!("cannot determine format from path: {path}"));
+    }
+
+    let parts = slicer_engine::scene::load_path_multi_reporting(
+        file,
+        &slicer_engine::mesh::repair::RepairOptions::default(),
+    )?;
+
+    // Report each part's health once, on the single read, however many plate
+    // objects it ends up backing.
+    let file_name = file_name_of(path);
+    let multi = parts.len() > 1;
+    for (index, part) in parts.iter().enumerate() {
+        let label = match (&part.name, multi) {
+            (Some(name), _) => format!("{file_name} ({name})"),
+            (None, true) => format!("{file_name} #{}", index + 1),
+            (None, false) => file_name.clone(),
+        };
+        slicer_engine::mesh::repair::log_report(logger, &label, &part.report);
+    }
+    logger.log_debug(&format!(
+        "loaded {} object(s) from {file_name}",
+        parts.len()
+    ));
+
+    let count = parts.len();
+    cache.insert(path.to_string(), parts);
+    Ok(count)
+}
+
+/// The display name of a path — its file name, or the whole path if it has none.
+fn file_name_of(path: &str) -> String {
+    std::path::Path::new(path)
+        .file_name()
+        .map(|n| n.to_string_lossy().into_owned())
+        .unwrap_or_else(|| path.to_string())
+}
+
 #[cfg(test)]
 mod plate_loading_tests {
     use super::*;
@@ -503,18 +590,35 @@ mod plate_loading_tests {
     /// A 3MF whose two build items ("top" and "bottom") are stacked as the
     /// authoring tool assembled them: bottom spans z 0..42, top z 42..67.
     fn top_ac_path() -> String {
-        format!(
-            "{}/../../tests/fixtures/TopAC.3mf",
-            env!("CARGO_MANIFEST_DIR")
-        )
+        fixture("TopAC.3mf")
     }
 
+    /// A single-part STL, for plates that mix different models.
+    fn cube_path() -> String {
+        fixture("simple-cube.stl")
+    }
+
+    fn fixture(name: &str) -> String {
+        format!("{}/../../tests/fixtures/{name}", env!("CARGO_MANIFEST_DIR"))
+    }
+
+    /// An object backed by the request-level file (no per-object path), as an
+    /// older client would send it.
     fn object(part: usize, translation: [f32; 3]) -> SceneObjectPayload {
         SceneObjectPayload {
             translation: Some(translation),
             euler_xyz_deg: None,
             scale: None,
             source_part: Some(part),
+            file_path: None,
+        }
+    }
+
+    /// An object that names its own file — what the app sends now.
+    fn object_from(path: &str, part: usize, translation: [f32; 3]) -> SceneObjectPayload {
+        SceneObjectPayload {
+            file_path: Some(path.to_string()),
+            ..object(part, translation)
         }
     }
 
@@ -528,7 +632,7 @@ mod plate_loading_tests {
         let scene = SceneSnapshotPayload {
             objects: vec![object(0, [0.0; 3]), object(1, [0.0; 3])],
         };
-        let objects = load_plate_objects(&top_ac_path(), Some(&scene), &NullLogger).unwrap();
+        let objects = load_plate_objects(Some(&top_ac_path()), Some(&scene), &NullLogger).unwrap();
 
         assert_eq!(objects.len(), 2);
         assert_eq!(objects[0].name, "top");
@@ -549,7 +653,7 @@ mod plate_loading_tests {
         let scene = SceneSnapshotPayload {
             objects: vec![object(0, [0.0, 0.0, -42.0]), object(1, [150.0, 0.0, 0.0])],
         };
-        let objects = load_plate_objects(&top_ac_path(), Some(&scene), &NullLogger).unwrap();
+        let objects = load_plate_objects(Some(&top_ac_path()), Some(&scene), &NullLogger).unwrap();
 
         let top = aabb_of(&objects[0]);
         let bottom = aabb_of(&objects[1]);
@@ -565,6 +669,45 @@ mod plate_loading_tests {
         assert!((bottom.min.z - 0.0).abs() < 1e-3);
     }
 
+    /// The second regression: a plate holding two *different* models used to
+    /// resolve every object into the first file, slicing one model twice.
+    #[test]
+    fn a_plate_of_two_different_files_slices_each_from_its_own() {
+        let scene = SceneSnapshotPayload {
+            objects: vec![
+                object_from(&cube_path(), 0, [0.0; 3]),
+                object_from(&top_ac_path(), 1, [150.0, 0.0, 0.0]),
+            ],
+        };
+        let objects = load_plate_objects(None, Some(&scene), &NullLogger).unwrap();
+
+        assert_eq!(objects.len(), 2);
+        assert_eq!(objects[0].name, "simple-cube");
+        assert_eq!(objects[1].name, "bottom");
+        // Genuinely different geometry, not one model sliced twice.
+        assert_ne!(objects[0].mesh.faces.len(), objects[1].mesh.faces.len());
+    }
+
+    #[test]
+    fn an_object_without_its_own_file_falls_back_to_the_request_path() {
+        let scene = SceneSnapshotPayload {
+            objects: vec![object(1, [0.0; 3])],
+        };
+        let objects = load_plate_objects(Some(&top_ac_path()), Some(&scene), &NullLogger).unwrap();
+
+        assert_eq!(objects.len(), 1);
+        assert_eq!(objects[0].name, "bottom");
+    }
+
+    #[test]
+    fn a_scene_with_no_file_anywhere_is_an_error() {
+        let scene = SceneSnapshotPayload {
+            objects: vec![object(0, [0.0; 3])],
+        };
+        let error = load_plate_objects(None, Some(&scene), &NullLogger).unwrap_err();
+        assert!(error.contains("file_path"), "{error}");
+    }
+
     #[test]
     fn two_objects_sharing_one_part_are_both_placed() {
         // Duplicating a model produces two scene objects backed by one part —
@@ -572,7 +715,7 @@ mod plate_loading_tests {
         let scene = SceneSnapshotPayload {
             objects: vec![object(1, [0.0; 3]), object(1, [150.0, 0.0, 0.0])],
         };
-        let objects = load_plate_objects(&top_ac_path(), Some(&scene), &NullLogger).unwrap();
+        let objects = load_plate_objects(Some(&top_ac_path()), Some(&scene), &NullLogger).unwrap();
 
         assert_eq!(objects.len(), 2);
         let first = aabb_of(&objects[0]);
@@ -585,13 +728,14 @@ mod plate_loading_tests {
         let scene = SceneSnapshotPayload {
             objects: vec![object(7, [0.0; 3])],
         };
-        let error = load_plate_objects(&top_ac_path(), Some(&scene), &NullLogger).unwrap_err();
+        let error =
+            load_plate_objects(Some(&top_ac_path()), Some(&scene), &NullLogger).unwrap_err();
         assert!(error.contains("no object at index 7"), "{error}");
     }
 
     #[test]
     fn without_a_scene_the_file_is_sliced_as_authored() {
-        let objects = load_plate_objects(&top_ac_path(), None, &NullLogger).unwrap();
+        let objects = load_plate_objects(Some(&top_ac_path()), None, &NullLogger).unwrap();
 
         assert_eq!(objects.len(), 2);
         // Untransformed: the parts keep the stack the 3MF describes.
@@ -611,8 +755,55 @@ mod plate_loading_tests {
         });
 
         assert_ne!(
-            compute_slice_cache_key(&params, &path, &first),
-            compute_slice_cache_key(&params, &path, &second)
+            compute_slice_cache_key(&params, Some(&path), &first),
+            compute_slice_cache_key(&params, Some(&path), &second)
+        );
+    }
+
+    /// Two plates that differ only in their *second* model must not collide —
+    /// hashing just the first file would serve one plate's G-code for the other.
+    #[test]
+    fn the_cache_key_covers_every_file_on_the_plate() {
+        let params = slicer_engine::settings::params::SlicingParams::default();
+        let one = Some(SceneSnapshotPayload {
+            objects: vec![
+                object_from(&cube_path(), 0, [0.0; 3]),
+                object_from(&top_ac_path(), 0, [0.0; 3]),
+            ],
+        });
+        let two = Some(SceneSnapshotPayload {
+            objects: vec![
+                object_from(&cube_path(), 0, [0.0; 3]),
+                object_from(&cube_path(), 0, [0.0; 3]),
+            ],
+        });
+
+        assert_ne!(
+            compute_slice_cache_key(&params, None, &one),
+            compute_slice_cache_key(&params, None, &two)
+        );
+    }
+
+    /// A pathless object resolves to the request-level file, so two requests
+    /// whose fallback differs load different geometry and must key differently
+    /// — even though both mention the same set of paths overall.
+    #[test]
+    fn the_cache_key_follows_the_fallback_a_pathless_object_resolves_to() {
+        let params = slicer_engine::settings::params::SlicingParams::default();
+        let cube = cube_path();
+        let top_ac = top_ac_path();
+        let scene = Some(SceneSnapshotPayload {
+            objects: vec![
+                object_from(&cube, 0, [0.0; 3]),
+                object_from(&top_ac, 0, [0.0; 3]),
+                // No file of its own — takes whatever the request supplies.
+                object(0, [0.0; 3]),
+            ],
+        });
+
+        assert_ne!(
+            compute_slice_cache_key(&params, Some(&cube), &scene),
+            compute_slice_cache_key(&params, Some(&top_ac), &scene)
         );
     }
 }

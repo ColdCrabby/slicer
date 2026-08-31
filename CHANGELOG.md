@@ -29,12 +29,18 @@ issue/PR numbers or repo links in the notes. See the tone rules in
 
 ### Fixed
 
+- **Plates holding several models now slice correctly everywhere** — a workplate
+  is a build plate, not a file, but only the hosted slicer treated it that way.
+  The desktop app sliced every object out of the *first* model, so a second one
+  came out as a copy of the first; the in-browser slicer refused outright with
+  "Missing mesh bytes". Each object now resolves to the file it was actually
+  loaded from, in every runtime.
+
 - **The desktop app now prints the plate you arranged, not the file you opened**
   — models were sliced exactly as their source file defined them, ignoring every
   move, rotation and drop-to-bed. A multi-part 3MF came out with its parts still
   stacked as the authoring tool assembled them, and duplicates or extra parts
-  were dropped entirely. Only the desktop app was affected; the browser slicer
-  and the hosted slicer already placed objects correctly.
+  were dropped entirely.
 
 - **Dialogs no longer collapse in Safari** — a dialog with a body ("Running in
   your browser", "What's New", the operation pipeline) drew as a title with the

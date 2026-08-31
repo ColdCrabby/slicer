@@ -67,28 +67,45 @@ depend on it like any other crate.
 
 ### Slicing slices the plate, not the file
 
-`bridge/runtime_bridge.rs` receives a model path plus the scene snapshot the
-webview is drawing, and it must reproduce that plate exactly. Two properties do
-the work, and both are easy to lose:
+`bridge/runtime_bridge.rs` receives the scene snapshot the webview is drawing and
+must reproduce that plate exactly. Three properties do the work, and each was
+broken here at some point — the symptom is always the same: the print comes out
+as the *files* describe rather than as the plate shows, and moving things on
+screen changes nothing.
 
+- **Each object names its own file.** A workplate is a build plate, not a file:
+  it can hold several different models. `SceneObjectPayload::file_path` carries
+  one path per object, and every distinct file is read and repaired once,
+  however many objects it backs. Sending a single path for the whole plate makes
+  every object resolve into the *first* file, so a second model is silently
+  sliced as a copy of the first.
 - **Multi-part files stay apart.** A 3MF is a scene, not a model. Its build
-  items are separate objects on the plate, and each build item's transform is
-  already baked into that part's vertices — so a *merged* load hands back the
-  file as its author assembled it: parts stacked, geometry floating above the
-  bed. The bridge loads with `load_path_multi_reporting` and resolves each scene
-  object through its `source_part` index.
-- **Every object is placed, with its own transform.** One `ObjectInput` per
-  scene object, each baked once at the slicer boundary. Baking only the first
-  object's transform silently drops duplicates and every part after the first.
+  items are separate objects on the plate, and each item's transform is already
+  baked into that part's vertices — so a *merged* load hands back the file as its
+  author assembled it: parts stacked, geometry floating above the bed. The bridge
+  loads with `load_path_multi_reporting` and picks the part named by
+  `source_part`.
+- **Every object is placed, with its own transform.** One `ObjectInput` per scene
+  object, each baked once at the slicer boundary. Baking only the first object's
+  transform silently drops duplicates and every part after the first.
 
-Both were broken here once, and the symptom is the same either way: the print
-comes out as the file describes rather than as the plate shows, and no amount of
-moving things on screen changes the G-code. `slice_plate` receives the objects
-separately so the desktop honours exclude-object and sequential printing exactly
-like the CLI and the server.
+`slice_plate` receives the objects separately so the desktop honours
+exclude-object and sequential printing exactly like the CLI and the server.
 
-A `source_part` the file cannot satisfy is an **error**. Falling back to part 0
-would slice the wrong geometry without telling anyone.
+Two rules for the error cases, both chosen so a mistake is loud rather than
+wrong: a `source_part` the file cannot satisfy is an **error**, never a fallback
+to part 0; and an object with no file of its own falls back to the request-level
+`file_path` only because an older webview may not send one — with neither, the
+slice fails instead of guessing.
+
+**The G-code cache key fingerprints every file on the plate** (path + length +
+mtime), not just the first, plus each object's `source_part`. Hashing one file
+would let two plates that differ only in their *second* model collide on one
+cached result.
+
+The webview half of this contract lives in `ModelSourceRegistry`
+([ui/src/app/services/model-source/](../ui/src/app/services/model-source/)),
+which is what resolves each object's `source_id` to the path sent here.
 
 ### `dev:desktop` overrides `devUrl` at launch
 

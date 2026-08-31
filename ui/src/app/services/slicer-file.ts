@@ -195,10 +195,18 @@ export class SlicerFile {
     this.sourceFilename.set(firstFilename || null);
   }
 
-  /** Mark the selected file as belonging to a local-only workplate. */
-  adoptLocal(requestUuid: string): void {
+  /**
+   * Mark the selected file as belonging to a local-only workplate.
+   *
+   * `localFile` registers the model under a locally-minted handle, so
+   * {@link files} is populated in web and native mode exactly as an upload
+   * populates it in cloud mode. Everything downstream — the viewer's
+   * `modelSourceId`, and through it each object's `source_id` — then works the
+   * same way in every runtime instead of only where a server hands out ids.
+   */
+  adoptLocal(requestUuid: string, localFile?: WorkplateFile): void {
     this.requestUuid.set(requestUuid);
-    this.files.set([]);
+    this.files.set(localFile ? [localFile] : []);
     this.uploadProgress.set(0);
     this.uploadError.set(null);
     if (!this.sourceFilename()) {
