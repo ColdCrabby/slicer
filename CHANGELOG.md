@@ -27,6 +27,15 @@ issue/PR numbers or repo links in the notes. See the tone rules in
 
 ## [Unreleased]
 
+### Fixed
+
+- **Dialogs no longer collapse in Safari** — a dialog with a body ("Running in
+  your browser", "What's New", the operation pipeline) drew as a title with the
+  buttons jammed underneath and its content squashed to one clipped line. It now
+  opens at its full height and scrolls when taller than the screen. Affected
+  iPad, iPhone and the macOS app; the in-browser slicer worst of all, since its
+  welcome notice is a dialog.
+
 ### Added
 
 - **Phone layout** — the whole UI rearranges itself below 640px instead of
