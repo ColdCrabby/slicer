@@ -1,0 +1,113 @@
+/// Phone-only overrides for shared `@coldcrabby/ui` components.
+/// @group base
+///
+/// The design-system components live in a separate repo (vendored, git-ignored)
+/// and are shared with apps that are not a 3D slicer, so their phone behaviour
+/// is not ours to change. These rules adapt them *here* — and only here.
+///
+/// They key off `html.is-handheld` rather than a bare media query on purpose: a
+/// component's own `:host` block compiles to an attribute selector, which any
+/// plain element selector loses to. The class buys exactly the specificity
+/// needed without reaching for `!important`. It is set before first paint by
+/// the inline script in `index.html` and kept live by the `Viewport` service.
+
+@use '../breakpoints' as *;
+
+html.is-handheld {
+  // ── Modals ──────────────────────────────────────────────────────────────
+  // 24px of gutter on each side is a tenth of a phone screen spent on nothing.
+  nexus-modal-shell {
+    padding: var(--spacing-sm);
+    padding-top: calc(var(--spacing-sm) + env(safe-area-inset-top, 0px));
+    padding-right: calc(var(--spacing-sm) + env(safe-area-inset-right, 0px));
+    padding-bottom: calc(var(--spacing-sm) + env(safe-area-inset-bottom, 0px));
+    padding-left: calc(var(--spacing-sm) + env(safe-area-inset-left, 0px));
+
+    // A dialog is the whole task while it is open, so let it use the height it
+    // needs rather than centring a short box in a tall screen.
+    align-items: stretch;
+  }
+
+  // ── Labelled form rows ──────────────────────────────────────────────────
+  // `nexus-field-row` puts label and control side by side. That halves an
+  // already-narrow control, and a long label then wraps to three lines beside a
+  // one-line input. Stacking gives the control the full width and reads as the
+  // native form it is imitating.
+  nexus-field-row .field-row {
+    flex-direction: column;
+    align-items: stretch;
+    gap: var(--spacing-xs);
+  }
+
+  nexus-field-row .field-row__control {
+    width: 100%;
+  }
+
+  // ── Touch targets ───────────────────────────────────────────────────────
+  // 34px controls are sized for a cursor; under a fingertip they are a
+  // coin-flip. 40px is the smallest that stops feeling like a miss.
+  nexus-select .trigger,
+  nexus-number-input .field {
+    height: 40px;
+  }
+
+  input:not([type='checkbox']):not([type='radio']):not([type='range']),
+  select {
+    min-height: 40px;
+  }
+
+  // A dropdown's own options are the same problem one level down.
+  nexus-select .option {
+    min-height: 40px;
+  }
+
+  // Segmented controls are the app's tab metaphor; on a phone they are also a
+  // primary target, so let them use the full width.
+  nexus-segmented {
+    width: 100%;
+  }
+
+  // ── Wizards ─────────────────────────────────────────────────────────────
+  // The wizard already folds its step labels on narrow pages; what is left is
+  // the 24px gutter around a body that has no width to spare, and a footer that
+  // has to clear the tab bar's home indicator.
+  nexus-wizard-shell .wizard__body {
+    padding: var(--spacing-lg) var(--spacing-md);
+  }
+
+  nexus-wizard-shell .wizard__header {
+    padding: var(--spacing-lg) var(--spacing-md) var(--spacing-md);
+    gap: var(--spacing-md);
+  }
+
+  nexus-wizard-shell .wizard__footer {
+    padding: var(--spacing-sm) var(--spacing-md)
+      calc(var(--spacing-sm) + env(safe-area-inset-bottom, 0px));
+  }
+
+  nexus-wizard-shell .wizard__btn {
+    height: 44px;
+  }
+
+  // ── Section headers ─────────────────────────────────────────────────────
+  // A fixed 48px bar holding a title, a subtitle and two buttons cannot fit
+  // across a phone: the subtitle ends up as "Machines you …", which says less
+  // than nothing. The title and the actions are what the header is for, so the
+  // subtitle steps aside rather than being truncated into noise.
+  nexus-section-header .sh-desc {
+    display: none;
+  }
+
+  // ── Scrollbars ──────────────────────────────────────────────────────────
+  // A styled desktop scrollbar is a permanent stripe down every scrolling
+  // region and a target no finger will ever use. Phones scroll by momentum and
+  // draw their own indicator.
+  * {
+    scrollbar-width: none;
+  }
+
+  *::-webkit-scrollbar {
+    width: 0;
+    height: 0;
+  }
+}

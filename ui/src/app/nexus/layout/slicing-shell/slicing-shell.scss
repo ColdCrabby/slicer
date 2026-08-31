@@ -1,3 +1,5 @@
+@use 'breakpoints' as *;
+
 $default-inset: 40px;
 
 :host {
@@ -112,5 +114,68 @@ $default-inset: 40px;
       padding-top: var(--spacing-md);
       border-color: var(--color-border-light);
     }
+  }
+}
+
+// ── Phone: the rail becomes a bottom sheet ────────────────────────────────
+//
+// A 380px card pinned to the bottom-right corner does not fit beside a phone
+// screen, and the corner is the hardest place on a tall phone to reach. Spanning
+// the full width instead puts Slice under the thumb and gives the G-code
+// inspector — sliders, selects, a role legend — room to be operable rather than
+// merely present.
+@include handheld {
+  .shell-actions-layer {
+    grid-template-columns: 1fr;
+    // The scene takes the slack, so anything anchored to its end lands just
+    // above the sheet rather than just under the toolbar.
+    grid-template-rows: auto 1fr auto;
+    grid-template-areas:
+      'top-bar'
+      'scene'
+      'rail';
+
+    .rail-card {
+      grid-area: rail;
+      justify-self: stretch;
+      width: auto;
+      margin: var(--spacing-sm);
+      margin-left: calc(var(--spacing-sm) + env(safe-area-inset-left, 0px));
+      margin-right: calc(var(--spacing-sm) + env(safe-area-inset-right, 0px));
+      padding: var(--spacing-sm) var(--spacing-md);
+      // A hard ceiling so the sheet can never swallow the plate it controls.
+      // The inspector inside it does the actual scrolling (segment-bar.scss),
+      // which is what keeps Slice pinned to the bottom edge instead of paging
+      // away under the legend.
+      max-height: 62vh;
+      overflow: hidden;
+    }
+
+    // The gizmo cube is a click-and-drag orientation widget with no touch
+    // equivalent, and it occupies the one corner a phone can least spare. Reset
+    // view (in the toolbar) covers the same need in a single tap.
+    .viewport-cube {
+      display: none;
+    }
+
+    // The top of the scene belongs to the tools and the cards they open, and
+    // the left edge to the drawer's pull tab. The object list keeps the desktop
+    // arrangement's intent instead — anchored to the far corner of the scene so
+    // a long list grows away from the toolbar, not under it.
+    .objects-dock {
+      grid-area: scene;
+      place-self: end end;
+      margin: var(--spacing-sm);
+      margin-right: calc(var(--spacing-sm) + env(safe-area-inset-right, 0px));
+    }
+  }
+}
+
+// Sideways there is no vertical room for a half-screen sheet; let it take more
+// of the width's worth of height and scroll.
+@include handheld-landscape {
+  .shell-actions-layer .rail-card {
+    max-height: 74vh;
+    margin-bottom: calc(var(--spacing-xs) + env(safe-area-inset-bottom, 0px));
   }
 }

@@ -1,3 +1,5 @@
+@use 'breakpoints' as *;
+
 :host {
   display: block;
   height: 100%;
@@ -285,5 +287,73 @@
   .launch-empty,
   .launch-actions {
     animation: none;
+  }
+}
+
+// ── Phone ─────────────────────────────────────────────────────────────────
+//
+// The overlay is centred in a scene that now also carries a drawer tab on its
+// left edge and a slice sheet along its bottom. Insetting the card off both
+// keeps the whole invitation readable instead of running under them.
+@include handheld {
+  // Centre the card in the band that is actually free — between the toolbar
+  // above and the slice sheet below — rather than in the whole scene, where it
+  // would sit under both. The left inset clears the drawer's pull tab.
+  .launch-overlay {
+    padding: calc(var(--main-scene-inset, 48px) + var(--spacing-sm)) var(--spacing-sm) 100px 44px;
+    align-items: center;
+  }
+
+  .launch-card {
+    width: 100%;
+    padding: var(--spacing-lg) var(--spacing-md);
+  }
+
+  // Two facts about the plate, one per line — side by side they wrap mid-phrase.
+  .meta-footer {
+    flex-direction: column;
+    align-items: center;
+    row-gap: 2px;
+  }
+
+  .meta-sep {
+    display: none;
+  }
+}
+
+// Sideways there are barely 200px of scene between the toolbar and the sheet,
+// and the card's stacked icon → heading → hint → button → footnote is taller
+// than that. Everything but the invitation and the button gives way.
+@include handheld-landscape {
+  .launch-overlay {
+    padding: calc(var(--main-scene-inset, 46px) + var(--spacing-xs)) var(--spacing-sm) 92px 44px;
+  }
+
+  .launch-card {
+    padding: var(--spacing-sm) var(--spacing-md);
+    max-height: 100%;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+  }
+
+  .launch-empty {
+    padding: var(--spacing-xs) var(--spacing-sm);
+    gap: var(--spacing-xs);
+  }
+
+  .launch-empty ::ng-deep .es-icon {
+    width: 32px;
+    height: 32px;
+    margin-bottom: 0;
+
+    --icon-size: 18px;
+  }
+
+  .launch-empty ::ng-deep .es-actions {
+    margin-top: var(--spacing-sm);
+  }
+
+  .meta-footer {
+    display: none;
   }
 }

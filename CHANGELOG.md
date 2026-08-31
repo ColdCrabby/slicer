@@ -27,20 +27,15 @@ issue/PR numbers or repo links in the notes. See the tone rules in
 
 ## [Unreleased]
 
-### Changed
-
-- **Faster startup** — the app now downloads 691 kB before it can draw, down
-  from 1.58 MB. The 3D viewer, the settings workspace and the code editor are
-  fetched when you actually open them, not before the home screen appears.
-- **Smaller install and deploy** — the bundled code editor no longer ships ~90
-  programming-language grammars and four language servers it never used. Total
-  deployed JavaScript falls from 17.7 MB to 8.4 MB.
-- **Settings pages open without loading the code editor** — the G-code editors
-  on the printer and filament pages sit well below the fold, but still cost
-  ~4 MB the moment the page opened. They now load when you scroll to them.
-
 ### Added
 
+- **Phone layout** — the whole UI rearranges itself below 640px instead of
+  overflowing. Navigation moves to a bottom tab bar, print settings become a
+  drawer with a pull tab on the left edge, and Slice sits in a full-width sheet
+  along the bottom with the G-code inspector scrolling inside it. Settings
+  sections become a scrollable chip strip and the printer/filament/profile
+  editors stack instead of splitting into two columns. Previously a 390px screen
+  gave the 3D view about 50px of width.
 - **A loading screen on first open** — the logo now appears immediately with a
   progress bar beneath it, instead of a blank page while the app downloads. A
   tiny embedded copy shows straight away and sharpens once the full artwork
@@ -52,6 +47,26 @@ issue/PR numbers or repo links in the notes. See the tone rules in
 - **Reload prompt for stale tabs** — if a page can no longer be loaded because
   the app was redeployed under an open tab, the existing update banner now
   offers a reload instead of the click doing nothing.
+
+### Changed
+
+- **Faster startup** — the app now downloads 691 kB before it can draw, down
+  from 1.58 MB. The 3D viewer, the settings workspace and the code editor are
+  fetched when you actually open them, not before the home screen appears.
+- **Smaller install and deploy** — the bundled code editor no longer ships ~90
+  programming-language grammars and four language servers it never used. Total
+  deployed JavaScript falls from 17.7 MB to 8.4 MB.
+- **Settings pages open without loading the code editor** — the G-code editors
+  on the printer and filament pages sit well below the fold, but still cost
+  ~4 MB the moment the page opened. They now load when you scroll to them.
+- **Touch targets and form rows on phones** — controls grow from 34px to 40px,
+  labelled rows stack so a dropdown gets the full width, toasts move to the top
+  of the screen (the bottom now belongs to the slice sheet), and the object list
+  folds to a chip that still flags a part that cannot print.
+- **Two controls are hidden on phones** — the viewport cube, which needs a drag
+  it cannot receive, and the projection toggle and operation-pipeline inspector,
+  which do not fit alongside the tools that get a model sliced. All three return
+  on any wider screen.
 
 ## [0.3.0]
 

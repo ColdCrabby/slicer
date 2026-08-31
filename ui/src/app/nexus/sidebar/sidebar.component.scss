@@ -1,3 +1,5 @@
+@use 'breakpoints' as *;
+
 $transition-duration: 200ms;
 $transition-easing: ease;
 
@@ -316,5 +318,75 @@ $transition-easing: ease;
 
   :host.is-dragging & {
     background: var(--accent);
+  }
+}
+
+// ── Phone: a drawer, never a column ───────────────────────────────────────
+//
+// Docking a 280px settings column beside the scene leaves ~50px of 3D on a
+// 390px screen, so on a phone the panel is only ever an overlay. The component
+// still tracks a docked/hidden preference for when the same browser is later
+// resized — the layout simply refuses to honour it at this width.
+@include handheld {
+  :host {
+    width: 0;
+  }
+
+  .sidebar-panel {
+    // Stop just short of the edge so the scene stays visible behind the drawer
+    // and its purpose — "you are covering something" — reads at a glance.
+    width: min(86vw, 360px);
+    padding-left: env(safe-area-inset-left, 0px);
+    border-right: none;
+    box-shadow: var(--shadow-lg);
+  }
+
+  // A docked panel would otherwise sit permanently open with nothing to
+  // dismiss it; forcing the hidden transform makes the reveal hint the only
+  // way in and the scrim the only way out.
+  :host:not(.is-expanded) .sidebar-panel {
+    transform: translateX(-100%);
+    visibility: hidden;
+    pointer-events: none;
+  }
+
+  // Pinning and dragging are pointer affordances with nothing to act on here:
+  // there is no docked state to pin to, and no spare width to drag into.
+  .sidebar-pin,
+  .resize-handle {
+    display: none;
+  }
+
+  // The label does not fit beside a full-width launch card or a bottom sheet,
+  // so the handle becomes what it always was underneath: a tab on the edge it
+  // pulls from. Flush to the screen, rounded on the open side only — the same
+  // shape as the desktop dock nub, and unmistakably something to pull.
+  //
+  // It sits directly under the toolbar rather than mid-height: the sheet grows
+  // upward from the bottom as the G-code inspector opens, and anything centred
+  // vertically ends up underneath it.
+  .sidebar-reveal-hint {
+    top: calc(var(--main-scene-inset, 48px) + var(--spacing-sm));
+    left: 0;
+    width: 32px;
+    min-height: 60px;
+    padding: 0;
+    justify-content: center;
+    transform: none;
+    border-radius: 0 var(--radius-md) var(--radius-md) 0;
+    box-shadow: var(--shadow-md);
+
+    --icon-size: 18px;
+
+    &:hover {
+      transform: none;
+    }
+
+    // Only the leading glyph survives; the words and the chevron are what did
+    // not fit. The button keeps its aria-label, so nothing is lost to a reader.
+    span,
+    nexus-icon:last-child {
+      display: none;
+    }
   }
 }

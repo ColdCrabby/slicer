@@ -1,3 +1,5 @@
+@use 'breakpoints' as *;
+
 :host {
   display: block;
   height: 100%;
@@ -238,4 +240,89 @@
 // full-width content area.
 :host ::ng-deep .settings-page {
   max-width: 720px;
+}
+
+// ── Phone ─────────────────────────────────────────────────────────────────
+//
+// A 220px section column beside a 390px screen leaves 170px for the settings
+// themselves. The same navigation works laid on its side: the sections become a
+// scrollable strip of chips above the content, which keeps every page one tap
+// away — no master/detail push, no back button to learn.
+@include handheld {
+  .settings {
+    flex-direction: column;
+  }
+
+  .settings-nav {
+    width: 100%;
+    flex: none;
+    flex-direction: row;
+    align-items: center;
+    gap: var(--spacing-sm);
+    padding: var(--spacing-sm);
+    padding-left: calc(var(--spacing-sm) + env(safe-area-inset-left, 0px));
+    padding-right: calc(var(--spacing-sm) + env(safe-area-inset-right, 0px));
+    border-right: none;
+    border-bottom: 1px solid var(--color-border);
+    overflow-x: auto;
+    overflow-y: hidden;
+    overscroll-behavior-x: contain;
+    scrollbar-width: none;
+
+    &::-webkit-scrollbar {
+      display: none;
+    }
+  }
+
+  // The page title is redundant next to the nav rail's own "Settings" tab, and
+  // it is the only thing here wide enough to push the chips off-screen.
+  .settings-title {
+    display: none;
+  }
+
+  .settings-nav-list {
+    flex: none;
+    flex-direction: row;
+    gap: var(--spacing-xs);
+  }
+
+  .settings-nav-item {
+    flex: none;
+    gap: var(--spacing-xs);
+    min-height: 38px;
+    padding: 0 var(--spacing-md);
+    border-radius: 999px;
+    white-space: nowrap;
+    background: var(--color-surface);
+  }
+
+  // Where the library is stored is a footnote, not a third of the screen; it
+  // belongs on the pages that can act on it rather than in the chrome.
+  .settings-storage-note {
+    display: none;
+  }
+
+  // "Saving…" must survive the fold, though — it is the only confirmation an
+  // edit was persisted. Pinned to the trailing edge so it stays visible however
+  // far the chip strip is scrolled.
+  .settings-nav-footer {
+    margin-top: 0;
+    margin-left: auto;
+    position: sticky;
+    right: 0;
+    flex: none;
+    background: var(--color-bg-secondary);
+  }
+
+  .settings-sync {
+    margin: 0;
+  }
+
+  .settings-content {
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+  }
+
+  :host ::ng-deep .settings-page {
+    max-width: none;
+  }
 }

@@ -24,6 +24,9 @@
 // Local override: collapse the outline+inset double ring on form controls to a
 // single ring. MUST come after `base/forms` so it wins on order.
 @use './base/field-focus';
+// Phone-only adaptations of the shared components. MUST come after every
+// partial it overrides.
+@use './base/handheld';
 @use 'base/scrollbar';
 @use 'base/floating';
 

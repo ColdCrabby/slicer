@@ -1,3 +1,5 @@
+@use 'breakpoints' as *;
+
 :host {
   display: block;
   pointer-events: none;
@@ -201,5 +203,74 @@
     color: var(--color-danger);
     font-weight: 600;
     white-space: nowrap;
+  }
+}
+
+// Collapse control. Only rendered where the list can fold (phones), so it needs
+// no desktop appearance — it simply makes the existing header tappable.
+.op-head-toggle {
+  width: 100%;
+  padding: 0;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  text-align: left;
+  color: inherit;
+
+  &:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+    border-radius: var(--radius-sm);
+  }
+}
+
+.op-head-chevron {
+  flex: none;
+  color: var(--color-text-tertiary);
+
+  --icon-size: 14px;
+}
+
+// Carries the warning up to the folded header, so a collapsed list can never
+// hide a part that cannot print. Only while folded — expanded, the message
+// itself is right there.
+.op-head-flag {
+  flex: none;
+  color: var(--color-warning);
+
+  --icon-size: 14px;
+}
+
+// ── Phone ─────────────────────────────────────────────────────────────────
+@include handheld {
+  .objects-panel {
+    width: min(74vw, 232px);
+    padding: var(--spacing-xs) var(--spacing-sm);
+  }
+
+  .objects-panel.is-collapsed {
+    // Folded, this is just a label: let it shrink to the words.
+    width: auto;
+  }
+
+  .op-list {
+    // A quarter of the screen at most — the plate has to stay the subject.
+    max-height: 26vh;
+  }
+
+  .op-row {
+    min-height: 44px;
+  }
+
+  // Row actions reveal on hover, which a finger cannot do. Show them outright.
+  .op-row-actions {
+    opacity: 1;
+  }
+
+  .op-action {
+    height: 32px;
+    min-width: 32px;
+
+    --icon-size: 16px;
   }
 }

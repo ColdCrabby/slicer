@@ -1,3 +1,5 @@
+@use 'breakpoints' as *;
+
 :host {
   position: fixed;
   bottom: calc(var(--spacing-lg, 16px) + env(safe-area-inset-bottom, 0));
@@ -145,5 +147,24 @@
 @keyframes notif-leave-visual {
   to {
     transform: translateX(-12px) scale(0.97);
+  }
+}
+
+// ── Phone ─────────────────────────────────────────────────────────────────
+//
+// The bottom of a phone is spoken for: the slice sheet sits there and the tab
+// bar under it. Toasts move to the top, where the OS puts its own banners, and
+// clear the toolbar via the same inset the rest of the scene chrome uses
+// (0 outside the slicing shell, where there is no toolbar to clear).
+@include handheld {
+  :host {
+    top: calc(
+      var(--titlebar-height) + env(safe-area-inset-top, 0px) + var(--main-scene-inset, 0px) +
+        var(--spacing-sm)
+    );
+    bottom: auto;
+    left: calc(var(--spacing-sm) + env(safe-area-inset-left, 0px));
+    right: calc(var(--spacing-sm) + env(safe-area-inset-right, 0px));
+    width: auto;
   }
 }

@@ -1,6 +1,8 @@
 // Shared settings-page styling. Each settings section `@use`s this partial so
 // the list/card/field look stays consistent without duplicating rules.
 
+@use 'breakpoints' as *;
+
 :host {
   display: block;
   width: 100%;
@@ -235,4 +237,52 @@
   font-size: var(--font-size-md);
   font-weight: var(--font-weight-semibold);
   color: var(--color-text-primary);
+}
+
+// ── Phone ───────────────────────────────────────────────────────────────────
+//
+// Two-column rows are what break first on a narrow screen: the label keeps its
+// natural width and the control is squeezed into whatever is left, so a select
+// ends up narrower than the word inside it. Every row here stacks instead.
+@include handheld {
+  .settings-page {
+    padding: var(--spacing-lg) var(--spacing-md) var(--spacing-2xl);
+    padding-left: calc(var(--spacing-md) + env(safe-area-inset-left, 0px));
+    padding-right: calc(var(--spacing-md) + env(safe-area-inset-right, 0px));
+    gap: var(--spacing-lg);
+  }
+
+  .settings-card {
+    padding: 0 var(--spacing-md);
+  }
+
+  .settings-field {
+    flex-direction: column;
+    align-items: stretch;
+    gap: var(--spacing-sm);
+  }
+
+  .settings-item {
+    flex-wrap: wrap;
+    gap: var(--spacing-sm);
+    padding: var(--spacing-md);
+  }
+
+  .settings-item-actions {
+    margin-left: 0;
+    width: 100%;
+    justify-content: flex-end;
+  }
+
+  // Segmented pills are a row of targets; let them share the full width rather
+  // than crowd into an inline group that overflows.
+  .segmented {
+    display: flex;
+    width: 100%;
+  }
+
+  .segmented-btn {
+    flex: 1;
+    padding: 8px 10px;
+  }
 }
