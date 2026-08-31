@@ -17,22 +17,30 @@
  * drives separation down, a fixed angular threshold gets easier to trip exactly
  * as the user zooms — the old behaviour, and the reported bug. So roll engages
  * only after a sustained twist ({@link RollGate.engageAngleRad}) at a
- * separation where the angle means something, and only while tangential travel
- * clearly dominates radial travel. Once radial travel passes
- * {@link RollGate.lockoutPinchPx} the gesture is a pinch **for good** and roll
- * is latched off — a guarantee, not a threshold a jittery frame can beat.
+ * separation where the angle means something, and only while rotation clearly
+ * dominates scaling. Once the fingers have changed separation by
+ * {@link RollGate.lockoutPinchRatio} the gesture is a pinch **for good** and
+ * roll is latched off — a guarantee, not a threshold a jittery frame can beat.
  *
- * **Travel is measured as net displacement, never as accumulated path length.**
- * This is the difference between a gate that works on real hardware and one
- * that cannot fire at all. A fingertip's reported separation jitters every
- * event, so summing `|Δdist|` integrates the *absolute value* of that noise: it
- * only ever grows, and at 120 Hz even 0.3 px of jitter accumulates past a 24 px
- * pinch threshold in **0.58 s** — locking roll out mid-twist, from noise alone,
- * before the user has rotated far enough to engage. Measuring from the
- * gesture's origin instead lets the noise cancel: the same pure twist reads
- * 0.4 px of radial movement against 43.6 px of tangential. Both channels are
- * compared in pixels of real fingertip movement, so the ratio holds at any
- * separation.
+ * **Rotation and pinch are compared per unit radius, so the test is
+ * scale-invariant.** This is what lets a twist be recognised with the fingers
+ * close together. Rotating by `θ` moves each fingertip `θ·r`; scaling by `s`
+ * moves each fingertip `(s−1)·r`. Dividing out the common `r` leaves a
+ * comparison of **radians against a separation *ratio***, with no dependence on
+ * how far apart the fingers happen to be — the same split UIKit draws between
+ * its pinch (scale) and rotation (angle) recognisers. Comparing an *arc length*
+ * against an absolute pixel change instead, as this originally did, is biased
+ * by `r`: it demanded 6° of twist at 300 px but **30°** at 60 px, so a
+ * pinch-sized grip could never roll.
+ *
+ * **Travel is net displacement from the gesture's origin, never summed
+ * per-event path length.** This is the difference between a gate that works on
+ * real hardware and one that cannot fire at all. A fingertip's reported
+ * separation jitters every event, so summing `|Δdist|` integrates the *absolute
+ * value* of that noise: it only ever grows, and at 120 Hz even 0.3 px of jitter
+ * accumulates past a pinch threshold in **0.58 s** — locking roll out
+ * mid-twist, from noise alone, before the user has rotated far enough to
+ * engage. Measuring from the gesture's origin instead lets the noise cancel.
  *
  * **Dead zones accumulate, they do not discard.** Each channel keeps its own
  * anchor and only moves it when it actually applies motion, so sub-threshold
@@ -74,10 +82,17 @@ export interface RollGate {
   engageAngleRad: number;
   /** Separation below which a twist reading is noise by construction. */
   minSeparationPx: number;
-  /** Required ratio of net tangential to net radial fingertip displacement. */
+  /**
+   * How far rotation must outweigh scaling, comparing radians against the
+   * separation *ratio* — both being per-unit-radius fingertip displacement.
+   */
   dominanceRatio: number;
-  /** Net radial displacement that latches roll off for the rest of the gesture. */
-  lockoutPinchPx: number;
+  /**
+   * Fractional change in separation (0.2 = 20%) that latches roll off for the
+   * rest of the gesture. A ratio rather than a pixel count so a small grip and
+   * a wide one have to pinch equally *hard*, not equally *far*.
+   */
+  lockoutPinchRatio: number;
   /** Fine-grain dead zone applied once roll is engaged. */
   deadZoneRad: number;
   /** Largest roll applied from one update. */
@@ -193,8 +208,9 @@ export class TwoFingerGestureTracker {
   /**
    * Accumulate net twist and decide whether the gesture is a twist.
    *
-   * Both measurements are **net displacement from the origin**, never summed
-   * per-event travel — see the module doc for why that distinction decides
+   * Both measurements are **net displacement from the origin**, and both are
+   * expressed **per unit radius** so the comparison does not depend on how far
+   * apart the fingers are — see the module doc for why each of those decides
    * whether roll can fire at all on real hardware.
    */
   private arbitrate(sample: TwoFingerSample): void {
@@ -205,19 +221,20 @@ export class TwoFingerGestureTracker {
       return;
     }
 
-    // How far the fingers have genuinely separated, and how far they have
-    // genuinely swept round. Jitter cancels in both instead of piling up.
-    const netRadialPx = Math.abs(sample.dist - this.originDist);
-    const netTangentialPx = Math.abs(this.netAngleRad) * (sample.dist / 2);
+    // Rotating by θ moves each fingertip θ·r; scaling by s moves each fingertip
+    // (s−1)·r. With the common r divided out these are directly comparable.
+    const twistRad = Math.abs(this.netAngleRad);
+    const pinchRatio = Math.abs(sample.dist / Math.max(this.originDist, 1e-3) - 1);
 
-    if (netRadialPx > this.rollGate.lockoutPinchPx) {
+    if (pinchRatio > this.rollGate.lockoutPinchRatio) {
       this.rollLocked = true;
       return;
     }
-    const twistedEnough = Math.abs(this.netAngleRad) >= this.rollGate.engageAngleRad;
-    const wideEnough = sample.dist >= this.rollGate.minSeparationPx;
-    const dominant = netTangentialPx > netRadialPx * this.rollGate.dominanceRatio;
-    if (twistedEnough && wideEnough && dominant) {
+    if (
+      twistRad >= this.rollGate.engageAngleRad &&
+      sample.dist >= this.rollGate.minSeparationPx &&
+      twistRad > pinchRatio * this.rollGate.dominanceRatio
+    ) {
       this.rollEngaged = true;
     }
   }

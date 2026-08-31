@@ -374,10 +374,10 @@ driven by the DOM bookkeeping in [`controls.ts`](scene/controls.ts)) arbitrates:
 
 ```mermaid
 flowchart TD
-    S[sample: dist, angle, centroid] --> ACC[accumulate radial<br/>and tangential travel]
-    ACC --> L{radial travel ><br/>ROLL_LOCKOUT_PINCH_PX?}
+    S[sample: dist, angle, centroid] --> ACC[net twist + net separation<br/>ratio, from gesture origin]
+    ACC --> L{separation changed ><br/>ROLL_LOCKOUT_PINCH_RATIO?}
     L -->|yes| LOCK[roll latched off<br/>for this gesture]
-    L -->|no| E{sustained twist,<br/>wide enough,<br/>tangential dominant?}
+    L -->|no| E{sustained twist,<br/>wide enough,<br/>rotation > scaling?}
     E -->|yes| ENG[roll engaged]
     E -->|not yet| PEND[track angle,<br/>emit no roll]
     LOCK --> OUT[dolly + pan only]
@@ -385,7 +385,7 @@ flowchart TD
     PEND --> OUT
 ```
 
-Two properties carry the design:
+Three properties carry the design:
 
 - **Roll must earn its way in, and can be shut out.** Rotation is measured as an
   _angle_, so its noise floor scales with `1 / separation`: 2 px of tremor reads
@@ -394,11 +394,23 @@ Two properties carry the design:
   zooms — which is why an ordinary pinch used to spray roll every frame (~16° of
   unwanted spin on a single measured pinch-in). Roll now engages only after a
   sustained twist (`ROLL_ENGAGE_ANGLE_RAD`) at a separation where the angle means
-  something (`ROLL_MIN_SEPARATION_PX`), and only while tangential displacement
-  dominates radial (`ROLL_DOMINANCE_RATIO`). Once radial displacement passes
-  `ROLL_LOCKOUT_PINCH_PX` the gesture is a pinch **for good** — a latch, not a
+  something (`ROLL_MIN_SEPARATION_PX`), and only while rotation dominates scaling
+  (`ROLL_DOMINANCE_RATIO`). Once separation has changed by
+  `ROLL_LOCKOUT_PINCH_RATIO` the gesture is a pinch **for good** — a latch, not a
   threshold a jittery frame can beat, and it survives a re-anchor so swapping
   fingers is not a backdoor.
+- **Rotation and pinch are compared per unit radius, so the test is
+  scale-invariant.** This is what lets a twist be recognised with the fingers
+  close together, and getting it wrong made roll unusable in the hand even after
+  it "worked". Rotating by `θ` moves each fingertip `θ·r`; scaling by `s` moves
+  each fingertip `(s−1)·r`. Dividing out the common `r` leaves **radians against
+  a separation _ratio_**, independent of how far apart the fingers are — the same
+  split UIKit draws between its pinch (scale) and rotation (angle) recognisers.
+  Comparing an _arc length_ against an absolute pixel change instead is biased by
+  the radius: it demanded 6° of twist at a 300 px span but **30°** at 60 px, so a
+  normal pinch-sized grip could never roll. The lockout is a ratio for the same
+  reason — a narrow grip and a wide one should have to pinch equally _hard_, not
+  equally _far_.
 - **Travel is net displacement from the gesture's origin, never summed per-event
   path length.** This distinction decides whether roll can fire _at all_ on real
   hardware, and getting it wrong is subtle because it still looks correct in a

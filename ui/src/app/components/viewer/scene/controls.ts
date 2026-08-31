@@ -30,7 +30,7 @@ const TWO_FINGER_DOLLY_DEAD_ZONE_PX = 1.5;
  */
 const TWO_FINGER_ROLL_DEAD_ZONE_RAD = 0.01;
 /**
- * Net twist (rad ≈ 8°) that must build up from the start of a two-finger
+ * Net twist (rad ≈ 6°) that must build up from the start of a two-finger
  * gesture before roll engages at all.
  *
  * The old code had no such gate: it rolled whenever a single frame's angle
@@ -40,34 +40,45 @@ const TWO_FINGER_ROLL_DEAD_ZONE_RAD = 0.01;
  * drives the separation down. So an ordinary zoom sprayed roll every frame:
  * the "zooming makes it rotate" spin. Requiring a real, sustained twist first
  * puts the gate on the user's intent instead of on their tremor.
+ *
+ * Kept modest because the *dominance* test below is what actually separates a
+ * twist from a pinch; this only has to outrun tremor.
  */
-const ROLL_ENGAGE_ANGLE_RAD = 0.14;
+const ROLL_ENGAGE_ANGLE_RAD = 0.105;
 /**
  * Minimum finger separation (px) for roll to be considered. Angular resolution
  * collapses as the fingers meet, so below this a twist reading is noise by
- * construction — no threshold on the angle itself can rescue it.
+ * construction — no threshold on the angle itself can rescue it. Low enough to
+ * admit a normal pinch-sized grip, which is the span most rolls are made with.
  */
-const ROLL_MIN_SEPARATION_PX = 60;
+const ROLL_MIN_SEPARATION_PX = 45;
 /**
- * How much more net tangential than net radial displacement a gesture needs
- * before it counts as a twist. Compares like with like — both in pixels of
- * fingertip movement measured from the gesture's origin — so it holds at any
- * separation.
- */
-const ROLL_DOMINANCE_RATIO = 1.6;
-/**
- * Net radial displacement (px) that permanently disqualifies roll for the rest
- * of the gesture. Once the user has clearly pinched, later rotational drift —
- * the wrist unavoidably turning as the fingers close — must never be honoured.
- * This latch is what makes "a zoom never becomes a spin" a guarantee rather
- * than a threshold that a jittery frame can beat.
+ * How far rotation must outweigh scaling for a gesture to count as a twist,
+ * comparing radians of turn against the fractional change in separation.
  *
- * Measured as displacement from the gesture's origin, **not** as summed
- * per-event travel: the latter integrates contact jitter, which at 120 Hz
- * crosses this figure from noise alone in well under a second and locks roll
- * out of every gesture. See the module doc in `two-finger-gesture.ts`.
+ * Both are per-unit-radius fingertip displacement (`θ·r` against `(s−1)·r`), so
+ * the test is **scale-invariant** — it asks the same of a narrow grip as a wide
+ * one. Comparing an *arc length* against an absolute pixel change instead, as
+ * this originally did, is biased by the radius: it demanded 6° of twist with
+ * the fingers 300 px apart but **30°** at 60 px, so a normal grip could not
+ * roll at all.
  */
-const ROLL_LOCKOUT_PINCH_PX = 24;
+const ROLL_DOMINANCE_RATIO = 1.0;
+/**
+ * Fractional change in separation (0.2 = 20%) that permanently disqualifies
+ * roll for the rest of the gesture. Once the user has clearly pinched, later
+ * rotational drift — the wrist unavoidably turning as the fingers close — must
+ * never be honoured. This latch is what makes "a zoom never becomes a spin" a
+ * guarantee rather than a threshold that a jittery frame can beat.
+ *
+ * A *ratio*, not a pixel count, so a small grip and a wide one have to pinch
+ * equally hard rather than equally far. Measured from the gesture's origin,
+ * **not** summed per-event travel: the latter integrates contact jitter, which
+ * at 120 Hz crosses any such figure from noise alone in well under a second and
+ * locks roll out of every gesture. See the module doc in
+ * `two-finger-gesture.ts`.
+ */
+const ROLL_LOCKOUT_PINCH_RATIO = 0.2;
 /**
  * Largest roll applied from a single event (rad ≈ 17°). A jump beyond this is
  * not a wrist — it is a contact patch morphing, a palm being adopted into the
@@ -967,7 +978,7 @@ export class SceneControls {
         engageAngleRad: ROLL_ENGAGE_ANGLE_RAD,
         minSeparationPx: ROLL_MIN_SEPARATION_PX,
         dominanceRatio: ROLL_DOMINANCE_RATIO,
-        lockoutPinchPx: ROLL_LOCKOUT_PINCH_PX,
+        lockoutPinchRatio: ROLL_LOCKOUT_PINCH_RATIO,
         deadZoneRad: TWO_FINGER_ROLL_DEAD_ZONE_RAD,
         maxStepRad: ROLL_MAX_STEP_RAD,
       },

@@ -9,10 +9,10 @@ import {
 
 /** Mirrors the production tuning in `controls.ts`. */
 const ROLL_GATE: RollGate = {
-  engageAngleRad: 0.14,
-  minSeparationPx: 60,
-  dominanceRatio: 1.6,
-  lockoutPinchPx: 24,
+  engageAngleRad: 0.105,
+  minSeparationPx: 45,
+  dominanceRatio: 1.0,
+  lockoutPinchRatio: 0.2,
   deadZoneRad: 0.01,
   maxStepRad: 0.3,
 };
@@ -160,6 +160,43 @@ describe('TwoFingerGestureTracker — a deliberate twist still rolls', () => {
     t.begin(sample(200));
     for (const frame of twistFrames(25, 120, { jitterPx: 1.5 })) {
       t.update(frame);
+    }
+    expect(t.isRollEngaged()).toBe(true);
+  });
+
+  it('engages roll with the fingers close together', () => {
+    // The span most rolls are actually made with. The old gate compared an arc
+    // length against an absolute pixel change, which is biased by the radius:
+    // it wanted ~30 deg of twist here versus ~6 deg at 300px, so a normal grip
+    // could not roll at all.
+    const t = tracker();
+    t.begin(sample(80));
+    for (const frame of twistFrames(20, 90, { dist: 80, jitterPx: 0.3 })) {
+      t.update(frame);
+    }
+    expect(t.isRollEngaged()).toBe(true);
+  });
+
+  it('asks the same of a narrow grip as a wide one', () => {
+    // Scale invariance: an identical twist, with separation drifting by the
+    // same *fraction*, must be judged identically at any span.
+    for (const dist of [60, 100, 160, 240, 320]) {
+      const t = tracker();
+      t.begin(sample(dist));
+      for (let i = 1; i <= 90; i++) {
+        const drift = dist * 0.06 * (i / 90);
+        t.update(sample(dist + drift, ((15 * Math.PI) / 180) * (i / 90)));
+      }
+      expect(t.isRollEngaged(), `separation ${dist}px should roll`).toBe(true);
+    }
+  });
+
+  it('tolerates the separation drifting while the wrist turns', () => {
+    const t = tracker();
+    t.begin(sample(100));
+    // A real twist is not a perfect pivot — the fingers wander a little.
+    for (let i = 1; i <= 90; i++) {
+      t.update(sample(100 + 10 * (i / 90), ((18 * Math.PI) / 180) * (i / 90)));
     }
     expect(t.isRollEngaged()).toBe(true);
   });
