@@ -59,7 +59,12 @@
 .tb-status {
   display: inline-flex;
   align-items: center;
+  gap: var(--spacing-xs);
   margin-right: var(--spacing-sm);
+}
+
+.tb-github {
+  color: var(--color-text-secondary);
 }
 
 .tb-spacer {
