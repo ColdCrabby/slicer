@@ -16,8 +16,10 @@ Nothing is hidden behind menus.
 └──────────────┴─────────────────────────────────────┴──────────────┘
 ```
 
-That's the layout on a computer or a tablet. A phone gets the same tools in a
-one-handed arrangement — see [On a phone](#on-a-phone) at the end.
+That's the layout on a computer. A tablet gets the same one with the side panels
+folded down so the plate stays the biggest thing on screen — see
+[On a tablet](#on-a-tablet). A phone gets the same tools in a one-handed
+arrangement — see [On a phone](#on-a-phone).
 
 ## The 3D view
 
@@ -97,6 +99,10 @@ Appears when you switch to preview. Colour the toolpaths by role, speed,
 temperature and more; hide path types you don't care about; scrub through layers
 and through individual moves. See [Reading the preview](/use/preview).
 
+Tap its **G-code** header to fold it away when the legend is in front of what
+you're trying to see — the layer counter stays, the Slice button stays put, and
+the slicer remembers what you chose.
+
 ## Notifications
 
 Messages appear bottom-left — top of the screen on a phone, where the sheet
@@ -147,6 +153,25 @@ Windows — whatever your system accent is set to.
 **Settings → General** has the graphics knobs: field of view, anti-aliasing,
 render resolution and preview detail. Turn them down on a weak GPU, up on a good
 one.
+
+## On a tablet
+
+An iPad has the screen for the full layout but not the mouse, so two things
+change: everything is bigger, and nothing that floats over the plate stays open
+on its own.
+
+- **Panels start folded.** The G-code inspector and the objects list each show
+  just a header — `G-code · 42 / 180`, `Objects 2`. Tap a header to open it, tap
+  again to fold. Your choice sticks from then on.
+- **Print settings are a drawer**, reached from the tab on the left edge just
+  below the toolbar. Tap it to open, tap outside to close. It's out of the middle
+  of the screen on purpose: that's where your model is.
+- **Everything is finger-sized.** Buttons, dropdowns, the layer slider and the
+  legend chips are all sized for a fingertip rather than a cursor.
+
+Split View and Slide Over shrink the window, and the layout follows: below about
+1024 points wide you get the folded arrangement on any device, including a
+narrow window on a desktop.
 
 ## On a phone
 

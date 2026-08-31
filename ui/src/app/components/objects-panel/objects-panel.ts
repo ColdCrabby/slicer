@@ -53,13 +53,14 @@ export class ObjectsPanel {
   /**
    * Whether the list may be folded away to its header.
    *
-   * On a desktop the panel costs a corner of a large scene and is worth having
-   * open; on a phone the same list covers a third of the plate it describes. So
-   * phones get a header that collapses — the object count stays visible, the
-   * rows come back on tap — and every other size keeps the list open with no
-   * extra control to explain.
+   * On a large desktop scene the panel costs a corner and is worth having open;
+   * anywhere tighter the same list covers a third of the plate it describes,
+   * and on a touch device there is no cursor to move away from it. So compact
+   * viewports and tablets get a header that collapses — the object count stays
+   * visible, the rows come back on tap — while a roomy desktop keeps the list
+   * open with no extra control to explain.
    */
-  protected readonly collapsible = computed(() => this.viewport.isHandheld());
+  protected readonly collapsible = computed(() => this.viewport.isCompact());
 
   private readonly userExpanded = signal(false);
 

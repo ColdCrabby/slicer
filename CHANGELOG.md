@@ -29,6 +29,10 @@ issue/PR numbers or repo links in the notes. See the tone rules in
 
 ### Fixed
 
+- **The "Print settings" tab no longer flickers when you hover it** — pointing at
+  the tab used to open the drawer, which hid the tab, which closed the drawer, in
+  a loop. Resting at the very edge of the screen still peeks at the panel; the
+  tab itself now only responds to a click.
 - **Dialogs no longer collapse in Safari** — a dialog with a body ("Running in
   your browser", "What's New", the operation pipeline) drew as a title with the
   buttons jammed underneath and its content squashed to one clipped line. It now
@@ -38,6 +42,19 @@ issue/PR numbers or repo links in the notes. See the tone rules in
 
 ### Added
 
+- **Fold the G-code legend out of the way** — the inspector now has a header you
+  can tap to collapse it to a single row, keeping the layer counter and the Slice
+  button in place. It starts folded on tablets, phones and narrow windows, open
+  on a large screen, and remembers whichever you choose.
+- **Tablet layout** — an iPad keeps the full desktop arrangement but stops
+  leaving panels open over the plate: the G-code inspector and the object list
+  both start folded, and the print-settings tab moved out of the middle of the
+  screen, where the model is. Applies to any window under 1024px, so Split View
+  and a docked desktop window get it too.
+- **Finger-sized controls on touch screens** — buttons, dropdowns, legend chips
+  and the layer slider are now sized for a fingertip on every touch device rather
+  than only on phones. The layer slider's grip went from 18px to 26px; scrubbing
+  through layers on a tablet was the worst of it.
 - **Phone layout** — the whole UI rearranges itself below 640px instead of
   overflowing. Navigation moves to a bottom tab bar, print settings become a
   drawer with a pull tab on the left edge, and Slice sits in a full-width sheet

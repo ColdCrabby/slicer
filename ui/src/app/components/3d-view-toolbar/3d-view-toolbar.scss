@@ -154,17 +154,24 @@
     display: none;
   }
 
-  .reset-view-button,
-  .button-radio-group button {
-    width: 40px;
-    height: 40px;
-    --icon-size: 19px;
-  }
-
   /* The tool cards are centred on a cluster that can now sit anywhere along a
      wrapped row, so cap them to the screen rather than to their own content. */
   .tool-panels {
     max-width: calc(100vw - 2 * var(--spacing-sm));
+  }
+}
+
+/* Every one of these is a primary action on the plate — select, rotate, add,
+   undo, switch to G-code — and at 34px they were sized for a cursor. Keyed to
+   the pointer rather than the viewport, so it covers the tablet that took the
+   desktop layout as well as the phone. One rule, one number: the phone block
+   above deliberately sets no size of its own. */
+@include coarse-pointer {
+  .reset-view-button,
+  .button-radio-group button {
+    width: 44px;
+    height: 44px;
+    --icon-size: 20px;
   }
 }
 

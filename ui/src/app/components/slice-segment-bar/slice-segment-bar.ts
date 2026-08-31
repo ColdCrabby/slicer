@@ -25,6 +25,10 @@ import {
 } from '../../services/gcode-preview';
 import { Select, type SelectOption, Slider } from '@coldcrabby/ui';
 import { ViewerControl } from '../../services/viewer-control';
+import { Viewport } from '../../services/viewport';
+
+/** Where the user's fold preference for the inspector is remembered. */
+const STORAGE_EXPANDED_KEY = 'nexus.inspector.expanded';
 
 @Component({
   selector: 'nexus-slice-segment-bar',
@@ -37,6 +41,7 @@ import { ViewerControl } from '../../services/viewer-control';
 export class SliceSegmentBar {
   protected readonly preview = inject(GcodePreview);
   private readonly viewerControl = inject(ViewerControl);
+  private readonly viewport = inject(Viewport);
   private readonly destroyRef = inject(DestroyRef);
   private readonly hostEl = inject(ElementRef<HTMLElement>);
 
@@ -59,6 +64,54 @@ export class SliceSegmentBar {
 
   /** Clamped top index for the layer slider (avoids a −¹1 max during reslice). */
   protected readonly layerMaxIndex = computed(() => Math.max(0, this.preview.layerCount() - 1));
+
+  /**
+   * Whether the legend and controls are showing, as opposed to just the header.
+   *
+   * The inspector is a legend, two dropdowns and two sliders stacked on top of
+   * the Slice button — worth its space on a desktop, and squarely in the way
+   * everywhere else. It is the tallest thing floating over the plate, and on a
+   * touch device there is no cursor to move away from it, so without a fold it
+   * simply stays there.
+   *
+   * `null` means the user has never said, in which case the room available
+   * decides: open where there is a large scene and a cursor, folded on a
+   * tablet, a phone or a narrow window. Once the user folds or unfolds it once,
+   * that answer is theirs and is remembered across sessions and viewports.
+   */
+  private readonly expandedPreference = signal(this.readExpanded());
+
+  protected readonly expanded = computed(
+    () => this.expandedPreference() ?? !this.viewport.isCompact(),
+  );
+
+  /** Spoken form of the header readout, for the toggle's accessible name. */
+  protected readonly layerSummary = computed(
+    () => `${this.preview.layerMax() + 1} of ${this.preview.layerCount()}`,
+  );
+
+  protected toggleExpanded(): void {
+    const next = !this.expanded();
+    this.expandedPreference.set(next);
+    this.saveExpanded(next);
+  }
+
+  private readExpanded(): boolean | null {
+    try {
+      const stored = localStorage.getItem(STORAGE_EXPANDED_KEY);
+      return stored === null ? null : stored === 'true';
+    } catch {
+      return null;
+    }
+  }
+
+  private saveExpanded(expanded: boolean): void {
+    try {
+      localStorage.setItem(STORAGE_EXPANDED_KEY, String(expanded));
+    } catch {
+      /* storage unavailable — the preference is simply not remembered */
+    }
+  }
 
   constructor() {
     effect(() => {

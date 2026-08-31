@@ -24,11 +24,42 @@
 $handheld-max-width: 640px;
 $handheld-landscape-max-width: 950px;
 $handheld-landscape-max-height: 500px;
+$compact-max-width: 1024px;
 
 /// Phone-sized viewports, in either orientation.
 @mixin handheld {
   @media (max-width: #{$handheld-max-width}),
     (max-width: #{$handheld-landscape-max-width}) and (max-height: #{$handheld-landscape-max-height}) and (orientation: landscape) {
+    @content;
+  }
+}
+
+/// Touch (or stylus) as the primary input — no hover, fingertip-sized targets.
+///
+/// Orthogonal to every width query above: an iPad Pro is wider than most
+/// laptops and still has no cursor. Ask this for *sizing* a target, and
+/// `compact()` for deciding whether chrome may stay open.
+@mixin coarse-pointer {
+  @media (pointer: coarse) {
+    @content;
+  }
+}
+
+/// Viewports that cannot leave the floating scene chrome permanently open.
+///
+/// Distinct from `handheld()`, which is about a layout being impossible. This
+/// is the softer question of whether panels that *hover over the 3D scene* —
+/// the slice rail, the object list — should default to folded. Two independent
+/// reasons say yes:
+///
+/// - **Not enough room.** A 380px rail and a 280px settings column leave an
+///   iPad in portrait (820pt) with a sliver of plate between them.
+/// - **Not enough precision.** Touch has no hover, so a panel cannot be
+///   dismissed by moving away from it; it stays until it is folded.
+///
+/// Phones are wholly contained in the width arm, so `handheld()` implies this.
+@mixin compact {
+  @media (max-width: #{$compact-max-width}), (pointer: coarse) {
     @content;
   }
 }

@@ -1,13 +1,17 @@
+<!-- Every button here is icon-only, and the `tooltip` directive contributes no
+     accessible name — on a tablet there is no hover to reveal it either, so
+     each one carries an explicit `aria-label` mirroring its tooltip. -->
 <div class="view-group">
   @if (showSecondaryViewTools()) {
+    @let projectionLabel =
+      selectedView() === 'ortho'
+        ? 'Orthographic projection — switch to perspective'
+        : 'Perspective projection — switch to orthographic';
     <button
       class="reset-view-button"
       type="button"
-      [tooltip]="
-        selectedView() === 'ortho'
-          ? 'Orthographic projection — switch to perspective'
-          : 'Perspective projection — switch to orthographic'
-      "
+      [tooltip]="projectionLabel"
+      [attr.aria-label]="projectionLabel"
       [tooltipShortcut]="keyboardShortcuts.shortcutFor('toggle-projection')"
       (click)="toggleProjection()"
     >
@@ -21,6 +25,7 @@
     class="reset-view-button"
     type="button"
     [tooltip]="'Reset camera to default position'"
+    aria-label="Reset camera to default position"
     (click)="resetView()"
   >
     <nexus-icon name="home"></nexus-icon>
@@ -30,14 +35,15 @@
        shows sliced toolpaths, so placing or adding a model would change
        something the user cannot see. -->
   @if (editingPlate()) {
+    @let gravityLabel =
+      gravityEnabled()
+        ? 'Gravity on — objects drop to floor after every move'
+        : 'Gravity off — objects stay where placed';
     <button
       class="reset-view-button"
       type="button"
-      [tooltip]="
-        gravityEnabled()
-          ? 'Gravity on — objects drop to floor after every move'
-          : 'Gravity off — objects stay where placed'
-      "
+      [tooltip]="gravityLabel"
+      [attr.aria-label]="gravityLabel"
       [tooltipShortcut]="keyboardShortcuts.shortcutFor('toggle-gravity')"
       [class.active]="gravityEnabled()"
       [attr.aria-pressed]="gravityEnabled()"
@@ -51,6 +57,7 @@
       type="button"
       [disabled]="addingObjects()"
       [tooltip]="'Add a model to this plate'"
+      aria-label="Add a model to this plate"
       (click)="promptAddObjects()"
     >
       <nexus-icon name="plus"></nexus-icon>
@@ -66,6 +73,7 @@
       type="button"
       [disabled]="!canUndo()"
       [tooltip]="'Undo the last change'"
+      aria-label="Undo the last change"
       [tooltipShortcut]="keyboardShortcuts.shortcutFor('undo')"
       (click)="undo()"
     >
@@ -77,6 +85,7 @@
       type="button"
       [disabled]="!canRedo()"
       [tooltip]="'Redo the last undone change'"
+      aria-label="Redo the last undone change"
       [tooltipShortcut]="keyboardShortcuts.shortcutFor('redo')"
       (click)="redo()"
     >
@@ -107,6 +116,7 @@
         <button
           radioButtonValue="translate"
           [tooltip]="'Select &amp; move — click to select, drag handles to translate'"
+          aria-label="Select and move"
           [tooltipShortcut]="keyboardShortcuts.shortcutFor('object-mode-translate')"
         >
           <nexus-icon name="cursor-pointer"></nexus-icon>
@@ -114,6 +124,7 @@
         <button
           radioButtonValue="rotate"
           [tooltip]="'Rotate around an axis'"
+          aria-label="Rotate around an axis"
           [tooltipShortcut]="keyboardShortcuts.shortcutFor('object-mode-rotate')"
         >
           <nexus-icon name="crop-rotate-br"></nexus-icon>
@@ -121,6 +132,7 @@
         <button
           radioButtonValue="scale"
           [tooltip]="'Scale along axes'"
+          aria-label="Scale along axes"
           [tooltipShortcut]="keyboardShortcuts.shortcutFor('object-mode-scale')"
         >
           <nexus-icon name="enlarge"></nexus-icon>
@@ -128,6 +140,7 @@
         <button
           radioButtonValue="pullToFloor"
           [tooltip]="'Pull a face to the floor'"
+          aria-label="Pull a face to the floor"
           [tooltipShortcut]="keyboardShortcuts.shortcutFor('object-mode-pull-to-floor')"
         >
           <nexus-icon name="constrained-surface"></nexus-icon>
@@ -143,6 +156,7 @@
         [class.active]="placementOpen()"
         [attr.aria-expanded]="placementOpen()"
         [tooltip]="'Place objects — ' + placementSummary()"
+        [attr.aria-label]="'Place objects — ' + placementSummary()"
         [tooltipShortcut]="keyboardShortcuts.shortcutFor('place-objects')"
         (click)="togglePlacement()"
       >
@@ -159,12 +173,14 @@
 
 <div class="view-group">
   @if (hasSliceResult()) {
+    @let viewLabel = viewMode() === 'gcode' ? 'Switch to model view' : 'Switch to G-code preview';
     <button
       class="reset-view-button"
       type="button"
       [class.active]="viewMode() === 'gcode'"
       [attr.aria-pressed]="viewMode() === 'gcode'"
-      [tooltip]="viewMode() === 'gcode' ? 'Switch to model view' : 'Switch to G-code preview'"
+      [tooltip]="viewLabel"
+      [attr.aria-label]="viewLabel"
       [tooltipShortcut]="keyboardShortcuts.shortcutFor('toggle-view-mode')"
       (click)="toggleViewMode()"
     >
@@ -177,6 +193,7 @@
       class="reset-view-button"
       type="button"
       [tooltip]="'Show operation pipeline'"
+      aria-label="Show operation pipeline"
       (click)="showOperationPipeline()"
     >
       <nexus-icon name="developer"></nexus-icon>

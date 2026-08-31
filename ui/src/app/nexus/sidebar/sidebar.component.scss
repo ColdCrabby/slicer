@@ -3,6 +3,13 @@
 $transition-duration: 200ms;
 $transition-easing: ease;
 
+// Both edge controls — the dock nub and the "Print settings" tab — hang at this
+// height rather than at 50%. Centred, they float over the middle of the plate,
+// which is exactly where the model is and the last place a permanent affordance
+// belongs. Anchoring both to the same offset also means toggling the panel
+// changes the control's *form* without moving it.
+$edge-control-top: calc(var(--main-scene-inset, 48px) + var(--spacing-sm));
+
 :host {
   position: relative;
   flex-shrink: 0;
@@ -102,10 +109,10 @@ $transition-easing: ease;
 // bleed, leaving only a rounded nub peeking out on the right.
 .sidebar-pin {
   position: absolute;
-  top: 50%;
+  top: $edge-control-top;
   left: var(--sidebar-w, 280px);
   // Flat left edge flush against the panel's right edge so it reads as glued.
-  transform: translate(0, -50%);
+  transform: translateX(0);
 
   display: inline-flex;
   align-items: center;
@@ -150,7 +157,7 @@ $transition-easing: ease;
   // to the sidebar as it slides out, instead of fading in place. The opacity
   // fade only cleans up the residual nub once it reaches the rail.
   :host.is-collapsed:not(.is-expanded) & {
-    transform: translate(calc(-1 * var(--sidebar-w, 280px)), -50%);
+    transform: translateX(calc(-1 * var(--sidebar-w, 280px)));
     opacity: 0;
     visibility: hidden;
     pointer-events: none;
@@ -246,18 +253,19 @@ $transition-easing: ease;
 
 .sidebar-reveal-hint {
   position: absolute;
-  left: var(--spacing-sm);
-  top: 50%;
-  transform: translateY(-50%);
+  left: 0;
+  top: $edge-control-top;
   display: inline-flex;
   align-items: center;
   gap: var(--spacing-xs);
   min-height: 34px;
-  padding: 0 var(--spacing-sm);
+  padding: 0 var(--spacing-sm) 0 10px;
   border: 1px solid transparent;
-  border-radius: 999px;
+  // Tucked against the rail it emerges from: square on the left, rounded on the
+  // right. Reads as a drawer pull rather than a button dropped on the scene.
+  border-radius: 0 999px 999px 0;
   background: var(--color-surface);
-  color: var(--color-text-secondary);
+  color: var(--color-text-tertiary);
   font-size: var(--font-size-sm);
   font-weight: var(--font-weight-medium);
   letter-spacing: 0.01em;
@@ -267,15 +275,15 @@ $transition-easing: ease;
   box-shadow: var(--shadow-xs);
   transition:
     color var(--duration-fast) var(--ease-standard),
-    border-color var(--duration-fast) var(--ease-standard),
+    background-color var(--duration-fast) var(--ease-standard),
     box-shadow var(--duration-fast) var(--ease-standard),
     transform var(--duration-fast) var(--ease-standard);
 
   &:hover {
     color: var(--color-text-primary);
-    border-color: transparent;
+    background: var(--color-surface-hover);
     box-shadow: var(--shadow-sm);
-    transform: translateY(-50%) translateX(2px);
+    transform: translateX(2px);
   }
 
   &:focus-visible {
@@ -283,6 +291,19 @@ $transition-easing: ease;
     box-shadow:
       var(--shadow-sm),
       0 0 0 2px var(--color-focus-ring);
+  }
+}
+
+// A fingertip needs the full 44px, and there is no hover state to fall back on.
+@include coarse-pointer {
+  .sidebar-reveal-hint {
+    min-height: 44px;
+    padding-right: var(--spacing-md);
+  }
+
+  .sidebar-pin {
+    width: 32px;
+    height: 56px;
   }
 }
 
@@ -358,21 +379,14 @@ $transition-easing: ease;
   }
 
   // The label does not fit beside a full-width launch card or a bottom sheet,
-  // so the handle becomes what it always was underneath: a tab on the edge it
-  // pulls from. Flush to the screen, rounded on the open side only — the same
-  // shape as the desktop dock nub, and unmistakably something to pull.
-  //
-  // It sits directly under the toolbar rather than mid-height: the sheet grows
-  // upward from the bottom as the G-code inspector opens, and anything centred
-  // vertically ends up underneath it.
+  // so the tab drops to its glyph alone. Position and shape are already the
+  // base ones — the desktop tab moved to this anchor rather than the phone
+  // having to correct for a centred one.
   .sidebar-reveal-hint {
-    top: calc(var(--main-scene-inset, 48px) + var(--spacing-sm));
-    left: 0;
-    width: 32px;
+    width: 44px;
     min-height: 60px;
     padding: 0;
     justify-content: center;
-    transform: none;
     border-radius: 0 var(--radius-md) var(--radius-md) 0;
     box-shadow: var(--shadow-md);
 

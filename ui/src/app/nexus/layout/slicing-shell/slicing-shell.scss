@@ -99,8 +99,10 @@ $default-inset: 40px;
     padding: var(--spacing-md);
     min-height: 0;
 
-    // When the G-code inspector is open, give the slice-control row a clear
-    // visual separation from the inspector content above it.
+    // Once the G-code inspector is present, give the slice-control row a clear
+    // visual separation from the content above it. Keyed to the inspector's
+    // header rather than its open body: folded, the header is still a row above
+    // the Slice button and still needs the rule.
     // Transitions match the inspector expand so nothing jumps mid-animation.
     ::ng-deep nexus-slice-control .slice-block {
       padding-top: 0;
@@ -110,7 +112,7 @@ $default-inset: 40px;
         border-color var(--inspector-duration) var(--inspector-ease);
     }
 
-    &:has(.insp-shell.is-open) ::ng-deep nexus-slice-control .slice-block {
+    &:has(.insp-toggle) ::ng-deep nexus-slice-control .slice-block {
       padding-top: var(--spacing-md);
       border-color: var(--color-border-light);
     }

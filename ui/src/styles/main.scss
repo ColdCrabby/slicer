@@ -30,6 +30,10 @@
 // Phone-only adaptations of the shared components. MUST come after every
 // partial it overrides.
 @use './base/handheld';
+// Touch-only adaptations of the same components — a superset of phones that
+// also catches tablets. MUST come after `handheld` so the two agree on a
+// control's height wherever both apply.
+@use './base/touch';
 @use 'base/scrollbar';
 @use 'base/floating';
 
