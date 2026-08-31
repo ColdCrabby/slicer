@@ -2044,6 +2044,52 @@ hole can be opened up without changing the part's outside dimensions. **Typical:
     pub xy_hole_compensation: f64,
 
     #[schemars(
+        description = "Inward shrink in mm applied to the layers nearest the bed. `0` = off.
+
+The first layer is squashed into the build plate, so it spreads outward and the
+base of the print measures oversize — the \"elephant foot\". This shrinks it back.
+
+Unlike `xy_size_compensation` this is **not** a uniform offset: the shrink is
+limited by how thin the geometry is at each point, so embossed text, logo strokes
+and thin ribs on the first layer keep at least
+`elephant_foot_min_contour_width_mm` of width instead of being erased. It is also
+withheld where the model itself flares steeply outward, so a narrow base under a
+wide body is never undercut, and it is skipped entirely when printing on a raft.
+
+**Typical:** 0.10-0.20 mm. Measure the bulge with calipers and halve it.",
+        extend("x-group" = "Quality")
+    )]
+    #[serde(default = "SlicingParams::default_elephant_foot_compensation_mm")]
+    pub elephant_foot_compensation_mm: f64,
+
+    #[schemars(
+        description = "Number of layers the elephant-foot shrink is spread over (>=1).
+
+`1` corrects the first layer only - the sharpest correction, and the right
+default, because only the first layer is squashed. Higher values ramp the shrink
+linearly to zero over that many layers, trading a little accuracy for a gentler
+profile when a large correction would otherwise leave a visible step.
+**Typical:** 1-3.",
+        extend("x-group" = "Quality", "x-relevant-when" = serde_json::json!({"field": "elephant_foot_compensation_mm", "greaterThan": 0.0}))
+    )]
+    #[serde(default = "SlicingParams::default_elephant_foot_layers")]
+    pub elephant_foot_layers: usize,
+
+    #[schemars(
+        description = "Width in mm that elephant-foot compensation may never shrink a feature below. \
+`0` = automatic (1.5 x outer-wall width).
+
+This is what stops the correction deleting fine first-layer detail. A feature
+already at or below this width is left completely alone; wider ones are shrunk
+only as far as this width. Raise it to protect chunkier detail, lower it for a
+more literal correction.
+**Typical:** 0 (automatic), or 0.5-1.0 mm.",
+        extend("x-group" = "Quality", "x-relevant-when" = serde_json::json!({"field": "elephant_foot_compensation_mm", "greaterThan": 0.0}))
+    )]
+    #[serde(default = "SlicingParams::default_elephant_foot_min_contour_width_mm")]
+    pub elephant_foot_min_contour_width_mm: f64,
+
+    #[schemars(
         description = "Iron top surfaces for a smoother finish.
 
 A second, nearly dry pass that re-melts the surface and spreads it flat. Slow —
@@ -2377,6 +2423,9 @@ impl Default for SlicingParams {
             skirt_height: Self::default_skirt_height(),
             raft_layers: Self::default_raft_layers(),
             raft_air_gap: Self::default_raft_air_gap(),
+            elephant_foot_compensation_mm: Self::default_elephant_foot_compensation_mm(),
+            elephant_foot_layers: Self::default_elephant_foot_layers(),
+            elephant_foot_min_contour_width_mm: Self::default_elephant_foot_min_contour_width_mm(),
             ironing_enabled: Self::default_ironing_enabled(),
             ironing_type: IroningType::default(),
             ironing_flow: Self::default_ironing_flow(),
@@ -2568,6 +2617,15 @@ impl SlicingParams {
     }
     fn default_raft_air_gap() -> f64 {
         0.1
+    }
+    fn default_elephant_foot_compensation_mm() -> f64 {
+        0.0
+    }
+    fn default_elephant_foot_layers() -> usize {
+        1
+    }
+    fn default_elephant_foot_min_contour_width_mm() -> f64 {
+        0.0
     }
     fn default_ironing_enabled() -> bool {
         false

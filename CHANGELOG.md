@@ -87,6 +87,13 @@ issue/PR numbers or repo links in the notes. See the tone rules in
   over- or under-sized. **XY size compensation** offsets every contour;
   **hole compensation** adjusts holes on their own, so a tight press-fit can be
   freed without moving the outside of the part. Both default to off.
+- **Elephant-foot compensation** — corrects the flare the bed's squish leaves at
+  the base of a print. Unlike a plain shrink it is limited by how thin the
+  geometry is at each point, so embossed text, logo strokes and thin ribs on the
+  first layer keep their width instead of being erased — a uniform 0.3 mm offset
+  deletes every feature under 0.6 mm, including any fin attached to a body. It
+  also holds back where the model itself flares steeply outward, and switches
+  itself off on a raft. Off by default; 0.1–0.2 mm suits most machines.
 - **First layer height** — now affects the print instead of only the file
   header. The bottom layer is sliced and extruded at its own thickness, so a
   profile asking for 0.24 mm no longer silently prints 0.2 mm. Skirt and brim

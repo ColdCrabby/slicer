@@ -53,6 +53,7 @@ never a hardcoded `:4213`.
 | **SliceLayer / ExtrusionRole** | [src/core/types.rs](src/core/types.rs)       | Core data structures for a single layer                                                       |
 | **Mesh Repair**                | [src/mesh/repair.rs](src/mesh/repair.rs)     | Import-time validation + auto-fix (welds, holes, winding); no-op on clean meshes               |
 | **Mesh Slicer**                | [src/core/slicer.rs](src/core/slicer.rs)     | Triangle→layer contour extraction (`slice_mesh`)                                              |
+| **Dimensional Compensation**   | [src/core/compensation.rs](src/core/compensation.rs) | XY size offset + medial-limited elephant foot, applied to the raw contours             |
 | **Surface Generation**         | [src/core/surfaces.rs](src/core/surfaces.rs) | Top/bottom solid surface detection and infill                                                 |
 | **Wall Restrictions**          | [src/core/walls.rs](src/core/walls.rs)       | Single-wall first/top-layer constraints                                                       |
 | **Infill Boundary**            | [src/core/infill.rs](src/core/infill.rs)     | Interior region calculation and sparse infill                                                 |
@@ -91,6 +92,7 @@ src/
 │   ├── mod.rs             # Re-exports public API + integration tests
 │   ├── types.rs           # SliceLayer, ExtrusionRole
 │   ├── slicer.rs          # slice_mesh, segment chaining
+│   ├── compensation.rs    # XY size + medial-limited elephant foot (runs on raw contours)
 │   ├── surfaces.rs        # generate_top_bottom_surfaces*, rectilinear infill fill
 │   ├── walls.rs           # apply_single_wall_restrictions (per-island), compute_per_island_strip_masks
 │   ├── infill.rs          # calculate_interior_region, add_infill_to_layers
@@ -1263,6 +1265,7 @@ capsule/gap renders (`render.py`, `zoom.py`). Compare a change against the
 ```
 slice_mesh()                         — raw mesh → OuterWall contours per layer (layer 0 spans first_layer_height)
 apply_dimensional_compensation()     — XY size / hole offset on the raw contours (src/core/compensation.rs)
+apply_elephant_foot()                — medial-limited shrink of the layers on the bed (same module)
 generate_arachne_walls()             — replaces OuterWall contours with bead paths
 pre_strip_infill_regions computed    — interior regions snapshotted before wall stripping
 apply_single_wall_restrictions()     — strips inner walls from first/last layers if configured
@@ -1320,6 +1323,75 @@ not-yet-printed fill. Its flow reduction is folded into the **width**
 `extrusion_for_move`'s `flow_ratio`, which reads a non-positive value as `1.0`
 so a malformed profile cannot zero out a print.
 
+
+**Elephant foot is a second pass in the same window, and it is not a uniform
+offset.** `apply_elephant_foot` runs straight after the XY deltas, on the same
+raw contours, and shares their rationale for *where*. What differs is *how*:
+
+- **Elephant foot is medial-limited, not a uniform offset.** The shrink at each
+  vertex is capped by the local feature half-width (the largest circle that fits
+  inside the material touching that point), so a feature ends up
+  `max(w_min, w − 2δ)` wide. A uniform 0.3 mm shrink erases every first-layer
+  feature under 0.6 mm; measured on a bar-ladder fixture it destroyed **3 of 6**
+  printable bars and **all 5** thin fins attached to a block, while the
+  medial-limited pass kept every one of them and still took the full 0.3 mm off
+  the wide block beside them.
+- **The radius field needs two readings, and neither works alone.** The largest
+  circle that fits inside the material *touching* a point collapses toward zero
+  all along a convex corner, so using it alone leaves an uncompensated nub on
+  every corner. A second reading counts only surfaces whose own normal **faces**
+  the point (`FACING_COS`, 120°) — what an opposite wall does and a corner's
+  adjoining edge does not. The first is restored by a running **maximum** along
+  the contour; the second caps that maximum back down. Without the cap a thick
+  body's radius leaks down an attached rib (a card-slot fin, a glyph stroke
+  touching its border) and pinches it off at the root; without the running max
+  every corner keeps a nub. Take the smaller of the two. Smoothing afterwards is
+  clamped to the raw value so it can only ever *reduce* the shrink — a plain
+  average would lift a thin spot back toward its thicker neighbours and re-erode
+  it.
+- **Do not use arc distance along the contour as that discriminator.** It is the
+  obvious alternative and it fails at both ends: a point near a corner is
+  legitimately far along the contour from the adjoining edge that caps it, and a
+  point near a thin feature's *tip* is only a short walk from the far side that
+  protects it. No single skip length satisfies both; facing direction is a
+  geometric property and does.
+- **Minimise the radius over each segment continuously, not at its vertices.**
+  Sampling endpoints minimises over a strict subset, so it can only *overstate*
+  the safe radius — the one direction that breaks the guarantee. Between
+  parallel walls `w` apart a vertex phase error `s` reports `w / 2 + s² / 2w`,
+  which at the 0.5 mm resample ceiling is ~31 µm of slack. Differentiating the
+  quotient gives a quadratic in the segment parameter, so the exact minimum is
+  closed-form; `segment_tangent_radius_matches_a_dense_numeric_sweep` pins it
+  against brute force.
+- **Vertices move to the mitre point, not along the normal.** A right-angle
+  corner needs `√2 · δ` along its bisector for both edges to end up `δ` in;
+  displacing by `δ` rounds every corner off. Capped at `MITRE_LIMIT` (2.0),
+  matching the miter limit passed to Clipper2 elsewhere in the engine.
+- **Clean the variable offset with `FillRule::Positive`.** It discards the
+  reversed folds a variable offset creates in a concavity while a clockwise hole
+  still subtracts correctly.
+- **The cliff guard is a guard, not a governor.** Compensation is withheld only
+  where the model flares outward *steeply* — full correction below one bead of
+  flare per layer, ramping to zero at three. Chamfered and filleted bases are
+  everywhere (the Voron cube flares 0.1 mm on its second layer, the caddy
+  0.2 mm), and an earlier ramp starting at zero flare silently halved the
+  correction on both. A user who asks for 0.2 mm expects 0.2 mm.
+- **Measure that flare along the outward normal, not to the nearest edge.**
+  Nearest-boundary distance answers a different question and gets this wrong: a
+  deep ledge can overhang while some unrelated edge — a rim running tangentially
+  past, the near side of a hole — sits closer, reads inside the free zone, and
+  waves the full shrink through. `ray_exit_distance` walks out of the layer
+  above until its material ends, which is the quantity the guard is named for.
+- **The pass walks bottom-up** so layer `i`'s cliff guard reads layer `i + 1`
+  while it is still the model's own geometry.
+- **Raft-gated and bed-gated.** Skipped when `adhesion_type = raft` (the first
+  layer lands on sacrificial material across an air gap), and skipped for any
+  layer whose `z` is inconsistent with resting on the plate, which is how a
+  lifted or sequentially-printed object avoids being "corrected" in mid-air.
+- **It defaults to `0` and `ElephantFootConfig::resolve` returns `None` then**,
+  so an unconfigured slice never allocates and the QA baselines cannot move.
+  Verify with the full gate after touching this module.
+
 **Perimeter routing & ordering options ([#98](https://github.com/ColdCrabby/slicer/issues/98))** are threaded through several stages:
 
 - `external_perimeters_first` (default `false` = inner walls first, outer wall
@@ -1342,6 +1414,28 @@ so a malformed profile cannot zero out a print.
   carry an `x-relevant-when` gate** (`thin_walls` and `wall_distribution_count` →
   classic, `gap_fill_min_length_mm` → arachne), or the UI offers a control that
   silently does nothing.
+
+### Settings taxonomy — a new `x-group` needs two lines in the UI, and a test says so
+
+The settings panel is fully **schema-driven**: a new `SlicingParams` field with an
+`x-group` appears in the UI with no TypeScript change at all, and flows through
+`cache_fingerprint` and profile resolution automatically (both walk the
+serialized struct by name). A new **group**, though, still has to be claimed by a
+contract and given an icon in
+[ui/src/app/models/setting-contract.ts](ui/src/app/models/setting-contract.ts) —
+otherwise it falls to the end of Process, out of taxonomy order, with a blank
+where its icon should be. `setting-contract.spec.ts` reads the generated schema
+and fails on any unclaimed or iconless group, so this cannot regress silently
+(it caught `Time estimate`, which had been unclaimed since it was added).
+
+**`x-relevant-when` supports `equals` and `greaterThan`.** `greaterThan` gates a
+setting on a *numeric* feature switch — the elephant-foot taper and minimum
+width mean nothing while the compensation itself is `0`, and equality cannot
+express that. Evaluation lives in one place,
+[relevance.ts](ui/src/app/schema-form/models/relevance.ts), shared by the
+settings panel and the profile editor pages, so every schema-driven surface
+hides the same fields. **Regenerate the schema (`pnpm run gen-schemas`) after
+adding a field** — it is git-ignored and built from the Rust types.
 - `ensure_vertical_shell_thickness` is a **second pass in
   `generate_top_bottom_surfaces_with_interior`** (`apply_vertical_shell_thickness`):
   it grows each layer's own top/bottom surface inward and fills it solid so a
@@ -1886,5 +1980,5 @@ infill within the ring.
 
 ---
 
-**Last Updated**: 2026-08-31 (touch, pen and the context menu in the 3D viewport; standalone iOS installs on a free Apple ID; docs site consumes the shared UI design tokens)  
+**Last Updated**: 2026-08-31 (medial-limited elephant foot; schema-driven settings taxonomy is now test-pinned; touch, pen and the context menu in the 3D viewport)  
 **Maintainer Guidance**: Keep this file in sync with project structure changes, new conventions, or significant architectural decisions.

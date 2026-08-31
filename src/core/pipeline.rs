@@ -149,6 +149,30 @@ fn apply_compensation(
     }
 }
 
+/// Shrink the layers at the bed to undo the first layer's squish.
+///
+/// Runs immediately after [`apply_compensation`], in the same raw-contour
+/// window. A no-op unless the user configured a shrink — and, unlike the XY
+/// deltas, it is also skipped on a raft, where the first layer never meets the
+/// plate.
+fn apply_elephant_foot(
+    layers: &mut [SliceLayer],
+    params: &SlicingParams,
+    logger: &dyn ProcessLogger,
+) {
+    let Some(config) = super::compensation::ElephantFootConfig::resolve(params) else {
+        return;
+    };
+    logger.log_debug(&format!(
+        "applying elephant-foot compensation ({:.3}mm over {} layer(s), \
+         features kept at ≥{:.2}mm)",
+        config.shrink_mm, config.layers, config.min_contour_width_mm
+    ));
+    let timer = PhaseTimer::start(phases::ELEPHANT_FOOT, logger);
+    super::compensation::apply_elephant_foot(layers, &config);
+    timer.finish();
+}
+
 /// Central entry point for the complete slicing pipeline.
 ///
 /// This function processes a mesh through the entire slicing pipeline, including
@@ -204,6 +228,7 @@ pub fn process_mesh(
     // later stage measures from the contour the wall generator consumed, so
     // correcting it here leaves all of those relations intact.
     apply_compensation(&mut layers, params, logger);
+    apply_elephant_foot(&mut layers, params, logger);
 
     // Generate walls FIRST from the raw mesh contours
     logger.log_debug(&format!(
@@ -722,7 +747,10 @@ pub fn process_mesh_debug(
     let mut layers = slice_mesh_with_first_layer(mesh, params.layer_height, first_h);
     logger.log_info(&format!("sliced into {} layers", layers.len()));
 
+    // Both compensation passes run before the snapshot, so `RawContours` shows
+    // exactly the shapes the wall generator is about to receive.
     apply_compensation(&mut layers, params, logger);
+    apply_elephant_foot(&mut layers, params, logger);
 
     // Snapshot raw contours.
     for (i, layer) in layers.iter().enumerate() {

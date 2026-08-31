@@ -133,6 +133,37 @@ Both default to off. Start from a measurement, not a guess — and keep the valu
 small; a shrink larger than a thin feature will erase it, which the slice log
 warns you about.
 
+### The flare at the very bottom
+
+**Elephant foot compensation** fixes a different problem from the two above. The
+first layer is deliberately squashed into the bed to make it stick, so it
+spreads sideways and only the base measures oversize — enough that a part won't
+sit flat, or won't drop into the hole it was designed for. XY size compensation
+would shrink the whole part to fix the bottom of it.
+
+Measure the bulge with calipers, halve it, and put that in. 0.1–0.2 mm covers
+most machines. Only the first layer is corrected, because only the first layer
+is squashed.
+
+::: tip It won't eat your first-layer detail
+Shrinking the first layer sounds like it should wipe out embossed text and thin
+logo strokes — that's what a plain shrink does. This one measures how thin the
+geometry is at each point and simply stops there, so a fine feature keeps its
+width while the walls around it are corrected in full. It also leaves the base
+alone where the model already flares outward above it, and skips itself entirely
+when you print on a raft, where nothing touches the bed.
+:::
+
+::: details Advanced — tuning the correction
+**Elephant foot layers** spreads the correction over more than one layer,
+ramping it to zero. Leave it at 1 unless a large correction leaves a visible
+step at the second layer.
+
+**Minimum contour width** is the width the correction will never shrink a
+feature below. Left at 0 it works this out from your wall width; raise it to
+protect chunkier detail, lower it for a more literal correction.
+:::
+
 **First layer height** (Process → Extrusion) prints the bottom layer thicker
 than the rest. The extra material absorbs what mesh bed levelling only
 approximates, which is why almost every profile sets it. It has no effect when

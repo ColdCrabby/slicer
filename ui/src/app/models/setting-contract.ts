@@ -40,7 +40,7 @@ export const SETTING_CONTRACTS: readonly SettingContract[] = [
     label: 'Printer',
     icon: 'printer',
     managePath: '/settings/printers',
-    groups: ['Hardware', 'Retraction', 'Output'],
+    groups: ['Hardware', 'Retraction', 'Output', 'Time estimate'],
   },
   {
     id: 'filament',
@@ -88,6 +88,7 @@ export const GROUP_ICONS: Record<string, string> = {
   Hardware: 'wrench',
   Retraction: 'undo',
   Output: 'code-brackets',
+  'Time estimate': 'timer',
   'Filament G-code': 'code-brackets',
   Extrusion: 'extrude',
   Support: 'view-structure-down',

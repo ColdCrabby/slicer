@@ -31,12 +31,14 @@ pub use surfaces::{
 // `sparse_infill_nominal_width_mm` is the sparse-infill twin, and
 // `extrusion_flow_spacing_mm` the shared `Flow::spacing()` relation both rest on.
 pub(crate) use surfaces::{
-    extrusion_flow_spacing_mm, solid_surface_nominal_width_mm, sparse_infill_nominal_width_mm,
+    extrusion_flow_spacing_mm, outer_wall_nominal_width_mm, solid_surface_nominal_width_mm,
+    sparse_infill_nominal_width_mm,
 };
 pub use types::{ExtrusionRole, OverhangClass, SliceLayer};
 
 #[cfg(test)]
 mod tests {
+    use super::compensation::{apply_elephant_foot, ElephantFootConfig};
     use super::surfaces::{add_solid_infill_for_region, generate_rectilinear_infill};
     use super::*;
     use crate::infill::SurfacePattern;
@@ -3071,5 +3073,64 @@ mod tests {
 
         assert_eq!(layers_with_ironing(&topmost), 1);
         assert!(layers_with_ironing(&all) >= layers_with_ironing(&topmost));
+    }
+
+    /// The pass is off by default, so a default slice must be untouched by it —
+    /// this is what keeps the whole QA baseline corpus stable.
+    #[test]
+    fn default_params_slice_identically_with_and_without_the_elephant_foot_pass() {
+        let mesh = make_cube_mesh();
+        let params = SlicingParams::default();
+
+        assert!(
+            ElephantFootConfig::resolve(&params).is_none(),
+            "default params must resolve to no elephant-foot correction at all"
+        );
+
+        // Running the pass explicitly over raw contours must change nothing,
+        // so every stage downstream sees exactly what it saw before.
+        let untouched = slice_mesh(&mesh, params.layer_height);
+        let mut passed_through = untouched.clone();
+        if let Some(config) = ElephantFootConfig::resolve(&params) {
+            apply_elephant_foot(&mut passed_through, &config);
+        }
+
+        assert_eq!(passed_through.len(), untouched.len());
+        for (i, (after, before)) in passed_through.iter().zip(&untouched).enumerate() {
+            assert_eq!(after.paths, before.paths, "layer {i} contours moved");
+            assert_eq!(after.path_roles, before.path_roles, "layer {i} roles moved");
+        }
+    }
+
+    /// Elephant-foot compensation must reach the finished walls, not just the
+    /// contours — the first layer's outer wall has to move in with them.
+    #[test]
+    fn elephant_foot_moves_the_first_layers_outer_wall_inward() {
+        let mesh = make_cube_mesh();
+        let mut params = SlicingParams {
+            nozzle_diameter_mm: 0.4,
+            ..SlicingParams::default()
+        };
+
+        let plain = process_mesh(&mesh, &params, &crate::logging::NullLogger);
+        params.elephant_foot_compensation_mm = 0.2;
+        let corrected = process_mesh(&mesh, &params, &crate::logging::NullLogger);
+
+        let extent = |layers: &[SliceLayer], i: usize| {
+            let bounds = layers[i].paths.bounds();
+            bounds.max.x() - bounds.min.x()
+        };
+
+        let shrunk = extent(&plain, 0) - extent(&corrected, 0);
+        assert!(
+            (shrunk - 0.4).abs() < 0.05,
+            "the first layer should lose 0.2 mm per side, lost {shrunk} mm across"
+        );
+
+        let above = extent(&plain, 3) - extent(&corrected, 3);
+        assert!(
+            above.abs() < 1e-6,
+            "layers off the bed must be identical, differ by {above} mm"
+        );
     }
 }

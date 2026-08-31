@@ -13,15 +13,22 @@ export type FieldType = 'number' | 'integer' | 'boolean' | 'string';
  * (and therefore rendered) when the sibling field named `field` currently
  * satisfies the condition.
  *
- * Only scalar `equals` is supported for now. The shape intentionally leaves
- * room for an `in?: unknown[]` variant to be added later without a breaking
- * change.
+ * Exactly one operator is expected per rule; `equals` wins if both are given.
+ * The shape intentionally leaves room for an `in?: unknown[]` variant to be
+ * added later without a breaking change.
  */
 export interface FieldRelevance {
   /** Key of the sibling gate field whose value is inspected. */
   field: string;
   /** The field is relevant when the gate value strictly equals this scalar. */
   equals?: unknown;
+  /**
+   * The field is relevant when the gate value is a number strictly greater
+   * than this one. Gates a setting that only means something once a numeric
+   * feature is switched on by a non-zero amount — an elephant-foot taper is
+   * inert while the compensation itself is `0`.
+   */
+  greaterThan?: number;
 }
 
 export interface FieldDef {
