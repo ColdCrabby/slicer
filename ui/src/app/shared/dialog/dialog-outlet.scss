@@ -89,8 +89,17 @@ nexus-dialog-outlet {
     }
   }
 
+  // `flex-basis` must stay `auto`, not the `0%` that the `flex: 1` shorthand
+  // expands to. A `<dialog>` is sized `height: fit-content` by the UA, so the
+  // column's main size is indefinite — and WebKit resolves a percentage basis
+  // against an indefinite height as zero instead of falling back to the
+  // content. `min-height: 0` then removes the automatic minimum that would
+  // otherwise have saved it, so the body collapses to its padding and the
+  // dialog shrinks to a title with the buttons jammed under it. Measured on
+  // iPadOS Safari: a 444px body laid out at 24px. Chromium and Gecko size the
+  // body identically either way, since it is the only flexible item here.
   .dialog__body {
-    flex: 1;
+    flex: 1 1 auto;
     min-height: 0;
     overflow-y: auto;
     padding: 8px 22px 16px;
