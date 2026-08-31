@@ -114,6 +114,33 @@ impl GcodeDialect for KlipperDialect {
         format!("SET_VELOCITY_LIMIT ACCEL={:.0}", accel)
     }
 
+    /// Klipper expresses both kinematic limits with a single `SET_VELOCITY_LIMIT`
+    /// carrying the native `VELOCITY` and `SQUARE_CORNER_VELOCITY` fields — no
+    /// junction-deviation conversion needed (unlike Marlin's `M205 J`). `accel`
+    /// is unused here because Klipper's acceleration is set separately per role.
+    fn set_kinematic_limits(
+        &self,
+        square_corner_velocity_mm_s: f64,
+        max_velocity_mm_s: f64,
+        _accel_mm_s2: f64,
+    ) -> Vec<String> {
+        let mut parts = String::new();
+        if max_velocity_mm_s > 0.0 {
+            parts.push_str(&format!(" VELOCITY={:.0}", max_velocity_mm_s));
+        }
+        if square_corner_velocity_mm_s > 0.0 {
+            parts.push_str(&format!(
+                " SQUARE_CORNER_VELOCITY={:.2}",
+                square_corner_velocity_mm_s
+            ));
+        }
+        if parts.is_empty() {
+            Vec::new()
+        } else {
+            vec![format!("SET_VELOCITY_LIMIT{parts}")]
+        }
+    }
+
     /// Named Klipper fans use `SET_FAN_SPEED fan=<name> speed=<0.0–1.0>`; the
     /// default part-cooling fan uses `M106`/`M107` instead.
     ///
@@ -141,5 +168,95 @@ impl GcodeDialect for KlipperDialect {
                 s
             ),
         }
+    }
+
+    /// Klipper has **no built-in `M141`/`M191`** — those are RepRap/Marlin
+    /// codes that a Klipper install only understands if the user has added
+    /// `[gcode_macro M141]` / `[gcode_macro M191]` by hand, and an unknown
+    /// command *aborts the print*. The native equivalents are used instead:
+    ///
+    /// ```text
+    /// SET_HEATER_TEMPERATURE HEATER=chamber TARGET=50
+    /// TEMPERATURE_WAIT SENSOR="heater_generic chamber" MINIMUM=50
+    /// ```
+    ///
+    /// This requires a `[heater_generic chamber]` section in `printer.cfg`, the
+    /// same way [`GcodeDialect::firmware_retract_setup`]'s `SET_RETRACTION`
+    /// requires `[firmware_retraction]`. A chamber heater under a different name
+    /// is served by the `{chamber_temp}` custom-start-G-code placeholder, which
+    /// suppresses this emission entirely.
+    fn set_chamber_temp(&self, temp: f64, wait: bool) -> String {
+        if wait {
+            format!(
+                "TEMPERATURE_WAIT SENSOR=\"heater_generic chamber\" MINIMUM={:.0}",
+                temp
+            )
+        } else {
+            format!("SET_HEATER_TEMPERATURE HEATER=chamber TARGET={:.0}", temp)
+        }
+    }
+
+    /// Klipper configures firmware retraction at runtime with `SET_RETRACTION`
+    /// (requires a `[firmware_retraction]` section in the printer config), so
+    /// `G10`/`G11` use the slicer's length / speed / restart-extra. The Z-hop
+    /// component is left to the slicer's explicit Z moves.
+    fn firmware_retract_setup(
+        &self,
+        retract_mm: f64,
+        retract_speed_mm_min: f64,
+        restart_extra_mm: f64,
+    ) -> Vec<String> {
+        // Klipper SET_RETRACTION speeds are in mm/s.
+        let speed_mm_s = retract_speed_mm_min / 60.0;
+        vec![format!(
+            "SET_RETRACTION RETRACT_LENGTH={:.3} RETRACT_SPEED={:.1} \
+             UNRETRACT_EXTRA_LENGTH={:.3} UNRETRACT_SPEED={:.1} ; firmware retraction",
+            retract_mm, speed_mm_s, restart_extra_mm, speed_mm_s
+        )]
+    }
+
+    /// Klipper's `[exclude_object]` module is name-based, not index-based, and
+    /// wants the footprint up front: `CENTER` positions the object in the
+    /// front-end's cancel UI and `POLYGON` outlines it.
+    ///
+    /// Moonraker also scans the file for these definitions when it builds the
+    /// object list for Mainsail / Fluidd, which is why they are emitted at the
+    /// top of the program rather than lazily at first use.
+    fn object_definitions(&self, objects: &[crate::core::ObjectIdentity]) -> Vec<String> {
+        if objects.is_empty() {
+            return Vec::new();
+        }
+        let mut lines = vec!["EXCLUDE_OBJECT_DEFINE RESET=1".to_string()];
+        for object in objects {
+            let polygon = object
+                .polygon
+                .iter()
+                .map(|(x, y)| format!("[{:.3},{:.3}]", x, y))
+                .collect::<Vec<_>>()
+                .join(",");
+            if polygon.is_empty() {
+                lines.push(format!(
+                    "EXCLUDE_OBJECT_DEFINE NAME={} CENTER={:.3},{:.3}",
+                    object.name, object.center.0, object.center.1
+                ));
+            } else {
+                lines.push(format!(
+                    "EXCLUDE_OBJECT_DEFINE NAME={} CENTER={:.3},{:.3} POLYGON=[{}]",
+                    object.name, object.center.0, object.center.1, polygon
+                ));
+            }
+        }
+        lines
+    }
+
+    /// `EXCLUDE_OBJECT_START NAME=…` — the name is the whole identity here, so
+    /// it is repeated on every block (there is no index shorthand).
+    fn object_start(&self, object: &crate::core::ObjectIdentity, _first_use: bool) -> String {
+        format!("EXCLUDE_OBJECT_START NAME={}", object.name)
+    }
+
+    /// `EXCLUDE_OBJECT_END NAME=…`.
+    fn object_end(&self, object: &crate::core::ObjectIdentity) -> String {
+        format!("EXCLUDE_OBJECT_END NAME={}", object.name)
     }
 }

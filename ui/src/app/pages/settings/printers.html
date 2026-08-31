@@ -292,6 +292,19 @@
                   (checkedChange)="update(printer.id, { origin_at_center: $event })"
                 />
               </nexus-field-row>
+              <nexus-field-row
+                label="Preferred orientation"
+                description="Extra turn applied when parts are placed with auto-orient. 45° suits CoreXY machines, which move fastest along their diagonals. 0° leaves orientation alone."
+              >
+                <nexus-number-input
+                  [value]="printer.preferred_orientation_deg ?? 0"
+                  [min]="0"
+                  [max]="90"
+                  [step]="5"
+                  unit="°"
+                  (valueChange)="update(printer.id, { preferred_orientation_deg: $event })"
+                />
+              </nexus-field-row>
             </div>
 
             @for (group of paramGroups; track group.name) {
@@ -301,6 +314,7 @@
                   <nexus-param-field
                     [field]="field"
                     [value]="paramsOf(printer)[field.key]"
+                    [siblings]="paramsOf(printer)"
                     (valueChange)="setParam(printer.id, field.key, $event)"
                   />
                 }
@@ -395,9 +409,14 @@
       [entries]="catalogEntries()"
       [loading]="catalogStatus() === 'loading'"
       [unavailable]="catalogStatus() === 'unavailable'"
+      [importingId]="importingId()"
+      [hasMore]="catalogHasMore()"
+      [loadingMore]="catalogLoadingMore()"
       actionLabel="Import"
       (pick)="importFromCatalog($event)"
       (retry)="retryCatalog()"
+      (search)="onCatalogSearch($event)"
+      (loadMore)="loadMoreCatalog()"
     />
   </nexus-modal-shell>
 }

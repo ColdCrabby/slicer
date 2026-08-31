@@ -27,6 +27,7 @@ const FIELD_LABELS: Record<string, string> = {
   wall_transition_angle: 'Wall Transition Angle',
   wall_transition_filter_distance: 'Wall Transition Filter Distance',
   seam_position: 'Seam Position',
+  spiral_vase: 'Spiral Vase Mode',
   gap_fill_min_length_mm: 'Min Gap Fill Length',
   wall_overlap_compensation: 'Wall Overlap Compensation',
   // Infill
@@ -40,6 +41,12 @@ const FIELD_LABELS: Record<string, string> = {
   perimeter_speed: 'Perimeter Speed',
   infill_speed: 'Infill Speed',
   bridge_speed: 'Bridge Speed',
+  enable_overhang_speed: 'Dynamic Overhang Speed',
+  overhang_1_4_speed: 'Overhang Speed (0–25%)',
+  overhang_2_4_speed: 'Overhang Speed (25–50%)',
+  overhang_3_4_speed: 'Overhang Speed (50–75%)',
+  overhang_4_4_speed: 'Overhang Speed (75–100%)',
+  slowdown_for_curled_perimeters: 'Slow Down Curled Perimeters',
   bridge_flow_ratio: 'Bridge Flow Ratio',
   top_surface_speed: 'Top Surface Speed',
   gap_fill_speed: 'Gap Fill Speed',
@@ -51,13 +58,20 @@ const FIELD_LABELS: Record<string, string> = {
   bridge_noise_filter_mm: 'Bridge Noise Filter',
   bridge_anchor_mm: 'Bridge Anchor Length',
   // Cooling
-  fan_speed: 'Fan Speed',
+  fan_speed: 'Fan Speed Limit',
   bridge_fan_speed: 'Bridge Fan Speed',
+  overhang_fan_speed: 'Overhang Fan Speed',
+  overhang_fan_threshold: 'Overhang Fan Threshold',
   first_layer_fan_speed: 'First Layer Fan Speed',
+  disable_fan_first_layers: 'Fan Off For First Layers',
   fan_configs: 'Fan Configurations',
   // Temperature
   nozzle_temp: 'Nozzle Temperature',
+  nozzle_temp_first_layer: 'First Layer Nozzle Temperature',
   bed_temp: 'Bed Temperature',
+  bed_temp_first_layer: 'First Layer Bed Temperature',
+  chamber_temp: 'Chamber Temperature',
+  chamber_temp_first_layer: 'First Layer Chamber Temperature',
   // Surfaces
   top_layers: 'Top Layers',
   bottom_layers: 'Bottom Layers',
@@ -69,9 +83,20 @@ const FIELD_LABELS: Record<string, string> = {
   // Hardware
   filament_diameter_mm: 'Filament Diameter',
   nozzle_diameter_mm: 'Nozzle Diameter',
+  heated_chamber: 'Heated Chamber',
+  z_offset_mm: 'Z Offset',
   // Retraction
   z_hop_mm: 'Z Hop',
   retract_mm: 'Retraction Distance',
+  retract_speed_mm_min: 'Retraction Speed',
+  retract_before_travel_mm: 'Minimum Travel Before Retract',
+  retract_restart_extra_mm: 'Restart Extra Prime',
+  retract_on_layer_change: 'Retract on Layer Change',
+  use_firmware_retraction: 'Firmware Retraction',
+  use_relative_e_distances: 'Relative Extrusion Distances',
+  wipe: 'Wipe While Retracting',
+  wipe_distance_mm: 'Wipe Distance',
+  retract_before_wipe_percent: 'Retract Before Wipe',
   // Output
   path_tolerance: 'Path Tolerance',
   gcode_flavor: 'G-code Flavor',
@@ -98,10 +123,21 @@ const ENUM_LABELS: Record<string, string> = {
   random: 'Random',
   // InfillPattern
   Rectilinear: 'Rectilinear',
+  AlignedRectilinear: 'Aligned Rectilinear',
   Grid: 'Grid',
+  Triangles: 'Triangles',
+  TriHexagon: 'Tri-Hexagon',
+  Cubic: 'Cubic',
   Honeycomb: 'Honeycomb',
+  Concentric: 'Concentric',
   Gyroid: 'Gyroid',
   TpmsD: 'TPMS-D',
+  // SurfacePattern
+  rectilinear: 'Rectilinear',
+  'aligned-rectilinear': 'Aligned Rectilinear',
+  monotonic: 'Monotonic',
+  'monotonic-line': 'Monotonic Line',
+  concentric: 'Concentric',
   // MeshQuality
   Normal: 'Normal',
   HighQuality: 'High Quality',
@@ -133,7 +169,7 @@ const TOKEN_OVERRIDES: Record<string, string> = {
 export function humanize(id: string): string {
   return id
     .replace(/([a-z0-9])([A-Z])/g, '$1 $2')
-    .split(/[_\s]+/)
+    .split(/[-_\s]+/)
     .filter(Boolean)
     .map((word) => {
       const lower = word.toLowerCase();

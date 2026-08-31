@@ -1,6 +1,6 @@
 import { ChangeDetectionStrategy, Component, inject } from '@angular/core';
 import { KeyboardShortcuts } from '../../services/keyboard-shortcuts/keyboard-shortcuts';
-import { SectionHeader } from '../../ui/section-header/section-header';
+import { SectionHeader } from '@coldcrabby/ui';
 
 interface ShortcutRow {
   actionId: string;
@@ -33,7 +33,7 @@ export class ShortcutsSettings {
     const alt = this.shortcuts.isMac ? '⌥' : 'Alt';
 
     return [
-      { title: 'Editing', rows: pick(['undo', 'redo', 'redo-alt', 'auto-orient']) },
+      { title: 'Editing', rows: pick(['undo', 'redo', 'redo-alt', 'place-objects']) },
       {
         title: 'Object mode',
         rows: pick([

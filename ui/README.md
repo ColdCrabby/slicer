@@ -41,7 +41,7 @@ flowchart LR
 ```
 ui/src/app/
 ├── app.config.ts          providers (router, http, markdown, input-modality, keyboard-shortcuts)
-├── app-routes.ts          /, /slice/(new|:requestUuid)
+├── app-routes.ts          /, /slice/(new|:requestUuid), /settings/* — all lazily loaded
 ├── pages/
 │   ├── home/              landing dashboard
 │   ├── slice-new/         upload + initial slice
@@ -75,8 +75,12 @@ ui/src/app/
 │   └── app-theme.ts                  light / dark token switcher
 ├── schema-form/           generic form renderer driven by JSON Schema
 ├── models/                shared types (mostly re-exports from generated/)
-└── shared/                cross-cutting widgets, directives, input-modality
+└── shared/                slicer-only cross-cutting bits — dialog service, icon-button
 ```
+
+> **Presentational primitives and the design language live in
+> [`@coldcrabby/ui`](https://github.com/ColdCrabby/ui), not here.** See
+> [Shared UI](#shared-ui-coldcrabbyui) below.
 
 ```mermaid
 sequenceDiagram
@@ -99,6 +103,95 @@ sequenceDiagram
     S-->>UI: WS Progress · PhaseMarker · SliceComplete
     UI-->>U: layered G-code preview + estimates
 ```
+
+---
+
+## Shared UI (@coldcrabby/ui)
+
+The presentational primitives (button, select, segmented, slider, modal-shell,
+…) and the **design language** (theme tokens, base elements, utilities, mixins)
+are not defined here — they live in the shared
+[`ColdCrabby/ui`](https://github.com/ColdCrabby/ui) repo and are consumed as
+**raw source**, so what the slicer renders and what other Cold Crabby apps
+render stay identical.
+
+- **Vendored, not published.** `pnpm vendor:ui` clones `ColdCrabby/ui` (tracking
+  `main`) into `vendor/coldcrabby-ui/`, which is git-ignored. It also runs on
+  `postinstall`, so a fresh `pnpm install` fetches it automatically. To pull the
+  latest shared UI, re-run `pnpm vendor:ui`.
+- **Imported as `@coldcrabby/ui`.** A tsconfig `paths` entry maps the package to
+  `vendor/coldcrabby-ui/src/public-api.ts`; components import primitives from
+  `@coldcrabby/ui` directly.
+- **Styles via `includePaths`.** `angular.json` adds
+  `vendor/coldcrabby-ui/src/styles` to the Sass load path, so
+  [src/styles/main.scss](src/styles/main.scss) pulls the shared theme, base,
+  utilities, and mixins with bare `@use 'theme/…'` specifiers. Slicer-only
+  styles stay local: the **viewport-locking reset** (the app pins the viewport;
+  the shared reset scrolls), the global `components/` partials, and the
+  `drop-aurora` emit.
+- **What stays here.** Slicer-specific UI only: the app shell (`nexus/`), the
+  3D viewer, the schema-driven forms, the `fov-cube`, the `dialog` service, and
+  the local `icon-button`.
+
+Change a primitive or a token in `ColdCrabby/ui`, open a PR there, and once it
+lands, `pnpm vendor:ui` brings it in.
+
+---
+
+## Phones
+
+The desktop layout assumes horizontal room the slicer does not have on a
+handset: a 60px nav rail, a 280px docked settings column and a 380px slice rail
+add up to more than a 390px screen _is_. Rather than a second app, the same
+shell rearranges itself.
+
+```mermaid
+flowchart LR
+    subgraph D["Desktop"]
+      direction LR
+      dr[nav rail] --- ds[settings column] --- dsc[scene] --- drc[slice rail]
+    end
+    subgraph P["Phone"]
+      direction TB
+      pt[toolbar] --- psc[scene] --- prc[slice sheet] --- pn[tab bar]
+    end
+    D -->|"handheld()"| P
+```
+
+- **One definition of "phone".** [`styles/_breakpoints.scss`](src/styles/_breakpoints.scss)
+  provides `handheld()` — 640px wide, plus a bounded short-landscape arm for a
+  handset held sideways. Tablets keep the desktop layout: an iPad has the width
+  for a docked column and the pointer precision for the gizmos. Anything that
+  adapts goes through the mixin, so the layout switches over as one piece.
+- **CSS decides the layout; TypeScript decides the controls.**
+  [`services/viewport.ts`](src/app/services/viewport.ts) answers the same
+  question for code that must _not render_ something (the projection toggle, the
+  operation-pipeline inspector, the sidebar's docked state). Its query string is
+  a copy of the mixin's and **must stay identical**. Layout itself stays in media
+  queries so a phone lays out correctly before any script runs.
+- **`html.is-handheld` is for the shared components only.**
+  [`styles/base/_handheld.scss`](src/styles/base/_handheld.scss) adapts
+  `@coldcrabby/ui` primitives we do not own — stacking `nexus-field-row`,
+  growing 34px controls to 40px, trimming modal gutters. A component's own
+  `:host` block compiles to an attribute selector, which a plain element
+  selector loses to; the class buys exactly the specificity needed without
+  `!important`. It is set before first paint by the inline script in
+  `index.html`, and `Viewport` keeps it live.
+
+What changes, and why:
+
+| Surface               | Phone form               | Reason                                                                                            |
+| --------------------- | ------------------------ | ------------------------------------------------------------------------------------------------- |
+| Nav rail              | Bottom tab bar           | 60px of a 390px screen for something used once a session; the bottom edge is what a thumb reaches |
+| Print settings        | Drawer + edge tab        | Docked, it leaves ~50px of scene                                                                  |
+| Slice rail            | Full-width bottom sheet  | The bottom-right corner is the hardest place on a tall phone to reach                             |
+| G-code inspector      | Scrolls inside the sheet | Slice must never be the thing that scrolls away                                                   |
+| Settings sections     | Scrollable chip strip    | A 220px column leaves 170px for the settings                                                      |
+| Manage pages          | Stacked master–detail    | Two columns need width that is not there                                                          |
+| Toasts                | Top of the screen        | The bottom belongs to the sheet and the tab bar                                                   |
+| Viewport cube         | Hidden                   | A click-and-drag widget with no touch equivalent, in the corner a phone can least spare           |
+| Projection · pipeline | Hidden                   | Eleven pill buttons do not fit; neither is part of getting a model sliced                         |
+| Object list           | Collapsible chip         | Expanded it covers a third of the plate it describes                                              |
 
 ---
 
@@ -133,11 +226,12 @@ The panel contains two read-only Monaco editor instances, each updated live as s
 
 A thin Angular wrapper around Monaco editor:
 
-- **Lazy-loaded** — the Monaco bundle is not included in the initial chunk. It is fetched once, the first time the panel is opened.
+- **Lazy-loaded, narrowly, and not until it is looked at** — the editor is composed from Monaco's modular entry points (`editor/editor.api` + `features/register.all`) rather than the package root, and is fetched only once an instance comes within 400 px of the viewport. The root export is `editor.main`, which would register ~90 language grammars and the TypeScript/CSS/HTML language services: a 2.7 MB chunk plus 9.6 MB of web workers, for an app that shows G-code and JSON. **A dynamic `import()` is lazy in the bundle but still runs the moment the component is created** — the printer settings page mounts three editors about six screens below the fold, which used to fetch ~4 MB before the user had scrolled anywhere near them.
 - **Inputs**: `content` (string signal), `language` (Monaco language ID, default `'plaintext'`), `readOnly` (boolean).
 - **Live updates** — an `effect()` pushes content and readOnly changes into the live editor instance, so Angular signals drive Monaco without re-creating the editor.
 - **Resource cleanup** — `DestroyRef.onDestroy` disposes the editor and releases its DOM/worker resources when the component is destroyed.
-- **Workers** — language workers (JSON, CSS, TypeScript, …) are spawned via `Blob` URLs so no separate worker bundle entry-point is needed. `MonacoEnvironment` is set once globally on `window`.
+- **Languages** — `gcode` is ours (a Monarch grammar in `gcode-language.ts`, registered together with the shared `nexus-code` theme, so it loads for every editor). `json` is Monaco's own language service and is fetched only when a JSON editor mounts.
+- **Workers** — declared as real module entry points under `workers/`, referenced via `new Worker(new URL(…, import.meta.url))` so the bundler emits base-href-relative assets (a bare specifier only resolved at the site root, which broke sub-path deploys). Only `editor` and `json` are listed: naming a worker in `MonacoEnvironment.getWorker` is what makes the bundler emit it.
 - **Options**: dark theme (`vs-dark`), auto-layout, word-wrap on, minimap off, folding on.
 
 ### `EditorPanel` service (`services/editor-panel.ts`)
@@ -209,6 +303,88 @@ Shortcuts are no-ops when the corresponding history direction is unavailable (gu
 
 ---
 
+## Route chunking and navigation feedback
+
+Every screen below `AppShell` is a lazily-loaded chunk, and the initial-bundle
+budgets in [angular.json](angular.json) exist to keep it that way. The rules for
+what may and may not join the initial download — and why three.js, Monaco and
+`marked` each ended up there — are in
+[AGENTS.md](../AGENTS.md#bundle-chunking--what-may-sit-in-the-initial-download).
+The short version: **anything routed uses `loadComponent`**, and a root-provided
+service's imports are initial-bundle imports.
+
+Two pieces keep splitting from turning into waiting:
+
+```mermaid
+flowchart LR
+    router["Router events"]
+    prog["NavigationProgress\n(when to speak)"]
+    bar["RouteProgress\nhairline"]
+    rails["Nav rail ·\nSettings sub-nav"]
+    banner["Update banner"]
+    idle["IdleRoutePreload"]
+
+    router --> prog
+    prog --> bar
+    prog --> rails
+    prog -->|chunk fetch failed| banner
+    idle -.->|warms chunks so\nmost clicks never wait| router
+```
+
+- [`IdleRoutePreload`](src/app/services/route-preload.ts) fetches lazy chunks
+  during `requestIdleCallback`, skipping Data Saver and 2G-class connections.
+- [`NavigationProgress`](src/app/services/navigation-progress.ts) is the single
+  source of truth for "a navigation is taking long enough to mention". It stays
+  silent below 120 ms so instant transitions never flash, marks the destination
+  rail item as pending, and turns a failed chunk fetch — the signature of a
+  redeploy under a long-lived tab — into the existing reload banner via
+  `AppVersion.reportStaleAssets()`.
+
+**Because preloading usually wins, the route bar is rarely seen — that is the
+intended outcome, not a broken feature.** It appears when a chunk is genuinely
+cold: a hard reload straight into a deep link, a slow connection, or a client
+where preloading was skipped.
+
+### The boot splash
+
+Route feedback cannot cover the *first* load, because Angular is the thing being
+waited for. That gap belongs to
+[index.html](src/index.html), which paints a logo, a progress bar and a label
+before a single byte of the bundle has run, and tears itself down from
+[main.ts](src/main.ts) once the app is on screen.
+
+- **It has to be inline.** A splash component ships inside the bundle it is
+  meant to cover, so it could only appear once the wait was already over. Same
+  reason its colours are literals rather than design tokens — the stylesheet
+  carrying those tokens is part of what is still loading. Keep them in step with
+  `--accent` and `--color-bg-primary` by hand.
+- **The logo arrives in two stages, and neither is animated.** A ~700-byte WebP
+  is embedded in the document as base64, so it paints with the HTML at no
+  request cost; `public/splash-logo.webp` (240 px, 22 kB) then cross-fades over
+  it. Progressive JPEG, the usual answer for "rough now, sharp later", is not
+  available: the logo is RGBA and JPEG has no alpha channel. Neither WebP nor
+  AVIF decodes progressively, so the refinement is staged explicitly — which is
+  faster anyway, since a progressive format's first pass still costs a round
+  trip and an inlined placeholder costs none. Regenerate both with
+  `pnpm run splash-logo`; never hand-edit the base64.
+- **The progress bar is the only thing that animates.** It is real: the build
+  lists every initial chunk in the document as `<link rel="modulepreload">`, and
+  a `PerformanceObserver` reports each one as it lands, so the bar tracks actual
+  downloads instead of easing along a timer. Downloads map to 0–90 %; the last
+  tenth is parse + bootstrap, closed by `__nexusSplashDone()`.
+- **Survey the chunk list on every tick, never once at startup.** The build
+  appends those `modulepreload` links *after* this inline script, so a single
+  survey at parse time finds nothing and the bar never moves — which is exactly
+  how it was first written, and what measuring caught.
+- **The full-resolution logo is `rel="preload"`ed at high priority**, or it
+  queues behind the chunks and arrives after the splash it belongs to has gone.
+- Degrades quietly: with no `modulepreload` links (the dev server) or no
+  `PerformanceObserver`, the splash still covers the blank page and still
+  clears. If the app never boots at all, the label admits it after 30 s rather
+  than leaving a bar frozen mid-way.
+
+---
+
 ## Generated artifacts
 
 Anything under `src/generated/` is **regenerated, not edited**. Each file maps 1:1 to a Rust type or wasm-pack output, and any drift is treated as a bug in the generator, not in this folder.
@@ -218,6 +394,7 @@ Anything under `src/generated/` is **regenerated, not edited**. Each file maps 1
 | `src/generated/*.d.ts`      | Rust schemas via `slicer-engine gen-schemas`      | `pnpm run gen` (also runs on `install`) |
 | `src/generated/scene-wasm/` | `src/scene/wasm.rs` (`cfg(target_arch="wasm32")`) | `make build-wasm` at the repo root      |
 | `src/schemas/*.json`        | JSON Schema emitted by the Rust CLI               | `pnpm run gen-schemas`                  |
+| `public/splash-logo.webp` + the base64 blob in `src/index.html` | `public/logo_still@3x.png` | `pnpm run splash-logo` at the repo root |
 
 The `postinstall` script in [package.json](package.json) wires this up: cloning the repo and running `pnpm install` (with the WASM bundle already built) is enough to get a working dev environment.
 
@@ -229,13 +406,20 @@ The `postinstall` script in [package.json](package.json) wires this up: cloning 
 # From the repo root, build the WASM scene engine first
 make build-wasm                                  # writes ui/src/generated/scene-wasm/
 
-# Then, in this folder:
 pnpm install                                     # also runs `pnpm run gen`
-pnpm start                                       # ng serve --host 0.0.0.0 → http://localhost:4200
 
-# In a second terminal, run the slicer-engine server (UI talks to this)
-cargo run --release -- serve                     # default http://localhost:5201
+# Then, from the repo root, start the engine + dev server together
+pnpm run dev                                     # seeded ports: UI 4<seed>, engine 5<seed>
 ```
+
+`pnpm run dev` ([scripts/dev.mjs](../scripts/dev.mjs)) picks a random seed so
+parallel checkouts never fight over a port, and prints the UI URL to open. The
+dev server proxies `/api` and `/ws` to the engine
+([proxy.conf.mjs](proxy.conf.mjs)), so the app addresses one origin in
+development exactly as it does in production.
+
+Running this folder's `pnpm start` on its own is still fine — it serves on the
+default `:4213` and proxies to an engine on its default `:5201`.
 
 Reset the generated folder anytime with `pnpm run gen`. If types or schemas look stale after editing Rust, run `pnpm run gen` — never edit `src/generated/` by hand.
 
@@ -245,6 +429,7 @@ Reset the generated folder anytime with `pnpm run gen`. If types or schemas look
 
 | Task                            | Command                                 |
 | ------------------------------- | --------------------------------------- |
+| Engine + dev server (seeded)    | `pnpm run dev` (repo root)              |
 | Dev server with HMR             | `pnpm start`                            |
 | Production build                | `pnpm build`                            |
 | Watch incremental dev build     | `pnpm watch`                            |
@@ -260,7 +445,7 @@ The UI follows the project [`.editorconfig`](.editorconfig) and is formatted wit
 ## Tech stack
 
 - **Angular 21** — standalone components, signals, `provideRouter` with view transitions, zoneless-ready.
-- **Monaco Editor** — VS Code's editor component, lazy-loaded for the transmit-preview panel. Workers spawned via Blob URLs; no separate worker bundle entry point required.
+- **Monaco Editor** — VS Code's editor component, composed from its modular entry points so only the G-code and JSON languages ship, and deferred until an editor nears the viewport.
 - **three.js 0.184** — 3D viewer, custom camera/orbit controls (`viewer-control.ts`), `viewport-cube` orientation widget.
 - **Iconoir 7** — icon set.
 - **fuse.js 7** — fuzzy search inside settings/history.
@@ -275,7 +460,7 @@ The UI follows the project [`.editorconfig`](.editorconfig) and is formatted wit
 - **No client-side slicing.** The browser only handles scene placement and preview. The slice runs on the server, against the same Rust core.
 - **No second source of truth for transforms.** All placement state lives in the WASM `SceneHandle`. The UI reads from it, never duplicates it.
 - **No hand-written API types.** If a Rust struct changes, regenerate; do not patch the `.d.ts`.
-- **No bundled meshes.** Test fixtures live in [`/stls`](../stls/) and [`/tests/fixtures`](../tests/fixtures/) at the repo root.
+- **No bundled meshes.** Test fixtures live in `/stls` and [`/tests/fixtures`](../tests/fixtures/) at the repo root.
 - **No undo across sessions.** The `SceneHistory` stack is in-memory and is cleared on page reload or navigation. Persistence is a future concern.
 - **No undo for mesh uploads / removes.** Re-adding an object requires the original mesh bytes, which are not retained in the history stack. Only transforms are restored on undo.
 

@@ -1,7 +1,7 @@
 //! Slicing parameters: per-print and per-object settings.
 
 use crate::gcode::GcodeFlavor;
-use crate::infill::InfillPattern;
+use crate::infill::{InfillPattern, SurfacePattern};
 pub use crate::mesh::transforms::MeshQuality;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
@@ -444,6 +444,48 @@ pub enum BrimType {
     Ears,
 }
 
+/// How a plate holding several objects is printed.
+///
+/// The developer-facing rationale (how each order flows through the slicing
+/// pipeline and the G-code generator) lives in the object-identity section of
+/// AGENTS.md; the doc text here stays user-facing because it becomes the
+/// setting's on-screen description.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum PrintSequence {
+    /// Print every object together, rising one layer at a time.
+    #[default]
+    ByLayer,
+    /// Finish each object completely before starting the next.
+    ///
+    /// Cuts the stringing and scars that plate-wide travel moves leave on
+    /// finished surfaces, and lets a completed part be lifted off before the
+    /// rest of the plate is done. In return the printhead has to clear whatever
+    /// is already on the bed, so parts that are too tall or too close together
+    /// are flagged before printing.
+    ByObject,
+}
+
+impl PrintSequence {
+    /// Parse a sequence name from a CLI argument or config string
+    /// (case-insensitive, hyphens and underscores both accepted).
+    pub fn parse(s: &str) -> Option<Self> {
+        match s.to_lowercase().replace('-', "_").as_str() {
+            "by_layer" | "layer" => Some(Self::ByLayer),
+            "by_object" | "object" | "sequential" => Some(Self::ByObject),
+            _ => None,
+        }
+    }
+
+    /// Canonical name for emitting back into config / G-code comments.
+    pub fn name(self) -> &'static str {
+        match self {
+            Self::ByLayer => "by_layer",
+            Self::ByObject => "by_object",
+        }
+    }
+}
+
 /// Camera angle used when the UI renders the embedded G-code thumbnail.
 ///
 /// The thumbnail is produced from a fixed, repeatable viewpoint (not the
@@ -574,7 +616,9 @@ Larger values produce a gradual width ramp at transitions; smaller values create
 
 When space is too narrow for a separate bead, up to this many innermost beads
 are widened proportionally to fill the gap.
-**Typical:** 1–2.", extend("x-group" = "Walls"))]
+
+Classic generator only — Arachne varies bead width along the medial axis instead.
+**Typical:** 1–2.", extend("x-group" = "Walls", "x-relevant-when" = serde_json::json!({"field": "wall_generator", "equals": "classic"})))]
     #[serde(default = "SlicingParams::default_wall_distribution_count")]
     pub wall_distribution_count: usize,
 
@@ -614,6 +658,106 @@ Supported values:
     #[serde(default = "SlicingParams::default_seam_position")]
     pub seam_position: SeamPosition,
 
+    #[schemars(description = "Print the outer (external) wall before the inner walls.
+
+- `false` (default) — inner walls first, outer wall **last**.  The outer wall is
+  laid against already-solid inner perimeters, giving the cleanest visible
+  surface and crispest dimensions.  Matches the PrusaSlicer / OrcaSlicer / Cura
+  default.
+- `true` — outer wall first.  Can improve overhang adhesion (the external
+  perimeter is anchored to the layer below before the inner walls push against
+  it) at some cost to surface finish.
+
+Mirrors `external_perimeters_first` (PrusaSlicer/Slic3r) / `wall_sequence`
+(OrcaSlicer).", extend("x-group" = "Walls"))]
+    #[serde(default = "SlicingParams::default_external_perimeters_first")]
+    pub external_perimeters_first: bool,
+
+    #[schemars(description = "Add extra perimeter loops where gaps would otherwise remain.
+
+When a shell is locally thicker than `wall_count` beads but too thin for sparse
+infill to fill cleanly, the leftover core is filled with additional concentric
+perimeter loops instead of being left as a gap.  Only fires in narrow residual
+regions (up to `extra_perimeters_max_gap × nozzle_diameter_mm` wide); wide cores
+still get normal infill, so this never turns a part solid.
+
+Mirrors `extra_perimeters` (PrusaSlicer/Slic3r).
+**Default:** off.", extend("x-group" = "Walls"))]
+    #[serde(default = "SlicingParams::default_extra_perimeters")]
+    pub extra_perimeters: bool,
+
+    #[schemars(
+        description = "Widest residual core (as a multiple of nozzle diameter) that `extra_perimeters` will fill with loops.
+
+A residual core wider than `extra_perimeters_max_gap × nozzle_diameter_mm` is
+left for sparse infill; a narrower one is filled with extra concentric
+perimeters.
+**Typical:** 2–4.",
+        extend("x-group" = "Walls", "x-relevant-when" = serde_json::json!({"field": "extra_perimeters", "equals": true}))
+    )]
+    #[serde(default = "SlicingParams::default_extra_perimeters_max_gap")]
+    pub extra_perimeters_max_gap: f64,
+
+    #[schemars(description = "Detect thin walls and print them as a single centered bead.
+
+A **thin feature** is model material too narrow for even one full perimeter —
+engraved text, a tapering rib, the card-slot fins of a card holder. When on, such
+a feature is traced by a single variable-width bead; when off it is **not printed
+at all** (the feature disappears from the part).
+
+- `true` (default) — thin features are printed.
+- `false` — thin features are skipped.
+
+Classic generator only. Arachne fills thin features from the medial axis by
+construction — that is what the generator is for — so it always prints them and
+ignores this option.
+
+Mirrors `thin_walls` (PrusaSlicer/Slic3r) / `detect_thin_wall` (OrcaSlicer), both
+of which are likewise classic-only.", extend("x-group" = "Walls", "x-relevant-when" = serde_json::json!({"field": "wall_generator", "equals": "classic"})))]
+    #[serde(default = "SlicingParams::default_thin_walls")]
+    pub thin_walls: bool,
+
+    #[schemars(description = "Ensure a minimum solid vertical-shell thickness on sloped surfaces.
+
+On a near-vertical wall whose cross-section drifts layer over layer, the
+perimeters of neighbouring layers may not overlap, leaving a thin spot in the
+side wall.  When enabled, any interior region that is **not** backed by
+perimeters in the layers immediately above *and* below is filled solid, so the
+side wall keeps a continuous shell.
+
+Mirrors `ensure_vertical_shell_thickness` (PrusaSlicer/Slic3r).
+**Default:** off.", extend("x-group" = "Walls"))]
+    #[serde(default = "SlicingParams::default_ensure_vertical_shell_thickness")]
+    pub ensure_vertical_shell_thickness: bool,
+
+    #[schemars(description = "Route travel moves to avoid crossing perimeter walls.
+
+Instead of moving in a straight line to the next extrusion, the nozzle detours
+around the inside of the current island's walls, so a travel move never drags
+the (oozing) nozzle across a finished outer surface.  Reduces surface scarring
+and stringing at the small cost of longer travels and slightly more planning
+time.
+
+Mirrors `avoid_crossing_perimeters` (PrusaSlicer/Slic3r) / `reduce_crossing_wall`
+(OrcaSlicer).
+**Default:** off.", extend("x-group" = "Walls"))]
+    #[serde(default = "SlicingParams::default_avoid_crossing_perimeters")]
+    pub avoid_crossing_perimeters: bool,
+
+    #[schemars(description = "Spiral (vase) mode — print a single continuous outer wall whose Z \
+ramps smoothly over each layer, producing a seamless single-wall vase with no Z-seam.
+
+When enabled the slicer forces a single perimeter and turns off everything that would break the \
+continuous spiral: sparse infill, top surfaces, retraction and Z-hop are all disabled. The solid \
+bottom layers (`bottom_layers`) are kept as the base — set `bottom_layers` to `0` for an \
+open-bottomed tube. Best on **solid, single-island** models; only the outermost contour of each \
+layer is spiralized (interior holes are ignored). Layers with more than one island fall back to \
+normal (non-spiral) printing with a warning.
+
+**Default:** `false`.", extend("x-group" = "Walls"))]
+    #[serde(default = "SlicingParams::default_spiral_vase")]
+    pub spiral_vase: bool,
+
     #[schemars(description = "Infill density as a fraction (0.0–1.0).
 
 - `0.0` = completely hollow
@@ -625,9 +769,18 @@ Supported values:
 
 Supported values:
 - `rectilinear` — alternating straight lines (fastest)
+- `aligned-rectilinear` — straight lines that keep the same angle on every layer
 - `grid` — crossed lines forming a grid
+- `triangles` — three line sets 60° apart
+- `tri-hexagon` — triangles with every third set offset, forming stars
+- `cubic` — three line sets whose phase walks with height, forming stacked cubes
 - `honeycomb` — hexagonal cells (good strength-to-weight ratio)
-- `gyroid` — smooth triply-periodic surface (excellent isotropy)", extend("x-group" = "Infill"))]
+- `concentric` — loops following the outline
+- `gyroid` — smooth triply-periodic surface (excellent isotropy)
+- `tpms-d` — triply-periodic minimal surface, diamond variant
+
+Every pattern deposits the density you ask for: a pattern that draws several
+line sets across the same area splits the density between them.", extend("x-group" = "Infill"))]
     #[serde(default = "SlicingParams::default_infill_pattern")]
     pub infill_pattern: InfillPattern,
 
@@ -637,6 +790,91 @@ Alternating layers rotate by +90° on top of this base angle to create a crossin
 **Default:** 45°.", extend("x-group" = "Infill"))]
     #[serde(default = "SlicingParams::default_infill_base_angle")]
     pub infill_base_angle: f64,
+
+    #[schemars(
+        description = "How far a sparse-infill line may run along the inner wall to anchor itself, \
+as a percentage of the infill line spacing.
+
+Every sparse-infill line ends in mid-air against the wall.  Letting it turn and
+follow the wall for a short distance welds it to the perimeter, so the infill
+actually braces the shell instead of just touching it — and two lines that meet
+around a short stretch of wall can be joined into one continuous move, removing
+a retract/travel pair.
+
+- `400` — OrcaSlicer's default; a good balance of bonding and travel savings.
+- `0` — never extend a lone line end along the wall (lines may still be joined
+  in pairs when the wall between them is shorter than `infill_anchor_max_mm`).
+
+Has no effect when `infill_anchor_max_mm` is `0`.
+**Typical:** 0–1000 %.",
+        extend("x-group" = "Infill")
+    )]
+    #[serde(default = "SlicingParams::default_infill_anchor_percent")]
+    pub infill_anchor_percent: f64,
+
+    #[schemars(
+        description = "Longest stretch of inner wall, in mm, that may be used to join two \
+sparse-infill lines into one continuous path.
+
+When the wall between the end of one infill line and the start of the next is
+shorter than this, the two are merged and the wall segment is printed as part of
+the infill — one move instead of two plus a travel.
+
+- `20` — OrcaSlicer's default.
+- `0` — turns anchoring off completely; every infill line is printed on its own.
+
+**Typical:** 0–50 mm.",
+        extend("x-group" = "Infill")
+    )]
+    #[serde(default = "SlicingParams::default_infill_anchor_max_mm")]
+    pub infill_anchor_max_mm: f64,
+
+    #[schemars(
+        description = "Print sparse infill only every N layers, at N× the height.
+
+Sparse infill does not need to be as finely layered as the walls.  Combining it
+saves a lot of print time: the walls still print every layer, but the infill is
+skipped until the top layer of each group, where it is extruded thicker to make
+up for the layers it stood in for.
+
+Only infill that exists on *every* layer of a group is combined, so solid
+surfaces, bridges and changing cross-sections are never affected.  The combined
+height is capped by `infill_combination_max_layer_height_mm` (and never exceeds
+the nozzle diameter) — going beyond that would ask the nozzle to lay a bead
+taller than its own orifice.
+
+**Default:** `1` (no combining).",
+        extend("x-group" = "Infill")
+    )]
+    #[serde(default = "SlicingParams::default_infill_every_layers")]
+    pub infill_every_layers: u32,
+
+    #[schemars(
+        description = "Tallest combined sparse-infill layer in mm, used with `infill_every_layers`.
+
+Set to `0` to use the nozzle diameter, which is the practical ceiling — a bead
+cannot reliably be laid taller than the orifice that extrudes it.  A smaller
+value combines fewer layers per group.
+**Default:** `0` (use the nozzle diameter).",
+        extend("x-group" = "Infill")
+    )]
+    #[serde(default = "SlicingParams::default_infill_combination_max_layer_height_mm")]
+    pub infill_combination_max_layer_height_mm: f64,
+
+    #[schemars(
+        description = "Force a fully solid layer inside the part every N layers.
+
+Adds internal solid layers that a normal shell calculation would not produce —
+they act like hidden floors bracing the sparse infill, which stiffens tall
+hollow parts and gives the layers above a dense base to print on.
+
+`0` disables it.  Set it very high (e.g. `9999`) and only the layers a solid
+sheet still fits under will be filled.
+**Default:** `0` (off).",
+        extend("x-group" = "Infill")
+    )]
+    #[serde(default = "SlicingParams::default_solid_infill_every_layers")]
+    pub solid_infill_every_layers: u32,
 
     #[schemars(description = "Default print speed in mm/s used as a fallback.
 
@@ -678,6 +916,80 @@ Set to `0` to fall back to `print_speed`.
     )]
     #[serde(default = "SlicingParams::default_bridge_speed")]
     pub bridge_speed: f64,
+
+    #[schemars(
+        description = "Enable dynamic overhang speed & cooling.
+
+Classifies perimeter segments by *overhang degree* — how much of the extrusion
+width hangs over unsupported air below it — so each degree can print at its own
+speed (`overhang_1_4_speed`…`overhang_4_4_speed`) and with extra part-cooling
+airflow (`overhang_fan_speed`).  Mirrors the OrcaSlicer / PrusaSlicer *slow down
+for overhangs* feature.  Set to `false` to print every overhang wall at a single
+`bridge_speed` instead.
+**Default:** true.",
+        extend("x-group" = "Speed")
+    )]
+    #[serde(default = "SlicingParams::default_enable_overhang_speed")]
+    pub enable_overhang_speed: bool,
+
+    #[schemars(
+        description = "Speed for lightly-overhanging perimeters (0–25% of the line unsupported), in mm/s.
+
+`0` = print at the normal `perimeter_speed` (no slowdown).  This band still sits
+almost entirely on the layer below, so the default leaves it at full speed —
+slowing it taxes a large share of ordinary walls on curved models for no gain.
+**Default:** 0 (no slowdown).",
+        extend("x-group" = "Speed")
+    )]
+    #[serde(default = "SlicingParams::default_overhang_degree_speed")]
+    pub overhang_1_4_speed: f64,
+
+    #[schemars(
+        description = "Speed for moderately-overhanging perimeters (25–50% unsupported), in mm/s.
+
+`0` = print at the normal `perimeter_speed` (no slowdown).  Half of this bead
+still rests on the layer below, so the default leaves it at full speed.
+**Default:** 0 (no slowdown).",
+        extend("x-group" = "Speed")
+    )]
+    #[serde(default = "SlicingParams::default_overhang_degree_speed")]
+    pub overhang_2_4_speed: f64,
+
+    #[schemars(
+        description = "Speed for steep overhanging perimeters (50–75% unsupported), in mm/s.
+
+`0` = inherit `bridge_speed`, so this band tracks that setting instead of
+pinning a second number that can drift out of sync with it.
+**Typical:** 20–35 mm/s.",
+        extend("x-group" = "Speed")
+    )]
+    #[serde(default = "SlicingParams::default_overhang_degree_speed")]
+    pub overhang_3_4_speed: f64,
+
+    #[schemars(
+        description = "Speed for near-fully-unsupported perimeters (75–100% unsupported), in mm/s.
+
+The steepest, most sag-prone band — effectively extruding into air, but without
+a bridge's anchored far end to tension against, so it wants to run slower than
+`bridge_speed`.  `0` = inherit `bridge_speed`.
+**Default:** 15 mm/s.",
+        extend("x-group" = "Speed")
+    )]
+    #[serde(default = "SlicingParams::default_overhang_4_4_speed")]
+    pub overhang_4_4_speed: f64,
+
+    #[schemars(
+        description = "Slow down perimeters that are likely to curl upward.
+
+Clamps both steep overhang degrees (50–100% unsupported) to the slowest
+configured overhang speed, so a curling wall never outruns the most conservative
+setting.  Off by default because it collapses the 50–75% band into the 75–100%
+one, discarding the grading — enable it deliberately when a model curls.
+**Default:** false.",
+        extend("x-group" = "Speed")
+    )]
+    #[serde(default = "SlicingParams::default_slowdown_for_curled_perimeters")]
+    pub slowdown_for_curled_perimeters: bool,
 
     #[schemars(
         description = "Flow ratio for bridge extrusions (0.0–1.5).
@@ -739,6 +1051,23 @@ anchoring.",
     pub bridge_anchor_mm: f64,
 
     #[schemars(
+        description = "Bridging angle override in degrees (0–180).
+
+Leave at `0` to detect the direction automatically: the slicer picks the axis
+that makes every strand span the *short* dimension of the gap, which is what
+keeps a bridge from sagging.  Any other value is used for **every** bridge on
+the model — useful when a part's bridges all run one way and the automatic
+choice flip-flops between layers.
+
+Following PrusaSlicer/OrcaSlicer, `0` is the auto trigger, so use **180** to
+force a horizontal (0°) bridge direction.
+**Default:** `0` (automatic).",
+        extend("x-group" = "Quality")
+    )]
+    #[serde(default = "SlicingParams::default_bridge_angle")]
+    pub bridge_angle: f64,
+
+    #[schemars(
         description = "Speed for top and bottom solid surface infill in mm/s.
 
 Slightly slower than infill to improve surface finish.
@@ -771,8 +1100,11 @@ filament grinding for a mechanically-insignificant dab.  Set to `0` to use the
 automatic default (twice the nozzle diameter), which matches the faceting-noise
 floor used when de-noising the medial skeleton; the residual such short beads
 would have filled is bridged by the squish of the flanking wall beads.
+
+Arachne generator only — the classic generator emits a single residual bead per
+shell rather than walking a medial skeleton.
 **Typical:** 0.4–1.0 mm.",
-        extend("x-group" = "Walls")
+        extend("x-group" = "Walls", "x-relevant-when" = serde_json::json!({"field": "wall_generator", "equals": "arachne"}))
     )]
     #[serde(default = "SlicingParams::default_gap_fill_min_length_mm")]
     pub gap_fill_min_length_mm: f64,
@@ -828,6 +1160,32 @@ High fan speeds cool bridge material rapidly, reducing sag.
     )]
     #[serde(default = "SlicingParams::default_bridge_fan_speed")]
     pub bridge_fan_speed: f64,
+
+    #[schemars(
+        description = "Part-cooling fan speed while printing overhang perimeters, as a fraction (0.0–1.0).
+
+While the nozzle prints overhang segments above `overhang_fan_threshold`, the
+part-cooling fan is raised to this speed and restored to the layer's normal
+cooling afterwards, so sag-prone overhangs get a burst of extra airflow.  `0` =
+never override the layer's normal fan speed.
+**Default:** 1.0 (100%).",
+        extend("x-group" = "Cooling")
+    )]
+    #[serde(default = "SlicingParams::default_overhang_fan_speed")]
+    pub overhang_fan_speed: f64,
+
+    #[schemars(
+        description = "Overhang degree above which `overhang_fan_speed` engages, as an unsupported fraction (0.0–1.0).
+
+The default `0.5` cools only the steep 50–100% overhangs, matching where the
+overhang-perimeter classifier already kicks in.  Lowering it also cools the
+milder degrees — at the cost of splitting otherwise-uniform walls into separate
+fan regions.
+**Default:** 0.5.",
+        extend("x-group" = "Cooling")
+    )]
+    #[serde(default = "SlicingParams::default_overhang_fan_threshold")]
+    pub overhang_fan_threshold: f64,
 
     #[schemars(
         description = "Part-cooling fan speed on the first layer as a fraction (0.0–1.0).
@@ -898,6 +1256,48 @@ Changing from the default can improve finish on curved or organic models.
     #[serde(default = "SlicingParams::default_surface_infill_angle")]
     pub surface_infill_angle: f64,
 
+    #[schemars(
+        description = "Fill pattern for the **top** solid surface.
+
+Supported values:
+- `monotonic-line` — parallel lines all drawn in the same direction, never
+  connected (**default**, matching OrcaSlicer). The most uniform-looking top.
+- `monotonic` — same one-way sweep, but consecutive line ends are joined along
+  the surface boundary, so there is less travel.
+- `rectilinear` — classic back-and-forth serpentine.
+- `aligned-rectilinear` — serpentine that keeps the same angle on every layer
+  instead of cross-hatching.
+- `concentric` — loops following the surface outline.
+
+\"Monotonic\" means every line is drawn in the same direction: the nozzle never
+returns across a finished line, which is what removes the mottled, direction-
+dependent sheen a serpentine leaves on a visible top surface.",
+        extend("x-group" = "Surfaces")
+    )]
+    #[serde(default = "SlicingParams::default_top_surface_pattern")]
+    pub top_surface_pattern: SurfacePattern,
+
+    #[schemars(
+        description = "Fill pattern for the **bottom** solid surface.
+
+Same choices as `top_surface_pattern`. **Default:** `monotonic` — the bottom is
+against the bed, so the short boundary connectors cost nothing visually and save
+travel.",
+        extend("x-group" = "Surfaces")
+    )]
+    #[serde(default = "SlicingParams::default_bottom_surface_pattern")]
+    pub bottom_surface_pattern: SurfacePattern,
+
+    #[schemars(
+        description = "Fill pattern for **internal** solid infill.
+
+Used for the dense layers `solid_infill_every_layers` inserts inside the part.
+Same choices as `top_surface_pattern`. **Default:** `monotonic`.",
+        extend("x-group" = "Surfaces")
+    )]
+    #[serde(default = "SlicingParams::default_internal_solid_infill_pattern")]
+    pub internal_solid_infill_pattern: SurfacePattern,
+
     #[schemars(description = "Filament diameter in mm.
 
 Used to calculate extrusion volume from feed distance. Standard sizes:
@@ -916,12 +1316,36 @@ metadata header. Typical values:
     #[serde(default = "SlicingParams::default_filament_density_g_cm3")]
     pub filament_density_g_cm3: f64,
 
+    #[schemars(description = "Filament price in currency units per kilogram.
+
+Combined with the filament weight to report a material cost in the G-code
+metadata footer. Populated from the active filament profile at resolve time.
+`0` = unknown, which omits the cost line.", extend("x-group" = "Hardware"))]
+    #[serde(default)]
+    pub filament_cost_per_kg: f64,
+
     #[schemars(description = "Nozzle orifice diameter in mm.
 
 Affects minimum feature resolution and all line-width calculations.
 **Standard:** 0.4 mm. Other common sizes: 0.2, 0.6, 0.8 mm.", extend("x-group" = "Hardware"))]
     #[serde(default = "SlicingParams::default_nozzle_diameter_mm")]
     pub nozzle_diameter_mm: f64,
+
+    #[schemars(
+        description = "Vertical offset in mm added to every Z coordinate in the G-code.
+
+Compensates for a Z endstop that does not zero exactly at the bed:
+- **Negative** lowers the nozzle (endstop leaves it too high — a `0.3 mm` gap needs `-0.3`)
+- **Positive** raises it (first layer is squashed)
+
+Applies to the axis moves and the layer markers only; the model, the slice
+layers and the print statistics are unchanged, and your own start/end G-code is
+never rewritten. **Prefer fixing the endstop** — this is a compensation, not a
+calibration. **Typical:** −0.1 to 0.1 mm. `0` = disabled.",
+        extend("x-group" = "Hardware")
+    )]
+    #[serde(default = "SlicingParams::default_z_offset_mm")]
+    pub z_offset_mm: f64,
 
     #[schemars(description = "Build-plate surface type recorded in the G-code metadata header.
 
@@ -930,6 +1354,40 @@ Purely informational: it is tracked for printer integration / diagnostics and
 does **not** affect slicing. Empty = omit the `; bed_type:` header line.", extend("x-group" = "Hardware"))]
     #[serde(default)]
     pub bed_type: String,
+
+    #[schemars(
+        description = "Machine has an **actively heated** chamber.
+
+A hardware capability, not a preference: it is what allows the filament's
+`chamber_temp` to be emitted as a real heat directive (`M141`/`M191`, or Klipper's
+`SET_HEATER_TEMPERATURE` / `TEMPERATURE_WAIT`). Leave it off for a passive
+enclosure or a machine with no chamber heater — an unknown chamber command
+aborts the print on Klipper.
+
+`chamber_temp` still reaches custom start G-code as `{chamber_temp}` either way.",
+        extend("x-group" = "Hardware")
+    )]
+    #[serde(default = "SlicingParams::default_heated_chamber")]
+    pub heated_chamber: bool,
+
+    #[schemars(description = "Printer manufacturer recorded in the G-code metadata footer as \
+`printer_vendor`.
+
+Populated from the active printer profile at resolve time so Moonraker
+(Mainsail / Fluidd) and OctoPrint can show which machine the file was sliced
+for. Purely informational — it does **not** affect slicing. Empty = omit the \
+line.", extend("x-group" = "Hardware"))]
+    #[serde(default)]
+    pub printer_vendor: String,
+
+    #[schemars(description = "Printer model recorded in the G-code metadata footer as \
+`printer_model`.
+
+Populated from the active printer profile at resolve time. Printer front-ends
+display it alongside the job, and some use it to warn when a file was sliced for
+a different machine. Empty = omit the line.", extend("x-group" = "Hardware"))]
+    #[serde(default)]
+    pub printer_model: String,
 
     #[schemars(description = "Non-print (travel) move speed in **mm/min**.
 
@@ -951,6 +1409,92 @@ Pulls filament back into the nozzle to reduce oozing and stringing.
 **Typical:** 0.5–2 mm (direct drive) or 3–7 mm (Bowden).", extend("x-group" = "Retraction"))]
     #[serde(default = "SlicingParams::default_retract_mm")]
     pub retract_mm: f64,
+
+    #[schemars(description = "Minimum travel distance in mm before a retraction is triggered.
+
+Short hops between adjacent paths do not ooze enough to justify the
+retract → travel → un-retract cycle (which itself takes longer than the hop).
+Travels longer than 2 mm always retract regardless of this value.
+**Typical:** 1.0–2.0 mm. Set to `0` to retract on every travel.", extend("x-group" = "Retraction"))]
+    #[serde(default = "SlicingParams::default_retract_before_travel_mm")]
+    pub retract_before_travel_mm: f64,
+
+    #[schemars(description = "Extra prime length in mm added when un-retracting after a travel.
+
+Compensates for filament that oozed away during the travel by depositing a
+little extra material on restart. In firmware retraction mode this is forwarded
+to the firmware (`M208`/`SET_RETRACTION`).
+**Typical:** 0.0–0.2 mm. Set to `0` to disable.", extend("x-group" = "Retraction"))]
+    #[serde(default = "SlicingParams::default_retract_restart_extra_mm")]
+    pub retract_restart_extra_mm: f64,
+
+    #[schemars(
+        description = "Force a retraction at every layer change.
+
+Retracts before the layer-change Z move so the nozzle does not ooze while
+lifting and travelling to the first path of the next layer.
+**Recommended:** off (the first travel of each layer already retracts).",
+        extend("x-group" = "Retraction")
+    )]
+    #[serde(default = "SlicingParams::default_retract_on_layer_change")]
+    pub retract_on_layer_change: bool,
+
+    #[schemars(
+        description = "Use firmware retraction (`G10`/`G11`) instead of extruder-axis (`G1 E`) moves.
+
+Delegates retraction to the printer firmware. The slicer emits `G10`/`G11` and
+syncs the firmware's retraction length, speed and restart-extra from the
+retraction settings (`M207`/`M208` on Marlin, `SET_RETRACTION` on Klipper).
+Requires firmware retraction support (`[firmware_retraction]` on Klipper).
+**Recommended:** off unless your firmware is configured for it.",
+        extend("x-group" = "Retraction")
+    )]
+    #[serde(default = "SlicingParams::default_use_firmware_retraction")]
+    pub use_firmware_retraction: bool,
+
+    #[schemars(
+        description = "Emit relative extruder distances (`M83`) instead of absolute (`M82`).
+
+Each extrusion move carries the incremental filament length rather than a
+running absolute position. Relative E is more robust across custom start
+G-code / macros that leave the extruder in an unknown state.
+**Recommended:** off for maximum compatibility; on if your macros expect it.",
+        extend("x-group" = "Retraction")
+    )]
+    #[serde(default = "SlicingParams::default_use_relative_e_distances")]
+    pub use_relative_e_distances: bool,
+
+    #[schemars(
+        description = "Wipe the nozzle along the just-printed path while retracting.
+
+Retraces the tail of the previous path before travelling, smearing any ooze
+onto already-printed material instead of leaving a blob at the seam.
+**Recommended:** off; enable to reduce stringing on some materials.",
+        extend("x-group" = "Retraction")
+    )]
+    #[serde(default = "SlicingParams::default_wipe")]
+    pub wipe: bool,
+
+    #[schemars(description = "Distance in mm to wipe the nozzle when `wipe` is enabled.
+
+The nozzle retraces this far back along the just-printed path. Capped at the
+length of that path.
+**Typical:** 1.0–3.0 mm.", extend("x-group" = "Retraction"))]
+    #[serde(default = "SlicingParams::default_wipe_distance_mm")]
+    pub wipe_distance_mm: f64,
+
+    #[schemars(
+        description = "Fraction of the retraction performed before the wipe move (0.0–1.0).
+
+`0.0` performs the whole retraction *during* the wipe (distributed along the
+wipe move); `1.0` retracts fully *before* wiping. Only used when `wipe` is
+enabled and firmware retraction is off (firmware retraction cannot split a
+retraction).
+**Typical:** 0.0.",
+        extend("x-group" = "Retraction")
+    )]
+    #[serde(default = "SlicingParams::default_retract_before_wipe_percent")]
+    pub retract_before_wipe_percent: f64,
 
     #[schemars(
         description = "Use a single outer wall on the topmost layer of top surfaces.
@@ -1165,12 +1709,31 @@ under/over-extrusion.",
 
     #[schemars(
         description = "Chamber temperature in °C for enclosed printers. `0` = no active \
-chamber heating. Exposed to custom start G-code as `{chamber_temp}` (e.g. Klippain \
-`START_PRINT … CHAMBER={chamber_temp}`).",
+chamber heating.
+
+Emitted as a real heat directive — the bed target is armed, then `M141`/`M191`
+soak the chamber, all before the start G-code so the nozzle is still cold — but
+**only when the printer profile sets `heated_chamber`**. Always available to
+custom start G-code as `{chamber_temp}` (e.g. Klippain
+`START_PRINT … CHAMBER={chamber_temp}`); a start script that heats the chamber
+itself suppresses the automatic directives so the chamber is never heated twice.
+**Typical:** 0 for PLA/PETG, 50–60 for ABS/ASA/PC.",
         extend("x-group" = "Temperature")
     )]
     #[serde(default = "SlicingParams::default_chamber_temp")]
     pub chamber_temp: f64,
+
+    #[schemars(
+        description = "First-layer chamber temperature in °C. `0` = use `chamber_temp`.
+
+A hotter initial soak helps the first layer bond on high-temperature materials;
+the chamber drops back to `chamber_temp` once the first layer finishes.
+Equivalent to OrcaSlicer's `chamber_temperature_initial_layer` and exposed to
+custom start G-code as `{chamber_temp_first_layer}`.",
+        extend("x-group" = "Temperature")
+    )]
+    #[serde(default = "SlicingParams::default_chamber_temp_first_layer")]
+    pub chamber_temp_first_layer: f64,
 
     #[schemars(
         description = "Material family name (e.g. `PLA`, `PETG`, `ABS`). Populated from the \
@@ -1266,6 +1829,56 @@ tension before the nozzle moves on.
     )]
     #[serde(default = "SlicingParams::default_bridge_acceleration")]
     pub bridge_acceleration: f64,
+
+    #[schemars(
+        description = "Square-corner velocity in mm/s — the speed the head keeps through a 90° corner (junction-deviation cornering). `0` = use the estimator/firmware default (5 mm/s).
+
+Higher values corner faster (shorter prints, more ringing); lower values slow into corners for cleaner edges. When set, the slicer emits the firmware limit (Klipper `SET_VELOCITY_LIMIT SQUARE_CORNER_VELOCITY=…`, Marlin `M205 J…` junction deviation) and the print-time estimate uses the same value, so the ETA tracks reality.
+**Typical:** 5–10.",
+        extend("x-group" = "Speed")
+    )]
+    #[serde(default = "SlicingParams::default_square_corner_velocity")]
+    pub square_corner_velocity: f64,
+
+    #[schemars(
+        description = "Maximum travel/print velocity cap in mm/s. `0` = unlimited (no cap).
+
+The machine's top speed: any role feedrate above this is clamped by the firmware, so the estimate honors it too. When set, the slicer emits the firmware limit (Klipper `SET_VELOCITY_LIMIT VELOCITY=…`, Marlin `M203 X… Y…`).
+**Typical:** 150–500.",
+        extend("x-group" = "Speed")
+    )]
+    #[serde(default = "SlicingParams::default_max_velocity")]
+    pub max_velocity: f64,
+
+    #[schemars(
+        description = "Fixed warm-up allowance in seconds added *before* the toolpath in the print-time estimate. `0` = none.
+
+Accounts for wall-clock the toolpath can't show — homing, bed mesh, heat-soak, purge — none of which is derivable from the moves. A flat allowance, not a thermal model.
+**Typical:** 60–300.",
+        extend("x-group" = "Time estimate")
+    )]
+    #[serde(default = "SlicingParams::default_time_estimate_warmup_s")]
+    pub time_estimate_warmup_s: f64,
+
+    #[schemars(
+        description = "Fixed cool-down allowance in seconds added *after* the toolpath in the print-time estimate. `0` = none.
+
+For material/hardware that isn't \"done\" at the last move — e.g. an ABS chamber cool-off or a park-and-cool end sequence — before the print is truly finished.
+**Typical:** 0–120.",
+        extend("x-group" = "Time estimate")
+    )]
+    #[serde(default = "SlicingParams::default_time_estimate_cooldown_s")]
+    pub time_estimate_cooldown_s: f64,
+
+    #[schemars(
+        description = "Calibration multiplier applied to the *toolpath* portion of the print-time estimate. `1.0` = no adjustment.
+
+If real prints consistently run a few percent over/under the estimate (tiny details the model rounds off, firmware smoothing), nudge this to match your machine — `1.05` adds 5 %. Scales only the toolpath; the fixed warm-up/cool-down allowances are added afterward.
+**Typical:** 0.9–1.15.",
+        extend("x-group" = "Time estimate")
+    )]
+    #[serde(default = "SlicingParams::default_time_estimate_scale")]
+    pub time_estimate_scale: f64,
 
     #[schemars(
         description = "Number of initial layers with the part-cooling fan forced off.
@@ -1445,14 +2058,14 @@ the model. Set to `0` for supports that touch the overhang directly (strongest, 
 
     #[schemars(
         description = "Custom start G-code block, inserted before the first print move. `null` = flavor default.",
-        extend("x-group" = "Output")
+        extend("x-group" = "Output", "x-widget" = "gcode")
     )]
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub start_gcode: Option<String>,
 
     #[schemars(
         description = "Custom end G-code block, inserted after the last print move. `null` = flavor default.",
-        extend("x-group" = "Output")
+        extend("x-group" = "Output", "x-widget" = "gcode")
     )]
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub end_gcode: Option<String>,
@@ -1461,10 +2074,29 @@ the model. Set to `0` for supports that touch the overhang directly (strongest, 
         description = "Custom G-code block inserted at every layer change, after the Z move. \
                        Supports `{z}`, `{height}`, and `{layer_num}` (1-based) placeholders. \
                        `null` = none.",
-        extend("x-group" = "Output")
+        extend("x-group" = "Output", "x-widget" = "gcode")
     )]
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub layer_gcode: Option<String>,
+
+    #[schemars(
+        description = "Per-filament start G-code, inserted after the machine start G-code and \
+                       before the first print move. Typically supplied by the filament profile \
+                       (temperatures, purge, pressure advance). Supports the same temperature / \
+                       material placeholders as `start_gcode`. `null` = none.",
+        extend("x-group" = "Filament G-code", "x-widget" = "gcode")
+    )]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub start_filament_gcode: Option<String>,
+
+    #[schemars(
+        description = "Per-filament end G-code, inserted after the last print move and before the \
+                       machine end G-code. Typically supplied by the filament profile. Supports \
+                       the same temperature / material placeholders as `end_gcode`. `null` = none.",
+        extend("x-group" = "Filament G-code", "x-widget" = "gcode")
+    )]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub end_filament_gcode: Option<String>,
 
     #[schemars(
         description = "Embed a PNG thumbnail comment block in generated G-code files. \
@@ -1519,6 +2151,41 @@ the model. Set to `0` for supports that touch the overhang directly (strongest, 
     #[schemars(skip)]
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub thumbnail_png_base64: Option<String>,
+
+    #[schemars(
+        description = "How a plate with several objects is printed: all objects together, rising one layer at a time — or each object finished completely before the next begins.",
+        extend("x-group" = "Objects")
+    )]
+    #[serde(default)]
+    pub print_sequence: PrintSequence,
+
+    #[schemars(
+        description = "Let a single object be cancelled while the print continues, if it fails or lifts off the bed — without losing the rest of the plate. Needs a printer that supports skipping objects.",
+        extend("x-group" = "Hardware")
+    )]
+    #[serde(default)]
+    pub exclude_object: bool,
+
+    #[schemars(
+        description = "Clearance height in mm: an object shorter than this fits under the printhead as it moves. Used when printing objects one at a time to warn before a tall part is left in the printhead's path.",
+        extend("x-group" = "Hardware")
+    )]
+    #[serde(default = "SlicingParams::default_extruder_clearance_height")]
+    pub extruder_clearance_height_mm: f64,
+
+    #[schemars(
+        description = "How far the printhead and its fan shroud reach out around the nozzle, in mm. Used when printing objects one at a time to warn before two parts are placed too close to reach safely.",
+        extend("x-group" = "Hardware")
+    )]
+    #[serde(default = "SlicingParams::default_extruder_clearance_radius")]
+    pub extruder_clearance_radius_mm: f64,
+
+    #[schemars(
+        description = "Custom G-code to run after one object is finished and before the next one starts, when printing objects one at a time. Leave empty for none.",
+        extend("x-group" = "Objects", "x-widget" = "gcode", "x-relevant-when" = serde_json::json!({"field": "print_sequence", "equals": "by_object"}))
+    )]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub between_objects_gcode: Option<String>,
 }
 
 /// Schema helper: emit the full [`SlicingParams`] schema for a
@@ -1545,17 +2212,37 @@ impl Default for SlicingParams {
             wall_transition_angle: Self::default_wall_transition_angle(),
             wall_transition_filter_distance: Self::default_wall_transition_filter_distance(),
             seam_position: Self::default_seam_position(),
+            external_perimeters_first: Self::default_external_perimeters_first(),
+            extra_perimeters: Self::default_extra_perimeters(),
+            extra_perimeters_max_gap: Self::default_extra_perimeters_max_gap(),
+            thin_walls: Self::default_thin_walls(),
+            ensure_vertical_shell_thickness: Self::default_ensure_vertical_shell_thickness(),
+            avoid_crossing_perimeters: Self::default_avoid_crossing_perimeters(),
+            spiral_vase: Self::default_spiral_vase(),
             infill_density: 0.2,
             infill_pattern: Self::default_infill_pattern(),
             infill_base_angle: Self::default_infill_base_angle(),
+            infill_anchor_percent: Self::default_infill_anchor_percent(),
+            infill_anchor_max_mm: Self::default_infill_anchor_max_mm(),
+            infill_every_layers: Self::default_infill_every_layers(),
+            infill_combination_max_layer_height_mm:
+                Self::default_infill_combination_max_layer_height_mm(),
+            solid_infill_every_layers: Self::default_solid_infill_every_layers(),
             print_speed: 60.0,
             perimeter_speed: Self::default_perimeter_speed(),
             infill_speed: Self::default_infill_speed(),
             bridge_speed: Self::default_bridge_speed(),
+            enable_overhang_speed: Self::default_enable_overhang_speed(),
+            overhang_1_4_speed: Self::default_overhang_degree_speed(),
+            overhang_2_4_speed: Self::default_overhang_degree_speed(),
+            overhang_3_4_speed: Self::default_overhang_degree_speed(),
+            overhang_4_4_speed: Self::default_overhang_4_4_speed(),
+            slowdown_for_curled_perimeters: Self::default_slowdown_for_curled_perimeters(),
             bridge_flow_ratio: Self::default_bridge_flow_ratio(),
             bridge_min_area_mm2: Self::default_bridge_min_area_mm2(),
             bridge_noise_filter_mm: Self::default_bridge_noise_filter_mm(),
             bridge_anchor_mm: Self::default_bridge_anchor_mm(),
+            bridge_angle: Self::default_bridge_angle(),
             top_surface_speed: Self::default_top_surface_speed(),
             gap_fill_speed: Self::default_gap_fill_speed(),
             gap_fill_min_length_mm: Self::default_gap_fill_min_length_mm(),
@@ -1563,6 +2250,8 @@ impl Default for SlicingParams {
             first_layer_speed: Self::default_first_layer_speed(),
             fan_speed: Self::default_fan_speed(),
             bridge_fan_speed: Self::default_bridge_fan_speed(),
+            overhang_fan_speed: Self::default_overhang_fan_speed(),
+            overhang_fan_threshold: Self::default_overhang_fan_threshold(),
             first_layer_fan_speed: Self::default_first_layer_fan_speed(),
             coasting_distance_mm: Self::default_coasting_distance_mm(),
             nozzle_temp: 210.0,
@@ -1570,13 +2259,29 @@ impl Default for SlicingParams {
             top_layers: Self::default_top_layers(),
             bottom_layers: Self::default_bottom_layers(),
             surface_infill_angle: Self::default_surface_infill_angle(),
+            top_surface_pattern: Self::default_top_surface_pattern(),
+            bottom_surface_pattern: Self::default_bottom_surface_pattern(),
+            internal_solid_infill_pattern: Self::default_internal_solid_infill_pattern(),
             filament_diameter_mm: Self::default_filament_diameter_mm(),
             filament_density_g_cm3: Self::default_filament_density_g_cm3(),
+            filament_cost_per_kg: 0.0,
             nozzle_diameter_mm: Self::default_nozzle_diameter_mm(),
+            z_offset_mm: Self::default_z_offset_mm(),
             bed_type: String::new(),
+            heated_chamber: Self::default_heated_chamber(),
+            printer_vendor: String::new(),
+            printer_model: String::new(),
             travel_speed_mm_min: Self::default_travel_speed_mm_min(),
             z_hop_mm: Self::default_z_hop_mm(),
             retract_mm: Self::default_retract_mm(),
+            retract_before_travel_mm: Self::default_retract_before_travel_mm(),
+            retract_restart_extra_mm: Self::default_retract_restart_extra_mm(),
+            retract_on_layer_change: Self::default_retract_on_layer_change(),
+            use_firmware_retraction: Self::default_use_firmware_retraction(),
+            use_relative_e_distances: Self::default_use_relative_e_distances(),
+            wipe: Self::default_wipe(),
+            wipe_distance_mm: Self::default_wipe_distance_mm(),
+            retract_before_wipe_percent: Self::default_retract_before_wipe_percent(),
             only_one_wall_top: Self::default_only_one_wall_top(),
             only_one_wall_first_layer: Self::default_only_one_wall_first_layer(),
             support_threshold_angle: Self::default_support_threshold_angle(),
@@ -1598,6 +2303,7 @@ impl Default for SlicingParams {
             nozzle_temp_first_layer: Self::default_nozzle_temp_first_layer(),
             bed_temp_first_layer: Self::default_bed_temp_first_layer(),
             chamber_temp: Self::default_chamber_temp(),
+            chamber_temp_first_layer: Self::default_chamber_temp_first_layer(),
             filament_type: String::new(),
             filament_name: String::new(),
             filament_color: String::new(),
@@ -1607,6 +2313,11 @@ impl Default for SlicingParams {
             top_surface_acceleration: Self::default_top_surface_acceleration(),
             outer_wall_acceleration: Self::default_outer_wall_acceleration(),
             bridge_acceleration: Self::default_bridge_acceleration(),
+            square_corner_velocity: Self::default_square_corner_velocity(),
+            max_velocity: Self::default_max_velocity(),
+            time_estimate_warmup_s: Self::default_time_estimate_warmup_s(),
+            time_estimate_cooldown_s: Self::default_time_estimate_cooldown_s(),
+            time_estimate_scale: Self::default_time_estimate_scale(),
             disable_fan_first_layers: Self::default_disable_fan_first_layers(),
             max_volumetric_speed: Self::default_max_volumetric_speed(),
             extruder_count: Self::default_extruder_count(),
@@ -1630,6 +2341,8 @@ impl Default for SlicingParams {
             start_gcode: None,
             end_gcode: None,
             layer_gcode: None,
+            start_filament_gcode: None,
+            end_filament_gcode: None,
             thumbnail_enabled: Self::default_thumbnail_enabled(),
             thumbnail_size_px: Self::default_thumbnail_size_px(),
             thumbnail_view: ThumbnailView::default(),
@@ -1637,14 +2350,75 @@ impl Default for SlicingParams {
             thumbnail_color_mode: ThumbnailColorMode::default(),
             thumbnail_custom_color: Self::default_thumbnail_custom_color(),
             thumbnail_png_base64: None,
+            print_sequence: PrintSequence::default(),
+            exclude_object: false,
+            extruder_clearance_height_mm: Self::default_extruder_clearance_height(),
+            extruder_clearance_radius_mm: Self::default_extruder_clearance_radius(),
+            between_objects_gcode: None,
         }
     }
 }
 
 impl SlicingParams {
+    /// Does this configuration need the plate sliced **object by object**?
+    ///
+    /// Object identity survives slicing only when something downstream needs
+    /// it: firmware object markers ([`Self::exclude_object`]) or sequential
+    /// printing ([`Self::print_sequence`]). When neither is on, the plate is
+    /// merged into one mesh and sliced exactly as it always was, so the default
+    /// configuration produces byte-identical G-code.
+    pub fn object_aware(&self) -> bool {
+        self.exclude_object || self.print_sequence == PrintSequence::ByObject
+    }
+
+    /// Serialize these params into a stable string for the G-code content cache
+    /// key, **excluding the ephemeral thumbnail image payload**
+    /// (`thumbnail_png_base64`).
+    ///
+    /// The embedded PNG is captured fresh from the viewer on every slice, so its
+    /// bytes vary between renders (GPU/driver/anti-alias resolve, or an entirely
+    /// different client) even for an otherwise-identical scene. Hashing it into
+    /// the cache key would turn a re-slice into a miss and defeat cross-client
+    /// reuse — exactly the "must not bust the cache on every camera nudge"
+    /// requirement from issue #106. The thumbnail *settings* (view / theme /
+    /// size / colour) are deliberately retained, so the preview embedded in a
+    /// cached file always matches the request that reused it (the capture is a
+    /// fixed, deterministic viewpoint, so identical settings yield an
+    /// equivalent image).
+    ///
+    /// See the "G-code result cache" contract in AGENTS.md.
+    pub fn cache_fingerprint(&self) -> String {
+        let value = serde_json::to_value(self).unwrap_or(serde_json::Value::Null);
+        let Some(object) = value.as_object() else {
+            return value.to_string();
+        };
+        // Rebuild the map instead of `Map::remove`: with serde_json's
+        // preserve-order backing, removing a key that is not the last one
+        // *swaps the last entry into its slot*, so the surviving fields would
+        // be ordered differently depending on whether the thumbnail was
+        // present — two identical requests, two different cache keys.
+        let filtered: serde_json::Map<String, serde_json::Value> = object
+            .iter()
+            .filter(|(key, _)| key.as_str() != "thumbnail_png_base64")
+            .map(|(key, value)| (key.clone(), value.clone()))
+            .collect();
+        serde_json::Value::Object(filtered).to_string()
+    }
+
     fn default_first_layer_height() -> f64 {
         0.0
     }
+    /// Typical FFF gantry clearance — a 25 mm tall part passes under most
+    /// X-carriages. Matches PrusaSlicer's `extruder_clearance_height` default.
+    fn default_extruder_clearance_height() -> f64 {
+        25.0
+    }
+    /// Radius swept by the hotend and its fan duct. Matches PrusaSlicer's
+    /// `extruder_clearance_radius` default.
+    fn default_extruder_clearance_radius() -> f64 {
+        45.0
+    }
+
     fn default_line_width() -> f64 {
         0.0
     }
@@ -1669,6 +2443,12 @@ impl SlicingParams {
     fn default_chamber_temp() -> f64 {
         0.0
     }
+    fn default_chamber_temp_first_layer() -> f64 {
+        0.0
+    }
+    fn default_heated_chamber() -> bool {
+        false
+    }
     fn default_pressure_advance() -> f64 {
         0.0
     }
@@ -1686,6 +2466,25 @@ impl SlicingParams {
     }
     fn default_bridge_acceleration() -> f64 {
         0.0
+    }
+    fn default_square_corner_velocity() -> f64 {
+        // `0` = defer to the estimator/firmware default (5 mm/s). Kept at 0 so a
+        // profile that never set it doesn't start emitting an `M205`/velocity
+        // limit that changes existing output.
+        0.0
+    }
+    fn default_max_velocity() -> f64 {
+        // `0` = no cap; role feedrates stand as emitted.
+        0.0
+    }
+    fn default_time_estimate_warmup_s() -> f64 {
+        0.0
+    }
+    fn default_time_estimate_cooldown_s() -> f64 {
+        0.0
+    }
+    fn default_time_estimate_scale() -> f64 {
+        1.0
     }
     fn default_disable_fan_first_layers() -> usize {
         1
@@ -1750,13 +2549,20 @@ impl SlicingParams {
 }
 
 impl SlicingParams {
-    /// Human-readable warnings for profile features that are represented in the
-    /// parameter set but **not yet implemented** by the pipeline.
+    /// Human-readable warnings for settings that will **not** take effect.
     ///
     /// This is the "document + dummy logic" seam: rather than silently dropping
     /// a setting the user enabled, the slice path surfaces a warning so intent
-    /// is visible. Each entry corresponds to a `TODO(profiles): …` marker at the
-    /// (future) implementation site.
+    /// is visible. It covers two kinds of gap —
+    ///
+    /// 1. **Not implemented yet** — the feature is in the parameter set but not
+    ///    in the pipeline. Each corresponds to a `TODO(profiles): …` marker at
+    ///    the (future) implementation site.
+    /// 2. **Unmet dependency** — the feature exists, but another setting it
+    ///    needs is not configured. Typically cross-contract: the filament asks
+    ///    for something the printer must provide. The UI shows these next to the
+    ///    offending control with a link to the fix (see the field-exceptions
+    ///    registry); this is the same honesty for every other front end.
     ///
     /// Implementation checklist (remove the branch here when each lands):
     /// - `TODO(profiles): ironing` — top-surface ironing pass.
@@ -1778,7 +2584,115 @@ full branching tree support is not yet implemented"
         if self.extruder_count > 1 {
             w.push("multiple extruders configured but multi-material slicing is not yet implemented — using tool 0".into());
         }
+        // A chamber target without the machine capability emits nothing at all,
+        // and a chamber that never heats looks exactly like one that does until
+        // the part warps. `heated_chamber` is deliberately required (an unknown
+        // chamber command aborts the print on Klipper), so say why and where.
+        if !self.heated_chamber && self.chamber_temp_first_layer_resolved() > 0.0 {
+            w.push(format!(
+                "chamber temperature of {:.0} °C is set but the printer profile does not enable \
+                 `heated_chamber` — no chamber command will be emitted; enable it on the printer \
+                 if the machine has a chamber heater",
+                self.chamber_temp_first_layer_resolved()
+            ));
+        }
         w
+    }
+}
+
+impl SlicingParams {
+    /// Return a copy of these parameters with the settings that are
+    /// incompatible with spiral (vase) mode forced off, so the slicing pipeline
+    /// and the G-code generator always observe a consistent single-wall
+    /// configuration.
+    ///
+    /// When [`SlicingParams::spiral_vase`] is `false` this borrows `self`
+    /// unchanged. When it is `true` it forces:
+    /// - `wall_count = 1` (a single continuous perimeter),
+    /// - `infill_density = 0` and `top_layers = 0` (nothing fills the hollow
+    ///   interior of the vase),
+    /// - `retract_mm = 0` and `z_hop_mm = 0` (the spiral is one uninterrupted
+    ///   extrusion, so retraction/Z-hop would only stutter it),
+    /// - `ironing_enabled = false`.
+    ///
+    /// `bottom_layers` is intentionally left untouched: those solid layers form
+    /// the vase's base. A user who wants an open-bottomed tube sets
+    /// `bottom_layers = 0` explicitly.
+    ///
+    /// The method is idempotent, so it is safe to call at more than one pipeline
+    /// boundary (it is applied both before slicing and before G-code emission).
+    pub fn spiral_vase_normalized(&self) -> std::borrow::Cow<'_, SlicingParams> {
+        if !self.spiral_vase {
+            return std::borrow::Cow::Borrowed(self);
+        }
+        let mut p = self.clone();
+        p.wall_count = 1;
+        p.infill_density = 0.0;
+        p.top_layers = 0;
+        p.retract_mm = 0.0;
+        p.z_hop_mm = 0.0;
+        p.ironing_enabled = false;
+        std::borrow::Cow::Owned(p)
+    }
+}
+
+/// Thermal management — chamber targets and the part-cooling fan policy.
+///
+/// These resolve the "`0` = inherit" sentinels and the precedence between the
+/// filament-owned cooling scalars and the `fan_configs` adaptive table, so the
+/// G-code generator never re-derives the rules and they stay unit-testable.
+impl SlicingParams {
+    /// Chamber target for the first layer: [`SlicingParams::chamber_temp_first_layer`]
+    /// when set, otherwise [`SlicingParams::chamber_temp`].
+    pub fn chamber_temp_first_layer_resolved(&self) -> f64 {
+        if self.chamber_temp_first_layer > 0.0 {
+            self.chamber_temp_first_layer
+        } else {
+            self.chamber_temp
+        }
+    }
+
+    /// Whether the slicer should emit real chamber heat directives.
+    ///
+    /// Requires the machine to declare [`SlicingParams::heated_chamber`] *and* a
+    /// target above ambient — a chamber temperature of `0` means "don't manage
+    /// the chamber", not "cool it down".
+    pub fn chamber_heating_active(&self) -> bool {
+        self.heated_chamber
+            && (self.chamber_temp > 0.0 || self.chamber_temp_first_layer_resolved() > 0.0)
+    }
+
+    /// Whether the part-cooling fan is **pinned** to
+    /// [`SlicingParams::first_layer_fan_speed`] on the given 0-based layer.
+    ///
+    /// True for the bottom [`SlicingParams::disable_fan_first_layers`] layers,
+    /// where adhesion beats cooling. While pinned, the per-segment bridge and
+    /// overhang fan overrides are suppressed too — otherwise a single overhang
+    /// on layer 1 would defeat the whole point.
+    pub fn part_cooling_pinned(&self, layer_index: usize) -> bool {
+        layer_index < self.disable_fan_first_layers
+    }
+
+    /// Apply the filament-owned part-cooling policy on top of an adaptive speed
+    /// computed from the `fan_configs` table.
+    ///
+    /// Precedence:
+    /// 1. bottom `disable_fan_first_layers` layers → `first_layer_fan_speed`
+    ///    (default `0.0`, i.e. fan off);
+    /// 2. otherwise the adaptive speed, capped at `fan_speed` — the material's
+    ///    cooling ceiling, which is what keeps ABS/ASA/PC from being blasted at
+    ///    100 % while the chamber is trying to hold temperature.
+    ///
+    /// Applies to the part-cooling fan (`fan_index` 0) only; hotend, chamber and
+    /// auxiliary fans keep their pure `fan_configs` + [`AuxFanOverrides`]
+    /// behaviour.
+    pub fn part_cooling_speed(&self, layer_index: usize, adaptive_speed: f64) -> f64 {
+        if self.part_cooling_pinned(layer_index) {
+            return self.first_layer_fan_speed.clamp(0.0, 1.0);
+        }
+        adaptive_speed
+            .clamp(0.0, 1.0)
+            .min(self.fan_speed.clamp(0.0, 1.0))
     }
 }
 
@@ -1823,12 +2737,64 @@ impl SlicingParams {
         SeamPosition::Nearest
     }
 
+    fn default_external_perimeters_first() -> bool {
+        false
+    }
+
+    fn default_extra_perimeters() -> bool {
+        false
+    }
+
+    fn default_extra_perimeters_max_gap() -> f64 {
+        3.0
+    }
+
+    fn default_thin_walls() -> bool {
+        true
+    }
+
+    fn default_ensure_vertical_shell_thickness() -> bool {
+        false
+    }
+
+    fn default_avoid_crossing_perimeters() -> bool {
+        false
+    }
+
+    fn default_spiral_vase() -> bool {
+        false
+    }
+
     fn default_infill_pattern() -> InfillPattern {
         InfillPattern::Rectilinear
     }
 
     fn default_infill_base_angle() -> f64 {
         45.0
+    }
+
+    fn default_infill_anchor_percent() -> f64 {
+        // OrcaSlicer's default: 400 % of the sparse-infill line spacing.
+        400.0
+    }
+
+    fn default_infill_anchor_max_mm() -> f64 {
+        // OrcaSlicer's default cap on a wall stretch used to join two lines.
+        20.0
+    }
+
+    fn default_infill_every_layers() -> u32 {
+        1
+    }
+
+    fn default_infill_combination_max_layer_height_mm() -> f64 {
+        // 0 = fall back to the nozzle diameter, the practical ceiling for how
+        // tall a single bead can be laid.
+        0.0
+    }
+
+    fn default_solid_infill_every_layers() -> u32 {
+        0
     }
 
     fn default_perimeter_speed() -> f64 {
@@ -1841,6 +2807,60 @@ impl SlicingParams {
 
     fn default_bridge_speed() -> f64 {
         25.0
+    }
+
+    fn default_enable_overhang_speed() -> bool {
+        // On by default: the steep bands are *already* split off as
+        // `OverhangPerimeter` by the binary classifier, so grading them costs no
+        // extra path fragments — it only lets the near-airborne band print
+        // slower and cooler than a half-supported one.
+        true
+    }
+
+    /// Default for the three milder `overhang_*_speed` bands: `0` = inherit
+    /// (Deg1/Deg2 → `perimeter_speed`, Deg3 → `bridge_speed`).
+    ///
+    /// Deg1/Deg2 centrelines lie *within* the previous layer's bead envelope
+    /// (≥ 50 % supported) — the same "slight lean" geometry the overhang
+    /// classifier deliberately refuses to flag. Slowing them would tax a large
+    /// share of ordinary walls on any curved model for no quality gain, and
+    /// would fragment those loops into arcs that print identically. Deg3
+    /// inherits `bridge_speed`, so it tracks that setting instead of pinning a
+    /// second number that can drift out of sync with it.
+    fn default_overhang_degree_speed() -> f64 {
+        0.0
+    }
+
+    /// Deg4 (75–100 % unsupported) in mm/s.
+    ///
+    /// This band is effectively extruding into air, but unlike a bridge it has
+    /// no anchored far end to tension against — so it wants to be slower than
+    /// `bridge_speed` (25), not equal to it. 15 mm/s gives the strand time to
+    /// set while staying well inside the melt rate (≈ 1.2 mm³/s at 0.4 mm ×
+    /// 0.2 mm).
+    fn default_overhang_4_4_speed() -> f64 {
+        15.0
+    }
+
+    fn default_slowdown_for_curled_perimeters() -> bool {
+        // Opt-in: this clamps every steep band to the *slowest* overhang speed,
+        // which collapses Deg3 into Deg4 and discards the grading. Useful as a
+        // deliberate curl-mitigation, wrong as a default.
+        false
+    }
+
+    fn default_overhang_fan_speed() -> f64 {
+        // Matches `bridge_fan_speed`: material laid over air is the case part
+        // cooling exists for. Gated by `overhang_fan_threshold` so it only fires
+        // on the steep bands.
+        1.0
+    }
+
+    fn default_overhang_fan_threshold() -> f64 {
+        // 50 % unsupported → Deg3/Deg4 only, aligning the fan boost with the
+        // binary OverhangPerimeter classification. Keeping Deg1/Deg2 below the
+        // threshold is also what lets them fold away instead of splitting walls.
+        0.5
     }
 
     fn default_bridge_flow_ratio() -> f64 {
@@ -1915,6 +2935,24 @@ impl SlicingParams {
         45.0
     }
 
+    fn default_top_surface_pattern() -> SurfacePattern {
+        // OrcaSlicer's default: the most uniform-looking visible surface.
+        SurfacePattern::MonotonicLine
+    }
+
+    fn default_bottom_surface_pattern() -> SurfacePattern {
+        SurfacePattern::Monotonic
+    }
+
+    fn default_internal_solid_infill_pattern() -> SurfacePattern {
+        SurfacePattern::Monotonic
+    }
+
+    fn default_bridge_angle() -> f64 {
+        // 0 = detect automatically (PrusaSlicer/Orca convention).
+        0.0
+    }
+
     fn default_filament_diameter_mm() -> f64 {
         1.75
     }
@@ -1928,6 +2966,11 @@ impl SlicingParams {
         0.4
     }
 
+    /// No Z compensation: emitted Z coordinates are the slice layer heights.
+    fn default_z_offset_mm() -> f64 {
+        0.0
+    }
+
     fn default_travel_speed_mm_min() -> f64 {
         9000.0
     }
@@ -1938,6 +2981,38 @@ impl SlicingParams {
 
     fn default_retract_mm() -> f64 {
         1.0
+    }
+
+    fn default_retract_before_travel_mm() -> f64 {
+        1.0
+    }
+
+    fn default_retract_restart_extra_mm() -> f64 {
+        0.0
+    }
+
+    fn default_retract_on_layer_change() -> bool {
+        false
+    }
+
+    fn default_use_firmware_retraction() -> bool {
+        false
+    }
+
+    fn default_use_relative_e_distances() -> bool {
+        false
+    }
+
+    fn default_wipe() -> bool {
+        false
+    }
+
+    fn default_wipe_distance_mm() -> f64 {
+        1.0
+    }
+
+    fn default_retract_before_wipe_percent() -> f64 {
+        0.0
     }
 
     fn default_only_one_wall_top() -> bool {
@@ -2057,6 +3132,183 @@ mod tests {
     use super::*;
 
     #[test]
+    fn chamber_target_without_a_heated_chamber_is_reported() {
+        // The filament asks for a chamber; the printer never said it has one.
+        // Silence here is the failure mode — the print warps and nothing said why.
+        let params = SlicingParams {
+            heated_chamber: false,
+            chamber_temp: 50.0,
+            ..SlicingParams::default()
+        };
+        let warnings = params.unsupported_feature_warnings();
+        assert!(
+            warnings.iter().any(|w| w.contains("heated_chamber")),
+            "expected a chamber warning, got: {warnings:?}"
+        );
+    }
+
+    #[test]
+    fn a_configured_chamber_is_not_warned_about() {
+        let params = SlicingParams {
+            heated_chamber: true,
+            chamber_temp: 50.0,
+            ..SlicingParams::default()
+        };
+        assert!(params
+            .unsupported_feature_warnings()
+            .iter()
+            .all(|w| !w.contains("chamber")));
+    }
+
+    #[test]
+    fn no_chamber_target_is_not_a_misconfiguration() {
+        // The default (no chamber wanted, no heater) must stay silent — warning
+        // about it would train users to ignore warnings.
+        assert!(SlicingParams::default()
+            .unsupported_feature_warnings()
+            .iter()
+            .all(|w| !w.contains("chamber")));
+    }
+
+    #[test]
+    fn a_first_layer_only_chamber_target_is_still_reported() {
+        let params = SlicingParams {
+            heated_chamber: false,
+            chamber_temp: 0.0,
+            chamber_temp_first_layer: 60.0,
+            ..SlicingParams::default()
+        };
+        assert!(params
+            .unsupported_feature_warnings()
+            .iter()
+            .any(|w| w.contains("heated_chamber")));
+    }
+
+    /// Read a property's `x-relevant-when` gate out of the generated schema.
+    fn relevance_gate(field: &str) -> Option<serde_json::Value> {
+        let schema = schemars::schema_for!(SlicingParams);
+        let json = serde_json::to_value(&schema).expect("schema to json");
+        json.get("properties")?
+            .get(field)?
+            .get("x-relevant-when")
+            .cloned()
+    }
+
+    #[test]
+    fn generator_specific_wall_options_are_gated_in_the_schema() {
+        // A wall option only one generator honours must be hidden for the other,
+        // otherwise the UI offers a control that silently does nothing (or worse,
+        // silently changes output — the caddy thin-wall regression).
+        for (field, generator) in [
+            ("thin_walls", "classic"),
+            ("wall_distribution_count", "classic"),
+            ("gap_fill_min_length_mm", "arachne"),
+        ] {
+            let gate = relevance_gate(field)
+                .unwrap_or_else(|| panic!("{field} should carry an x-relevant-when gate"));
+            assert_eq!(
+                gate,
+                serde_json::json!({ "field": "wall_generator", "equals": generator }),
+                "{field} should only be shown for the {generator} generator"
+            );
+        }
+    }
+
+    #[test]
+    fn extra_perimeters_max_gap_is_gated_on_its_parent_toggle() {
+        let gate = relevance_gate("extra_perimeters_max_gap")
+            .expect("extra_perimeters_max_gap should carry an x-relevant-when gate");
+        assert_eq!(
+            gate,
+            serde_json::json!({ "field": "extra_perimeters", "equals": true }),
+            "the gap threshold is meaningless unless extra_perimeters is on"
+        );
+    }
+
+    #[test]
+    fn options_both_generators_honour_are_not_gated() {
+        // Guard against over-gating: these are honoured by classic *and* arachne,
+        // so hiding either would lose a working control.
+        for field in [
+            "external_perimeters_first",
+            "extra_perimeters",
+            "wall_count",
+        ] {
+            assert!(
+                relevance_gate(field).is_none(),
+                "{field} works in both generators and must stay visible"
+            );
+        }
+    }
+
+    #[test]
+    fn test_cache_fingerprint_excludes_thumbnail_png_payload() {
+        // Two requests that differ *only* in the captured thumbnail image must
+        // share a cache fingerprint — the PNG is camera-derived and re-rendered
+        // every slice, so hashing it would defeat the cache (issue #106).
+        let with_a = SlicingParams {
+            thumbnail_png_base64: Some("iVBORw0KGgoAAAA".to_string()),
+            ..SlicingParams::default()
+        };
+        let with_b = SlicingParams {
+            thumbnail_png_base64: Some("Zm9vYmFyYmF6".to_string()),
+            ..SlicingParams::default()
+        };
+        let without = SlicingParams {
+            thumbnail_png_base64: None,
+            ..SlicingParams::default()
+        };
+        assert_eq!(
+            with_a.cache_fingerprint(),
+            with_b.cache_fingerprint(),
+            "different thumbnail images must not change the fingerprint"
+        );
+        assert_eq!(
+            with_a.cache_fingerprint(),
+            without.cache_fingerprint(),
+            "presence/absence of the thumbnail image must not change the fingerprint"
+        );
+    }
+
+    #[test]
+    fn test_cache_fingerprint_tracks_toolpath_and_thumbnail_settings() {
+        let base = SlicingParams::default();
+
+        // A toolpath-affecting setting must change the fingerprint.
+        let taller_layers = SlicingParams {
+            layer_height: base.layer_height + 0.05,
+            ..SlicingParams::default()
+        };
+        assert_ne!(
+            base.cache_fingerprint(),
+            taller_layers.cache_fingerprint(),
+            "layer height must be part of the cache fingerprint"
+        );
+
+        // Thumbnail *settings* stay in the key so a cached file's embedded
+        // preview always matches the request that reused it.
+        let bigger_thumb = SlicingParams {
+            thumbnail_size_px: base.thumbnail_size_px + 64,
+            ..SlicingParams::default()
+        };
+        assert_ne!(
+            base.cache_fingerprint(),
+            bigger_thumb.cache_fingerprint(),
+            "thumbnail settings must remain part of the cache fingerprint"
+        );
+
+        // The fingerprint must never carry the raw image bytes.
+        let with_png = SlicingParams {
+            thumbnail_png_base64: Some("SHOULD_NOT_APPEAR".to_string()),
+            ..SlicingParams::default()
+        };
+        assert!(
+            !with_png.cache_fingerprint().contains("SHOULD_NOT_APPEAR"),
+            "cache fingerprint must not embed the thumbnail image payload"
+        );
+    }
+
+    #[test]
     fn test_object_settings_with_overrides_round_trip() {
         let os = ObjectSettings {
             object_name: "part_a".to_string(),
@@ -2136,6 +3388,56 @@ mod tests {
             params.surface_infill_angle, 45.0,
             "Default surface infill angle should be 45°"
         );
+    }
+
+    #[test]
+    fn test_perimeter_routing_defaults() {
+        let p = SlicingParams::default();
+        assert!(
+            !p.external_perimeters_first,
+            "outer wall prints last by default (ecosystem standard)"
+        );
+        assert!(!p.extra_perimeters, "extra_perimeters off by default");
+        assert_eq!(p.extra_perimeters_max_gap, 3.0);
+        assert!(p.thin_walls, "thin-wall gap fill on by default");
+        assert!(
+            !p.ensure_vertical_shell_thickness,
+            "vertical-shell enforcement off by default"
+        );
+        assert!(
+            !p.avoid_crossing_perimeters,
+            "avoid_crossing_perimeters off by default"
+        );
+    }
+
+    #[test]
+    fn test_perimeter_routing_round_trips_through_json() {
+        let p = SlicingParams {
+            external_perimeters_first: true,
+            extra_perimeters: true,
+            extra_perimeters_max_gap: 2.5,
+            thin_walls: false,
+            ensure_vertical_shell_thickness: true,
+            avoid_crossing_perimeters: true,
+            ..SlicingParams::default()
+        };
+        let json = serde_json::to_string(&p).expect("serialize");
+        let back: SlicingParams = serde_json::from_str(&json).expect("deserialize");
+        assert!(back.external_perimeters_first);
+        assert!(back.extra_perimeters);
+        assert_eq!(back.extra_perimeters_max_gap, 2.5);
+        assert!(!back.thin_walls);
+        assert!(back.ensure_vertical_shell_thickness);
+        assert!(back.avoid_crossing_perimeters);
+    }
+
+    #[test]
+    fn test_perimeter_routing_absent_keys_use_defaults() {
+        // A sparse process-profile params bag omits these keys → engine defaults.
+        let p: SlicingParams = serde_json::from_str(r#"{"wall_count": 2}"#).expect("deserialize");
+        assert!(!p.external_perimeters_first);
+        assert!(p.thin_walls);
+        assert!(!p.avoid_crossing_perimeters);
     }
 
     #[test]

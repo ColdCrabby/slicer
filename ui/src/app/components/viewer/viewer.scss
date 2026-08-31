@@ -6,6 +6,12 @@
   background: var(--color-bg-primary);
   overflow: hidden;
   user-select: none;
+  // The viewer claims every touch gesture for itself: one finger orbits, two
+  // pinch the camera. Without this the browser would read those as a page pan
+  // and a page zoom, and the model would sit still while the whole document
+  // slid around underneath it. Scoped here rather than on `html` so the rest
+  // of the app keeps ordinary browser zoom.
+  touch-action: none;
 }
 
 .viewer-host {

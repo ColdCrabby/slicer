@@ -1,8 +1,6 @@
 import { ChangeDetectionStrategy, Component, EventEmitter, computed, input } from '@angular/core';
-import { Select } from '../../../ui/select/select';
-import type { SelectOption } from '../../../ui/select/select';
+import { Select, type SelectOption, TooltipDirective } from '@coldcrabby/ui';
 import { IconButton } from '../../../shared/icon-button/icon-button';
-import { TooltipDirective } from '../../../shared/tooltip/tooltip.directive';
 import type { FieldDef } from '../../models/field-def';
 import type { FieldWidget } from '../base-field';
 

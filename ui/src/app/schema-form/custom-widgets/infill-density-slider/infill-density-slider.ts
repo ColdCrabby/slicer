@@ -7,9 +7,8 @@ import {
   signal,
   untracked,
 } from '@angular/core';
-import { Slider } from '../../../ui/slider/slider';
+import { Slider, TooltipDirective } from '@coldcrabby/ui';
 import { IconButton } from '../../../shared/icon-button/icon-button';
-import { TooltipDirective } from '../../../shared/tooltip/tooltip.directive';
 import type { FieldDef } from '../../models/field-def';
 import type { FieldWidget } from '../../widgets/base-field';
 

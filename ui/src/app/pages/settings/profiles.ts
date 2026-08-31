@@ -13,31 +13,34 @@ import { SETTING_CONTRACTS } from '../../models/setting-contract';
 import globalSettingsSchema from '../../../schemas/slicer-engine-global-settings-v1.json';
 import { parseSchema } from '../../schema-form/models/schema-parser';
 import type { SchemaGroup } from '../../schema-form/models/field-def';
-import { CloudCatalog } from '../../services/catalog/cloud-catalog';
+import { CloudCatalog, catalogSpecOf } from '../../services/catalog/cloud-catalog';
 import { ContextMenuService } from '../../services/context-menu/context-menu.service';
 import { ContextMenuTrigger } from '../../services/context-menu/context-menu-trigger';
 import type { ContextMenuItem } from '../../services/context-menu/context-menu.model';
 import { Dialog } from '../../services/dialog';
+import { NotificationService } from '../../services/notifications';
 import { ActiveSelection } from '../../services/profiles/active-selection';
 import { matchesAllLabels, toggledLabelIds } from '../../services/profiles/label-filtering';
 import { paramNum } from '../../models/params-access';
 import { LabelFilterStore } from '../../services/profiles/label-filter-store';
 import { LabelsStore } from '../../services/profiles/labels-store';
 import { PrintProfilesStore } from '../../services/profiles/print-profiles-store';
-import { Icon } from '../../shared/icon/icon';
-import { Badge } from '../../shared/badge/badge';
+import {
+  Icon,
+  Badge,
+  Button,
+  EmptyState,
+  FieldRow,
+  IconButton,
+  ModalShell,
+  SectionHeader,
+  Segmented,
+} from '@coldcrabby/ui';
 import { CatalogPicker, type CatalogEntryVm } from '../../components/profiles/catalog-picker';
 import { ParamField } from '../../components/profiles/param-field';
 import { LabelFilterBar } from '../../components/labels/label-filter-bar';
 import { LabelPicker } from '../../components/labels/label-picker';
 import { focusConfigureTarget } from './configure-scroll';
-import { Button } from '../../ui/button/button';
-import { EmptyState } from '../../ui/empty-state/empty-state';
-import { FieldRow } from '../../ui/field-row/field-row';
-import { IconButton } from '../../ui/icon-button/icon-button';
-import { ModalShell } from '../../ui/modal-shell/modal-shell';
-import { SectionHeader } from '../../ui/section-header/section-header';
-import { Segmented } from '../../ui/segmented/segmented';
 
 /**
  * The `SlicingParams` sub-schema extracted from the generated global-settings
@@ -97,6 +100,7 @@ export class ProfilesSettings {
   private readonly catalog = inject(CloudCatalog);
   private readonly contextMenu = inject(ContextMenuService);
   private readonly dialog = inject(Dialog);
+  private readonly notifications = inject(NotificationService);
   private readonly route = inject(ActivatedRoute);
 
   protected readonly sourceLabels = PROFILE_SOURCE_LABELS;
@@ -210,7 +214,11 @@ export class ProfilesSettings {
     }
   }
 
-  protected readonly catalogStatus = this.catalog.status;
+  protected readonly catalogStatus = this.catalog.profilesStatus;
+  protected readonly catalogHasMore = this.catalog.profilesHasMore;
+  protected readonly catalogLoadingMore = this.catalog.profilesLoadingMore;
+  /** Id of the catalog entry currently being fetched for import, if any. */
+  protected readonly importingId = signal<string | null>(null);
   protected readonly catalogEntries = computed<CatalogEntryVm[]>(() =>
     this.catalog.profiles().map((p) => {
       const params = (p.params as Record<string, unknown>) ?? {};
@@ -220,7 +228,7 @@ export class ProfilesSettings {
         id: p.id,
         name: p.name,
         vendor: p.quality ?? 'standard',
-        meta: `${layer} mm · ${Math.round(infill * 100)}% infill`,
+        meta: catalogSpecOf(p) ?? `${layer} mm · ${Math.round(infill * 100)}% infill`,
         icon: 'menu-scale',
         imported: this.store.items().some((item) => item.based_on === p.id),
       };
@@ -232,22 +240,46 @@ export class ProfilesSettings {
   }
 
   protected openCatalog(): void {
-    void this.catalog.load();
+    void this.catalog.loadProfiles();
     this.catalogOpen.set(true);
   }
 
-  protected retryCatalog(): void {
-    void this.catalog.load(true);
+  protected onCatalogSearch(query: string): void {
+    void this.catalog.searchProfiles(query);
   }
 
-  protected importFromCatalog(id: string): void {
-    const entry = this.catalog.profiles().find((p) => p.id === id);
-    if (!entry) {
+  protected retryCatalog(): void {
+    void this.catalog.loadProfiles(true, this.catalog.profilesQuery());
+  }
+
+  protected loadMoreCatalog(): void {
+    void this.catalog.loadMoreProfiles();
+  }
+
+  /**
+   * Fetch the full preset behind `id` (real slicing params, not just the
+   * browsed summary) and import it. The catalog picker shows a busy state on
+   * this entry's pick button for the duration.
+   */
+  protected async importFromCatalog(id: string): Promise<void> {
+    const base = this.catalog.profiles().find((p) => p.id === id);
+    if (!base || this.importingId()) {
       return;
     }
-    const copy = this.store.importFromCatalog(entry);
-    this.active.selectProfile(copy.id);
-    this.select(copy.id);
+    this.importingId.set(id);
+    try {
+      const full = await this.catalog.profileDetail(base);
+      const copy = this.store.importFromCatalog(full);
+      this.active.selectProfile(copy.id);
+      this.select(copy.id);
+    } catch (error) {
+      this.notifications.error(
+        'Import failed',
+        error instanceof Error ? error.message : 'The preset details could not be fetched.',
+      );
+    } finally {
+      this.importingId.set(null);
+    }
   }
 
   /** Open a profile in the detail pane. */
@@ -365,6 +397,23 @@ export class ProfilesSettings {
   /** A profile's `params` bag as a plain record for the field controls. */
   protected paramsOf(profile: PrintProfile): Record<string, unknown> {
     return (profile.params as Record<string, unknown>) ?? {};
+  }
+
+  /**
+   * Sibling values for a process field's cross-contract notices: this profile's
+   * own params over the **active printer's and filament's**, matching the
+   * engine's `printer → filament → process` merge order.
+   *
+   * A process setting can depend on the machine or the material, and both live
+   * on profiles the user is not currently looking at — see
+   * `ui-design-language.instructions.md`, "Cross-contract dependencies".
+   */
+  protected siblingsFor(profile: PrintProfile): Record<string, unknown> {
+    return {
+      ...((this.active.printer()?.params as Record<string, unknown>) ?? {}),
+      ...((this.active.filament()?.params as Record<string, unknown>) ?? {}),
+      ...this.paramsOf(profile),
+    };
   }
 
   /** Apply a single param field edit (templates can't build computed keys). */

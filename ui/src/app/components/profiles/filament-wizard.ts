@@ -9,15 +9,11 @@ import {
   type FilamentMaterial,
   type FilamentProfile,
 } from '../../models/filament.model';
-import { CloudCatalog, toUserCopy } from '../../services/catalog/cloud-catalog';
+import { CloudCatalog, catalogSpecOf, toUserCopy } from '../../services/catalog/cloud-catalog';
 import { ActiveSelection } from '../../services/profiles/active-selection';
 import { FilamentsStore } from '../../services/profiles/filaments-store';
-import { Icon } from '../../shared/icon/icon';
-import { NumberInput } from '../../ui/number-input/number-input';
-import { Select } from '../../ui/select/select';
-import { ColorPicker } from '../../ui/color-picker/color-picker';
-import { FieldRow } from '../../ui/field-row/field-row';
-import { WizardShell } from '../../ui/wizard/wizard-shell';
+import { NotificationService } from '../../services/notifications';
+import { Icon, NumberInput, Select, ColorPicker, FieldRow, WizardShell } from '@coldcrabby/ui';
 import { CatalogPicker, type CatalogEntryVm } from './catalog-picker';
 import { paramNum } from '../../models/params-access';
 
@@ -40,6 +36,7 @@ export class FilamentWizard {
   private readonly catalog = inject(CloudCatalog);
   private readonly store = inject(FilamentsStore);
   private readonly active = inject(ActiveSelection);
+  private readonly notifications = inject(NotificationService);
   private readonly router = inject(Router);
 
   protected readonly steps = STEPS;
@@ -51,13 +48,19 @@ export class FilamentWizard {
     label: FILAMENT_MATERIAL_LABELS[m],
   }));
 
-  protected readonly catalogStatus = this.catalog.status;
+  protected readonly catalogStatus = this.catalog.filamentsStatus;
+  protected readonly catalogHasMore = this.catalog.filamentsHasMore;
+  protected readonly catalogLoadingMore = this.catalog.filamentsLoadingMore;
+  /** Id of the catalog entry currently being fetched for import, if any. */
+  protected readonly importingId = signal<string | null>(null);
   protected readonly catalogEntries = computed<CatalogEntryVm[]>(() =>
     this.catalog.filaments().map((f) => ({
       id: f.id,
       name: f.name,
       vendor: f.vendor,
-      meta: `${f.material} · ${(f.params as Record<string, unknown>)?.['nozzle_temp']}°C`,
+      meta:
+        catalogSpecOf(f) ??
+        `${f.material} · ${(f.params as Record<string, unknown>)?.['nozzle_temp']}°C`,
       color: f.color,
       imported: this.store.items().some((item) => item.based_on === f.id),
     })),
@@ -71,7 +74,7 @@ export class FilamentWizard {
   });
 
   constructor() {
-    void this.catalog.load();
+    void this.catalog.loadFilaments();
   }
 
   protected readonly pnum = paramNum;
@@ -118,16 +121,41 @@ export class FilamentWizard {
     this.index.set(1);
   }
 
-  protected startFromCatalog(id: string): void {
-    const entry = this.catalog.filaments().find((f) => f.id === id);
-    if (entry) {
-      this.draft.set(toUserCopy(entry));
+  /**
+   * Fetch the full preset behind `id` (real slicing params, not just the
+   * browsed summary) and seed the draft from it. The catalog picker shows a
+   * busy state on this entry's pick button for the duration.
+   */
+  protected async startFromCatalog(id: string): Promise<void> {
+    const base = this.catalog.filaments().find((f) => f.id === id);
+    if (!base || this.importingId()) {
+      return;
+    }
+    this.importingId.set(id);
+    try {
+      const full = await this.catalog.filamentDetail(base);
+      this.draft.set(toUserCopy(full));
       this.index.set(1);
+    } catch (error) {
+      this.notifications.error(
+        'Could not load preset',
+        error instanceof Error ? error.message : 'The preset details could not be fetched.',
+      );
+    } finally {
+      this.importingId.set(null);
     }
   }
 
+  protected loadMoreCatalog(): void {
+    void this.catalog.loadMoreFilaments();
+  }
+
+  protected onCatalogSearch(query: string): void {
+    void this.catalog.searchFilaments(query);
+  }
+
   protected retryCatalog(): void {
-    void this.catalog.load(true);
+    void this.catalog.loadFilaments(true, this.catalog.filamentsQuery());
   }
 
   protected back(): void {

@@ -3,6 +3,8 @@
   "version": "0.0.0",
   "scripts": {
     "ng": "ng",
+    "postinstall": "node scripts/vendor-ui.mjs",
+    "vendor:ui": "node scripts/vendor-ui.mjs",
     "start": "ng serve --host 0.0.0.0",
     "start:web-slicer": "ng serve --host 0.0.0.0 --configuration web-slicer",
     "build": "ng build",
@@ -11,7 +13,8 @@
     "test": "ng test",
     "gen-schemas": "cd .. && cargo run -- gen-schemas --output-dir ui/src/schemas",
     "gen-types": "pnpm exec json2ts --declareExternallyReferenced -i \"src/schemas/*.json\" -o src/generated",
-    "gen": "pnpm run gen-schemas && pnpm run gen-types"
+    "gen-catalog-client": "pnpm exec openapi-ts",
+    "gen": "pnpm run gen-schemas && pnpm run gen-types && pnpm run gen-catalog-client"
   },
   "private": true,
   "dependencies": {
@@ -45,6 +48,7 @@
     "@angular/build": "^22.1.6",
     "@angular/cli": "^22.1.6",
     "@angular/compiler-cli": "^22.1.4",
+    "@hey-api/openapi-ts": "^0.99.0",
     "jsdom": "^28.0.0",
     "json-schema-to-typescript": "^15.0.4",
     "prettier": "^3.9.6",

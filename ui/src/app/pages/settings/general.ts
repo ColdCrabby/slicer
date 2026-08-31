@@ -1,4 +1,5 @@
 import { ChangeDetectionStrategy, Component, computed, inject, OnInit } from '@angular/core';
+import { RouterLink } from '@angular/router';
 import {
   MAX_FIELD_OF_VIEW,
   MIN_FIELD_OF_VIEW,
@@ -8,14 +9,19 @@ import {
   type RenderQuality,
   type TwoFingerGesture,
 } from '../../services/viewer-control';
+import { ProfileExportButton } from '../../components/profiles/profile-export-button';
+import { resolveRuntimeMode } from '../../runtime/domain/runtime-mode.util';
 import { AppVersion } from '../../services/app-version';
-import { SectionHeader } from '../../ui/section-header/section-header';
-import { Slider } from '../../ui/slider/slider';
+import {
+  HistoryControlsPreference,
+  type HistoryControlsMode,
+} from '../../services/history-controls-preference';
+import { Button, SectionHeader, Slider } from '@coldcrabby/ui';
 import { FovCube } from '../../ui/fov-cube/fov-cube';
 
 @Component({
   selector: 'nexus-settings-general',
-  imports: [SectionHeader, Slider, FovCube],
+  imports: [Button, ProfileExportButton, RouterLink, SectionHeader, Slider, FovCube],
   templateUrl: './general.html',
   styleUrl: './general.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -23,6 +29,7 @@ import { FovCube } from '../../ui/fov-cube/fov-cube';
 export class GeneralSettings implements OnInit {
   protected readonly viewer = inject(ViewerControl);
   private readonly appVersion = inject(AppVersion);
+  protected readonly historyControls = inject(HistoryControlsPreference);
   protected readonly gesture = this.viewer.trackpadTwoFingerGesture;
   protected readonly statsVisible = this.viewer.statsVisible;
   protected readonly palmRejection = this.viewer.palmRejection;
@@ -34,6 +41,16 @@ export class GeneralSettings implements OnInit {
 
   protected readonly minFov = MIN_FIELD_OF_VIEW;
   protected readonly maxFov = MAX_FIELD_OF_VIEW;
+
+  /**
+   * Where the exported library comes from. Engine-backed runtimes export the
+   * copy persisted next to the slicer — the one the CLI would read — while the
+   * web runtime, where the browser is the engine, exports this browser's copy.
+   */
+  protected readonly exportScopeNote =
+    resolveRuntimeMode() === 'web'
+      ? 'Exports the library kept in this browser.'
+      : 'Exports the library saved with the slicer.';
 
   /** Build-time version metadata read from the WASM bundle (SSOT). */
   protected readonly info = this.appVersion.info;
@@ -87,5 +104,9 @@ export class GeneralSettings implements OnInit {
 
   setUseFilamentColor(value: boolean): void {
     this.viewer.setUseFilamentColor(value);
+  }
+
+  setHistoryControls(mode: HistoryControlsMode): void {
+    this.historyControls.setMode(mode);
   }
 }

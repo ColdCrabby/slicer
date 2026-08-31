@@ -47,7 +47,7 @@ export const SETTING_CONTRACTS: readonly SettingContract[] = [
     label: 'Filament',
     icon: 'droplet',
     managePath: '/settings/filaments',
-    groups: ['Temperature', 'Cooling'],
+    groups: ['Temperature', 'Cooling', 'Filament G-code'],
   },
   {
     id: 'process',
@@ -64,6 +64,7 @@ export const SETTING_CONTRACTS: readonly SettingContract[] = [
       'Quality',
       'Surfaces',
       'Adhesion',
+      'Objects',
       'Thumbnail',
       'Mesh',
     ],
@@ -87,9 +88,11 @@ export const GROUP_ICONS: Record<string, string> = {
   Hardware: 'wrench',
   Retraction: 'undo',
   Output: 'code-brackets',
+  'Filament G-code': 'code-brackets',
   Extrusion: 'extrude',
   Support: 'view-structure-down',
   Adhesion: 'magnet-energy',
+  Objects: 'packages',
   Thumbnail: 'media-image',
 };
 

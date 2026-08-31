@@ -65,6 +65,18 @@ depend on it like any other crate.
 | `capabilities/`         | Permission grants, split by platform (see below).                       |
 | `gen/apple/`            | **Generated, but committed** Xcode project. Created by `ios:init`.      |
 
+### `dev:desktop` overrides `devUrl` at launch
+
+`tauri.conf.json` pins `build.devUrl` to the default UI port and names a
+`beforeDevCommand` that starts a dev server of its own. That is right for a
+lone checkout and wrong the moment two run at once, so
+[`scripts/dev.mjs`](../scripts/dev.mjs) starts the seeded dev server itself and
+passes Tauri a generated config that **blanks `beforeDevCommand` and repoints
+`devUrl`** at it. Expect the window to load a port other than the one in
+`tauri.conf.json` — that is the seed, not a bug. The override is written to a
+file rather than passed as an inline JSON string, whose quotes do not survive a
+Windows shell.
+
 ### App icons
 
 Every platform's icon set is generated from one master,
@@ -172,6 +184,36 @@ filesystem). `capabilities/desktop.json` is fenced with
 minimize, maximize, close, drag. Mobile has no window to minimize, so granting
 those there would hand the webview commands the platform cannot honour.
 
+### The window is frameless and hidden on Windows/Linux — by config, not at runtime
+
+macOS keeps native decorations (`titleBarStyle: Overlay`, so the traffic lights
+overlay our custom title bar) and is visible from the first frame — WKWebView
+paints fast enough that there is nothing to hide. Windows and Linux instead
+create the window **frameless and hidden** in
+[`tauri.windows.conf.json`](src-tauri/tauri.windows.conf.json) /
+[`tauri.linux.conf.json`](src-tauri/tauri.linux.conf.json) (platform overrides
+that RFC 7386-merge over [`tauri.conf.json`](src-tauri/tauri.conf.json), so their
+`app.windows` array replaces the base one wholesale — hence the full window
+object is duplicated there).
+
+Both settings fix a Windows launch hang:
+
+- **Frameless at creation, never a runtime `set_decorations(false)`.** Toggling
+  decorations after the window exists forces a WebView2 relayout that visibly
+  froze the app for a moment on launch. Creating it frameless avoids the toggle
+  entirely.
+- **Hidden until the UI paints.** WebView2's cold start is slow, so a
+  visible-from-creation window sat blank and unresponsive first. The frontend
+  reveals it with `getCurrentWindow().show()` from `afterNextRender`
+  ([`app.ts`](../ui/src/app/app.ts)) — gated on `isTauriDesktop()`, so it is a
+  no-op on the web and on mobile. A Rust safety-net timer in
+  [`lib.rs`](src-tauri/src/lib.rs) shows the window anyway if that call never
+  arrives, so a frontend failure can never leave it permanently invisible. This
+  is why `desktop.json` grants `core:window:allow-show` / `allow-set-focus`.
+
+Do **not** re-add a runtime decoration toggle, and do **not** drop `visible: false`
+from the desktop platform configs — either one brings the launch hang back.
+
 ---
 
 ## What the engine looks like on iOS
@@ -269,7 +311,13 @@ pnpm run ios:dev
 
 This picks an iPad simulator, boots it, starts the Angular dev server, builds
 the Rust static library, and installs the app — with live reload on the web
-side, exactly like `pnpm run desktop:dev`.
+side, much like `pnpm run dev:desktop`.
+
+> **This is the one dev flow still on a fixed port.** Everywhere else
+> `pnpm run dev` seeds the ports so parallel checkouts don't collide, but the
+> generated Xcode project builds against the `devUrl` pinned in
+> `tauri.conf.json`, so seeding it would mean regenerating the project on every
+> run. If `:4213` is busy, stop whatever holds it before starting.
 
 > The first run cross-compiles the whole engine for `aarch64-apple-ios-sim` and
 > takes several minutes; the resulting `libapp.a` is ~500 MB in debug. Later
@@ -295,6 +343,15 @@ opens the project instead of running it.
 > generated Xcode "Build Rust Code" phase shells out to `pnpm tauri …` from
 > `gen/apple`. Without that passthrough entry pnpm cannot resolve the binary and
 > the iOS build fails with `Command "tauri" not found`. Do not remove it.
+
+> **Do not `open gen/apple/*.xcodeproj` on its own.** The "Build Rust Code"
+> phase reads a dev-server address file (`.../<T>-server-addr` in `$TMPDIR`)
+> that only exists while a `tauri ios dev`/`ios:open`/`ios:dev` process is
+> running; opening the project directly and hitting Run fails with `thread
+> '<unnamed>' panicked … failed to read missing addr file`. Always launch
+> through `pnpm run ios:dev` or `pnpm run ios:open` and keep that process
+> alive — you can still use Xcode's own Run/Debug once it has opened the
+> project for you.
 
 ### Debugging the webview
 

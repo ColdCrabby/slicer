@@ -3,14 +3,22 @@
     <h1 class="settings-title">Settings</h1>
     <nav class="settings-nav-list" aria-label="Settings sections">
       @for (item of sections; track item.path) {
+        @let pending = isPending(item.path);
         <a
           class="settings-nav-item"
+          [class.is-pending]="pending"
           [routerLink]="item.path"
           routerLinkActive="is-active"
           [routerLinkActiveOptions]="{ exact: true }"
           ariaCurrentWhenActive="page"
+          [attr.aria-busy]="pending ? 'true' : null"
         >
-          <nexus-icon [name]="item.icon" />
+          <span class="settings-nav-icon">
+            <nexus-icon [name]="item.icon" />
+            @if (pending) {
+              <span class="settings-nav-spinner" aria-hidden="true"></span>
+            }
+          </span>
           <span>{{ item.label }}</span>
         </a>
       }

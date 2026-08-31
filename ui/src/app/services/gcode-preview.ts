@@ -172,10 +172,10 @@ const DEFAULT_HIDDEN_ROLES: ReadonlySet<RoleName> = new Set<RoleName>(['travel',
 
 /**
  * Number of `f32`s per line-segment record in a `GcodeLayerBuffer` block:
- * `[x0, y0, z0, x1, y1, z1, width, height, speed]`. Kept in one place so the
- * WASM buffer stride and every TypeScript reader stay in sync.
+ * `[x0, y0, z0, x1, y1, z1, width, height, speed, accel]`. Kept in one place so
+ * the WASM buffer stride and every TypeScript reader stay in sync.
  */
-export const FLOATS_PER_SEGMENT = 9;
+export const FLOATS_PER_SEGMENT = 10;
 
 /** Float offset of the per-segment extrusion width (mm). */
 export const WIDTH_OFFSET = 6;
@@ -183,19 +183,22 @@ export const WIDTH_OFFSET = 6;
 export const HEIGHT_OFFSET = 7;
 /** Float offset of the per-segment extrusion speed (mm/s). */
 export const SPEED_OFFSET = 8;
+/** Float offset of the per-segment print acceleration (mm/s²); `0` when unset. */
+export const ACCEL_OFFSET = 9;
 
 // ── View modes + scalar coloring ────────────────────────────────────────────
 
 /**
  * How the viewer colors extrusion segments.
  * - `category` (default): by extrusion role — outer wall, infill, and so on.
- * - *segment* scalars (`speed`, `flow`, `lineWidth`, `layerHeight`) vary per
- *   move and are derived from the segment's width/height/speed.
+ * - *segment* scalars (`speed`, `flow`, `lineWidth`, `layerHeight`,
+ *   `acceleration`) vary per move and are read from the segment's
+ *   width/height/speed/accel record.
  * - *layer* scalars (`fan`, `temperature`, `layerTime`) are one value per layer,
  *   read from the layer's machine-state metadata.
  * Every scalar is mapped through the shared gradient ramp.
  */
-export type SegmentViewMode = 'speed' | 'flow' | 'lineWidth' | 'layerHeight';
+export type SegmentViewMode = 'speed' | 'flow' | 'lineWidth' | 'layerHeight' | 'acceleration';
 export type LayerViewMode = 'fan' | 'temperature' | 'layerTime';
 export type GcodeViewMode = 'category' | SegmentViewMode | LayerViewMode;
 
@@ -203,6 +206,7 @@ export type GcodeViewMode = 'category' | SegmentViewMode | LayerViewMode;
 export const VIEW_MODE_ORDER: readonly GcodeViewMode[] = [
   'category',
   'speed',
+  'acceleration',
   'flow',
   'lineWidth',
   'layerHeight',
@@ -215,6 +219,7 @@ export const VIEW_MODE_ORDER: readonly GcodeViewMode[] = [
 export const VIEW_MODE_LABELS: Record<GcodeViewMode, string> = {
   category: 'Extrusion Kind',
   speed: 'Speed',
+  acceleration: 'Acceleration',
   flow: 'Flow',
   lineWidth: 'Line Width',
   layerHeight: 'Layer Height',
@@ -254,7 +259,7 @@ export interface ScalarChannel {
   scope: 'segment';
   label: string;
   unit: string;
-  extract: (width: number, height: number, speed: number) => number;
+  extract: (width: number, height: number, speed: number, accel: number) => number;
   format: (value: number) => string;
 }
 
@@ -321,6 +326,14 @@ export const SCALAR_CHANNELS: Record<SegmentViewMode, ScalarChannel> = {
     unit: 'mm',
     extract: (_w, h) => h,
     format: fixed2Fmt('mm'),
+  },
+  acceleration: {
+    id: 'acceleration',
+    scope: 'segment',
+    label: 'Acceleration',
+    unit: 'mm/s²',
+    extract: (_w, _h, _s, a) => a,
+    format: roundFmt('mm/s²'),
   },
 };
 
@@ -486,11 +499,12 @@ function scanModel(handle: GcodeHandle): ModelScan {
         const w = data[o + WIDTH_OFFSET];
         const h = data[o + HEIGHT_OFFSET];
         const s = data[o + SPEED_OFFSET];
+        const a = data[o + ACCEL_OFFSET];
         if (s <= 0) {
           continue;
         }
         for (const id of segIds) {
-          const v = SCALAR_CHANNELS[id].extract(w, h, s);
+          const v = SCALAR_CHANNELS[id].extract(w, h, s, a);
           if (v > 0) {
             if (v < segMin[id]) segMin[id] = v;
             if (v > segMax[id]) segMax[id] = v;
@@ -673,6 +687,10 @@ export class GcodePreview {
       if (mode === 'fan') return scan.fans.length > 0;
       if (mode === 'temperature') return scan.temperature.max > 0;
       if (mode === 'layerTime') return scan.layerTime.max > 0;
+      // Acceleration is only present when the G-code actually commands it
+      // (M204 / SET_VELOCITY_LIMIT); hide the mode otherwise so the ramp isn't
+      // a flat single color.
+      if (mode === 'acceleration') return scan.segmentRanges.acceleration.max > 0;
       return true;
     });
   });

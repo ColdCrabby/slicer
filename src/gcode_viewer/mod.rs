@@ -15,8 +15,9 @@
 //! ```
 //!
 //! Each `Float32Array` holds flat line-segment records:
-//! `[x0, y0, z0,  x1, y1, z1,  width, height, speed,  …]`  (9 floats per
-//! segment, where `speed` is the extrusion feedrate in mm/s).
+//! `[x0, y0, z0,  x1, y1, z1,  width, height, speed, accel,  …]`  (10 floats per
+//! segment, where `speed` is the extrusion feedrate in mm/s and `accel` is the
+//! commanded print acceleration in mm/s², `0` when the G-code sets none).
 
 // Parsing core compiles everywhere so it can be unit-tested on the host; on
 // native some of its wasm-only accessors are unused, hence the dead_code allow.

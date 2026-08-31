@@ -3,8 +3,7 @@ import { ConnectionState } from '../../components/connection-state/connection-st
 import { Logo } from '../../components/logo/logo';
 import { WorkplateName } from '../../components/workplate-name/workplate-name';
 import { isTauriDesktop, isTauriMobile } from '../../runtime/domain/runtime-mode.util';
-import { Icon } from '../../shared/icon/icon';
-import { IconButton } from '../../ui/icon-button/icon-button';
+import { Icon, IconButton, TooltipDirective } from '@coldcrabby/ui';
 
 /**
  * Custom window title bar for the desktop shell.
@@ -22,7 +21,7 @@ import { IconButton } from '../../ui/icon-button/icon-button';
  */
 @Component({
   selector: 'nexus-titlebar',
-  imports: [ConnectionState, Logo, WorkplateName, Icon, IconButton],
+  imports: [ConnectionState, Logo, WorkplateName, Icon, IconButton, TooltipDirective],
   templateUrl: './titlebar.html',
   styleUrl: './titlebar.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,

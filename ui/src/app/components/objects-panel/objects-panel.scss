@@ -1,0 +1,276 @@
+@use 'breakpoints' as *;
+
+:host {
+  display: block;
+  pointer-events: none;
+}
+
+.objects-panel {
+  pointer-events: auto;
+  width: 232px;
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-xs);
+  padding: var(--spacing-sm);
+
+  // Floats over the 3D scene, so a card treatment is earned here.
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-md);
+
+  animation: op-in var(--duration-fast) var(--ease-standard);
+}
+
+@keyframes op-in {
+  from {
+    opacity: 0;
+    transform: translateY(-6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .objects-panel {
+    animation: none;
+  }
+}
+
+.op-head {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-xs);
+  min-height: 22px;
+}
+
+.op-title {
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: var(--color-text-primary);
+}
+
+.op-count {
+  flex: 1;
+  font-size: 0.75rem;
+  color: var(--color-text-tertiary);
+  font-variant-numeric: tabular-nums;
+}
+
+.op-warning {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-xs);
+  margin: 0;
+  padding: var(--spacing-xs) var(--spacing-sm);
+  border-radius: var(--radius-sm);
+  background: color-mix(in srgb, var(--color-warning) 12%, transparent);
+  color: var(--color-warning);
+  font-size: 0.6875rem;
+  line-height: 1.3;
+
+  --icon-size: 13px;
+}
+
+.op-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  max-height: 320px;
+  overflow-y: auto;
+}
+
+.op-row {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-xs);
+  padding: var(--spacing-xs);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  // Reserve the action column so hovering a row never reflows the list.
+  min-height: 34px;
+  transition: background var(--duration-fast) var(--ease-standard);
+
+  &:hover {
+    background: var(--color-bg-secondary);
+  }
+
+  &.selected {
+    background: color-mix(in srgb, var(--color-accent) 14%, transparent);
+  }
+
+  &:focus-visible {
+    outline: 2px solid var(--color-accent);
+    outline-offset: -2px;
+  }
+
+  &.problem .op-row-name {
+    color: var(--color-warning);
+  }
+}
+
+.op-row-icon {
+  flex: none;
+  color: var(--color-text-tertiary);
+
+  --icon-size: 15px;
+}
+
+.op-row-text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.op-row-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 0.75rem;
+  color: var(--color-text-primary);
+}
+
+.op-row-meta {
+  font-size: 0.6875rem;
+  color: var(--color-text-tertiary);
+  font-variant-numeric: tabular-nums;
+}
+
+.op-row-flag {
+  flex: none;
+  color: var(--color-warning);
+
+  --icon-size: 13px;
+}
+
+.op-row-actions {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  opacity: 0;
+  transition: opacity var(--duration-fast) var(--ease-standard);
+
+  .op-row:hover &,
+  .op-row:focus-within &,
+  .op-row.selected & {
+    opacity: 1;
+  }
+}
+
+.op-action {
+  display: grid;
+  place-items: center;
+  height: 22px;
+  min-width: 22px;
+  padding: 0 var(--spacing-xs);
+  border: none;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--color-text-secondary);
+  font-size: 0.6875rem;
+  cursor: pointer;
+  transition:
+    background var(--duration-fast) var(--ease-standard),
+    color var(--duration-fast) var(--ease-standard);
+
+  --icon-size: 14px;
+
+  &:hover {
+    background: var(--color-bg-tertiary);
+    color: var(--color-text-primary);
+  }
+
+  &:focus-visible {
+    outline: 2px solid var(--color-accent);
+    outline-offset: 1px;
+  }
+
+  &.danger:hover {
+    color: var(--color-danger);
+  }
+
+  &.confirming {
+    padding: 0 var(--spacing-sm);
+    background: color-mix(in srgb, var(--color-danger) 16%, transparent);
+    color: var(--color-danger);
+    font-weight: 600;
+    white-space: nowrap;
+  }
+}
+
+// Collapse control. Only rendered where the list can fold (phones), so it needs
+// no desktop appearance — it simply makes the existing header tappable.
+.op-head-toggle {
+  width: 100%;
+  padding: 0;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  text-align: left;
+  color: inherit;
+
+  &:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+    border-radius: var(--radius-sm);
+  }
+}
+
+.op-head-chevron {
+  flex: none;
+  color: var(--color-text-tertiary);
+
+  --icon-size: 14px;
+}
+
+// Carries the warning up to the folded header, so a collapsed list can never
+// hide a part that cannot print. Only while folded — expanded, the message
+// itself is right there.
+.op-head-flag {
+  flex: none;
+  color: var(--color-warning);
+
+  --icon-size: 14px;
+}
+
+// ── Phone ─────────────────────────────────────────────────────────────────
+@include handheld {
+  .objects-panel {
+    width: min(74vw, 232px);
+    padding: var(--spacing-xs) var(--spacing-sm);
+  }
+
+  .objects-panel.is-collapsed {
+    // Folded, this is just a label: let it shrink to the words.
+    width: auto;
+  }
+
+  .op-list {
+    // A quarter of the screen at most — the plate has to stay the subject.
+    max-height: 26vh;
+  }
+
+  .op-row {
+    min-height: 44px;
+  }
+
+  // Row actions reveal on hover, which a finger cannot do. Show them outright.
+  .op-row-actions {
+    opacity: 1;
+  }
+
+  .op-action {
+    height: 32px;
+    min-width: 32px;
+
+    --icon-size: 16px;
+  }
+}

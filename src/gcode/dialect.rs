@@ -121,10 +121,38 @@ pub trait GcodeDialect: Send + Sync {
         }
     }
 
+    /// Set the heated-chamber temperature.
+    ///
+    /// When `wait` is `true` the firmware blocks until the chamber reaches the
+    /// target (`M191`); otherwise it sets the target and returns immediately
+    /// (`M141`), letting the chamber heat while the bed and nozzle warm up.
+    ///
+    /// Only emitted when the printer profile declares `heated_chamber` — a
+    /// machine without a chamber heater has no business receiving these.
+    fn set_chamber_temp(&self, temp: f64, wait: bool) -> String {
+        if wait {
+            format!("M191 S{:.0}", temp)
+        } else {
+            format!("M141 S{:.0}", temp)
+        }
+    }
+
     /// Move to `(x, y)` while extruding filament to absolute E position `e`
     /// at `speed_mm_min` mm/min.
     fn move_extrude(&self, x: f64, y: f64, e: f64, speed_mm_min: f64) -> String {
         format!("G1 X{:.3} Y{:.3} E{:.5} F{:.0}", x, y, e, speed_mm_min)
+    }
+
+    /// Move to `(x, y, z)` while extruding filament to absolute E position `e`
+    /// at `speed_mm_min` mm/min.
+    ///
+    /// Used by spiral (vase) mode, where the Z height ramps continuously along
+    /// the perimeter instead of stepping once per layer.
+    fn move_extrude_z(&self, x: f64, y: f64, z: f64, e: f64, speed_mm_min: f64) -> String {
+        format!(
+            "G1 X{:.3} Y{:.3} Z{:.3} E{:.5} F{:.0}",
+            x, y, z, e, speed_mm_min
+        )
     }
 
     /// Move the Z axis to `z` at `speed_mm_min` mm/min (no extrusion).
@@ -203,6 +231,43 @@ pub trait GcodeDialect: Send + Sync {
         format!("M204 P{:.0}", accel)
     }
 
+    /// Emit the machine kinematic limits (square-corner velocity + max velocity)
+    /// once at the start of the program, so the firmware corners and caps speed
+    /// exactly as the print-time estimate assumes.
+    ///
+    /// `square_corner_velocity_mm_s` and `max_velocity_mm_s` are each emitted
+    /// only when positive; a `0` leaves that limit at the firmware default.
+    /// Returns the lines to emit (possibly empty).
+    ///
+    /// The default targets Marlin: `M203 X… Y…` for the velocity cap and
+    /// `M205 J<jd>` for cornering, where the square-corner velocity is converted
+    /// to a junction-deviation distance `jd = scv² · (√2 − 1) / accel` using the
+    /// supplied `accel_mm_s2` (the same relation the estimator uses). Klipper
+    /// overrides this with a single `SET_VELOCITY_LIMIT`.
+    fn set_kinematic_limits(
+        &self,
+        square_corner_velocity_mm_s: f64,
+        max_velocity_mm_s: f64,
+        accel_mm_s2: f64,
+    ) -> Vec<String> {
+        let mut lines = Vec::new();
+        if max_velocity_mm_s > 0.0 {
+            // Marlin M203 is per-axis max feedrate in mm/s.
+            lines.push(format!(
+                "M203 X{0:.0} Y{0:.0} ; max feedrate",
+                max_velocity_mm_s
+            ));
+        }
+        if square_corner_velocity_mm_s > 0.0 && accel_mm_s2 > 0.0 {
+            let jd = square_corner_velocity_mm_s
+                * square_corner_velocity_mm_s
+                * (std::f64::consts::SQRT_2 - 1.0)
+                / accel_mm_s2;
+            lines.push(format!("M205 J{:.4} ; junction deviation", jd));
+        }
+        lines
+    }
+
     /// Home all axes (`G28`).
     fn home_axes(&self) -> String {
         "G28".to_string()
@@ -230,5 +295,115 @@ pub trait GcodeDialect: Send + Sync {
     /// script to guarantee the invariant regardless of what the macro left set.
     fn extruder_absolute_mode(&self) -> String {
         "M82 ; extruder absolute mode".to_string()
+    }
+
+    /// Force **relative** extrusion mode (`M83`).
+    ///
+    /// Emitted instead of [`GcodeDialect::extruder_absolute_mode`] when
+    /// `use_relative_e_distances` is set. In relative mode each extrusion move
+    /// carries the incremental filament length rather than a running absolute
+    /// position.
+    fn extruder_relative_mode(&self) -> String {
+        "M83 ; extruder relative mode".to_string()
+    }
+
+    /// Firmware retraction command (`G10`).
+    ///
+    /// Emitted instead of an extruder-axis move when `use_firmware_retraction`
+    /// is set. The firmware performs the retraction using the length / speed /
+    /// restart configured via [`GcodeDialect::firmware_retract_setup`].
+    fn firmware_retract(&self) -> String {
+        "G10".to_string()
+    }
+
+    /// Firmware un-retraction / recover command (`G11`).
+    ///
+    /// The counterpart to [`GcodeDialect::firmware_retract`]; the firmware
+    /// restores the retracted filament (plus any configured restart-extra).
+    fn firmware_unretract(&self) -> String {
+        "G11".to_string()
+    }
+
+    /// Emit the firmware-retraction setup block that syncs the firmware's
+    /// retraction parameters to the slicer settings.
+    ///
+    /// Called once in the start section when `use_firmware_retraction` is set,
+    /// so `G10`/`G11` use the slicer's configured length, speed and
+    /// restart-extra rather than the printer's compile-time defaults. The Z-hop
+    /// component is deliberately left at `0` — the slicer performs the hop with
+    /// explicit Z moves so behaviour is identical to software retraction.
+    ///
+    /// The default implementation targets Marlin (`M207` retract, `M208`
+    /// recover); Klipper overrides this with `SET_RETRACTION`.
+    ///
+    /// * `retract_mm` — retraction length in mm
+    /// * `retract_speed_mm_min` — retraction / recover speed in mm/min
+    /// * `restart_extra_mm` — extra prime length on recover in mm
+    fn firmware_retract_setup(
+        &self,
+        retract_mm: f64,
+        retract_speed_mm_min: f64,
+        restart_extra_mm: f64,
+    ) -> Vec<String> {
+        vec![
+            format!(
+                "M207 S{:.3} F{:.0} Z0 ; firmware retract length/speed",
+                retract_mm, retract_speed_mm_min
+            ),
+            format!(
+                "M208 S{:.3} F{:.0} ; firmware recover restart-extra/speed",
+                restart_extra_mm, retract_speed_mm_min
+            ),
+        ]
+    }
+
+    // ── Object exclusion (issue #22) ─────────────────────────────────────────
+    //
+    // Three commands let a firmware attribute every move to a named object and
+    // cancel one mid-print.  The defaults implement the **`M486`** standard
+    // (Marlin 2.0.9.3+, RepRapFirmware, Prusa); Klipper overrides them with its
+    // `EXCLUDE_OBJECT_*` macros, which additionally carry the footprint so the
+    // firmware knows where a cancelled object lives.
+
+    /// Declare the plate's objects, once, before the first print move.
+    ///
+    /// `objects` are the plate's [`ObjectIdentity`](crate::core::ObjectIdentity)
+    /// records in index order.  Returns the lines to emit; empty for a plate
+    /// with no tracked objects.
+    fn object_definitions(&self, objects: &[crate::core::ObjectIdentity]) -> Vec<String> {
+        if objects.is_empty() {
+            return Vec::new();
+        }
+        // `M486 T<n>` tells the firmware how many objects to expect so its
+        // cancel UI can list them before any has been started.
+        let mut lines = vec![format!("M486 T{} ; object count", objects.len())];
+        for object in objects {
+            lines.push(format!(
+                "; object {} = {} (center {:.3},{:.3})",
+                object.index, object.name, object.center.0, object.center.1
+            ));
+        }
+        lines
+    }
+
+    /// Begin the block of moves belonging to `object`.
+    ///
+    /// `first_use` is `true` the first time this object is started, which is
+    /// where a dialect that names objects inline (`M486 A"…"`) should do so
+    /// instead of repeating the name on every layer.
+    fn object_start(&self, object: &crate::core::ObjectIdentity, first_use: bool) -> String {
+        if first_use {
+            format!("M486 S{} A\"{}\"", object.index, object.name)
+        } else {
+            format!("M486 S{}", object.index)
+        }
+    }
+
+    /// End the block of moves belonging to `object`.
+    ///
+    /// `M486 S-1` marks the following moves as belonging to no object, which is
+    /// how the standard expresses "end of object".
+    fn object_end(&self, _object: &crate::core::ObjectIdentity) -> String {
+        "M486 S-1".to_string()
     }
 }

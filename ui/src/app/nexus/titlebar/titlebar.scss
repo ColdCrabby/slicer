@@ -1,3 +1,5 @@
+@use 'breakpoints' as *;
+
 :host {
   display: flex;
   align-items: center;
@@ -59,7 +61,14 @@
 .tb-status {
   display: inline-flex;
   align-items: center;
+  gap: var(--spacing-xs);
   margin-right: var(--spacing-sm);
+}
+
+.tb-github,
+.tb-catalog,
+.tb-sponsor {
+  color: var(--color-text-secondary);
 }
 
 .tb-spacer {
@@ -76,4 +85,62 @@
 button.tb-close:hover {
   background: var(--color-danger);
   color: #fff;
+}
+
+// ── Phone ─────────────────────────────────────────────────────────────────
+//
+// The wordmark is a fixed 86px of image; on a 390px screen it and the editable
+// workplate name fought for the same room and overlapped. The mark alone still
+// identifies the app, and the *plate you are editing* is the one thing here
+// worth the width — so the wordmark goes and the name takes the space.
+@include handheld {
+  :host {
+    padding-left: var(--spacing-sm);
+    padding-right: var(--spacing-sm);
+    padding-left: calc(var(--spacing-sm) + env(safe-area-inset-left, 0px));
+    padding-right: calc(var(--spacing-sm) + env(safe-area-inset-right, 0px));
+  }
+
+  .tb-brand {
+    flex: none;
+  }
+
+  // The logo asset is a square crab; the desktop bar renders it as a wide, short
+  // crop (86×40 with a -8px vertical offset) so it sits beside the wordmark.
+  // With the wordmark gone that crop has nothing to justify it, and keeping the
+  // offset against a narrow box slices the crab's bottom off. Show the whole
+  // mark in a square box instead.
+  .tb-brand ::ng-deep .nexus-logo {
+    width: 28px;
+    height: 28px;
+    object-fit: contain;
+    object-position: center;
+  }
+
+  .tb-brand ::ng-deep .nexus-product-name {
+    display: none;
+  }
+
+  .tb-workplate {
+    flex: 1 1 auto;
+  }
+
+  // "Connected" is a status nobody needs to read twice — the green dot says it,
+  // and the word is what pushed the bar over the edge at 390px. Every other
+  // state (connecting, disconnected, failed) needs its words, so it keeps them.
+  //
+  // Once the label is gone the badge's pill has nothing to wrap: its padding
+  // and tinted fill just paint a green blob around a 6px dot. Drop both and let
+  // the dot be the indicator, grown slightly to carry that on its own.
+  .tb-status ::ng-deep nexus-badge[variant='success'] {
+    padding: 0;
+    background: none;
+    font-size: 0;
+    gap: 0;
+  }
+
+  .tb-status ::ng-deep nexus-badge[variant='success'] .dot {
+    width: 8px;
+    height: 8px;
+  }
 }

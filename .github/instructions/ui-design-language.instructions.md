@@ -125,6 +125,25 @@ All values live in `ui/src/styles/theme/` — `_light.scss`, `_dark.scss`
   (4/6/8). **Shadows:** `--shadow-xs..lg`. **Motion:** `--duration-fast/normal/slow`
   - `--ease-standard/decelerate/accelerate`. **Icons:** `--icon-stroke-width: 1.8`.
 
+### Text tones must clear WCAG AA
+
+Body text needs 4.5:1 against whatever sits behind it, and the shared palette's
+tertiary tone did not — 4.49:1 on the dark rail, 3.07:1 in the light theme.
+`ui/src/styles/theme/_contrast.scss` raises `--color-text-tertiary` for both
+themes, emitted after `theme/light` and `theme/dark` so a plain re-declaration
+wins on order. It is the local-override idiom `base/field-focus` already uses.
+
+Two rules follow from it:
+
+- **Fix the token, not the call site.** Around eighty places consume that
+  variable; patching only the ones an audit happened to surface leaves the rest
+  broken and the next page failing again.
+- **A tinted surface needs its own check.** A neutral grey that passes on
+  graphite can still fail on `--accent-soft` — the tertiary tone lands at 3.9:1
+  on the dark amber card. Where a component swaps in an accent background, step
+  its supporting text up to `--color-text-secondary` and drop any `opacity`,
+  which silently erodes the contrast being recovered.
+
 ## Layout & Component Patterns
 
 - **Islands / cards:** rounded solid surface, `--radius-lg`, `overflow: hidden`,
@@ -172,6 +191,41 @@ For schema-driven settings specifically, declare the caution in the
 **field-exceptions registry** rather than special-casing the generic form — see
 the component-structure instruction's "Exceptions beside a generic resolver."
 
+### Cross-contract dependencies — say so, and link to the fix
+
+Settings are split across three profile **contracts** (Printer / Filament /
+Process — see `models/setting-contract.ts`). A setting in one contract regularly
+depends on a setting in **another**: the filament asks for a heated chamber, the
+printer is what has one; sequential printing needs the machine's extruder
+clearances. The user sees only the tab they are on, so the dependency is
+invisible right up until the feature quietly does nothing.
+
+**Be transparent about it. A setting that cannot take effect must say so, where
+it is set, while it is set.** Silence is the worst option: a chamber temperature
+that is never emitted looks identical to one that is — until the print warps.
+
+- **Warn at the dependent setting, not at the prerequisite.** The user is
+  looking at the filament's chamber temperature; that is where the note belongs.
+  The printer's own control has nothing to apologise for.
+- **State the actual consequence in plain words** — "no chamber command will be
+  emitted", not "this setting may be ignored." Say what the slicer will *do*.
+- **Link to where the prerequisite is configured** via `FieldNotice.link`
+  (`{ text, routerLink }`). Most of the time the user simply has not set it yet,
+  and the honest response is a one-click path to fixing it rather than a
+  dead-end complaint. Name the destination in the link text ("Enable it in
+  printer settings"), never "click here."
+- **Distinguish "misconfigured" from "deliberately off."** Only warn when the
+  intent is real and unmet — a chamber temperature of `0` is not a mistake, so
+  it gets no notice. `tone: 'warning'` for "you asked for something you will not
+  get"; `tone: 'info'` for a consequence worth knowing that is not a mistake.
+- **Mirror it in the engine.** The UI is not the only front end. If a setting
+  can be silently inert, `SlicingParams::unsupported_feature_warnings` should say
+  so too, so the CLI and the WS log are equally honest.
+
+Evaluating a cross-contract condition needs sibling values, which is why
+`FieldException.notice` receives the whole values record and why the profile
+editors pass the **active printer's** params alongside the profile being edited.
+
 ## Angular Styling Gotchas (this project)
 
 - **HMR does NOT cascade `@use`d SCSS partials.** After editing a theme partial,
@@ -181,6 +235,14 @@ the component-structure instruction's "Exceptions beside a generic resolver."
   `:host ::ng-deep` for shell/outlet layout rules that must reach routed hosts.
 - **Avoid percentage-height children on `fr` grid tracks** (indefinite height) —
   use flex with `min-height: 0` instead.
+- **`flex: 1` collapses a scrolling child inside a container the viewport does
+  not size.** The shorthand expands to `flex-basis: 0%`, and WebKit resolves a
+  percentage basis against an indefinite column height (`auto`, `fit-content` —
+  a `<dialog>`) as zero instead of falling back to the content; a neighbouring
+  `min-height: 0` then removes the minimum that would have saved it. Write
+  `flex: 1 1 auto` there — it lays out identically in Chromium and Gecko when it
+  is the only flexible item. Playwright's WebKit does **not** reproduce this;
+  check real Safari (an iOS simulator serves as one).
 - Standalone components, `ChangeDetectionStrategy.OnPush`, signal `input()`,
   `nexus-` selector prefix.
 

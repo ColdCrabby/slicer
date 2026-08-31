@@ -2,25 +2,39 @@
 /// Imports all style modules using @use
 /// @group styles
 
+// Shared design language from @coldcrabby/ui, resolved via the Sass
+// `includePaths` that point at vendor/coldcrabby-ui/src/styles. Bare specifiers
+// (no leading `./`) resolve there; `./`-prefixed ones stay local to the slicer.
+
 // Theme variables
-@use './theme/root';
-@use './theme/light';
-@use './theme/dark';
-@use './theme/tokens' as *;
+@use 'theme/root';
+@use 'theme/light';
+@use 'theme/dark';
+// Local override: raise the shared tertiary text tone to WCAG AA. MUST come
+// after `theme/light` and `theme/dark` so it wins on order.
+@use './theme/contrast';
+@use 'theme/tokens' as *;
 
-// Mixins
-@use './mixins' as *;
+// Mixins (drop-aurora, focus-ring, …)
+@use 'mixins' as *;
 
-// Base styles
+// Base styles — the slicer keeps its own viewport-locking reset; the rest is
+// shared.
 @use './base/reset';
-@use './base/focus';
-@use './base/typography';
-@use './base/forms';
-@use './base/scrollbar';
-@use './base/floating';
+@use 'base/focus';
+@use 'base/typography';
+@use 'base/forms';
+// Local override: collapse the outline+inset double ring on form controls to a
+// single ring. MUST come after `base/forms` so it wins on order.
+@use './base/field-focus';
+// Phone-only adaptations of the shared components. MUST come after every
+// partial it overrides.
+@use './base/handheld';
+@use 'base/scrollbar';
+@use 'base/floating';
 
 // Utilities
-@use './utilities/utilities';
+@use 'utilities/utilities';
 
 // Shared component styles emitted globally (see partial header for rationale).
 @use './components/profiles';

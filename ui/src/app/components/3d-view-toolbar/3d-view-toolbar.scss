@@ -1,0 +1,192 @@
+@use 'breakpoints' as *;
+
+:host {
+  padding: var(--spacing-md) var(--spacing-lg);
+
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--spacing-sm);
+}
+
+/* ── Floating pill groups ───────────────────────────────────────────────── */
+
+/* `:host` is load-bearing, not decoration. `nexus-card` styles itself with
+   `:host(.small) { border-radius: var(--radius-md) }`; a bare `.button-radio-group`
+   ties that on specificity and loses on order, which squares off the pill.
+   The `:host` prefix outweighs it — but do NOT make it a direct-child
+   combinator, since the pill is nested inside `.tool-cluster`. */
+:host .view-group,
+:host .button-radio-group {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 3px;
+
+  background: var(--color-surface);
+  border: 1px solid var(--color-border-light);
+  border-radius: 999px;
+  box-shadow: var(--shadow-sm);
+}
+
+/* ── Unified icon buttons (loose actions + radio segments) ──────────────── */
+
+.reset-view-button,
+.button-radio-group button {
+  display: inline-grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  padding: 0;
+
+  border: 1px solid transparent;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--color-text-secondary);
+  cursor: pointer;
+  user-select: none;
+  -webkit-user-select: none;
+  touch-action: manipulation;
+  font-size: 0;
+  --icon-size: 18px;
+  transition:
+    background-color var(--duration-fast) var(--ease-standard),
+    border-color var(--duration-fast) var(--ease-standard),
+    color var(--duration-fast) var(--ease-standard),
+    transform var(--duration-fast) var(--ease-standard);
+
+  &:hover {
+    background: var(--color-surface-hover);
+    color: var(--color-text-primary);
+  }
+
+  &:active {
+    transform: scale(0.94);
+  }
+
+  &:focus-visible {
+    outline: none;
+    border-color: var(--color-focus-ring);
+    box-shadow: inset 0 0 0 1px var(--color-focus-ring);
+  }
+
+  &:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+    pointer-events: none;
+  }
+
+  &.active,
+  &[aria-pressed='true'] {
+    background: var(--accent-soft);
+    color: var(--accent);
+  }
+}
+
+/* The radio semantics wrap only the modes, so the placement action can share
+   the pill without sitting inside a `role="radiogroup"`. */
+.tool-modes {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+}
+
+/* Hairline between the mode switches and the action that follows them —
+   related enough to share the pill, different enough to read apart. */
+.tool-divider {
+  width: 1px;
+  height: 18px;
+  margin: 0 2px;
+  background: var(--color-border-lighter);
+}
+
+/* ── Contextual tool cards ──────────────────────────────────────────────── */
+
+/* Anchor for the cards the tools open. */
+.tool-cluster {
+  position: relative;
+  display: inline-flex;
+}
+
+/* Hangs the open cards directly under the buttons that reveal them, centred on
+   the group. Absolute, so it adds no height to the toolbar; a column, so a
+   transform card and a placement card can be open at once without overlapping.
+   Only the cards themselves take pointer events — the gaps stay click-through
+   to the 3D scene behind. */
+.tool-panels {
+  position: absolute;
+  top: calc(100% + var(--spacing-sm));
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 3;
+
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-sm);
+  pointer-events: none;
+}
+
+/* The picker is driven by the add-object button; keep it out of the layout
+   and out of the tab order. */
+.add-object-input {
+  display: none;
+}
+
+/* ── Phone ────────────────────────────────────────────────────────────────
+   Even with the two secondary tools dropped (see showSecondaryViewTools), the
+   remaining pills are a few pixels wider than a 375px screen. Wrapping is the
+   honest answer: every control stays reachable and the toolbar simply grows a
+   second row, which --main-scene-inset already tracks, so the scene chrome
+   below re-inserts itself correctly. Buttons grow to a proper touch target in
+   the process — 34px is a mouse-sized hit area. */
+@include handheld {
+  :host {
+    flex-wrap: wrap;
+    row-gap: var(--spacing-xs);
+    padding: var(--spacing-xs) var(--spacing-sm);
+    padding-left: calc(var(--spacing-sm) + env(safe-area-inset-left, 0px));
+    padding-right: calc(var(--spacing-sm) + env(safe-area-inset-right, 0px));
+  }
+
+  /* Dropping the pipeline button can leave its group holding nothing, which
+     still paints as a stray 6px pill beside the tools. */
+  :host .view-group:not(:has(button)) {
+    display: none;
+  }
+
+  .reset-view-button,
+  .button-radio-group button {
+    width: 40px;
+    height: 40px;
+    --icon-size: 19px;
+  }
+
+  /* The tool cards are centred on a cluster that can now sit anywhere along a
+     wrapped row, so cap them to the screen rather than to their own content. */
+  .tool-panels {
+    max-width: calc(100vw - 2 * var(--spacing-sm));
+  }
+}
+
+/* Sideways, height is the scarce axis — keep the toolbar to one slim row. */
+@include handheld-landscape {
+  :host {
+    padding-top: 2px;
+    padding-bottom: 2px;
+  }
+
+  .reset-view-button,
+  .button-radio-group button {
+    width: 34px;
+    height: 34px;
+    --icon-size: 17px;
+  }
+
+  /* A stacked transform card is taller than the whole scene band here, so it
+     scrolls rather than running off the bottom of the screen. */
+  .tool-panels {
+    max-height: 46vh;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+  }
+}

@@ -4,15 +4,37 @@
     <meta charset="utf-8" />
     <title>Cold Crabby</title>
     <base href="/" />
+    <!--
+      No `user-scalable=no` / `maximum-scale`: blocking zoom locks out anyone
+      who needs to magnify text, and it is not what keeps the 3D view from
+      pinching anyway — `touch-action: none` in styles/base/_reset.scss does
+      that, per-surface, where a gesture actually belongs to the canvas.
+      `viewport-fit=cover` extends the page under the iOS safe areas.
+    -->
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
     <meta
-      name="viewport"
-      content="width=device-width, initial-scale=1, maximum-scale=1, minimum-scale=1, user-scalable=no, viewport-fit=cover"
+      name="description"
+      content="Cold Crabby is a fast, open-source 3D printing slicer. Drop in an STL, OBJ or 3MF and slice it right in your browser — no account, no install, nothing uploaded."
     />
     <link rel="icon" type="image/x-icon" href="favicon.ico" />
     <link rel="icon" type="image/png" sizes="32x32" href="favicon-32x32.png" />
     <link rel="icon" type="image/png" sizes="16x16" href="favicon-16x16.png" />
     <link rel="apple-touch-icon" sizes="180x180" href="apple-touch-icon.png" />
-    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <!--
+      The boot splash's full-resolution logo. Preloaded at high priority so it
+      arrives while the app's chunks are still downloading — without this it
+      queues behind them and the splash it belongs to is gone before it lands.
+      Its low-quality stand-in is inlined in the stylesheet below, so something
+      is on screen even before this request completes.
+    -->
+    <link rel="preload" as="image" href="splash-logo.webp" fetchpriority="high" />
+    <!--
+      Only `fonts.gstatic.com` is worth a preconnect. The production build
+      inlines the Google Fonts stylesheet into this document, so
+      `fonts.googleapis.com` is never contacted at runtime and a preconnect to
+      it only buys a DNS lookup and TLS handshake nobody uses. The `.woff2`
+      files it names still come from gstatic, which is what this warms.
+    -->
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
       href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@200..800&family=IBM+Plex+Mono:wght@100;200;300;400;500;600;700&display=swap"
@@ -31,6 +53,134 @@
         background-color: #111214;
         color: #e8e9ee;
       }
+
+      /*
+       * Boot splash.
+       *
+       * Lives here, inline, rather than in a component: it exists to cover the
+       * gap *before* Angular is running, so anything that ships inside the
+       * bundle is by definition too late. Same reason the colours are literals
+       * — the design tokens arrive with the stylesheet, which is part of what
+       * we are waiting for. Keep these in step with `--accent` and the
+       * `--color-bg-primary` / `--color-text-*` tokens in styles/theme/.
+       */
+      .boot-splash {
+        position: fixed;
+        inset: 0;
+        z-index: 2147483647;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 24px;
+        background-color: #f4f5f8;
+        opacity: 1;
+        transition: opacity 260ms cubic-bezier(0.4, 0, 0.2, 1);
+      }
+      html.dark .boot-splash {
+        background-color: #111214;
+      }
+      /* Set once the app has painted; the element is removed on transitionend. */
+      .boot-splash.is-done {
+        opacity: 0;
+        pointer-events: none;
+      }
+
+      .boot-splash__logo {
+        position: relative;
+        width: 120px;
+        height: 120px;
+      }
+
+      /*
+       * The logo arrives in two stages. The placeholder is a ~20px WebP
+       * embedded in this document, so it paints with the HTML — no request, no
+       * round trip. Blurring hides the resolution and makes it read as a
+       * deliberate soft-focus rather than a broken thumbnail. `splash-logo.webp`
+       * then fades in over it. Regenerate both with scripts/gen-logo-assets.sh.
+       */
+      .boot-splash__logo-placeholder,
+      .boot-splash__logo-full {
+        position: absolute;
+        inset: 0;
+        width: 100%;
+        height: 100%;
+        transition: opacity 320ms cubic-bezier(0.4, 0, 0.2, 1);
+      }
+
+      .boot-splash__logo-placeholder {
+        --boot-logo-placeholder: url('data:image/webp;base64,UklGRgICAABXRUJQVlA4WAoAAAAQAAAAEwAAEwAAQUxQSJAAAAARb6CgbRs2VADdvxERGJ9e/uR0F5xW27Yszy+QLXp1aE6kO43GBCQqG0C1EagO0eFrODzTfL+sENH/CYBNJaMYdTbCZzAkGTe4k9yp0p4kRzqQ/kksAS8ajpCeGm20ysZooldWf2nWU1zzl9QuAwMjBehTFlm4fgYUWpqmTtfPSGjo/g0iAKoXUmQhhxstLwBWUDggTAEAALAJAJ0BKhQAFAA+tVCdS6ckoqGoDVDgFolsAJ0yhH+A+PgHtntB6gP8B5AP5XpAP4B/h/1A98zomfNm9gDnwPYw/actATK4W9pjp6YlNnSd39FES+AAAPnKgHoQsn8R148Rvirw1aKbntrWLW9QPpxrQvqJA+cMEUT5ggV7bEs2/sJLxAkQ67gUpvJW1f+Ybx6L5T7Vb4B9dzy2Zrc3Fz21dpHVu/qDKHTiW6m88Gc99RAZbz7/w7aZvmOom6ovg9PYi1amkUaIIDO100iu5oYB0NJfqmNXOhRI9/pE6YZ/fWD2paCzejSXrWLd/1WXciFv73plnPucK1UChNXOe4AhRUlDqXYGchVmUx0R/h+v65WLZQeahYX4GfX1udu/jgLoRRNrC8kTvicQFbeSgx88d9e/Z4+RcDE9kVgeSL5REzFkZ61d2UjsAAAA');
+        background-image: var(--boot-logo-placeholder);
+        background-size: contain;
+        background-position: center;
+        background-repeat: no-repeat;
+        /* Scaled up so the blur's soft edge falls outside the box. */
+        transform: scale(1.08);
+        filter: blur(6px);
+        opacity: 1;
+      }
+
+      .boot-splash__logo-full {
+        object-fit: contain;
+        opacity: 0;
+        /* Decoration — the visible label below carries the meaning. */
+        user-select: none;
+        -webkit-user-drag: none;
+      }
+
+      .boot-splash__logo.is-ready .boot-splash__logo-placeholder {
+        opacity: 0;
+      }
+      .boot-splash__logo.is-ready .boot-splash__logo-full {
+        opacity: 1;
+      }
+
+      .boot-splash__track {
+        position: relative;
+        width: 140px;
+        height: 2px;
+        border-radius: 2px;
+        overflow: hidden;
+        background-color: rgba(17, 18, 20, 0.1);
+      }
+      html.dark .boot-splash__track {
+        background-color: rgba(232, 233, 238, 0.14);
+      }
+
+      .boot-splash__bar {
+        position: absolute;
+        inset-block: 0;
+        left: 0;
+        width: var(--boot-progress, 0%);
+        border-radius: 2px;
+        background-color: #e0730f;
+        transition: width 200ms cubic-bezier(0.4, 0, 0.2, 1);
+      }
+      html.dark .boot-splash__bar {
+        background-color: #f5883a;
+      }
+
+      .boot-splash__label {
+        font:
+          500 13px/1 'Plus Jakarta Sans',
+          system-ui,
+          sans-serif;
+        letter-spacing: 0.01em;
+        color: rgba(17, 18, 20, 0.55);
+      }
+      html.dark .boot-splash__label {
+        color: rgba(232, 233, 238, 0.55);
+      }
+
+      /* The staged reveal is information, so it stays — only the easing goes. */
+      @media (prefers-reduced-motion: reduce) {
+        .boot-splash,
+        .boot-splash__bar,
+        .boot-splash__logo-placeholder,
+        .boot-splash__logo-full {
+          transition: none;
+        }
+      }
     </style>
     <script>
       // Set the theme class synchronously before first paint to avoid a
@@ -46,6 +196,21 @@
           }
         } catch (_) {
           /* localStorage unavailable — fall through */
+        }
+      })();
+
+      // Mark phone-sized viewports before first paint, for the same reason as
+      // the theme class: the global overrides keyed to it (see
+      // styles/base/_handheld.scss) must not land a frame late. The Viewport
+      // service keeps it live afterwards; the query here is a copy of
+      // HANDHELD_MEDIA_QUERY and must match it.
+      (function () {
+        if (!window.matchMedia) return;
+        var q = window.matchMedia(
+          '(max-width: 640px), (max-width: 950px) and (max-height: 500px) and (orientation: landscape)',
+        );
+        if (q.matches) {
+          document.documentElement.classList.add('is-handheld');
         }
       })();
 
@@ -92,6 +257,140 @@
     </script>
   </head>
   <body>
+    <!--
+      Shown until Angular paints. Markup sits in the document rather than in a
+      component so it appears with the HTML itself — a component could only
+      appear once the bundle it is waiting for has arrived.
+    -->
+    <div class="boot-splash" id="boot-splash" role="status" aria-live="polite">
+      <div class="boot-splash__logo" id="boot-splash-logo">
+        <span class="boot-splash__logo-placeholder" aria-hidden="true"></span>
+        <img
+          class="boot-splash__logo-full"
+          src="splash-logo.webp"
+          alt="Cold Crabby"
+          width="120"
+          height="120"
+          draggable="false"
+        />
+      </div>
+      <div class="boot-splash__track">
+        <div class="boot-splash__bar"></div>
+      </div>
+      <p class="boot-splash__label">Loading…</p>
+    </div>
+
     <nexus-root></nexus-root>
+    <script>
+      /*
+       * Real boot progress, not a guessed animation.
+       *
+       * The build lists every initial chunk in this document as
+       * `<link rel="modulepreload">`, so the full set of files the app needs
+       * before it can start is knowable — and a PerformanceObserver reports
+       * each one as it lands. That gives a genuine fraction rather than a bar
+       * that crawls to 90% on a timer and lies about the rest.
+       *
+       * Downloading is only most of the work, so it maps to 0–90%; the last
+       * tenth belongs to parse + bootstrap and is closed by `done()`. The bar
+       * never moves backwards, so a late-discovered chunk cannot rewind it.
+       */
+      (function () {
+        var splash = document.getElementById('boot-splash');
+        if (!splash) return;
+
+        // Swap the blurred stand-in for the real artwork once it decodes. The
+        // `complete` check covers a cached hit, where `load` has already fired
+        // by the time this runs.
+        var logo = document.getElementById('boot-splash-logo');
+        if (logo) {
+          var full = logo.querySelector('.boot-splash__logo-full');
+          var reveal = function () {
+            logo.classList.add('is-ready');
+          };
+          if (full.complete && full.naturalWidth) reveal();
+          else full.addEventListener('load', reveal, { once: true });
+        }
+
+        var shown = 0;
+
+        function paint(value) {
+          // Monotonic: progress that goes down reads as a fault, not feedback.
+          if (!splash || value <= shown) return;
+          shown = value;
+          splash.style.setProperty('--boot-progress', (value * 100).toFixed(1) + '%');
+        }
+
+        function remove() {
+          if (!splash || !splash.parentNode) return;
+          var el = splash;
+          splash = null;
+          el.classList.add('is-done');
+          var drop = function () {
+            if (el.parentNode) el.parentNode.removeChild(el);
+          };
+          el.addEventListener('transitionend', drop, { once: true });
+          // transitionend never fires if the transition is skipped (reduced
+          // motion, background tab), so guarantee the teardown.
+          setTimeout(drop, 400);
+        }
+
+        // Exposed before anything below can throw, so a failed bootstrap can
+        // still clear the splash instead of stranding the user on a dead bar.
+        window.__nexusSplashDone = function () {
+          clearTimeout(stall);
+          // Let a partly-filled bar reach the end before it fades; a full one
+          // has nothing left to show.
+          var wasIncomplete = shown < 1;
+          paint(1);
+          setTimeout(remove, wasIncomplete ? 180 : 0);
+        };
+
+        /*
+         * If the app never boots there is nothing to call `done()` — a chunk
+         * 404ing after a redeploy is the usual cause, and this document is
+         * cached while the files it names are gone. A progress bar frozen
+         * mid-way would sit there indefinitely claiming to be busy, so say what
+         * actually happened once the wait stops being plausible.
+         */
+        var stall = setTimeout(function () {
+          if (!splash) return;
+          var label = splash.querySelector('.boot-splash__label');
+          if (label) label.textContent = 'Still loading — try reloading the page.';
+        }, 30000);
+
+        if (typeof PerformanceObserver !== 'function') return;
+
+        /*
+         * Re-read the chunk list on every tick rather than once up front.
+         *
+         * This script runs mid-parse, and the build appends its
+         * `modulepreload` links *after* it — so a single survey at startup
+         * finds nothing and the bar never moves. Re-surveying is also what
+         * makes this correct if the build ever emits them somewhere else
+         * again. Parsing finishes in milliseconds while the chunks take
+         * seconds, so the list is complete long before the first one lands.
+         */
+        function tick() {
+          var nodes = document.querySelectorAll(
+            'link[rel="modulepreload"][href], script[type="module"][src]',
+          );
+          if (!nodes.length) return;
+
+          var done = Object.create(null);
+          var entries = performance.getEntriesByType('resource');
+          for (var i = 0; i < entries.length; i++) done[entries[i].name] = true;
+
+          var loaded = 0;
+          for (var j = 0; j < nodes.length; j++) {
+            var href = nodes[j].getAttribute('href') || nodes[j].getAttribute('src');
+            if (href && done[new URL(href, document.baseURI).href]) loaded++;
+          }
+          paint(Math.min(loaded / nodes.length, 1) * 0.9);
+        }
+
+        new PerformanceObserver(tick).observe({ type: 'resource', buffered: true });
+      })();
+    </script>
   </body>
 </html>

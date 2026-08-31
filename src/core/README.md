@@ -34,8 +34,11 @@ function so the order is impossible to misread.
 
 ## The contract
 
-1. **`process_mesh` is the only public entry point** for the full pipeline.
-   The CLI, the WS server, and the wasm preview all call it. There is no
+1. **`process_mesh` is the only public entry point** for the full pipeline —
+   and [`slice_plate`](objects.rs) is the only way to reach *it*. The CLI, the
+   WS server, the wasm preview and the desktop bridge all hand `slice_plate` a
+   list of placed objects; it decides whether the plate can be merged into one
+   mesh (the default) or has to be sliced object by object. There is no
    "subset" pipeline; partial slicing is achieved by feeding fewer params,
    not by skipping steps.
 2. **All progress is reported through `ProcessLogger`.** No `eprintln!`,
@@ -47,6 +50,10 @@ function so the order is impossible to misread.
 4. **`SliceLayer` is the sole carrier between phases.** Each phase reads from
    and writes back into the same `Vec<SliceLayer>`; nothing escapes to
    global state.
+5. **Object identity is added around the pipeline, never inside it.** A part
+   knows nothing of its neighbours: [`objects.rs`](objects.rs) slices each one
+   with the untouched pipeline and only then tags and interleaves the results.
+   No phase branches on "which object is this?".
 
 ---
 
@@ -61,6 +68,7 @@ classDiagram
         +path_widths: Vec~Option~f64~~
         +solid_regions: Paths
         +unsupported_regions: Paths
+        +path_objects: Vec~Option~usize~~
     }
     class ExtrusionRole {
         <<enum>>
@@ -77,8 +85,12 @@ classDiagram
     SliceLayer "1" *-- "*" ExtrusionRole : path_roles
 ```
 
-`paths`, `path_roles`, and `path_widths` are parallel arrays — index `i`
-identifies the same emitted contour across all three. `solid_regions` is a
+`paths`, `path_roles`, `path_widths` and `path_objects` are parallel arrays —
+index `i` identifies the same emitted contour across all of them. `path_objects`
+follows the `path_overhang` convention: **empty means "not sliced object-aware"**
+and a `None` entry means "belongs to no object" (plate-wide bed adhesion). Any
+helper that rebuilds these arrays has to carry every one of them, or the tags
+shift onto the wrong paths. `solid_regions` is a
 union of every top / bottom surface area on this layer; sparse infill
 subtracts from it to avoid double-printing. `unsupported_regions` is the raw
 layer footprint that has nothing solid in the layer below; the wall-
@@ -101,7 +113,9 @@ flowchart TD
     I --> SF[generate_top_bottom_surfaces_with_interior<br/>3-stage bridge filter + PCA angle]
     SF --> OV[classify_overhang_perimeters<br/>walls in air → OverhangPerimeter]
     OV --> IN[add_infill_to_layers<br/>uses pre-strip regions − solid_regions]
-    IN --> ORD[order_paths_per_layer<br/>greedy NN + seam vertex rotation]
+    IN --> CB[combine_fill_areas<br/>infill_every_layers · solid_infill_every_layers]
+    CB --> AN[connect_infill<br/>anchor line ends to the perimeter]
+    AN --> ORD[order_paths_per_layer<br/>greedy NN + seam vertex rotation<br/>skipped for monotonic surfaces]
     ORD --> L[Vec~SliceLayer~]
 ```
 
@@ -203,6 +217,26 @@ width (`nozzle_diameter_mm × bridge_flow_ratio`) in the G-code generator and
 trigger the bridge fan boost via `has_bridges`. This eliminates sagging
 walls printed across windows, slots, and similar mid-air features.
 
+### Dynamic overhang speed & cooling
+
+When `enable_overhang_speed` is set, the same pass grades each wall segment by
+**overhang degree** — how far past the previous layer's material footprint its
+centreline sits — and records an `OverhangClass` (`None`/`Deg1`…`Deg4`) per path.
+The degrees are nested inflations of the previous perimeter (`prev`, `+d/4`, the
+existing `d/2` air boundary, `+3d/4`), so `Deg3`/`Deg4` coincide exactly with the
+binary `OverhangPerimeter` region and the role tag stays consistent.
+
+Two invariants:
+
+- **Off ⇒ byte-identical.** With grading off the classifier reduces to the
+  historical air/support split and `path_overhang` stays empty.
+- **Split only where output changes.** `overhang_band_class` folds any degree
+  whose speed and fan match a plainer wall down to that class, so a wall is never
+  fragmented into arcs that print identically — no wasted retracts.
+
+Grading needs the **pristine** previous-layer perimeter, snapshotted before
+bridge clipping splits any walls and passed in as `OverhangGrading`.
+
 Two things to note:
 
 - **Snapshot before strip.** The single-wall-strip step (step 4) removes
@@ -223,13 +257,13 @@ Two things to note:
 | Phase                         | Function                                                                      | Reads                                       | Writes                                       |
 | ----------------------------- | ----------------------------------------------------------------------------- | ------------------------------------------- | -------------------------------------------- |
 | Slice                         | [`slice_mesh`](slicer.rs)                                                     | `Mesh`                                      | `paths` (OuterWall)                          |
-| Arachne walls                 | [`arachne::generate_arachne_walls`](../arachne/mod.rs)                        | `paths`                                     | `paths`, `path_roles`, `path_widths`         |
+| Arachne walls                 | [`walls::arachne::generate_arachne_walls`](../walls/arachne/mod.rs)                        | `paths`                                     | `paths`, `path_roles`, `path_widths`         |
 | Infill snapshot               | [`infill::calculate_interior_region`](infill.rs)                              | `paths` (all walls)                         | `pre_strip_infill_regions` local             |
 | Single-wall strip             | [`walls::apply_single_wall_restrictions`](walls.rs)                           | `paths`, `path_roles`                       | `paths`, `path_roles` (inner walls + first-layer gap fill removed) |
 | Interior regions for surfaces | [`infill::calculate_interior_region`](infill.rs)                              | `paths` (post-strip)                        | `interior_regions` local                     |
 | Top / bottom surfaces         | [`surfaces::generate_top_bottom_surfaces_with_interior`](surfaces.rs)         | `paths`, `interior_regions`                 | `paths`, `path_roles`, `solid_regions`       |
-| Overhang classification       | [`walls::classify_overhang_perimeters`](walls.rs)                             | `paths`, `unsupported_regions`              | `path_roles` (some `OverhangPerimeter`)      |
-| Sparse infill                 | [`infill::add_infill_to_layers`](infill.rs)                                   | `pre_strip_infill_regions`, `solid_regions` | `paths`, `path_roles`                        |
+| Overhang classification       | [`walls::classify_overhang_perimeters`](walls.rs)                             | `paths`, `unsupported_regions`, `OverhangGrading` (opt) | `path_roles` (some `OverhangPerimeter`), `path_overhang` (when grading) |
+| Sparse infill                 | [`infill::add_infill_to_layers`](infill.rs)                                   | `pre_strip_infill_regions`, `solid_regions` | `paths`, `path_roles`, `path_heights`        |
 | Path ordering & seams         | inline in [`pipeline::process_mesh`](pipeline.rs) (uses `choose_seam_vertex`) | `paths`, `path_roles`, `seam_position`      | `paths` (rotated/reordered)                  |
 
 `pre_strip_infill_regions` is computed only when at least one of
@@ -364,7 +398,7 @@ infill is then generated through the void. The `−0.5 × d` correction in
 the inflate accounts for the fact that `OuterWall` centerlines are already
 inset half a bead width from the model surface.
 
-See [`../arachne/README.md`](../arachne/README.md) for the wall-side
+See [`../walls/README.md`](../walls/README.md) for the wall-side
 implications and [`../../AGENTS.md`](../../AGENTS.md) for fill-rule
 guidance across the whole engine.
 
@@ -392,7 +426,7 @@ guidance across the whole engine.
 - [surfaces.rs](surfaces.rs) — top / bottom solid surface detection and infill
 - [infill.rs](infill.rs) — `calculate_interior_region`, sparse infill driver
 - [types.rs](types.rs) — `SliceLayer`, `ExtrusionRole`
-- [../arachne/README.md](../arachne/README.md) — variable-width wall generation
+- [../walls/README.md](../walls/README.md) — wall generation (Arachne + classic)
 - [../infill/README.md](../infill/README.md) — sparse infill pattern catalog
 - [../SLICING.md](../SLICING.md) — slicing-algorithm walkthrough
 - [../../AGENTS.md](../../AGENTS.md) — pipeline-wide invariants and fill-rule guidance

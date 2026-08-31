@@ -1,0 +1,48 @@
+/// Handheld breakpoint — the one definition of "this is a phone".
+/// @group breakpoints
+///
+/// The slicer's chrome assumes a pointer and a lot of horizontal room: a 60px
+/// nav rail, a 280px docked settings column and a 380px slice rail add up to
+/// more than a phone screen *is*. Rather than sprinkle ad-hoc `max-width`
+/// queries, every phone adaptation goes through `handheld()` so the layout
+/// switches over as one piece.
+///
+/// **Phones only, deliberately.** Tablets keep the desktop layout — an iPad has
+/// the width for the docked column and the pointer precision for the gizmos.
+/// The cut-off therefore sits below the smallest tablet (768px) and above the
+/// largest phone in portrait (~430px), with a second arm for phones held
+/// sideways, where the *height* is what runs out.
+///
+/// The landscape arm is bounded on width as well so a short-but-wide desktop
+/// window (a docked browser, a split screen on a big display) is not mistaken
+/// for a phone: no handset is wider than ~932pt on its long edge.
+///
+/// Keep in sync with `HANDHELD_MEDIA_QUERY` in
+/// `app/services/viewport.ts` — that service answers the same question for
+/// TypeScript, and the two must never disagree.
+
+$handheld-max-width: 640px;
+$handheld-landscape-max-width: 950px;
+$handheld-landscape-max-height: 500px;
+
+/// Phone-sized viewports, in either orientation.
+@mixin handheld {
+  @media (max-width: #{$handheld-max-width}),
+    (max-width: #{$handheld-landscape-max-width}) and (max-height: #{$handheld-landscape-max-height}) and (orientation: landscape) {
+    @content;
+  }
+}
+
+/// Phones held upright — where vertical room is plentiful and width is not.
+@mixin handheld-portrait {
+  @media (max-width: #{$handheld-max-width}) and (orientation: portrait) {
+    @content;
+  }
+}
+
+/// Phones held sideways — where the reverse is true and chrome must get short.
+@mixin handheld-landscape {
+  @media (max-width: #{$handheld-landscape-max-width}) and (max-height: #{$handheld-landscape-max-height}) and (orientation: landscape) {
+    @content;
+  }
+}

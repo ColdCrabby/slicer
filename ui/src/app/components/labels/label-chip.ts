@@ -1,6 +1,6 @@
 import { ChangeDetectionStrategy, Component, input, output } from '@angular/core';
 import type { Label } from '../../models/label.model';
-import { Icon } from '../../shared/icon/icon';
+import { Icon } from '@coldcrabby/ui';
 
 /**
  * A single label rendered as a subtle, GitHub-style tinted pill. The fill,

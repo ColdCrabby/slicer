@@ -68,7 +68,7 @@ export class TauriRuntime implements RuntimePort {
     return { fileName, format, filePath: path };
   }
 
-  async addMesh(input: RuntimeMeshInput): Promise<string> {
+  async addMesh(input: RuntimeMeshInput): Promise<string[]> {
     this.requireReady();
     // Bytes may be absent when the file was opened via the native file picker.
     // Read them here — the single point where the WASM scene engine needs them
@@ -78,17 +78,24 @@ export class TauriRuntime implements RuntimePort {
     if (!bytes) {
       throw new Error(`Cannot add mesh '${input.fileName}': no bytes and no file path`);
     }
-    const objectId = this.sceneEngine.addMesh(input.fileName, input.format, bytes);
-    return objectId.toString();
+    const objectIds = this.sceneEngine.addMesh(input.fileName, input.format, bytes);
+    return objectIds.map((id) => id.toString());
   }
 
   async applySceneOps(ops: RuntimeSceneOp[]): Promise<void> {
     this.requireReady();
     const mappedOps: SceneOp[] = ops.map((op) => {
+      // Handled before the shared id lookup: this is the one op that
+      // addresses many objects and therefore carries no single `id`.
+      if (op.op === 'remove_many') {
+        return { op: 'RemoveMany', args: { ids: op.ids.map(BigInt) } };
+      }
       const id = BigInt(op.id);
       switch (op.op) {
         case 'remove':
           return { op: 'Remove', args: { id } };
+        case 'duplicate':
+          return { op: 'Duplicate', args: { id, offset: op.offset ?? [0, 0, 0] } };
         case 'translate':
           return { op: 'Translate', args: { id, delta: op.delta } };
         case 'set_transform':
@@ -129,6 +136,8 @@ export class TauriRuntime implements RuntimePort {
         scale: object.scale,
         triangle_count: object.triangle_count,
         world_aabb: object.world_aabb,
+        source_id: object.source_id,
+        source_part: object.source_part,
       })),
     };
   }

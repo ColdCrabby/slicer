@@ -1,0 +1,170 @@
+/* The component host is the flex item in a settings row, so it — not the
+   inner split — must refuse to shrink, or the primary label wraps. */
+:host {
+  flex: none;
+}
+
+/* Split button: primary action plus a caret for the alternative file shape.
+   Same anatomy as the slice card's send-split control, sized for a settings
+   row (labelled primary rather than icon-only). */
+.export-split {
+  display: inline-flex;
+  align-items: stretch;
+  height: 32px;
+  flex-shrink: 0;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+  box-shadow: var(--shadow-xs);
+  overflow: hidden;
+  transition:
+    border-color var(--duration-fast) var(--ease-standard),
+    box-shadow var(--duration-fast) var(--ease-standard);
+
+  &:hover {
+    border-color: var(--accent-border);
+  }
+
+  &.is-open {
+    border-color: var(--accent);
+    box-shadow: 0 0 0 2px var(--color-focus-ring);
+  }
+
+  .export-action,
+  .export-caret {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border: none;
+    background: transparent;
+    color: var(--color-text-secondary);
+    cursor: pointer;
+    transition:
+      background-color var(--duration-fast) var(--ease-standard),
+      color var(--duration-fast) var(--ease-standard);
+
+    &:hover:not(:disabled) {
+      background: var(--color-surface-hover);
+      color: var(--color-text-primary);
+    }
+
+    &:focus-visible {
+      outline: none;
+      background: var(--color-surface-hover);
+      color: var(--color-text-primary);
+    }
+
+    &:disabled {
+      opacity: 0.5;
+      cursor: progress;
+    }
+  }
+
+  .export-action {
+    gap: 6px;
+    padding: 0 12px;
+    color: var(--accent);
+    font-size: var(--font-size-sm);
+    font-weight: var(--font-weight-medium);
+    white-space: nowrap;
+    --icon-size: 16px;
+
+    &:hover:not(:disabled) {
+      color: var(--accent-hover);
+    }
+  }
+
+  .export-caret {
+    width: 26px;
+    border-left: 1px solid var(--color-border);
+    color: var(--color-text-tertiary);
+    --icon-size: 16px;
+
+    nexus-icon {
+      transition: transform var(--duration-normal) var(--ease-standard);
+    }
+  }
+
+  &.is-open .export-caret {
+    background: var(--color-surface-hover);
+    color: var(--color-text-primary);
+
+    nexus-icon {
+      transform: rotate(180deg);
+    }
+  }
+}
+
+/* Rendered body-level through FloatingService; emulated-encapsulation
+   attributes still tag these nodes, so scoped styles apply. */
+.export-menu {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 268px;
+  padding: var(--spacing-xs);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  background: var(--color-bg-secondary);
+  box-shadow: var(--shadow-lg);
+  animation: export-menu-pop var(--duration-fast) var(--ease-standard);
+}
+
+@keyframes export-menu-pop {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.export-menu-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  width: 100%;
+  padding: 9px 10px;
+  border: none;
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: var(--color-text-primary);
+  text-align: left;
+  cursor: pointer;
+  transition: background-color var(--duration-fast) var(--ease-standard);
+
+  &:hover,
+  &:focus-visible {
+    outline: none;
+    background: var(--color-surface-hover);
+  }
+}
+
+.export-menu-icon {
+  flex: none;
+  margin-top: 1px;
+  color: var(--color-text-tertiary);
+  --icon-size: 17px;
+}
+
+.export-menu-body {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  flex: 1;
+  min-width: 0;
+}
+
+.export-menu-label {
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-medium);
+  line-height: 1.3;
+}
+
+.export-menu-desc {
+  font-size: var(--font-size-xs);
+  color: var(--color-text-tertiary);
+  line-height: 1.3;
+}

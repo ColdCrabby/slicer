@@ -153,12 +153,17 @@ fn add_from_bytes_matches_load_from_path() {
             name: "cube".to_string(),
             format: MeshFormat::Stl,
             bytes,
+            source_id: None,
         })
         .expect("add from bytes");
-    let id = match receipt.inverse {
-        SceneOp::Remove { id } => id,
-        _ => panic!("expected Remove inverse"),
+    let ids = match receipt.inverse {
+        SceneOp::RemoveMany { ids } => ids,
+        _ => panic!("expected RemoveMany inverse"),
     };
+    // An STL carries exactly one object, so the split loader must not invent
+    // extra parts for a single-part format.
+    assert_eq!(ids.len(), 1, "STL should add exactly one object");
+    let id = ids[0];
 
     let obj = scene.get(id).expect("object exists");
     assert_eq!(obj.mesh.faces.len(), path_mesh.faces.len());

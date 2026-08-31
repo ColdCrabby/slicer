@@ -57,6 +57,9 @@
               }
             ],
             "styles": ["src/styles/main.scss"],
+            "stylePreprocessorOptions": {
+              "includePaths": ["vendor/coldcrabby-ui/src/styles", "src/styles"]
+            },
             "loader": {
               ".ttf": "file",
               ".woff": "file",
@@ -68,8 +71,8 @@
               "budgets": [
                 {
                   "type": "initial",
-                  "maximumWarning": "600kB",
-                  "maximumError": "1.5MB"
+                  "maximumWarning": "750kB",
+                  "maximumError": "900kB"
                 },
                 {
                   "type": "anyComponentStyle",
@@ -83,8 +86,8 @@
               "budgets": [
                 {
                   "type": "initial",
-                  "maximumWarning": "600kB",
-                  "maximumError": "1.5MB"
+                  "maximumWarning": "750kB",
+                  "maximumError": "900kB"
                 },
                 {
                   "type": "anyComponentStyle",
@@ -122,7 +125,8 @@
         "serve": {
           "builder": "@angular/build:dev-server",
           "options": {
-            "port": 4213
+            "port": 4213,
+            "proxyConfig": "proxy.conf.mjs"
           },
           "configurations": {
             "production": {

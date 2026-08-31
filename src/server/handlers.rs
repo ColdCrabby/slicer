@@ -126,6 +126,49 @@ pub async fn put_profiles_category_handler(
     }
 }
 
+/// Query for `GET /api/profiles/export`.
+#[derive(serde::Deserialize)]
+pub struct ProfileExportQuery {
+    /// `bundle` (ZIP of one TOML per profile) or `toml` (single
+    /// `profiles.toml`). Defaults to `bundle`.
+    pub format: Option<String>,
+}
+
+/// `GET /api/profiles/export` — download the profile library as TOML.
+///
+/// Exports what is actually persisted beside the engine, so the artifact is the
+/// same data the CLI would read on this machine. See
+/// [`crate::profiles::export`] for the two shapes.
+pub async fn export_profiles_handler(
+    query: web::Query<ProfileExportQuery>,
+) -> actix_web::HttpResponse {
+    let token = query.format.as_deref().unwrap_or("bundle");
+    let Some(format) = crate::profiles::ProfileExportFormat::parse(token) else {
+        return actix_web::HttpResponse::BadRequest()
+            .json(serde_json::json!({ "error": format!("unknown export format '{token}'") }));
+    };
+
+    let library = match crate::profiles::ProfileStore::new().load() {
+        Ok(library) => library,
+        Err(e) => {
+            return actix_web::HttpResponse::InternalServerError()
+                .json(serde_json::json!({ "error": e.to_string() }))
+        }
+    };
+
+    match crate::profiles::export_library(&library, format) {
+        Ok(artifact) => actix_web::HttpResponse::Ok()
+            .content_type(artifact.mime)
+            .insert_header((
+                actix_web::http::header::CONTENT_DISPOSITION,
+                format!("attachment; filename=\"{}\"", artifact.filename),
+            ))
+            .body(artifact.bytes),
+        Err(e) => actix_web::HttpResponse::InternalServerError()
+            .json(serde_json::json!({ "error": e.to_string() })),
+    }
+}
+
 /// `DELETE /api/history` — drop every slicing session, uploaded-file row, and
 /// cached G-code entry (and their on-disk artifacts). Backs the settings Danger
 /// Zone "Clear slice history" action. Profiles and configuration are untouched.
@@ -145,6 +188,13 @@ pub async fn delete_history_handler(state: web::Data<AppState>) -> actix_web::Ht
 /// distinct — the slice protocol references files by `file_uuid` and never by
 /// `request_uuid` (the legacy "request UUID is also the file ID" convention
 /// is gone).
+///
+/// An optional `ruuid` text field attaches the upload to an **existing**
+/// workplate instead of creating a new one. That is how a plate accumulates
+/// several models: every object's file hangs off the same `request_uuid`, so
+/// `GET /api/request/:ruuid` lists them all and reopening the plate restores
+/// every object rather than just the one it started from. Clients must send
+/// `ruuid` *before* the `file` field, since multipart fields stream in order.
 pub async fn upload_handler(
     state: web::Data<AppState>,
     mut multipart: actix_multipart::Multipart,
@@ -152,25 +202,41 @@ pub async fn upload_handler(
     use futures_util::StreamExt as _;
     use uuid::Uuid;
 
-    // Generate workplate UUID and a separate file UUID.
-    let request_uuid = Uuid::new_v4();
     let file_uuid = Uuid::new_v4();
-
-    // Create database record
-    state
-        .db
-        .create_request(request_uuid)
-        .await
-        .map_err(actix_web::error::ErrorInternalServerError)?;
 
     const MAX_FILE_SIZE: u64 = 500 * 1024 * 1024; // 500 MB limit
     let mut file_size: u64 = 0;
     let mut original_filename: Option<String> = None;
     let mut file_path: Option<std::path::PathBuf> = None;
+    let mut existing_request: Option<Uuid> = None;
 
     // Process multipart fields
     while let Some(field_result) = multipart.next().await {
         let mut field = field_result.map_err(actix_web::error::ErrorBadRequest)?;
+
+        if field.name() == Some("ruuid") {
+            let mut raw = Vec::new();
+            while let Some(chunk) = field.next().await {
+                raw.extend_from_slice(&chunk.map_err(actix_web::error::ErrorBadRequest)?);
+            }
+            let text = String::from_utf8_lossy(&raw).trim().to_string();
+            if !text.is_empty() {
+                let uuid = Uuid::parse_str(&text)
+                    .map_err(|_| actix_web::error::ErrorBadRequest("Invalid ruuid"))?;
+                // Only adopt a workplate that actually exists; a stale id from
+                // the client must not silently orphan the upload.
+                if state
+                    .db
+                    .get_request(uuid)
+                    .await
+                    .map_err(actix_web::error::ErrorInternalServerError)?
+                    .is_some()
+                {
+                    existing_request = Some(uuid);
+                }
+            }
+            continue;
+        }
 
         // Only process the "file" field
         if field.name() != Some("file") {
@@ -228,6 +294,22 @@ pub async fn upload_handler(
             return Err(actix_web::error::ErrorBadRequest("No file uploaded"));
         }
         None => return Err(actix_web::error::ErrorBadRequest("No file uploaded")),
+    };
+
+    // Reuse the caller's workplate when it named a live one, else start a new
+    // one. Creating it only now keeps a rejected upload from leaving an empty
+    // workplate behind.
+    let request_uuid = match existing_request {
+        Some(uuid) => uuid,
+        None => {
+            let uuid = Uuid::new_v4();
+            state
+                .db
+                .create_request(uuid)
+                .await
+                .map_err(actix_web::error::ErrorInternalServerError)?;
+            uuid
+        }
     };
 
     // Update database with file info

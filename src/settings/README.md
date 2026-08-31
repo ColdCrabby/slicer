@@ -24,6 +24,39 @@ Configuration for slicing behavior and printer control. All values stored as JSO
 | `thumbnail_color_mode`    | enum | `filament` | generic/filament/custom            | Model colour in the thumbnail: neutral / filament / chosen     |
 | `thumbnail_custom_color`  | hex  | `#e0912f` | `#rrggbb`                           | Model colour used when `thumbnail_color_mode = custom`         |
 
+### Infill (`params.*`)
+
+| Parameter                                | Type  | Default          | Effect                                                                        |
+| ---------------------------------------- | ----- | ---------------- | ----------------------------------------------------------------------------- |
+| `infill_pattern`                         | enum  | `Rectilinear`    | see below                                                                     |
+| `infill_base_angle`                      | °     | 45               | Sparse fill direction; alternating layers add 90°                             |
+| `infill_anchor_percent`                  | %     | 400              | How far a lone infill line end runs along the wall, as a % of the bead spacing |
+| `infill_anchor_max_mm`                   | mm    | 20               | Longest wall stretch that may join two infill lines; `0` = no anchoring        |
+| `infill_every_layers`                    | count | 1                | Print sparse infill once every N layers, at N× the height (`1` = off)          |
+| `infill_combination_max_layer_height_mm` | mm    | 0                | Cap on the combined height; `0` = use the nozzle diameter                      |
+| `solid_infill_every_layers`              | count | 0                | Force a solid internal layer every N layers (`0` = off)                        |
+
+Infill patterns: `Rectilinear`, `AlignedRectilinear`, `Grid`, `Triangles`,
+`TriHexagon`, `Cubic`, `Honeycomb`, `Concentric`, `Gyroid`, `TpmsD`.
+
+Density is measured against the **bead spacing** (`width − h·(1 − π/4)`), so a
+requested density equals the deposited volume at any line width — and every
+pattern deposits the same amount. See
+[src/infill/README.md](../infill/README.md).
+
+### Surfaces (`params.*`)
+
+| Parameter                       | Type | Default           | Effect                                        |
+| ------------------------------- | ---- | ----------------- | --------------------------------------------- |
+| `surface_infill_angle`          | °    | 45                | Solid fill direction; alternates 90° per layer |
+| `top_surface_pattern`           | enum | `monotonic-line`  | Fill pattern for the visible top surface       |
+| `bottom_surface_pattern`        | enum | `monotonic`       | Fill pattern for the bottom surface            |
+| `internal_solid_infill_pattern` | enum | `monotonic`       | Fill pattern for forced internal solid layers  |
+
+Surface patterns: `rectilinear`, `aligned-rectilinear`, `monotonic`,
+`monotonic-line`, `concentric`. "Monotonic" draws every line in the same
+direction, so the nozzle never travels back over a line it just laid.
+
 ### Bridge & overhang (`params.*`)
 
 | Parameter                | Type | Default | Effect                                                                      |
@@ -33,7 +66,48 @@ Configuration for slicing behavior and printer control. All values stored as JSO
 | `bridge_anchor_mm`       | mm   | 0.4     | Inflate the bridge region outward to anchor strands into solid material     |
 | `bridge_min_area_mm2`    | mm²  | 0.5     | Drop bridge candidates smaller than this; reclassified as `BottomSurface`   |
 | `bridge_noise_filter_mm` | mm   | 0.05    | Morphological-open radius to wipe sub-pixel slivers before bridge detection |
-| `bridge_fan_speed`       | 0–1  | 1.0     | Cooling fan duty for layers that contain bridges                            |
+| `bridge_fan_speed`       | 0–1  | 1.0     | Part-cooling duty while printing `Bridge` segments (per-segment override)   |
+| `bridge_angle`           | °    | 0       | Force one bridging direction; `0` = auto-detect, `180` = horizontal         |
+
+### Cooling & chamber (`params.*`)
+
+The filament owns the material policy, the printer owns the hardware capability;
+`fan_configs` stays the printer-side adaptive layer-time table. Full precedence
+rules in [gcode/README.md](../gcode/README.md#thermal-management--cooling--chamber).
+
+| Parameter                  | Type | Default | Effect                                                                                    |
+| -------------------------- | ---- | ------- | ----------------------------------------------------------------------------------------- |
+| `fan_speed`                | 0–1  | 1.0     | **Ceiling** the adaptive `fan_configs` curve is clamped to (the high-temp material gate)   |
+| `first_layer_fan_speed`    | 0–1  | 0.0     | Part-cooling duty while pinned by `disable_fan_first_layers`                               |
+| `disable_fan_first_layers` | n    | 1       | Bottom layers where part cooling is pinned; bridge/overhang overrides are suppressed there |
+| `overhang_fan_speed`       | 0–1  | 1.0     | Part-cooling duty on overhang segments (needs `enable_overhang_speed`)                     |
+| `overhang_fan_threshold`   | 0–1  | 0.5     | Unsupported fraction above which `overhang_fan_speed` engages                              |
+| `heated_chamber`           | bool | `false` | **Printer capability** — without it no `M141`/`M191` is ever emitted                        |
+| `chamber_temp`             | °C   | 0       | Chamber target; bed armed + `M141`/`M191` soak run before the start G-code |
+| `chamber_temp_first_layer` | °C   | 0       | First-layer soak target (`0` = use `chamber_temp`); restored at layer 2                    |
+
+### Retraction (`params.*`)
+
+| Parameter                     | Type | Default | Effect                                                                                   |
+| ----------------------------- | ---- | ------- | ---------------------------------------------------------------------------------------- |
+| `retract_mm`                  | mm   | 1.0     | Filament pulled back on a retracting travel                                               |
+| `retract_speed_mm_min`        | mm/min | 2400  | Retract / un-retract feedrate                                                             |
+| `z_hop_mm`                    | mm   | 0.2     | Nozzle lift during a retracting travel                                                    |
+| `retract_before_travel_mm`    | mm   | 1.0     | Minimum travel distance before a retraction is triggered                                  |
+| `retract_restart_extra_mm`    | mm   | 0.0     | Extra prime length added on un-retract to compensate for travel ooze                     |
+| `retract_on_layer_change`     | bool | `false` | Retract before every layer-change Z move                                                  |
+| `use_firmware_retraction`     | bool | `false` | Emit `G10`/`G11` and sync the firmware (`M207`/`M208` or `SET_RETRACTION`)                |
+| `use_relative_e_distances`    | bool | `false` | Emit `M83` + incremental E (`G1 … E<delta>`) instead of `M82` absolute positions          |
+| `wipe`                        | bool | `false` | Retrace the just-printed path while retracting to smear ooze onto printed material        |
+| `wipe_distance_mm`            | mm   | 1.0     | How far to wipe (capped at the previous path's length) when `wipe` is enabled             |
+| `retract_before_wipe_percent` | 0–1  | 0.0     | Fraction of the retraction performed before the wipe (the rest is distributed along it)   |
+
+### Machine (`params.*`)
+
+| Parameter      | Type | Default | Effect                                                                                         |
+| -------------- | ---- | ------- | ---------------------------------------------------------------------------------------------- |
+| `z_offset_mm`  | mm   | 0.0     | Added to every Z coordinate in the output G-code to compensate a mis-zeroed Z endstop (negative lowers the nozzle). Emitted coordinates and layer markers only — the model, statistics and your start/end G-code are untouched. See [gcode/README.md](../gcode/README.md#machine-z-offset-issue-102). |
+
 
 ### Global Settings (top-level)
 

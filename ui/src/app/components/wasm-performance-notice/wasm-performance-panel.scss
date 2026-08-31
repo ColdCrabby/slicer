@@ -42,6 +42,19 @@
   color: var(--color-text-tertiary);
 }
 
+// The highlighted card swaps its neutral background for a warm amber tint, and
+// a neutral grey does not stay legible on it — the tertiary tone lands at
+// 3.9:1 there, under the 4.5:1 that small text needs. Step both bits of
+// supporting copy up a level; the opacity goes with it, since dimming text over
+// a tinted surface erodes exactly the contrast being recovered.
+.wasm-perf__card--native {
+  .wasm-perf__card-label,
+  .wasm-perf__card-note {
+    color: var(--color-text-secondary);
+    opacity: 1;
+  }
+}
+
 .wasm-perf__card-value {
   font-size: 1.9rem;
   font-weight: 700;

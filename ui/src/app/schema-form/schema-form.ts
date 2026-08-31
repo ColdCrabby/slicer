@@ -17,8 +17,8 @@ import Fuse, { type IFuseOptions } from 'fuse.js';
 import { Sidebar } from '../nexus/sidebar/sidebar';
 import { BrowserStorage } from '../services/browser-storage';
 import { KeyboardShortcuts } from '../services/keyboard-shortcuts/keyboard-shortcuts';
-import { Icon } from '../shared/icon/icon';
-import { UserInputModality } from '../shared/input-modality/input-modality';
+import { Viewport } from '../services/viewport';
+import { Icon, UserInputModality } from '@coldcrabby/ui';
 import { FieldHost } from './field-host/field-host';
 import { noticeForField } from './field-exceptions/field-exceptions';
 import { FieldDef, SchemaGroup } from './models/field-def';
@@ -91,6 +91,7 @@ export class SchemaForm {
   private readonly storage = inject(BrowserStorage);
   private readonly inputModality = inject(UserInputModality);
   private readonly sidebar = inject(Sidebar, { optional: true });
+  private readonly viewport = inject(Viewport);
   readonly keyboardShortcuts = inject(KeyboardShortcuts);
 
   /** Raw JSON Schema object. Changing this input re-parses the schema. */
@@ -124,6 +125,19 @@ export class SchemaForm {
   private readonly hostEl = inject<ElementRef<HTMLElement>>(ElementRef);
 
   protected readonly searchQuery = signal('');
+
+  /**
+   * Placeholder for the search box.
+   *
+   * The keyboard hint is only useful where there is a keyboard: on a phone
+   * "(⌘+f)" is a shortcut the user cannot press, and it is long enough to push
+   * the words that matter out of a narrow field.
+   */
+  protected readonly searchPlaceholder = computed(() =>
+    this.viewport.isHandheld()
+      ? 'Search settings…'
+      : `Search settings… (${this.keyboardShortcuts.shortcutFor('focus-settings-search')})`,
+  );
 
   constructor() {
     this.keyboardShortcuts.schemaFormRef = this;
@@ -213,7 +227,7 @@ export class SchemaForm {
     const values = this.value();
     const names = new Set<string>();
     for (const group of this.relevantGroups()) {
-      if (group.fields.some((f) => noticeForField(f, values[f.key]) !== null)) {
+      if (group.fields.some((f) => noticeForField(f, values[f.key], values) !== null)) {
         names.add(group.name);
       }
     }

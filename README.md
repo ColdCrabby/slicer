@@ -27,21 +27,34 @@ Drop in an STL, OBJ, or 3MF and get print-ready G-code. One engine, wherever you
 | ------------------ | ---------------------------------------------------- | -------------------------------------------------------- |
 | 🌐 **Web**         | In any browser - desktop, tablet, iPad               | None - [just open the link](https://slicer.maxscopp.de/) |
 | 🖥️ **Desktop**     | Native app, runs entirely on your machine            | [Set it up](SETUP.md#desktop-app)                        |
+| 📱 **iPad**        | The same app, with touch and pen                     | [Set it up](SETUP.md#ipad--ios-app)                      |
 | ☁️ **Self-hosted** | Host it yourself, share with your team               | [Set it up](SETUP.md#self-hosted-web-ui)                 |
 
 Same slicing engine everywhere, so the G-code is identical no matter where you run it. In the browser, your files never leave your machine.
 
 The interface adapts to whatever you're on - touch and pen gestures on a tablet, a native window that feels at home on desktop - so it always fits the device instead of fighting it.
 
+**What you get:** multi-object build plates with auto-arrange and per-face orientation · variable-width perimeters (Arachne) or classic fixed-offset walls · rectilinear, grid, honeycomb, gyroid and TPMS-D infill · supports, brims, rafts and ironing · spiral vase mode · Marlin and Klipper G-code with custom start/end scripts · a full toolpath preview you can colour by role, speed, flow or temperature · cancel-one-object and sequential printing · upload and start a print on Klipper machines without leaving the app.
+
 ---
 
 ## Get started
 
+**If you want to print something**
+
 - 🌐 **Slice now, nothing to install** → [slicer.maxscopp.de](https://slicer.maxscopp.de/)
-- 🛠️ **Run it yourself** - desktop, self-hosted, or the browser build → [SETUP.md](SETUP.md)
+- 📘 **How to use it** — the interface, settings, printers, shortcuts → [Getting started](https://slicer.maxscopp.de/docs/use/)
+- 🖥️ **Run it on your own machine** → [SETUP.md](SETUP.md)
+
+**If you want to run it for other people**
+
+- 🏢 **Teams & businesses** — self-hosting, shared profiles, automation, privacy → [For teams](https://slicer.maxscopp.de/docs/teams/)
+
+**If you want to work on it**
+
 - 🧱 **Build from source** → [BUILDING.md](BUILDING.md)
 - 🧑‍💻 **Develop & contribute** → [DEVELOPMENT.md](DEVELOPMENT.md) · [CONTRIBUTING.md](CONTRIBUTING.md)
-- 📖 **Full docs** - architecture, module guides, contributor docs → [slicer.maxscopp.de/docs](https://slicer.maxscopp.de/docs/)
+- 🗺️ **Architecture** → [ARCHITECTURE.md](ARCHITECTURE.md)
 
 ---
 

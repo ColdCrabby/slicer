@@ -26,7 +26,7 @@
 
 use clipper2::*;
 
-use crate::core::{ExtrusionRole, SliceLayer};
+use crate::core::{ExtrusionRole, OverhangClass, SliceLayer};
 use crate::settings::params::{AdhesionType, BrimType, SlicingParams};
 
 /// Round-join polygon inflate — the offset primitive used throughout this
@@ -120,6 +120,12 @@ fn push_loop(layer: &mut SliceLayer, path: Path, role: ExtrusionRole, width: f64
     layer.path_widths.push(Some(width));
     layer.path_vertex_widths.push(None);
     layer.path_is_open.push(false);
+    if !layer.path_overhang.is_empty() {
+        layer.path_overhang.push(OverhangClass::None);
+    }
+    if !layer.path_objects.is_empty() {
+        layer.path_objects.push(None);
+    }
 }
 
 /// Pad every parallel per-path array on `layer` up to `layer.paths.len()` so a
@@ -138,6 +144,27 @@ fn normalise(layer: &mut SliceLayer) {
     while layer.path_is_open.len() < n {
         layer.path_is_open.push(false);
     }
+    // Only pad `path_overhang` when the layer was graded (non-empty); an empty
+    // vector is the "not graded" sentinel and must stay empty.
+    if !layer.path_overhang.is_empty() {
+        while layer.path_overhang.len() < n {
+            layer.path_overhang.push(OverhangClass::None);
+        }
+    }
+    // Same sentinel rule for `path_heights`: empty means "every path prints at
+    // the layer height", and only combined sparse infill ever fills it in.
+    if !layer.path_heights.is_empty() {
+        while layer.path_heights.len() < n {
+            layer.path_heights.push(None);
+        }
+    }
+    // Same for object tags: an empty vector means "this layer was not sliced
+    // object-aware" and must stay empty.
+    if !layer.path_objects.is_empty() {
+        while layer.path_objects.len() < n {
+            layer.path_objects.push(None);
+        }
+    }
 }
 
 /// Prepend `additions` (a fully-populated adhesion layer) in front of `layer`'s
@@ -147,6 +174,7 @@ fn prepend(layer: &mut SliceLayer, additions: SliceLayer) {
         return;
     }
     normalise(layer);
+    let additions_count = additions.paths.len();
     let mut paths = additions.paths;
     let mut roles = additions.path_roles;
     let mut widths = additions.path_widths;
@@ -161,11 +189,44 @@ fn prepend(layer: &mut SliceLayer, additions: SliceLayer) {
     vwidths.extend(layer.path_vertex_widths.iter().cloned());
     is_open.extend(layer.path_is_open.iter().copied());
 
+    // Prepend `None` for the (unclassified) adhesion loops so the object's own
+    // overhang classes stay aligned to their walls.  Empty stays empty.
+    let overhang = if layer.path_overhang.is_empty() {
+        Vec::new()
+    } else {
+        let mut o = vec![OverhangClass::None; additions_count];
+        o.extend(layer.path_overhang.iter().copied());
+        o
+    };
+
+    // Adhesion loops always print at the layer height, so they prepend `None`;
+    // an object path that combined infill tagged with a stacked height keeps it.
+    let heights = if layer.path_heights.is_empty() {
+        Vec::new()
+    } else {
+        let mut h = vec![None; additions_count];
+        h.extend(layer.path_heights.iter().copied());
+        h
+    };
+
+    // Adhesion belongs to the plate, not to any one object: a skirt or brim
+    // still has to print when a single part is cancelled, so its tag is `None`.
+    let objects = if layer.path_objects.is_empty() {
+        Vec::new()
+    } else {
+        let mut o = vec![None; additions_count];
+        o.extend(layer.path_objects.iter().copied());
+        o
+    };
+
     layer.paths = paths;
     layer.path_roles = roles;
     layer.path_widths = widths;
     layer.path_vertex_widths = vwidths;
     layer.path_is_open = is_open;
+    layer.path_overhang = overhang;
+    layer.path_heights = heights;
+    layer.path_objects = objects;
 }
 
 /// Concentric offset loops stepping **outward** from `footprint`, keeping only
@@ -377,10 +438,12 @@ fn build_raft(object: &[SliceLayer], params: &SlicingParams, d: f64) -> Vec<Slic
     }
 
     let lh = params.layer_height;
-    // Density → line spacing maps through the infill module's fixed 0.4 mm ref.
-    let base_spacing = (2.5 * d).max(d);
-    let base_density = (0.4 / base_spacing).clamp(0.05, 1.0);
-    let iface_density = (0.4 / d).clamp(0.05, 1.0);
+    // Raft lines are laid at an explicit pitch, expressed through the infill
+    // module's `spacing / density` relation: pass the bead itself as the spacing
+    // so `density` reads directly as "bead width over line pitch".
+    let base_pitch = (2.5 * d).max(d);
+    let base_density = (d / base_pitch).clamp(0.05, 1.0);
+    let iface_density = 1.0;
 
     let mut raft = Vec::with_capacity(n);
     for i in 0..n {
@@ -388,7 +451,7 @@ fn build_raft(object: &[SliceLayer], params: &SlicingParams, d: f64) -> Vec<Slic
         let mut layer = SliceLayer::new(z);
         // First layer = coarse base; remaining = finer interface.
         let (density, angle, width) = if i == 0 {
-            (base_density, 0.0_f64, base_spacing.min(2.0 * d))
+            (base_density, 0.0_f64, base_pitch.min(2.0 * d))
         } else {
             let a = if i % 2 == 1 {
                 std::f64::consts::FRAC_PI_2
@@ -399,10 +462,13 @@ fn build_raft(object: &[SliceLayer], params: &SlicingParams, d: f64) -> Vec<Slic
         };
         let lines = crate::infill::generate_infill(
             &outline,
-            crate::infill::InfillPattern::Rectilinear,
-            density,
-            angle,
-            z,
+            &crate::infill::FillParams {
+                pattern: crate::infill::InfillPattern::Rectilinear,
+                density,
+                spacing_mm: d,
+                angle_offset: angle,
+                z_height: z,
+            },
         );
         for line in lines.iter() {
             if line.len() < 2 {
@@ -465,6 +531,50 @@ mod tests {
         layer.paths.push(sq);
         layer.path_roles.push(ExtrusionRole::OuterWall);
         layer
+    }
+
+    #[test]
+    fn prepend_keeps_every_per_path_array_aligned() {
+        // Adhesion loops go in *front* of the object's paths, so every parallel
+        // array has to shift with them. A combined-infill height left behind
+        // would be applied to the wrong path — and to the skirt, which prints at
+        // the layer height by definition.
+        let mut layer = square_layer(0.2);
+        let infill: Path = vec![(-5.0, 0.0), (5.0, 0.0)].into();
+        layer.paths.push(infill);
+        layer.path_roles.push(ExtrusionRole::Infill);
+        layer.path_heights = vec![None, Some(0.6)];
+        layer.path_overhang = vec![OverhangClass::None, OverhangClass::None];
+
+        let mut additions = SliceLayer::new(0.2);
+        let skirt: Path = vec![(-12.0, -12.0), (12.0, -12.0), (12.0, 12.0)].into();
+        additions.paths.push(skirt);
+        additions.path_roles.push(ExtrusionRole::Skirt);
+        additions.path_widths.push(Some(0.4));
+        additions.path_vertex_widths.push(None);
+        additions.path_is_open.push(false);
+
+        prepend(&mut layer, additions);
+
+        let n = layer.paths.len();
+        assert_eq!(n, 3);
+        assert_eq!(layer.path_roles.len(), n);
+        assert_eq!(layer.path_widths.len(), n);
+        assert_eq!(layer.path_vertex_widths.len(), n);
+        assert_eq!(layer.path_is_open.len(), n);
+        assert_eq!(layer.path_overhang.len(), n);
+        assert_eq!(layer.path_heights.len(), n);
+        assert_eq!(layer.role_for_path(0), ExtrusionRole::Skirt);
+        assert_eq!(
+            layer.height_for_path(0),
+            None,
+            "skirt prints at layer height"
+        );
+        assert_eq!(
+            layer.height_for_path(2),
+            Some(0.6),
+            "the combined infill kept its stacked height"
+        );
     }
 
     fn base_params() -> SlicingParams {

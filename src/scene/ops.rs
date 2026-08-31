@@ -4,9 +4,10 @@
 //! Each successfully-applied op returns an [`OpReceipt`] containing the
 //! inverse op, so undo can be added later without redesigning the API.
 
+use crate::mesh::repair::RepairOptions;
 use crate::mesh::types::Vertex;
 use crate::scene::loader::{self, MeshFormat};
-use crate::scene::state::{ObjectId, SceneState};
+use crate::scene::state::{ObjectId, SceneObject, SceneState};
 use crate::scene::transform::Transform;
 use glam::{Quat, Vec3};
 use serde::{Deserialize, Serialize};
@@ -20,14 +21,40 @@ use std::sync::Arc;
 #[serde(tag = "op", content = "args")]
 pub enum SceneOp {
     /// Add a mesh from raw bytes.
+    ///
+    /// A container format that holds several parts (3MF) adds **one object per
+    /// part**, so a multi-model file lands on the plate as separate objects
+    /// rather than one fused blob. The receipt's inverse removes all of them.
     Add {
         name: String,
         format: MeshFormat,
         #[serde(with = "serde_bytes")]
         bytes: Vec<u8>,
+        /// Opaque handle to where `bytes` came from, stored on the object.
+        /// See [`crate::scene::SceneObject::source_id`].
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        source_id: Option<String>,
     },
     /// Remove an object.
     Remove { id: ObjectId },
+    /// Remove several objects at once.
+    ///
+    /// Exists so adding a multi-part file (a 3MF holding several models) has a
+    /// truthful inverse: one `Add` can create many objects, and undo has to
+    /// take all of them back in a single step.
+    RemoveMany { ids: Vec<ObjectId> },
+    /// Clone an object, sharing the original's mesh.
+    ///
+    /// The copy keeps the original's transform and `source_id` and is then
+    /// nudged by `offset` (scene mm) so it does not land exactly on top of
+    /// the original. The inverse is `Remove` of the new object.
+    Duplicate {
+        id: ObjectId,
+        /// Translation applied to the copy. Defaults to no offset, which
+        /// leaves the copy perfectly coincident with its original.
+        #[serde(default)]
+        offset: [f64; 3],
+    },
     /// Translate by a delta in scene millimeters.
     Translate { id: ObjectId, delta: [f64; 3] },
     /// Replace the entire transform.
@@ -166,11 +193,64 @@ impl SceneState {
                 name,
                 format,
                 bytes,
+                source_id,
             } => {
-                let mesh = loader::load_bytes(&bytes, format).map_err(SceneError::Load)?;
-                let id = self.add_mesh(name, Arc::new(mesh));
+                // Each part is validated and repaired on its own — one bad
+                // part in a 3MF says nothing about its siblings.
+                let parts =
+                    loader::load_bytes_multi_reporting(&bytes, format, &RepairOptions::default())
+                        .map_err(SceneError::Load)?;
+                let multi = parts.len() > 1;
+                let ids: Vec<ObjectId> = parts
+                    .into_iter()
+                    .enumerate()
+                    .map(|(index, part)| {
+                        // A part's own name is the useful label ("top",
+                        // "bottom"); fall back to the file name, suffixed so
+                        // sibling parts stay tellable apart in the list.
+                        let label = match (&part.name, multi) {
+                            (Some(part_name), _) => part_name.clone(),
+                            (None, true) => format!("{name} #{}", index + 1),
+                            (None, false) => name.clone(),
+                        };
+                        self.add_mesh_part_with_report(
+                            label,
+                            Arc::new(part.mesh),
+                            source_id.clone(),
+                            index,
+                            Some(part.report),
+                        )
+                    })
+                    .collect();
                 Ok(OpReceipt {
-                    inverse: SceneOp::Remove { id },
+                    inverse: SceneOp::RemoveMany { ids },
+                })
+            }
+
+            SceneOp::RemoveMany { ids } => {
+                let removed: Vec<SceneObject> =
+                    ids.iter().filter_map(|id| self.get(*id).cloned()).collect();
+                for id in &ids {
+                    self.remove(*id);
+                }
+                // Like Remove, a faithful inverse would need the mesh bytes
+                // back; record the transforms so a history layer can replay
+                // them after re-adding.
+                Ok(OpReceipt {
+                    inverse: SceneOp::BatchSetTransform {
+                        transforms: removed.iter().map(|o| (o.id, o.transform)).collect(),
+                    },
+                })
+            }
+
+            SceneOp::Duplicate { id, offset } => {
+                let new_id = self.duplicate(id).ok_or(SceneError::NotFound(id))?;
+                let copy = self.get_mut(new_id).expect("just inserted");
+                copy.transform.translation[0] += offset[0] as f32;
+                copy.transform.translation[1] += offset[1] as f32;
+                copy.transform.translation[2] += offset[2] as f32;
+                Ok(OpReceipt {
+                    inverse: SceneOp::Remove { id: new_id },
                 })
             }
 
@@ -486,11 +566,117 @@ fn affected_id_for_gravity(op: &SceneOp) -> Option<ObjectId> {
         | SceneOp::CenterOnBed { id } => Some(*id),
         SceneOp::Add { .. }
         | SceneOp::Remove { .. }
+        | SceneOp::RemoveMany { .. }
+        | SceneOp::Duplicate { .. }
         | SceneOp::DropToFloor { .. }
         | SceneOp::PlaceFaceOnFloor { .. }
         | SceneOp::AutoOrient { .. }
         | SceneOp::ArrangeOnBed { .. }
         | SceneOp::BatchSetTransform { .. } => None,
+    }
+}
+
+#[cfg(test)]
+mod multi_part_add_tests {
+    use super::*;
+    use crate::scene::bed::BedConfig;
+
+    fn top_ac_bytes() -> Vec<u8> {
+        std::fs::read(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/tests/fixtures/TopAC.3mf"
+        ))
+        .expect("TopAC.3mf fixture is missing")
+    }
+
+    #[test]
+    fn adding_a_multi_object_3mf_creates_one_object_per_part() {
+        let mut scene = SceneState::new(BedConfig::default());
+        let receipt = scene
+            .apply(SceneOp::Add {
+                name: "TopAC.3mf".into(),
+                format: MeshFormat::Threemf,
+                bytes: top_ac_bytes(),
+                source_id: Some("upload-1".into()),
+            })
+            .expect("3MF should add");
+
+        assert_eq!(
+            scene.objects.len(),
+            2,
+            "the two build items must stay apart"
+        );
+        // The authored part names are what the user sees in the object list.
+        assert_eq!(
+            scene
+                .objects
+                .iter()
+                .map(|o| o.name.as_str())
+                .collect::<Vec<_>>(),
+            vec!["top", "bottom"],
+        );
+        // Every part points at the same upload but a distinct index, so a
+        // slice can fetch exactly its own geometry.
+        assert!(scene
+            .objects
+            .iter()
+            .all(|o| o.source_id.as_deref() == Some("upload-1")));
+        assert_eq!(
+            scene
+                .objects
+                .iter()
+                .map(|o| o.source_part)
+                .collect::<Vec<_>>(),
+            vec![0, 1],
+        );
+
+        // Undo has to take back every object the one Add created.
+        match receipt.inverse {
+            SceneOp::RemoveMany { ids } => assert_eq!(ids.len(), 2),
+            other => panic!("expected RemoveMany inverse, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn remove_many_undoes_a_multi_part_add() {
+        let mut scene = SceneState::new(BedConfig::default());
+        let receipt = scene
+            .apply(SceneOp::Add {
+                name: "TopAC.3mf".into(),
+                format: MeshFormat::Threemf,
+                bytes: top_ac_bytes(),
+                source_id: None,
+            })
+            .expect("3MF should add");
+        scene.apply(receipt.inverse).expect("inverse should apply");
+        assert!(scene.objects.is_empty(), "undo must clear the whole file");
+    }
+
+    #[test]
+    fn duplicating_a_part_keeps_its_source_index() {
+        // A duplicate has to resolve to the same *part*, not just the same
+        // file, or it would print the wrong half of the model.
+        let mut scene = SceneState::new(BedConfig::default());
+        scene
+            .apply(SceneOp::Add {
+                name: "TopAC.3mf".into(),
+                format: MeshFormat::Threemf,
+                bytes: top_ac_bytes(),
+                source_id: Some("upload-1".into()),
+            })
+            .expect("3MF should add");
+
+        let second = scene.objects[1].id;
+        scene
+            .apply(SceneOp::Duplicate {
+                id: second,
+                offset: [50.0, 0.0, 0.0],
+            })
+            .expect("duplicate should apply");
+
+        let copy = scene.objects.last().expect("copy exists");
+        assert_eq!(copy.source_part, 1);
+        assert_eq!(copy.source_id.as_deref(), Some("upload-1"));
     }
 }
 

@@ -21,6 +21,23 @@ pub struct WallParams {
     /// Minimum medial gap-fill run length in mm; shorter runs are dropped as
     /// faceting noise.  `0` keeps every run that spans at least one segment.
     pub gap_fill_min_length_mm: f64,
+    /// Print the outer wall first (`true`) or the inner walls first (`false`,
+    /// the default).  Controls per-island bead emission order; see
+    /// [`SlicingParams::external_perimeters_first`].
+    pub external_perimeters_first: bool,
+    /// Fill narrow residual cores with extra concentric perimeter loops instead
+    /// of leaving them for sparse infill.  See
+    /// [`SlicingParams::extra_perimeters`].
+    pub extra_perimeters: bool,
+    /// Widest residual core (in mm) that `extra_perimeters` will fill with
+    /// loops; wider cores are left for infill.  `= extra_perimeters_max_gap ×
+    /// nozzle_diameter_mm`.
+    pub extra_perimeters_max_gap_mm: f64,
+    /// Emit beads for **thin features** — model material too narrow for even one
+    /// full perimeter.  **Classic generator only**: Arachne fills thin features
+    /// from the medial axis by construction and ignores this flag.
+    /// See [`SlicingParams::thin_walls`].
+    pub thin_walls: bool,
 }
 
 impl WallParams {
@@ -34,6 +51,10 @@ impl WallParams {
             wall_line_width_max_mm: params.wall_line_width_max * d,
             wall_distribution_count: params.wall_distribution_count,
             gap_fill_min_length_mm: params.gap_fill_min_length_mm,
+            external_perimeters_first: params.external_perimeters_first,
+            extra_perimeters: params.extra_perimeters,
+            extra_perimeters_max_gap_mm: params.extra_perimeters_max_gap * d,
+            thin_walls: params.thin_walls,
         }
     }
 }

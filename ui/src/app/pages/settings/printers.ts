@@ -31,11 +31,12 @@ import {
   gcodeTemplateStatus,
   type GcodeTemplateStatus,
 } from '../../models/gcode-templates';
-import { CloudCatalog } from '../../services/catalog/cloud-catalog';
+import { CloudCatalog, catalogSpecOf } from '../../services/catalog/cloud-catalog';
 import { ContextMenuService } from '../../services/context-menu/context-menu.service';
 import { ContextMenuTrigger } from '../../services/context-menu/context-menu-trigger';
 import type { ContextMenuItem } from '../../services/context-menu/context-menu.model';
 import { Dialog } from '../../services/dialog';
+import { NotificationService } from '../../services/notifications';
 import { PrinterConnectionService } from '../../services/printer-connection';
 import { ActiveSelection } from '../../services/profiles/active-selection';
 import { matchesAllLabels, toggledLabelIds } from '../../services/profiles/label-filtering';
@@ -43,24 +44,26 @@ import { paramNum, paramStr } from '../../models/params-access';
 import { LabelFilterStore } from '../../services/profiles/label-filter-store';
 import { LabelsStore } from '../../services/profiles/labels-store';
 import { PrintersStore } from '../../services/profiles/printers-store';
-import { Icon } from '../../shared/icon/icon';
-import { Badge } from '../../shared/badge/badge';
+import {
+  Icon,
+  Badge,
+  Button,
+  EmptyState,
+  FieldRow,
+  IconButton,
+  ModalShell,
+  NumberInput,
+  SectionHeader,
+  Segmented,
+  Select,
+  Switch,
+} from '@coldcrabby/ui';
 import { CatalogPicker, type CatalogEntryVm } from '../../components/profiles/catalog-picker';
 import { ParamField } from '../../components/profiles/param-field';
 import { CodeEditor } from '../../components/code-editor/code-editor';
 import { LabelFilterBar } from '../../components/labels/label-filter-bar';
 import { LabelPicker } from '../../components/labels/label-picker';
 import { focusConfigureTarget } from './configure-scroll';
-import { Button } from '../../ui/button/button';
-import { EmptyState } from '../../ui/empty-state/empty-state';
-import { FieldRow } from '../../ui/field-row/field-row';
-import { IconButton } from '../../ui/icon-button/icon-button';
-import { ModalShell } from '../../ui/modal-shell/modal-shell';
-import { NumberInput } from '../../ui/number-input/number-input';
-import { SectionHeader } from '../../ui/section-header/section-header';
-import { Segmented } from '../../ui/segmented/segmented';
-import { Select } from '../../ui/select/select';
-import { Switch } from '../../ui/switch/switch';
 
 /**
  * The `SlicingParams` sub-schema extracted from the generated global-settings
@@ -147,6 +150,7 @@ export class PrintersSettings {
   private readonly catalog = inject(CloudCatalog);
   private readonly contextMenu = inject(ContextMenuService);
   private readonly dialog = inject(Dialog);
+  private readonly notifications = inject(NotificationService);
   private readonly printerConn = inject(PrinterConnectionService);
   private readonly route = inject(ActivatedRoute);
 
@@ -285,13 +289,19 @@ export class PrintersSettings {
     }
   }
 
-  protected readonly catalogStatus = this.catalog.status;
+  protected readonly catalogStatus = this.catalog.printersStatus;
+  protected readonly catalogHasMore = this.catalog.printersHasMore;
+  protected readonly catalogLoadingMore = this.catalog.printersLoadingMore;
+  /** Id of the catalog entry currently being fetched for import, if any. */
+  protected readonly importingId = signal<string | null>(null);
   protected readonly catalogEntries = computed<CatalogEntryVm[]>(() =>
     this.catalog.printers().map((p) => ({
       id: p.id,
       name: p.name,
       vendor: p.vendor,
-      meta: `${p.bed_width}×${p.bed_depth} mm · ${(p.params as Record<string, unknown>)?.['nozzle_diameter_mm']} mm`,
+      meta:
+        catalogSpecOf(p) ??
+        `${p.bed_width}×${p.bed_depth} mm · ${(p.params as Record<string, unknown>)?.['nozzle_diameter_mm']} mm`,
       icon: 'printer',
       imported: this.store.items().some((item) => item.based_on === p.id),
     })),
@@ -300,22 +310,46 @@ export class PrintersSettings {
   protected readonly editing = computed(() => this.selected());
 
   protected openCatalog(): void {
-    void this.catalog.load();
+    void this.catalog.loadPrinters();
     this.catalogOpen.set(true);
   }
 
-  protected retryCatalog(): void {
-    void this.catalog.load(true);
+  protected onCatalogSearch(query: string): void {
+    void this.catalog.searchPrinters(query);
   }
 
-  protected importFromCatalog(id: string): void {
-    const entry = this.catalog.printers().find((p) => p.id === id);
-    if (!entry) {
+  protected retryCatalog(): void {
+    void this.catalog.loadPrinters(true, this.catalog.printersQuery());
+  }
+
+  protected loadMoreCatalog(): void {
+    void this.catalog.loadMorePrinters();
+  }
+
+  /**
+   * Fetch the full preset behind `id` (real slicing params, not just the
+   * browsed summary) and import it. The catalog picker shows a busy state on
+   * this entry's pick button for the duration.
+   */
+  protected async importFromCatalog(id: string): Promise<void> {
+    const base = this.catalog.printers().find((p) => p.id === id);
+    if (!base || this.importingId()) {
       return;
     }
-    const copy = this.store.importFromCatalog(entry);
-    this.active.selectPrinter(copy.id);
-    this.select(copy.id);
+    this.importingId.set(id);
+    try {
+      const full = await this.catalog.printerDetail(base);
+      const copy = this.store.importFromCatalog(full);
+      this.active.selectPrinter(copy.id);
+      this.select(copy.id);
+    } catch (error) {
+      this.notifications.error(
+        'Import failed',
+        error instanceof Error ? error.message : 'The preset details could not be fetched.',
+      );
+    } finally {
+      this.importingId.set(null);
+    }
   }
 
   /** Open a printer in the detail pane and refresh its live status. */

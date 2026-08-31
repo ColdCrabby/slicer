@@ -1,0 +1,96 @@
+/// Base treatments shared with the app.
+/// @group docs-theme
+///
+/// Typography weights, the focus ring, scrollbars and selection — the small
+/// things that make the site feel like the same product as the slicer window.
+
+/* ── Variable-font weights ────────────────────────────────────────────────
+   Plus Jakarta Sans is a variable face, and the app leans on non-step weights
+   (462 / 536 / 614) for smoother emphasis than 400/500/600 give. Match them
+   so a heading here weighs the same as a heading in the app. */
+body {
+  font-weight: var(--font-weight-normal);
+  font-variation-settings: "wght" var(--font-weight-normal);
+  font-optical-sizing: auto;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+h1,
+h2,
+h3,
+h4,
+h5,
+h6,
+.VPNavBarTitle .title,
+.VPSidebarItem .text,
+.VPButton {
+  font-variation-settings: "wght" var(--font-weight-semibold);
+}
+
+strong,
+b {
+  font-weight: var(--font-weight-semibold);
+  font-variation-settings: "wght" var(--font-weight-semibold);
+}
+
+code,
+kbd,
+pre,
+samp {
+  font-variation-settings: "wght" var(--font-weight-mono-normal);
+}
+
+/* ── Focus reads as a shape change, not a colour flood ────────────────────
+   Same 2px outline + offset the app applies globally, animated with the
+   standard easing. Anything that opts out must replace it with something
+   equally legible.
+
+   The interactive elements are named as well as matched by `*` because
+   VitePress's bundled DocSearch styles ship `button:focus-visible { outline:
+   -webkit-focus-ring-color auto 4px }`, which outranks a bare
+   `*:focus-visible` and would leave every button on the browser's own ring. */
+*:focus {
+  outline: none;
+}
+
+*:focus-visible,
+a:focus-visible,
+button:focus-visible,
+input:focus-visible,
+select:focus-visible,
+summary:focus-visible {
+  outline: 2px solid var(--color-focus-ring);
+  outline-offset: 1px;
+  transition:
+    outline-color var(--duration-fast) var(--ease-standard),
+    outline-offset var(--duration-fast) var(--ease-standard);
+}
+
+/* ── Scrollbars ───────────────────────────────────────────────────────────*/
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: var(--color-scrollbar-track);
+}
+
+::-webkit-scrollbar-thumb {
+  border-radius: var(--radius-sm);
+  background: var(--color-scrollbar-thumb);
+
+  &:hover {
+    background: var(--color-scrollbar-thumb-hover);
+  }
+}
+
+* {
+  scrollbar-color: var(--color-scrollbar-thumb) var(--color-scrollbar-track);
+  scrollbar-width: thin;
+}
+
+::selection {
+  background: var(--accent-soft);
+}

@@ -60,6 +60,7 @@ classDiagram
         +name: String
         +mesh: Arc~Mesh~
         +transform: Transform
+        +source_id: Option~String~
     }
     class Transform {
         +translation: Vec3
@@ -81,23 +82,62 @@ A few things worth knowing:
   `to_euler_xyz_deg`). Quaternions everywhere else means no gimbal lock and
   no surprises when ops compose.
 - **Meshes are `Arc<Mesh>`.** Cloning a `SceneObject` is cheap; transforming
-  it doesn't copy a single vertex.
+  it doesn't copy a single vertex. `Duplicate` leans on this: twenty copies of
+  a million-triangle model cost twenty pointers, not twenty meshes.
+- **`source_id` remembers where the bytes came from.** The scene never
+  interprets it — it just carries the caller's handle (the WS upload UUID, a
+  CLI path) so an object can be traced back to its file. Without it a caller
+  holding N objects and M uploads has to pair them by position, which slices
+  the wrong mesh as soon as the two lists disagree. Duplicates inherit it, so
+  every instance of a model resolves to the same bytes.
+- **`source_part` says *which* object inside that file.** A 3MF is a scene, not
+  a model: one upload can back several plate objects. Re-loading the file at
+  slice time hands back *every* part, so the index picks the right one —
+  otherwise a two-part file prints both parts twice. It survives duplication
+  for the same reason `source_id` does.
+
+---
+
+## Is this plate printable?
+
+`SceneState::placement_report()` answers that for every object at once, so the
+CLI, the server and the viewer all warn on the same rules instead of each
+inventing their own:
+
+- **`out_of_bounds`** — the object's world AABB escapes the build volume.
+  `BedConfig::contains_aabb` is shape-aware: a rectangular bed checks the
+  extents, a circular one checks that the farthest footprint corner still falls
+  inside the disk.
+- **`collides`** — the object's XY footprint overlaps another's. Footprint, not
+  volume: two parts stacked at different heights still collide, because the
+  nozzle has to travel through the lower one. Touching edges are *not* an
+  overlap, so a freshly packed plate never warns about its own spacing.
+
+The tolerance is `1e-3` mm rather than something tighter. STL stores
+coordinates as `f32`, so a model dropped exactly onto the bed lands a few
+`1e-6` mm below zero — a stricter epsilon would flag half the models on a
+plate as hanging off it.
 
 ---
 
 ## The op catalog
 
-| Op                 | Does                                                      | Inverse stored in receipt        |
-| ------------------ | --------------------------------------------------------- | -------------------------------- |
-| `Add`              | Loads bytes, assigns a new `ObjectId`, identity transform | `Remove`                         |
-| `Remove`           | Drops the object                                          | `SetTransform` stub _(see note)_ |
-| `Translate`        | Adds delta to `translation`                               | `SetTransform` to previous       |
-| `SetTransform`     | Replaces the entire transform                             | `SetTransform` to previous       |
-| `Rotate`           | Composes `Quat::from_axis_angle` onto current rotation    | `SetTransform` to previous       |
-| `Scale`            | Multiplies per-axis `scale` factors                       | `SetTransform` to previous       |
-| `CenterOnBed`      | XY-centers the world AABB on the bed; preserves Z         | `SetTransform` to previous       |
-| `DropToFloor`      | Translates so world AABB `min.z = 0`                      | `SetTransform` to previous       |
-| `AlignFaceToFloor` | Rotates picked face's normal to `-Z`, then drops          | `SetTransform` to previous       |
+| Op                  | Does                                                       | Inverse stored in receipt        |
+| ------------------- | ---------------------------------------------------------- | -------------------------------- |
+| `Add`               | Loads bytes; **one object per part** (3MF), identity pose  | `RemoveMany` of everything added |
+| `Remove`            | Drops the object                                           | `SetTransform` stub _(see note)_ |
+| `RemoveMany`        | Drops several objects at once                              | `BatchSetTransform` stub         |
+| `Duplicate`         | Clones an object (shared mesh + source ref), offset        | `Remove` of the copy             |
+| `Translate`         | Adds delta to `translation`                                | `SetTransform` to previous       |
+| `SetTransform`      | Replaces the entire transform                              | `SetTransform` to previous       |
+| `Rotate`            | Composes `Quat::from_axis_angle` onto current rotation     | `SetTransform` to previous       |
+| `Scale`             | Multiplies per-axis `scale` factors                        | `SetTransform` to previous       |
+| `CenterOnBed`       | XY-centers the world AABB on the bed; preserves Z          | `SetTransform` to previous       |
+| `DropToFloor`       | Translates so world AABB `min.z = 0`                       | `SetTransform` to previous       |
+| `PlaceFaceOnFloor`  | Rotates picked face's normal to `-Z`, then lands that face | `SetTransform` to previous       |
+| `AutoOrient`        | Rotates to minimise overhangs, then drops                  | `SetTransform` to previous       |
+| `ArrangeOnBed`      | Shelf-packs the listed objects, then centers the group     | `BatchSetTransform`              |
+| `BatchSetTransform` | Restores many transforms atomically                        | `BatchSetTransform` to previous  |
 
 > **Note on `Remove`:** the inverse can't fully restore the mesh bytes from
 > the current state alone. The receipt records the last transform so a

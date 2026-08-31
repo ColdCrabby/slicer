@@ -11,7 +11,8 @@ import {
   signal,
   viewChild,
 } from '@angular/core';
-import { Icon } from '../../shared/icon/icon';
+import { Icon } from '@coldcrabby/ui';
+import { Viewport } from '../../services/viewport';
 
 const STORAGE_WIDTH_KEY = 'nexus.sidebar.width';
 const STORAGE_COLLAPSED_KEY = 'nexus.sidebar.collapsed';
@@ -42,9 +43,21 @@ export class Sidebar {
   private readonly el = inject(ElementRef<HTMLElement>);
   private readonly renderer = inject(Renderer2);
   private readonly document = inject(DOCUMENT);
+  private readonly viewport = inject(Viewport);
 
-  /** Docked (false) reserves layout space; collapsed (true) floats as an overlay. */
-  protected readonly collapsed = signal(this.readCollapsed());
+  /** The user's docked/hidden preference, honoured wherever there is room. */
+  private readonly dockedPreference = signal(this.readCollapsed());
+  /**
+   * Docked (false) reserves layout space; collapsed (true) floats as an overlay.
+   *
+   * A phone is never wide enough to dock: 280px of settings beside a 390px
+   * screen leaves no scene to settle them against. The stored preference is
+   * kept rather than overwritten, so the same browser docks again the moment it
+   * is wide enough.
+   */
+  protected readonly collapsed = computed(
+    () => this.viewport.isHandheld() || this.dockedPreference(),
+  );
   /** A deliberate tap/click peek that persists until dismissed (scrim/Escape/toggle). */
   protected readonly overlayOpen = signal(false);
   /** An ephemeral hover preview (pointer-capable devices only); closes on leave. */
@@ -120,7 +133,7 @@ export class Sidebar {
   protected onCollapseToggle(event: MouseEvent): void {
     event.stopPropagation();
     const next = !this.collapsed();
-    this.collapsed.set(next);
+    this.dockedPreference.set(next);
     this.clearHoverTimers();
     this.overlayOpen.set(false);
     this.hoverPreview.set(false);

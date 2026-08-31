@@ -1,11 +1,28 @@
 import { inject } from '@angular/core';
 import { Router, type Routes } from '@angular/router';
-import { NexusSlicingShell } from './nexus/layout/slicing-shell/slicing-shell';
 import { AppShell } from './nexus/shell/shell';
-import { SettingsShell } from './pages/settings/settings-shell';
 import { SlicerFile } from './services/slicer-file';
 import { uploadCanDeactivate } from './services/upload-guard';
 
+/**
+ * The app's route table.
+ *
+ * `AppShell` is the only eagerly-imported component here: it is the chrome
+ * every route renders inside, so deferring it would only delay the first paint.
+ * **Everything below it is `loadComponent`, including the two intermediate
+ * shells** — that is deliberate and load-bearing, not stylistic.
+ *
+ * A `component:` reference is a *static* import, so the entire import graph
+ * behind it joins the initial bundle. `NexusSlicingShell` reaches three.js, the
+ * viewer toolbar, the schema-driven settings panel and fuse.js; naming it here
+ * put ~700 kB of the slice workspace in front of the home screen, which does not
+ * use any of it. Loading the shells lazily is what keeps the initial bundle
+ * proportional to the first screen. Prefer `loadComponent` for anything routed.
+ *
+ * The cost — a chunk fetch on first navigation — is paid back two ways:
+ * {@link IdleRoutePreload} warms these chunks once the app goes idle, and
+ * {@link NavigationProgress} makes any wait that remains visible.
+ */
 export const APP_ROUTES: Routes = [
   {
     path: '',
@@ -18,7 +35,8 @@ export const APP_ROUTES: Routes = [
       },
       {
         path: 'slice',
-        component: NexusSlicingShell,
+        loadComponent: () =>
+          import('./nexus/layout/slicing-shell/slicing-shell').then((m) => m.NexusSlicingShell),
         children: [
           {
             // Land on the active workplate if one is open; otherwise start a
@@ -48,7 +66,7 @@ export const APP_ROUTES: Routes = [
       },
       {
         path: 'settings',
-        component: SettingsShell,
+        loadComponent: () => import('./pages/settings/settings-shell').then((m) => m.SettingsShell),
         title: 'Settings',
         children: [
           { path: '', redirectTo: 'general', pathMatch: 'full' },
@@ -111,18 +129,18 @@ export const APP_ROUTES: Routes = [
               import('./pages/settings/shortcuts').then((m) => m.ShortcutsSettings),
           },
           {
+            path: 'changelog',
+            title: "What's New",
+            loadComponent: () =>
+              import('./pages/settings/changelog').then((m) => m.ChangelogSettings),
+          },
+          {
             path: 'danger-zone',
             title: 'Danger Zone',
             loadComponent: () =>
               import('./pages/settings/danger-zone').then((m) => m.DangerZoneSettings),
           },
         ],
-      },
-      {
-        path: 'components',
-        title: 'UI Components',
-        loadComponent: () =>
-          import('./pages/ui-components/ui-components.component').then((m) => m.UiComponentsPage),
       },
     ],
   },

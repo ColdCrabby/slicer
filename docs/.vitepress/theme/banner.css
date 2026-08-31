@@ -1,0 +1,33 @@
+/*
+ * "Early docs" banner.
+ *
+ * `--vp-layout-top-height` reserves the space the banner occupies — VitePress
+ * offsets its fixed nav, sidebar and local-nav by it, so it must be a real
+ * length on :root; a scoped style inside Banner.vue cannot define it. Keep the
+ * two values in sync with Banner.vue's own breakpoint.
+ *
+ * The fill is the accent itself (`styles/_tokens.scss` brings the token in
+ * from the shared UI library) rather than VitePress's yellow scale, which
+ * inverts between modes and lands on a muddy dark gold in light mode.
+ */
+:root {
+  --vp-layout-top-height: 40px;
+
+  --cc-banner-bg: var(--accent);
+  --cc-banner-fg: var(--accent-contrast);
+}
+
+/*
+ * Light mode's `--accent-contrast` is white, which has too little contrast on
+ * the amber fill for a whole sentence. Dark mode's is already a deep brown, so
+ * it inherits from :root above.
+ */
+:root:not(.dark) {
+  --cc-banner-fg: #1c1204;
+}
+
+@media (max-width: 719px) {
+  :root {
+    --vp-layout-top-height: 64px;
+  }
+}

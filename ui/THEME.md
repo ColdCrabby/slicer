@@ -1,76 +1,71 @@
-# Theme System
+# Theming
 
-The UI uses a CSS variable-based theming system supporting light and dark modes.
+How light/dark mode and the accent colour work. The SCSS design language —
+tokens, base elements, utilities — lives in the shared
+[`@coldcrabby/ui`](https://github.com/ColdCrabby/ui) repo, vendored at
+`vendor/coldcrabby-ui/` (see [README → Shared UI](README.md#shared-ui-coldcrabbyui)); for the visual rules that govern
+what you build with these tokens, see
+[the design language](../.github/instructions/ui-design-language.instructions.md).
 
-## CSS Variables
+## Modes
 
-All theme-related styles use CSS custom properties defined in `src/styles.scss`:
+Dark mode is a class on `<html>`. Light is the default; `html.dark` swaps the
+token values.
 
-### Colors
+Tokens are defined per mode in the vendored
+[`vendor/coldcrabby-ui/src/styles/theme/`](vendor/coldcrabby-ui/src/styles/theme/):
+`_tokens.scss` holds what doesn't change (spacing, radii, durations),
+`_light.scss` and `_dark.scss` hold the colours.
 
-- `--color-bg-primary`: Main background
-- `--color-bg-secondary`: Secondary background
-- `--color-bg-tertiary`: Tertiary background
-- `--color-surface`: Interactive surface (buttons, inputs)
-- `--color-text-primary`: Primary text
-- `--color-text-secondary`: Secondary text
-- `--color-text-tertiary`: Tertiary/disabled text
-- `--color-border`: Border color
-- `--color-accent`: Primary accent color
-- `--color-success`, `--color-warning`, `--color-error`: Status colors
+[`AppTheme`](src/app/services/app-theme.ts) owns the switch:
 
-### Spacing
+| | |
+| --- | --- |
+| `isDarkMode()` | The resolved mode, as a signal |
+| `hasExplicitPreference()` | False when following the system |
+| `toggleTheme()` | Flip and persist |
 
-- `--spacing-xs` (4px) to `--spacing-2xl` (32px)
+With no stored preference it follows `prefers-color-scheme` and keeps following
+it live. That's why there are three options in the UI — Light, Dark and System —
+but only two token sets.
 
-### Radius
+## Accent
 
-- `--radius-sm` (4px), `--radius-md` (6px), `--radius-lg` (8px)
+**Every colour in the UI derives from one `--accent` variable.** Override it and
+the whole interface recolours; nothing else needs to know.
 
-### Transitions
+[`AccentService`](src/app/services/accent.ts) resolves where that value comes
+from:
 
-- `--transition-fast` (0.15s), `--transition-normal` (0.2s), `--transition-slow` (0.3s)
+| Source | Value |
+| --- | --- |
+| `brand` | The molten-amber default baked into the theme tokens |
+| `system` | The OS accent colour (desktop only) |
+| `custom` | A preset or a colour the user picked |
 
-## Mode Selection
+It defaults to the OS accent on desktop and to brand on the web — the app should
+look like it belongs to the machine it's running on.
 
-Modes are controlled via the `html` element's class:
+## Using tokens
 
-- **Light Mode** (default): `<html>`
-- **Dark Mode**: `<html class="dark">`
-
-## Using the Theme Service
-
-Inject and use the `ThemeService` to toggle themes:
-
-```typescript
-import { ThemeService } from './services/theme.service';
-
-constructor(private themeService: ThemeService) {}
-
-toggleDarkMode() {
-  this.themeService.toggleTheme();
-}
-
-getCurrentTheme() {
-  return this.themeService.currentTheme(); // true = dark, false = light
-}
-```
-
-## In Components
-
-Use CSS variables directly in your component styles:
+In component styles, use the CSS variables. Don't reach for SCSS colour
+functions, and never hardcode a brand colour:
 
 ```scss
-.my-component {
-  background-color: var(--color-bg-secondary);
+.my-element {
+  background: var(--color-bg-secondary);
   color: var(--color-text-primary);
   padding: var(--spacing-md);
-  border: 1px solid var(--color-border);
   border-radius: var(--radius-md);
   transition: all var(--transition-normal);
 }
 ```
 
-## Persisting Theme Preference
+Hardcoding a colour breaks three things at once: dark mode, the user's accent,
+and the OS accent on desktop.
 
-The theme preference is automatically saved to `localStorage` and restored on page load. System preference (`prefers-color-scheme`) is used as fallback.
+## Persistence
+
+Theme and accent preferences are stored in `localStorage` through
+[`BrowserStorage`](src/app/services/browser-storage.ts), which keeps them in sync
+across tabs.

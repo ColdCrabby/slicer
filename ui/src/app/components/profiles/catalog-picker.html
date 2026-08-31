@@ -1,5 +1,8 @@
 <div class="catalog">
-  <div class="catalog__search">
+  <div
+    class="catalog__search has-focus-ring"
+    [class.catalog__search--busy]="loading() && entries().length > 0"
+  >
     <nexus-icon name="search" />
     <input
       type="text"
@@ -8,6 +11,22 @@
       (input)="onSearch($event)"
       aria-label="Search catalog"
     />
+    @if (loading() && entries().length > 0) {
+      <span class="catalog__spinner catalog__spinner--inline" aria-hidden="true"></span>
+    }
+
+    <a
+      nexusIconButton
+      size="sm"
+      class="catalog__github"
+      href="https://github.com/ColdCrabby/cloud-presets"
+      target="_blank"
+      rel="noopener noreferrer"
+      aria-label="Open the preset catalog repository on GitHub"
+      title="View catalog source on GitHub"
+    >
+      <nexus-icon name="github" />
+    </a>
   </div>
 
   @if (unavailable()) {
@@ -19,18 +38,22 @@
         Retry
       </button>
     </div>
-  } @else if (loading()) {
+  } @else if (loading() && entries().length === 0) {
     <div class="catalog__state">
       <span class="catalog__spinner"></span>
       <p>Loading catalog…</p>
     </div>
-  } @else if (filtered().length === 0) {
+  } @else if (entries().length === 0) {
     <div class="catalog__state">
-      <p>No presets match “{{ query() }}”.</p>
+      @if (query().trim()) {
+        <p>No presets match “{{ query() }}”.</p>
+      } @else {
+        <p>No presets in the catalog yet.</p>
+      }
     </div>
   } @else {
     <ul class="catalog__list">
-      @for (entry of filtered(); track entry.id) {
+      @for (entry of entries(); track entry.id) {
         <li class="catalog__item">
           @if (entry.color) {
             <span class="catalog__swatch" [style.background]="entry.color"></span>
@@ -46,11 +69,39 @@
               <nexus-icon name="check" />
               Imported
             </span>
+          } @else if (entry.id === importingId()) {
+            <button type="button" class="catalog__pick catalog__pick--busy" disabled>
+              <span class="catalog__spinner catalog__spinner--inline"></span>
+              Importing…
+            </button>
           } @else {
-            <button type="button" class="catalog__pick" (click)="pick.emit(entry.id)">
+            <button
+              type="button"
+              class="catalog__pick"
+              [disabled]="!!importingId()"
+              (click)="pick.emit(entry.id)"
+            >
               {{ actionLabel() }}
             </button>
           }
+        </li>
+      }
+      @if (hasMore()) {
+        <li class="catalog__load-more">
+          <button
+            type="button"
+            class="catalog__retry"
+            [disabled]="loadingMore()"
+            (click)="loadMore.emit()"
+          >
+            @if (loadingMore()) {
+              <span class="catalog__spinner catalog__spinner--inline"></span>
+              Loading…
+            } @else {
+              <nexus-icon name="nav-arrow-down" />
+              Load more
+            }
+          </button>
         </li>
       }
     </ul>

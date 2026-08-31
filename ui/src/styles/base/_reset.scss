@@ -9,10 +9,16 @@
   -webkit-tap-highlight-color: transparent;
 }
 
-// Prevent iOS rubber-band / overscroll bounce at the page level and disable
-// pinch-to-zoom gestures. Pinch-zoom is also disabled via the viewport meta
-// tag in index.html; `touch-action: manipulation` here suppresses double-tap
-// zoom and improves tap responsiveness.
+// Prevent iOS rubber-band / overscroll bounce at the page level. The body is
+// fixed and non-scrolling, so nothing is lost by that.
+//
+// Note what is deliberately *absent*: a page-wide `touch-action: none`. It used
+// to live here (paired with `user-scalable=no` in index.html) to stop pinch
+// gestures reaching the browser, but between them they also took away
+// pinch-to-zoom on every settings form and every block of prose — the one
+// magnification affordance a low-vision user has on a phone. The gesture lock
+// now sits on the 3D canvas, which is the only surface that actually claims a
+// pinch for itself.
 html,
 body {
   margin: 0;
@@ -20,7 +26,6 @@ body {
   width: 100%;
   overflow: hidden;
   overscroll-behavior: none;
-  touch-action: none;
   -webkit-text-size-adjust: 100%;
 }
 

@@ -54,16 +54,23 @@ impl FilamentMaterial {
 
     /// Typical starting `SlicingParams` overrides for this material, as a sparse
     /// JSON object. Fan speeds are engine-native fractions (0.0–1.0).
+    ///
+    /// `fan_speed` is the material's **cooling ceiling**, not a fixed duty: the
+    /// process's adaptive `fan_configs` curve is clamped to it, which is what
+    /// keeps ABS/ASA/PC from being blasted at full airflow while a heated
+    /// chamber is trying to hold temperature. `first_layer_fan_speed` is `0.0`
+    /// for every material — part cooling on the bed-contact layer costs adhesion
+    /// and buys nothing.
     pub fn default_params(self) -> serde_json::Value {
-        let (nozzle, nozzle1, bed, bed1, fan_min, fan_max, vmax, chamber) = match self {
+        let (nozzle, nozzle1, bed, bed1, fan_max, bridge_fan, vmax, chamber) = match self {
             Self::PLA => (210.0, 215.0, 60.0, 60.0, 1.0, 1.0, 15.0, 0.0),
-            Self::PETG => (240.0, 245.0, 80.0, 80.0, 0.4, 0.6, 12.0, 0.0),
-            Self::ABS => (250.0, 255.0, 100.0, 105.0, 0.0, 0.3, 11.0, 50.0),
-            Self::ASA => (250.0, 255.0, 100.0, 105.0, 0.0, 0.3, 11.0, 50.0),
-            Self::TPU => (230.0, 235.0, 40.0, 45.0, 0.5, 0.8, 4.0, 0.0),
-            Self::PC => (270.0, 275.0, 110.0, 110.0, 0.0, 0.2, 10.0, 60.0),
-            Self::Nylon => (260.0, 265.0, 90.0, 90.0, 0.0, 0.2, 10.0, 45.0),
-            Self::PVA => (215.0, 220.0, 60.0, 60.0, 0.3, 0.5, 6.0, 0.0),
+            Self::PETG => (240.0, 245.0, 80.0, 80.0, 0.6, 1.0, 12.0, 0.0),
+            Self::ABS => (250.0, 255.0, 100.0, 105.0, 0.3, 0.4, 11.0, 50.0),
+            Self::ASA => (250.0, 255.0, 100.0, 105.0, 0.3, 0.4, 11.0, 50.0),
+            Self::TPU => (230.0, 235.0, 40.0, 45.0, 0.8, 1.0, 4.0, 0.0),
+            Self::PC => (270.0, 275.0, 110.0, 110.0, 0.2, 0.3, 10.0, 60.0),
+            Self::Nylon => (260.0, 265.0, 90.0, 90.0, 0.2, 0.3, 10.0, 45.0),
+            Self::PVA => (215.0, 220.0, 60.0, 60.0, 0.5, 1.0, 6.0, 0.0),
         };
         serde_json::json!({
             "nozzle_temp": nozzle,
@@ -72,8 +79,9 @@ impl FilamentMaterial {
             "bed_temp_first_layer": bed1,
             "chamber_temp": chamber,
             "filament_type": self.wire_name(),
-            "first_layer_fan_speed": fan_min,
+            "first_layer_fan_speed": 0.0,
             "fan_speed": fan_max,
+            "bridge_fan_speed": bridge_fan,
             "max_volumetric_speed": vmax,
             "disable_fan_first_layers": 1,
             "flow_ratio": 1.0,

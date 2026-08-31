@@ -141,7 +141,7 @@ Silently discards all events. Use when log output would clutter test output.
 
 ## See also
 
-- [`src/core.rs`](core.rs) — `process_mesh` pipeline entry point
+- [`src/core/pipeline.rs`](core/pipeline.rs) — `process_mesh` pipeline entry point
 - [`src/cli/commands/slice.rs`](cli/commands/slice.rs) — CLI phase instrumentation
 - [`src/server/ws_session.rs`](server/ws_session.rs) — WebSocket phase instrumentation
 - [`src/ws_protocol.rs`](ws_protocol.rs) — `ServerMessage::PhaseMarker` wire type

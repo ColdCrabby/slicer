@@ -1,6 +1,6 @@
 import { ChangeDetectionStrategy, Component, computed, inject, input, output } from '@angular/core';
 import { LabelsStore } from '../../services/profiles/labels-store';
-import { Icon } from '../../shared/icon/icon';
+import { Icon } from '@coldcrabby/ui';
 
 /**
  * A horizontal row of every label rendered as a toggle chip, used to filter a

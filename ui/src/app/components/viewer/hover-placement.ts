@@ -1,4 +1,4 @@
-import type { FloatingPlacement } from '../../shared/floating';
+import type { FloatingPlacement } from '@coldcrabby/ui';
 
 /**
  * The minimal pointer facts the placement decision needs. Kept DOM-free so the

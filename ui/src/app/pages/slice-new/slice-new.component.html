@@ -20,6 +20,7 @@
     #fileInput
     type="file"
     accept=".stl,.obj,.3mf,model/stl,model/obj,model/3mf,application/vnd.ms-pki.stl,application/sla,application/vnd.ms-package.3dmanufacturing-3dmodel+xml,application/octet-stream"
+    multiple
     (change)="onFileSelected($event)"
     class="file-input-hidden"
     [disabled]="uploading() || slicerFile.isPending()"

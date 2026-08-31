@@ -33,28 +33,35 @@
 //! `max_print_speed`), and the user's explicit overrides win over everything.
 
 pub mod defaults;
+pub mod export;
 pub mod filament;
+pub mod library;
 pub mod meta;
 pub mod printer;
 pub mod process;
 pub mod resolve;
+pub mod toml_bridge;
 
 // On-disk profile persistence (TOML). Native/server only — the wasm build has
 // no filesystem and keeps the library in the browser's localStorage instead.
+// The library *shape* and its TOML rendering live in `library` / `toml_bridge`,
+// which every target (including wasm, for export) compiles.
 #[cfg(not(target_arch = "wasm32"))]
 pub mod store;
 
 #[cfg(all(target_arch = "wasm32", feature = "web-slicer"))]
 pub mod wasm;
 
+pub use export::{export_library, ProfileExportArtifact, ProfileExportFormat};
 pub use filament::{material_density, FilamentMaterial, FilamentProfile};
+pub use library::{Label, LabelTone, ProfileKind, ProfileLibrary};
 pub use meta::{ProfileMeta, ProfileSource};
 pub use printer::{BedShape, PrinterConnection, PrinterConnectionKind, PrinterProfile};
 pub use process::{PrintQuality, ProcessProfile};
 pub use resolve::{resolve, ProfileSelection};
 
 #[cfg(not(target_arch = "wasm32"))]
-pub use store::{Label, LabelTone, ProfileKind, ProfileLibrary, ProfileStore};
+pub use store::ProfileStore;
 
 #[cfg(test)]
 mod tests {
@@ -95,6 +102,27 @@ mod tests {
         assert_eq!(params.filament_color, "#d8d8dc");
         // Density is folded in from the profile's typed domain field.
         assert_eq!(params.filament_density_g_cm3, 1.24);
+    }
+
+    /// Machine identity and filament price reach the G-code metadata footer, so
+    /// Moonraker / OctoPrint can show which printer a job was sliced for and
+    /// what the material cost (issue #23).
+    #[test]
+    fn resolve_stamps_machine_identity_and_filament_price() {
+        let params = selection().resolve().expect("resolve");
+        assert_eq!(params.printer_vendor, "Generic");
+        assert_eq!(params.printer_model, "FDM 220");
+        assert_eq!(params.filament_cost_per_kg, 25.0);
+    }
+
+    #[test]
+    fn override_price_wins_over_profile_price() {
+        // Price is folded in at the *filament* precedence layer, like density,
+        // so an explicit user override still wins.
+        let mut sel = selection();
+        sel.overrides = serde_json::json!({ "filament_cost_per_kg": 42.0 });
+        let params = sel.resolve().expect("resolve");
+        assert_eq!(params.filament_cost_per_kg, 42.0);
     }
 
     #[test]

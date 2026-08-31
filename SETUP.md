@@ -1,8 +1,10 @@
 # Setup & running
 
-Everything you need to run Cold Crabby yourself — as a self-hosted web UI, an in-browser slicer, or a desktop app.
+Everything you need to build and run Cold Crabby from source — as a self-hosted web UI, an in-browser slicer, a desktop app, or on an iPad.
 
-> Just want to slice? No setup needed → **[slicer.maxscopp.de](https://slicer.maxscopp.de/)**.
+> **Just want to slice?** No setup needed → **[slicer.maxscopp.de](https://slicer.maxscopp.de/)**.
+> **Want to know how to *use* it?** → **[Getting started](https://slicer.maxscopp.de/docs/use/)**.
+> **Deploying it for a team?** → **[For teams](https://slicer.maxscopp.de/docs/teams/self-host)**.
 
 ---
 
@@ -83,6 +85,7 @@ After cloning, run these once in order. Skipping any step means the next one fai
 pnpm install
 
 # 2. Build WASM scene bindings + generate JSON schemas + TS types
+#    + the Preset Cloud API client (from the remote OpenAPI document).
 #    Populates ui/src/generated/ — without this, `pnpm ui:build` fails with
 #    "Cannot find module '../../generated/scene-wasm/scene_engine'".
 pnpm run hydrate
@@ -126,8 +129,9 @@ port = 5201
 Manage it from the CLI:
 
 ```bash
-slicer-engine config show
-slicer-engine config set slicing.layer_height 0.15
+slicer-engine config show                       # the fully merged result
+slicer-engine config init                       # write a starter ./slicer.toml
+slicer-engine settings set layer_height 0.15    # change one value
 slicer-engine slice --input model.stl --config ./slicer.toml
 ```
 
@@ -145,15 +149,35 @@ pnpm run ui:build            # once (or after UI changes)
 cargo run --release -- serve # http://localhost:5201/
 ```
 
-Dev flow (Angular hot-reload, backend runs separately — both must be running):
+Dev flow (Angular hot-reload, engine runs alongside it):
 
 ```bash
 pnpm run hydrate             # once (or when Rust bindings/schemas change)
-pnpm run ui:dev              # Angular dev server → http://localhost:4200
-cargo run -- serve           # WebSocket/HTTP server  → http://localhost:5201
+pnpm run dev                 # engine + UI on a seeded pair of ports
 ```
 
-The UI sends slicing jobs to the local server. Scene management runs in the browser for instant feedback.
+`pnpm run dev` rolls a random three-digit **seed** and derives every port from
+it — the UI on `4<seed>`, the engine on `5<seed>` — so several checkouts (or
+several people on one box) can run at the same time without colliding. It prints
+the URL to open:
+
+```
+Seed 742
+  UI      http://localhost:4742/   <- open this
+  Engine  http://127.0.0.1:5742/  (proxied at /api and /ws)
+```
+
+Open the UI URL only: the dev server proxies `/api` and `/ws` to the engine, so
+the browser talks to a single origin (as it does in production). Pass
+`--seed 742` to pin one, `--ui-only` / `--backend-only` to start half the stack,
+or `--print` to see the ports without starting anything:
+
+```bash
+pnpm run dev -- --seed 742
+```
+
+The UI sends slicing jobs to the local engine. Scene management runs in the
+browser for instant feedback.
 
 ---
 
@@ -167,8 +191,8 @@ The full slicing pipeline runs in-browser. Building this locally requires a wasm
 # Build the full WASM bundle (scene + slicer)
 pnpm run hydrate:web-slicer
 
-# Dev server — no backend required
-pnpm run ui:dev:web-slicer   # http://localhost:4200
+# Dev server — no backend required (seeded port, printed on start)
+pnpm run dev:web-slicer
 
 # Production build
 pnpm run ui:build:web-slicer
@@ -186,7 +210,7 @@ cargo install tauri-cli --version "^2"
 # or: pnpm add -g @tauri-apps/cli
 
 # Dev mode (hot-reloads Angular, rebuilds Rust on change)
-pnpm run desktop:dev
+pnpm run dev:desktop
 
 # Production build (outputs a platform installer)
 pnpm run desktop:build
@@ -234,6 +258,14 @@ Install the CLI at the exact version pinned in `Cargo.lock` (mismatched versions
 ```bash
 cargo install wasm-bindgen-cli --version "$(grep -A1 '^name = "wasm-bindgen"$' Cargo.lock | tail -1 | cut -d'"' -f2)" --locked
 ```
+
+Still "command not found" after installing? `cargo install` puts binaries in `~/.cargo/bin`, which `rustup`'s own shell setup should have added to `PATH` — if it didn't (or you're on a shell profile rustup didn't touch), add it yourself:
+
+```bash
+echo 'export PATH="$HOME/.cargo/bin:$PATH"' >> ~/.zshrc   # or ~/.bashrc
+```
+
+Open a new terminal (or `source` the file) and retry.
 
 **`wasm-pack` command not found?**
 Only needed for the standalone `wasm-pack build` invocation — the `pnpm hydrate` scripts don't use it. If you actually need it: `cargo install wasm-pack`.

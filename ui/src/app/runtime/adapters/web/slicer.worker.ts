@@ -118,7 +118,23 @@ function runSlice(
 }
 
 function addObject(handle: SceneHandle, object: WorkerSliceObject): void {
-  const id = handle.addMesh(object.name, object.format, object.bytes);
+  // A multi-part file (3MF) adds every part; this scene entry is only one of
+  // them, so keep the requested part and drop the rest. Without this each
+  // entry would contribute the whole file and print every part N times.
+  const ids = Array.from(handle.addMesh(object.name, object.format, object.bytes), (id) =>
+    BigInt(id as unknown as string | number),
+  );
+  const partIndex = object.partIndex ?? 0;
+  const id = ids[partIndex];
+  if (id === undefined) {
+    throw new Error(
+      `'${object.name}' has no object at index ${partIndex} (it contains ${ids.length})`,
+    );
+  }
+  const surplus = ids.filter((other) => other !== id);
+  if (surplus.length > 0) {
+    handle.applyOp({ op: 'RemoveMany', args: { ids: surplus } });
+  }
   handle.applyOp({
     op: 'SetTransform',
     args: {
@@ -137,9 +153,9 @@ function forwardWasmEvent(sliceId: string, event: WasmSliceEvent): void {
       break;
     case 'phase':
       if (event.event === 'start') {
-        emitPhaseStart(sliceId, event.phase);
+        emitPhaseStart(sliceId, event.phase, event.object, event.object_count);
       } else {
-        emitPhaseEnd(sliceId, event.phase, event.elapsed_ms ?? 0);
+        emitPhaseEnd(sliceId, event.phase, event.elapsed_ms ?? 0, event.object, event.object_count);
       }
       break;
     case 'progress':
@@ -153,12 +169,23 @@ function forwardWasmEvent(sliceId: string, event: WasmSliceEvent): void {
   }
 }
 
-function emitPhaseStart(sliceId: string, phase: string): void {
-  self.postMessage({ type: 'phase-start', sliceId, phase });
+function emitPhaseStart(
+  sliceId: string,
+  phase: string,
+  object?: number,
+  objectCount?: number,
+): void {
+  self.postMessage({ type: 'phase-start', sliceId, phase, object, objectCount });
 }
 
-function emitPhaseEnd(sliceId: string, phase: string, elapsedMs: number): void {
-  self.postMessage({ type: 'phase-end', sliceId, phase, elapsedMs });
+function emitPhaseEnd(
+  sliceId: string,
+  phase: string,
+  elapsedMs: number,
+  object?: number,
+  objectCount?: number,
+): void {
+  self.postMessage({ type: 'phase-end', sliceId, phase, elapsedMs, object, objectCount });
 }
 
 function elapsedSince(start: number): number {

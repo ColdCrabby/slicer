@@ -7,6 +7,7 @@ use crate::gcode::{resolve_gcode_source, GcodeFlavor, GcodeGenerator};
 use crate::infill::InfillPattern;
 use crate::logging::{phases, PhaseTimer, ProcessLogger};
 use crate::mesh::analysis::{calculate_aabb, calculate_surface_area, calculate_volume};
+use crate::mesh::repair::{log_report, RepairOptions};
 use crate::scene::{apply_transform, BedConfig, SceneOp, SceneState};
 use crate::settings::params::{LifecycleMarkerConfig, MeshQuality};
 use clap::Parser;
@@ -71,12 +72,19 @@ fn parse_scale(s: &str) -> Result<[f32; 3], String> {
     }
 }
 
-/// Slice a 3D model into layers
+/// Slice one or more 3D models into layers
+///
+/// Repeat `--input` to slice a multi-object build plate: every model is placed
+/// in one scene, transformed, and merged into a single mesh before slicing —
+/// the same multi-object path the WebSocket server and UI use.
 #[derive(Parser, Debug)]
 pub struct SliceCommand {
-    /// Input model file path (STL, OBJ, or 3MF)
-    #[arg(short, long)]
-    pub input: PathBuf,
+    /// Input model file path (STL, OBJ, or 3MF). Repeat for several models.
+    ///
+    /// `-i part_a.stl -i part_b.stl` places both models on the same build
+    /// plate and slices them together into one G-code file.
+    #[arg(short, long, required = true, value_name = "FILE")]
+    pub input: Vec<PathBuf>,
 
     /// Layer height in millimeters
     #[arg(short = 'l', long)]
@@ -121,29 +129,56 @@ pub struct SliceCommand {
     #[arg(short, long)]
     pub verbose: bool,
 
-    /// Center the mesh horizontally on the bed before slicing.
+    /// Center every model horizontally on the bed before slicing.
     #[arg(long)]
     pub center: bool,
 
-    /// Drop the mesh so its lowest Z vertex sits on Z=0 before slicing.
+    /// Drop every model so its lowest Z vertex sits on Z=0 before slicing.
     #[arg(long)]
     pub drop_to_floor: bool,
 
-    /// Translate the mesh by `x,y,z` millimeters before slicing.
+    /// Translate every model by `x,y,z` millimeters before slicing.
+    ///
+    /// Applies to all `--input` models — the CLI has no per-object addressing.
     #[arg(long, value_name = "X,Y,Z", value_parser = parse_vec3)]
     pub translate: Option<[f64; 3]>,
 
     /// Rotate around an axis by degrees: `x:90`, `-y:45`, `z:30`. Repeatable.
+    ///
+    /// Applies to all `--input` models — the CLI has no per-object addressing.
     #[arg(long, value_name = "AXIS:DEG", value_parser = parse_rotate, action = clap::ArgAction::Append)]
     pub rotate: Vec<([f32; 3], f32)>,
 
-    /// Scale the mesh: uniform `--scale 2` or per-axis `--scale 1,1,2`.
+    /// Scale every model: uniform `--scale 2` or per-axis `--scale 1,1,2`.
+    ///
+    /// Applies to all `--input` models — the CLI has no per-object addressing.
     #[arg(long, value_name = "S|X,Y,Z", value_parser = parse_scale)]
     pub scale: Option<[f32; 3]>,
 
-    /// Rotate the mesh so the chosen face's normal points down, then drop to floor.
+    /// Rotate every model so the chosen face's normal points down, then drop to floor.
+    ///
+    /// Applies to all `--input` models — the CLI has no per-object addressing.
     #[arg(long, value_name = "FACE_INDEX")]
     pub align_face: Option<usize>,
+
+    /// Pack all models onto the bed without overlap before slicing.
+    ///
+    /// Dispatches the scene engine's `ArrangeOnBed` op, so a multi-object
+    /// plate uses the same shelf-packing layout as the UI. Runs after the
+    /// other transform flags.
+    #[arg(long)]
+    pub arrange: bool,
+
+    /// Gap between arranged models in millimeters (used with `--arrange`).
+    #[arg(long, value_name = "MM", default_value_t = 2.0)]
+    pub arrange_spacing: f64,
+
+    /// Auto-orient each model to minimize overhangs while arranging.
+    ///
+    /// Off by default because it overrides the orientation chosen by
+    /// `--rotate` / `--align-face`.
+    #[arg(long)]
+    pub arrange_auto_orient: bool,
 
     /// Explicit path to a project config file (overrides auto-discovery of slicer.json).
     #[arg(long, value_name = "FILE")]
@@ -199,6 +234,36 @@ pub struct SliceCommand {
     #[arg(long, value_name = "POLICY")]
     pub seam_position: Option<String>,
 
+    /// Spiral (vase) mode: print a single continuous outer wall whose Z ramps
+    /// smoothly over each layer, producing a seamless single-wall vase.
+    ///
+    /// Forces a single perimeter and disables sparse infill, top surfaces,
+    /// retraction and Z-hop. The solid bottom layers are kept as the base (set
+    /// `bottom_layers` to 0 in settings for an open tube). Best on solid,
+    /// single-island models. When omitted, uses the value from settings.
+    #[arg(long)]
+    pub spiral_vase: bool,
+
+    /// Print order for a plate holding several models.
+    ///
+    /// - `by-layer` — every object advances one layer at a time (default).
+    /// - `by-object` — each object is finished before the next one starts,
+    ///   front to back. Objects taller than the machine's gantry clearance, or
+    ///   closer together than its extruder clearance radius, are reported as
+    ///   warnings before slicing.
+    ///
+    /// When omitted, uses the value from settings.
+    #[arg(long, value_name = "ORDER")]
+    pub print_sequence: Option<String>,
+
+    /// Wrap each object's moves in firmware object markers so a single failed
+    /// part can be cancelled mid-print (Klipper `EXCLUDE_OBJECT_*`,
+    /// Marlin/RepRap `M486`).
+    ///
+    /// When omitted, uses the value from settings.
+    #[arg(long)]
+    pub exclude_object: bool,
+
     /// Dump internal geometry at every pipeline stage to this directory for
     /// visual debugging.  Produces per-layer `layer_NNNN.svg` files
     /// (Inkscape / browser) with each pipeline stage as a coloured group.
@@ -228,11 +293,22 @@ pub struct SliceCommand {
     /// Implies --support.
     #[arg(long, value_name = "N")]
     pub support_interface_layers: Option<usize>,
+    /// Skip the mesh validation/repair pass and slice the model exactly as it
+    /// was authored.
+    ///
+    /// By default every model is checked for holes, flipped normals, cracked
+    /// (unwelded) vertices and degenerate/duplicate triangles, and repaired
+    /// where it can be. A clean model is never modified, so this flag only
+    /// matters for defective ones — use it when you want to see what the raw
+    /// geometry slices to.
+    #[arg(long)]
+    pub no_mesh_repair: bool,
 }
 
 /// Result payload emitted by the `slice` command.
 struct SliceResult {
-    input_name: String,
+    /// File name of every model on the plate, in placement order.
+    input_names: Vec<String>,
     layer_height: f64,
     layer_count: usize,
     output_path: Option<PathBuf>,
@@ -241,6 +317,21 @@ struct SliceResult {
     stats: crate::gcode::SliceStatistics,
     /// Build-plate surface, when the profile specified one.
     bed_type: Option<String>,
+    /// Health of the source mesh, and what the repair pass did to it.
+    /// Health of every loaded part, in plate order. A multi-part 3MF or a
+    /// multi-file plate contributes one entry each.
+    mesh_reports: Vec<crate::mesh::repair::MeshReport>,
+}
+
+impl SliceResult {
+    /// One-line summary of the plate's models for human and JSON output.
+    fn input_summary(&self) -> String {
+        if self.input_names.is_empty() {
+            "(no input)".to_string()
+        } else {
+            self.input_names.join(", ")
+        }
+    }
 }
 
 impl EmitPayload for SliceResult {
@@ -249,10 +340,24 @@ impl EmitPayload for SliceResult {
     }
 
     fn display_human(&self) -> String {
-        let mut s = format!(
-            "✓ Sliced {} into {} layers\n  Layer height: {} mm\n  G-code flavor: {}",
-            self.input_name, self.layer_count, self.layer_height, self.gcode_flavor
-        );
+        let mut s = if self.input_names.len() > 1 {
+            format!(
+                "✓ Sliced {} models into {} layers\n  Models: {}\n  Layer height: {} mm\n  G-code flavor: {}",
+                self.input_names.len(),
+                self.layer_count,
+                self.input_summary(),
+                self.layer_height,
+                self.gcode_flavor
+            )
+        } else {
+            format!(
+                "✓ Sliced {} into {} layers\n  Layer height: {} mm\n  G-code flavor: {}",
+                self.input_summary(),
+                self.layer_count,
+                self.layer_height,
+                self.gcode_flavor
+            )
+        };
         s.push_str(&format!("\n  Model height: {:.2} mm", self.stats.max_z_mm));
         s.push_str(&format!(
             "\n  Filament: {:.2} mm ({:.2} g)",
@@ -265,6 +370,9 @@ impl EmitPayload for SliceResult {
         if let Some(bed) = &self.bed_type {
             s.push_str(&format!("\n  Bed type: {}", bed));
         }
+        for report in self.mesh_reports.iter().filter(|r| r.is_noteworthy()) {
+            s.push_str(&format!("\n  Mesh: {}", report.summary));
+        }
         if let Some(path) = &self.output_path {
             s.push_str(&format!("\n  Output: {}", path.display()));
         }
@@ -274,7 +382,9 @@ impl EmitPayload for SliceResult {
     fn to_json(&self) -> Value {
         json!({
             "status": "success",
-            "input": self.input_name,
+            "input": self.input_summary(),
+            "inputs": self.input_names,
+            "input_count": self.input_names.len(),
             "layer_height": self.layer_height,
             "layer_count": self.layer_count,
             "gcode_flavor": self.gcode_flavor,
@@ -290,11 +400,72 @@ impl EmitPayload for SliceResult {
                 "bbox_min_mm": self.stats.bbox_min,
                 "bbox_max_mm": self.stats.bbox_max,
             },
+            "meshes": self.mesh_reports,
         })
     }
 }
 
 impl SliceCommand {
+    /// Arrange options assembled from the `--arrange-*` flags.
+    ///
+    /// `auto_orient` deliberately defaults to `false` here (the library
+    /// default is `true`): on the CLI an arrangement that silently re-orients
+    /// a model would discard the orientation the user asked for with
+    /// `--rotate` / `--align-face`.
+    ///
+    /// The machine's `preferred_print_rotation_deg` rides along with
+    /// auto-orient — it is a property of the printer (CoreXY users print
+    /// everything at 45°), so it applies wherever auto-orient chooses the pose
+    /// and is inert when the user keeps their own.
+    fn arrange_options(
+        &self,
+        machine: &crate::config::MachineConfig,
+    ) -> crate::orient::ArrangeOptions {
+        crate::orient::ArrangeOptions {
+            spacing_mm: self.arrange_spacing,
+            auto_orient: self.arrange_auto_orient,
+            orient_options: crate::orient::AutoOrientOptions {
+                preferred_z_rotation_deg: machine.preferred_print_rotation_deg,
+                ..Default::default()
+            },
+        }
+    }
+
+    /// Model name embedded in the G-code metadata header: the file stem for a
+    /// single model, or every stem joined with `+` for a multi-object plate.
+    fn model_name(&self) -> Option<String> {
+        let stems: Vec<String> = self
+            .input
+            .iter()
+            .filter_map(|p| p.file_stem())
+            .map(|s| s.to_string_lossy().into_owned())
+            .filter(|s| !s.is_empty())
+            .collect();
+        if stems.is_empty() {
+            None
+        } else {
+            Some(stems.join("+"))
+        }
+    }
+
+    /// Output path used when `--output` is omitted: `model.stl` →
+    /// `model.gcode`. A multi-object plate gets a `_plate` suffix so merging
+    /// several models never silently overwrites one model's own G-code.
+    fn default_output_path(&self) -> Option<PathBuf> {
+        let first = self.input.first()?;
+        // Guard against empty stems (e.g. hidden files like ".stl")
+        let stem = first.file_stem()?;
+        if stem.is_empty() {
+            return None;
+        }
+        let name = if self.input.len() > 1 {
+            format!("{}_plate", stem.to_string_lossy())
+        } else {
+            stem.to_string_lossy().into_owned()
+        };
+        Some(first.with_file_name(name).with_extension("gcode"))
+    }
+
     /// Execute the slice command
     pub fn execute(&self) -> Result<(), Box<dyn std::error::Error>> {
         let format = self
@@ -398,9 +569,35 @@ impl SliceCommand {
             slice_params.support_interface_layers = layers;
         }
 
-        // Validate input file exists
-        if !self.input.exists() {
-            return Err(format!("Input file not found: {}", self.input.display()).into());
+        // Spiral (vase) mode is a plain on/off flag; enabling it here defers the
+        // actual single-wall normalization to the pipeline/generator so every
+        // runtime shares one code path.
+        if self.spiral_vase {
+            slice_params.spiral_vase = true;
+        }
+
+        // Object identity (issues #22 / #112). Both are plain opt-ins here; the
+        // decision of *how* to slice a plate lives in `slice_plate`, so every
+        // runtime behaves the same.
+        if let Some(ref order) = self.print_sequence {
+            slice_params.print_sequence = crate::settings::params::PrintSequence::parse(order)
+                .ok_or_else(|| {
+                    format!(
+                        "Unknown print sequence: '{}'. Supported: by-layer, by-object",
+                        order
+                    )
+                })?;
+        }
+        if self.exclude_object {
+            slice_params.exclude_object = true;
+        }
+
+        // Validate every input file exists before doing any work, naming the
+        // offender so a typo in a long multi-model command is obvious.
+        for path in &self.input {
+            if !path.exists() {
+                return Err(format!("Input file not found: {}", path.display()).into());
+            }
         }
 
         // Build the request-specific logger for this CLI invocation.
@@ -411,44 +608,89 @@ impl SliceCommand {
         // Start overall timing for the entire process
         let t_total = PhaseTimer::start(phases::TOTAL, &logger);
 
-        logger.log_debug(&format!("loading mesh: {:?}", self.input));
+        logger.log_debug(&format!("loading {} model(s)", self.input.len()));
         logger.log_debug(&format!("G-code flavor: {}", flavor));
 
-        // Load mesh — format is auto-detected from file extension
-        let t_load = PhaseTimer::start(phases::MESH_LOAD, &logger);
-        let raw_mesh = crate::scene::load_path(&self.input)
-            .map_err(|e| format!("Failed to load mesh '{}': {}", self.input.display(), e))?;
-        t_load.finish();
-
-        // Build a single-object scene rooted on the configured bed; every
-        // transform flag is translated into a SceneOp so the CLI shares the
-        // exact code path used by the WS server and (later) WASM/UI.
+        // Build the scene rooted on the configured bed and add one object per
+        // input file; every transform flag is translated into a SceneOp so the
+        // CLI shares the exact code path used by the WS server and WASM/UI.
         let bed = BedConfig::from(&config.machine);
         let mut scene = SceneState::new(bed);
-        let object_id = scene.add_mesh(
-            self.input
+
+        // Load each input — format is auto-detected from the file extension.
+        // A container format that holds several parts (3MF) becomes several
+        // scene objects, so a multi-model file plates as separate parts. Every
+        // part passes a validation/repair check on the way in; a clean one is
+        // handed back untouched.
+        let t_load = PhaseTimer::start(phases::MESH_LOAD, &logger);
+        let repair_options = if self.no_mesh_repair {
+            RepairOptions::analysis_only()
+        } else {
+            RepairOptions::default()
+        };
+        let mut mesh_reports: Vec<crate::mesh::repair::MeshReport> = Vec::new();
+        for path in &self.input {
+            let parts = crate::scene::load_path_multi_reporting(path, &repair_options)
+                .map_err(|e| format!("Failed to load mesh '{}': {}", path.display(), e))?;
+            let file_name = path
                 .file_name()
                 .map(|n| n.to_string_lossy().into_owned())
-                .unwrap_or_else(|| "mesh".to_string()),
-            Arc::new(raw_mesh),
-        );
+                .unwrap_or_else(|| "mesh".to_string());
+            let multi = parts.len() > 1;
+            for (index, part) in parts.into_iter().enumerate() {
+                let name = match (&part.name, multi) {
+                    (Some(part_name), _) => part_name.clone(),
+                    (None, true) => format!("{file_name} #{}", index + 1),
+                    (None, false) => file_name.clone(),
+                };
+                log_report(&logger, &name, &part.report);
+                mesh_reports.push(part.report.clone());
+                // The path is the CLI's provenance handle, mirroring the WS
+                // server's uploaded-file UUID (see `SceneObject::source_id`).
+                let id = scene.add_mesh_part_with_report(
+                    name,
+                    Arc::new(part.mesh),
+                    Some(path.display().to_string()),
+                    index,
+                    Some(part.report),
+                );
+                logger.log_debug(&format!(
+                    "loaded {} part {} as {}",
+                    path.display(),
+                    index,
+                    id
+                ));
+            }
+        }
+        t_load.finish();
 
-        // Order: explicit translate → rotate → scale → align-face → center → drop-to-floor.
-        // Center and drop-to-floor are placement helpers and intentionally run
-        // last so other ops compose into them naturally.
+        let object_ids: Vec<_> = scene.objects.iter().map(|o| o.id).collect();
+
+        // Order: explicit translate → rotate → scale → align-face → center →
+        // drop-to-floor → arrange. Center, drop-to-floor, and arrange are
+        // placement helpers and intentionally run last so other ops compose
+        // into them naturally.
+        //
+        // Every flag is plate-wide: it is applied to EVERY loaded model,
+        // because the CLI has no syntax for addressing one object of a
+        // multi-object plate.
         if let Some(delta) = self.translate {
-            scene.apply(SceneOp::Translate {
-                id: object_id,
-                delta,
-            })?;
+            for &object_id in &object_ids {
+                scene.apply(SceneOp::Translate {
+                    id: object_id,
+                    delta,
+                })?;
+            }
             logger.log_debug(&format!("applied translate: {:?}", delta));
         }
         for (axis, radians) in &self.rotate {
-            scene.apply(SceneOp::Rotate {
-                id: object_id,
-                axis: *axis,
-                radians: *radians,
-            })?;
+            for &object_id in &object_ids {
+                scene.apply(SceneOp::Rotate {
+                    id: object_id,
+                    axis: *axis,
+                    radians: *radians,
+                })?;
+            }
             logger.log_debug(&format!(
                 "applied rotate: axis={:?} deg={:.3}",
                 axis,
@@ -456,54 +698,124 @@ impl SliceCommand {
             ));
         }
         if let Some(factors) = self.scale {
-            scene.apply(SceneOp::Scale {
-                id: object_id,
-                factors,
-            })?;
+            for &object_id in &object_ids {
+                scene.apply(SceneOp::Scale {
+                    id: object_id,
+                    factors,
+                })?;
+            }
             logger.log_debug(&format!("applied scale: {:?}", factors));
         }
         if let Some(face_index) = self.align_face {
-            scene.apply(SceneOp::PlaceFaceOnFloor {
-                id: object_id,
-                face_index,
-            })?;
+            for &object_id in &object_ids {
+                scene.apply(SceneOp::PlaceFaceOnFloor {
+                    id: object_id,
+                    face_index,
+                })?;
+            }
             logger.log_debug(&format!("applied align-face: {}", face_index));
         }
         if self.center {
             logger.log_warn(
                 "--center is deprecated; prefer the scene op CenterOnBed (kept as an alias for one release)",
             );
-            scene.apply(SceneOp::CenterOnBed { id: object_id })?;
+            for &object_id in &object_ids {
+                scene.apply(SceneOp::CenterOnBed { id: object_id })?;
+            }
             logger.log_debug("applied center transform");
         }
         if self.drop_to_floor {
             logger.log_warn(
                 "--drop-to-floor is deprecated; prefer the scene op DropToFloor (kept as an alias for one release)",
             );
-            scene.apply(SceneOp::DropToFloor { id: object_id })?;
+            for &object_id in &object_ids {
+                scene.apply(SceneOp::DropToFloor { id: object_id })?;
+            }
             logger.log_debug("applied drop-to-floor transform");
         }
+        if self.arrange {
+            let options = self.arrange_options(&config.machine);
+            let preferred_deg = options.orient_options.preferred_z_rotation_deg;
+            scene.apply(SceneOp::ArrangeOnBed {
+                ids: object_ids.clone(),
+                options,
+            })?;
+            logger.log_debug(&format!(
+                "arranged {} object(s) with {:.2} mm spacing (auto-orient: {}, preferred rotation: {:.1}°)",
+                object_ids.len(),
+                self.arrange_spacing,
+                self.arrange_auto_orient,
+                preferred_deg
+            ));
+        }
 
-        // Bake the scene transform into the mesh that the slicer pipeline sees.
-        let scene_object = scene.get(object_id).expect("object just added");
-        let baked_mesh = apply_transform(scene_object.mesh.as_ref(), &scene_object.transform);
+        // Placement faults never block a slice — a user may deliberately
+        // slice an oversized plate — but they must be visible.
+        let multi_object = scene.objects.len() > 1;
+        for placement in scene.placement_report() {
+            let name = match scene.get(placement.id) {
+                // Two copies of one file share a name, so a plate needs the
+                // object id to tell which instance is misplaced.
+                Some(o) if multi_object => format!("{} ({})", o.name, placement.id),
+                Some(o) => o.name.clone(),
+                None => placement.id.to_string(),
+            };
+            if placement.out_of_bounds {
+                logger.log_warn(&format!(
+                    "'{}' extends outside the printable volume — it will not print as expected",
+                    name
+                ));
+            }
+            if placement.collides {
+                logger.log_warn(&format!(
+                    "'{}' overlaps another object on the plate — try --arrange",
+                    name
+                ));
+            }
+        }
 
-        // Apply optional mesh decimation. The original (baked) mesh is kept
-        // in `baked_mesh` for reference; only the pipeline receives the
-        // potentially-decimated copy.
-        let mesh = if slice_params.mesh_quality == MeshQuality::Draft {
-            let before = baked_mesh.faces.len();
-            let decimated =
-                crate::mesh::transforms::decimate_mesh(&baked_mesh, slice_params.mesh_quality);
+        // Bake each object's transform exactly once, at the slicer boundary
+        // (SSOT contract in src/scene/README.md). The objects are kept apart —
+        // `slice_plate` merges them itself unless the configuration needs
+        // per-object identity (exclude-object / sequential printing), which is
+        // the same decision the WS server's `handle_slice` delegates.
+        let mut plate_objects: Vec<crate::core::ObjectInput> = scene
+            .objects
+            .iter()
+            .map(|object| {
+                crate::core::ObjectInput::new(
+                    object.name.clone(),
+                    apply_transform(object.mesh.as_ref(), &object.transform),
+                )
+            })
+            .collect();
+        if plate_objects.iter().all(|o| o.mesh.faces.is_empty()) {
+            return Err("Combined scene has no triangles — nothing to slice".into());
+        }
+
+        // Report any setting that will not take effect — either unimplemented or
+        // missing a prerequisite — before slicing, so the CLI is as honest about
+        // it as the UI and the WS server already are.
+        for warning in slice_params.unsupported_feature_warnings() {
+            logger.log_warn(&warning);
+        }
+
+        // Apply optional mesh decimation, per object so the plate keeps its
+        // segmentation.
+        if slice_params.mesh_quality == MeshQuality::Draft {
+            let before: usize = plate_objects.iter().map(|o| o.mesh.faces.len()).sum();
+            for object in &mut plate_objects {
+                object.mesh =
+                    crate::mesh::transforms::decimate_mesh(&object.mesh, slice_params.mesh_quality);
+            }
+            let after: usize = plate_objects.iter().map(|o| o.mesh.faces.len()).sum();
             logger.log_debug(&format!(
                 "mesh decimation (draft): {} → {} faces",
-                before,
-                decimated.faces.len()
+                before, after
             ));
-            decimated
-        } else {
-            baked_mesh
-        };
+        }
+        // Whole-plate geometry, for the analysis log and the debug pipeline.
+        let mesh = crate::core::merge_meshes(&plate_objects);
 
         // Compute and log mesh geometry (verbose detail available to this CLI request).
         {
@@ -539,7 +851,7 @@ impl SliceCommand {
 
         // Run the unified slicing pipeline. All step-level logging is handled
         // inside process_mesh and routed through `logger`.
-        let layers = if let Some(ref debug_dir) = self.debug_geometry {
+        let plate = if let Some(ref debug_dir) = self.debug_geometry {
             std::fs::create_dir_all(debug_dir).map_err(|e| {
                 format!(
                     "Failed to create debug directory '{}': {}",
@@ -567,10 +879,11 @@ impl SliceCommand {
                 svg_count,
                 debug_geometry.len()
             ));
-            layers
+            crate::core::PlateSlice::from_layers(layers)
         } else {
-            crate::core::process_mesh(&mesh, &slice_params, &logger)
+            crate::core::slice_plate(&plate_objects, &slice_params, &logger)
         };
+        let layers = &plate.layers;
 
         // Resolve per-flavor lifecycle marker config from config.
         // CLI flags override the enabled field.
@@ -601,13 +914,9 @@ impl SliceCommand {
             .with_marker_config(marker_config)
             .with_warn_fn(move |msg| warn_logger.log_warn(msg));
 
-        // Embed the source model name (file stem) in the metadata header.
-        if let Some(stem) = self
-            .input
-            .file_stem()
-            .map(|s| s.to_string_lossy().into_owned())
-        {
-            generator = generator.with_model_name(stem);
+        // Embed the source model name(s) in the metadata header.
+        if let Some(name) = self.model_name() {
+            generator = generator.with_model_name(name);
         }
 
         // Resolve custom start script (CLI arg takes priority over config)
@@ -632,20 +941,32 @@ impl SliceCommand {
             generator = generator.with_end_script(lines);
         }
 
+        // Per-filament start/end hooks come from the resolved slice params
+        // (typically contributed by the filament profile). A blank block is
+        // ignored so an empty field is a no-op.
+        if let Some(block) = slice_params.start_filament_gcode.as_deref() {
+            if !block.trim().is_empty() {
+                generator = generator
+                    .with_filament_start_script(block.lines().map(str::to_string).collect());
+            }
+        }
+        if let Some(block) = slice_params.end_filament_gcode.as_deref() {
+            if !block.trim().is_empty() {
+                generator =
+                    generator.with_filament_end_script(block.lines().map(str::to_string).collect());
+            }
+        }
+
+        // Attach the plate's objects so the dialect can emit firmware object
+        // markers (empty for a plate sliced without object identity).
+        generator = generator.with_objects(plate.objects.clone());
+
         let t_gcode = PhaseTimer::start(phases::GCODE_GENERATION, &logger);
-        let (gcode, stats) = generator.generate_with_stats(&layers, &slice_params);
+        let (gcode, stats) = generator.generate_with_stats(layers, &slice_params);
         t_gcode.finish();
 
         // Determine output path
-        let output_path = self.output.clone().or_else(|| {
-            // Auto-generate from input filename: model.stl → model.gcode
-            // Guard against empty stems (e.g. hidden files like ".stl")
-            let stem = self.input.file_stem()?;
-            if stem.is_empty() {
-                return None;
-            }
-            Some(self.input.with_file_name(stem).with_extension("gcode"))
-        });
+        let output_path = self.output.clone().or_else(|| self.default_output_path());
 
         // Write G-code to file
         if let Some(ref path) = output_path {
@@ -656,21 +977,26 @@ impl SliceCommand {
             logger.log_debug(&format!("wrote G-code to {}", path.display()));
         }
 
-        let input_name = self
+        let input_names: Vec<String> = self
             .input
-            .file_name()
-            .unwrap_or_default()
-            .to_string_lossy()
-            .into_owned();
+            .iter()
+            .map(|p| {
+                p.file_name()
+                    .unwrap_or_default()
+                    .to_string_lossy()
+                    .into_owned()
+            })
+            .collect();
 
         let result = SliceResult {
-            input_name,
+            input_names,
             layer_height,
             layer_count: layers.len(),
             output_path,
             gcode_flavor: flavor.to_string(),
             bed_type: Some(slice_params.bed_type.clone()).filter(|b| !b.trim().is_empty()),
             stats,
+            mesh_reports,
         };
 
         emitter.emit(&result);
@@ -686,7 +1012,20 @@ impl SliceCommand {
 mod tests {
     use super::*;
 
+    /// Parse a `slice` invocation the way the real CLI does, so tests cover
+    /// the actual clap surface (flag names, repetition, defaults).
+    fn parse(args: &[&str]) -> SliceCommand {
+        let mut argv = vec!["slice"];
+        argv.extend_from_slice(args);
+        SliceCommand::try_parse_from(argv).expect("valid slice arguments")
+    }
+
     /// A non-zero sample statistics bundle for `SliceResult` tests.
+    /// A clean report for the `SliceResult` payload tests.
+    fn sample_mesh_report() -> crate::mesh::repair::MeshReport {
+        crate::mesh::repair::repair(&crate::mesh::types::Mesh::new(), &RepairOptions::default()).1
+    }
+
     fn sample_stats() -> crate::gcode::SliceStatistics {
         crate::gcode::SliceStatistics {
             layer_count: 5,
@@ -694,6 +1033,7 @@ mod tests {
             filament_mm: 123.45,
             filament_cm3: 0.3,
             filament_g: 0.37,
+            filament_cost: 0.01,
             estimated_print_time_s: 65.0,
             bbox_min: [0.0, 0.0, 0.1],
             bbox_max: [10.0, 10.0, 1.0],
@@ -703,142 +1043,35 @@ mod tests {
 
     #[test]
     fn test_slice_command_creation() {
-        let cmd = SliceCommand {
-            input: PathBuf::from("test.stl"),
-            layer_height: Some(0.2),
-            output: None,
-            output_format: "human".to_string(),
-            gcode_flavor: Some("marlin".to_string()),
-            start_print_gcode: None,
-            end_print_gcode: None,
-            verbose: false,
-            center: false,
-            drop_to_floor: false,
-            config: None,
-            lifecycle_markers: false,
-            no_lifecycle_markers: false,
-            infill_pattern: None,
-            infill_density: None,
-            infill_angle: None,
-            translate: None,
-            rotate: Vec::new(),
-            scale: None,
-            align_face: None,
-            mesh_quality: None,
-            seam_position: None,
-            debug_geometry: None,
-            support: false,
-            support_type: None,
-            support_density: None,
-            support_threshold_angle: None,
-            support_interface_layers: None,
-        };
+        let cmd = parse(&["-i", "test.stl", "-l", "0.2", "--gcode-flavor", "marlin"]);
+        assert_eq!(cmd.input, vec![PathBuf::from("test.stl")]);
         assert_eq!(cmd.layer_height, Some(0.2));
         assert_eq!(cmd.gcode_flavor.as_deref(), Some("marlin"));
     }
 
     #[test]
     fn test_slice_command_no_flavor_uses_none() {
-        let cmd = SliceCommand {
-            input: PathBuf::from("test.stl"),
-            layer_height: Some(0.2),
-            output: None,
-            output_format: "human".to_string(),
-            gcode_flavor: None, // will fall back to settings / marlin
-            start_print_gcode: None,
-            end_print_gcode: None,
-            verbose: false,
-            center: false,
-            drop_to_floor: false,
-            config: None,
-            lifecycle_markers: false,
-            no_lifecycle_markers: false,
-            infill_pattern: None,
-            infill_density: None,
-            infill_angle: None,
-            translate: None,
-            rotate: Vec::new(),
-            scale: None,
-            align_face: None,
-            mesh_quality: None,
-            seam_position: None,
-            debug_geometry: None,
-            support: false,
-            support_type: None,
-            support_density: None,
-            support_threshold_angle: None,
-            support_interface_layers: None,
-        };
+        // No --gcode-flavor: falls back to settings / marlin at execute time.
+        let cmd = parse(&["-i", "test.stl", "-l", "0.2"]);
         assert!(cmd.gcode_flavor.is_none());
     }
 
     #[test]
     fn test_slice_command_klipper_flavor() {
-        let cmd = SliceCommand {
-            input: PathBuf::from("test.stl"),
-            layer_height: Some(0.2),
-            output: None,
-            output_format: "human".to_string(),
-            gcode_flavor: Some("klipper".to_string()),
-            start_print_gcode: None,
-            end_print_gcode: None,
-            verbose: false,
-            center: false,
-            drop_to_floor: false,
-            config: None,
-            lifecycle_markers: false,
-            no_lifecycle_markers: false,
-            infill_pattern: None,
-            infill_density: None,
-            infill_angle: None,
-            translate: None,
-            rotate: Vec::new(),
-            scale: None,
-            align_face: None,
-            mesh_quality: None,
-            seam_position: None,
-            debug_geometry: None,
-            support: false,
-            support_type: None,
-            support_density: None,
-            support_threshold_angle: None,
-            support_interface_layers: None,
-        };
+        let cmd = parse(&["-i", "test.stl", "--gcode-flavor", "klipper"]);
         assert_eq!(cmd.gcode_flavor.as_deref(), Some("klipper"));
     }
 
     #[test]
     fn test_slice_command_start_end_gcode_args() {
-        let cmd = SliceCommand {
-            input: PathBuf::from("test.stl"),
-            layer_height: Some(0.2),
-            output: None,
-            output_format: "human".to_string(),
-            gcode_flavor: Some("klipper".to_string()),
-            start_print_gcode: Some("START_PRINT BED_TEMP=65".to_string()),
-            end_print_gcode: Some("END_PRINT".to_string()),
-            verbose: false,
-            center: false,
-            drop_to_floor: false,
-            config: None,
-            lifecycle_markers: false,
-            no_lifecycle_markers: false,
-            infill_pattern: None,
-            infill_density: None,
-            infill_angle: None,
-            translate: None,
-            rotate: Vec::new(),
-            scale: None,
-            align_face: None,
-            mesh_quality: None,
-            seam_position: None,
-            debug_geometry: None,
-            support: false,
-            support_type: None,
-            support_density: None,
-            support_threshold_angle: None,
-            support_interface_layers: None,
-        };
+        let cmd = parse(&[
+            "-i",
+            "test.stl",
+            "--start-print-gcode",
+            "START_PRINT BED_TEMP=65",
+            "--end-print-gcode",
+            "END_PRINT",
+        ]);
         assert_eq!(
             cmd.start_print_gcode.as_deref(),
             Some("START_PRINT BED_TEMP=65")
@@ -848,83 +1081,164 @@ mod tests {
 
     #[test]
     fn test_slice_command_lifecycle_markers_flags() {
-        let cmd_on = SliceCommand {
-            input: PathBuf::from("test.stl"),
-            layer_height: Some(0.2),
-            output: None,
-            output_format: "human".to_string(),
-            gcode_flavor: None,
-            start_print_gcode: None,
-            end_print_gcode: None,
-            verbose: false,
-            center: false,
-            drop_to_floor: false,
-            config: None,
-            lifecycle_markers: true,
-            no_lifecycle_markers: false,
-            infill_pattern: None,
-            infill_density: None,
-            infill_angle: None,
-            translate: None,
-            rotate: Vec::new(),
-            scale: None,
-            align_face: None,
-            mesh_quality: None,
-            seam_position: None,
-            debug_geometry: None,
-            support: false,
-            support_type: None,
-            support_density: None,
-            support_threshold_angle: None,
-            support_interface_layers: None,
-        };
+        let cmd_on = parse(&["-i", "test.stl", "--lifecycle-markers"]);
         assert!(cmd_on.lifecycle_markers);
         assert!(!cmd_on.no_lifecycle_markers);
 
-        let cmd_off = SliceCommand {
-            input: PathBuf::from("test.stl"),
-            layer_height: Some(0.2),
-            output: None,
-            output_format: "human".to_string(),
-            gcode_flavor: None,
-            start_print_gcode: None,
-            end_print_gcode: None,
-            verbose: false,
-            center: false,
-            drop_to_floor: false,
-            config: None,
-            lifecycle_markers: false,
-            no_lifecycle_markers: true,
-            infill_pattern: None,
-            infill_density: None,
-            infill_angle: None,
-            translate: None,
-            rotate: Vec::new(),
-            scale: None,
-            align_face: None,
-            mesh_quality: None,
-            seam_position: None,
-            debug_geometry: None,
-            support: false,
-            support_type: None,
-            support_density: None,
-            support_threshold_angle: None,
-            support_interface_layers: None,
-        };
+        let cmd_off = parse(&["-i", "test.stl", "--no-lifecycle-markers"]);
         assert!(!cmd_off.lifecycle_markers);
         assert!(cmd_off.no_lifecycle_markers);
     }
 
     #[test]
+    fn test_multiple_inputs_build_a_multi_object_plate() {
+        let cmd = parse(&["-i", "a.stl", "-i", "b.stl", "-i", "c.3mf"]);
+        assert_eq!(
+            cmd.input,
+            vec![
+                PathBuf::from("a.stl"),
+                PathBuf::from("b.stl"),
+                PathBuf::from("c.3mf"),
+            ]
+        );
+    }
+
+    #[test]
+    fn test_long_input_flag_repeats_too() {
+        let cmd = parse(&["--input", "a.stl", "--input", "b.stl"]);
+        assert_eq!(cmd.input.len(), 2);
+    }
+
+    #[test]
+    fn test_input_is_required() {
+        assert!(SliceCommand::try_parse_from(["slice", "--layer-height", "0.2"]).is_err());
+    }
+
+    #[test]
+    fn test_arrange_defaults_are_off_with_2mm_spacing() {
+        let cmd = parse(&["-i", "a.stl"]);
+        assert!(!cmd.arrange);
+        assert_eq!(cmd.arrange_spacing, 2.0);
+        assert!(!cmd.arrange_auto_orient);
+    }
+
+    #[test]
+    fn test_arrange_flags_plumb_into_arrange_options() {
+        let cmd = parse(&[
+            "-i",
+            "a.stl",
+            "-i",
+            "b.stl",
+            "--arrange",
+            "--arrange-spacing",
+            "7.5",
+            "--arrange-auto-orient",
+        ]);
+        assert!(cmd.arrange);
+
+        let options = cmd.arrange_options(&crate::config::MachineConfig::default());
+        assert_eq!(options.spacing_mm, 7.5);
+        assert!(options.auto_orient);
+    }
+
+    #[test]
+    fn test_arrange_options_do_not_auto_orient_by_default() {
+        // The library default is `true`; the CLI must not silently discard an
+        // orientation the user picked with --rotate / --align-face.
+        let cmd = parse(&["-i", "a.stl", "-i", "b.stl", "--arrange"]);
+        let options = cmd.arrange_options(&crate::config::MachineConfig::default());
+        assert!(!options.auto_orient);
+        assert_eq!(options.spacing_mm, 2.0);
+    }
+
+    #[test]
+    fn test_machine_preferred_rotation_reaches_arrange_options() {
+        // The machine's preferred print rotation (45° on CoreXY) is a printer
+        // property, so --arrange must carry it without a dedicated flag.
+        let cmd = parse(&[
+            "-i",
+            "a.stl",
+            "-i",
+            "b.stl",
+            "--arrange",
+            "--arrange-auto-orient",
+        ]);
+        let machine = crate::config::MachineConfig {
+            preferred_print_rotation_deg: 45.0,
+            ..Default::default()
+        };
+        let options = cmd.arrange_options(&machine);
+        assert_eq!(options.orient_options.preferred_z_rotation_deg, 45.0);
+    }
+
+    #[test]
+    fn test_transform_flags_still_parse_alongside_multiple_inputs() {
+        let cmd = parse(&[
+            "-i",
+            "a.stl",
+            "-i",
+            "b.stl",
+            "--translate",
+            "1,2,3",
+            "--rotate",
+            "z:90",
+            "--scale",
+            "2",
+            "--align-face",
+            "4",
+            "--center",
+            "--drop-to-floor",
+        ]);
+        assert_eq!(cmd.input.len(), 2);
+        assert_eq!(cmd.translate, Some([1.0, 2.0, 3.0]));
+        assert_eq!(cmd.rotate.len(), 1);
+        assert_eq!(cmd.scale, Some([2.0, 2.0, 2.0]));
+        assert_eq!(cmd.align_face, Some(4));
+        assert!(cmd.center);
+        assert!(cmd.drop_to_floor);
+    }
+
+    #[test]
+    fn test_default_output_path_single_and_multi_input() {
+        let single = parse(&["-i", "models/model.stl"]);
+        assert_eq!(
+            single.default_output_path(),
+            Some(PathBuf::from("models/model.gcode"))
+        );
+
+        // A merged plate must not overwrite the first model's own G-code.
+        let multi = parse(&["-i", "models/model.stl", "-i", "models/other.stl"]);
+        assert_eq!(
+            multi.default_output_path(),
+            Some(PathBuf::from("models/model_plate.gcode"))
+        );
+    }
+
+    #[test]
+    fn test_model_name_joins_every_input_stem() {
+        assert_eq!(
+            parse(&["-i", "model.stl"]).model_name().as_deref(),
+            Some("model")
+        );
+        assert_eq!(
+            parse(&["-i", "a.stl", "-i", "b.obj"])
+                .model_name()
+                .as_deref(),
+            Some("a+b")
+        );
+    }
+
+    #[test]
     fn test_slice_result_schema() {
         let r = SliceResult {
-            input_name: "model.stl".to_string(),
+            input_names: vec!["model.stl".to_string()],
             layer_height: 0.2,
             layer_count: 5,
             output_path: None,
             gcode_flavor: "marlin".to_string(),
             bed_type: None,
             stats: sample_stats(),
+            mesh_reports: vec![sample_mesh_report()],
         };
         assert_eq!(r.schema(), "slicer-engine/slice-result-v1");
     }
@@ -932,13 +1246,14 @@ mod tests {
     #[test]
     fn test_slice_result_human() {
         let r = SliceResult {
-            input_name: "model.stl".to_string(),
+            input_names: vec!["model.stl".to_string()],
             layer_height: 0.2,
             layer_count: 5,
             output_path: None,
             gcode_flavor: "marlin".to_string(),
             bed_type: Some("Textured PEI Plate".to_string()),
             stats: sample_stats(),
+            mesh_reports: vec![sample_mesh_report()],
         };
         let s = r.display_human();
         assert!(s.contains("model.stl"));
@@ -958,15 +1273,33 @@ mod tests {
     }
 
     #[test]
+    fn test_slice_result_human_multi_input() {
+        let r = SliceResult {
+            input_names: vec!["a.stl".to_string(), "b.stl".to_string()],
+            layer_height: 0.2,
+            layer_count: 5,
+            output_path: None,
+            gcode_flavor: "marlin".to_string(),
+            bed_type: None,
+            stats: sample_stats(),
+            mesh_reports: vec![sample_mesh_report()],
+        };
+        let s = r.display_human();
+        assert!(s.contains("Sliced 2 models"), "missing model count: {s}");
+        assert!(s.contains("Models: a.stl, b.stl"), "missing models: {s}");
+    }
+
+    #[test]
     fn test_slice_result_human_klipper() {
         let r = SliceResult {
-            input_name: "model.stl".to_string(),
+            input_names: vec!["model.stl".to_string()],
             layer_height: 0.2,
             layer_count: 5,
             output_path: None,
             gcode_flavor: "klipper".to_string(),
             bed_type: None,
             stats: sample_stats(),
+            mesh_reports: vec![sample_mesh_report()],
         };
         let s = r.display_human();
         assert!(s.contains("klipper"));
@@ -977,13 +1310,14 @@ mod tests {
     #[test]
     fn test_slice_result_human_with_output() {
         let r = SliceResult {
-            input_name: "model.stl".to_string(),
+            input_names: vec!["model.stl".to_string()],
             layer_height: 0.2,
             layer_count: 5,
             output_path: Some(PathBuf::from("/some/path/model.gcode")),
             gcode_flavor: "marlin".to_string(),
             bed_type: None,
             stats: sample_stats(),
+            mesh_reports: vec![sample_mesh_report()],
         };
         let s = r.display_human();
         assert!(s.contains("model.gcode"));
@@ -992,17 +1326,20 @@ mod tests {
     #[test]
     fn test_slice_result_json_fields() {
         let r = SliceResult {
-            input_name: "model.stl".to_string(),
+            input_names: vec!["model.stl".to_string()],
             layer_height: 0.2,
             layer_count: 5,
             output_path: None,
             gcode_flavor: "marlin".to_string(),
             bed_type: Some("Cool Plate".to_string()),
             stats: sample_stats(),
+            mesh_reports: vec![sample_mesh_report()],
         };
         let v = r.to_json();
         assert_eq!(v["status"], "success");
         assert_eq!(v["input"], "model.stl");
+        assert_eq!(v["inputs"], json!(["model.stl"]));
+        assert_eq!(v["input_count"], 1);
         assert_eq!(v["layer_height"], 0.2);
         assert_eq!(v["layer_count"], 5);
         assert_eq!(v["gcode_flavor"], "marlin");
@@ -1013,6 +1350,24 @@ mod tests {
         assert_eq!(v["statistics"]["estimated_print_time_s"], 65.0);
         assert_eq!(v["statistics"]["estimated_print_time_human"], "1m 5s");
         assert_eq!(v["statistics"]["max_z_mm"], 1.0);
+    }
+
+    #[test]
+    fn test_slice_result_json_multi_input() {
+        let r = SliceResult {
+            input_names: vec!["a.stl".to_string(), "b.stl".to_string()],
+            layer_height: 0.2,
+            layer_count: 5,
+            output_path: None,
+            gcode_flavor: "marlin".to_string(),
+            bed_type: None,
+            stats: sample_stats(),
+            mesh_reports: vec![sample_mesh_report()],
+        };
+        let v = r.to_json();
+        assert_eq!(v["input"], "a.stl, b.stl");
+        assert_eq!(v["inputs"], json!(["a.stl", "b.stl"]));
+        assert_eq!(v["input_count"], 2);
     }
 
     #[test]

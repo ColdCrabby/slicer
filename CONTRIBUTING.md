@@ -1,434 +1,133 @@
-# Contributing to Slicer Engine
+# Contributing
 
-Thank you for your interest in contributing to Slicer Engine! This guide will help you get started with the codebase and development workflow.
+Thanks for wanting to help. This page is the workflow; the rest of the docs
+carry the detail.
 
-## Quick Start
+## Get set up
 
-1. **Fork the repository** on GitHub
-2. **Clone your fork:**
-   ```bash
-   git clone https://github.com/YOUR-USERNAME/slicer-engine.git
-   cd slicer-engine
-   ```
-3. **Build and test:**
-   ```bash
-   cargo build
-   cargo test
-   ```
-4. **Read the architecture:** See [ARCHITECTURE.md](ARCHITECTURE.md) for a comprehensive overview
-
-## Before You Start
-
-### Essential Reading
-
-- [ARCHITECTURE.md](ARCHITECTURE.md) — Complete system architecture with Mermaid diagrams
-- [README.md](README.md) — Usage and quick start guide
-- [src/SLICING.md](src/SLICING.md) — Slicing algorithm deep-dive
-
-### Understanding the Codebase
-
-The slicer is organized into focused modules:
-
-```
-src/
-├── core.rs          → Main slicing pipeline (start here!)
-├── arachne/         → Variable-width wall generation
-├── mesh/            → STL loading and transformations
-├── gcode/           → G-code emission (multi-flavor)
-├── settings/        → Configuration and validation
-├── cli/             → Command-line interface
-└── server/          → WebSocket API for web UI
-```
-
-**Start by reading:** `src/core.rs` → `process_mesh()` function
-
-## Development Workflow
-
-### 1. Set Up Your Environment
-
-**Install Rust:**
-```bash
-curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
-```
-
-**Install development tools:**
-```bash
-rustup component add clippy rustfmt
-```
-
-**For WebAssembly builds:**
-```bash
-cargo install wasm-pack
-```
-
-**Set up the workspace + git hooks:**
-```bash
-pnpm install   # also installs Lefthook (via the `prepare` script)
-```
-Lefthook then autoformats your **staged** files on every commit — Prettier for the
-Angular UI (`ui/**/*.{ts,html,scss,css}`) and `rustfmt` for Rust (`*.rs`) — so what you
-commit already matches CI. Bypass once with `git commit --no-verify` or disable with
-`LEFTHOOK=0 git commit`.
-
-### 2. Create a Feature Branch
+Prerequisites and first-run steps live in [SETUP.md](SETUP.md). The short
+version:
 
 ```bash
-git checkout -b feature/your-feature-name
+git clone https://github.com/YOUR-USERNAME/slicer-engine.git
+cd slicer-engine
+pnpm install          # workspace deps + git hooks
+cargo build && cargo test
 ```
 
-Use descriptive names:
-- `feature/gyroid-infill-pattern`
-- `fix/arachne-thin-wall-crash`
-- `docs/explain-surface-detection`
+`pnpm install` installs [Lefthook](https://lefthook.dev), which formats your
+**staged** files on every commit — `rustfmt` for Rust, Prettier for the Angular
+UI. Formatting will never block your PR. Skip once with `--no-verify`, disable
+with `LEFTHOOK=0`.
 
-### 3. Make Your Changes
+## Find your way around
 
-**Code Style:**
-- Follow Rust idioms and conventions
-- Use `cargo fmt` to format code (enforced by CI; also applied automatically on commit by Lefthook)
-- Run `cargo clippy` to catch common issues
-- Add doc comments (`///`) for public APIs
-- UI code (`ui/`) is formatted with Prettier — also applied on commit by Lefthook
+- [ARCHITECTURE.md](ARCHITECTURE.md) — the map. Which module owns what.
+- Module READMEs — the real documentation. Start with
+  [`src/core/README.md`](src/core/README.md).
+- [AGENTS.md](AGENTS.md) — the contracts. Long, but it's where the
+  non-obvious invariants are written down, and most review comments trace back
+  to something in it.
+- [DEVELOPMENT.md](DEVELOPMENT.md) — day-to-day commands.
 
-**Testing:**
-- Write tests for new functionality
-- Use inline tests with `#[cfg(test)]` modules
-- Run `cargo test` frequently during development
-- Ensure `cargo test --release` passes before committing
+Reading `process_mesh` in [`src/core/pipeline.rs`](src/core/pipeline.rs) is the
+fastest way to understand what actually happens.
 
-**Example test:**
-```rust
-#[cfg(test)]
-mod tests {
-    use super::*;
+## Make the change
 
-    #[test]
-    fn test_collapse_depth_square() {
-        let paths = square_paths(10.0);
-        let d = find_collapse_depth(&paths);
-        assert!((d - 5.0).abs() < 0.02, "Expected ~5mm, got {}", d);
-    }
-}
-```
+Branch names describe the change: `feature/gyroid-infill`,
+`fix/arachne-thin-wall-crash`, `docs/explain-surface-detection`.
 
-### 4. Commit Your Changes
+**Rust:** standard idioms, `///` on public APIs, tests inline in `#[cfg(test)]`
+modules beside the code they cover.
 
-> On commit, Lefthook autoformats your staged files (Prettier + `rustfmt`) and re-stages
-> them, so formatting never blocks your PR. Use `git commit --no-verify` to skip it.
+**UI:** see [the component structure guide](.github/instructions/angular-component-structure.instructions.md)
+and [the design language](.github/instructions/ui-design-language.instructions.md).
 
-**Commit message format:**
-```
-type(scope): short description
+**Commits:** `type(scope): short description`, wrapping the body at 72
+characters. Types: `feat`, `fix`, `docs`, `refactor`, `test`, `chore`. Explain
+the motivation, not just the mechanism.
 
-Longer explanation if needed, wrapping at 72 characters.
-Include motivation, context, and implementation notes.
-
-Fixes #123
-```
-
-**Types:**
-- `feat:` — New feature
-- `fix:` — Bug fix
-- `docs:` — Documentation changes
-- `refactor:` — Code restructuring (no behavior change)
-- `test:` — Adding or fixing tests
-- `chore:` — Build config, dependencies, etc.
-
-**Examples:**
-```
-feat(arachne): add wall_distribution_count parameter
-
-Allows distributing residual width across multiple innermost beads
-instead of just the last one. Improves finish on tapered walls.
-
-Fixes #45
-
----
-
-fix(gcode): correct extrusion calculation for variable widths
-
-Was using nozzle_diameter_mm for all paths; now uses per-path
-width from Arachne. Fixes under-extrusion on thin-wall beads.
-
-Fixes #67
-```
-
-### 5. Push and Create a Pull Request
+## Before you open the PR
 
 ```bash
-git push origin feature/your-feature-name
-```
-
-Then open a PR on GitHub with:
-- **Clear title** describing the change
-- **Description** explaining what and why
-- **Link to issue** if fixing a bug or implementing a feature request
-- **Screenshots/videos** if changing UI or output quality
-
-## Code Quality Standards
-
-### Must Pass Before Merge
-
-```bash
-# Format check
 cargo fmt --check
-
-# Linting (zero warnings)
 cargo clippy --all-targets --all-features -- -D warnings
-
-# All tests passing
-cargo test --release
-
-# No compiler warnings
-cargo build --release 2>&1 | grep warning
+cargo test
 ```
 
-### Optional But Recommended
+CI runs these on every platform target. Don't bypass it.
 
-```bash
-# Check for unused dependencies
-cargo install cargo-udeps
-cargo +nightly udeps
+If your change touches geometry — anything in `core/`, `walls/`, `infill/`,
+`adhesion/` or `gcode/` — **measure it**.
+[`tools/gcode-analysis/`](tools/gcode-analysis/README.md) has scripts for wall
+overlap, unfilled gaps, bead-width distribution and capsule renders. Compare
+against the `classic` generator, which is the trusted reference, and attach
+before/after images to the PR. A plausible explanation is not evidence; the QA
+gate has caught changes that looked obviously correct and destroyed real infill.
 
-# Security audit
-cargo install cargo-audit
-cargo audit
+Not sure what to check? Ask the agent "what should I test?" — the
+[`test-changes` skill](.github/skills/test-changes/SKILL.md) answers with a
+checklist for the platform you name.
 
-# Check for outdated dependencies
-cargo install cargo-outdated
-cargo outdated
-```
+## Pitfalls that bite everyone once
 
-## What to Contribute
+**Clipper2 fill rules.** `EvenOdd`, `Positive` and `NonZero` are not
+interchangeable, and the wrong one produces geometry that looks fine until it
+doesn't. The table in [`src/core/README.md`](src/core/README.md) says which goes
+where.
 
-### Good First Issues
+**Winding order.** Solid contours are CCW, holes CW. Normalising everything to
+CCW makes holes fill with plastic.
 
-Look for issues labeled `good first issue` on GitHub. These are typically:
-- Documentation improvements
-- Adding tests for existing code
-- Small bug fixes with clear reproduction steps
-- Parameter validation rules
+**Parallel arrays.** `path_roles`, `path_widths`, `path_objects` and friends are
+indexed alongside `paths`. Anything that rebuilds a layer's paths must carry
+them all, or roles and widths shift onto the wrong paths silently.
 
-### Ideas for Contributions
+**New settings fields** need `#[serde(default)]` and a default function, or old
+config files stop loading.
 
-**Features:**
-- New infill patterns (cubic, hilbert curve, lightning)
-- Support structure generation
-- Adaptive layer heights
-- Ironing (smooth top surfaces)
-- Sequential printing (object-by-object)
-- Custom G-code insertion at layer changes
+**Don't add a second source of truth.** Placement belongs to `scene/`, version
+belongs to `src/version.rs`, config belongs to `config/`. Adding a parallel one
+is the failure mode these modules exist to prevent.
 
-**Improvements:**
-- Performance optimizations (profiling with `cargo flamegraph`)
-- Better error messages
-- More comprehensive tests
-- Additional G-code flavors (RepRap, Prusa, etc.)
-- UI enhancements
+## Documentation
 
-**Documentation:**
-- Tutorial blog posts
-- Video walkthroughs
-- API documentation examples
-- Translation to other languages
+Update docs in the same PR as the change.
 
-### Areas That Need Help
+- **Module READMEs** are the deep documentation, written in the
+  [Diátaxis](https://diataxis.fr/) *Explanation* style — what something is and
+  *why* it's that way. [`src/scene/README.md`](src/scene/README.md) is the model
+  to follow; the house style is described in [AGENTS.md](AGENTS.md).
+- **[ARCHITECTURE.md](ARCHITECTURE.md)** is a map. Keep it a map.
+- **User-facing docs** live in [`docs/use/`](docs/use/) and
+  [`docs/teams/`](docs/teams/). If your change alters what a user sees or does,
+  it belongs there too.
+- **[CHANGELOG.md](CHANGELOG.md)** — add to `## [Unreleased]` for anything a
+  user would notice.
 
-Check the [GitHub issues](https://github.com/max-scopp/slicer-engine/issues) for:
-- `help wanted` — Community input desired
-- `enhancement` — Feature requests
-- `bug` — Known issues
+Don't put issue or PR numbers in prose. Describe the change instead; the number
+means nothing to someone reading the changelog in two years.
 
-## Development Tips
+## What to work on
 
-### Debugging
+Issues labelled `good first issue` and `help wanted` are the obvious starting
+points. Documentation, tests for existing code, and small well-reproduced bugs
+are always welcome.
 
-**Add trace logging:**
-```rust
-use crate::logging::ProcessLogger;
+If you're planning something large, open a discussion first — the pipeline has
+ordering constraints that aren't obvious from the outside, and it's easier to
+point them out before you've written the code.
 
-logger.log_debug(&format!("Collapse depth: {:.4}mm", depth));
-```
+## Getting help
 
-**Visualize intermediate results:**
-```rust
-// Export Clipper2 paths as SVG for inspection
-use clipper2::*;
-let svg = paths.to_svg(1000, 1000);
-std::fs::write("debug.svg", svg)?;
-```
+[Discussions](https://github.com/max-scopp/slicer-engine/discussions) for
+questions, [Issues](https://github.com/max-scopp/slicer-engine/issues) for bugs.
 
-**Profile performance:**
-```bash
-cargo install flamegraph
-cargo flamegraph --bin slicer-engine -- slice --input large.stl
-# Opens flamegraph.svg in browser
-```
+## Code of conduct
 
-### Testing Strategy
+Be respectful, constructive and inclusive. Welcome newcomers, give feedback on
+the code rather than the person, and assume good intent. Harassment,
+discriminatory language and personal attacks aren't tolerated.
 
-**Unit tests:** Test individual functions in isolation
-```rust
-#[test]
-fn test_edge_intersect() {
-    let a = Vertex { x: 0.0, y: 0.0, z: 1.0 };
-    let b = Vertex { x: 10.0, y: 10.0, z: 3.0 };
-    let (x, y) = edge_intersect(a, b, 2.5);
-    assert_eq!(x, 7.5);
-    assert_eq!(y, 7.5);
-}
-```
-
-**Integration tests:** Test module interactions
-```rust
-#[test]
-fn test_process_mesh_pipeline() {
-    let mesh = create_test_cube(10.0);
-    let params = SlicingParams::default();
-    let layers = process_mesh(&mesh, &params, &NullLogger);
-    assert!(!layers.is_empty());
-}
-```
-
-**Property-based tests:** Use `proptest` or `quickcheck` for fuzzing
-```rust
-use proptest::prelude::*;
-
-proptest! {
-    #[test]
-    fn test_collapse_depth_positive(side in 1.0..100.0f64) {
-        let paths = square_paths(side);
-        let d = find_collapse_depth(&paths);
-        assert!(d > 0.0 && d <= side / 2.0);
-    }
-}
-```
-
-### Common Pitfalls
-
-**1. Clipper2 coordinate precision:**
-- Uses integer-based `Centi` (centimeter precision)
-- Be careful with floating-point conversions
-- Use simplify() after inflate() to remove duplicate points
-
-**2. Winding order:**
-- Outer contours = counter-clockwise
-- Holes = clockwise
-- Use `FillRule::EvenOdd` when winding isn't guaranteed
-
-**3. Path roles:**
-- Always set `path_roles` when adding paths to a layer
-- Length must match `paths.len()` or defaults to `Perimeter`
-
-**4. Settings defaults:**
-- Use `#[serde(default)]` for new fields to maintain backward compatibility
-- Add default value functions: `fn default_my_param() -> T`
-
-**5. Memory in loops:**
-- Avoid cloning large structures in hot paths
-- Use `&` references when possible
-- Profile with `cargo flamegraph` if performance degrades
-
-## Documentation Standards
-
-### Code Comments
-
-**Doc comments (`///`) for public APIs:**
-```rust
-/// Compute the collapse depth of a polygon.
-///
-/// The collapse depth D is the largest inward offset at which the polygon
-/// is still non-empty. It equals the polygon's inradius (half the minimum
-/// local wall thickness).
-///
-/// # Arguments
-/// * `input` - The polygon paths to analyze
-///
-/// # Returns
-/// The collapse depth in millimeters, or 0.0 if the polygon is degenerate.
-///
-/// # Example
-/// ```
-/// let square = square_paths(10.0);
-/// let depth = find_collapse_depth(&square);
-/// assert_eq!(depth, 5.0); // Half the side length
-/// ```
-pub fn find_collapse_depth(input: &Paths) -> f64 {
-    // ...
-}
-```
-
-**Inline comments for complex logic:**
-```rust
-// Strategy: binary search the collapse depth using Clipper2 inflate().
-// 24 iterations give sub-nanometer precision on a 500mm bbox.
-for _ in 0..COLLAPSE_DEPTH_ITERATIONS {
-    let mid = (lo + hi) / 2.0;
-    // ...
-}
-```
-
-### Markdown Documentation
-
-**Update existing docs when adding features:**
-- `ARCHITECTURE.md` — High-level architecture changes
-- `README.md` — User-facing feature descriptions
-- Module READMEs — Implementation details
-
-**Add Mermaid diagrams for visual clarity:**
-```markdown
-## Data Flow
-
-\`\`\`mermaid
-graph LR
-    A[Input] --> B[Process]
-    B --> C[Output]
-\`\`\`
-```
-
-## Pull Request Checklist
-
-Before submitting your PR, ensure:
-
-- [ ] Code builds: `cargo build --release`
-- [ ] All tests pass: `cargo test --release`
-- [ ] Linting passes: `cargo clippy --all-targets --all-features -- -D warnings`
-- [ ] Code is formatted: `cargo fmt` (Lefthook applies this automatically on commit)
-- [ ] New code has tests
-- [ ] Public APIs have doc comments
-- [ ] ARCHITECTURE.md updated if architecture changed
-- [ ] README.md updated if user-facing features added
-- [ ] Commit messages follow the format
-- [ ] PR description explains what/why/how
-
-## Getting Help
-
-- **Questions:** Open a [GitHub Discussion](https://github.com/max-scopp/slicer-engine/discussions)
-- **Bugs:** Open an [Issue](https://github.com/max-scopp/slicer-engine/issues)
-- **Architecture:** Read [ARCHITECTURE.md](ARCHITECTURE.md)
-- **Chat:** (Add Discord/Matrix/IRC if available)
-
-## Code of Conduct
-
-Be respectful, constructive, and inclusive. We're all here to learn and build something awesome together.
-
-**Expected behavior:**
-- Be welcoming to newcomers
-- Provide constructive feedback on PRs
-- Assume good intentions
-- Focus on the code, not the person
-
-**Unacceptable:**
-- Harassment, trolling, or personal attacks
-- Discriminatory language or behavior
-- Spam or off-topic discussions
-
-Violations will result in comment deletion, temporary bans, or permanent bans depending on severity.
-
-## License
-
-By contributing, you agree that your contributions will be licensed under the same license as the project (see LICENSE file).
-
----
-
-**Thank you for contributing!** Every contribution, no matter how small, helps make this project better. 🚀
+Report problems by opening an issue or contacting the maintainer directly.

@@ -3,8 +3,9 @@ import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { fromEvent } from 'rxjs';
 import { filter, map } from 'rxjs/operators';
 import { matchKeyBindingPress, parseKeybinding } from 'tinykeys';
+import { Arrange } from '../arrange';
 import { GcodePreview } from '../gcode-preview';
-import { SceneCommand } from '../scene-command/scene-command';
+import { SceneEngine } from '../scene-engine';
 import { SceneHistory } from '../scene-history/scene-history';
 import { Slicer } from '../slicer';
 import { ViewerControl } from '../viewer-control';
@@ -33,7 +34,8 @@ type ParsedShortcutConfig = ShortcutConfig & {
 @Injectable({ providedIn: 'root' })
 export class KeyboardShortcuts {
   private readonly history = inject(SceneHistory);
-  private readonly sceneCommand = inject(SceneCommand);
+  private readonly arrange = inject(Arrange);
+  private readonly sceneEngine = inject(SceneEngine);
   private readonly viewerControl = inject(ViewerControl);
   private readonly slicer = inject(Slicer);
   private readonly gcodePreview = inject(GcodePreview);
@@ -70,11 +72,37 @@ export class KeyboardShortcuts {
       handleAction: () => this.history.redo(),
     },
     {
-      actionId: 'auto-orient',
+      actionId: 'place-objects',
       shortcut: 'a',
-      displayDescription: 'Auto-orient all objects',
-      canMatch: () => !this.isTextInputFocused(),
-      handleAction: () => this.sceneCommand.autoOrient(),
+      displayDescription: 'Place objects on the bed',
+      // Gated on model view like Select all: in G-code preview this would
+      // move the plate behind a picture the user cannot see it change.
+      canMatch: () =>
+        !this.isTextInputFocused() &&
+        this.viewerControl.viewMode() === 'model' &&
+        this.sceneEngine.objects().length > 0,
+      handleAction: () => this.arrange.run(),
+    },
+    {
+      actionId: 'select-all',
+      shortcut: '$mod+a',
+      displayDescription: 'Select all objects',
+      canMatch: () =>
+        !this.isTextInputFocused() &&
+        this.viewerControl.viewMode() === 'model' &&
+        this.sceneEngine.objects().length > 0,
+      // Writing the shared selection signal is enough: the viewer mirrors it
+      // into the 3D scene, so this never needs a handle on the viewer.
+      handleAction: () =>
+        this.viewerControl.selectedObjectIds.set(this.sceneEngine.objects().map((o) => o.id)),
+    },
+    {
+      actionId: 'deselect-all',
+      shortcut: 'Escape',
+      displayDescription: 'Clear the selection',
+      canMatch: () =>
+        !this.isTextInputFocused() && this.viewerControl.selectedObjectIds().length > 0,
+      handleAction: () => this.viewerControl.selectedObjectIds.set([]),
     },
     {
       actionId: 'object-mode-translate',

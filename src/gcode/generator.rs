@@ -7,7 +7,7 @@ use crate::gcode::dialect::{GcodeDialect, WarnFn};
 use crate::gcode::dialects::{KlipperDialect, MarlinDialect};
 use crate::gcode::flavor::GcodeFlavor;
 use crate::gcode::stats::SliceStatistics;
-use crate::settings::params::{LifecycleMarkerConfig, SlicingParams};
+use crate::settings::params::{fan_index, LifecycleMarkerConfig, SlicingParams};
 
 // ── Private helpers ────────────────────────────────────────────────────────────
 
@@ -24,17 +24,130 @@ const WIDTH_EPSILON: f64 = 1e-6;
 /// resolution.
 const WIDTH_SIMPLIFY_TOL_MM: f64 = 0.02;
 
+/// Minimum lift, in mm, above the tallest already-printed object when
+/// sequential printing hands over to the next one.
+///
+/// The nozzle has to reach the far side of a finished part without touching it,
+/// and the layer block that follows will drop straight back down to the new
+/// object's first layer — so the clearance is taken *before* the travel, not
+/// as part of it.  A configured Z-hop larger than this wins.
+const SEQUENTIAL_LIFT_MM: f64 = 1.0;
+
 /// Width step (mm) at which a variable-width bead re-emits a `;WIDTH:` marker
 /// mid-path, so viewers/post-processors render the actual (flow-compensated)
 /// bead width rather than the nominal scalar.  Coarse enough (0.05 mm) to keep
 /// the marker count \u2014 and G-code size \u2014 bounded, fine enough to show the taper.
 const WIDTH_MARKER_STEP_MM: f64 = 0.05;
 
+// ── Spiral (vase) mode helpers ─────────────────────────────────────────────────
+
+/// Outcome of scanning a layer for a spiralizable outer contour.
+enum SpiralDetect {
+    /// No closed outer-wall loop to spiralize.
+    None,
+    /// Exactly one island — the given `SliceLayer::paths` index is its outer
+    /// contour.
+    Single(usize),
+    /// More than one separate island; spiral mode cannot fuse them into a
+    /// single continuous contour.
+    Multi,
+}
+
+/// Even-odd ray-cast point-in-polygon test (winding-independent).
+fn point_in_polygon(pt: (f64, f64), poly: &[(f64, f64)]) -> bool {
+    let (px, py) = pt;
+    let n = poly.len();
+    if n < 3 {
+        return false;
+    }
+    let mut inside = false;
+    let mut j = n - 1;
+    for i in 0..n {
+        let (xi, yi) = poly[i];
+        let (xj, yj) = poly[j];
+        if ((yi > py) != (yj > py)) && (px < (xj - xi) * (py - yi) / (yj - yi) + xi) {
+            inside = !inside;
+        }
+        j = i;
+    }
+    inside
+}
+
+/// Scan a layer for the single outermost closed outer-wall contour to
+/// spiralize.
+///
+/// Only closed [`crate::core::ExtrusionRole::OuterWall`] paths are considered.
+/// A loop whose first vertex lies inside another such loop is treated as a hole
+/// and ignored, so a solid island with holes still spiralizes as one contour.
+/// The count of *outermost* (non-contained) loops is the island count: exactly
+/// one yields [`SpiralDetect::Single`]; more yields [`SpiralDetect::Multi`].
+fn detect_spiral_loop(layer: &SliceLayer) -> SpiralDetect {
+    // Gather (paths-index, points) for every closed outer-wall loop.
+    let mut loops: Vec<(usize, Vec<(f64, f64)>)> = Vec::new();
+    for (i, path) in layer.paths.iter().enumerate() {
+        if layer.role_for_path(i) == crate::core::ExtrusionRole::OuterWall && !layer.is_path_open(i)
+        {
+            let pts: Vec<(f64, f64)> = path.iter().map(|p| (p.x(), p.y())).collect();
+            if pts.len() >= 2 {
+                loops.push((i, pts));
+            }
+        }
+    }
+    if loops.is_empty() {
+        return SpiralDetect::None;
+    }
+
+    // Outermost = whose first vertex is not inside any other loop. A hole's
+    // boundary vertex sits inside its outer contour; separate islands are
+    // disjoint so neither contains the other.
+    let mut outermost: Vec<usize> = Vec::new();
+    for (slot, (_, pts)) in loops.iter().enumerate() {
+        let probe = pts[0];
+        let contained = loops
+            .iter()
+            .enumerate()
+            .any(|(other, (_, o))| other != slot && point_in_polygon(probe, o));
+        if !contained {
+            outermost.push(slot);
+        }
+    }
+
+    match outermost.len() {
+        0 => SpiralDetect::None, // degenerate (mutually contained) — nothing to spiral
+        1 => SpiralDetect::Single(loops[outermost[0]].0),
+        _ => SpiralDetect::Multi,
+    }
+}
+
+/// Rotate a closed loop so its first vertex is the one nearest `target`,
+/// minimising the travel from the previous layer's end into the spiral and
+/// keeping the (invisible) start line aligned across layers.
+fn rotate_loop_nearest(pts: &[(f64, f64)], target: (f64, f64)) -> Vec<(f64, f64)> {
+    let n = pts.len();
+    if n == 0 {
+        return Vec::new();
+    }
+    let mut best = 0;
+    let mut best_d = f64::MAX;
+    for (i, &(x, y)) in pts.iter().enumerate() {
+        let d = (x - target.0).powi(2) + (y - target.1).powi(2);
+        if d < best_d {
+            best_d = d;
+            best = i;
+        }
+    }
+    (0..n).map(|k| pts[(best + k) % n]).collect()
+}
+
 /// Estimate the print time for a layer in seconds.
 ///
 /// Sums the total XY move distance for all paths in the layer and divides by
-/// `print_speed_mm_s`.  Travel moves are not modelled separately; this gives
-/// a conservative lower-bound that is close enough for fan-speed decisions.
+/// `print_speed_mm_s`.  Travel moves are not modelled separately; this is a
+/// deliberately cheap **pre-move** proxy used only for the adaptive fan-speed
+/// decision (which must be emitted *before* the layer's moves are known, so the
+/// accurate trapezoidal estimate is not yet available).  The user-facing ETA and
+/// the `;LAYER_TIME:` markers are replaced afterwards with the
+/// acceleration-aware figure from [`crate::gcode::time_estimate`].
 pub(crate) fn estimate_layer_time(layer: &SliceLayer, print_speed_mm_s: f64) -> f64 {
     if print_speed_mm_s <= 0.0 {
         return 0.0;
@@ -49,6 +162,37 @@ pub(crate) fn estimate_layer_time(layer: &SliceLayer, print_speed_mm_s: f64) -> 
         }
     }
     total_mm / print_speed_mm_s
+}
+
+/// Overwrite the value of each `;LAYER_TIME:` marker in `body` with the
+/// acceleration-aware per-layer estimate.
+///
+/// The generator emits one `;LAYER_TIME:` marker per printed layer (in order)
+/// as a cheap placeholder; this rewrites those values in place with the
+/// trapezoidal figures so the viewer's Layer-Time colouring matches the ETA.
+/// Markers with no corresponding estimate (should not happen — the estimator
+/// keys off the same markers) are left untouched, so the pass is always safe.
+fn patch_layer_time_markers(body: &mut String, per_layer_s: &[f64]) {
+    if per_layer_s.is_empty() || !body.contains(";LAYER_TIME:") {
+        return;
+    }
+    let mut patched = String::with_capacity(body.len());
+    let mut idx = 0usize;
+    // Preserve a trailing newline: `str::lines` drops it, so re-add per line.
+    for line in body.lines() {
+        if line.trim_start().starts_with(";LAYER_TIME:") {
+            if let Some(&t) = per_layer_s.get(idx) {
+                patched.push_str(&format!(";LAYER_TIME:{:.1}", t));
+                idx += 1;
+            } else {
+                patched.push_str(line);
+            }
+        } else {
+            patched.push_str(line);
+        }
+        patched.push('\n');
+    }
+    *body = patched;
 }
 
 /// Compute the extrusion length (mm of filament) needed to print a straight
@@ -109,13 +253,56 @@ pub(crate) fn volumetric_capped_speed_mm_min(
     speed_mm_min.min(cap_mm_min)
 }
 
+/// Convert a slice-layer Z into the Z actually written to the G-code, applying
+/// the machine's `z_offset_mm` compensation (issue #102).
+///
+/// A negative offset lowers the nozzle (the endstop zeroes too high), a positive
+/// one raises it.  The offset is a *machine* correction, so it is applied here —
+/// at the emission boundary — and nowhere else: the slice layers, the print
+/// statistics and the time estimate all keep the model's own Z.  This mirrors
+/// PrusaSlicer / OrcaSlicer, where `z_offset` is added to every emitted Z
+/// coordinate rather than being pushed into a firmware directive.
+fn machine_z(z: f64, params: &SlicingParams) -> f64 {
+    z + params.z_offset_mm
+}
+
+/// Slowest strictly-positive `overhang_*_speed` (mm/s), or `None` when no
+/// per-degree overhang speed is configured.  Used by
+/// [`GcodeGenerator::effective_speed_mm_min`] to clamp curl-prone steep
+/// overhangs when `slowdown_for_curled_perimeters` is on.
+fn slowest_overhang_speed_mm_s(params: &SlicingParams) -> Option<f64> {
+    [
+        params.overhang_1_4_speed,
+        params.overhang_2_4_speed,
+        params.overhang_3_4_speed,
+        params.overhang_4_4_speed,
+    ]
+    .into_iter()
+    .filter(|s| *s > 0.0)
+    .min_by(|a, b| a.partial_cmp(b).unwrap())
+}
+
+/// `true` when an overhang class is severe enough to trigger the overhang fan.
+///
+/// The class's *upper* unsupported fraction (Deg1 → 25%, Deg2 → 50%, Deg3 →
+/// 75%, Deg4 → 100%) must exceed `overhang_fan_threshold`, so the default 0.5
+/// threshold engages the fan from Deg3 (50–75%) upward.
+fn overhang_meets_fan_threshold(
+    overhang: crate::core::OverhangClass,
+    params: &SlicingParams,
+) -> bool {
+    let upper_fraction = overhang.band() as f64 * 0.25;
+    upper_fraction > params.overhang_fan_threshold + f64::EPSILON
+}
+
 /// Resolve the extrusion width for a path.
 ///
 /// Precedence (first match wins):
-/// 0. **Solid top/bottom surface fill** (no explicit/per-vertex width) is
-///    charged at its *line spacing* (`solid_surface_line_spacing`), not a
-///    nominal bead width, so it deposits `spacing × layer_height` and fills the
-///    surface exactly instead of over-extruding it (see the inline note).
+/// 0. **Fill roles** (solid top/bottom surface fill and sparse infill, with no
+///    explicit/per-vertex width) are charged at their *line spacing*
+///    (`extrusion_flow_spacing_mm` of their nominal width), not the nominal bead
+///    width, so each line deposits `spacing × layer_height` and fills its strip
+///    exactly instead of over-extruding it (see the inline note).
 /// 1. A per-role width override (`outer_wall_line_width`, `inner_wall_line_width`,
 ///    `top_surface_line_width`, `sparse_infill_line_width`) when set (`> 0`) —
 ///    but only for **constant-width** paths (`has_vertex_widths == false`). This
@@ -136,24 +323,33 @@ pub(crate) fn resolve_width_mm(
 ) -> f64 {
     use crate::core::ExtrusionRole;
 
-    // Solid top/bottom surface fill is laid at `solid_surface_line_spacing` (the
-    // libslic3r/Orca stadium pitch, ≈ 0.357 mm at a 0.4 mm nozzle / 0.2 mm
-    // layers), so each line must deposit `spacing × layer_height` of filament —
-    // the volume of the strip it fills — *not* the full nominal bead width.
-    // Charging solid surfaces at the wider nominal width over-extrudes them by
-    // `width / spacing` (≈ 13 % at nozzle width, ≈ 23 % once `line_width` >
-    // nozzle): the raised / blobby top-surface defect. Matching the flow to the
-    // spacing mirrors PrusaSlicer/Orca (`mm³/mm = spacing × height`) and lays a
-    // flat surface. Bridges (their own role, explicit width) are unaffected.
-    if explicit.is_none()
-        && !has_vertex_widths
-        && matches!(
-            role,
-            ExtrusionRole::TopSurface | ExtrusionRole::BottomSurface
-        )
-    {
-        let nominal = crate::core::solid_surface_nominal_width_mm(params);
-        return crate::core::solid_surface_line_spacing(nominal, params.layer_height);
+    // Fill roles are laid at their flow spacing (the libslic3r/Orca stadium
+    // pitch, ≈ 0.357 mm at a 0.4 mm nozzle / 0.2 mm layers), so each line must
+    // deposit `spacing × layer_height` of filament — the volume of the strip it
+    // fills — *not* the full nominal bead width. Charging them at the wider
+    // nominal width over-extrudes by `width / spacing` (≈ 13 % at nozzle width,
+    // ≈ 23 % once `line_width` > nozzle): the raised / blobby top-surface
+    // defect. Matching the flow to the spacing mirrors PrusaSlicer/Orca
+    // (`mm³/mm = spacing × height`) and lays a flat surface.
+    //
+    // Sparse infill obeys the same identity: `add_infill_to_layers` pitches its
+    // lines `spacing / density` apart, so charging them at `spacing` is what
+    // makes the deposited volume equal the requested density. Bridges (their own
+    // role, explicit width) are unaffected.
+    if explicit.is_none() && !has_vertex_widths {
+        match role {
+            ExtrusionRole::TopSurface
+            | ExtrusionRole::BottomSurface
+            | ExtrusionRole::InternalSolid => {
+                let nominal = crate::core::solid_surface_nominal_width_mm(params);
+                return crate::core::extrusion_flow_spacing_mm(nominal, params.layer_height);
+            }
+            ExtrusionRole::Infill => {
+                let nominal = crate::core::sparse_infill_nominal_width_mm(params);
+                return crate::core::extrusion_flow_spacing_mm(nominal, params.layer_height);
+            }
+            _ => {}
+        }
     }
 
     // A per-role override wins over the constant, generator-stamped width for
@@ -165,9 +361,9 @@ pub(crate) fn resolve_width_mm(
                 params.outer_wall_line_width
             }
             ExtrusionRole::InnerWall => params.inner_wall_line_width,
-            ExtrusionRole::TopSurface | ExtrusionRole::BottomSurface => {
-                params.top_surface_line_width
-            }
+            ExtrusionRole::TopSurface
+            | ExtrusionRole::BottomSurface
+            | ExtrusionRole::InternalSolid => params.top_surface_line_width,
             ExtrusionRole::Infill => params.sparse_infill_line_width,
             _ => 0.0,
         };
@@ -183,7 +379,10 @@ pub(crate) fn resolve_width_mm(
     // Generic `line_width` still applies only to solid infill and surfaces.
     let line_width_role = matches!(
         role,
-        ExtrusionRole::Infill | ExtrusionRole::TopSurface | ExtrusionRole::BottomSurface
+        ExtrusionRole::Infill
+            | ExtrusionRole::TopSurface
+            | ExtrusionRole::BottomSurface
+            | ExtrusionRole::InternalSolid
     );
     if params.line_width > 0.0 && line_width_role {
         params.line_width
@@ -213,8 +412,8 @@ pub(crate) fn render_marker(
 
 /// Substitute print-parameter placeholders shared by custom start / end / layer
 /// scripts: `{nozzle_temp}`, `{bed_temp}`, their `_first_layer` variants,
-/// `{chamber_temp}`, `{filament_type}`, plus `{layer_height}` and
-/// `{first_layer_height}`.
+/// `{chamber_temp}` (and `{chamber_temp_first_layer}`), `{filament_type}`, plus
+/// `{layer_height}` and `{first_layer_height}`.
 ///
 /// For migration convenience, common Orca-style bracket placeholders are also
 /// accepted as aliases (for example `[nozzle_temperature_initial_layer]`).
@@ -235,6 +434,7 @@ pub(crate) fn render_script_placeholders(line: &str, params: &SlicingParams) -> 
     } else {
         params.bed_temp
     };
+    let first_chamber = params.chamber_temp_first_layer_resolved();
     let first_height = if params.first_layer_height > 0.0 {
         params.first_layer_height
     } else {
@@ -242,6 +442,10 @@ pub(crate) fn render_script_placeholders(line: &str, params: &SlicingParams) -> 
     };
     line.replace("{nozzle_temp_first_layer}", &format!("{:.0}", first_nozzle))
         .replace("{bed_temp_first_layer}", &format!("{:.0}", first_bed))
+        .replace(
+            "{chamber_temp_first_layer}",
+            &format!("{:.0}", first_chamber),
+        )
         .replace("{nozzle_temp}", &format!("{:.0}", params.nozzle_temp))
         .replace("{bed_temp}", &format!("{:.0}", params.bed_temp))
         .replace("{chamber_temp}", &format!("{:.0}", params.chamber_temp))
@@ -258,6 +462,10 @@ pub(crate) fn render_script_placeholders(line: &str, params: &SlicingParams) -> 
             &format!("{:.0}", first_bed),
         )
         .replace(
+            "[chamber_temperature_initial_layer]",
+            &format!("{:.0}", first_chamber),
+        )
+        .replace(
             "[nozzle_temperature]",
             &format!("{:.0}", params.nozzle_temp),
         )
@@ -267,6 +475,45 @@ pub(crate) fn render_script_placeholders(line: &str, params: &SlicingParams) -> 
             &format!("{:.0}", params.chamber_temp),
         )
         .replace("[filament_type]", &params.filament_type)
+}
+
+/// Tokens that mean a custom start script manages the chamber **heater** itself.
+///
+/// A `START_PRINT … CHAMBER={chamber_temp}` macro (Klippain and friends) already
+/// heats and soaks the chamber, so the generator's own sequence would be a
+/// second, conflicting heat-and-wait. Detecting any of these suppresses it.
+///
+/// Every token is uppercase and carries enough context to mean *heating*. A bare
+/// `CHAMBER` would be wrong: enclosed printers routinely drive a chamber
+/// circulation fan (`SET_FAN_SPEED FAN=chamber_fan …`, `M106 P2 S255 ; chamber
+/// fan`) or mention the chamber in a comment, and matching those would silently
+/// disable chamber heating altogether — the exact failure the feature prevents.
+const CUSTOM_CHAMBER_TOKENS: &[&str] = &[
+    // RepRap / Marlin set + wait
+    "M141",
+    "M191",
+    // Macro argument: `START_PRINT … CHAMBER=50`
+    "CHAMBER=",
+    // Placeholders and their Orca aliases, plus `CHAMBER_TEMPERATURE=` macro args:
+    // `{chamber_temp}`, `{chamber_temp_first_layer}`, `[chamber_temperature]`,
+    // `[chamber_temperature_initial_layer]`
+    "CHAMBER_TEMP",
+    // Klipper native heater control
+    "HEATER=CHAMBER",
+    "HEATER_GENERIC CHAMBER",
+];
+
+/// Whether a custom start script already takes care of chamber heating.
+///
+/// Matched against the **raw** (pre-substitution) script so a `{chamber_temp}`
+/// placeholder is still recognisable after it has been rendered to a number.
+fn start_script_handles_chamber(script: &[String]) -> bool {
+    script.iter().any(|line| {
+        let upper = line.to_uppercase();
+        CUSTOM_CHAMBER_TOKENS
+            .iter()
+            .any(|token| upper.contains(token))
+    })
 }
 
 // ── GcodeGenerator ─────────────────────────────────────────────────────────────
@@ -313,8 +560,20 @@ pub struct GcodeGenerator {
     custom_end_script: Option<Vec<String>>,
     /// Optional custom G-code emitted at every layer change (after the Z move).
     custom_layer_script: Option<Vec<String>>,
+    /// Optional per-filament start script, emitted after the machine start
+    /// script and before the first print move.
+    custom_filament_start_script: Option<Vec<String>>,
+    /// Optional per-filament end script, emitted after the last print move and
+    /// before the machine end script.
+    custom_filament_end_script: Option<Vec<String>>,
     /// Optional source model name, embedded in the metadata header (issue #15).
     model_name: Option<String>,
+    /// Print objects on the plate, in tag order.
+    ///
+    /// Empty for a plate sliced without object identity; non-empty enables the
+    /// firmware object markers (issue #22) and the sequential inter-object move
+    /// (issue #112).
+    objects: Vec<crate::core::ObjectIdentity>,
 }
 
 impl GcodeGenerator {
@@ -331,7 +590,10 @@ impl GcodeGenerator {
             custom_start_script: None,
             custom_end_script: None,
             custom_layer_script: None,
+            custom_filament_start_script: None,
+            custom_filament_end_script: None,
             model_name: None,
+            objects: Vec::new(),
         }
     }
 
@@ -346,7 +608,10 @@ impl GcodeGenerator {
             custom_start_script: None,
             custom_end_script: None,
             custom_layer_script: None,
+            custom_filament_start_script: None,
+            custom_filament_end_script: None,
             model_name: None,
+            objects: Vec::new(),
         }
     }
 
@@ -363,6 +628,18 @@ impl GcodeGenerator {
     /// ```
     pub fn with_warn_fn(mut self, f: impl Fn(&str) + 'static) -> Self {
         self.warn_fn = Some(Box::new(f));
+        self
+    }
+
+    /// Attach the plate's print objects so their moves can be attributed.
+    ///
+    /// With objects attached the generator declares them once at the top of the
+    /// program and wraps each object's moves in the dialect's markers
+    /// (`EXCLUDE_OBJECT_*` / `M486`), driven by the per-path tags in
+    /// [`SliceLayer::path_objects`](crate::core::SliceLayer::path_objects).
+    /// Passing an empty list — the default — leaves the output untouched.
+    pub fn with_objects(mut self, objects: Vec<crate::core::ObjectIdentity>) -> Self {
+        self.objects = objects;
         self
     }
 
@@ -448,6 +725,30 @@ impl GcodeGenerator {
         self
     }
 
+    /// Set a per-filament start script, emitted after the machine start script
+    /// (and the pressure-advance line) and before the first print move.
+    ///
+    /// This is the slicer analogue of SuperSlicer/PrusaSlicer's *filament start
+    /// G-code*: material-scoped setup (purge lines, per-material pressure
+    /// advance, temperature tweaks) that logically belongs to the filament
+    /// profile rather than the machine. Each line supports the same
+    /// temperature / material placeholders as the start script.
+    pub fn with_filament_start_script(mut self, script: Vec<String>) -> Self {
+        self.custom_filament_start_script = Some(script);
+        self
+    }
+
+    /// Set a per-filament end script, emitted after the last print move and
+    /// before the machine end script.
+    ///
+    /// The filament counterpart to [`GcodeGenerator::with_filament_start_script`]
+    /// — material-scoped teardown that runs before the machine's own end
+    /// sequence. Each line supports the same placeholders as the end script.
+    pub fn with_filament_end_script(mut self, script: Vec<String>) -> Self {
+        self.custom_filament_end_script = Some(script);
+        self
+    }
+
     /// Set the source model name embedded in the metadata header (issue #15).
     ///
     /// Typically the input file's stem (e.g. `benchy` for `benchy.stl`). When
@@ -469,15 +770,274 @@ impl GcodeGenerator {
         }
     }
 
+    /// Format an extruder-only move (retract / un-retract / prime), honouring
+    /// the absolute-vs-relative E convention.
+    ///
+    /// `de` is the signed incremental filament length; `e_total` is the running
+    /// absolute position *after* applying `de`. In relative mode (`M83`) the
+    /// delta is emitted; in absolute mode (`M82`) the running total is.
+    fn e_only_line(
+        &self,
+        de: f64,
+        e_total: f64,
+        speed_mm_min: f64,
+        params: &SlicingParams,
+    ) -> String {
+        let value = if params.use_relative_e_distances {
+            de
+        } else {
+            e_total
+        };
+        self.dialect.set_extruder_pos(value, speed_mm_min)
+    }
+
+    /// Format an extruding XY move, honouring the absolute-vs-relative E
+    /// convention (see [`GcodeGenerator::e_only_line`]).
+    fn xy_extrude_line(
+        &self,
+        x: f64,
+        y: f64,
+        de: f64,
+        e_total: f64,
+        speed_mm_min: f64,
+        params: &SlicingParams,
+    ) -> String {
+        let value = if params.use_relative_e_distances {
+            de
+        } else {
+            e_total
+        };
+        self.dialect.move_extrude(x, y, value, speed_mm_min)
+    }
+
+    /// Emit the wipe move: retrace `points` (the previous path's trajectory, in
+    /// print order) backward from its end for up to `wipe_distance` mm.
+    ///
+    /// When `retract_during > 0` the retraction is distributed proportionally
+    /// across the wiped length (a combined move-and-retract), smearing ooze onto
+    /// already-printed material; when it is `0` the wipe is a pure travel drag
+    /// (used with firmware retraction, or when the whole retraction happens
+    /// before the wipe). Returns the retraction length actually applied during
+    /// the wipe.
+    fn emit_wipe(
+        &self,
+        out: &mut String,
+        e_total: &mut f64,
+        points: &[(f64, f64)],
+        wipe_distance: f64,
+        retract_during: f64,
+        params: &SlicingParams,
+    ) -> f64 {
+        if points.len() < 2 || wipe_distance <= 0.0 {
+            return 0.0;
+        }
+
+        // Length actually available walking backward from the path end.
+        let mut avail = 0.0_f64;
+        for w in points.windows(2).rev() {
+            let (ax, ay) = w[1];
+            let (bx, by) = w[0];
+            avail += ((ax - bx).powi(2) + (ay - by).powi(2)).sqrt();
+            if avail >= wipe_distance {
+                break;
+            }
+        }
+        let wipe_len = avail.min(wipe_distance);
+        if wipe_len <= 1e-9 {
+            return 0.0;
+        }
+
+        let extruding = retract_during > 1e-9;
+        let e_per_mm = if extruding {
+            retract_during / wipe_len
+        } else {
+            0.0
+        };
+        // Wipe XY feedrate: the retraction speed is a safe, moderate rate for a
+        // combined move-and-retract; a pure-travel wipe uses the travel speed.
+        let feed = if extruding {
+            params.retract_speed_mm_min.max(1.0)
+        } else {
+            params.travel_speed_mm_min.max(1.0)
+        };
+
+        let mut remaining = wipe_len;
+        let mut applied = 0.0_f64;
+        let mut idx = points.len() - 1;
+        while idx > 0 && remaining > 1e-9 {
+            let (ax, ay) = points[idx];
+            let (bx, by) = points[idx - 1];
+            let dx = bx - ax;
+            let dy = by - ay;
+            let seg = (dx * dx + dy * dy).sqrt();
+            if seg < 1e-9 {
+                idx -= 1;
+                continue;
+            }
+            let step = seg.min(remaining);
+            let (tx, ty) = if step >= seg {
+                (bx, by)
+            } else {
+                let t = step / seg;
+                (ax + t * dx, ay + t * dy)
+            };
+            if extruding {
+                let de = -e_per_mm * step;
+                *e_total += de;
+                applied += -de;
+                out.push_str(&format!(
+                    "{} ; wipe\n",
+                    self.xy_extrude_line(tx, ty, de, *e_total, feed, params)
+                ));
+            } else {
+                out.push_str(&format!(
+                    "{} ; wipe\n",
+                    self.dialect.travel_xy(tx, ty, feed)
+                ));
+            }
+            remaining -= step;
+            if step >= seg {
+                idx -= 1;
+            } else {
+                break;
+            }
+        }
+        applied
+    }
+
+    /// Perform a retraction (if not already retracted), updating `e_total` and
+    /// the `retracted` flag.
+    ///
+    /// Dispatches between firmware retraction (`G10`), a plain extruder-axis
+    /// retract, and a wipe-while-retracting sequence, per the retraction
+    /// settings. `last_path_points` is the previous path's trajectory used for
+    /// the wipe; pass `None` to suppress wiping (e.g. the first path of a layer).
+    fn do_retract(
+        &self,
+        out: &mut String,
+        e_total: &mut f64,
+        retracted: &mut bool,
+        last_path_points: Option<&[(f64, f64)]>,
+        params: &SlicingParams,
+    ) {
+        if *retracted {
+            return;
+        }
+
+        let wipe_enabled = params.wipe && params.wipe_distance_mm > 0.0;
+
+        if params.use_firmware_retraction {
+            // Firmware retraction is atomic — the wipe can only precede it, as a
+            // pure-travel drag over already-printed material.
+            if wipe_enabled {
+                if let Some(pts) = last_path_points {
+                    self.emit_wipe(out, e_total, pts, params.wipe_distance_mm, 0.0, params);
+                }
+            }
+            out.push_str(&format!(
+                "{} ; firmware retract\n",
+                self.dialect.firmware_retract()
+            ));
+            *retracted = true;
+            return;
+        }
+
+        let retract_len = params.retract_mm;
+        if retract_len <= 0.0 {
+            // Nothing to retract; leave `retracted` false so the matching
+            // un-retract is also a no-op.
+            return;
+        }
+        let speed = params.retract_speed_mm_min.max(1.0);
+
+        let wipe_pts = if wipe_enabled {
+            last_path_points.filter(|p| p.len() >= 2)
+        } else {
+            None
+        };
+
+        if let Some(pts) = wipe_pts {
+            let before_frac = params.retract_before_wipe_percent.clamp(0.0, 1.0);
+            let pre = retract_len * before_frac;
+            let during = retract_len - pre;
+            let mut applied = 0.0_f64;
+            if pre > 1e-9 {
+                *e_total -= pre;
+                out.push_str(&format!(
+                    "{} ; retract before wipe\n",
+                    self.e_only_line(-pre, *e_total, speed, params)
+                ));
+                applied += pre;
+            }
+            applied += self.emit_wipe(out, e_total, pts, params.wipe_distance_mm, during, params);
+            let remainder = retract_len - applied;
+            if remainder > 1e-9 {
+                *e_total -= remainder;
+                out.push_str(&format!(
+                    "{} ; retract after wipe\n",
+                    self.e_only_line(-remainder, *e_total, speed, params)
+                ));
+            }
+        } else {
+            *e_total -= retract_len;
+            out.push_str(&format!(
+                "{} ; retract\n",
+                self.e_only_line(-retract_len, *e_total, speed, params)
+            ));
+        }
+        *retracted = true;
+    }
+
+    /// Recover from a retraction (if currently retracted), updating `e_total`,
+    /// the deposited-filament total, and the `retracted` flag.
+    ///
+    /// Emits `G11` under firmware retraction, otherwise primes the retracted
+    /// length plus any configured restart-extra.
+    fn do_unretract(
+        &self,
+        out: &mut String,
+        e_total: &mut f64,
+        retracted: &mut bool,
+        total_filament_mm: &mut f64,
+        params: &SlicingParams,
+    ) {
+        if !*retracted {
+            return;
+        }
+        if params.use_firmware_retraction {
+            out.push_str(&format!(
+                "{} ; firmware recover\n",
+                self.dialect.firmware_unretract()
+            ));
+            *retracted = false;
+            return;
+        }
+        let speed = params.retract_speed_mm_min.max(1.0);
+        let restart = params.retract_restart_extra_mm.max(0.0);
+        let de = params.retract_mm + restart;
+        *e_total += de;
+        *total_filament_mm += restart;
+        out.push_str(&format!(
+            "{} ; un-retract\n",
+            self.e_only_line(de, *e_total, speed, params)
+        ));
+        *retracted = false;
+    }
+
     /// Resolve the effective print speed (in mm/min) for a given extrusion role
     /// and layer context.
     ///
     /// The priority order is:
     /// 1. First-layer speed (when `is_first_layer` is true)
-    /// 2. Role-specific speed (perimeter, infill, bridge, top/bottom surface)
-    /// 3. General `print_speed` fallback when a role-specific speed is ≤ 0
+    /// 2. **Dynamic overhang speed** (when `enable_overhang_speed` and the path
+    ///    carries an overhang [`OverhangClass`]): the per-degree
+    ///    `overhang_1_4_speed`…`overhang_4_4_speed` override, or the role's
+    ///    normal speed when that degree is left at `0`.
+    /// 3. Role-specific speed (perimeter, infill, bridge, top/bottom surface)
+    /// 4. General `print_speed` fallback when a role-specific speed is ≤ 0
     fn effective_speed_mm_min(
         role: crate::core::ExtrusionRole,
+        overhang: crate::core::OverhangClass,
         is_first_layer: bool,
         params: &SlicingParams,
     ) -> f64 {
@@ -487,7 +1047,10 @@ impl GcodeGenerator {
             let s = params.first_layer_speed;
             return if s > 0.0 { s * 60.0 } else { fallback };
         }
-        match role {
+        // Base role speed (also the fallback for an un-configured overhang
+        // degree — perimeter speed for the mild Deg1/Deg2 walls, bridge speed
+        // for the steep Deg3/Deg4 walls, which carry the OverhangPerimeter role).
+        let base = match role {
             ExtrusionRole::OuterWall | ExtrusionRole::InnerWall => {
                 let s = params.perimeter_speed;
                 if s > 0.0 {
@@ -512,7 +1075,9 @@ impl GcodeGenerator {
                     fallback
                 }
             }
-            ExtrusionRole::TopSurface | ExtrusionRole::BottomSurface => {
+            ExtrusionRole::TopSurface
+            | ExtrusionRole::BottomSurface
+            | ExtrusionRole::InternalSolid => {
                 let s = params.top_surface_speed;
                 if s > 0.0 {
                     s * 60.0
@@ -535,7 +1100,30 @@ impl GcodeGenerator {
                 }
             }
             _ => fallback,
+        };
+
+        // Dynamic overhang speed override.
+        if params.enable_overhang_speed && overhang.is_overhang() {
+            let cfg = match overhang {
+                crate::core::OverhangClass::Deg1 => params.overhang_1_4_speed,
+                crate::core::OverhangClass::Deg2 => params.overhang_2_4_speed,
+                crate::core::OverhangClass::Deg3 => params.overhang_3_4_speed,
+                crate::core::OverhangClass::Deg4 => params.overhang_4_4_speed,
+                crate::core::OverhangClass::None => 0.0,
+            };
+            // `0` = keep the role's normal speed for this degree.
+            let mut s = if cfg > 0.0 { cfg * 60.0 } else { base };
+            // Slow curl-prone steep overhangs (Deg3/Deg4) to the most
+            // conservative configured overhang speed.
+            if params.slowdown_for_curled_perimeters && overhang.band() >= 3 {
+                if let Some(slowest) = slowest_overhang_speed_mm_s(params) {
+                    s = s.min(slowest * 60.0);
+                }
+            }
+            return s;
         }
+
+        base
     }
 
     /// Resolve the target acceleration (mm/s²) for a path, or `None` when
@@ -584,6 +1172,90 @@ impl GcodeGenerator {
         (a > 0.0).then_some(a)
     }
 
+    /// Emit one spiralized (vase-mode) outer contour with a continuous Z ramp.
+    ///
+    /// `pts` is the closed loop rotated so `pts[0]` is the start vertex. The
+    /// nozzle is assumed to already be at `pts[0]` (in XY) and at height
+    /// `z_bottom`. The loop is walked once — `pts[0] → pts[1] → … → pts[n-1] →
+    /// pts[0]` — while Z ramps linearly from `z_bottom` to `z_top` in proportion
+    /// to the distance travelled, so one full perimeter climbs exactly one layer
+    /// height and no discrete Z step or seam remains.
+    ///
+    /// The per-move extrusion is scaled by a flow factor that ramps linearly
+    /// from `flow_start` (at the seam) to `flow_end` (back at the seam), used to
+    /// fade the very first spiral loop in and the very last one out.
+    #[allow(clippy::too_many_arguments)]
+    fn emit_spiral_loop(
+        &self,
+        out: &mut String,
+        pts: &[(f64, f64)],
+        z_bottom: f64,
+        z_top: f64,
+        width_mm: f64,
+        speed_mm_min: f64,
+        flow_start: f64,
+        flow_end: f64,
+        params: &SlicingParams,
+        e_total: &mut f64,
+        total_filament_mm: &mut f64,
+    ) {
+        let n = pts.len();
+        if n < 2 {
+            return;
+        }
+
+        // Total loop length including the closing segment back to pts[0].
+        let mut total_len = 0.0_f64;
+        for i in 0..n {
+            let (ax, ay) = pts[i];
+            let (bx, by) = pts[(i + 1) % n];
+            total_len += ((bx - ax).powi(2) + (by - ay).powi(2)).sqrt();
+        }
+        if total_len < 1e-9 {
+            return;
+        }
+
+        let dz = z_top - z_bottom;
+        let capped_speed = volumetric_capped_speed_mm_min(
+            speed_mm_min,
+            params.layer_height,
+            width_mm,
+            params.max_volumetric_speed,
+        );
+
+        let mut dist = 0.0_f64;
+        for i in 0..n {
+            let (ax, ay) = pts[i];
+            let (bx, by) = pts[(i + 1) % n];
+            let seg = ((bx - ax).powi(2) + (by - ay).powi(2)).sqrt();
+            if seg < 1e-9 {
+                continue;
+            }
+            dist += seg;
+            let t = (dist / total_len).clamp(0.0, 1.0);
+            let z = z_bottom + dz * t;
+            let flow_scale = flow_start + (flow_end - flow_start) * t;
+            // Apply the flow ramp *after* the flow-ratio correction: passing a
+            // zero flow ratio into `extrusion_for_move` would trip its
+            // "non-positive ratio → 1.0" safety guard, so the fade-out would
+            // silently become full flow.
+            let de = extrusion_for_move(
+                seg,
+                params.layer_height,
+                width_mm,
+                params.filament_diameter_mm,
+                params.flow_ratio,
+            ) * flow_scale;
+            *e_total += de;
+            *total_filament_mm += de;
+            out.push_str(&format!(
+                "{}\n",
+                self.dialect
+                    .move_extrude_z(bx, by, z, *e_total, capped_speed)
+            ));
+        }
+    }
+
     /// Generate a complete G-code program from the given layers and parameters.
     ///
     /// The output is a single `String` with lines separated by `'\n'`.
@@ -607,6 +1279,11 @@ impl GcodeGenerator {
         layers: &[SliceLayer],
         params: &SlicingParams,
     ) -> (String, SliceStatistics) {
+        // Spiral (vase) mode forces the same single-wall configuration the
+        // slicing pipeline used, so the header stats and emitted moves agree.
+        let normalized = params.spiral_vase_normalized();
+        let params = normalized.as_ref();
+
         // Warn about any commands the dialect doesn't natively support
         for cmd in self.dialect.unsupported_commands() {
             self.warn(&format!(
@@ -617,28 +1294,243 @@ impl GcodeGenerator {
             ));
         }
 
+        // ── Print-object runs ─────────────────────────────────────────────────
+        // Who owns each layer, and where that layer sits inside its owner's own
+        // stack. In `by_layer` order there is one run and the two indices are
+        // the same; sequential printing concatenates one stack per object, so
+        // anything that counts "layers so far" — the spiral base, the flow
+        // fade-in/out — has to count *within* the run or it only ever applies
+        // to the first object.
+        let sequential = !self.objects.is_empty()
+            && params.print_sequence == crate::settings::params::PrintSequence::ByObject;
+        let mut layer_owners: Vec<Option<usize>> = layers
+            .iter()
+            .map(|layer| (0..layer.paths.len()).find_map(|i| layer.object_for_path(i)))
+            .collect();
+        if sequential {
+            // A layer with no paths carries no tag, so it would slip past the
+            // hand-over — and its Z move would then descend to the *incoming*
+            // object's first layer while the nozzle is still parked over the
+            // one just finished. Attribute such a layer to the next object that
+            // does have geometry (falling back to the previous one at the end
+            // of the plate), so the hand-over always fires before the descent.
+            // `slice_plate` already filters these out; this keeps a
+            // hand-assembled plate safe too.
+            let mut next: Option<usize> = None;
+            for i in (0..layer_owners.len()).rev() {
+                match layer_owners[i] {
+                    Some(owner) => next = Some(owner),
+                    None => layer_owners[i] = next,
+                }
+            }
+            let mut previous: Option<usize> = None;
+            for owner in layer_owners.iter_mut() {
+                match owner {
+                    Some(o) => previous = Some(*o),
+                    None => *owner = previous,
+                }
+            }
+        }
+        let layer_index_in_run: Vec<usize> = if sequential {
+            let mut indices = Vec::with_capacity(layers.len());
+            let mut run_owner: Option<usize> = None;
+            let mut index_in_run = 0usize;
+            for (i, owner) in layer_owners.iter().enumerate() {
+                // An untagged layer (bed adhesion only) continues the current
+                // run rather than starting a new one.
+                if let Some(owner) = owner {
+                    if i == 0 || run_owner != Some(*owner) {
+                        run_owner = Some(*owner);
+                        index_in_run = 0;
+                    } else {
+                        index_in_run += 1;
+                    }
+                } else if i > 0 {
+                    index_in_run += 1;
+                }
+                indices.push(index_in_run);
+            }
+            indices
+        } else {
+            (0..layers.len()).collect()
+        };
+
+        // ── Spiral (vase) mode plan ───────────────────────────────────────────
+        // Spiralizable layers are those at or above `spiral_start_layer` that
+        // expose exactly one closed outer-wall island. Layers below stay flat
+        // (the solid base); layer 0 is always flat since a spiral cannot climb
+        // from Z=0. Multi-island layers fall back to normal printing with a
+        // single warning.
+        let spiral_start_layer = params.bottom_layers.max(1);
+        let spiral_path_indices: Vec<Option<usize>> = if params.spiral_vase {
+            let mut warned = false;
+            layers
+                .iter()
+                .enumerate()
+                .map(|(i, layer)| {
+                    if layer_index_in_run[i] < spiral_start_layer {
+                        return None;
+                    }
+                    match detect_spiral_loop(layer) {
+                        SpiralDetect::Single(idx) => Some(idx),
+                        SpiralDetect::Multi => {
+                            if !warned {
+                                self.warn(
+                                    "spiral vase mode: a layer has multiple islands — printing \
+                                     those layers normally (spiral vase works on single-island \
+                                     solid models)",
+                                );
+                                warned = true;
+                            }
+                            None
+                        }
+                        SpiralDetect::None => None,
+                    }
+                })
+                .collect()
+        } else {
+            Vec::new()
+        };
+        // First / last spiral layer **of each object**, so every vase on a
+        // sequential plate fades its seam in and out — not just the first.
+        let mut first_spiral_of_run: Vec<bool> = vec![false; spiral_path_indices.len()];
+        let mut last_spiral_of_run: Vec<bool> = vec![false; spiral_path_indices.len()];
+        {
+            let mut seen: std::collections::HashMap<Option<usize>, (usize, usize)> =
+                std::collections::HashMap::new();
+            for (i, spiral) in spiral_path_indices.iter().enumerate() {
+                if spiral.is_none() {
+                    continue;
+                }
+                let owner = if sequential { layer_owners[i] } else { None };
+                seen.entry(owner).and_modify(|e| e.1 = i).or_insert((i, i));
+            }
+            for (first, last) in seen.into_values() {
+                first_spiral_of_run[first] = true;
+                last_spiral_of_run[last] = true;
+            }
+        }
+
         // The metadata header is prepended once the filament total and geometry
         // are known (see the end of this method); the body starts here.
         let mut out = String::with_capacity(64 * 1024);
+
+        // ── Object definitions (issue #22) ────────────────────────────────────
+        // Declared before the start script: Klipper's `[exclude_object]` module
+        // and Moonraker both expect to meet every object before the print
+        // begins, so a front-end can list the plate's parts from the moment the
+        // file is loaded rather than discovering them as they are reached.
+        //
+        // Markers are gated on `exclude_object` alone: sequential printing also
+        // needs the plate segmented, but a user who only asked for one part at
+        // a time did not ask for firmware object tracking.
+        let object_markers = !self.objects.is_empty() && params.exclude_object;
+        if object_markers {
+            for line in self.dialect.object_definitions(&self.objects) {
+                out.push_str(&line);
+                out.push('\n');
+            }
+        }
 
         // ── Start script (custom override or flavor default) ──────────────────
         let start_script: Cow<[String]> = match &self.custom_start_script {
             Some(lines) => Cow::Borrowed(lines),
             None => Cow::Owned(self.dialect.start_script(params)),
         };
+
+        // First-layer temperature targets ("0 = inherit the base value").
+        let first_nozzle = if params.nozzle_temp_first_layer > 0.0 {
+            params.nozzle_temp_first_layer
+        } else {
+            params.nozzle_temp
+        };
+        let first_bed = if params.bed_temp_first_layer > 0.0 {
+            params.bed_temp_first_layer
+        } else {
+            params.bed_temp
+        };
+
+        // ── Chamber heating (opt-in via the printer's `heated_chamber`) ───────
+        // The whole block runs *before* the start script, and the ordering is
+        // load-bearing:
+        //
+        //   1. Set the bed target, without waiting. On the great majority of
+        //      enclosed printers the **bed is the chamber's heat source**, so a
+        //      chamber soak with a cold bed would never terminate.
+        //   2. Set the chamber target (Klipper's `TEMPERATURE_WAIT` only waits —
+        //      it does not set — so the target must be armed separately).
+        //   3. Block until the chamber is soaked.
+        //
+        // The soak therefore overlaps the long pole of the warm-up (a 100–110 °C
+        // bed) while the **nozzle is still cold** — waiting after the start
+        // script would park molten filament in the hot end for the length of the
+        // soak, oozing and degrading exactly the PC/Nylon/ABS materials this
+        // feature exists for. Only the comparatively quick nozzle heat, which
+        // the start script owns, is left running after the wait.
+        //
+        // A start script that manages the chamber itself owns the whole job —
+        // emitting our sequence as well would heat and soak twice.
+        let chamber_delegated =
+            params.chamber_heating_active() && start_script_handles_chamber(&start_script);
+        let emit_chamber = params.chamber_heating_active() && !chamber_delegated;
+        let chamber_first_target = params.chamber_temp_first_layer_resolved();
+        if chamber_delegated {
+            out.push_str(&self.dialect.comment(
+                "chamber temperature handled by the custom start G-code; \
+                 slicer chamber directives suppressed",
+            ));
+            out.push('\n');
+        }
+        if emit_chamber {
+            out.push_str(&format!(
+                "{} ; bed target — the chamber's heat source on most enclosures\n",
+                self.dialect.set_bed_temp(first_bed, false)
+            ));
+            out.push_str(&format!(
+                "{} ; set chamber temperature\n",
+                self.dialect.set_chamber_temp(chamber_first_target, false)
+            ));
+            out.push_str(&format!(
+                "{} ; soak the chamber before the nozzle is heated\n",
+                self.dialect.set_chamber_temp(chamber_first_target, true)
+            ));
+        }
+
         for line in start_script.iter() {
             out.push_str(&render_script_placeholders(line, params));
             out.push('\n');
         }
 
-        // The whole generator emits absolute E positions (accumulating `e_total`,
-        // `G92 E0` per layer).  A custom start script or a Klipper `START_PRINT`
-        // macro that primes / uses firmware retraction can leave the extruder in
-        // relative mode (`M83`), which would make every `G1 … E<e_total>` a
-        // relative extrusion of the full running total → gross over-extrusion.
-        // Force absolute mode and zero the counter so the invariant always holds.
-        out.push_str(&format!("{}\n", self.dialect.extruder_absolute_mode()));
+        // The generator tracks a running extruder position `e_total` and, by
+        // default, emits **absolute** E positions (`M82`, `G92 E0` per layer).
+        // A custom start script or a Klipper `START_PRINT` macro that primes /
+        // uses firmware retraction can leave the extruder in an unexpected mode,
+        // so the required mode is forced here to guarantee the invariant:
+        //   - absolute (`M82`) — every `G1 … E<e_total>` is an absolute target;
+        //   - relative (`M83`, when `use_relative_e_distances`) — every move
+        //     carries its incremental filament length instead.
+        if params.use_relative_e_distances {
+            out.push_str(&format!("{}\n", self.dialect.extruder_relative_mode()));
+        } else {
+            out.push_str(&format!("{}\n", self.dialect.extruder_absolute_mode()));
+        }
         out.push_str(&format!("{}\n", self.dialect.reset_extruder()));
+
+        // ── Firmware retraction setup (opt-in) ────────────────────────────────
+        // Sync the firmware's retraction length / speed / restart-extra to the
+        // slicer settings so the `G10`/`G11` moves emitted below use them. The
+        // Z-hop component is left to the slicer's explicit Z moves so behaviour
+        // matches software retraction.
+        if params.use_firmware_retraction {
+            for line in self.dialect.firmware_retract_setup(
+                params.retract_mm,
+                params.retract_speed_mm_min,
+                params.retract_restart_extra_mm,
+            ) {
+                out.push_str(&line);
+                out.push('\n');
+            }
+        }
 
         // ── Pressure / linear advance (opt-in; `0` disables) ──────────────────
         // Emitted once, right after the start script, so it survives custom
@@ -653,42 +1545,212 @@ impl GcodeGenerator {
             ));
         }
 
+        // ── Machine kinematic limits (opt-in; each `0` leaves the default) ────
+        // Emitted once, right after pressure advance, so the firmware corners
+        // (square-corner velocity → junction deviation) and caps velocity
+        // exactly as the acceleration-aware print-time estimate assumes. The
+        // conversion needs an acceleration; use the normal target (falling back
+        // to the estimator default when acceleration control is off).
+        let kinematic_accel = if params.acceleration > 0.0 {
+            params.acceleration
+        } else {
+            crate::gcode::time_estimate::DEFAULT_ACCELERATION_MM_S2
+        };
+        for line in self.dialect.set_kinematic_limits(
+            params.square_corner_velocity,
+            params.max_velocity,
+            kinematic_accel,
+        ) {
+            out.push_str(&line);
+            out.push('\n');
+        }
+
+        // ── Per-filament start script ─────────────────────────────────────────
+        // Emitted after the machine start script (and pressure-advance / kinematic
+        // setup) but before the first print move, so material-scoped setup (purge,
+        // per-material PA / temperature tweaks) contributed by the filament profile
+        // runs last before printing begins.
+        if let Some(lines) = &self.custom_filament_start_script {
+            for line in lines {
+                out.push_str(&render_script_placeholders(line, params));
+                out.push('\n');
+            }
+        }
+
         // ── Per-layer contours ────────────────────────────────────────────────
         let mut e_total = 0.0_f64;
         // Grand total of deposited filament (mm of feedstock) across every
         // layer — accumulated alongside `e_total` at each extrusion move and
         // used to compute filament weight/volume for the metadata header.
         let mut total_filament_mm = 0.0_f64;
+        // Whether the extruder is currently retracted. Normally toggled back to
+        // `false` after every travel, but `retract_on_layer_change` leaves it
+        // set across the layer-change Z move.
+        let mut retracted = false;
+        // Trajectory (print-order XY) of the previous path, captured only when
+        // wiping is enabled, so a retract can retrace it. Reset at each layer so
+        // the first path never wipes across the layer-change Z move.
+        let mut last_path_points: Option<Vec<(f64, f64)>> = None;
         // Track previous fan speed per config index for rate limiting (aux overrides).
         let mut prev_fan_speeds: Vec<Option<f64>> = vec![None; params.fan_configs.len()];
         // Track the last emitted acceleration so we only emit a firmware
         // command when the target changes (persists across layers).
         let mut last_accel: Option<f64> = None;
+        // Persistent nozzle XY across layers — used by spiral mode to travel
+        // into each spiral loop from the true previous position and to keep the
+        // start line aligned. Updated at the end of every layer.
+        let mut cur_xy: Option<(f64, f64)> = None;
+        // ── Object attribution state (issues #22 / #112) ──────────────────────
+        // The object whose marker block is currently open, the set already
+        // introduced to the firmware (so `M486 A"name"` is spent once), and the
+        // highest Z printed so far — the height the nozzle must clear when
+        // sequential printing moves on to the next object.
+        let mut current_object: Option<usize> = None;
+        // Which object the *nozzle* is working on. Distinct from
+        // `current_object` (which marker block is open) because a layer with no
+        // paths never reaches the per-path attribution: tracking the hand-over
+        // on the block state would re-fire it on every such layer.
+        let mut handover_object: Option<usize> = layer_owners.first().copied().flatten();
+        let mut introduced_objects: Vec<bool> = vec![false; self.objects.len()];
+        let mut max_printed_z = 0.0_f64;
+        let between_objects = gcode_block_lines(params.between_objects_gcode.as_deref());
 
         // If a custom start script heats for first layer (e.g.
         // `{nozzle_temp_first_layer}` / `{bed_temp_first_layer}`), restore the
         // normal temperatures when layer 2 starts unless a custom layer script
-        // chooses to override that behavior afterward.
-        let first_nozzle = if params.nozzle_temp_first_layer > 0.0 {
-            params.nozzle_temp_first_layer
-        } else {
-            params.nozzle_temp
-        };
-        let first_bed = if params.bed_temp_first_layer > 0.0 {
-            params.bed_temp_first_layer
-        } else {
-            params.bed_temp
-        };
+        // chooses to override that behavior afterward. `first_nozzle` /
+        // `first_bed` were resolved above, where the chamber pre-heat needs the
+        // bed target.
         let restore_nozzle_after_first_layer = params.nozzle_temp_first_layer > 0.0
             && (first_nozzle - params.nozzle_temp).abs() > 1e-9;
         let restore_bed_after_first_layer =
             params.bed_temp_first_layer > 0.0 && (first_bed - params.bed_temp).abs() > 1e-9;
+        // The chamber soaked at `chamber_temp_first_layer`; drop it back to the
+        // steady-state target once the first layer is down. Never blocks — the
+        // chamber is already warm and the print must not stall mid-way.
+        let restore_chamber_after_first_layer = emit_chamber
+            && params.chamber_temp_first_layer > 0.0
+            && (chamber_first_target - params.chamber_temp).abs() > 1e-9;
 
         for (layer_index, layer) in layers.iter().enumerate() {
-            let z_str = format!("{:.3}", layer.z);
+            // ── Sequential printing: hand over to the next object (#112) ─────
+            // Everything here has to happen *before* the layer's own Z move,
+            // which drops the nozzle to the new object's first layer: doing it
+            // afterwards would lower into the part just finished.  So: close
+            // the outgoing marker block, retract, lift clear of the tallest
+            // thing on the bed, then travel across.
+            let layer_object = layer_owners[layer_index];
+            if sequential
+                && layer_index > 0
+                && layer_object.is_some()
+                && layer_object != handover_object
+            {
+                handover_object = layer_object;
+                if object_markers {
+                    if let Some(previous) = current_object.and_then(|i| self.objects.get(i)) {
+                        out.push_str(&self.dialect.object_end(previous));
+                        out.push('\n');
+                    }
+                }
+                current_object = None;
+
+                self.do_retract(
+                    &mut out,
+                    &mut e_total,
+                    &mut retracted,
+                    last_path_points.as_deref(),
+                    params,
+                );
+                // `max_printed_z` tracks the model Z of the tallest finished
+                // part, so the lift is computed in model space and converted
+                // once — the part it has to clear physically sits at its own
+                // machine Z too.
+                let clearance_z = machine_z(
+                    max_printed_z + params.z_hop_mm.max(SEQUENTIAL_LIFT_MM),
+                    params,
+                );
+                out.push_str(&format!(
+                    "{} ; clear the finished object\n",
+                    self.dialect.move_z(clearance_z, params.travel_speed_mm_min)
+                ));
+                // Aim at the incoming object's first path, falling back to its
+                // centre: an empty first layer would otherwise leave the nozzle
+                // parked over the part just finished when the layer block below
+                // drops back down to Z.
+                let entry = layer
+                    .paths
+                    .iter()
+                    .next()
+                    .and_then(|p| p.iter().next())
+                    .map(|p| (p.x(), p.y()))
+                    .or_else(|| {
+                        layer_object
+                            .and_then(|i| self.objects.get(i))
+                            .map(|object| object.center)
+                    });
+                if let Some((ex, ey)) = entry {
+                    out.push_str(&format!(
+                        "{} ; travel to the next object\n",
+                        self.dialect.travel_xy(ex, ey, params.travel_speed_mm_min)
+                    ));
+                    cur_xy = Some((ex, ey));
+                }
+                if let Some(lines) = &between_objects {
+                    for line in lines {
+                        out.push_str(&render_script_placeholders(line, params));
+                        out.push('\n');
+                    }
+                }
+            }
+
+            // ── Retract on layer change (opt-in) ─────────────────────────────
+            // Retract *before* the layer-change Z move so the nozzle does not
+            // ooze while lifting and travelling to the next layer's first path.
+            // The wipe (when enabled) retraces the previous layer's last path,
+            // which is correct because the Z move has not happened yet.
+            if layer_index > 0 && params.retract_on_layer_change {
+                self.do_retract(
+                    &mut out,
+                    &mut e_total,
+                    &mut retracted,
+                    last_path_points.as_deref(),
+                    params,
+                );
+            }
+            // A fresh layer starts a new set of paths: never wipe the first path
+            // against the previous layer's geometry (that would drag at the new,
+            // higher Z over material the nozzle is no longer touching).
+            last_path_points = None;
+
+            // Emitted (machine) Z carries the `z_offset_mm` compensation; the
+            // model Z does not.  Lifecycle markers describe where the nozzle
+            // actually is, so they use the machine Z (as PrusaSlicer does),
+            // while the custom layer-change script sees the model Z — its
+            // `{z}` is the analogue of PrusaSlicer's offset-free `layer_z`
+            // placeholder, and a macro reasoning about the object must not be
+            // handed an endstop correction.
+            let z_str = format!("{:.3}", machine_z(layer.z, params));
+            let model_z_str = format!("{:.3}", layer.z);
             let height_str = format!("{:.3}", params.layer_height);
+            // Last `;HEIGHT:` announced on this layer, so a taller combined-infill
+            // bead re-announces it and the next ordinary path announces it back.
+            let mut last_height: Option<String> = Some(height_str.clone());
             // Detect first layer: z within half a layer height of layer_height.
             let is_first_layer = layer.z <= params.layer_height + 1e-6;
+
+            // Per-layer travel router (opt-in).  Built once per layer so travel
+            // hops can detour around outer walls instead of scarring the surface.
+            let travel_planner = if params.avoid_crossing_perimeters {
+                crate::gcode::travel::TravelPlanner::for_layer(layer)
+            } else {
+                None
+            };
+
+            // Spiral (vase) layer? If so, the single outer contour is emitted
+            // with a continuous Z ramp and the usual discrete Z move is skipped
+            // (the nozzle is already at the previous layer's top Z).
+            let spiral_path_idx = spiral_path_indices.get(layer_index).copied().flatten();
+            let is_spiral_layer = spiral_path_idx.is_some();
 
             if self.marker_config.enabled {
                 // Lifecycle block: LAYER_CHANGE → BEFORE_LAYER_CHANGE → Z move → AFTER_LAYER_CHANGE
@@ -735,10 +1797,15 @@ impl GcodeGenerator {
                 out.push_str(&format!("{}\n", self.dialect.reset_extruder()));
                 e_total = 0.0;
 
-                out.push_str(&format!(
-                    "{}\n",
-                    self.dialect.move_z(layer.z, params.travel_speed_mm_min)
-                ));
+                // Spiral layers ramp Z along the perimeter, so no discrete Z
+                // move here — the nozzle is already at the previous layer's top.
+                if !is_spiral_layer {
+                    out.push_str(&format!(
+                        "{}\n",
+                        self.dialect
+                            .move_z(machine_z(layer.z, params), params.travel_speed_mm_min)
+                    ));
+                }
 
                 let after_lc = self
                     .marker_config
@@ -752,10 +1819,13 @@ impl GcodeGenerator {
                 out.push_str(&format!(";{}\n", z_str));
             } else {
                 out.push_str(&format!("; layer z={}\n", z_str));
-                out.push_str(&format!(
-                    "{}\n",
-                    self.dialect.move_z(layer.z, params.travel_speed_mm_min)
-                ));
+                if !is_spiral_layer {
+                    out.push_str(&format!(
+                        "{}\n",
+                        self.dialect
+                            .move_z(machine_z(layer.z, params), params.travel_speed_mm_min)
+                    ));
+                }
             }
 
             if layer_index == 1 {
@@ -771,13 +1841,21 @@ impl GcodeGenerator {
                         self.dialect.set_bed_temp(params.bed_temp, false)
                     ));
                 }
+                if restore_chamber_after_first_layer {
+                    out.push_str(&format!(
+                        "{} ; restore normal chamber temperature\n",
+                        self.dialect.set_chamber_temp(params.chamber_temp, false)
+                    ));
+                }
             }
 
             // ── Custom layer-change G-code (Klipper macros, timelapse, …) ─────
             if let Some(script) = &self.custom_layer_script {
                 let layer_num = (layer_index + 1).to_string();
                 for line in script {
-                    let rendered = render_marker(line, &z_str, &height_str, "", "")
+                    // `{z}` here is the *model* layer Z, free of the machine
+                    // Z-offset (PrusaSlicer's `layer_z` placeholder semantics).
+                    let rendered = render_marker(line, &model_z_str, &height_str, "", "")
                         .replace("{layer_num}", &layer_num);
                     out.push_str(&render_script_placeholders(&rendered, params));
                     out.push('\n');
@@ -785,6 +1863,11 @@ impl GcodeGenerator {
             }
 
             // ── Adaptive fan speed ───────────────────────────────────────────
+            // The part-cooling fan's emitted base speed, captured for the
+            // dynamic fan override so it can restore normal cooling when
+            // leaving a bridge or overhang region.
+            let mut part_cooling_base: Option<f64> = None;
+            let mut part_cooling_klipper_name: Option<String> = None;
             if !params.fan_configs.is_empty() {
                 let layer_time = estimate_layer_time(layer, params.print_speed);
                 // Bridge detection: any path tagged Bridge or OverhangPerimeter
@@ -800,10 +1883,26 @@ impl GcodeGenerator {
 
                 for (fan_idx, fan) in params.fan_configs.iter().enumerate() {
                     let prev = prev_fan_speeds.get(fan_idx).copied().flatten();
-                    let speed = fan.compute_speed(layer_time, has_bridges, prev);
-                    // Store the emitted speed for the next layer's rate-limiting.
+                    let adaptive = fan.compute_speed(layer_time, has_bridges, prev);
+                    // The filament-owned cooling policy (first-layer pinning and
+                    // the `fan_speed` material ceiling) governs the part-cooling
+                    // fan only; hotend / chamber / aux fans stay on the raw
+                    // `fan_configs` curve plus their own aux overrides.
+                    let speed = if fan.fan_index == fan_index::PART_COOLING {
+                        params.part_cooling_speed(layer_index, adaptive)
+                    } else {
+                        adaptive
+                    };
+                    // Store what was actually emitted, which is what
+                    // `max_speed_change_per_layer` rate-limits against: coming off
+                    // a pinned first layer, the fan ramps up instead of slamming
+                    // from off to full.
                     if let Some(slot) = prev_fan_speeds.get_mut(fan_idx) {
                         *slot = Some(speed);
+                    }
+                    if fan.fan_index == fan_index::PART_COOLING && part_cooling_base.is_none() {
+                        part_cooling_base = Some(speed);
+                        part_cooling_klipper_name = fan.klipper_name.clone();
                     }
                     out.push_str(&format!(
                         "{}\n",
@@ -816,14 +1915,226 @@ impl GcodeGenerator {
                 }
             }
 
+            // ── Dynamic (per-segment) part-cooling override ──────────────────
+            // Bridges and steep overhangs lay material over air and want a burst
+            // of extra airflow for the length of those segments only.  The
+            // override needs a part-cooling fan to drive and at least one of the
+            // two triggers configured; it is suppressed entirely on the layers
+            // where `disable_fan_first_layers` pins the fan, because a single
+            // overhang there would otherwise defeat the adhesion gate.
+            let dynamic_fan_enabled = !params.part_cooling_pinned(layer_index)
+                && (params.bridge_fan_speed > 0.0
+                    || (params.enable_overhang_speed && params.overhang_fan_speed > 0.0));
+            let dynamic_base_fan: Option<f64> = if dynamic_fan_enabled {
+                part_cooling_base
+            } else {
+                None
+            };
+            let dynamic_fan_klipper_name = part_cooling_klipper_name;
+            let mut dynamic_fan_state: Option<f64> = dynamic_base_fan;
+
             let mut last_role: Option<crate::core::ExtrusionRole> = None;
             let mut last_width: Option<f64> = None;
             let mut last_pos: Option<(f64, f64)> = None;
+
+            // ── Spiral (vase) mode: emit the single outer contour with a
+            //    continuous Z ramp, then move to the next layer ───────────────
+            if let Some(idx) = spiral_path_idx {
+                // A spiral layer is one continuous loop rather than a list of
+                // paths, so it never reaches the per-path attribution below —
+                // it has to open its own object's marker block here.
+                if !self.objects.is_empty() && layer_object != current_object {
+                    if object_markers {
+                        if let Some(previous) = current_object.and_then(|i| self.objects.get(i)) {
+                            out.push_str(&self.dialect.object_end(previous));
+                            out.push('\n');
+                        }
+                        if let Some(index) = layer_object {
+                            if let Some(object) = self.objects.get(index) {
+                                let first_use = !introduced_objects[index];
+                                out.push_str(&self.dialect.object_start(object, first_use));
+                                out.push('\n');
+                                introduced_objects[index] = true;
+                            }
+                        }
+                    }
+                    current_object = layer_object;
+                }
+
+                let path = layer
+                    .paths
+                    .iter()
+                    .nth(idx)
+                    .expect("spiral path index is within the layer's paths");
+                let pts: Vec<(f64, f64)> = path.iter().map(|p| (p.x(), p.y())).collect();
+
+                let role = crate::core::ExtrusionRole::OuterWall;
+                let width_mm = resolve_width_mm(layer.width_for_path(idx), false, role, params);
+                // Spiral mode skips overhang classification (it would split the
+                // single continuous contour), so there is never a degree here.
+                let speed_mm_min = Self::effective_speed_mm_min(
+                    role,
+                    crate::core::OverhangClass::None,
+                    is_first_layer,
+                    params,
+                );
+
+                // Adaptive acceleration (opt-in), same policy as normal walls.
+                if let Some(accel) = Self::effective_acceleration(role, is_first_layer, params) {
+                    if last_accel != Some(accel) {
+                        out.push_str(&format!(
+                            "{} ; acceleration\n",
+                            self.dialect.set_acceleration(accel)
+                        ));
+                        last_accel = Some(accel);
+                    }
+                }
+
+                // ;TYPE: / ;WIDTH: annotations so viewers classify the wall.
+                if self.marker_config.enabled {
+                    let width_str = format!("{:.2}", width_mm);
+                    let type_ann = self
+                        .marker_config
+                        .type_annotation
+                        .as_deref()
+                        .unwrap_or(";TYPE:{type}");
+                    out.push_str(&render_marker(
+                        type_ann,
+                        &z_str,
+                        &height_str,
+                        role.type_name(),
+                        &width_str,
+                    ));
+                    out.push('\n');
+                    let width_ann = self
+                        .marker_config
+                        .width_annotation
+                        .as_deref()
+                        .unwrap_or(";WIDTH:{width}mm");
+                    out.push_str(&render_marker(
+                        width_ann,
+                        &z_str,
+                        &height_str,
+                        role.type_name(),
+                        &width_str,
+                    ));
+                    out.push('\n');
+                }
+
+                // Ramp from the previous layer's top Z to this layer's Z over
+                // one perimeter. Start the loop nearest the previous nozzle
+                // position to keep the (invisible) start line aligned.
+                // Ramp up from the previous layer of **this** object. In
+                // sequential order the layer before an object's first is the
+                // previous object's *top*, and ramping from there would extrude
+                // a continuous descent from that height straight through the
+                // plate.
+                //
+                // The clamps below are deliberately evaluated in *model* space,
+                // before `machine_z` is applied: a `max(0.0)` floor means "the
+                // bed", which a negative Z-offset legitimately sits below.
+                // Offsetting both ends afterwards shifts the ramp bodily while
+                // preserving its exact one-layer-height rise.
+                let z_bottom = machine_z(
+                    if layer_index > 0 && layer_owners[layer_index - 1] == layer_object {
+                        layers[layer_index - 1].z
+                    } else {
+                        (layer.z - params.layer_height).max(0.0)
+                    }
+                    // A spiral ramp only ever climbs. Capping at this layer's own Z
+                    // makes the "descend while extruding" failure unrepresentable,
+                    // whatever the previous layer turns out to be.
+                    .min(layer.z)
+                    .max(0.0),
+                    params,
+                );
+                let z_top = machine_z(layer.z, params);
+                let target = cur_xy.unwrap_or(pts[0]);
+                let rotated = rotate_loop_nearest(&pts, target);
+                let (sx, sy) = rotated[0];
+
+                let need_travel = match cur_xy {
+                    Some((cx, cy)) => ((sx - cx).powi(2) + (sy - cy).powi(2)).sqrt() > 0.05,
+                    None => true,
+                };
+                if need_travel {
+                    out.push_str(&format!(
+                        "{} ; spiral travel\n",
+                        self.dialect.travel_xy(sx, sy, params.travel_speed_mm_min)
+                    ));
+                }
+
+                // Fade flow in on the first spiral loop and out on the last so
+                // the seam disappears at both ends of the vase.
+                let is_first_spiral = first_spiral_of_run[layer_index];
+                let is_last_spiral = last_spiral_of_run[layer_index];
+                let flow_start = if is_first_spiral && !is_last_spiral {
+                    0.0
+                } else {
+                    1.0
+                };
+                let flow_end = if is_last_spiral && !is_first_spiral {
+                    0.0
+                } else {
+                    1.0
+                };
+
+                self.emit_spiral_loop(
+                    &mut out,
+                    &rotated,
+                    z_bottom,
+                    z_top,
+                    width_mm,
+                    speed_mm_min,
+                    flow_start,
+                    flow_end,
+                    params,
+                    &mut e_total,
+                    &mut total_filament_mm,
+                );
+
+                // The loop closes back to its start vertex; that's where the
+                // next spiral layer begins.
+                cur_xy = Some((sx, sy));
+                // This branch skips the end-of-layer bookkeeping below, so the
+                // clearance lift would otherwise never see a spiralised object
+                // and would travel straight through it.
+                if layer.z > max_printed_z {
+                    max_printed_z = layer.z;
+                }
+                continue;
+            }
 
             for (path_idx, path) in layer.paths.iter().enumerate() {
                 let raw_points: Vec<(f64, f64)> = path.iter().map(|p| (p.x(), p.y())).collect();
                 if raw_points.len() < 2 {
                     continue;
+                }
+
+                // ── Object attribution (issue #22) ───────────────────────────
+                // Switch marker blocks *before* this path's travel, so the hop
+                // between two parts is charged to the one it is heading for —
+                // the convention PrusaSlicer and OrcaSlicer both follow, and
+                // the one that lets a firmware skip a cancelled object's
+                // approach moves along with its extrusions.  A `None` tag
+                // (plate-wide adhesion) closes the block without opening one.
+                let path_object = layer.object_for_path(path_idx);
+                if !self.objects.is_empty() && path_object != current_object {
+                    if object_markers {
+                        if let Some(previous) = current_object.and_then(|i| self.objects.get(i)) {
+                            out.push_str(&self.dialect.object_end(previous));
+                            out.push('\n');
+                        }
+                        if let Some(index) = path_object {
+                            if let Some(object) = self.objects.get(index) {
+                                let first_use = !introduced_objects[index];
+                                out.push_str(&self.dialect.object_start(object, first_use));
+                                out.push('\n');
+                                introduced_objects[index] = true;
+                            }
+                        }
+                    }
+                    current_object = path_object;
                 }
 
                 // Fetch the role and resolve the effective extrusion width.
@@ -832,6 +2143,7 @@ impl GcodeGenerator {
                 // the per-role width override off, since such beads carry their
                 // own authoritative widths.
                 let role = layer.role_for_path(path_idx);
+                let overhang = layer.overhang_for_path(path_idx);
                 let raw_vertex_widths = layer.vertex_widths_for_path(path_idx);
                 let width_mm = resolve_width_mm(
                     layer.width_for_path(path_idx),
@@ -839,9 +2151,80 @@ impl GcodeGenerator {
                     role,
                     params,
                 );
+                // Combined sparse infill prints one bead for several layers, so
+                // its flow, its `;HEIGHT:` annotation and its volumetric-speed
+                // cap are all charged at the stacked height rather than the
+                // layer height. Every other path leaves this `None`.
+                let path_height = layer
+                    .height_for_path(path_idx)
+                    .filter(|h| *h > 0.0)
+                    .unwrap_or(params.layer_height);
+                let path_height_str = format!("{:.3}", path_height);
 
-                // Resolve per-role print speed.
-                let speed_mm_min = Self::effective_speed_mm_min(role, is_first_layer, params);
+                // Combined infill prints taller than the layer it sits on, so
+                // re-announce `;HEIGHT:` whenever it changes. Viewers and
+                // post-processors read that marker to size the bead; without it a
+                // 0.4 mm-tall infill bead would be drawn (and re-flowed) as
+                // 0.2 mm. Emitted on change only, so an ordinary layer is
+                // untouched.
+                if self.marker_config.enabled
+                    && last_height.as_deref() != Some(path_height_str.as_str())
+                {
+                    let height_marker = self
+                        .marker_config
+                        .height_marker
+                        .as_deref()
+                        .unwrap_or(";HEIGHT:{height}");
+                    out.push_str(&render_marker(
+                        height_marker,
+                        &z_str,
+                        &path_height_str,
+                        "",
+                        "",
+                    ));
+                    out.push('\n');
+                    last_height = Some(path_height_str.clone());
+                }
+
+                // Resolve per-role print speed (with dynamic overhang override).
+                let speed_mm_min =
+                    Self::effective_speed_mm_min(role, overhang, is_first_layer, params);
+
+                // ── Dynamic fan (bridges + overhangs) ────────────────────────
+                // Raise the part-cooling fan for material laid over air and
+                // restore the layer's normal cooling when leaving it.  Emitted
+                // only on change, so a run of bridge lines or overhang arcs
+                // (grouped by role) toggles the fan at most twice per layer.
+                //
+                // Bridges are unconditional — a bridge is a bridge regardless of
+                // the dynamic-overhang *speed* feature — while the overhang
+                // boost stays tied to `enable_overhang_speed` and its threshold.
+                if let Some(base_fan) = dynamic_base_fan {
+                    let bridge_target = (role == crate::core::ExtrusionRole::Bridge
+                        && params.bridge_fan_speed > 0.0)
+                        .then_some(params.bridge_fan_speed);
+                    let overhang_target = (params.enable_overhang_speed
+                        && params.overhang_fan_speed > 0.0
+                        && overhang.is_overhang()
+                        && overhang_meets_fan_threshold(overhang, params))
+                    .then_some(params.overhang_fan_speed);
+                    let target = match (bridge_target, overhang_target) {
+                        (Some(a), Some(b)) => a.max(b),
+                        (Some(a), None) | (None, Some(a)) => a,
+                        (None, None) => base_fan,
+                    };
+                    if dynamic_fan_state != Some(target) {
+                        out.push_str(&format!(
+                            "{} ; dynamic fan\n",
+                            self.dialect.set_fan_speed_indexed(
+                                fan_index::PART_COOLING,
+                                dynamic_fan_klipper_name.as_deref(),
+                                target
+                            )
+                        ));
+                        dynamic_fan_state = Some(target);
+                    }
+                }
 
                 // Global volumetric-flow ceiling for constant-width emissions
                 // (coasting splits and the close-contour move).  Variable-width
@@ -849,7 +2232,7 @@ impl GcodeGenerator {
                 // real per-segment width is known.
                 let capped_speed_mm_min = volumetric_capped_speed_mm_min(
                     speed_mm_min,
-                    params.layer_height,
+                    path_height,
                     width_mm,
                     params.max_volumetric_speed,
                 );
@@ -934,7 +2317,7 @@ impl GcodeGenerator {
                         out.push_str(&render_marker(
                             type_ann,
                             &z_str,
-                            &height_str,
+                            &path_height_str,
                             type_name,
                             &width_str,
                         ));
@@ -948,7 +2331,7 @@ impl GcodeGenerator {
                         out.push_str(&render_marker(
                             width_ann,
                             &z_str,
-                            &height_str,
+                            &path_height_str,
                             type_name,
                             &width_str,
                         ));
@@ -970,58 +2353,92 @@ impl GcodeGenerator {
                 };
 
                 let role_changed = last_role != Some(role);
-                // Retract policy:
-                //   - Skip retract for any travel under `MIN_TRAVEL_FOR_RETRACT_MM`,
-                //     even on role change.  A 0.4 mm hop from the inner-wall
-                //     loop end to the outer-wall loop start does not ooze
-                //     enough to justify the 5-line retract+zhop+travel+lower+
-                //     un-retract ceremony (which itself takes longer than the
-                //     hop and pauses extrusion).
-                //   - Long travels always retract, regardless of role.
-                //
-                // Other slicers (PrusaSlicer, Orca, Cura) all use a similar
-                // "min travel for retract" cutoff (typically 1.0–2.0 mm).
-                const MIN_TRAVEL_FOR_RETRACT_MM: f64 = 1.0;
+                // Retract policy (mirrors PrusaSlicer / Orca / Cura):
+                //   - Never retract for travels at or under the configured
+                //     `retract_before_travel_mm` minimum. A 0.4 mm hop from an
+                //     inner-wall loop end to an outer-wall loop start does not
+                //     ooze enough to justify the retract → z-hop → travel →
+                //     lower → un-retract ceremony (which itself takes longer
+                //     than the hop and pauses extrusion).
+                //   - Long travels (> max(2 mm, the minimum)) always retract.
+                //   - Travels between the minimum and that ceiling retract only
+                //     when the extrusion role changes (e.g. infill → outer wall),
+                //     where oozing would show on a visible surface.
+                const ALWAYS_RETRACT_TRAVEL_MM: f64 = 2.0;
+                let min_travel = params.retract_before_travel_mm.max(0.0);
+                let always_retract = min_travel.max(ALWAYS_RETRACT_TRAVEL_MM);
                 let needs_retract =
-                    travel_dist > 2.0 || (role_changed && travel_dist > MIN_TRAVEL_FOR_RETRACT_MM);
+                    travel_dist > always_retract || (role_changed && travel_dist > min_travel);
+
+                // Plan the travel path.  With `avoid_crossing_perimeters` the
+                // planner may return intermediate waypoints that detour around
+                // outer walls; otherwise this is a single straight hop to the
+                // destination.  `from` is never included.
+                let travel_route: Vec<(f64, f64)> = match (&travel_planner, last_pos) {
+                    (Some(planner), Some(lp)) => planner.route(lp, (start_x, start_y)),
+                    _ => vec![(start_x, start_y)],
+                };
 
                 if needs_retract {
-                    // Retract, z-hop, travel, lower, prime
-                    e_total -= params.retract_mm;
-                    out.push_str(&format!(
-                        "{} ; retract\n",
-                        self.dialect.set_extruder_pos(e_total, 3000.0)
-                    ));
+                    // Retract [+ wipe], z-hop, travel (possibly via detour),
+                    // lower, prime. The retract and prime dispatch on the
+                    // retraction mode (software E move, firmware G10/G11,
+                    // wipe-while-retracting); the z-hop is always slicer-driven
+                    // so behaviour is mode-independent.
+                    self.do_retract(
+                        &mut out,
+                        &mut e_total,
+                        &mut retracted,
+                        last_path_points.as_deref(),
+                        params,
+                    );
                     out.push_str(&format!(
                         "{} ; z-hop\n",
-                        self.dialect
-                            .move_z(layer.z + params.z_hop_mm, params.travel_speed_mm_min)
+                        self.dialect.move_z(
+                            machine_z(layer.z + params.z_hop_mm, params),
+                            params.travel_speed_mm_min
+                        )
                     ));
-                    out.push_str(&format!(
-                        "{} ; travel\n",
-                        self.dialect
-                            .travel_xy(start_x, start_y, params.travel_speed_mm_min)
-                    ));
+                    for (wi, &(wx, wy)) in travel_route.iter().enumerate() {
+                        let tag = if wi + 1 == travel_route.len() {
+                            "travel"
+                        } else {
+                            "travel (avoid crossing)"
+                        };
+                        out.push_str(&format!(
+                            "{} ; {tag}\n",
+                            self.dialect.travel_xy(wx, wy, params.travel_speed_mm_min)
+                        ));
+                    }
                     out.push_str(&format!(
                         "{} ; lower\n",
-                        self.dialect.move_z(layer.z, params.travel_speed_mm_min)
+                        self.dialect
+                            .move_z(machine_z(layer.z, params), params.travel_speed_mm_min)
                     ));
-                    e_total += params.retract_mm;
-                    out.push_str(&format!(
-                        "{} ; un-retract\n",
-                        self.dialect.set_extruder_pos(e_total, 3000.0)
-                    ));
+                    self.do_unretract(
+                        &mut out,
+                        &mut e_total,
+                        &mut retracted,
+                        &mut total_filament_mm,
+                        params,
+                    );
                 } else if travel_dist > 0.05 {
                     // Short travel without stringing mitigation.  Travels under
                     // 0.05 mm are degenerate (floating-point rounding noise from
                     // path simplification) and are skipped entirely — emitting a
                     // G1 line for a sub-quantum hop just bloats the file and
                     // confuses motion planners on some firmwares.
-                    out.push_str(&format!(
-                        "{} ; short travel\n",
-                        self.dialect
-                            .travel_xy(start_x, start_y, params.travel_speed_mm_min)
-                    ));
+                    for (wi, &(wx, wy)) in travel_route.iter().enumerate() {
+                        let tag = if wi + 1 == travel_route.len() {
+                            "short travel"
+                        } else {
+                            "short travel (avoid crossing)"
+                        };
+                        out.push_str(&format!(
+                            "{} ; {tag}\n",
+                            self.dialect.travel_xy(wx, wy, params.travel_speed_mm_min)
+                        ));
+                    }
                 }
 
                 // Determine if this is a closed-loop role.
@@ -1094,7 +2511,7 @@ impl GcodeGenerator {
                             // Entirely before coasting point → extrude normally
                             let de = extrusion_for_move(
                                 seg_len,
-                                params.layer_height,
+                                path_height,
                                 width_mm,
                                 params.filament_diameter_mm,
                                 params.flow_ratio,
@@ -1103,8 +2520,14 @@ impl GcodeGenerator {
                             total_filament_mm += de;
                             out.push_str(&format!(
                                 "{}\n",
-                                self.dialect
-                                    .move_extrude(x, y, e_total, capped_speed_mm_min)
+                                self.xy_extrude_line(
+                                    x,
+                                    y,
+                                    de,
+                                    e_total,
+                                    capped_speed_mm_min,
+                                    params
+                                )
                             ));
                         } else if dist_traveled < coasting_start {
                             // Segment straddles the coasting boundary → split it
@@ -1114,7 +2537,7 @@ impl GcodeGenerator {
                             let by = prev.1 + t * dy;
                             let de = extrusion_for_move(
                                 dist_to_coast,
-                                params.layer_height,
+                                path_height,
                                 width_mm,
                                 params.filament_diameter_mm,
                                 params.flow_ratio,
@@ -1123,8 +2546,14 @@ impl GcodeGenerator {
                             total_filament_mm += de;
                             out.push_str(&format!(
                                 "{}\n",
-                                self.dialect
-                                    .move_extrude(bx, by, e_total, capped_speed_mm_min)
+                                self.xy_extrude_line(
+                                    bx,
+                                    by,
+                                    de,
+                                    e_total,
+                                    capped_speed_mm_min,
+                                    params
+                                )
                             ));
                             // Remainder is a travel move
                             out.push_str(&format!(
@@ -1150,7 +2579,7 @@ impl GcodeGenerator {
                         if dist_traveled + seg_len <= coasting_start {
                             let de = extrusion_for_move(
                                 seg_len,
-                                params.layer_height,
+                                path_height,
                                 width_mm,
                                 params.filament_diameter_mm,
                                 params.flow_ratio,
@@ -1159,11 +2588,13 @@ impl GcodeGenerator {
                             total_filament_mm += de;
                             out.push_str(&format!(
                                 "{} ; close contour\n",
-                                self.dialect.move_extrude(
+                                self.xy_extrude_line(
                                     start_x,
                                     start_y,
+                                    de,
                                     e_total,
-                                    capped_speed_mm_min
+                                    capped_speed_mm_min,
+                                    params
                                 )
                             ));
                         } else if dist_traveled < coasting_start {
@@ -1173,7 +2604,7 @@ impl GcodeGenerator {
                             let by = prev.1 + t * dy;
                             let de = extrusion_for_move(
                                 dist_to_coast,
-                                params.layer_height,
+                                path_height,
                                 width_mm,
                                 params.filament_diameter_mm,
                                 params.flow_ratio,
@@ -1182,8 +2613,14 @@ impl GcodeGenerator {
                             total_filament_mm += de;
                             out.push_str(&format!(
                                 "{}\n",
-                                self.dialect
-                                    .move_extrude(bx, by, e_total, capped_speed_mm_min)
+                                self.xy_extrude_line(
+                                    bx,
+                                    by,
+                                    de,
+                                    e_total,
+                                    capped_speed_mm_min,
+                                    params
+                                )
                             ));
                             out.push_str(&format!(
                                 "{} ; coasting close\n",
@@ -1226,7 +2663,7 @@ impl GcodeGenerator {
                         };
                         volumetric_capped_speed_mm_min(
                             base,
-                            params.layer_height,
+                            path_height,
                             sw,
                             params.max_volumetric_speed,
                         )
@@ -1257,7 +2694,7 @@ impl GcodeGenerator {
                             out.push_str(&render_marker(
                                 width_ann,
                                 &z_str,
-                                &height_str,
+                                &path_height_str,
                                 role.type_name(),
                                 &width_str,
                             ));
@@ -1266,7 +2703,7 @@ impl GcodeGenerator {
                         }
                         let de = extrusion_for_move(
                             len,
-                            params.layer_height,
+                            path_height,
                             sw,
                             params.filament_diameter_mm,
                             params.flow_ratio,
@@ -1275,7 +2712,7 @@ impl GcodeGenerator {
                         total_filament_mm += de;
                         out.push_str(&format!(
                             "{}\n",
-                            self.dialect.move_extrude(x, y, e_total, seg_speed(sw))
+                            self.xy_extrude_line(x, y, de, e_total, seg_speed(sw), params)
                         ));
                         prev = (x, y);
                     }
@@ -1292,7 +2729,7 @@ impl GcodeGenerator {
                         if len >= 1e-6 {
                             let de = extrusion_for_move(
                                 len,
-                                params.layer_height,
+                                path_height,
                                 width_mm,
                                 params.filament_diameter_mm,
                                 params.flow_ratio,
@@ -1301,11 +2738,13 @@ impl GcodeGenerator {
                             total_filament_mm += de;
                             out.push_str(&format!(
                                 "{} ; close contour\n",
-                                self.dialect.move_extrude(
+                                self.xy_extrude_line(
                                     start_x,
                                     start_y,
+                                    de,
                                     e_total,
-                                    capped_speed_mm_min
+                                    capped_speed_mm_min,
+                                    params
                                 )
                             ));
                         }
@@ -1314,6 +2753,50 @@ impl GcodeGenerator {
                         last_pos = Some(prev);
                     }
                 }
+
+                // Capture this path's trajectory so a subsequent retract can
+                // wipe along it. Only done when wiping is enabled, to avoid the
+                // per-path clone otherwise. Closed loops end back at their start,
+                // so the closing vertex is appended; the wipe retraces this list
+                // in reverse from the end.
+                if params.wipe && params.wipe_distance_mm > 0.0 {
+                    let mut traj = points.clone();
+                    if is_closed_loop {
+                        traj.push(points[0]);
+                    }
+                    last_path_points = Some(traj);
+                }
+            }
+
+            // Remember where this (non-spiral) layer left the nozzle so a
+            // following spiral layer can travel into its loop from the true
+            // previous position.
+            if last_pos.is_some() {
+                cur_xy = last_pos;
+            }
+
+            // Highest material laid down so far — what the next object has to
+            // clear when sequential printing hands over.
+            if layer.z > max_printed_z {
+                max_printed_z = layer.z;
+            }
+        }
+
+        // The last object's marker block stays open until the print ends.
+        if object_markers {
+            if let Some(object) = current_object.and_then(|i| self.objects.get(i)) {
+                out.push_str(&self.dialect.object_end(object));
+                out.push('\n');
+            }
+        }
+
+        // ── Per-filament end script ───────────────────────────────────────────
+        // Material-scoped teardown, emitted after the last print move and before
+        // the machine end script.
+        if let Some(lines) = &self.custom_filament_end_script {
+            for line in lines {
+                out.push_str(&render_script_placeholders(line, params));
+                out.push('\n');
             }
         }
 
@@ -1327,14 +2810,45 @@ impl GcodeGenerator {
             out.push('\n');
         }
 
+        // ── Acceleration-aware print-time estimate (issue #117) ───────────────
+        // Measure the *emitted* moves — travel, Z lifts, retraction and every
+        // per-role feedrate / acceleration the body above wrote — with the
+        // trapezoidal planner model, then apply the user's estimate calibration
+        // and splice the per-layer figures back into the `;LAYER_TIME:` markers
+        // so the header/footer ETA and the viewer's Layer-Time colouring all read
+        // the same numbers.
+        //
+        // Calibration (issue #117 follow-up): the toolpath physics from the
+        // estimator is corrected by `time_estimate_scale` (a user fudge factor
+        // for systematic error the model rounds off), then the fixed
+        // `time_estimate_warmup_s` (homing / heat-soak / purge) and
+        // `time_estimate_cooldown_s` (e.g. chamber cool-off) allowances — wall
+        // clock the toolpath cannot show — are added. The per-layer markers get
+        // the same scale so they stay consistent with the toolpath total, but
+        // *not* the fixed allowances (those belong to no single layer).
+        let est_cfg = crate::gcode::time_estimate::EstimatorConfig::from_params(params);
+        let estimate = crate::gcode::time_estimate::estimate_print_time(&out, &est_cfg);
+        let scale = if params.time_estimate_scale > 0.0 {
+            params.time_estimate_scale
+        } else {
+            1.0
+        };
+        let scaled_per_layer: Vec<f64> = estimate.per_layer_s.iter().map(|t| t * scale).collect();
+        patch_layer_time_markers(&mut out, &scaled_per_layer);
+        let total_estimate_s = params.time_estimate_warmup_s.max(0.0)
+            + estimate.total_s * scale
+            + params.time_estimate_cooldown_s.max(0.0);
+
         // ── Metadata header (issue #15) ───────────────────────────────────────
-        // Now that the body is emitted we know the measured filament total and
-        // the geometry; build the aggregate statistics and prepend the
-        // flavor-specific header so its figures match the body exactly.
+        // Now that the body is emitted we know the measured filament total, the
+        // geometry, and the print-time estimate; build the aggregate statistics
+        // and prepend the flavor-specific header so its figures match the body
+        // exactly.
         let stats = SliceStatistics::from_layers(
             layers,
             params,
             total_filament_mm,
+            total_estimate_s,
             self.model_name.clone(),
         );
         let mut result = String::with_capacity(out.len() + 512);
@@ -1393,8 +2907,10 @@ pub fn generate_gcode(layers: &[SliceLayer], params: &SlicingParams) -> String {
 ///
 /// This is the entry point used by every *application* slice path (WS server,
 /// WASM, desktop bridge). Unlike [`generate_gcode`] it respects
-/// `params.gcode_flavor` and applies `params.start_gcode`, `params.end_gcode`
-/// and `params.layer_gcode` when present (each split into lines on `'\n'`).
+/// `params.gcode_flavor` and applies `params.start_gcode`, `params.end_gcode`,
+/// `params.layer_gcode`, and the per-filament `params.start_filament_gcode` /
+/// `params.end_filament_gcode` hooks when present (each split into lines on
+/// `'\n'`).
 ///
 /// A non-empty custom block wins over the dialect default; a blank/whitespace
 /// block is ignored so an empty text field falls back to the flavor default.
@@ -1409,7 +2925,40 @@ pub fn generate_gcode_from_params(layers: &[SliceLayer], params: &SlicingParams)
     if let Some(lines) = gcode_block_lines(params.layer_gcode.as_deref()) {
         generator = generator.with_layer_script(lines);
     }
+    if let Some(lines) = gcode_block_lines(params.start_filament_gcode.as_deref()) {
+        generator = generator.with_filament_start_script(lines);
+    }
+    if let Some(lines) = gcode_block_lines(params.end_filament_gcode.as_deref()) {
+        generator = generator.with_filament_end_script(lines);
+    }
     generator.generate(layers, params)
+}
+
+/// Generate G-code for a whole plate, including its per-object markers.
+///
+/// The object-aware sibling of [`generate_gcode_from_params`]: identical for a
+/// plate sliced without object identity (`plate.objects` empty), and the one
+/// call every runtime should make so exclude-object and sequential printing
+/// work the same everywhere.
+pub fn generate_gcode_for_plate(plate: &crate::core::PlateSlice, params: &SlicingParams) -> String {
+    let mut generator =
+        GcodeGenerator::new(params.gcode_flavor).with_objects(plate.objects.clone());
+    if let Some(lines) = gcode_block_lines(params.start_gcode.as_deref()) {
+        generator = generator.with_start_script(lines);
+    }
+    if let Some(lines) = gcode_block_lines(params.end_gcode.as_deref()) {
+        generator = generator.with_end_script(lines);
+    }
+    if let Some(lines) = gcode_block_lines(params.layer_gcode.as_deref()) {
+        generator = generator.with_layer_script(lines);
+    }
+    if let Some(lines) = gcode_block_lines(params.start_filament_gcode.as_deref()) {
+        generator = generator.with_filament_start_script(lines);
+    }
+    if let Some(lines) = gcode_block_lines(params.end_filament_gcode.as_deref()) {
+        generator = generator.with_filament_end_script(lines);
+    }
+    generator.generate(&plate.layers, params)
 }
 
 /// Split a multi-line custom G-code block into lines, returning `None` when the
@@ -1521,10 +3070,270 @@ mod tests {
         assert!(gcode.contains("X0.000 Y0.000"), "missing start travel");
     }
 
+    // ── Advanced retraction modes (issue #96) ─────────────────────────────────
+
+    /// A closed square whose lower-left corner is `(x0, y0)`.
+    fn square_at(x0: f64, y0: f64) -> clipper2::Path {
+        vec![
+            (x0, y0),
+            (x0 + 10.0, y0),
+            (x0 + 10.0, y0 + 10.0),
+            (x0, y0 + 10.0),
+        ]
+        .into()
+    }
+
+    fn one_square_layer() -> SliceLayer {
+        let mut layer = SliceLayer::new(0.2);
+        layer.paths.push(square_at(0.0, 0.0));
+        layer
+    }
+
+    /// The first line containing `needle`, or `""` if none.
+    fn line_with<'a>(gcode: &'a str, needle: &str) -> &'a str {
+        gcode.lines().find(|l| l.contains(needle)).unwrap_or("")
+    }
+
     #[test]
-    fn test_extrusion_for_move_positive() {
-        let e = extrusion_for_move(10.0, 0.2, 0.4, 1.75, 1.0);
-        assert!(e > 0.0, "extrusion must be positive");
+    fn default_retraction_is_software_absolute() {
+        // With every advanced mode off the output is a plain absolute-E software
+        // retract — the baseline behaviour must be untouched.
+        let gcode = generate_gcode(&[one_square_layer()], &SlicingParams::default());
+        assert!(gcode.contains("M82"), "default must be absolute E: {gcode}");
+        assert!(!gcode.contains("M83"), "default must not be relative E");
+        assert!(
+            !gcode.contains("G10"),
+            "default must not use firmware retract"
+        );
+        assert!(
+            line_with(&gcode, "; retract").contains("E-1.00000"),
+            "default retract must be a software E move: {gcode}"
+        );
+        assert!(
+            line_with(&gcode, "; un-retract").contains("E0.00000"),
+            "default un-retract returns to the absolute datum: {gcode}"
+        );
+    }
+
+    #[test]
+    fn firmware_retraction_emits_g10_g11_and_setup() {
+        let params = SlicingParams {
+            use_firmware_retraction: true,
+            ..SlicingParams::default()
+        };
+        let gcode = generate_gcode(&[one_square_layer()], &params);
+        assert!(
+            gcode.contains("M207"),
+            "missing firmware retract setup: {gcode}"
+        );
+        assert!(
+            gcode.contains("M208"),
+            "missing firmware recover setup: {gcode}"
+        );
+        assert!(
+            gcode.contains("G10 ; firmware retract"),
+            "missing G10 firmware retract: {gcode}"
+        );
+        assert!(
+            gcode.contains("G11 ; firmware recover"),
+            "missing G11 firmware recover: {gcode}"
+        );
+        // Firmware retraction must not also move the extruder axis for the pull.
+        assert!(
+            !gcode.lines().any(|l| l.ends_with("; retract")),
+            "firmware retraction must not emit a software retract: {gcode}"
+        );
+    }
+
+    #[test]
+    fn firmware_retraction_klipper_uses_set_retraction() {
+        let params = SlicingParams {
+            use_firmware_retraction: true,
+            ..SlicingParams::default()
+        };
+        let gcode =
+            GcodeGenerator::new(GcodeFlavor::Klipper).generate(&[one_square_layer()], &params);
+        assert!(
+            gcode.contains("SET_RETRACTION"),
+            "Klipper firmware retraction setup missing: {gcode}"
+        );
+        assert!(
+            gcode.contains("G10") && gcode.contains("G11"),
+            "missing G10/G11: {gcode}"
+        );
+    }
+
+    #[test]
+    fn relative_e_distances_emit_m83_and_deltas() {
+        let params = SlicingParams {
+            use_relative_e_distances: true,
+            ..SlicingParams::default()
+        };
+        let gcode = generate_gcode(&[one_square_layer()], &params);
+        assert!(
+            gcode.contains("M83"),
+            "missing relative-E mode line: {gcode}"
+        );
+        // The un-retract is the raw retract length as a delta, not an absolute
+        // datum return.
+        assert!(
+            line_with(&gcode, "; un-retract").contains("E1.00000"),
+            "relative un-retract must prime the retract length: {gcode}"
+        );
+        // Every extrusion delta is a per-segment length (well under the running
+        // absolute total an absolute stream would reach on a 40 mm perimeter).
+        let max_e = gcode
+            .lines()
+            .filter(|l| l.contains(" X") && l.contains(" E"))
+            .filter_map(|l| l.split_whitespace().find(|t| t.starts_with('E')))
+            .filter_map(|t| t[1..].parse::<f64>().ok())
+            .fold(0.0_f64, f64::max);
+        assert!(
+            max_e < 5.0,
+            "relative extrusion deltas must stay small, got {max_e}: {gcode}"
+        );
+    }
+
+    #[test]
+    fn restart_extra_adds_prime_on_unretract() {
+        let params = SlicingParams {
+            use_relative_e_distances: true,
+            retract_restart_extra_mm: 0.5,
+            ..SlicingParams::default()
+        };
+        let gcode = generate_gcode(&[one_square_layer()], &params);
+        // retract_mm (1.0) + restart_extra (0.5) = 1.5 mm primed on recover.
+        assert!(
+            line_with(&gcode, "; un-retract").contains("E1.50000"),
+            "restart-extra must be added to the un-retract: {gcode}"
+        );
+    }
+
+    #[test]
+    fn retract_on_layer_change_retracts_before_z() {
+        let mut l1 = SliceLayer::new(0.2);
+        l1.paths.push(square_at(0.0, 0.0));
+        let mut l2 = SliceLayer::new(0.4);
+        l2.paths.push(square_at(0.0, 0.0));
+        let layers = vec![l1, l2];
+
+        let off = generate_gcode(&layers, &SlicingParams::default());
+        let on = generate_gcode(
+            &layers,
+            &SlicingParams {
+                retract_on_layer_change: true,
+                ..SlicingParams::default()
+            },
+        );
+
+        let second_lc = |g: &str| g.match_indices(";LAYER_CHANGE").nth(1).map(|(i, _)| i);
+        let on_idx = second_lc(&on).expect("two layers -> two LAYER_CHANGE markers");
+        let off_idx = second_lc(&off).expect("two layers -> two LAYER_CHANGE markers");
+        assert!(
+            on[..on_idx].trim_end().ends_with("; retract"),
+            "layer-change retract must precede the layer-change marker: {on}"
+        );
+        assert!(
+            !off[..off_idx].trim_end().ends_with("; retract"),
+            "without the flag no retract precedes the layer-change marker: {off}"
+        );
+    }
+
+    #[test]
+    fn wipe_emits_wipe_moves_that_retract() {
+        // Two squares 5 mm apart in one layer: the second path's retract wipes
+        // along the first path's trajectory.
+        let mut layer = SliceLayer::new(0.2);
+        layer.paths.push(square_at(0.0, 0.0));
+        layer.paths.push(square_at(0.0, 5.0));
+
+        let off = generate_gcode(&[layer.clone()], &SlicingParams::default());
+        assert!(!off.contains("; wipe"), "no wipe without the flag: {off}");
+
+        let params = SlicingParams {
+            wipe: true,
+            wipe_distance_mm: 2.0,
+            use_relative_e_distances: true,
+            ..SlicingParams::default()
+        };
+        let on = generate_gcode(&[layer], &params);
+        assert!(
+            on.contains("; wipe"),
+            "wipe flag must emit wipe moves: {on}"
+        );
+        // A wipe combines an XY move with a retraction (negative E delta).
+        assert!(
+            on.lines()
+                .any(|l| l.contains("; wipe") && l.contains(" X") && l.contains("E-")),
+            "wipe move must retract while moving: {on}"
+        );
+    }
+
+    #[test]
+    fn retract_before_travel_threshold_suppresses_short_hops() {
+        // Two squares 5 mm apart. The default retracts on that 5 mm hop; a large
+        // `retract_before_travel_mm` suppresses it (only the always-retract first
+        // path of the layer remains).
+        let mut layer = SliceLayer::new(0.2);
+        layer.paths.push(square_at(0.0, 0.0));
+        layer.paths.push(square_at(0.0, 5.0));
+
+        let count = |g: &str| g.lines().filter(|l| l.ends_with("; retract")).count();
+
+        let default = generate_gcode(&[layer.clone()], &SlicingParams::default());
+        let high = generate_gcode(
+            &[layer],
+            &SlicingParams {
+                retract_before_travel_mm: 20.0,
+                ..SlicingParams::default()
+            },
+        );
+        assert_eq!(
+            count(&default),
+            2,
+            "default retracts on the 5 mm hop: {default}"
+        );
+        assert_eq!(
+            count(&high),
+            1,
+            "a 20 mm minimum suppresses the 5 mm hop retract: {high}"
+        );
+    }
+
+    #[test]
+    fn avoid_crossing_perimeters_detours_travel_around_a_wall() {
+        use crate::core::ExtrusionRole;
+        use clipper2::Path;
+
+        // Three outer-wall squares in a row.  Print order A, C, B forces a
+        // travel from A to C whose straight line passes through B.
+        let mut layer = SliceLayer::new(0.2);
+        let push_square = |layer: &mut SliceLayer, x0: f64, y0: f64, x1: f64, y1: f64| {
+            let sq: Path = vec![(x0, y0), (x1, y0), (x1, y1), (x0, y1)].into();
+            layer.paths.push(sq);
+            layer.path_roles.push(ExtrusionRole::OuterWall);
+            layer.path_widths.push(Some(0.4));
+            layer.path_is_open.push(false);
+        };
+        push_square(&mut layer, 0.0, 0.0, 10.0, 10.0); // A
+        push_square(&mut layer, 30.0, 0.0, 40.0, 10.0); // C
+        push_square(&mut layer, 15.0, -5.0, 25.0, 15.0); // B (obstacle in between)
+
+        let base = generate_gcode(&[layer.clone()], &SlicingParams::default());
+        assert!(
+            !base.contains("avoid crossing"),
+            "control: default should not route around walls"
+        );
+
+        let params = SlicingParams {
+            avoid_crossing_perimeters: true,
+            ..SlicingParams::default()
+        };
+        let routed = generate_gcode(&[layer], &params);
+        assert!(
+            routed.contains("avoid crossing"),
+            "avoid_crossing_perimeters should detour the A→C travel around B"
+        );
     }
 
     #[test]
@@ -1731,16 +3540,13 @@ mod tests {
     #[test]
     fn resolve_width_line_width_applies_to_infill_and_surfaces() {
         let params = params_with_line_width(0.44);
-        // Sparse infill lays an isolated bead → honours the generic line width.
-        assert_eq!(
-            resolve_width_mm(None, false, crate::core::ExtrusionRole::Infill, &params),
-            0.44
-        );
-        // Solid top/bottom surfaces are charged at the fill *line spacing*
-        // derived from the same 0.44 nominal width, so the flow matches the fill
-        // geometry (`mm³/mm = spacing × height`) and the surface stays flat.
-        let expect = crate::core::solid_surface_line_spacing(0.44, params.layer_height);
+        // Every fill role is charged at the *line spacing* derived from the same
+        // 0.44 nominal width, so the flow matches the pitch its lines are laid at
+        // (`mm³/mm = spacing × height`): surfaces stay flat and sparse infill
+        // deposits exactly the requested density.
+        let expect = crate::core::extrusion_flow_spacing_mm(0.44, params.layer_height);
         for role in [
+            crate::core::ExtrusionRole::Infill,
             crate::core::ExtrusionRole::TopSurface,
             crate::core::ExtrusionRole::BottomSurface,
         ] {
@@ -1760,11 +3566,11 @@ mod tests {
             resolve_width_mm(None, false, crate::core::ExtrusionRole::OuterWall, &params),
             crate::core::ExtrusionRole::OuterWall.default_width_mm()
         );
-        // line_width = 0 means "derive from nozzle" → role default.
+        // line_width = 0 means "derive from nozzle" → the nozzle-derived spacing.
         let params = params_with_line_width(0.0);
         assert_eq!(
             resolve_width_mm(None, false, crate::core::ExtrusionRole::Infill, &params),
-            crate::core::ExtrusionRole::Infill.default_width_mm()
+            crate::core::extrusion_flow_spacing_mm(params.nozzle_diameter_mm, params.layer_height)
         );
     }
 
@@ -1797,18 +3603,19 @@ mod tests {
 
     #[test]
     fn resolve_width_per_role_override_beats_generic_line_width() {
-        // For infill, the per-role override wins over the generic line_width.
+        // For infill, the per-role override supplies the nominal width the
+        // spacing is derived from, winning over the generic line_width.
         let mut params = params_with_line_width(0.44);
         params.sparse_infill_line_width = 0.7;
         params.top_surface_line_width = 0.35;
         assert_eq!(
             resolve_width_mm(None, false, crate::core::ExtrusionRole::Infill, &params),
-            0.7
+            crate::core::extrusion_flow_spacing_mm(0.7, params.layer_height)
         );
         // Solid surfaces honour the per-role override for their nominal width,
         // but are charged at the line spacing derived from it so the deposited
         // volume matches the fill (no over-extrusion).
-        let expect = crate::core::solid_surface_line_spacing(0.35, params.layer_height);
+        let expect = crate::core::extrusion_flow_spacing_mm(0.35, params.layer_height);
         assert_eq!(
             resolve_width_mm(None, false, crate::core::ExtrusionRole::TopSurface, &params),
             expect
@@ -2013,8 +3820,10 @@ mod tests {
 
     #[test]
     fn test_generator_emits_pressure_advance_klipper() {
-        let mut params = SlicingParams::default();
-        params.pressure_advance = 0.035;
+        let params = SlicingParams {
+            pressure_advance: 0.035,
+            ..SlicingParams::default()
+        };
         let gcode = GcodeGenerator::new(GcodeFlavor::Klipper).generate(&[], &params);
         assert!(
             gcode.contains("SET_PRESSURE_ADVANCE ADVANCE=0.0350 ; pressure advance"),
@@ -2024,8 +3833,10 @@ mod tests {
 
     #[test]
     fn test_generator_emits_pressure_advance_marlin() {
-        let mut params = SlicingParams::default();
-        params.pressure_advance = 0.06;
+        let params = SlicingParams {
+            pressure_advance: 0.06,
+            ..SlicingParams::default()
+        };
         let gcode = GcodeGenerator::new(GcodeFlavor::Marlin).generate(&[], &params);
         assert!(
             gcode.contains("M900 K0.0600 ; pressure advance"),
@@ -2050,8 +3861,10 @@ mod tests {
 
     #[test]
     fn test_pressure_advance_emitted_after_start_script() {
-        let mut params = SlicingParams::default();
-        params.pressure_advance = 0.04;
+        let params = SlicingParams {
+            pressure_advance: 0.04,
+            ..SlicingParams::default()
+        };
         let gcode = GcodeGenerator::new(GcodeFlavor::Klipper).generate(&[], &params);
         let pa = gcode
             .find("SET_PRESSURE_ADVANCE")
@@ -2090,9 +3903,11 @@ mod tests {
     #[test]
     fn test_generator_emits_first_layer_then_normal_acceleration() {
         use crate::core::ExtrusionRole;
-        let mut params = SlicingParams::default();
-        params.acceleration = 6000.0;
-        params.first_layer_acceleration = 2000.0;
+        let params = SlicingParams {
+            acceleration: 6000.0,
+            first_layer_acceleration: 2000.0,
+            ..SlicingParams::default()
+        };
         // z=0.2 → first layer (layer_height 0.2); z=0.4 → subsequent.
         let layers = [
             layer_with_role(0.2, ExtrusionRole::OuterWall),
@@ -2110,9 +3925,11 @@ mod tests {
     #[test]
     fn test_generator_emits_top_surface_acceleration() {
         use crate::core::ExtrusionRole;
-        let mut params = SlicingParams::default();
-        params.acceleration = 6000.0;
-        params.top_surface_acceleration = 9000.0;
+        let params = SlicingParams {
+            acceleration: 6000.0,
+            top_surface_acceleration: 9000.0,
+            ..SlicingParams::default()
+        };
         // Non-first layer with a wall followed by a top surface.
         let mut layer = SliceLayer::new(0.4);
         let sq1: clipper2::Path = vec![(0.0, 0.0), (10.0, 0.0), (10.0, 10.0), (0.0, 10.0)].into();
@@ -2154,8 +3971,10 @@ mod tests {
     #[test]
     fn test_generator_no_redundant_acceleration() {
         use crate::core::ExtrusionRole;
-        let mut params = SlicingParams::default();
-        params.acceleration = 6000.0;
+        let params = SlicingParams {
+            acceleration: 6000.0,
+            ..SlicingParams::default()
+        };
         // Two non-first layers, same role → the accel command must appear once.
         let layers = [
             layer_with_role(0.4, ExtrusionRole::OuterWall),
@@ -2174,9 +3993,11 @@ mod tests {
     #[test]
     fn test_bridge_acceleration_applies_to_bridge_and_overhang() {
         use crate::core::ExtrusionRole;
-        let mut params = SlicingParams::default();
-        params.acceleration = 6000.0;
-        params.bridge_acceleration = 1500.0;
+        let params = SlicingParams {
+            acceleration: 6000.0,
+            bridge_acceleration: 1500.0,
+            ..SlicingParams::default()
+        };
         for role in [ExtrusionRole::Bridge, ExtrusionRole::OverhangPerimeter] {
             let layers = [layer_with_role(0.4, role)];
             let gcode = GcodeGenerator::new(GcodeFlavor::Marlin).generate(&layers, &params);
@@ -2190,9 +4011,11 @@ mod tests {
     #[test]
     fn test_outer_wall_acceleration_applies_to_outer_wall_only() {
         use crate::core::ExtrusionRole;
-        let mut params = SlicingParams::default();
-        params.acceleration = 6000.0;
-        params.outer_wall_acceleration = 3000.0;
+        let params = SlicingParams {
+            acceleration: 6000.0,
+            outer_wall_acceleration: 3000.0,
+            ..SlicingParams::default()
+        };
         // Outer wall → dedicated accel; inner wall → normal accel.
         let mut layer = SliceLayer::new(0.4);
         let sq1: clipper2::Path = vec![(0.0, 0.0), (10.0, 0.0), (10.0, 10.0), (0.0, 10.0)].into();
@@ -2213,10 +4036,12 @@ mod tests {
     #[test]
     fn test_first_layer_acceleration_overrides_bridge() {
         use crate::core::ExtrusionRole;
-        let mut params = SlicingParams::default();
-        params.acceleration = 6000.0;
-        params.bridge_acceleration = 1500.0;
-        params.first_layer_acceleration = 2000.0;
+        let params = SlicingParams {
+            acceleration: 6000.0,
+            bridge_acceleration: 1500.0,
+            first_layer_acceleration: 2000.0,
+            ..SlicingParams::default()
+        };
         // A bridge on the first layer must still use the first-layer accel.
         let layers = [layer_with_role(0.2, ExtrusionRole::Bridge)];
         let gcode = GcodeGenerator::new(GcodeFlavor::Marlin).generate(&layers, &params);
@@ -2229,8 +4054,10 @@ mod tests {
     #[test]
     fn test_bridge_acceleration_falls_back_to_normal() {
         use crate::core::ExtrusionRole;
-        let mut params = SlicingParams::default();
-        params.acceleration = 6000.0; // bridge_acceleration left at 0
+        let params = SlicingParams {
+            acceleration: 6000.0, // bridge_acceleration left at 0
+            ..SlicingParams::default()
+        };
         let layers = [layer_with_role(0.4, ExtrusionRole::Bridge)];
         let gcode = GcodeGenerator::new(GcodeFlavor::Marlin).generate(&layers, &params);
         assert!(
@@ -2407,6 +4234,192 @@ mod tests {
         assert!(
             gcode.contains(";LAYER_TIME:"),
             ";LAYER_TIME: marker must be present for the viewer's Layer Time mode"
+        );
+    }
+
+    #[test]
+    fn test_acceleration_aware_estimate_patches_markers_and_stats() {
+        use clipper2::Path;
+
+        // Three square-wall layers so travel, Z lifts and ramps all contribute.
+        let mut layers = Vec::new();
+        for i in 0..3 {
+            let z = 0.2 * (i as f64 + 1.0);
+            let mut layer = SliceLayer::new(z);
+            let square: Path = vec![(0.0, 0.0), (20.0, 0.0), (20.0, 20.0), (0.0, 20.0)].into();
+            layer.paths.push(square);
+            layer.path_roles.push(crate::core::ExtrusionRole::OuterWall);
+            layers.push(layer);
+        }
+        let params = SlicingParams::default();
+        let (gcode, stats) =
+            GcodeGenerator::new(GcodeFlavor::Marlin).generate_with_stats(&layers, &params);
+
+        // Collect the patched per-layer marker values.
+        let marker_times: Vec<f64> = gcode
+            .lines()
+            .filter_map(|l| l.trim().strip_prefix(";LAYER_TIME:"))
+            .filter_map(|v| v.trim().parse::<f64>().ok())
+            .collect();
+        assert_eq!(marker_times.len(), 3, "one marker per printed layer");
+        assert!(
+            marker_times.iter().all(|&t| t > 0.0),
+            "every layer must report a positive time: {marker_times:?}"
+        );
+
+        // The acceleration-aware total must exceed the old naive length ÷ speed
+        // sum: ramps, travel, Z lifts and retraction all add real time the naive
+        // model ignored.
+        let naive_total: f64 = layers
+            .iter()
+            .map(|l| estimate_layer_time(l, params.print_speed))
+            .sum();
+        assert!(
+            stats.estimated_print_time_s > naive_total,
+            "accel-aware total {} must exceed naive {naive_total}",
+            stats.estimated_print_time_s
+        );
+
+        // Every marker must have been rewritten away from the naive placeholder.
+        for (i, l) in layers.iter().enumerate() {
+            let naive = estimate_layer_time(l, params.print_speed);
+            assert!(
+                (marker_times[i] - naive).abs() > 1e-6,
+                "layer {i} marker {} must be patched off the naive value {naive}",
+                marker_times[i]
+            );
+        }
+
+        // Per-layer marker sum is a subset of the total (which also counts the
+        // start/end script), so it must not exceed it.
+        let marker_sum: f64 = marker_times.iter().sum();
+        assert!(
+            marker_sum <= stats.estimated_print_time_s + 1e-6,
+            "layer sum {marker_sum} must not exceed total {}",
+            stats.estimated_print_time_s
+        );
+
+        // Header/footer print the same human-formatted figure the stats carry.
+        let human = stats.estimated_time_human();
+        assert!(
+            gcode.contains(&format!("; estimated printing time = {human}")),
+            "header ETA must match stats: {human}"
+        );
+        assert!(
+            gcode.contains(&format!(
+                "; estimated printing time (normal mode) = {human}"
+            )),
+            "footer ETA must match stats: {human}"
+        );
+    }
+
+    #[test]
+    fn test_kinematic_limits_emitted_per_flavor() {
+        use clipper2::Path;
+        let mut layer = SliceLayer::new(0.2);
+        let square: Path = vec![(0.0, 0.0), (10.0, 0.0), (10.0, 10.0), (0.0, 10.0)].into();
+        layer.paths.push(square);
+        layer.path_roles.push(crate::core::ExtrusionRole::OuterWall);
+
+        let params = SlicingParams {
+            square_corner_velocity: 8.0,
+            max_velocity: 300.0,
+            acceleration: 3000.0,
+            ..SlicingParams::default()
+        };
+
+        // Marlin: M203 velocity cap + M205 J junction deviation.
+        let marlin = GcodeGenerator::new(GcodeFlavor::Marlin).generate(&[layer.clone()], &params);
+        assert!(
+            marlin.contains("M203 X300 Y300"),
+            "Marlin must emit the max-feedrate cap: {marlin}"
+        );
+        assert!(
+            marlin.contains("M205 J"),
+            "Marlin must emit a junction-deviation limit: {marlin}"
+        );
+
+        // Klipper: a single SET_VELOCITY_LIMIT with both native fields.
+        let klipper = GcodeGenerator::new(GcodeFlavor::Klipper).generate(&[layer], &params);
+        assert!(
+            klipper.contains("VELOCITY=300"),
+            "Klipper must set the velocity cap: {klipper}"
+        );
+        assert!(
+            klipper.contains("SQUARE_CORNER_VELOCITY=8.00"),
+            "Klipper must set the square-corner velocity: {klipper}"
+        );
+    }
+
+    #[test]
+    fn test_kinematic_limits_absent_when_unset() {
+        let layer = SliceLayer::new(0.2);
+        // Defaults: square_corner_velocity = 0, max_velocity = 0 → no emission.
+        let gcode =
+            GcodeGenerator::new(GcodeFlavor::Marlin).generate(&[layer], &SlicingParams::default());
+        assert!(
+            !gcode.contains("M203"),
+            "no velocity cap must be emitted by default"
+        );
+        assert!(
+            !gcode.contains("M205 J"),
+            "no junction-deviation limit must be emitted by default"
+        );
+    }
+
+    #[test]
+    fn test_time_estimate_calibration_scales_and_offsets_total() {
+        use clipper2::Path;
+        let mk_layers = || {
+            let mut v = Vec::new();
+            for i in 0..2 {
+                let mut l = SliceLayer::new(0.2 * (i as f64 + 1.0));
+                let square: Path = vec![(0.0, 0.0), (20.0, 0.0), (20.0, 20.0), (0.0, 20.0)].into();
+                l.paths.push(square);
+                l.path_roles.push(crate::core::ExtrusionRole::OuterWall);
+                v.push(l);
+            }
+            v
+        };
+
+        let base_params = SlicingParams::default();
+        let (_g, base) = GcodeGenerator::new(GcodeFlavor::Marlin)
+            .generate_with_stats(&mk_layers(), &base_params);
+
+        // scale = 2.0 doubles the toolpath portion; warmup/cooldown add on top.
+        let cal_params = SlicingParams {
+            time_estimate_scale: 2.0,
+            time_estimate_warmup_s: 100.0,
+            time_estimate_cooldown_s: 50.0,
+            ..SlicingParams::default()
+        };
+        let (gcode, cal) =
+            GcodeGenerator::new(GcodeFlavor::Marlin).generate_with_stats(&mk_layers(), &cal_params);
+
+        let expected = base.estimated_print_time_s * 2.0 + 150.0;
+        assert!(
+            (cal.estimated_print_time_s - expected).abs() < 1e-6,
+            "calibrated total {} must equal toolpath×2 + 150 = {expected}",
+            cal.estimated_print_time_s
+        );
+
+        // Per-layer markers are scaled (×2) but carry no fixed allowance. They
+        // are formatted to 0.1 s, so compare with rounding slack rather than
+        // exactly. The fixed 150 s allowance must be absent from the markers.
+        let marker_sum: f64 = gcode
+            .lines()
+            .filter_map(|l| l.trim().strip_prefix(";LAYER_TIME:"))
+            .filter_map(|v| v.trim().parse::<f64>().ok())
+            .sum();
+        assert!(
+            marker_sum < cal.estimated_print_time_s - 100.0,
+            "marker sum {marker_sum} must exclude the 150s fixed allowance (total {})",
+            cal.estimated_print_time_s
+        );
+        assert!(
+            marker_sum > base.estimated_print_time_s,
+            "scaled markers {marker_sum} should exceed the unscaled toolpath total {}",
+            base.estimated_print_time_s
         );
     }
 
@@ -2783,6 +4796,228 @@ CHAMBER={chamber_temp} MATERIAL={filament_type}"
         );
     }
 
+    // ── Chamber temperature management ───────────────────────────────────────
+
+    #[test]
+    fn test_dialect_default_set_chamber_temp() {
+        let d = MarlinDialect;
+        assert_eq!(d.set_chamber_temp(50.0, false), "M141 S50");
+        assert_eq!(d.set_chamber_temp(50.0, true), "M191 S50");
+    }
+
+    #[test]
+    fn test_klipper_dialect_set_chamber_temp_is_native() {
+        // Klipper has no built-in M141/M191 and aborts on unknown commands.
+        let d = KlipperDialect;
+        assert_eq!(
+            d.set_chamber_temp(50.0, false),
+            "SET_HEATER_TEMPERATURE HEATER=chamber TARGET=50"
+        );
+        assert_eq!(
+            d.set_chamber_temp(50.0, true),
+            "TEMPERATURE_WAIT SENSOR=\"heater_generic chamber\" MINIMUM=50"
+        );
+    }
+
+    #[test]
+    fn test_chamber_soak_precedes_the_start_script_and_the_bed_leads_it() {
+        let params = SlicingParams {
+            heated_chamber: true,
+            chamber_temp: 50.0,
+            bed_temp: 100.0,
+            bed_temp_first_layer: 105.0,
+            ..SlicingParams::default()
+        };
+        let gen = GcodeGenerator::new(GcodeFlavor::Marlin)
+            .with_start_script(vec!["G28 ; home".to_string()]);
+        let gcode = gen.generate(&[], &params);
+
+        let bed = gcode
+            .find("M140 S105 ; bed target")
+            .expect("expected the bed to be armed before the soak");
+        let set = gcode.find("M141 S50").expect("expected M141");
+        let wait = gcode.find("M191 S50").expect("expected M191");
+        let home = gcode.find("G28 ; home").expect("expected start script");
+        assert!(
+            bed < set && set < wait,
+            "the bed — the chamber's heat source — must be armed before the soak:\n{gcode}"
+        );
+        assert!(
+            wait < home,
+            "the soak must finish before the start script heats the nozzle:\n{gcode}"
+        );
+    }
+
+    #[test]
+    fn test_no_chamber_directives_without_heated_chamber() {
+        // The filament asks for a chamber; the printer has no chamber heater.
+        let params = SlicingParams {
+            heated_chamber: false,
+            chamber_temp: 50.0,
+            ..SlicingParams::default()
+        };
+        let gcode = GcodeGenerator::new(GcodeFlavor::Marlin).generate(&[], &params);
+        assert!(
+            !gcode.contains("M141") && !gcode.contains("M191"),
+            "chamber directives need the printer's heated_chamber capability:\n{gcode}"
+        );
+    }
+
+    #[test]
+    fn test_no_chamber_directives_when_temp_is_zero() {
+        let params = SlicingParams {
+            heated_chamber: true,
+            chamber_temp: 0.0,
+            ..SlicingParams::default()
+        };
+        let gcode = GcodeGenerator::new(GcodeFlavor::Marlin).generate(&[], &params);
+        assert!(
+            !gcode.contains("M141") && !gcode.contains("M191"),
+            "a chamber target of 0 means 'don't manage the chamber':\n{gcode}"
+        );
+    }
+
+    #[test]
+    fn test_custom_start_script_owns_chamber_heating() {
+        let params = SlicingParams {
+            heated_chamber: true,
+            chamber_temp: 50.0,
+            ..SlicingParams::default()
+        };
+        let gen = GcodeGenerator::new(GcodeFlavor::Klipper).with_start_script(vec![
+            "START_PRINT BED=105 CHAMBER={chamber_temp}".to_string(),
+        ]);
+        let gcode = gen.generate(&[], &params);
+        assert!(
+            gcode.contains("CHAMBER=50"),
+            "the macro must still get its substituted value: {gcode}"
+        );
+        assert!(
+            !gcode.contains("SET_HEATER_TEMPERATURE HEATER=chamber")
+                && !gcode.contains("TEMPERATURE_WAIT"),
+            "a start script that heats the chamber must not be doubled up:\n{gcode}"
+        );
+        assert!(
+            gcode.contains("chamber temperature handled by the custom start G-code"),
+            "the suppression should be visible in the output:\n{gcode}"
+        );
+    }
+
+    #[test]
+    fn test_bed_heater_wait_does_not_suppress_chamber_heating() {
+        // A Klipper macro that waits on the *bed* must not be mistaken for one
+        // that manages the chamber.
+        let params = SlicingParams {
+            heated_chamber: true,
+            chamber_temp: 50.0,
+            ..SlicingParams::default()
+        };
+        let gen = GcodeGenerator::new(GcodeFlavor::Klipper).with_start_script(vec![
+            "SET_HEATER_TEMPERATURE HEATER=heater_bed TARGET=105".to_string(),
+            "TEMPERATURE_WAIT SENSOR=\"heater_bed\" MINIMUM=105".to_string(),
+        ]);
+        let gcode = gen.generate(&[], &params);
+        assert!(
+            gcode.contains("SET_HEATER_TEMPERATURE HEATER=chamber TARGET=50"),
+            "bed heater commands must not suppress chamber heating:\n{gcode}"
+        );
+    }
+
+    #[test]
+    fn test_chamber_fan_does_not_suppress_chamber_heating() {
+        // Enclosed printers routinely drive a chamber circulation fan. Matching
+        // a bare "chamber" would silently disable chamber *heating* — the exact
+        // failure this feature prevents.
+        let params = SlicingParams {
+            heated_chamber: true,
+            chamber_temp: 50.0,
+            ..SlicingParams::default()
+        };
+        for script in [
+            "SET_FAN_SPEED FAN=chamber_fan SPEED=1.0",
+            "M106 P2 S255 ; chamber fan",
+            "; keep the chamber door closed",
+        ] {
+            let gen = GcodeGenerator::new(GcodeFlavor::Marlin)
+                .with_start_script(vec![script.to_string()]);
+            let gcode = gen.generate(&[], &params);
+            assert!(
+                gcode.contains("M141 S50") && gcode.contains("M191 S50"),
+                "'{script}' must not be read as chamber heating:\n{gcode}"
+            );
+        }
+    }
+
+    #[test]
+    fn test_klipper_chamber_heater_script_suppresses_chamber_heating() {
+        // The native Klipper form, written by hand, *is* chamber management.
+        let params = SlicingParams {
+            heated_chamber: true,
+            chamber_temp: 50.0,
+            ..SlicingParams::default()
+        };
+        for script in [
+            "SET_HEATER_TEMPERATURE HEATER=chamber TARGET=50",
+            "TEMPERATURE_WAIT SENSOR=\"heater_generic chamber\" MINIMUM=50",
+        ] {
+            let gen = GcodeGenerator::new(GcodeFlavor::Klipper)
+                .with_start_script(vec![script.to_string()]);
+            let gcode = gen.generate(&[], &params);
+            assert!(
+                gcode.contains("chamber temperature handled by the custom start G-code"),
+                "'{script}' should hand chamber management to the script:\n{gcode}"
+            );
+        }
+    }
+
+    #[test]
+    fn test_chamber_soaks_hotter_for_the_first_layer_then_restores() {
+        let params = SlicingParams {
+            heated_chamber: true,
+            chamber_temp: 45.0,
+            chamber_temp_first_layer: 60.0,
+            ..SlicingParams::default()
+        };
+        let gen = GcodeGenerator::new(GcodeFlavor::Marlin)
+            .with_start_script(vec!["G28 ; home".to_string()])
+            .with_lifecycle_markers(false);
+        let layers = vec![SliceLayer::new(0.2), SliceLayer::new(0.4)];
+        let gcode = gen.generate(&layers, &params);
+
+        assert!(
+            gcode.contains("M141 S60"),
+            "first-layer soak target: {gcode}"
+        );
+        assert!(gcode.contains("M191 S60"), "first-layer soak wait: {gcode}");
+        assert!(
+            gcode.contains("M141 S45 ; restore normal chamber temperature"),
+            "chamber must drop back to the steady-state target: {gcode}"
+        );
+        assert!(
+            !gcode.contains("M191 S45"),
+            "the layer-2 restore must never block:\n{gcode}"
+        );
+    }
+
+    #[test]
+    fn test_chamber_first_layer_placeholders_substitute() {
+        let params = SlicingParams {
+            chamber_temp: 45.0,
+            chamber_temp_first_layer: 60.0,
+            ..SlicingParams::default()
+        };
+        let gen = GcodeGenerator::new(GcodeFlavor::Klipper).with_start_script(vec![
+            "START_PRINT SOAK={chamber_temp_first_layer} HOLD=[chamber_temperature] \
+             ORCA=[chamber_temperature_initial_layer]"
+                .to_string(),
+        ]);
+        let gcode = gen.generate(&[], &params);
+        assert!(
+            gcode.contains("SOAK=60 HOLD=45 ORCA=60"),
+            "chamber first-layer placeholders not substituted: {gcode}"
+        );
+    }
+
     #[test]
     fn test_restores_normal_temperatures_on_second_layer_when_first_layer_overridden() {
         let params = SlicingParams {
@@ -2846,6 +5081,51 @@ CHAMBER={chamber_temp} MATERIAL={filament_type}"
             gcode.contains("END_PRINT"),
             "blank end should fall back: {gcode}"
         );
+    }
+
+    #[test]
+    fn test_filament_gcode_emitted_between_machine_scripts() {
+        let params = SlicingParams {
+            gcode_flavor: GcodeFlavor::Klipper,
+            start_gcode: Some("START_PRINT BED_TEMP={bed_temp}".to_string()),
+            end_gcode: Some("END_PRINT".to_string()),
+            start_filament_gcode: Some("M117 LOADING {filament_type}".to_string()),
+            end_filament_gcode: Some("M117 DONE {filament_type}".to_string()),
+            filament_type: "PETG".to_string(),
+            ..SlicingParams::default()
+        };
+        let gcode = generate_gcode_from_params(&[], &params);
+        // Placeholders in the filament blocks are substituted.
+        assert!(
+            gcode.contains("M117 LOADING PETG"),
+            "filament start not applied: {gcode}"
+        );
+        assert!(
+            gcode.contains("M117 DONE PETG"),
+            "filament end not applied: {gcode}"
+        );
+        // Ordering: machine start → filament start → filament end → machine end.
+        let machine_start = gcode.find("START_PRINT").expect("machine start");
+        let fil_start = gcode.find("M117 LOADING").expect("filament start");
+        let fil_end = gcode.find("M117 DONE").expect("filament end");
+        let machine_end = gcode.find("END_PRINT").expect("machine end");
+        assert!(
+            machine_start < fil_start && fil_start < fil_end && fil_end < machine_end,
+            "unexpected ordering ({machine_start} {fil_start} {fil_end} {machine_end}): {gcode}"
+        );
+    }
+
+    #[test]
+    fn test_filament_gcode_blank_block_is_noop() {
+        let params = SlicingParams {
+            gcode_flavor: GcodeFlavor::Klipper,
+            start_filament_gcode: Some("   \n\t ".to_string()),
+            end_filament_gcode: None,
+            ..SlicingParams::default()
+        };
+        // A blank filament block must not emit stray blank lines or panic.
+        let gcode = generate_gcode_from_params(&[], &params);
+        assert!(gcode.contains("START_PRINT") || gcode.contains("G28"));
     }
 
     #[test]
@@ -3080,6 +5360,65 @@ CHAMBER={chamber_temp} MATERIAL={filament_type}"
             !gcode.contains("; filament_colour ="),
             "empty filament colour must be omitted"
         );
+        assert!(
+            !gcode.contains("; extruder_colour ="),
+            "empty extruder colour must be omitted"
+        );
+        assert!(
+            !gcode.contains("; printer_vendor ="),
+            "empty printer vendor must be omitted"
+        );
+        assert!(
+            !gcode.contains("; printer_model ="),
+            "empty printer model must be omitted"
+        );
+        assert!(
+            !gcode.contains("; total filament cost ="),
+            "unpriced filament must not report a cost"
+        );
+    }
+
+    /// The machine-identity + cost fields printer front-ends display alongside
+    /// a job (issue #23). All are omitted when unset — see the test above.
+    #[test]
+    fn test_metadata_footer_reports_machine_identity_and_cost() {
+        use clipper2::Path;
+        let mut layer = SliceLayer::new(0.2);
+        let square: Path = vec![(0.0, 0.0), (10.0, 0.0), (10.0, 10.0), (0.0, 10.0)].into();
+        layer.paths.push(square);
+        layer.path_roles.push(crate::core::ExtrusionRole::OuterWall);
+
+        let params = SlicingParams {
+            printer_vendor: "Voron".to_string(),
+            printer_model: "Trident 300".to_string(),
+            filament_color: "#1A9CE0".to_string(),
+            filament_cost_per_kg: 25.0,
+            ..SlicingParams::default()
+        };
+
+        let (gcode, stats) =
+            GcodeGenerator::new(GcodeFlavor::Klipper).generate_with_stats(&[layer], &params);
+
+        for needle in [
+            "; printer_vendor = Voron",
+            "; printer_model = Trident 300",
+            "; extruder_colour = #1A9CE0",
+        ] {
+            assert!(
+                gcode.contains(needle),
+                "footer missing `{needle}`:\n{gcode}"
+            );
+        }
+
+        assert!(stats.filament_cost > 0.0, "priced filament must cost money");
+        assert!(
+            gcode.contains(&format!(
+                "; total filament cost = {:.2}",
+                stats.filament_cost
+            )),
+            "footer cost must match the stats figure ({}):\n{gcode}",
+            stats.filament_cost
+        );
     }
 
     #[test]
@@ -3280,7 +5619,12 @@ CHAMBER={chamber_temp} MATERIAL={filament_type}"
             ..SlicingParams::default()
         };
         // When role-specific speed is 0, falls back to print_speed
-        let s = GcodeGenerator::effective_speed_mm_min(ExtrusionRole::OuterWall, false, &params);
+        let s = GcodeGenerator::effective_speed_mm_min(
+            ExtrusionRole::OuterWall,
+            crate::core::OverhangClass::None,
+            false,
+            &params,
+        );
         assert!(
             (s - 60.0 * 60.0).abs() < 1e-6,
             "expected fallback to print_speed * 60"
@@ -3330,12 +5674,22 @@ CHAMBER={chamber_temp} MATERIAL={filament_type}"
             perimeter_speed: 45.0,
             ..SlicingParams::default()
         };
-        let s = GcodeGenerator::effective_speed_mm_min(ExtrusionRole::OuterWall, false, &params);
+        let s = GcodeGenerator::effective_speed_mm_min(
+            ExtrusionRole::OuterWall,
+            crate::core::OverhangClass::None,
+            false,
+            &params,
+        );
         assert!(
             (s - 45.0 * 60.0).abs() < 1e-6,
             "expected perimeter_speed * 60"
         );
-        let s = GcodeGenerator::effective_speed_mm_min(ExtrusionRole::InnerWall, false, &params);
+        let s = GcodeGenerator::effective_speed_mm_min(
+            ExtrusionRole::InnerWall,
+            crate::core::OverhangClass::None,
+            false,
+            &params,
+        );
         assert!(
             (s - 45.0 * 60.0).abs() < 1e-6,
             "inner wall should also use perimeter_speed"
@@ -3408,7 +5762,12 @@ CHAMBER={chamber_temp} MATERIAL={filament_type}"
             infill_speed: 70.0,
             ..SlicingParams::default()
         };
-        let s = GcodeGenerator::effective_speed_mm_min(ExtrusionRole::Infill, false, &params);
+        let s = GcodeGenerator::effective_speed_mm_min(
+            ExtrusionRole::Infill,
+            crate::core::OverhangClass::None,
+            false,
+            &params,
+        );
         assert!((s - 70.0 * 60.0).abs() < 1e-6, "expected infill_speed * 60");
     }
 
@@ -3420,7 +5779,12 @@ CHAMBER={chamber_temp} MATERIAL={filament_type}"
             bridge_speed: 25.0,
             ..SlicingParams::default()
         };
-        let s = GcodeGenerator::effective_speed_mm_min(ExtrusionRole::Bridge, false, &params);
+        let s = GcodeGenerator::effective_speed_mm_min(
+            ExtrusionRole::Bridge,
+            crate::core::OverhangClass::None,
+            false,
+            &params,
+        );
         assert!((s - 25.0 * 60.0).abs() < 1e-6, "expected bridge_speed * 60");
     }
 
@@ -3434,10 +5798,208 @@ CHAMBER={chamber_temp} MATERIAL={filament_type}"
             ..SlicingParams::default()
         };
         // On first layer, all roles get first_layer_speed
-        let s = GcodeGenerator::effective_speed_mm_min(ExtrusionRole::Infill, true, &params);
+        let s = GcodeGenerator::effective_speed_mm_min(
+            ExtrusionRole::Infill,
+            crate::core::OverhangClass::None,
+            true,
+            &params,
+        );
         assert!(
             (s - 20.0 * 60.0).abs() < 1e-6,
             "first_layer_speed should override infill_speed on first layer"
+        );
+    }
+
+    #[test]
+    fn test_effective_speed_dynamic_overhang_per_degree() {
+        use crate::core::{ExtrusionRole, OverhangClass};
+        let params = SlicingParams {
+            print_speed: 60.0,
+            perimeter_speed: 45.0,
+            bridge_speed: 25.0,
+            enable_overhang_speed: true,
+            overhang_1_4_speed: 0.0, // no slowdown → perimeter_speed
+            overhang_2_4_speed: 40.0,
+            overhang_3_4_speed: 30.0,
+            overhang_4_4_speed: 15.0,
+            ..SlicingParams::default()
+        };
+        // Deg1 (0) falls back to the mild wall base (perimeter_speed).
+        let s1 = GcodeGenerator::effective_speed_mm_min(
+            ExtrusionRole::InnerWall,
+            OverhangClass::Deg1,
+            false,
+            &params,
+        );
+        assert!((s1 - 45.0 * 60.0).abs() < 1e-6, "Deg1=0 → perimeter_speed");
+        // Deg2 uses its configured speed even on a still-InnerWall segment.
+        let s2 = GcodeGenerator::effective_speed_mm_min(
+            ExtrusionRole::InnerWall,
+            OverhangClass::Deg2,
+            false,
+            &params,
+        );
+        assert!((s2 - 40.0 * 60.0).abs() < 1e-6, "Deg2 → overhang_2_4_speed");
+        // Deg3/Deg4 carry the OverhangPerimeter role and use their speeds.
+        let s3 = GcodeGenerator::effective_speed_mm_min(
+            ExtrusionRole::OverhangPerimeter,
+            OverhangClass::Deg3,
+            false,
+            &params,
+        );
+        assert!((s3 - 30.0 * 60.0).abs() < 1e-6, "Deg3 → overhang_3_4_speed");
+        let s4 = GcodeGenerator::effective_speed_mm_min(
+            ExtrusionRole::OverhangPerimeter,
+            OverhangClass::Deg4,
+            false,
+            &params,
+        );
+        assert!((s4 - 15.0 * 60.0).abs() < 1e-6, "Deg4 → overhang_4_4_speed");
+    }
+
+    #[test]
+    fn test_effective_speed_overhang_disabled_ignores_degree() {
+        use crate::core::{ExtrusionRole, OverhangClass};
+        // Feature off: an OverhangPerimeter Deg4 path still prints at bridge_speed.
+        let params = SlicingParams {
+            print_speed: 60.0,
+            bridge_speed: 25.0,
+            enable_overhang_speed: false,
+            overhang_4_4_speed: 5.0, // ignored while disabled
+            ..SlicingParams::default()
+        };
+        let s = GcodeGenerator::effective_speed_mm_min(
+            ExtrusionRole::OverhangPerimeter,
+            OverhangClass::Deg4,
+            false,
+            &params,
+        );
+        assert!(
+            (s - 25.0 * 60.0).abs() < 1e-6,
+            "disabled overhang speed must fall back to bridge_speed"
+        );
+    }
+
+    #[test]
+    fn test_effective_speed_slowdown_for_curled_perimeters_clamps_steep() {
+        use crate::core::{ExtrusionRole, OverhangClass};
+        let params = SlicingParams {
+            print_speed: 60.0,
+            enable_overhang_speed: true,
+            slowdown_for_curled_perimeters: true,
+            overhang_2_4_speed: 12.0, // slowest positive → the curl clamp
+            overhang_3_4_speed: 30.0,
+            overhang_4_4_speed: 20.0,
+            ..SlicingParams::default()
+        };
+        // Deg3's own speed (30) is clamped down to the slowest positive (12).
+        let s3 = GcodeGenerator::effective_speed_mm_min(
+            ExtrusionRole::OverhangPerimeter,
+            OverhangClass::Deg3,
+            false,
+            &params,
+        );
+        assert!(
+            (s3 - 12.0 * 60.0).abs() < 1e-6,
+            "curl clamp → slowest speed"
+        );
+    }
+
+    #[test]
+    fn test_overhang_meets_fan_threshold_default_half() {
+        use crate::core::OverhangClass;
+        let params = SlicingParams {
+            overhang_fan_threshold: 0.5,
+            ..SlicingParams::default()
+        };
+        assert!(!overhang_meets_fan_threshold(OverhangClass::Deg1, &params));
+        assert!(!overhang_meets_fan_threshold(OverhangClass::Deg2, &params));
+        assert!(overhang_meets_fan_threshold(OverhangClass::Deg3, &params));
+        assert!(overhang_meets_fan_threshold(OverhangClass::Deg4, &params));
+    }
+
+    /// A plain square wall layer at `z`, used to pad the layer stack so a test's
+    /// interesting layer is not the bed-contact layer (where
+    /// `disable_fan_first_layers` pins the part-cooling fan).
+    fn plain_wall_layer(z: f64) -> SliceLayer {
+        use crate::core::{ExtrusionRole, OverhangClass};
+        use clipper2::Path;
+        let mut layer = SliceLayer::new(z);
+        let wall: Path = vec![(0.0, 0.0), (10.0, 0.0), (10.0, 10.0), (0.0, 10.0)].into();
+        layer.paths.push(wall);
+        layer.path_roles.push(ExtrusionRole::InnerWall);
+        layer.path_overhang.push(OverhangClass::None);
+        layer.path_is_open = vec![false];
+        layer
+    }
+
+    #[test]
+    fn test_generator_emits_overhang_fan_command() {
+        use crate::core::{ExtrusionRole, OverhangClass};
+        use clipper2::Path;
+        let mut layer = SliceLayer::new(1.0);
+        // A supported inner wall then a steep overhang arc.
+        let wall: Path = vec![(0.0, 0.0), (10.0, 0.0), (10.0, 10.0), (0.0, 10.0)].into();
+        let arc: Path = vec![(0.0, 20.0), (10.0, 20.0), (10.0, 30.0)].into();
+        layer.paths.push(wall);
+        layer.path_roles.push(ExtrusionRole::InnerWall);
+        layer.path_overhang.push(OverhangClass::None);
+        layer.paths.push(arc);
+        layer.path_roles.push(ExtrusionRole::OverhangPerimeter);
+        layer.path_overhang.push(OverhangClass::Deg4);
+        layer.path_is_open = vec![false, true];
+
+        let params = SlicingParams {
+            enable_overhang_speed: true,
+            overhang_fan_speed: 1.0,
+            overhang_fan_threshold: 0.5,
+            // Bridge cooling off so only the overhang trigger can fire here.
+            bridge_fan_speed: 0.0,
+            // Base part-cooling fan tops out at 50% so the overhang boost to
+            // 100% is a genuine change the generator must emit.
+            fan_configs: vec![crate::settings::params::FanConfig {
+                fan_index: 0,
+                klipper_name: None,
+                min_speed: 0.3,
+                max_speed: 0.5,
+                layer_time_fast_s: 10.0,
+                layer_time_slow_s: 30.0,
+                aux_overrides: None,
+            }],
+            ..SlicingParams::default()
+        };
+        let gen = GcodeGenerator::new(GcodeFlavor::Marlin);
+        // The overhang must sit above the layers `disable_fan_first_layers` pins.
+        let gcode = gen.generate(&[plain_wall_layer(0.2), layer], &params);
+        assert!(
+            gcode.contains("; dynamic fan"),
+            "expected an overhang fan command in:\n{gcode}"
+        );
+    }
+
+    #[test]
+    fn test_generator_no_overhang_fan_when_disabled() {
+        use crate::core::{ExtrusionRole, OverhangClass};
+        use clipper2::Path;
+        let mut layer = SliceLayer::new(1.0);
+        let arc: Path = vec![(0.0, 20.0), (10.0, 20.0), (10.0, 30.0)].into();
+        layer.paths.push(arc);
+        layer.path_roles.push(ExtrusionRole::OverhangPerimeter);
+        layer.path_overhang.push(OverhangClass::Deg4);
+        layer.path_is_open = vec![true];
+
+        // Both dynamic-fan triggers off → no override.
+        let params = SlicingParams {
+            enable_overhang_speed: true,
+            overhang_fan_speed: 0.0,
+            bridge_fan_speed: 0.0,
+            ..SlicingParams::default()
+        };
+        let gen = GcodeGenerator::new(GcodeFlavor::Marlin);
+        let gcode = gen.generate(&[plain_wall_layer(0.2), layer], &params);
+        assert!(
+            !gcode.contains("; dynamic fan"),
+            "no overhang fan command expected when overhang_fan_speed is 0:\n{gcode}"
         );
     }
 
@@ -3549,6 +6111,170 @@ CHAMBER={chamber_temp} MATERIAL={filament_type}"
         assert!(
             !gcode.contains("M106") && !gcode.contains("M107"),
             "unexpected fan command when fan_configs is empty:\n{gcode}"
+        );
+    }
+
+    // ── Part-cooling material policy ──────────────────────────────────────────
+
+    #[test]
+    fn test_part_cooling_speed_pins_first_layers() {
+        let params = SlicingParams {
+            disable_fan_first_layers: 2,
+            first_layer_fan_speed: 0.0,
+            fan_speed: 1.0,
+            ..SlicingParams::default()
+        };
+        // Pinned layers ignore the adaptive curve entirely.
+        assert_eq!(params.part_cooling_speed(0, 1.0), 0.0);
+        assert_eq!(params.part_cooling_speed(1, 1.0), 0.0);
+        assert!(params.part_cooling_pinned(1));
+        // The first free layer gets the curve back.
+        assert!(!params.part_cooling_pinned(2));
+        assert_eq!(params.part_cooling_speed(2, 1.0), 1.0);
+    }
+
+    #[test]
+    fn test_part_cooling_speed_clamps_to_material_ceiling() {
+        // An ABS-style preset: the adaptive curve wants full cooling, the
+        // material only tolerates 30%.
+        let params = SlicingParams {
+            disable_fan_first_layers: 1,
+            fan_speed: 0.3,
+            ..SlicingParams::default()
+        };
+        assert!((params.part_cooling_speed(5, 1.0) - 0.3).abs() < 1e-9);
+        // The ceiling never *raises* a slower adaptive speed.
+        assert!((params.part_cooling_speed(5, 0.1) - 0.1).abs() < 1e-9);
+    }
+
+    #[test]
+    fn test_generator_part_cooling_fan_off_on_first_layer() {
+        use clipper2::Path;
+        let mut first = SliceLayer::new(0.2);
+        let square: Path = vec![(0.0, 0.0), (10.0, 0.0), (10.0, 10.0), (0.0, 10.0)].into();
+        first.paths.push(square);
+        let second = plain_wall_layer(0.4);
+
+        // Stock defaults: disable_fan_first_layers = 1, first_layer_fan_speed = 0.
+        let params = SlicingParams::default();
+        let gcode = GcodeGenerator::new(GcodeFlavor::Marlin).generate(&[first, second], &params);
+        let fan_lines: Vec<&str> = gcode
+            .lines()
+            .filter(|l| l.starts_with("M106") || l.starts_with("M107"))
+            .collect();
+        assert_eq!(
+            fan_lines.first().copied(),
+            Some("M107"),
+            "part cooling must be off on the bed-contact layer:\n{gcode}"
+        );
+        assert!(
+            fan_lines.iter().skip(1).any(|l| l.starts_with("M106")),
+            "part cooling must come back on above the pinned layers:\n{gcode}"
+        );
+    }
+
+    #[test]
+    fn test_generator_fan_speed_ceiling_caps_part_cooling() {
+        use clipper2::Path;
+        let mut layer = SliceLayer::new(0.4);
+        let square: Path = vec![(0.0, 0.0), (10.0, 0.0), (10.0, 10.0), (0.0, 10.0)].into();
+        layer.paths.push(square);
+
+        let params = SlicingParams {
+            fan_speed: 0.2, // ABS-style ceiling: 0.2 × 255 ≈ 51
+            ..SlicingParams::default()
+        };
+        let gcode = GcodeGenerator::new(GcodeFlavor::Marlin)
+            .generate(&[plain_wall_layer(0.2), layer], &params);
+        assert!(
+            gcode.contains("M106 S51"),
+            "expected the part-cooling fan clamped to the material ceiling in:\n{gcode}"
+        );
+    }
+
+    #[test]
+    fn test_generator_ceiling_does_not_touch_non_part_cooling_fans() {
+        use crate::settings::params::FanConfig;
+        use clipper2::Path;
+        let mut layer = SliceLayer::new(0.4);
+        let square: Path = vec![(0.0, 0.0), (10.0, 0.0), (10.0, 10.0), (0.0, 10.0)].into();
+        layer.paths.push(square);
+
+        let params = SlicingParams {
+            fan_speed: 0.2,
+            fan_configs: vec![FanConfig {
+                fan_index: crate::settings::params::fan_index::AUX,
+                klipper_name: None,
+                min_speed: 1.0,
+                max_speed: 1.0,
+                layer_time_fast_s: 10.0,
+                layer_time_slow_s: 30.0,
+                aux_overrides: None,
+            }],
+            ..SlicingParams::default()
+        };
+        let gcode = GcodeGenerator::new(GcodeFlavor::Marlin)
+            .generate(&[plain_wall_layer(0.2), layer], &params);
+        assert!(
+            gcode.contains("M106 P3 S255"),
+            "the material ceiling governs the part-cooling fan only:\n{gcode}"
+        );
+    }
+
+    #[test]
+    fn test_generator_emits_bridge_fan_override() {
+        use crate::core::{ExtrusionRole, OverhangClass};
+        use clipper2::Path;
+        let mut layer = SliceLayer::new(0.4);
+        // Bridge first, then a supported wall, so both the boost *and* the
+        // restore to the layer's normal cooling are exercised.
+        let span: Path = vec![(0.0, 20.0), (10.0, 20.0)].into();
+        let wall: Path = vec![(0.0, 0.0), (10.0, 0.0), (10.0, 10.0), (0.0, 10.0)].into();
+        layer.paths.push(span);
+        layer.path_roles.push(ExtrusionRole::Bridge);
+        layer.path_overhang.push(OverhangClass::None);
+        layer.paths.push(wall);
+        layer.path_roles.push(ExtrusionRole::InnerWall);
+        layer.path_overhang.push(OverhangClass::None);
+        layer.path_is_open = vec![true, false];
+
+        let params = SlicingParams {
+            bridge_fan_speed: 1.0,
+            // Base cooling tops out at 40% so the bridge boost is a real change.
+            fan_speed: 0.4,
+            ..SlicingParams::default()
+        };
+        let gcode = GcodeGenerator::new(GcodeFlavor::Marlin)
+            .generate(&[plain_wall_layer(0.2), layer], &params);
+        assert!(
+            gcode.contains("M106 S255 ; dynamic fan"),
+            "expected the bridge fan boost in:\n{gcode}"
+        );
+        assert!(
+            gcode.contains("M106 S102 ; dynamic fan"),
+            "expected the fan restored to the layer's normal cooling in:\n{gcode}"
+        );
+    }
+
+    #[test]
+    fn test_generator_bridge_fan_suppressed_on_pinned_first_layer() {
+        use crate::core::{ExtrusionRole, OverhangClass};
+        use clipper2::Path;
+        let mut layer = SliceLayer::new(0.2);
+        let span: Path = vec![(0.0, 20.0), (10.0, 20.0)].into();
+        layer.paths.push(span);
+        layer.path_roles.push(ExtrusionRole::Bridge);
+        layer.path_overhang.push(OverhangClass::None);
+        layer.path_is_open = vec![true];
+
+        let params = SlicingParams {
+            bridge_fan_speed: 1.0,
+            ..SlicingParams::default()
+        };
+        let gcode = GcodeGenerator::new(GcodeFlavor::Marlin).generate(&[layer], &params);
+        assert!(
+            !gcode.contains("; dynamic fan"),
+            "the first-layer adhesion gate must not be defeated by a bridge:\n{gcode}"
         );
     }
 
@@ -4018,5 +6744,1004 @@ CHAMBER={chamber_temp} MATERIAL={filament_type}"
             !gcode.contains("speed=0.0000"),
             "bridge boost should raise speed above 0 in:\n{gcode}"
         );
+    }
+
+    // ── Spiral (vase) mode ─────────────────────────────────────────────────
+
+    /// Build `n` stacked single-square outer-wall layers at 0.2 mm pitch,
+    /// modelling a solid prism suitable for spiralization.
+    fn spiral_square_layers(n: usize) -> Vec<SliceLayer> {
+        use clipper2::Path;
+        (0..n)
+            .map(|i| {
+                let z = 0.2 * (i as f64 + 1.0);
+                let mut layer = SliceLayer::new(z);
+                let square: Path = vec![(0.0, 0.0), (10.0, 0.0), (10.0, 10.0), (0.0, 10.0)].into();
+                layer.paths.push(square);
+                layer.path_roles.push(crate::core::ExtrusionRole::OuterWall);
+                layer
+            })
+            .collect()
+    }
+
+    /// Extract the `Z` value from a `G1 … Z… E…` extruding move (returns `None`
+    /// for non-extruding / Z-less moves).
+    fn extrude_move_z(line: &str) -> Option<f64> {
+        if !line.starts_with("G1 ") || !line.contains(" E") {
+            return None;
+        }
+        for tok in line.split_whitespace() {
+            if let Some(rest) = tok.strip_prefix('Z') {
+                return rest.parse::<f64>().ok();
+            }
+        }
+        None
+    }
+
+    #[test]
+    fn spiral_vase_normalized_forces_single_wall_config() {
+        let params = SlicingParams {
+            spiral_vase: true,
+            wall_count: 4,
+            infill_density: 0.35,
+            top_layers: 5,
+            bottom_layers: 3,
+            retract_mm: 1.5,
+            z_hop_mm: 0.4,
+            ironing_enabled: true,
+            ..SlicingParams::default()
+        };
+        let n = params.spiral_vase_normalized();
+        assert_eq!(n.wall_count, 1);
+        assert_eq!(n.infill_density, 0.0);
+        assert_eq!(n.top_layers, 0);
+        assert_eq!(n.retract_mm, 0.0);
+        assert_eq!(n.z_hop_mm, 0.0);
+        assert!(!n.ironing_enabled);
+        // The base is preserved so the vase has a floor.
+        assert_eq!(n.bottom_layers, 3);
+    }
+
+    #[test]
+    fn spiral_vase_normalized_is_noop_when_disabled() {
+        let params = SlicingParams {
+            wall_count: 4,
+            ..SlicingParams::default()
+        };
+        // Borrowed (unchanged) when the flag is off.
+        assert_eq!(params.spiral_vase_normalized().wall_count, 4);
+    }
+
+    #[test]
+    fn spiral_vase_ramps_z_continuously() {
+        let params = SlicingParams {
+            spiral_vase: true,
+            bottom_layers: 3,
+            ..SlicingParams::default()
+        };
+        let layers = spiral_square_layers(6);
+        let gcode = GcodeGenerator::new(GcodeFlavor::Marlin).generate(&layers, &params);
+
+        // Collect the Z of every extruding move in the spiral body.
+        let zs: Vec<f64> = gcode.lines().filter_map(extrude_move_z).collect();
+        assert!(
+            zs.len() > 10,
+            "expected many ramped extrude moves, got {}:\n{gcode}",
+            zs.len()
+        );
+        // The helix only ever climbs.
+        for w in zs.windows(2) {
+            assert!(
+                w[1] >= w[0] - 1e-9,
+                "spiral Z must be non-decreasing: {} -> {}",
+                w[0],
+                w[1]
+            );
+        }
+        // At least one intermediate Z sits strictly between two layer heights,
+        // proving the rise is distributed along the perimeter (not a step).
+        let has_fractional = zs
+            .iter()
+            .any(|z| (z / 0.2 - (z / 0.2).round()).abs() > 1e-3);
+        assert!(
+            has_fractional,
+            "expected a continuously-ramped (fractional) Z, got {zs:?}"
+        );
+        // The top of the spiral reaches the last layer's Z.
+        let zmax = zs.iter().cloned().fold(f64::MIN, f64::max);
+        assert!(
+            (zmax - 1.2).abs() < 1e-6,
+            "spiral top Z should be 1.2, got {zmax}"
+        );
+    }
+
+    #[test]
+    fn spiral_vase_keeps_flat_base_and_skips_move_z_on_spiral_layers() {
+        let params = SlicingParams {
+            spiral_vase: true,
+            bottom_layers: 3,
+            ..SlicingParams::default()
+        };
+        let layers = spiral_square_layers(6);
+        let gcode = GcodeGenerator::new(GcodeFlavor::Marlin).generate(&layers, &params);
+
+        // Base layers (z = 0.2/0.4/0.6) print flat: a discrete Z move exists.
+        assert!(
+            gcode.contains("G1 Z0.200"),
+            "missing base move to 0.2:\n{gcode}"
+        );
+        assert!(
+            gcode.contains("G1 Z0.600"),
+            "missing base move to 0.6:\n{gcode}"
+        );
+        // Spiral layers (z ≥ 0.8) must NOT get a discrete Z move — the ramp
+        // carries Z inside the extrude moves instead.
+        assert!(
+            !gcode.contains("G1 Z0.800"),
+            "spiral layer must not emit a discrete Z move:\n{gcode}"
+        );
+        // Continuous-Z extrude moves are present.
+        assert!(
+            gcode.lines().any(|l| extrude_move_z(l).is_some()),
+            "expected ramped extrude moves:\n{gcode}"
+        );
+    }
+
+    #[test]
+    fn spiral_vase_warns_and_falls_back_on_multi_island_layer() {
+        use clipper2::Path;
+        use std::cell::RefCell;
+        use std::rc::Rc;
+
+        let params = SlicingParams {
+            spiral_vase: true,
+            bottom_layers: 3,
+            ..SlicingParams::default()
+        };
+        // Layers 0-2 base, layer 3 has TWO disjoint islands, layer 4 single.
+        let mut layers = spiral_square_layers(5);
+        let second: Path = vec![(20.0, 0.0), (30.0, 0.0), (30.0, 10.0), (20.0, 10.0)].into();
+        layers[3].paths.push(second);
+        layers[3]
+            .path_roles
+            .push(crate::core::ExtrusionRole::OuterWall);
+
+        let warnings = Rc::new(RefCell::new(Vec::<String>::new()));
+        let sink = warnings.clone();
+        let gcode = GcodeGenerator::new(GcodeFlavor::Marlin)
+            .with_warn_fn(move |m| sink.borrow_mut().push(m.to_string()))
+            .generate(&layers, &params);
+
+        assert!(
+            warnings
+                .borrow()
+                .iter()
+                .any(|w| w.contains("multiple islands")),
+            "expected a multi-island warning, got {:?}",
+            warnings.borrow()
+        );
+        // The multi-island layer (z = 0.8) falls back to a normal flat print,
+        // so its discrete Z move is present.
+        assert!(
+            gcode.contains("G1 Z0.800"),
+            "multi-island layer should fall back to a flat print:\n{gcode}"
+        );
+        // The single-island layer above it still spiralizes (continuous Z).
+        assert!(
+            gcode.lines().filter_map(extrude_move_z).any(|z| z > 0.8),
+            "layer above the multi-island one should still spiralize:\n{gcode}"
+        );
+    }
+
+    /// Extract the `E` value from a `G1 … E…` move.
+    fn move_e(line: &str) -> Option<f64> {
+        for tok in line.split_whitespace() {
+            if let Some(rest) = tok.strip_prefix('E') {
+                return rest.parse::<f64>().ok();
+            }
+        }
+        None
+    }
+
+    #[test]
+    fn spiral_vase_fades_flow_in_at_start_and_out_at_end() {
+        let params = SlicingParams {
+            spiral_vase: true,
+            bottom_layers: 3,
+            ..SlicingParams::default()
+        };
+        // Spiral layers: 3 (first), 4, 5 (middle), 6 (last).
+        let layers = spiral_square_layers(7);
+        let gcode = GcodeGenerator::new(GcodeFlavor::Marlin).generate(&layers, &params);
+
+        // Group the E of every ramped (spiral) move by layer. E resets to 0 at
+        // each layer, so a drop marks a new layer.
+        let mut groups: Vec<Vec<f64>> = Vec::new();
+        let mut cur: Vec<f64> = Vec::new();
+        let mut last_e = f64::MAX;
+        for line in gcode.lines() {
+            if extrude_move_z(line).is_none() {
+                continue;
+            }
+            let e = move_e(line).expect("ramped move carries E");
+            if e < last_e - 1e-9 && !cur.is_empty() {
+                groups.push(std::mem::take(&mut cur));
+            }
+            cur.push(e);
+            last_e = e;
+        }
+        if !cur.is_empty() {
+            groups.push(cur);
+        }
+        assert_eq!(groups.len(), 4, "expected 4 spiral layers, got {groups:?}");
+
+        let deltas = |es: &[f64]| -> Vec<f64> {
+            let mut d = vec![es[0]];
+            for w in es.windows(2) {
+                d.push(w[1] - w[0]);
+            }
+            d
+        };
+        let first = deltas(&groups[0]);
+        let mid = deltas(&groups[2]);
+        let last = deltas(&groups[3]);
+
+        // First spiral loop fades in: strictly increasing deposition.
+        assert!(
+            first.windows(2).all(|w| w[1] > w[0] - 1e-9) && first[3] > first[0] + 1e-6,
+            "first spiral loop should fade flow in: {first:?}"
+        );
+        // Middle spiral loops are steady full flow (a perfect square → equal
+        // per-segment deposition).
+        let mid_max = mid.iter().cloned().fold(f64::MIN, f64::max);
+        let mid_min = mid.iter().cloned().fold(f64::MAX, f64::min);
+        assert!(
+            mid_min > 0.0 && (mid_max - mid_min) < 1e-3,
+            "middle steady: {mid:?}"
+        );
+        // Last spiral loop fades out to ~zero.
+        assert!(
+            last.windows(2).all(|w| w[1] < w[0] + 1e-9) && last[3] < last[0] - 1e-6,
+            "last spiral loop should fade flow out: {last:?}"
+        );
+        assert!(
+            last.last().unwrap().abs() < 1e-6,
+            "last spiral segment should deposit ~0 (seam fade-out): {last:?}"
+        );
+    }
+
+    #[test]
+    fn spiral_vase_body_has_no_retraction() {
+        // With no base (open tube) every layer above 0 spiralizes; the spiral
+        // body is one continuous extrusion with no retract ceremony.
+        let params = SlicingParams {
+            spiral_vase: true,
+            bottom_layers: 0,
+            ..SlicingParams::default()
+        };
+        let layers = spiral_square_layers(5);
+        let gcode = GcodeGenerator::new(GcodeFlavor::Marlin).generate(&layers, &params);
+
+        // Once the spiral starts it is one uninterrupted extrusion: no retract
+        // or z-hop ceremony appears after the first ramped move. (The initial
+        // approach before the spiral may retract; that is expected.)
+        let lines: Vec<&str> = gcode.lines().collect();
+        let first_spiral = lines
+            .iter()
+            .position(|l| extrude_move_z(l).is_some())
+            .expect("spiral body should contain ramped extrude moves");
+        assert!(
+            lines[first_spiral..]
+                .iter()
+                .all(|l| !l.contains("; retract") && !l.contains("; z-hop")),
+            "spiral vase body must not retract or z-hop:\n{gcode}"
+        );
+    }
+
+    // ── Machine Z offset (issue #102) ──────────────────────────────────────
+
+    /// Every `Z` word on a `G1` line, extruding or not.
+    fn all_g1_z(gcode: &str) -> Vec<f64> {
+        gcode
+            .lines()
+            .filter(|l| l.starts_with("G1 "))
+            .filter_map(|l| {
+                l.split_whitespace()
+                    .find_map(|tok| tok.strip_prefix('Z')?.parse::<f64>().ok())
+            })
+            .collect()
+    }
+
+    /// The print body: from the first layer marker through the last extruding
+    /// move. Excludes the machine start/end scripts, which are passed through
+    /// verbatim and must never be rewritten (the Marlin end script's
+    /// `G1 Z5 F3000` is a *relative* `G91` lift — offsetting it would be wrong).
+    fn print_body(gcode: &str) -> String {
+        let lines: Vec<&str> = gcode.lines().collect();
+        let start = lines
+            .iter()
+            .position(|l| l.contains(";LAYER_CHANGE") || l.starts_with("; layer z="))
+            .expect("no layer marker");
+        let end = lines
+            .iter()
+            .rposition(|l| l.starts_with("G1 ") && l.contains(" E"))
+            .expect("no extruding move");
+        lines[start..=end].join("\n")
+    }
+
+    /// Two stacked squares far enough apart to force a retract + z-hop travel
+    /// between them, so a run exercises layer moves, hops and lowers.
+    fn offset_test_layers() -> Vec<SliceLayer> {
+        use clipper2::Path;
+        (0..3)
+            .map(|i| {
+                let mut layer = SliceLayer::new(0.2 * (i as f64 + 1.0));
+                let a: Path = vec![(0.0, 0.0), (10.0, 0.0), (10.0, 10.0), (0.0, 10.0)].into();
+                let b: Path = vec![(50.0, 50.0), (60.0, 50.0), (60.0, 60.0), (50.0, 60.0)].into();
+                layer.paths.push(a);
+                layer.path_roles.push(crate::core::ExtrusionRole::OuterWall);
+                layer.paths.push(b);
+                layer.path_roles.push(crate::core::ExtrusionRole::OuterWall);
+                layer
+            })
+            .collect()
+    }
+
+    #[test]
+    fn z_offset_shifts_every_emitted_z_without_touching_extrusion() {
+        for offset in [0.25_f64, -0.15] {
+            let base = SlicingParams::default();
+            let shifted = SlicingParams {
+                z_offset_mm: offset,
+                ..SlicingParams::default()
+            };
+            let layers = offset_test_layers();
+            let gen = GcodeGenerator::new(GcodeFlavor::Marlin);
+            let plain = gen.generate(&layers, &base);
+            let moved = gen.generate(&layers, &shifted);
+
+            let plain_z = all_g1_z(&print_body(&plain));
+            let moved_z = all_g1_z(&print_body(&moved));
+            assert!(!plain_z.is_empty(), "fixture emitted no Z moves:\n{plain}");
+            assert_eq!(
+                plain_z.len(),
+                moved_z.len(),
+                "the offset must not add or drop moves"
+            );
+            for (p, m) in plain_z.iter().zip(&moved_z) {
+                assert!(
+                    (m - (p + offset)).abs() < 1e-6,
+                    "Z {p} should have become {} with offset {offset}, got {m}",
+                    p + offset
+                );
+            }
+
+            // The machine end script is passed through verbatim: its lift is a
+            // relative (`G91`) 5 mm hop, not a bed-referenced coordinate.
+            assert!(
+                plain.contains("G1 Z5 F3000 ; lift nozzle")
+                    && moved.contains("G1 Z5 F3000 ; lift nozzle"),
+                "machine scripts must not be rewritten by the offset:\n{moved}"
+            );
+
+            // Extrusion is a machine-Z-independent quantity: every E word, and
+            // the line count, must be untouched.
+            let e_of = |g: &str| -> Vec<String> {
+                g.lines()
+                    .filter_map(|l| {
+                        l.split_whitespace()
+                            .find(|tok| tok.starts_with('E'))
+                            .map(str::to_string)
+                    })
+                    .collect()
+            };
+            assert_eq!(e_of(&plain), e_of(&moved), "offset changed extrusion");
+            assert_eq!(
+                plain.lines().count(),
+                moved.lines().count(),
+                "offset changed the emitted line count"
+            );
+        }
+    }
+
+    #[test]
+    fn z_offset_zero_is_byte_identical() {
+        let layers = offset_test_layers();
+        let gen = GcodeGenerator::new(GcodeFlavor::Marlin);
+        let implicit = gen.generate(&layers, &SlicingParams::default());
+        let explicit = gen.generate(
+            &layers,
+            &SlicingParams {
+                z_offset_mm: 0.0,
+                ..SlicingParams::default()
+            },
+        );
+        assert_eq!(implicit, explicit, "a zero offset must be a pure no-op");
+    }
+
+    #[test]
+    fn z_offset_applies_to_hop_and_lower_moves() {
+        let params = SlicingParams {
+            z_offset_mm: 0.5,
+            z_hop_mm: 0.4,
+            retract_mm: 1.0,
+            ..SlicingParams::default()
+        };
+        let gcode =
+            GcodeGenerator::new(GcodeFlavor::Marlin).generate(&offset_test_layers(), &params);
+        let z_on = |tag: &str| -> Vec<f64> {
+            gcode
+                .lines()
+                .filter(|l| l.ends_with(tag))
+                .filter_map(|l| {
+                    l.split_whitespace()
+                        .find_map(|tok| tok.strip_prefix('Z')?.parse::<f64>().ok())
+                })
+                .collect()
+        };
+        let hops = z_on("; z-hop");
+        let lowers = z_on("; lower");
+        assert!(!hops.is_empty(), "fixture produced no z-hop:\n{gcode}");
+        assert_eq!(hops.len(), lowers.len());
+        // First layer sits at 0.2 → lower 0.7, hop 0.7 + 0.4 = 1.1.
+        assert!(
+            hops.iter()
+                .zip(&lowers)
+                .all(|(h, l)| (h - l - 0.4).abs() < 1e-6),
+            "hop must stay exactly z_hop_mm above the lower move: {hops:?} / {lowers:?}"
+        );
+        assert!(
+            lowers.iter().any(|l| (l - 0.7).abs() < 1e-6),
+            "expected a lower move at 0.2 + 0.5 offset: {lowers:?}"
+        );
+    }
+
+    #[test]
+    fn z_offset_shifts_layer_markers_but_not_the_custom_layer_script() {
+        // `;Z:` describes where the nozzle physically is (offset included);
+        // the custom layer script's `{z}` is the model's layer Z (offset free),
+        // mirroring PrusaSlicer's `layer_z` placeholder.
+        let params = SlicingParams {
+            z_offset_mm: 0.3,
+            ..SlicingParams::default()
+        };
+        let gcode = GcodeGenerator::new(GcodeFlavor::Klipper)
+            .with_layer_script(vec!["_ON_LAYER_CHANGE LAYER={layer_num} Z={z}".to_string()])
+            .generate(&[SliceLayer::new(0.2)], &params);
+
+        assert!(
+            gcode.contains(";Z:0.500"),
+            "layer marker should carry the offset:\n{gcode}"
+        );
+        assert!(
+            !gcode.contains(";Z:0.200"),
+            "un-offset layer marker leaked:\n{gcode}"
+        );
+        assert!(
+            gcode.contains("_ON_LAYER_CHANGE LAYER=1 Z=0.200"),
+            "custom layer script must see the model Z:\n{gcode}"
+        );
+    }
+
+    #[test]
+    fn z_offset_shifts_the_spiral_ramp_end_to_end() {
+        let params = SlicingParams {
+            spiral_vase: true,
+            bottom_layers: 1,
+            z_offset_mm: 1.0,
+            ..SlicingParams::default()
+        };
+        let layers = spiral_square_layers(4);
+        let gen = GcodeGenerator::new(GcodeFlavor::Marlin);
+        let plain = gen.generate(
+            &layers,
+            &SlicingParams {
+                z_offset_mm: 0.0,
+                ..params.clone()
+            },
+        );
+        let moved = gen.generate(&layers, &params);
+
+        let plain_ramp: Vec<f64> = plain.lines().filter_map(extrude_move_z).collect();
+        let moved_ramp: Vec<f64> = moved.lines().filter_map(extrude_move_z).collect();
+        assert!(!plain_ramp.is_empty(), "no ramped moves:\n{plain}");
+        assert_eq!(plain_ramp.len(), moved_ramp.len());
+        for (p, m) in plain_ramp.iter().zip(&moved_ramp) {
+            assert!(
+                (m - (p + 1.0)).abs() < 1e-6,
+                "spiral ramp Z {p} should shift to {}, got {m}",
+                p + 1.0
+            );
+        }
+    }
+
+    #[test]
+    fn z_offset_leaves_statistics_on_model_z() {
+        // The offset is a machine correction: `max_z_mm` and the bounding box
+        // describe the object, so they must not move with it.
+        let layers = offset_test_layers();
+        let gen = GcodeGenerator::new(GcodeFlavor::Marlin);
+        let (_, plain) = gen.generate_with_stats(&layers, &SlicingParams::default());
+        let (_, moved) = gen.generate_with_stats(
+            &layers,
+            &SlicingParams {
+                z_offset_mm: 0.75,
+                ..SlicingParams::default()
+            },
+        );
+        assert_eq!(plain.max_z_mm, moved.max_z_mm);
+        assert_eq!(plain.bbox_min, moved.bbox_min);
+        assert_eq!(plain.bbox_max, moved.bbox_max);
+    }
+}
+
+// ── Object exclusion & sequential printing (issues #22 / #112) ─────────────────
+
+#[cfg(test)]
+mod object_tests {
+    use super::*;
+    use crate::core::{ExtrusionRole, ObjectIdentity, PlateSlice, SliceLayer};
+    use crate::settings::params::PrintSequence;
+
+    fn identity(index: usize, name: &str, x: f64) -> ObjectIdentity {
+        ObjectIdentity {
+            index,
+            name: name.to_string(),
+            center: (x + 5.0, 5.0),
+            polygon: vec![(x, 0.0), (x + 10.0, 0.0), (x + 10.0, 10.0), (x, 10.0)],
+            bbox: (x, 0.0, x + 10.0, 10.0),
+            height_mm: 4.0,
+        }
+    }
+
+    /// One layer holding one square per object, tagged in object order.
+    fn tagged_layer(z: f64, objects: &[usize]) -> SliceLayer {
+        let mut layer = SliceLayer::new(z);
+        for (slot, &object) in objects.iter().enumerate() {
+            let x = slot as f64 * 30.0;
+            let square: clipper2::Path =
+                vec![(x, 0.0), (x + 10.0, 0.0), (x + 10.0, 10.0), (x, 10.0)].into();
+            layer.paths.push(square);
+            layer.path_roles.push(ExtrusionRole::OuterWall);
+            layer.path_widths.push(Some(0.4));
+            layer.path_vertex_widths.push(None);
+            layer.path_is_open.push(false);
+            layer.path_objects.push(Some(object));
+        }
+        layer
+    }
+
+    fn plate(layers: Vec<SliceLayer>, objects: Vec<ObjectIdentity>) -> PlateSlice {
+        PlateSlice { layers, objects }
+    }
+
+    fn klipper_params() -> SlicingParams {
+        SlicingParams {
+            gcode_flavor: crate::gcode::GcodeFlavor::Klipper,
+            exclude_object: true,
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn klipper_defines_every_object_before_the_start_script() {
+        let objects = vec![identity(0, "cube_a", 0.0), identity(1, "cube_b", 30.0)];
+        let gcode = generate_gcode_for_plate(
+            &plate(vec![tagged_layer(0.2, &[0, 1])], objects),
+            &klipper_params(),
+        );
+
+        assert!(gcode.contains("EXCLUDE_OBJECT_DEFINE RESET=1"));
+        assert!(
+            gcode.contains(
+                "EXCLUDE_OBJECT_DEFINE NAME=cube_a CENTER=5.000,5.000 POLYGON=[[0.000,0.000],"
+            ),
+            "missing cube_a definition: {gcode}"
+        );
+        assert!(gcode.contains("EXCLUDE_OBJECT_DEFINE NAME=cube_b"));
+
+        // The definitions must precede the start script — Moonraker and the
+        // Klipper module both expect to meet the objects before printing.
+        let define_at = gcode.find("EXCLUDE_OBJECT_DEFINE NAME=cube_a").unwrap();
+        let start_at = gcode.find("START_PRINT").unwrap();
+        assert!(define_at < start_at, "definitions must come first: {gcode}");
+    }
+
+    #[test]
+    fn klipper_wraps_each_object_and_closes_the_last_one() {
+        let objects = vec![identity(0, "cube_a", 0.0), identity(1, "cube_b", 30.0)];
+        let gcode = generate_gcode_for_plate(
+            &plate(
+                vec![tagged_layer(0.2, &[0, 1]), tagged_layer(0.4, &[0, 1])],
+                objects,
+            ),
+            &klipper_params(),
+        );
+
+        let markers: Vec<&str> = gcode
+            .lines()
+            .filter(|l| {
+                l.starts_with("EXCLUDE_OBJECT_START") || l.starts_with("EXCLUDE_OBJECT_END")
+            })
+            .collect();
+        assert_eq!(
+            markers,
+            vec![
+                "EXCLUDE_OBJECT_START NAME=cube_a",
+                "EXCLUDE_OBJECT_END NAME=cube_a",
+                "EXCLUDE_OBJECT_START NAME=cube_b",
+                "EXCLUDE_OBJECT_END NAME=cube_b",
+                "EXCLUDE_OBJECT_START NAME=cube_a",
+                "EXCLUDE_OBJECT_END NAME=cube_a",
+                "EXCLUDE_OBJECT_START NAME=cube_b",
+                "EXCLUDE_OBJECT_END NAME=cube_b",
+            ],
+            "every block must be opened and closed: {gcode}"
+        );
+    }
+
+    #[test]
+    fn marlin_uses_m486_and_names_each_object_once() {
+        let objects = vec![identity(0, "cube_a", 0.0), identity(1, "cube_b", 30.0)];
+        let params = SlicingParams {
+            exclude_object: true,
+            ..Default::default()
+        };
+        let gcode = generate_gcode_for_plate(
+            &plate(
+                vec![tagged_layer(0.2, &[0, 1]), tagged_layer(0.4, &[0, 1])],
+                objects,
+            ),
+            &params,
+        );
+
+        assert!(gcode.contains("M486 T2 ; object count"));
+        // The name rides along the first `S` only; repeating it on every layer
+        // would bloat the file for no gain.
+        assert_eq!(gcode.matches("M486 S0 A\"cube_a\"").count(), 1);
+        assert_eq!(gcode.matches("M486 S1 A\"cube_b\"").count(), 1);
+        assert_eq!(gcode.matches("\nM486 S0\n").count(), 1);
+        assert_eq!(gcode.matches("M486 S-1").count(), 4);
+    }
+
+    #[test]
+    fn untagged_paths_close_the_block_without_opening_one() {
+        // A plate-wide skirt (tag `None`) printed before the objects.
+        let mut layer = tagged_layer(0.2, &[0, 1]);
+        layer.path_objects[0] = None;
+        layer.path_roles[0] = ExtrusionRole::Skirt;
+
+        let gcode = generate_gcode_for_plate(
+            &plate(
+                vec![layer],
+                vec![identity(0, "cube_a", 0.0), identity(1, "cube_b", 30.0)],
+            ),
+            &klipper_params(),
+        );
+        let markers: Vec<&str> = gcode
+            .lines()
+            .filter(|l| l.starts_with("EXCLUDE_OBJECT_"))
+            .filter(|l| !l.starts_with("EXCLUDE_OBJECT_DEFINE"))
+            .collect();
+        assert_eq!(
+            markers,
+            vec![
+                "EXCLUDE_OBJECT_START NAME=cube_b",
+                "EXCLUDE_OBJECT_END NAME=cube_b",
+            ],
+            "the skirt belongs to no object: {gcode}"
+        );
+    }
+
+    #[test]
+    fn sequential_alone_does_not_emit_object_markers() {
+        // Printing one part at a time is a *motion* choice; firmware object
+        // tracking is a separate opt-in and must not ride along with it.
+        let params = SlicingParams {
+            gcode_flavor: crate::gcode::GcodeFlavor::Klipper,
+            print_sequence: PrintSequence::ByObject,
+            exclude_object: false,
+            ..Default::default()
+        };
+        let gcode = generate_gcode_for_plate(
+            &plate(
+                vec![tagged_layer(0.2, &[0]), tagged_layer(0.2, &[1])],
+                vec![identity(0, "cube_a", 0.0), identity(1, "cube_b", 30.0)],
+            ),
+            &params,
+        );
+        assert!(!gcode.contains("EXCLUDE_OBJECT"), "{gcode}");
+        assert!(!gcode.contains("M486"), "{gcode}");
+        // The hand-over itself still happens.
+        assert!(gcode.contains("; clear the finished object"), "{gcode}");
+    }
+
+    /// One object's worth of layers: `flat` solid base layers then `spiral`
+    /// single-loop layers, starting at `z0` and stepping by 0.2 mm.
+    fn spiral_stack(object: usize, x: f64, z0: f64, flat: usize, spiral: usize) -> Vec<SliceLayer> {
+        (0..flat + spiral)
+            .map(|i| {
+                let mut layer = tagged_layer(z0 + i as f64 * 0.2, &[object]);
+                // Re-place the square so each object sits at its own X.
+                layer.paths = clipper2::Paths::new(vec![vec![
+                    (x, 0.0),
+                    (x + 10.0, 0.0),
+                    (x + 10.0, 10.0),
+                    (x, 10.0),
+                ]
+                .into()]);
+                layer
+            })
+            .collect()
+    }
+
+    #[test]
+    fn sequential_spiral_vase_never_ramps_down_into_the_previous_object() {
+        // Two vases, one after the other. The regression: the second object's
+        // first spiral layer used to take its ramp start from the *previous
+        // object's top* — a continuous extruding descent straight through the
+        // plate — and the clearance lift never saw a spiral layer at all, so it
+        // travelled through the finished vase.
+        let mut layers = spiral_stack(0, 0.0, 0.2, 1, 8);
+        layers.extend(spiral_stack(1, 60.0, 0.2, 1, 4));
+        let params = SlicingParams {
+            gcode_flavor: crate::gcode::GcodeFlavor::Klipper,
+            print_sequence: PrintSequence::ByObject,
+            exclude_object: true,
+            spiral_vase: true,
+            bottom_layers: 1,
+            layer_height: 0.2,
+            ..Default::default()
+        };
+        let gcode = generate_gcode_for_plate(
+            &plate(
+                layers,
+                vec![identity(0, "vase_a", 0.0), identity(1, "vase_b", 60.0)],
+            ),
+            &params,
+        );
+
+        // No move may lose height while extruding.
+        let mut z = 0.0_f64;
+        let mut e = 0.0_f64;
+        for line in gcode.lines() {
+            if line.starts_with("G92 E0") {
+                e = 0.0;
+                continue;
+            }
+            if !line.starts_with("G1 ") {
+                continue;
+            }
+            let field = |tag: char| {
+                line.split_whitespace()
+                    .find_map(|t| t.strip_prefix(tag))
+                    .and_then(|v| v.parse::<f64>().ok())
+            };
+            let (nz, ne) = (field('Z'), field('E'));
+            if let (Some(nz), Some(ne)) = (nz, ne) {
+                assert!(
+                    !(nz < z - 1e-9 && ne > e + 1e-9),
+                    "extruding descent from {z} to {nz}: {line}"
+                );
+            }
+            z = nz.unwrap_or(z);
+            e = ne.unwrap_or(e);
+        }
+
+        // Exactly one hand-over, and it clears the finished vase (top 1.6 mm).
+        assert_eq!(
+            gcode.matches("; clear the finished object").count(),
+            1,
+            "{gcode}"
+        );
+        let lift_line = gcode
+            .lines()
+            .find(|l| l.ends_with("; clear the finished object"))
+            .unwrap();
+        let lift_z: f64 = lift_line
+            .split_whitespace()
+            .find_map(|t| t.strip_prefix('Z'))
+            .unwrap()
+            .parse()
+            .unwrap();
+        assert!(
+            lift_z > 1.6,
+            "lift must clear the spiralised object: {lift_line}"
+        );
+
+        assert_eq!(gcode.matches("EXCLUDE_OBJECT_START NAME=vase_b").count(), 1);
+        assert_eq!(gcode.matches("EXCLUDE_OBJECT_END NAME=vase_b").count(), 1);
+
+        // Each vase keeps its own solid base — `bottom_layers` counts within an
+        // object's stack, not from the start of the plate. A flat layer's
+        // extrusions carry no Z; a spiral layer's ramp always does.
+        let vase_b = &gcode[gcode.find("EXCLUDE_OBJECT_START NAME=vase_b").unwrap()..];
+        let first_extrusion = vase_b
+            .lines()
+            .find(|l| l.starts_with("G1 ") && l.contains(" E"))
+            .expect("vase_b prints something");
+        assert!(
+            !first_extrusion.contains(" Z"),
+            "vase_b must start on a flat base layer, not mid-ramp: {first_extrusion}"
+        );
+    }
+
+    #[test]
+    fn an_empty_first_layer_still_triggers_the_hand_over() {
+        // A layer with no paths carries no object tag. If the hand-over keyed
+        // on the tag alone, such a layer would slip through and its Z move
+        // would descend to the new object's first layer while the nozzle was
+        // still over the finished one.
+        let layers = vec![
+            tagged_layer(0.2, &[0]),
+            tagged_layer(4.0, &[0]),
+            SliceLayer::new(0.2),
+            tagged_layer(0.4, &[1]),
+        ];
+        let params = SlicingParams {
+            print_sequence: PrintSequence::ByObject,
+            ..Default::default()
+        };
+        let gcode = generate_gcode_for_plate(
+            &plate(
+                layers,
+                vec![identity(0, "cube_a", 0.0), identity(1, "cube_b", 80.0)],
+            ),
+            &params,
+        );
+
+        let lift = gcode
+            .find("; clear the finished object")
+            .expect("the hand-over must fire before the empty layer's Z move");
+        let descent = gcode[lift..]
+            .find("G1 Z0.200")
+            .expect("the empty layer still moves Z");
+        assert!(descent > 0, "the descent must follow the lift");
+        assert_eq!(gcode.matches("; clear the finished object").count(), 1);
+    }
+
+    #[test]
+    fn no_objects_means_no_markers_at_all() {
+        let mut layer = SliceLayer::new(0.2);
+        let square: clipper2::Path =
+            vec![(0.0, 0.0), (10.0, 0.0), (10.0, 10.0), (0.0, 10.0)].into();
+        layer.paths.push(square);
+        layer.path_roles.push(ExtrusionRole::OuterWall);
+
+        let gcode = generate_gcode_for_plate(
+            &PlateSlice::from_layers(vec![layer.clone()]),
+            &SlicingParams::default(),
+        );
+        assert!(!gcode.contains("M486"));
+        assert_eq!(gcode, generate_gcode(&[layer], &SlicingParams::default()));
+    }
+
+    #[test]
+    fn sequential_lifts_clear_of_the_finished_object_before_travelling() {
+        // Object 0 printed to z=4.0, then object 1 starts again at z=0.2.
+        let layers = vec![
+            tagged_layer(0.2, &[0]),
+            tagged_layer(4.0, &[0]),
+            {
+                let mut l = tagged_layer(0.2, &[1]);
+                // Put object 1 well away from object 0.
+                l.paths = clipper2::Paths::new(vec![vec![
+                    (80.0, 80.0),
+                    (90.0, 80.0),
+                    (90.0, 90.0),
+                    (80.0, 90.0),
+                ]
+                .into()]);
+                l
+            },
+            tagged_layer(2.0, &[1]),
+        ];
+        let params = SlicingParams {
+            gcode_flavor: crate::gcode::GcodeFlavor::Klipper,
+            print_sequence: PrintSequence::ByObject,
+            exclude_object: true,
+            between_objects_gcode: Some("M117 next object".to_string()),
+            ..Default::default()
+        };
+        let gcode = generate_gcode_for_plate(
+            &plate(
+                layers,
+                vec![identity(0, "cube_a", 0.0), identity(1, "cube_b", 80.0)],
+            ),
+            &params,
+        );
+
+        let lift = gcode
+            .find("; clear the finished object")
+            .expect("expected a clearance lift at the object boundary");
+        let travel = gcode
+            .find("; travel to the next object")
+            .expect("expected a travel to the next object");
+        let hook = gcode
+            .find("M117 next object")
+            .expect("between-objects hook");
+        let drop_back = gcode[travel..]
+            .find("G1 Z0.200")
+            .map(|i| i + travel)
+            .expect("the next object's first layer Z move");
+
+        // Order is the whole point: lift → travel → hook → only then descend.
+        assert!(
+            lift < travel && travel < hook && hook < drop_back,
+            "{gcode}"
+        );
+
+        // The lift clears the 4.0 mm object already on the bed.
+        let lift_line = gcode[..lift].lines().last().unwrap();
+        let z: f64 = lift_line
+            .split_whitespace()
+            .find_map(|t| t.strip_prefix('Z'))
+            .unwrap()
+            .parse()
+            .unwrap();
+        assert!(z > 4.0, "lift must clear the finished object: {lift_line}");
+
+        // Each object's block is opened once and closed once.
+        assert_eq!(gcode.matches("EXCLUDE_OBJECT_START NAME=cube_a").count(), 1);
+        assert_eq!(gcode.matches("EXCLUDE_OBJECT_END NAME=cube_a").count(), 1);
+        assert_eq!(gcode.matches("EXCLUDE_OBJECT_START NAME=cube_b").count(), 1);
+        assert_eq!(gcode.matches("EXCLUDE_OBJECT_END NAME=cube_b").count(), 1);
+    }
+
+    #[test]
+    fn sequential_clearance_lift_carries_the_machine_z_offset() {
+        // The finished part physically sits at its own offset machine Z, so the
+        // lift that clears it has to move by the same amount — otherwise a
+        // negative offset would eat into the clearance the lift exists to
+        // guarantee (issue #102 × #112).
+        let layers = vec![
+            tagged_layer(0.2, &[0]),
+            tagged_layer(4.0, &[0]),
+            {
+                let mut l = tagged_layer(0.2, &[1]);
+                l.paths = clipper2::Paths::new(vec![vec![
+                    (80.0, 80.0),
+                    (90.0, 80.0),
+                    (90.0, 90.0),
+                    (80.0, 90.0),
+                ]
+                .into()]);
+                l
+            },
+            tagged_layer(2.0, &[1]),
+        ];
+        let base = SlicingParams {
+            gcode_flavor: crate::gcode::GcodeFlavor::Klipper,
+            print_sequence: PrintSequence::ByObject,
+            ..Default::default()
+        };
+        let objects = vec![identity(0, "cube_a", 0.0), identity(1, "cube_b", 80.0)];
+
+        let lift_z = |params: &SlicingParams| -> f64 {
+            let gcode = generate_gcode_for_plate(&plate(layers.clone(), objects.clone()), params);
+            let at = gcode
+                .find("; clear the finished object")
+                .expect("expected a clearance lift");
+            gcode[..at]
+                .lines()
+                .last()
+                .unwrap()
+                .split_whitespace()
+                .find_map(|t| t.strip_prefix('Z')?.parse::<f64>().ok())
+                .expect("lift line should carry a Z")
+        };
+
+        let plain = lift_z(&base);
+        for offset in [0.3_f64, -0.3] {
+            let shifted = lift_z(&SlicingParams {
+                z_offset_mm: offset,
+                ..base.clone()
+            });
+            assert!(
+                (shifted - (plain + offset)).abs() < 1e-6,
+                "clearance lift {plain} should shift to {} with offset {offset}, got {shifted}",
+                plain + offset
+            );
+        }
     }
 }

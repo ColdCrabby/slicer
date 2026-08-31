@@ -1,4 +1,4 @@
-.PHONY: build build-release build-windows build-macos build-wasm clean test fmt lint help changelog-draft ios-doctor ios-setup ios-init ios-simulator ios-dev ios-build
+.PHONY: build build-release build-windows build-macos build-wasm clean test fmt lint help dev changelog-draft ios-doctor ios-setup ios-init ios-simulator ios-dev ios-build
 
 help:
 	@echo "Slicer Engine - Build Targets"
@@ -11,6 +11,7 @@ help:
 	@echo "  build-windows      - Build for Windows (x86_64)"
 	@echo "  build-macos        - Build for macOS (x86_64 and ARM64)"
 	@echo "  build-wasm         - Build for WebAssembly"
+	@echo "  dev                - Engine + UI dev server on a random seeded port pair"
 	@echo "  test               - Run tests"
 	@echo "  fmt                - Format code"
 	@echo "  lint               - Run clippy linter"
@@ -27,6 +28,9 @@ help:
 
 build:
 	cargo build --verbose
+
+dev:
+	@node scripts/dev.mjs
 
 build-release:
 	cargo build --release --verbose

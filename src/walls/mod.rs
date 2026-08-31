@@ -99,10 +99,15 @@ mod tests {
                 !layers[0].paths.is_empty(),
                 "{generator:?} must produce wall paths"
             );
+            // Default order is inner-first (external_perimeters_first = false),
+            // so the single outer wall is the LAST closed loop.
+            let last_closed = (0..layers[0].paths.len())
+                .rfind(|&i| !layers[0].is_path_open(i))
+                .expect("at least one closed wall loop");
             assert_eq!(
-                layers[0].role_for_path(0),
+                layers[0].role_for_path(last_closed),
                 ExtrusionRole::OuterWall,
-                "{generator:?} first path must be the outer wall"
+                "{generator:?} outer wall must print last by default"
             );
         }
     }

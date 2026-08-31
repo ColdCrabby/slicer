@@ -1,19 +1,21 @@
 <div class="view-group">
-  <button
-    class="reset-view-button"
-    type="button"
-    [tooltip]="
-      selectedView() === 'ortho'
-        ? 'Orthographic projection — switch to perspective'
-        : 'Perspective projection — switch to orthographic'
-    "
-    [tooltipShortcut]="keyboardShortcuts.shortcutFor('toggle-projection')"
-    (click)="toggleProjection()"
-  >
-    <nexus-icon
-      [name]="selectedView() === 'ortho' ? 'orthogonal-view' : 'perspective-view'"
-    ></nexus-icon>
-  </button>
+  @if (showSecondaryViewTools()) {
+    <button
+      class="reset-view-button"
+      type="button"
+      [tooltip]="
+        selectedView() === 'ortho'
+          ? 'Orthographic projection — switch to perspective'
+          : 'Perspective projection — switch to orthographic'
+      "
+      [tooltipShortcut]="keyboardShortcuts.shortcutFor('toggle-projection')"
+      (click)="toggleProjection()"
+    >
+      <nexus-icon
+        [name]="selectedView() === 'ortho' ? 'orthogonal-view' : 'perspective-view'"
+      ></nexus-icon>
+    </button>
+  }
 
   <button
     class="reset-view-button"
@@ -24,63 +26,136 @@
     <nexus-icon name="home"></nexus-icon>
   </button>
 
-  <button
-    class="reset-view-button"
-    type="button"
-    [tooltip]="
-      gravityEnabled()
-        ? 'Gravity on — objects drop to floor after every move'
-        : 'Gravity off — objects stay where placed'
-    "
-    [tooltipShortcut]="keyboardShortcuts.shortcutFor('toggle-gravity')"
-    [class.active]="gravityEnabled()"
-    [attr.aria-pressed]="gravityEnabled()"
-    (click)="toggleGravity()"
-  >
-    <nexus-icon name="depth"></nexus-icon>
-  </button>
+  <!-- Everything that edits the plate is hidden in G-code preview: the view
+       shows sliced toolpaths, so placing or adding a model would change
+       something the user cannot see. -->
+  @if (editingPlate()) {
+    <button
+      class="reset-view-button"
+      type="button"
+      [tooltip]="
+        gravityEnabled()
+          ? 'Gravity on — objects drop to floor after every move'
+          : 'Gravity off — objects stay where placed'
+      "
+      [tooltipShortcut]="keyboardShortcuts.shortcutFor('toggle-gravity')"
+      [class.active]="gravityEnabled()"
+      [attr.aria-pressed]="gravityEnabled()"
+      (click)="toggleGravity()"
+    >
+      <nexus-icon name="depth"></nexus-icon>
+    </button>
 
-  <button
-    class="reset-view-button"
-    type="button"
-    [tooltip]="'Auto-orient — rotate all objects to minimise overhangs'"
-    [tooltipShortcut]="keyboardShortcuts.shortcutFor('auto-orient')"
-    (click)="autoOrient()"
-  >
-    <nexus-icon name="magic-wand"></nexus-icon>
-  </button>
+    <button
+      class="reset-view-button"
+      type="button"
+      [disabled]="addingObjects()"
+      [tooltip]="'Add a model to this plate'"
+      (click)="promptAddObjects()"
+    >
+      <nexus-icon name="plus"></nexus-icon>
+    </button>
+  }
+
+  <!-- Undo / redo as on-canvas buttons for keyboard-less devices, where the
+       ⌘/Ctrl+Z shortcut is unreachable. Visibility is auto-detected but can be
+       forced on or off from Settings → General → Controls. -->
+  @if (showHistoryButtons()) {
+    <button
+      class="reset-view-button"
+      type="button"
+      [disabled]="!canUndo()"
+      [tooltip]="'Undo the last change'"
+      [tooltipShortcut]="keyboardShortcuts.shortcutFor('undo')"
+      (click)="undo()"
+    >
+      <nexus-icon name="undo"></nexus-icon>
+    </button>
+
+    <button
+      class="reset-view-button"
+      type="button"
+      [disabled]="!canRedo()"
+      [tooltip]="'Redo the last undone change'"
+      [tooltipShortcut]="keyboardShortcuts.shortcutFor('redo')"
+      (click)="redo()"
+    >
+      <nexus-icon name="redo"></nexus-icon>
+    </button>
+  }
+
+  <!-- Multiple selection so a whole batch of parts can be plated at once. -->
+  <input
+    #addObjectInput
+    class="add-object-input"
+    type="file"
+    accept=".stl,.obj,.3mf"
+    multiple
+    (change)="onAddObjects($event)"
+  />
 </div>
 
-<nexus-card class="button-radio-group icon-group" [(radioGroup)]="selectedObjectMode">
-  <button
-    radioButtonValue="translate"
-    [tooltip]="'Select & move — click to select, drag handles to translate'"
-    [tooltipShortcut]="keyboardShortcuts.shortcutFor('object-mode-translate')"
-  >
-    <nexus-icon name="cursor-pointer"></nexus-icon>
-  </button>
-  <button
-    radioButtonValue="rotate"
-    [tooltip]="'Rotate around an axis'"
-    [tooltipShortcut]="keyboardShortcuts.shortcutFor('object-mode-rotate')"
-  >
-    <nexus-icon name="crop-rotate-br"></nexus-icon>
-  </button>
-  <button
-    radioButtonValue="scale"
-    [tooltip]="'Scale along axes'"
-    [tooltipShortcut]="keyboardShortcuts.shortcutFor('object-mode-scale')"
-  >
-    <nexus-icon name="enlarge"></nexus-icon>
-  </button>
-  <button
-    radioButtonValue="pullToFloor"
-    [tooltip]="'Pull a face to the floor'"
-    [tooltipShortcut]="keyboardShortcuts.shortcutFor('object-mode-pull-to-floor')"
-  >
-    <nexus-icon name="constrained-surface"></nexus-icon>
-  </button>
-</nexus-card>
+@if (editingPlate()) {
+  <!-- The tools and the cards they open travel together: each card hangs
+       directly off the buttons that reveal it, rather than in a far corner
+       where the connection has to be inferred. Absolutely positioned, so the
+       toolbar's own height (and the --main-scene-inset derived from it) never
+       changes as cards come and go. -->
+  <div class="tool-cluster">
+    <nexus-card class="button-radio-group icon-group">
+      <div class="tool-modes" [(radioGroup)]="selectedObjectMode">
+        <button
+          radioButtonValue="translate"
+          [tooltip]="'Select &amp; move — click to select, drag handles to translate'"
+          [tooltipShortcut]="keyboardShortcuts.shortcutFor('object-mode-translate')"
+        >
+          <nexus-icon name="cursor-pointer"></nexus-icon>
+        </button>
+        <button
+          radioButtonValue="rotate"
+          [tooltip]="'Rotate around an axis'"
+          [tooltipShortcut]="keyboardShortcuts.shortcutFor('object-mode-rotate')"
+        >
+          <nexus-icon name="crop-rotate-br"></nexus-icon>
+        </button>
+        <button
+          radioButtonValue="scale"
+          [tooltip]="'Scale along axes'"
+          [tooltipShortcut]="keyboardShortcuts.shortcutFor('object-mode-scale')"
+        >
+          <nexus-icon name="enlarge"></nexus-icon>
+        </button>
+        <button
+          radioButtonValue="pullToFloor"
+          [tooltip]="'Pull a face to the floor'"
+          [tooltipShortcut]="keyboardShortcuts.shortcutFor('object-mode-pull-to-floor')"
+        >
+          <nexus-icon name="constrained-surface"></nexus-icon>
+        </button>
+      </div>
+
+      <!-- Placing is an object operation, so it sits with the object tools.
+           It is an action rather than a mode, hence outside the radio group;
+           like its neighbours it reveals a card of sub-settings below. -->
+      <span class="tool-divider" aria-hidden="true"></span>
+      <button
+        type="button"
+        [class.active]="placementOpen()"
+        [attr.aria-expanded]="placementOpen()"
+        [tooltip]="'Place objects — ' + placementSummary()"
+        [tooltipShortcut]="keyboardShortcuts.shortcutFor('place-objects')"
+        (click)="togglePlacement()"
+      >
+        <nexus-icon name="magic-wand"></nexus-icon>
+      </button>
+    </nexus-card>
+
+    <div class="tool-panels">
+      <nexus-transform-panel />
+      <nexus-placement-panel />
+    </div>
+  </div>
+}
 
 <div class="view-group">
   @if (hasSliceResult()) {
@@ -97,12 +172,14 @@
     </button>
   }
 
-  <button
-    class="reset-view-button"
-    type="button"
-    [tooltip]="'Show operation pipeline'"
-    (click)="showOperationPipeline()"
-  >
-    <nexus-icon name="developer"></nexus-icon>
-  </button>
+  @if (showSecondaryViewTools()) {
+    <button
+      class="reset-view-button"
+      type="button"
+      [tooltip]="'Show operation pipeline'"
+      (click)="showOperationPipeline()"
+    >
+      <nexus-icon name="developer"></nexus-icon>
+    </button>
+  }
 </div>

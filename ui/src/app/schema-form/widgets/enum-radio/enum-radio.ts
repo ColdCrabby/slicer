@@ -1,8 +1,6 @@
 import { ChangeDetectionStrategy, Component, EventEmitter, computed, input } from '@angular/core';
-import { RadioGroup } from '../../../ui/radio-group/radio-group';
-import type { RadioOption } from '../../../ui/radio-group/radio-group';
+import { RadioGroup, type RadioOption, TooltipDirective } from '@coldcrabby/ui';
 import { IconButton } from '../../../shared/icon-button/icon-button';
-import { TooltipDirective } from '../../../shared/tooltip/tooltip.directive';
 import type { FieldDef } from '../../models/field-def';
 import type { FieldWidget } from '../base-field';
 

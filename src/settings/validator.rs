@@ -80,6 +80,36 @@ impl SettingValidator for SlicingParams {
             errors.push(e);
         }
 
+        // Advanced infill options: reject values that would silently produce
+        // nonsense rather than clamping them behind the user's back.
+        if self.bridge_angle < 0.0 || self.bridge_angle > 180.0 {
+            errors.push(format!(
+                "bridge_angle must be between 0 and 180 degrees (0 = auto), got {}",
+                self.bridge_angle
+            ));
+        }
+        if self.infill_anchor_percent < 0.0 {
+            errors.push(format!(
+                "infill_anchor_percent must not be negative, got {}",
+                self.infill_anchor_percent
+            ));
+        }
+        if self.infill_anchor_max_mm < 0.0 {
+            errors.push(format!(
+                "infill_anchor_max_mm must not be negative, got {}",
+                self.infill_anchor_max_mm
+            ));
+        }
+        if self.infill_every_layers < 1 {
+            errors.push("infill_every_layers must be at least 1 (1 = no combining)".to_string());
+        }
+        if self.infill_combination_max_layer_height_mm < 0.0 {
+            errors.push(format!(
+                "infill_combination_max_layer_height_mm must not be negative, got {}",
+                self.infill_combination_max_layer_height_mm
+            ));
+        }
+
         if errors.is_empty() {
             Ok(())
         } else {

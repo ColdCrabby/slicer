@@ -20,34 +20,37 @@ import { SETTING_CONTRACTS } from '../../models/setting-contract';
 import globalSettingsSchema from '../../../schemas/slicer-engine-global-settings-v1.json';
 import { parseSchema } from '../../schema-form/models/schema-parser';
 import type { SchemaGroup } from '../../schema-form/models/field-def';
-import { CloudCatalog } from '../../services/catalog/cloud-catalog';
+import { CloudCatalog, catalogSpecOf } from '../../services/catalog/cloud-catalog';
 import { ContextMenuService } from '../../services/context-menu/context-menu.service';
 import { ContextMenuTrigger } from '../../services/context-menu/context-menu-trigger';
 import type { ContextMenuItem } from '../../services/context-menu/context-menu.model';
 import { Dialog } from '../../services/dialog';
+import { NotificationService } from '../../services/notifications';
 import { ActiveSelection } from '../../services/profiles/active-selection';
 import { matchesAllLabels, toggledLabelIds } from '../../services/profiles/label-filtering';
 import { paramNum } from '../../models/params-access';
 import { LabelFilterStore } from '../../services/profiles/label-filter-store';
 import { LabelsStore } from '../../services/profiles/labels-store';
 import { FilamentsStore } from '../../services/profiles/filaments-store';
-import { Icon } from '../../shared/icon/icon';
-import { Badge } from '../../shared/badge/badge';
+import {
+  Icon,
+  Badge,
+  Button,
+  EmptyState,
+  FieldRow,
+  IconButton,
+  ModalShell,
+  NumberInput,
+  SectionHeader,
+  Segmented,
+  Select,
+  ColorPicker,
+} from '@coldcrabby/ui';
 import { CatalogPicker, type CatalogEntryVm } from '../../components/profiles/catalog-picker';
 import { ParamField } from '../../components/profiles/param-field';
 import { LabelFilterBar } from '../../components/labels/label-filter-bar';
 import { LabelPicker } from '../../components/labels/label-picker';
 import { focusConfigureTarget } from './configure-scroll';
-import { Button } from '../../ui/button/button';
-import { EmptyState } from '../../ui/empty-state/empty-state';
-import { FieldRow } from '../../ui/field-row/field-row';
-import { IconButton } from '../../ui/icon-button/icon-button';
-import { ModalShell } from '../../ui/modal-shell/modal-shell';
-import { NumberInput } from '../../ui/number-input/number-input';
-import { SectionHeader } from '../../ui/section-header/section-header';
-import { Segmented } from '../../ui/segmented/segmented';
-import { Select } from '../../ui/select/select';
-import { ColorPicker } from '../../ui/color-picker/color-picker';
 
 /**
  * The `SlicingParams` sub-schema extracted from the generated global-settings
@@ -66,14 +69,15 @@ const FILAMENT_GROUPS = SETTING_CONTRACTS.find((c) => c.id === 'filament')!.grou
 
 /**
  * The filament-parameter groups rendered in the editor, in the Filament
- * contract's display order (`Temperature`, `Cooling`). Parsed once from the
- * schema (it never changes at runtime); groups owned by other contracts
- * (Hardware, Extrusion, …) are left out so the filament editor only shows
- * material temperature/cooling settings.
+ * contract's display order (`Temperature`, `Cooling`, `Filament G-code`). Parsed
+ * once from the schema (it never changes at runtime); groups owned by other
+ * contracts (Hardware, Extrusion, …) are left out so the filament editor only
+ * shows material settings.
  *
  * Each group's fields are filtered to those `nexus-param-field` can actually
- * render (enum → select, boolean → switch, everything else → number). Plain
- * `string` and array fields are dropped, which excludes `filament_type` and
+ * render (enum → select, boolean → switch, number → number input, and the
+ * `x-widget: "gcode"` string fields → code editor). Plain `string`/array fields
+ * without a widget hint are dropped, which excludes `filament_type` and
  * `fan_configs` automatically. `filament_diameter_mm` (Hardware) stays a
  * bespoke "Diameter" row under Identity, so no param key renders twice.
  */
@@ -88,7 +92,8 @@ const PARAM_GROUPS: SchemaGroup[] = (() => {
           !!f.enumOptions?.length ||
           f.type === 'boolean' ||
           f.type === 'number' ||
-          f.type === 'integer',
+          f.type === 'integer' ||
+          f.widget === 'gcode',
       ),
     }))
     .filter((g) => g.fields.length > 0)
@@ -129,6 +134,7 @@ export class FilamentsSettings {
   private readonly catalog = inject(CloudCatalog);
   private readonly contextMenu = inject(ContextMenuService);
   private readonly dialog = inject(Dialog);
+  private readonly notifications = inject(NotificationService);
   private readonly route = inject(ActivatedRoute);
 
   protected readonly sourceLabels = PROFILE_SOURCE_LABELS;
@@ -250,35 +256,65 @@ export class FilamentsSettings {
     }
   }
 
-  protected readonly catalogStatus = this.catalog.status;
+  protected readonly catalogStatus = this.catalog.filamentsStatus;
+  protected readonly catalogHasMore = this.catalog.filamentsHasMore;
+  protected readonly catalogLoadingMore = this.catalog.filamentsLoadingMore;
+  /** Id of the catalog entry currently being fetched for import, if any. */
+  protected readonly importingId = signal<string | null>(null);
   protected readonly catalogEntries = computed<CatalogEntryVm[]>(() =>
     this.catalog.filaments().map((f) => ({
       id: f.id,
       name: f.name,
       vendor: f.vendor,
-      meta: `${f.material} · ${(f.params as Record<string, unknown>)?.['nozzle_temp']}°C`,
+      meta:
+        catalogSpecOf(f) ??
+        `${f.material} · ${(f.params as Record<string, unknown>)?.['nozzle_temp']}°C`,
       color: f.color,
       imported: this.store.items().some((item) => item.based_on === f.id),
     })),
   );
 
   protected openCatalog(): void {
-    void this.catalog.load();
+    void this.catalog.loadFilaments();
     this.catalogOpen.set(true);
   }
 
-  protected retryCatalog(): void {
-    void this.catalog.load(true);
+  protected onCatalogSearch(query: string): void {
+    void this.catalog.searchFilaments(query);
   }
 
-  protected importFromCatalog(id: string): void {
-    const entry = this.catalog.filaments().find((f) => f.id === id);
-    if (!entry) {
+  protected retryCatalog(): void {
+    void this.catalog.loadFilaments(true, this.catalog.filamentsQuery());
+  }
+
+  protected loadMoreCatalog(): void {
+    void this.catalog.loadMoreFilaments();
+  }
+
+  /**
+   * Fetch the full preset behind `id` (real slicing params, not just the
+   * browsed summary) and import it. The catalog picker shows a busy state on
+   * this entry's pick button for the duration.
+   */
+  protected async importFromCatalog(id: string): Promise<void> {
+    const base = this.catalog.filaments().find((f) => f.id === id);
+    if (!base || this.importingId()) {
       return;
     }
-    const copy = this.store.importFromCatalog(entry);
-    this.active.selectFilament(copy.id);
-    this.select(copy.id);
+    this.importingId.set(id);
+    try {
+      const full = await this.catalog.filamentDetail(base);
+      const copy = this.store.importFromCatalog(full);
+      this.active.selectFilament(copy.id);
+      this.select(copy.id);
+    } catch (error) {
+      this.notifications.error(
+        'Import failed',
+        error instanceof Error ? error.message : 'The preset details could not be fetched.',
+      );
+    } finally {
+      this.importingId.set(null);
+    }
   }
 
   /** Open a filament in the detail pane. */
@@ -402,6 +438,25 @@ export class FilamentsSettings {
   /** A filament's `params` bag as a plain record for the field controls. */
   protected paramsOf(filament: FilamentProfile): Record<string, unknown> {
     return (filament.params as Record<string, unknown>) ?? {};
+  }
+
+  /**
+   * Sibling values for a filament field's cross-contract notices: this
+   * filament's own params over the **active printer's**.
+   *
+   * A material setting can depend on the machine — a chamber temperature only
+   * becomes a real heat command on a printer that says it has a chamber heater
+   * — and that machine setting lives on a profile the user is not looking at.
+   * Passing the printer's params in is what lets the notice say so here, where
+   * the value is being set, instead of leaving it to fail silently at slice
+   * time. See `ui-design-language.instructions.md`, "Cross-contract
+   * dependencies".
+   */
+  protected siblingsFor(filament: FilamentProfile): Record<string, unknown> {
+    return {
+      ...((this.active.printer()?.params as Record<string, unknown>) ?? {}),
+      ...this.paramsOf(filament),
+    };
   }
 
   /** Apply a single param field edit (templates can't build computed keys). */

@@ -135,7 +135,7 @@ function writeWrapper(source: string) {
 editLink: false
 ---
 
-> **Source:** [\`${source}\`](${githubUrl}) — this page is rendered directly from the file in the repository. Edit it there.
+<div class="doc-source">Rendered from <a href="${githubUrl}"><code>${source}</code></a> in the repository — edit it there.</div>
 
 <!--@include: ${includePath}-->
 `;
@@ -152,15 +152,44 @@ for (const source of discovered.keys()) {
   writeWrapper(source);
 }
 
+// The shared Cold Crabby design language (ColdCrabby/ui). The Angular app
+// resolves it through Sass `includePaths`; the docs use the same idiom via
+// Vite's `loadPaths` below, so both sites read one set of token files and
+// cannot drift. The checkout is git-ignored and created by `ui`'s postinstall
+// (`pnpm --filter slicer-ui vendor:ui` to refresh it by hand).
+const uiStyles = path.join(repoRoot, "ui/vendor/coldcrabby-ui/src/styles");
+
 // https://vitepress.dev/reference/site-config
 export default withMermaid(
   defineConfig({
-    title: "Slicer Engine",
+    title: "Cold Crabby",
     description:
-      "A high-performance 3D model slicer engine written in Rust, powered by Clipper2.",
+      "Slice your 3D models anywhere — in your browser, on your desktop, on an iPad, or on your own server.",
     lastUpdated: true,
     cleanUrls: true,
     base: "/docs/",
+
+    // Same typeface pairing the app loads in `ui/src/index.html` — Plus
+    // Jakarta Sans over IBM Plex Mono, both variable so the theme's non-step
+    // weights (462 / 536 / 614) render as intended.
+    head: [
+      ["link", { rel: "preconnect", href: "https://fonts.googleapis.com" }],
+      [
+        "link",
+        {
+          rel: "preconnect",
+          href: "https://fonts.gstatic.com",
+          crossorigin: "",
+        },
+      ],
+      [
+        "link",
+        {
+          rel: "stylesheet",
+          href: "https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@200..800&family=IBM+Plex+Mono:wght@400;500;600&display=swap",
+        },
+      ],
+    ],
 
     themeConfig: {
       search: {
@@ -169,35 +198,96 @@ export default withMermaid(
       },
 
       nav: [
-        { text: "Guide", link: "/guide/", activeMatch: "/guide/" },
+        { text: "Use it", link: "/use/", activeMatch: "/use/" },
+        { text: "For teams", link: "/teams/", activeMatch: "/teams/" },
+        { text: "Brand", link: "/brand", activeMatch: "/brand" },
         {
-          text: "Architecture",
-          link: "/architecture/core",
-          activeMatch: "/architecture/",
+          text: "Contribute",
+          activeMatch: "/(guide|architecture)/",
+          items: [
+            { text: "Project overview", link: "/guide/" },
+            { text: "Architecture", link: "/guide/architecture" },
+            { text: "Contributing", link: "/guide/contributing" },
+            { text: "Module reference", link: "/architecture/core" },
+          ],
         },
       ],
 
       sidebar: {
-        "/guide/": [
+        "/use/": [
           {
-            text: "Overview",
-            items: [{ text: "Project Overview", link: "/guide/" }],
+            text: "Using Cold Crabby",
+            items: [
+              { text: "Getting started", link: "/use/" },
+              { text: "The interface", link: "/use/interface" },
+              { text: "The build plate", link: "/use/plate" },
+              { text: "Print settings", link: "/use/settings" },
+              { text: "Printers & profiles", link: "/use/profiles" },
+              { text: "Reading the preview", link: "/use/preview" },
+              { text: "Sending to your printer", link: "/use/printing" },
+              { text: "Keyboard & gestures", link: "/use/shortcuts" },
+              { text: "Troubleshooting", link: "/use/troubleshooting" },
+            ],
           },
           {
-            text: "Working on the engine",
+            text: "More",
             items: [
-              { text: "Architecture", link: "/guide/architecture" },
+              { text: "For teams & businesses", link: "/teams/" },
+              { text: "What's new", link: "/guide/changelog" },
+              { text: "Brand", link: "/brand" },
+            ],
+          },
+        ],
+        "/teams/": [
+          {
+            text: "For teams & businesses",
+            items: [
+              { text: "Overview", link: "/teams/" },
+              { text: "Self-hosting", link: "/teams/self-host" },
+              { text: "Configuration", link: "/teams/configuration" },
+              { text: "Automation & the CLI", link: "/teams/automation" },
+              { text: "Data, privacy & licensing", link: "/teams/data" },
+            ],
+          },
+          {
+            text: "More",
+            items: [
+              { text: "Using the app", link: "/use/" },
+              { text: "Building from source", link: "/guide/building" },
+              { text: "Brand", link: "/brand" },
+            ],
+          },
+        ],
+        "/guide/": [
+          {
+            text: "Contributing",
+            items: [
+              { text: "Project overview", link: "/guide/" },
+              { text: "Setup", link: "/guide/setup" },
+              { text: "Building from source", link: "/guide/building" },
+              { text: "Development", link: "/guide/development" },
               { text: "Contributing", link: "/guide/contributing" },
               { text: "Releasing", link: "/guide/releasing" },
               { text: "Agents (AI)", link: "/guide/agents" },
             ],
           },
           {
-            text: "UI",
+            text: "Architecture",
+            items: [
+              { text: "Overview", link: "/guide/architecture" },
+              { text: "Module reference", link: "/architecture/core" },
+            ],
+          },
+          {
+            text: "Front-end",
             items: [
               { text: "Angular UI", link: "/guide/ui" },
               { text: "Theme", link: "/guide/ui-theme" },
               { text: "Styles", link: "/guide/ui-src-styles" },
+              {
+                text: "3D viewer",
+                link: "/guide/ui-src-app-components-viewer",
+              },
             ],
           },
         ],
@@ -205,18 +295,20 @@ export default withMermaid(
           {
             text: "Pipeline",
             items: [
-              { text: "Slicing Pipeline (core)", link: "/architecture/core" },
+              { text: "Slicing pipeline (core)", link: "/architecture/core" },
               { text: "Slicing algorithm", link: "/architecture/slicing" },
               { text: "Mesh", link: "/architecture/mesh" },
-              { text: "Arachne (walls)", link: "/architecture/arachne" },
+              { text: "Walls", link: "/architecture/walls" },
               { text: "Infill patterns", link: "/architecture/infill" },
+              { text: "Adhesion", link: "/architecture/adhesion" },
               { text: "G-code", link: "/architecture/gcode" },
             ],
           },
           {
-            text: "Scene & Settings",
+            text: "Scene & settings",
             items: [
-              { text: "Scene Engine (SSOT)", link: "/architecture/scene" },
+              { text: "Scene engine (SSOT)", link: "/architecture/scene" },
+              { text: "Auto-orientation", link: "/architecture/orient" },
               { text: "Settings", link: "/architecture/settings" },
               { text: "Config (TOML)", link: "/architecture/config" },
             ],
@@ -228,6 +320,13 @@ export default withMermaid(
               { text: "Server (HTTP + WS)", link: "/architecture/server" },
               { text: "Database (SQLite)", link: "/architecture/db" },
               { text: "Logging", link: "/architecture/logging" },
+            ],
+          },
+          {
+            text: "Back to",
+            items: [
+              { text: "Contributing", link: "/guide/" },
+              { text: "Using the app", link: "/use/" },
             ],
           },
         ],
@@ -261,6 +360,18 @@ export default withMermaid(
     },
 
     vite: {
+      css: {
+        preprocessorOptions: {
+          scss: {
+            // `loadPaths` is the modern-API spelling of the `includePaths`
+            // that `ui/angular.json` uses, so `@use 'theme/light'` resolves
+            // to the shared library in both builds. Vite 5 still defaults to
+            // the deprecated legacy API, which would ignore it.
+            api: "modern",
+            loadPaths: [uiStyles],
+          },
+        },
+      },
       optimizeDeps: {
         include: ["mermaid"],
       },

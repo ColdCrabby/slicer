@@ -26,6 +26,9 @@ pub struct SliceStatistics {
     pub filament_cm3: f64,
     /// Total filament **weight** in grams (`volume × density`).
     pub filament_g: f64,
+    /// Total material **cost** in the filament profile's currency
+    /// (`weight × price-per-kg`). `0.0` when the price is unknown.
+    pub filament_cost: f64,
     /// Estimated print time in seconds (sum of per-layer XY travel time).
     pub estimated_print_time_s: f64,
     /// Axis-aligned bounding-box minimum `[x, y, z]` over all extrusion points.
@@ -38,16 +41,22 @@ pub struct SliceStatistics {
 
 impl SliceStatistics {
     /// Build statistics from the sliced layers, the resolved parameters, the
-    /// running filament length the generator measured while emitting moves, and
-    /// an optional model name.
+    /// running filament length the generator measured while emitting moves, the
+    /// acceleration-aware print-time estimate, and an optional model name.
     ///
-    /// Geometric fields (layer count, height, bounding box, print time) are
-    /// derived purely from `layers`; the filament weight is derived from
-    /// `filament_mm` and `params.filament_density_g_cm3`.
+    /// Geometric fields (layer count, height, bounding box) are derived purely
+    /// from `layers`; the filament weight is derived from `filament_mm` and
+    /// `params.filament_density_g_cm3`, and the material cost from that weight
+    /// and `params.filament_cost_per_kg`.  The print time is **not** recomputed
+    /// here — it is measured from the emitted G-code by
+    /// [`crate::gcode::time_estimate::estimate_print_time`] and passed in as
+    /// `estimated_print_time_s`, so the header/footer figure matches the moves
+    /// the printer will actually run.
     pub fn from_layers(
         layers: &[SliceLayer],
         params: &SlicingParams,
         filament_mm: f64,
+        estimated_print_time_s: f64,
         model_name: Option<String>,
     ) -> Self {
         let filament_radius_mm = params.filament_diameter_mm / 2.0;
@@ -55,16 +64,14 @@ impl SliceStatistics {
         let filament_mm3 = filament_area_mm2 * filament_mm;
         let filament_cm3 = filament_mm3 / 1000.0;
         let filament_g = filament_cm3 * params.filament_density_g_cm3;
+        let filament_cost = filament_g / 1000.0 * params.filament_cost_per_kg.max(0.0);
 
         let mut max_z_mm = 0.0_f64;
         let mut min = [f64::INFINITY; 3];
         let mut max = [f64::NEG_INFINITY; 3];
-        let mut estimated_print_time_s = 0.0_f64;
 
         for layer in layers {
             max_z_mm = max_z_mm.max(layer.z);
-            estimated_print_time_s +=
-                super::generator::estimate_layer_time(layer, params.print_speed);
             for path in layer.paths.iter() {
                 for pt in path.iter() {
                     let (x, y) = (pt.x(), pt.y());
@@ -91,6 +98,7 @@ impl SliceStatistics {
             filament_mm,
             filament_cm3,
             filament_g,
+            filament_cost,
             estimated_print_time_s,
             bbox_min: min,
             bbox_max: max,
@@ -203,7 +211,55 @@ pub(crate) fn settings_summary_lines(params: &SlicingParams) -> Vec<String> {
             params.wall_count,
             params.wall_generator.name(),
         ),
+        format!(
+            "; perimeter_order: {} | extra_perimeters: {} | thin_walls: {} | ensure_vertical_shell: {} | avoid_crossing: {}",
+            if params.external_perimeters_first {
+                "outer-first"
+            } else {
+                "inner-first"
+            },
+            if params.extra_perimeters { "on" } else { "off" },
+            if params.thin_walls { "on" } else { "off" },
+            if params.ensure_vertical_shell_thickness {
+                "on"
+            } else {
+                "off"
+            },
+            if params.avoid_crossing_perimeters {
+                "on"
+            } else {
+                "off"
+            },
+        ),
         format!("; infill_density: {:.0}%", params.infill_density * 100.0),
+        format!(
+            "; infill_pattern: {} | anchor: {:.0}% / {} mm | every: {} layers (max {}) | solid_every: {}",
+            params.infill_pattern.name(),
+            params.infill_anchor_percent,
+            params.infill_anchor_max_mm,
+            params.infill_every_layers,
+            if params.infill_combination_max_layer_height_mm > 0.0 {
+                format!("{} mm", params.infill_combination_max_layer_height_mm)
+            } else {
+                "nozzle".to_string()
+            },
+            if params.solid_infill_every_layers > 0 {
+                format!("{} layers", params.solid_infill_every_layers)
+            } else {
+                "off".to_string()
+            },
+        ),
+        format!(
+            "; surface_pattern: top {} | bottom {} | internal solid {} | bridge_angle: {}",
+            params.top_surface_pattern.name(),
+            params.bottom_surface_pattern.name(),
+            params.internal_solid_infill_pattern.name(),
+            if params.bridge_angle > 0.0 {
+                format!("{}°", params.bridge_angle)
+            } else {
+                "auto".to_string()
+            },
+        ),
         "; ---".to_string(),
     ]);
     lines
@@ -218,8 +274,14 @@ pub(crate) fn settings_summary_lines(params: &SlicingParams) -> Vec<String> {
 /// its `PrusaSlicer` parser — which reads **every** field from the last 1 MiB of
 /// the file using `; key = value` comments, *not* the human-readable header
 /// block above. Emitting this block is what makes filament type, colour, layer
-/// height, object height, and filament usage show up in the printer UI. The
-/// same footer is understood by OctoPrint's slicer parser.
+/// height, object height, filament usage, and the machine the file was sliced
+/// for show up in the printer UI. The same footer is understood by OctoPrint's
+/// slicer parser.
+///
+/// **Scope rule: emit only what a printer front-end consumes.** This is
+/// deliberately not a dump of all ~130 resolved settings — every line here is
+/// matched by a parser in the wild. The human-readable
+/// [`settings_summary_lines`] header covers the rest.
 ///
 /// Object height is intentionally *not* emitted here: the default per-layer
 /// `;BEFORE_LAYER_CHANGE` + bare `;<z>` markers the generator already writes are
@@ -251,6 +313,19 @@ pub(crate) fn config_block_lines(params: &SlicingParams, stats: &SliceStatistics
         format!("; filament used [cm3] = {:.2}", stats.filament_cm3),
         format!("; filament used [g] = {:.2}", stats.filament_g),
         format!("; total filament used [g] = {:.2}", stats.filament_g),
+    ];
+
+    // Material cost, in the PrusaSlicer slot right after the weight it derives
+    // from. Only emitted when the active filament profile carries a price, so a
+    // flag-only CLI slice doesn't report a free print.
+    if stats.filament_cost > 0.0 {
+        lines.push(format!(
+            "; total filament cost = {:.2}",
+            stats.filament_cost
+        ));
+    }
+
+    lines.extend([
         format!(
             "; estimated printing time (normal mode) = {}",
             stats.estimated_time_human()
@@ -272,8 +347,12 @@ pub(crate) fn config_block_lines(params: &SlicingParams, stats: &SliceStatistics
             first_layer_bed_temp
         ),
         format!("; chamber_temperature = {:.0}", params.chamber_temp),
+        format!(
+            "; chamber_temperature_initial_layer = {:.0}",
+            params.chamber_temp_first_layer_resolved()
+        ),
         format!("; fill_density = {:.0}%", params.infill_density * 100.0),
-    ];
+    ]);
 
     // Filament identity — only emitted when the active profile supplied a value,
     // so a flag-only CLI slice (no profile) doesn't advertise an empty
@@ -292,6 +371,25 @@ pub(crate) fn config_block_lines(params: &SlicingParams, stats: &SliceStatistics
             "; filament_colour = {}",
             params.filament_color.trim()
         ));
+        // Moonraker falls back to `extruder_colour` for the swatch when a
+        // front-end asks for the tool colour rather than the filament colour;
+        // single-extruder machines have nothing else to put there.
+        lines.push(format!(
+            "; extruder_colour = {}",
+            params.filament_color.trim()
+        ));
+    }
+
+    // Machine identity — printer front-ends display it alongside the job, and
+    // some warn when a file was sliced for a different machine.
+    if !params.printer_vendor.trim().is_empty() {
+        lines.push(format!(
+            "; printer_vendor = {}",
+            params.printer_vendor.trim()
+        ));
+    }
+    if !params.printer_model.trim().is_empty() {
+        lines.push(format!("; printer_model = {}", params.printer_model.trim()));
     }
 
     lines.push("; prusaslicer_config = end".to_string());
@@ -306,7 +404,7 @@ mod tests {
     #[test]
     fn empty_slice_has_zeroed_stats() {
         let params = SlicingParams::default();
-        let stats = SliceStatistics::from_layers(&[], &params, 0.0, None);
+        let stats = SliceStatistics::from_layers(&[], &params, 0.0, 0.0, None);
         assert_eq!(stats.layer_count, 0);
         assert_eq!(stats.max_z_mm, 0.0);
         assert_eq!(stats.filament_mm, 0.0);
@@ -326,7 +424,7 @@ mod tests {
             filament_density_g_cm3: 1.24,
             ..SlicingParams::default()
         };
-        let stats = SliceStatistics::from_layers(&[], &params, 1000.0, None);
+        let stats = SliceStatistics::from_layers(&[], &params, 1000.0, 0.0, None);
         assert!(
             (stats.filament_cm3 - 2.4053).abs() < 1e-3,
             "cm3 = {}",
@@ -337,6 +435,32 @@ mod tests {
             "g = {}",
             stats.filament_g
         );
+    }
+
+    /// Cost is weight-derived, so an unpriced filament reports nothing rather
+    /// than a misleading zero-cost print (issue #23).
+    #[test]
+    fn filament_cost_follows_weight_times_price() {
+        let priced = SlicingParams {
+            filament_diameter_mm: 1.75,
+            filament_density_g_cm3: 1.24,
+            filament_cost_per_kg: 25.0,
+            ..SlicingParams::default()
+        };
+        // 1000 mm of 1.75 mm PLA ≈ 2.9826 g → 2.9826 g × 25 /kg ≈ 0.0746.
+        let stats = SliceStatistics::from_layers(&[], &priced, 1000.0, 0.0, None);
+        assert!(
+            (stats.filament_cost - 0.07456).abs() < 1e-4,
+            "cost = {}",
+            stats.filament_cost
+        );
+
+        let unpriced = SlicingParams {
+            filament_cost_per_kg: 0.0,
+            ..priced
+        };
+        let stats = SliceStatistics::from_layers(&[], &unpriced, 1000.0, 0.0, None);
+        assert_eq!(stats.filament_cost, 0.0);
     }
 
     #[test]
@@ -350,7 +474,7 @@ mod tests {
         l1.paths.push(sq2);
 
         let params = SlicingParams::default();
-        let stats = SliceStatistics::from_layers(&[l0, l1], &params, 0.0, None);
+        let stats = SliceStatistics::from_layers(&[l0, l1], &params, 0.0, 0.0, None);
         assert_eq!(stats.layer_count, 2);
         assert!((stats.max_z_mm - 0.4).abs() < 1e-9);
         assert_eq!(stats.bbox_min, [0.0, 0.0, 0.2]);
@@ -365,6 +489,7 @@ mod tests {
             filament_mm: 0.0,
             filament_cm3: 0.0,
             filament_g: 0.0,
+            filament_cost: 0.0,
             estimated_print_time_s: s,
             bbox_min: [0.0; 3],
             bbox_max: [0.0; 3],

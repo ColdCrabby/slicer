@@ -1,3 +1,5 @@
+@use 'breakpoints' as *;
+
 :host {
   display: contents;
 }
@@ -334,4 +336,24 @@
   color: var(--color-text-secondary);
   white-space: nowrap;
   flex-shrink: 0;
+}
+
+/* ── Phone ────────────────────────────────────────────────────────────────
+   In the bottom sheet the inspector shares a card with the Slice button, and
+   the button must never be the thing that scrolls out of reach. So the
+   inspector takes a fixed share of the screen and scrolls within it — the
+   mask already fades its bottom edge, which reads as "there is more below". */
+@include handheld {
+  .insp-shell {
+    &.is-open {
+      max-height: min(var(--inspector-height, 600px), 34vh);
+      overflow-y: auto;
+      overscroll-behavior: contain;
+    }
+  }
+
+  /* Role chips are a grid of small targets; a finger needs the taller row. */
+  .role-badge {
+    min-height: 32px;
+  }
 }

@@ -187,6 +187,7 @@
                   <nexus-param-field
                     [field]="field"
                     [value]="paramsOf(profile)[field.key]"
+                    [siblings]="siblingsFor(profile)"
                     (valueChange)="setParam(profile.id, field.key, $event)"
                   />
                 }
@@ -219,9 +220,14 @@
       [entries]="catalogEntries()"
       [loading]="catalogStatus() === 'loading'"
       [unavailable]="catalogStatus() === 'unavailable'"
+      [importingId]="importingId()"
+      [hasMore]="catalogHasMore()"
+      [loadingMore]="catalogLoadingMore()"
       actionLabel="Import"
       (pick)="importFromCatalog($event)"
       (retry)="retryCatalog()"
+      (search)="onCatalogSearch($event)"
+      (loadMore)="loadMoreCatalog()"
     />
   </nexus-modal-shell>
 }

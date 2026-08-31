@@ -1,3 +1,5 @@
+@use 'breakpoints' as *;
+
 :host {
   position: relative;
   display: block;
@@ -390,5 +392,55 @@
   .drop-card,
   .drop-card::before {
     animation: none;
+  }
+}
+
+// ── Phone ─────────────────────────────────────────────────────────────────
+//
+// A 34px headline and 24px gutters cost a third of the first screen before the
+// actions appear. Trimming both puts all three tiles above the fold, which is
+// the whole job of this page.
+@include handheld {
+  .dashboard {
+    overscroll-behavior: contain;
+  }
+
+  .dashboard-inner {
+    padding: var(--spacing-lg) var(--spacing-md) var(--spacing-2xl);
+    gap: var(--spacing-xl);
+  }
+
+  .dash-title {
+    font-size: var(--font-size-2xl);
+  }
+
+  .dash-subtitle {
+    font-size: var(--font-size-md);
+  }
+
+  .action-tile {
+    gap: var(--spacing-md);
+    padding: var(--spacing-md);
+  }
+
+  .tile-icon {
+    width: 40px;
+    height: 40px;
+
+    --icon-size: 22px;
+  }
+
+  .tile-title {
+    font-size: var(--font-size-md);
+  }
+
+  // A one-line hint per tile; the titles already say what each one does, and
+  // three wrapped sentences is what pushed the third tile off the screen.
+  .tile-desc {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
   }
 }

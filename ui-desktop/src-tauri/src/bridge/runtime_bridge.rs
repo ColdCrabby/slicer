@@ -168,15 +168,25 @@ pub async fn slice_start(
         }
 
         logger.log_info(&format!("slicing {} faces\u{2026}", combined.faces.len()));
-        let layers = slicer_engine::core::process_mesh(&combined, &params, &logger);
-        logger.log_info(&format!("{} layers produced", layers.len()));
+        // One object per plate here (see `bake_scene`), but it still goes
+        // through `slice_plate` so the desktop honours exclude-object exactly
+        // like the CLI and the server.
+        let object_name = original_filename
+            .clone()
+            .unwrap_or_else(|| "object".to_string());
+        let plate = slicer_engine::core::slice_plate(
+            &[slicer_engine::core::ObjectInput::new(object_name, combined)],
+            &params,
+            &logger,
+        );
+        logger.log_info(&format!("{} layers produced", plate.layers.len()));
 
         if cancel_flag.load(Ordering::SeqCst) {
             return Err("Slice cancelled by user".to_string());
         }
 
-        let gcode = slicer_engine::gcode::generate_gcode_from_params(&layers, &params);
-        let layer_count = layers.len();
+        let gcode = slicer_engine::gcode::generate_gcode_for_plate(&plate, &params);
+        let layer_count = plate.layers.len();
         logger.log_info(&format!("GCode generated ({} chars)", gcode.len()));
 
         // Write GCode to the app cache directory. This avoids returning a
@@ -268,6 +278,10 @@ fn register_slice_result(
 /// ([src/server/ws_session.rs]) so the two runtimes cache on the same inputs;
 /// the file's length + mtime stand in for the server's content-addressed upload
 /// token, so editing the source model on disk busts the entry.
+///
+/// The params are fingerprinted via `SlicingParams::cache_fingerprint`, which
+/// omits the ephemeral, camera-derived thumbnail PNG payload — so a fresh
+/// render's bytes never bust the cache (issue #106).
 fn compute_slice_cache_key(
     params: &slicer_engine::settings::params::SlicingParams,
     file_path: &str,
@@ -277,7 +291,7 @@ fn compute_slice_cache_key(
     canonical.push_str("v=");
     canonical.push_str(slicer_engine::version::VERSION);
     canonical.push_str(";params=");
-    canonical.push_str(&serde_json::to_string(params).unwrap_or_default());
+    canonical.push_str(&params.cache_fingerprint());
 
     canonical.push_str(";file=");
     canonical.push_str(file_path);
@@ -373,7 +387,17 @@ fn load_model_from_path(path: &str, logger: &dyn ProcessLogger) -> Result<Mesh, 
     let format = parse_format(ext)?;
     let bytes = std::fs::read(path).map_err(|e| format!("failed to read {path}: {e}"))?;
     logger.log_debug(&format!("read {} bytes from disk", bytes.len()));
-    slicer_engine::scene::load_bytes(&bytes, format)
+    let (mesh, report) = slicer_engine::scene::load_bytes_reporting(
+        &bytes,
+        format,
+        &slicer_engine::mesh::repair::RepairOptions::default(),
+    )?;
+    let label = std::path::Path::new(path)
+        .file_name()
+        .map(|n| n.to_string_lossy().into_owned())
+        .unwrap_or_else(|| path.to_string());
+    slicer_engine::mesh::repair::log_report(logger, &label, &report);
+    Ok(mesh)
 }
 
 /// Apply the scene transform to `mesh`.
