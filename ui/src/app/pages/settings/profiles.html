@@ -220,10 +220,14 @@
       [entries]="catalogEntries()"
       [loading]="catalogStatus() === 'loading'"
       [unavailable]="catalogStatus() === 'unavailable'"
+      [importingId]="importingId()"
+      [hasMore]="catalogHasMore()"
+      [loadingMore]="catalogLoadingMore()"
       actionLabel="Import"
       (pick)="importFromCatalog($event)"
       (retry)="retryCatalog()"
       (search)="onCatalogSearch($event)"
+      (loadMore)="loadMoreCatalog()"
     />
   </nexus-modal-shell>
 }

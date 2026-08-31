@@ -69,11 +69,39 @@
               <nexus-icon name="check" />
               Imported
             </span>
+          } @else if (entry.id === importingId()) {
+            <button type="button" class="catalog__pick catalog__pick--busy" disabled>
+              <span class="catalog__spinner catalog__spinner--inline"></span>
+              Importing…
+            </button>
           } @else {
-            <button type="button" class="catalog__pick" (click)="pick.emit(entry.id)">
+            <button
+              type="button"
+              class="catalog__pick"
+              [disabled]="!!importingId()"
+              (click)="pick.emit(entry.id)"
+            >
               {{ actionLabel() }}
             </button>
           }
+        </li>
+      }
+      @if (hasMore()) {
+        <li class="catalog__load-more">
+          <button
+            type="button"
+            class="catalog__retry"
+            [disabled]="loadingMore()"
+            (click)="loadMore.emit()"
+          >
+            @if (loadingMore()) {
+              <span class="catalog__spinner catalog__spinner--inline"></span>
+              Loading…
+            } @else {
+              <nexus-icon name="nav-arrow-down" />
+              Load more
+            }
+          </button>
         </li>
       }
     </ul>

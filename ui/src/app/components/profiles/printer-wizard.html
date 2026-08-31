@@ -188,10 +188,14 @@
               [entries]="catalogEntries()"
               [loading]="catalogStatus() === 'loading'"
               [unavailable]="catalogStatus() === 'unavailable'"
+              [importingId]="importingId()"
+              [hasMore]="catalogHasMore()"
+              [loadingMore]="catalogLoadingMore()"
               actionLabel="Use preset"
               (pick)="startFromCatalog($event)"
               (retry)="retryCatalog()"
               (search)="onCatalogSearch($event)"
+              (loadMore)="loadMoreCatalog()"
             />
           }
         </div>

@@ -18,6 +18,7 @@ import { ContextMenuService } from '../../services/context-menu/context-menu.ser
 import { ContextMenuTrigger } from '../../services/context-menu/context-menu-trigger';
 import type { ContextMenuItem } from '../../services/context-menu/context-menu.model';
 import { Dialog } from '../../services/dialog';
+import { NotificationService } from '../../services/notifications';
 import { ActiveSelection } from '../../services/profiles/active-selection';
 import { matchesAllLabels, toggledLabelIds } from '../../services/profiles/label-filtering';
 import { paramNum } from '../../models/params-access';
@@ -99,6 +100,7 @@ export class ProfilesSettings {
   private readonly catalog = inject(CloudCatalog);
   private readonly contextMenu = inject(ContextMenuService);
   private readonly dialog = inject(Dialog);
+  private readonly notifications = inject(NotificationService);
   private readonly route = inject(ActivatedRoute);
 
   protected readonly sourceLabels = PROFILE_SOURCE_LABELS;
@@ -213,6 +215,10 @@ export class ProfilesSettings {
   }
 
   protected readonly catalogStatus = this.catalog.profilesStatus;
+  protected readonly catalogHasMore = this.catalog.profilesHasMore;
+  protected readonly catalogLoadingMore = this.catalog.profilesLoadingMore;
+  /** Id of the catalog entry currently being fetched for import, if any. */
+  protected readonly importingId = signal<string | null>(null);
   protected readonly catalogEntries = computed<CatalogEntryVm[]>(() =>
     this.catalog.profiles().map((p) => {
       const params = (p.params as Record<string, unknown>) ?? {};
@@ -246,14 +252,34 @@ export class ProfilesSettings {
     void this.catalog.loadProfiles(true, this.catalog.profilesQuery());
   }
 
-  protected importFromCatalog(id: string): void {
-    const entry = this.catalog.profiles().find((p) => p.id === id);
-    if (!entry) {
+  protected loadMoreCatalog(): void {
+    void this.catalog.loadMoreProfiles();
+  }
+
+  /**
+   * Fetch the full preset behind `id` (real slicing params, not just the
+   * browsed summary) and import it. The catalog picker shows a busy state on
+   * this entry's pick button for the duration.
+   */
+  protected async importFromCatalog(id: string): Promise<void> {
+    const base = this.catalog.profiles().find((p) => p.id === id);
+    if (!base || this.importingId()) {
       return;
     }
-    const copy = this.store.importFromCatalog(entry);
-    this.active.selectProfile(copy.id);
-    this.select(copy.id);
+    this.importingId.set(id);
+    try {
+      const full = await this.catalog.profileDetail(base);
+      const copy = this.store.importFromCatalog(full);
+      this.active.selectProfile(copy.id);
+      this.select(copy.id);
+    } catch (error) {
+      this.notifications.error(
+        'Import failed',
+        error instanceof Error ? error.message : 'The preset details could not be fetched.',
+      );
+    } finally {
+      this.importingId.set(null);
+    }
   }
 
   /** Open a profile in the detail pane. */

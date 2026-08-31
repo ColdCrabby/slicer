@@ -739,22 +739,27 @@ browse ("Pick it from the catalog"). Its data lives in a separate service — th
   `fetch`. Output lands in `ui/src/generated/catalog-client/` (git-ignored, like
   every other generated artifact). **Never hand-edit it, and never re-add the
   vendored spec** — regenerate instead.
-- **The served API is search-only.** Today the contract exposes `GET /v1/health`
-  and `GET /v1/presets` (fuzzy search returning *summaries* — id, type, name,
-  vendor, model/material, a short human `spec` string), **not** full preset
-  bodies. There is no detail or bulk endpoint yet.
+- **The served API is search-plus-detail, never bulk.** `GET /v1/presets`
+  (fuzzy search returning *summaries* — id, type, name, vendor, model/material,
+  a short human `spec` string) and `GET /v1/vendors` are both cursor-paginated;
+  `GET /v1/presets/{id}` returns the *complete* preset in the slicer's own
+  shape (`source`, `import_url`, the full sparse `params` bag). There is still
+  no bulk "dump everything" endpoint — see "Slicer Integration" above.
 - **`CatalogSource` is the seam.**
   [`CloudCatalog`](ui/src/app/services/catalog/cloud-catalog.ts) talks only to
   the `CatalogSource` interface, so the backend is a one-line provider override.
   Each of the three categories is **loaded and searched independently** — opening
-  the printer picker fetches only printers — with its own status, active query
-  and out-of-order guard (`loadPrinters`/`searchPrinters`/… ).
+  the printer picker fetches only printers — with its own status, active query,
+  cursor and out-of-order guard (`loadPrinters`/`searchPrinters`/… ).
   [`RemoteCatalogSource`](ui/src/app/services/catalog/remote-catalog-source.ts)
-  is the real implementation: it *browses* each category (an empty query filtered
-  by `type`, paged through the cursor) and widens every summary into the profile
-  shape the wizards consume, using the `make*` factories for the structured
-  fields a summary cannot carry and tagging the result `source: 'catalog'` with
-  an `import_url` back to the preset's canonical detail URL. It also carries the
+  is the real implementation: list calls fetch **one page at a time** (an empty
+  query browses, a non-empty one searches) rather than walking the cursor to
+  exhaustion, so opening a picker never blocks on — or holds in memory — a whole
+  category; `CloudCatalog.loadMore*`/`*HasMore`/`*LoadingMore` back the picker's
+  "Load more" affordance. Every summary is widened into the profile shape the
+  wizards consume, using the `make*` factories for the structured fields a
+  summary cannot carry and tagging the result `source: 'catalog'` with an
+  `import_url` back to the preset's canonical detail URL. It also carries the
   summary's `spec` string through the hidden `CATALOG_SPEC_KEY` so the picker
   shows the *catalog's own* spec line rather than one reconstructed from
   defaulted fields; `toUserCopy` strips it on import. It passes an `Injector`
@@ -763,6 +768,22 @@ browse ("Pick it from the catalog"). Its data lives in a separate service — th
   rejects, which `CloudCatalog` turns into its `unavailable` state — the UI then
   offers "create from scratch" and the single builtin default per category keeps
   the app working offline.
+- **Importing fetches the real preset before committing.** A summary carries no
+  slicing parameters, so every wizard's "Use preset" and every settings page's
+  "Import" calls `CloudCatalog.printerDetail`/`filamentDetail`/`profileDetail`
+  (→ `GET /v1/presets/{id}`) and overlays the response's `params` onto the
+  already-widened summary *before* creating the local copy — never the summary
+  alone. This is a real network round trip, so each of the six call sites
+  (`printer-wizard`, `filament-wizard`, `profile-wizard`,
+  `pages/settings/{printers,filaments,profiles}`) tracks its own `importingId`
+  signal and passes it to `nexus-catalog-picker`'s `[importingId]` input, which
+  swaps that one entry's pick button for a disabled "Importing…" spinner state —
+  the busy affordance is per-row, not a modal-wide block, so browsing and
+  picking a *different* entry stays live. A failure surfaces through
+  `NotificationService.error` and leaves the picker exactly as it was; nothing
+  is added on failure. Domain fields a detail response doesn't carry yet (a
+  printer's bed size; a filament's color/density/cost) keep the summary's
+  best-effort defaults — only `params` is authoritative from the detail call.
 - **The base URL is configured once at startup.** `environment.catalogApiUrl`
   feeds both the `RemoteCatalogSource` provider and `provideCatalogClient()` in
   [app.config.ts](ui/src/app/app.config.ts) — which wires the client's
@@ -772,9 +793,9 @@ browse ("Pick it from the catalog"). Its data lives in a separate service — th
   (`http://<host>:8787`, the repo's `pnpm sample-api` — canned presets with open
   CORS); prod/web builds point at the deployed cloud
   (`https://cloud-presets.onrender.com`).
-- **Non-goal (for now):** importing a *complete* preset body. The summary lacks
-  the ~92 slicing parameters, so a catalog pick can only pre-fill identity fields
-  until the cloud grows a detail/bulk endpoint and the client is regenerated.
+- **Non-goal (for now):** a bulk "dump every preset" endpoint. Only the
+  summary/detail pair above is supported, so a full plate-wide catalog import
+  still means one round trip per preset, never one call for everything.
 
 ## Scene Engine — SSOT Contract
 
