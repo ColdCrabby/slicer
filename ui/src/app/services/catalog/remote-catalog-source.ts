@@ -1,5 +1,5 @@
 import { Injector } from '@angular/core';
-import { searchPresets, type PresetSummary } from '../../../generated/catalog-client';
+import { getPreset, searchPresets, type PresetSummary } from '../../../generated/catalog-client';
 import {
   FILAMENT_MATERIALS,
   makeFilament,
@@ -8,27 +8,34 @@ import {
 } from '../../models/filament.model';
 import { makePrinter, type PrinterProfile } from '../../models/printer.model';
 import { makePrintProfile, type PrintProfile } from '../../models/print-profile.model';
-import { type CatalogSource, CATALOG_SPEC_KEY } from './cloud-catalog';
+import { type CatalogPage, type CatalogSource, CATALOG_SPEC_KEY } from './cloud-catalog';
 
-/** Hard ceiling per the OpenAPI `limit` bound. */
-const PAGE_LIMIT = 100;
-/** Safety cap on pages walked, so a broken cursor can never loop forever. */
-const MAX_PAGES = 100;
+/**
+ * Page size for browsing/searching. Deliberately well under the OpenAPI
+ * `limit` ceiling (100): a picker shows one page at a time (see
+ * {@link CloudCatalog.loadMorePrinters} and friends), so the first paint only
+ * has to wait on this many rows rather than the whole category.
+ */
+const PAGE_LIMIT = 30;
 
 type PresetType = NonNullable<PresetSummary['type']>;
 
 /**
  * The real {@link CatalogSource}: the Cold Crabby Preset Cloud.
  *
- * The served API only exposes fuzzy **search** returning *summaries* — there is
- * no endpoint yet for a full preset body — so each category is fetched by
- * *browsing* (an empty query, filtered by `type`) and paging through the cursor
- * until the catalog is exhausted. Every summary is widened into the profile
- * shape the existing wizards consume: the {@link makePrinter}/{@link makeFilament}/
- * {@link makePrintProfile} factories supply valid defaults for the structured
- * fields the summary cannot carry, and the summary's own fields (name, vendor,
- * model/material) overwrite them. The result is tagged `source: 'catalog'` with
- * an `import_url` back to the preset's canonical detail URL for lineage.
+ * List methods fetch **one page at a time** (an empty query browses; a
+ * non-empty one searches) rather than walking the cursor to exhaustion, so
+ * opening a picker never blocks on \u2014 or holds in memory \u2014 the whole category.
+ * Every summary is widened into the profile shape the existing wizards
+ * consume: the {@link makePrinter}/{@link makeFilament}/{@link makePrintProfile}
+ * factories supply valid defaults for the structured fields a summary cannot
+ * carry, and the summary's own fields (name, vendor, model/material) overwrite
+ * them. The result is tagged `source: 'catalog'` with an `import_url` back to
+ * the preset's canonical detail URL for lineage.
+ *
+ * `*Detail` calls `GET /v1/presets/{id}` for the full preset and overlays its
+ * real `params` onto the already-widened summary, which is what turns a
+ * browsed entry into something actually worth importing.
  *
  * Any transport or HTTP error rejects, which {@link CloudCatalog} turns into its
  * `unavailable` state — the app then falls back to "create from scratch".
@@ -45,47 +52,88 @@ export class RemoteCatalogSource implements CatalogSource {
     private readonly injector: Injector,
   ) {}
 
-  async printers(query?: string): Promise<PrinterProfile[]> {
-    const summaries = await this.browse('printer', query);
-    return summaries.map((s) =>
-      makePrinter({
-        id: s.id,
-        name: s.name,
-        vendor: s.vendor,
-        model: s.model ?? 'Generic',
-        source: 'catalog',
-        import_url: this.detailUrl(s.id),
-        [CATALOG_SPEC_KEY]: s.spec,
-      }),
-    );
+  async printers(query?: string, cursor?: string): Promise<CatalogPage<PrinterProfile>> {
+    const page = await this.fetchPage('printer', query, cursor);
+    return {
+      items: page.results.map((s) =>
+        makePrinter({
+          id: s.id,
+          name: s.name,
+          vendor: s.vendor,
+          model: s.model ?? 'Generic',
+          source: 'catalog',
+          import_url: this.detailUrl(s.id),
+          [CATALOG_SPEC_KEY]: s.spec,
+        }),
+      ),
+      nextCursor: page.nextCursor,
+    };
   }
 
-  async filaments(query?: string): Promise<FilamentProfile[]> {
-    const summaries = await this.browse('filament', query);
-    return summaries.map((s) =>
-      makeFilament({
-        id: s.id,
-        name: s.name,
-        vendor: s.vendor,
-        material: coerceMaterial(s.material),
-        source: 'catalog',
-        import_url: this.detailUrl(s.id),
-        [CATALOG_SPEC_KEY]: s.spec,
-      }),
-    );
+  async filaments(query?: string, cursor?: string): Promise<CatalogPage<FilamentProfile>> {
+    const page = await this.fetchPage('filament', query, cursor);
+    return {
+      items: page.results.map((s) =>
+        makeFilament({
+          id: s.id,
+          name: s.name,
+          vendor: s.vendor,
+          material: coerceMaterial(s.material),
+          source: 'catalog',
+          import_url: this.detailUrl(s.id),
+          [CATALOG_SPEC_KEY]: s.spec,
+        }),
+      ),
+      nextCursor: page.nextCursor,
+    };
   }
 
-  async profiles(query?: string): Promise<PrintProfile[]> {
-    const summaries = await this.browse('process', query);
-    return summaries.map((s) =>
-      makePrintProfile({
-        id: s.id,
-        name: s.name,
-        source: 'catalog',
-        import_url: this.detailUrl(s.id),
-        [CATALOG_SPEC_KEY]: s.spec,
-      }),
-    );
+  async profiles(query?: string, cursor?: string): Promise<CatalogPage<PrintProfile>> {
+    const page = await this.fetchPage('process', query, cursor);
+    return {
+      items: page.results.map((s) =>
+        makePrintProfile({
+          id: s.id,
+          name: s.name,
+          source: 'catalog',
+          import_url: this.detailUrl(s.id),
+          [CATALOG_SPEC_KEY]: s.spec,
+        }),
+      ),
+      nextCursor: page.nextCursor,
+    };
+  }
+
+  async printerDetail(base: PrinterProfile): Promise<PrinterProfile> {
+    const detail = await this.fetchDetail(base.id);
+    return {
+      ...base,
+      name: detail.name,
+      vendor: detail.vendor,
+      import_url: detail.import_url,
+      params: { ...(base.params as Record<string, unknown>), ...detail.params },
+    };
+  }
+
+  async filamentDetail(base: FilamentProfile): Promise<FilamentProfile> {
+    const detail = await this.fetchDetail(base.id);
+    return {
+      ...base,
+      name: detail.name,
+      vendor: detail.vendor,
+      import_url: detail.import_url,
+      params: { ...(base.params as Record<string, unknown>), ...detail.params },
+    };
+  }
+
+  async profileDetail(base: PrintProfile): Promise<PrintProfile> {
+    const detail = await this.fetchDetail(base.id);
+    return {
+      ...base,
+      name: detail.name,
+      import_url: detail.import_url,
+      params: { ...(base.params as Record<string, unknown>), ...detail.params },
+    };
   }
 
   /** Canonical detail URL for a preset, recorded as import provenance. */
@@ -94,34 +142,44 @@ export class RemoteCatalogSource implements CatalogSource {
   }
 
   /**
-   * Walk every page of one preset type, returning all summaries. A non-empty
-   * `query` is passed to the server as `q` for fuzzy, ranked search; an empty
-   * one browses the whole category.
+   * Fetch one page of one preset type. A non-empty `query` is passed to the
+   * server as `q` for fuzzy, ranked search; an empty one browses.
    */
-  private async browse(type: PresetType, query?: string): Promise<PresetSummary[]> {
+  private async fetchPage(
+    type: PresetType,
+    query: string | undefined,
+    cursor: string | undefined,
+  ): Promise<{ results: PresetSummary[]; nextCursor?: string }> {
     const q = query?.trim() || undefined;
-    const all: PresetSummary[] = [];
-    let cursor: string | undefined;
-    for (let page = 0; page < MAX_PAGES; page++) {
-      const { data, error } = await searchPresets({
-        query: { type, q, limit: PAGE_LIMIT, cursor },
-        injector: this.injector,
-      });
-      if (error) {
-        throw new Error(`Catalog search failed for "${type}".`);
-      }
-      if (!data) {
-        break;
-      }
-      if (data.results) {
-        all.push(...data.results);
-      }
-      cursor = data.next_cursor;
-      if (!cursor) {
-        break;
-      }
+    const { data, error } = await searchPresets({
+      query: { type, q, limit: PAGE_LIMIT, cursor },
+      injector: this.injector,
+    });
+    if (error) {
+      throw new Error(`Catalog search failed for "${type}".`);
     }
-    return all;
+    return { results: data?.results ?? [], nextCursor: data?.next_cursor };
+  }
+
+  /** Fetch the full preset behind one catalog id via `GET /v1/presets/{id}`. */
+  private async fetchDetail(
+    id: string,
+  ): Promise<{
+    name: string;
+    vendor: string;
+    import_url: string;
+    params: Record<string, unknown>;
+  }> {
+    const { data, error } = await getPreset({ path: { id }, injector: this.injector });
+    if (error || !data) {
+      throw new Error(`Catalog detail failed for preset "${id}".`);
+    }
+    return {
+      name: data.name,
+      vendor: data.vendor,
+      import_url: data.import_url,
+      params: data.params,
+    };
   }
 }
 
