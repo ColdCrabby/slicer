@@ -24,6 +24,7 @@
     "ios:dev": "scripts/ios-dev.sh",
     "ios:open": "pnpm --filter slicer-ui-desktop exec tauri ios dev --open",
     "ios:build": "pnpm --filter slicer-ui-desktop exec tauri ios build",
+    "ios:install": "scripts/ios-install.sh",
     "build:wasm": "cargo build --lib --target wasm32-unknown-unknown --release && wasm-bindgen target/wasm32-unknown-unknown/release/slicer_engine.wasm --target web --out-dir ui/src/generated/scene-wasm --out-name scene_engine",
     "build:wasm:web-slicer": "cargo build --lib --target wasm32-unknown-unknown --release --features web-slicer && wasm-bindgen target/wasm32-unknown-unknown/release/slicer_engine.wasm --target web --out-dir ui/src/generated/scene-wasm --out-name scene_engine",
     "gen-schemas": "cargo run -- gen-schemas --output-dir ui/src/schemas",

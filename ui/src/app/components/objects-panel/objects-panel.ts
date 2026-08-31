@@ -1,9 +1,13 @@
 import { ChangeDetectionStrategy, Component, computed, inject, signal } from '@angular/core';
+import { BrowserStorage } from '../../services/browser-storage';
 import { SceneEngine, type SceneObjectSnapshot } from '../../services/scene-engine';
 import { ViewerControl } from '../../services/viewer-control';
 import { Viewport } from '../../services/viewport';
 import { WorkplateObjects } from '../../services/workplate-objects';
 import { Icon, TooltipDirective } from '@coldcrabby/ui';
+
+/** Remembers whether the user folded the list away, per device. */
+const EXPANDED_KEY = 'plate.objectsPanelExpanded';
 
 /** One row in the list, with its selection and placement state resolved. */
 interface ObjectRow {
@@ -46,6 +50,7 @@ export class ObjectsPanel {
   private readonly sceneEngine = inject(SceneEngine);
   private readonly viewerControl = inject(ViewerControl);
   private readonly viewport = inject(Viewport);
+  private readonly storage = inject(BrowserStorage);
 
   /** Id awaiting delete confirmation, if any. */
   protected readonly pendingDelete = signal<bigint | null>(null);
@@ -53,21 +58,31 @@ export class ObjectsPanel {
   /**
    * Whether the list may be folded away to its header.
    *
-   * On a desktop the panel costs a corner of a large scene and is worth having
-   * open; on a phone the same list covers a third of the plate it describes. So
-   * phones get a header that collapses — the object count stays visible, the
-   * rows come back on tap — and every other size keeps the list open with no
-   * extra control to explain.
+   * On a large desktop scene the panel costs a corner and is worth having open;
+   * anywhere tighter the same list covers a third of the plate it describes,
+   * and on a touch device there is no cursor to move away from it. So compact
+   * viewports and tablets get a header that collapses — the object count stays
+   * visible, the rows come back on tap — while a roomy desktop keeps the list
+   * open with no extra control to explain.
    */
-  protected readonly collapsible = computed(() => this.viewport.isHandheld());
+  protected readonly collapsible = computed(() => this.viewport.isCompact());
 
-  private readonly userExpanded = signal(false);
+  private readonly storedExpanded = this.storage.get(EXPANDED_KEY, 'local');
 
-  /** Whether the object rows are showing. Always true where there is room. */
-  protected readonly expanded = computed(() => !this.collapsible() || this.userExpanded());
+  /**
+   * Whether the object rows are showing. Always true where there is room.
+   *
+   * Folded is the default wherever it can fold: the complaint the fold answers
+   * is that the list is in the way, so it starts out of the way. The header
+   * keeps the count and the warning flag, so a plate that cannot print still
+   * says so. The choice is remembered per device.
+   */
+  protected readonly expanded = computed(
+    () => !this.collapsible() || this.storedExpanded() === 'true',
+  );
 
   protected toggleExpanded(): void {
-    this.userExpanded.update((open) => !open);
+    this.storage.write(EXPANDED_KEY, this.expanded() ? 'false' : 'true', 'local');
   }
 
   /**
@@ -112,10 +127,12 @@ export class ObjectsPanel {
 
   protected select(row: ObjectRow, event: Event): void {
     // Angular types `(keydown.enter)` as a plain Event, so narrow rather than
-    // assume the modifier keys are present.
+    // assume the modifier keys are present. Multi-select mode stands in for the
+    // modifier on touch, so a tapped row behaves like a tapped model.
     const additive =
-      (event instanceof MouseEvent || event instanceof KeyboardEvent) &&
-      (event.shiftKey || event.metaKey || event.ctrlKey);
+      this.viewerControl.additiveSelection() ||
+      ((event instanceof MouseEvent || event instanceof KeyboardEvent) &&
+        (event.shiftKey || event.metaKey || event.ctrlKey));
     const current = this.viewerControl.selectedObjectIds();
     if (!additive) {
       this.viewerControl.selectedObjectIds.set([row.id]);

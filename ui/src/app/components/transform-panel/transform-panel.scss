@@ -1,3 +1,5 @@
+@use 'breakpoints' as *;
+
 // Axis indicator hues intentionally mirror the on-canvas gizmo handles
 // (gizmo.ts AXIS_COLORS) so the numeric fields read as the same X/Y/Z the
 // user drags in 3D. These are functional axis cues, not theme colours.
@@ -156,5 +158,17 @@ $axis-z: #3498db;
   }
   &[data-axis='Z'] {
     background: color-mix(in oklab, #{$axis-z} 82%, transparent);
+  }
+}
+
+/* The card's own buttons — centre, drop, reset rotation, reset scale — are
+   36px targets under a fingertip rather than 26px ones under a cursor. Not the
+   full 44px: they sit in a tight header row beside the title, and the card is
+   already the widest thing floating over the plate. */
+@include coarse-pointer {
+  .tp-action {
+    width: 36px;
+    height: 36px;
+    --icon-size: 17px;
   }
 }

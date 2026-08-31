@@ -44,7 +44,15 @@ rotate.
 if you deliberately want something floating — for example when you're checking
 a support-free overhang.
 
+On a touch screen you can skip the handles for a simple reposition: tap a model
+to select it, then drag it straight across the bed. Dragging anywhere else
+orbits, so nothing moves unless you picked it first.
+
 ### Editing several objects at once
+
+Hold `Ctrl`/`⌘` or `Shift` and click to add models to the selection, or use
+`Ctrl`/`⌘ + A` for all of them. Without a keyboard, turn on **Multi-select** in
+the tool cluster and every tap adds or removes one.
 
 Select more than one and the card keeps working:
 
@@ -72,7 +80,11 @@ that would fight with the arrangement.
 
 ## Duplicating and deleting
 
-In the objects panel on the right, each row has **Duplicate** and **Remove**.
+Right-click a model — or press and hold it on a touch screen — for **Duplicate**,
+**Drop to floor**, **Centre on bed** and **Remove**, right where the model is. If
+you have several selected, the menu acts on all of them.
+
+The objects panel has the same **Duplicate** and **Remove** on each row. There,
 Remove asks once before it takes effect.
 
 Duplicates are cheap — they share the original's geometry.

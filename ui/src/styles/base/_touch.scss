@@ -1,0 +1,52 @@
+/// Coarse-pointer adaptations of the shared `@coldcrabby/ui` components.
+/// @group base
+///
+/// The sibling `_handheld.scss` asks "is this a phone?", which is a question
+/// about *room*. This file asks "is the pointer a fingertip?", which is a
+/// question about *precision* — and on a tablet the two answers differ. An iPad
+/// has a desktop's width, so it takes the desktop layout and every one of these
+/// shared controls at its 34px cursor size: a Color-by dropdown, a layer slider
+/// with an 18px thumb, a select option row. Under a fingertip those are a
+/// coin-flip, and the layer slider is the single most-used control in the whole
+/// G-code preview.
+///
+/// Apple's HIG floor is 44pt, so that is the number here rather than the 40px
+/// the phone rules previously used — one value, applied wherever there is no
+/// cursor, instead of two that drift.
+///
+/// Keyed to `html.is-coarse-pointer` rather than a bare `@media (pointer: coarse)`
+/// for the same reason `_handheld.scss` uses its class: a component's `:host`
+/// block compiles to an attribute selector, which a plain element selector loses
+/// to. The class buys exactly that specificity without `!important`. It is set
+/// before first paint by the inline script in `index.html` and kept live by the
+/// `Viewport` service.
+
+html.is-coarse-pointer {
+  // ── Touch targets ───────────────────────────────────────────────────────
+  nexus-select .trigger,
+  nexus-number-input .field {
+    height: 44px;
+  }
+
+  input:not([type='checkbox']):not([type='radio']):not([type='range']),
+  select {
+    min-height: 44px;
+  }
+
+  // A dropdown's own options are the same problem one level down.
+  nexus-select .option {
+    min-height: 44px;
+  }
+
+  // ── Sliders ─────────────────────────────────────────────────────────────
+  // The component exposes its geometry as custom properties, so this is a
+  // re-tune rather than an override: a thumb a finger can actually catch, on a
+  // track thick enough to aim at, with a taller hit area around both. Scrubbing
+  // layers in the G-code preview is a drag gesture — the one interaction that
+  // fails outright at cursor sizes.
+  nexus-slider .range,
+  nexus-range-slider .range {
+    --thumb: 26px;
+    --track-h: 8px;
+  }
+}

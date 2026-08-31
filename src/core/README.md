@@ -107,7 +107,8 @@ classification post-pass uses it to flag walls printed in air as
 ```mermaid
 flowchart TD
     M[Mesh<br/>baked, world-space] --> S1[slice_mesh<br/>raw OuterWall contours]
-    S1 --> S2[generate_arachne_walls<br/>variable-width beads]
+    S1 --> DC[apply_dimensional_compensation<br/>XY size · medial-limited elephant foot]
+    DC --> S2[generate_arachne_walls<br/>variable-width beads]
     S2 --> S3{snapshot infill regions?}
     S3 -->|first/top single-wall enabled| SN[pre_strip_infill_regions]
     S3 -->|otherwise| W
@@ -121,6 +122,24 @@ flowchart TD
     AN --> ORD[order_paths_per_layer<br/>greedy NN + seam vertex rotation<br/>skipped for monotonic surfaces]
     ORD --> L[Vec~SliceLayer~]
 ```
+
+### Dimensional compensation
+
+[`compensation.rs`](compensation.rs) corrects the raw contours **before**
+anything is built from them, which is the only place the correction can be made
+once. Walls, interior, surfaces and infill are all derived from these shapes, so
+a contour corrected here corrects the whole layer; a *bead* corrected after the
+fact would leave the interior — and therefore every solid surface — sized to the
+uncorrected model.
+
+Two corrections share the pass. `xy_size_compensation_mm` is a plain signed
+offset on every layer, for a machine that prints consistently over- or
+undersize. `elephant_foot_compensation_mm` shrinks the layers at the bed to undo
+the squish, and is deliberately **not** a uniform offset — see the module docs
+for why, and [§ Critical invariants](#5-elephant-foot-is-medial-limited-never-uniform).
+
+The whole pass is skipped when neither is configured, which is the default, so
+an ordinary slice never allocates for it.
 
 ### Path ordering & seam placement
 
@@ -260,6 +279,7 @@ Two things to note:
 | Phase                         | Function                                                                      | Reads                                       | Writes                                       |
 | ----------------------------- | ----------------------------------------------------------------------------- | ------------------------------------------- | -------------------------------------------- |
 | Slice                         | [`slice_mesh`](slicer.rs)                                                     | `Mesh`                                      | `paths` (OuterWall)                          |
+| Dimensional compensation      | [`compensation::apply_dimensional_compensation`](compensation.rs)             | `paths` (raw contours), layer `i + 1`       | `paths` (corrected; skipped when unconfigured) |
 | Arachne walls                 | [`walls::arachne::generate_arachne_walls`](../walls/arachne/mod.rs)                        | `paths`                                     | `paths`, `path_roles`, `path_widths`         |
 | Infill snapshot               | [`infill::calculate_interior_region`](infill.rs)                              | `paths` (all walls)                         | `pre_strip_infill_regions` local             |
 | Single-wall strip             | [`walls::apply_single_wall_restrictions`](walls.rs)                           | `paths`, `path_roles`                       | `paths`, `path_roles` (inner walls + first-layer gap fill removed) |
@@ -401,6 +421,52 @@ infill is then generated through the void. The `−0.5 × d` correction in
 the inflate accounts for the fact that `OuterWall` centerlines are already
 inset half a bead width from the model surface.
 
+### 4. Compensation runs on contours, before walls
+
+[`apply_dimensional_compensation`](compensation.rs) is the **first** thing to
+touch a layer, and it must stay there. It rewrites a layer's entire path list,
+which is only sound while no per-path metadata exists to keep in step with it —
+a `debug_assert!` pins that. Run it after wall generation and it would correct
+the beads while leaving the interior, and every solid surface with it, sized to
+the uncorrected model.
+
+### 5. Elephant foot is medial-limited, never uniform
+
+A uniform inward offset of 0.2 mm deletes every first-layer feature narrower
+than 0.4 mm — embossed text, logo strokes, thin ribs — which is exactly the
+detail a first layer is judged on. So the shrink is computed per contour vertex
+from the largest circle that fits inside the material there, and applied as a
+**variable** offset: a feature ends up `max(w_min, w − 2δ)` wide, so nothing thin
+is erased.
+
+Three further rules keep it honest, and each exists because the naive version
+gets it wrong:
+
+- **Two measurements, not one.** The largest circle that fits inside the
+  material *touching* a point collapses toward zero all along a convex corner —
+  true, but useless as a limit, because it would leave an uncompensated nub on
+  every corner of every model. So the module takes a second reading that counts
+  only surfaces which actually **face** the point, as an opposite wall does and
+  a corner's adjoining edge does not. The first is restored by a running maximum
+  along the contour; the second caps that maximum back down so a thick body's
+  radius cannot leak down an attached rib and pinch it off at the root. Their
+  failure modes are disjoint, and the smaller of the two is right in both cases.
+- **Smoothing may only reduce.** Averaging alone would raise the shrink at a
+  thin spot back toward its thicker neighbours, re-eroding the feature the limit
+  just protected.
+- **Vertices move to the mitre point, not along the normal.** A right-angle
+  corner needs `√2 · δ` of travel along its bisector for both of its edges to
+  end up `δ` further in; displacing by `δ` would round every corner off.
+
+The **cliff guard** is a separate limit on top: compensation is withheld where
+the layer above flares steeply outward past this one, so a narrow pedestal under
+a wide body is never undercut. The flare is measured *along the outward normal*,
+by walking out of the layer above until its material ends — the nearest boundary
+in any direction answers a different question, and a rim running tangentially
+past would hide a deep overhang behind it. It reads the model's own geometry,
+which is why the pass walks bottom-up: layer `i` consults layer `i + 1` before
+layer `i + 1` is itself rewritten.
+
 See [`../walls/README.md`](../walls/README.md) for the wall-side
 implications and [`../../AGENTS.md`](../../AGENTS.md) for fill-rule
 guidance across the whole engine.
@@ -418,6 +484,10 @@ guidance across the whole engine.
   exist.
 - **No profile validation.** `SlicingParams` arrives already validated by
   [`settings::validator`](../settings/validator.rs).
+- **No hole-specific dimensional compensation.** Growing holes by their own
+  delta needs per-contour hole classification and a setting of its own;
+  [`compensation.rs`](compensation.rs) offsets holes only as part of the whole
+  cross-section.
 
 ---
 
@@ -425,6 +495,7 @@ guidance across the whole engine.
 
 - [pipeline.rs](pipeline.rs) — `process_mesh` orchestrator
 - [slicer.rs](slicer.rs) — triangle-plane intersection, segment chaining
+- [compensation.rs](compensation.rs) — XY size + medial-limited elephant foot
 - [walls.rs](walls.rs) — per-island first/top single-wall restriction
 - [surfaces.rs](surfaces.rs) — top / bottom solid surface detection and infill
 - [infill.rs](infill.rs) — `calculate_interior_region`, sparse infill driver

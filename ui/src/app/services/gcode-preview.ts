@@ -16,6 +16,7 @@ export type RoleName =
   | 'bridge'
   | 'internalBridge'
   | 'topSurface'
+  | 'ironing'
   | 'bottomSurface'
   | 'support'
   | 'supportInterface'
@@ -39,6 +40,7 @@ export const ROLE_COLORS_DARK: RoleColorPalette = {
   bridge: 0x0057ff,
   internalBridge: 0x3a7bff,
   topSurface: 0xff3355,
+  ironing: 0xffd0a0,
   bottomSurface: 0x00bbff,
   support: 0x7dff00,
   supportInterface: 0xb8ff5a,
@@ -60,6 +62,7 @@ export const ROLE_COLORS_LIGHT: RoleColorPalette = {
   bridge: 0x2e5bd6,
   internalBridge: 0x5775dd,
   topSurface: 0xd1263f,
+  ironing: 0xb5763c,
   bottomSurface: 0x1592c4,
   support: 0x7f9c1f,
   supportInterface: 0x95b13a,
@@ -89,6 +92,7 @@ export const ROLE_LABELS: Record<RoleName, string> = {
   bridge: 'Bridge',
   internalBridge: 'Internal Bridge',
   topSurface: 'Top Surface',
+  ironing: 'Ironing',
   bottomSurface: 'Bottom Surface',
   support: 'Support',
   supportInterface: 'Support Interface',
@@ -122,6 +126,7 @@ export const ROLE_ORDER: readonly RoleName[] = [
   'bridge',
   'internalBridge',
   'topSurface',
+  'ironing',
   'bottomSurface',
   'support',
   'supportInterface',
@@ -151,6 +156,7 @@ export const ROLE_GROUPS: readonly RoleGroup[] = [
       'bridge',
       'internalBridge',
       'topSurface',
+      'ironing',
       'bottomSurface',
     ],
   },

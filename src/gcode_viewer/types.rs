@@ -22,6 +22,7 @@
 /// - 15 Brim
 /// - 16 PrimeTower
 /// - 17 InternalBridge
+/// - 18 Ironing
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) enum Role {
     OuterWall,
@@ -55,11 +56,18 @@ pub(super) enum Role {
     PrimeTower,
     /// Internal bridge infill.
     InternalBridge,
+    /// Near-dry smoothing pass over a finished top surface.
+    Ironing,
 }
 
 impl Role {
     pub(super) fn from_type_comment(s: &str) -> Self {
         let lower = s.to_ascii_lowercase();
+        // Ahead of the "top" test below: ironing sweeps a top surface but is a
+        // role of its own, and its label shares no substring with one.
+        if lower.contains("ironing") {
+            return Self::Ironing;
+        }
         if lower.contains("internal bridge") {
             return Self::InternalBridge;
         }
@@ -140,6 +148,10 @@ impl Role {
             Role::Brim => 15,
             Role::PrimeTower => 16,
             Role::InternalBridge => 17,
+            // Appended, never inserted: this ordinal is the wire format the
+            // TypeScript viewer decodes, so renumbering would recolour every
+            // previously-rendered role.
+            Role::Ironing => 18,
         }
     }
 }

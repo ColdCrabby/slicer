@@ -12,6 +12,7 @@ import { createRuntime } from '../runtime/factory/runtime-factory';
 import { RuntimeEvent } from '../runtime/ports/runtime-events';
 import { FileExport } from './file-export';
 import { onIdle } from './idle';
+import { ModelSourceRegistry } from './model-source';
 import { NotificationService } from './notifications';
 import { ActiveSelection } from './profiles/active-selection';
 import { SceneEngine } from './scene-engine';
@@ -95,6 +96,7 @@ export class Slicer {
   private readonly viewerControl = inject(ViewerControl);
   private readonly workplateNames = inject(WorkplateNames);
   private readonly fileExport = inject(FileExport);
+  private readonly modelSources = inject(ModelSourceRegistry);
   private readonly runtimeMode = this.resolveRuntimeMode();
   private readonly runtime = createRuntime({
     mode: this.runtimeMode,
@@ -103,6 +105,7 @@ export class Slicer {
     sceneEngine: this.sceneEngine,
     slicerConnection: this.wsConnection,
     slicerFile: this.slicerFile,
+    modelSources: this.modelSources,
   });
   private readonly runtimeSession = new RuntimeSession(this.runtimeMode);
   private readonly orchestrator = new RuntimeOrchestrator(this.runtime, this.runtimeSession);
@@ -545,7 +548,18 @@ export class Slicer {
 
     if (this.runtimeMode !== 'cloud') {
       const requestUuid = this.createLocalRequestId();
-      this.slicerFile.adoptLocal(requestUuid);
+      // No server to mint a file id, so the registry mints one and the plate
+      // records it exactly as it records an upload. Without this the first
+      // model's object carries no `source_id` and the local runtimes cannot
+      // tell its bytes apart from any other model added later.
+      const source = this.modelSources.register({
+        fileName: file.name,
+        bytes: new Uint8Array(await file.arrayBuffer()),
+      });
+      this.slicerFile.adoptLocal(requestUuid, {
+        fileId: source.sourceId,
+        filename: file.name,
+      });
       return { requestUuid };
     }
 
@@ -810,6 +824,10 @@ export class Slicer {
     this.reset();
     this.workplateObjects.clearPending();
     await this.sceneEngine.clear();
+    // Release the previous plate's model files. They are keyed by object
+    // handles that no longer exist, so keeping them would pin every model the
+    // user has ever opened in memory for the life of the tab.
+    this.modelSources.clear();
     // Drop the undo/redo stack with the scene it described: its snapshots
     // reference objects from the old plate, and undoing across the reset would
     // delete the new plate's objects instead of reverting an edit.

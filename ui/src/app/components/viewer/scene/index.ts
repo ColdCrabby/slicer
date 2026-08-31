@@ -602,6 +602,24 @@ export class ViewerScene {
     this._selection.setObjectMode(mode);
   }
 
+  /**
+   * Make a plain tap toggle its object in and out of the selection, the way
+   * ⌘/Ctrl-click does with a mouse. Touch offers no modifier key, so this is
+   * how a multi-object selection is built with a finger or a pencil.
+   */
+  setAdditiveSelection(on: boolean): void {
+    this._selection.setAdditiveSelection(on);
+  }
+
+  /**
+   * Allow dragging an already-selected object to slide the whole selection
+   * across the bed. Meant for touch and pen, where the gizmo's thin arrows are
+   * a poor target for a fingertip.
+   */
+  setDirectDragEnabled(on: boolean): void {
+    this._selection.setDirectDragEnabled(on);
+  }
+
   /** macOS bare-two-finger-swipe action (orbit or pan). */
   setTwoFingerGesture(gesture: TwoFingerGesture): void {
     this._controls.setTwoFingerGesture(gesture);

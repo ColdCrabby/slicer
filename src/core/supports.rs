@@ -270,14 +270,8 @@ pub fn generate_supports(
     // `xy − half_bead` of real air — 0.6 mm of a requested 0.8 mm at defaults.
     // Add the half bead back so the number in the settings is the gap the user
     // actually gets.
-    let outer_w = if params.outer_wall_line_width > 0.0 {
-        params.outer_wall_line_width
-    } else if params.line_width > 0.0 {
-        params.line_width
-    } else {
-        ext_w
-    };
-    let xy = params.support_xy_distance_mm.max(0.0) + outer_w * 0.5;
+    let xy = params.support_xy_distance_mm.max(0.0)
+        + crate::core::outer_wall_nominal_width_mm(params) * 0.5;
     let mut add_at: Vec<Paths> = vec![Paths::new(vec![]); n];
     #[allow(clippy::needless_range_loop)]
     for i in 1..n {

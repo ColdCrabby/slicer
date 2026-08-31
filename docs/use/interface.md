@@ -16,8 +16,10 @@ Nothing is hidden behind menus.
 └──────────────┴─────────────────────────────────────┴──────────────┘
 ```
 
-That's the layout on a computer or a tablet. A phone gets the same tools in a
-one-handed arrangement — see [On a phone](#on-a-phone) at the end.
+That's the layout on a computer. A tablet gets the same one with the side panels
+folded down so the plate stays the biggest thing on screen — see
+[On a tablet](#on-a-tablet). A phone gets the same tools in a one-handed
+arrangement — see [On a phone](#on-a-phone).
 
 ## The 3D view
 
@@ -26,6 +28,12 @@ The bed, the print volume, and your models. Navigate it the way you'd expect:
 - **Drag** to orbit, **scroll** to zoom, **right-drag** (or two fingers on a
   trackpad) to pan.
 - **Click** a model to select it, `Esc` to deselect, `Ctrl`/`⌘ + A` to select all.
+- **`Ctrl`/`⌘` or `Shift` + click** adds to the selection. On a touch screen use
+  the **Multi-select** tool instead — see
+  [Working the plate with a finger or a pen](#working-the-plate-with-a-finger-or-a-pen).
+- **Right-click** (or **press and hold** on a touch screen) a model for
+  duplicate, drop to floor, centre and remove, without leaving the plate. On
+  empty bed you get the plate-wide actions instead.
 - The **viewport cube** top-right snaps the camera to a face, edge or corner.
   Click its centre to return home.
 - `Shift + Space` switches between perspective and orthographic. Orthographic is
@@ -34,6 +42,11 @@ The bed, the print volume, and your models. Navigate it the way you'd expect:
 On a trackpad or tablet, a two-finger swipe orbits by default. If you'd rather
 it panned, change it in **Settings → General → Controls**. Palm rejection is on
 by default for pen input.
+
+On a touchscreen, two fingers pinch to zoom and slide to pan — both at once, as
+you'd expect. Twisting rotates the view, but only if you clearly mean it: once
+you've started pinching, the view won't tip just because your wrist turned. Rest
+your hand on the glass while drawing with a pencil and it's ignored.
 
 ## The tool cluster
 
@@ -45,6 +58,7 @@ Floating under the model, this is where you manipulate what's on the plate.
 | **Rotate**          | `R` | Spin around an axis                                  |
 | **Scale**           | `S` | Resize, uniformly or per axis                        |
 | **Pull to floor**   | `F` | Click a face; that face becomes the bottom           |
+| **Multi-select**    |     | Touch screens only — each tap adds or removes        |
 | **Place objects**   | `A` | Auto-arrange everything on the bed                   |
 | **Add a model**     |     | Same as dropping a file in                           |
 | **Gravity**         | `G` | Objects drop to the floor after every move           |
@@ -80,6 +94,11 @@ shouldn't.
 Each row also has **Duplicate** and **Remove**. Remove asks once ("Click again
 to remove") before it does anything.
 
+On a touch screen the panel starts **folded** to a chip with the object count,
+because it sits on top of the plate it describes and a finger can't hover it out
+of the way. Tap the chip to unfold it; it stays however you leave it. A warning
+triangle appears on the folded chip if something can't print where it sits.
+
 ## The slice button (bottom right)
 
 Press **Slice**. Afterwards it becomes **Re-Slice**, and turns amber when you've
@@ -96,6 +115,10 @@ Once it succeeds, the result button lets you **Download**, **Just upload**, or
 Appears when you switch to preview. Colour the toolpaths by role, speed,
 temperature and more; hide path types you don't care about; scrub through layers
 and through individual moves. See [Reading the preview](/use/preview).
+
+Tap its **G-code** header to fold it away when the legend is in front of what
+you're trying to see — the layer counter stays, the Slice button stays put, and
+the slicer remembers what you chose.
 
 ## Notifications
 
@@ -147,6 +170,50 @@ Windows — whatever your system accent is set to.
 **Settings → General** has the graphics knobs: field of view, anti-aliasing,
 render resolution and preview detail. Turn them down on a weak GPU, up on a good
 one.
+
+## On a tablet
+
+An iPad has the screen for the full layout but not the mouse, so two things
+change: everything is bigger, and nothing that floats over the plate stays open
+on its own.
+
+- **Panels start folded.** The G-code inspector and the objects list each show
+  just a header — `G-code · 42 / 180`, `Objects 2`. Tap a header to open it, tap
+  again to fold. Your choice sticks from then on.
+- **Print settings are a drawer**, reached from the tab on the left edge just
+  below the toolbar. Tap it to open, tap outside to close. It's out of the middle
+  of the screen on purpose: that's where your model is, and the plate stays
+  visible behind the drawer rather than being dimmed out.
+- **Panels use the room they have.** Unfolded, the G-code inspector shows its
+  whole legend and both sliders without scrolling.
+- **Everything is finger-sized.** Buttons, dropdowns, the layer slider and the
+  legend chips are all sized for a fingertip rather than a cursor.
+
+Split View and Slide Over shrink the window, and the layout follows: below about
+1024 points wide you get the folded arrangement on any device, including a
+narrow window on a desktop.
+
+### Working the plate with a finger or a pen
+
+- **Tap a model to select it.** Tapping is judged generously: a fingertip is a
+  wide, soft target that never lands and lifts on the same pixel, so a tap still
+  counts as a tap even when it slides a little. Tap empty bed to deselect.
+- **Multi-select**, in the tool cluster, is the stand-in for holding `⌘`/`Ctrl`.
+  Turn it on and each tap adds an object to the selection or takes it back out;
+  turn it off to go back to one-at-a-time. It appears once there are at least two
+  objects to choose between, and only where there's no modifier key to hold.
+- **Press and hold** a model for the same menu a right-click gives: duplicate,
+  drop to floor, centre, remove — acting on the whole selection if you have one.
+  Hold on empty bed for select all, clear, place objects and reset view.
+- **Drag a selected model to slide it across the bed.** Select it first, then
+  drag: one deliberate tap means nothing gets shoved out of place by a stray
+  swipe. Dragging anywhere else still orbits the camera, and the move handles
+  are drawn larger so a fingertip can pick one axis rather than all three.
+- **Palm rejection** is on by default. While a pen is in use, the hand resting on
+  the glass is ignored, so the view doesn't lurch mid-stroke. Turn it off in
+  **Settings → General → Controls** if you never use a stylus.
+
+Two fingers pinch to zoom, drag to pan and twist to roll, anywhere on the plate.
 
 ## On a phone
 

@@ -15,13 +15,19 @@ import {
 } from '@angular/core';
 import { BufferAttribute, BufferGeometry, Matrix4, Mesh, MeshPhongMaterial, Vector3 } from 'three';
 import { AppTheme } from '../../services/app-theme';
+import { Arrange } from '../../services/arrange';
+import { ContextMenuService } from '../../services/context-menu/context-menu.service';
+import type { ContextMenuItem } from '../../services/context-menu/context-menu.model';
 import { GcodePreview, ROLE_LABELS, scalarChannelFor } from '../../services/gcode-preview';
 import { ObjectTracker } from '../../services/object-tracker';
 import { PrintArea } from '../../services/print-area';
 import { ActiveSelection } from '../../services/profiles/active-selection';
 import { SceneCommand } from '../../services/scene-command/scene-command';
 import { SceneEngine } from '../../services/scene-engine';
+import type { SceneOp } from '../../services/scene-engine';
 import { ViewerControl } from '../../services/viewer-control';
+import { Viewport } from '../../services/viewport';
+import { WorkplateObjects } from '../../services/workplate-objects';
 import {
   pixelRatioCapFor,
   resolveAntialias,
@@ -159,6 +165,10 @@ export class Viewer {
   private readonly gcodePreview = inject(GcodePreview);
   private readonly activeSelection = inject(ActiveSelection);
   private readonly appTheme = inject(AppTheme);
+  private readonly viewport = inject(Viewport);
+  private readonly contextMenu = inject(ContextMenuService);
+  private readonly workplate = inject(WorkplateObjects);
+  private readonly arrange = inject(Arrange);
   private readonly destroyRef = inject(DestroyRef);
 
   /** Current loading status for the optional overlay. */
@@ -369,6 +379,13 @@ export class Viewer {
     effect(() => {
       const enabled = this.viewerControl.palmRejection();
       this.scene?.setPalmRejectionEnabled(enabled);
+    });
+
+    // React to the toolbar's multi-select toggle — the keyboard-less stand-in
+    // for holding ⌘/Ctrl while clicking.
+    effect(() => {
+      const additive = this.viewerControl.additiveSelection();
+      this.scene?.setAdditiveSelection(additive);
     });
 
     // React to field-of-view changes from the 3D-view settings.
@@ -761,6 +778,139 @@ export class Viewer {
     this.viewerControl.selectedObjectIds.set([]);
   }
 
+  /**
+   * Everything the objects list can do to a model, offered where the model is.
+   *
+   * On a tablet this is the difference between working on the plate and working
+   * on a list *about* the plate: a long-press on the model itself is the touch
+   * equivalent of a right-click, and it puts duplicate, drop, centre and remove
+   * under the finger that is already pointing at the part. Pressing empty bed
+   * gives the plate-wide actions instead.
+   */
+  private handleSceneContextMenu(stringId: string | null, event: MouseEvent): void {
+    if (this.mode() !== 'model') {
+      return;
+    }
+    const id = stringId === null ? null : parseWasmId(stringId);
+    if (stringId !== null && id !== null && !this.selectedWasmIds.includes(id)) {
+      // Act on what the user pointed at. Selecting first also *shows* them
+      // which part the menu is about before they pick an item.
+      this.handleSelect(stringId, false);
+    }
+    const items = id === null ? this.plateMenuItems() : this.objectMenuItems(id);
+    void this.contextMenu.open(event, items);
+  }
+
+  /** Menu for a press that landed on a model. */
+  private objectMenuItems(id: bigint): ContextMenuItem[] {
+    // A press inside a multi-object selection acts on the whole batch; the
+    // selection is what the user built, so the menu must not quietly ignore it.
+    const targets = this.selectedWasmIds.includes(id) ? [...this.selectedWasmIds] : [id];
+    const many = targets.length > 1;
+    const suffix = many ? ` (${targets.length})` : '';
+    return [
+      {
+        label: `Duplicate${suffix}`,
+        icon: 'copy',
+        action: () => {
+          for (const target of targets) {
+            this.workplate.duplicate(target);
+          }
+        },
+      },
+      {
+        label: `Drop to floor${suffix}`,
+        icon: 'download',
+        action: () =>
+          this.applyToEach(targets, (target) => ({
+            op: 'DropToFloor' as const,
+            args: { id: target },
+          })),
+      },
+      {
+        label: 'Centre on bed',
+        icon: 'frame-alt',
+        // Centring each object independently would stack them all on the same
+        // spot, so a batch is arranged instead — the sane reading of "put these
+        // where they belong".
+        action: () =>
+          many
+            ? this.arrange.run(targets)
+            : this.applyToEach(targets, (target) => ({
+                op: 'CenterOnBed' as const,
+                args: { id: target },
+              })),
+      },
+      { label: '', separator: true },
+      {
+        label: 'Select all',
+        icon: 'select-window',
+        action: () => this.selectAllObjects(),
+      },
+      { label: '', separator: true },
+      {
+        label: `Remove${suffix}`,
+        icon: 'bin',
+        danger: true,
+        action: () => {
+          for (const target of targets) {
+            this.workplate.remove(target);
+          }
+          this.viewerControl.selectedObjectIds.set(
+            this.selectedWasmIds.filter((existing) => !targets.includes(existing)),
+          );
+        },
+      },
+    ];
+  }
+
+  /** Menu for a press that landed on empty bed. */
+  private plateMenuItems(): ContextMenuItem[] {
+    const hasObjects = this.sceneEngine.objects().length > 0;
+    return [
+      {
+        label: 'Select all',
+        icon: 'select-window',
+        disabled: !hasObjects,
+        action: () => this.selectAllObjects(),
+      },
+      {
+        label: 'Clear selection',
+        icon: 'xmark',
+        disabled: this.selectedWasmIds.length === 0,
+        action: () => this.handleClearSelection(),
+      },
+      { label: '', separator: true },
+      {
+        label: 'Place objects',
+        icon: 'magic-wand',
+        disabled: !hasObjects,
+        action: () => this.arrange.run(),
+      },
+      { label: '', separator: true },
+      {
+        label: 'Reset view',
+        icon: 'home',
+        action: () => this.viewerControl.reset(),
+      },
+    ];
+  }
+
+  private selectAllObjects(): void {
+    const ids = this.sceneEngine.objects().map((object) => object.id);
+    this.selectedWasmIds = ids.filter((id) => this.wasmMeshes.has(id));
+    this.scene?.setSelectedIds(new Set(this.selectedWasmIds.map(String)));
+    this.viewerControl.selectedObjectIds.set(this.selectedWasmIds);
+  }
+
+  /** Dispatch one op per target and commit them as a single history entry. */
+  private applyToEach(targets: readonly bigint[], op: (id: bigint) => SceneOp): void {
+    for (const target of targets) {
+      this.sceneCommand.apply(op(target));
+    }
+    this.sceneCommand.flush();
+  }
+
   /** Translate / rotate / scale a delta onto every currently-selected object. */
   private handleGizmoDelta(stringIds: readonly string[], delta: GizmoDelta): void {
     for (const stringId of stringIds) {
@@ -909,6 +1059,7 @@ export class Viewer {
     this.scene.selectionHandlers = {
       select: (id, additive) => this.handleSelect(id, additive),
       clearSelection: () => this.handleClearSelection(),
+      contextMenu: (id, event) => this.handleSceneContextMenu(id, event),
     };
     this.scene.gizmoHandlers = {
       delta: (ids, delta) => this.handleGizmoDelta(ids, delta),
@@ -918,6 +1069,11 @@ export class Viewer {
     // Apply the current toolbar selections so the scene starts in sync with
     // whatever view / object mode the user already had selected.
     this.scene.setObjectMode(this.viewerControl.objectMode());
+    this.scene.setAdditiveSelection(this.viewerControl.additiveSelection());
+    // Dragging a model straight across the bed is the touch answer to the
+    // gizmo's mouse-sized arrows, so it is offered exactly where those are hard
+    // to hit. A mouse keeps drag-to-orbit.
+    this.scene.setDirectDragEnabled(this.viewport.isCoarsePointer());
     this.scene.setView(this.viewerControl.view());
     // Keep the toolbar's projection button honest when the viewport cube (not
     // the toolbar) changes the projection.

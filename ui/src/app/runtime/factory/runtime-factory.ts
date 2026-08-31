@@ -1,3 +1,4 @@
+import { ModelSourceRegistry } from '../../services/model-source';
 import { SceneEngine } from '../../services/scene-engine';
 import { SlicerConnection } from '../../services/slicer-connection';
 import { SlicerFile } from '../../services/slicer-file';
@@ -14,12 +15,19 @@ export interface RuntimeFactoryInput {
   sceneEngine: SceneEngine;
   slicerConnection: SlicerConnection;
   slicerFile: SlicerFile;
+  /**
+   * Resolves a scene object's `source_id` to the file it came from.
+   *
+   * The local runtimes slice from it directly; the cloud runtime does not need
+   * it, because the server resolves upload ids itself.
+   */
+  modelSources: ModelSourceRegistry;
 }
 
 export function createRuntime(input: RuntimeFactoryInput): RuntimePort {
   switch (input.mode) {
     case 'native':
-      return new TauriRuntime(input.sceneEngine);
+      return new TauriRuntime(input.sceneEngine, input.modelSources);
     case 'cloud':
       return new CloudRuntime(
         input.apiUrl,
@@ -28,7 +36,7 @@ export function createRuntime(input: RuntimeFactoryInput): RuntimePort {
         input.sceneEngine,
       );
     case 'web':
-      return new WasmRuntime(input.sceneEngine);
+      return new WasmRuntime(input.sceneEngine, input.modelSources);
     default:
       throw new Error('Unsupported runtime mode.');
   }

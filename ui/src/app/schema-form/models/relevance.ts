@@ -12,15 +12,25 @@ import { FieldDef, SchemaGroup } from './field-def';
  * Evaluate a field's `x-relevant-when` gate against the current form values.
  *
  * Returns `true` when the field has no relevance rule (always relevant), or
- * when its gate condition is satisfied. Only scalar `equals` is supported:
- * the gate field's raw current value is compared with strict equality against
- * `equals`. A missing gate value therefore counts as "not equal" unless the
- * rule's `equals` is itself `undefined`.
+ * when its gate condition is satisfied. Two operators are supported:
+ *
+ * - `equals` — the gate field's raw current value compared with strict
+ *   equality. A missing gate value therefore counts as "not equal" unless the
+ *   rule's `equals` is itself `undefined`.
+ * - `greaterThan` — the gate field's value coerced to a number and compared.
+ *   A missing or non-numeric value is not greater than anything, so the field
+ *   stays hidden.
+ *
+ * `equals` wins when a rule carries both.
  */
 export function isFieldRelevant(field: FieldDef, values: Record<string, unknown>): boolean {
   const rule = field.relevantWhen;
   if (!rule) {
     return true;
+  }
+  if (rule.equals === undefined && rule.greaterThan !== undefined) {
+    const value = Number(values[rule.field]);
+    return Number.isFinite(value) && value > rule.greaterThan;
   }
   return values[rule.field] === rule.equals;
 }

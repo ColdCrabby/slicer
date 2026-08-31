@@ -5,7 +5,7 @@ use clipper2::*;
 
 use super::types::{ExtrusionRole, SliceLayer};
 use crate::infill::SurfacePattern;
-use crate::settings::params::SlicingParams;
+use crate::settings::params::{IroningType, SlicingParams};
 
 /// Extract only outer-wall paths from a layer for use in surface detection.
 ///
@@ -148,6 +148,21 @@ pub(crate) fn support_nominal_width_mm(params: &SlicingParams) -> f64 {
         params.support_line_width
     } else if params.line_width > 0.0 {
         params.line_width
+    } else {
+        params.nozzle_diameter_mm
+    }
+}
+
+/// Nominal **outer wall** extrusion width (mm).
+///
+/// The wall twin of [`solid_surface_nominal_width_mm`]. Resolution mirrors
+/// `resolve_width_mm`: an explicit `outer_wall_line_width`, else the nozzle
+/// diameter. Walls deliberately skip the generic `line_width` — that setting
+/// applies only to fill roles, so a user who widens their infill lines does not
+/// silently move every wall with it.
+pub(crate) fn outer_wall_nominal_width_mm(params: &SlicingParams) -> f64 {
+    if params.outer_wall_line_width > 0.0 {
+        params.outer_wall_line_width
     } else {
         params.nozzle_diameter_mm
     }
@@ -1688,6 +1703,10 @@ pub fn generate_top_bottom_surfaces(
             top_pattern: SurfacePattern::Rectilinear,
             bottom_pattern: SurfacePattern::Rectilinear,
             internal_solid_pattern: SurfacePattern::Rectilinear,
+            ironing_enabled: false,
+            ironing_type: IroningType::TopSurfaces,
+            ironing_spacing: 0.1,
+            ironing_angle: -1.0,
         },
         None, // No interior regions - use full perimeters
     );
@@ -1792,6 +1811,80 @@ pub struct SurfaceConfig {
     ///
     /// [`SlicingParams::ensure_vertical_shell_thickness`]: crate::settings::params::SlicingParams::ensure_vertical_shell_thickness
     pub ensure_vertical_shell_thickness: bool,
+    /// Sweep finished solid surfaces with a near-dry ironing pass.
+    pub ironing_enabled: bool,
+    /// Which solid surfaces the ironing pass covers.
+    pub ironing_type: IroningType,
+    /// Distance in mm between adjacent ironing passes.
+    pub ironing_spacing: f64,
+    /// Ironing sweep direction in degrees; `-1` follows the layer's own fill
+    /// angle.
+    pub ironing_angle: f64,
+}
+
+impl Default for SurfaceConfig {
+    /// Plain solid surfaces with every optional treatment off.
+    ///
+    /// Exists so a caller — and every test — can name the handful of fields it
+    /// actually cares about and spread the rest. Adding a surface option is then
+    /// additive rather than a breaking change across a dozen call sites.
+    fn default() -> Self {
+        Self {
+            top_layers: 0,
+            bottom_layers: 0,
+            layer_height: 0.2,
+            infill_angle: 45.0,
+            nozzle_diameter_mm: 0.4,
+            solid_surface_line_width_mm: 0.0,
+            min_infill_extrusion_mm: 0.0,
+            bridge_flow_ratio: 0.8,
+            bridge_min_area_mm2: 0.5,
+            bridge_noise_filter_mm: 0.05,
+            bridge_anchor_mm: 0.5,
+            bridge_angle_deg: 0.0,
+            top_pattern: SurfacePattern::Rectilinear,
+            bottom_pattern: SurfacePattern::Rectilinear,
+            internal_solid_pattern: SurfacePattern::Rectilinear,
+            infill_overlap_percent: 0.25,
+            ensure_vertical_shell_thickness: false,
+            ironing_enabled: false,
+            ironing_type: IroningType::TopSurfaces,
+            ironing_spacing: 0.1,
+            ironing_angle: -1.0,
+        }
+    }
+}
+
+/// Append a near-dry ironing sweep over `region`.
+///
+/// Ironing carries no material budget of its own — the G-code generator derives
+/// its width from `ironing_spacing × ironing_flow`, so the sweep re-melts what
+/// the surface fill already deposited rather than adding to it. The region is
+/// therefore the *finished* surface: the same trimmed, wall-band-clipped polygon
+/// the fill used, so the hot nozzle never strays onto a perimeter.
+///
+/// A `Monotonic` pattern joins consecutive lines along the boundary, which keeps
+/// the sweep one continuous stroke instead of hundreds of separate passes each
+/// paying for a travel.
+fn add_ironing_for_region(
+    layer: &mut SliceLayer,
+    region: &Paths,
+    spacing: f64,
+    angle_deg: f64,
+    min_infill_extrusion_mm: f64,
+) {
+    if region.is_empty() {
+        return;
+    }
+    add_solid_infill_for_region(
+        layer,
+        region,
+        ExtrusionRole::Ironing,
+        spacing.max(0.01),
+        angle_deg,
+        min_infill_extrusion_mm,
+        SurfacePattern::Monotonic,
+    );
 }
 
 /// Generate top and bottom solid surface infill for layers.
@@ -2438,6 +2531,15 @@ pub fn generate_top_bottom_surfaces_with_interior(
         })
         .collect();
 
+    // The single highest layer carrying a top surface — the one face a viewer
+    // looks down on, and all that `IroningType::TopmostOnly` sweeps. Resolved
+    // before the loop consumes `regions`.
+    let topmost_top_layer = if config.ironing_enabled {
+        regions.iter().rposition(|(_, _, top, _)| !top.is_empty())
+    } else {
+        None
+    };
+
     // ── Serial apply pass ─────────────────────────────────────────────────────
     for (i, (bridge_region, bottom_region, top_region, raw_unsupported)) in
         regions.into_iter().enumerate()
@@ -2562,6 +2664,43 @@ pub fn generate_top_bottom_surfaces_with_interior(
             #[cfg(not(target_arch = "wasm32"))]
             {
                 infill_ns += t.elapsed().as_nanos();
+            }
+        }
+
+        // Ironing, last on the layer so the sweep runs over a finished surface.
+        //
+        // The paths are appended to `layer.paths` and touch no region field:
+        // ironing is a surface *treatment*, not solid material. Were its
+        // footprint ever folded into `solid_regions`, `add_infill_to_layers`
+        // would subtract it (grown by a full bead) and punch a hole in the
+        // sparse infill underneath.
+        if config.ironing_enabled {
+            let angle = if config.ironing_angle < 0.0 {
+                layer_infill_angle
+            } else {
+                config.ironing_angle
+            };
+            let iron_top = match config.ironing_type {
+                IroningType::TopSurfaces | IroningType::AllSolid => true,
+                IroningType::TopmostOnly => topmost_top_layer == Some(i),
+            };
+            if iron_top {
+                add_ironing_for_region(
+                    &mut layers[i],
+                    &top_region,
+                    config.ironing_spacing,
+                    angle,
+                    min_infill_extrusion_mm,
+                );
+            }
+            if config.ironing_type == IroningType::AllSolid {
+                add_ironing_for_region(
+                    &mut layers[i],
+                    &bottom_region,
+                    config.ironing_spacing,
+                    angle,
+                    min_infill_extrusion_mm,
+                );
             }
         }
 
@@ -2906,6 +3045,7 @@ mod tests {
             top_pattern: SurfacePattern::Rectilinear,
             bottom_pattern: SurfacePattern::Rectilinear,
             internal_solid_pattern: SurfacePattern::Rectilinear,
+            ..Default::default()
         }
     }
 
@@ -3540,6 +3680,7 @@ mod tests {
                 top_pattern: SurfacePattern::Rectilinear,
                 bottom_pattern: SurfacePattern::Rectilinear,
                 internal_solid_pattern: SurfacePattern::Rectilinear,
+                ..Default::default()
             },
             Some(&interior_regions),
         );

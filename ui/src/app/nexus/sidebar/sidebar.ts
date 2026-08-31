@@ -4,6 +4,7 @@ import {
   computed,
   DestroyRef,
   DOCUMENT,
+  effect,
   ElementRef,
   HostListener,
   inject,
@@ -23,6 +24,12 @@ const MAX_WIDTH = 480;
 // Hover-intent delays so a collapsed sidebar only opens/closes deliberately.
 const HOVER_OPEN_DELAY_MS = 180;
 const HOVER_CLOSE_DELAY_MS = 240;
+// How far past the panel's edge the pointer must travel before a peek closes.
+// Generous enough that the panel sliding in under a stationary pointer never
+// reads as "the pointer left".
+const HOVER_LEAVE_GRACE_PX = 32;
+// How close to the screen edge a pointer must rest to arm a peek.
+const EDGE_ARM_PX = 14;
 
 @Component({
   selector: 'nexus-sidebar',
@@ -31,8 +38,6 @@ const HOVER_CLOSE_DELAY_MS = 240;
   templateUrl: './sidebar.component.html',
   styleUrl: './sidebar.component.scss',
   host: {
-    '(mouseenter)': 'onMouseEnter()',
-    '(mouseleave)': 'onMouseLeave()',
     '[class.is-collapsed]': 'collapsed()',
     '[class.is-expanded]': 'isExpanded()',
     '[class.is-overlay]': 'isOverlay()',
@@ -68,6 +73,7 @@ export class Sidebar {
   protected readonly showScrollTop = signal(false);
 
   private readonly scrollContainer = viewChild<ElementRef<HTMLElement>>('scrollContainer');
+  private readonly panel = viewChild<ElementRef<HTMLElement>>('panel');
 
   // Only arm hover-intent on devices that truly hover. iOS/iPadOS emit synthetic
   // mouse events on tap with no matching `mouseleave`, which would otherwise leave
@@ -90,6 +96,8 @@ export class Sidebar {
   private dragCleanup: (() => void)[] = [];
   private hoverOpenTimer: ReturnType<typeof setTimeout> | null = null;
   private hoverCloseTimer: ReturnType<typeof setTimeout> | null = null;
+  /** Tears down the document pointer listeners that close a hover peek. */
+  private pointerWatch: (() => void) | null = null;
   private readonly destroyRef = inject(DestroyRef);
 
   constructor() {
@@ -97,8 +105,11 @@ export class Sidebar {
       this.applyCssWidth(this.readWidth());
     });
 
+    this.armEdgeHover();
+
     this.destroyRef.onDestroy(() => {
       this.clearHoverTimers();
+      this.stopPointerWatch();
       for (const fn of this.dragCleanup) {
         fn();
       }
@@ -108,6 +119,7 @@ export class Sidebar {
   /** Reveal the panel (used by the settings-search shortcut). Pins it open. */
   expand(): void {
     this.clearHoverTimers();
+    this.stopPointerWatch();
     if (this.collapsed()) {
       this.hoverPreview.set(false);
       this.overlayOpen.set(true);
@@ -135,40 +147,121 @@ export class Sidebar {
     const next = !this.collapsed();
     this.dockedPreference.set(next);
     this.clearHoverTimers();
+    this.stopPointerWatch();
     this.overlayOpen.set(false);
     this.hoverPreview.set(false);
     this.saveCollapsed(next);
   }
 
-  /** Hover-intent open: only after a short, deliberate hover (pointer devices). */
-  protected onMouseEnter(): void {
-    if (!this.supportsHover || !this.collapsed() || this.overlayOpen()) {
-      return;
-    }
-    this.clearCloseTimer();
-    if (this.hoverPreview() || this.hoverOpenTimer !== null) {
-      return;
-    }
-    this.hoverOpenTimer = setTimeout(() => {
-      this.hoverOpenTimer = null;
-      this.hoverPreview.set(true);
-    }, HOVER_OPEN_DELAY_MS);
+  /**
+   * Hover-intent open, armed by the pointer's position rather than by any
+   * element.
+   *
+   * An invisible strip along the edge would have to be `pointer-events: auto`
+   * to receive `mouseenter`, and the sidebar host is zero-width while collapsed
+   * — so that strip lands squarely on the leftmost slice of the 3D scene, for
+   * its whole height, swallowing camera drags, click-to-select and (because the
+   * sidebar is a *sibling* of `<main>`) file drops. Reading `clientX` instead
+   * costs one comparison per move and lays nothing over the plate.
+   *
+   * Registered only while the panel is collapsed and hidden, so a docked or
+   * open sidebar carries no listener at all.
+   */
+  private armEdgeHover(): void {
+    effect((onCleanup) => {
+      if (!this.supportsHover || !this.collapsed() || this.isExpanded()) {
+        return;
+      }
+      const onMove = (event: PointerEvent): void => {
+        const left = this.el.nativeElement.getBoundingClientRect().left;
+        const atEdge = event.clientX >= left && event.clientX <= left + EDGE_ARM_PX;
+        // The tab overlaps the arming band, and it is a button: aiming at it
+        // should arm a click, not a reveal.
+        const overTab =
+          event.target instanceof Element && event.target.closest('.sidebar-reveal-hint') !== null;
+        if (!atEdge || overTab) {
+          this.clearOpenTimer();
+          return;
+        }
+        if (this.hoverOpenTimer !== null) {
+          return;
+        }
+        this.hoverOpenTimer = setTimeout(() => {
+          this.hoverOpenTimer = null;
+          this.hoverPreview.set(true);
+          this.watchPointerForLeave();
+        }, HOVER_OPEN_DELAY_MS);
+      };
+      this.document.addEventListener('pointermove', onMove);
+      onCleanup(() => {
+        this.document.removeEventListener('pointermove', onMove);
+        this.clearOpenTimer();
+      });
+    });
   }
 
-  /** Hover-intent close: a brief grace period so the panel doesn't flicker. */
-  protected onMouseLeave(): void {
-    if (!this.supportsHover) {
+  /**
+   * Close a hover peek by where the pointer actually *is*, not by a `mouseleave`.
+   *
+   * The panel mounts, unmounts and slides under a stationary pointer, and every
+   * one of those emits enter/leave pairs that say nothing about intent — which
+   * is how the peek used to oscillate. Measuring the distance from the panel's
+   * own edge is immune to all of it: the panel is either under the pointer or
+   * it is not, however it got there.
+   *
+   * The edge is taken from the layout width rather than the animated rect, so a
+   * panel still sliding in is judged by where it is going, not where it is.
+   */
+  private watchPointerForLeave(): void {
+    if (this.pointerWatch) {
       return;
     }
-    this.clearOpenTimer();
-    if (!this.hoverPreview()) {
-      return;
-    }
-    this.clearCloseTimer();
-    this.hoverCloseTimer = setTimeout(() => {
-      this.hoverCloseTimer = null;
+    const onMove = (event: PointerEvent): void => {
+      const panel = this.panel()?.nativeElement;
+      if (!panel) {
+        return;
+      }
+      const edge = this.el.nativeElement.getBoundingClientRect().left + panel.offsetWidth;
+      if (event.clientX <= edge + HOVER_LEAVE_GRACE_PX) {
+        this.clearCloseTimer();
+        return;
+      }
+      if (this.hoverCloseTimer !== null) {
+        return;
+      }
+      this.hoverCloseTimer = setTimeout(() => {
+        this.hoverCloseTimer = null;
+        this.hoverPreview.set(false);
+        this.stopPointerWatch();
+      }, HOVER_CLOSE_DELAY_MS);
+    };
+    // Leaving the window entirely is an unambiguous "done with it" — but so is
+    // an element being unmounted under the pointer, and both arrive as a
+    // `pointerout` with no `relatedTarget`. The tab and the edge strip are both
+    // unmounted the instant the peek opens, so taking that at face value would
+    // close the panel the moment it opened: the very oscillation this watcher
+    // exists to end. A removed node is no longer connected; a window-leave
+    // target still is.
+    const onOut = (event: PointerEvent): void => {
+      const target = event.target as Node | null;
+      if (event.relatedTarget !== null || (target !== null && !target.isConnected)) {
+        return;
+      }
       this.hoverPreview.set(false);
-    }, HOVER_CLOSE_DELAY_MS);
+      this.stopPointerWatch();
+    };
+    this.document.addEventListener('pointermove', onMove);
+    this.document.addEventListener('pointerout', onOut);
+    this.pointerWatch = () => {
+      this.document.removeEventListener('pointermove', onMove);
+      this.document.removeEventListener('pointerout', onOut);
+    };
+  }
+
+  private stopPointerWatch(): void {
+    this.clearCloseTimer();
+    this.pointerWatch?.();
+    this.pointerWatch = null;
   }
 
   /** Reveal-hint tap: open a persistent overlay peek (the primary touch gesture). */
@@ -178,6 +271,7 @@ export class Sidebar {
       return;
     }
     this.clearHoverTimers();
+    this.stopPointerWatch();
     this.hoverPreview.set(false);
     this.overlayOpen.set(true);
   }
@@ -185,6 +279,7 @@ export class Sidebar {
   /** Tap/click the scrim behind an overlay peek to dismiss it (stays hidden). */
   protected dismissOverlay(): void {
     this.clearHoverTimers();
+    this.stopPointerWatch();
     this.overlayOpen.set(false);
     this.hoverPreview.set(false);
   }
@@ -195,6 +290,7 @@ export class Sidebar {
       return;
     }
     this.clearHoverTimers();
+    this.stopPointerWatch();
     this.overlayOpen.set(false);
     this.hoverPreview.set(false);
   }

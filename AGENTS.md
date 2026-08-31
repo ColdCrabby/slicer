@@ -53,6 +53,7 @@ never a hardcoded `:4213`.
 | **SliceLayer / ExtrusionRole** | [src/core/types.rs](src/core/types.rs)       | Core data structures for a single layer                                                       |
 | **Mesh Repair**                | [src/mesh/repair.rs](src/mesh/repair.rs)     | Import-time validation + auto-fix (welds, holes, winding); no-op on clean meshes               |
 | **Mesh Slicer**                | [src/core/slicer.rs](src/core/slicer.rs)     | Triangle→layer contour extraction (`slice_mesh`)                                              |
+| **Dimensional Compensation**   | [src/core/compensation.rs](src/core/compensation.rs) | XY size offset + medial-limited elephant foot, applied to the raw contours             |
 | **Surface Generation**         | [src/core/surfaces.rs](src/core/surfaces.rs) | Top/bottom solid surface detection and infill                                                 |
 | **Wall Restrictions**          | [src/core/walls.rs](src/core/walls.rs)       | Single-wall first/top-layer constraints                                                       |
 | **Infill Boundary**            | [src/core/infill.rs](src/core/infill.rs)     | Interior region calculation and sparse infill                                                 |
@@ -92,6 +93,7 @@ src/
 │   ├── mod.rs             # Re-exports public API + integration tests
 │   ├── types.rs           # SliceLayer, ExtrusionRole
 │   ├── slicer.rs          # slice_mesh, segment chaining
+│   ├── compensation.rs    # XY size + medial-limited elephant foot (runs on raw contours)
 │   ├── surfaces.rs        # generate_top_bottom_surfaces*, rectilinear infill fill
 │   ├── walls.rs           # apply_single_wall_restrictions (per-island), compute_per_island_strip_masks
 │   ├── infill.rs          # calculate_interior_region, add_infill_to_layers
@@ -459,39 +461,140 @@ Supporting details:
   is broken. All images of a version share one asset, so deleting a duplicate
   breaks the survivor — purge with `simctl runtime delete all` and re-download.
 
-## Phones — one breakpoint, two answers
+### Standalone installs — `pnpm run ios:install`
+
+`tauri ios dev` installs an app pinned to the `devUrl` in `tauri.conf.json`, so
+it is a white screen the moment the Mac's dev server stops. **A device that has
+to keep working needs the release build**, where `beforeBuildCommand` produces
+the UI and `tauri-build` compiles it into the binary.
+[scripts/ios-install.sh](scripts/ios-install.sh) is that path: release build →
+`--export-method debugging` → `xcrun devicectl device install app`. It needs no
+paid Apple Developer Program membership.
+
+- **The app is universal** (`TARGETED_DEVICE_FAMILY = "1,2"`), so iPhone and
+  iPad take the same path — the script filters on `platform == "iOS"` and never
+  on device type. **It refuses to pick between two paired devices**, because
+  guessing wrong costs a multi-minute build and would only be mentioned in
+  passing; `--device` names one.
+- **A free Apple ID signs for seven days**, so the script is expected to be
+  re-run and prints the profile's expiry after every install. Automatic signing
+  *reuses* a still-valid profile, so a plain rebuild on day six inherits one day
+  — `--renew` deletes the cached profiles for the bundle ID first, which is the
+  only way to actually reset the clock. Do not paper over this by re-installing
+  and assuming a fresh week.
+- **The team ID is the signing certificate's `OU`, not the identifier in its
+  common name.** A personal team has no Membership page to read it off, so the
+  script extracts it from the keychain — and only from certificates
+  `security find-identity -v` still considers valid, or an expired cert from an
+  old employer turns a working machine into "several teams found".
+- **`tauri ios build` writes `DEVELOPMENT_TEAM` into `project.pbxproj`**, which
+  is committed. The script restores the file from an EXIT trap so one
+  contributor's team ID never lands in everyone else's checkout, and clears a
+  line left behind by an interrupted run before snapshotting — otherwise the
+  next run preserves the leftover forever. Anything else the CLI mutates in
+  `gen/apple` needs the same treatment.
+- **`*.xcodeproj/project.xcworkspace/contents.xcworkspacedata` must stay
+  tracked.** `tauri ios build` passes it to `xcodebuild -workspace`, so a
+  checkout without it fails with a bare `project.xcworkspace does not exist`
+  before the build starts. `.gitignore` therefore ignores only the `xcuserdata`
+  and `xcshareddata` beneath it — not the directory.
+- **macOS ships bash 3.2.** The iOS helper scripts run on a stock machine, so no
+  `mapfile`, no `${var,,}`, no associative arrays. Splitting a concatenated PEM
+  stream with `awk` and a NUL separator does not work in the awk macOS ships
+  either — the loop is plain `read`.
+
+## Phones and tablets — three questions, never one
 
 A handset is not a small desktop: the chrome that surrounds the 3D view (a 60px
 nav rail, a 280px docked settings column, a 380px slice rail) is wider than the
-screen. The UI therefore has **one** definition of "phone", and everything that
-adapts goes through it — never an ad-hoc `max-width` query.
+screen. A **tablet** is the case a single flag gets wrong in both directions — an
+iPad has a desktop's width and a phone's input. Treat it as a phone and it loses
+a docked column it has room for; treat it as a desktop and every panel floating
+over the plate stays open forever, with no cursor to dismiss it, over targets
+sized for a mouse. So there are **three** questions, asked separately, and
+everything that adapts goes through one of them — never an ad-hoc `max-width`.
 
-- **`handheld()`** in [ui/src/styles/\_breakpoints.scss](ui/src/styles/_breakpoints.scss)
-  is the SCSS half: 640px wide, plus a **width-bounded** short-landscape arm so a
-  docked-but-short desktop window is not mistaken for a handset. Tablets keep the
-  desktop layout deliberately — an iPad has the width and the pointer precision.
-  Component styles reach it with `@use 'breakpoints' as *;` (`src/styles` is on
-  the Sass `includePaths`).
-- **[`Viewport`](ui/src/app/services/viewport.ts)** is the TypeScript half, for
-  decisions CSS cannot make — *which controls exist* (the projection toggle, the
-  operation-pipeline inspector) and *whether the settings column may dock at
-  all*. **Its `HANDHELD_MEDIA_QUERY` is a copy of the mixin's condition and the
-  two must never diverge**, or chrome ends up styled for one layout and wired for
-  the other. Keep layout itself in media queries so a phone lays out correctly
-  before any script runs.
-- **`html.is-handheld` exists only to reach the shared components.**
-  [ui/src/styles/base/\_handheld.scss](ui/src/styles/base/_handheld.scss) adapts
-  `@coldcrabby/ui` primitives that live in another repo (stacking
-  `nexus-field-row`, growing 34px controls to 40px). A primitive's `:host` block
-  compiles to an attribute selector, which a bare element selector loses to; the
-  class buys exactly that specificity without `!important`. It is set before
-  first paint by the inline script in `index.html` and kept live by `Viewport`,
-  which `AppShell` constructs so it exists on every route.
+| Question                               | SCSS mixin         | Signal              | Matches                       |
+| -------------------------------------- | ------------------ | ------------------- | ----------------------------- |
+| May the layout keep its desktop shape? | `handheld()`       | `isHandheld()`      | phones                        |
+| Must chrome over the scene fold away?  | `compact()`        | `isCompact()`       | phones, tablets, ≤1024px      |
+| How big must a target be?              | `coarse-pointer()` | `isCoarsePointer()` | phones, tablets, touchscreens |
+
+- **All three live in exactly two files** —
+  [ui/src/styles/\_breakpoints.scss](ui/src/styles/_breakpoints.scss) and
+  [`Viewport`](ui/src/app/services/viewport.ts) — **and their query strings are
+  copies of each other that must never diverge**, or chrome ends up styled for
+  one answer and wired for another. `handheld()` keeps its **width-bounded**
+  short-landscape arm so a docked-but-short desktop window is not mistaken for a
+  handset. Component styles reach the mixins with `@use 'breakpoints' as *;`
+  (`src/styles` is on the Sass `includePaths`).
+- **Width and pointer are orthogonal — do not collapse them into one flag.**
+  `compact()` is about *room*; `coarse-pointer()` is about *precision*. A narrow
+  desktop window needs the first and not the second; a 12.9" iPad needs the
+  second and arguably not the first. Size a target by the pointer, fold a panel
+  by the room. CSS decides layout, TypeScript decides *which controls exist*, and
+  layout stays in media queries so a page lays out correctly before any script.
+- **A phone matches all three, so source order decides.** Where two blocks set
+  the same property at the same specificity, order them **compact → handheld →
+  coarse-pointer** and prefer setting a value in exactly one of them. This is a
+  live foot-gun: a roomier `compact()` ceiling once silently overrode the
+  phone's deliberate one, because both set `max-height` and the wrong block came
+  last.
+- **Size a floating panel by the room above it, not by a `vh` fraction.** A
+  fraction is wrong in both directions at once — too small on a short landscape
+  viewport, too generous on a tall portrait one — so the G-code inspector
+  scrolled on a landscape iPad while wasting space in portrait. The rail card is
+  bounded instead by `100dvh` minus the chrome that actually precedes it
+  (titlebar, safe area, toolbar inset, its own margins), and the inspector simply
+  opens to its natural height inside that. Two things make the squeeze safe when
+  the room really does run out: the inspector carries `min-height: 0` so flexbox
+  may shrink it, and the slice row is `flex: none` so the loss never lands on the
+  Slice button. If `dvh` is unsupported the whole `calc()` is invalid and
+  `max-height` falls back to `none` — the old unbounded behaviour, not a broken
+  one.
+- **`html.is-handheld` / `html.is-coarse-pointer` exist only to reach the shared
+  components.** [\_handheld.scss](ui/src/styles/base/_handheld.scss) adapts the
+  *layout* of `@coldcrabby/ui` primitives that live in another repo (stacking
+  `nexus-field-row`, trimming modal gutters);
+  [\_touch.scss](ui/src/styles/base/_touch.scss) adapts their *size* (34px
+  controls to 44px, an 18px slider thumb to 26px — the layer scrubber is a drag
+  gesture and was the worst offender). A primitive's `:host` block compiles to an
+  attribute selector, which a bare element selector loses to; the class buys
+  exactly that specificity without `!important`. Both are set before first paint
+  by the inline script in `index.html` and kept live by `Viewport`, which
+  `AppShell` constructs so they exist on every route.
+- **Anything floating over the plate must fold, and remember.** The G-code
+  inspector and the object list both take a header-with-a-chevron that keeps the
+  one readout worth having (`Layer 42 / 180`, the object count) and hides the
+  rest. The preference is a **tri-state**: `null` until the user states one, at
+  which point the derived default (`!isCompact()`) stops applying and their
+  choice persists across sessions *and* viewports. Do not add a floating panel
+  without one.
 - **Dropping a control is a legitimate answer, hiding a needed one is not.** The
-  viewport cube goes because a drag gizmo has no touch equivalent; projection and
-  the pipeline inspector go because eleven pill buttons do not fit and neither is
-  part of getting a model sliced. Anything on the path to a slice — the object
-  tools, add, undo/redo, the G-code toggle, Slice itself — stays.
+  viewport cube goes on a phone because a drag gizmo has no touch equivalent;
+  projection and the pipeline inspector go because eleven pill buttons do not fit
+  and neither is part of getting a model sliced. Anything on the path to a slice
+  — the object tools, add, undo/redo, the G-code toggle, Slice itself — stays.
+- **Hover-intent must never be armed by a control that unmounts.** The sidebar's
+  peek was armed by the host's own `mouseenter`; hovering the "Print settings"
+  tab opened the drawer, which `@if`-unmounted the tab, which put the pointer on
+  the scene, which fired the matching `mouseleave` — an open/close oscillation
+  that read as flickering. Both arming and closing are now **pointer geometry**
+  (a document `pointermove` compared against the collapsed host's left edge, and
+  against the panel's right edge) rather than element events, because a panel
+  that mounts, unmounts and slides under a stationary pointer emits enter/leave
+  pairs that say nothing about intent. **An invisible edge strip is not the
+  answer** — it needs `pointer-events: auto` to receive `mouseenter`, and since
+  the collapsed host is zero-width it lands on the leftmost slice of the 3D scene
+  for its whole height, swallowing camera drags, click-to-select and (the sidebar
+  being a *sibling* of `<main>`) file drops. The same reasoning applies to the
+  tab's *position*: permanent affordances hang under the toolbar, not at
+  `top: 50%`, which is where the model is.
+- **The `tooltip` directive contributes no accessible name.** An icon-only button
+  whose only label is `[tooltip]` is unlabelled to VoiceOver *and* unlabelled on
+  a tablet, which has no hover to reveal it. Give every icon-only control an
+  `aria-label` mirroring its tooltip at the call site — the directive is in the
+  shared repo and is not ours to change here.
 - **Pinch-to-zoom belongs to the browser everywhere except the 3D canvas.** The
   viewport meta carries no `user-scalable=no` / `maximum-scale`, and
   `touch-action: none` sits on the viewer's `:host`
@@ -501,9 +604,79 @@ adapts goes through it — never an ad-hoc `max-width` query.
   low-vision user has on a phone, and an outright accessibility failure. Lock a
   gesture on the specific surface that claims it; never on the document.
 
-The layout contract (tab bar, drawer, bottom sheet, chip strip) is catalogued in
-[ui/README.md](ui/README.md#phones); the user-facing tour is in
-[docs/use/interface.md](docs/use/interface.md).
+The layout contract (tab bar, drawer, bottom sheet, chip strip, the fold pattern)
+is catalogued in [ui/README.md](ui/README.md#phones-and-tablets); the user-facing
+tour is in [docs/use/interface.md](docs/use/interface.md).
+
+## Touch and pen in the 3D viewport
+
+A tablet keeps the desktop layout but not the desktop pointer. Everything the
+viewport does about that lives in
+[scene/selection.ts](ui/src/app/components/viewer/scene/selection.ts), gated on
+`Viewport.isCoarsePointer()` rather than on size. The catalogue is in
+[ui/README.md](ui/README.md#touch-and-pen); the load-bearing rules:
+
+- **Tap tolerance is per pointer type** (`TAP_SLOP_PX`: mouse 4px, pen 9, touch
+  16). One mouse-sized threshold for all three is what made tapping a model on
+  an iPad do *nothing* — a fingertip is a ~10mm disc whose reported centre
+  wanders as the skin flattens, so most real taps drifted past 4px and were
+  discarded as drags, leaving the objects list as the only way to select
+  anything. Pinned by
+  [selection.spec.ts](ui/src/app/components/viewer/scene/selection.spec.ts).
+- **A tap resolves on the lift, never the press**, so a mis-aimed press can be
+  dragged off to cancel. That includes pull-to-floor, where the press only
+  *paints* the candidate face — there is no hover on touch to paint it earlier.
+- **Additive selection is a mode, not a modifier.** `ViewerControl.additiveSelection`
+  is offered from the tool cluster on touch-primary devices only, and the
+  toolbar clears it whenever the button is not shown, so the mode can never be
+  left on with no control to turn it off.
+- **Long-press is the right-click**, recognised in `SceneSelection` because iOS
+  never fires `contextmenu` for one. The gesture only *asks* — the viewer owns
+  what goes in the menu, via `SceneSelectionHandlers.contextMenu`. **Right-click
+  is driven off the mouse button's own press and release**, not the `contextmenu`
+  event: Windows raises that after the button comes up and macOS the moment it
+  goes down, so only the button's travel can separate a right *click* from the
+  right *drag* that pans the camera.
+- **Direct drag is deliberately narrow** — touch or pen, translate mode, and an
+  object that is *already selected*. Requiring a prior tap means a stray swipe
+  can never shove a model across the plate, and drag-to-orbit stays everywhere
+  else.
+- **The camera is shut out at `pointerdown`, and only for a press the drag will
+  claim.** At the target the DOM runs capture-flagged listeners before
+  non-capture ones **whatever the registration order** — OrbitControls listens
+  on the same canvas without capture, so a `stopPropagation()` from
+  `SceneSelection`'s capture handler stops it starting a rotate at all, and
+  there is nothing to wrestle it away from once the drag begins. Every *other*
+  press on a model is deliberately let through: dragging from a model the user
+  has not picked used to do nothing at all, which on a touch screen makes a dead
+  zone of most of the scene. Both directions are pinned by a bubble-phase probe
+  in the spec; break the invariant and the view spins under the dragged object.
+- **Never stop the lift.** Because only *some* presses are withheld, blocking a
+  `pointerup` strands OrbitControls mid-gesture in the ones it *was* let into —
+  its pointer-up handler is on the **document**, so a stop at the canvas reaches
+  it, and without it the pointer stays tracked, `state` never returns to `NONE`,
+  and the next button-less move orbits the view. On touch it is worse: the next
+  single finger reads as a second contact, and one-finger orbit stops working
+  entirely after the first tap on a model. The only stops that survive are on
+  `pointermove` inside a live drag, whose `pointerdown` was withheld too, so a
+  bubble consumer is absent for the whole gesture rather than half of it.
+- **A raycast hit is not a visible hit.** Three's `Raycaster` filters on
+  `layers` and **never on `visible`**, so hidden geometry reports hits like any
+  other. This is not academic: `GizmoManager.hitTest` — the touch/pen-only path
+  that asks "did this press land on a transform handle?" — raycasts
+  TransformControls' *pickers*, which are invisible-by-design shapes much larger
+  than the handles they stand for. A detached gizmo parks them at the origin,
+  i.e. the middle of the bed, so every tap near the centre of an empty plate was
+  swallowed as "on the gizmo" and **no model could be selected by touch or pen at
+  all** — the original iPad complaint, and invisible to a mouse, which reaches
+  `isHovering()` instead. Anything deciding "did the user touch this?" from a
+  raycast must apply visibility itself (`isVisibleWithin`), and check that the
+  gizmo is attached and enabled first. Pinned by
+  [gizmo.spec.ts](ui/src/app/components/viewer/gizmo.spec.ts), which also asserts
+  the three.js behaviour so a future release changing it is noticed.
+- **Palm rejection sits above all of it** ([pointer-arbiter.ts](ui/src/app/components/viewer/scene/pointer-arbiter.ts)),
+  on the host element in the capture phase, so a resting wrist never reaches
+  these handlers at all.
 
 ## Printer connectivity & G-code cache
 
@@ -900,6 +1073,7 @@ browse ("Pick it from the catalog"). Its data lives in a separate service — th
 - **Object IDs**: `ObjectId(u64)` is monotonically allocated and **never reused**. UUIDs are reserved for the WS protocol's upload tokens, not for scene objects.
 - **`SceneObject::source_id` is the object→bytes link.** Every object records the opaque handle it was loaded from (the WS upload UUID, a CLI path), set at `Add` time and inherited by `Duplicate`. **Never pair the object list against the upload list positionally** — the two are maintained independently, so index-pairing silently slices the wrong mesh the moment their order or length diverges (it collapsed a two-model plate into two copies of the first model). `Duplicate` shares the original's `Arc<Mesh>` *and* its `source_id`, so N instances of one model cost one upload.
 - **`SceneObject::source_part` says *which* object inside that file.** A 3MF is a scene, not a model: `SceneOp::Add` expands a multi-part file into **one scene object per build item** (named from the 3MF's `name` attribute), all sharing one `source_id`. The file id alone is therefore ambiguous — slicing must carry `part_index` too (`SceneObjectSliceDto`), or the server re-loads the whole file for every part and prints each one N times. `load_bytes_multi` / `load_path_multi` are the split loaders; `load_bytes` / `load_path` still merge and are what the slicer sees after a part is picked. The G-code cache key includes `part_index` for the same reason.
+- **Every slice entry point resolves objects *and* parts — all four of them.** A 3MF's build-item transform is baked into each part's vertices, so a merged load returns the file **exactly as its author assembled it**: parts stacked, geometry floating well above the bed. Slicing that instead of the plate silently ignores every placement the user made, and it looks like the slicer "prints the file, not the scene". The CLI ([slice.rs](src/cli/commands/slice.rs)), the WS server ([ws_session.rs](src/server/ws_session.rs)), the browser slicer ([scene/wasm.rs](src/scene/wasm.rs)) and the desktop bridge ([runtime_bridge.rs](ui-desktop/src-tauri/src/bridge/runtime_bridge.rs)) each load with `load_*_multi`, pick `parts[source_part]`, and bake **that object's own** transform. **Never reach for `load_path` / `load_bytes` in a slice path** — the merging loaders exist for callers that genuinely want one mesh, and a runtime that uses one loses both the part split and every transform but the first. An out-of-range `source_part` is an error, never a fallback to part 0: guessing slices the wrong geometry without saying so.
 - **A multi-part `Add` inverts to `RemoveMany`, not `Remove`.** One `Add` can create many objects, so undo has to take all of them back in one step. `SceneHandle::addMesh` returns an **array** of ids to match.
 - **Placement is validated in the engine, not per front-end**: `SceneState::placement_report()` returns `out_of_bounds` (via `BedConfig::contains_aabb`, shape-aware) and `collides` (XY-footprint overlap; touching edges do not count, so `ArrangeOnBed` output is clean) for every object. The WASM snapshot carries both flags per object. Its epsilon is `1e-3` mm, not `1e-9` — STL coordinates are `f32`, so a model resting on the bed lands a few `1e-6` mm below zero and a tighter tolerance reports it out of bounds.
 - **Server scenes are ephemeral per WS connection** (no DB persistence). UI uploads bytes via the file-upload endpoint, then dispatches `Scene { ops: [Add { file_id }, …] }`. `POST /api/upload` takes an optional `ruuid` field (sent **before** the file field, since multipart streams in order) that attaches the upload to an existing workplate — that is how one plate accumulates several files so `GET /api/request/:ruuid` can restore all of them.
@@ -914,11 +1088,12 @@ A workplate is a **build plate, not a file**. It starts from one model and must
 accept more, so the UI keeps a strict split of responsibilities:
 
 - **[`WorkplateObjects`](ui/src/app/services/workplate-objects/workplate-objects.ts) is the only way an object gets onto a plate.** It uploads (cloud), calls `addMesh` with the resulting `source_id`, places the result using the shared [`Arrange`](ui/src/app/services/arrange/arrange.ts) settings, and nudges the new object clear of the ones already there. Every entry point — the toolbar's add button, drag-and-drop, restoring a saved plate — goes through it, so they cannot drift apart. Adding **never** clears existing objects; only an explicit clear does.
+- **[`ModelSourceRegistry`](ui/src/app/services/model-source/model-source-registry.ts) is how an object finds its own bytes, in every runtime mode.** A plate holds several *different* files, and one 3MF backs several objects, so "which model does this object slice from?" is a **per-object** question. Every file is registered once and its handle stamped on each object it produces — including in web and native mode, where nothing hands out ids and `source_id` used to be null. Answering it per *plate* instead is the bug this prevents, and both local runtimes had a version of it: the browser slicer kept bytes per object id and populated them on only one of the three add paths, so a second model failed the slice outright with "Missing mesh bytes"; the desktop app sent a single `file_path` for the whole plate, so a second model was silently sliced as a **copy of the first**. **Never resolve an object's geometry by position in a list, by "the first upload", or by a plate-wide path** — resolve `source_id` through the registry and fail loudly when it is missing. Entries are keyed by file, so duplicates and a 3MF's sibling parts share one copy of the bytes; they are released on plate reset and when the last object referencing one is removed.
 - **Placing objects is one command, not two.** "Auto-orient" and "arrange all" used to be rival buttons that undid each other's work. [`Arrange`](ui/src/app/services/arrange/arrange.ts) owns the single `ArrangeOnBed` dispatch plus the settings it needs (gap, auto-orient, and the printer's preferred angle). Its UI follows the object-tools idiom exactly: a uniform toolbar button **in the same group as move / rotate / scale**, which reveals a contextual card — [`PlacementPanel`](ui/src/app/components/placement-panel/placement-panel.ts), a sibling of [`TransformPanel`](ui/src/app/components/transform-panel/transform-panel.ts). **Do not give it a split caret** — that made one button in the group behave unlike its neighbours. **Add-time placement reads the same settings**: dropping a file in and pressing the button must not disagree about orientation or spacing. Do not re-introduce a bare `AutoOrient`-everything action beside it.
 - **Contextual tool cards hang off the tools that open them.** Both cards render inside [3d-view-toolbar.html](ui/src/app/components/3d-view-toolbar/3d-view-toolbar.html), in a `.tool-panels` column **absolutely positioned** under the `.tool-cluster` and centred on it, so they follow the buttons instead of sitting in a screen corner the user has to connect them to. Absolute positioning is what makes this safe: the toolbar's own `contentRect` height is unchanged, so the shell's `--main-scene-inset` (and with it the viewport-cube and slice rail) never shifts as cards appear — that invariant is why the transform card originally lived in the shell. The column stacks, so transform + placement can be open at once; the container is `pointer-events: none` so gaps stay click-through to the scene. The toolbar's own pill rules must keep their `:host ` prefix — `nexus-card` styles itself with `:host(.small){border-radius:var(--radius-md)}`, which a bare class selector ties on specificity and loses to on order, squaring off the pill.
 - **[`TransformPanel`](ui/src/app/components/transform-panel/transform-panel.ts) edits the whole selection, not one object.** It used to render nothing unless *exactly one* object was selected, which made a multi-object plate untransformable. Position edits apply as a **delta** off the selection's combined AABB centre (so a spread-out arrangement keeps its layout rather than collapsing onto one coordinate); rotation and scale are set **per object** about each one's own centre, and `setSize` measures each object's own AABB so a batch of different-sized parts all reach the requested size. A single-object selection is the exact previous behaviour — the anchor is then its own translation, so an edit is still an absolute set. The header shows `"N objects"` for a batch and **nothing** for one; it deliberately does not name the file (every duplicate shares a name, so it identified nothing).
 - **`preferred_orientation_deg` lives on the printer profile**, not in the plate preferences, because it describes the machine (CoreXY prints everything at 45°). Settings → Printers is the **only** editor; the placement popover shows it read-only and links there, so one machine's angle is never changed from a plate-scoped surface. It rides along inside `orient_options.preferred_z_rotation_deg` and is therefore **only applied when auto-orient runs** — the popover says so rather than showing a live-looking value that does nothing. The CLI's equivalent is `MachineConfig::preferred_print_rotation_deg`, fed in by `SliceCommand::arrange_options`.
-- **Plate-editing chrome hides in G-code preview.** The placement control, add-model button, gravity toggle, gizmo-mode group and objects list are all gated on `viewMode() === 'model'`, and the `A` shortcut matches only there. Preview shows toolpaths, so an edit made from it changes something the user cannot see change.
+- **Plate-editing chrome hides in G-code preview.** The placement control, add-model button, gravity toggle, multi-select toggle, gizmo-mode group and objects list are all gated on `viewMode() === 'model'`, and the `A` shortcut matches only there. Preview shows toolpaths, so an edit made from it changes something the user cannot see change. The scene's context menu is gated the same way.
 - **The viewer mirrors, it does not own.** `Viewer.syncWasmMeshes()` diffs `sceneEngine.objects()` against its Three.js nodes and adds/disposes to match, so an object created by *anyone* (add button, `Duplicate`, undo) renders without the viewer being told. Do not add a second place that constructs display meshes.
 - **`SlicerFile` holds a list, not a file.** `files` accumulates `{fileId, filename}`; `upload(file)` appends and attaches to the open workplate. `fetchFile` adopts a file as the *primary* displayed model (it sets `selectedFile`, which retargets the viewer's `model` input); additional objects must use **`downloadFile`**, which registers without touching `selectedFile` — otherwise restoring an N-object plate leaves only the last file on screen.
 - **`toSliceDtos`** ([scene-slice-dto.ts](ui/src/app/runtime/adapters/cloud/scene-slice-dto.ts)) resolves each object to its file via `source_id` and throws rather than guessing. It is a pure function with tests pinning the regression; keep the mapping there, not inline in the runtime adapter.
@@ -1090,12 +1265,15 @@ capsule/gap renders (`render.py`, `zoom.py`). Compare a change against the
 ### Pipeline Execution Order
 
 ```
-slice_mesh()                         — raw mesh → OuterWall contours per layer
+slice_mesh()                         — raw mesh → OuterWall contours per layer (layer 0 spans first_layer_height)
+apply_dimensional_compensation()     — XY size / hole offset on the raw contours (src/core/compensation.rs)
+apply_elephant_foot()                — medial-limited shrink of the layers on the bed (same module)
 generate_arachne_walls()             — replaces OuterWall contours with bead paths
 pre_strip_infill_regions computed    — interior regions snapshotted before wall stripping
 apply_single_wall_restrictions()     — strips inner walls from first/last layers if configured
 interior_regions computed            — per-layer interior (for surfaces), post-strip
 generate_top_bottom_surfaces_with_interior()  — top/bottom solid infill within interior
+  └─ add_ironing_for_region()        — near-dry smoothing sweep over the finished top surface
 add_infill_to_layers()               — sparse infill using pre-strip regions minus solid regions
   ├─ combine_fill_areas()            — stack sparse areas across layers (infill_every_layers);
   │                                    mark forced solid layers (solid_infill_every_layers)
@@ -1103,6 +1281,7 @@ add_infill_to_layers()               — sparse infill using pre-strip regions m
 generate_supports()                  — overhang detection → projected support columns (if support_enabled)
 path ordering + flow compensation    — greedy-TSP per role group, then wall-overlap flow scaling
 apply_adhesion()                     — skirt/brim prepended to first layer(s); raft prepends layers + Z-shifts object (src/adhesion/)
+mark_first_layer_height()            — charges layer 0 at first_layer_height via path_heights, after adhesion so the skirt matches
 ```
 
 Order matters critically. Surfaces are computed **after** Arachne walls so that
@@ -1211,6 +1390,110 @@ splitting, not the mutated layer. The only remaining reason for the current
 position is that support strands are ordered by the TSP with the rest of the
 layer.
 
+**Dimensional compensation runs first, on the raw contours, and nowhere else.**
+Every later stage measures relative to the contour the wall generator consumed —
+`calculate_interior_region`'s `−0.5·d` correction, the wall-bead-footprint clip,
+adhesion's recovery of the outline by inflating layer-0 `OuterWall` by `d/2` — so
+correcting the contour leaves all of them true. Never offset the bead
+centrelines instead: moving `OuterWall` by δ after generation leaves `InnerWall`
+where it was, and the footprint clip corrects bead-*count* error, not centreline
+displacement. Winding out of the slicer is not guaranteed, so the pass
+normalises with an `EvenOdd` union first and then uses **`NonZero`** throughout;
+`Positive` would discard the CW hole sub-paths and fill every hole solid.
+
+**`first_layer_height` is split across the two ends of the pipeline.** The
+slicer gives layer 0 its own Z span (sampled at its own mid-plane, so an unset
+value reproduces the uniform slicer plane-for-plane and the QA baselines cannot
+move); `mark_first_layer_height` then charges it through `path_heights` *after*
+adhesion, so a skirt sharing that layer's Z is charged at the same height. Both
+ends resolve the value through `resolved_first_layer_height`, which the G-code
+generator also uses to decide which layer gets first-layer speeds and
+temperatures — the two must never disagree about which layer is the first. It is
+suppressed under a raft, which owns bed contact and prints at `layer_height`.
+
+**Ironing is generated in place, where `top_region` is still live**, and must
+touch **no region field**. It is a surface *treatment*, not solid material: were
+its footprint ever folded into `solid_regions`, `add_infill_to_layers` would
+subtract it (grown by a full bead) and punch a hole in the sparse infill
+underneath. It carries its own `ExtrusionRole::Ironing` rather than reusing
+`TopSurface`, because `resolve_width_mm` returns `top_surface_line_width` before
+it ever reads an explicit width — sharing the role would silently iron at full
+flow on any profile that sets one — and because a shared role would merge the
+two into one path-ordering group, letting the TSP interleave ironing with
+not-yet-printed fill. Its flow reduction is folded into the **width**
+(`ironing_spacing × ironing_flow`), deliberately keeping it out of
+`extrusion_for_move`'s `flow_ratio`, which reads a non-positive value as `1.0`
+so a malformed profile cannot zero out a print.
+
+
+**Elephant foot is a second pass in the same window, and it is not a uniform
+offset.** `apply_elephant_foot` runs straight after the XY deltas, on the same
+raw contours, and shares their rationale for *where*. What differs is *how*:
+
+- **Elephant foot is medial-limited, not a uniform offset.** The shrink at each
+  vertex is capped by the local feature half-width (the largest circle that fits
+  inside the material touching that point), so a feature ends up
+  `max(w_min, w − 2δ)` wide. A uniform 0.3 mm shrink erases every first-layer
+  feature under 0.6 mm; measured on a bar-ladder fixture it destroyed **3 of 6**
+  printable bars and **all 5** thin fins attached to a block, while the
+  medial-limited pass kept every one of them and still took the full 0.3 mm off
+  the wide block beside them.
+- **The radius field needs two readings, and neither works alone.** The largest
+  circle that fits inside the material *touching* a point collapses toward zero
+  all along a convex corner, so using it alone leaves an uncompensated nub on
+  every corner. A second reading counts only surfaces whose own normal **faces**
+  the point (`FACING_COS`, 120°) — what an opposite wall does and a corner's
+  adjoining edge does not. The first is restored by a running **maximum** along
+  the contour; the second caps that maximum back down. Without the cap a thick
+  body's radius leaks down an attached rib (a card-slot fin, a glyph stroke
+  touching its border) and pinches it off at the root; without the running max
+  every corner keeps a nub. Take the smaller of the two. Smoothing afterwards is
+  clamped to the raw value so it can only ever *reduce* the shrink — a plain
+  average would lift a thin spot back toward its thicker neighbours and re-erode
+  it.
+- **Do not use arc distance along the contour as that discriminator.** It is the
+  obvious alternative and it fails at both ends: a point near a corner is
+  legitimately far along the contour from the adjoining edge that caps it, and a
+  point near a thin feature's *tip* is only a short walk from the far side that
+  protects it. No single skip length satisfies both; facing direction is a
+  geometric property and does.
+- **Minimise the radius over each segment continuously, not at its vertices.**
+  Sampling endpoints minimises over a strict subset, so it can only *overstate*
+  the safe radius — the one direction that breaks the guarantee. Between
+  parallel walls `w` apart a vertex phase error `s` reports `w / 2 + s² / 2w`,
+  which at the 0.5 mm resample ceiling is ~31 µm of slack. Differentiating the
+  quotient gives a quadratic in the segment parameter, so the exact minimum is
+  closed-form; `segment_tangent_radius_matches_a_dense_numeric_sweep` pins it
+  against brute force.
+- **Vertices move to the mitre point, not along the normal.** A right-angle
+  corner needs `√2 · δ` along its bisector for both edges to end up `δ` in;
+  displacing by `δ` rounds every corner off. Capped at `MITRE_LIMIT` (2.0),
+  matching the miter limit passed to Clipper2 elsewhere in the engine.
+- **Clean the variable offset with `FillRule::Positive`.** It discards the
+  reversed folds a variable offset creates in a concavity while a clockwise hole
+  still subtracts correctly.
+- **The cliff guard is a guard, not a governor.** Compensation is withheld only
+  where the model flares outward *steeply* — full correction below one bead of
+  flare per layer, ramping to zero at three. Chamfered and filleted bases are
+  everywhere (the Voron cube flares 0.1 mm on its second layer, the caddy
+  0.2 mm), and an earlier ramp starting at zero flare silently halved the
+  correction on both. A user who asks for 0.2 mm expects 0.2 mm.
+- **Measure that flare along the outward normal, not to the nearest edge.**
+  Nearest-boundary distance answers a different question and gets this wrong: a
+  deep ledge can overhang while some unrelated edge — a rim running tangentially
+  past, the near side of a hole — sits closer, reads inside the free zone, and
+  waves the full shrink through. `ray_exit_distance` walks out of the layer
+  above until its material ends, which is the quantity the guard is named for.
+- **The pass walks bottom-up** so layer `i`'s cliff guard reads layer `i + 1`
+  while it is still the model's own geometry.
+- **Raft-gated and bed-gated.** Skipped when `adhesion_type = raft` (the first
+  layer lands on sacrificial material across an air gap), and skipped for any
+  layer whose `z` is inconsistent with resting on the plate, which is how a
+  lifted or sequentially-printed object avoids being "corrected" in mid-air.
+- **It defaults to `0` and `ElephantFootConfig::resolve` returns `None` then**,
+  so an unconfigured slice never allocates and the QA baselines cannot move.
+  Verify with the full gate after touching this module.
+
 **Perimeter routing & ordering options ([#98](https://github.com/ColdCrabby/slicer/issues/98))** are threaded through several stages:
 
 - `external_perimeters_first` (default `false` = inner walls first, outer wall
@@ -1233,6 +1516,28 @@ layer.
   carry an `x-relevant-when` gate** (`thin_walls` and `wall_distribution_count` →
   classic, `gap_fill_min_length_mm` → arachne), or the UI offers a control that
   silently does nothing.
+
+### Settings taxonomy — a new `x-group` needs two lines in the UI, and a test says so
+
+The settings panel is fully **schema-driven**: a new `SlicingParams` field with an
+`x-group` appears in the UI with no TypeScript change at all, and flows through
+`cache_fingerprint` and profile resolution automatically (both walk the
+serialized struct by name). A new **group**, though, still has to be claimed by a
+contract and given an icon in
+[ui/src/app/models/setting-contract.ts](ui/src/app/models/setting-contract.ts) —
+otherwise it falls to the end of Process, out of taxonomy order, with a blank
+where its icon should be. `setting-contract.spec.ts` reads the generated schema
+and fails on any unclaimed or iconless group, so this cannot regress silently
+(it caught `Time estimate`, which had been unclaimed since it was added).
+
+**`x-relevant-when` supports `equals` and `greaterThan`.** `greaterThan` gates a
+setting on a *numeric* feature switch — the elephant-foot taper and minimum
+width mean nothing while the compensation itself is `0`, and equality cannot
+express that. Evaluation lives in one place,
+[relevance.ts](ui/src/app/schema-form/models/relevance.ts), shared by the
+settings panel and the profile editor pages, so every schema-driven surface
+hides the same fields. **Regenerate the schema (`pnpm run gen-schemas`) after
+adding a field** — it is git-ignored and built from the Rust types.
 - `ensure_vertical_shell_thickness` is a **second pass in
   `generate_top_bottom_surfaces_with_interior`** (`apply_vertical_shell_thickness`):
   it grows each layer's own top/bottom surface inward and fills it solid so a
@@ -1789,5 +2094,5 @@ infill within the ring.
 
 ---
 
-**Last Updated**: 2026-08-31 (docs site consumes the shared UI design tokens; UI bundle-chunking contract)  
+**Last Updated**: 2026-08-31 (medial-limited elephant foot; schema-driven settings taxonomy is now test-pinned; touch, pen and the context menu in the 3D viewport)  
 **Maintainer Guidance**: Keep this file in sync with project structure changes, new conventions, or significant architectural decisions.
