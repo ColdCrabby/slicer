@@ -1,3 +1,5 @@
+@use 'breakpoints' as *;
+
 :host {
   padding: var(--spacing-md) var(--spacing-lg);
 
@@ -128,4 +130,63 @@
    and out of the tab order. */
 .add-object-input {
   display: none;
+}
+
+/* ── Phone ────────────────────────────────────────────────────────────────
+   Even with the two secondary tools dropped (see showSecondaryViewTools), the
+   remaining pills are a few pixels wider than a 375px screen. Wrapping is the
+   honest answer: every control stays reachable and the toolbar simply grows a
+   second row, which --main-scene-inset already tracks, so the scene chrome
+   below re-inserts itself correctly. Buttons grow to a proper touch target in
+   the process — 34px is a mouse-sized hit area. */
+@include handheld {
+  :host {
+    flex-wrap: wrap;
+    row-gap: var(--spacing-xs);
+    padding: var(--spacing-xs) var(--spacing-sm);
+    padding-left: calc(var(--spacing-sm) + env(safe-area-inset-left, 0px));
+    padding-right: calc(var(--spacing-sm) + env(safe-area-inset-right, 0px));
+  }
+
+  /* Dropping the pipeline button can leave its group holding nothing, which
+     still paints as a stray 6px pill beside the tools. */
+  :host .view-group:not(:has(button)) {
+    display: none;
+  }
+
+  .reset-view-button,
+  .button-radio-group button {
+    width: 40px;
+    height: 40px;
+    --icon-size: 19px;
+  }
+
+  /* The tool cards are centred on a cluster that can now sit anywhere along a
+     wrapped row, so cap them to the screen rather than to their own content. */
+  .tool-panels {
+    max-width: calc(100vw - 2 * var(--spacing-sm));
+  }
+}
+
+/* Sideways, height is the scarce axis — keep the toolbar to one slim row. */
+@include handheld-landscape {
+  :host {
+    padding-top: 2px;
+    padding-bottom: 2px;
+  }
+
+  .reset-view-button,
+  .button-radio-group button {
+    width: 34px;
+    height: 34px;
+    --icon-size: 17px;
+  }
+
+  /* A stacked transform card is taller than the whole scene band here, so it
+     scrolls rather than running off the bottom of the screen. */
+  .tool-panels {
+    max-height: 46vh;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+  }
 }

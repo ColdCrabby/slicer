@@ -1,3 +1,5 @@
+@use 'breakpoints' as *;
+
 :host {
   display: flex;
   align-items: center;
@@ -76,4 +78,46 @@
 button.tb-close:hover {
   background: var(--color-danger);
   color: #fff;
+}
+
+// ── Phone ─────────────────────────────────────────────────────────────────
+//
+// The wordmark is a fixed 86px of image; on a 390px screen it and the editable
+// workplate name fought for the same room and overlapped. The mark alone still
+// identifies the app, and the *plate you are editing* is the one thing here
+// worth the width — so the wordmark goes and the name takes the space.
+@include handheld {
+  :host {
+    padding-left: var(--spacing-sm);
+    padding-right: var(--spacing-sm);
+    padding-left: calc(var(--spacing-sm) + env(safe-area-inset-left, 0px));
+    padding-right: calc(var(--spacing-sm) + env(safe-area-inset-right, 0px));
+  }
+
+  .tb-brand {
+    flex: none;
+  }
+
+  // Crop the logo strip back to its square mark, hiding the baked-in wordmark.
+  .tb-brand ::ng-deep .nexus-logo {
+    width: 30px;
+    object-position: left -8px;
+  }
+
+  .tb-brand ::ng-deep .nexus-product-name {
+    display: none;
+  }
+
+  .tb-workplate {
+    flex: 1 1 auto;
+  }
+
+  // "Connected" is a status nobody needs to read twice — the green dot says it,
+  // and the word is what pushed the bar over the edge at 390px. Every other
+  // state (connecting, disconnected, failed) needs its words, so it keeps them.
+  .tb-status ::ng-deep nexus-badge[variant='success'] {
+    padding: 5px;
+    font-size: 0;
+    gap: 0;
+  }
 }

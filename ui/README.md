@@ -138,6 +138,63 @@ lands, `pnpm vendor:ui` brings it in.
 
 ---
 
+## Phones
+
+The desktop layout assumes horizontal room the slicer does not have on a
+handset: a 60px nav rail, a 280px docked settings column and a 380px slice rail
+add up to more than a 390px screen _is_. Rather than a second app, the same
+shell rearranges itself.
+
+```mermaid
+flowchart LR
+    subgraph D["Desktop"]
+      direction LR
+      dr[nav rail] --- ds[settings column] --- dsc[scene] --- drc[slice rail]
+    end
+    subgraph P["Phone"]
+      direction TB
+      pt[toolbar] --- psc[scene] --- prc[slice sheet] --- pn[tab bar]
+    end
+    D -->|"handheld()"| P
+```
+
+- **One definition of "phone".** [`styles/_breakpoints.scss`](src/styles/_breakpoints.scss)
+  provides `handheld()` — 640px wide, plus a bounded short-landscape arm for a
+  handset held sideways. Tablets keep the desktop layout: an iPad has the width
+  for a docked column and the pointer precision for the gizmos. Anything that
+  adapts goes through the mixin, so the layout switches over as one piece.
+- **CSS decides the layout; TypeScript decides the controls.**
+  [`services/viewport.ts`](src/app/services/viewport.ts) answers the same
+  question for code that must _not render_ something (the projection toggle, the
+  operation-pipeline inspector, the sidebar's docked state). Its query string is
+  a copy of the mixin's and **must stay identical**. Layout itself stays in media
+  queries so a phone lays out correctly before any script runs.
+- **`html.is-handheld` is for the shared components only.**
+  [`styles/base/_handheld.scss`](src/styles/base/_handheld.scss) adapts
+  `@coldcrabby/ui` primitives we do not own — stacking `nexus-field-row`,
+  growing 34px controls to 40px, trimming modal gutters. A component's own
+  `:host` block compiles to an attribute selector, which a plain element
+  selector loses to; the class buys exactly the specificity needed without
+  `!important`. It is set before first paint by the inline script in
+  `index.html`, and `Viewport` keeps it live.
+
+What changes, and why:
+
+| Surface               | Phone form               | Reason                                                                                            |
+| --------------------- | ------------------------ | ------------------------------------------------------------------------------------------------- |
+| Nav rail              | Bottom tab bar           | 60px of a 390px screen for something used once a session; the bottom edge is what a thumb reaches |
+| Print settings        | Drawer + edge tab        | Docked, it leaves ~50px of scene                                                                  |
+| Slice rail            | Full-width bottom sheet  | The bottom-right corner is the hardest place on a tall phone to reach                             |
+| G-code inspector      | Scrolls inside the sheet | Slice must never be the thing that scrolls away                                                   |
+| Settings sections     | Scrollable chip strip    | A 220px column leaves 170px for the settings                                                      |
+| Manage pages          | Stacked master–detail    | Two columns need width that is not there                                                          |
+| Toasts                | Top of the screen        | The bottom belongs to the sheet and the tab bar                                                   |
+| Viewport cube         | Hidden                   | A click-and-drag widget with no touch equivalent, in the corner a phone can least spare           |
+| Projection · pipeline | Hidden                   | Eleven pill buttons do not fit; neither is part of getting a model sliced                         |
+| Object list           | Collapsible chip         | Expanded it covers a third of the plate it describes                                              |
+
+---
+
 ## Monaco Transmit Preview
 
 The **transmit preview panel** is a toggleable side panel that shows, in real time, the exact JSON payloads that the UI would send to the server when a slice job starts.

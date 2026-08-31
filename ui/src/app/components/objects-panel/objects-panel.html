@@ -1,85 +1,112 @@
 @if (visible()) {
-  <div class="objects-panel" role="region" aria-label="Objects on the plate">
-    <header class="op-head">
-      <span class="op-title">Objects</span>
-      <span class="op-count">{{ count() }}</span>
-    </header>
-
-    @if (warning(); as message) {
-      <p class="op-warning">
-        <nexus-icon name="warning-triangle"></nexus-icon>
-        <span>{{ message }}</span>
-      </p>
+  <div
+    class="objects-panel"
+    [class.is-collapsed]="!expanded()"
+    role="region"
+    aria-label="Objects on the plate"
+  >
+    @if (collapsible()) {
+      <button
+        class="op-head op-head-toggle"
+        type="button"
+        [attr.aria-expanded]="expanded()"
+        (click)="toggleExpanded()"
+      >
+        <nexus-icon
+          class="op-head-chevron"
+          [name]="expanded() ? 'nav-arrow-down' : 'nav-arrow-right'"
+          aria-hidden="true"
+        ></nexus-icon>
+        <span class="op-title">Objects</span>
+        <span class="op-count">{{ count() }}</span>
+        @if (warning() && !expanded()) {
+          <nexus-icon class="op-head-flag" name="warning-triangle" aria-hidden="true"></nexus-icon>
+        }
+      </button>
+    } @else {
+      <header class="op-head">
+        <span class="op-title">Objects</span>
+        <span class="op-count">{{ count() }}</span>
+      </header>
     }
 
-    <ul class="op-list">
-      @for (row of rows(); track row.key) {
-        <li
-          class="op-row"
-          [class.selected]="row.selected"
-          [class.problem]="row.outOfBounds || row.collides"
-          tabindex="0"
-          role="button"
-          [attr.aria-pressed]="row.selected"
-          (click)="select(row, $event)"
-          (keydown.enter)="select(row, $event)"
-        >
-          <nexus-icon class="op-row-icon" name="cube"></nexus-icon>
+    @if (expanded()) {
+      @if (warning(); as message) {
+        <p class="op-warning">
+          <nexus-icon name="warning-triangle"></nexus-icon>
+          <span>{{ message }}</span>
+        </p>
+      }
 
-          <span class="op-row-text">
-            <span class="op-row-name" [title]="row.name">{{ row.name }}</span>
-            <span class="op-row-meta">
-              {{ row.size[0] }} × {{ row.size[1] }} × {{ row.size[2] }} mm
+      <ul class="op-list">
+        @for (row of rows(); track row.key) {
+          <li
+            class="op-row"
+            [class.selected]="row.selected"
+            [class.problem]="row.outOfBounds || row.collides"
+            tabindex="0"
+            role="button"
+            [attr.aria-pressed]="row.selected"
+            (click)="select(row, $event)"
+            (keydown.enter)="select(row, $event)"
+          >
+            <nexus-icon class="op-row-icon" name="cube"></nexus-icon>
+
+            <span class="op-row-text">
+              <span class="op-row-name" [title]="row.name">{{ row.name }}</span>
+              <span class="op-row-meta">
+                {{ row.size[0] }} × {{ row.size[1] }} × {{ row.size[2] }} mm
+              </span>
             </span>
-          </span>
 
-          @if (row.outOfBounds) {
-            <nexus-icon
-              class="op-row-flag"
-              name="warning-triangle"
-              [tooltip]="'Outside the build area'"
-            ></nexus-icon>
-          } @else if (row.collides) {
-            <nexus-icon
-              class="op-row-flag"
-              name="warning-circle"
-              [tooltip]="'Overlaps another object'"
-            ></nexus-icon>
-          }
+            @if (row.outOfBounds) {
+              <nexus-icon
+                class="op-row-flag"
+                name="warning-triangle"
+                [tooltip]="'Outside the build area'"
+              ></nexus-icon>
+            } @else if (row.collides) {
+              <nexus-icon
+                class="op-row-flag"
+                name="warning-circle"
+                [tooltip]="'Overlaps another object'"
+              ></nexus-icon>
+            }
 
-          <span class="op-row-actions">
-            <button
-              class="op-action"
-              type="button"
-              [tooltip]="'Duplicate'"
-              (click)="duplicate(row, $event)"
-            >
-              <nexus-icon name="copy"></nexus-icon>
-            </button>
-
-            @if (pendingDelete() === row.id) {
-              <button
-                class="op-action danger confirming"
-                type="button"
-                [tooltip]="'Click again to remove'"
-                (click)="requestDelete(row, $event)"
-                (blur)="cancelDelete($event)"
-              >
-                Confirm?
-              </button>
-            } @else {
+            <span class="op-row-actions">
               <button
                 class="op-action"
                 type="button"
-                [tooltip]="'Remove from plate'"
-                (click)="requestDelete(row, $event)"
+                [tooltip]="'Duplicate'"
+                (click)="duplicate(row, $event)"
               >
-                <nexus-icon name="bin"></nexus-icon>
+                <nexus-icon name="copy"></nexus-icon>
               </button>
-            }
-          </span>
-        </li>
-      }
-    </ul>
+
+              @if (pendingDelete() === row.id) {
+                <button
+                  class="op-action danger confirming"
+                  type="button"
+                  [tooltip]="'Click again to remove'"
+                  (click)="requestDelete(row, $event)"
+                  (blur)="cancelDelete($event)"
+                >
+                  Confirm?
+                </button>
+              } @else {
+                <button
+                  class="op-action"
+                  type="button"
+                  [tooltip]="'Remove from plate'"
+                  (click)="requestDelete(row, $event)"
+                >
+                  <nexus-icon name="bin"></nexus-icon>
+                </button>
+              }
+            </span>
+          </li>
+        }
+      </ul>
+    }
   </div>
 }

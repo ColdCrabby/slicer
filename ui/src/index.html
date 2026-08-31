@@ -49,6 +49,21 @@
         }
       })();
 
+      // Mark phone-sized viewports before first paint, for the same reason as
+      // the theme class: the global overrides keyed to it (see
+      // styles/base/_handheld.scss) must not land a frame late. The Viewport
+      // service keeps it live afterwards; the query here is a copy of
+      // HANDHELD_MEDIA_QUERY and must match it.
+      (function () {
+        if (!window.matchMedia) return;
+        var q = window.matchMedia(
+          '(max-width: 640px), (max-width: 950px) and (max-height: 500px) and (orientation: landscape)',
+        );
+        if (q.matches) {
+          document.documentElement.classList.add('is-handheld');
+        }
+      })();
+
       // iOS Safari ignores `user-scalable=no` in the viewport meta since
       // iOS 10. Block pinch-zoom (gesture events) and double-tap zoom
       // explicitly. Allow multi-touch inside elements that opt in via

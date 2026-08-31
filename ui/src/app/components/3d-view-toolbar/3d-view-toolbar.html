@@ -1,19 +1,21 @@
 <div class="view-group">
-  <button
-    class="reset-view-button"
-    type="button"
-    [tooltip]="
-      selectedView() === 'ortho'
-        ? 'Orthographic projection — switch to perspective'
-        : 'Perspective projection — switch to orthographic'
-    "
-    [tooltipShortcut]="keyboardShortcuts.shortcutFor('toggle-projection')"
-    (click)="toggleProjection()"
-  >
-    <nexus-icon
-      [name]="selectedView() === 'ortho' ? 'orthogonal-view' : 'perspective-view'"
-    ></nexus-icon>
-  </button>
+  @if (showSecondaryViewTools()) {
+    <button
+      class="reset-view-button"
+      type="button"
+      [tooltip]="
+        selectedView() === 'ortho'
+          ? 'Orthographic projection — switch to perspective'
+          : 'Perspective projection — switch to orthographic'
+      "
+      [tooltipShortcut]="keyboardShortcuts.shortcutFor('toggle-projection')"
+      (click)="toggleProjection()"
+    >
+      <nexus-icon
+        [name]="selectedView() === 'ortho' ? 'orthogonal-view' : 'perspective-view'"
+      ></nexus-icon>
+    </button>
+  }
 
   <button
     class="reset-view-button"
@@ -170,12 +172,14 @@
     </button>
   }
 
-  <button
-    class="reset-view-button"
-    type="button"
-    [tooltip]="'Show operation pipeline'"
-    (click)="showOperationPipeline()"
-  >
-    <nexus-icon name="developer"></nexus-icon>
-  </button>
+  @if (showSecondaryViewTools()) {
+    <button
+      class="reset-view-button"
+      type="button"
+      [tooltip]="'Show operation pipeline'"
+      (click)="showOperationPipeline()"
+    >
+      <nexus-icon name="developer"></nexus-icon>
+    </button>
+  }
 </div>

@@ -58,7 +58,7 @@
             ],
             "styles": ["src/styles/main.scss"],
             "stylePreprocessorOptions": {
-              "includePaths": ["vendor/coldcrabby-ui/src/styles"]
+              "includePaths": ["vendor/coldcrabby-ui/src/styles", "src/styles"]
             },
             "loader": {
               ".ttf": "file",

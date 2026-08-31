@@ -1,3 +1,5 @@
+@use 'breakpoints' as *;
+
 :host {
   display: flex;
   flex-direction: column;
@@ -18,6 +20,17 @@
   min-height: 0;
   position: relative;
   display: flex;
+}
+
+// Phones put navigation under the thumb, not down the side: a 60px rail costs
+// 15% of a 390px screen for something reached once a session, while the bottom
+// edge is the only part of a tall phone a hand comfortably covers. Reversing
+// the row into a column moves the same rail there without the nav needing to
+// know where it lives.
+@include handheld {
+  .shell-body {
+    flex-direction: column-reverse;
+  }
 }
 
 // Router-injected surfaces don't carry this component's encapsulation attr, so

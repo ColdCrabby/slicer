@@ -429,6 +429,44 @@ Supporting details:
   is broken. All images of a version share one asset, so deleting a duplicate
   breaks the survivor — purge with `simctl runtime delete all` and re-download.
 
+## Phones — one breakpoint, two answers
+
+A handset is not a small desktop: the chrome that surrounds the 3D view (a 60px
+nav rail, a 280px docked settings column, a 380px slice rail) is wider than the
+screen. The UI therefore has **one** definition of "phone", and everything that
+adapts goes through it — never an ad-hoc `max-width` query.
+
+- **`handheld()`** in [ui/src/styles/\_breakpoints.scss](ui/src/styles/_breakpoints.scss)
+  is the SCSS half: 640px wide, plus a **width-bounded** short-landscape arm so a
+  docked-but-short desktop window is not mistaken for a handset. Tablets keep the
+  desktop layout deliberately — an iPad has the width and the pointer precision.
+  Component styles reach it with `@use 'breakpoints' as *;` (`src/styles` is on
+  the Sass `includePaths`).
+- **[`Viewport`](ui/src/app/services/viewport.ts)** is the TypeScript half, for
+  decisions CSS cannot make — *which controls exist* (the projection toggle, the
+  operation-pipeline inspector) and *whether the settings column may dock at
+  all*. **Its `HANDHELD_MEDIA_QUERY` is a copy of the mixin's condition and the
+  two must never diverge**, or chrome ends up styled for one layout and wired for
+  the other. Keep layout itself in media queries so a phone lays out correctly
+  before any script runs.
+- **`html.is-handheld` exists only to reach the shared components.**
+  [ui/src/styles/base/\_handheld.scss](ui/src/styles/base/_handheld.scss) adapts
+  `@coldcrabby/ui` primitives that live in another repo (stacking
+  `nexus-field-row`, growing 34px controls to 40px). A primitive's `:host` block
+  compiles to an attribute selector, which a bare element selector loses to; the
+  class buys exactly that specificity without `!important`. It is set before
+  first paint by the inline script in `index.html` and kept live by `Viewport`,
+  which `AppShell` constructs so it exists on every route.
+- **Dropping a control is a legitimate answer, hiding a needed one is not.** The
+  viewport cube goes because a drag gizmo has no touch equivalent; projection and
+  the pipeline inspector go because eleven pill buttons do not fit and neither is
+  part of getting a model sliced. Anything on the path to a slice — the object
+  tools, add, undo/redo, the G-code toggle, Slice itself — stays.
+
+The layout contract (tab bar, drawer, bottom sheet, chip strip) is catalogued in
+[ui/README.md](ui/README.md#phones); the user-facing tour is in
+[docs/use/interface.md](docs/use/interface.md).
+
 ## Printer connectivity & G-code cache
 
 [src/printer/](src/printer/) is the **native-only** (`cfg(not(target_arch = "wasm32"))`)

@@ -16,6 +16,9 @@ Nothing is hidden behind menus.
 └──────────────┴─────────────────────────────────────┴──────────────┘
 ```
 
+That's the layout on a computer or a tablet. A phone gets the same tools in a
+one-handed arrangement — see [On a phone](#on-a-phone) at the end.
+
 ## The 3D view
 
 The bed, the print volume, and your models. Navigate it the way you'd expect:
@@ -96,9 +99,10 @@ and through individual moves. See [Reading the preview](/use/preview).
 
 ## Notifications
 
-Messages appear bottom-left. Info and success fade after a few seconds; errors
-stay until you dismiss them. Longer jobs get a progress strip at the top that
-turns into a notification when it's done.
+Messages appear bottom-left — top of the screen on a phone, where the sheet
+isn't. Info and success fade after a few seconds; errors stay until you dismiss
+them. Longer jobs get a progress strip at the top that turns into a notification
+when it's done.
 
 ## Undo
 
@@ -123,3 +127,44 @@ Windows — whatever your system accent is set to.
 **Settings → General** has the graphics knobs: field of view, anti-aliasing,
 render resolution and preview detail. Turn them down on a weak GPU, up on a good
 one.
+
+## On a phone
+
+The same app, rearranged for one hand. There is no separate mobile version and
+nothing to install — open the slicer's address in your phone's browser.
+
+```
+┌─────────────────────────────┐
+│ 🦀  My plate              ● │  ← title bar
+├─────────────────────────────┤
+│        [ tools ]            │
+│                             │
+│                             │
+│         3D plate            │
+│                             │
+│                  Objects 2  │
+│  ┌───────────────────────┐  │
+│  │ model.stl     ▸ Slice │  │  ← slice sheet
+│  └───────────────────────┘  │
+├─────────────────────────────┤
+│  Home      Slice    Settings│  ← tab bar
+└─────────────────────────────┘
+```
+
+- **Navigation moves to the bottom**, where your thumb already is.
+- **Slice lives in a sheet across the bottom** of the plate, with the file name
+  and the download / send buttons beside it. After slicing, the G-code inspector
+  opens inside that sheet and scrolls — Slice stays put.
+- **Print settings are a drawer.** Pull the tab on the left edge, or tap it. Tap
+  anywhere outside to close.
+- **The objects list is folded** to a chip showing how many models are on the
+  plate. Tap it to open the list; a warning triangle appears on the chip if
+  something can't print where it sits, so a folded list never hides a problem.
+
+Two things are left out rather than squeezed in: the **viewport cube** (drag it
+with what?) and the **projection toggle**. Reset-view — the house icon — still
+frames the plate in one tap, and both come back the moment you open the slicer
+on something wider. Everything that actually gets a model sliced is there.
+
+Turned sideways, the chrome shrinks to give the plate the height back: the tab
+bar drops its labels and the panels get shorter.

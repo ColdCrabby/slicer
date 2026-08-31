@@ -27,6 +27,27 @@ issue/PR numbers or repo links in the notes. See the tone rules in
 
 ## [Unreleased]
 
+### Added
+
+- **Phone layout** — the whole UI rearranges itself below 640px instead of
+  overflowing. Navigation moves to a bottom tab bar, print settings become a
+  drawer with a pull tab on the left edge, and Slice sits in a full-width sheet
+  along the bottom with the G-code inspector scrolling inside it. Settings
+  sections become a scrollable chip strip and the printer/filament/profile
+  editors stack instead of splitting into two columns. Previously a 390px screen
+  gave the 3D view about 50px of width.
+
+### Changed
+
+- **Touch targets and form rows on phones** — controls grow from 34px to 40px,
+  labelled rows stack so a dropdown gets the full width, toasts move to the top
+  of the screen (the bottom now belongs to the slice sheet), and the object list
+  folds to a chip that still flags a part that cannot print.
+- **Two controls are hidden on phones** — the viewport cube, which needs a drag
+  it cannot receive, and the projection toggle and operation-pipeline inspector,
+  which do not fit alongside the tools that get a model sliced. All three return
+  on any wider screen.
+
 ## [0.3.0]
 
 The preset catalog goes live. "Pick it from the catalog" in the printer and

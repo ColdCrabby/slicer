@@ -16,6 +16,7 @@ import { NotificationService } from '../../services/notifications';
 import { SceneHistory } from '../../services/scene-history/scene-history';
 import { Slicer } from '../../services/slicer';
 import { ViewerControl } from '../../services/viewer-control';
+import { Viewport } from '../../services/viewport';
 import { WorkplateObjects } from '../../services/workplate-objects';
 import {
   Icon,
@@ -40,7 +41,7 @@ import { TransformPanel } from '../transform-panel/transform-panel';
     PlacementPanel,
   ],
   templateUrl: './3d-view-toolbar.html',
-  styleUrl: './3d-view-toolbar.css',
+  styleUrl: './3d-view-toolbar.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class ThreeDViewToolbar {
@@ -52,6 +53,7 @@ export class ThreeDViewToolbar {
   private readonly notifications = inject(NotificationService);
   private readonly arrange = inject(Arrange);
   private readonly history = inject(SceneHistory);
+  private readonly viewport = inject(Viewport);
   protected readonly historyControls = inject(HistoryControlsPreference);
   protected readonly keyboardShortcuts = inject(KeyboardShortcuts);
 
@@ -61,6 +63,18 @@ export class ThreeDViewToolbar {
   readonly selectedObjectMode = this.viewerControl.objectMode;
   readonly viewMode = this.viewerControl.viewMode;
   readonly gravityEnabled = this.viewerControl.gravityEnabled;
+
+  /**
+   * Controls that earn their width on a desktop but not on a phone.
+   *
+   * Eleven pill buttons do not fit across 390px, and the ones that must survive
+   * are the ones a plate cannot be built without: the object tools, add, undo /
+   * redo and the G-code toggle. Projection (perspective ⇄ orthographic) and the
+   * operation-pipeline inspector are a preference and a debugging aid — neither
+   * is part of getting a model sliced, and both are still one window-resize
+   * away.
+   */
+  protected readonly showSecondaryViewTools = computed(() => !this.viewport.isHandheld());
 
   /**
    * True while the user is working on the plate rather than inspecting a

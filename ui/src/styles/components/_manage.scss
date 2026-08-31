@@ -4,6 +4,8 @@
 // keeps its component style budget. HMR note: touch the consuming page .scss
 // after editing this file.
 
+@use '../breakpoints' as *;
+
 .mgr {
   display: flex;
   flex-direction: column;
@@ -431,5 +433,56 @@
       border-color: var(--color-danger);
       box-shadow: inset 0 0 0 1px var(--color-danger);
     }
+  }
+}
+
+// ── Phone ───────────────────────────────────────────────────────────────────
+//
+// The master–detail grid needs two columns' worth of width and has neither.
+// Stacked, it keeps the same shape a phone user expects from a settings app:
+// the list up top, the editor for whatever you tapped directly beneath it. The
+// list keeps its own scroll so the editor never drifts off-screen, and the
+// whole lower half is given back when nothing is selected — which is exactly
+// what `.mgr__detail-inner` existing tells us.
+@include handheld {
+  .mgr {
+    padding: var(--spacing-md) var(--spacing-md) 0;
+    padding-left: calc(var(--spacing-md) + env(safe-area-inset-left, 0px));
+    padding-right: calc(var(--spacing-md) + env(safe-area-inset-right, 0px));
+  }
+
+  .mgr__body {
+    grid-template-columns: 1fr;
+    grid-template-rows: minmax(0, 2fr) minmax(0, 3fr);
+    gap: var(--spacing-md);
+  }
+
+  .mgr__body:not(:has(.mgr__detail-inner)) {
+    grid-template-rows: 1fr;
+
+    .mgr__detail {
+      display: none;
+    }
+  }
+
+  .mgr__detail {
+    border-left: none;
+    border-top: 1px solid var(--color-border-light);
+    padding-left: 0;
+    padding-top: var(--spacing-md);
+  }
+
+  .mgr__detail-inner {
+    max-width: none;
+  }
+
+  // Cards are the primary target on this screen; give them a finger's worth of
+  // height and always-visible actions (there is no hover to reveal them).
+  .mgr__card {
+    min-height: 56px;
+  }
+
+  .mgr__detail-head {
+    flex-wrap: wrap;
   }
 }

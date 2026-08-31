@@ -1,3 +1,5 @@
+@use 'breakpoints' as *;
+
 :host {
   position: relative;
   // Sit above the sidebar so its panel can slide out from behind the rail edge.
@@ -75,4 +77,61 @@
   font-weight: inherit;
   line-height: 1;
   letter-spacing: 0.01em;
+}
+
+// ── Phone: a bottom tab bar ───────────────────────────────────────────────
+//
+// The shell reverses its row into a column on phones (shell.scss), which drops
+// this element at the bottom of the screen. From there it only has to stop
+// being a column: full width, items sharing the row, and the home-indicator
+// inset paid as padding so the last row of pixels stays tappable.
+@include handheld {
+  :host {
+    width: 100%;
+    flex-direction: row;
+    padding: var(--spacing-xs) var(--spacing-xs)
+      calc(var(--spacing-xs) + env(safe-area-inset-bottom, 0px));
+    padding-left: calc(var(--spacing-xs) + env(safe-area-inset-left, 0px));
+    padding-right: calc(var(--spacing-xs) + env(safe-area-inset-right, 0px));
+    border-right: none;
+    border-top: 1px solid var(--color-border);
+  }
+
+  .rail-nav {
+    flex: 1;
+    flex-direction: row;
+    justify-content: space-around;
+    gap: var(--spacing-xs);
+  }
+
+  .rail-item {
+    // A comfortable thumb target; the wide, evenly-shared cells make the whole
+    // strip feel like the OS tab bars it sits beside.
+    flex: 1;
+    min-height: 48px;
+    max-width: 160px;
+    padding: 6px 4px;
+    --icon-size: 21px;
+  }
+
+  .rail-label {
+    font-size: var(--font-size-xs);
+  }
+}
+
+// Sideways, vertical room is what runs out — collapse the tab bar to icons.
+@include handheld-landscape {
+  :host {
+    padding-top: 2px;
+    padding-bottom: calc(2px + env(safe-area-inset-bottom, 0px));
+  }
+
+  .rail-item {
+    min-height: 38px;
+    gap: 0;
+  }
+
+  .rail-label {
+    display: none;
+  }
 }

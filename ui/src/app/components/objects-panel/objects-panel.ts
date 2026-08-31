@@ -1,6 +1,7 @@
 import { ChangeDetectionStrategy, Component, computed, inject, signal } from '@angular/core';
 import { SceneEngine, type SceneObjectSnapshot } from '../../services/scene-engine';
 import { ViewerControl } from '../../services/viewer-control';
+import { Viewport } from '../../services/viewport';
 import { WorkplateObjects } from '../../services/workplate-objects';
 import { Icon, TooltipDirective } from '@coldcrabby/ui';
 
@@ -44,9 +45,30 @@ export class ObjectsPanel {
   private readonly workplate = inject(WorkplateObjects);
   private readonly sceneEngine = inject(SceneEngine);
   private readonly viewerControl = inject(ViewerControl);
+  private readonly viewport = inject(Viewport);
 
   /** Id awaiting delete confirmation, if any. */
   protected readonly pendingDelete = signal<bigint | null>(null);
+
+  /**
+   * Whether the list may be folded away to its header.
+   *
+   * On a desktop the panel costs a corner of a large scene and is worth having
+   * open; on a phone the same list covers a third of the plate it describes. So
+   * phones get a header that collapses — the object count stays visible, the
+   * rows come back on tap — and every other size keeps the list open with no
+   * extra control to explain.
+   */
+  protected readonly collapsible = computed(() => this.viewport.isHandheld());
+
+  private readonly userExpanded = signal(false);
+
+  /** Whether the object rows are showing. Always true where there is room. */
+  protected readonly expanded = computed(() => !this.collapsible() || this.userExpanded());
+
+  protected toggleExpanded(): void {
+    this.userExpanded.update((open) => !open);
+  }
 
   /**
    * Hidden in G-code preview: the list describes the *model* plate, and none
