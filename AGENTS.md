@@ -686,6 +686,15 @@ pay it back:
   tenth for parse + bootstrap. **Re-survey that list on every tick** — the build
   appends those links *after* the inline script, so surveying once at parse time
   finds nothing and the bar never moves.
+- **The splash logo is staged, not animated.** A ~700-byte WebP is inlined in
+  the document (no request, so it paints with the HTML) and the full 240 px
+  asset cross-fades over it. Progressive JPEG cannot be used — the logo is RGBA
+  and JPEG has no alpha — and neither WebP nor AVIF decodes progressively, so
+  the two stages are explicit. Both come from
+  [scripts/gen-splash-logo.sh](scripts/gen-splash-logo.sh) (`pnpm run
+  splash-logo`, `--check` verifies); **never hand-edit the base64**, and note
+  that Prettier rewrites CSS `url()` to single quotes, which the generator has
+  to tolerate or it stops finding its own output.
 
 
 The **catalog** is the read-only library of vendor presets the profile wizards

@@ -32,12 +32,19 @@ All in [`ui/public/`](https://github.com/max-scopp/slicer-engine/tree/main/ui/pu
 | `logo.png`, `logo@2x.png`, `logo@3x.png` | The animated mark |
 | `logo_still.png`, `logo_still@2x.png`, `logo_still@3x.png` | The static mark, used in the app's own chrome |
 | `logo_source.png` | The 1024² master everything else is cut from |
+| `splash-logo.webp` | The boot splash's mark — generated, see below |
 | `apple-touch-icon.png`, `favicon*` | Web and home-screen icons |
 
 **Application icons are generated, never hand-edited.** One master —
 `ui-desktop/src-tauri/app-icon.png`, cropped from `logo_source.png` — feeds every
 platform via `pnpm run icons`. If an icon looks wrong, fix the master and
 regenerate.
+
+**The boot splash's logo is generated too**, from `logo_still@3x.png` via
+`pnpm run splash-logo` (needs `brew install webp`). It emits two things: the
+`splash-logo.webp` asset, and a tiny base64 stand-in embedded directly in
+`ui/src/index.html` that shows before any request completes. Never hand-edit
+that blob — change the artwork and regenerate.
 
 ## Colour
 

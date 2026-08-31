@@ -103,8 +103,9 @@ turns into a notification when it's done.
 ## Moving between Home, Slice and Settings
 
 When you first open the app it shows the Cold Crabby logo with a progress bar
-beneath it. That is the app itself downloading; the bar follows the real
-download, so it tells you how much is genuinely left.
+beneath it. The logo appears immediately as a soft, low-detail version and
+sharpens a moment later once the full artwork has downloaded. The bar follows
+the real download, so it tells you how much is genuinely left.
 
 The rail on the left switches between the three areas. The app loads each one
 the first time you open it, so on a slow connection the first visit can take a

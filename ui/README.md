@@ -301,17 +301,26 @@ before a single byte of the bundle has run, and tears itself down from
   reason its colours are literals rather than design tokens — the stylesheet
   carrying those tokens is part of what is still loading. Keep them in step with
   `--accent` and `--color-bg-primary` by hand.
-- **The progress is real.** The build lists every initial chunk in the document
-  as `<link rel="modulepreload">`, and a `PerformanceObserver` reports each one
-  as it lands, so the bar tracks actual downloads instead of easing along a
-  timer. Downloads map to 0–90 %; the last tenth is parse + bootstrap, closed by
-  `__nexusSplashDone()`.
+- **The logo arrives in two stages, and neither is animated.** A ~700-byte WebP
+  is embedded in the document as base64, so it paints with the HTML at no
+  request cost; `public/splash-logo.webp` (240 px, 22 kB) then cross-fades over
+  it. Progressive JPEG, the usual answer for "rough now, sharp later", is not
+  available: the logo is RGBA and JPEG has no alpha channel. Neither WebP nor
+  AVIF decodes progressively, so the refinement is staged explicitly — which is
+  faster anyway, since a progressive format's first pass still costs a round
+  trip and an inlined placeholder costs none. Regenerate both with
+  `pnpm run splash-logo`; never hand-edit the base64.
+- **The progress bar is the only thing that animates.** It is real: the build
+  lists every initial chunk in the document as `<link rel="modulepreload">`, and
+  a `PerformanceObserver` reports each one as it lands, so the bar tracks actual
+  downloads instead of easing along a timer. Downloads map to 0–90 %; the last
+  tenth is parse + bootstrap, closed by `__nexusSplashDone()`.
 - **Survey the chunk list on every tick, never once at startup.** The build
   appends those `modulepreload` links *after* this inline script, so a single
   survey at parse time finds nothing and the bar never moves — which is exactly
   how it was first written, and what measuring caught.
-- **The logo is `rel="preload"`ed at high priority**, or it queues behind the
-  chunks and arrives after the splash it belongs to has gone.
+- **The full-resolution logo is `rel="preload"`ed at high priority**, or it
+  queues behind the chunks and arrives after the splash it belongs to has gone.
 - Degrades quietly: with no `modulepreload` links (the dev server) or no
   `PerformanceObserver`, the splash still covers the blank page and still
   clears. If the app never boots at all, the label admits it after 30 s rather
@@ -328,6 +337,7 @@ Anything under `src/generated/` is **regenerated, not edited**. Each file maps 1
 | `src/generated/*.d.ts`      | Rust schemas via `slicer-engine gen-schemas`      | `pnpm run gen` (also runs on `install`) |
 | `src/generated/scene-wasm/` | `src/scene/wasm.rs` (`cfg(target_arch="wasm32")`) | `make build-wasm` at the repo root      |
 | `src/schemas/*.json`        | JSON Schema emitted by the Rust CLI               | `pnpm run gen-schemas`                  |
+| `public/splash-logo.webp` + the base64 blob in `src/index.html` | `public/logo_still@3x.png` | `pnpm run splash-logo` at the repo root |
 
 The `postinstall` script in [package.json](package.json) wires this up: cloning the repo and running `pnpm install` (with the WASM bundle already built) is enough to get a working dev environment.
 
