@@ -35,6 +35,9 @@ issue/PR numbers or repo links in the notes. See the tone rules in
 - **Smaller install and deploy** — the bundled code editor no longer ships ~90
   programming-language grammars and four language servers it never used. Total
   deployed JavaScript falls from 17.7 MB to 8.4 MB.
+- **Settings pages open without loading the code editor** — the G-code editors
+  on the printer and filament pages sit well below the fold, but still cost
+  ~4 MB the moment the page opened. They now load when you scroll to them.
 
 ### Added
 

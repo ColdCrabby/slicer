@@ -169,7 +169,7 @@ The panel contains two read-only Monaco editor instances, each updated live as s
 
 A thin Angular wrapper around Monaco editor:
 
-- **Lazy-loaded, and narrowly** — the editor is fetched the first time one is mounted, and it is composed from Monaco's modular entry points (`editor/editor.api` + `features/register.all`) rather than the package root. The root export is `editor.main`, which would register ~90 language grammars and the TypeScript/CSS/HTML language services: a 2.7 MB chunk plus 9.6 MB of web workers, for an app that shows G-code and JSON.
+- **Lazy-loaded, narrowly, and not until it is looked at** — the editor is composed from Monaco's modular entry points (`editor/editor.api` + `features/register.all`) rather than the package root, and is fetched only once an instance comes within 400 px of the viewport. The root export is `editor.main`, which would register ~90 language grammars and the TypeScript/CSS/HTML language services: a 2.7 MB chunk plus 9.6 MB of web workers, for an app that shows G-code and JSON. **A dynamic `import()` is lazy in the bundle but still runs the moment the component is created** — the printer settings page mounts three editors about six screens below the fold, which used to fetch ~4 MB before the user had scrolled anywhere near them.
 - **Inputs**: `content` (string signal), `language` (Monaco language ID, default `'plaintext'`), `readOnly` (boolean).
 - **Live updates** — an `effect()` pushes content and readOnly changes into the live editor instance, so Angular signals drive Monaco without re-creating the editor.
 - **Resource cleanup** — `DestroyRef.onDestroy` disposes the editor and releases its DOM/worker resources when the component is destroyed.
@@ -336,7 +336,7 @@ The UI follows the project [`.editorconfig`](.editorconfig) and is formatted wit
 ## Tech stack
 
 - **Angular 21** — standalone components, signals, `provideRouter` with view transitions, zoneless-ready.
-- **Monaco Editor** — VS Code's editor component, lazy-loaded and composed from its modular entry points so only the G-code and JSON languages ship.
+- **Monaco Editor** — VS Code's editor component, composed from its modular entry points so only the G-code and JSON languages ship, and deferred until an editor nears the viewport.
 - **three.js 0.184** — 3D viewer, custom camera/orbit controls (`viewer-control.ts`), `viewport-cube` orientation widget.
 - **Iconoir 7** — icon set.
 - **fuse.js 7** — fuzzy search inside settings/history.

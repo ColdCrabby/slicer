@@ -77,6 +77,14 @@ function ensureMonacoStyles(): Promise<void> {
   return monacoStylesReady;
 }
 
+/**
+ * How far outside the viewport an editor starts loading Monaco.
+ *
+ * Enough lead that a normal scroll finds the editor already there, without
+ * fetching it for a field six screens below the fold that will never be read.
+ */
+const EDITOR_VIEWPORT_LEAD = '400px';
+
 /** The subset of Monaco this app touches — the editor and language registries. */
 type MonacoApi = Pick<typeof Monaco, 'editor' | 'languages'>;
 
@@ -157,9 +165,9 @@ async function loadMonaco(language: string): Promise<MonacoApi> {
 /**
  * Thin Angular wrapper around the Monaco editor.
  *
- * The component initialises the editor exactly once, after the host element
- * has been inserted into the DOM. Destroying the component disposes the
- * editor instance so its WebGL / DOM resources are released.
+ * The component initialises the editor exactly once, the first time it comes
+ * near the viewport (see {@link CodeEditor.initWhenVisible}). Destroying the
+ * component disposes the editor instance so its DOM resources are released.
  *
  * The editor is intentionally bare-bones: language, initial value and other
  * options can be extended via `@Input()` when needed.
@@ -201,12 +209,17 @@ export class CodeEditor {
   private editor: Monaco.editor.IStandaloneCodeEditor | null = null;
   /** Guards the change output from firing during programmatic `setValue`. */
   private applyingExternal = false;
+  /** Watches for the editor approaching the viewport; dropped once it fires. */
+  private visibility: IntersectionObserver | null = null;
+  /** Set on teardown, so a load still in flight does not build a dead editor. */
+  private destroyed = false;
 
   constructor() {
     const destroyRef = inject(DestroyRef);
+    const host = inject<ElementRef<HTMLElement>>(ElementRef);
 
-    afterNextRender(async () => {
-      await this.initMonaco();
+    afterNextRender(() => {
+      this.initWhenVisible(host.nativeElement);
     });
 
     // Push content / readOnly changes into the live editor whenever they change.
@@ -224,9 +237,47 @@ export class CodeEditor {
     });
 
     destroyRef.onDestroy(() => {
+      this.destroyed = true;
+      this.visibility?.disconnect();
+      this.visibility = null;
       this.editor?.dispose();
       this.editor = null;
     });
+  }
+
+  /**
+   * Hold off on Monaco until this editor is at (or near) the viewport.
+   *
+   * A dynamic `import()` is lazy in the *bundle*, but it still runs the moment
+   * the component is created — and these editors are often far off screen. The
+   * printer settings page mounts three of them roughly six screens below the
+   * fold, so opening it to change a nozzle diameter fetched ~4 MB of editor
+   * nobody had looked at, competing with the page the user actually wanted.
+   *
+   * Waiting for visibility keeps the editor's own load time (which is fine to
+   * wait for, once you are looking at it) from being charged to the rest of the
+   * app. Monaco itself is memoised across editors, so this is only ever paid
+   * once — by whichever editor is seen first.
+   */
+  private initWhenVisible(host: HTMLElement): void {
+    // No IntersectionObserver (or a non-browser test host) — just load it.
+    if (typeof IntersectionObserver === 'undefined') {
+      void this.initMonaco();
+      return;
+    }
+
+    this.visibility = new IntersectionObserver(
+      (entries) => {
+        if (!entries.some((entry) => entry.isIntersecting)) {
+          return;
+        }
+        this.visibility?.disconnect();
+        this.visibility = null;
+        void this.initMonaco();
+      },
+      { rootMargin: EDITOR_VIEWPORT_LEAD },
+    );
+    this.visibility.observe(host);
   }
 
   private async initMonaco(): Promise<void> {
@@ -265,6 +316,14 @@ export class CodeEditor {
     // created, otherwise it renders as a bare, unstyled textarea (see
     // `ensureMonacoStyles`).
     await ensureMonacoStyles();
+
+    // Scrolling an editor into view and straight back out (or closing the
+    // dialog holding it) can tear the component down while the fetch above is
+    // still in flight. Building an editor now would attach it to a detached
+    // node that nothing will ever dispose.
+    if (this.destroyed) {
+      return;
+    }
 
     this.editor = monaco.editor.create(this.mount().nativeElement, {
       value: this.content(),

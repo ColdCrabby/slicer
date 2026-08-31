@@ -624,6 +624,16 @@ reached 2 MB against a 1.58 MB bundle).
   language only when a JSON editor mounts. **Naming a worker in
   `MonacoEnvironment.getWorker` is what makes the bundler emit it**, so the
   switch there lists only the two that can be asked for.
+- **A dynamic `import()` is lazy in the *bundle*, not in *time*.** It still runs
+  the moment the component is created, so a heavy off-screen widget charges its
+  download to the page the user is actually reading. `CodeEditor` therefore
+  waits for an `IntersectionObserver` before touching Monaco: the printer
+  settings page mounts three editors ~4 500 px below a 720 px fold, which
+  fetched **4.1 MB** before anyone had scrolled near them. Deferring made
+  opening that page cost **0 kB** of editor, while a visible editor (the
+  operation-pipeline dialog) still loads immediately. Waiting for a widget you
+  are looking at is fine; making the rest of the app wait for one you are not is
+  the thing to avoid.
 - **`provideMarkdown()` stays at the root**, even though it is 54 kB of the
   initial bundle. The shared UI's tooltip renders markdown and tooltips appear
   everywhere, including in dialogs drawn from the root outlet — moving the
