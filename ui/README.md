@@ -41,7 +41,7 @@ flowchart LR
 ```
 ui/src/app/
 ├── app.config.ts          providers (router, http, markdown, input-modality, keyboard-shortcuts)
-├── app-routes.ts          /, /slice/(new|:requestUuid)
+├── app-routes.ts          /, /slice/(new|:requestUuid), /settings/* — all lazily loaded
 ├── pages/
 │   ├── home/              landing dashboard
 │   ├── slice-new/         upload + initial slice
@@ -169,11 +169,12 @@ The panel contains two read-only Monaco editor instances, each updated live as s
 
 A thin Angular wrapper around Monaco editor:
 
-- **Lazy-loaded** — the Monaco bundle is not included in the initial chunk. It is fetched once, the first time the panel is opened.
+- **Lazy-loaded, and narrowly** — the editor is fetched the first time one is mounted, and it is composed from Monaco's modular entry points (`editor/editor.api` + `features/register.all`) rather than the package root. The root export is `editor.main`, which would register ~90 language grammars and the TypeScript/CSS/HTML language services: a 2.7 MB chunk plus 9.6 MB of web workers, for an app that shows G-code and JSON.
 - **Inputs**: `content` (string signal), `language` (Monaco language ID, default `'plaintext'`), `readOnly` (boolean).
 - **Live updates** — an `effect()` pushes content and readOnly changes into the live editor instance, so Angular signals drive Monaco without re-creating the editor.
 - **Resource cleanup** — `DestroyRef.onDestroy` disposes the editor and releases its DOM/worker resources when the component is destroyed.
-- **Workers** — language workers (JSON, CSS, TypeScript, …) are spawned via `Blob` URLs so no separate worker bundle entry-point is needed. `MonacoEnvironment` is set once globally on `window`.
+- **Languages** — `gcode` is ours (a Monarch grammar in `gcode-language.ts`, registered together with the shared `nexus-code` theme, so it loads for every editor). `json` is Monaco's own language service and is fetched only when a JSON editor mounts.
+- **Workers** — declared as real module entry points under `workers/`, referenced via `new Worker(new URL(…, import.meta.url))` so the bundler emits base-href-relative assets (a bare specifier only resolved at the site root, which broke sub-path deploys). Only `editor` and `json` are listed: naming a worker in `MonacoEnvironment.getWorker` is what makes the bundler emit it.
 - **Options**: dark theme (`vs-dark`), auto-layout, word-wrap on, minimap off, folding on.
 
 ### `EditorPanel` service (`services/editor-panel.ts`)
@@ -245,6 +246,45 @@ Shortcuts are no-ops when the corresponding history direction is unavailable (gu
 
 ---
 
+## Route chunking and navigation feedback
+
+Every screen below `AppShell` is a lazily-loaded chunk, and the initial-bundle
+budgets in [angular.json](angular.json) exist to keep it that way. The rules for
+what may and may not join the initial download — and why three.js, Monaco and
+`marked` each ended up there — are in
+[AGENTS.md](../AGENTS.md#bundle-chunking--what-may-sit-in-the-initial-download).
+The short version: **anything routed uses `loadComponent`**, and a root-provided
+service's imports are initial-bundle imports.
+
+Two pieces keep splitting from turning into waiting:
+
+```mermaid
+flowchart LR
+    router["Router events"]
+    prog["NavigationProgress\n(when to speak)"]
+    bar["RouteProgress\nhairline"]
+    rails["Nav rail ·\nSettings sub-nav"]
+    banner["Update banner"]
+    idle["IdleRoutePreload"]
+
+    router --> prog
+    prog --> bar
+    prog --> rails
+    prog -->|chunk fetch failed| banner
+    idle -.->|warms chunks so\nmost clicks never wait| router
+```
+
+- [`IdleRoutePreload`](src/app/services/route-preload.ts) fetches lazy chunks
+  during `requestIdleCallback`, skipping Data Saver and 2G-class connections.
+- [`NavigationProgress`](src/app/services/navigation-progress.ts) is the single
+  source of truth for "a navigation is taking long enough to mention". It stays
+  silent below 120 ms so instant transitions never flash, marks the destination
+  rail item as pending, and turns a failed chunk fetch — the signature of a
+  redeploy under a long-lived tab — into the existing reload banner via
+  `AppVersion.reportStaleAssets()`.
+
+---
+
 ## Generated artifacts
 
 Anything under `src/generated/` is **regenerated, not edited**. Each file maps 1:1 to a Rust type or wasm-pack output, and any drift is treated as a bug in the generator, not in this folder.
@@ -296,7 +336,7 @@ The UI follows the project [`.editorconfig`](.editorconfig) and is formatted wit
 ## Tech stack
 
 - **Angular 21** — standalone components, signals, `provideRouter` with view transitions, zoneless-ready.
-- **Monaco Editor** — VS Code's editor component, lazy-loaded for the transmit-preview panel. Workers spawned via Blob URLs; no separate worker bundle entry point required.
+- **Monaco Editor** — VS Code's editor component, lazy-loaded and composed from its modular entry points so only the G-code and JSON languages ship.
 - **three.js 0.184** — 3D viewer, custom camera/orbit controls (`viewer-control.ts`), `viewport-cube` orientation widget.
 - **Iconoir 7** — icon set.
 - **fuse.js 7** — fuzzy search inside settings/history.

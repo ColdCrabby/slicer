@@ -589,7 +589,67 @@ profile plus `labels.toml`, `manifest.toml`, `README.md`) and a **single**
   anchor). G-code downloads go through it too; **do not re-implement a download
   in a feature**.
 
-## Preset catalog — generated client, real cloud source
+## Bundle chunking — what may sit in the initial download
+
+The **initial bundle is the code the browser must have before it can draw
+anything**, so it belongs to the *first* screen — not to the app as a whole.
+Everything below the app shell is lazily loaded, and the budgets in
+[ui/angular.json](ui/angular.json) are the enforcement. Left unwatched this
+regresses silently: the app still works, it just starts slower every release,
+and the usual response is to raise the budget until it means nothing (it had
+reached 2 MB against a 1.58 MB bundle).
+
+- **A route's `component:` is a static import.** Naming a component in the route
+  table pulls its entire import graph into the initial bundle, no matter how
+  deeply nested the route is. `NexusSlicingShell` reaches three.js, the viewer
+  toolbar, the schema-driven settings panel and fuse.js, so a single
+  `component: NexusSlicingShell` put ~700 kB of the slice workspace in front of
+  the home screen. **Everything routed uses `loadComponent`**; `AppShell` is the
+  only exception, because it is the chrome every route renders inside.
+- **A root-provided service drags its whole import graph in with it**, because
+  something in `provideAppInitializer` constructs it during startup. That is how
+  three.js got in *twice*: `KeyboardShortcuts` injects `ViewerControl`, and
+  `ViewerControl` imported one class from three. **three's ESM build is a single
+  pre-bundled module, so importing `Vector3` costs all ~550 kB of it** — nothing
+  is tree-shaken. `ViewerControl` therefore holds a plain
+  [`Vec3`](ui/src/app/services/viewer-control.ts) that three's `Vector3` is
+  structurally assignable to, and the three-aware components convert at their own
+  boundary. Watch for the same trap with any pre-bundled library.
+- **Import the narrow entry point, not the package root.** Monaco's root export
+  is `editor.main`, which registers ~90 language grammars and the TypeScript,
+  CSS and HTML language services — a 2.7 MB chunk plus **9.6 MB of web workers**
+  (the TypeScript one alone is 7 MB) for an app that shows G-code and JSON.
+  [code-editor.ts](ui/src/app/components/code-editor/code-editor.ts) composes the
+  editor from `editor/editor.api` + `features/register.all` and pulls the JSON
+  language only when a JSON editor mounts. **Naming a worker in
+  `MonacoEnvironment.getWorker` is what makes the bundler emit it**, so the
+  switch there lists only the two that can be asked for.
+- **`provideMarkdown()` stays at the root**, even though it is 54 kB of the
+  initial bundle. The shared UI's tooltip renders markdown and tooltips appear
+  everywhere, including in dialogs drawn from the root outlet — moving the
+  provider under a route trades 54 kB for a `NullInjectorError` in whichever
+  surface was overlooked.
+- **Measure before concluding.** Build with `--source-map`, then attribute each
+  initial chunk's bytes back to its modules through the source map. Chunk names
+  are hashes and the sizes alone tell you nothing about *why* something is there.
+
+### Making lazy loading honest
+
+Splitting the app moves the wait rather than removing it, so two pieces exist to
+pay it back:
+
+- **[`IdleRoutePreload`](ui/src/app/services/route-preload.ts)** warms lazy
+  chunks during `requestIdleCallback`, so a click is usually instant anyway. It
+  waits for idle rather than starting on first navigation (what Angular's
+  `PreloadAllModules` does, precisely when the app is busiest) and skips
+  entirely on Data Saver or a 2G-class connection.
+- **[`NavigationProgress`](ui/src/app/services/navigation-progress.ts)** owns
+  every decision about *when* to admit a wait; `RouteProgress` and the two
+  navigation rails only render it. It stays silent below 120 ms, so an instant
+  transition never flashes a bar. It also turns a failed chunk fetch — a
+  redeploy under a long-lived tab — into `AppVersion.reportStaleAssets()`, which
+  raises the existing reload banner instead of leaving a dead click.
+
 
 The **catalog** is the read-only library of vendor presets the profile wizards
 browse ("Pick it from the catalog"). Its data lives in a separate service — the

@@ -1,13 +1,21 @@
 <nav class="rail-nav">
   @for (item of items; track item.path) {
+    @let pending = isPending(item.path);
     <a
       class="rail-item"
+      [class.is-pending]="pending"
       [routerLink]="item.path"
       routerLinkActive="is-active"
       [routerLinkActiveOptions]="{ exact: item.exact }"
       [attr.aria-label]="item.label"
+      [attr.aria-busy]="pending ? 'true' : null"
     >
-      <nexus-icon [name]="item.icon" />
+      <span class="rail-icon">
+        <nexus-icon [name]="item.icon" />
+        @if (pending) {
+          <span class="rail-spinner" aria-hidden="true"></span>
+        }
+      </span>
       <span class="rail-label">{{ item.label }}</span>
     </a>
   }

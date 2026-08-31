@@ -27,6 +27,25 @@ issue/PR numbers or repo links in the notes. See the tone rules in
 
 ## [Unreleased]
 
+### Changed
+
+- **Faster startup** — the app now downloads 691 kB before it can draw, down
+  from 1.58 MB. The 3D viewer, the settings workspace and the code editor are
+  fetched when you actually open them, not before the home screen appears.
+- **Smaller install and deploy** — the bundled code editor no longer ships ~90
+  programming-language grammars and four language servers it never used. Total
+  deployed JavaScript falls from 17.7 MB to 8.4 MB.
+
+### Added
+
+- **Visible page loading** — switching between Home, Slice and Settings shows a
+  thin progress line and marks the destination in the navigation rail whenever
+  the wait is long enough to notice. Anything under 120 ms stays silent, and the
+  app quietly pre-fetches the other areas once it has finished starting up.
+- **Reload prompt for stale tabs** — if a page can no longer be loaded because
+  the app was redeployed under an open tab, the existing update banner now
+  offers a reload instead of the click doing nothing.
+
 ## [0.3.0]
 
 The preset catalog goes live. "Pick it from the catalog" in the printer and

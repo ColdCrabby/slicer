@@ -1,0 +1,11 @@
+@if (active()) {
+  <div
+    class="route-progress"
+    [class.is-complete]="complete()"
+    role="progressbar"
+    aria-label="Loading page"
+    aria-busy="true"
+  >
+    <span class="route-progress__bar"></span>
+  </div>
+}

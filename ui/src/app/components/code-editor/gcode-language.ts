@@ -14,8 +14,11 @@ let registered = false;
  * Idempotent — safe to call for every editor instance; the actual work runs
  * once. The theme inherits `vs-dark`, so JSON/plaintext editors are unaffected;
  * it only adds colour rules for the G-code-specific token types below.
+ *
+ * Typed against the registries it uses rather than the whole package, so it
+ * accepts the modular `editor.api` namespace the editor is actually built from.
  */
-export function registerGcodeLanguage(monaco: typeof Monaco): void {
+export function registerGcodeLanguage(monaco: Pick<typeof Monaco, 'editor' | 'languages'>): void {
   if (registered) {
     return;
   }
