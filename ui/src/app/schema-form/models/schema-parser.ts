@@ -23,6 +23,7 @@ function resolveRelevantWhen(prop: RawProp): FieldRelevance | undefined {
   return {
     field: rule['field'],
     equals: rule['equals'],
+    greaterThan: typeof rule['greaterThan'] === 'number' ? rule['greaterThan'] : undefined,
   };
 }
 

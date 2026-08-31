@@ -70,6 +70,7 @@ that touch nothing are wasted plastic and a worse surface.
 | **Support** | On/off, type, density, overhang threshold |
 | **Speed** | Per-role print speeds and travel speed |
 | **Quality** | Ironing, spiral (vase) mode, other finish options |
+| **Dimensions** | Corrections for parts that come out the wrong size: overall XY, and the bulge at the bed |
 | **Surfaces** | Top and bottom solid layer counts, surface fill behaviour |
 | **Adhesion** | Skirt, brim, raft |
 | **Objects** | Print order, G-code run between objects |
@@ -100,6 +101,46 @@ base.
 
 **Ironing** (Process → Quality) makes a second, hot, barely-extruding pass over
 top surfaces to smooth them. Slow, and only worth it on visible flat tops.
+
+## When parts come out the wrong size
+
+Two corrections live in Process → Dimensions. Both are off until you set them.
+
+**Elephant foot** is the flare at the very bottom of a print. The first layer is
+deliberately squashed into the bed to make it stick, so it spreads sideways and
+the base measures a few tenths oversize — enough that a part won't sit flat, or
+won't drop into the hole it was designed for.
+
+Measure the bulge with calipers, halve it, and put that in **Elephant foot
+compensation**. 0.1–0.2 mm covers most machines. Only the first layer is
+corrected, because only the first layer is squashed.
+
+::: tip It won't eat your first-layer detail
+Shrinking the first layer sounds like it should wipe out embossed text and thin
+logo strokes — that's what a plain shrink does. This one measures how thin the
+geometry is at each point and simply stops there, so a fine feature keeps its
+width while the walls around it are corrected in full. It also leaves the base
+alone where the model is *already* narrower at the bottom than above, and skips
+itself entirely when you print on a raft, where nothing touches the bed.
+:::
+
+::: details Fine-tuning it
+**Elephant foot layers** spreads the correction over more than one layer,
+ramping it to zero. Leave it at 1 unless a large correction leaves a visible
+step at the second layer.
+
+**Minimum contour width** is the width the correction will never shrink a
+feature below. Left at 0 it works this out from your wall width; raise it to
+protect chunkier detail.
+:::
+
+**XY size compensation** is the other one — a straight offset applied to the
+*whole* model, for a machine that prints consistently over- or undersize. Use a
+negative value if parts come out too big. It moves holes with the walls, so a
+negative value widens holes by the same amount it narrows the outside.
+
+Reach for elephant foot first: if only the bottom few layers are wrong, XY
+compensation would shrink the entire part to fix them.
 
 ## Where your settings are saved
 

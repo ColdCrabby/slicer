@@ -38,6 +38,14 @@ issue/PR numbers or repo links in the notes. See the tone rules in
 
 ### Added
 
+- **Elephant-foot compensation** — corrects the flare the bed's squish leaves at
+  the base of a print, in a new Process → Dimensions section. It is limited by
+  how thin the geometry is at each point, so embossed text, logo strokes and
+  thin ribs on the first layer keep their width instead of being erased by the
+  shrink. It also holds back where the model itself already flares outward, and
+  switches itself off on a raft. Off by default; 0.1–0.2 mm suits most machines.
+- **XY size compensation** — a straight offset applied to every layer, for a
+  machine that prints consistently over- or undersize. Off by default.
 - **Phone layout** — the whole UI rearranges itself below 640px instead of
   overflowing. Navigation moves to a bottom tab bar, print settings become a
   drawer with a pull tab on the left edge, and Slice sits in a full-width sheet

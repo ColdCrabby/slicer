@@ -114,6 +114,23 @@ pub fn process_mesh(
         return layers;
     }
 
+    // Correct the raw contours before anything is built from them. Walls,
+    // interior, surfaces and infill are all derived from these shapes, so
+    // compensating here corrects the whole layer in one move — and skips
+    // entirely (no allocation, no offset) when neither correction is
+    // configured, which is the default.
+    if let Some(compensation) = super::compensation::CompensationConfig::resolve(params) {
+        logger.log_debug(&format!(
+            "compensating contours (xy: {:+.3} mm, elephant foot: {:.3} mm over {} layer(s))",
+            compensation.xy_size_mm,
+            compensation.elephant_foot_mm,
+            compensation.elephant_foot_layers
+        ));
+        let t_compensation = PhaseTimer::start(phases::DIMENSIONAL_COMPENSATION, logger);
+        super::compensation::apply_with_config(&mut layers, &compensation);
+        t_compensation.finish();
+    }
+
     // Generate walls FIRST from the raw mesh contours
     logger.log_debug(&format!(
         "generating walls (generator: {}, wall_count: {}, nozzle: {}mm)",
@@ -621,6 +638,12 @@ pub fn process_mesh_debug(
 
     let mut layers = slice_mesh(mesh, params.layer_height);
     logger.log_info(&format!("sliced into {} layers", layers.len()));
+
+    // Compensate before the snapshot, so `RawContours` shows exactly the shapes
+    // the wall generator is about to receive.
+    if let Some(compensation) = super::compensation::CompensationConfig::resolve(params) {
+        super::compensation::apply_with_config(&mut layers, &compensation);
+    }
 
     // Snapshot raw contours.
     for (i, layer) in layers.iter().enumerate() {

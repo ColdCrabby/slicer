@@ -156,6 +156,15 @@ pub fn slice_plate(
     } else {
         let mut p = params.clone();
         p.adhesion_type = AdhesionType::None;
+        // Clearing the adhesion type stops each object growing its own skirt or
+        // brim, but it also erases the fact that the plate sits on a raft — and
+        // elephant-foot compensation reads exactly that to decide whether the
+        // first layer ever meets the bed. Carry the answer across explicitly, or
+        // an object-aware raft print gets its base shrunk for a squish that
+        // never happens.
+        if params.adhesion_type == AdhesionType::Raft {
+            p.elephant_foot_compensation_mm = 0.0;
+        }
         Some(p)
     };
     let slice_params = per_object_params.as_ref().unwrap_or(params);
@@ -616,6 +625,34 @@ mod tests {
         for (a, b) in direct.iter().zip(plate_slice.layers.iter()) {
             assert_eq!(a.paths.len(), b.paths.len());
             assert!((a.z - b.z).abs() < 1e-12);
+        }
+    }
+
+    #[test]
+    fn a_raft_still_suppresses_elephant_foot_when_slicing_object_by_object() {
+        // Suppressing per-object adhesion clears `adhesion_type`, which is also
+        // how elephant-foot compensation learns the object never meets the bed.
+        // Without carrying that across, an object-aware raft print gets its base
+        // shrunk for a squish that does not happen.
+        let mut params = two_object_params();
+        params.exclude_object = true;
+        params.adhesion_type = AdhesionType::Raft;
+        params.raft_layers = 3;
+        params.elephant_foot_compensation_mm = 0.3;
+        assert!(params.object_aware() && params.print_sequence != PrintSequence::ByObject);
+
+        let on_raft = slice_plate(&plate(), &params, &NullLogger);
+
+        let mut without = params.clone();
+        without.elephant_foot_compensation_mm = 0.0;
+        let baseline = slice_plate(&plate(), &without, &NullLogger);
+
+        assert_eq!(on_raft.layers.len(), baseline.layers.len());
+        for (i, (a, b)) in on_raft.layers.iter().zip(&baseline.layers).enumerate() {
+            assert_eq!(
+                a.paths, b.paths,
+                "layer {i} was compensated despite printing on a raft"
+            );
         }
     }
 

@@ -134,6 +134,21 @@ pub(crate) fn sparse_infill_nominal_width_mm(params: &SlicingParams) -> f64 {
     }
 }
 
+/// Nominal **outer wall** extrusion width (mm).
+///
+/// The wall twin of [`solid_surface_nominal_width_mm`]. Resolution mirrors
+/// `resolve_width_mm`: an explicit `outer_wall_line_width`, else the nozzle
+/// diameter. Walls deliberately skip the generic `line_width` — that setting
+/// applies only to fill roles, so a user who widens their infill lines does not
+/// silently move every wall with it.
+pub(crate) fn outer_wall_nominal_width_mm(params: &SlicingParams) -> f64 {
+    if params.outer_wall_line_width > 0.0 {
+        params.outer_wall_line_width
+    } else {
+        params.nozzle_diameter_mm
+    }
+}
+
 /// Solid top/bottom surface fill direction alternates by 90° every layer so
 /// successive solid layers cross-hatch — matching CuraEngine's default
 /// `skin_angles = {45°, 135°}` and the per-layer solid-infill rotation in

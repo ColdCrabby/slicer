@@ -2001,6 +2001,67 @@ Caps print speed so the hotend can keep up with the flow.
     pub raft_air_gap: f64,
 
     #[schemars(
+        description = "Signed XY offset in mm applied to every layer's cross-section. `0` = off.
+
+Cancels a *systematic* dimensional error of a machine/material pairing: use a
+negative value when parts come out consistently oversize, positive when they
+come out undersize. Holes move with the walls, so a negative value widens them
+by the same amount it narrows the outside.
+
+Applies to the whole height of the model — for the bulge at the bed only, use
+`elephant_foot_compensation_mm` instead.
+**Typical:** −0.10 to +0.10 mm.",
+        extend("x-group" = "Dimensions")
+    )]
+    #[serde(default = "SlicingParams::default_xy_size_compensation_mm")]
+    pub xy_size_compensation_mm: f64,
+
+    #[schemars(
+        description = "Inward shrink in mm applied to the layers nearest the bed. `0` = off.
+
+The first layer is squashed into the build plate, so it spreads outward and the
+base of the print measures oversize — the \"elephant foot\". This shrinks it back.
+
+The shrink is **limited by how thin the geometry is** at each point, so embossed
+text, logo strokes and thin ribs on the first layer keep at least
+`elephant_foot_min_contour_width_mm` of width instead of being erased. It is also
+withheld where the model itself already flares outward, so a narrow base under a
+wide body is never undercut, and it is skipped entirely when printing on a raft.
+
+**Typical:** 0.10–0.20 mm. Measure the bulge with calipers and halve it.",
+        extend("x-group" = "Dimensions")
+    )]
+    #[serde(default = "SlicingParams::default_elephant_foot_compensation_mm")]
+    pub elephant_foot_compensation_mm: f64,
+
+    #[schemars(
+        description = "Number of layers the elephant-foot shrink is spread over (≥1).
+
+`1` corrects the first layer only — the sharpest correction, and the right
+default, because only the first layer is squashed. Higher values ramp the shrink
+linearly to zero over that many layers, trading a little accuracy for a gentler
+profile when a large correction would otherwise leave a visible step.
+**Typical:** 1–3.",
+        extend("x-group" = "Dimensions", "x-relevant-when" = serde_json::json!({"field": "elephant_foot_compensation_mm", "greaterThan": 0.0}))
+    )]
+    #[serde(default = "SlicingParams::default_elephant_foot_layers")]
+    pub elephant_foot_layers: usize,
+
+    #[schemars(
+        description = "Width in mm that elephant-foot compensation may never shrink a feature below. \
+`0` = automatic (1.5 × outer-wall width).
+
+This is what stops the correction deleting fine first-layer detail. A feature
+already at or below this width is left completely alone; wider ones are shrunk
+only as far as this width. Raise it to protect chunkier detail, lower it for a
+more literal correction.
+**Typical:** 0 (automatic), or 0.5–1.0 mm.",
+        extend("x-group" = "Dimensions", "x-relevant-when" = serde_json::json!({"field": "elephant_foot_compensation_mm", "greaterThan": 0.0}))
+    )]
+    #[serde(default = "SlicingParams::default_elephant_foot_min_contour_width_mm")]
+    pub elephant_foot_min_contour_width_mm: f64,
+
+    #[schemars(
         description = "Iron top surfaces for a smoother finish. Ironing pass pending.",
         extend("x-group" = "Surfaces")
     )]
@@ -2284,6 +2345,10 @@ impl Default for SlicingParams {
             skirt_height: Self::default_skirt_height(),
             raft_layers: Self::default_raft_layers(),
             raft_air_gap: Self::default_raft_air_gap(),
+            xy_size_compensation_mm: Self::default_xy_size_compensation_mm(),
+            elephant_foot_compensation_mm: Self::default_elephant_foot_compensation_mm(),
+            elephant_foot_layers: Self::default_elephant_foot_layers(),
+            elephant_foot_min_contour_width_mm: Self::default_elephant_foot_min_contour_width_mm(),
             ironing_enabled: Self::default_ironing_enabled(),
             start_gcode: None,
             end_gcode: None,
@@ -2468,6 +2533,18 @@ impl SlicingParams {
     }
     fn default_raft_air_gap() -> f64 {
         0.1
+    }
+    fn default_xy_size_compensation_mm() -> f64 {
+        0.0
+    }
+    fn default_elephant_foot_compensation_mm() -> f64 {
+        0.0
+    }
+    fn default_elephant_foot_layers() -> usize {
+        1
+    }
+    fn default_elephant_foot_min_contour_width_mm() -> f64 {
+        0.0
     }
     fn default_ironing_enabled() -> bool {
         false

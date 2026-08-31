@@ -66,6 +66,8 @@ pub mod phases {
     pub const MESH_ANALYSIS: &str = "mesh_analysis";
     /// Triangle–plane intersection and layer contour extraction phase.
     pub const SLICING: &str = "slicing";
+    /// XY size and elephant-foot correction of the raw cross-section contours.
+    pub const DIMENSIONAL_COMPENSATION: &str = "dimensional_compensation";
     /// Perimeter (wall) bead generation (classic or Arachne generator).
     pub const WALL_GENERATION: &str = "wall_generation";
     /// Snapshot of infill interior regions taken before wall stripping.
