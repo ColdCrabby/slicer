@@ -344,6 +344,15 @@ opens the project instead of running it.
 > `gen/apple`. Without that passthrough entry pnpm cannot resolve the binary and
 > the iOS build fails with `Command "tauri" not found`. Do not remove it.
 
+> **Do not `open gen/apple/*.xcodeproj` on its own.** The "Build Rust Code"
+> phase reads a dev-server address file (`.../<T>-server-addr` in `$TMPDIR`)
+> that only exists while a `tauri ios dev`/`ios:open`/`ios:dev` process is
+> running; opening the project directly and hitting Run fails with `thread
+> '<unnamed>' panicked … failed to read missing addr file`. Always launch
+> through `pnpm run ios:dev` or `pnpm run ios:open` and keep that process
+> alive — you can still use Xcode's own Run/Debug once it has opened the
+> project for you.
+
 ### Debugging the webview
 
 Safari owns the inspector for iOS. Enable **Safari → Settings → Advanced → Show
