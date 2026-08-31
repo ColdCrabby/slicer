@@ -219,6 +219,16 @@ Until the user folds or unfolds one, the default is derived; afterwards their
 choice is remembered across sessions **and viewports**, because a stated
 preference outranks a guess.
 
+**Unfolded, a panel gets the room that is actually there.** The rail card is
+bounded by `100dvh` minus the chrome above it — titlebar, safe area, toolbar
+inset, its own margins — and the inspector opens to its natural height inside
+that, so on any iPad the whole legend and both sliders are visible without
+scrolling. A `vh` fraction cannot do this: the same number is too small in
+landscape and too generous in portrait. When the room genuinely runs out (a short
+desktop window, a phone) the inspector is the thing that shrinks and scrolls —
+`min-height: 0` lets flexbox squeeze it, and `flex: none` on the slice row means
+the Slice button is never what gets clipped.
+
 What changes on a phone specifically, and why:
 
 | Surface               | Phone form               | Reason                                                                                            |
@@ -242,7 +252,13 @@ edge. Two things about it are deliberate:
 - **It hangs just under the toolbar, not at `top: 50%`.** Vertically centred is
   precisely where the model sits, which is the worst place for a permanent
   affordance. The dock nub shares the same anchor, so toggling the drawer changes
-  the control's form without moving it.
+  the control's form without moving it. Its hover state is **tone and elevation
+  only, never a transform** — the tab's left edge is flush against the nav rail,
+  so nudging it sideways tears a gap open between the two.
+- **The peek has no backdrop.** The scrim element stays (it is what gives touch a
+  tap-outside-to-close gesture) but it is fully transparent: a peek is not a
+  modal, and the point of peeking at the settings is to keep watching the plate
+  while you change them.
 - **The tab does not arm the hover peek — the pointer's own position does.**
   While the peek was armed by the host's own `mouseenter`, hovering the tab
   opened the drawer, which unmounted the tab, which put the pointer on the scene,

@@ -80,9 +80,11 @@ $edge-control-top: calc(var(--main-scene-inset, 48px) + var(--spacing-sm));
   }
 }
 
-// Dismiss layer for an overlay peek. Gives touch (and mouse) a plain
-// tap-outside-to-close gesture, matching every drawer convention — the piece
-// that was missing, leaving iPad users with no way to close a peek.
+// Dismiss layer for an overlay peek. Deliberately **invisible**: it exists only
+// to give touch (and mouse) a plain tap-outside-to-close gesture, which is what
+// iPad had no way to do. Dimming the scene behind it was the wrong call — the
+// panel is a peek, not a modal, and the whole point of peeking is to keep
+// looking at the plate while you adjust it.
 .sidebar-scrim {
   position: fixed;
   inset: 0;
@@ -90,18 +92,8 @@ $edge-control-top: calc(var(--main-scene-inset, 48px) + var(--spacing-sm));
   border: none;
   padding: 0;
   margin: 0;
-  background: var(--scrim, rgba(0, 0, 0, 0.32));
+  background: transparent;
   cursor: default;
-  animation: sidebar-scrim-in $transition-duration $transition-easing;
-}
-
-@keyframes sidebar-scrim-in {
-  from {
-    opacity: 0;
-  }
-  to {
-    opacity: 1;
-  }
 }
 
 // Dock/undock affordance rendered as a tab that sits *behind* the panel: its
@@ -276,14 +268,15 @@ $edge-control-top: calc(var(--main-scene-inset, 48px) + var(--spacing-sm));
   transition:
     color var(--duration-fast) var(--ease-standard),
     background-color var(--duration-fast) var(--ease-standard),
-    box-shadow var(--duration-fast) var(--ease-standard),
-    transform var(--duration-fast) var(--ease-standard);
+    box-shadow var(--duration-fast) var(--ease-standard);
 
+  // Tone and elevation only — never a transform. The tab's left edge is flush
+  // against the nav rail, so nudging it right on hover tears a gap open between
+  // the two and makes a docked control look detached.
   &:hover {
     color: var(--color-text-primary);
     background: var(--color-surface-hover);
     box-shadow: var(--shadow-sm);
-    transform: translateX(2px);
   }
 
   &:focus-visible {
@@ -391,10 +384,6 @@ $edge-control-top: calc(var(--main-scene-inset, 48px) + var(--spacing-sm));
     box-shadow: var(--shadow-md);
 
     --icon-size: 18px;
-
-    &:hover {
-      transform: none;
-    }
 
     // Only the leading glyph survives; the words and the chevron are what did
     // not fit. The button keeps its aria-label, so nothing is lost to a reader.

@@ -8,14 +8,18 @@
    The inspector is the tallest thing floating over the plate, so it gets the
    same header-with-a-chevron treatment as the object list: the one readout
    worth keeping stays visible, the rest folds away. Quiet chrome — no border,
-   no fill at rest — because it is on screen the entire time the preview is. */
+   no fill at rest — because it is on screen the entire time the preview is.
+
+   Folded, this row plus the card's padding is the entire cost of the inspector,
+   so it is kept close to the height of its own text rather than padded out to a
+   button's usual size. It sits flush against the divider below it — the divider
+   is the separation, and a margin on top of it only doubles the gap. */
 .insp-toggle {
   display: flex;
   align-items: center;
-  gap: var(--spacing-sm);
+  gap: var(--spacing-xs);
   width: 100%;
-  min-height: 34px;
-  margin-bottom: var(--spacing-xs);
+  min-height: 26px;
   padding: 0 var(--spacing-xs);
   border: 1px solid transparent;
   border-radius: var(--radius-md);
@@ -116,10 +120,14 @@
    pixel range — the easing curve maps 1:1 to the visible motion. The mask
    pins a soft fade to the bottom edge at every frame. */
 .insp-shell {
-  --inspector-fade: 24px;
+  --inspector-fade: 16px;
 
   overflow: hidden;
   max-height: 0;
+  /* Lets flexbox squeeze the shell when the card runs out of room. Without it a
+     flex item refuses to shrink below its content, and the overflow lands on
+     the card instead — clipping the Slice button off the bottom. */
+  min-height: 0;
 
   -webkit-mask-image: linear-gradient(
     to bottom,
@@ -137,6 +145,18 @@
        declare --inspector-height locally here — a local declaration would shadow
        the inherited host value and always win. */
     max-height: var(--inspector-height, 600px);
+    /* Only bites where the card's bound is tighter than the natural height —
+       a short window, or a phone. The scrollbar itself stays hidden: this is a
+       small panel floating over the scene, the mask already fades the cut edge
+       to say "more below", and a stripe would show through the whole reveal
+       animation, when the content is mid-way out by definition. */
+    overflow-y: auto;
+    scrollbar-width: none;
+
+    &::-webkit-scrollbar {
+      width: 0;
+      height: 0;
+    }
   }
 }
 
@@ -164,8 +184,11 @@
   flex-direction: column;
   gap: 10px;
 
+  /* Clearance for the mask's fade, so the last slider is never drawn into it.
+     Kept equal to --inspector-fade: any more is dead space at the bottom of the
+     tallest panel on screen. */
   &:last-child {
-    padding-bottom: var(--spacing-lg);
+    padding-bottom: var(--inspector-fade, 16px);
   }
 }
 
@@ -445,16 +468,12 @@
   flex-shrink: 0;
 }
 
-/* A tablet has the height a phone lacks but still cannot spare the whole plate,
-   and unfolding is now a deliberate act — so the ceiling is generous rather
-   than strict, and the inspector scrolls inside it.
-
-   Must come *before* the phone rule below: a phone matches both queries, the
-   two set the same property at the same specificity, and the phone's tighter
-   ceiling is the one that has to win. */
+/* A tablet has room for the whole inspector — the card above now bounds it by
+   the space actually available, so the only job left here is to let it shrink
+   and scroll on the rare viewport where that space runs out. No `vh` cap: it
+   would either waste room in portrait or force scrolling in landscape. */
 @include compact {
   .insp-shell.is-open {
-    max-height: min(var(--inspector-height, 600px), 46vh);
     overflow-y: auto;
     overscroll-behavior: contain;
     -webkit-overflow-scrolling: touch;
@@ -463,9 +482,8 @@
 
 /* ── Phone ────────────────────────────────────────────────────────────────
    In the bottom sheet the inspector shares a card with the Slice button, and
-   the button must never be the thing that scrolls out of reach. So the
-   inspector takes a fixed share of the screen and scrolls within it — the
-   mask already fades its bottom edge, which reads as "there is more below". */
+   the button must never be the thing that scrolls out of reach. A phone has
+   genuinely too little height for both, so here the fixed share is right. */
 @include handheld {
   .insp-shell.is-open {
     max-height: min(var(--inspector-height, 600px), 34vh);

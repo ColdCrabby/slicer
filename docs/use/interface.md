@@ -165,7 +165,10 @@ on its own.
   again to fold. Your choice sticks from then on.
 - **Print settings are a drawer**, reached from the tab on the left edge just
   below the toolbar. Tap it to open, tap outside to close. It's out of the middle
-  of the screen on purpose: that's where your model is.
+  of the screen on purpose: that's where your model is, and the plate stays
+  visible behind the drawer rather than being dimmed out.
+- **Panels use the room they have.** Unfolded, the G-code inspector shows its
+  whole legend and both sliders without scrolling.
 - **Everything is finger-sized.** Buttons, dropdowns, the layer slider and the
   legend chips are all sized for a fingertip rather than a cursor.
 

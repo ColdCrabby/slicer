@@ -44,13 +44,17 @@ issue/PR numbers or repo links in the notes. See the tone rules in
 
 - **Fold the G-code legend out of the way** — the inspector now has a header you
   can tap to collapse it to a single row, keeping the layer counter and the Slice
-  button in place. It starts folded on tablets, phones and narrow windows, open
-  on a large screen, and remembers whichever you choose.
+  button in place. Unfolded it sizes itself to the room actually available, so on
+  an iPad the whole legend and both sliders are visible without scrolling. It
+  starts folded on tablets, phones and narrow windows, open on a large screen,
+  and remembers whichever you choose.
 - **Tablet layout** — an iPad keeps the full desktop arrangement but stops
   leaving panels open over the plate: the G-code inspector and the object list
   both start folded, and the print-settings tab moved out of the middle of the
-  screen, where the model is. Applies to any window under 1024px, so Split View
-  and a docked desktop window get it too.
+  screen, where the model is. Opening the settings drawer no longer dims the
+  plate behind it — you are peeking at the settings, not leaving the model.
+  Applies to any window under 1024px, so Split View and a docked desktop window
+  get it too.
 - **Finger-sized controls on touch screens** — buttons, dropdowns, legend chips
   and the layer slider are now sized for a fingertip on every touch device rather
   than only on phones. The layer slider's grip went from 18px to 26px; scrubbing

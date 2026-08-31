@@ -533,8 +533,21 @@ everything that adapts goes through one of them — never an ad-hoc `max-width`.
 - **A phone matches all three, so source order decides.** Where two blocks set
   the same property at the same specificity, order them **compact → handheld →
   coarse-pointer** and prefer setting a value in exactly one of them. This is a
-  live foot-gun: `compact()`'s roomier 46vh inspector ceiling silently overrode
-  the phone's deliberate 34vh one until the blocks were swapped.
+  live foot-gun: a roomier `compact()` ceiling once silently overrode the
+  phone's deliberate one, because both set `max-height` and the wrong block came
+  last.
+- **Size a floating panel by the room above it, not by a `vh` fraction.** A
+  fraction is wrong in both directions at once — too small on a short landscape
+  viewport, too generous on a tall portrait one — so the G-code inspector
+  scrolled on a landscape iPad while wasting space in portrait. The rail card is
+  bounded instead by `100dvh` minus the chrome that actually precedes it
+  (titlebar, safe area, toolbar inset, its own margins), and the inspector simply
+  opens to its natural height inside that. Two things make the squeeze safe when
+  the room really does run out: the inspector carries `min-height: 0` so flexbox
+  may shrink it, and the slice row is `flex: none` so the loss never lands on the
+  Slice button. If `dvh` is unsupported the whole `calc()` is invalid and
+  `max-height` falls back to `none` — the old unbounded behaviour, not a broken
+  one.
 - **`html.is-handheld` / `html.is-coarse-pointer` exist only to reach the shared
   components.** [\_handheld.scss](ui/src/styles/base/_handheld.scss) adapts the
   *layout* of `@coldcrabby/ui` primitives that live in another repo (stacking
