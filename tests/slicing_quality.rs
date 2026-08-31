@@ -48,7 +48,7 @@ fn slicing_quality_gate() -> anyhow::Result<()> {
         let dims = mesh_dims(&mesh);
 
         for g in generators() {
-            let gcode = slice_to_gcode(&mesh, g);
+            let gcode = slice_to_gcode(&mesh, g, fx.supports);
 
             let parsed = parse_gcode(&gcode);
             let metrics = metrics_from(fx.name, g, &parsed);
@@ -77,7 +77,7 @@ fn slicing_quality_gate() -> anyhow::Result<()> {
             };
 
             let svgs = if report {
-                let dg = debug_geometry(&mesh, g);
+                let dg = debug_geometry(&mesh, g, fx.supports);
                 render_gallery_svgs(&dg, &gallery_layers(metrics.layer_count))
             } else {
                 Vec::new()

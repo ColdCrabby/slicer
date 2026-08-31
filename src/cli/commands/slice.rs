@@ -272,6 +272,35 @@ pub struct SliceCommand {
     #[arg(long, value_name = "DIR")]
     pub debug_geometry: Option<PathBuf>,
 
+    /// Enable support-structure generation for overhangs.
+    #[arg(long)]
+    pub support: bool,
+
+    /// Support style: `normal` (grid) or `tree` (organic). Implies --support.
+    #[arg(long, value_name = "TYPE")]
+    pub support_type: Option<String>,
+
+    /// Support body density as a percentage (0-100). Implies --support.
+    #[arg(long, value_name = "PERCENT")]
+    pub support_density: Option<f64>,
+
+    /// Overhang threshold angle in degrees, measured from vertical (0-89).
+    /// Overhangs steeper than this get support. Implies --support.
+    #[arg(long, value_name = "DEG")]
+    pub support_threshold_angle: Option<f64>,
+
+    /// Number of dense interface (contact) layers between support and model.
+    /// Implies --support.
+    #[arg(long, value_name = "N")]
+    pub support_interface_layers: Option<usize>,
+
+    /// Only generate support that can reach down to the build plate.
+    ///
+    /// Overhangs that would need a column resting on the model are left
+    /// unsupported. Use it when supports landing on the print would mar a
+    /// surface or be impossible to remove. Implies --support.
+    #[arg(long)]
+    pub support_on_build_plate_only: bool,
     /// Skip the mesh validation/repair pass and slice the model exactly as it
     /// was authored.
     ///
@@ -512,6 +541,44 @@ impl SliceCommand {
                     "Unknown seam position: '{}'. Supported: nearest, rear, aligned, sharpest-corner, random",
                     policy_str
                 ))?;
+        }
+
+        // Support-structure overrides.  Any support-specific flag implies that
+        // supports should be generated, matching the "flag turns the feature
+        // on" convention of the other override groups.
+        if self.support
+            || self.support_type.is_some()
+            || self.support_density.is_some()
+            || self.support_threshold_angle.is_some()
+            || self.support_interface_layers.is_some()
+            || self.support_on_build_plate_only
+        {
+            slice_params.support_enabled = true;
+        }
+        if let Some(ref ty) = self.support_type {
+            slice_params.support_type = match ty.to_lowercase().as_str() {
+                "normal" | "grid" => crate::settings::params::SupportType::Normal,
+                "tree" | "organic" => crate::settings::params::SupportType::Tree,
+                other => {
+                    return Err(format!(
+                        "Unknown support type: '{}'. Supported: normal, tree",
+                        other
+                    )
+                    .into())
+                }
+            };
+        }
+        if let Some(density) = self.support_density {
+            slice_params.support_density = density / 100.0;
+        }
+        if let Some(angle) = self.support_threshold_angle {
+            slice_params.support_threshold_angle = angle;
+        }
+        if let Some(layers) = self.support_interface_layers {
+            slice_params.support_interface_layers = layers;
+        }
+        if self.support_on_build_plate_only {
+            slice_params.support_on_build_plate_only = true;
         }
 
         // Spiral (vase) mode is a plain on/off flag; enabling it here defers the

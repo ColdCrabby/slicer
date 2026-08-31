@@ -471,6 +471,30 @@ export function emptyModelScan(): ModelScan {
  * (speed/flow/width/height) and per-layer (temperature/layer-time/fans) — so
  * switching the "Color by" mode never re-reads the WASM buffer.
  */
+/**
+ * Walk every segment of every layer to find the min/max of each colour channel.
+ *
+ * **This duplicates work the renderer does moments later.**
+ * `gcode-layer-renderer.ts`'s `buildModel` performs the same full traversal and
+ * the same `blockData` copies out of WASM memory — its own comment puts that at
+ * roughly 40 MB on a large plate — so a preview load crosses the WASM boundary
+ * for the entire model twice, both times synchronously on the main thread.
+ * Measured on a 5.8 MB / 146 k-segment file: ~0.67 s of main-thread block for
+ * the pair.
+ *
+ * The fix is to compute these ranges in Rust during `GcodeHandle::parse`, which
+ * already walks everything, and expose them as one accessor — the module doc in
+ * `src/gcode_viewer/mod.rs` states the intent plainly: "No GCode parsing takes
+ * place in JavaScript." It was left alone deliberately rather than done
+ * half-verified: `gcode_viewer::wasm` is `#[cfg(target_arch = "wasm32")]`, so
+ * `cargo test` never compiles it and the Rust suite offers no protection, and
+ * nothing covers the colour-legend ranges, so a subtle min/max mismatch (the
+ * travel/seam skip, the `speed <= 0` guard, "positive values only") would ship
+ * silently. Do it together with a test over the ranges, not on its own.
+ *
+ * Note it cannot simply be made lazy: `availableViewModes` reads the result to
+ * decide which colouring modes exist, and that dropdown renders on load.
+ */
 function scanModel(handle: GcodeHandle): ModelScan {
   const segIds = Object.keys(SCALAR_CHANNELS) as SegmentViewMode[];
   const segMin = {} as Record<SegmentViewMode, number>;

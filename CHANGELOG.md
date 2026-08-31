@@ -29,6 +29,27 @@ issue/PR numbers or repo links in the notes. See the tone rules in
 
 ### Fixed
 
+- **Supports now work on sloped overhangs** — a cone or chamfer steeper than the
+  threshold angle used to come out with essentially no support, because the
+  overhang-classification pass had already retagged its walls and left nothing
+  for the support stage to measure. The threshold angle was inert as a result;
+  it now does what it says. A 60° cone goes from nothing to full support, while
+  a self-supporting 30° one is still left alone.
+- **Support prints as continuous loops instead of dabs** — each support island
+  gets a perimeter, and runs shorter than two nozzle widths are dropped. On a
+  3DBenchy that took degenerate sub-millimetre extrusions from 37% of tree
+  support runs to 1.5%, for the same amount of material.
+- **Support no longer over-extrudes** — it is charged at its flow spacing like
+  every other fill role, rather than a full nozzle-width bead (about 12% too
+  much, and a density that drifted with nozzle size). A new **support line
+  width** setting sits alongside the other per-role widths.
+- **Rafts and skirts account for supports** — a raft built only from the object
+  left support columns starting in mid-air just above the plate.
+- **The slice progress bar tracks real work** — its phase weights came from a
+  single guess and mis-ranked everything: mesh slicing counted for nearly half
+  the bar despite taking a few percent of the time, while wall generation, the
+  most expensive phase, counted for a tenth. Four phases had no weight at all
+  and froze the bar completely while they ran.
 - **Tapping a model on a tablet now selects it** — two separate faults made touch
   and Pencil selection fail. An invisible transform-gizmo hit area sat parked at
   the centre of the bed whenever nothing was selected, and swallowed any tap that
@@ -78,6 +99,16 @@ issue/PR numbers or repo links in the notes. See the tone rules in
 
 ### Added
 
+- **Support structures** — overhangs steeper than the threshold angle (45° by
+  default) now get real support geometry instead of a "not implemented" warning.
+  Two styles: `normal` grid columns and `tree` branches that converge as they
+  descend. Dense interface layers, an XY clearance and a Z air gap keep the
+  contact clean enough to snap off.
+- **Only from build plate** — restricts support to columns that can reach the
+  bed through open space, so nothing lands on the print. Overhangs with no route
+  down are left unsupported on purpose. Off by default; on a shelf overhanging a
+  wider base it removed every millimetre resting on the model while keeping the
+  support beyond it.
 - **Ironing** — the top-surface smoothing toggle now does something. Previously
   it could be switched on in the profile wizard, was documented as working, and
   logged "not yet implemented" at slice time. A near-dry pass re-melts finished

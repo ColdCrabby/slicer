@@ -45,8 +45,10 @@ export const PHASE_LABELS: Record<string, string> = {
   surfaces: 'Generating surfaces',
   'Overhang Perimeter Classification': 'Classifying overhangs',
   infill: 'Generating infill',
+  'Support Generation': 'Building supports',
   'Path Ordering': 'Ordering travel paths',
   'Flow Compensation': 'Compensating flow',
+  'Bed Adhesion': 'Adding bed adhesion',
   gcode_generation: 'Generating G-code',
   file_write: 'Writing output',
 };
