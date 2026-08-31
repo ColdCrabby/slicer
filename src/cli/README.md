@@ -104,6 +104,19 @@ it.
 | `--verbose` | flag | | false | Print mesh stats |
 | `--output-format` | string | | human | `json` or `human` |
 
+### Support flags
+
+Any of these implies `--support`, matching the other override groups.
+
+| Flag | Type | Default | Description |
+| --- | --- | --- | --- |
+| `--support` | flag | false | Generate support under overhangs |
+| `--support-type` | string | normal | `normal` (grid columns) or `tree` (organic branches) |
+| `--support-density` | float | 15 | Support body density, as a percentage |
+| `--support-threshold-angle` | float | 45 | Overhang angle from vertical (0–89) past which support is added |
+| `--support-interface-layers` | int | 2 | Dense contact layers between support and model |
+| `--support-on-build-plate-only` | flag | false | Only support what can reach the bed; overhangs needing a column on the model print unsupported |
+
 ## Settings: Manage Configuration
 
 Validate, compare, and modify slicing parameters.  
