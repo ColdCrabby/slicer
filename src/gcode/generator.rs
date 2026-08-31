@@ -323,6 +323,20 @@ pub(crate) fn resolve_width_mm(
 ) -> f64 {
     use crate::core::ExtrusionRole;
 
+    // Ironing is fully described by its own two settings and nothing may
+    // override it. The pass sweeps a strip `ironing_spacing` wide but deposits
+    // only `ironing_flow` percent of a full bead into it, and folding that
+    // fraction into the width is what makes the reduction *arithmetic* rather
+    // than a flow ratio: `extrusion_for_move` deliberately reads a non-positive
+    // flow ratio as 1.0 so a malformed profile cannot zero out a print, which
+    // would turn a legitimate "wipe only" ironing setting into a full-width
+    // bead laid at 0.1 mm pitch.
+    if role == ExtrusionRole::Ironing {
+        let spacing = params.ironing_spacing.max(0.0);
+        let flow = params.ironing_flow.clamp(0.0, 100.0) / 100.0;
+        return spacing * flow;
+    }
+
     // Fill roles are laid at their flow spacing (the libslic3r/Orca stadium
     // pitch, ≈ 0.357 mm at a 0.4 mm nozzle / 0.2 mm layers), so each line must
     // deposit `spacing × layer_height` of filament — the volume of the strip it
@@ -1085,6 +1099,20 @@ impl GcodeGenerator {
                     fallback
                 }
             }
+            ExtrusionRole::Ironing => {
+                // Slow is the point: the nozzle needs dwell time to re-melt the
+                // surface it passes over. Falls back to the surface it follows.
+                let s = if params.ironing_speed > 0.0 {
+                    params.ironing_speed
+                } else {
+                    params.top_surface_speed
+                };
+                if s > 0.0 {
+                    s * 60.0
+                } else {
+                    fallback
+                }
+            }
             ExtrusionRole::GapFill => {
                 // Gap fill is a wall-family feature: fall back to perimeter
                 // speed, then print speed.
@@ -1166,6 +1194,8 @@ impl GcodeGenerator {
                 or_normal(params.bridge_acceleration)
             }
             ExtrusionRole::TopSurface => or_normal(params.top_surface_acceleration),
+            // Ironing follows the surface it is smoothing.
+            ExtrusionRole::Ironing => or_normal(params.top_surface_acceleration),
             ExtrusionRole::OuterWall => or_normal(params.outer_wall_acceleration),
             _ => normal,
         };
@@ -1731,12 +1761,24 @@ impl GcodeGenerator {
             // handed an endstop correction.
             let z_str = format!("{:.3}", machine_z(layer.z, params));
             let model_z_str = format!("{:.3}", layer.z);
-            let height_str = format!("{:.3}", params.layer_height);
+            // The height this layer *opens* at. A first layer of its own
+            // thickness (or a combined-infill bead) carries a per-path override,
+            // and announcing the global height here instead would have a viewer
+            // size the opening beads wrong until the first re-announcement.
+            let opening_height = layer
+                .height_for_path(0)
+                .filter(|h| *h > 0.0)
+                .unwrap_or(params.layer_height);
+            let height_str = format!("{:.3}", opening_height);
             // Last `;HEIGHT:` announced on this layer, so a taller combined-infill
             // bead re-announces it and the next ordinary path announces it back.
             let mut last_height: Option<String> = Some(height_str.clone());
-            // Detect first layer: z within half a layer height of layer_height.
-            let is_first_layer = layer.z <= params.layer_height + 1e-6;
+            // The bed-contact layer. Compared by Z rather than by index so a
+            // caller may generate a slab of mid-print layers on its own, and
+            // bounded by the first layer's *own* thickness — which may be
+            // thinner than the rest, in which case a `layer_height` bound would
+            // sweep the second layer in with it.
+            let is_first_layer = layer.z <= crate::core::resolved_first_layer_height(params) + 1e-6;
 
             // Per-layer travel router (opt-in).  Built once per layer so travel
             // hops can detour around outer walls instead of scarring the surface.
@@ -3598,6 +3640,80 @@ mod tests {
                 &params
             ),
             0.5
+        );
+    }
+
+    /// Ironing deposits `ironing_flow` percent of a bead across a strip
+    /// `ironing_spacing` wide, and folding the fraction into the width is what
+    /// keeps that arithmetic out of reach of `extrusion_for_move`'s flow guard.
+    #[test]
+    fn resolve_width_charges_ironing_at_spacing_times_flow() {
+        let mut params = SlicingParams {
+            ironing_spacing: 0.1,
+            ironing_flow: 10.0,
+            ..SlicingParams::default()
+        };
+        assert!(
+            (resolve_width_mm(None, false, crate::core::ExtrusionRole::Ironing, &params) - 0.01)
+                .abs()
+                < 1e-12
+        );
+
+        // A per-role surface width must not leak into ironing: `resolve_width_mm`
+        // returns `top_surface_line_width` before it ever reads an explicit
+        // width, so sharing the TopSurface role would iron at full flow on any
+        // profile that sets one.
+        params.top_surface_line_width = 0.5;
+        params.line_width = 0.6;
+        assert!(
+            (resolve_width_mm(None, false, crate::core::ExtrusionRole::Ironing, &params) - 0.01)
+                .abs()
+                < 1e-12,
+            "no width setting may override the ironing flow calculation"
+        );
+    }
+
+    /// `extrusion_for_move` reads a non-positive flow ratio as 1.0 so a
+    /// malformed profile cannot zero out a print. A "wipe only" ironing setting
+    /// must therefore never travel through that parameter — it would lay a
+    /// full-width bead at 0.1mm pitch across the whole top surface.
+    #[test]
+    fn zero_ironing_flow_deposits_nothing_rather_than_everything() {
+        let params = SlicingParams {
+            ironing_spacing: 0.1,
+            ironing_flow: 0.0,
+            ..SlicingParams::default()
+        };
+
+        let width = resolve_width_mm(None, false, crate::core::ExtrusionRole::Ironing, &params);
+        assert_eq!(width, 0.0);
+
+        let e = extrusion_for_move(10.0, params.layer_height, width, 1.75, 1.0);
+        assert_eq!(e, 0.0, "zero flow must extrude nothing at all");
+    }
+
+    /// Guards the same guard from the other side: a negative or absurd flow is
+    /// clamped rather than inverted.
+    #[test]
+    fn out_of_range_ironing_flow_is_clamped() {
+        let low = SlicingParams {
+            ironing_spacing: 0.1,
+            ironing_flow: -25.0,
+            ..SlicingParams::default()
+        };
+        let high = SlicingParams {
+            ironing_spacing: 0.1,
+            ironing_flow: 400.0,
+            ..SlicingParams::default()
+        };
+        assert_eq!(
+            resolve_width_mm(None, false, crate::core::ExtrusionRole::Ironing, &low),
+            0.0
+        );
+        assert!(
+            (resolve_width_mm(None, false, crate::core::ExtrusionRole::Ironing, &high) - 0.1).abs()
+                < 1e-12,
+            "flow above 100% must cap at a full bead of the ironing strip"
         );
     }
 

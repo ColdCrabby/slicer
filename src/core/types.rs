@@ -39,6 +39,14 @@ pub enum ExtrusionRole {
     Support,
     /// Skirt or brim line.
     Skirt,
+    /// Near-dry smoothing pass over a finished top surface.
+    ///
+    /// Deposits almost no material — the nozzle re-melts what is already there
+    /// and spreads it flat. A role of its own rather than a variant of
+    /// [`Self::TopSurface`] because it needs its own speed, its own
+    /// acceleration, its own (much reduced) flow, and its own path-ordering
+    /// group so it cannot be interleaved with the fill it is meant to follow.
+    Ironing,
 }
 
 impl ExtrusionRole {
@@ -60,6 +68,7 @@ impl ExtrusionRole {
             Self::GapFill => "Gap infill",
             Self::Support => "Support material",
             Self::Skirt => "Skirt",
+            Self::Ironing => "Ironing",
         }
     }
 
@@ -79,6 +88,7 @@ impl ExtrusionRole {
             Self::GapFill => 0.4,
             Self::Support => 0.4,
             Self::Skirt => 0.4,
+            Self::Ironing => 0.4,
         }
     }
 }
