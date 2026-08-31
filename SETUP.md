@@ -237,6 +237,14 @@ pnpm run ios:dev       # build + run on an iPad simulator, with live reload
 
 `pnpm run ios:doctor` reports without changing anything, and names the exact command to fix whatever is missing.
 
+To keep the app on a real iPhone or iPad — no dev server, no paid Apple Developer Program — build the standalone app and install it over the pairing you already have:
+
+```bash
+pnpm run ios:install
+```
+
+A free Apple ID signs for seven days; re-run it (`-- --renew`) to reset the clock. Your models, profiles and settings survive the reinstall.
+
 Full walkthrough, device selection, physical-device signing, and troubleshooting → **[ui-desktop/README.md](ui-desktop/README.md)**.
 
 ---

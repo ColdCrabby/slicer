@@ -26,7 +26,14 @@ on macOS; run `pnpm run ios:doctor` to check.
 pnpm run ios:init     # once — generates ui-desktop/src-tauri/gen/apple
 pnpm run ios:dev      # run on an iPad simulator
 pnpm run ios:build    # release .ipa → ui-desktop/src-tauri/gen/apple/build/arm64/
+pnpm run ios:install  # build + install a standalone app on a connected iPad
 ```
+
+`ios:install` is the one that leaves something usable behind: it compiles the UI
+into the app instead of pointing it at a dev server, signs it with a free Apple
+ID, and installs it over the existing pairing. The app is universal, so it works
+on an iPhone as well as an iPad. No paid Apple Developer Program — the trade is
+that a free signature lasts seven days, after which you re-run it.
 
 Details → [ui-desktop/README.md](ui-desktop/README.md).
 
@@ -49,5 +56,5 @@ pnpm run hydrate:web-slicer    # Full WASM slicer (includes polygon clipping)
 
 ```bash
 make build-release  build-windows  build-macos  build-wasm
-make ios-doctor  ios-init  ios-dev  ios-build      # macOS + Xcode only
+make ios-doctor  ios-init  ios-dev  ios-build  ios-install      # macOS + Xcode only
 ```

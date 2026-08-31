@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 #
 # ios-doctor.sh — verify (and optionally repair) the toolchain needed to build
-# and run Cold Crabby on the iOS/iPadOS Simulator.
+# and run Cold Crabby on the iOS/iPadOS Simulator or a physical iPad.
 #
 # Building a Tauri app for iOS needs more than "Rust + Xcode": the iOS SDK only
 # ships with the full Xcode app (not Command Line Tools), Rust needs the two
@@ -238,12 +238,33 @@ else
   hint "pnpm run ios:init"
 fi
 
-if [[ -n "${TAURI_APPLE_DEVELOPMENT_TEAM:-}" ]]; then
-  ok "TAURI_APPLE_DEVELOPMENT_TEAM=$TAURI_APPLE_DEVELOPMENT_TEAM"
+# ── Signing (physical devices only) ──────────────────────────────────────────
+head_ "Signing"
+
+# shellcheck source=lib/apple-team.sh
+. "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib/apple-team.sh"
+
+teams=()
+while IFS= read -r line; do
+  if [[ -n "$line" ]]; then
+    teams+=("$line")
+  fi
+done < <(detect_apple_teams)
+
+override="${APPLE_DEVELOPMENT_TEAM:-${TAURI_APPLE_DEVELOPMENT_TEAM:-}}"
+
+if [[ -n "$override" ]]; then
+  ok "team $override (from the environment)"
+elif [[ ${#teams[@]} -eq 1 ]]; then
+  ok "team ${teams[0]} (from the keychain)"
+elif [[ ${#teams[@]} -gt 1 ]]; then
+  warn "several signing teams in the keychain: ${teams[*]}"
+  hint "Pick one: APPLE_DEVELOPMENT_TEAM=<id> pnpm run ios:install"
 else
-  warn "TAURI_APPLE_DEVELOPMENT_TEAM is unset"
-  hint "Only needed for physical devices and App Store builds; the Simulator does not sign."
-  hint "Find it at https://developer.apple.com/account → Membership details → Team ID."
+  warn "no Apple signing certificate in the keychain"
+  hint "The Simulator does not sign, so this only blocks builds for a real device."
+  hint "A free Apple ID is enough: Xcode → Settings → Accounts → add your Apple ID,"
+  hint "then Manage Certificates… → + → Apple Development."
 fi
 
 # ── Summary ──────────────────────────────────────────────────────────────────
@@ -258,4 +279,5 @@ fi
 printf '%sReady to build for iOS%s' "$GREEN" "$RESET"
 [[ $warnings -gt 0 ]] && printf ' (%d warning(s))' "$warnings"
 printf '. Minimum deployment target: iOS %s.\n' "$MIN_IOS"
-printf 'Next: %spnpm run ios:init%s, then %spnpm run ios:dev%s\n' "$BOLD" "$RESET" "$BOLD" "$RESET"
+printf 'Next: %spnpm run ios:init%s, then %spnpm run ios:dev%s (simulator) or %spnpm run ios:install%s (real iPad)\n' \
+  "$BOLD" "$RESET" "$BOLD" "$RESET" "$BOLD" "$RESET"
