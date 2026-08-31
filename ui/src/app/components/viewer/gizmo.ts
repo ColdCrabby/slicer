@@ -54,6 +54,27 @@ const AXIS_COLORS = {
 const GIZMO_SCREEN_SIZE = 0.85;
 
 /**
+ * Gizmo size where the pointer is a fingertip.
+ *
+ * TransformControls draws handles a cursor can land on to the pixel; a finger
+ * covers roughly a 10mm disc, so at the mouse size the axis arrows sit inside
+ * one contact patch and picking the one you meant is a coin toss. Scaling the
+ * whole gizmo up scales its pickable geometry with it, which is what actually
+ * makes the arrows separable — and it stays proportional, so nothing about the
+ * gesture has to change.
+ */
+const GIZMO_SCREEN_SIZE_TOUCH = 1.4;
+
+/** Whether the device's primary pointer is coarse (a finger, not a cursor). */
+function isCoarsePointer(): boolean {
+  return (
+    typeof window !== 'undefined' &&
+    typeof window.matchMedia === 'function' &&
+    window.matchMedia('(pointer: coarse)').matches
+  );
+}
+
+/**
  * Snap step values applied to TransformControls when the user holds
  * Shift during a drag. When Shift is released, snapping is disabled
  * (`null`) so motion is continuous again.
@@ -190,7 +211,7 @@ export class GizmoManager {
     tc.setMode(mode);
     tc.setSpace('world');
     tc.setColors(AXIS_COLORS.x, AXIS_COLORS.y, AXIS_COLORS.z, AXIS_COLORS.active);
-    tc.setSize(GIZMO_SCREEN_SIZE);
+    tc.setSize(isCoarsePointer() ? GIZMO_SCREEN_SIZE_TOUCH : GIZMO_SCREEN_SIZE);
     tc.enabled = false;
 
     // The visual helper must be added to the scene separately; the
@@ -427,11 +448,38 @@ export class GizmoManager {
    * Raycast the active gizmo helper's hit meshes for a pointer position.
    * Used on touch where no prior hover move has set `axis`, so `isHovering()`
    * would incorrectly return false at the moment of touchdown.
+   *
+   * Two properties of TransformControls' scene graph make the naive version of
+   * this wrong, and both fail *only* on touch and pen — a mouse establishes the
+   * same thing through {@link isHovering}, so neither is visible on a desktop.
+   *
+   * - **Three's `Raycaster` tests `layers`, never `visible`.** A detached gizmo
+   *   is merely hidden, and it parks its pickers at the origin — the middle of
+   *   the bed — so every tap near the centre of an empty plate came back as a
+   *   gizmo hit and no model could be selected at all.
+   * - **The helper contains a 100000×100000 drag plane** whose *material* is
+   *   invisible but whose *object* is visible, so a visibility test alone does
+   *   not exclude it. Attached, it covers the entire screen: every tap anywhere
+   *   read as a gizmo hit, which made it impossible to deselect or to pick a
+   *   different model once one was selected.
    */
   hitTest(event: PointerEvent, camera: Camera, renderer: WebGLRenderer): boolean {
-    if (!this.active) {
+    const active = this.active;
+    // Detached (nothing selected) or disabled: there are no handles to hit,
+    // whatever the picker geometry still lying in the scene says.
+    if (!active || !active.enabled) {
       return false;
     }
+    const helper = active.getHelper();
+    if (!helper.visible) {
+      return false;
+    }
+    // Bring the helper's world matrices *and* its per-handle visibility up to
+    // date before testing. Both are computed in TransformControls'
+    // `updateMatrixWorld`, which normally runs as part of a render — and this
+    // is a pointer handler, so the last render may predate the selection that
+    // attached the gizmo. Testing against stale state silently eats the press.
+    helper.updateMatrixWorld(true);
     const el = renderer.domElement;
     const rect = el.getBoundingClientRect();
     const ndcX = ((event.clientX - rect.left) / Math.max(rect.width, 1)) * 2 - 1;
@@ -439,9 +487,10 @@ export class GizmoManager {
     const ndc = new Vector2(ndcX, ndcY);
     const rc = new Raycaster();
     rc.setFromCamera(ndc, camera);
-    const helper = this.active.getHelper();
     const hits = rc.intersectObject(helper, true);
-    return hits.length > 0;
+    return hits.some(
+      (hit) => !isTransformControlsPlane(hit.object) && isVisibleWithin(hit.object, helper),
+    );
   }
 
   /** Currently active object-manipulation mode. */
@@ -470,6 +519,44 @@ export class GizmoManager {
     this.lastQuaternion.copy(this.ghost.quaternion);
     this.lastScale.copy(this.ghost.scale);
   }
+}
+
+/**
+ * True for TransformControls' internal drag-projection plane.
+ *
+ * A `PlaneGeometry(100000, 100000)` that exists purely to project drag rays
+ * onto. Its *material* is `visible: false`, but the object itself is visible,
+ * so neither a render nor a {@link isVisibleWithin} test excludes it — and a
+ * raycast against it succeeds anywhere on screen. Three tags it with a public
+ * marker, which is the only stable way to tell it apart from a real handle.
+ */
+export function isTransformControlsPlane(object: Object3D): boolean {
+  return (
+    (object as Object3D & { isTransformControlsPlane?: boolean }).isTransformControlsPlane === true
+  );
+}
+
+/**
+ * Whether `object` and every ancestor up to (and including) `root` is visible.
+ *
+ * Exported for tests. Needed because {@link Raycaster} deliberately ignores
+ * `visible` — it filters on `layers` only — so a hit against hidden geometry is
+ * reported like any other. Anything deciding "did the user touch this?" from a
+ * raycast has to apply the visibility rule itself.
+ */
+export function isVisibleWithin(object: Object3D, root: Object3D): boolean {
+  let node: Object3D | null = object;
+  while (node) {
+    if (!node.visible) {
+      return false;
+    }
+    if (node === root) {
+      return true;
+    }
+    node = node.parent;
+  }
+  // Ran past the root without meeting it — not part of this subtree.
+  return false;
 }
 
 /**

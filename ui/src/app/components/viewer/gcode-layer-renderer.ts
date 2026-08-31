@@ -301,6 +301,7 @@ const ROLE_ID_TO_NAME: Record<number, RoleName> = {
   15: 'brim',
   16: 'primeTower',
   17: 'internalBridge',
+  18: 'ironing',
 };
 
 const _dummy = new Object3D();
@@ -413,6 +414,7 @@ function emptyRoleCounts(): Record<RoleName, number> {
     bridge: 0,
     internalBridge: 0,
     topSurface: 0,
+    ironing: 0,
     bottomSurface: 0,
     support: 0,
     supportInterface: 0,

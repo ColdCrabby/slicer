@@ -1,4 +1,4 @@
-.PHONY: build build-release build-windows build-macos build-wasm clean test fmt lint help dev changelog-draft ios-doctor ios-setup ios-init ios-simulator ios-dev ios-build
+.PHONY: build build-release build-windows build-macos build-wasm clean test fmt lint help dev changelog-draft ios-doctor ios-setup ios-init ios-simulator ios-dev ios-build ios-install
 
 help:
 	@echo "Slicer Engine - Build Targets"
@@ -25,6 +25,7 @@ help:
 	@echo "  ios-simulator      - Boot an iPad simulator"
 	@echo "  ios-dev            - Run the app on an iPad simulator with live reload"
 	@echo "  ios-build          - Build a release .ipa"
+	@echo "  ios-install        - Build and install a standalone app on a connected iPhone/iPad"
 
 build:
 	cargo build --verbose
@@ -67,6 +68,9 @@ ios-dev:
 
 ios-build:
 	pnpm run ios:build
+
+ios-install:
+	@bash scripts/ios-install.sh
 
 test:
 	cargo test --verbose

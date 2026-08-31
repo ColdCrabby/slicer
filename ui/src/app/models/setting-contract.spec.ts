@@ -37,9 +37,9 @@ describe('setting contracts', () => {
     expect(iconless, `x-group(s) without an icon: ${iconless.join(', ')}`).toEqual([]);
   });
 
-  it('files dimensional compensation under Process, beside the other print settings', () => {
-    expect(groups).toContain('Dimensions');
-    expect(contractForGroup('Dimensions')).toBe('process');
-    expect(bucketGroupsByContract(groups).process).toContain('Dimensions');
+  it('files the dimensional corrections under Process, beside the other print settings', () => {
+    expect(groups).toContain('Quality');
+    expect(contractForGroup('Quality')).toBe('process');
+    expect(bucketGroupsByContract(groups).process).toContain('Quality');
   });
 });

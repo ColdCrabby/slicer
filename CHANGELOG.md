@@ -29,6 +29,46 @@ issue/PR numbers or repo links in the notes. See the tone rules in
 
 ### Fixed
 
+- **Tapping a model on a tablet now selects it** — two separate faults made touch
+  and Pencil selection fail. An invisible transform-gizmo hit area sat parked at
+  the centre of the bed whenever nothing was selected, and swallowed any tap that
+  landed on it; that check runs only for touch and pen, so a mouse never saw it.
+  Selection was also judged by a mouse-sized 4px tolerance, and a fingertip is a
+  ~10mm disc whose reported centre wanders as the skin flattens, so most real
+  taps were discarded as drags. Taps are now judged per pointer — 4px for a
+  mouse, 9 for a pen, 16 for a finger — and a hidden gizmo no longer intercepts
+  anything.
+- **Plates holding several models now slice correctly everywhere** — a workplate
+  is a build plate, not a file, but only the hosted slicer treated it that way.
+  The desktop app sliced every object out of the *first* model, so a second one
+  came out as a copy of the first; the in-browser slicer refused outright with
+  "Missing mesh bytes". Each object now resolves to the file it was actually
+  loaded from, in every runtime.
+
+- **The desktop app now prints the plate you arranged, not the file you opened**
+  — models were sliced exactly as their source file defined them, ignoring every
+  move, rotation and drop-to-bed. A multi-part 3MF came out with its parts still
+  stacked as the authoring tool assembled them, and duplicates or extra parts
+  were dropped entirely.
+
+- **Pinching to zoom no longer spins the model on a touchscreen** — rotation is
+  measured as an angle, so its noise floor grows as your fingers close; a
+  measured pinch-in sprayed ~16° of unwanted roll. Twist now has to be a
+  sustained, deliberate turn, and once you have clearly started pinching the
+  view is locked against rolling for the rest of the gesture.
+- **Slow pinches now zoom** — a gentle pinch moves well under a pixel per event
+  on a 120 Hz iPad, and every one of those was discarded rather than banked, so
+  the camera simply refused to move. Small movements now accumulate.
+- **A palm can no longer hijack a two-finger gesture** — a hand settling while
+  two fingers were already pinching was let through, and took over the gesture
+  the moment a real finger lifted.
+- **Losing a finger no longer freezes the camera** — a touch released over the
+  toolbar, or the app being backgrounded mid-pinch, could strand the viewport
+  with navigation disabled until the page was reloaded.
+- **The "Print settings" tab no longer flickers when you hover it** — pointing at
+  the tab used to open the drawer, which hid the tab, which closed the drawer, in
+  a loop. Resting at the very edge of the screen still peeks at the panel; the
+  tab itself now only responds to a click.
 - **Dialogs no longer collapse in Safari** — a dialog with a body ("Running in
   your browser", "What's New", the operation pipeline) drew as a title with the
   buttons jammed underneath and its content squashed to one clipped line. It now
@@ -38,14 +78,55 @@ issue/PR numbers or repo links in the notes. See the tone rules in
 
 ### Added
 
+- **Ironing** — the top-surface smoothing toggle now does something. Previously
+  it could be switched on in the profile wizard, was documented as working, and
+  logged "not yet implemented" at slice time. A near-dry pass re-melts finished
+  top surfaces flat, with its own type, flow (10 %), spacing (0.1 mm), speed and
+  angle, and its own colour in the preview.
+- **Dimensional compensation** — correct a machine that prints consistently
+  over- or under-sized. **XY size compensation** offsets every contour;
+  **hole compensation** adjusts holes on their own, so a tight press-fit can be
+  freed without moving the outside of the part. Both default to off.
 - **Elephant-foot compensation** — corrects the flare the bed's squish leaves at
-  the base of a print, in a new Process → Dimensions section. It is limited by
-  how thin the geometry is at each point, so embossed text, logo strokes and
-  thin ribs on the first layer keep their width instead of being erased by the
-  shrink. It also holds back where the model itself already flares outward, and
-  switches itself off on a raft. Off by default; 0.1–0.2 mm suits most machines.
-- **XY size compensation** — a straight offset applied to every layer, for a
-  machine that prints consistently over- or undersize. Off by default.
+  the base of a print. Unlike a plain shrink it is limited by how thin the
+  geometry is at each point, so embossed text, logo strokes and thin ribs on the
+  first layer keep their width instead of being erased — a uniform 0.3 mm offset
+  deletes every feature under 0.6 mm, including any fin attached to a body. It
+  also holds back where the model itself flares steeply outward, and switches
+  itself off on a raft. Off by default; 0.1–0.2 mm suits most machines.
+- **First layer height** — now affects the print instead of only the file
+  header. The bottom layer is sliced and extruded at its own thickness, so a
+  profile asking for 0.24 mm no longer silently prints 0.2 mm. Skirt and brim
+  follow it; a raft suppresses it.
+- **Fold the G-code legend out of the way** — the inspector now has a header you
+  can tap to collapse it to a single row, keeping the layer counter and the Slice
+  button in place. Unfolded it sizes itself to the room actually available, so on
+  an iPad the whole legend and both sliders are visible without scrolling. It
+  starts folded on tablets, phones and narrow windows, open on a large screen,
+  and remembers whichever you choose.
+- **Tablet layout** — an iPad keeps the full desktop arrangement but stops
+  leaving panels open over the plate: the G-code inspector and the object list
+  both start folded, and the print-settings tab moved out of the middle of the
+  screen, where the model is. Opening the settings drawer no longer dims the
+  plate behind it — you are peeking at the settings, not leaving the model.
+  Applies to any window under 1024px, so Split View and a docked desktop window
+  get it too.
+- **Finger-sized controls on touch screens** — buttons, dropdowns, legend chips
+  and the layer slider are now sized for a fingertip on every touch device rather
+  than only on phones. The layer slider's grip went from 18px to 26px; scrubbing
+  through layers on a tablet was the worst of it.
+- **A context menu on the plate** — right-click a model, or press and hold it on
+  a touch screen, for Duplicate, Drop to floor, Centre on bed and Remove, acting
+  on the whole selection when you have one. Holding empty bed offers select all,
+  clear, place objects and reset view.
+- **Multi-select for touch and pen** — a tool-cluster toggle that makes each tap
+  add or remove an object, standing in for the ⌘/Ctrl a tablet has no key for.
+  It appears once there are two objects to choose between, and turns itself off
+  when it can no longer be reached.
+- **Drag a selected model across the bed** — with a finger or a pen, select a
+  model and then drag it. Dragging anywhere else still orbits, so nothing moves
+  unless you picked it first. The move handles are also drawn larger on touch,
+  so a fingertip can pick one axis instead of all three.
 - **Phone layout** — the whole UI rearranges itself below 640px instead of
   overflowing. Navigation moves to a bottom tab bar, print settings become a
   drawer with a pull tab on the left edge, and Slice sits in a full-width sheet
@@ -64,6 +145,12 @@ issue/PR numbers or repo links in the notes. See the tone rules in
 - **Reload prompt for stale tabs** — if a page can no longer be loaded because
   the app was redeployed under an open tab, the existing update banner now
   offers a reload instead of the click doing nothing.
+- **Keep the app on an iPhone or iPad without a Mac attached** —
+  `pnpm run ios:install` builds the release app, signs it with a free Apple ID
+  and installs it on a connected device, so it keeps working after the dev
+  server stops. No paid Apple Developer Program: the trade is that a free
+  signature lasts seven days, and re-running with `--renew` resets the clock
+  without touching your models, profiles or settings.
 
 ### Changed
 
@@ -80,6 +167,9 @@ issue/PR numbers or repo links in the notes. See the tone rules in
   labelled rows stack so a dropdown gets the full width, toasts move to the top
   of the screen (the bottom now belongs to the slice sheet), and the object list
   folds to a chip that still flags a part that cannot print.
+- **The object list remembers whether you folded it** — it starts folded on a
+  tablet or a narrow window, and unfolding it now sticks instead of resetting on
+  the next visit.
 - **Two controls are hidden on phones** — the viewport cube, which needs a drag
   it cannot receive, and the projection toggle and operation-pipeline inspector,
   which do not fit alongside the tools that get a model sliced. All three return

@@ -1,63 +1,267 @@
-//! Dimensional compensation — XY size correction and elephant-foot removal.
+//! Dimensional compensation — correcting a machine's systematic XY error.
 //!
-//! Both corrections reshape the **raw cross-section contours** produced by
-//! [`slice_mesh`](crate::core::slice_mesh), before any wall bead exists. That
-//! placement is the whole point: a wall generator turns a contour into beads, so
-//! correcting the contour corrects every bead, the interior, the surfaces and
-//! the infill in one move. Correcting the beads afterwards would leave the
-//! interior — and therefore the solid surfaces — sized to the uncorrected model.
+//! A printer does not lay a bead exactly where it is told. Squish, die swell and
+//! belt tension conspire to make finished parts consistently a little over- or
+//! under-sized, and holes consistently tight. Neither is a slicing error, so
+//! neither can be fixed by slicing more carefully — the correction is a
+//! deliberate, measured offset applied to the geometry before it is turned into
+//! toolpaths.
 //!
-//! # XY size compensation
+//! # Why here, and nowhere else
 //!
-//! A signed uniform offset applied to every layer. It exists to cancel a
-//! *systematic* dimensional error of a machine/material pairing (a nozzle that
-//! consistently prints 0.1 mm oversize). It is a plain offset with mitred
-//! joins, because dimensional fidelity is exactly what it is for.
+//! This pass runs in exactly one place: **between [`slice_mesh`] and wall
+//! generation**, on the raw contours, and it is the only window that works.
 //!
-//! # Elephant foot
+//! Everything downstream is expressed *relative to the contour the wall
+//! generator consumed* — `calculate_interior_region`'s `−0.5·d` correction, the
+//! wall-bead-footprint clip that surfaces and infill subtract, and adhesion's
+//! recovery of the object outline by inflating layer-0 `OuterWall` beads by
+//! `d/2`. Compensate the contour and every one of those relations stays exactly
+//! true, because the compensated contour simply *becomes* the model surface as
+//! far as the rest of the engine is concerned.
 //!
-//! The first layer is squashed into the bed, so it bulges outward and the base
-//! of the print measures oversize. The fix is to shrink the layers nearest the
-//! bed — but a uniform shrink is a bad fix, and this module exists to be a good
-//! one. Four rules shape it:
+//! **Never offset the bead centrelines instead.** Moving `OuterWall` by δ after
+//! generation leaves `InnerWall` where it was, so wall spacing becomes `d ± δ`
+//! and `compute_wall_bead_footprint` reports a footprint that does not match
+//! what is printed. The footprint clip corrects bead-*count* error; it cannot
+//! correct centreline displacement.
+//!
+//! # The two deltas
+//!
+//! They compose, and they are deliberately separate because the two dialects
+//! this engine imports from disagree about what one number should mean:
+//!
+//! | Setting | Effect | Dialect |
+//! | --- | --- | --- |
+//! | `xy_size_compensation` | Uniform inflate of the whole region. Positive grows the part and therefore *tightens* holes. | PrusaSlicer/Slic3r `xy_size_compensation` |
+//! | `xy_hole_compensation` | Adjusts enclosed voids only, applied after the above. Positive *enlarges* holes. | Orca/Bambu `xy_hole_compensation` |
+//!
+//! Splitting them is what lets a press-fit hole be opened up without moving the
+//! part's outside dimensions, and it is why a single signed "contour delta"
+//! field would get imported Orca profiles wrong by `2δ` on every hole.
+//!
+//! # Winding is load-bearing
+//!
+//! The mesh slicer does not guarantee consistent winding (see AGENTS.md §
+//! "Clipper2 Fill Rules"), so a raw `inflate` over its output would grow some
+//! holes and shrink others. The pass therefore normalises with an `EvenOdd`
+//! union first — after which solids are CCW and holes CW — and every subsequent
+//! set operation uses `NonZero`, which honours those CW sub-paths as voids.
+//! `Positive` would discard them and turn every hole solid.
+//!
+//! # Elephant foot — the same window, a different shape of correction
+//!
+//! The first layer is squashed into the bed to make it stick, so it spreads
+//! sideways and the base of the print measures oversize. That is a *bed*
+//! artifact, not a machine one, so it is corrected separately from the two
+//! deltas above and only near the plate.
+//!
+//! It is emphatically **not** a uniform inward offset. At 0.3 mm a uniform
+//! shrink erases every first-layer feature narrower than 0.6 mm — embossed
+//! text, logo strokes, thin ribs, any fin attached to a body — which is exactly
+//! the detail a first layer is judged on. So the shrink is computed *per
+//! contour vertex* from the largest circle that fits inside the material there
+//! and applied as a **variable** offset:
+//!
+//! ```text
+//! feature width w    | shrink applied per side
+//! -------------------+--------------------------
+//! w <= w_min         | 0            (untouched)
+//! w_min .. w_min+2d  | (w - w_min)/2 (partial)
+//! w >= w_min + 2d    | d            (full)
+//! ```
+//!
+//! Every feature comes out `max(w_min, w - 2d)` wide, so nothing thin is ever
+//! erased. Three further rules keep it honest:
 //!
 //! | Rule | What it does |
 //! | --- | --- |
-//! | **Medial-limited** | The shrink at a point is capped by the *local feature width* there, so a feature never gets narrower than [`min_contour_width_mm`](CompensationConfig::min_contour_width_mm). |
-//! | **Layer-0-only or tapered** | Full correction at the bed, ramping linearly to zero over [`elephant_foot_layers`](CompensationConfig::elephant_foot_layers). |
-//! | **Raft-gated** | Skipped entirely on a raft: the object's first layer lands on sacrificial material across an air gap and is never squashed into the bed. |
-//! | **Cliff-guarded** | Withheld where the *model itself* flares steeply outward, so a narrow base under a wide body is never undercut. |
-//!
-//! The medial limit is the one that matters most in practice. A uniform inward
-//! offset of 0.2 mm deletes every first-layer feature narrower than 0.4 mm —
-//! embossed text, logo strokes, thin ribs — which is precisely the detail a
-//! first layer is judged on. So the shrink is computed *per contour vertex*
-//! from the largest circle that fits inside the material there, and the result
-//! is a **variable offset** rather than a uniform one.
-//!
-//! ```text
-//! feature width w    │ shrink applied per side
-//! ───────────────────┼──────────────────────────
-//! w ≤ w_min          │ 0            (untouched)
-//! w_min … w_min+2δ   │ (w − w_min)/2 (partial)
-//! w ≥ w_min + 2δ     │ δ            (full)
-//! ```
-//!
-//! In every case the feature comes out `max(w_min, w − 2δ)` wide, so nothing
-//! thin is ever erased.
+//! | **Layer-0-only or tapered** | Full correction at the bed, ramping to zero over `elephant_foot_layers`. |
+//! | **Raft-gated** | Skipped on a raft: the first layer lands on sacrificial material across an air gap and is never squashed. |
+//! | **Cliff-guarded** | Withheld where the model itself flares steeply outward, so a narrow base under a wide body is never undercut. |
 //!
 //! # Non-goals
 //!
-//! Hole-specific compensation (growing holes by a separate delta) is **not**
-//! implemented here; it needs per-contour hole classification and its own
-//! setting.
+//! Per-feature or painted compensation, and any correction that varies with
+//! height beyond the elephant-foot taper.
+//!
+//! [`slice_mesh`]: super::slicer::slice_mesh
 
-use clipper2::{EndType, FillRule, JoinType, Path, Paths};
+use clipper2::*;
 
-use crate::core::types::{ExtrusionRole, SliceLayer};
+use super::types::{ExtrusionRole, SliceLayer};
 use crate::settings::params::{AdhesionType, SlicingParams};
 
-/// Automatic [`min_contour_width_mm`](CompensationConfig::min_contour_width_mm),
+/// What a compensation run changed, for the caller to log.
+///
+/// Compensation can legitimately erase geometry — a negative delta larger than
+/// half a thin rib's width consumes the rib — so the pass counts what it
+/// removed rather than silently fabricating it back. A part that loses features
+/// is telling the user their compensation is too aggressive; a part that
+/// silently keeps them would hide it until the print came out wrong.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub struct CompensationReport {
+    /// Layers that held contours before compensation and hold none after.
+    pub emptied_layers: usize,
+    /// Net change in contour count across every layer. Negative means features
+    /// were consumed; positive means an offset split one island into several.
+    pub contour_delta: i64,
+}
+
+impl CompensationReport {
+    /// True when the run removed geometry the user probably wanted to keep.
+    pub fn has_losses(&self) -> bool {
+        self.emptied_layers > 0 || self.contour_delta < 0
+    }
+}
+
+/// Offset every contour to correct a machine's systematic XY error.
+///
+/// Call **immediately after [`slice_mesh`]** and before wall generation; see the
+/// module docs for why no other position is correct. A zero delta pair is a
+/// no-op and returns without touching the layers, so the default configuration
+/// slices byte-identically.
+///
+/// [`slice_mesh`]: super::slicer::slice_mesh
+pub fn apply_dimensional_compensation(
+    layers: &mut [SliceLayer],
+    size_delta_mm: f64,
+    hole_delta_mm: f64,
+) -> CompensationReport {
+    if !is_active(size_delta_mm, hole_delta_mm) {
+        return CompensationReport::default();
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    let compensated: Vec<Paths> = {
+        use rayon::prelude::*;
+        layers
+            .par_iter()
+            .map(|layer| compensate_layer(&layer.paths, size_delta_mm, hole_delta_mm))
+            .collect()
+    };
+    #[cfg(target_arch = "wasm32")]
+    let compensated: Vec<Paths> = layers
+        .iter()
+        .map(|layer| compensate_layer(&layer.paths, size_delta_mm, hole_delta_mm))
+        .collect();
+
+    let mut report = CompensationReport::default();
+
+    for (layer, region) in layers.iter_mut().zip(compensated) {
+        let before = layer.paths.len();
+        let after = region.len();
+        if before > 0 && after == 0 {
+            report.emptied_layers += 1;
+        }
+        report.contour_delta += after as i64 - before as i64;
+
+        // Compensation runs before any other pass has annotated the layer, so
+        // the only parallel array carrying data is `path_roles` — every contour
+        // out of the slicer is an `OuterWall`. Rebuilding both together keeps
+        // them the same length; the remaining arrays stay empty and continue to
+        // resolve through the "shorter array means default" convention.
+        layer.paths = region;
+        layer.path_roles = vec![ExtrusionRole::OuterWall; after];
+    }
+
+    report
+}
+
+/// True when either delta is large enough to change the geometry.
+///
+/// The threshold is 1 nm — far below any meaningful compensation, but above the
+/// float noise a round-tripped profile value can carry.
+fn is_active(size_delta_mm: f64, hole_delta_mm: f64) -> bool {
+    const EPS: f64 = 1e-6;
+    (size_delta_mm.is_finite() && size_delta_mm.abs() > EPS)
+        || (hole_delta_mm.is_finite() && hole_delta_mm.abs() > EPS)
+}
+
+/// Compensate one layer's contours.
+fn compensate_layer(paths: &Paths, size_delta_mm: f64, hole_delta_mm: f64) -> Paths {
+    if paths.is_empty() {
+        return Paths::default();
+    }
+
+    // Normalise winding first: the slicer's contours carry no consistent
+    // orientation, and every step below depends on solids being CCW and holes
+    // CW. `EvenOdd` is the winding-independent rule that establishes it.
+    let mut region = match union(paths.clone(), Paths::default(), FillRule::EvenOdd) {
+        Ok(r) if !r.is_empty() => r,
+        // A degenerate layer that will not normalise is left exactly as it was
+        // rather than dropped: compensation is a correction, not a filter.
+        _ => return paths.clone(),
+    };
+
+    if size_delta_mm.is_finite() && size_delta_mm.abs() > 1e-6 {
+        region = inflate(
+            region,
+            size_delta_mm,
+            JoinType::Round,
+            EndType::Polygon,
+            2.0,
+        );
+        if region.is_empty() {
+            return region;
+        }
+    }
+
+    if hole_delta_mm.is_finite() && hole_delta_mm.abs() > 1e-6 {
+        region = compensate_holes(region, hole_delta_mm);
+    }
+
+    region
+}
+
+/// Resize enclosed voids by `delta` without moving the outer contour.
+///
+/// Works for both signs by *filling every hole solid and re-punching it at the
+/// new size*, rather than adding or removing a ring — a subtraction alone would
+/// silently do nothing for a negative delta, because the material it would
+/// remove is already absent.
+fn compensate_holes(region: Paths, delta_mm: f64) -> Paths {
+    // A hole is a CW sub-path. Reversed, it becomes an ordinary positive
+    // polygon describing the void itself, which is far easier to reason about
+    // than an inside-out one.
+    let voids = Paths::new(
+        region
+            .iter()
+            .filter(|p| p.signed_area() < 0.0)
+            .map(reverse_path)
+            .collect::<Vec<_>>(),
+    );
+    if voids.is_empty() {
+        return region;
+    }
+
+    let Ok(filled) = union(region.clone(), voids.clone(), FillRule::NonZero) else {
+        return region;
+    };
+
+    let resized = inflate(voids, delta_mm, JoinType::Round, EndType::Polygon, 2.0);
+    if resized.is_empty() {
+        // Every void was consumed by a large negative delta — the holes are
+        // filled in, which is exactly what was asked for.
+        return filled;
+    }
+
+    difference(filled, resized, FillRule::NonZero).unwrap_or(region)
+}
+
+/// Reverse a path's vertex order, flipping its orientation and the sign of its
+/// area.
+fn reverse_path(path: &Path) -> Path {
+    let mut points: Vec<(f64, f64)> = path.iter().map(|p| (p.x(), p.y())).collect();
+    points.reverse();
+    Path::from(points)
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Elephant foot
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Automatic [`min_contour_width_mm`](ElephantFootConfig::min_contour_width_mm),
 /// as a multiple of the outer-wall extrusion width.
 ///
 /// A feature narrower than its own perimeter bead cannot be printed as anything
@@ -138,20 +342,17 @@ const EPS_MM: f64 = 1e-6;
 /// so the wall generator is not handed a needlessly dense polygon.
 const SIMPLIFY_EPS_MM: f64 = 0.005;
 
-/// Resolved dimensional-compensation settings for one slice.
+/// Resolved elephant-foot settings for one slice.
 ///
-/// Produced by [`CompensationConfig::resolve`], which returns `None` when there
-/// is nothing to do — the common case, since both corrections default to off.
+/// Produced by [`ElephantFootConfig::resolve`], which returns `None` when there
+/// is nothing to do — the common case, since the correction defaults to off.
 #[derive(Debug, Clone, PartialEq)]
-pub struct CompensationConfig {
-    /// Signed uniform XY offset in mm, applied to **every** layer. Negative
-    /// shrinks the model, positive grows it. Zero disables.
-    pub xy_size_mm: f64,
-    /// Inward shrink in mm applied at the bed. Zero disables.
-    pub elephant_foot_mm: f64,
+pub struct ElephantFootConfig {
+    /// Inward shrink in mm applied at the bed.
+    pub shrink_mm: f64,
     /// Number of layers the shrink ramps to zero over. `1` corrects the first
     /// layer only.
-    pub elephant_foot_layers: usize,
+    pub layers: usize,
     /// Width in mm no feature may be shrunk below.
     pub min_contour_width_mm: f64,
     /// Outward model flare in mm that is still ordinary geometry: below this
@@ -159,36 +360,31 @@ pub struct CompensationConfig {
     pub cliff_free_mm: f64,
     /// Outward model flare in mm at which compensation is fully withheld.
     pub cliff_limit_mm: f64,
-    /// The print's layer height, used to recognise which layers actually sit on
-    /// the bed.
+    /// The print's layer height.
     pub layer_height_mm: f64,
+    /// The resolved thickness of the bottom layer, which sets where every layer
+    /// plane sits and therefore which of them touch the plate.
+    pub first_layer_height_mm: f64,
 }
 
-impl CompensationConfig {
-    /// Resolve the compensation settings, or `None` when this slice needs none.
+impl ElephantFootConfig {
+    /// Resolve the elephant-foot settings, or `None` when this slice needs none.
     ///
     /// Returns `None` for the default configuration, which is what keeps the
     /// pass a true no-op: an unconfigured slice never touches its contours, so
-    /// its output is byte-identical to a build without this module.
+    /// its output is byte-identical to a build without it.
     pub fn resolve(params: &SlicingParams) -> Option<Self> {
-        let xy_size_mm = if params.xy_size_compensation_mm.abs() > EPS_MM {
-            params.xy_size_compensation_mm
-        } else {
-            0.0
-        };
+        if params.elephant_foot_compensation_mm <= EPS_MM {
+            return None;
+        }
 
         // Raft gate: the object's first layer is printed onto sacrificial
         // material across `raft_air_gap`, never squashed into the bed, so there
         // is no elephant foot to remove. Shrinking it there would only lose
-        // grip on the raft.
-        let on_raft = params.adhesion_type == AdhesionType::Raft && params.raft_layers > 0;
-        let elephant_foot_mm = if params.elephant_foot_compensation_mm > EPS_MM && !on_raft {
-            params.elephant_foot_compensation_mm
-        } else {
-            0.0
-        };
-
-        if xy_size_mm == 0.0 && elephant_foot_mm == 0.0 {
+        // grip on the raft. This is the same condition
+        // `resolved_first_layer_height` uses to ignore a first-layer height —
+        // both are bed-contact remedies, and a raft owns bed contact.
+        if params.adhesion_type == AdhesionType::Raft && params.raft_layers > 0 {
             return None;
         }
 
@@ -200,13 +396,13 @@ impl CompensationConfig {
         };
 
         Some(Self {
-            xy_size_mm,
-            elephant_foot_mm,
-            elephant_foot_layers: params.elephant_foot_layers.max(1),
+            shrink_mm: params.elephant_foot_compensation_mm,
+            layers: params.elephant_foot_layers.max(1),
             min_contour_width_mm,
             cliff_free_mm: CLIFF_FREE_WALL_MULT * wall_width,
             cliff_limit_mm: CLIFF_LIMIT_WALL_MULT * wall_width,
             layer_height_mm: params.layer_height,
+            first_layer_height_mm: super::pipeline::resolved_first_layer_height(params),
         })
     }
 
@@ -215,11 +411,11 @@ impl CompensationConfig {
     /// Layer 0 always receives the full correction; with the default single
     /// layer every layer above it receives none.
     fn shrink_for_layer(&self, index: usize) -> f64 {
-        let n = self.elephant_foot_layers;
+        let n = self.layers;
         if index >= n {
             return 0.0;
         }
-        self.elephant_foot_mm * (n - index) as f64 / n as f64
+        self.shrink_mm * (n - index) as f64 / n as f64
     }
 
     /// Widest medial radius the limit can act over: beyond this the full shrink
@@ -227,73 +423,66 @@ impl CompensationConfig {
     fn radius_cap(&self, shrink: f64) -> f64 {
         self.min_contour_width_mm * 0.5 + shrink
     }
+
+    /// Z of layer `index` for a model resting on the plate.
+    ///
+    /// Mirrors [`slice_mesh_with_first_layer`](super::slicer::slice_mesh_with_first_layer):
+    /// the first plane sits half a *first* layer up, the step onto layer 1
+    /// spans half of each, and every step after that is a whole layer. When the
+    /// two heights agree this is just `(index + 0.5) · h`.
+    fn bed_resting_z(&self, index: usize) -> f64 {
+        let first = self.first_layer_height_mm;
+        if index == 0 {
+            first * 0.5
+        } else {
+            first * 0.5
+                + (first + self.layer_height_mm) * 0.5
+                + (index - 1) as f64 * self.layer_height_mm
+        }
+    }
+
+    /// Whether layer `index` at height `z` is resting on the build plate.
+    ///
+    /// The tolerance is the scene engine's own bed epsilon: STL coordinates are
+    /// `f32`, so a model resting on the bed lands a few millionths of a
+    /// millimetre either side of zero.
+    fn sits_on_bed(&self, z: f64, index: usize) -> bool {
+        const BED_TOLERANCE_MM: f64 = 1e-3;
+        self.layer_height_mm > 0.0 && z <= self.bed_resting_z(index) + BED_TOLERANCE_MM
+    }
 }
 
-/// Apply XY size and elephant-foot compensation to a sliced model, in place.
+/// Shrink the layers nearest the bed to undo the first layer's squish.
 ///
-/// A convenience over [`CompensationConfig::resolve`] + [`apply_with_config`]
-/// for tests. The pipeline resolves the config itself, because it logs the
-/// numbers it resolved.
+/// Runs **after** [`apply_dimensional_compensation`] and in the same window:
+/// on the raw contours, before wall generation. The XY deltas correct the
+/// machine, this corrects the plate, and applying both to the contour keeps
+/// every downstream measurement true (see the module docs).
 ///
 /// # Preconditions
 ///
-/// Runs on the output of [`slice_mesh`](crate::core::slice_mesh), where every
-/// path is a closed [`OuterWall`](ExtrusionRole::OuterWall) contour and no
-/// per-path metadata exists yet. The pass rewrites a layer's **whole** path
-/// list, so a layer carrying anything else would have its paths silently
-/// relabelled and its parallel arrays desynchronised.
+/// Every path must be a closed [`OuterWall`](ExtrusionRole::OuterWall) contour
+/// with no per-path metadata yet, exactly as [`slice_mesh`] leaves it. The pass
+/// rewrites a layer's **whole** path list, so a layer carrying anything else
+/// would have its paths silently relabelled and its parallel arrays
+/// desynchronised — a `debug_assert!` catches that during development.
 ///
-/// That precondition is why nothing here is exported past `core`, matching the
-/// other passes `process_mesh` sequences (`apply_single_wall_restrictions`,
-/// `classify_overhang_perimeters`): this is a *stage*, not an operation
-/// callable on an arbitrary `SliceLayer`.
-#[cfg(test)]
-pub(crate) fn apply_dimensional_compensation(layers: &mut [SliceLayer], params: &SlicingParams) {
-    let Some(config) = CompensationConfig::resolve(params) else {
-        return;
-    };
-    apply_with_config(layers, &config);
-}
-
-/// [`apply_dimensional_compensation`] against an already-resolved config.
-pub(crate) fn apply_with_config(layers: &mut [SliceLayer], config: &CompensationConfig) {
-    if layers.is_empty() {
+/// [`slice_mesh`]: super::slicer::slice_mesh
+pub(crate) fn apply_elephant_foot(layers: &mut [SliceLayer], config: &ElephantFootConfig) {
+    if layers.is_empty() || config.shrink_mm <= 0.0 {
         return;
     }
     debug_assert!(
         layers.iter().all(is_raw_slice_output),
-        "dimensional compensation rewrites whole path lists, so it must run on \
+        "elephant-foot compensation rewrites whole path lists, so it must run on \
          raw slice_mesh output — before walls, surfaces or infill exist"
     );
 
-    // ── XY size compensation: one uniform offset, every layer ────────────────
-    if config.xy_size_mm != 0.0 {
-        for layer in layers.iter_mut() {
-            let Some(normalised) = union_even_odd(layer.paths.clone()) else {
-                continue;
-            };
-            let offset = clipper2::inflate(
-                normalised,
-                config.xy_size_mm,
-                JoinType::Miter,
-                EndType::Polygon,
-                2.0,
-            );
-            set_contours(layer, offset);
-        }
-    }
-
-    if config.elephant_foot_mm <= 0.0 {
-        return;
-    }
-
-    // ── Elephant foot: variable, medial-limited offset near the bed ──────────
-    //
     // Walking bottom-up matters: layer `i`'s cliff guard reads layer `i + 1`,
     // which must still be the model's own geometry. Since a layer is rewritten
     // only after the layer below has already consulted it, that holds without
     // snapshotting anything.
-    for index in 0..config.elephant_foot_layers.min(layers.len()) {
+    for index in 0..config.layers.min(layers.len()) {
         let shrink = config.shrink_for_layer(index);
         if shrink <= EPS_MM {
             continue;
@@ -302,7 +491,7 @@ pub(crate) fn apply_with_config(layers: &mut [SliceLayer], config: &Compensation
         // object lifted clear of the plate (or printed object-by-object from a
         // raised start) slices its own layer 0 in mid-air, where there is
         // nothing to squash against.
-        if !sits_on_bed(layers[index].z, index, config.layer_height_mm) {
+        if !config.sits_on_bed(layers[index].z, index) {
             continue;
         }
 
@@ -318,25 +507,13 @@ pub(crate) fn apply_with_config(layers: &mut [SliceLayer], config: &Compensation
     }
 }
 
-/// Whether the layer at `index` with height `z` is resting on the build plate.
-///
-/// [`slice_mesh`](crate::core::slice_mesh) samples layer `i` at
-/// `z_min + (i + 0.5) · h`, so a model on the plate puts layer `i` at exactly
-/// `(i + 0.5) · h`. The tolerance is the scene engine's own bed epsilon: STL
-/// coordinates are `f32`, so a model resting on the bed lands a few millionths
-/// of a millimetre either side of zero.
-fn sits_on_bed(z: f64, index: usize, layer_height_mm: f64) -> bool {
-    const BED_TOLERANCE_MM: f64 = 1e-3;
-    layer_height_mm > 0.0 && z <= (index as f64 + 0.5) * layer_height_mm + BED_TOLERANCE_MM
-}
-
 /// Shrink `contours` inward by at most `shrink` mm, limited per vertex by the
 /// local feature width and by the model's own flare on `next`.
 fn medial_limited_shrink(
     contours: &Paths,
     shrink: f64,
     next: Option<&Paths>,
-    config: &CompensationConfig,
+    config: &ElephantFootConfig,
 ) -> Paths {
     let radius_cap = config.radius_cap(shrink);
     let step = (radius_cap * RESAMPLE_FRACTION).clamp(RESAMPLE_MIN_MM, RESAMPLE_MAX_MM);
@@ -1166,6 +1343,207 @@ fn distance(a: [f64; 2], b: [f64; 2]) -> f64 {
 mod tests {
     use super::*;
 
+    /// A CCW square of side `size` centred on the origin.
+    fn square(size: f64) -> Path {
+        let h = size / 2.0;
+        Path::from(vec![(-h, -h), (h, -h), (h, h), (-h, h)])
+    }
+
+    /// A CW square of side `size` centred on the origin — a hole.
+    fn square_hole(size: f64) -> Path {
+        let h = size / 2.0;
+        Path::from(vec![(-h, -h), (-h, h), (h, h), (h, -h)])
+    }
+
+    fn layer_with(paths: Vec<Path>) -> SliceLayer {
+        let mut layer = SliceLayer::new(0.2);
+        for p in paths {
+            layer.paths.push(p);
+            layer.path_roles.push(ExtrusionRole::OuterWall);
+        }
+        layer
+    }
+
+    /// Longest side of the axis-aligned bounding box of the positive contours.
+    fn outer_extent(paths: &Paths) -> f64 {
+        let (mut lo, mut hi) = (f64::INFINITY, f64::NEG_INFINITY);
+        for p in paths.iter().filter(|p| p.signed_area() > 0.0) {
+            for pt in p.iter() {
+                lo = lo.min(pt.x());
+                hi = hi.max(pt.x());
+            }
+        }
+        hi - lo
+    }
+
+    fn void_area(paths: &Paths) -> f64 {
+        paths
+            .iter()
+            .filter(|p| p.signed_area() < 0.0)
+            .map(|p| p.signed_area().abs())
+            .sum()
+    }
+
+    #[test]
+    fn zero_deltas_are_a_no_op() {
+        let mut layers = vec![layer_with(vec![square(20.0)])];
+        let before = layers[0].paths.clone();
+
+        let report = apply_dimensional_compensation(&mut layers, 0.0, 0.0);
+
+        assert_eq!(report, CompensationReport::default());
+        assert_eq!(
+            layers[0].paths.len(),
+            before.len(),
+            "an off-by-default pass must not touch the geometry at all"
+        );
+    }
+
+    #[test]
+    fn positive_size_compensation_grows_the_part() {
+        let mut layers = vec![layer_with(vec![square(20.0)])];
+
+        apply_dimensional_compensation(&mut layers, 0.25, 0.0);
+
+        let extent = outer_extent(&layers[0].paths);
+        assert!(
+            (extent - 20.5).abs() < 0.05,
+            "20mm square + 0.25mm per side should measure ~20.5mm, got {extent:.3}"
+        );
+    }
+
+    #[test]
+    fn negative_size_compensation_shrinks_the_part() {
+        let mut layers = vec![layer_with(vec![square(20.0)])];
+
+        apply_dimensional_compensation(&mut layers, -0.25, 0.0);
+
+        let extent = outer_extent(&layers[0].paths);
+        assert!(
+            (extent - 19.5).abs() < 0.05,
+            "20mm square - 0.25mm per side should measure ~19.5mm, got {extent:.3}"
+        );
+    }
+
+    /// The PrusaSlicer semantic: one number grows the part, and the material
+    /// necessarily expands *into* the hole.
+    #[test]
+    fn size_compensation_tightens_holes_as_a_side_effect() {
+        let mut layers = vec![layer_with(vec![square(20.0), square_hole(6.0)])];
+        let before = void_area(&layers[0].paths.clone());
+
+        apply_dimensional_compensation(&mut layers, 0.25, 0.0);
+
+        let after = void_area(&layers[0].paths);
+        assert!(
+            after < before,
+            "growing the part must shrink its holes ({before:.2} -> {after:.2} mm²)"
+        );
+    }
+
+    /// The Orca semantic, and the reason the two deltas are separate fields:
+    /// holes open up while the outside stays put.
+    #[test]
+    fn hole_compensation_enlarges_holes_without_moving_the_contour() {
+        let mut layers = vec![layer_with(vec![square(20.0), square_hole(6.0)])];
+        let extent_before = outer_extent(&layers[0].paths.clone());
+        let void_before = void_area(&layers[0].paths.clone());
+
+        apply_dimensional_compensation(&mut layers, 0.0, 0.2);
+
+        let extent_after = outer_extent(&layers[0].paths);
+        let void_after = void_area(&layers[0].paths);
+        assert!(
+            void_after > void_before,
+            "positive hole compensation must enlarge the void ({void_before:.2} -> {void_after:.2} mm²)"
+        );
+        assert!(
+            (extent_after - extent_before).abs() < 0.05,
+            "the outer contour must not move ({extent_before:.3} -> {extent_after:.3} mm)"
+        );
+    }
+
+    /// A subtraction alone would be a silent no-op here — the material it would
+    /// remove is already absent. This is the case the fill-and-re-punch
+    /// implementation exists for.
+    #[test]
+    fn negative_hole_compensation_tightens_holes() {
+        let mut layers = vec![layer_with(vec![square(20.0), square_hole(6.0)])];
+        let void_before = void_area(&layers[0].paths.clone());
+
+        apply_dimensional_compensation(&mut layers, 0.0, -0.2);
+
+        let void_after = void_area(&layers[0].paths);
+        assert!(
+            void_after < void_before,
+            "negative hole compensation must tighten the void ({void_before:.2} -> {void_after:.2} mm²)"
+        );
+    }
+
+    /// Holes survive as holes. Using `FillRule::Positive` anywhere in this pass
+    /// would drop the CW sub-paths and fill every hole with solid material.
+    #[test]
+    fn holes_are_never_filled_in_by_the_fill_rule() {
+        let mut layers = vec![layer_with(vec![square(20.0), square_hole(6.0)])];
+
+        apply_dimensional_compensation(&mut layers, 0.1, 0.0);
+
+        assert!(
+            layers[0].paths.iter().any(|p| p.signed_area() < 0.0),
+            "the hole must still be a CW void after compensation"
+        );
+    }
+
+    /// Winding out of the mesh slicer is not guaranteed, so a CW outer contour
+    /// must still grow rather than shrink.
+    #[test]
+    fn inconsistent_input_winding_is_normalised_before_offsetting() {
+        // Same 20mm square, wound backwards.
+        let reversed = reverse_path(&square(20.0));
+        let mut layers = vec![layer_with(vec![reversed])];
+
+        apply_dimensional_compensation(&mut layers, 0.25, 0.0);
+
+        let extent = outer_extent(&layers[0].paths);
+        assert!(
+            (extent - 20.5).abs() < 0.05,
+            "a CW input contour must still grow to ~20.5mm, got {extent:.3}"
+        );
+    }
+
+    /// An over-aggressive negative delta consumes a small feature. That is the
+    /// honest outcome, and the report is how the user finds out.
+    #[test]
+    fn over_shrinking_reports_the_loss_instead_of_hiding_it() {
+        let mut layers = vec![layer_with(vec![square(0.4)])];
+
+        let report = apply_dimensional_compensation(&mut layers, -1.0, 0.0);
+
+        assert!(
+            layers[0].paths.is_empty(),
+            "a 0.4mm feature cannot survive 1mm of inward compensation"
+        );
+        assert_eq!(report.emptied_layers, 1);
+        assert!(report.has_losses());
+    }
+
+    #[test]
+    fn roles_stay_in_step_with_paths() {
+        let mut layers = vec![layer_with(vec![square(20.0), square_hole(6.0)])];
+
+        apply_dimensional_compensation(&mut layers, 0.15, 0.1);
+
+        assert_eq!(
+            layers[0].paths.len(),
+            layers[0].path_roles.len(),
+            "the parallel arrays must not drift apart"
+        );
+        assert!(layers[0]
+            .path_roles
+            .iter()
+            .all(|r| *r == ExtrusionRole::OuterWall));
+    }
+
     /// Default nozzle is 0.4 mm, so the automatic minimum contour width is
     /// 1.5 × 0.4 = 0.6 mm throughout these tests.
     const AUTO_MIN_WIDTH: f64 = 0.6;
@@ -1175,6 +1553,13 @@ mod tests {
             layer_height: 0.2,
             nozzle_diameter_mm: 0.4,
             ..SlicingParams::default()
+        }
+    }
+
+    /// Resolve and run the elephant-foot pass, as the pipeline does.
+    fn run(layers: &mut [SliceLayer], params: &SlicingParams) {
+        if let Some(config) = ElephantFootConfig::resolve(params) {
+            apply_elephant_foot(layers, &config);
         }
     }
 
@@ -1280,14 +1665,14 @@ mod tests {
 
     #[test]
     fn default_settings_resolve_to_no_compensation_at_all() {
-        assert_eq!(CompensationConfig::resolve(&params()), None);
+        assert_eq!(ElephantFootConfig::resolve(&params()), None);
     }
 
     #[test]
     fn a_disabled_pass_leaves_every_contour_byte_identical() {
         let mut layers = layers_of(vec![vec![rect(0.0, 0.0, 20.0, 20.0)]; 3], 0.2);
         let before = layers[0].paths.clone();
-        apply_dimensional_compensation(&mut layers, &params());
+        run(&mut layers, &params());
         assert_eq!(layers[0].paths, before);
     }
 
@@ -1299,16 +1684,20 @@ mod tests {
         p.raft_layers = 3;
 
         assert_eq!(
-            CompensationConfig::resolve(&p),
+            ElephantFootConfig::resolve(&p),
             None,
             "a raft leaves nothing for this pass to do"
         );
 
-        // …but XY size compensation is a machine correction and still applies.
-        p.xy_size_compensation_mm = -0.05;
-        let config = CompensationConfig::resolve(&p).expect("xy compensation still resolves");
-        assert_eq!(config.elephant_foot_mm, 0.0);
-        assert_eq!(config.xy_size_mm, -0.05);
+        // The XY deltas are machine corrections, not bed ones, so they are a
+        // separate pass and a raft does not disable them.
+        let mut layers = layers_of(vec![vec![rect(0.0, 0.0, 20.0, 20.0)]; 2], 0.2);
+        apply_dimensional_compensation(&mut layers, -0.05, 0.0);
+        let (min_x, _, _, _) = bounds_of(&layers[0]);
+        assert!(
+            (min_x - 0.05).abs() < 0.01,
+            "xy size compensation still applies on a raft, got {min_x}"
+        );
     }
 
     #[test]
@@ -1317,9 +1706,9 @@ mod tests {
             let mut p = params();
             p.elephant_foot_compensation_mm = 0.2;
             p.adhesion_type = adhesion;
-            let config = CompensationConfig::resolve(&p).expect("resolves");
+            let config = ElephantFootConfig::resolve(&p).expect("resolves");
             assert_eq!(
-                config.elephant_foot_mm, 0.2,
+                config.shrink_mm, 0.2,
                 "{adhesion:?} still presses the first layer into the bed"
             );
         }
@@ -1330,7 +1719,7 @@ mod tests {
         let mut p = params();
         p.elephant_foot_compensation_mm = 0.3;
         p.elephant_foot_layers = 3;
-        let config = CompensationConfig::resolve(&p).expect("resolves");
+        let config = ElephantFootConfig::resolve(&p).expect("resolves");
 
         assert!((config.shrink_for_layer(0) - 0.3).abs() < 1e-9);
         assert!((config.shrink_for_layer(1) - 0.2).abs() < 1e-9);
@@ -1343,7 +1732,7 @@ mod tests {
         let mut p = params();
         p.elephant_foot_compensation_mm = 0.2;
         assert!(
-            (CompensationConfig::resolve(&p)
+            (ElephantFootConfig::resolve(&p)
                 .unwrap()
                 .min_contour_width_mm
                 - 0.6)
@@ -1353,7 +1742,7 @@ mod tests {
 
         p.outer_wall_line_width = 0.6;
         assert!(
-            (CompensationConfig::resolve(&p)
+            (ElephantFootConfig::resolve(&p)
                 .unwrap()
                 .min_contour_width_mm
                 - 0.9)
@@ -1363,7 +1752,7 @@ mod tests {
 
         p.elephant_foot_min_contour_width_mm = 1.2;
         assert!(
-            (CompensationConfig::resolve(&p)
+            (ElephantFootConfig::resolve(&p)
                 .unwrap()
                 .min_contour_width_mm
                 - 1.2)
@@ -1380,7 +1769,7 @@ mod tests {
         p.elephant_foot_compensation_mm = 0.2;
 
         let mut layers = layers_of(vec![vec![rect(0.0, 0.0, 20.0, 20.0)]; 3], 0.2);
-        apply_dimensional_compensation(&mut layers, &p);
+        run(&mut layers, &p);
 
         let (min_x, min_y, max_x, max_y) = bounds_of(&layers[0]);
         for (label, value, expected) in [
@@ -1409,7 +1798,7 @@ mod tests {
 
         let contours = vec![rect(0.0, 0.0, 20.0, 20.0), hole(8.0, 8.0, 4.0, 4.0)];
         let mut layers = layers_of(vec![contours; 3], 0.2);
-        apply_dimensional_compensation(&mut layers, &p);
+        run(&mut layers, &p);
 
         // Squish narrows a hole just as it widens the outside, so the
         // correction has to open it back up.
@@ -1421,30 +1810,15 @@ mod tests {
     }
 
     #[test]
-    fn xy_size_compensation_applies_to_every_layer() {
-        let mut p = params();
-        p.xy_size_compensation_mm = -0.1;
-
-        let mut layers = layers_of(vec![vec![rect(0.0, 0.0, 20.0, 20.0)]; 3], 0.2);
-        apply_dimensional_compensation(&mut layers, &p);
-
-        for (i, layer) in layers.iter().enumerate() {
-            let (min_x, _, max_x, _) = bounds_of(layer);
-            assert!(
-                (min_x - 0.1).abs() < 1e-6 && (max_x - 19.9).abs() < 1e-6,
-                "layer {i} should be uniformly shrunk, got {min_x}..{max_x}"
-            );
-        }
-    }
-
-    #[test]
     fn xy_and_elephant_foot_compose_on_the_first_layer() {
         let mut p = params();
-        p.xy_size_compensation_mm = -0.1;
         p.elephant_foot_compensation_mm = 0.2;
 
+        // The order the pipeline uses: the machine correction first, then the
+        // bed one on top of it.
         let mut layers = layers_of(vec![vec![rect(0.0, 0.0, 20.0, 20.0)]; 3], 0.2);
-        apply_dimensional_compensation(&mut layers, &p);
+        apply_dimensional_compensation(&mut layers, -0.1, 0.0);
+        run(&mut layers, &p);
 
         let (min_x, _, max_x, _) = bounds_of(&layers[0]);
         assert!(
@@ -1467,7 +1841,7 @@ mod tests {
         // A body on the plate with a separate embossed stroke beside it.
         let plate = vec![rect(0.0, 0.0, 20.0, 3.0), rect(4.0, 6.0, 12.0, 0.5)];
         let mut layers = layers_of(vec![plate.clone(), plate], 0.2);
-        apply_dimensional_compensation(&mut layers, &p);
+        run(&mut layers, &p);
 
         let stroke = rib_thickness(&layers[0], 10.0, 5.0, 8.0);
         assert!(
@@ -1497,7 +1871,7 @@ mod tests {
         // uncapped correction would take off.
         let bar = vec![rect(0.0, 0.0, 12.0, 0.9)];
         let mut layers = layers_of(vec![bar.clone(), bar], 0.2);
-        apply_dimensional_compensation(&mut layers, &p);
+        run(&mut layers, &p);
 
         let thickness = rib_thickness(&layers[0], 6.0, -1.0, 2.0);
         assert!(
@@ -1515,7 +1889,7 @@ mod tests {
         // so protecting the rib must not spare the block.
         let plate = vec![rect(0.0, 0.0, 20.0, 20.0), rect(0.0, 25.0, 12.0, 0.5)];
         let mut layers = layers_of(vec![plate.clone(), plate], 0.2);
-        apply_dimensional_compensation(&mut layers, &p);
+        run(&mut layers, &p);
 
         let block = width_at(&layers[0], 10.0);
         assert!(
@@ -1547,7 +1921,7 @@ mod tests {
             ],
             0.2,
         );
-        apply_dimensional_compensation(&mut layers, &p);
+        run(&mut layers, &p);
 
         let width = width_at(&layers[0], 10.0);
         assert!(
@@ -1577,7 +1951,7 @@ mod tests {
                 .collect();
 
         let mut layers = layers_of(vec![merged.clone(), merged], 0.2);
-        apply_dimensional_compensation(&mut layers, &p);
+        run(&mut layers, &p);
 
         // Measure the fin clear of the block it grows out of.
         let fin = rib_thickness(&layers[0], 26.0, 8.0, 12.0);
@@ -1608,7 +1982,7 @@ mod tests {
         // is under the floor and must not be cut into.
         let wedge: Path = vec![(0.0, 0.0), (20.0, 0.9), (20.0, -0.9)].into();
         let mut layers = layers_of(vec![vec![wedge.clone()], vec![wedge]], 0.2);
-        apply_dimensional_compensation(&mut layers, &p);
+        run(&mut layers, &p);
 
         for x in [4.0, 8.0, 12.0] {
             let here = rib_thickness(&layers[0], x, -2.0, 2.0);
@@ -1638,7 +2012,7 @@ mod tests {
             0.2,
         );
         let before = area_of(&layers[0]);
-        apply_dimensional_compensation(&mut layers, &p);
+        run(&mut layers, &p);
         let after = area_of(&layers[0]);
 
         assert!(
@@ -1655,7 +2029,7 @@ mod tests {
         // The guard reads the layer above; on a plain vertical wall that layer
         // sits exactly over this one and must not hold the correction back.
         let mut layers = layers_of(vec![vec![rect(0.0, 0.0, 20.0, 20.0)]; 3], 0.2);
-        apply_dimensional_compensation(&mut layers, &p);
+        run(&mut layers, &p);
 
         let width = width_at(&layers[0], 10.0);
         assert!(
@@ -1678,7 +2052,7 @@ mod tests {
             ],
             0.2,
         );
-        apply_dimensional_compensation(&mut layers, &p);
+        run(&mut layers, &p);
 
         let width = width_at(&layers[0], 10.0);
         assert!(
@@ -1700,7 +2074,7 @@ mod tests {
             layer.z = 5.0 + (i as f64 + 0.5) * 0.2;
         }
         let before = layers[0].paths.clone();
-        apply_dimensional_compensation(&mut layers, &p);
+        run(&mut layers, &p);
 
         assert_eq!(layers[0].paths, before);
     }
@@ -1709,9 +2083,23 @@ mod tests {
     fn sits_on_bed_accepts_the_slicers_own_layer_heights() {
         // `slice_mesh` samples layer `i` at `(i + 0.5) · h` for a bed-resting
         // model, and higher for anything lifted.
-        assert!(sits_on_bed(0.1, 0, 0.2));
-        assert!(sits_on_bed(0.3, 1, 0.2));
-        assert!(!sits_on_bed(5.1, 0, 0.2));
+        let mut p = params();
+        p.elephant_foot_compensation_mm = 0.2;
+        let config = ElephantFootConfig::resolve(&p).expect("resolves");
+        assert!(config.sits_on_bed(0.1, 0));
+        assert!(config.sits_on_bed(0.3, 1));
+        assert!(!config.sits_on_bed(5.1, 0));
+
+        // A thicker first layer moves every plane up with it, and the gate has
+        // to move too or a bed-resting model reads as lifted.
+        p.first_layer_height = 0.3;
+        let thick = ElephantFootConfig::resolve(&p).expect("resolves");
+        assert!(thick.sits_on_bed(0.15, 0), "layer 0 sits at first_h/2");
+        assert!(
+            thick.sits_on_bed(0.40, 1),
+            "layer 1 at (first_h + h)/2 above it"
+        );
+        assert!(!thick.sits_on_bed(5.15, 0));
     }
 
     // ── Geometry helpers ────────────────────────────────────────────────────

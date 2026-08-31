@@ -1,3 +1,5 @@
+@use 'breakpoints' as *;
+
 :host {
   display: block;
   pointer-events: none;
@@ -184,5 +186,14 @@
   &:disabled {
     opacity: 0.4;
     cursor: not-allowed;
+  }
+}
+
+/* Matches the transform card's header actions — same row, same size. */
+@include coarse-pointer {
+  .pp-action {
+    width: 36px;
+    height: 36px;
+    --icon-size: 17px;
   }
 }

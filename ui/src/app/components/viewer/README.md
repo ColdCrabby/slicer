@@ -226,20 +226,20 @@ path. Cross that distance and the snap "pops": the camera starts orbiting from
 the snapped orientation and the projection animates back. Interacting with the
 cube again always keeps ortho.
 
-A pan or zoom releases the *freeze* — otherwise the very next frame would pin
+A pan or zoom releases the _freeze_ — otherwise the very next frame would pin
 the camera straight back and the gesture would appear to do nothing — but
-never the *projection*: `autoOrtho` stays engaged, so the view keeps its flat,
+never the _projection_: `autoOrtho` stays engaged, so the view keeps its flat,
 dimension-true look while the user pans/zooms around it freely.
 
-| Action                                                   | Auto-ortho          |
-| --------------------------------------------------------- | ------------------- |
-| Cube face/edge/corner snap                                 | engage (→ ortho)    |
-| Rotate **inside** the breakout distance                    | keep — view frozen  |
-| **Rotate past breakout** (1-finger / left-drag / swipe)    | **revert** (pops)   |
-| Cube drag-orbit / roll / re-snap                            | keep                 |
-| Pan (2-finger / right-drag / ⌥-swipe)                      | keep — sticky        |
-| Zoom (pinch / wheel / autoscroll)                           | keep — sticky        |
-| Toolbar view toggle / home reset                           | cancel (manual)      |
+| Action                                                  | Auto-ortho         |
+| ------------------------------------------------------- | ------------------ |
+| Cube face/edge/corner snap                              | engage (→ ortho)   |
+| Rotate **inside** the breakout distance                 | keep — view frozen |
+| **Rotate past breakout** (1-finger / left-drag / swipe) | **revert** (pops)  |
+| Cube drag-orbit / roll / re-snap                        | keep               |
+| Pan (2-finger / right-drag / ⌥-swipe)                   | keep — sticky      |
+| Zoom (pinch / wheel / autoscroll)                       | keep — sticky      |
+| Toolbar view toggle / home reset                        | cancel (manual)    |
 
 This lives across two files. Both the projection override (`autoOrtho`) and the
 detent (`snapHoldPose`) are in [`SceneCamera`](scene/camera.ts). Engaging
@@ -310,9 +310,9 @@ flowchart TD
     E[pointer event on host<br/>capture phase] --> P{pointerType?}
     P -->|pen| T[track pen: penActive + penEverUsed<br/>pass through]
     P -->|mouse| A[pass through]
-    P -->|touch| G{another touch<br/>already down?}
-    G -->|yes| I[inherit group verdict<br/>admit wins over palm]
-    G -->|no · fresh group| C{palm?}
+    P -->|touch| G{how many touches<br/>already down?}
+    G -->|exactly one| I[inherit group verdict<br/>admit wins over palm]
+    G -->|none, or two+| C{palm?}
     C -->|pen active/in grace, or<br/>palm-sized within PEN_SIZE_ARM_MS| S[stopImmediatePropagation<br/>swallow]
     C -->|otherwise| A
     I -->|palm| S
@@ -335,17 +335,116 @@ touches are down; a lone touch falls to OrbitControls' single-finger rotate. If
 the arbiter ever swallowed exactly one finger of a two-finger gesture, the
 survivor would spin the camera — the "spazzing" a stylus user hits when a
 palm-sized fingertip, or a flickering pen hover/grace state, splits the pair.
-So only the first contact of a fresh group is classified from scratch; any touch
-that lands while another is already down **inherits** the group verdict (admit
-wins over palm). A resting hand is still rejected because its contacts open the
-group as palm (the pencil is the active tool, and a lone palm never lifts, so
-the group stays palm across long pauses between strokes). To keep a dropped
-`pointerup` (an iPad that never delivers the palm's lift) from stranding a
-`palm` verdict that every later finger would inherit — locking out all touch —
-stale verdicts and a stuck pen-down latch are reclaimed by timeout
+So a touch landing while **exactly one** other is down **inherits** the group
+verdict (admit wins over palm). A resting hand is still rejected because its
+contacts open the group as palm (the pencil is the active tool, and a lone palm
+never lifts, so the group stays palm across long pauses between strokes).
+
+**The inheritance stops at the pair.** Once two touches are down, a further
+contact cannot split them, so it is classified on its own merits again. This is
+what keeps a palm from _joining_ a live pinch: the two-finger controller
+re-anchors onto whichever contacts remain when a finger lifts, so an admitted
+palm becomes half the gesture the moment a real finger leaves — and the camera
+lurches with the wandering contact patch.
+
+**Synthetic resets are ignored.** The two-finger controller dispatches a
+`pointercancel` per live finger to clear OrbitControls' drag state. Those travel
+the host's capture phase like real events, and taking them at face value emptied
+the live set while both fingers were still down — destroying group coherence at
+the exact moment it mattered. They carry a marker
+([`synthetic-pointer.ts`](scene/synthetic-pointer.ts)) and are skipped by
+everything that models physical contacts.
+
+To keep a dropped `pointerup` (an iPad that never delivers the palm's lift) from
+stranding a `palm` verdict that every later finger would inherit — locking out
+all touch — stale verdicts and a stuck pen-down latch are reclaimed by timeout
 (`TOUCH_VERDICT_STALE_MS`, `PEN_CONTACT_STALE_MS`); a contact really still down
 keeps itself fresh. The user can turn the whole behaviour off from **Settings →
 General → Controls → Palm rejection** (persisted; default on).
+
+### Two-finger gestures: deciding what the user meant
+
+Pinch-dolly, centroid pan and twist-roll are computed from the same two
+contacts, and fingers never move on a clean line — so every pinch carries some
+rotation and every twist carries some separation change. Feeding all three raw
+signals to the camera made a zoom spin the model.
+
+[`TwoFingerGestureTracker`](scene/two-finger-gesture.ts) (pure and unit-tested,
+driven by the DOM bookkeeping in [`controls.ts`](scene/controls.ts)) arbitrates:
+
+```mermaid
+flowchart TD
+    S[sample: dist, angle, centroid] --> ACC[net twist + net separation<br/>ratio, from gesture origin]
+    ACC --> L{separation changed ><br/>ROLL_LOCKOUT_PINCH_RATIO?}
+    L -->|yes| LOCK[roll latched off<br/>for this gesture]
+    L -->|no| E{sustained twist,<br/>wide enough,<br/>rotation > scaling?}
+    E -->|yes| ENG[roll engaged]
+    E -->|not yet| PEND[track angle,<br/>emit no roll]
+    LOCK --> OUT[dolly + pan only]
+    ENG --> OUT2[dolly + pan + roll]
+    PEND --> OUT
+```
+
+Three properties carry the design:
+
+- **Roll must earn its way in, and can be shut out.** Rotation is measured as an
+  _angle_, so its noise floor scales with `1 / separation`: 2 px of tremor reads
+  as 0.6° at 200 px apart but 4.6° at 25 px. Since pinching in drives separation
+  down, a fixed angular threshold gets _easier_ to trip exactly as the user
+  zooms — which is why an ordinary pinch used to spray roll every frame (~16° of
+  unwanted spin on a single measured pinch-in). Roll now engages only after a
+  sustained twist (`ROLL_ENGAGE_ANGLE_RAD`) at a separation where the angle means
+  something (`ROLL_MIN_SEPARATION_PX`), and only while rotation dominates scaling
+  (`ROLL_DOMINANCE_RATIO`). Once separation has changed by
+  `ROLL_LOCKOUT_PINCH_RATIO` the gesture is a pinch **for good** — a latch, not a
+  threshold a jittery frame can beat, and it survives a re-anchor so swapping
+  fingers is not a backdoor.
+- **Rotation and pinch are compared per unit radius, so the test is
+  scale-invariant.** This is what lets a twist be recognised with the fingers
+  close together, and getting it wrong made roll unusable in the hand even after
+  it "worked". Rotating by `θ` moves each fingertip `θ·r`; scaling by `s` moves
+  each fingertip `(s−1)·r`. Dividing out the common `r` leaves **radians against
+  a separation _ratio_**, independent of how far apart the fingers are — the same
+  split UIKit draws between its pinch (scale) and rotation (angle) recognisers.
+  Comparing an _arc length_ against an absolute pixel change instead is biased by
+  the radius: it demanded 6° of twist at a 300 px span but **30°** at 60 px, so a
+  normal pinch-sized grip could never roll. The lockout is a ratio for the same
+  reason — a narrow grip and a wide one should have to pinch equally _hard_, not
+  equally _far_.
+- **Travel is net displacement from the gesture's origin, never summed per-event
+  path length.** This distinction decides whether roll can fire _at all_ on real
+  hardware, and getting it wrong is subtle because it still looks correct in a
+  clean test. A fingertip's reported separation jitters every event, so summing
+  `|Δdist|` integrates the _absolute value_ of that noise and only ever grows: at
+  120 Hz even 0.3 px of jitter crosses a 24 px pinch threshold in **0.58 s**,
+  latching roll off mid-twist before the user has rotated far enough to engage
+  it. Measured from the origin, the same pure twist reads 0.4 px radial against
+  43.6 px tangential. The fixtures in `two-finger-gesture.spec.ts` therefore
+  **model contact jitter deliberately** — a constant-separation twist describes
+  no hardware that exists, and hides exactly this class of bug.
+- **Dead zones accumulate, they do not discard.** Each channel keeps its own
+  anchor and moves it only when it actually applies motion, so sub-threshold
+  movement is stored rather than thrown away. The previous code re-based every
+  anchor each event, silently deleting anything below the threshold; on a 120 Hz
+  iPad a deliberate slow pinch never reached the 1.5 px per event it needed and
+  the camera simply refused to zoom.
+
+Per-event clamps (`ROLL_MAX_STEP_RAD`, `DOLLY_MAX_STEP_FACTOR`,
+`PAN_MAX_STEP_PX`) absorb discontinuities no hand can produce — a contact patch
+morphing, coalesced events after a stall, or the pair re-anchoring. The pair
+driving the camera is pinned explicitly to the two longest-standing contacts, so
+a third finger never silently displaces one, and a change of pair re-anchors
+without emitting motion.
+
+**Recovering a stranded gesture.** While two fingers are down the controller
+disables OrbitControls, so a lift it never sees leaves the camera dead until a
+reload. Three nets cover that: window-level `pointerup`/`pointercancel` (a
+finger released over the toolbar is delivered to the toolbar, not the canvas),
+`blur`/`visibilitychange` (backgrounding an iPad mid-pinch delivers no lift at
+all), and a staleness sweep on the next `pointerdown` (`TOUCH_STALE_MS`) for
+events the OS drops outright. The sweep deliberately does **not** run on move: a
+stationary finger emits nothing, so a user pausing mid-pinch would have their
+live gesture torn down underneath them.
 
 ### Hand-aware inspector tooltip placement
 

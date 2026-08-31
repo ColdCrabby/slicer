@@ -99,19 +99,41 @@ $default-inset: 40px;
     padding: var(--spacing-md);
     min-height: 0;
 
-    // When the G-code inspector is open, give the slice-control row a clear
-    // visual separation from the inspector content above it.
+    // Bound the card by the room actually above it — titlebar, toolbar and its
+    // own margins — rather than letting the inspector guess with a `vh`
+    // fraction. Guessing is what made a 500px inspector scroll on a landscape
+    // iPad while leaving space unused in portrait: the same fraction is too
+    // small on a short viewport and too large on a tall one. With the card
+    // bounded, the inspector can simply open to its natural height and only
+    // ever scrolls when the space genuinely is not there.
+    max-height: calc(
+      100dvh - var(--titlebar-height, 44px) - env(safe-area-inset-top, 0px) - var(
+          --main-scene-inset,
+          #{$default-inset}
+        ) - var(--spacing-md) - var(--main-scene-inset, #{$default-inset})
+    );
+
+    // Once the G-code inspector is present, give the slice-control row a clear
+    // visual separation from the content above it. Keyed to the inspector's
+    // header rather than its open body: folded, the header is still a row above
+    // the Slice button and still needs the rule.
     // Transitions match the inspector expand so nothing jumps mid-animation.
     ::ng-deep nexus-slice-control .slice-block {
       padding-top: 0;
       border-top: 1px solid transparent;
+      // Slice is the reason the card exists: when the card runs out of room the
+      // inspector above gives it up, never this row.
+      flex: none;
       transition:
         padding-top var(--inspector-duration) var(--inspector-ease),
         border-color var(--inspector-duration) var(--inspector-ease);
     }
 
-    &:has(.insp-shell.is-open) ::ng-deep nexus-slice-control .slice-block {
-      padding-top: var(--spacing-md);
+    // A hairline plus a small gap is enough to separate two rows; the larger
+    // gap was sized for separating two *blocks*, and folded it doubled the
+    // header's apparent height.
+    &:has(.insp-toggle) ::ng-deep nexus-slice-control .slice-block {
+      padding-top: var(--spacing-sm);
       border-color: var(--color-border-light);
     }
   }

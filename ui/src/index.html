@@ -199,19 +199,24 @@
         }
       })();
 
-      // Mark phone-sized viewports before first paint, for the same reason as
-      // the theme class: the global overrides keyed to it (see
-      // styles/base/_handheld.scss) must not land a frame late. The Viewport
-      // service keeps it live afterwards; the query here is a copy of
-      // HANDHELD_MEDIA_QUERY and must match it.
+      // Mark phone-sized viewports and touch input before first paint, for the
+      // same reason as the theme class: the global overrides keyed to them (see
+      // styles/base/_handheld.scss and _touch.scss) must not land a frame late.
+      // The Viewport service keeps both live afterwards; the queries here are
+      // copies of HANDHELD_MEDIA_QUERY / COARSE_POINTER_MEDIA_QUERY and must
+      // match them.
       (function () {
         if (!window.matchMedia) return;
-        var q = window.matchMedia(
+        var mark = function (query, className) {
+          if (window.matchMedia(query).matches) {
+            document.documentElement.classList.add(className);
+          }
+        };
+        mark(
           '(max-width: 640px), (max-width: 950px) and (max-height: 500px) and (orientation: landscape)',
+          'is-handheld',
         );
-        if (q.matches) {
-          document.documentElement.classList.add('is-handheld');
-        }
+        mark('(pointer: coarse)', 'is-coarse-pointer');
       })();
 
       // iOS Safari ignores `user-scalable=no` in the viewport meta since

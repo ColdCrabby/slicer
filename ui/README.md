@@ -31,6 +31,7 @@ flowchart LR
 ```
 
 - The Angular app **never reimplements** scene math. Translate, rotate, drop-to-floor, align-face — every gesture becomes a `SceneOp` and is applied by the Rust scene engine compiled to WASM. See [src/scene/README.md](../src/scene/README.md) for the SSOT contract.
+- **A plate holds objects from several files, so every object carries its own `source_id`** and resolves it through [`ModelSourceRegistry`](src/app/services/model-source/model-source-registry.ts). Never answer "which model does this object slice from?" per *plate* — by list position, by "the first upload", or by one path for everything. Every runtime that did got it wrong: the browser slicer refused to slice a second model, the desktop app sliced it as a copy of the first.
 - Schemas and TypeScript types are **generated from the Rust definitions**, not hand-written. See "Generated artifacts" below.
 - The G-code preview is decoded from the same `SliceResult` produced by the CLI's `slice` command.
 
@@ -64,6 +65,8 @@ ui/src/app/
 │   ├── slicer.ts                     high-level slice orchestration
 │   ├── slicer-connection.ts          WebSocket transport (typed messages)
 │   ├── slicer-file.ts                mesh upload (REST), download
+│   ├── workplate-objects/            the one way an object gets onto a plate
+│   ├── model-source/                 object `source_id` → the file it slices from
 │   ├── upload-guard.ts               CanDeactivate guard for in-flight uploads
 │   ├── viewer-control.ts             camera / framing helpers
 │   ├── object-tracker/               per-object UI state
@@ -138,12 +141,25 @@ lands, `pnpm vendor:ui` brings it in.
 
 ---
 
-## Phones
+## Phones and tablets
 
 The desktop layout assumes horizontal room the slicer does not have on a
 handset: a 60px nav rail, a 280px docked settings column and a 380px slice rail
 add up to more than a 390px screen _is_. Rather than a second app, the same
 shell rearranges itself.
+
+A tablet is the case a single "is it small?" flag gets wrong in both directions.
+An iPad has a desktop's width and a phone's input. Treat it as a phone and it
+loses a docked settings column it has ample room for; treat it as a desktop —
+which is what a lone `handheld()` did — and every panel that floats over the
+plate stays open forever, with no cursor to dismiss it, over targets sized for a
+mouse. So the shell asks three separate questions and answers them independently.
+
+| Question                               | CSS                | TypeScript          | True on                       |
+| -------------------------------------- | ------------------ | ------------------- | ----------------------------- |
+| May the layout keep its desktop shape? | `handheld()`       | `isHandheld()`      | phones                        |
+| Must chrome over the scene fold away?  | `compact()`        | `isCompact()`       | phones, tablets, ≤1024px      |
+| How big must a target be?              | `coarse-pointer()` | `isCoarsePointer()` | phones, tablets, touchscreens |
 
 ```mermaid
 flowchart LR
@@ -151,34 +167,72 @@ flowchart LR
       direction LR
       dr[nav rail] --- ds[settings column] --- dsc[scene] --- drc[slice rail]
     end
+    subgraph T["Tablet"]
+      direction LR
+      tr[nav rail] --- ts[settings drawer] --- tsc[scene] --- trc[folded rail]
+    end
     subgraph P["Phone"]
       direction TB
       pt[toolbar] --- psc[scene] --- prc[slice sheet] --- pn[tab bar]
     end
-    D -->|"handheld()"| P
+    D -->|"compact()"| T
+    T -->|"handheld()"| P
 ```
 
-- **One definition of "phone".** [`styles/_breakpoints.scss`](src/styles/_breakpoints.scss)
-  provides `handheld()` — 640px wide, plus a bounded short-landscape arm for a
-  handset held sideways. Tablets keep the desktop layout: an iPad has the width
-  for a docked column and the pointer precision for the gizmos. Anything that
-  adapts goes through the mixin, so the layout switches over as one piece.
-- **CSS decides the layout; TypeScript decides the controls.**
-  [`services/viewport.ts`](src/app/services/viewport.ts) answers the same
-  question for code that must _not render_ something (the projection toggle, the
-  operation-pipeline inspector, the sidebar's docked state). Its query string is
-  a copy of the mixin's and **must stay identical**. Layout itself stays in media
-  queries so a phone lays out correctly before any script runs.
-- **`html.is-handheld` is for the shared components only.**
-  [`styles/base/_handheld.scss`](src/styles/base/_handheld.scss) adapts
-  `@coldcrabby/ui` primitives we do not own — stacking `nexus-field-row`,
-  growing 34px controls to 40px, trimming modal gutters. A component's own
-  `:host` block compiles to an attribute selector, which a plain element
-  selector loses to; the class buys exactly the specificity needed without
-  `!important`. It is set before first paint by the inline script in
-  `index.html`, and `Viewport` keeps it live.
+- **One definition of each.** [`styles/_breakpoints.scss`](src/styles/_breakpoints.scss)
+  holds all three mixins and [`services/viewport.ts`](src/app/services/viewport.ts)
+  holds their three signals. **The query strings are copies of each other and
+  must stay identical** — CSS switches the layout, TypeScript switches the
+  _controls_ (which ones render at all, whether the settings column may dock),
+  and a disagreement shows up as chrome styled for one answer and wired for
+  another. Layout itself stays in media queries so a page lays out correctly
+  before any script runs.
+- **Width and pointer are orthogonal; do not conflate them.** `compact()` is
+  about _room_, `coarse-pointer()` about _precision_. A narrow desktop window
+  needs the first and not the second; a 12.9" iPad needs the second and not
+  obviously the first. Size a target with the pointer, fold a panel with the room.
+- **Source order matters more than usual.** A phone matches all three queries,
+  so where two blocks set the same property at the same specificity the later
+  one wins. Order them **compact → handheld → coarse-pointer**, and prefer
+  setting a value in exactly one of them.
+- **`html.is-handheld` / `html.is-coarse-pointer` are for the shared components
+  only.** [`_handheld.scss`](src/styles/base/_handheld.scss) adapts the layout of
+  `@coldcrabby/ui` primitives we do not own (stacking `nexus-field-row`, trimming
+  modal gutters); [`_touch.scss`](src/styles/base/_touch.scss) adapts their
+  _size_ (34px controls to 44px, an 18px slider thumb to 26px). A component's own
+  `:host` block compiles to an attribute selector, which a plain element selector
+  loses to; the class buys exactly the specificity needed without `!important`.
+  Both are set before first paint by the inline script in `index.html`, and
+  `Viewport` keeps them live.
 
-What changes, and why:
+### Folding the chrome over the plate
+
+Everything that hovers over the 3D scene can be folded to a header, because on a
+tablet there is no cursor to move away from it and on a phone it is most of the
+screen. The pattern is the same in each: a full-width header button with a
+chevron, the one readout worth keeping while folded, and a preference that
+persists once the user states it.
+
+| Panel            | Header keeps | Default folded |
+| ---------------- | ------------ | -------------- |
+| G-code inspector | Layer N / M  | `isCompact()`  |
+| Object list      | Object count | `isCompact()`  |
+
+Until the user folds or unfolds one, the default is derived; afterwards their
+choice is remembered across sessions **and viewports**, because a stated
+preference outranks a guess.
+
+**Unfolded, a panel gets the room that is actually there.** The rail card is
+bounded by `100dvh` minus the chrome above it — titlebar, safe area, toolbar
+inset, its own margins — and the inspector opens to its natural height inside
+that, so on any iPad the whole legend and both sliders are visible without
+scrolling. A `vh` fraction cannot do this: the same number is too small in
+landscape and too generous in portrait. When the room genuinely runs out (a short
+desktop window, a phone) the inspector is the thing that shrinks and scrolls —
+`min-height: 0` lets flexbox squeeze it, and `flex: none` on the slice row means
+the Slice button is never what gets clipped.
+
+What changes on a phone specifically, and why:
 
 | Surface               | Phone form               | Reason                                                                                            |
 | --------------------- | ------------------------ | ------------------------------------------------------------------------------------------------- |
@@ -192,6 +246,120 @@ What changes, and why:
 | Viewport cube         | Hidden                   | A click-and-drag widget with no touch equivalent, in the corner a phone can least spare           |
 | Projection · pipeline | Hidden                   | Eleven pill buttons do not fit; neither is part of getting a model sliced                         |
 | Object list           | Collapsible chip         | Expanded it covers a third of the plate it describes                                              |
+
+### The edge tab, and why hover is armed by geometry
+
+Collapsed, the settings drawer leaves a **"Print settings" tab** on the left
+edge. Two things about it are deliberate:
+
+- **It hangs just under the toolbar, not at `top: 50%`.** Vertically centred is
+  precisely where the model sits, which is the worst place for a permanent
+  affordance. The dock nub shares the same anchor, so toggling the drawer changes
+  the control's form without moving it. Its hover state is **tone and elevation
+  only, never a transform** — the tab's left edge is flush against the nav rail,
+  so nudging it sideways tears a gap open between the two.
+- **The peek has no backdrop.** The scrim element stays (it is what gives touch a
+  tap-outside-to-close gesture) but it is fully transparent: a peek is not a
+  modal, and the point of peeking at the settings is to keep watching the plate
+  while you change them.
+- **The tab does not arm the hover peek — the pointer's own position does.**
+  While the peek was armed by the host's own `mouseenter`, hovering the tab
+  opened the drawer, which unmounted the tab, which put the pointer on the scene,
+  which fired the matching `mouseleave` — open, close, open. Arming now reads
+  `clientX` from a document `pointermove` while the panel is collapsed, so there
+  is no element to unmount. **Do not "simplify" this back to an invisible edge
+  strip**: the strip would need `pointer-events: auto` to receive `mouseenter`,
+  the collapsed host is zero-width, and it would therefore lie over the leftmost
+  slice of the 3D scene for its whole height — swallowing camera drags,
+  click-to-select and, since the sidebar is a _sibling_ of `<main>`, file drops.
+  Closing is the same idea: pointer geometry measured against the panel's edge,
+  not `mouseleave`, because a panel that mounts, unmounts and slides under a
+  stationary pointer emits enter/leave pairs that say nothing about intent.
+
+---
+
+## Touch and pen
+
+A tablet keeps the desktop *layout* — it has the width — but not the desktop
+*pointer*. Everything below is about the second half, and lives behind
+`Viewport.isCoarsePointer()` rather than `isHandheld()`.
+
+```mermaid
+flowchart TB
+    down["pointerdown"] --> hit{"raycast hit?"}
+    hit -->|object| grab{"selected object,<br/>translate mode,<br/>touch or pen?"}
+    hit -->|empty| press2["press: null"]
+    grab -->|yes| claim["press: hitId<br/>camera shut out"]
+    grab -->|no| press["press: hitId<br/>camera keeps it"]
+    claim --> drift{"drift &gt; slop?"}
+    press --> drift
+    press2 --> drift
+    drift -->|no, held 500ms| menu["context menu"]
+    drift -->|no, lifted| act["select / clear"]
+    drift -->|"yes, and claimed"| drag["slide across bed"]
+    drift -->|"yes, otherwise"| orbit["camera orbits"]
+```
+
+Everything in that flow is [`scene/selection.ts`](src/app/components/viewer/scene/selection.ts).
+The rules worth knowing before editing it:
+
+- **Tap slop is per pointer type** (`TAP_SLOP_PX`): 4px for a mouse, 9 for a pen,
+  16 for a finger. One mouse-sized threshold for all three is what made tapping a
+  model on an iPad do nothing at all — a fingertip is a ~10mm disc whose reported
+  centre wanders as the skin flattens, so most real taps drifted past it and were
+  discarded as drags. Any change here is a change to whether touch selection
+  works; [`selection.spec.ts`](src/app/components/viewer/scene/selection.spec.ts)
+  pins it.
+- **A tap resolves on the lift, never the press.** That is what lets a
+  mis-aimed press be dragged off to cancel — including in pull-to-floor, where
+  the press only *paints* the candidate face (there is no hover on touch to paint
+  it earlier) and the lift commits it.
+- **Additive selection has no modifier on touch**, so `ViewerControl.additiveSelection`
+  is a real mode, toggled from the tool cluster and offered only on
+  touch-primary devices with more than one object on the plate. Without it a
+  multi-object selection could only be built from the objects list.
+- **The long press is the right-click.** iOS never fires `contextmenu` for one,
+  so it is recognised from the press itself; the menu is asked for through
+  `SceneSelectionHandlers.contextMenu`, and the viewer decides what goes in it.
+  **Right-click is driven off the button's press and release, not the
+  `contextmenu` event** — Windows raises that after the button comes up and macOS
+  the moment it goes down, so only the button's own travel can tell a right
+  *click* from the right *drag* that pans the camera.
+- **Direct drag is deliberately narrow**: touch or pen, translate mode, and an
+  object that is *already* selected. Requiring a prior tap means a model can
+  never be shoved across the plate by a stray swipe, and drag-to-orbit stays
+  available everywhere else.
+- **OrbitControls listens on the same canvas without capture**, and at the target
+  the DOM runs capture-flagged listeners before non-capture ones *whatever the
+  registration order*. So a `stopPropagation()` from `SceneSelection`'s capture
+  handler at `pointerdown` stops the camera starting a rotate at all — which is
+  why the drag needs no hand-off once it begins. It is applied only to a press
+  the drag will claim; every other press on a model is let through, because
+  dragging from a model the user has not picked used to do nothing, making a
+  dead zone of most of the scene. A bubble-phase probe in the spec pins both
+  directions; break the invariant and the view spins under the dragged object.
+- **The lift is never stopped**, whatever the press turned out to be. Since only
+  *some* presses are withheld, blocking a `pointerup` strands OrbitControls
+  mid-gesture in the ones it *was* let into: its pointer-up handler lives on the
+  **document**, so a stop at the canvas reaches it, and without it the pointer
+  stays tracked, `state` never returns to `NONE`, and the next button-less move
+  orbits the view — on touch, the next single finger reads as a second contact
+  and one-finger orbit dies outright. The only surviving stops are on
+  `pointermove` inside a live drag, whose `pointerdown` was withheld too, so a
+  bubble consumer is absent for the whole gesture rather than half of it.
+- **Palm rejection sits above all of it** in
+  [`scene/pointer-arbiter.ts`](src/app/components/viewer/scene/pointer-arbiter.ts),
+  on the host element in the capture phase, so a resting wrist never reaches any
+  of these handlers.
+
+| Surface        | Touch form                     | Reason                                                                    |
+| -------------- | ------------------------------ | ------------------------------------------------------------------------- |
+| Tap on a model | Selects it                     | The objects list was the only working path                                |
+| Multi-select   | Tool-cluster toggle            | There is no ⌘/Ctrl to hold                                                 |
+| Long press     | Object / plate context menu    | Puts duplicate, drop, centre, remove where the model is                   |
+| Selected model | Drags across the bed           | Three axis arrows inside one contact patch is a coin toss                 |
+| Gizmo          | Scaled up (`setSize` 1.4)      | Scaling the helper scales its pickable geometry with it                   |
+| Object list    | Starts folded, 44px rows       | It sits on the plate it describes, and cannot be hovered out of the way   |
 
 ---
 

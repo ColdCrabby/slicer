@@ -437,15 +437,19 @@
 }
 
 /* ── Phone ────────────────────────────────────────────────────────────────
-   In the bottom sheet this row is the primary action bar, so its targets grow
-   to a comfortable size — and the model name yields the space, since it is
-   already named in the title bar above. */
+   In the bottom sheet this row is the primary action bar, so the model name
+   yields space, since it is already named in the title bar above. Height comes
+   from the coarse-pointer rule below, which covers phones too. */
 @include handheld {
   .slice-btn {
-    height: 44px;
     min-width: 96px;
   }
+}
 
+/* Slice is the reason the app exists and Download is what you do next; on a
+   tablet both sat at the 40px cursor size. */
+@include coarse-pointer {
+  .slice-btn,
   .download-btn,
   .send-split {
     height: 44px;

@@ -28,6 +28,14 @@ export interface RuntimeMeshInput {
   /** Absolute filesystem path when the file was selected via native dialog.
    *  When set, the Tauri runtime passes only this path to Rust (no bytes over IPC). */
   filePath?: string;
+  /**
+   * Handle to stamp on every object this file produces.
+   *
+   * Supplied when the id is already decided — an uploaded file's UUID, or a
+   * handle already minted in the {@link ModelSourceRegistry}. Omitted, the
+   * runtime mints one, so an object is never left unable to name its own file.
+   */
+  sourceId?: string;
 }
 
 export interface RuntimeSceneObject {

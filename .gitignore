@@ -33,7 +33,12 @@ ui-desktop/src-tauri/gen/apple/build/
 ui-desktop/src-tauri/gen/apple/Externals/
 ui-desktop/src-tauri/gen/apple/Pods/
 ui-desktop/src-tauri/gen/apple/.tauri/
-ui-desktop/src-tauri/gen/apple/*.xcodeproj/project.xcworkspace/
+# `project.xcworkspace/contents.xcworkspacedata` is part of the project, not user
+# state: `tauri ios build` passes it to `xcodebuild -workspace`, so a checkout
+# without it fails with "project.xcworkspace does not exist". Only the per-user
+# and Xcode-managed files beneath it are ignored.
+ui-desktop/src-tauri/gen/apple/*.xcodeproj/project.xcworkspace/xcuserdata/
+ui-desktop/src-tauri/gen/apple/*.xcodeproj/project.xcworkspace/xcshareddata/
 ui-desktop/src-tauri/gen/apple/*.xcodeproj/xcuserdata/
 ui-desktop/src-tauri/gen/apple/*.xcworkspace/xcuserdata/
 

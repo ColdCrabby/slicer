@@ -5,7 +5,7 @@ use crate::mesh::types::Mesh;
 use crate::settings::params::{SeamPosition, SlicingParams};
 
 use super::infill::{add_infill_to_layers, calculate_interior_region, InfillConfig};
-use super::slicer::slice_mesh;
+use super::slicer::slice_mesh_with_first_layer;
 use super::surfaces::{
     generate_top_bottom_surfaces_with_interior, perimeter_paths_of, prune_redundant_gap_fill,
     SurfaceConfig,
@@ -20,6 +20,10 @@ fn monotonic_surface_role(role: ExtrusionRole, params: &SlicingParams) -> bool {
     match role {
         ExtrusionRole::TopSurface => params.top_surface_pattern.is_monotonic(),
         ExtrusionRole::BottomSurface => params.bottom_surface_pattern.is_monotonic(),
+        // Ironing is a uniform one-way sweep by construction — reversing any of
+        // its lines would drag the hot nozzle back across a stroke it has just
+        // flattened, which is the whole thing the pass exists to avoid.
+        ExtrusionRole::Ironing => true,
         _ => false,
     }
 }
@@ -64,6 +68,111 @@ fn sparse_infill_config(params: &SlicingParams) -> InfillConfig {
     }
 }
 
+/// True when a raft will be printed under the object.
+///
+/// A raft takes over bed contact entirely, which changes the answer to two
+/// questions elsewhere in this file: the object's first layer is no longer the
+/// one that has to cope with an imperfect bed, and it is no longer the layer a
+/// first-layer height was chosen for.
+fn raft_is_active(params: &SlicingParams) -> bool {
+    params.adhesion_type == crate::settings::params::AdhesionType::Raft && params.raft_layers > 0
+}
+
+/// Thickness of the object's bottom layer, in mm.
+///
+/// `first_layer_height` is a bed-contact remedy, so it is deliberately ignored
+/// when a raft is present: the object then starts on plastic, and the raft's own
+/// layers are documented to print at `layer_height` (see the adhesion module).
+/// Falls back to `layer_height` when unset.
+///
+/// Shared with the G-code generator, which needs the same answer to decide which
+/// layer gets first-layer speeds and temperatures — the two must never disagree
+/// about which layer is the first.
+pub(crate) fn resolved_first_layer_height(params: &SlicingParams) -> f64 {
+    if params.first_layer_height > 0.0 && !raft_is_active(params) {
+        params.first_layer_height
+    } else {
+        params.layer_height
+    }
+}
+
+/// Charge every path on the object's bottom layer at `first_h` rather than the
+/// global layer height.
+///
+/// The slicer has already given that layer its own Z span; this is the flow half
+/// of the same fact. It is applied **after** bed adhesion so a skirt or brim —
+/// which sits on the bed at exactly that layer's Z, and is therefore exactly as
+/// thick — is charged correctly too. `path_heights` is the established per-path
+/// height override, so `extrusion_for_move`, the volumetric-speed cap and the
+/// `;HEIGHT:` marker all pick it up with no further plumbing.
+fn mark_first_layer_height(layers: &mut [SliceLayer], first_h: f64, layer_height: f64) {
+    if (first_h - layer_height).abs() < 1e-9 {
+        return;
+    }
+    let Some(layer) = layers.first_mut() else {
+        return;
+    };
+    // Combined sparse infill never touches layer 0, so nothing else can have
+    // written a height override here; a plain fill keeps the array aligned.
+    layer.path_heights = vec![Some(first_h); layer.paths.len()];
+}
+
+/// Run dimensional compensation and report what it cost.
+///
+/// A no-op unless the user configured a delta, so the default pipeline is
+/// untouched. Losses are logged rather than silently repaired: a compensation
+/// large enough to consume a feature is a compensation the user needs to know
+/// about.
+fn apply_compensation(
+    layers: &mut [SliceLayer],
+    params: &SlicingParams,
+    logger: &dyn ProcessLogger,
+) {
+    let report = super::compensation::apply_dimensional_compensation(
+        layers,
+        params.xy_size_compensation,
+        params.xy_hole_compensation,
+    );
+    if report == super::compensation::CompensationReport::default() {
+        return;
+    }
+    logger.log_debug(&format!(
+        "applied dimensional compensation (size {:+.3}mm, hole {:+.3}mm)",
+        params.xy_size_compensation, params.xy_hole_compensation
+    ));
+    if report.emptied_layers > 0 {
+        logger.log_warn(&format!(
+            "dimensional compensation removed every contour from {} layer(s) — the shrink is \
+             larger than those cross-sections",
+            report.emptied_layers
+        ));
+    }
+}
+
+/// Shrink the layers at the bed to undo the first layer's squish.
+///
+/// Runs immediately after [`apply_compensation`], in the same raw-contour
+/// window. A no-op unless the user configured a shrink — and, unlike the XY
+/// deltas, it is also skipped on a raft, where the first layer never meets the
+/// plate.
+fn apply_elephant_foot(
+    layers: &mut [SliceLayer],
+    params: &SlicingParams,
+    logger: &dyn ProcessLogger,
+) {
+    let Some(config) = super::compensation::ElephantFootConfig::resolve(params) else {
+        return;
+    };
+    logger.log_debug(&format!(
+        "applying elephant-foot compensation ({:.3}mm over {} layer(s), \
+         features kept at ≥{:.2}mm)",
+        config.shrink_mm, config.layers, config.min_contour_width_mm
+    ));
+    let timer = PhaseTimer::start(phases::ELEPHANT_FOOT, logger);
+    super::compensation::apply_elephant_foot(layers, &config);
+    timer.finish();
+}
+
 /// Central entry point for the complete slicing pipeline.
 ///
 /// This function processes a mesh through the entire slicing pipeline, including
@@ -105,7 +214,8 @@ pub fn process_mesh(
 
     let t_slicing = PhaseTimer::start(phases::SLICING, logger);
     logger.log_debug("slicing mesh…");
-    let mut layers = slice_mesh(mesh, params.layer_height);
+    let first_h = resolved_first_layer_height(params);
+    let mut layers = slice_mesh_with_first_layer(mesh, params.layer_height, first_h);
     logger.log_info(&format!("sliced into {} layers", layers.len()));
     t_slicing.finish();
 
@@ -114,22 +224,11 @@ pub fn process_mesh(
         return layers;
     }
 
-    // Correct the raw contours before anything is built from them. Walls,
-    // interior, surfaces and infill are all derived from these shapes, so
-    // compensating here corrects the whole layer in one move — and skips
-    // entirely (no allocation, no offset) when neither correction is
-    // configured, which is the default.
-    if let Some(compensation) = super::compensation::CompensationConfig::resolve(params) {
-        logger.log_debug(&format!(
-            "compensating contours (xy: {:+.3} mm, elephant foot: {:.3} mm over {} layer(s))",
-            compensation.xy_size_mm,
-            compensation.elephant_foot_mm,
-            compensation.elephant_foot_layers
-        ));
-        let t_compensation = PhaseTimer::start(phases::DIMENSIONAL_COMPENSATION, logger);
-        super::compensation::apply_with_config(&mut layers, &compensation);
-        t_compensation.finish();
-    }
+    // Dimensional compensation, on the raw contours and nowhere else: every
+    // later stage measures from the contour the wall generator consumed, so
+    // correcting it here leaves all of those relations intact.
+    apply_compensation(&mut layers, params, logger);
+    apply_elephant_foot(&mut layers, params, logger);
 
     // Generate walls FIRST from the raw mesh contours
     logger.log_debug(&format!(
@@ -288,6 +387,10 @@ pub fn process_mesh(
                 top_pattern: params.top_surface_pattern,
                 bottom_pattern: params.bottom_surface_pattern,
                 internal_solid_pattern: params.internal_solid_infill_pattern,
+                ironing_enabled: params.ironing_enabled,
+                ironing_type: params.ironing_type,
+                ironing_spacing: params.ironing_spacing,
+                ironing_angle: params.ironing_angle,
             },
             Some(&interior_regions),
         );
@@ -594,6 +697,10 @@ pub fn process_mesh(
         t_adhesion.finish();
     }
 
+    // The flow half of a thicker first layer, applied last so the skirt or brim
+    // sharing that layer's Z is charged at the same height the object is.
+    mark_first_layer_height(&mut layers, first_h, params.layer_height);
+
     layers
 }
 
@@ -636,14 +743,14 @@ pub fn process_mesh_debug(
         mesh.faces.len()
     ));
 
-    let mut layers = slice_mesh(mesh, params.layer_height);
+    let first_h = resolved_first_layer_height(params);
+    let mut layers = slice_mesh_with_first_layer(mesh, params.layer_height, first_h);
     logger.log_info(&format!("sliced into {} layers", layers.len()));
 
-    // Compensate before the snapshot, so `RawContours` shows exactly the shapes
-    // the wall generator is about to receive.
-    if let Some(compensation) = super::compensation::CompensationConfig::resolve(params) {
-        super::compensation::apply_with_config(&mut layers, &compensation);
-    }
+    // Both compensation passes run before the snapshot, so `RawContours` shows
+    // exactly the shapes the wall generator is about to receive.
+    apply_compensation(&mut layers, params, logger);
+    apply_elephant_foot(&mut layers, params, logger);
 
     // Snapshot raw contours.
     for (i, layer) in layers.iter().enumerate() {
@@ -732,6 +839,10 @@ pub fn process_mesh_debug(
                 top_pattern: params.top_surface_pattern,
                 bottom_pattern: params.bottom_surface_pattern,
                 internal_solid_pattern: params.internal_solid_infill_pattern,
+                ironing_enabled: params.ironing_enabled,
+                ironing_type: params.ironing_type,
+                ironing_spacing: params.ironing_spacing,
+                ironing_angle: params.ironing_angle,
             },
             Some(&interior_regions),
         );
@@ -800,6 +911,8 @@ pub fn process_mesh_debug(
     ));
 
     crate::flow::compensate(&mut layers, params);
+
+    mark_first_layer_height(&mut layers, first_h, params.layer_height);
 
     layers
 }

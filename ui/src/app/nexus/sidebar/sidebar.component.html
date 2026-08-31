@@ -24,7 +24,7 @@
   ></button>
 }
 
-<div class="sidebar-panel">
+<div class="sidebar-panel" #panel>
   <div class="sidebar-content" #scrollContainer (scroll)="onContentScroll($event)">
     <div class="sidebar-content-inner">
       <ng-content />
@@ -52,6 +52,13 @@
 </div>
 
 @if (collapsed() && !isExpanded()) {
+  <!-- The tab is a click target and nothing more. Hover-peek is armed from the
+       pointer's position (see `armEdgeHover` in the component), never from an
+       element: while the peek was armed by the host's own `mouseenter`, hovering
+       this tab opened the drawer, which unmounted the tab, which put the pointer
+       on the scene, which fired the matching `mouseleave` — open, close, open.
+       Arming by geometry has no element to unmount, and lays nothing invisible
+       over the plate. -->
   <button
     class="sidebar-reveal-hint"
     type="button"

@@ -69,9 +69,8 @@ that touch nothing are wasted plastic and a worse surface.
 | **Infill** | Density, pattern, angle |
 | **Support** | On/off, type, density, overhang threshold |
 | **Speed** | Per-role print speeds and travel speed |
-| **Quality** | Ironing, spiral (vase) mode, other finish options |
-| **Dimensions** | Corrections for parts that come out the wrong size: overall XY, and the bulge at the bed |
-| **Surfaces** | Top and bottom solid layer counts, surface fill behaviour |
+| **Quality** | Bridging, dimensional compensation, other accuracy options |
+| **Surfaces** | Top and bottom solid layer counts, surface fill, ironing |
 | **Adhesion** | Skirt, brim, raft |
 | **Objects** | Print order, G-code run between objects |
 | **Thumbnail** | The preview image embedded in the G-code file |
@@ -93,54 +92,82 @@ doesn't use — so the panel never offers you a control that would do nothing.
 
 ## Two special modes
 
-**Spiral (vase) mode** (Process → Quality) prints a single continuous wall that
+**Spiral (vase) mode** (Process → Walls) prints a single continuous wall that
 climbs as it goes — no seam, no layer changes. For open, single-walled models
 only. Turning it on forces the settings it's incompatible with (extra walls,
 infill, top layers, retraction) off for you, and keeps your bottom layers as the
 base.
 
-**Ironing** (Process → Quality) makes a second, hot, barely-extruding pass over
+**Ironing** (Process → Surfaces) makes a second, hot, barely-extruding pass over
 top surfaces to smooth them. Slow, and only worth it on visible flat tops.
 
-## When parts come out the wrong size
+::: details Advanced — tuning the ironing pass
+**Type** chooses what gets swept: every top surface, only the single highest one
+(much faster on a tall model, and usually the only face anyone sees), or all
+solid surfaces.
 
-Two corrections live in Process → Dimensions. Both are off until you set them.
+**Flow** is how much material the pass adds, as a percentage of a normal bead —
+around 10 % is enough to re-melt the surface without raising it. **Spacing** is
+how far apart the passes run; well under a bead width is what flattens the
+ridges between them. **Speed** should stay low, because the nozzle needs dwell
+time to melt what it crosses. **Angle** defaults to following the layer's own
+fill direction; set an explicit angle to cross the fill instead, which flattens
+it more effectively.
+:::
 
-**Elephant foot** is the flare at the very bottom of a print. The first layer is
-deliberately squashed into the bed to make it stick, so it spreads sideways and
-the base measures a few tenths oversize — enough that a part won't sit flat, or
-won't drop into the hole it was designed for.
+## Getting parts to the right size
 
-Measure the bulge with calipers, halve it, and put that in **Elephant foot
-compensation**. 0.1–0.2 mm covers most machines. Only the first layer is
-corrected, because only the first layer is squashed.
+A printer lays a bead slightly wider than asked, so parts come out a little
+large and holes a little tight. Both are consistent for a given machine, so both
+can be measured once and corrected (Process → Quality).
+
+**XY size compensation** grows or shrinks every contour by a fixed amount. Print
+a test cube, measure it, and set the difference as a negative value if the cube
+came out oversized. Because the material spreads inward as well as outward, this
+also tightens holes.
+
+**Hole compensation** adjusts holes on their own, so a peg that will not fit can
+be freed without changing the outside of the part.
+
+Both default to off. Start from a measurement, not a guess — and keep the values
+small; a shrink larger than a thin feature will erase it, which the slice log
+warns you about.
+
+### The flare at the very bottom
+
+**Elephant foot compensation** fixes a different problem from the two above. The
+first layer is deliberately squashed into the bed to make it stick, so it
+spreads sideways and only the base measures oversize — enough that a part won't
+sit flat, or won't drop into the hole it was designed for. XY size compensation
+would shrink the whole part to fix the bottom of it.
+
+Measure the bulge with calipers, halve it, and put that in. 0.1–0.2 mm covers
+most machines. Only the first layer is corrected, because only the first layer
+is squashed.
 
 ::: tip It won't eat your first-layer detail
 Shrinking the first layer sounds like it should wipe out embossed text and thin
 logo strokes — that's what a plain shrink does. This one measures how thin the
 geometry is at each point and simply stops there, so a fine feature keeps its
 width while the walls around it are corrected in full. It also leaves the base
-alone where the model is *already* narrower at the bottom than above, and skips
-itself entirely when you print on a raft, where nothing touches the bed.
+alone where the model already flares outward above it, and skips itself entirely
+when you print on a raft, where nothing touches the bed.
 :::
 
-::: details Fine-tuning it
+::: details Advanced — tuning the correction
 **Elephant foot layers** spreads the correction over more than one layer,
 ramping it to zero. Leave it at 1 unless a large correction leaves a visible
 step at the second layer.
 
 **Minimum contour width** is the width the correction will never shrink a
 feature below. Left at 0 it works this out from your wall width; raise it to
-protect chunkier detail.
+protect chunkier detail, lower it for a more literal correction.
 :::
 
-**XY size compensation** is the other one — a straight offset applied to the
-*whole* model, for a machine that prints consistently over- or undersize. Use a
-negative value if parts come out too big. It moves holes with the walls, so a
-negative value widens holes by the same amount it narrows the outside.
-
-Reach for elephant foot first: if only the bottom few layers are wrong, XY
-compensation would shrink the entire part to fix them.
+**First layer height** (Process → Extrusion) prints the bottom layer thicker
+than the rest. The extra material absorbs what mesh bed levelling only
+approximates, which is why almost every profile sets it. It has no effect when
+you print on a raft, since the raft takes over contact with the bed.
 
 ## Where your settings are saved
 

@@ -9,6 +9,7 @@ mod surfaces;
 mod types;
 mod walls;
 
+pub use compensation::{apply_dimensional_compensation, CompensationReport};
 pub use infill::{add_infill_to_layers, InfillConfig};
 pub use objects::{
     merge_meshes, sequential_order, sequential_warnings, slice_plate, ObjectIdentity, ObjectInput,
@@ -17,7 +18,8 @@ pub use objects::{
 pub use pipeline::process_mesh;
 #[cfg(not(target_arch = "wasm32"))]
 pub use pipeline::process_mesh_debug;
-pub use slicer::slice_mesh;
+pub(crate) use pipeline::resolved_first_layer_height;
+pub use slicer::{slice_mesh, slice_mesh_with_first_layer};
 pub use surfaces::{
     generate_top_bottom_surfaces, generate_top_bottom_surfaces_with_interior, SurfaceConfig,
     SurfaceSubTimings,
@@ -36,12 +38,12 @@ pub use types::{ExtrusionRole, OverhangClass, SliceLayer};
 
 #[cfg(test)]
 mod tests {
-    use super::compensation::{apply_dimensional_compensation, CompensationConfig};
+    use super::compensation::{apply_elephant_foot, ElephantFootConfig};
     use super::surfaces::{add_solid_infill_for_region, generate_rectilinear_infill};
     use super::*;
     use crate::infill::SurfacePattern;
     use crate::mesh::types::{Face, Mesh, Vertex};
-    use crate::settings::params::SlicingParams;
+    use crate::settings::params::{IroningType, SlicingParams};
     use clipper2::{Path, Paths};
 
     /// Build a simple 10×10×10 mm axis-aligned box mesh (12 triangles).
@@ -1475,6 +1477,7 @@ mod tests {
                 bottom_pattern: SurfacePattern::Rectilinear,
                 internal_solid_pattern: SurfacePattern::Rectilinear,
                 min_infill_extrusion_mm: 0.0,
+                ..Default::default()
             },
             None,
         );
@@ -2119,6 +2122,7 @@ mod tests {
                 bottom_pattern: SurfacePattern::Rectilinear,
                 internal_solid_pattern: SurfacePattern::Rectilinear,
                 min_infill_extrusion_mm: 0.0,
+                ..Default::default()
             },
             None,
         );
@@ -2184,6 +2188,7 @@ mod tests {
                 bottom_pattern: SurfacePattern::Rectilinear,
                 internal_solid_pattern: SurfacePattern::Rectilinear,
                 min_infill_extrusion_mm: 0.0,
+                ..Default::default()
             },
             None,
         );
@@ -2247,6 +2252,7 @@ mod tests {
             bottom_pattern: SurfacePattern::Rectilinear,
             internal_solid_pattern: SurfacePattern::Rectilinear,
             min_infill_extrusion_mm: 0.0,
+            ..Default::default()
         };
 
         let dup = layers_no_anchor[0].clone();
@@ -2355,6 +2361,7 @@ mod tests {
                 bottom_pattern: SurfacePattern::Rectilinear,
                 internal_solid_pattern: SurfacePattern::Rectilinear,
                 min_infill_extrusion_mm: 0.0,
+                ..Default::default()
             },
             Some(&interior_regions),
         );
@@ -2421,6 +2428,7 @@ mod tests {
                 bottom_pattern: SurfacePattern::Rectilinear,
                 internal_solid_pattern: SurfacePattern::Rectilinear,
                 min_infill_extrusion_mm: 0.0,
+                ..Default::default()
             },
             None,
         );
@@ -2545,6 +2553,7 @@ mod tests {
                 bottom_pattern: SurfacePattern::Rectilinear,
                 internal_solid_pattern: SurfacePattern::Rectilinear,
                 min_infill_extrusion_mm: 0.0,
+                ..Default::default()
             },
             None,
         );
@@ -2652,6 +2661,7 @@ mod tests {
                 bottom_pattern: SurfacePattern::Rectilinear,
                 internal_solid_pattern: SurfacePattern::Rectilinear,
                 min_infill_extrusion_mm: 0.0,
+                ..Default::default()
             },
             None,
         );
@@ -2749,6 +2759,7 @@ mod tests {
                 bottom_pattern: SurfacePattern::Rectilinear,
                 internal_solid_pattern: SurfacePattern::Rectilinear,
                 min_infill_extrusion_mm: 0.0,
+                ..Default::default()
             },
             Some(&interior_regions),
         );
@@ -2837,6 +2848,7 @@ mod tests {
                     bottom_pattern: SurfacePattern::Rectilinear,
                     internal_solid_pattern: SurfacePattern::Rectilinear,
                     min_infill_extrusion_mm: 0.0,
+                    ..Default::default()
                 },
                 Some(&interior_regions),
             );
@@ -2867,23 +2879,221 @@ mod tests {
              suppress real bridges."
         );
     }
+
+    // ── First-layer height ────────────────────────────────────────────────────
+
+    /// The bottom layer spans `first_layer_height`; everything above it is
+    /// spaced normally. Planes are sampled at the middle of the material each
+    /// layer lays down, so the first sits at `first_h/2` and the second a full
+    /// half of each height above it.
+    #[test]
+    fn first_layer_height_moves_only_the_bottom_of_the_stack() {
+        let mesh = make_cube_mesh();
+
+        let layers = slice_mesh_with_first_layer(&mesh, 0.2, 0.3);
+
+        assert!((layers[0].z - 0.15).abs() < 1e-9, "got {}", layers[0].z);
+        assert!((layers[1].z - 0.40).abs() < 1e-9, "got {}", layers[1].z);
+        assert!((layers[2].z - 0.60).abs() < 1e-9, "got {}", layers[2].z);
+    }
+
+    /// The whole point of keeping the mid-plane convention: an unset first-layer
+    /// height must reproduce the old slicer plane-for-plane, or every committed
+    /// QA baseline moves.
+    #[test]
+    fn an_equal_first_layer_height_is_indistinguishable_from_a_uniform_slice() {
+        let mesh = make_cube_mesh();
+
+        let uniform = slice_mesh(&mesh, 0.2);
+        let explicit = slice_mesh_with_first_layer(&mesh, 0.2, 0.2);
+
+        assert_eq!(uniform.len(), explicit.len());
+        for (a, b) in uniform.iter().zip(explicit.iter()) {
+            assert!((a.z - b.z).abs() < 1e-12, "{} vs {}", a.z, b.z);
+        }
+    }
+
+    /// Geometry is only half of a thicker first layer — the flow has to match,
+    /// or the engine announces 0.3mm and extrudes for 0.2mm.
+    #[test]
+    fn first_layer_height_is_charged_at_its_own_height() {
+        let mesh = make_cube_mesh();
+        let params = SlicingParams {
+            layer_height: 0.2,
+            first_layer_height: 0.3,
+            ..SlicingParams::default()
+        };
+
+        let layers = process_mesh(&mesh, &params, &crate::logging::NullLogger);
+
+        assert!(
+            (0..layers[0].paths.len()).all(|i| layers[0].height_for_path(i) == Some(0.3)),
+            "every path on the bottom layer must be charged at the first-layer height"
+        );
+        assert!(
+            layers[1].path_heights.iter().all(|h| h.is_none()),
+            "layers above the first must keep the global layer height"
+        );
+    }
+
+    /// A raft takes over bed contact, so the remedy for an imperfect bed no
+    /// longer applies to the object — and the raft's own layers are documented
+    /// to print at `layer_height`.
+    #[test]
+    fn a_raft_suppresses_the_first_layer_height() {
+        let mesh = make_cube_mesh();
+        let params = SlicingParams {
+            layer_height: 0.2,
+            first_layer_height: 0.3,
+            adhesion_type: crate::settings::params::AdhesionType::Raft,
+            raft_layers: 2,
+            ..SlicingParams::default()
+        };
+
+        let layers = process_mesh(&mesh, &params, &crate::logging::NullLogger);
+
+        assert!(
+            layers[0].path_heights.iter().all(|h| h.is_none()),
+            "no layer may be re-charged when a raft owns the bed contact"
+        );
+    }
+
+    // ── Ironing ───────────────────────────────────────────────────────────────
+
+    fn ironed(params_fn: impl FnOnce(&mut SlicingParams)) -> Vec<SliceLayer> {
+        let mesh = make_cube_mesh();
+        let mut params = SlicingParams {
+            ironing_enabled: true,
+            ..SlicingParams::default()
+        };
+        params_fn(&mut params);
+        process_mesh(&mesh, &params, &crate::logging::NullLogger)
+    }
+
+    fn ironing_paths(layers: &[SliceLayer]) -> usize {
+        layers
+            .iter()
+            .map(|l| {
+                l.path_roles
+                    .iter()
+                    .filter(|r| **r == ExtrusionRole::Ironing)
+                    .count()
+            })
+            .sum()
+    }
+
+    #[test]
+    fn ironing_off_by_default_emits_nothing() {
+        let mesh = make_cube_mesh();
+        let layers = process_mesh(
+            &mesh,
+            &SlicingParams::default(),
+            &crate::logging::NullLogger,
+        );
+        assert_eq!(ironing_paths(&layers), 0);
+    }
+
+    #[test]
+    fn ironing_sweeps_the_top_surface_when_enabled() {
+        let layers = ironed(|_| {});
+        assert!(
+            ironing_paths(&layers) > 0,
+            "an enabled ironing pass must produce Ironing paths"
+        );
+    }
+
+    /// Ironing is a surface *treatment*, not solid material. If its footprint
+    /// ever reached `solid_regions`, `add_infill_to_layers` would subtract it
+    /// (grown by a full bead) and punch a hole in the sparse infill below.
+    #[test]
+    fn ironing_never_becomes_an_infill_boundary() {
+        let plain = process_mesh(
+            &make_cube_mesh(),
+            &SlicingParams::default(),
+            &crate::logging::NullLogger,
+        );
+        let ironed_layers = ironed(|_| {});
+
+        for (a, b) in plain.iter().zip(ironed_layers.iter()) {
+            assert_eq!(
+                a.solid_regions.len(),
+                b.solid_regions.len(),
+                "ironing must not reshape solid_regions on the layer at z={}",
+                a.z
+            );
+        }
+    }
+
+    /// Sparse infill is generated from `solid_regions`, so the previous
+    /// invariant is only meaningful if the infill itself is untouched too.
+    #[test]
+    fn ironing_leaves_every_other_role_untouched() {
+        let plain = process_mesh(
+            &make_cube_mesh(),
+            &SlicingParams::default(),
+            &crate::logging::NullLogger,
+        );
+        let ironed_layers = ironed(|_| {});
+
+        let count = |layers: &[SliceLayer], role: ExtrusionRole| -> usize {
+            layers
+                .iter()
+                .map(|l| l.path_roles.iter().filter(|r| **r == role).count())
+                .sum()
+        };
+
+        for role in [
+            ExtrusionRole::OuterWall,
+            ExtrusionRole::InnerWall,
+            ExtrusionRole::Infill,
+            ExtrusionRole::TopSurface,
+            ExtrusionRole::BottomSurface,
+        ] {
+            assert_eq!(
+                count(&plain, role),
+                count(&ironed_layers, role),
+                "{role:?} count must not change when ironing is enabled"
+            );
+        }
+    }
+
+    /// `TopmostOnly` is the cheap option — it exists precisely so a tall model
+    /// does not pay for ironing every internal step.
+    #[test]
+    fn topmost_only_irons_a_single_layer() {
+        let all = ironed(|p| p.ironing_type = IroningType::TopSurfaces);
+        let topmost = ironed(|p| p.ironing_type = IroningType::TopmostOnly);
+
+        let layers_with_ironing = |layers: &[SliceLayer]| {
+            layers
+                .iter()
+                .filter(|l| l.path_roles.contains(&ExtrusionRole::Ironing))
+                .count()
+        };
+
+        assert_eq!(layers_with_ironing(&topmost), 1);
+        assert!(layers_with_ironing(&all) >= layers_with_ironing(&topmost));
+    }
+
     /// The pass is off by default, so a default slice must be untouched by it —
     /// this is what keeps the whole QA baseline corpus stable.
     #[test]
-    fn default_params_slice_identically_with_and_without_the_compensation_pass() {
+    fn default_params_slice_identically_with_and_without_the_elephant_foot_pass() {
         let mesh = make_cube_mesh();
         let params = SlicingParams::default();
 
         assert!(
-            CompensationConfig::resolve(&params).is_none(),
-            "default params must resolve to no compensation at all"
+            ElephantFootConfig::resolve(&params).is_none(),
+            "default params must resolve to no elephant-foot correction at all"
         );
 
         // Running the pass explicitly over raw contours must change nothing,
         // so every stage downstream sees exactly what it saw before.
         let untouched = slice_mesh(&mesh, params.layer_height);
         let mut passed_through = untouched.clone();
-        apply_dimensional_compensation(&mut passed_through, &params);
+        if let Some(config) = ElephantFootConfig::resolve(&params) {
+            apply_elephant_foot(&mut passed_through, &config);
+        }
 
         assert_eq!(passed_through.len(), untouched.len());
         for (i, (after, before)) in passed_through.iter().zip(&untouched).enumerate() {

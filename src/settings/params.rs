@@ -443,6 +443,26 @@ pub enum BrimType {
     Ears,
 }
 
+/// Which solid surfaces the ironing pass sweeps.
+///
+/// Mirrors the PrusaSlicer (`top`/`topmost`/`solid`) and OrcaSlicer
+/// (`top surfaces`/`topmost surface only`/`all solid surfaces`) enumerations so
+/// an imported profile maps onto one of these without loss.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum IroningType {
+    /// Every exposed top surface, on any layer (the common case).
+    #[default]
+    TopSurfaces,
+    /// Only the single highest top surface of the model — the one face a
+    /// viewer actually looks down on, at a fraction of the print-time cost.
+    TopmostOnly,
+    /// Every solid surface, including the internal solid floors that brace
+    /// sparse infill. Rarely useful: those surfaces are buried under later
+    /// layers, so the finish is invisible and the time is spent regardless.
+    AllSolid,
+}
+
 /// How a plate holding several objects is printed.
 ///
 /// The developer-facing rationale (how each order flows through the slicing
@@ -2001,20 +2021,27 @@ Caps print speed so the hotend can keep up with the flow.
     pub raft_air_gap: f64,
 
     #[schemars(
-        description = "Signed XY offset in mm applied to every layer's cross-section. `0` = off.
+        description = "Grow (positive) or shrink (negative) every contour by this many mm, on every layer.
 
-Cancels a *systematic* dimensional error of a machine/material pairing: use a
-negative value when parts come out consistently oversize, positive when they
-come out undersize. Holes move with the walls, so a negative value widens them
-by the same amount it narrows the outside.
-
-Applies to the whole height of the model — for the bulge at the bed only, use
-`elephant_foot_compensation_mm` instead.
-**Typical:** −0.10 to +0.10 mm.",
-        extend("x-group" = "Dimensions")
+Corrects a printer that consistently prints parts slightly over- or under-sized.
+Because the material expands inward as well as outward, a positive value also
+makes holes *smaller* — use `xy_hole_compensation` to correct holes separately.
+**Typical:** -0.1 to 0.1. `0` = off.",
+        extend("x-group" = "Quality")
     )]
-    #[serde(default = "SlicingParams::default_xy_size_compensation_mm")]
-    pub xy_size_compensation_mm: f64,
+    #[serde(default = "SlicingParams::default_xy_size_compensation")]
+    pub xy_size_compensation: f64,
+
+    #[schemars(
+        description = "Enlarge (positive) or tighten (negative) holes by this many mm, on every layer.
+
+Applied after `xy_size_compensation` and only to enclosed voids, so a press-fit
+hole can be opened up without changing the part's outside dimensions. **Typical:**
+0 to 0.1. `0` = off.",
+        extend("x-group" = "Quality")
+    )]
+    #[serde(default = "SlicingParams::default_xy_hole_compensation")]
+    pub xy_hole_compensation: f64,
 
     #[schemars(
         description = "Inward shrink in mm applied to the layers nearest the bed. `0` = off.
@@ -2022,51 +2049,102 @@ Applies to the whole height of the model — for the bulge at the bed only, use
 The first layer is squashed into the build plate, so it spreads outward and the
 base of the print measures oversize — the \"elephant foot\". This shrinks it back.
 
-The shrink is **limited by how thin the geometry is** at each point, so embossed
-text, logo strokes and thin ribs on the first layer keep at least
+Unlike `xy_size_compensation` this is **not** a uniform offset: the shrink is
+limited by how thin the geometry is at each point, so embossed text, logo strokes
+and thin ribs on the first layer keep at least
 `elephant_foot_min_contour_width_mm` of width instead of being erased. It is also
-withheld where the model itself already flares outward, so a narrow base under a
+withheld where the model itself flares steeply outward, so a narrow base under a
 wide body is never undercut, and it is skipped entirely when printing on a raft.
 
-**Typical:** 0.10–0.20 mm. Measure the bulge with calipers and halve it.",
-        extend("x-group" = "Dimensions")
+**Typical:** 0.10-0.20 mm. Measure the bulge with calipers and halve it.",
+        extend("x-group" = "Quality")
     )]
     #[serde(default = "SlicingParams::default_elephant_foot_compensation_mm")]
     pub elephant_foot_compensation_mm: f64,
 
     #[schemars(
-        description = "Number of layers the elephant-foot shrink is spread over (≥1).
+        description = "Number of layers the elephant-foot shrink is spread over (>=1).
 
-`1` corrects the first layer only — the sharpest correction, and the right
+`1` corrects the first layer only - the sharpest correction, and the right
 default, because only the first layer is squashed. Higher values ramp the shrink
 linearly to zero over that many layers, trading a little accuracy for a gentler
 profile when a large correction would otherwise leave a visible step.
-**Typical:** 1–3.",
-        extend("x-group" = "Dimensions", "x-relevant-when" = serde_json::json!({"field": "elephant_foot_compensation_mm", "greaterThan": 0.0}))
+**Typical:** 1-3.",
+        extend("x-group" = "Quality", "x-relevant-when" = serde_json::json!({"field": "elephant_foot_compensation_mm", "greaterThan": 0.0}))
     )]
     #[serde(default = "SlicingParams::default_elephant_foot_layers")]
     pub elephant_foot_layers: usize,
 
     #[schemars(
         description = "Width in mm that elephant-foot compensation may never shrink a feature below. \
-`0` = automatic (1.5 × outer-wall width).
+`0` = automatic (1.5 x outer-wall width).
 
 This is what stops the correction deleting fine first-layer detail. A feature
 already at or below this width is left completely alone; wider ones are shrunk
 only as far as this width. Raise it to protect chunkier detail, lower it for a
 more literal correction.
-**Typical:** 0 (automatic), or 0.5–1.0 mm.",
-        extend("x-group" = "Dimensions", "x-relevant-when" = serde_json::json!({"field": "elephant_foot_compensation_mm", "greaterThan": 0.0}))
+**Typical:** 0 (automatic), or 0.5-1.0 mm.",
+        extend("x-group" = "Quality", "x-relevant-when" = serde_json::json!({"field": "elephant_foot_compensation_mm", "greaterThan": 0.0}))
     )]
     #[serde(default = "SlicingParams::default_elephant_foot_min_contour_width_mm")]
     pub elephant_foot_min_contour_width_mm: f64,
 
     #[schemars(
-        description = "Iron top surfaces for a smoother finish. Ironing pass pending.",
+        description = "Iron top surfaces for a smoother finish.
+
+A second, nearly dry pass that re-melts the surface and spreads it flat. Slow —
+it re-traverses the whole surface at a fraction of the fill spacing — so it is
+worth it on visible flat tops and little else.",
         extend("x-group" = "Surfaces")
     )]
     #[serde(default = "SlicingParams::default_ironing_enabled")]
     pub ironing_enabled: bool,
+
+    #[schemars(
+        description = "Which surfaces the ironing pass sweeps.",
+        extend("x-group" = "Surfaces", "x-relevant-when" = serde_json::json!({"field": "ironing_enabled", "equals": true}))
+    )]
+    #[serde(default)]
+    pub ironing_type: IroningType,
+
+    #[schemars(
+        description = "Material deposited during ironing, as a percentage of a normal solid-fill bead.
+
+Just enough to re-melt the surface without adding height. **Typical:** 8–15 %.",
+        extend("x-group" = "Surfaces", "x-relevant-when" = serde_json::json!({"field": "ironing_enabled", "equals": true}))
+    )]
+    #[serde(default = "SlicingParams::default_ironing_flow")]
+    pub ironing_flow: f64,
+
+    #[schemars(
+        description = "Distance in mm between adjacent ironing passes.
+
+Much finer than the fill spacing — this is what flattens the ridges between
+beads. **Typical:** 0.1–0.2.",
+        extend("x-group" = "Surfaces", "x-relevant-when" = serde_json::json!({"field": "ironing_enabled", "equals": true}))
+    )]
+    #[serde(default = "SlicingParams::default_ironing_spacing")]
+    pub ironing_spacing: f64,
+
+    #[schemars(
+        description = "Ironing speed in mm/s. `0` = fall back to the top-surface speed.
+
+Slow is the point: the nozzle needs dwell time to re-melt what it passes over.
+**Typical:** 15–30 mm/s.",
+        extend("x-group" = "Surfaces", "x-relevant-when" = serde_json::json!({"field": "ironing_enabled", "equals": true}))
+    )]
+    #[serde(default = "SlicingParams::default_ironing_speed")]
+    pub ironing_speed: f64,
+
+    #[schemars(
+        description = "Ironing sweep direction in degrees. `-1` = follow the layer's own surface fill angle.
+
+Set an explicit angle to cross the fill direction, which flattens the ridges
+more effectively than ironing along them.",
+        extend("x-group" = "Surfaces", "x-relevant-when" = serde_json::json!({"field": "ironing_enabled", "equals": true}))
+    )]
+    #[serde(default = "SlicingParams::default_ironing_angle")]
+    pub ironing_angle: f64,
 
     #[schemars(
         description = "Custom start G-code block, inserted before the first print move. `null` = flavor default.",
@@ -2345,11 +2423,17 @@ impl Default for SlicingParams {
             skirt_height: Self::default_skirt_height(),
             raft_layers: Self::default_raft_layers(),
             raft_air_gap: Self::default_raft_air_gap(),
-            xy_size_compensation_mm: Self::default_xy_size_compensation_mm(),
             elephant_foot_compensation_mm: Self::default_elephant_foot_compensation_mm(),
             elephant_foot_layers: Self::default_elephant_foot_layers(),
             elephant_foot_min_contour_width_mm: Self::default_elephant_foot_min_contour_width_mm(),
             ironing_enabled: Self::default_ironing_enabled(),
+            ironing_type: IroningType::default(),
+            ironing_flow: Self::default_ironing_flow(),
+            ironing_spacing: Self::default_ironing_spacing(),
+            ironing_speed: Self::default_ironing_speed(),
+            ironing_angle: Self::default_ironing_angle(),
+            xy_size_compensation: Self::default_xy_size_compensation(),
+            xy_hole_compensation: Self::default_xy_hole_compensation(),
             start_gcode: None,
             end_gcode: None,
             layer_gcode: None,
@@ -2534,9 +2618,6 @@ impl SlicingParams {
     fn default_raft_air_gap() -> f64 {
         0.1
     }
-    fn default_xy_size_compensation_mm() -> f64 {
-        0.0
-    }
     fn default_elephant_foot_compensation_mm() -> f64 {
         0.0
     }
@@ -2548,6 +2629,32 @@ impl SlicingParams {
     }
     fn default_ironing_enabled() -> bool {
         false
+    }
+    /// 10 % of a solid bead — enough to re-melt the surface, not enough to
+    /// raise it. Matches the PrusaSlicer/Orca default.
+    fn default_ironing_flow() -> f64 {
+        10.0
+    }
+    /// 0.1 mm, well under a bead width, so each pass overlaps its neighbour and
+    /// the ridges between fill lines are spread rather than traced.
+    fn default_ironing_spacing() -> f64 {
+        0.1
+    }
+    fn default_ironing_speed() -> f64 {
+        20.0
+    }
+    /// `-1` = follow the layer's own surface fill angle.
+    fn default_ironing_angle() -> f64 {
+        -1.0
+    }
+    /// Off. Dimensional compensation corrects a *specific* machine's error, so
+    /// there is no useful non-zero default — and a non-zero one would silently
+    /// resize every part the engine slices.
+    fn default_xy_size_compensation() -> f64 {
+        0.0
+    }
+    fn default_xy_hole_compensation() -> f64 {
+        0.0
     }
     fn default_thumbnail_enabled() -> bool {
         true
@@ -2577,17 +2684,11 @@ impl SlicingParams {
     ///    registry); this is the same honesty for every other front end.
     ///
     /// Implementation checklist (remove the branch here when each lands):
-    /// - `TODO(profiles): ironing` — top-surface ironing pass.
     /// - `TODO(profiles): supports` — support generation (`normal`/`tree`,
     ///   density). Only `support_threshold_angle` is honoured today.
     /// - `TODO(profiles): multimaterial` — more than one extruder.
     pub fn unsupported_feature_warnings(&self) -> Vec<String> {
         let mut w = Vec::new();
-        if self.ironing_enabled {
-            w.push(
-                "ironing is enabled but the ironing pass is not yet implemented — ignored".into(),
-            );
-        }
         if self.support_enabled {
             w.push(
                 "supports are enabled but support generation is not yet implemented — ignored"

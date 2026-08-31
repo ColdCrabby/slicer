@@ -39,6 +39,22 @@ Roles are grouped so you can toggle a whole family at once: **Shell**,
   you can follow the nozzle through a tricky bit.
 - **Hover** any line for its role, layer, Z height, width, height and speed.
 
+## Folding it away
+
+The legend and its controls are a tall panel sitting over the plate. Tap the
+**G-code** header at the top of the panel to fold it down to a single row — the
+layer counter stays visible, and the Slice button stays where it was.
+
+Unfolded, the panel takes as much room as the screen has, so on a tablet or a
+desktop the whole legend and both sliders are visible at once. It only scrolls
+when the window is genuinely too short — and even then the Slice button stays
+put.
+
+On a tablet or phone it starts folded, since the panel would otherwise cover
+most of what you're trying to look at. On a large screen it starts open. Either
+way, once you fold or unfold it yourself the slicer remembers, and stops
+guessing.
+
 ## What to look for
 
 **Before your first print of a model:**
