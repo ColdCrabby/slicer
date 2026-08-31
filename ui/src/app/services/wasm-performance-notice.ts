@@ -16,6 +16,14 @@ const NOTICE_SEEN_KEY = 'slicer:wasm-perf-notice-seen';
  * running the slicer entirely in the browser costs a lot of performance, and
  * points users at the native app for full speed.
  *
+ * Raised when the first model lands on the plate, not when the app starts.
+ * That is where the message earns its interruption: the visitor now has
+ * something to slice, so "this will be slower than the desktop app" is advice
+ * rather than trivia. Shown on arrival it was the first thing a new visitor
+ * met, before they had seen the app at all — and, being the largest block of
+ * text on screen, it also *was* the page's Largest Contentful Paint, so the
+ * whole site measured as loading however long the dialog took to appear.
+ *
  * Only the `web` runtime (the full WASM web bundle) is affected — the native
  * (Tauri) and cloud runtimes never see it.
  */
@@ -25,9 +33,9 @@ export class WasmPerformanceNotice {
   private readonly dialog = inject(Dialog);
 
   /**
-   * Show the WASM performance notice once per browser session. Safe to call
-   * during app initialization — it's a no-op off the web build or when already
-   * shown this session.
+   * Show the WASM performance notice once per browser session. Safe to call on
+   * every model load — it's a no-op off the web build or when already shown
+   * this session.
    */
   maybeShow(): void {
     if (environment.runtimeMode !== 'web') {

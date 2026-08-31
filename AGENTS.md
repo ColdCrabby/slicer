@@ -51,7 +51,7 @@ never a hardcoded `:4213`.
 | Component                      | Location                                     | Purpose                                                                                       |
 | ------------------------------ | -------------------------------------------- | --------------------------------------------------------------------------------------------- |
 | **SliceLayer / ExtrusionRole** | [src/core/types.rs](src/core/types.rs)       | Core data structures for a single layer                                                       |
-| **Mesh Repair**                | [src/mesh/repair.rs](src/mesh/repair.rs)     | Import-time validation + auto-fix (welds, holes, winding); no-op on clean meshes               |
+| **Mesh Repair**                | [src/mesh/repair.rs](src/mesh/repair.rs)     | Import-time validation + auto-fix (welds, holes, winding); no-op on clean meshes              |
 | **Mesh Slicer**                | [src/core/slicer.rs](src/core/slicer.rs)     | Triangle→layer contour extraction (`slice_mesh`)                                              |
 | **Surface Generation**         | [src/core/surfaces.rs](src/core/surfaces.rs) | Top/bottom solid surface detection and infill                                                 |
 | **Wall Restrictions**          | [src/core/walls.rs](src/core/walls.rs)       | Single-wall first/top-layer constraints                                                       |
@@ -166,18 +166,18 @@ slicer-engine slice --help
 
 Docs are split by audience, and a change usually belongs in exactly one place.
 
-| Audience | Lives in | Style |
-| --- | --- | --- |
-| **Users** — how to use the app | [docs/use/](docs/use/) | Plain language, task-first. Simple by default; advanced detail kept but terse, in `::: details` blocks. |
-| **Teams / businesses** — deploying and operating it | [docs/teams/](docs/teams/) | Self-hosting, shared config, automation, data & licensing. Assumes an administrator. |
-| **Brand** | [docs/brand.md](docs/brand.md) | Name, mascot, assets, palette, voice. |
-| **Contributors** — how it works | Module `README.md`s, [ARCHITECTURE.md](ARCHITECTURE.md) | Explanation, not reference. See house style below. |
+| Audience                                            | Lives in                                                | Style                                                                                                   |
+| --------------------------------------------------- | ------------------------------------------------------- | ------------------------------------------------------------------------------------------------------- |
+| **Users** — how to use the app                      | [docs/use/](docs/use/)                                  | Plain language, task-first. Simple by default; advanced detail kept but terse, in `::: details` blocks. |
+| **Teams / businesses** — deploying and operating it | [docs/teams/](docs/teams/)                              | Self-hosting, shared config, automation, data & licensing. Assumes an administrator.                    |
+| **Brand**                                           | [docs/brand.md](docs/brand.md)                          | Name, mascot, assets, palette, voice.                                                                   |
+| **Contributors** — how it works                     | Module `README.md`s, [ARCHITECTURE.md](ARCHITECTURE.md) | Explanation, not reference. See house style below.                                                      |
 
 - Use doc comments (`///`) for public types and functions
 - Include usage examples in doc comments for core APIs
 - **A user-visible change is not done until [docs/use/](docs/use/) reflects it.**
   A new setting, a new button, a changed shortcut — all of it.
-- Keep [ARCHITECTURE.md](ARCHITECTURE.md) a *map*. Depth belongs in the module
+- Keep [ARCHITECTURE.md](ARCHITECTURE.md) a _map_. Depth belongs in the module
   README it points at.
 - Update [README.md](README.md) for headline feature changes only.
 
@@ -213,7 +213,7 @@ by surface tone rather than hairlines, custom blocks shaped like
 
 Where the docs need a live piece of the design language rather than a
 description of it, use a Vue component under `theme/components/` — `Swatches`
-prints each chip's *resolved* colour, so the brand page cannot quote a hex the
+prints each chip's _resolved_ colour, so the brand page cannot quote a hex the
 product no longer uses.
 
 #### Module READMEs — house style
@@ -329,7 +329,7 @@ user-facing version number.
   verbatim as GitHub Release notes. Keep an `## [Unreleased]` section at the top.
 - **The UI renders the changelog from exactly one component**
   ([ui/src/app/components/changelog/changelog-list.ts](ui/src/app/components/changelog/changelog-list.ts)).
-  It always lists *every* release and highlights/scrolls to the one you're
+  It always lists _every_ release and highlights/scrolls to the one you're
   running, so the **What's New** settings section (`/settings/changelog`) and the
   post-upgrade dialog can never drift apart.
   [ui/src/app/services/app-version.ts](ui/src/app/services/app-version.ts)
@@ -344,7 +344,7 @@ user-facing version number.
   Locally, the [`release` skill](.github/skills/release/SKILL.md) curates the
   changelog (biggest features first, first-time contributors spotlighted) and
   drives tag + push.
-- **Cargo.toml `version`** is the *next* target version only — not what users see.
+- **Cargo.toml `version`** is the _next_ target version only — not what users see.
 
 ## Known Constraints & Pitfalls
 
@@ -393,7 +393,7 @@ Supporting details:
   without `NSAllowsLocalNetworking`.
 - **`gen/apple` is generated but committed** (only `gen/schemas` and build
   output are ignored) — it carries signing settings and the merged plist.
-- **UI:** mobile is *not* a new runtime mode. `resolveRuntimeMode()` still
+- **UI:** mobile is _not_ a new runtime mode. `resolveRuntimeMode()` still
   reports `native` on iPad; anything that draws or drives **native chrome** asks
   [`isTauriMobile()` / `isTauriDesktop()`](ui/src/app/runtime/domain/runtime-mode.util.ts)
   instead. **Gate every `@tauri-apps/api` module that Tauri marks
@@ -430,7 +430,7 @@ Supporting details:
   UIKit raises and the app terminates. Full rationale in
   [ui-desktop/README.md](ui-desktop/README.md#which-surfaces-are-native).
 - **Dev environment:** [scripts/ios-doctor.sh](scripts/ios-doctor.sh) verifies
-  the toolchain (full Xcode — *not* Command Line Tools, which lack the iOS SDK —
+  the toolchain (full Xcode — _not_ Command Line Tools, which lack the iOS SDK —
   simulator runtimes, Rust `aarch64-apple-ios{,-sim}` targets, CocoaPods) and
   `--fix` installs what it can. `pnpm run ios:dev` auto-selects an iPad
   simulator, since `tauri ios dev` otherwise prompts with mostly iPhones.
@@ -446,14 +446,14 @@ Supporting details:
 - **App icons come from one master via `pnpm run icons`.**
   `ui-desktop/src-tauri/app-icon.png` (1024², opaque, cropped from
   `ui/public/logo_source.png`) feeds every platform. Do not hand-edit the
-  generated sets. `tauri ios init` seeds Tauri's *placeholder* logo, so the
+  generated sets. `tauri ios init` seeds Tauri's _placeholder_ logo, so the
   icons must be regenerated after it — and `tauri icon` writes iOS icons as RGBA
   even with `--ios-color`, which App Store Connect rejects (`ITMS-90717`), so
   [scripts/gen-icons.sh](scripts/gen-icons.sh) flattens them back to RGB and
   prunes the UWP/Android output we never ship.
 - **Xcode 26 ships no simulator runtime** — `xcodebuild -downloadPlatform iOS`
-  fetches ~8 GB separately. A staged *image* (`simctl runtime list`) is not a
-  registered *runtime* (`simctl list runtimes`); if the two disagree the image
+  fetches ~8 GB separately. A staged _image_ (`simctl runtime list`) is not a
+  registered _runtime_ (`simctl list runtimes`); if the two disagree the image
   is broken. All images of a version share one asset, so deleting a duplicate
   breaks the survivor — purge with `simctl runtime delete all` and re-download.
 
@@ -471,9 +471,9 @@ adapts goes through it — never an ad-hoc `max-width` query.
   Component styles reach it with `@use 'breakpoints' as *;` (`src/styles` is on
   the Sass `includePaths`).
 - **[`Viewport`](ui/src/app/services/viewport.ts)** is the TypeScript half, for
-  decisions CSS cannot make — *which controls exist* (the projection toggle, the
-  operation-pipeline inspector) and *whether the settings column may dock at
-  all*. **Its `HANDHELD_MEDIA_QUERY` is a copy of the mixin's condition and the
+  decisions CSS cannot make — _which controls exist_ (the projection toggle, the
+  operation-pipeline inspector) and _whether the settings column may dock at
+  all_. **Its `HANDHELD_MEDIA_QUERY` is a copy of the mixin's condition and the
   two must never diverge**, or chrome ends up styled for one layout and wired for
   the other. Keep layout itself in media queries so a phone lays out correctly
   before any script runs.
@@ -490,6 +490,14 @@ adapts goes through it — never an ad-hoc `max-width` query.
   the pipeline inspector go because eleven pill buttons do not fit and neither is
   part of getting a model sliced. Anything on the path to a slice — the object
   tools, add, undo/redo, the G-code toggle, Slice itself — stays.
+- **Pinch-to-zoom belongs to the browser everywhere except the 3D canvas.** The
+  viewport meta carries no `user-scalable=no` / `maximum-scale`, and
+  `touch-action: none` sits on the viewer's `:host`
+  ([viewer.scss](ui/src/app/components/viewer/viewer.scss)) rather than on `html`.
+  Both used to be page-wide, and between them they took magnification away from
+  every settings form and every block of prose — the one affordance a low-vision
+  user has on a phone, and an outright Lighthouse accessibility failure. Lock a
+  gesture on the specific surface that claims it; never on the document.
 
 The layout contract (tab bar, drawer, bottom sheet, chip strip) is catalogued in
 [ui/README.md](ui/README.md#phones); the user-facing tour is in
@@ -523,7 +531,7 @@ outbound transport to real printers. Today it implements **Moonraker/Klipper**
   environment and only becomes native by detecting Tauri at runtime, so a
   build-time constant would send the desktop app down the CORS-prone browser
   path (the bug this contract exists to prevent). The web fallback still
-  distinguishes *unreachable* from *reachable-but-CORS-blocked* (via a `no-cors`
+  distinguishes _unreachable_ from _reachable-but-CORS-blocked_ (via a `no-cors`
   follow-up probe) and surfaces a distinct `cors` status instead of a misleading
   green/offline dot.
 - **`PrinterConnection` is the data model** ([src/profiles/printer.rs](src/profiles/printer.rs)):
@@ -531,7 +539,7 @@ outbound transport to real printers. Today it implements **Moonraker/Klipper**
   UI-owned `connected` flag (no longer trusted for the status dot). Never put
   `reqwest` in `profiles` — it compiles on wasm; keep the transport in the
   native-gated `printer` module.
-- **Home-page status dot** reflects the *live* probe, not `connected`: neutral
+- **Home-page status dot** reflects the _live_ probe, not `connected`: neutral
   (local/unknown), green (online), amber (checking/cors/error/unsupported), red
   (offline).
 
@@ -556,7 +564,7 @@ Notes:
   `SlicingParams::cache_fingerprint` drops `thumbnail_png_base64` (the
   camera-derived preview captured fresh from the viewer on every slice) so its
   volatile bytes never bust the cache — the issue #106 requirement that camera
-  movement leave the cache-hit rate unaffected. The thumbnail *settings*
+  movement leave the cache-hit rate unaffected. The thumbnail _settings_
   (`thumbnail_view`/`theme`/`size`/…) stay in the key, so a cached file's
   embedded preview always matches the request that reused it.
 - Cache is best-effort: a dangling row (file cleaned up) is evicted lazily on
@@ -564,7 +572,7 @@ Notes:
 
 ## Profile library — persisted next to the engine
 
-User-owned profile *instances* (printers, filaments, process profiles, and the
+User-owned profile _instances_ (printers, filaments, process profiles, and the
 flat label vocabulary) must live **where the engine runs**, not only in the
 browser's `localStorage` — otherwise a cloud user who clears their browser
 silently loses every printer/filament even though the slicer is safe on a
@@ -578,7 +586,7 @@ server. [src/profiles/store.rs](src/profiles/store.rs) is the engine-side store.
   dropped. **Do not try to `toml::to_string` a profile struct directly** — call
   [`toml_bridge::render_library_toml`](src/profiles/toml_bridge.rs), the one
   renderer behind both `ProfileStore::save` and the exporter.
-- **The library *shape* is target-independent.** `ProfileLibrary`, `Label` and
+- **The library _shape_ is target-independent.** `ProfileLibrary`, `Label` and
   `ProfileKind` live in [library.rs](src/profiles/library.rs) so wasm (which has
   no filesystem, hence no `store`) can still use them. Only `ProfileStore` is
   `cfg(not(target_arch = "wasm32"))`.
@@ -599,7 +607,7 @@ server. [src/profiles/store.rs](src/profiles/store.rs) is the engine-side store.
   [`ProfileSync`](ui/src/app/services/profiles/profile-sync.ts) maps the token
   to its store and calls `reload()` (a cache-bypassing `reloadLibrary()` fetch).
   Inert in web/native — `SlicerConnection.messages$` is `EMPTY` there and those
-  runtimes have no second client. GET/PUT stay REST; only the *nudge* is WS.
+  runtimes have no second client. GET/PUT stay REST; only the _nudge_ is WS.
 - **`loadLibrary()` is memoised.** The four stores hydrate in their
   constructors, so `ProfilePersistence.loadLibrary()` shares one in-flight
   request instead of fetching the whole library once per category. Invalidated
@@ -631,34 +639,34 @@ profile plus `labels.toml`, `manifest.toml`, `README.md`) and a **single**
 `profiles.toml` identical to what the store writes. Both come from the same
 `ProfileLibrary` serialization.
 
-- **Never name a field — or a category.** The exporter walks the *serialized
-  value* and treats every top-level array as a category. A new profile setting,
+- **Never name a field — or a category.** The exporter walks the _serialized
+  value_ and treats every top-level array as a category. A new profile setting,
   or a whole new category on `ProfileLibrary`, is exported with **zero** changes
   here. That is the point of the module; do not add per-feature branches to it.
   The only category-specific rule is one line (`splits_per_item`): labels are a
   flat vocabulary and stay in one file, everything else is one file per item.
 - **Every file is an array of tables** (`[[printers]]`), and per-item files are
   **ordinal-prefixed** (`printers/01-voron-24.toml`). Concatenating a bundle in
-  name order therefore reconstructs a valid `profiles.toml` *with the original
-  order intact* — the contract a future importer relies on, pinned by
+  name order therefore reconstructs a valid `profiles.toml` _with the original
+  order intact_ — the contract a future importer relies on, pinned by
   `concatenating_a_bundle_reconstructs_the_library`.
 - **Deterministic:** fixed zip timestamps, so the same library exports
   byte-identically and the artifact can be diffed or version-controlled.
-- **Credentials are stripped.** An export is built to be *handed over* (git
+- **Credentials are stripped.** An export is built to be _handed over_ (git
   repo, AirDrop, mail), so `redact_secrets` removes any field named in
   `SECRET_FIELDS` (`api_key`, `token`, …) anywhere in the tree, in **both**
   shapes. Matched by name at the value level, so a credential added to any
   profile later is covered for free. The bundle README and the settings copy
   both say so; the user re-enters keys after restoring.
-- **The export is faithful to the library *as the engine understands it*** —
+- **The export is faithful to the library _as the engine understands it_** —
   what `ProfileStore::load` produced and what the next save would write — not a
-  verbatim copy of the bytes on disk. A *typed* field written by a different
+  verbatim copy of the bytes on disk. A _typed_ field written by a different
   build is dropped by serde at load, before the exporter sees it (exactly as it
   already is for `GET /api/profiles`). Free-form `params` entries, where new
   slicing settings actually land, always survive. Don't overstate this in
   user-facing copy.
 - **Three transports, one renderer:** `GET /api/profiles/export?format=`
-  (cloud), Tauri `profiles_export` (native) — both export what is *persisted*,
+  (cloud), Tauri `profiles_export` (native) — both export what is _persisted_,
   i.e. what the CLI on that machine would read — and wasm
   `exportProfileLibrary(library, format)` for the web runtime, where the browser
   is the engine and the UI's own library is the only truth. The wasm binding
@@ -676,7 +684,7 @@ profile plus `labels.toml`, `manifest.toml`, `README.md`) and a **single**
 ## Bundle chunking — what may sit in the initial download
 
 The **initial bundle is the code the browser must have before it can draw
-anything**, so it belongs to the *first* screen — not to the app as a whole.
+anything**, so it belongs to the _first_ screen — not to the app as a whole.
 Everything below the app shell is lazily loaded, and the budgets in
 [ui/angular.json](ui/angular.json) are the enforcement. Left unwatched this
 regresses silently: the app still works, it just starts slower every release,
@@ -692,7 +700,7 @@ reached 2 MB against a 1.58 MB bundle).
   only exception, because it is the chrome every route renders inside.
 - **A root-provided service drags its whole import graph in with it**, because
   something in `provideAppInitializer` constructs it during startup. That is how
-  three.js got in *twice*: `KeyboardShortcuts` injects `ViewerControl`, and
+  three.js got in _twice_: `KeyboardShortcuts` injects `ViewerControl`, and
   `ViewerControl` imported one class from three. **three's ESM build is a single
   pre-bundled module, so importing `Vector3` costs all ~550 kB of it** — nothing
   is tree-shaken. `ViewerControl` therefore holds a plain
@@ -708,7 +716,7 @@ reached 2 MB against a 1.58 MB bundle).
   language only when a JSON editor mounts. **Naming a worker in
   `MonacoEnvironment.getWorker` is what makes the bundler emit it**, so the
   switch there lists only the two that can be asked for.
-- **A dynamic `import()` is lazy in the *bundle*, not in *time*.** It still runs
+- **A dynamic `import()` is lazy in the _bundle_, not in _time_.** It still runs
   the moment the component is created, so a heavy off-screen widget charges its
   download to the page the user is actually reading. `CodeEditor` therefore
   waits for an `IntersectionObserver` before touching Monaco: the printer
@@ -725,7 +733,47 @@ reached 2 MB against a 1.58 MB bundle).
   surface was overlooked.
 - **Measure before concluding.** Build with `--source-map`, then attribute each
   initial chunk's bytes back to its modules through the source map. Chunk names
-  are hashes and the sizes alone tell you nothing about *why* something is there.
+  are hashes and the sizes alone tell you nothing about _why_ something is there.
+
+### Bytes are only half of it — what a service *does* on construction
+
+A chunk the browser has already downloaded still costs nothing until something
+runs it, and the reverse is the trap: a small service can start very expensive
+work the moment it is injected. `Slicer` used to call `orchestrator.init()`
+straight from its constructor, which on the web build downloads the ~750 kB
+`scene_engine_bg.wasm` and starts the slicer worker. The home dashboard injects
+`Slicer` for its history list, so **every visitor paid for the whole slicing
+engine before the first screen had painted** — three quarters of the page's
+bytes and, once compiled, 2 s of blocked main thread.
+
+The fix is the pattern to follow for anything similarly heavy:
+
+- **Boot lazily, and warm on idle.** `Slicer.ensureRuntimeStarted()` is
+  idempotent and shared, scheduled from the constructor through
+  [`onIdle`](ui/src/app/services/idle.ts) and awaited by every path that reaches
+  the runtime (`startWorkplate`, `getHistory`, `clearHistory`,
+  `openAndSelectFile`, `ensureRuntimeReadyForSlice`). A user who drops a model
+  before idle fires simply claims the same promise a moment early, so deferring
+  cannot leave the runtime un-booted — only later.
+- **Gate on demand as well as on idle**, never on idle alone. An idle callback
+  is a hint, not a guarantee; on a busy tab it may not fire before the user acts.
+- **A failed boot must not be cached.** `ensureRuntimeStarted` clears its promise
+  on failure so the next demand retries, and never rejects — callers fail in
+  their own terms against the same `status`/`outputLog` they always did.
+- [`onIdle`](ui/src/app/services/idle.ts) is the one place that knows
+  `requestIdleCallback` must be called through `globalThis` (it is a Web IDL
+  operation and throws "Illegal invocation" through a detached reference) and
+  that Safari before 17 needs a timer fallback. `IdleRoutePreload` uses the same
+  helper — do not re-derive it.
+
+**A modal shown at startup becomes the page's Largest Contentful Paint.** The
+web build's "Running in your browser" notice was raised from `App`'s
+constructor; being the biggest block of text on screen, it *was* the LCP element,
+so the site measured as loading however long that dialog took to appear — worth
+20 points of Lighthouse performance on its own. It now fires from
+`WorkplateObjects.placeMesh`, when a model actually lands on the plate, which is
+both cheaper and the moment its advice means anything. Raise first-run
+explanations from the action they describe, not from app boot.
 
 ### Making lazy loading honest
 
@@ -738,7 +786,7 @@ pay it back:
   `PreloadAllModules` does, precisely when the app is busiest) and skips
   entirely on Data Saver or a 2G-class connection.
 - **[`NavigationProgress`](ui/src/app/services/navigation-progress.ts)** owns
-  every decision about *when* to admit a wait; `RouteProgress` and the two
+  every decision about _when_ to admit a wait; `RouteProgress` and the two
   navigation rails only render it. It stays silent below 120 ms, so an instant
   transition never flashes a bar. It also turns a failed chunk fetch — a
   redeploy under a long-lived tab — into `AppVersion.reportStaleAssets()`, which
@@ -750,24 +798,27 @@ pay it back:
   the build names every initial chunk as `<link rel="modulepreload">` and a
   `PerformanceObserver` counts them as they land (0–90 %), leaving the last
   tenth for parse + bootstrap. **Re-survey that list on every tick** — the build
-  appends those links *after* the inline script, so surveying once at parse time
+  appends those links _after_ the inline script, so surveying once at parse time
   finds nothing and the bar never moves.
 - **The splash logo is staged, not animated.** A ~700-byte WebP is inlined in
   the document (no request, so it paints with the HTML) and the full 240 px
   asset cross-fades over it. Progressive JPEG cannot be used — the logo is RGBA
   and JPEG has no alpha — and neither WebP nor AVIF decodes progressively, so
-  the two stages are explicit. Both come from
-  [scripts/gen-splash-logo.sh](scripts/gen-splash-logo.sh) (`pnpm run
-  splash-logo`, `--check` verifies); **never hand-edit the base64**, and note
+  the two stages are explicit. Those two, and the in-app header logo's `srcset`,
+  all come from
+  [scripts/gen-logo-assets.sh](scripts/gen-logo-assets.sh) (`pnpm run
+logo-assets`, `--check` verifies); **never hand-edit the base64**, and note
   that Prettier rewrites CSS `url()` to single quotes, which the generator has
-  to tolerate or it stops finding its own output.
-
+  to tolerate or it stops finding its own output. **Every logo the app serves is
+  WebP, with no PNG fallback** — the `.png` files in `ui/public/` are the
+  masters the script reads. That is safe because the app needs WebAssembly and
+  WebGL2 to do anything at all, so no browser that can run it lacks WebP.
 
 The **catalog** is the read-only library of vendor presets the profile wizards
 browse ("Pick it from the catalog"). Its data lives in a separate service — the
 **Cold Crabby Preset Cloud** (repo `cloud-presets`) — not in this project.
 
-- **The client is generated from the *remote* OpenAPI, not a vendored copy.**
+- **The client is generated from the _remote_ OpenAPI, not a vendored copy.**
   [ui/openapi-ts.config.ts](ui/openapi-ts.config.ts) feeds
   `@hey-api/openapi-ts` the document on the cloud repo's `main` branch, so
   `pnpm --filter slicer-ui gen-catalog-client` (folded into `gen`/`hydrate`)
@@ -778,7 +829,7 @@ browse ("Pick it from the catalog"). Its data lives in a separate service — th
   every other generated artifact). **Never hand-edit it, and never re-add the
   vendored spec** — regenerate instead.
 - **The served API is search-only.** Today the contract exposes `GET /v1/health`
-  and `GET /v1/presets` (fuzzy search returning *summaries* — id, type, name,
+  and `GET /v1/presets` (fuzzy search returning _summaries_ — id, type, name,
   vendor, model/material, a short human `spec` string), **not** full preset
   bodies. There is no detail or bulk endpoint yet.
 - **`CatalogSource` is the seam.**
@@ -788,13 +839,13 @@ browse ("Pick it from the catalog"). Its data lives in a separate service — th
   the printer picker fetches only printers — with its own status, active query
   and out-of-order guard (`loadPrinters`/`searchPrinters`/… ).
   [`RemoteCatalogSource`](ui/src/app/services/catalog/remote-catalog-source.ts)
-  is the real implementation: it *browses* each category (an empty query filtered
+  is the real implementation: it _browses_ each category (an empty query filtered
   by `type`, paged through the cursor) and widens every summary into the profile
   shape the wizards consume, using the `make*` factories for the structured
   fields a summary cannot carry and tagging the result `source: 'catalog'` with
   an `import_url` back to the preset's canonical detail URL. It also carries the
   summary's `spec` string through the hidden `CATALOG_SPEC_KEY` so the picker
-  shows the *catalog's own* spec line rather than one reconstructed from
+  shows the _catalog's own_ spec line rather than one reconstructed from
   defaulted fields; `toUserCopy` strips it on import. It passes an `Injector`
   on every SDK call so the Angular client can resolve `HttpClient` (the SDK runs
   from async methods, outside any injection context). Any transport/HTTP error
@@ -810,7 +861,7 @@ browse ("Pick it from the catalog"). Its data lives in a separate service — th
   (`http://<host>:8787`, the repo's `pnpm sample-api` — canned presets with open
   CORS); prod/web builds point at the deployed cloud
   (`https://cloud-presets.onrender.com`).
-- **Non-goal (for now):** importing a *complete* preset body. The summary lacks
+- **Non-goal (for now):** importing a _complete_ preset body. The summary lacks
   the ~92 slicing parameters, so a catalog pick can only pre-fill identity fields
   until the cloud grows a detail/bulk endpoint and the client is regenerated.
 
@@ -823,8 +874,8 @@ browse ("Pick it from the catalog"). Its data lives in a separate service — th
 - **AlignFaceToFloor**: picks face by index, computes `Quat::from_rotation_arc(world_normal, -Z)`, then drops to floor.
 - **Bake at the slicer boundary only**: `apply_transform(&Mesh, &Transform) -> Mesh` is called once before the slicing pipeline runs. Never bake mid-pipeline.
 - **Object IDs**: `ObjectId(u64)` is monotonically allocated and **never reused**. UUIDs are reserved for the WS protocol's upload tokens, not for scene objects.
-- **`SceneObject::source_id` is the object→bytes link.** Every object records the opaque handle it was loaded from (the WS upload UUID, a CLI path), set at `Add` time and inherited by `Duplicate`. **Never pair the object list against the upload list positionally** — the two are maintained independently, so index-pairing silently slices the wrong mesh the moment their order or length diverges (it collapsed a two-model plate into two copies of the first model). `Duplicate` shares the original's `Arc<Mesh>` *and* its `source_id`, so N instances of one model cost one upload.
-- **`SceneObject::source_part` says *which* object inside that file.** A 3MF is a scene, not a model: `SceneOp::Add` expands a multi-part file into **one scene object per build item** (named from the 3MF's `name` attribute), all sharing one `source_id`. The file id alone is therefore ambiguous — slicing must carry `part_index` too (`SceneObjectSliceDto`), or the server re-loads the whole file for every part and prints each one N times. `load_bytes_multi` / `load_path_multi` are the split loaders; `load_bytes` / `load_path` still merge and are what the slicer sees after a part is picked. The G-code cache key includes `part_index` for the same reason.
+- **`SceneObject::source_id` is the object→bytes link.** Every object records the opaque handle it was loaded from (the WS upload UUID, a CLI path), set at `Add` time and inherited by `Duplicate`. **Never pair the object list against the upload list positionally** — the two are maintained independently, so index-pairing silently slices the wrong mesh the moment their order or length diverges (it collapsed a two-model plate into two copies of the first model). `Duplicate` shares the original's `Arc<Mesh>` _and_ its `source_id`, so N instances of one model cost one upload.
+- **`SceneObject::source_part` says _which_ object inside that file.** A 3MF is a scene, not a model: `SceneOp::Add` expands a multi-part file into **one scene object per build item** (named from the 3MF's `name` attribute), all sharing one `source_id`. The file id alone is therefore ambiguous — slicing must carry `part_index` too (`SceneObjectSliceDto`), or the server re-loads the whole file for every part and prints each one N times. `load_bytes_multi` / `load_path_multi` are the split loaders; `load_bytes` / `load_path` still merge and are what the slicer sees after a part is picked. The G-code cache key includes `part_index` for the same reason.
 - **A multi-part `Add` inverts to `RemoveMany`, not `Remove`.** One `Add` can create many objects, so undo has to take all of them back in one step. `SceneHandle::addMesh` returns an **array** of ids to match.
 - **Placement is validated in the engine, not per front-end**: `SceneState::placement_report()` returns `out_of_bounds` (via `BedConfig::contains_aabb`, shape-aware) and `collides` (XY-footprint overlap; touching edges do not count, so `ArrangeOnBed` output is clean) for every object. The WASM snapshot carries both flags per object. Its epsilon is `1e-3` mm, not `1e-9` — STL coordinates are `f32`, so a model resting on the bed lands a few `1e-6` mm below zero and a tighter tolerance reports it out of bounds.
 - **Server scenes are ephemeral per WS connection** (no DB persistence). UI uploads bytes via the file-upload endpoint, then dispatches `Scene { ops: [Add { file_id }, …] }`. `POST /api/upload` takes an optional `ruuid` field (sent **before** the file field, since multipart streams in order) that attaches the upload to an existing workplate — that is how one plate accumulates several files so `GET /api/request/:ruuid` can restore all of them.
@@ -841,17 +892,17 @@ accept more, so the UI keeps a strict split of responsibilities:
 - **[`WorkplateObjects`](ui/src/app/services/workplate-objects/workplate-objects.ts) is the only way an object gets onto a plate.** It uploads (cloud), calls `addMesh` with the resulting `source_id`, places the result using the shared [`Arrange`](ui/src/app/services/arrange/arrange.ts) settings, and nudges the new object clear of the ones already there. Every entry point — the toolbar's add button, drag-and-drop, restoring a saved plate — goes through it, so they cannot drift apart. Adding **never** clears existing objects; only an explicit clear does.
 - **Placing objects is one command, not two.** "Auto-orient" and "arrange all" used to be rival buttons that undid each other's work. [`Arrange`](ui/src/app/services/arrange/arrange.ts) owns the single `ArrangeOnBed` dispatch plus the settings it needs (gap, auto-orient, and the printer's preferred angle). Its UI follows the object-tools idiom exactly: a uniform toolbar button **in the same group as move / rotate / scale**, which reveals a contextual card — [`PlacementPanel`](ui/src/app/components/placement-panel/placement-panel.ts), a sibling of [`TransformPanel`](ui/src/app/components/transform-panel/transform-panel.ts). **Do not give it a split caret** — that made one button in the group behave unlike its neighbours. **Add-time placement reads the same settings**: dropping a file in and pressing the button must not disagree about orientation or spacing. Do not re-introduce a bare `AutoOrient`-everything action beside it.
 - **Contextual tool cards hang off the tools that open them.** Both cards render inside [3d-view-toolbar.html](ui/src/app/components/3d-view-toolbar/3d-view-toolbar.html), in a `.tool-panels` column **absolutely positioned** under the `.tool-cluster` and centred on it, so they follow the buttons instead of sitting in a screen corner the user has to connect them to. Absolute positioning is what makes this safe: the toolbar's own `contentRect` height is unchanged, so the shell's `--main-scene-inset` (and with it the viewport-cube and slice rail) never shifts as cards appear — that invariant is why the transform card originally lived in the shell. The column stacks, so transform + placement can be open at once; the container is `pointer-events: none` so gaps stay click-through to the scene. The toolbar's own pill rules must keep their `:host ` prefix — `nexus-card` styles itself with `:host(.small){border-radius:var(--radius-md)}`, which a bare class selector ties on specificity and loses to on order, squaring off the pill.
-- **[`TransformPanel`](ui/src/app/components/transform-panel/transform-panel.ts) edits the whole selection, not one object.** It used to render nothing unless *exactly one* object was selected, which made a multi-object plate untransformable. Position edits apply as a **delta** off the selection's combined AABB centre (so a spread-out arrangement keeps its layout rather than collapsing onto one coordinate); rotation and scale are set **per object** about each one's own centre, and `setSize` measures each object's own AABB so a batch of different-sized parts all reach the requested size. A single-object selection is the exact previous behaviour — the anchor is then its own translation, so an edit is still an absolute set. The header shows `"N objects"` for a batch and **nothing** for one; it deliberately does not name the file (every duplicate shares a name, so it identified nothing).
+- **[`TransformPanel`](ui/src/app/components/transform-panel/transform-panel.ts) edits the whole selection, not one object.** It used to render nothing unless _exactly one_ object was selected, which made a multi-object plate untransformable. Position edits apply as a **delta** off the selection's combined AABB centre (so a spread-out arrangement keeps its layout rather than collapsing onto one coordinate); rotation and scale are set **per object** about each one's own centre, and `setSize` measures each object's own AABB so a batch of different-sized parts all reach the requested size. A single-object selection is the exact previous behaviour — the anchor is then its own translation, so an edit is still an absolute set. The header shows `"N objects"` for a batch and **nothing** for one; it deliberately does not name the file (every duplicate shares a name, so it identified nothing).
 - **`preferred_orientation_deg` lives on the printer profile**, not in the plate preferences, because it describes the machine (CoreXY prints everything at 45°). Settings → Printers is the **only** editor; the placement popover shows it read-only and links there, so one machine's angle is never changed from a plate-scoped surface. It rides along inside `orient_options.preferred_z_rotation_deg` and is therefore **only applied when auto-orient runs** — the popover says so rather than showing a live-looking value that does nothing. The CLI's equivalent is `MachineConfig::preferred_print_rotation_deg`, fed in by `SliceCommand::arrange_options`.
 - **Plate-editing chrome hides in G-code preview.** The placement control, add-model button, gravity toggle, gizmo-mode group and objects list are all gated on `viewMode() === 'model'`, and the `A` shortcut matches only there. Preview shows toolpaths, so an edit made from it changes something the user cannot see change.
-- **The viewer mirrors, it does not own.** `Viewer.syncWasmMeshes()` diffs `sceneEngine.objects()` against its Three.js nodes and adds/disposes to match, so an object created by *anyone* (add button, `Duplicate`, undo) renders without the viewer being told. Do not add a second place that constructs display meshes.
-- **`SlicerFile` holds a list, not a file.** `files` accumulates `{fileId, filename}`; `upload(file)` appends and attaches to the open workplate. `fetchFile` adopts a file as the *primary* displayed model (it sets `selectedFile`, which retargets the viewer's `model` input); additional objects must use **`downloadFile`**, which registers without touching `selectedFile` — otherwise restoring an N-object plate leaves only the last file on screen.
+- **The viewer mirrors, it does not own.** `Viewer.syncWasmMeshes()` diffs `sceneEngine.objects()` against its Three.js nodes and adds/disposes to match, so an object created by _anyone_ (add button, `Duplicate`, undo) renders without the viewer being told. Do not add a second place that constructs display meshes.
+- **`SlicerFile` holds a list, not a file.** `files` accumulates `{fileId, filename}`; `upload(file)` appends and attaches to the open workplate. `fetchFile` adopts a file as the _primary_ displayed model (it sets `selectedFile`, which retargets the viewer's `model` input); additional objects must use **`downloadFile`**, which registers without touching `selectedFile` — otherwise restoring an N-object plate leaves only the last file on screen.
 - **`toSliceDtos`** ([scene-slice-dto.ts](ui/src/app/runtime/adapters/cloud/scene-slice-dto.ts)) resolves each object to its file via `source_id` and throws rather than guessing. It is a pure function with tests pinning the regression; keep the mapping there, not inline in the runtime adapter.
 
 ## Object identity through slicing — exclude-object & sequential printing
 
-[src/core/objects.rs](src/core/objects.rs) is where a *plate* (several placed
-objects) becomes *layers* without losing track of which part is which. Issues
+[src/core/objects.rs](src/core/objects.rs) is where a _plate_ (several placed
+objects) becomes _layers_ without losing track of which part is which. Issues
 #22 (exclude object) and #112 (sequential printing) need exactly the same
 segmentation, so it is built once, here.
 
@@ -864,8 +915,8 @@ segmentation, so it is built once, here.
   [`SlicingParams::object_aware()`](src/settings/params.rs) is false (neither
   `exclude_object` nor `print_sequence = by_object`), `slice_plate` merges and
   calls `process_mesh` exactly as before, so the default configuration produces
-  **byte-identical G-code**. Object-aware slicing runs the pipeline once *per
-  object*, which is **not** output-equivalent: `calculate_interior_region`
+  **byte-identical G-code**. Object-aware slicing runs the pipeline once _per
+  object_, which is **not** output-equivalent: `calculate_interior_region`
   averages the wall-bead count across a layer's islands, so an island's interior
   estimate depends on what else shares its layer. Slicing a part alone is the
   more faithful result, but it is still a change and must only happen when asked
@@ -881,16 +932,16 @@ segmentation, so it is built once, here.
   it; in object order each object is a self-contained print and owns its own.
 - **Layers merge by Z slot, not by index.** Two parts resting on the bed slice
   onto the same grid, but a part lifted off the bed keeps its own (its bottom
-  layers are *its* bottom layers). `merge_layers_by_z` groups within a quarter
+  layers are _its_ bottom layers). `merge_layers_by_z` groups within a quarter
   layer and takes at most one layer per object per slot, so emitted Z is always
   strictly ascending.
 - **Sequential order is front-to-back** (`min_y`, then `min_x`) — the gantry
   sweeps from behind, so finishing the nearest part first keeps the carriage
   away from finished work longest. Clearance problems are **warnings, not
   errors**: the clearances are machine estimates and refusing to slice would be
-  worse than saying what to check. Only objects printed *before* another are
+  worse than saying what to check. Only objects printed _before_ another are
   height-checked; the last one has nothing reaching over it.
-- **What lives on the printer vs. the process.** Whether the machine *can*
+- **What lives on the printer vs. the process.** Whether the machine _can_
   cancel an object (`exclude_object`) and how much room its printhead needs
   (`extruder_clearance_height_mm` / `extruder_clearance_radius_mm`) are
   properties of the **machine**, so all three carry the **Hardware** `x-group`
@@ -921,7 +972,7 @@ so the firmware knows where a cancelled object lives.
   `[exclude_object]` module and Moonraker both expect to meet every object
   before the print begins, so a front-end can list the parts the moment the file
   loads.
-- **The marker block switches *before* a path's travel**, so the hop between two
+- **The marker block switches _before_ a path's travel**, so the hop between two
   parts is charged to the one it is heading for — the PrusaSlicer/OrcaSlicer
   convention, and what lets a firmware skip a cancelled object's approach moves
   along with its extrusions.
@@ -930,7 +981,7 @@ so the firmware knows where a cancelled object lives.
 - **The sequential hand-over happens before the layer's own Z move.** Order is
   load-bearing: close the marker block → retract → lift above the tallest thing
   already printed → travel across → `between_objects_gcode`. The layer block
-  that follows then drops to the new object's first layer *over empty bed*.
+  that follows then drops to the new object's first layer _over empty bed_.
   Doing any of it afterwards lowers the nozzle into the part just finished.
   Pinned by `sequential_lifts_clear_of_the_finished_object_before_travelling`.
 - **The exclusion polygon is a convex hull, resampled to ≤ 64 points.** A turned
@@ -1050,8 +1101,8 @@ and the object's own toolpaths are provably unperturbed — see
   prints them and ignores the flag (matching PrusaSlicer/Orca, where the
   equivalent option is classic-only); `emit_residual_medial_fill` is
   unconditional. This matters because that pass emits the same `GapFill` role for
-  two different things: a bead that *is* the model geometry (a feature too thin
-  for one perimeter) and a bead filling the sliver *between* the innermost walls.
+  two different things: a bead that _is_ the model geometry (a feature too thin
+  for one perimeter) and a bead filling the sliver _between_ the innermost walls.
   Gating the pass on `thin_walls` deleted both — on the Filament Card Caddy it
   wiped all 37.7 m of gap fill, ~50 card-slot fins, and let sparse infill leak
   into the freed wall band. **Any wall option only one generator honours must
@@ -1106,7 +1157,7 @@ runtime (CLI / WS / WASM) behaves identically:
   ramping Z from the previous layer's top to this layer's Z in proportion to the
   distance travelled (`move_extrude_z`). Flow **fades in** over the first spiral
   loop and **out** over the last so both ends of the seam disappear — applied as
-  a multiplier *after* `extrusion_for_move` (a zero passed as `flow_ratio` trips
+  a multiplier _after_ `extrusion_for_move` (a zero passed as `flow_ratio` trips
   its "non-positive → 1.0" guard). Each loop is rotated to start nearest the
   previous nozzle position to keep the start line aligned and travel minimal.
 - **Multi-island layers fall back** to a normal flat print (all paths, discrete
@@ -1143,8 +1194,8 @@ spurs, and a much larger floor erodes genuine sub-millimetre features into
 voids. Walls are untouched, so this never affects the coincidence-free property.
 
 **Isolated gap-fill "splat" beads are dropped by a `2·d` minimum run length.**
-Separate from the *spur* prune above, `emit_medial_beads` and the residual
-pre-filter (`emit_residual_medial_fill`) both discard any emitted gap-fill *run*
+Separate from the _spur_ prune above, `emit_medial_beads` and the residual
+pre-filter (`emit_residual_medial_fill`) both discard any emitted gap-fill _run_
 shorter than [`gap_fill_min_run_len_mm`](src/walls/arachne/generate.rs) —
 `gap_fill_min_length_mm` when the user set it (`> 0`), else `2·d` (0.8 mm at a
 0.4 mm nozzle). The old auto-default was `d`, which let ~270 sub-`2·d` beads
@@ -1154,25 +1205,25 @@ time and grinds filament. The residual such a splat would fill is bridged by the
 squish of the flanking wall beads, so `classic` (which has no gap fill) leaves
 the same curved/tapering wall corners bead-free with **no** measurable wall-zone
 void (`voids.py`). Matching the spur floor is deliberate: a run below the same
-`2·d` that separates a real gap spine from facet noise *is* facet noise once
+`2·d` that separates a real gap spine from facet noise _is_ facet noise once
 isolated as its own bead.
 
-**Redundant gap fill *under* a solid surface is pruned two ways.**
+**Redundant gap fill _under_ a solid surface is pruned two ways.**
 [`prune_redundant_gap_fill`](src/core/surfaces.rs) drops a `GapFill` bead when
 either (1) a majority of its vertices lie **inside** `solid_regions`, or (2) it
-is **sandwiched** — solid surface on *both* perpendicular sides
+is **sandwiched** — solid surface on _both_ perpendicular sides
 (`gap_fill_sandwiched_by_surface`). Case (2) exists because
-`blocked_for_surface` unions the gap-fill footprint *out* of the surface region
-(so the surface *abuts* genuine thin necks), which carves a bead-wide corridor
+`blocked_for_surface` unions the gap-fill footprint _out_ of the surface region
+(so the surface _abuts_ genuine thin necks), which carves a bead-wide corridor
 in `solid_regions` exactly where each bead sits — so a bead running down the
 centre of a thin solid strip is never "inside" the surface, yet the surface's
 full-width rectilinear zig-zag still deposits straight over it. Measured on the
 3DBenchy rear rail (≈ layer 200): 6 mm²/layer of `GapFill × TopSurface`
-double-extrusion that a footprint-erosion overlap scan (`overlap.py`) *hides*
+double-extrusion that a footprint-erosion overlap scan (`overlap.py`) _hides_
 because the bead is thin — use a true-width capsule intersection to see it. The
 sandwich probe reaches `half-width + 0.5·d` to either side, just past the carved
-corridor: a bead the surface *surrounds* has surface on both probes and is
-dropped; a genuine neck that merely *abuts* a surface edge has it on at most one
+corridor: a bead the surface _surrounds_ has surface on both probes and is
+dropped; a genuine neck that merely _abuts_ a surface edge has it on at most one
 and is kept (sparse infill would skip that sub-nozzle channel). Model-wide this
 took `GapFill × TopSurface` from 7.3 → 0.5 mm² by pruning ~3 long beads, with no
 new wall-zone void where the surface already covers the strip.
@@ -1340,7 +1391,7 @@ legitimate region's tapering corners produce.
 
 **A connected infill region too small to hold more than one dash is skipped
 entirely** (`INFILL_MIN_REGION_AREA_NOZZLE_MULT × d²`, = 2.0 mm² at a 0.4 mm
-nozzle). Where a cross-section is *locally* thinner than the per-island average
+nozzle). Where a cross-section is _locally_ thinner than the per-island average
 `walls_per_island`, the interior estimate leaves a small sliver that walls plus
 gap fill already fill — the Benchy bow tip (≈ 1.6 mm² at layer 95) is the
 canonical case. The scanline drops a single ~1.3 mm dash into it: a disconnected
@@ -1351,26 +1402,26 @@ Two properties make this safe, and both must be preserved:
 
 - **It is an _area_ rule on whole connected regions, never a _width_ rule on the
   infill area.** A genuinely thin cavity that deserves a lattice (the caddy's
-  hollow-box layers) is a *large* region that merely happens to be narrow. The
+  hollow-box layers) is a _large_ region that merely happens to be narrow. The
   separation is categorical, not marginal: measured across the QA corpus the
   caddy has **no** infill region at all between 0.01 mm² and 10 mm², so the
   threshold sits in an empty band two orders of magnitude wide. This is the same
   trap the morphological-opening attempt fell into (see above).
 - **It filters the _generated paths_, not the region.** `generate_rectilinear_infill`
   seeds its scanline phase from the bounding box of the whole infill area, so
-  deleting an outlying sliver *before* generation shifts every infill line on the
+  deleting an outlying sliver _before_ generation shifts every infill line on the
   layer (measured: 27 mm of line movement on a Benchy layer whose dropped regions
   totalled 0.05 mm²). Filtering afterwards is exactly subtractive — measured
   −3.6 mm of sparse infill model-wide on the Benchy, with every other role
   untouched and the caddy byte-identical.
 
 Membership is tested with **segment midpoints**, not vertices: an infill line's
-endpoints lie exactly *on* the region boundary, where the integer-scaled
+endpoints lie exactly _on_ the region boundary, where the integer-scaled
 point-in-polygon test can land either side.
 
 **Note:** gap-fill length is not bit-reproducible between runs of the same
 binary (measured 7399.6 vs 7401.8 mm on two Benchy slices), so small gap-fill
-deltas are run-to-run noise, not evidence of a change. Sparse infill *is*
+deltas are run-to-run noise, not evidence of a change. Sparse infill _is_
 deterministic and can be compared directly.
 
 ### Thin Wall-Band Channels — Opened-Interior Surface Clip
@@ -1456,13 +1507,13 @@ the wall-band trim, before `add_solid_infill_for_region`) removes them:
 
 - **Threshold is physical, not heuristic.** Erode by
   `SURFACE_FILL_MIN_WIDTH_FRACTION (0.5) × solid-surface extrusion width`, i.e.
-  an erosion *diameter* of exactly one bead. A strip narrower than one bead
+  an erosion _diameter_ of exactly one bead. A strip narrower than one bead
   cannot hold a bead by construction.
 - **It is a _width_ filter, not an area filter.** Small-but-printable surfaces
   survive intact (measured: 79 mm² and 37 mm² regions untouched while six
   slivers went to zero).
 - **Corners are preserved.** A plain morphological opening rounds convex
-  corners, and a rounded corner makes the scanline emit *extra* stub spans —
+  corners, and a rounded corner makes the scanline emit _extra_ stub spans —
   the very artifact being removed (measured +31 stubs on the Voron cube). So
   the surviving core is re-grown by `SURFACE_FILL_REGROW_FACTOR (2.0) × radius`
   and **clipped back to the original region**, restoring exact original shape.
@@ -1491,7 +1542,7 @@ nozzle or `sparse_infill_line_width` (0.6 mm nozzle: "20 %" printed as ~13 %).
 
 **Only `Rectilinear` alternates its angle per layer**
 (`InfillPattern::alternates_per_layer`). The 90° flip exists so consecutive
-layers of *parallel* lines cross instead of stacking into unsupported walls — a
+layers of _parallel_ lines cross instead of stacking into unsupported walls — a
 question that only arises for a single-sweep pattern. Applying it anywhere else
 breaks the pattern, which is why libslic3r's multi-sweep and cellular fills all
 override `_layer_angle` to `0`:
@@ -1518,7 +1569,7 @@ requested density.
 
 **Infill anchors are not cosmetic.** `connect_infill`
 ([src/infill/anchor.rs](src/infill/anchor.rs), a port of libslic3r's
-`Fill::connect_infill`) walks *along the fill boundary* to weld a line end to the
+`Fill::connect_infill`) walks _along the fill boundary_ to weld a line end to the
 perimeter and to merge two line ends that a short wall stretch separates. On the
 Filament Card Caddy's hollow-box layers it turned **101 isolated sub-0.8 mm
 infill dashes on one layer into a single continuous serpentine, with none left
