@@ -1069,9 +1069,21 @@ export class SceneControls {
       // palm-rejection arbiter and the touch tuning — which model *physical*
       // contacts — ignore them; treating them as real lifts would forget both
       // live fingers and let a palm be admitted into the gesture.
+      //
+      // Only pointers the element actually holds capture for are cancelled,
+      // which is exactly the set OrbitControls has registered: it captures on
+      // the `pointerdown` it handles, and the second finger's `pointerdown` is
+      // stopped by this very handler, so it never reaches OrbitControls at all.
+      // Cancelling that unknown pointer made `releasePointerCapture` throw on
+      // every single two-finger gesture — and because that call sits *before*
+      // OrbitControls removes its document-level move/up listeners, the throw
+      // could leave those attached.
       this.controls.enabled = true;
       state.suppressOwnCancel = true;
       for (const id of touches.keys()) {
+        if (!el.hasPointerCapture?.(id)) {
+          continue;
+        }
         try {
           el.dispatchEvent(
             markSyntheticPointerEvent(
