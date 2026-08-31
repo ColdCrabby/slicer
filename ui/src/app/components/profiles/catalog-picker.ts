@@ -54,11 +54,19 @@ export class CatalogPicker {
   readonly unavailable = input(false);
   /** Label for the pick action (e.g. "Import", "Use preset"). */
   readonly actionLabel = input('Import');
+  /** Id of the entry currently being imported, if any; shows a busy pick button. */
+  readonly importingId = input<string | null>(null);
+  /** True when another page of results can be fetched via {@link loadMore}. */
+  readonly hasMore = input(false);
+  /** True while a "load more" fetch is in flight. */
+  readonly loadingMore = input(false);
 
   readonly pick = output<string>();
   readonly retry = output<void>();
   /** Fuzzy query to re-fetch the catalog for; debounced from keystrokes. */
   readonly search = output<string>();
+  /** Emitted when the user asks for the next page of results. */
+  readonly loadMore = output<void>();
 
   protected readonly query = signal('');
 

@@ -121,6 +121,30 @@
     font-weight: var(--font-weight-medium);
     font-variation-settings: 'wght' var(--font-weight-medium);
   }
+
+  &:disabled {
+    cursor: default;
+    opacity: 0.6;
+  }
+}
+
+.catalog__pick--busy {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--spacing-xs);
+
+  &:hover {
+    // A busy pick button never invites a second click.
+    background: var(--color-surface);
+    border-color: var(--color-border);
+    color: var(--color-text-primary);
+  }
+}
+
+.catalog__load-more {
+  display: flex;
+  justify-content: center;
+  padding: var(--spacing-xs) 0;
 }
 
 .catalog__imported {
@@ -166,6 +190,11 @@
 
   &:hover {
     background: var(--color-surface-hover);
+  }
+
+  &:disabled {
+    cursor: default;
+    opacity: 0.6;
   }
 }
 

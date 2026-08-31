@@ -15,6 +15,7 @@ import {
 import { CloudCatalog, catalogSpecOf, toUserCopy } from '../../services/catalog/cloud-catalog';
 import { ActiveSelection } from '../../services/profiles/active-selection';
 import { PrintProfilesStore } from '../../services/profiles/print-profiles-store';
+import { NotificationService } from '../../services/notifications';
 import {
   Icon,
   NumberInput,
@@ -42,6 +43,7 @@ export class ProfileWizard {
   private readonly catalog = inject(CloudCatalog);
   private readonly store = inject(PrintProfilesStore);
   private readonly active = inject(ActiveSelection);
+  private readonly notifications = inject(NotificationService);
   private readonly router = inject(Router);
 
   protected readonly steps = STEPS;
@@ -54,6 +56,10 @@ export class ProfileWizard {
   protected readonly adhesionOptions = ADHESION_TYPES;
 
   protected readonly catalogStatus = this.catalog.profilesStatus;
+  protected readonly catalogHasMore = this.catalog.profilesHasMore;
+  protected readonly catalogLoadingMore = this.catalog.profilesLoadingMore;
+  /** Id of the catalog entry currently being fetched for import, if any. */
+  protected readonly importingId = signal<string | null>(null);
   protected readonly catalogEntries = computed<CatalogEntryVm[]>(() =>
     this.catalog.profiles().map((p) => {
       const params = (p.params as Record<string, unknown>) ?? {};
@@ -132,12 +138,33 @@ export class ProfileWizard {
     this.index.set(1);
   }
 
-  protected startFromCatalog(id: string): void {
-    const entry = this.catalog.profiles().find((p) => p.id === id);
-    if (entry) {
-      this.draft.set(toUserCopy(entry));
-      this.index.set(1);
+  /**
+   * Fetch the full preset behind `id` (real slicing params, not just the
+   * browsed summary) and seed the draft from it. The catalog picker shows a
+   * busy state on this entry's pick button for the duration.
+   */
+  protected async startFromCatalog(id: string): Promise<void> {
+    const base = this.catalog.profiles().find((p) => p.id === id);
+    if (!base || this.importingId()) {
+      return;
     }
+    this.importingId.set(id);
+    try {
+      const full = await this.catalog.profileDetail(base);
+      this.draft.set(toUserCopy(full));
+      this.index.set(1);
+    } catch (error) {
+      this.notifications.error(
+        'Could not load preset',
+        error instanceof Error ? error.message : 'The preset details could not be fetched.',
+      );
+    } finally {
+      this.importingId.set(null);
+    }
+  }
+
+  protected loadMoreCatalog(): void {
+    void this.catalog.loadMoreProfiles();
   }
 
   protected onCatalogSearch(query: string): void {

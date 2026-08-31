@@ -235,6 +235,14 @@ editors pass the **active printer's** params alongside the profile being edited.
   `:host ::ng-deep` for shell/outlet layout rules that must reach routed hosts.
 - **Avoid percentage-height children on `fr` grid tracks** (indefinite height) —
   use flex with `min-height: 0` instead.
+- **`flex: 1` collapses a scrolling child inside a container the viewport does
+  not size.** The shorthand expands to `flex-basis: 0%`, and WebKit resolves a
+  percentage basis against an indefinite column height (`auto`, `fit-content` —
+  a `<dialog>`) as zero instead of falling back to the content; a neighbouring
+  `min-height: 0` then removes the minimum that would have saved it. Write
+  `flex: 1 1 auto` there — it lays out identically in Chromium and Gecko when it
+  is the only flexible item. Playwright's WebKit does **not** reproduce this;
+  check real Safari (an iOS simulator serves as one).
 - Standalone components, `ChangeDetectionStrategy.OnPush`, signal `input()`,
   `nexus-` selector prefix.
 
