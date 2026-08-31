@@ -677,6 +677,15 @@ pay it back:
   transition never flashes a bar. It also turns a failed chunk fetch — a
   redeploy under a long-lived tab — into `AppVersion.reportStaleAssets()`, which
   raises the existing reload banner instead of leaving a dead click.
+- **The first load is a separate problem, and it belongs to
+  [index.html](ui/src/index.html).** Nothing shipped in the bundle can report on
+  loading that bundle, so the boot splash is inline markup + inline CSS, torn
+  down from [main.ts](ui/src/main.ts) once Angular paints. Its progress is real:
+  the build names every initial chunk as `<link rel="modulepreload">` and a
+  `PerformanceObserver` counts them as they land (0–90 %), leaving the last
+  tenth for parse + bootstrap. **Re-survey that list on every tick** — the build
+  appends those links *after* the inline script, so surveying once at parse time
+  finds nothing and the bar never moves.
 
 
 The **catalog** is the read-only library of vendor presets the profile wizards

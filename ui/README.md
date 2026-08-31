@@ -283,6 +283,40 @@ flowchart LR
   redeploy under a long-lived tab — into the existing reload banner via
   `AppVersion.reportStaleAssets()`.
 
+**Because preloading usually wins, the route bar is rarely seen — that is the
+intended outcome, not a broken feature.** It appears when a chunk is genuinely
+cold: a hard reload straight into a deep link, a slow connection, or a client
+where preloading was skipped.
+
+### The boot splash
+
+Route feedback cannot cover the *first* load, because Angular is the thing being
+waited for. That gap belongs to
+[index.html](src/index.html), which paints a logo, a progress bar and a label
+before a single byte of the bundle has run, and tears itself down from
+[main.ts](src/main.ts) once the app is on screen.
+
+- **It has to be inline.** A splash component ships inside the bundle it is
+  meant to cover, so it could only appear once the wait was already over. Same
+  reason its colours are literals rather than design tokens — the stylesheet
+  carrying those tokens is part of what is still loading. Keep them in step with
+  `--accent` and `--color-bg-primary` by hand.
+- **The progress is real.** The build lists every initial chunk in the document
+  as `<link rel="modulepreload">`, and a `PerformanceObserver` reports each one
+  as it lands, so the bar tracks actual downloads instead of easing along a
+  timer. Downloads map to 0–90 %; the last tenth is parse + bootstrap, closed by
+  `__nexusSplashDone()`.
+- **Survey the chunk list on every tick, never once at startup.** The build
+  appends those `modulepreload` links *after* this inline script, so a single
+  survey at parse time finds nothing and the bar never moves — which is exactly
+  how it was first written, and what measuring caught.
+- **The logo is `rel="preload"`ed at high priority**, or it queues behind the
+  chunks and arrives after the splash it belongs to has gone.
+- Degrades quietly: with no `modulepreload` links (the dev server) or no
+  `PerformanceObserver`, the splash still covers the blank page and still
+  clears. If the app never boots at all, the label admits it after 30 s rather
+  than leaving a bar frozen mid-way.
+
 ---
 
 ## Generated artifacts

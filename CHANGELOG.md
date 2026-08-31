@@ -41,6 +41,9 @@ issue/PR numbers or repo links in the notes. See the tone rules in
 
 ### Added
 
+- **A loading screen on first open** — the logo now appears immediately with a
+  progress bar beneath it, instead of a blank page while the app downloads. The
+  bar tracks the real download, so it reflects what is actually left.
 - **Visible page loading** — switching between Home, Slice and Settings shows a
   thin progress line and marks the destination in the navigation rail whenever
   the wait is long enough to notice. Anything under 120 ms stays silent, and the

@@ -12,6 +12,12 @@
     <link rel="icon" type="image/png" sizes="32x32" href="favicon-32x32.png" />
     <link rel="icon" type="image/png" sizes="16x16" href="favicon-16x16.png" />
     <link rel="apple-touch-icon" sizes="180x180" href="apple-touch-icon.png" />
+    <!--
+      The boot splash's logo. Preloaded at high priority so it arrives while the
+      app's chunks are still downloading — without this it queues behind them and
+      the splash it belongs to is gone before it lands.
+    -->
+    <link rel="preload" as="image" href="logo_still.png" fetchpriority="high" />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
@@ -30,6 +36,114 @@
       html.dark body {
         background-color: #111214;
         color: #e8e9ee;
+      }
+
+      /*
+       * Boot splash.
+       *
+       * Lives here, inline, rather than in a component: it exists to cover the
+       * gap *before* Angular is running, so anything that ships inside the
+       * bundle is by definition too late. Same reason the colours are literals
+       * — the design tokens arrive with the stylesheet, which is part of what
+       * we are waiting for. Keep these in step with `--accent` and the
+       * `--color-bg-primary` / `--color-text-*` tokens in styles/theme/.
+       */
+      .boot-splash {
+        position: fixed;
+        inset: 0;
+        z-index: 2147483647;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 24px;
+        background-color: #f4f5f8;
+        opacity: 1;
+        transition: opacity 260ms cubic-bezier(0.4, 0, 0.2, 1);
+      }
+      html.dark .boot-splash {
+        background-color: #111214;
+      }
+      /* Set once the app has painted; the element is removed on transitionend. */
+      .boot-splash.is-done {
+        opacity: 0;
+        pointer-events: none;
+      }
+
+      .boot-splash__logo {
+        position: relative;
+        width: 84px;
+        height: 84px;
+      }
+
+      /*
+       * The logo *is* the progress indicator: a dim base with a full-strength
+       * copy clipped over it, revealed bottom-up as `--boot-progress` climbs.
+       * Two <img>s of the same src cost one request.
+       */
+      .boot-splash__logo img {
+        position: absolute;
+        inset: 0;
+        width: 100%;
+        height: 100%;
+        object-fit: contain;
+        /* Decoration only — the visible label below carries the meaning. */
+        user-select: none;
+        -webkit-user-drag: none;
+      }
+      .boot-splash__logo img:first-child {
+        opacity: 0.16;
+        filter: grayscale(1);
+      }
+      .boot-splash__logo img:last-child {
+        clip-path: inset(calc(100% - var(--boot-progress, 0%)) 0 0 0);
+        transition: clip-path 200ms cubic-bezier(0.4, 0, 0.2, 1);
+      }
+
+      .boot-splash__track {
+        position: relative;
+        width: 140px;
+        height: 2px;
+        border-radius: 2px;
+        overflow: hidden;
+        background-color: rgba(17, 18, 20, 0.1);
+      }
+      html.dark .boot-splash__track {
+        background-color: rgba(232, 233, 238, 0.14);
+      }
+
+      .boot-splash__bar {
+        position: absolute;
+        inset-block: 0;
+        left: 0;
+        width: var(--boot-progress, 0%);
+        border-radius: 2px;
+        background-color: #e0730f;
+        transition: width 200ms cubic-bezier(0.4, 0, 0.2, 1);
+      }
+      html.dark .boot-splash__bar {
+        background-color: #f5883a;
+      }
+
+      .boot-splash__label {
+        font:
+          500 13px/1 'Plus Jakarta Sans',
+          system-ui,
+          sans-serif;
+        letter-spacing: 0.01em;
+        color: rgba(17, 18, 20, 0.55);
+      }
+      html.dark .boot-splash__label {
+        color: rgba(232, 233, 238, 0.55);
+      }
+
+      /* The reveal is information, so it stays — only the easing goes. */
+      @media (prefers-reduced-motion: reduce) {
+        .boot-splash,
+        .boot-splash__bar,
+        .boot-splash__logo img:last-child {
+          transition: none;
+        }
       }
     </style>
     <script>
@@ -92,6 +206,120 @@
     </script>
   </head>
   <body>
+    <!--
+      Shown until Angular paints. Markup sits in the document rather than in a
+      component so it appears with the HTML itself — a component could only
+      appear once the bundle it is waiting for has arrived.
+    -->
+    <div class="boot-splash" id="boot-splash" role="status" aria-live="polite">
+      <div class="boot-splash__logo">
+        <img src="logo_still.png" alt="" aria-hidden="true" draggable="false" />
+        <img src="logo_still.png" alt="Cold Crabby" draggable="false" />
+      </div>
+      <div class="boot-splash__track">
+        <div class="boot-splash__bar"></div>
+      </div>
+      <p class="boot-splash__label">Loading…</p>
+    </div>
+
     <nexus-root></nexus-root>
+    <script>
+      /*
+       * Real boot progress, not a guessed animation.
+       *
+       * The build lists every initial chunk in this document as
+       * `<link rel="modulepreload">`, so the full set of files the app needs
+       * before it can start is knowable — and a PerformanceObserver reports
+       * each one as it lands. That gives a genuine fraction rather than a bar
+       * that crawls to 90% on a timer and lies about the rest.
+       *
+       * Downloading is only most of the work, so it maps to 0–90%; the last
+       * tenth belongs to parse + bootstrap and is closed by `done()`. The bar
+       * never moves backwards, so a late-discovered chunk cannot rewind it.
+       */
+      (function () {
+        var splash = document.getElementById('boot-splash');
+        if (!splash) return;
+
+        var shown = 0;
+
+        function paint(value) {
+          // Monotonic: progress that goes down reads as a fault, not feedback.
+          if (!splash || value <= shown) return;
+          shown = value;
+          splash.style.setProperty('--boot-progress', (value * 100).toFixed(1) + '%');
+        }
+
+        function remove() {
+          if (!splash || !splash.parentNode) return;
+          var el = splash;
+          splash = null;
+          el.classList.add('is-done');
+          var drop = function () {
+            if (el.parentNode) el.parentNode.removeChild(el);
+          };
+          el.addEventListener('transitionend', drop, { once: true });
+          // transitionend never fires if the transition is skipped (reduced
+          // motion, background tab), so guarantee the teardown.
+          setTimeout(drop, 400);
+        }
+
+        // Exposed before anything below can throw, so a failed bootstrap can
+        // still clear the splash instead of stranding the user on a dead bar.
+        window.__nexusSplashDone = function () {
+          clearTimeout(stall);
+          // Let a partly-filled bar reach the end before it fades; a full one
+          // has nothing left to show.
+          var wasIncomplete = shown < 1;
+          paint(1);
+          setTimeout(remove, wasIncomplete ? 180 : 0);
+        };
+
+        /*
+         * If the app never boots there is nothing to call `done()` — a chunk
+         * 404ing after a redeploy is the usual cause, and this document is
+         * cached while the files it names are gone. A progress bar frozen
+         * mid-way would sit there indefinitely claiming to be busy, so say what
+         * actually happened once the wait stops being plausible.
+         */
+        var stall = setTimeout(function () {
+          if (!splash) return;
+          var label = splash.querySelector('.boot-splash__label');
+          if (label) label.textContent = 'Still loading — try reloading the page.';
+        }, 30000);
+
+        if (typeof PerformanceObserver !== 'function') return;
+
+        /*
+         * Re-read the chunk list on every tick rather than once up front.
+         *
+         * This script runs mid-parse, and the build appends its
+         * `modulepreload` links *after* it — so a single survey at startup
+         * finds nothing and the bar never moves. Re-surveying is also what
+         * makes this correct if the build ever emits them somewhere else
+         * again. Parsing finishes in milliseconds while the chunks take
+         * seconds, so the list is complete long before the first one lands.
+         */
+        function tick() {
+          var nodes = document.querySelectorAll(
+            'link[rel="modulepreload"][href], script[type="module"][src]',
+          );
+          if (!nodes.length) return;
+
+          var done = Object.create(null);
+          var entries = performance.getEntriesByType('resource');
+          for (var i = 0; i < entries.length; i++) done[entries[i].name] = true;
+
+          var loaded = 0;
+          for (var j = 0; j < nodes.length; j++) {
+            var href = nodes[j].getAttribute('href') || nodes[j].getAttribute('src');
+            if (href && done[new URL(href, document.baseURI).href]) loaded++;
+          }
+          paint(Math.min(loaded / nodes.length, 1) * 0.9);
+        }
+
+        new PerformanceObserver(tick).observe({ type: 'resource', buffered: true });
+      })();
+    </script>
   </body>
 </html>
