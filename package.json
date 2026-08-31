@@ -16,7 +16,7 @@
     "desktop:dev": "pnpm --filter slicer-ui-desktop dev",
     "desktop:build": "pnpm --filter slicer-ui-desktop build",
     "icons": "scripts/gen-icons.sh",
-    "splash-logo": "scripts/gen-splash-logo.sh",
+    "logo-assets": "scripts/gen-logo-assets.sh",
     "ios:doctor": "scripts/ios-doctor.sh",
     "ios:setup": "scripts/ios-doctor.sh --fix",
     "ios:init": "scripts/ios-doctor.sh && pnpm --filter slicer-ui-desktop exec tauri ios init",

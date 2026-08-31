@@ -11,6 +11,7 @@ import { RuntimeMeshInput, RuntimeSceneSnapshot } from '../runtime/domain/scene-
 import { createRuntime } from '../runtime/factory/runtime-factory';
 import { RuntimeEvent } from '../runtime/ports/runtime-events';
 import { FileExport } from './file-export';
+import { onIdle } from './idle';
 import { NotificationService } from './notifications';
 import { ActiveSelection } from './profiles/active-selection';
 import { SceneEngine } from './scene-engine';
@@ -105,6 +106,10 @@ export class Slicer {
   private readonly orchestrator = new RuntimeOrchestrator(this.runtime, this.runtimeSession);
   private sliceAbort: AbortController | null = null;
   private activeSliceId: string | null = null;
+  /** In-flight (or settled) runtime boot, so it happens exactly once. */
+  private runtimeBoot: Promise<void> | null = null;
+  /** Cancels the queued idle warm-up if something demands the runtime first. */
+  private cancelRuntimeWarmup: (() => void) | null = null;
   /** Cached mesh input from a native file-picker selection. When set,
    *  `readRuntimeMeshInput` returns this directly (avoiding `arrayBuffer()`
    *  on the File object) and the `filePath` field enables path-only IPC. */
@@ -291,14 +296,19 @@ export class Slicer {
       });
     });
 
-    this.orchestrator.init().catch((error) => {
-      this.runtimeConnected.set(false);
-      this.status.set('error');
-      this.outputLog.update((log) => [
-        ...log,
-        `[error] Runtime initialization failed: ${error instanceof Error ? error.message : String(error)}`,
-      ]);
-    });
+    // Boot the runtime once the browser has drawn the first screen and gone
+    // quiet. On the web build `init()` downloads the ~750 KB WebAssembly engine
+    // and spins up the slicer worker — three quarters of the page's bytes and a
+    // sizeable chunk of main-thread compile time, none of which the home
+    // dashboard needs in order to render. Started eagerly it was the single
+    // largest thing standing between a visitor and their first paint.
+    //
+    // Deferring is safe rather than merely cheaper because the boot is also
+    // demanded on use: every path that reaches the runtime awaits
+    // `ensureRuntimeStarted()`, so a user who drops a model before the idle
+    // callback fires simply triggers the same boot a moment early and waits on
+    // the same promise.
+    this.cancelRuntimeWarmup = onIdle(() => void this.ensureRuntimeStarted());
 
     // Forget the previous plate's slice the instant the active workplate
     // changes. `startWorkplate` / `resetWorkplate` also flush imperatively,
@@ -382,6 +392,31 @@ export class Slicer {
       }
       this.outputLog.update((l) => [...l, `[phase] ${msg.phase} ✓ ${msg.elapsed_ms} ms`]);
     }
+  }
+
+  /**
+   * Boot the runtime, at most once, and resolve when it is usable.
+   *
+   * Every call shares one promise, so the idle warm-up scheduled in the
+   * constructor and a user who drops a model a fraction earlier converge on the
+   * same boot rather than racing two of them. It never rejects: a failed boot is
+   * reported the way it always was — connection dropped, status `error`, reason
+   * in the output log — and callers carry on to fail in their own terms.
+   */
+  private ensureRuntimeStarted(): Promise<void> {
+    this.cancelRuntimeWarmup?.();
+    this.cancelRuntimeWarmup = null;
+
+    return (this.runtimeBoot ??= this.orchestrator.init().catch((error: unknown) => {
+      this.runtimeConnected.set(false);
+      this.status.set('error');
+      this.outputLog.update((log) => [
+        ...log,
+        `[error] Runtime initialization failed: ${error instanceof Error ? error.message : String(error)}`,
+      ]);
+      // Let the next demand retry instead of caching the failure forever.
+      this.runtimeBoot = null;
+    }));
   }
 
   private handleRuntimeEvent(event: RuntimeEvent): void {
@@ -475,6 +510,8 @@ export class Slicer {
       return false;
     }
 
+    await this.ensureRuntimeStarted();
+
     const meshInput = await this.runtime.openFilePicker();
     if (!meshInput) {
       return false;
@@ -493,6 +530,10 @@ export class Slicer {
   }
 
   async startWorkplate(file: File): Promise<WorkplateStart> {
+    // Adopting a model is the first thing that genuinely needs the engine, so
+    // it is also where a deferred boot gets claimed.
+    await this.ensureRuntimeStarted();
+
     // Clear every trace of the previous plate (file, slice results, scene
     // objects, view mode) before adopting the new model so nothing bleeds
     // across — the old download URL, thumbnail source or a leftover scene
@@ -774,7 +815,7 @@ export class Slicer {
   }
 
   getHistory(): Promise<RuntimeHistorySession[]> {
-    return this.orchestrator.getHistory();
+    return this.ensureRuntimeStarted().then(() => this.orchestrator.getHistory());
   }
 
   /**
@@ -783,11 +824,14 @@ export class Slicer {
    * the now-empty list. No-op on the web/wasm runtime.
    */
   async clearHistory(): Promise<void> {
+    await this.ensureRuntimeStarted();
     await this.orchestrator.clearHistory();
     this.historyVersion.update((v) => v + 1);
   }
 
   async downloadHistorySession(session: RuntimeHistorySession): Promise<void> {
+    await this.ensureRuntimeStarted();
+
     const filename = this.workplateNames.gcodeFilenameFor(
       session.request_uuid,
       session.original_filename,
@@ -863,6 +907,8 @@ export class Slicer {
   }
 
   private async ensureRuntimeReadyForSlice(model: RuntimeMeshInput): Promise<RuntimeSceneSnapshot> {
+    await this.ensureRuntimeStarted();
+
     if (this.runtimeMode === 'cloud') {
       const requestUuid = this.slicerFile.requestUuid();
       const fileIds = this.slicerFile.fileIds();

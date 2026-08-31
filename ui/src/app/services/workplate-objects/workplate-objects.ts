@@ -5,6 +5,7 @@ import { Logger } from '../logger';
 import { SceneCommand } from '../scene-command/scene-command';
 import { SceneEngine } from '../scene-engine';
 import { SlicerFile } from '../slicer-file';
+import { WasmPerformanceNotice } from '../wasm-performance-notice';
 import { clearOffsetX, footprintOf } from './placement';
 
 /** Model file extensions the scene engine can load. */
@@ -48,6 +49,7 @@ export class WorkplateObjects {
   private readonly sceneCommand = inject(SceneCommand);
   private readonly slicerFile = inject(SlicerFile);
   private readonly arrange = inject(Arrange);
+  private readonly wasmPerfNotice = inject(WasmPerformanceNotice);
 
   /** Live list of objects on the plate. */
   readonly objects = this.sceneEngine.objects;
@@ -166,6 +168,9 @@ export class WorkplateObjects {
    */
   private placeMesh(name: string, bytes: Uint8Array, sourceId?: string): bigint[] {
     const ids = this.sceneEngine.addMesh(name, formatOf(name), bytes, sourceId);
+    // A model on the plate is the first moment the web build's headline
+    // trade-off — everything runs here, so it is slower — is about to matter.
+    this.wasmPerfNotice.maybeShow();
     const { autoOrient, preferredOrientationDeg } = this.arrange.settings();
     for (const id of ids) {
       if (autoOrient) {

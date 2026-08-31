@@ -490,6 +490,14 @@ adapts goes through it — never an ad-hoc `max-width` query.
   the pipeline inspector go because eleven pill buttons do not fit and neither is
   part of getting a model sliced. Anything on the path to a slice — the object
   tools, add, undo/redo, the G-code toggle, Slice itself — stays.
+- **Pinch-to-zoom belongs to the browser everywhere except the 3D canvas.** The
+  viewport meta carries no `user-scalable=no` / `maximum-scale`, and
+  `touch-action: none` sits on the viewer's `:host`
+  ([viewer.scss](ui/src/app/components/viewer/viewer.scss)) rather than on
+  `html`. Both used to be page-wide, and between them they took magnification
+  away from every settings form and every block of prose — the one affordance a
+  low-vision user has on a phone, and an outright accessibility failure. Lock a
+  gesture on the specific surface that claims it; never on the document.
 
 The layout contract (tab bar, drawer, bottom sheet, chip strip) is catalogued in
 [ui/README.md](ui/README.md#phones); the user-facing tour is in
@@ -727,6 +735,46 @@ reached 2 MB against a 1.58 MB bundle).
   initial chunk's bytes back to its modules through the source map. Chunk names
   are hashes and the sizes alone tell you nothing about *why* something is there.
 
+### Bytes are only half of it — what a service *does* on construction
+
+A chunk the browser has already downloaded costs nothing until something runs
+it, and the reverse is the trap: a small service can start very expensive work
+the moment it is injected. `Slicer` used to call `orchestrator.init()` straight
+from its constructor, which on the web build downloads the ~750 kB
+`scene_engine_bg.wasm` and starts the slicer worker. The home dashboard injects
+`Slicer` for its history list, so **every visitor paid for the whole slicing
+engine before the first screen had painted** — three quarters of the page's
+bytes and, once compiled, 2 s of blocked main thread.
+
+The fix is the pattern to follow for anything similarly heavy:
+
+- **Boot lazily, and warm on idle.** `Slicer.ensureRuntimeStarted()` is
+  idempotent and shared, scheduled from the constructor through
+  [`onIdle`](ui/src/app/services/idle.ts) and awaited by every path that reaches
+  the runtime (`startWorkplate`, `getHistory`, `clearHistory`,
+  `openAndSelectFile`, `ensureRuntimeReadyForSlice`). A user who drops a model
+  before idle fires simply claims the same promise a moment early, so deferring
+  cannot leave the runtime un-booted — only later.
+- **Gate on demand as well as on idle**, never on idle alone. An idle callback
+  is a hint, not a guarantee; on a busy tab it may not fire before the user acts.
+- **A failed boot must not be cached.** `ensureRuntimeStarted` clears its promise
+  on failure so the next demand retries, and never rejects — callers fail in
+  their own terms against the same `status`/`outputLog` they always did.
+- [`onIdle`](ui/src/app/services/idle.ts) is the one place that knows
+  `requestIdleCallback` must be called through `globalThis` (it is a Web IDL
+  operation and throws "Illegal invocation" through a detached reference) and
+  that Safari before 17 needs a timer fallback. `IdleRoutePreload` uses the same
+  helper — do not re-derive it.
+
+**A modal shown at startup becomes the page's Largest Contentful Paint.** The
+web build's "Running in your browser" notice was raised from `App`'s
+constructor; being the biggest block of text on screen, it *was* the LCP
+element, so the site measured as loading however long that dialog took to
+appear — worth 20 points of Lighthouse performance on its own. It now fires from
+`WorkplateObjects.placeMesh`, when a model actually lands on the plate, which is
+both cheaper and the moment its advice means anything. Raise first-run
+explanations from the action they describe, not from app boot.
+
 ### Making lazy loading honest
 
 Splitting the app moves the wait rather than removing it, so two pieces exist to
@@ -756,11 +804,15 @@ pay it back:
   the document (no request, so it paints with the HTML) and the full 240 px
   asset cross-fades over it. Progressive JPEG cannot be used — the logo is RGBA
   and JPEG has no alpha — and neither WebP nor AVIF decodes progressively, so
-  the two stages are explicit. Both come from
-  [scripts/gen-splash-logo.sh](scripts/gen-splash-logo.sh) (`pnpm run
-  splash-logo`, `--check` verifies); **never hand-edit the base64**, and note
+  the two stages are explicit. Those two, and the in-app header logo's `srcset`,
+  all come from
+  [scripts/gen-logo-assets.sh](scripts/gen-logo-assets.sh) (`pnpm run
+  logo-assets`, `--check` verifies); **never hand-edit the base64**, and note
   that Prettier rewrites CSS `url()` to single quotes, which the generator has
-  to tolerate or it stops finding its own output.
+  to tolerate or it stops finding its own output. **Every logo the app serves is
+  WebP, with no PNG fallback** — the `.png` files in `ui/public/` are the masters
+  the script reads. That is safe because the app needs WebAssembly and WebGL2 to
+  do anything at all, so no browser that can run it lacks WebP.
 
 
 The **catalog** is the read-only library of vendor presets the profile wizards

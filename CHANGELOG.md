@@ -76,6 +76,22 @@ issue/PR numbers or repo links in the notes. See the tone rules in
   it cannot receive, and the projection toggle and operation-pipeline inspector,
   which do not fit alongside the tools that get a model sliced. All three return
   on any wider screen.
+- **The home screen appears without waiting for the slicing engine** — the
+  ~750 kB WebAssembly engine and its worker used to load before the first screen
+  could draw, even though nothing there needs them. They now load once the
+  browser is idle, or the moment you open a model, whichever comes first. Blocked
+  main-thread time on arrival falls from about 2 s to under 30 ms, and the page
+  weighs 536 kB less.
+- **You can pinch to zoom the interface again** — zoom was disabled across the
+  whole page to keep gestures away from the 3D view. Only the 3D view holds onto
+  them now, so settings, prose and small print can be magnified everywhere else.
+- **Muted text is legible** — the quietest text tone sat below the contrast
+  minimum in both themes, and well below it in light mode. It has been darkened
+  (light) and lightened (dark) enough to pass on every surface it appears on.
+- **The in-app logo is 74% smaller** — 52 kB of PNG became 14 kB of WebP.
+- **"Running in your browser" appears when you open a model**, not the instant
+  the page loads. Same message, but it now arrives when you have something to
+  slice — and it is no longer the first thing a new visitor meets.
 
 ## [0.3.0]
 

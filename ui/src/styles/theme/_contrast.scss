@@ -1,0 +1,28 @@
+/// Local override: lift `--color-text-tertiary` to WCAG AA.
+/// @group theme
+///
+/// The shared palette's tertiary text sits just under the 4.5:1 that AA asks of
+/// body text — 4.49:1 on the dark nav rail, and only 3.07:1 in the light theme,
+/// where it is used for exactly the kind of small print that most needs to be
+/// legible. Around eighty places across the app reach for this token, so the
+/// honest fix is the token itself rather than a hunt through the call sites.
+///
+/// The replacements keep the original hue and saturation and move only
+/// lightness, far enough to clear 4.5:1 against *every* surface the theme can
+/// put behind them — including the extreme `--color-surface-active` — while
+/// staying visibly quieter than `--color-text-secondary`, which is the whole
+/// point of a tertiary tone.
+///
+///   light  #8a8d93 → #66696e   (2.74:1 → 4.54:1 worst case)
+///   dark   #7c808a → #93969e   (3.40:1 → 4.54:1 worst case)
+///
+/// Emitted after `theme/light` and `theme/dark`, which is what lets a plain
+/// re-declaration on the same selector win.
+
+html {
+  --color-text-tertiary: #66696e;
+}
+
+html.dark {
+  --color-text-tertiary: #93969e;
+}

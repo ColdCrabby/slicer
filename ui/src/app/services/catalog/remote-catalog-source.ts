@@ -162,9 +162,7 @@ export class RemoteCatalogSource implements CatalogSource {
   }
 
   /** Fetch the full preset behind one catalog id via `GET /v1/presets/{id}`. */
-  private async fetchDetail(
-    id: string,
-  ): Promise<{
+  private async fetchDetail(id: string): Promise<{
     name: string;
     vendor: string;
     import_url: string;

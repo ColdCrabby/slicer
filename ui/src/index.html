@@ -4,9 +4,17 @@
     <meta charset="utf-8" />
     <title>Cold Crabby</title>
     <base href="/" />
+    <!--
+      No `user-scalable=no` / `maximum-scale`: blocking zoom locks out anyone
+      who needs to magnify text, and it is not what keeps the 3D view from
+      pinching anyway — `touch-action: none` in styles/base/_reset.scss does
+      that, per-surface, where a gesture actually belongs to the canvas.
+      `viewport-fit=cover` extends the page under the iOS safe areas.
+    -->
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
     <meta
-      name="viewport"
-      content="width=device-width, initial-scale=1, maximum-scale=1, minimum-scale=1, user-scalable=no, viewport-fit=cover"
+      name="description"
+      content="Cold Crabby is a fast, open-source 3D printing slicer. Drop in an STL, OBJ or 3MF and slice it right in your browser — no account, no install, nothing uploaded."
     />
     <link rel="icon" type="image/x-icon" href="favicon.ico" />
     <link rel="icon" type="image/png" sizes="32x32" href="favicon-32x32.png" />
@@ -20,7 +28,13 @@
       is on screen even before this request completes.
     -->
     <link rel="preload" as="image" href="splash-logo.webp" fetchpriority="high" />
-    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <!--
+      Only `fonts.gstatic.com` is worth a preconnect. The production build
+      inlines the Google Fonts stylesheet into this document, so
+      `fonts.googleapis.com` is never contacted at runtime and a preconnect to
+      it only buys a DNS lookup and TLS handshake nobody uses. The `.woff2`
+      files it names still come from gstatic, which is what this warms.
+    -->
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
       href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@200..800&family=IBM+Plex+Mono:wght@100;200;300;400;500;600;700&display=swap"
@@ -83,7 +97,7 @@
        * embedded in this document, so it paints with the HTML — no request, no
        * round trip. Blurring hides the resolution and makes it read as a
        * deliberate soft-focus rather than a broken thumbnail. `splash-logo.webp`
-       * then fades in over it. Regenerate both with scripts/gen-splash-logo.sh.
+       * then fades in over it. Regenerate both with scripts/gen-logo-assets.sh.
        */
       .boot-splash__logo-placeholder,
       .boot-splash__logo-full {

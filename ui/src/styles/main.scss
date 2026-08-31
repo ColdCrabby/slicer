@@ -10,6 +10,9 @@
 @use 'theme/root';
 @use 'theme/light';
 @use 'theme/dark';
+// Local override: raise the shared tertiary text tone to WCAG AA. MUST come
+// after `theme/light` and `theme/dark` so it wins on order.
+@use './theme/contrast';
 @use 'theme/tokens' as *;
 
 // Mixins (drop-aurora, focus-ring, …)

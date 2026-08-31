@@ -125,6 +125,25 @@ All values live in `ui/src/styles/theme/` — `_light.scss`, `_dark.scss`
   (4/6/8). **Shadows:** `--shadow-xs..lg`. **Motion:** `--duration-fast/normal/slow`
   - `--ease-standard/decelerate/accelerate`. **Icons:** `--icon-stroke-width: 1.8`.
 
+### Text tones must clear WCAG AA
+
+Body text needs 4.5:1 against whatever sits behind it, and the shared palette's
+tertiary tone did not — 4.49:1 on the dark rail, 3.07:1 in the light theme.
+`ui/src/styles/theme/_contrast.scss` raises `--color-text-tertiary` for both
+themes, emitted after `theme/light` and `theme/dark` so a plain re-declaration
+wins on order. It is the local-override idiom `base/field-focus` already uses.
+
+Two rules follow from it:
+
+- **Fix the token, not the call site.** Around eighty places consume that
+  variable; patching only the ones an audit happened to surface leaves the rest
+  broken and the next page failing again.
+- **A tinted surface needs its own check.** A neutral grey that passes on
+  graphite can still fail on `--accent-soft` — the tertiary tone lands at 3.9:1
+  on the dark amber card. Where a component swaps in an accent background, step
+  its supporting text up to `--color-text-secondary` and drop any `opacity`,
+  which silently erodes the contrast being recovered.
+
 ## Layout & Component Patterns
 
 - **Islands / cards:** rounded solid surface, `--radius-lg`, `overflow: hidden`,
