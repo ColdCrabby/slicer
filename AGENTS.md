@@ -26,6 +26,24 @@ Or use **Makefile targets** (Linux/macOS):
 make build-release build-windows build-macos build-wasm test lint fmt
 ```
 
+### Dev servers run on a random seed — never a fixed port
+
+`pnpm run dev` ([scripts/dev.mjs](scripts/dev.mjs)) rolls a three-digit **seed**
+(200–999) and derives everything from it: the UI dev server on `4<seed>`, the
+engine on `5<seed>`, and a work directory (SQLite DB + uploads) of its own. It
+verifies the ports are free before starting, so a second worktree, a colleague
+on the same box, or a parallel agent session never collides with yours. `--seed`
+pins one, `--print` resolves ports without starting anything, and
+`dev:web-slicer` / `dev:desktop` cover the other runtimes.
+
+**The engine's port is an internal detail.** The dev server proxies `/api` and
+`/ws` to it ([ui/proxy.conf.mjs](ui/proxy.conf.mjs)), so the browser addresses a
+single origin in development exactly as it does in production — which is why
+[environment.ts](ui/src/environments/environment.ts) carries no port at all.
+Never reintroduce one there: it would pin the UI to one instance of the engine
+and break every seeded run but the first. Report the URL the launcher prints,
+never a hardcoded `:4213`.
+
 ## Architecture & Design
 
 ### Core Components
@@ -1430,5 +1448,5 @@ infill within the ring.
 
 ---
 
-**Last Updated**: 2026-08-30 (advanced infill options + Orca-accurate fill density)  
+**Last Updated**: 2026-08-31 (seeded dev-server ports + same-origin dev proxy)  
 **Maintainer Guidance**: Keep this file in sync with project structure changes, new conventions, or significant architectural decisions.

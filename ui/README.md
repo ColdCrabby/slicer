@@ -265,13 +265,20 @@ The `postinstall` script in [package.json](package.json) wires this up: cloning 
 # From the repo root, build the WASM scene engine first
 make build-wasm                                  # writes ui/src/generated/scene-wasm/
 
-# Then, in this folder:
 pnpm install                                     # also runs `pnpm run gen`
-pnpm start                                       # ng serve --host 0.0.0.0 → http://localhost:4200
 
-# In a second terminal, run the slicer-engine server (UI talks to this)
-cargo run --release -- serve                     # default http://localhost:5201
+# Then, from the repo root, start the engine + dev server together
+pnpm run dev                                     # seeded ports: UI 4<seed>, engine 5<seed>
 ```
+
+`pnpm run dev` ([scripts/dev.mjs](../scripts/dev.mjs)) picks a random seed so
+parallel checkouts never fight over a port, and prints the UI URL to open. The
+dev server proxies `/api` and `/ws` to the engine
+([proxy.conf.mjs](proxy.conf.mjs)), so the app addresses one origin in
+development exactly as it does in production.
+
+Running this folder's `pnpm start` on its own is still fine — it serves on the
+default `:4213` and proxies to an engine on its default `:5201`.
 
 Reset the generated folder anytime with `pnpm run gen`. If types or schemas look stale after editing Rust, run `pnpm run gen` — never edit `src/generated/` by hand.
 
@@ -281,6 +288,7 @@ Reset the generated folder anytime with `pnpm run gen`. If types or schemas look
 
 | Task                            | Command                                 |
 | ------------------------------- | --------------------------------------- |
+| Engine + dev server (seeded)    | `pnpm run dev` (repo root)              |
 | Dev server with HMR             | `pnpm start`                            |
 | Production build                | `pnpm build`                            |
 | Watch incremental dev build     | `pnpm watch`                            |
