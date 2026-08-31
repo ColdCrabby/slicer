@@ -259,6 +259,14 @@ Install the CLI at the exact version pinned in `Cargo.lock` (mismatched versions
 cargo install wasm-bindgen-cli --version "$(grep -A1 '^name = "wasm-bindgen"$' Cargo.lock | tail -1 | cut -d'"' -f2)" --locked
 ```
 
+Still "command not found" after installing? `cargo install` puts binaries in `~/.cargo/bin`, which `rustup`'s own shell setup should have added to `PATH` — if it didn't (or you're on a shell profile rustup didn't touch), add it yourself:
+
+```bash
+echo 'export PATH="$HOME/.cargo/bin:$PATH"' >> ~/.zshrc   # or ~/.bashrc
+```
+
+Open a new terminal (or `source` the file) and retry.
+
 **`wasm-pack` command not found?**
 Only needed for the standalone `wasm-pack build` invocation — the `pnpm hydrate` scripts don't use it. If you actually need it: `cargo install wasm-pack`.
 

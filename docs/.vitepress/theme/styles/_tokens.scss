@@ -1,0 +1,404 @@
+/// Cold Crabby design language → VitePress.
+/// @group docs-theme
+///
+/// **No colour is defined in this file.** The three `@use`d partials are the
+/// real theme from the shared UI library (ColdCrabby/ui), vendored into
+/// `ui/vendor/coldcrabby-ui` and resolved through the Sass `loadPaths` in
+/// `.vitepress/config.ts` — exactly how the Angular app consumes them. Change
+/// the accent in the library and this site follows; the docs cannot drift from
+/// the product they document.
+///
+/// Everything below is a *bridge*: it maps those tokens onto the `--vp-*`
+/// variables VitePress's default theme reads. Add a mapping here rather than a
+/// literal value anywhere else in the theme.
+
+@use "theme/light";
+@use "theme/dark";
+@use "theme/root";
+
+:root {
+  /* ── Typeface ─────────────────────────────────────────────────────────
+     The same pairing the app ships: Plus Jakarta Sans over IBM Plex Mono. */
+  --vp-font-family-base: var(--font-family-ui);
+  --vp-font-family-mono: var(--font-family-mono);
+
+  /* ── Brand = the accent ───────────────────────────────────────────────
+     VitePress splits a brand colour three ways: `1` is text-safe (links,
+     titles), `2` is its hover, `3` is a solid fill. Molten amber is bright
+     enough to fill a button but too light to read as body text on a
+     near-white canvas, so light mode borrows the darker `--accent-active`
+     for `1` and dark mode uses the accent as-is. */
+  --vp-c-brand-1: var(--accent-active);
+  --vp-c-brand-2: var(--accent);
+  --vp-c-brand-3: var(--accent);
+  --vp-c-brand-soft: var(--accent-soft);
+  --vp-c-brand: var(--accent);
+
+  /* ── Surfaces ─────────────────────────────────────────────────────────
+     Regions separate by tone, never by a line. The content column is the
+     bright reading surface; the nav, sidebar and footer sit on the calmer
+     app canvas and recede behind it. */
+  --vp-c-bg: var(--color-bg-secondary);
+  --vp-c-bg-alt: var(--color-bg-primary);
+  --vp-c-bg-soft: var(--color-bg-primary);
+  --vp-c-bg-elv: var(--color-surface);
+
+  --vp-c-text-1: var(--color-text-primary);
+  --vp-c-text-2: var(--color-text-secondary);
+  --vp-c-text-3: var(--color-text-tertiary);
+
+  --vp-c-divider: var(--color-border-light);
+  --vp-c-border: var(--color-border);
+  --vp-c-gutter: transparent;
+
+  --vp-c-default-1: var(--color-text-secondary);
+  --vp-c-default-2: var(--color-text-tertiary);
+  --vp-c-default-3: var(--color-border);
+  --vp-c-default-soft: var(--color-surface-alt);
+
+  --vp-c-neutral: var(--color-text-primary);
+  --vp-c-neutral-inverse: var(--color-bg-secondary);
+
+  --vp-shadow-1: var(--shadow-xs);
+  --vp-shadow-2: var(--shadow-sm);
+  --vp-shadow-3: var(--shadow-md);
+  --vp-shadow-4: var(--shadow-md);
+  --vp-shadow-5: var(--shadow-lg);
+
+  --vp-backdrop-bg-color: var(--scrim);
+
+  /* ── Status families ──────────────────────────────────────────────────
+     Same severities the app uses. `tip` is the teal secondary, which is what
+     `nexus-inline-notice` calls its `info` tone. */
+  --vp-c-tip-1: var(--color-secondary);
+  --vp-c-tip-2: var(--color-secondary-hover);
+  --vp-c-tip-3: var(--color-secondary-active);
+  --vp-c-tip-soft: color-mix(in oklab, var(--color-secondary) 12%, transparent);
+
+  --vp-c-note-1: var(--color-text-secondary);
+  --vp-c-note-2: var(--color-text-tertiary);
+  --vp-c-note-3: var(--color-border);
+  --vp-c-note-soft: var(--color-surface-alt);
+
+  --vp-c-success-1: var(--color-success);
+  --vp-c-success-2: var(--color-success);
+  --vp-c-success-3: var(--color-success);
+  --vp-c-success-soft: color-mix(
+    in oklab,
+    var(--color-success) 12%,
+    transparent
+  );
+
+  --vp-c-important-1: var(--color-tertiary);
+  --vp-c-important-2: var(--color-tertiary-hover);
+  --vp-c-important-3: var(--color-tertiary-active);
+  --vp-c-important-soft: color-mix(
+    in oklab,
+    var(--color-tertiary) 12%,
+    transparent
+  );
+
+  --vp-c-warning-1: var(--color-warning);
+  --vp-c-warning-2: var(--color-warning);
+  --vp-c-warning-3: var(--color-warning);
+  --vp-c-warning-soft: color-mix(
+    in oklab,
+    var(--color-warning) 12%,
+    transparent
+  );
+
+  --vp-c-danger-1: var(--color-danger);
+  --vp-c-danger-2: var(--color-danger);
+  --vp-c-danger-3: var(--color-danger);
+  --vp-c-danger-soft: color-mix(in oklab, var(--color-danger) 12%, transparent);
+
+  --vp-c-caution-1: var(--color-danger);
+  --vp-c-caution-2: var(--color-danger);
+  --vp-c-caution-3: var(--color-danger);
+  --vp-c-caution-soft: color-mix(
+    in oklab,
+    var(--color-danger) 12%,
+    transparent
+  );
+
+  /* Palette aliases VitePress still reaches for in a few components. */
+  --vp-c-indigo-1: var(--accent-active);
+  --vp-c-indigo-2: var(--accent);
+  --vp-c-indigo-3: var(--accent);
+  --vp-c-indigo-soft: var(--accent-soft);
+  --vp-c-green-1: var(--color-success);
+  --vp-c-green-soft: color-mix(in oklab, var(--color-success) 12%, transparent);
+  --vp-c-yellow-1: var(--color-warning);
+  --vp-c-yellow-soft: color-mix(
+    in oklab,
+    var(--color-warning) 12%,
+    transparent
+  );
+  --vp-c-red-1: var(--color-danger);
+  --vp-c-red-soft: color-mix(in oklab, var(--color-danger) 12%, transparent);
+  --vp-c-purple-1: var(--color-tertiary);
+  --vp-c-purple-soft: color-mix(
+    in oklab,
+    var(--color-tertiary) 12%,
+    transparent
+  );
+  --vp-c-sponsor: var(--color-danger);
+
+  /* ── Chrome ───────────────────────────────────────────────────────────
+     The nav is close to the app's own titlebar height so the two feel like
+     one product; nav and sidebar share the canvas so nothing is boxed in. */
+  --vp-nav-height: 56px;
+  --vp-nav-bg-color: var(--color-bg-primary);
+  --vp-nav-screen-bg-color: var(--color-bg-primary);
+  --vp-local-nav-bg-color: var(--color-bg-primary);
+  --vp-sidebar-bg-color: var(--color-bg-primary);
+  --vp-sidebar-width: 264px;
+  --vp-layout-max-width: 1400px;
+
+  --vp-input-bg-color: var(--color-surface);
+  --vp-input-border-color: var(--color-border);
+  --vp-input-switch-bg-color: var(--color-bg-tertiary);
+
+  /* ── Buttons — mirrors `button[nexusButton]` ─────────────────────────
+     Primary is an accent fill with `--accent-contrast` text and no border.
+     Alt is the `secondary` variant: a surface with a real border, because a
+     button is a hit target and earns its outline. */
+  --vp-button-brand-bg: var(--accent);
+  --vp-button-brand-text: var(--accent-contrast);
+  --vp-button-brand-border: transparent;
+  --vp-button-brand-hover-bg: var(--accent-hover);
+  --vp-button-brand-hover-text: var(--accent-contrast);
+  --vp-button-brand-hover-border: transparent;
+  --vp-button-brand-active-bg: var(--accent-active);
+  --vp-button-brand-active-text: var(--accent-contrast);
+  --vp-button-brand-active-border: transparent;
+
+  --vp-button-alt-bg: var(--color-surface);
+  --vp-button-alt-text: var(--color-text-primary);
+  --vp-button-alt-border: var(--color-border);
+  --vp-button-alt-hover-bg: var(--color-surface-hover);
+  --vp-button-alt-hover-text: var(--color-text-primary);
+  --vp-button-alt-hover-border: var(--color-border);
+  --vp-button-alt-active-bg: var(--color-surface-active);
+  --vp-button-alt-active-text: var(--color-text-primary);
+  --vp-button-alt-active-border: var(--color-border);
+
+  /* ── Code ─────────────────────────────────────────────────────────────
+     A block sits one tone away from the page in both modes: a warm grey on
+     the light canvas, a deeper graphite on the dark one. */
+  --vp-code-font-size: 0.875em;
+  --vp-code-line-height: 1.65;
+  --vp-code-block-bg: var(--color-bg-primary);
+  --vp-code-block-color: var(--color-text-secondary);
+  --vp-code-block-divider-color: var(--color-border);
+  --vp-code-bg: var(--color-surface-alt);
+  --vp-code-color: var(--color-text-primary);
+  --vp-code-link-color: var(--vp-c-brand-1);
+  --vp-code-link-hover-color: var(--accent-hover);
+  --vp-code-lang-color: var(--color-text-tertiary);
+  --vp-code-line-number-color: var(--color-text-tertiary);
+  --vp-code-line-highlight-color: var(--accent-softer);
+  --vp-code-line-diff-add-color: color-mix(
+    in oklab,
+    var(--color-success) 16%,
+    transparent
+  );
+  --vp-code-line-diff-add-symbol-color: var(--color-success);
+  --vp-code-line-diff-remove-color: color-mix(
+    in oklab,
+    var(--color-danger) 16%,
+    transparent
+  );
+  --vp-code-line-diff-remove-symbol-color: var(--color-danger);
+  --vp-code-line-warning-color: color-mix(
+    in oklab,
+    var(--color-warning) 16%,
+    transparent
+  );
+  --vp-code-line-error-color: color-mix(
+    in oklab,
+    var(--color-danger) 16%,
+    transparent
+  );
+
+  --vp-code-copy-code-bg: var(--color-surface);
+  --vp-code-copy-code-hover-bg: var(--color-surface-hover);
+  --vp-code-copy-code-border-color: var(--color-border);
+  --vp-code-copy-code-hover-border-color: var(--color-border);
+  --vp-code-copy-code-active-text: var(--color-text-secondary);
+
+  --vp-code-tab-bg: var(--color-bg-primary);
+  --vp-code-tab-divider: var(--color-border);
+  --vp-code-tab-text-color: var(--color-text-tertiary);
+  --vp-code-tab-hover-text-color: var(--color-text-primary);
+  --vp-code-tab-active-text-color: var(--color-text-primary);
+  --vp-code-tab-active-bar-color: var(--accent);
+
+  /* ── Custom blocks — the `nexus-inline-notice` recipe ────────────────
+     One tone per severity, mixed 8% into the surface for the fill and 28%
+     into transparent for the border. Solid, never blurred. */
+  --vp-custom-block-font-size: var(--font-size-md);
+  --vp-custom-block-code-font-size: 0.875em;
+
+  --vp-custom-block-tip-border: color-mix(
+    in oklab,
+    var(--color-secondary) 28%,
+    transparent
+  );
+  --vp-custom-block-tip-text: var(--color-text-secondary);
+  --vp-custom-block-tip-bg: color-mix(
+    in oklab,
+    var(--color-secondary) 8%,
+    var(--color-surface)
+  );
+  --vp-custom-block-tip-code-bg: color-mix(
+    in oklab,
+    var(--color-secondary) 14%,
+    transparent
+  );
+
+  --vp-custom-block-info-border: var(--color-border);
+  --vp-custom-block-info-text: var(--color-text-secondary);
+  --vp-custom-block-info-bg: var(--color-bg-primary);
+  --vp-custom-block-info-code-bg: var(--color-surface-alt);
+
+  --vp-custom-block-note-border: var(--color-border);
+  --vp-custom-block-note-text: var(--color-text-secondary);
+  --vp-custom-block-note-bg: var(--color-bg-primary);
+  --vp-custom-block-note-code-bg: var(--color-surface-alt);
+
+  --vp-custom-block-important-border: color-mix(
+    in oklab,
+    var(--color-tertiary) 28%,
+    transparent
+  );
+  --vp-custom-block-important-text: var(--color-text-secondary);
+  --vp-custom-block-important-bg: color-mix(
+    in oklab,
+    var(--color-tertiary) 8%,
+    var(--color-surface)
+  );
+  --vp-custom-block-important-code-bg: color-mix(
+    in oklab,
+    var(--color-tertiary) 14%,
+    transparent
+  );
+
+  --vp-custom-block-warning-border: color-mix(
+    in oklab,
+    var(--color-warning) 28%,
+    transparent
+  );
+  --vp-custom-block-warning-text: var(--color-text-secondary);
+  --vp-custom-block-warning-bg: color-mix(
+    in oklab,
+    var(--color-warning) 8%,
+    var(--color-surface)
+  );
+  --vp-custom-block-warning-code-bg: color-mix(
+    in oklab,
+    var(--color-warning) 14%,
+    transparent
+  );
+
+  --vp-custom-block-danger-border: color-mix(
+    in oklab,
+    var(--color-danger) 28%,
+    transparent
+  );
+  --vp-custom-block-danger-text: var(--color-text-secondary);
+  --vp-custom-block-danger-bg: color-mix(
+    in oklab,
+    var(--color-danger) 8%,
+    var(--color-surface)
+  );
+  --vp-custom-block-danger-code-bg: color-mix(
+    in oklab,
+    var(--color-danger) 14%,
+    transparent
+  );
+
+  --vp-custom-block-caution-border: color-mix(
+    in oklab,
+    var(--color-danger) 28%,
+    transparent
+  );
+  --vp-custom-block-caution-text: var(--color-text-secondary);
+  --vp-custom-block-caution-bg: color-mix(
+    in oklab,
+    var(--color-danger) 8%,
+    var(--color-surface)
+  );
+  --vp-custom-block-caution-code-bg: color-mix(
+    in oklab,
+    var(--color-danger) 14%,
+    transparent
+  );
+
+  --vp-custom-block-details-border: var(--color-border);
+  --vp-custom-block-details-text: var(--color-text-secondary);
+  --vp-custom-block-details-bg: var(--color-bg-primary);
+  --vp-custom-block-details-code-bg: var(--color-surface-alt);
+
+  /* ── Badges ───────────────────────────────────────────────────────── */
+  --vp-badge-info-border: var(--color-border);
+  --vp-badge-info-text: var(--color-text-secondary);
+  --vp-badge-info-bg: var(--color-surface-alt);
+  --vp-badge-tip-border: color-mix(
+    in oklab,
+    var(--color-secondary) 28%,
+    transparent
+  );
+  --vp-badge-tip-text: var(--color-secondary);
+  --vp-badge-tip-bg: color-mix(
+    in oklab,
+    var(--color-secondary) 10%,
+    transparent
+  );
+  --vp-badge-warning-border: color-mix(
+    in oklab,
+    var(--color-warning) 28%,
+    transparent
+  );
+  --vp-badge-warning-text: var(--color-warning);
+  --vp-badge-warning-bg: color-mix(
+    in oklab,
+    var(--color-warning) 10%,
+    transparent
+  );
+  --vp-badge-danger-border: color-mix(
+    in oklab,
+    var(--color-danger) 28%,
+    transparent
+  );
+  --vp-badge-danger-text: var(--color-danger);
+  --vp-badge-danger-bg: color-mix(
+    in oklab,
+    var(--color-danger) 10%,
+    transparent
+  );
+
+  /* ── Search ───────────────────────────────────────────────────────── */
+  --vp-local-search-bg: var(--color-surface);
+  --vp-local-search-result-bg: var(--color-surface);
+  --vp-local-search-result-border: transparent;
+  --vp-local-search-result-selected-bg: var(--color-surface-hover);
+  --vp-local-search-result-selected-border: var(--accent-border);
+  --vp-local-search-highlight-bg: var(--accent-soft);
+  --vp-local-search-highlight-text: var(--color-text-primary);
+
+  /* The hero name is a flat accent word, not a gradient — gradients are
+     decoration, and the one loud move on this page is the mascot. */
+  --vp-home-hero-name-color: var(--vp-c-brand-1);
+  --vp-home-hero-name-background: transparent;
+  --vp-home-hero-image-background-image: none;
+  --vp-home-hero-image-filter: none;
+}
+
+.dark {
+  /* Amber lightens against graphite, so the accent itself is already the
+     text-safe shade; `--accent-active` would only mute it. */
+  --vp-c-brand-1: var(--accent);
+  --vp-c-brand-2: var(--accent-hover);
+  --vp-c-brand-3: var(--accent);
+}

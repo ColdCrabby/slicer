@@ -188,6 +188,34 @@ and tone settle. It is a `layout-top` slot in
 it. `--vp-layout-top-height` in `banner.css` is what reserves its space — drop
 that with it, or the nav keeps a gap above it.
 
+#### The docs wear the app's design language, from the app's own tokens
+
+[docs/.vitepress/theme/styles/\_tokens.scss](docs/.vitepress/theme/styles/_tokens.scss)
+`@use`s the **real** theme partials from the shared UI library (`ColdCrabby/ui`,
+vendored into `ui/vendor/coldcrabby-ui` by `ui`'s postinstall) through the Sass
+`loadPaths` in [docs/.vitepress/config.ts](docs/.vitepress/config.ts) — the same
+idiom `ui/angular.json` uses — and maps them onto VitePress's `--vp-*`
+variables. **Never write a colour, radius, duration or font literal into the
+docs theme.** Add a mapping in `_tokens.scss` instead, so changing the accent in
+the library recolours the docs with it and the two cannot drift.
+
+The rest of `styles/` applies the same rules the app follows: chrome separated
+by surface tone rather than hairlines, custom blocks shaped like
+`nexus-inline-notice` (one `--notice-tone` per severity), cards as islands at
+`--radius-lg`, focus as a 2px outline. Two things to know before editing it:
+
+- **The docs build depends on the vendored UI checkout.** A `docs:build` in a
+  tree that never ran `ui`'s postinstall fails with "Can't find stylesheet to
+  import" — run `pnpm --filter slicer-ui vendor:ui` first.
+- **VitePress's component styles are scoped**, so `.VPButton.medium[data-v-…]`
+  outranks a plain `.VPButton.medium`. Doubling the class is how the theme wins
+  that without reaching for `!important`.
+
+Where the docs need a live piece of the design language rather than a
+description of it, use a Vue component under `theme/components/` — `Swatches`
+prints each chip's *resolved* colour, so the brand page cannot quote a hex the
+product no longer uses.
+
 #### Module READMEs — house style
 
 Long-form module docs (`src/<module>/README.md`) follow the
@@ -1536,5 +1564,5 @@ infill within the ring.
 
 ---
 
-**Last Updated**: 2026-08-31 (seeded dev-server ports + same-origin dev proxy; UI bundle-chunking contract)  
+**Last Updated**: 2026-08-31 (docs site consumes the shared UI design tokens; UI bundle-chunking contract)  
 **Maintainer Guidance**: Keep this file in sync with project structure changes, new conventions, or significant architectural decisions.

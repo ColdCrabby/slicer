@@ -135,7 +135,7 @@ function writeWrapper(source: string) {
 editLink: false
 ---
 
-> **Source:** [\`${source}\`](${githubUrl}) — this page is rendered directly from the file in the repository. Edit it there.
+<div class="doc-source">Rendered from <a href="${githubUrl}"><code>${source}</code></a> in the repository — edit it there.</div>
 
 <!--@include: ${includePath}-->
 `;
@@ -152,6 +152,13 @@ for (const source of discovered.keys()) {
   writeWrapper(source);
 }
 
+// The shared Cold Crabby design language (ColdCrabby/ui). The Angular app
+// resolves it through Sass `includePaths`; the docs use the same idiom via
+// Vite's `loadPaths` below, so both sites read one set of token files and
+// cannot drift. The checkout is git-ignored and created by `ui`'s postinstall
+// (`pnpm --filter slicer-ui vendor:ui` to refresh it by hand).
+const uiStyles = path.join(repoRoot, "ui/vendor/coldcrabby-ui/src/styles");
+
 // https://vitepress.dev/reference/site-config
 export default withMermaid(
   defineConfig({
@@ -161,6 +168,28 @@ export default withMermaid(
     lastUpdated: true,
     cleanUrls: true,
     base: "/docs/",
+
+    // Same typeface pairing the app loads in `ui/src/index.html` — Plus
+    // Jakarta Sans over IBM Plex Mono, both variable so the theme's non-step
+    // weights (462 / 536 / 614) render as intended.
+    head: [
+      ["link", { rel: "preconnect", href: "https://fonts.googleapis.com" }],
+      [
+        "link",
+        {
+          rel: "preconnect",
+          href: "https://fonts.gstatic.com",
+          crossorigin: "",
+        },
+      ],
+      [
+        "link",
+        {
+          rel: "stylesheet",
+          href: "https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@200..800&family=IBM+Plex+Mono:wght@400;500;600&display=swap",
+        },
+      ],
+    ],
 
     themeConfig: {
       search: {
@@ -331,6 +360,18 @@ export default withMermaid(
     },
 
     vite: {
+      css: {
+        preprocessorOptions: {
+          scss: {
+            // `loadPaths` is the modern-API spelling of the `includePaths`
+            // that `ui/angular.json` uses, so `@use 'theme/light'` resolves
+            // to the shared library in both builds. Vite 5 still defaults to
+            // the deprecated legacy API, which would ignore it.
+            api: "modern",
+            loadPaths: [uiStyles],
+          },
+        },
+      },
       optimizeDeps: {
         include: ["mermaid"],
       },
