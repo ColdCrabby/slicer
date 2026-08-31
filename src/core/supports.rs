@@ -22,6 +22,15 @@
 //! larger algorithm); the honest limitation is surfaced by
 //! [`SlicingParams::unsupported_feature_warnings`].
 //!
+//! # Build-plate-only
+//!
+//! [`SlicingParams::support_on_build_plate_only`] restricts support to columns
+//! that can descend to the bed through empty space.  A contact pad is dropped
+//! when it overlaps the model's accumulated footprint below it, so the overhang
+//! above prints unsupported rather than growing a column that lands on — and
+//! scars, or cannot be freed from — the print.  Losing those overhangs is the
+//! point of the option, not a shortcoming of it.
+//!
 //! # Pipeline placement
 //!
 //! Runs after infill and before path ordering (TSP) so support paths are
@@ -163,6 +172,7 @@ pub fn generate_supports(layers: &mut [SliceLayer], params: &SlicingParams) {
     // An overhang at layer i is contacted `z_gap` layers below it, leaving an
     // air gap for clean removal.
     let z_gap = params.support_z_gap_layers;
+    let xy = params.support_xy_distance_mm.max(0.0);
     let mut add_at: Vec<Paths> = vec![Paths::new(vec![]); n];
     #[allow(clippy::needless_range_loop)]
     for i in 1..n {
@@ -171,6 +181,41 @@ pub fn generate_supports(layers: &mut [SliceLayer], params: &SlicingParams) {
         }
         let activate = (i as isize - 1 - z_gap as isize).max(0) as usize;
         add_at[activate] = poly_union(&add_at[activate], &overhang[i]);
+    }
+
+    // ── 3b. Build-plate-only: drop contacts that cannot reach the bed ───────
+    //
+    // `covered[i]` is the model's accumulated footprint *strictly below* layer
+    // `i`, grown by the same XY clearance the descending column is clipped
+    // with.  Growing it matters: a pad that merely clears the model by less
+    // than `xy` would survive an un-grown test and then be eaten away during
+    // the descent, leaving a floating stub instead of a column.
+    //
+    // Anything overlapping that region would land on the print rather than the
+    // plate, so with `support_on_build_plate_only` it is removed outright and
+    // the overhang above it prints unsupported — the trade this option exists
+    // to make.  The vector is only built when the option is on.
+    let plate_only = params.support_on_build_plate_only;
+    let covered: Vec<Paths> = if plate_only {
+        let mut acc = Paths::new(vec![]);
+        let mut out = Vec::with_capacity(n);
+        for fp in footprints.iter() {
+            out.push(acc.clone());
+            acc = poly_union(&acc, &poly_inflate(fp, xy));
+        }
+        out
+    } else {
+        Vec::new()
+    };
+
+    if plate_only {
+        for i in 0..n {
+            if add_at[i].is_empty() {
+                continue;
+            }
+            let reachable = poly_difference(&add_at[i], &covered[i]);
+            add_at[i] = filter_small(&reachable, SUPPORT_MIN_OVERHANG_AREA_MM2);
+        }
     }
 
     // ── 4. Build the load-bearing column per layer (model already subtracted) ─
@@ -184,13 +229,12 @@ pub fn generate_supports(layers: &mut [SliceLayer], params: &SlicingParams) {
     //     thin trunks.  Wide interface caps (added below) still cover the full
     //     overhang at the contact layers, so the trunks can stay thin.
     let is_tree = params.support_type == SupportType::Tree;
-    let xy = params.support_xy_distance_mm.max(0.0);
     let iface = params.support_interface_layers;
 
     let columns: Vec<Paths> = if is_tree {
-        simulate_tree_columns(&add_at, &footprints, n, lh, ext_w, xy)
+        simulate_tree_columns(&add_at, &footprints, &covered, n, lh, ext_w, xy)
     } else {
-        project_normal_columns(&add_at, &footprints, n, xy)
+        project_normal_columns(&add_at, &footprints, &covered, n, xy)
     };
 
     // Per-layer printed regions, split into interface (dense) and body.
@@ -290,7 +334,19 @@ pub fn generate_supports(layers: &mut [SliceLayer], params: &SlicingParams) {
 /// Returns a per-layer load-bearing column with the model + XY clearance already
 /// subtracted.  The overhang registered at `add_at[i]` is accumulated top-down
 /// into a running region and clipped by `inflate(footprint, xy)` each layer.
-fn project_normal_columns(add_at: &[Paths], footprints: &[Paths], n: usize, xy: f64) -> Vec<Paths> {
+///
+/// `covered` is the build-plate-only mask (empty when the option is off): the
+/// accumulated model footprint below each layer.  Contacts are already filtered
+/// against it, and a straight-down column cannot wander, so subtracting it here
+/// is belt-and-braces — it makes "no support ever rests on the model" hold by
+/// construction rather than by argument.
+fn project_normal_columns(
+    add_at: &[Paths],
+    footprints: &[Paths],
+    covered: &[Paths],
+    n: usize,
+    xy: f64,
+) -> Vec<Paths> {
     let mut acc = Paths::new(vec![]);
     let mut out = vec![Paths::new(vec![]); n];
     for i in (0..n).rev() {
@@ -301,8 +357,11 @@ fn project_normal_columns(add_at: &[Paths], footprints: &[Paths], n: usize, xy: 
             continue;
         }
         let clip = poly_inflate(&footprints[i], xy);
-        let column = filter_small(&poly_difference(&acc, &clip), SUPPORT_MIN_REGION_AREA_MM2);
-        out[i] = column;
+        let mut column = poly_difference(&acc, &clip);
+        if let Some(below) = covered.get(i) {
+            column = poly_difference(&column, below);
+        }
+        out[i] = filter_small(&column, SUPPORT_MIN_REGION_AREA_MM2);
     }
     out
 }
@@ -331,6 +390,7 @@ fn project_normal_columns(add_at: &[Paths], footprints: &[Paths], n: usize, xy: 
 fn simulate_tree_columns(
     add_at: &[Paths],
     footprints: &[Paths],
+    covered: &[Paths],
     n: usize,
     layer_height: f64,
     ext_w: f64,
@@ -360,7 +420,12 @@ fn simulate_tree_columns(
         nodes = merge_close_points(&nodes, merge_dist);
 
         // 3 + 4. Migrate toward the local centroid, rejecting steps into the model.
+        // Under build-plate-only a branch must also never lean out over model
+        // that lies *below* this layer: unlike a straight-down column, a tree
+        // tip moves in XY, so a seed that started plate-reachable can drift
+        // over the print unless every step is re-checked.
         let forbidden = poly_inflate(&footprints[i], xy);
+        let below = covered.get(i);
         let grid = SpatialGrid::build(&nodes, neigh);
         let mut moved = Vec::with_capacity(nodes.len());
         for &(x, y) in &nodes {
@@ -372,7 +437,9 @@ fn simulate_tree_columns(
                 if d > 1e-9 {
                     let s = max_dx.min(d) / d;
                     let cand = (x + dx * s, y + dy * s);
-                    if !point_in_paths_eo(cand.0, cand.1, &forbidden) {
+                    let into_model = point_in_paths_eo(cand.0, cand.1, &forbidden);
+                    let over_model = below.is_some_and(|c| point_in_paths_eo(cand.0, cand.1, c));
+                    if !into_model && !over_model {
                         np = cand;
                     }
                 }
@@ -383,7 +450,10 @@ fn simulate_tree_columns(
 
         // 5. Rasterise the trunks and subtract the model.
         let discs = stamp_discs(&nodes, trunk_r);
-        let column = poly_difference(&discs, &forbidden);
+        let mut column = poly_difference(&discs, &forbidden);
+        if let Some(c) = below {
+            column = poly_difference(&column, c);
+        }
         out[i] = filter_small(&column, SUPPORT_MIN_REGION_AREA_MM2 * 0.25);
     }
 
@@ -788,6 +858,132 @@ mod tests {
             tree < normal * 0.85,
             "tree must use materially less filament than normal \
              (tree={tree:.0}mm, normal={normal:.0}mm)"
+        );
+    }
+
+    /// Stack a base block, a thin tower on it, and a wide cap on the tower.
+    /// The cap's underside overhangs in every direction: the part reaching past
+    /// the base can drop to the bed, the part directly above the base cannot.
+    fn tiered_stack(base_half: f64, cap_half: f64) -> Vec<SliceLayer> {
+        let mut layers = Vec::new();
+        for k in 0..10 {
+            layers.push(square_layer(0.2 * (k as f64 + 1.0), -20.0, 0.0, base_half));
+        }
+        for k in 10..30 {
+            layers.push(square_layer(0.2 * (k as f64 + 1.0), -20.0, 0.0, 3.0));
+        }
+        for k in 30..32 {
+            layers.push(square_layer(0.2 * (k as f64 + 1.0), -20.0, 0.0, cap_half));
+        }
+        layers
+    }
+
+    /// Count support vertices falling inside an axis-aligned XY box, at any Z.
+    fn support_vertices_in_box(layers: &[SliceLayer], half: f64) -> usize {
+        let mut n = 0;
+        for layer in layers {
+            for (i, path) in layer.paths.iter().enumerate() {
+                if layer.role_for_path(i) != ExtrusionRole::Support {
+                    continue;
+                }
+                for p in path.iter() {
+                    if (p.x() - -20.0).abs() < half && p.y().abs() < half {
+                        n += 1;
+                    }
+                }
+            }
+        }
+        n
+    }
+
+    #[test]
+    fn build_plate_only_keeps_reachable_support_and_drops_the_rest() {
+        let build = |plate_only: bool| {
+            let mut layers = tiered_stack(8.0, 20.0);
+            let params = SlicingParams {
+                support_on_build_plate_only: plate_only,
+                ..params_with_supports()
+            };
+            generate_supports(&mut layers, &params);
+            layers
+        };
+
+        let anywhere = build(false);
+        let plate_only = build(true);
+        let len_any = support_total_len(&anywhere);
+        let len_plate = support_total_len(&plate_only);
+
+        assert!(len_any > 0.0, "baseline must produce support");
+        assert!(
+            len_plate > 0.0,
+            "the overhang reaching past the base is plate-reachable and must \
+             still be supported"
+        );
+        assert!(
+            len_plate < len_any,
+            "build-plate-only must drop the columns that would land on the \
+             model (plate_only={len_plate:.0}mm, anywhere={len_any:.0}mm)"
+        );
+
+        // The guarantee the option exists to make: nothing rests on the base
+        // block, at any height. The baseline is expected to violate it.
+        assert!(
+            support_vertices_in_box(&anywhere, 8.0) > 0,
+            "baseline is expected to rest support on the base block"
+        );
+        assert_eq!(
+            support_vertices_in_box(&plate_only, 8.0),
+            0,
+            "build-plate-only must never place support over the model"
+        );
+    }
+
+    #[test]
+    fn build_plate_only_sacrifices_an_overhang_with_no_path_to_the_bed() {
+        // The cap now sits entirely within the base footprint, so every column
+        // under it would land on the print. Sacrificing that overhang is the
+        // documented trade, not a bug.
+        let mut layers = tiered_stack(20.0, 15.0);
+        let params = SlicingParams {
+            support_on_build_plate_only: true,
+            ..params_with_supports()
+        };
+        generate_supports(&mut layers, &params);
+        assert_eq!(
+            support_total_len(&layers),
+            0.0,
+            "an overhang with no route to the bed must be left unsupported"
+        );
+
+        // Same geometry without the option still gets its (model-borne) support,
+        // so the emptiness above is the option talking and not dead geometry.
+        let mut baseline = tiered_stack(20.0, 15.0);
+        generate_supports(&mut baseline, &params_with_supports());
+        assert!(
+            support_total_len(&baseline) > 0.0,
+            "without the option this overhang is supported off the model"
+        );
+    }
+
+    #[test]
+    fn build_plate_only_holds_for_tree_supports_too() {
+        // Tree tips migrate in XY, so a seed that starts plate-reachable can
+        // drift over the print unless every step is re-checked.
+        let mut layers = tiered_stack(8.0, 20.0);
+        let params = SlicingParams {
+            support_type: SupportType::Tree,
+            support_on_build_plate_only: true,
+            ..params_with_supports()
+        };
+        generate_supports(&mut layers, &params);
+        assert!(
+            support_total_len(&layers) > 0.0,
+            "tree must still support the reachable overhang"
+        );
+        assert_eq!(
+            support_vertices_in_box(&layers, 8.0),
+            0,
+            "no tree branch may drift over the model under build-plate-only"
         );
     }
 }

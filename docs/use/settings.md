@@ -41,6 +41,15 @@ default, which suits typical PLA. Your filament's label wins over any default.
 has overhangs steeper than about 45°. Check the preview afterwards: supports
 that touch nothing are wasted plastic and a worse surface.
 
+Supports normally stand wherever they are needed, including on the model
+itself. **Only from build plate** restricts them to columns that can reach the
+bed through open space. Anything that would have to rest on the print is
+dropped, so those overhangs print unsupported — a deliberate trade you make
+when a support landing on the model would scar a surface you care about, or sit
+somewhere you could never get a tool into. Expect to lose coverage: on a shelf
+overhanging a wider base, the part beyond the base is still supported and the
+part above it is not.
+
 ## Everything else, by group
 
 ### Printer
@@ -67,7 +76,7 @@ that touch nothing are wasted plastic and a worse surface.
 | **Walls** | Wall count, wall generator, thin walls, extra perimeters, ordering, seam behaviour |
 | **Extrusion** | Line widths and flow |
 | **Infill** | Density, pattern, angle |
-| **Support** | On/off, type, density, overhang threshold |
+| **Support** | On/off, type, density, overhang threshold, interface layers, clearances, whether support may only start from the build plate |
 | **Speed** | Per-role print speeds and travel speed |
 | **Quality** | Ironing, spiral (vase) mode, other finish options |
 | **Surfaces** | Top and bottom solid layer counts, surface fill behaviour |

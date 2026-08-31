@@ -293,6 +293,14 @@ pub struct SliceCommand {
     /// Implies --support.
     #[arg(long, value_name = "N")]
     pub support_interface_layers: Option<usize>,
+
+    /// Only generate support that can reach down to the build plate.
+    ///
+    /// Overhangs that would need a column resting on the model are left
+    /// unsupported. Use it when supports landing on the print would mar a
+    /// surface or be impossible to remove. Implies --support.
+    #[arg(long)]
+    pub support_on_build_plate_only: bool,
     /// Skip the mesh validation/repair pass and slice the model exactly as it
     /// was authored.
     ///
@@ -543,6 +551,7 @@ impl SliceCommand {
             || self.support_density.is_some()
             || self.support_threshold_angle.is_some()
             || self.support_interface_layers.is_some()
+            || self.support_on_build_plate_only
         {
             slice_params.support_enabled = true;
         }
@@ -567,6 +576,9 @@ impl SliceCommand {
         }
         if let Some(layers) = self.support_interface_layers {
             slice_params.support_interface_layers = layers;
+        }
+        if self.support_on_build_plate_only {
+            slice_params.support_on_build_plate_only = true;
         }
 
         // Spiral (vase) mode is a plain on/off flag; enabling it here defers the

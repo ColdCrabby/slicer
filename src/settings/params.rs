@@ -1921,7 +1921,7 @@ Any surface that overhangs more steeply than this gets support beneath it. `45°
 rule (a wall may step outward by one layer height per layer); a **smaller** angle is more
 conservative and supports gentler overhangs, a **larger** angle supports only severe overhangs.
 **Default:** 45°.",
-        extend("x-group" = "Support")
+        extend("x-group" = "Support", "x-relevant-when" = serde_json::json!({"field": "support_enabled", "equals": true}))
     )]
     #[serde(default = "SlicingParams::default_support_threshold_angle")]
     pub support_threshold_angle: f64,
@@ -1949,7 +1949,7 @@ Lower is faster to print and easier to remove; higher is sturdier.",
 
 Denser contact layers give a cleaner overhang surface and detach more easily.
 Set to `0` to disable interface layers (support body fills the whole column).",
-        extend("x-group" = "Support")
+        extend("x-group" = "Support", "x-relevant-when" = serde_json::json!({"field": "support_enabled", "equals": true}))
     )]
     #[serde(default = "SlicingParams::default_support_interface_layers")]
     pub support_interface_layers: usize,
@@ -1959,7 +1959,7 @@ Set to `0` to disable interface layers (support body fills the whole column).",
 
 The top/bottom contact layers are filled at this (usually higher) density for a smoother
 overhang surface. Typically 0.6–0.9.",
-        extend("x-group" = "Support")
+        extend("x-group" = "Support", "x-relevant-when" = serde_json::json!({"field": "support_enabled", "equals": true}))
     )]
     #[serde(default = "SlicingParams::default_support_interface_density")]
     pub support_interface_density: f64,
@@ -1970,7 +1970,7 @@ walls (XY distance).
 
 Larger values make supports easier to remove but reduce how well they hold up steep overhangs.
 Typical: 0.6–1.0 mm.",
-        extend("x-group" = "Support")
+        extend("x-group" = "Support", "x-relevant-when" = serde_json::json!({"field": "support_enabled", "equals": true}))
     )]
     #[serde(default = "SlicingParams::default_support_xy_distance_mm")]
     pub support_xy_distance_mm: f64,
@@ -1981,10 +1981,22 @@ it supports (Z distance, expressed in layers).
 
 A gap of 1–2 layers leaves a small air pocket so the support detaches cleanly without fusing to
 the model. Set to `0` for supports that touch the overhang directly (strongest, hardest to remove).",
-        extend("x-group" = "Support")
+        extend("x-group" = "Support", "x-relevant-when" = serde_json::json!({"field": "support_enabled", "equals": true}))
     )]
     #[serde(default = "SlicingParams::default_support_z_gap_layers")]
     pub support_z_gap_layers: usize,
+
+    #[schemars(
+        description = "Only support overhangs that can be reached from the build plate.
+
+Support is normally allowed to rest on the model itself. With this on, a column is kept only when it
+can descend to the plate through empty space — anything that would land on the print is dropped, so
+those overhangs print unsupported. Choose this when supports resting on the model would scar a
+surface you care about, or would be impossible to remove.",
+        extend("x-group" = "Support", "x-relevant-when" = serde_json::json!({"field": "support_enabled", "equals": true}))
+    )]
+    #[serde(default = "SlicingParams::default_support_on_build_plate_only")]
+    pub support_on_build_plate_only: bool,
 
     #[schemars(
         description = "Bed-adhesion helper: `none`, `skirt`, `brim`, or `raft`.",
@@ -2328,6 +2340,7 @@ impl Default for SlicingParams {
             support_interface_density: Self::default_support_interface_density(),
             support_xy_distance_mm: Self::default_support_xy_distance_mm(),
             support_z_gap_layers: Self::default_support_z_gap_layers(),
+            support_on_build_plate_only: Self::default_support_on_build_plate_only(),
             adhesion_type: AdhesionType::default(),
             brim_width: Self::default_brim_width(),
             brim_type: BrimType::default(),
@@ -2512,6 +2525,12 @@ impl SlicingParams {
     }
     fn default_support_z_gap_layers() -> usize {
         1
+    }
+    /// Supports may rest on the model by default, matching every mainstream
+    /// slicer; build-plate-only is the opt-in that trades coverage for a
+    /// clean, reachable teardown.
+    fn default_support_on_build_plate_only() -> bool {
+        false
     }
     fn default_brim_width() -> f64 {
         5.0

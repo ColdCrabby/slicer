@@ -38,6 +38,17 @@ issue/PR numbers or repo links in the notes. See the tone rules in
 
 ### Added
 
+- **Support structures** — overhangs steeper than the threshold angle (45° by
+  default) now get real support geometry instead of a "not implemented" warning.
+  Two styles: `normal` grid columns and `tree` branches that converge as they
+  descend. Dense interface layers, an XY clearance and a Z air gap keep the
+  contact clean enough to snap off.
+- **Only from build plate** — restricts support to columns that can reach the
+  bed through open space, so nothing lands on the print. Overhangs with no route
+  down are left unsupported on purpose. Off by default; on a shelf overhanging a
+  wider base it removed every millimetre resting on the model while keeping the
+  support beyond it.
+
 - **Phone layout** — the whole UI rearranges itself below 640px instead of
   overflowing. Navigation moves to a bottom tab bar, print settings become a
   drawer with a pull tab on the left edge, and Slice sits in a full-width sheet

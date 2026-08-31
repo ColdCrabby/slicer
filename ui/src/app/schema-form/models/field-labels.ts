@@ -78,8 +78,17 @@ const FIELD_LABELS: Record<string, string> = {
   surface_infill_angle: 'Surface Infill Angle',
   only_one_wall_top: 'Single Wall on Top Surfaces',
   only_one_wall_first_layer: 'Single Wall on First Layer',
-  support_threshold_angle: 'Support Threshold Angle',
   min_infill_extrusion_mm: 'Min Infill Extrusion Length',
+  // Support
+  support_enabled: 'Generate Supports',
+  support_type: 'Support Style',
+  support_density: 'Support Density',
+  support_threshold_angle: 'Support Threshold Angle',
+  support_interface_layers: 'Interface Layers',
+  support_interface_density: 'Interface Density',
+  support_xy_distance_mm: 'XY Clearance',
+  support_z_gap_layers: 'Z Gap',
+  support_on_build_plate_only: 'Only From Build Plate',
   // Hardware
   filament_diameter_mm: 'Filament Diameter',
   nozzle_diameter_mm: 'Nozzle Diameter',

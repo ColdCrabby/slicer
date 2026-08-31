@@ -1135,6 +1135,18 @@ geometry, and appends `ExtrusionRole::Support` **open** polylines.
 - **Interface layers**: the top contact under an overhang and the bottom contact
   resting on the model — within `support_interface_layers` — are filled at the
   denser `support_interface_density`; the body uses `support_density`.
+- **`support_on_build_plate_only`** keeps only what can descend to the bed
+  through empty space. `covered[i]` accumulates the model footprint **strictly
+  below** layer `i`, grown by `support_xy_distance_mm`, and contact pads
+  overlapping it are dropped — so the overhang above prints unsupported. **Grow
+  it by the same XY clearance the descent uses**, or a pad that clears the model
+  by less than that survives the test and is then eaten away layer by layer,
+  leaving a floating stub instead of a column. The mask is also subtracted from
+  both column builders so "no support ever rests on the model" holds by
+  construction, and **tree re-checks it on every migration step** — a straight
+  column cannot wander, but a tree tip moves in XY and a plate-reachable seed
+  will otherwise drift over the print. The vector is built only when the option
+  is on.
 - **Normal vs tree**: `Normal` carries the full overhang footprint down (grid
   column). `Tree` is a **node-drop simulation**: contact tips are sampled from
   each overhang, migrate toward their local centroid each layer (so edge tips
