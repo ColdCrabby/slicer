@@ -23,6 +23,8 @@ pub enum DebugStage {
     SolidSurface,
     /// Sparse infill, top-surface, and bottom-surface fill paths.
     Infill,
+    /// Support island contours and fill strands (`ExtrusionRole::Support`).
+    Support,
 }
 
 impl DebugStage {
@@ -36,6 +38,7 @@ impl DebugStage {
             Self::InteriorRegion => "interior_region".to_string(),
             Self::SolidSurface => "solid_surface".to_string(),
             Self::Infill => "infill".to_string(),
+            Self::Support => "support".to_string(),
         }
     }
 
@@ -51,6 +54,7 @@ impl DebugStage {
             Self::InteriorRegion => "Interior region".to_string(),
             Self::SolidSurface => "Solid surface".to_string(),
             Self::Infill => "Infill".to_string(),
+            Self::Support => "Support".to_string(),
         }
     }
 
@@ -64,6 +68,7 @@ impl DebugStage {
             Self::InteriorRegion => "#22bb44",
             Self::SolidSurface => "#cc22cc",
             Self::Infill => "#ee2222",
+            Self::Support => "#00a3a3",
         }
     }
 

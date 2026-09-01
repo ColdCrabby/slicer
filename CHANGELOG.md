@@ -35,6 +35,13 @@ issue/PR numbers or repo links in the notes. See the tone rules in
   for the support stage to measure. The threshold angle was inert as a result;
   it now does what it says. A 60° cone goes from nothing to full support, while
   a self-supporting 30° one is still left alone.
+- **Support islands print whole instead of missing an edge** — each island's
+  perimeter is a closed loop, but the segment closing it back to its start was
+  never extruded, leaving every island open on one side (about a fifth of all
+  support contour length on a test overhang, with individual gaps over 25 mm).
+  The same fix closes a wall loop that overhangs along its **entire** length —
+  a hard 90° ledge, for instance — which was silently missing its closing edge
+  for the same reason.
 - **Support prints as continuous loops instead of dabs** — each support island
   gets a perimeter, and runs shorter than two nozzle widths are dropped. On a
   3DBenchy that took degenerate sub-millimetre extrusions from 37% of tree
@@ -42,9 +49,14 @@ issue/PR numbers or repo links in the notes. See the tone rules in
 - **Support no longer over-extrudes** — it is charged at its flow spacing like
   every other fill role, rather than a full nozzle-width bead (about 12% too
   much, and a density that drifted with nozzle size). A new **support line
-  width** setting sits alongside the other per-role widths.
+  width** setting sits alongside the other per-role widths, without pulling the
+  raft's own (deliberately coarser) bead width along with it.
 - **Rafts and skirts account for supports** — a raft built only from the object
   left support columns starting in mid-air just above the plate.
+- **Supports no longer print in spiral (vase) mode** — a vase is one continuous
+  wall climbing through Z with retraction disabled, so a column dropped into it
+  had no way to be reached. Support is now switched off with the other
+  vase-incompatible settings.
 - **The slice progress bar tracks real work** — its phase weights came from a
   single guess and mis-ranked everything: mesh slicing counted for nearly half
   the bar despite taking a few percent of the time, while wall generation, the

@@ -2837,7 +2837,14 @@ impl SlicingParams {
     ///   interior of the vase),
     /// - `retract_mm = 0` and `z_hop_mm = 0` (the spiral is one uninterrupted
     ///   extrusion, so retraction/Z-hop would only stutter it),
-    /// - `ironing_enabled = false`.
+    /// - `ironing_enabled = false`,
+    /// - `support_enabled = false`.
+    ///
+    /// Support is forced off for the same reason as the rest: a vase is a
+    /// single continuous wall climbing through Z, so there is no discrete layer
+    /// for a support column to sit on and no retraction to lift the nozzle over
+    /// one. Left on, the pipeline happily emitted support strands into a print
+    /// that cannot travel between them.
     ///
     /// `bottom_layers` is intentionally left untouched: those solid layers form
     /// the vase's base. A user who wants an open-bottomed tube sets
@@ -2856,6 +2863,7 @@ impl SlicingParams {
         p.retract_mm = 0.0;
         p.z_hop_mm = 0.0;
         p.ironing_enabled = false;
+        p.support_enabled = false;
         std::borrow::Cow::Owned(p)
     }
 }
@@ -3255,8 +3263,11 @@ impl SlicingParams {
         true // Single wall on first layer for better bed adhesion
     }
 
+    /// The classic 45° rule, measured from vertical: a wall may step outward by
+    /// one layer height per layer and still rest on the layer below. Anything
+    /// steeper overhangs air and gets support.
     fn default_support_threshold_angle() -> f64 {
-        45.0 // Skip supports for angles ≤45° (shallow overhangs)
+        45.0
     }
 
     fn default_infill_overlap_percent() -> f64 {

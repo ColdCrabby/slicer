@@ -538,18 +538,17 @@ pub fn process_mesh(
                 continue;
             }
 
-            // Wall/skirt roles are nominally "closed" for TSP purposes, but
-            // individual paths may be open arcs (split sub-segments from
-            // classify_overhang_perimeters).  Open arcs are treated like open
-            // polylines: both endpoints are candidate starts and current_pos
-            // is updated to the path *end* (not the start) after emission.
-            let role_is_closed = matches!(
-                role,
-                crate::core::ExtrusionRole::OuterWall
-                    | crate::core::ExtrusionRole::InnerWall
-                    | crate::core::ExtrusionRole::OverhangPerimeter
-                    | crate::core::ExtrusionRole::Skirt
-            );
+            // Wall/skirt/support roles are nominally "closed" for TSP purposes,
+            // but individual paths may be open arcs (split sub-segments from
+            // classify_overhang_perimeters, or a support island's fill strands).
+            // Open arcs are treated like open polylines: both endpoints are
+            // candidate starts and current_pos is updated to the path *end*
+            // (not the start) after emission.
+            //
+            // This must be the same predicate the G-code generator applies, or
+            // the orderer's idea of where the nozzle ends up is wrong — hence
+            // `ExtrusionRole::forms_closed_loops` rather than a second list.
+            let role_is_closed = role.forms_closed_loops();
 
             while !remaining.is_empty() {
                 let mut best_i = 0;
@@ -843,6 +842,15 @@ pub fn process_mesh_debug(
         vec![]
     };
 
+    // Support footprints must be snapshotted before `classify_overhang_perimeters`
+    // splits and retags the overhanging walls — the same ordering constraint
+    // `process_mesh` observes, and for the same reason.
+    let support_footprints: Option<Vec<Paths>> = if params.support_enabled {
+        Some(snapshot_perimeters(&layers))
+    } else {
+        None
+    };
+
     // Surfaces.
     if params.top_layers > 0 || params.bottom_layers > 0 {
         let overhang_support = snapshot_overhang_support(&layers, params);
@@ -931,6 +939,30 @@ pub fn process_mesh_debug(
         }
     }
 
+    // Supports. Mirrors `process_mesh`: after infill, reading the pristine
+    // perimeter snapshot taken above rather than the now-split walls.
+    if params.support_enabled {
+        crate::core::generate_supports(&mut layers, params, support_footprints.as_deref());
+
+        for (layer_index, layer) in layers.iter().enumerate() {
+            let support_paths: Vec<clipper2::Path> = layer
+                .paths
+                .iter()
+                .enumerate()
+                .filter(|(i, _)| layer.role_for_path(*i) == ExtrusionRole::Support)
+                .map(|(_, p)| p.clone())
+                .collect();
+            if !support_paths.is_empty() {
+                debug.push(
+                    DebugStage::Support,
+                    layer_index,
+                    layer.z,
+                    clipper2::Paths::new(support_paths),
+                );
+            }
+        }
+    }
+
     logger.log_debug(&format!(
         "debug geometry: {} records captured across {} layers",
         debug.len(),
@@ -938,7 +970,6 @@ pub fn process_mesh_debug(
     ));
 
     crate::flow::compensate(&mut layers, params);
-
     mark_first_layer_height(&mut layers, first_h, params.layer_height);
 
     layers

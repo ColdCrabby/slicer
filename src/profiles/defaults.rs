@@ -80,7 +80,7 @@ pub fn base_process(meta: ProfileMeta) -> ProcessProfile {
             "infill_speed": 150.0,
             "top_surface_speed": 60.0,
             "first_layer_speed": 30.0,
-            "support_threshold_angle": 55.0,
+            "support_threshold_angle": 45.0,
             "adhesion_type": "skirt",
             "skirt_loops": 1,
         }),

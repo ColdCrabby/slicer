@@ -72,6 +72,44 @@ impl ExtrusionRole {
         }
     }
 
+    /// Whether paths in this role are drawn as **closed loops** — the last
+    /// vertex extrudes back to the first.
+    ///
+    /// This is the one definition of that fact. The G-code generator uses it to
+    /// decide whether to emit a "close contour" move, and the path orderer uses
+    /// it to decide whether a path may be rotated to a seam vertex and where
+    /// the nozzle ends up afterwards. The two must agree: when the orderer
+    /// thought a loop was an open polyline it left `current_pos` at the last
+    /// vertex while the generator actually finished back at the first, so every
+    /// travel estimate after it was off by one edge.
+    ///
+    /// It is a property of the role *plus* the path: a loop split into open
+    /// arcs (`SliceLayer::path_is_open`) is a polyline whatever its role, and a
+    /// role that is normally open — support fill strands, the raft — stays
+    /// open. Callers must combine this with
+    /// [`SliceLayer::is_path_open`](SliceLayer::is_path_open).
+    pub fn forms_closed_loops(self) -> bool {
+        matches!(
+            self,
+            Self::OuterWall
+                | Self::InnerWall
+                | Self::OverhangPerimeter
+                | Self::Skirt
+                | Self::Support
+        )
+    }
+
+    /// Whether a closed loop in this role should **coast** into its seam.
+    ///
+    /// Coasting stops extruding for the last stretch of a loop so nozzle
+    /// pressure has dropped by the time it reaches the seam — a cosmetic fix
+    /// for a blobby seam on a visible wall. Support has no visible seam and is
+    /// weak enough already, so under-extruding the segment that closes a
+    /// support island would cost strength to buy nothing.
+    pub fn coasts_into_seam(self) -> bool {
+        self.forms_closed_loops() && !matches!(self, Self::Support)
+    }
+
     /// Default extrusion width in mm for this role.
     ///
     /// Used to populate the `;WIDTH:` annotation in the G-code output.
@@ -326,5 +364,68 @@ impl SliceLayer {
     /// layer that was not sliced object-aware.
     pub fn object_for_path(&self, i: usize) -> Option<usize> {
         self.path_objects.get(i).copied().flatten()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn support_islands_are_closed_loops_but_fills_are_not() {
+        // The bug this pins: support island contours were emitted with
+        // `path_is_open = false`, meaning "closed loop", but the G-code
+        // generator's closed-loop list did not mention `Support` — so the
+        // segment joining the last vertex back to the first was never
+        // extruded. Every support island shipped with one side missing.
+        assert!(ExtrusionRole::Support.forms_closed_loops());
+        // The role alone does not decide it: a support *fill* strand and every
+        // raft line carry the same role and are flagged open.
+        let mut layer = SliceLayer::new(0.2);
+        layer.paths = Paths::new(vec![Path::new(vec![]), Path::new(vec![])]);
+        layer.path_roles = vec![ExtrusionRole::Support, ExtrusionRole::Support];
+        layer.path_is_open = vec![false, true];
+        assert!(!layer.is_path_open(0), "island contour is a closed loop");
+        assert!(layer.is_path_open(1), "fill strand is an open polyline");
+    }
+
+    #[test]
+    fn a_fully_overhanging_loop_is_still_a_closed_loop() {
+        // `classify_overhang_perimeters` splits a partly-overhanging wall into
+        // open arcs, but a loop that overhangs along its *whole* length has no
+        // split point and stays closed. The generator used to omit
+        // `OverhangPerimeter` from its closed-loop list while the path orderer
+        // included it, so such a ring lost its closing edge — 487.6 mm on a
+        // simple ledge model.
+        assert!(ExtrusionRole::OverhangPerimeter.forms_closed_loops());
+    }
+
+    #[test]
+    fn fill_roles_are_never_closed() {
+        for role in [
+            ExtrusionRole::Infill,
+            ExtrusionRole::TopSurface,
+            ExtrusionRole::BottomSurface,
+            ExtrusionRole::InternalSolid,
+            ExtrusionRole::Bridge,
+            ExtrusionRole::GapFill,
+            ExtrusionRole::Ironing,
+        ] {
+            assert!(
+                !role.forms_closed_loops(),
+                "{role:?} is an open polyline; closing it draws a diagonal \
+                 back across the fill"
+            );
+        }
+    }
+
+    #[test]
+    fn support_closes_its_loop_without_coasting() {
+        // Coasting deliberately under-extrudes the run into a seam so the seam
+        // is not blobby. Support has no visible seam and little strength to
+        // spare, so the segment that closes an island must be fully extruded.
+        assert!(!ExtrusionRole::Support.coasts_into_seam());
+        assert!(ExtrusionRole::OuterWall.coasts_into_seam());
+        assert!(ExtrusionRole::Skirt.coasts_into_seam());
     }
 }
