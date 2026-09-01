@@ -43,6 +43,7 @@ use clipper2::*;
 use crate::settings::params::{SlicingParams, SupportType};
 
 use super::surfaces::{generate_rectilinear_infill, perimeter_paths_of};
+use super::support_paint::SupportPaintMasks;
 use super::types::{ExtrusionRole, SliceLayer};
 
 /// Overhang islands smaller than this (mm²) are ignored — they are slicing
@@ -215,6 +216,32 @@ pub fn generate_supports(
     params: &SlicingParams,
     pristine: Option<&[Paths]>,
 ) {
+    generate_supports_with_paint(layers, params, pristine, &SupportPaintMasks::default());
+}
+
+/// Generate support, honouring per-facet paint.
+///
+/// Identical to [`generate_supports`] but for two extra terms in the overhang
+/// step, mirroring how PrusaSlicer and OrcaSlicer inject the same data:
+///
+/// ```text
+/// auto      = footprint[i] − inflate(footprint[i−1], max_step)   // as before
+/// auto      = auto − blocker[i]
+/// enforced  = (footprint[i] ∩ enforcer[i]) − inflate(footprint[i−1], max_step)
+/// overhang  = auto ∪ enforced
+/// ```
+///
+/// Everything downstream — accumulation, the tree simulation, interface caps,
+/// clearance, fill — is untouched, because by that point painted and detected
+/// overhangs are the same kind of thing.
+///
+/// Empty masks reproduce [`generate_supports`] exactly.
+pub fn generate_supports_with_paint(
+    layers: &mut [SliceLayer],
+    params: &SlicingParams,
+    pristine: Option<&[Paths]>,
+    paint: &SupportPaintMasks,
+) {
     if !params.support_enabled {
         return;
     }
@@ -249,15 +276,64 @@ pub fn generate_supports(
         .collect();
 
     // ── 2. Overhang region per layer ───────────────────────────────────────
-    // The part of layer i not covered by layer i-1 grown outward by `max_step`.
+    // The part of layer i not covered by layer i-1 grown outward by `max_step`,
+    // then reconciled with whatever the user painted.
+    //
+    // Blockers are widened by half a bead before subtraction: a painted region
+    // and a detected overhang have independently-derived boundaries, and
+    // subtracting one from the other leaves a sliver of support along the seam
+    // otherwise.  OrcaSlicer expands its blockers for the same reason.
+    let blocker_grow = crate::core::outer_wall_nominal_width_mm(params) * 0.5;
+    let painted = !paint.is_empty();
+    // `support_auto` off means the overhang rule is skipped entirely and
+    // support comes only from paint — Orca's `normal(manual)` / `tree(manual)`,
+    // PrusaSlicer's `support_material_auto`.
+    let auto_detect = params.support_auto;
+
     let mut overhang: Vec<Paths> = vec![Paths::new(vec![]); n];
     for i in 1..n {
         if footprints[i].is_empty() {
             continue;
         }
         let grown_prev = poly_inflate(&footprints[i - 1], max_step);
-        let raw = poly_difference(&footprints[i], &grown_prev);
-        overhang[i] = filter_small(&raw, SUPPORT_MIN_OVERHANG_AREA_MM2);
+
+        let mut detected = if auto_detect {
+            let raw = poly_difference(&footprints[i], &grown_prev);
+            // The noise filter belongs to *detection* only. A painted enforcer
+            // is an explicit instruction, however small the facet — passing it
+            // through this would silently ignore fine paint and read as the
+            // brush not working.
+            filter_small(&raw, SUPPORT_MIN_OVERHANG_AREA_MM2)
+        } else {
+            Paths::new(vec![])
+        };
+
+        if painted {
+            let blocker = paint.blocker_at(i);
+            if !blocker.is_empty() && !detected.is_empty() {
+                detected = poly_difference(&detected, &poly_inflate(&blocker, blocker_grow));
+            }
+
+            let enforcer = paint.enforcer_at(i);
+            if !enforcer.is_empty() {
+                // Clip to the model's own cross-section: paint on a surface
+                // that is not actually exposed at this height describes no
+                // overhang, and support hanging in free air beside the part
+                // helps nobody.
+                let mut enforced = poly_intersect(&footprints[i], &enforcer);
+                // Already-supported material needs nothing added under it.
+                enforced = poly_difference(&enforced, &grown_prev);
+                // A blocker wins where the two overlap, so a broad enforcer can
+                // be trimmed with a few strokes rather than repainted.
+                if !blocker.is_empty() {
+                    enforced =
+                        poly_difference(&enforced, &poly_inflate(&blocker, blocker_grow));
+                }
+                detected = poly_union(&detected, &enforced);
+            }
+        }
+
+        overhang[i] = detected;
     }
 
     // ── 3. Register each overhang at its top-contact (activation) layer ─────
@@ -335,7 +411,24 @@ pub fn generate_supports(
     // it; 0.6 leaves margin for the round-join approximation, and the nozzle
     // floor covers a near-vertical threshold where `max_step` is tiny.
     let close_r = (max_step * 0.6).max(ext_w * 0.5);
-    let support_area = accumulate_support_area(&add_at, n, close_r);
+    let mut support_area = accumulate_support_area(&add_at, n, close_r);
+
+    // A blocker forbids support *at that place*, not merely at the contact
+    // above it — otherwise a column seeded elsewhere descends straight through
+    // a region the user painted to keep clear, which is exactly the cavity and
+    // cosmetic-face case blockers exist for.  Applied after accumulation so it
+    // cuts the descending body as well as the contact.
+    if painted {
+        for (i, area) in support_area.iter_mut().enumerate() {
+            if area.is_empty() {
+                continue;
+            }
+            let blocker = paint.blocker_at(i);
+            if !blocker.is_empty() {
+                *area = poly_difference(area, &poly_inflate(&blocker, blocker_grow));
+            }
+        }
+    }
 
     // The support area that first appears at each layer — the welded equivalent
     // of `add_at`.  Tree seeds its contact tips here and the top interface caps

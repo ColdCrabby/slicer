@@ -1958,6 +1958,18 @@ Caps print speed so the hotend can keep up with the flow.
     pub support_enabled: bool,
 
     #[schemars(
+        description = "Detect overhangs automatically, as well as honouring painted regions.
+
+On (the default), overhangs steeper than the threshold angle get support and painted areas add to \
+or subtract from that. Turn it **off** to place support *only* where you painted it — the overhang \
+rule is skipped entirely, so nothing is generated that you did not ask for. Painted blockers still \
+apply either way.",
+        extend("x-group" = "Support", "x-relevant-when" = serde_json::json!({"field": "support_enabled", "equals": true}))
+    )]
+    #[serde(default = "SlicingParams::default_support_auto")]
+    pub support_auto: bool,
+
+    #[schemars(
         description = "Overhang angle threshold in degrees, measured from vertical (0–89).
 
 Any surface that overhangs more steeply than this gets support beneath it. `45°` is the classic
@@ -2507,6 +2519,7 @@ impl Default for SlicingParams {
             support_xy_distance_mm: Self::default_support_xy_distance_mm(),
             support_z_gap_layers: Self::default_support_z_gap_layers(),
             support_on_build_plate_only: Self::default_support_on_build_plate_only(),
+            support_auto: Self::default_support_auto(),
             adhesion_type: AdhesionType::default(),
             brim_width: Self::default_brim_width(),
             brim_type: BrimType::default(),
@@ -2686,6 +2699,9 @@ impl SlicingParams {
     }
     fn default_support_enabled() -> bool {
         false
+    }
+    fn default_support_auto() -> bool {
+        true
     }
     fn default_support_density() -> f64 {
         0.15

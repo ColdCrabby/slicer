@@ -4,6 +4,7 @@
 //! Each successfully-applied op returns an [`OpReceipt`] containing the
 //! inverse op, so undo can be added later without redesigning the API.
 
+use crate::mesh::paint::{FacetPaint, PaintState};
 use crate::mesh::repair::RepairOptions;
 use crate::mesh::types::Vertex;
 use crate::scene::loader::{self, MeshFormat};
@@ -80,6 +81,35 @@ pub enum SceneOp {
     /// mesh extends upward from that face). Picking a top or bottom face
     /// behaves identically to drop-to-floor.
     PlaceFaceOnFloor { id: ObjectId, face_index: usize },
+    /// Paint support enforcers or blockers with a spherical brush.
+    ///
+    /// `center` is in **world** millimetres — the point the user's cursor
+    /// landed on — and is un-transformed into the object's own frame here, so
+    /// a scaled or rotated model needs no special handling at the call site.
+    /// The stroke starts at `seed_face` (the facet the raycast actually hit)
+    /// and spreads only across connected surface, so it cannot paint through a
+    /// thin wall onto geometry the user cannot see.
+    ///
+    /// Painting is idempotent: a brush that changes nothing returns a receipt
+    /// whose inverse is also a no-op, which is what lets the UI fire one op per
+    /// pointer sample without flooding the history.
+    PaintSupport {
+        id: ObjectId,
+        seed_face: usize,
+        center: [f64; 3],
+        radius: f64,
+        state: PaintState,
+    },
+    /// Replace an object's entire paint annotation.
+    ///
+    /// `encoded` is a [`FacetPaint`] wire payload, or `None` to erase
+    /// everything. This is the inverse of every other paint op, and the way a
+    /// restored plate gets its paint back.
+    SetSupportPaint {
+        id: ObjectId,
+        #[serde(default)]
+        encoded: Option<String>,
+    },
     /// Automatically rotate the object to minimise overhangs, maximise flat
     /// bed-contact area, and — as a tiebreaker — prefer shorter print heights.
     ///
@@ -148,6 +178,8 @@ pub enum SceneError {
     DegenerateFace(usize),
     #[error("mesh load failed: {0}")]
     Load(String),
+    #[error("support paint could not be applied: {0}")]
+    Paint(String),
 }
 
 impl SceneState {
@@ -406,6 +438,71 @@ impl SceneState {
                 })
             }
 
+            SceneOp::PaintSupport {
+                id,
+                seed_face,
+                center,
+                radius,
+                state,
+            } => {
+                let obj = self.get(id).ok_or(SceneError::NotFound(id))?;
+                if seed_face >= obj.mesh.faces.len() {
+                    return Err(SceneError::FaceOutOfRange {
+                        face: seed_face,
+                        count: obj.mesh.faces.len(),
+                    });
+                }
+                let previous = obj.paint.encode();
+                let mesh = Arc::clone(&obj.mesh);
+                // The brush arrives in world space because that is where the
+                // cursor is; the paint lives in the object's own frame so it
+                // survives every later move, rotate and scale.
+                let local_center = obj.transform.inverse_point(center);
+                // A non-uniform scale has no single radius in local space, so
+                // take the largest — the surface walk bounds the stroke anyway,
+                // and erring wide is recoverable where erring narrow paints
+                // nothing.
+                let scale = obj.transform.scale;
+                let shrink = scale[0].abs().max(scale[1].abs()).max(scale[2].abs()) as f64;
+                let local_radius = if shrink > 1e-9 { radius / shrink } else { radius };
+
+                let adjacency = self.adjacency_for(&mesh);
+                let obj = self.get_mut(id).ok_or(SceneError::NotFound(id))?;
+                crate::mesh::paint::paint_sphere(
+                    mesh.as_ref(),
+                    adjacency.as_ref(),
+                    &mut obj.paint,
+                    seed_face,
+                    local_center,
+                    local_radius,
+                    state,
+                );
+                Ok(OpReceipt {
+                    inverse: SceneOp::SetSupportPaint {
+                        id,
+                        encoded: previous,
+                    },
+                })
+            }
+
+            SceneOp::SetSupportPaint { id, encoded } => {
+                let obj = self.get(id).ok_or(SceneError::NotFound(id))?;
+                let previous = obj.paint.encode();
+                let face_count = obj.mesh.faces.len();
+                let restored = match encoded {
+                    Some(ref text) => FacetPaint::decode(text, face_count)
+                        .map_err(|e| SceneError::Paint(e.to_string()))?,
+                    None => FacetPaint::new(),
+                };
+                self.get_mut(id).unwrap().paint = restored;
+                Ok(OpReceipt {
+                    inverse: SceneOp::SetSupportPaint {
+                        id,
+                        encoded: previous,
+                    },
+                })
+            }
+
             SceneOp::AutoOrient { id, options } => {
                 let obj = self.get(id).ok_or(SceneError::NotFound(id))?;
                 let prev = obj.transform;
@@ -572,6 +669,9 @@ fn affected_id_for_gravity(op: &SceneOp) -> Option<ObjectId> {
         | SceneOp::PlaceFaceOnFloor { .. }
         | SceneOp::AutoOrient { .. }
         | SceneOp::ArrangeOnBed { .. }
+        // Painting never moves anything, so gravity has nothing to act on.
+        | SceneOp::PaintSupport { .. }
+        | SceneOp::SetSupportPaint { .. }
         | SceneOp::BatchSetTransform { .. } => None,
     }
 }
@@ -681,12 +781,13 @@ mod multi_part_add_tests {
 }
 
 #[cfg(test)]
-mod tests {
+mod tests_support {
     use super::*;
     use crate::mesh::types::{Face, Mesh};
     use crate::scene::bed::BedConfig;
 
-    fn cube_mesh(origin: [f64; 3], size: f64) -> Arc<Mesh> {
+    /// An axis-aligned cube of `size` mm with its low corner at `origin`.
+    pub(super) fn cube_mesh(origin: [f64; 3], size: f64) -> Arc<Mesh> {
         let [x, y, z] = origin;
         let s = size;
         let v: Vec<Vertex> = vec![
@@ -724,7 +825,7 @@ mod tests {
         })
     }
 
-    fn small_bed() -> BedConfig {
+    pub(super) fn small_bed() -> BedConfig {
         BedConfig {
             width: 100.0,
             depth: 100.0,
@@ -734,6 +835,13 @@ mod tests {
             shape: crate::scene::bed::BedShape::Rectangular,
         }
     }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::tests_support::{cube_mesh, small_bed};
+    use super::*;
+    use crate::scene::bed::BedConfig;
 
     #[test]
     fn translate_updates_transform() {
@@ -1011,5 +1119,197 @@ mod tests {
                 );
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod paint_tests {
+    use super::tests_support::*;
+    use super::*;
+    use crate::mesh::paint::PaintState;
+
+    /// The world-space centre of a face, which is where a raycast would land.
+    fn face_centre(state: &SceneState, id: ObjectId, face: usize) -> [f64; 3] {
+        let obj = state.get(id).expect("object");
+        let matrix = obj.transform.to_matrix();
+        let f = &obj.mesh.faces[face];
+        let mut sum = [0.0f64; 3];
+        for v in &f.vertices {
+            let p = matrix.transform_point3(Vec3::new(v.x as f32, v.y as f32, v.z as f32));
+            sum[0] += p.x as f64;
+            sum[1] += p.y as f64;
+            sum[2] += p.z as f64;
+        }
+        [sum[0] / 3.0, sum[1] / 3.0, sum[2] / 3.0]
+    }
+
+    #[test]
+    fn a_brush_stroke_paints_and_its_receipt_undoes_it() {
+        let mut state = SceneState::new(small_bed());
+        let id = state.add_mesh("cube", cube_mesh([0.0, 0.0, 0.0], 10.0));
+        let centre = face_centre(&state, id, 0);
+
+        let receipt = state
+            .apply(SceneOp::PaintSupport {
+                id,
+                seed_face: 0,
+                center: centre,
+                radius: 1.0,
+                state: PaintState::Enforcer,
+            })
+            .expect("paint applies");
+        assert_eq!(state.get(id).unwrap().paint.get(0), PaintState::Enforcer);
+
+        state.apply(receipt.inverse).expect("inverse applies");
+        assert!(
+            state.get(id).unwrap().paint.is_empty(),
+            "undoing the first stroke must return to unpainted"
+        );
+    }
+
+    #[test]
+    fn paint_survives_moving_and_rotating_the_object() {
+        // Paint is recorded in the object's own frame precisely so this holds:
+        // a facet stays painted wherever the object is put afterwards.
+        let mut state = SceneState::new(small_bed());
+        let id = state.add_mesh("cube", cube_mesh([0.0, 0.0, 0.0], 10.0));
+        let centre = face_centre(&state, id, 0);
+        state
+            .apply(SceneOp::PaintSupport {
+                id,
+                seed_face: 0,
+                center: centre,
+                radius: 1.0,
+                state: PaintState::Blocker,
+            })
+            .unwrap();
+
+        state
+            .apply(SceneOp::Translate {
+                id,
+                delta: [25.0, 15.0, 0.0],
+            })
+            .unwrap();
+        state
+            .apply(SceneOp::Rotate {
+                id,
+                axis: [0.0, 0.0, 1.0],
+                radians: std::f32::consts::FRAC_PI_2,
+            })
+            .unwrap();
+
+        assert_eq!(state.get(id).unwrap().paint.get(0), PaintState::Blocker);
+    }
+
+    #[test]
+    fn the_brush_finds_the_facet_after_the_object_has_been_moved() {
+        // The cursor reports a world position, so the op has to un-transform it.
+        // Without that the stroke lands nowhere near the geometry and paints
+        // only the seed facet — which looks like "the brush stopped spreading".
+        let mut state = SceneState::new(small_bed());
+        let id = state.add_mesh("cube", cube_mesh([0.0, 0.0, 0.0], 10.0));
+        state
+            .apply(SceneOp::Translate {
+                id,
+                delta: [40.0, 40.0, 0.0],
+            })
+            .unwrap();
+
+        let centre = face_centre(&state, id, 0);
+        state
+            .apply(SceneOp::PaintSupport {
+                id,
+                seed_face: 0,
+                center: centre,
+                radius: 6.0,
+                state: PaintState::Enforcer,
+            })
+            .unwrap();
+
+        assert!(
+            state.get(id).unwrap().paint.painted_count() > 1,
+            "a 6mm brush on a 10mm cube face should reach the neighbouring facet"
+        );
+    }
+
+    #[test]
+    fn a_duplicate_inherits_the_original_paint() {
+        let mut state = SceneState::new(small_bed());
+        let id = state.add_mesh("cube", cube_mesh([0.0, 0.0, 0.0], 10.0));
+        let centre = face_centre(&state, id, 0);
+        state
+            .apply(SceneOp::PaintSupport {
+                id,
+                seed_face: 0,
+                center: centre,
+                radius: 1.0,
+                state: PaintState::Enforcer,
+            })
+            .unwrap();
+
+        state
+            .apply(SceneOp::Duplicate {
+                id,
+                offset: [20.0, 0.0, 0.0],
+            })
+            .unwrap();
+
+        let copy = state.objects.last().unwrap();
+        assert_ne!(copy.id, id);
+        assert_eq!(copy.paint.get(0), PaintState::Enforcer);
+    }
+
+    #[test]
+    fn paint_from_a_different_mesh_is_refused_rather_than_misapplied() {
+        // The indices would all be in range; they would simply mean different
+        // triangles. Silently accepting is how paint corrupts.
+        let mut state = SceneState::new(small_bed());
+        let id = state.add_mesh("cube", cube_mesh([0.0, 0.0, 0.0], 10.0));
+        let mut foreign = crate::mesh::paint::FacetPaint::new();
+        foreign.set(0, PaintState::Enforcer, 999);
+
+        let result = state.apply(SceneOp::SetSupportPaint {
+            id,
+            encoded: foreign.encode(),
+        });
+        assert!(matches!(result, Err(SceneError::Paint(_))));
+        assert!(state.get(id).unwrap().paint.is_empty());
+    }
+
+    #[test]
+    fn an_out_of_range_seed_face_is_an_error() {
+        let mut state = SceneState::new(small_bed());
+        let id = state.add_mesh("cube", cube_mesh([0.0, 0.0, 0.0], 10.0));
+        let result = state.apply(SceneOp::PaintSupport {
+            id,
+            seed_face: 500,
+            center: [0.0, 0.0, 0.0],
+            radius: 1.0,
+            state: PaintState::Enforcer,
+        });
+        assert!(matches!(result, Err(SceneError::FaceOutOfRange { .. })));
+    }
+
+    #[test]
+    fn the_adjacency_cache_is_dropped_with_the_last_object_using_it() {
+        // The cache is keyed by Arc address, and an address is reused once the
+        // allocation is freed — a stale entry would hand a different mesh the
+        // wrong topology, not merely waste memory.
+        let mut state = SceneState::new(small_bed());
+        let id = state.add_mesh("cube", cube_mesh([0.0, 0.0, 0.0], 10.0));
+        let centre = face_centre(&state, id, 0);
+        state
+            .apply(SceneOp::PaintSupport {
+                id,
+                seed_face: 0,
+                center: centre,
+                radius: 1.0,
+                state: PaintState::Enforcer,
+            })
+            .unwrap();
+        assert_eq!(state.adjacency_cache_len(), 1);
+
+        state.apply(SceneOp::Remove { id }).unwrap();
+        assert_eq!(state.adjacency_cache_len(), 0);
     }
 }

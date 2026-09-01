@@ -6,6 +6,7 @@ mod objects;
 mod pipeline;
 mod slicer;
 mod supports;
+mod support_paint;
 mod surfaces;
 mod types;
 mod walls;
@@ -13,15 +14,16 @@ mod walls;
 pub use compensation::{apply_dimensional_compensation, CompensationReport};
 pub use infill::{add_infill_to_layers, InfillConfig};
 pub use objects::{
-    merge_meshes, sequential_order, sequential_warnings, slice_plate, ObjectIdentity, ObjectInput,
-    PlateSlice,
+    merge_meshes, merge_paint, sequential_order, sequential_warnings, slice_plate, ObjectIdentity,
+    ObjectInput, PlateSlice,
 };
-pub use pipeline::process_mesh;
+pub use pipeline::{process_mesh, process_mesh_with_paint};
 #[cfg(not(target_arch = "wasm32"))]
 pub use pipeline::process_mesh_debug;
 pub(crate) use pipeline::resolved_first_layer_height;
 pub use slicer::{slice_mesh, slice_mesh_with_first_layer};
-pub use supports::generate_supports;
+pub use support_paint::{project_support_paint, SupportPaintMasks};
+pub use supports::{generate_supports, generate_supports_with_paint};
 pub use surfaces::{
     generate_top_bottom_surfaces, generate_top_bottom_surfaces_with_interior, SurfaceConfig,
     SurfaceSubTimings,

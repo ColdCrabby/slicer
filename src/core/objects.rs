@@ -35,10 +35,11 @@
 //! adhesion.
 
 use crate::logging::ProcessLogger;
+use crate::mesh::paint::FacetPaint;
 use crate::mesh::types::Mesh;
 use crate::settings::params::{AdhesionType, PrintSequence, SlicingParams};
 
-use super::pipeline::process_mesh;
+use super::pipeline::process_mesh_with_paint;
 use super::types::{OverhangClass, SliceLayer};
 
 /// Upper bound on the vertex count of an emitted exclusion polygon.
@@ -61,15 +62,28 @@ pub struct ObjectInput {
     pub name: String,
     /// Baked triangle mesh in plate coordinates.
     pub mesh: Mesh,
+    /// Per-facet support paint, indexed against `mesh.faces`.
+    ///
+    /// Empty for an unpainted object. Baking a transform maps faces in order,
+    /// so an index recorded against the untransformed mesh still names the same
+    /// triangle here.
+    pub paint: FacetPaint,
 }
 
 impl ObjectInput {
-    /// Construct an input from a name and a baked mesh.
+    /// Construct an input from a name and a baked mesh, with no paint.
     pub fn new(name: impl Into<String>, mesh: Mesh) -> Self {
         Self {
             name: name.into(),
             mesh,
+            paint: FacetPaint::new(),
         }
+    }
+
+    /// Attach support paint to this input.
+    pub fn with_paint(mut self, paint: FacetPaint) -> Self {
+        self.paint = paint;
+        self
     }
 }
 
@@ -144,7 +158,14 @@ pub fn slice_plate(
     logger: &dyn ProcessLogger,
 ) -> PlateSlice {
     if !params.object_aware() || objects.is_empty() {
-        return PlateSlice::from_layers(process_mesh(&merge_meshes(objects), params, logger));
+        // Paint merges the same way the meshes do, so a painted plate keeps its
+        // enforcers and blockers on the merged fast path too.
+        return PlateSlice::from_layers(process_mesh_with_paint(
+            &merge_meshes(objects),
+            params,
+            logger,
+            &merge_paint(objects),
+        ));
     }
 
     let sequential = params.print_sequence == PrintSequence::ByObject;
@@ -198,7 +219,12 @@ pub fn slice_plate(
         // phase names keeps moving forward as the pipeline restarts per object,
         // and can label each phase "(i of N)".
         logger.set_object_scope(index + 1, object_count);
-        per_object_layers.push(process_mesh(&object.mesh, slice_params, logger));
+        per_object_layers.push(process_mesh_with_paint(
+            &object.mesh,
+            slice_params,
+            logger,
+            &object.paint,
+        ));
     }
     logger.clear_object_scope();
 
@@ -259,6 +285,27 @@ pub fn merge_meshes(objects: &[ObjectInput]) -> Mesh {
         combined.faces.extend(object.mesh.faces.iter().cloned());
     }
     combined
+}
+
+/// Concatenate every object's support paint the same way [`merge_meshes`]
+/// concatenates their faces.
+///
+/// The two must stay in lockstep: paint is indexed by facet, so the merged
+/// annotation is only meaningful if each object's facets land at the same
+/// offset in both. Returns an empty annotation when nothing on the plate is
+/// painted, so an unpainted plate allocates nothing.
+pub fn merge_paint(objects: &[ObjectInput]) -> FacetPaint {
+    if objects.iter().all(|o| o.paint.is_empty()) {
+        return FacetPaint::new();
+    }
+    let mut merged = FacetPaint::new();
+    let mut offset = 0usize;
+    for object in objects {
+        let faces = object.mesh.faces.len();
+        merged.append(offset, &object.paint, faces);
+        offset += faces;
+    }
+    merged
 }
 
 /// Print order for sequential printing: front to back, then left to right.
@@ -551,6 +598,7 @@ mod tests {
     use super::*;
     use crate::logging::NullLogger;
     use crate::mesh::types::{Face, Vertex};
+    use crate::core::pipeline::process_mesh;
 
     /// Axis-aligned box mesh with its minimum corner at `(x, y, 0)`.
     fn box_mesh(x: f64, y: f64, size: f64, height: f64) -> Mesh {

@@ -1,6 +1,7 @@
 use clipper2::Paths;
 
 use crate::logging::{phases, PhaseTimer, ProcessLogger};
+use crate::mesh::paint::FacetPaint;
 use crate::mesh::types::Mesh;
 use crate::settings::params::{SeamPosition, SlicingParams};
 
@@ -203,6 +204,23 @@ pub fn process_mesh(
     mesh: &Mesh,
     params: &SlicingParams,
     logger: &dyn ProcessLogger,
+) -> Vec<SliceLayer> {
+    process_mesh_with_paint(mesh, params, logger, &FacetPaint::new())
+}
+
+/// Slice a mesh that carries per-facet support paint.
+///
+/// Identical to [`process_mesh`] in every respect but one: the painted facets
+/// are projected onto the layer stack and handed to support generation, so the
+/// user's enforcers and blockers override the automatic overhang rule. An empty
+/// annotation reproduces [`process_mesh`] exactly — the projection is skipped
+/// entirely rather than producing empty masks — so an unpainted slice cannot
+/// drift.
+pub fn process_mesh_with_paint(
+    mesh: &Mesh,
+    params: &SlicingParams,
+    logger: &dyn ProcessLogger,
+    paint: &FacetPaint,
 ) -> Vec<SliceLayer> {
     // Spiral (vase) mode forces a consistent single-wall configuration
     // (no infill/top surfaces/retraction) for the whole pipeline. Applied here
@@ -473,7 +491,24 @@ pub fn process_mesh(
             params.support_density * 100.0
         ));
         let t_support = PhaseTimer::start("Support Generation", logger);
-        crate::core::generate_supports(&mut layers, params, support_footprints.as_deref());
+        
+        // Project painted facets onto the layer stack to get enforcer and
+        // blocker masks. An empty annotation is fast-pathed, so unpainted
+        // slices don't pay for this.
+        let paint_masks = crate::core::project_support_paint(
+            mesh,
+            paint,
+            &layers,
+            params.layer_height,
+            resolved_first_layer_height(params),
+            params.nozzle_diameter_mm,
+        );
+        crate::core::generate_supports_with_paint(
+            &mut layers,
+            params,
+            support_footprints.as_deref(),
+            &paint_masks,
+        );
         t_support.finish();
         logger.log_debug("support generation complete");
     }
