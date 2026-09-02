@@ -41,7 +41,7 @@
     "ngx-markdown": "^22.0.0",
     "rxjs": "~7.8.0",
     "three": "^0.185.1",
-    "tinykeys": "^3.0.0",
+    "tinykeys": "^4.0.0",
     "tslib": "^2.3.0"
   },
   "devDependencies": {
