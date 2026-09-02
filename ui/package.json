@@ -38,7 +38,7 @@
     "iconoir": "^7.12.1",
     "marked": "^17.0.6",
     "monaco-editor": "^0.56.0",
-    "ngx-markdown": "^22.0.0",
+    "ngx-markdown": "^22.0.2",
     "rxjs": "~7.8.0",
     "three": "^0.185.1",
     "tinykeys": "^3.0.0",
@@ -54,6 +54,6 @@
     "prettier": "^3.9.6",
     "typescript": "~6.0.3",
     "vitest": "^4.1.11",
-    "zone.js": "~0.16.0"
+    "zone.js": "~0.16.2"
   }
 }
