@@ -4,6 +4,7 @@ import {
   Camera,
   Color,
   Group,
+  Matrix3,
   Mesh,
   Object3D,
   Quaternion,
@@ -31,6 +32,18 @@ export type GizmoDelta =
 export interface FacePickResult {
   /** `selectableId` of the hit object (string form of the WASM id). */
   objectId: string;
+  /** Triangle index inside the hit mesh's geometry. */
+  faceIndex: number;
+}
+
+/** Result of a surface-point raycast for the measuring tool. */
+export interface PointPickResult {
+  /** `selectableId` of the hit object (string form of the WASM id). */
+  objectId: string;
+  /** World-space surface point directly under the pointer. */
+  point: Vector3;
+  /** World-space outward unit normal of the hit face. */
+  normal: Vector3;
   /** Triangle index inside the hit mesh's geometry. */
   faceIndex: number;
 }
@@ -616,6 +629,41 @@ export function raycastFace(
   }
   return null;
 }
+
+/**
+ * Raycast `meshes` and return the world-space surface point under the pointer,
+ * its outward face normal, and the object it belongs to — or `null` on a miss.
+ *
+ * Used by the measuring tool, which needs the exact hit location (not just the
+ * face) so a dot-to-dot span is taken between the two points the user actually
+ * clicked. The normal is transported to world space through the object's normal
+ * matrix, so it stays correct under non-uniform scale.
+ */
+export function raycastPoint(
+  raycaster: Raycaster,
+  camera: Camera,
+  ndc: Vector2,
+  meshes: readonly Object3D[],
+): PointPickResult | null {
+  raycaster.setFromCamera(ndc, camera);
+  const hits = raycaster.intersectObjects(meshes as Object3D[], true);
+  for (const hit of hits) {
+    const objectId = findSelectableId(hit.object);
+    if (objectId === null) {
+      continue;
+    }
+    const point = hit.point.clone();
+    const normal = new Vector3(0, 0, 1);
+    if (hit.face) {
+      NORMAL_MATRIX_SCRATCH.getNormalMatrix(hit.object.matrixWorld);
+      normal.copy(hit.face.normal).applyMatrix3(NORMAL_MATRIX_SCRATCH).normalize();
+    }
+    return { objectId, point, normal, faceIndex: hit.faceIndex ?? 0 };
+  }
+  return null;
+}
+
+const NORMAL_MATRIX_SCRATCH = new Matrix3();
 
 /** Walk up parents until an `userData.selectableId` is found. */
 function findSelectableId(obj: Object3D | null): string | null {

@@ -22,4 +22,19 @@ export interface SceneGizmoHandlers {
   facePicked(objectId: string, faceIndex: number): void;
 }
 
+/** A world-space surface point picked by the measuring tool. */
+export interface MeasurePickInfo {
+  /** scene-engine id (string form) of the object the point sits on. */
+  objectId: string;
+  /** World-space position in millimetres. */
+  world: [number, number, number];
+  /** World-space outward unit face normal at the hit. */
+  normal: [number, number, number];
+}
+
+export interface SceneMeasureHandlers {
+  /** A measurement endpoint was clicked in the 3D view. */
+  pick(info: MeasurePickInfo): void;
+}
+
 export type ViewerView = 'perspective' | 'ortho';
