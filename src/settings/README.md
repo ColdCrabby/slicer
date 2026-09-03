@@ -100,8 +100,8 @@ is present, since the raft then owns bed contact.
 
 | Parameter                | Type | Default | Effect                                                                      |
 | ------------------------ | ---- | ------- | --------------------------------------------------------------------------- |
-| `bridge_speed`           | mm/s | 25      | Print speed for bridge / overhang-perimeter extrusions                      |
-| `bridge_flow_ratio`      | 0–1  | 0.8     | Flow multiplier for bridge lines (less material = less sag)                 |
+| `bridge_speed`           | mm/s | 10      | Print speed for bridge / overhang-perimeter extrusions (slow = smooth)      |
+| `bridge_flow_ratio`      | 0–1.5| 1.5     | Flow multiplier for bridge lines (>1 fuses strands into a smooth floor)     |
 | `bridge_anchor_mm`       | mm   | 0.4     | Inflate the bridge region outward to anchor strands into solid material     |
 | `bridge_min_area_mm2`    | mm²  | 0.5     | Drop bridge candidates smaller than this; reclassified as `BottomSurface`   |
 | `bridge_noise_filter_mm` | mm   | 0.05    | Morphological-open radius to wipe sub-pixel slivers before bridge detection |

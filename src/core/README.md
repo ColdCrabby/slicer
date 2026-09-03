@@ -229,10 +229,10 @@ was tried at one point — any one of them suppresses _all_ overhang
 detection. See `test_classify_overhang_e2e_*` in `walls.rs` for the
 production-geometry lockdown tests.
 
-Reclassified paths inherit the bridge speed (`bridge_speed`) and reduced-flow
-width (`nozzle_diameter_mm × bridge_flow_ratio`) in the G-code generator and
-trigger the bridge fan boost via `has_bridges`. This eliminates sagging
-walls printed across windows, slots, and similar mid-air features.
+Reclassified paths inherit the bridge speed (`bridge_speed`) and the fused-flow
+width (`nozzle_diameter_mm × bridge_flow_ratio`, > 1× by default) in the G-code
+generator and trigger the bridge fan boost via `has_bridges`. This eliminates
+sagging walls printed across windows, slots, and similar mid-air features.
 
 ### Dynamic overhang speed & cooling
 
