@@ -928,9 +928,11 @@ Set to `0` to fall back to `print_speed`.
     #[schemars(
         description = "Speed for bridge extrusions spanning unsupported gaps in mm/s.
 
-Slower speeds with high fan cooling reduce sagging on bridges.
+Bridges print in mid-air, so the strand is not squished onto a layer below like
+every other extrusion.  Crawling across the gap gives full part-cooling
+(`bridge_fan_speed`) time to freeze the strand in place before it can sag.
 Set to `0` to fall back to `print_speed`.
-**Typical:** 20–30 mm/s.",
+**Typical:** 10–25 mm/s. **Default:** 10 mm/s.",
         extend("x-group" = "Speed")
     )]
     #[serde(default = "SlicingParams::default_bridge_speed")]
@@ -991,7 +993,7 @@ pinning a second number that can drift out of sync with it.
 The steepest, most sag-prone band — effectively extruding into air, but without
 a bridge's anchored far end to tension against, so it wants to run slower than
 `bridge_speed`.  `0` = inherit `bridge_speed`.
-**Default:** 15 mm/s.",
+**Default:** 8 mm/s.",
         extend("x-group" = "Speed")
     )]
     #[serde(default = "SlicingParams::default_overhang_4_4_speed")]
@@ -1013,11 +1015,12 @@ one, discarding the grading — enable it deliberately when a model curls.
     #[schemars(
         description = "Flow ratio for bridge extrusions (0.0–1.5).
 
-Reducing the flow rate for bridges improves stiffness by letting the strand
-cool and tension in mid-air before the next line lands on it.  Values below
-1.0 under-extrude intentionally; the reduced bead width stretches across the
-gap with less sag.
-**Default:** 0.8 (80% of normal flow).",
+Bridge lines are laid one nozzle-diameter apart, so a value **above 1.0** widens
+each bead until neighbouring strands overlap and fuse into a continuous, smooth
+floor — the opposite of the old under-extrude approach that left thin, gappy,
+sag-prone strands.  Pair it with a slow `bridge_speed` and full `bridge_fan_speed`
+so the fatter bead freezes in place before it sags.
+**Default:** 1.5 (150% of normal flow).",
         extend("x-group" = "Speed")
     )]
     #[serde(default = "SlicingParams::default_bridge_flow_ratio")]
@@ -2920,7 +2923,12 @@ impl SlicingParams {
     }
 
     fn default_bridge_speed() -> f64 {
-        25.0
+        // Community-standard "smooth unsupported bridge" recipe: crawl the strand
+        // across the gap so full part-cooling (`bridge_fan_speed`) freezes it in
+        // place before it can sag, paired with the >1 `bridge_flow_ratio` that
+        // fuses adjacent strands into a solid floor. 10 mm/s at 0.6 mm × 0.2 mm is
+        // ≈ 1.2 mm³/s — well inside every filament's melt rate.
+        10.0
     }
 
     fn default_enable_overhang_speed() -> bool {
@@ -2948,12 +2956,13 @@ impl SlicingParams {
     /// Deg4 (75–100 % unsupported) in mm/s.
     ///
     /// This band is effectively extruding into air, but unlike a bridge it has
-    /// no anchored far end to tension against — so it wants to be slower than
-    /// `bridge_speed` (25), not equal to it. 15 mm/s gives the strand time to
-    /// set while staying well inside the melt rate (≈ 1.2 mm³/s at 0.4 mm ×
-    /// 0.2 mm).
+    /// no anchored far end to tension against — so it must stay the *slowest* of
+    /// all, below `bridge_speed`. With the smooth-bridge default putting
+    /// `bridge_speed` (which Deg3 inherits) at 10 mm/s, 8 mm/s keeps the grade
+    /// strictly monotonic (perimeter → Deg3 → Deg4) instead of letting the most
+    /// airborne band outrun the merely-steep one.
     fn default_overhang_4_4_speed() -> f64 {
-        15.0
+        8.0
     }
 
     fn default_slowdown_for_curled_perimeters() -> bool {
@@ -2978,7 +2987,12 @@ impl SlicingParams {
     }
 
     fn default_bridge_flow_ratio() -> f64 {
-        0.8
+        // Deliberately over 1.0. Bridge lines are laid one nozzle-diameter apart,
+        // so a 1.5× bead (0.6 mm at a 0.4 mm nozzle) overlaps its neighbours ~0.2 mm
+        // and fuses them into a continuous, smooth floor instead of thin, gappy,
+        // sag-prone strands. Paired with the slow `bridge_speed` and full
+        // `bridge_fan_speed`, this is the "smooth unsupported bridge" recipe.
+        1.5
     }
 
     fn default_bridge_min_area_mm2() -> f64 {

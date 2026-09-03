@@ -1081,9 +1081,10 @@ pub(crate) fn clip_walls_against_bridge_region(layer: &mut SliceLayer, bridge_re
 /// - Selects the **optimal bridge direction** by finding the axis that
 ///   minimises the unsupported span length (perpendicular to the longest
 ///   bounding dimension of the region) — unless `bridge_angle_deg` overrides it.
-/// - Stores a **reduced extrusion width** in `path_widths` based on
-///   `nozzle_diameter_mm × bridge_flow_ratio` so the G-code generator emits
-///   proportionally less plastic — this stiffens the strand and reduces sag.
+/// - Stores a **flow-scaled extrusion width** in `path_widths` based on
+///   `nozzle_diameter_mm × bridge_flow_ratio` so the G-code generator meters the
+///   plastic to match. The default ratio is > 1, so neighbouring strands (laid
+///   one nozzle-diameter apart) overlap and fuse into a smooth, continuous floor.
 ///
 /// `bridge_angle_deg` follows the PrusaSlicer/Orca convention: `0` means
 /// "detect automatically", so a horizontal (0°) override is spelled `180`.
@@ -1172,10 +1173,11 @@ fn emit_bridge_lines(
     bridge_flow_ratio: f64,
     bridge_angle: f64,
 ) {
-    // Bridge line spacing = nozzle diameter (no overlapping beads on air).
+    // Bridge line pitch = nozzle diameter (centre-to-centre). With the default
+    // `bridge_flow_ratio` > 1 the wider beads overlap at this pitch and fuse.
     let line_spacing = nozzle_diameter_mm.max(0.1);
 
-    // Effective bead width with flow reduction.
+    // Effective bead width from the flow ratio (> nozzle when the ratio > 1).
     let bead_width = (nozzle_diameter_mm * bridge_flow_ratio).max(0.01);
 
     let infill_paths = generate_rectilinear_infill(region, line_spacing, bridge_angle, 0.0);
