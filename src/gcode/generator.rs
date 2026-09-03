@@ -1197,9 +1197,29 @@ impl GcodeGenerator {
             // Ironing follows the surface it is smoothing.
             ExtrusionRole::Ironing => or_normal(params.top_surface_acceleration),
             ExtrusionRole::OuterWall => or_normal(params.outer_wall_acceleration),
+            ExtrusionRole::InnerWall => or_normal(params.inner_wall_acceleration),
+            ExtrusionRole::Infill => or_normal(params.sparse_infill_acceleration),
+            // Internal solid layers and bottom surfaces share the solid-infill
+            // limit (distinct from the visible top surface above).
+            ExtrusionRole::BottomSurface | ExtrusionRole::InternalSolid => {
+                or_normal(params.solid_infill_acceleration)
+            }
+            ExtrusionRole::GapFill => or_normal(params.gap_fill_acceleration),
+            ExtrusionRole::Support => or_normal(params.support_acceleration),
             _ => normal,
         };
         (a > 0.0).then_some(a)
+    }
+
+    /// Resolve the target acceleration (mm/s²) for **travel** (non-printing)
+    /// moves, or `None` when no dedicated travel acceleration is configured.
+    ///
+    /// Travel is not a printing role, so — unlike [`Self::effective_acceleration`]
+    /// — it is a single global value that does not vary by role or layer. When it
+    /// is unset (`0`) the caller leaves the printing acceleration in force, so
+    /// output stays byte-identical to a profile that never touched it.
+    fn effective_travel_acceleration(params: &SlicingParams) -> Option<f64> {
+        (params.travel_acceleration > 0.0).then_some(params.travel_acceleration)
     }
 
     /// Emit one spiralized (vase-mode) outer contour with a continuous Z ramp.
@@ -2280,16 +2300,26 @@ impl GcodeGenerator {
                 );
 
                 // ── Adaptive acceleration (opt-in; emitted on change only) ────
-                // Set the firmware acceleration before this path's moves when the
-                // target differs from the last emitted value.  Disabled roles
+                // Resolve this path's printing acceleration and any dedicated
+                // travel acceleration. When a travel acceleration is configured
+                // we defer the printing value until *after* the upcoming travel
+                // (emitted just before the extrusion moves below) and set the
+                // travel value for the hop instead — so travels ramp at their
+                // own rate and extrusion at the role's. With no travel
+                // acceleration set, the printing value is emitted here exactly
+                // as before, keeping output byte-identical. Disabled roles
                 // resolve to `None` and leave the previous limit in place.
-                if let Some(accel) = Self::effective_acceleration(role, is_first_layer, params) {
-                    if last_accel != Some(accel) {
-                        out.push_str(&format!(
-                            "{} ; acceleration\n",
-                            self.dialect.set_acceleration(accel)
-                        ));
-                        last_accel = Some(accel);
+                let print_accel = Self::effective_acceleration(role, is_first_layer, params);
+                let travel_accel = Self::effective_travel_acceleration(params);
+                if travel_accel.is_none() {
+                    if let Some(accel) = print_accel {
+                        if last_accel != Some(accel) {
+                            out.push_str(&format!(
+                                "{} ; acceleration\n",
+                                self.dialect.set_acceleration(accel)
+                            ));
+                            last_accel = Some(accel);
+                        }
                     }
                 }
 
@@ -2421,6 +2451,19 @@ impl GcodeGenerator {
                     _ => vec![(start_x, start_y)],
                 };
 
+                // Switch to the travel acceleration for the upcoming hop (opt-in;
+                // emitted on change only). The printing acceleration is restored
+                // just before the extrusion moves below.
+                if let Some(accel) = travel_accel {
+                    if last_accel != Some(accel) {
+                        out.push_str(&format!(
+                            "{} ; travel acceleration\n",
+                            self.dialect.set_acceleration(accel)
+                        ));
+                        last_accel = Some(accel);
+                    }
+                }
+
                 if needs_retract {
                     // Retract [+ wipe], z-hop, travel (possibly via detour),
                     // lower, prime. The retract and prime dispatch on the
@@ -2480,6 +2523,21 @@ impl GcodeGenerator {
                             "{} ; {tag}\n",
                             self.dialect.travel_xy(wx, wy, params.travel_speed_mm_min)
                         ));
+                    }
+                }
+
+                // Restore the printing acceleration after the travel (opt-in;
+                // emitted on change only). Only runs when a travel acceleration
+                // was set above, so output stays byte-identical otherwise.
+                if travel_accel.is_some() {
+                    if let Some(accel) = print_accel {
+                        if last_accel != Some(accel) {
+                            out.push_str(&format!(
+                                "{} ; acceleration\n",
+                                self.dialect.set_acceleration(accel)
+                            ));
+                            last_accel = Some(accel);
+                        }
                     }
                 }
 

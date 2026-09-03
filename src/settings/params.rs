@@ -1860,6 +1860,73 @@ tension before the nozzle moves on.
     pub bridge_acceleration: f64,
 
     #[schemars(
+        description = "Inner-wall acceleration in mm/s². `0` = use `acceleration`.
+
+Inner perimeters are hidden inside the part, so they can accelerate harder than
+the visible outer wall. Applies to inner-wall paths only.
+**Typical:** 4000–10000.",
+        extend("x-group" = "Speed")
+    )]
+    #[serde(default = "SlicingParams::default_inner_wall_acceleration")]
+    pub inner_wall_acceleration: f64,
+
+    #[schemars(
+        description = "Sparse-infill acceleration in mm/s². `0` = use `acceleration`.
+
+Sparse infill is interior and invisible, so it usually gets the highest
+acceleration to save print time. Applies to the sparse infill pattern.
+**Typical:** 5000–12000.",
+        extend("x-group" = "Speed")
+    )]
+    #[serde(default = "SlicingParams::default_sparse_infill_acceleration")]
+    pub sparse_infill_acceleration: f64,
+
+    #[schemars(
+        description = "Solid-infill acceleration in mm/s². `0` = use `acceleration`.
+
+Internal solid layers and bottom surfaces (distinct from the visible top
+surface). Applies to bottom-surface and internal solid infill.
+**Typical:** 4000–10000.",
+        extend("x-group" = "Speed")
+    )]
+    #[serde(default = "SlicingParams::default_solid_infill_acceleration")]
+    pub solid_infill_acceleration: f64,
+
+    #[schemars(
+        description = "Gap-fill acceleration in mm/s². `0` = use `acceleration`.
+
+Gap fill lays short, variable-width beads that a lower acceleration keeps clean.
+Applies to gap-fill paths.
+**Typical:** 1000–4000.",
+        extend("x-group" = "Speed")
+    )]
+    #[serde(default = "SlicingParams::default_gap_fill_acceleration")]
+    pub gap_fill_acceleration: f64,
+
+    #[schemars(
+        description = "Support acceleration in mm/s². `0` = use `acceleration`.
+
+Support material is sacrificial, so it can run fast. Applies to support paths.
+**Typical:** 4000–10000.",
+        extend("x-group" = "Speed")
+    )]
+    #[serde(default = "SlicingParams::default_support_acceleration")]
+    pub support_acceleration: f64,
+
+    #[schemars(
+        description = "Travel (non-printing) acceleration in mm/s². `0` = use `acceleration`.
+
+Travel moves deposit no material, so they can accelerate hard to cut the time
+spent hopping between paths. When set, the slicer switches the firmware
+acceleration to this value before each travel and back to the printing value
+before extruding, and the print-time estimate follows the same switch.
+**Typical:** 6000–15000.",
+        extend("x-group" = "Speed")
+    )]
+    #[serde(default = "SlicingParams::default_travel_acceleration")]
+    pub travel_acceleration: f64,
+
+    #[schemars(
         description = "Square-corner velocity in mm/s — the speed the head keeps through a 90° corner (junction-deviation cornering). `0` = use the estimator/firmware default (5 mm/s).
 
 Higher values corner faster (shorter prints, more ringing); lower values slow into corners for cleaner edges. When set, the slicer emits the firmware limit (Klipper `SET_VELOCITY_LIMIT SQUARE_CORNER_VELOCITY=…`, Marlin `M205 J…` junction deviation) and the print-time estimate uses the same value, so the ETA tracks reality.
@@ -2403,6 +2470,12 @@ impl Default for SlicingParams {
             top_surface_acceleration: Self::default_top_surface_acceleration(),
             outer_wall_acceleration: Self::default_outer_wall_acceleration(),
             bridge_acceleration: Self::default_bridge_acceleration(),
+            inner_wall_acceleration: Self::default_inner_wall_acceleration(),
+            sparse_infill_acceleration: Self::default_sparse_infill_acceleration(),
+            solid_infill_acceleration: Self::default_solid_infill_acceleration(),
+            gap_fill_acceleration: Self::default_gap_fill_acceleration(),
+            support_acceleration: Self::default_support_acceleration(),
+            travel_acceleration: Self::default_travel_acceleration(),
             square_corner_velocity: Self::default_square_corner_velocity(),
             max_velocity: Self::default_max_velocity(),
             time_estimate_warmup_s: Self::default_time_estimate_warmup_s(),
@@ -2561,6 +2634,24 @@ impl SlicingParams {
         0.0
     }
     fn default_bridge_acceleration() -> f64 {
+        0.0
+    }
+    fn default_inner_wall_acceleration() -> f64 {
+        0.0
+    }
+    fn default_sparse_infill_acceleration() -> f64 {
+        0.0
+    }
+    fn default_solid_infill_acceleration() -> f64 {
+        0.0
+    }
+    fn default_gap_fill_acceleration() -> f64 {
+        0.0
+    }
+    fn default_support_acceleration() -> f64 {
+        0.0
+    }
+    fn default_travel_acceleration() -> f64 {
         0.0
     }
     fn default_square_corner_velocity() -> f64 {
