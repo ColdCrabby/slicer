@@ -400,3 +400,200 @@ fn the_xy_clearance_is_measured_from_the_model_surface() {
         "support should stand {requested} mm off the model surface, measured {gap:.3} mm"
     );
 }
+
+/// A cap on a post: the cap's underside is a hard 90° ledge, so its wall loops
+/// overhang along their whole length and are never split into open arcs.
+fn ledge() -> Mesh {
+    let mut m = Mesh::new();
+    add_box(&mut m, (12.0, 12.0, 0.0), (18.0, 18.0, 6.0));
+    add_box(&mut m, (4.0, 4.0, 6.0), (26.0, 26.0, 8.0));
+    m.vertices = m.faces.iter().flat_map(|f| f.vertices).collect();
+    m.calculate_aabb();
+    m
+}
+
+/// Total drawn length of every path with `role`, counting the segment that
+/// closes a loop — i.e. every millimetre the pipeline expects to be extruded.
+fn geometry_len(layers: &[SliceLayer], role: ExtrusionRole) -> f64 {
+    let mut total = 0.0;
+    for layer in layers {
+        for (i, path) in layer.paths.iter().enumerate() {
+            if layer.role_for_path(i) != role {
+                continue;
+            }
+            let pts: Vec<(f64, f64)> = path.iter().map(|p| (p.x(), p.y())).collect();
+            if pts.len() < 2 {
+                continue;
+            }
+            for w in pts.windows(2) {
+                total += (w[1].0 - w[0].0).hypot(w[1].1 - w[0].1);
+            }
+            if !layer.is_path_open(i) {
+                let (a, b) = (pts[pts.len() - 1], pts[0]);
+                total += (b.0 - a.0).hypot(b.1 - a.1);
+            }
+        }
+    }
+    total
+}
+
+/// Total XY distance actually extruded under `;TYPE:<label>` in the G-code.
+fn extruded_len(gcode: &str, label: &str) -> f64 {
+    let num = |line: &str, key: char| -> Option<f64> {
+        let i = line.find(key)?;
+        let rest = &line[i + 1..];
+        let end = rest
+            .find(|c: char| !(c.is_ascii_digit() || c == '.' || c == '-'))
+            .unwrap_or(rest.len());
+        rest[..end].parse::<f64>().ok()
+    };
+    let (mut cur, mut x, mut y, mut total) = (String::new(), None::<f64>, None::<f64>, 0.0);
+    for line in gcode.lines() {
+        if let Some(rest) = line.strip_prefix(";TYPE:") {
+            cur = rest.trim().to_string();
+            continue;
+        }
+        if !(line.starts_with("G0") || line.starts_with("G1")) {
+            continue;
+        }
+        let nx = num(line, 'X').or(x);
+        let ny = num(line, 'Y').or(y);
+        let extruding = num(line, 'E').map(|e| e > 0.0).unwrap_or(false);
+        if cur == label && extruding {
+            if let (Some(px), Some(py), Some(cx), Some(cy)) = (x, y, nx, ny) {
+                total += (cx - px).hypot(cy - py);
+            }
+        }
+        x = nx;
+        y = ny;
+    }
+    total
+}
+
+#[test]
+fn every_millimetre_of_support_geometry_is_actually_extruded() {
+    // Support islands are emitted as closed contours, but the generator's
+    // closed-loop role list omitted `Support`, so the edge joining each
+    // contour's last vertex back to its first was silently dropped — 1594 mm,
+    // a fifth of all support contour length, with single gaps up to 26.7 mm.
+    // Every support island shipped open on one side.
+    //
+    // Comparing the drawn geometry against the extruded G-code catches that
+    // whatever form it takes, unlike counting "; close contour" comments.
+    let params = support_params(45.0);
+    let layers = process_mesh(&frustum(60.0), &params, &NullLogger);
+    let gcode = GcodeGenerator::new(GcodeFlavor::Marlin).generate(&layers, &params);
+
+    let expected = geometry_len(&layers, ExtrusionRole::Support);
+    let actual = extruded_len(&gcode, "Support material");
+    assert!(expected > 100.0, "the slope must produce real support");
+    assert!(
+        (actual - expected).abs() < expected * 1e-3,
+        "support geometry is {expected:.1} mm but only {actual:.1} mm is extruded — \
+         the loop-closing segments are being dropped"
+    );
+}
+
+#[test]
+fn a_wholly_overhanging_wall_loop_is_closed_too() {
+    // A 90° ledge overhangs along the whole of its wall loop, so
+    // `classify_overhang_perimeters` finds no air/support boundary to split it
+    // at and leaves one closed `OverhangPerimeter` ring. The generator omitted
+    // that role from its closed-loop list while the path orderer included it,
+    // so the ring lost its closing edge. Coasting is switched off here so the
+    // closing segment is fully extruded and measurable.
+    let params = SlicingParams {
+        coasting_distance_mm: 0.0,
+        ..support_params(45.0)
+    };
+    let layers = process_mesh(&ledge(), &params, &NullLogger);
+
+    let closed_rings = layers
+        .iter()
+        .flat_map(|l| {
+            (0..l.paths.len()).filter(move |&i| {
+                l.role_for_path(i) == ExtrusionRole::OverhangPerimeter && !l.is_path_open(i)
+            })
+        })
+        .count();
+    assert!(
+        closed_rings > 0,
+        "the ledge must produce at least one un-split overhanging ring"
+    );
+
+    let gcode = GcodeGenerator::new(GcodeFlavor::Marlin).generate(&layers, &params);
+    let expected = geometry_len(&layers, ExtrusionRole::OverhangPerimeter);
+    let actual = extruded_len(&gcode, "Overhang wall");
+    assert!(
+        (actual - expected).abs() < expected * 1e-3,
+        "overhang wall geometry is {expected:.1} mm but only {actual:.1} mm is extruded"
+    );
+}
+
+#[test]
+fn support_line_width_leaves_the_raft_alone() {
+    // The raft shares `ExtrusionRole::Support` but stamps its own deliberately
+    // coarse bead to match its own wide line pitch. `support_line_width` used
+    // to override that, under-extruding the raft base by the ratio of the two
+    // widths — a raft that will not fuse. Real support paths carry no explicit
+    // width, so the setting still reaches them through the fill-role branch.
+    let widths = |slw: f64| {
+        let params = SlicingParams {
+            adhesion_type: AdhesionType::Raft,
+            raft_layers: 3,
+            support_line_width: slw,
+            ..support_params(45.0)
+        };
+        let layers = process_mesh(&mushroom(), &params, &NullLogger);
+        let gcode = GcodeGenerator::new(GcodeFlavor::Marlin).generate(&layers, &params);
+        // The raft is printed first, so the opening widths are its own.
+        gcode
+            .lines()
+            .filter_map(|l| l.strip_prefix(";WIDTH:").map(str::to_string))
+            .take(2)
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(
+        widths(0.0),
+        widths(0.45),
+        "the raft's own bead width must not change with support_line_width"
+    );
+}
+
+#[test]
+fn spiral_vase_switches_supports_off() {
+    // A vase is one continuous wall climbing through Z with retraction
+    // disabled: there is no discrete layer for a support column to stand on
+    // and no way to travel to one. Normalisation forces every other
+    // incompatible setting off and must force this one too.
+    let params = SlicingParams {
+        spiral_vase: true,
+        ..support_params(45.0)
+    };
+    let layers = process_mesh(&frustum(60.0), &params, &NullLogger);
+    assert_eq!(
+        support_len(&layers),
+        0.0,
+        "spiral vase mode must not emit support"
+    );
+}
+
+#[test]
+fn the_debug_pipeline_generates_the_same_support_as_the_real_one() {
+    // `process_mesh_debug` backs the QA gallery and `--debug-geometry`. It
+    // skipped support generation entirely, so the one fixture in the corpus
+    // that has supports was rendered without any — the pictures did not show
+    // what the slicer actually does.
+    let params = support_params(45.0);
+    let mesh = frustum(60.0);
+    let real = process_mesh(&mesh, &params, &NullLogger);
+
+    let mut debug = slicer_engine::debug::DebugGeometry::new();
+    let dbg = slicer_engine::core::process_mesh_debug(&mesh, &params, &NullLogger, &mut debug);
+
+    assert!(support_len(&real) > 100.0, "baseline must have support");
+    assert!(
+        support_len(&dbg) > 100.0,
+        "the debug pipeline must generate support too"
+    );
+}

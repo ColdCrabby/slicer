@@ -1366,6 +1366,29 @@ geometry, and appends `ExtrusionRole::Support` **open** polylines.
   `extrusion_flow_spacing_mm`) rather than a full nominal bead. The contour is
   what keeps a thin column from degenerating into disconnected dashes; runs
   below `2 × nozzle` are dropped, the same splat rule gap fill uses.
+  **Whether a path is drawn closed is `ExtrusionRole::forms_closed_loops`, one
+  definition shared by the G-code generator and the path orderer** — the two
+  disagreeing (the generator's closed-loop list omitted `Support`, the orderer's
+  omitted nothing) is what silently dropped the segment that closes every
+  support island back to its start, about a fifth of all support contour length
+  on a test overhang. `support_line_width` must never reach the raft's own
+  explicit width the same way: the raft shares this role but stamps a
+  deliberately coarser bead to match its own wider line pitch, and the setting
+  is meant for the fill-role branch above, not a second override beneath it.
+- **The raft carries support columns, and only the raft's own bead width.**
+  `printed_footprint` unions the object with the `Support` role's footprint so
+  neither the raft nor the skirt starts a column in mid-air; the raft's coarse,
+  explicit bead width must stay untouched by `support_line_width`, which is for
+  the fill role's implicit width only (see above).
+- **Spiral (vase) mode forces `support_enabled` off** in
+  `spiral_vase_normalized`, alongside the other incompatible settings. A vase
+  is one continuous wall with retraction disabled; there is no discrete layer
+  for a column to stand on and no way to travel to one.
+- **`process_mesh_debug` generates supports too**, on the same pristine
+  perimeter snapshot `process_mesh` uses, and records them under
+  `DebugStage::Support`. Skipping this left the QA gallery and
+  `--debug-geometry` showing a support-enabled model with no support in the
+  picture.
 
 #### Supports are generated *after* bridge classification — deliberately
 

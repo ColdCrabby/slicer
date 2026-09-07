@@ -82,7 +82,7 @@ export function defaultProcessParams(): Record<string, unknown> {
     infill_speed: 150,
     top_surface_speed: 60,
     first_layer_speed: 30,
-    support_threshold_angle: 55,
+    support_threshold_angle: 45,
     adhesion_type: 'skirt',
     skirt_loops: 1,
     thumbnail_enabled: true,
