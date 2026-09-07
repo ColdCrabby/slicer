@@ -53,13 +53,14 @@
 
 use std::fmt;
 
+use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 use crate::mesh::analysis::FaceAdjacency;
 use crate::mesh::types::{Face, Mesh};
 
 /// What the user painted onto a facet.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "lowercase")]
 #[repr(u8)]
 pub enum PaintState {
@@ -203,8 +204,7 @@ impl FacetPaint {
         } else {
             self.states.resize(self_faces, PaintState::None as u8);
         }
-        self.states
-            .reserve(other_faces.max(other.states.len()));
+        self.states.reserve(other_faces.max(other.states.len()));
         for face in 0..other_faces {
             self.states
                 .push(other.states.get(face).copied().unwrap_or(0));
@@ -380,12 +380,7 @@ fn triangle_within_sphere(face: &Face, center: [f64; 3], radius_sq: f64) -> bool
 /// Closest point on triangle `abc` to `p` (Ericson, *Real-Time Collision
 /// Detection*, §5.1.5) — a Voronoi-region walk over the three corners, the
 /// three edges and the interior.
-fn closest_point_on_triangle(
-    p: [f64; 3],
-    a: [f64; 3],
-    b: [f64; 3],
-    c: [f64; 3],
-) -> [f64; 3] {
+fn closest_point_on_triangle(p: [f64; 3], a: [f64; 3], b: [f64; 3], c: [f64; 3]) -> [f64; 3] {
     let ab = sub(b, a);
     let ac = sub(c, a);
     let ap = sub(p, a);
@@ -426,7 +421,11 @@ fn closest_point_on_triangle(
     let va = d3 * d6 - d5 * d4;
     if va <= 0.0 && (d4 - d3) >= 0.0 && (d5 - d6) >= 0.0 {
         let denom = (d4 - d3) + (d5 - d6);
-        let w = if denom.abs() < 1e-20 { 0.0 } else { (d4 - d3) / denom };
+        let w = if denom.abs() < 1e-20 {
+            0.0
+        } else {
+            (d4 - d3) / denom
+        };
         return add(b, scale(sub(c, b), w));
     }
 
@@ -595,7 +594,11 @@ mod tests {
         let paint = FacetPaint::new();
         assert!(paint.is_empty());
         assert_eq!(paint.encode(), None);
-        assert_eq!(paint.face_count(), 0, "no allocation until something is painted");
+        assert_eq!(
+            paint.face_count(),
+            0,
+            "no allocation until something is painted"
+        );
     }
 
     #[test]
@@ -652,7 +655,10 @@ mod tests {
 
     #[test]
     fn garbage_is_refused_rather_than_guessed_at() {
-        assert_eq!(FacetPaint::decode("!!!!", 10), Err(PaintDecodeError::Malformed));
+        assert_eq!(
+            FacetPaint::decode("!!!!", 10),
+            Err(PaintDecodeError::Malformed)
+        );
         assert_eq!(FacetPaint::decode("", 10), Err(PaintDecodeError::Malformed));
         // Valid base64, but a version this build does not know.
         let future = base64url_encode(&[99, 10]);
@@ -763,16 +769,10 @@ mod tests {
         for row in 0..n {
             for col in 0..n {
                 let (x, y) = (col as f64, row as f64);
-                mesh.faces.push(tri(
-                    [x, y, 0.0],
-                    [x + 1.0, y, 0.0],
-                    [x + 1.0, y + 1.0, 0.0],
-                ));
-                mesh.faces.push(tri(
-                    [x, y, 0.0],
-                    [x + 1.0, y + 1.0, 0.0],
-                    [x, y + 1.0, 0.0],
-                ));
+                mesh.faces
+                    .push(tri([x, y, 0.0], [x + 1.0, y, 0.0], [x + 1.0, y + 1.0, 0.0]));
+                mesh.faces
+                    .push(tri([x, y, 0.0], [x + 1.0, y + 1.0, 0.0], [x, y + 1.0, 0.0]));
             }
         }
         mesh
@@ -802,11 +802,8 @@ mod tests {
         // middle of one must not come out as "nothing was hit" — that is the
         // whole-facet granularity working, not a miss.
         let mut mesh = Mesh::new();
-        mesh.faces.push(tri(
-            [0.0, 0.0, 0.0],
-            [100.0, 0.0, 0.0],
-            [0.0, 100.0, 0.0],
-        ));
+        mesh.faces
+            .push(tri([0.0, 0.0, 0.0], [100.0, 0.0, 0.0], [0.0, 100.0, 0.0]));
         let adjacency = face_adjacency(&mesh, BRUSH_WELD_TOLERANCE_MM);
         let mut paint = FacetPaint::new();
         paint_sphere(

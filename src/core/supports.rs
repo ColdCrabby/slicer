@@ -42,8 +42,8 @@ use clipper2::*;
 
 use crate::settings::params::{SlicingParams, SupportType};
 
-use super::surfaces::{generate_rectilinear_infill, perimeter_paths_of};
 use super::support_paint::SupportPaintMasks;
+use super::surfaces::{generate_rectilinear_infill, perimeter_paths_of};
 use super::types::{ExtrusionRole, SliceLayer};
 
 /// Overhang islands smaller than this (mm²) are ignored — they are slicing
@@ -291,6 +291,11 @@ pub fn generate_supports_with_paint(
     let auto_detect = params.support_auto;
 
     let mut overhang: Vec<Paths> = vec![Paths::new(vec![]); n];
+    // The enforced contribution alone, tracked in parallel with `overhang` so
+    // build-plate-only (3b below) can restore it after filtering: a painted
+    // enforcer is an instruction to support *here*, even by resting on the
+    // model instead of the plate, matching OrcaSlicer.
+    let mut enforced_overhang: Vec<Paths> = vec![Paths::new(vec![]); n];
     for i in 1..n {
         if footprints[i].is_empty() {
             continue;
@@ -326,10 +331,10 @@ pub fn generate_supports_with_paint(
                 // A blocker wins where the two overlap, so a broad enforcer can
                 // be trimmed with a few strokes rather than repainted.
                 if !blocker.is_empty() {
-                    enforced =
-                        poly_difference(&enforced, &poly_inflate(&blocker, blocker_grow));
+                    enforced = poly_difference(&enforced, &poly_inflate(&blocker, blocker_grow));
                 }
                 detected = poly_union(&detected, &enforced);
+                enforced_overhang[i] = enforced;
             }
         }
 
@@ -349,6 +354,9 @@ pub fn generate_supports_with_paint(
     let xy = params.support_xy_distance_mm.max(0.0)
         + crate::core::outer_wall_nominal_width_mm(params) * 0.5;
     let mut add_at: Vec<Paths> = vec![Paths::new(vec![]); n];
+    // The enforced share of `add_at`, registered at the same activation layer
+    // — see the build-plate-only bypass in 3b below.
+    let mut enforced_add_at: Vec<Paths> = vec![Paths::new(vec![]); n];
     #[allow(clippy::needless_range_loop)]
     for i in 1..n {
         if overhang[i].is_empty() {
@@ -356,6 +364,10 @@ pub fn generate_supports_with_paint(
         }
         let activate = (i as isize - 1 - z_gap as isize).max(0) as usize;
         add_at[activate] = poly_union(&add_at[activate], &overhang[i]);
+        if !enforced_overhang[i].is_empty() {
+            enforced_add_at[activate] =
+                poly_union(&enforced_add_at[activate], &enforced_overhang[i]);
+        }
     }
 
     // ── 3b. Build-plate-only: drop contacts that cannot reach the bed ───────
@@ -389,7 +401,17 @@ pub fn generate_supports_with_paint(
                 continue;
             }
             let reachable = poly_difference(&add_at[i], &covered[i]);
-            add_at[i] = filter_small(&reachable, SUPPORT_MIN_OVERHANG_AREA_MM2);
+            let mut kept = filter_small(&reachable, SUPPORT_MIN_OVERHANG_AREA_MM2);
+            // A painted enforcer asked for support at this exact place; unlike
+            // an auto-detected overhang, it is not sacrificed just because the
+            // column would have to rest on the model instead of the plate —
+            // OrcaSlicer's enforcers do the same. The column-projection step
+            // below still stops at the model surface either way, so this
+            // cannot punch through geometry, only rest on it.
+            if !enforced_add_at[i].is_empty() {
+                kept = poly_union(&kept, &enforced_add_at[i]);
+            }
+            add_at[i] = kept;
         }
     }
 
@@ -1246,6 +1268,48 @@ mod tests {
         assert!(
             support_total_len(&baseline) > 0.0,
             "without the option this overhang is supported off the model"
+        );
+    }
+
+    /// Square paint mask centred at (cx, cy), matching `square_layer`'s
+    /// contour so an enforcer can be sized to exactly cover a model footprint.
+    fn square_paths(cx: f64, cy: f64, half: f64) -> Paths {
+        let mut p = Path::new(vec![]);
+        p.push(Point::new(cx - half, cy - half));
+        p.push(Point::new(cx + half, cy - half));
+        p.push(Point::new(cx + half, cy + half));
+        p.push(Point::new(cx - half, cy + half));
+        Paths::new(vec![p])
+    }
+
+    #[test]
+    fn build_plate_only_still_supports_a_painted_enforcer_with_no_path_to_the_bed() {
+        // Same "stranded overhang" geometry as the sacrifice test above, but
+        // the cap's underside is painted as an enforcer this time. A painted
+        // enforcer is a direct instruction to support that exact spot, so
+        // build-plate-only must not sacrifice it just because the column has
+        // to rest on the model instead of reaching the plate — matching
+        // OrcaSlicer's enforcer behaviour.
+        let mut layers = tiered_stack(20.0, 15.0);
+        let n = layers.len();
+        let mut enforcers = vec![Paths::new(vec![]); n];
+        // Layer 30 is where the cap first appears (see `tiered_stack`), which
+        // is where its underside overhang is registered in step 2. The mask is
+        // intersected with the real footprint, so sizing it generously is
+        // harmless.
+        enforcers[30] = square_paths(-20.0, 0.0, 15.0);
+        let paint = SupportPaintMasks {
+            enforcers,
+            blockers: vec![Paths::new(vec![]); n],
+        };
+        let params = SlicingParams {
+            support_on_build_plate_only: true,
+            ..params_with_supports()
+        };
+        generate_supports_with_paint(&mut layers, &params, None, &paint);
+        assert!(
+            support_total_len(&layers) > 0.0,
+            "a painted enforcer must be supported even with no path to the plate"
         );
     }
 

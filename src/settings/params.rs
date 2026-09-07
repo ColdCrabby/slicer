@@ -2049,7 +2049,10 @@ either way.",
 Support is normally allowed to rest on the model itself. With this on, a column is kept only when it
 can descend to the plate through empty space — anything that would land on the print is dropped, so
 those overhangs print unsupported. Choose this when supports resting on the model would scar a
-surface you care about, or would be impossible to remove.",
+surface you care about, or would be impossible to remove.
+
+A painted enforcer is exempt: it is a direct instruction to support that exact spot, so it keeps its
+support even if the column has to rest on the model instead of reaching the plate.",
         extend("x-group" = "Support", "x-relevant-when" = serde_json::json!({"field": "support_enabled", "equals": true}))
     )]
     #[serde(default = "SlicingParams::default_support_on_build_plate_only")]
