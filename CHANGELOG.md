@@ -27,6 +27,13 @@ issue/PR numbers or repo links in the notes. See the tone rules in
 
 ## [Unreleased]
 
+### Changed
+
+- **Smooth-bridge defaults.** Bridges now print at **10 mm/s** with a **1.5×**
+  flow ratio by default, so their strands fuse into a continuous floor and full
+  part-cooling freezes them before they sag — the community "smooth unsupported
+  bridge" recipe, out of the box. The most-airborne overhang band drops to
+  8 mm/s to stay below the new bridge speed.
 ### Added
 
 - **Supports now work on sloped overhangs** — a cone or chamfer steeper than the
