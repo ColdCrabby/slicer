@@ -1160,12 +1160,23 @@ impl GcodeGenerator {
     /// Precedence (first match wins; each falls back to `acceleration`):
     /// 1. **First layer** → `first_layer_acceleration`, applied to every role
     ///    for adhesion.
-    /// 2. **Bridge / overhang** → `bridge_acceleration` (Phase 3 — geometry
-    ///    aware): strands printed into air get a low, steady acceleration.
-    /// 3. **Top surface** → `top_surface_acceleration`.
-    /// 4. **Outer wall** → `outer_wall_acceleration` (Phase 3): the visible
-    ///    perimeter gets a dedicated limit to reduce ringing.
-    /// 5. Everything else → `acceleration`.
+    /// 2. **Bridge / overhang** → `bridge_acceleration`: strands printed into
+    ///    air get a low, steady acceleration.
+    /// 3. **Top surface / ironing** → `top_surface_acceleration`.
+    /// 4. **Outer wall** → `outer_wall_acceleration`: the visible perimeter
+    ///    gets a dedicated limit to reduce ringing.
+    /// 5. **Inner wall** → `inner_wall_acceleration`: hidden perimeters can
+    ///    push harder than the visible outer wall.
+    /// 6. **Sparse infill** → `sparse_infill_acceleration`: usually the
+    ///    highest limit, since it is invisible and interior.
+    /// 7. **Bottom surface / internal solid infill** → `solid_infill_acceleration`.
+    /// 8. **Gap fill** → `gap_fill_acceleration`: short variable-width beads
+    ///    that a lower acceleration keeps clean.
+    /// 9. **Support** → `support_acceleration`: sacrificial material can run fast.
+    /// 10. Everything else → `acceleration`.
+    ///
+    /// Travel (non-printing) moves are not a role and are handled separately by
+    /// [`Self::effective_travel_acceleration`].
     ///
     /// A resolved value of `0` (nothing configured) yields `None`, so no
     /// firmware command is emitted and existing output is unchanged.
@@ -1197,9 +1208,29 @@ impl GcodeGenerator {
             // Ironing follows the surface it is smoothing.
             ExtrusionRole::Ironing => or_normal(params.top_surface_acceleration),
             ExtrusionRole::OuterWall => or_normal(params.outer_wall_acceleration),
+            ExtrusionRole::InnerWall => or_normal(params.inner_wall_acceleration),
+            ExtrusionRole::Infill => or_normal(params.sparse_infill_acceleration),
+            // Internal solid layers and bottom surfaces share the solid-infill
+            // limit (distinct from the visible top surface above).
+            ExtrusionRole::BottomSurface | ExtrusionRole::InternalSolid => {
+                or_normal(params.solid_infill_acceleration)
+            }
+            ExtrusionRole::GapFill => or_normal(params.gap_fill_acceleration),
+            ExtrusionRole::Support => or_normal(params.support_acceleration),
             _ => normal,
         };
         (a > 0.0).then_some(a)
+    }
+
+    /// Resolve the target acceleration (mm/s²) for **travel** (non-printing)
+    /// moves, or `None` when no dedicated travel acceleration is configured.
+    ///
+    /// Travel is not a printing role, so — unlike [`Self::effective_acceleration`]
+    /// — it is a single global value that does not vary by role or layer. When it
+    /// is unset (`0`) the caller leaves the printing acceleration in force, so
+    /// output stays byte-identical to a profile that never touched it.
+    fn effective_travel_acceleration(params: &SlicingParams) -> Option<f64> {
+        (params.travel_acceleration > 0.0).then_some(params.travel_acceleration)
     }
 
     /// Emit one spiralized (vase-mode) outer contour with a continuous Z ramp.
@@ -2280,16 +2311,26 @@ impl GcodeGenerator {
                 );
 
                 // ── Adaptive acceleration (opt-in; emitted on change only) ────
-                // Set the firmware acceleration before this path's moves when the
-                // target differs from the last emitted value.  Disabled roles
+                // Resolve this path's printing acceleration and any dedicated
+                // travel acceleration. When a travel acceleration is configured
+                // we defer the printing value until *after* the upcoming travel
+                // (emitted just before the extrusion moves below) and set the
+                // travel value for the hop instead — so travels ramp at their
+                // own rate and extrusion at the role's. With no travel
+                // acceleration set, the printing value is emitted here exactly
+                // as before, keeping output byte-identical. Disabled roles
                 // resolve to `None` and leave the previous limit in place.
-                if let Some(accel) = Self::effective_acceleration(role, is_first_layer, params) {
-                    if last_accel != Some(accel) {
-                        out.push_str(&format!(
-                            "{} ; acceleration\n",
-                            self.dialect.set_acceleration(accel)
-                        ));
-                        last_accel = Some(accel);
+                let print_accel = Self::effective_acceleration(role, is_first_layer, params);
+                let travel_accel = Self::effective_travel_acceleration(params);
+                if travel_accel.is_none() {
+                    if let Some(accel) = print_accel {
+                        if last_accel != Some(accel) {
+                            out.push_str(&format!(
+                                "{} ; acceleration\n",
+                                self.dialect.set_acceleration(accel)
+                            ));
+                            last_accel = Some(accel);
+                        }
                     }
                 }
 
@@ -2421,6 +2462,19 @@ impl GcodeGenerator {
                     _ => vec![(start_x, start_y)],
                 };
 
+                // Switch to the travel acceleration for the upcoming hop (opt-in;
+                // emitted on change only). The printing acceleration is restored
+                // just before the extrusion moves below.
+                if let Some(accel) = travel_accel {
+                    if last_accel != Some(accel) {
+                        out.push_str(&format!(
+                            "{} ; travel acceleration\n",
+                            self.dialect.set_acceleration(accel)
+                        ));
+                        last_accel = Some(accel);
+                    }
+                }
+
                 if needs_retract {
                     // Retract [+ wipe], z-hop, travel (possibly via detour),
                     // lower, prime. The retract and prime dispatch on the
@@ -2480,6 +2534,21 @@ impl GcodeGenerator {
                             "{} ; {tag}\n",
                             self.dialect.travel_xy(wx, wy, params.travel_speed_mm_min)
                         ));
+                    }
+                }
+
+                // Restore the printing acceleration after the travel (opt-in;
+                // emitted on change only). Only runs when a travel acceleration
+                // was set above, so output stays byte-identical otherwise.
+                if travel_accel.is_some() {
+                    if let Some(accel) = print_accel {
+                        if last_accel != Some(accel) {
+                            out.push_str(&format!(
+                                "{} ; acceleration\n",
+                                self.dialect.set_acceleration(accel)
+                            ));
+                            last_accel = Some(accel);
+                        }
                     }
                 }
 
@@ -4004,6 +4073,29 @@ mod tests {
         layer
     }
 
+    /// `SlicingParams::default()` with every acceleration field zeroed.
+    ///
+    /// The defaults are non-zero (tuned for a fast, well-built printer), so
+    /// acceleration tests that need a clean "nothing configured" baseline —
+    /// to isolate one field, or assert the disabled code path — build on this
+    /// instead of `SlicingParams::default()`.
+    fn params_with_no_acceleration() -> SlicingParams {
+        SlicingParams {
+            acceleration: 0.0,
+            first_layer_acceleration: 0.0,
+            top_surface_acceleration: 0.0,
+            outer_wall_acceleration: 0.0,
+            bridge_acceleration: 0.0,
+            inner_wall_acceleration: 0.0,
+            sparse_infill_acceleration: 0.0,
+            solid_infill_acceleration: 0.0,
+            gap_fill_acceleration: 0.0,
+            support_acceleration: 0.0,
+            travel_acceleration: 0.0,
+            ..SlicingParams::default()
+        }
+    }
+
     #[test]
     fn test_marlin_dialect_set_acceleration_default() {
         let d = MarlinDialect;
@@ -4022,7 +4114,7 @@ mod tests {
         let params = SlicingParams {
             acceleration: 6000.0,
             first_layer_acceleration: 2000.0,
-            ..SlicingParams::default()
+            ..params_with_no_acceleration()
         };
         // z=0.2 → first layer (layer_height 0.2); z=0.4 → subsequent.
         let layers = [
@@ -4044,7 +4136,7 @@ mod tests {
         let params = SlicingParams {
             acceleration: 6000.0,
             top_surface_acceleration: 9000.0,
-            ..SlicingParams::default()
+            ..params_with_no_acceleration()
         };
         // Non-first layer with a wall followed by a top surface.
         let mut layer = SliceLayer::new(0.4);
@@ -4070,7 +4162,7 @@ mod tests {
     #[test]
     fn test_generator_omits_acceleration_when_zero() {
         use crate::core::ExtrusionRole;
-        let params = SlicingParams::default(); // all acceleration fields default to 0
+        let params = params_with_no_acceleration();
         let layers = [layer_with_role(0.4, ExtrusionRole::OuterWall)];
         let marlin = GcodeGenerator::new(GcodeFlavor::Marlin).generate(&layers, &params);
         let klipper = GcodeGenerator::new(GcodeFlavor::Klipper).generate(&layers, &params);
@@ -4089,7 +4181,7 @@ mod tests {
         use crate::core::ExtrusionRole;
         let params = SlicingParams {
             acceleration: 6000.0,
-            ..SlicingParams::default()
+            ..params_with_no_acceleration()
         };
         // Two non-first layers, same role → the accel command must appear once.
         let layers = [
@@ -4130,7 +4222,7 @@ mod tests {
         let params = SlicingParams {
             acceleration: 6000.0,
             outer_wall_acceleration: 3000.0,
-            ..SlicingParams::default()
+            ..params_with_no_acceleration()
         };
         // Outer wall → dedicated accel; inner wall → normal accel.
         let mut layer = SliceLayer::new(0.4);
@@ -4156,7 +4248,7 @@ mod tests {
             acceleration: 6000.0,
             bridge_acceleration: 1500.0,
             first_layer_acceleration: 2000.0,
-            ..SlicingParams::default()
+            ..params_with_no_acceleration()
         };
         // A bridge on the first layer must still use the first-layer accel.
         let layers = [layer_with_role(0.2, ExtrusionRole::Bridge)];
@@ -4172,13 +4264,208 @@ mod tests {
         use crate::core::ExtrusionRole;
         let params = SlicingParams {
             acceleration: 6000.0, // bridge_acceleration left at 0
-            ..SlicingParams::default()
+            ..params_with_no_acceleration()
         };
         let layers = [layer_with_role(0.4, ExtrusionRole::Bridge)];
         let gcode = GcodeGenerator::new(GcodeFlavor::Marlin).generate(&layers, &params);
         assert!(
             gcode.contains("M204 P6000"),
             "bridge role should fall back to the normal acceleration:\n{gcode}"
+        );
+    }
+
+    // ── Acceleration (full role coverage + travel) ──────────────────────────────
+
+    #[test]
+    fn test_inner_wall_acceleration_applies_to_inner_wall_only() {
+        use crate::core::ExtrusionRole;
+        let params = SlicingParams {
+            acceleration: 6000.0,
+            inner_wall_acceleration: 8000.0,
+            ..params_with_no_acceleration()
+        };
+        let mut layer = SliceLayer::new(0.4);
+        let sq1: clipper2::Path = vec![(0.0, 0.0), (10.0, 0.0), (10.0, 10.0), (0.0, 10.0)].into();
+        let sq2: clipper2::Path = vec![(1.0, 1.0), (9.0, 1.0), (9.0, 9.0), (1.0, 9.0)].into();
+        layer.paths.push(sq1);
+        layer.path_roles.push(ExtrusionRole::OuterWall);
+        layer.paths.push(sq2);
+        layer.path_roles.push(ExtrusionRole::InnerWall);
+        let gcode = GcodeGenerator::new(GcodeFlavor::Marlin).generate(&[layer], &params);
+        let outer = gcode.find("M204 P6000").expect("outer-wall normal accel");
+        let inner = gcode.find("M204 P8000").expect("inner-wall accel");
+        assert!(
+            outer < inner,
+            "outer-wall normal accel must precede inner-wall accel:\n{gcode}"
+        );
+    }
+
+    #[test]
+    fn test_sparse_infill_acceleration_applies_to_infill() {
+        use crate::core::ExtrusionRole;
+        let params = SlicingParams {
+            acceleration: 6000.0,
+            sparse_infill_acceleration: 10000.0,
+            ..SlicingParams::default()
+        };
+        let layers = [layer_with_role(0.4, ExtrusionRole::Infill)];
+        let gcode = GcodeGenerator::new(GcodeFlavor::Marlin).generate(&layers, &params);
+        assert!(
+            gcode.contains("M204 P10000"),
+            "sparse-infill acceleration not applied:\n{gcode}"
+        );
+    }
+
+    #[test]
+    fn test_solid_infill_acceleration_applies_to_bottom_and_internal_solid() {
+        use crate::core::ExtrusionRole;
+        let params = SlicingParams {
+            acceleration: 6000.0,
+            solid_infill_acceleration: 7000.0,
+            ..SlicingParams::default()
+        };
+        for role in [ExtrusionRole::BottomSurface, ExtrusionRole::InternalSolid] {
+            let layers = [layer_with_role(0.4, role)];
+            let gcode = GcodeGenerator::new(GcodeFlavor::Marlin).generate(&layers, &params);
+            assert!(
+                gcode.contains("M204 P7000"),
+                "solid-infill acceleration not applied to {role:?}:\n{gcode}"
+            );
+        }
+    }
+
+    #[test]
+    fn test_gap_fill_acceleration_applies_to_gap_fill() {
+        use crate::core::ExtrusionRole;
+        let params = SlicingParams {
+            acceleration: 6000.0,
+            gap_fill_acceleration: 2000.0,
+            ..SlicingParams::default()
+        };
+        let layers = [layer_with_role(0.4, ExtrusionRole::GapFill)];
+        let gcode = GcodeGenerator::new(GcodeFlavor::Marlin).generate(&layers, &params);
+        assert!(
+            gcode.contains("M204 P2000"),
+            "gap-fill acceleration not applied:\n{gcode}"
+        );
+    }
+
+    #[test]
+    fn test_support_acceleration_applies_to_support() {
+        use crate::core::ExtrusionRole;
+        let params = SlicingParams {
+            acceleration: 6000.0,
+            support_acceleration: 9000.0,
+            ..SlicingParams::default()
+        };
+        let layers = [layer_with_role(0.4, ExtrusionRole::Support)];
+        let gcode = GcodeGenerator::new(GcodeFlavor::Marlin).generate(&layers, &params);
+        assert!(
+            gcode.contains("M204 P9000"),
+            "support acceleration not applied:\n{gcode}"
+        );
+    }
+
+    #[test]
+    fn test_new_role_accelerations_fall_back_to_normal() {
+        use crate::core::ExtrusionRole;
+        // All role-specific overrides left at 0: every new role should use the
+        // plain `acceleration` value.
+        let params = SlicingParams {
+            acceleration: 6000.0,
+            ..params_with_no_acceleration()
+        };
+        for role in [
+            ExtrusionRole::InnerWall,
+            ExtrusionRole::Infill,
+            ExtrusionRole::BottomSurface,
+            ExtrusionRole::InternalSolid,
+            ExtrusionRole::GapFill,
+            ExtrusionRole::Support,
+        ] {
+            let layers = [layer_with_role(0.4, role)];
+            let gcode = GcodeGenerator::new(GcodeFlavor::Marlin).generate(&layers, &params);
+            assert!(
+                gcode.contains("M204 P6000"),
+                "{role:?} should fall back to the normal acceleration:\n{gcode}"
+            );
+        }
+    }
+
+    #[test]
+    fn test_travel_acceleration_switches_before_travel_and_restores_after() {
+        use crate::core::ExtrusionRole;
+        let params = SlicingParams {
+            acceleration: 6000.0,
+            travel_acceleration: 9000.0,
+            ..params_with_no_acceleration()
+        };
+        // Two outer-wall squares far apart so a real travel hop separates them.
+        let mut layer = SliceLayer::new(0.4);
+        let sq1: clipper2::Path = vec![(0.0, 0.0), (10.0, 0.0), (10.0, 10.0), (0.0, 10.0)].into();
+        let sq2: clipper2::Path = vec![
+            (100.0, 100.0),
+            (110.0, 100.0),
+            (110.0, 110.0),
+            (100.0, 110.0),
+        ]
+        .into();
+        layer.paths.push(sq1);
+        layer.path_roles.push(ExtrusionRole::OuterWall);
+        layer.paths.push(sq2);
+        layer.path_roles.push(ExtrusionRole::OuterWall);
+        let gcode = GcodeGenerator::new(GcodeFlavor::Marlin).generate(&[layer], &params);
+        assert_eq!(
+            gcode.matches("M204 P9000 ; travel acceleration").count(),
+            2,
+            "expected one travel-acceleration switch per hop:\n{gcode}"
+        );
+        assert_eq!(
+            gcode.matches("M204 P6000 ; acceleration").count(),
+            2,
+            "expected the printing acceleration restored after each hop:\n{gcode}"
+        );
+        let first_travel = gcode
+            .find("M204 P9000 ; travel acceleration")
+            .expect("travel accel");
+        let first_restore = gcode
+            .find("M204 P6000 ; acceleration")
+            .expect("restored print accel");
+        assert!(
+            first_travel < first_restore,
+            "travel acceleration must be switched in before the printing value is restored:\n{gcode}"
+        );
+    }
+
+    #[test]
+    fn test_travel_acceleration_omitted_when_zero() {
+        use crate::core::ExtrusionRole;
+        let params = SlicingParams {
+            acceleration: 6000.0, // travel_acceleration left at 0
+            ..params_with_no_acceleration()
+        };
+        let mut layer = SliceLayer::new(0.4);
+        let sq1: clipper2::Path = vec![(0.0, 0.0), (10.0, 0.0), (10.0, 10.0), (0.0, 10.0)].into();
+        let sq2: clipper2::Path = vec![
+            (100.0, 100.0),
+            (110.0, 100.0),
+            (110.0, 110.0),
+            (100.0, 110.0),
+        ]
+        .into();
+        layer.paths.push(sq1);
+        layer.path_roles.push(ExtrusionRole::OuterWall);
+        layer.paths.push(sq2);
+        layer.path_roles.push(ExtrusionRole::OuterWall);
+        let gcode = GcodeGenerator::new(GcodeFlavor::Marlin).generate(&[layer], &params);
+        assert!(
+            !gcode.contains("travel acceleration"),
+            "no travel-acceleration switch should be emitted when disabled:\n{gcode}"
+        );
+        assert_eq!(
+            gcode.matches("M204 P6000").count(),
+            1,
+            "printing acceleration should be emitted once and never redundantly:\n{gcode}"
         );
     }
 
@@ -4407,10 +4694,13 @@ mod tests {
         }
 
         // Per-layer marker sum is a subset of the total (which also counts the
-        // start/end script), so it must not exceed it.
+        // start/end script), so it must not exceed it — modulo the `{:.1}`
+        // rounding each marker goes through, which can inflate each by up to
+        // 0.05 s.
         let marker_sum: f64 = marker_times.iter().sum();
+        let rounding_slack = layers.len() as f64 * 0.05 + 1e-6;
         assert!(
-            marker_sum <= stats.estimated_print_time_s + 1e-6,
+            marker_sum <= stats.estimated_print_time_s + rounding_slack,
             "layer sum {marker_sum} must not exceed total {}",
             stats.estimated_print_time_s
         );
