@@ -2621,38 +2621,55 @@ impl SlicingParams {
     fn default_pressure_advance() -> f64 {
         0.0
     }
+    // Acceleration defaults target a modern, well-tuned CoreXY (input-shaped,
+    // linear-rail class hardware capable of ~700 mm/s / 8000-12000 mm/s²), not
+    // the lowest common denominator. A profile that never touches these gets a
+    // fully populated, sensible acceleration scheme out of the box instead of
+    // silent firmware defaults; a slower or untuned printer just prints these
+    // values slower/rougher than intended and should dial them down (or zero
+    // them to fall back to firmware behaviour) rather than the slicer guessing
+    // conservative numbers that would waste a capable machine's headroom.
     fn default_acceleration() -> f64 {
-        0.0
+        10000.0
     }
     fn default_first_layer_acceleration() -> f64 {
-        0.0
+        // Adhesion is a squish/dwell-time constraint, not a speed-capability
+        // one — kept low regardless of how fast the rest of the machine is.
+        1000.0
     }
     fn default_top_surface_acceleration() -> f64 {
-        0.0
+        6000.0
     }
     fn default_outer_wall_acceleration() -> f64 {
-        0.0
+        // Visible-surface quality (ringing/ghosting) caps this well below the
+        // machine's raw capability even on printers with input shaping.
+        4000.0
     }
     fn default_bridge_acceleration() -> f64 {
-        0.0
+        // Steady flow over unsupported spans matters more than machine
+        // capability here — kept low like `first_layer_acceleration`.
+        1000.0
     }
     fn default_inner_wall_acceleration() -> f64 {
-        0.0
+        8000.0
     }
     fn default_sparse_infill_acceleration() -> f64 {
-        0.0
+        // Interior and invisible: the highest printing acceleration.
+        12000.0
     }
     fn default_solid_infill_acceleration() -> f64 {
-        0.0
+        8000.0
     }
     fn default_gap_fill_acceleration() -> f64 {
-        0.0
+        2000.0
     }
     fn default_support_acceleration() -> f64 {
-        0.0
+        8000.0
     }
     fn default_travel_acceleration() -> f64 {
-        0.0
+        // No material is deposited in transit, so travel gets the highest
+        // acceleration of all — above even sparse infill.
+        15000.0
     }
     fn default_square_corner_velocity() -> f64 {
         // `0` = defer to the estimator/firmware default (5 mm/s). Kept at 0 so a

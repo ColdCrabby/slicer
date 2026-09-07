@@ -4073,6 +4073,29 @@ mod tests {
         layer
     }
 
+    /// `SlicingParams::default()` with every acceleration field zeroed.
+    ///
+    /// The defaults are non-zero (tuned for a fast, well-built printer), so
+    /// acceleration tests that need a clean "nothing configured" baseline —
+    /// to isolate one field, or assert the disabled code path — build on this
+    /// instead of `SlicingParams::default()`.
+    fn params_with_no_acceleration() -> SlicingParams {
+        SlicingParams {
+            acceleration: 0.0,
+            first_layer_acceleration: 0.0,
+            top_surface_acceleration: 0.0,
+            outer_wall_acceleration: 0.0,
+            bridge_acceleration: 0.0,
+            inner_wall_acceleration: 0.0,
+            sparse_infill_acceleration: 0.0,
+            solid_infill_acceleration: 0.0,
+            gap_fill_acceleration: 0.0,
+            support_acceleration: 0.0,
+            travel_acceleration: 0.0,
+            ..SlicingParams::default()
+        }
+    }
+
     #[test]
     fn test_marlin_dialect_set_acceleration_default() {
         let d = MarlinDialect;
@@ -4091,7 +4114,7 @@ mod tests {
         let params = SlicingParams {
             acceleration: 6000.0,
             first_layer_acceleration: 2000.0,
-            ..SlicingParams::default()
+            ..params_with_no_acceleration()
         };
         // z=0.2 → first layer (layer_height 0.2); z=0.4 → subsequent.
         let layers = [
@@ -4113,7 +4136,7 @@ mod tests {
         let params = SlicingParams {
             acceleration: 6000.0,
             top_surface_acceleration: 9000.0,
-            ..SlicingParams::default()
+            ..params_with_no_acceleration()
         };
         // Non-first layer with a wall followed by a top surface.
         let mut layer = SliceLayer::new(0.4);
@@ -4139,7 +4162,7 @@ mod tests {
     #[test]
     fn test_generator_omits_acceleration_when_zero() {
         use crate::core::ExtrusionRole;
-        let params = SlicingParams::default(); // all acceleration fields default to 0
+        let params = params_with_no_acceleration();
         let layers = [layer_with_role(0.4, ExtrusionRole::OuterWall)];
         let marlin = GcodeGenerator::new(GcodeFlavor::Marlin).generate(&layers, &params);
         let klipper = GcodeGenerator::new(GcodeFlavor::Klipper).generate(&layers, &params);
@@ -4158,7 +4181,7 @@ mod tests {
         use crate::core::ExtrusionRole;
         let params = SlicingParams {
             acceleration: 6000.0,
-            ..SlicingParams::default()
+            ..params_with_no_acceleration()
         };
         // Two non-first layers, same role → the accel command must appear once.
         let layers = [
@@ -4199,7 +4222,7 @@ mod tests {
         let params = SlicingParams {
             acceleration: 6000.0,
             outer_wall_acceleration: 3000.0,
-            ..SlicingParams::default()
+            ..params_with_no_acceleration()
         };
         // Outer wall → dedicated accel; inner wall → normal accel.
         let mut layer = SliceLayer::new(0.4);
@@ -4225,7 +4248,7 @@ mod tests {
             acceleration: 6000.0,
             bridge_acceleration: 1500.0,
             first_layer_acceleration: 2000.0,
-            ..SlicingParams::default()
+            ..params_with_no_acceleration()
         };
         // A bridge on the first layer must still use the first-layer accel.
         let layers = [layer_with_role(0.2, ExtrusionRole::Bridge)];
@@ -4241,7 +4264,7 @@ mod tests {
         use crate::core::ExtrusionRole;
         let params = SlicingParams {
             acceleration: 6000.0, // bridge_acceleration left at 0
-            ..SlicingParams::default()
+            ..params_with_no_acceleration()
         };
         let layers = [layer_with_role(0.4, ExtrusionRole::Bridge)];
         let gcode = GcodeGenerator::new(GcodeFlavor::Marlin).generate(&layers, &params);
@@ -4259,7 +4282,7 @@ mod tests {
         let params = SlicingParams {
             acceleration: 6000.0,
             inner_wall_acceleration: 8000.0,
-            ..SlicingParams::default()
+            ..params_with_no_acceleration()
         };
         let mut layer = SliceLayer::new(0.4);
         let sq1: clipper2::Path = vec![(0.0, 0.0), (10.0, 0.0), (10.0, 10.0), (0.0, 10.0)].into();
@@ -4350,7 +4373,7 @@ mod tests {
         // plain `acceleration` value.
         let params = SlicingParams {
             acceleration: 6000.0,
-            ..SlicingParams::default()
+            ..params_with_no_acceleration()
         };
         for role in [
             ExtrusionRole::InnerWall,
@@ -4375,7 +4398,7 @@ mod tests {
         let params = SlicingParams {
             acceleration: 6000.0,
             travel_acceleration: 9000.0,
-            ..SlicingParams::default()
+            ..params_with_no_acceleration()
         };
         // Two outer-wall squares far apart so a real travel hop separates them.
         let mut layer = SliceLayer::new(0.4);
@@ -4419,7 +4442,7 @@ mod tests {
         use crate::core::ExtrusionRole;
         let params = SlicingParams {
             acceleration: 6000.0, // travel_acceleration left at 0
-            ..SlicingParams::default()
+            ..params_with_no_acceleration()
         };
         let mut layer = SliceLayer::new(0.4);
         let sq1: clipper2::Path = vec![(0.0, 0.0), (10.0, 0.0), (10.0, 10.0), (0.0, 10.0)].into();
@@ -4671,10 +4694,13 @@ mod tests {
         }
 
         // Per-layer marker sum is a subset of the total (which also counts the
-        // start/end script), so it must not exceed it.
+        // start/end script), so it must not exceed it — modulo the `{:.1}`
+        // rounding each marker goes through, which can inflate each by up to
+        // 0.05 s.
         let marker_sum: f64 = marker_times.iter().sum();
+        let rounding_slack = layers.len() as f64 * 0.05 + 1e-6;
         assert!(
-            marker_sum <= stats.estimated_print_time_s + 1e-6,
+            marker_sum <= stats.estimated_print_time_s + rounding_slack,
             "layer sum {marker_sum} must not exceed total {}",
             stats.estimated_print_time_s
         );

@@ -29,14 +29,18 @@ issue/PR numbers or repo links in the notes. See the tone rules in
 
 ### Added
 
-- **Full role coverage for acceleration** — `inner_wall_acceleration`,
+- **Full role coverage for acceleration, on by default** — `inner_wall_acceleration`,
   `sparse_infill_acceleration`, `solid_infill_acceleration`,
   `gap_fill_acceleration` and `support_acceleration` round out the role table
   started by `outer_wall_acceleration`/`bridge_acceleration`, so every printing
   role can carry its own firmware acceleration limit. A new
   `travel_acceleration` lets non-printing hops ramp at their own (usually
   higher) rate, switching back to the printing value before the next
-  extrusion. All default to `0` (previous behaviour).
+  extrusion. Every acceleration setting now ships with a non-zero default
+  tuned for a fast, well-built machine (10000 mm/s² baseline, up to 15000 for
+  travel, down to 1000 for the first layer and bridges) instead of silently
+  deferring to firmware defaults — a slower or untuned printer should dial
+  these down. Set any of them to `0` to fall back to the previous behaviour.
 
 ## [0.4.0] - 2026-08-31
 
