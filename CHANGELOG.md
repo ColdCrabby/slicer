@@ -27,6 +27,17 @@ issue/PR numbers or repo links in the notes. See the tone rules in
 
 ## [Unreleased]
 
+### Added
+
+- **Full role coverage for acceleration** — `inner_wall_acceleration`,
+  `sparse_infill_acceleration`, `solid_infill_acceleration`,
+  `gap_fill_acceleration` and `support_acceleration` round out the role table
+  started by `outer_wall_acceleration`/`bridge_acceleration`, so every printing
+  role can carry its own firmware acceleration limit. A new
+  `travel_acceleration` lets non-printing hops ramp at their own (usually
+  higher) rate, switching back to the printing value before the next
+  extrusion. All default to `0` (previous behaviour).
+
 ## [0.4.0] - 2026-08-31
 
 The biggest release so far — 181 files and about 15,000 new lines — and it pulls

@@ -1160,12 +1160,23 @@ impl GcodeGenerator {
     /// Precedence (first match wins; each falls back to `acceleration`):
     /// 1. **First layer** → `first_layer_acceleration`, applied to every role
     ///    for adhesion.
-    /// 2. **Bridge / overhang** → `bridge_acceleration` (Phase 3 — geometry
-    ///    aware): strands printed into air get a low, steady acceleration.
-    /// 3. **Top surface** → `top_surface_acceleration`.
-    /// 4. **Outer wall** → `outer_wall_acceleration` (Phase 3): the visible
-    ///    perimeter gets a dedicated limit to reduce ringing.
-    /// 5. Everything else → `acceleration`.
+    /// 2. **Bridge / overhang** → `bridge_acceleration`: strands printed into
+    ///    air get a low, steady acceleration.
+    /// 3. **Top surface / ironing** → `top_surface_acceleration`.
+    /// 4. **Outer wall** → `outer_wall_acceleration`: the visible perimeter
+    ///    gets a dedicated limit to reduce ringing.
+    /// 5. **Inner wall** → `inner_wall_acceleration`: hidden perimeters can
+    ///    push harder than the visible outer wall.
+    /// 6. **Sparse infill** → `sparse_infill_acceleration`: usually the
+    ///    highest limit, since it is invisible and interior.
+    /// 7. **Bottom surface / internal solid infill** → `solid_infill_acceleration`.
+    /// 8. **Gap fill** → `gap_fill_acceleration`: short variable-width beads
+    ///    that a lower acceleration keeps clean.
+    /// 9. **Support** → `support_acceleration`: sacrificial material can run fast.
+    /// 10. Everything else → `acceleration`.
+    ///
+    /// Travel (non-printing) moves are not a role and are handled separately by
+    /// [`Self::effective_travel_acceleration`].
     ///
     /// A resolved value of `0` (nothing configured) yields `None`, so no
     /// firmware command is emitted and existing output is unchanged.
@@ -4237,6 +4248,201 @@ mod tests {
         assert!(
             gcode.contains("M204 P6000"),
             "bridge role should fall back to the normal acceleration:\n{gcode}"
+        );
+    }
+
+    // ── Acceleration (full role coverage + travel) ──────────────────────────────
+
+    #[test]
+    fn test_inner_wall_acceleration_applies_to_inner_wall_only() {
+        use crate::core::ExtrusionRole;
+        let params = SlicingParams {
+            acceleration: 6000.0,
+            inner_wall_acceleration: 8000.0,
+            ..SlicingParams::default()
+        };
+        let mut layer = SliceLayer::new(0.4);
+        let sq1: clipper2::Path = vec![(0.0, 0.0), (10.0, 0.0), (10.0, 10.0), (0.0, 10.0)].into();
+        let sq2: clipper2::Path = vec![(1.0, 1.0), (9.0, 1.0), (9.0, 9.0), (1.0, 9.0)].into();
+        layer.paths.push(sq1);
+        layer.path_roles.push(ExtrusionRole::OuterWall);
+        layer.paths.push(sq2);
+        layer.path_roles.push(ExtrusionRole::InnerWall);
+        let gcode = GcodeGenerator::new(GcodeFlavor::Marlin).generate(&[layer], &params);
+        let outer = gcode.find("M204 P6000").expect("outer-wall normal accel");
+        let inner = gcode.find("M204 P8000").expect("inner-wall accel");
+        assert!(
+            outer < inner,
+            "outer-wall normal accel must precede inner-wall accel:\n{gcode}"
+        );
+    }
+
+    #[test]
+    fn test_sparse_infill_acceleration_applies_to_infill() {
+        use crate::core::ExtrusionRole;
+        let params = SlicingParams {
+            acceleration: 6000.0,
+            sparse_infill_acceleration: 10000.0,
+            ..SlicingParams::default()
+        };
+        let layers = [layer_with_role(0.4, ExtrusionRole::Infill)];
+        let gcode = GcodeGenerator::new(GcodeFlavor::Marlin).generate(&layers, &params);
+        assert!(
+            gcode.contains("M204 P10000"),
+            "sparse-infill acceleration not applied:\n{gcode}"
+        );
+    }
+
+    #[test]
+    fn test_solid_infill_acceleration_applies_to_bottom_and_internal_solid() {
+        use crate::core::ExtrusionRole;
+        let params = SlicingParams {
+            acceleration: 6000.0,
+            solid_infill_acceleration: 7000.0,
+            ..SlicingParams::default()
+        };
+        for role in [ExtrusionRole::BottomSurface, ExtrusionRole::InternalSolid] {
+            let layers = [layer_with_role(0.4, role)];
+            let gcode = GcodeGenerator::new(GcodeFlavor::Marlin).generate(&layers, &params);
+            assert!(
+                gcode.contains("M204 P7000"),
+                "solid-infill acceleration not applied to {role:?}:\n{gcode}"
+            );
+        }
+    }
+
+    #[test]
+    fn test_gap_fill_acceleration_applies_to_gap_fill() {
+        use crate::core::ExtrusionRole;
+        let params = SlicingParams {
+            acceleration: 6000.0,
+            gap_fill_acceleration: 2000.0,
+            ..SlicingParams::default()
+        };
+        let layers = [layer_with_role(0.4, ExtrusionRole::GapFill)];
+        let gcode = GcodeGenerator::new(GcodeFlavor::Marlin).generate(&layers, &params);
+        assert!(
+            gcode.contains("M204 P2000"),
+            "gap-fill acceleration not applied:\n{gcode}"
+        );
+    }
+
+    #[test]
+    fn test_support_acceleration_applies_to_support() {
+        use crate::core::ExtrusionRole;
+        let params = SlicingParams {
+            acceleration: 6000.0,
+            support_acceleration: 9000.0,
+            ..SlicingParams::default()
+        };
+        let layers = [layer_with_role(0.4, ExtrusionRole::Support)];
+        let gcode = GcodeGenerator::new(GcodeFlavor::Marlin).generate(&layers, &params);
+        assert!(
+            gcode.contains("M204 P9000"),
+            "support acceleration not applied:\n{gcode}"
+        );
+    }
+
+    #[test]
+    fn test_new_role_accelerations_fall_back_to_normal() {
+        use crate::core::ExtrusionRole;
+        // All role-specific overrides left at 0: every new role should use the
+        // plain `acceleration` value.
+        let params = SlicingParams {
+            acceleration: 6000.0,
+            ..SlicingParams::default()
+        };
+        for role in [
+            ExtrusionRole::InnerWall,
+            ExtrusionRole::Infill,
+            ExtrusionRole::BottomSurface,
+            ExtrusionRole::InternalSolid,
+            ExtrusionRole::GapFill,
+            ExtrusionRole::Support,
+        ] {
+            let layers = [layer_with_role(0.4, role)];
+            let gcode = GcodeGenerator::new(GcodeFlavor::Marlin).generate(&layers, &params);
+            assert!(
+                gcode.contains("M204 P6000"),
+                "{role:?} should fall back to the normal acceleration:\n{gcode}"
+            );
+        }
+    }
+
+    #[test]
+    fn test_travel_acceleration_switches_before_travel_and_restores_after() {
+        use crate::core::ExtrusionRole;
+        let params = SlicingParams {
+            acceleration: 6000.0,
+            travel_acceleration: 9000.0,
+            ..SlicingParams::default()
+        };
+        // Two outer-wall squares far apart so a real travel hop separates them.
+        let mut layer = SliceLayer::new(0.4);
+        let sq1: clipper2::Path = vec![(0.0, 0.0), (10.0, 0.0), (10.0, 10.0), (0.0, 10.0)].into();
+        let sq2: clipper2::Path = vec![
+            (100.0, 100.0),
+            (110.0, 100.0),
+            (110.0, 110.0),
+            (100.0, 110.0),
+        ]
+        .into();
+        layer.paths.push(sq1);
+        layer.path_roles.push(ExtrusionRole::OuterWall);
+        layer.paths.push(sq2);
+        layer.path_roles.push(ExtrusionRole::OuterWall);
+        let gcode = GcodeGenerator::new(GcodeFlavor::Marlin).generate(&[layer], &params);
+        assert_eq!(
+            gcode.matches("M204 P9000 ; travel acceleration").count(),
+            2,
+            "expected one travel-acceleration switch per hop:\n{gcode}"
+        );
+        assert_eq!(
+            gcode.matches("M204 P6000 ; acceleration").count(),
+            2,
+            "expected the printing acceleration restored after each hop:\n{gcode}"
+        );
+        let first_travel = gcode
+            .find("M204 P9000 ; travel acceleration")
+            .expect("travel accel");
+        let first_restore = gcode
+            .find("M204 P6000 ; acceleration")
+            .expect("restored print accel");
+        assert!(
+            first_travel < first_restore,
+            "travel acceleration must be switched in before the printing value is restored:\n{gcode}"
+        );
+    }
+
+    #[test]
+    fn test_travel_acceleration_omitted_when_zero() {
+        use crate::core::ExtrusionRole;
+        let params = SlicingParams {
+            acceleration: 6000.0, // travel_acceleration left at 0
+            ..SlicingParams::default()
+        };
+        let mut layer = SliceLayer::new(0.4);
+        let sq1: clipper2::Path = vec![(0.0, 0.0), (10.0, 0.0), (10.0, 10.0), (0.0, 10.0)].into();
+        let sq2: clipper2::Path = vec![
+            (100.0, 100.0),
+            (110.0, 100.0),
+            (110.0, 110.0),
+            (100.0, 110.0),
+        ]
+        .into();
+        layer.paths.push(sq1);
+        layer.path_roles.push(ExtrusionRole::OuterWall);
+        layer.paths.push(sq2);
+        layer.path_roles.push(ExtrusionRole::OuterWall);
+        let gcode = GcodeGenerator::new(GcodeFlavor::Marlin).generate(&[layer], &params);
+        assert!(
+            !gcode.contains("travel acceleration"),
+            "no travel-acceleration switch should be emitted when disabled:\n{gcode}"
+        );
+        assert_eq!(
+            gcode.matches("M204 P6000").count(),
+            1,
+            "printing acceleration should be emitted once and never redundantly:\n{gcode}"
         );
     }
 
