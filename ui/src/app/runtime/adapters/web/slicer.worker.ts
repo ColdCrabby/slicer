@@ -144,6 +144,12 @@ function addObject(handle: SceneHandle, object: WorkerSliceObject): void {
       scale: object.transform.scale,
     },
   });
+  if (object.supportPaint) {
+    handle.applyOp({
+      op: 'SetSupportPaint',
+      args: { id, encoded: object.supportPaint },
+    });
+  }
 }
 
 function forwardWasmEvent(sliceId: string, event: WasmSliceEvent): void {

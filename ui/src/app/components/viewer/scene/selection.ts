@@ -14,7 +14,7 @@ import {
   Vector3,
   type WebGLRenderer,
 } from 'three';
-import type { ObjectMode } from '../../../services/viewer-control';
+import type { ObjectMode, PaintBrushMode } from '../../../services/viewer-control';
 import { computeSelectionCentroid, type GizmoManager, raycastFace } from '../gizmo';
 import type { SceneGizmoHandlers, SceneSelectionHandlers } from './types';
 
@@ -153,6 +153,13 @@ export class SceneSelection {
   private pendingHighlightEvent: PointerEvent | null = null;
   private highlightRafHandle = 0;
 
+  // Paint-support brush state — set externally via `setPaintBrush`, applied
+  // to every dab. Not read at all outside `'paint'` mode.
+  private paintBrushMode: PaintBrushMode = 'enforcer';
+  private paintBrushRadius = 2;
+  private pendingPaintEvent: PointerEvent | null = null;
+  private paintRafHandle = 0;
+
   constructor(
     private readonly scene: Scene,
     private readonly camera: PerspectiveCamera,
@@ -194,6 +201,11 @@ export class SceneSelection {
   register(id: string, object: Object3D): void {
     object.userData['selectableId'] = id;
     this.selectables.set(id, object);
+  }
+
+  /** The registered `Object3D` for a scene object id, or `null` if unknown. */
+  getSelectableObject(id: string): Object3D | null {
+    return this.selectables.get(id) ?? null;
   }
 
   unregister(id: string): void {
@@ -324,6 +336,15 @@ export class SceneSelection {
     if (mode !== 'pullToFloor') {
       this.hideFaceHighlight();
     }
+    if (mode !== 'paint') {
+      this.cancelPendingPaint();
+    }
+  }
+
+  /** Brush settings applied to every paint dab. See {@link paintBrushMode}. */
+  setPaintBrush(mode: PaintBrushMode, radiusMm: number): void {
+    this.paintBrushMode = mode;
+    this.paintBrushRadius = radiusMm;
   }
 
   dispose(): void {
@@ -335,6 +356,7 @@ export class SceneSelection {
       cancelAnimationFrame(this.highlightRafHandle);
       this.highlightRafHandle = 0;
     }
+    this.cancelPendingPaint();
     this.faceHighlight.geometry.dispose();
     (this.faceHighlight.material as Material).dispose();
     this.scene.remove(this.faceHighlight);
@@ -411,8 +433,15 @@ export class SceneSelection {
       this.updateFaceHighlight(event);
     }
 
-    // Pull-to-floor is a picking mode: a held press there is someone lining up
-    // a face, not asking for a menu.
+    // Support paint: a tap alone must mark the facet under the cursor even
+    // when the pointer never moves, so the first dab happens on contact —
+    // every later sample comes from `onPointerMove`.
+    if (this.currentObjectMode === 'paint') {
+      this.paintDab(event);
+    }
+
+    // Pull-to-floor and paint are picking/painting modes: a held press there
+    // is lining up a face or dragging a stroke, not asking for a menu.
     //
     // No trailing-click guard is needed, unlike the generic `ContextMenuTrigger`
     // directive: a press on a model already cancels its compatibility mouse
@@ -422,7 +451,8 @@ export class SceneSelection {
     if (
       this.selectionHandlers.contextMenu &&
       event.pointerType !== 'mouse' &&
-      this.currentObjectMode !== 'pullToFloor'
+      this.currentObjectMode !== 'pullToFloor' &&
+      this.currentObjectMode !== 'paint'
     ) {
       const press = this.pressState;
       press.longPressTimer = setTimeout(() => {
@@ -468,6 +498,15 @@ export class SceneSelection {
       this.pendingHighlightEvent = event;
       if (this.highlightRafHandle === 0) {
         this.highlightRafHandle = requestAnimationFrame(this.flushFaceHighlight);
+      }
+    }
+    // Paint dabs continuously while the pointer is down, not just on contact —
+    // a stroke is a sequence of dabs along the drag path, throttled to one per
+    // frame so a fast drag cannot outrun the wasm calls it triggers.
+    if (this.currentObjectMode === 'paint' && this.pressState?.pointerId === event.pointerId) {
+      this.pendingPaintEvent = event;
+      if (this.paintRafHandle === 0) {
+        this.paintRafHandle = requestAnimationFrame(this.flushPaint);
       }
     }
     const ps = this.pressState;
@@ -545,6 +584,16 @@ export class SceneSelection {
       return;
     }
 
+    if (this.currentObjectMode === 'paint') {
+      // Every dab already applied its own op; the lift only commits the
+      // stroke as one history entry. Selection is left untouched, same as
+      // pull-to-floor — painting is a manipulation gesture, not a pick.
+      this.cancelPendingPaint();
+      this.gizmoHandlers?.paintEnd();
+      event.preventDefault();
+      return;
+    }
+
     if (hitId === null) {
       if (this.currentSelectedIds.size > 0) {
         this.selectionHandlers?.clearSelection();
@@ -566,6 +615,10 @@ export class SceneSelection {
     }
     if (ps.drag) {
       this.gizmoHandlers?.end();
+    }
+    if (this.currentObjectMode === 'paint') {
+      this.cancelPendingPaint();
+      this.gizmoHandlers?.paintEnd();
     }
     this.endPress();
   };
@@ -854,6 +907,62 @@ export class SceneSelection {
     this.pendingHighlightEvent = null;
     if (ev !== null && this.currentObjectMode === 'pullToFloor') {
       this.updateFaceHighlight(ev);
+    }
+  };
+
+  // -------------------------------------------------------------------------
+  // Support-paint brush
+  // -------------------------------------------------------------------------
+
+  /**
+   * Raycast under `event` and dab the brush at the first hit that lands on a
+   * registered selectable. Unlike {@link raycastFace}, this needs the
+   * world-space hit point (`PaintSupport`'s `center`), not just the facet.
+   */
+  private paintDab(event: PointerEvent): void {
+    if (!this.gizmoHandlers) {
+      return;
+    }
+    const targets = Array.from(this.selectables.values());
+    if (targets.length === 0) {
+      return;
+    }
+    const ndc = this.toNdc(event, this.ndcScratch);
+    this.raycaster.setFromCamera(ndc, this.camera);
+    const hits = this.raycaster.intersectObjects(targets, true);
+    for (const hit of hits) {
+      if (hit.faceIndex === undefined || hit.faceIndex === null) {
+        continue;
+      }
+      const objectId = this.findSelectableId(hit.object);
+      if (objectId === null) {
+        continue;
+      }
+      this.gizmoHandlers.paintDab(
+        objectId,
+        hit.faceIndex,
+        [hit.point.x, hit.point.y, hit.point.z],
+        this.paintBrushRadius,
+        this.paintBrushMode,
+      );
+      return;
+    }
+  }
+
+  private cancelPendingPaint(): void {
+    if (this.paintRafHandle !== 0) {
+      cancelAnimationFrame(this.paintRafHandle);
+      this.paintRafHandle = 0;
+    }
+    this.pendingPaintEvent = null;
+  }
+
+  private flushPaint = (): void => {
+    this.paintRafHandle = 0;
+    const ev = this.pendingPaintEvent;
+    this.pendingPaintEvent = null;
+    if (ev !== null && this.currentObjectMode === 'paint') {
+      this.paintDab(ev);
     }
   };
 

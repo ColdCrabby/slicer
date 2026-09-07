@@ -156,6 +156,7 @@ export class CloudRuntime implements RuntimePort {
         world_aabb: object.world_aabb,
         source_id: object.source_id,
         source_part: object.source_part,
+        support_paint: object.support_paint,
       })),
     };
   }
@@ -368,6 +369,7 @@ export class CloudRuntime implements RuntimePort {
       world_aabb: object.world_aabb,
       source_id: object.source_id,
       source_part: object.source_part,
+      support_paint: object.support_paint,
     }));
   }
 

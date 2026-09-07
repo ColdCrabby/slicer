@@ -133,6 +133,13 @@ export class KeyboardShortcuts {
       handleAction: () => this.viewerControl.objectMode.set('pullToFloor'),
     },
     {
+      actionId: 'object-mode-paint',
+      shortcut: 'b',
+      displayDescription: 'Switch to paint-support mode',
+      canMatch: () => !this.isTextInputFocused(),
+      handleAction: () => this.viewerControl.objectMode.set('paint'),
+    },
+    {
       actionId: 'toggle-gravity',
       shortcut: 'g',
       displayDescription: 'Toggle gravity',

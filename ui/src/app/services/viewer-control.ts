@@ -36,10 +36,14 @@ export type ViewerView = 'perspective' | 'ortho';
 /**
  * Object-manipulation mode. Drives the on-canvas gizmo for the current
  * selection. `'none'` is the default — no gizmo is shown, clicks select.
- * `'pullToFloor'` is a transient face-pick mode that auto-exits to
- * `'none'` after a single face has been picked.
+ * `'pullToFloor'` and `'paint'` are sticky face/surface-picking modes: the
+ * user can pick or paint repeatedly across different objects without
+ * re-entering the mode each time.
  */
-export type ObjectMode = 'none' | 'translate' | 'rotate' | 'scale' | 'pullToFloor';
+export type ObjectMode = 'none' | 'translate' | 'rotate' | 'scale' | 'pullToFloor' | 'paint';
+
+/** What a paint-support brush stroke marks the facets underneath it as. */
+export type PaintBrushMode = 'enforcer' | 'blocker' | 'erase';
 
 /**
  * Which camera action a bare two-finger trackpad swipe performs on macOS.
@@ -231,6 +235,19 @@ export class ViewerControl {
    * user picks a camera mode and an object mode separately.
    */
   readonly objectMode = signal<ObjectMode>('translate');
+
+  /**
+   * Support-paint brush mode: whether a stroke marks facets as an enforcer
+   * (force support), a blocker (never support), or erases existing paint.
+   * Only meaningful while {@link objectMode} is `'paint'`.
+   */
+  readonly paintBrushMode = signal<PaintBrushMode>('enforcer');
+
+  /**
+   * Support-paint brush radius in millimetres. Applies in the object's local
+   * frame — see `SceneOp.PaintSupport`.
+   */
+  readonly paintBrushRadius = signal<number>(2);
 
   /**
    * WASM scene-engine ids of the currently selected objects, published by

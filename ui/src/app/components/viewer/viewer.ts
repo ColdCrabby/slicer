@@ -24,7 +24,7 @@ import { PrintArea } from '../../services/print-area';
 import { ActiveSelection } from '../../services/profiles/active-selection';
 import { SceneCommand } from '../../services/scene-command/scene-command';
 import { SceneEngine } from '../../services/scene-engine';
-import type { SceneOp } from '../../services/scene-engine';
+import type { SceneOp, SupportPaintState } from '../../services/scene-engine';
 import { ViewerControl } from '../../services/viewer-control';
 import { Viewport } from '../../services/viewport';
 import { WorkplateObjects } from '../../services/workplate-objects';
@@ -32,6 +32,7 @@ import {
   pixelRatioCapFor,
   resolveAntialias,
   type Antialiasing,
+  type PaintBrushMode,
   type SliceThumbnailCapture,
   type SliceThumbnailRequest,
   type ThumbnailColorMode,
@@ -367,6 +368,30 @@ export class Viewer {
     effect(() => {
       const mode = this.viewerControl.objectMode();
       this.scene?.setObjectMode(mode);
+    });
+
+    // React to paint-brush settings changing from the paint panel.
+    effect(() => {
+      const mode = this.viewerControl.paintBrushMode();
+      const radius = this.viewerControl.paintBrushRadius();
+      this.scene?.setPaintBrush(mode, radius);
+    });
+
+    // Show and rebuild painted-facet overlays only while the paint tool is
+    // active — `objects()` also re-fires on every unrelated op (a plain
+    // drag), so gating the (cheap but pointless) buffer refetch behind the
+    // mode keeps an idle plate from paying for it.
+    effect(() => {
+      const objects = this.sceneEngine.objects();
+      const paintMode = this.viewerControl.objectMode() === 'paint';
+      this.scene?.setPaintOverlayVisible(paintMode);
+      if (!paintMode) {
+        return;
+      }
+      for (const object of objects) {
+        const buffer = this.sceneEngine.getPaintBuffer(object.id);
+        this.scene?.refreshPaintOverlay(String(object.id), buffer);
+      }
     });
 
     // React to the trackpad two-finger gesture preference (Shapr3D-style).
@@ -972,6 +997,38 @@ export class Viewer {
     this.sceneCommand.flush();
   }
 
+  /**
+   * Support paint: mark the facets under the brush as an enforcer, a
+   * blocker, or erase existing paint there. One op per dab — the whole
+   * stroke (however many dabs) commits as a single history entry when
+   * `handlePaintEnd` flushes on pointer-up.
+   */
+  private handlePaintDab(
+    stringId: string,
+    seedFace: number,
+    worldPoint: [number, number, number],
+    radius: number,
+    mode: PaintBrushMode,
+  ): void {
+    const id = parseWasmId(stringId);
+    if (id === null) {
+      return;
+    }
+    // Erasing is `PaintSupport` with `state: 'none'` — a localised brush
+    // erase, distinct from `SetSupportPaint { encoded: null }`'s whole-object
+    // clear (used elsewhere for the panel's "clear all paint" action).
+    const state: SupportPaintState = mode === 'erase' ? 'none' : mode;
+    this.sceneCommand.apply({
+      op: 'PaintSupport',
+      args: { id, seed_face: seedFace, center: worldPoint, radius, state },
+    });
+  }
+
+  /** Flush the in-progress paint stroke so it commits as one history entry. */
+  private handlePaintEnd(): void {
+    this.sceneCommand.flush();
+  }
+
   statusLabel(): string {
     switch (this.status()) {
       case 'loading':
@@ -1065,10 +1122,17 @@ export class Viewer {
       delta: (ids, delta) => this.handleGizmoDelta(ids, delta),
       end: () => this.handleGizmoEnd(),
       facePicked: (objectId, faceIndex) => this.handleFacePicked(objectId, faceIndex),
+      paintDab: (objectId, seedFace, worldPoint, radius, mode) =>
+        this.handlePaintDab(objectId, seedFace, worldPoint, radius, mode),
+      paintEnd: () => this.handlePaintEnd(),
     };
     // Apply the current toolbar selections so the scene starts in sync with
     // whatever view / object mode the user already had selected.
     this.scene.setObjectMode(this.viewerControl.objectMode());
+    this.scene.setPaintBrush(
+      this.viewerControl.paintBrushMode(),
+      this.viewerControl.paintBrushRadius(),
+    );
     this.scene.setAdditiveSelection(this.viewerControl.additiveSelection());
     // Dragging a model straight across the bed is the touch answer to the
     // gizmo's mouse-sized arrows, so it is offered exactly where those are hard

@@ -42,6 +42,7 @@ interface NativeSceneSnapshot {
     scale: [number, number, number];
     source_part: number;
     file_path?: string;
+    support_paint?: string;
   }[];
 }
 
@@ -173,6 +174,7 @@ export class TauriRuntime implements RuntimePort {
         world_aabb: object.world_aabb,
         source_id: object.source_id,
         source_part: object.source_part,
+        support_paint: object.support_paint,
       })),
     };
   }
@@ -390,6 +392,7 @@ export class TauriRuntime implements RuntimePort {
         // Left unset only for an object that names no file at all, which the
         // Rust side answers with the request-level path.
         file_path: object.source_id ? pathBySource.get(object.source_id) : undefined,
+        support_paint: object.support_paint ?? undefined,
       })),
     };
   }

@@ -571,6 +571,7 @@ impl SceneHandle {
                     object.name.clone(),
                     crate::scene::apply_transform(object.mesh.as_ref(), &object.transform),
                 )
+                .with_paint(object.paint.clone())
             })
             .collect();
 

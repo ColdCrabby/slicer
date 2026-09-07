@@ -983,6 +983,7 @@ export class Slicer {
         // first upload — slicing one model N times instead of N models.
         source_id: object.source_id,
         source_part: object.source_part,
+        support_paint: object.support_paint,
       })),
     };
   }
