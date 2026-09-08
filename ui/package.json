@@ -36,7 +36,7 @@
     "@types/three": "^0.185.0",
     "fuse.js": "^7.5.0",
     "iconoir": "^7.12.1",
-    "marked": "^17.0.6",
+    "marked": "^18.0.11",
     "monaco-editor": "^0.56.0",
     "ngx-markdown": "^22.0.0",
     "rxjs": "~7.8.0",
