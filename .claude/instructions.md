@@ -44,6 +44,20 @@ wasm-pack build --target web        # WebAssembly build
 - **[DEVELOPMENT.md](../DEVELOPMENT.md)** — Development workflow and common tasks
 - **Module READMEs** — Each `src/*/` directory has a README for detailed context
 
+### Task-Specific Instructions
+These live in `.github/instructions/` (shared with Copilot and any other agent —
+not Claude-specific) and cover a narrower scope than AGENTS.md. Read the one
+that matches your task instead of re-deriving the same rule from scratch:
+
+| File | Applies to | Covers |
+| --- | --- | --- |
+| [`no-issue-numbers.instructions.md`](../.github/instructions/no-issue-numbers.instructions.md) | Any prose a person reads | No `#123` references in commits, comments, docs, or UI copy unless asked |
+| [`no-blocking-waits.instructions.md`](../.github/instructions/no-blocking-waits.instructions.md) | Any task that might wait on CI/PR status | Never `--watch`/sleep-poll a remote job; keep working, offload, or hand the wait back |
+| [`slicing-visual-verification.instructions.md`](../.github/instructions/slicing-visual-verification.instructions.md) | `src/core/`, `src/walls/`, `src/infill/`, `src/adhesion/`, `src/gcode/`, `tools/gcode-analysis/` | Attach a before/after bead-geometry picture to the PR when sliced output changes |
+| [`ui-design-language.instructions.md`](../.github/instructions/ui-design-language.instructions.md) | `ui/src/` | The Nexus Slicer design language — tokens, native-feel rules, styling gotchas |
+| [`angular-component-structure.instructions.md`](../.github/instructions/angular-component-structure.instructions.md) | `ui/src/app/` | When to split components, container vs. presentational |
+| [`ui-style-no-build.instructions.md`](../.github/instructions/ui-style-no-build.instructions.md) | UI/style/minor-polish tasks | Skip build verification; rely on the dev server instead |
+
 ### Core Modules
 | Module | Purpose |
 | --- | --- |
@@ -126,7 +140,7 @@ cargo test -- --nocapture             # Show println! output
 - Keep comments short — one line when possible
 - Add a comment only if removing it would confuse a reader
 - Never document what the function name already says
-- See [`.github/instructions/no-issue-numbers.instructions.md`](../.github/instructions/no-issue-numbers.instructions.md) — no issue/PR numbers in prose unless asked
+- No issue/PR numbers — see [Task-Specific Instructions](#task-specific-instructions) above
 
 ### Doc Comments (on public APIs)
 - One-line summary (fits in sidebar)
