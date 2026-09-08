@@ -505,7 +505,7 @@ impl PrintSequence {
     }
 }
 
-/// Bed mesh leveling directive emitted at print start (issue #13).
+/// Bed mesh leveling directive emitted at print start.
 ///
 /// Off by default: most printers already handle leveling inside a firmware
 /// macro or a one-time manual calibration, and a slicer-driven mesh command

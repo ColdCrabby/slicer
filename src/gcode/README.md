@@ -130,7 +130,7 @@ Doing any of that afterwards would lower the nozzle into the part just finished.
 
 ---
 
-## Bed mesh leveling (issue #13)
+## Bed mesh leveling
 
 `bed_mesh_mode` is `off` by default: most printers already level inside their
 own start macro or a one-time manual calibration, and a slicer directive on top

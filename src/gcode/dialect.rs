@@ -357,7 +357,7 @@ pub trait GcodeDialect: Send + Sync {
         ]
     }
 
-    // ── Bed mesh leveling (issue #13) ────────────────────────────────────────
+    // ── Bed mesh leveling ─────────────────────────────────────────────────────
 
     /// Emit the bed mesh leveling directive for the given [`BedMeshMode`].
     ///

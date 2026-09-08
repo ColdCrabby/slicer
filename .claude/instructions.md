@@ -126,6 +126,14 @@ cargo test -- --nocapture             # Show println! output
 - Keep comments short — one line when possible
 - Add a comment only if removing it would confuse a reader
 - Never document what the function name already says
+- **Never reference issue, ticket, or ADR numbers** in code — comments, doc
+  comments, section headers, log/error strings, variable or function names
+  (`issue #13`, `JIRA-456`, etc.). Trackers get renumbered, migrated, or made
+  private, and a stale reference misleads more than it helps; `git blame` and
+  the PR that introduced the change are the durable link back to the
+  discussion. Describe the constraint or rationale itself instead of citing
+  where it came from. This doesn't apply to a PR description's own `Closes
+  #123` line — that belongs there, not in the diff.
 
 ### Doc Comments (on public APIs)
 - One-line summary (fits in sidebar)
