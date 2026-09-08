@@ -126,6 +126,11 @@ cargo test -- --nocapture             # Show println! output
 - Keep comments short — one line when possible
 - Add a comment only if removing it would confuse a reader
 - Never document what the function name already says
+- **No issue/PR/ticket numbers** (`#220`, `JIRA-123`, …) in code, comments, or
+  commit message bodies — GitHub already links a commit to its PR, and a
+  ticket number in source rots the moment the issue is renumbered or closed.
+  Describe the constraint or behavior itself instead of citing the ticket
+  that prompted it.
 
 ### Doc Comments (on public APIs)
 - One-line summary (fits in sidebar)

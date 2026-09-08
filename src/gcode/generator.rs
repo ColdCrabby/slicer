@@ -1050,8 +1050,8 @@ impl GcodeGenerator {
     /// 3. Role-specific speed (perimeter, infill, bridge, top/bottom surface)
     /// 4. General `print_speed` fallback when a role-specific speed is ≤ 0
     ///
-    /// `speed_scale` applies the minimum-layer-time slowdown (issue #220): a
-    /// value below `1.0` scales every non-first-layer feedrate uniformly so
+    /// `speed_scale` applies the minimum-layer-time slowdown: a value below
+    /// `1.0` scales every non-first-layer feedrate uniformly so
     /// the layer takes longer to print. The first layer is exempt (adhesion
     /// speed is already deliberate), so `speed_scale` is ignored there.
     fn effective_speed_mm_min(
@@ -1941,7 +1941,7 @@ impl GcodeGenerator {
                 }
             }
 
-            // ── Minimum layer time (slow-down for cooling, #220) ─────────────
+            // ── Minimum layer time (slow-down for cooling) ────────────────────
             // Cheap pre-move estimate — the accurate acceleration-aware
             // estimator only sees the layer after its G-code is emitted, so
             // (like the adaptive fan curve below) the slowdown has to work
@@ -2922,7 +2922,7 @@ impl GcodeGenerator {
                 }
             }
 
-            // ── Minimum layer time dwell (#220) ───────────────────────────────
+            // ── Minimum layer time dwell ───────────────────────────────────────
             // Feedrates are already clamped at `min_print_speed`; whatever
             // shortfall remains against `min_layer_time_s` is made up here
             // with a pause rather than slowing extrusion further.
@@ -6586,7 +6586,7 @@ CHAMBER={chamber_temp} MATERIAL={filament_type}"
         );
     }
 
-    // ── Minimum layer time (#220) ───────────────────────────────────────────
+    // ── Minimum layer time ───────────────────────────────────────────────────
 
     #[test]
     fn test_min_layer_time_disabled_by_default() {
