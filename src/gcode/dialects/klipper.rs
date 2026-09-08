@@ -2,7 +2,7 @@
 
 use crate::gcode::stats::{self, SliceStatistics};
 use crate::gcode::GcodeDialect;
-use crate::settings::params::SlicingParams;
+use crate::settings::params::{BedMeshMode, SlicingParams};
 
 /// Klipper firmware G-code dialect.
 ///
@@ -213,6 +213,37 @@ impl GcodeDialect for KlipperDialect {
              UNRETRACT_EXTRA_LENGTH={:.3} UNRETRACT_SPEED={:.1} ; firmware retraction",
             retract_mm, speed_mm_s, restart_extra_mm, speed_mm_s
         )]
+    }
+
+    /// Klipper's native mesh module: `BED_MESH_CALIBRATE` probes and activates
+    /// a fresh mesh, `BED_MESH_PROFILE LOAD=<name>` restores a mesh saved
+    /// earlier via `SAVE_CONFIG` — no `M420` equivalent needed, both commands
+    /// activate the mesh as part of running them.
+    ///
+    /// An adaptive `area` is passed as `AREA_MIN=x,y AREA_MAX=x,y`, which
+    /// `[bed_mesh]` uses to skip probe points outside the print's footprint —
+    /// only honoured when the printer config sets `mesh_min`/`mesh_max` wide
+    /// enough to contain it.
+    fn bed_mesh_lines(
+        &self,
+        mode: BedMeshMode,
+        profile_name: Option<&str>,
+        area: Option<(f64, f64, f64, f64)>,
+    ) -> Vec<String> {
+        match mode {
+            BedMeshMode::Off => Vec::new(),
+            BedMeshMode::LoadProfile => {
+                let name = profile_name.unwrap_or("default");
+                vec![format!("BED_MESH_PROFILE LOAD={}", name)]
+            }
+            BedMeshMode::Calibrate => match area {
+                Some((min_x, min_y, max_x, max_y)) => vec![format!(
+                    "BED_MESH_CALIBRATE AREA_MIN={:.1},{:.1} AREA_MAX={:.1},{:.1}",
+                    min_x, min_y, max_x, max_y
+                )],
+                None => vec!["BED_MESH_CALIBRATE".to_string()],
+            },
+        }
     }
 
     /// Klipper's `[exclude_object]` module is name-based, not index-based, and
