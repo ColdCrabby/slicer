@@ -635,6 +635,15 @@ export class GcodePreview {
   readonly layerCount = computed(() => this.gcodeHandle()?.layerCount() ?? 0);
 
   /**
+   * 0-based indices of every layer carrying a pause/color-change/custom
+   * trigger, resolved from the parsed G-code's `;TRIGGER`
+   * markers rather than re-deriving `at_z` → layer mapping on the frontend.
+   */
+  readonly triggerLayers = computed<readonly number[]>(() =>
+    Array.from(this.gcodeHandle()?.triggerLayers() ?? []),
+  );
+
+  /**
    * Upper bound of the visible layer range (0-based index).
    * The single moving thumb on the vertical layer scrollbar.
    */

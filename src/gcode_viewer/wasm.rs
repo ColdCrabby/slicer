@@ -16,6 +16,7 @@ pub struct GcodeLayerBuffer {
     layer_time_s: f32,
     fan_keys: Vec<String>,
     fan_speeds: Vec<f32>,
+    triggered: bool,
 }
 
 #[wasm_bindgen]
@@ -76,6 +77,12 @@ impl GcodeLayerBuffer {
     pub fn fan_speed(&self, i: usize) -> f32 {
         self.fan_speeds.get(i).copied().unwrap_or(0.0)
     }
+
+    /// `true` if a pause/color-change/custom trigger fired on this layer.
+    #[wasm_bindgen(getter)]
+    pub fn triggered(&self) -> bool {
+        self.triggered
+    }
 }
 
 fn into_float32_array(data: &[f32]) -> Float32Array {
@@ -104,6 +111,7 @@ fn layer_to_buffer(layer: &InternalLayer) -> GcodeLayerBuffer {
         layer_time_s: layer.meta.layer_time_s.unwrap_or(0.0),
         fan_keys,
         fan_speeds,
+        triggered: layer.meta.triggered,
     }
 }
 
@@ -145,6 +153,18 @@ impl GcodeHandle {
     #[wasm_bindgen(js_name = layerZ)]
     pub fn layer_z(&self, index: usize) -> f32 {
         self.layers.get(index).map(|l| l.z).unwrap_or(0.0)
+    }
+
+    /// Indices of every layer carrying a pause/color-change/custom trigger,
+    /// in ascending order.
+    #[wasm_bindgen(js_name = triggerLayers)]
+    pub fn trigger_layers(&self) -> Vec<usize> {
+        self.layers
+            .iter()
+            .enumerate()
+            .filter(|(_, l)| l.meta.triggered)
+            .map(|(i, _)| i)
+            .collect()
     }
 
     /// Geometry buffers for the layer at `index`.

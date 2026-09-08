@@ -4,10 +4,12 @@ use std::borrow::Cow;
 
 use crate::core::SliceLayer;
 use crate::gcode::dialect::{GcodeDialect, WarnFn};
-use crate::gcode::dialects::{KlipperDialect, MarlinDialect};
+use crate::gcode::dialects::{KlipperDialect, MarlinDialect, RepRapDialect};
 use crate::gcode::flavor::GcodeFlavor;
 use crate::gcode::stats::SliceStatistics;
-use crate::settings::params::{fan_index, BedMeshMode, LifecycleMarkerConfig, SlicingParams};
+use crate::settings::params::{
+    fan_index, BedMeshMode, LifecycleMarkerConfig, SlicingParams, TriggerAction, TriggerPosition,
+};
 
 // ── Private helpers ────────────────────────────────────────────────────────────
 
@@ -641,6 +643,7 @@ impl GcodeGenerator {
         let dialect: Box<dyn GcodeDialect> = match flavor {
             GcodeFlavor::Marlin => Box::new(MarlinDialect),
             GcodeFlavor::Klipper => Box::new(KlipperDialect),
+            GcodeFlavor::RepRap => Box::new(RepRapDialect),
         };
         Self {
             dialect,
@@ -2016,6 +2019,48 @@ impl GcodeGenerator {
                 }
             }
 
+            // ── Pause / color-change triggers ──────────────────────────────────
+            // Fired right after the layer-change block, before any of this
+            // layer's geometry is emitted: the nozzle has just risen to the
+            // new Z but has not yet extruded, which is the safe place to stop.
+            let layer_num_1based = (layer_index + 1) as u32;
+            for trigger in &params.triggers {
+                let fires = match &trigger.position {
+                    TriggerPosition::AtLayer { layer: at_layer } => *at_layer == layer_num_1based,
+                    // Fire once, on the first layer whose Z reaches/crosses the
+                    // threshold (PrusaSlicer's "pause at height" semantics).
+                    TriggerPosition::AtZ { z } => {
+                        layer.z >= *z && (layer_index == 0 || layers[layer_index - 1].z < *z)
+                    }
+                };
+                if !fires {
+                    continue;
+                }
+                out.push_str(";TRIGGER\n");
+                match &trigger.action {
+                    TriggerAction::Pause => {
+                        for line in self.dialect.pause_gcode() {
+                            out.push_str(&line);
+                            out.push('\n');
+                        }
+                    }
+                    TriggerAction::ColorChange => {
+                        for line in self.dialect.color_change_gcode() {
+                            out.push_str(&line);
+                            out.push('\n');
+                        }
+                    }
+                    TriggerAction::Custom { gcode } => {
+                        for line in gcode.lines() {
+                            let rendered = render_marker(line, &model_z_str, &height_str, "", "")
+                                .replace("{layer_num}", &layer_num_1based.to_string());
+                            out.push_str(&render_script_placeholders(&rendered, params));
+                            out.push('\n');
+                        }
+                    }
+                }
+            }
+
             // ── Minimum layer time (slow-down for cooling) ────────────────────
             // Cheap pre-move estimate — the accurate acceleration-aware
             // estimator only sees the layer after its G-code is emitted, so
@@ -3264,6 +3309,7 @@ fn normalize_thumbnail_base64(raw: Option<&str>) -> Option<String> {
 mod tests {
     use super::*;
     use crate::core::SliceLayer;
+    use crate::settings::params::PauseTrigger;
 
     #[test]
     fn test_generate_gcode_empty_layers_contains_header() {
@@ -3977,6 +4023,191 @@ mod tests {
         );
     }
 
+    // ── Pause / color-change triggers ────────────────────────────────────────────
+
+    fn three_layers() -> Vec<SliceLayer> {
+        vec![
+            SliceLayer::new(0.2),
+            SliceLayer::new(0.4),
+            SliceLayer::new(0.6),
+        ]
+    }
+
+    fn trigger(position: TriggerPosition, action: TriggerAction) -> PauseTrigger {
+        PauseTrigger { position, action }
+    }
+
+    #[test]
+    fn empty_triggers_produce_identical_output() {
+        let layers = three_layers();
+        let with_empty = SlicingParams::default();
+        assert_eq!(
+            generate_gcode_from_params(&layers, &with_empty),
+            generate_gcode(&layers, &SlicingParams::default()),
+            "an empty (default) trigger list must not change output"
+        );
+    }
+
+    #[test]
+    fn at_layer_pause_fires_on_marlin_after_layer_change() {
+        let mut params = SlicingParams::default();
+        params.triggers = vec![trigger(
+            TriggerPosition::AtLayer { layer: 2 },
+            TriggerAction::Pause,
+        )];
+        let gcode = generate_gcode_from_params(&three_layers(), &params);
+        assert!(
+            gcode.contains(";TRIGGER"),
+            "missing trigger marker:\n{gcode}"
+        );
+        let trigger_idx = gcode.find(";TRIGGER").unwrap();
+        let m0_idx = gcode.find("M0 ; pause").expect("M0 missing");
+        assert!(m0_idx > trigger_idx, "M0 must follow the ;TRIGGER marker");
+        // Must be after layer 2's Z move (0.4mm) and before layer 3's (0.6mm).
+        let z2 = gcode.find("Z0.400").expect("layer 2 Z move missing");
+        let z3 = gcode.find("Z0.600").expect("layer 3 Z move missing");
+        assert!(
+            z2 < m0_idx && m0_idx < z3,
+            "pause must fire between layer 2 and layer 3's Z moves:\n{gcode}"
+        );
+    }
+
+    #[test]
+    fn at_layer_color_change_per_flavor() {
+        let mut params = SlicingParams::default();
+        params.triggers = vec![trigger(
+            TriggerPosition::AtLayer { layer: 1 },
+            TriggerAction::ColorChange,
+        )];
+
+        params.gcode_flavor = GcodeFlavor::Marlin;
+        let marlin = generate_gcode_from_params(&three_layers(), &params);
+        assert!(
+            marlin.contains("M600"),
+            "Marlin color change missing M600:\n{marlin}"
+        );
+
+        params.gcode_flavor = GcodeFlavor::Klipper;
+        let klipper = generate_gcode_from_params(&three_layers(), &params);
+        assert!(
+            klipper.contains("M600"),
+            "Klipper color change must call the M600 macro:\n{klipper}"
+        );
+
+        params.gcode_flavor = GcodeFlavor::RepRap;
+        let reprap = generate_gcode_from_params(&three_layers(), &params);
+        assert!(
+            reprap.contains("M226"),
+            "RepRap color change missing M226:\n{reprap}"
+        );
+    }
+
+    #[test]
+    fn at_layer_pause_per_flavor() {
+        let mut params = SlicingParams::default();
+        params.triggers = vec![trigger(
+            TriggerPosition::AtLayer { layer: 1 },
+            TriggerAction::Pause,
+        )];
+
+        params.gcode_flavor = GcodeFlavor::Marlin;
+        assert!(generate_gcode_from_params(&three_layers(), &params).contains("M0"));
+
+        params.gcode_flavor = GcodeFlavor::RepRap;
+        assert!(generate_gcode_from_params(&three_layers(), &params).contains("M0"));
+
+        params.gcode_flavor = GcodeFlavor::Klipper;
+        assert!(generate_gcode_from_params(&three_layers(), &params).contains("PAUSE"));
+    }
+
+    #[test]
+    fn custom_trigger_renders_placeholders() {
+        let mut params = SlicingParams::default();
+        params.triggers = vec![trigger(
+            TriggerPosition::AtLayer { layer: 2 },
+            TriggerAction::Custom {
+                gcode: "; at layer {layer_num}, z={z}".to_string(),
+            },
+        )];
+        let gcode = generate_gcode_from_params(&three_layers(), &params);
+        assert!(
+            gcode.contains("; at layer 2, z=0.400"),
+            "custom trigger placeholders not rendered:\n{gcode}"
+        );
+    }
+
+    #[test]
+    fn at_z_fires_on_first_layer_crossing_threshold() {
+        let mut params = SlicingParams::default();
+        // Between layer 1 (z=0.2) and layer 2 (z=0.4): must fire on layer 2.
+        params.triggers = vec![trigger(
+            TriggerPosition::AtZ { z: 0.3 },
+            TriggerAction::Pause,
+        )];
+        let gcode = generate_gcode_from_params(&three_layers(), &params);
+        let m0_idx = gcode.find("M0 ; pause").expect("pause missing");
+        let z2 = gcode.find("Z0.400").expect("layer 2 Z move missing");
+        let z3 = gcode.find("Z0.600").expect("layer 3 Z move missing");
+        assert!(
+            z2 < m0_idx && m0_idx < z3,
+            "at_z trigger must fire on the first layer reaching the threshold:\n{gcode}"
+        );
+        assert_eq!(
+            gcode.matches("M0 ; pause").count(),
+            1,
+            "at_z trigger must fire exactly once"
+        );
+    }
+
+    #[test]
+    fn at_z_exact_match_fires_once() {
+        let mut params = SlicingParams::default();
+        params.triggers = vec![trigger(
+            TriggerPosition::AtZ { z: 0.4 },
+            TriggerAction::Pause,
+        )];
+        let gcode = generate_gcode_from_params(&three_layers(), &params);
+        assert_eq!(gcode.matches("M0 ; pause").count(), 1);
+    }
+
+    #[test]
+    fn at_z_below_first_layer_fires_on_first_layer() {
+        let mut params = SlicingParams::default();
+        params.triggers = vec![trigger(
+            TriggerPosition::AtZ { z: 0.0 },
+            TriggerAction::Pause,
+        )];
+        let gcode = generate_gcode_from_params(&three_layers(), &params);
+        assert_eq!(gcode.matches("M0 ; pause").count(), 1);
+    }
+
+    #[test]
+    fn at_z_above_last_layer_never_fires() {
+        let mut params = SlicingParams::default();
+        params.triggers = vec![trigger(
+            TriggerPosition::AtZ { z: 10.0 },
+            TriggerAction::Pause,
+        )];
+        let gcode = generate_gcode_from_params(&three_layers(), &params);
+        assert_eq!(gcode.matches("M0 ; pause").count(), 0);
+    }
+
+    #[test]
+    fn multiple_triggers_on_same_layer_all_emitted() {
+        let mut params = SlicingParams::default();
+        params.triggers = vec![
+            trigger(TriggerPosition::AtLayer { layer: 1 }, TriggerAction::Pause),
+            trigger(
+                TriggerPosition::AtLayer { layer: 1 },
+                TriggerAction::ColorChange,
+            ),
+        ];
+        let gcode = generate_gcode_from_params(&three_layers(), &params);
+        assert!(gcode.contains("M0 ; pause"));
+        assert!(gcode.contains("M600"));
+        assert_eq!(gcode.matches(";TRIGGER").count(), 2);
+    }
+
     // ── Flavor enum ────────────────────────────────────────────────────────────
 
     #[test]
@@ -3997,14 +4228,22 @@ mod tests {
             "KLIPPER".parse::<GcodeFlavor>().unwrap(),
             GcodeFlavor::Klipper
         );
+        assert_eq!(
+            "reprap".parse::<GcodeFlavor>().unwrap(),
+            GcodeFlavor::RepRap
+        );
+        assert_eq!(
+            "RepRap".parse::<GcodeFlavor>().unwrap(),
+            GcodeFlavor::RepRap
+        );
     }
 
     #[test]
     fn test_gcode_flavor_from_str_invalid() {
-        let err = "reprap".parse::<GcodeFlavor>().unwrap_err();
-        assert!(err.contains("reprap"), "error should mention the bad value");
+        let err = "bogus".parse::<GcodeFlavor>().unwrap_err();
+        assert!(err.contains("bogus"), "error should mention the bad value");
         assert!(
-            err.contains("marlin") && err.contains("klipper"),
+            err.contains("marlin") && err.contains("klipper") && err.contains("reprap"),
             "error should list supported flavors"
         );
     }
@@ -4013,6 +4252,7 @@ mod tests {
     fn test_gcode_flavor_display() {
         assert_eq!(GcodeFlavor::Marlin.to_string(), "marlin");
         assert_eq!(GcodeFlavor::Klipper.to_string(), "klipper");
+        assert_eq!(GcodeFlavor::RepRap.to_string(), "reprap");
     }
 
     #[test]

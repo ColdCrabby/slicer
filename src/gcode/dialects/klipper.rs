@@ -290,4 +290,17 @@ impl GcodeDialect for KlipperDialect {
     fn object_end(&self, object: &crate::core::ObjectIdentity) -> String {
         format!("EXCLUDE_OBJECT_END NAME={}", object.name)
     }
+
+    /// Klipper pauses via its `PAUSE` command, which most configs wire up to
+    /// `[pause_resume]` and a `PAUSE`/`RESUME`/`CANCEL_PRINT` macro set.
+    fn pause_gcode(&self) -> Vec<String> {
+        vec![self.call_macro("PAUSE")]
+    }
+
+    /// Klipper has no built-in filament-change command; instead this calls
+    /// the user's `M600` macro (the OrcaSlicer/Klipper convention for a
+    /// color-change stop, typically wired to the same pause/resume plumbing).
+    fn color_change_gcode(&self) -> Vec<String> {
+        vec![self.call_macro("M600")]
+    }
 }

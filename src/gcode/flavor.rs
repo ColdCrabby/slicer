@@ -8,8 +8,7 @@ use serde::{Deserialize, Serialize};
 /// Supported G-code firmware flavors.
 ///
 /// Each variant selects the concrete [`crate::gcode::GcodeDialect`] used by
-/// [`crate::gcode::GcodeGenerator`].  Only **Marlin** and **Klipper** are
-/// first-class citizens; additional flavors will be added in future releases.
+/// [`crate::gcode::GcodeGenerator`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "lowercase")]
 pub enum GcodeFlavor {
@@ -20,6 +19,10 @@ pub enum GcodeFlavor {
     /// Klipper firmware: supports `SET_VELOCITY_LIMIT`, `SET_PRESSURE_ADVANCE`, and custom macros.
     #[serde(alias = "Klipper")]
     Klipper,
+    /// RepRapFirmware: Marlin-compatible M-command baseline with a few RRF-specific commands
+    /// (e.g. `M226` for pause-on-this-line).
+    #[serde(alias = "RepRap")]
+    RepRap,
 }
 
 impl FromStr for GcodeFlavor {
@@ -29,8 +32,9 @@ impl FromStr for GcodeFlavor {
         match s.to_lowercase().as_str() {
             "marlin" => Ok(Self::Marlin),
             "klipper" => Ok(Self::Klipper),
+            "reprap" => Ok(Self::RepRap),
             _ => Err(format!(
-                "Unknown G-code flavor '{}'. Supported: marlin, klipper",
+                "Unknown G-code flavor '{}'. Supported: marlin, klipper, reprap",
                 s
             )),
         }
@@ -42,6 +46,7 @@ impl std::fmt::Display for GcodeFlavor {
         match self {
             Self::Marlin => write!(f, "marlin"),
             Self::Klipper => write!(f, "klipper"),
+            Self::RepRap => write!(f, "reprap"),
         }
     }
 }

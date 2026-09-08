@@ -91,6 +91,28 @@
   transition: height 40ms linear;
 }
 
+// Pause / color-change trigger marker — sits on top of the
+// track, offset to the side so it never blocks dragging the native input.
+.trigger-marker {
+  position: absolute;
+  left: -3px;
+  width: 10px;
+  height: 10px;
+  margin-bottom: -5px; // centre on its layer position
+  padding: 0;
+  border: 2px solid var(--color-surface);
+  border-radius: 50%;
+  background: var(--color-danger);
+  box-shadow: var(--shadow-sm);
+  cursor: pointer;
+  pointer-events: auto;
+  z-index: 2;
+
+  &:hover {
+    transform: scale(1.2);
+  }
+}
+
 .layer-input {
   writing-mode: vertical-lr;
   direction: rtl; // min at bottom, max at top
@@ -136,6 +158,39 @@
     border: 2px solid var(--accent);
     box-shadow: var(--shadow-sm);
     cursor: pointer;
+  }
+}
+
+// ── Pause / color-change trigger controls ───────────────────────────────────────
+
+.trigger-controls {
+  display: flex;
+  flex-shrink: 0;
+  gap: 4px;
+}
+
+.trigger-btn {
+  display: inline-grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: 1px solid var(--color-border-light);
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-sm);
+  line-height: 1;
+  cursor: pointer;
+
+  &:hover {
+    background: var(--color-surface-hover);
+    color: var(--color-text-primary);
+  }
+
+  &.remove {
+    color: var(--color-danger);
+    border-color: color-mix(in oklab, var(--color-danger) 35%, var(--color-border-light));
   }
 }
 
