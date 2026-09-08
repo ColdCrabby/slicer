@@ -2,7 +2,7 @@ import { Injectable, inject } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { fromEvent } from 'rxjs';
 import { filter, map } from 'rxjs/operators';
-import { matchKeyBindingPress, parseKeybinding } from 'tinykeys';
+import { matchKeybindingPress, parseKeybinding } from 'tinykeys';
 import { Arrange } from '../arrange';
 import { GcodePreview } from '../gcode-preview';
 import { SceneEngine } from '../scene-engine';
@@ -234,7 +234,7 @@ export class KeyboardShortcuts {
     return (
       this.shortcuts.find(
         (s) =>
-          s._parsed.every((press) => matchKeyBindingPress(event, press)) &&
+          s._parsed.every((press) => matchKeybindingPress(event, press)) &&
           (s.canMatch?.() ?? true),
       ) ?? null
     );

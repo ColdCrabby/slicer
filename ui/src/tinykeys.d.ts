@@ -16,5 +16,5 @@ declare module 'tinykeys' {
    * Returns `true` when a `KeyboardEvent` matches a single `KeyBindingPress`
    * step (i.e. one element from a `parseKeybinding` result).
    */
-  function matchKeyBindingPress(event: KeyboardEvent, press: KeyBindingPress): boolean;
+  function matchKeybindingPress(event: KeyboardEvent, press: KeyBindingPress): boolean;
 }
