@@ -36,6 +36,12 @@ issue/PR numbers or repo links in the notes. See the tone rules in
   8 mm/s to stay below the new bridge speed.
 ### Added
 
+- **Bed mesh leveling directives.** A new `bed_mesh_mode` setting emits
+  `BED_MESH_CALIBRATE`/`BED_MESH_PROFILE LOAD` (Klipper) or `G29`/`M420 S1`
+  (Marlin/RepRap) at print start — off by default, so existing output is
+  unchanged. `bed_mesh_adaptive` bounds recalibration to the print's own
+  footprint instead of the whole bed, and a custom start script that already
+  handles leveling takes priority over the slicer's own directive.
 - **Minimum layer time (slow-down for cooling)** — `min_layer_time_s` scales a
   short layer's feedrates down so it takes at least that long to print,
   giving thin walls and small details time to cool before the next layer

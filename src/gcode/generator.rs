@@ -7,7 +7,7 @@ use crate::gcode::dialect::{GcodeDialect, WarnFn};
 use crate::gcode::dialects::{KlipperDialect, MarlinDialect};
 use crate::gcode::flavor::GcodeFlavor;
 use crate::gcode::stats::SliceStatistics;
-use crate::settings::params::{fan_index, LifecycleMarkerConfig, SlicingParams};
+use crate::settings::params::{fan_index, BedMeshMode, LifecycleMarkerConfig, SlicingParams};
 
 // ── Private helpers ────────────────────────────────────────────────────────────
 
@@ -528,6 +528,51 @@ fn start_script_handles_chamber(script: &[String]) -> bool {
             .iter()
             .any(|token| upper.contains(token))
     })
+}
+
+/// Tokens that mean a custom start script already handles bed mesh leveling.
+///
+/// A `START_PRINT` macro (or hand-written Marlin start script) that already
+/// probes/loads a mesh owns the whole job; emitting our own directive on top
+/// would probe twice or fight over which mesh ends up active.
+const CUSTOM_BED_MESH_TOKENS: &[&str] = &["BED_MESH_CALIBRATE", "BED_MESH_PROFILE", "G29", "M420"];
+
+/// Whether a custom start script already takes care of bed mesh leveling.
+fn start_script_handles_bed_mesh(script: &[String]) -> bool {
+    script.iter().any(|line| {
+        let upper = line.to_uppercase();
+        CUSTOM_BED_MESH_TOKENS
+            .iter()
+            .any(|token| upper.contains(token))
+    })
+}
+
+/// Axis-aligned XY footprint `(min_x, min_y, max_x, max_y)` covering every
+/// extrusion point across every layer, or `None` for an empty slice.
+///
+/// Used to bound an adaptive bed mesh recalibration to the print's own
+/// footprint instead of probing the whole bed.
+fn xy_footprint(layers: &[SliceLayer]) -> Option<(f64, f64, f64, f64)> {
+    let mut min_x = f64::INFINITY;
+    let mut min_y = f64::INFINITY;
+    let mut max_x = f64::NEG_INFINITY;
+    let mut max_y = f64::NEG_INFINITY;
+    for layer in layers {
+        for path in layer.paths.iter() {
+            for pt in path.iter() {
+                let (x, y) = (pt.x(), pt.y());
+                min_x = min_x.min(x);
+                min_y = min_y.min(y);
+                max_x = max_x.max(x);
+                max_y = max_y.max(y);
+            }
+        }
+    }
+    if min_x.is_finite() {
+        Some((min_x, min_y, max_x, max_y))
+    } else {
+        None
+    }
 }
 
 // ── GcodeGenerator ─────────────────────────────────────────────────────────────
@@ -1566,6 +1611,36 @@ impl GcodeGenerator {
         for line in start_script.iter() {
             out.push_str(&render_script_placeholders(line, params));
             out.push('\n');
+        }
+
+        // ── Bed mesh leveling (opt-in; off by default) ─────────────────────────
+        // Emitted right after the start script so homing (part of the start
+        // script, custom or default) has already run — probing an unhomed axis
+        // either faults or reads garbage. A start script that already probes or
+        // loads a mesh itself owns the job; emitting our own on top would either
+        // probe twice or clobber the mesh it just loaded.
+        let bed_mesh_delegated = params.bed_mesh_mode != BedMeshMode::Off
+            && start_script_handles_bed_mesh(&start_script);
+        if bed_mesh_delegated {
+            out.push_str(&self.dialect.comment(
+                "bed mesh leveling handled by the custom start G-code; \
+                 slicer bed mesh directive suppressed",
+            ));
+            out.push('\n');
+        } else if params.bed_mesh_mode != BedMeshMode::Off {
+            let area = if params.bed_mesh_adaptive {
+                xy_footprint(layers)
+            } else {
+                None
+            };
+            for line in self.dialect.bed_mesh_lines(
+                params.bed_mesh_mode,
+                params.bed_mesh_profile_name.as_deref(),
+                area,
+            ) {
+                out.push_str(&line);
+                out.push('\n');
+            }
         }
 
         // The generator tracks a running extruder position `e_total` and, by
@@ -5476,6 +5551,155 @@ CHAMBER={chamber_temp} MATERIAL={filament_type}"
             gcode.contains("SOAK=60 HOLD=45 ORCA=60"),
             "chamber first-layer placeholders not substituted: {gcode}"
         );
+    }
+
+    #[test]
+    fn test_bed_mesh_off_by_default_emits_nothing() {
+        let gcode =
+            GcodeGenerator::new(GcodeFlavor::Marlin).generate(&[], &SlicingParams::default());
+        assert!(
+            !gcode.contains("G29") && !gcode.contains("M420") && !gcode.contains("BED_MESH"),
+            "bed mesh directives must be off by default: {gcode}"
+        );
+    }
+
+    #[test]
+    fn test_bed_mesh_calibrate_marlin() {
+        let params = SlicingParams {
+            bed_mesh_mode: BedMeshMode::Calibrate,
+            ..SlicingParams::default()
+        };
+        let gcode = GcodeGenerator::new(GcodeFlavor::Marlin).generate(&[], &params);
+        assert!(gcode.contains("G29 ; probe bed mesh"), "{gcode}");
+        assert!(
+            gcode.contains("M420 S1 ; enable bed leveling"),
+            "calibrate must also enable the mesh: {gcode}"
+        );
+    }
+
+    #[test]
+    fn test_bed_mesh_load_profile_marlin() {
+        let params = SlicingParams {
+            bed_mesh_mode: BedMeshMode::LoadProfile,
+            ..SlicingParams::default()
+        };
+        let gcode = GcodeGenerator::new(GcodeFlavor::Marlin).generate(&[], &params);
+        assert!(gcode.contains("M420 S1 ; load saved bed mesh"), "{gcode}");
+        assert!(
+            !gcode.contains("G29"),
+            "load_profile must not re-probe: {gcode}"
+        );
+    }
+
+    #[test]
+    fn test_bed_mesh_calibrate_klipper() {
+        let params = SlicingParams {
+            bed_mesh_mode: BedMeshMode::Calibrate,
+            ..SlicingParams::default()
+        };
+        let gcode = GcodeGenerator::new(GcodeFlavor::Klipper).generate(&[], &params);
+        assert!(gcode.contains("BED_MESH_CALIBRATE"), "{gcode}");
+        assert!(
+            !gcode.contains("AREA_MIN"),
+            "no footprint means no bounds: {gcode}"
+        );
+    }
+
+    #[test]
+    fn test_bed_mesh_load_profile_klipper_named() {
+        let params = SlicingParams {
+            bed_mesh_mode: BedMeshMode::LoadProfile,
+            bed_mesh_profile_name: Some("garage_printer".to_string()),
+            ..SlicingParams::default()
+        };
+        let gcode = GcodeGenerator::new(GcodeFlavor::Klipper).generate(&[], &params);
+        assert!(
+            gcode.contains("BED_MESH_PROFILE LOAD=garage_printer"),
+            "{gcode}"
+        );
+    }
+
+    #[test]
+    fn test_bed_mesh_adaptive_bounds_to_print_footprint_klipper() {
+        let params = SlicingParams {
+            bed_mesh_mode: BedMeshMode::Calibrate,
+            bed_mesh_adaptive: true,
+            ..SlicingParams::default()
+        };
+        let gcode =
+            GcodeGenerator::new(GcodeFlavor::Klipper).generate(&[one_square_layer()], &params);
+        assert!(
+            gcode.contains("BED_MESH_CALIBRATE AREA_MIN=0.0,0.0 AREA_MAX=10.0,10.0"),
+            "adaptive mesh must bound to the print's own footprint: {gcode}"
+        );
+    }
+
+    #[test]
+    fn test_bed_mesh_adaptive_bounds_to_print_footprint_marlin() {
+        let params = SlicingParams {
+            bed_mesh_mode: BedMeshMode::Calibrate,
+            bed_mesh_adaptive: true,
+            ..SlicingParams::default()
+        };
+        let gcode =
+            GcodeGenerator::new(GcodeFlavor::Marlin).generate(&[one_square_layer()], &params);
+        assert!(
+            gcode.contains("G29 L0.0 R10.0 F0.0 B10.0"),
+            "adaptive mesh must bound to the print's own footprint: {gcode}"
+        );
+    }
+
+    #[test]
+    fn test_bed_mesh_not_adaptive_ignores_footprint() {
+        let params = SlicingParams {
+            bed_mesh_mode: BedMeshMode::Calibrate,
+            bed_mesh_adaptive: false,
+            ..SlicingParams::default()
+        };
+        let gcode =
+            GcodeGenerator::new(GcodeFlavor::Klipper).generate(&[one_square_layer()], &params);
+        assert!(
+            gcode.contains("BED_MESH_CALIBRATE") && !gcode.contains("AREA_MIN"),
+            "adaptive is opt-in: {gcode}"
+        );
+    }
+
+    #[test]
+    fn test_custom_start_script_owns_bed_mesh() {
+        let params = SlicingParams {
+            bed_mesh_mode: BedMeshMode::Calibrate,
+            ..SlicingParams::default()
+        };
+        let gen = GcodeGenerator::new(GcodeFlavor::Klipper).with_start_script(vec![
+            "START_PRINT".to_string(),
+            "BED_MESH_CALIBRATE".to_string(),
+        ]);
+        let gcode = gen.generate(&[], &params);
+        assert_eq!(
+            gcode.matches("BED_MESH_CALIBRATE").count(),
+            1,
+            "a custom script that already calibrates the mesh must not get a second directive: {gcode}"
+        );
+        assert!(
+            gcode.contains("bed mesh leveling handled by the custom start G-code"),
+            "expected a suppression comment: {gcode}"
+        );
+    }
+
+    #[test]
+    fn test_bed_mesh_emitted_after_homing_start_script() {
+        let params = SlicingParams {
+            bed_mesh_mode: BedMeshMode::Calibrate,
+            ..SlicingParams::default()
+        };
+        let gen = GcodeGenerator::new(GcodeFlavor::Marlin)
+            .with_start_script(vec!["G28 ; home all axes".to_string()]);
+        let gcode = gen.generate(&[], &params);
+        let home = gcode.find("G28 ; home all axes").expect("start script");
+        let probe = gcode
+            .find("G29 ; probe bed mesh")
+            .expect("bed mesh directive");
+        assert!(home < probe, "bed mesh must probe after homing: {gcode}");
     }
 
     #[test]

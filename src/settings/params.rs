@@ -505,6 +505,28 @@ impl PrintSequence {
     }
 }
 
+/// Bed mesh leveling directive emitted at print start.
+///
+/// Off by default: most printers already handle leveling inside a firmware
+/// macro or a one-time manual calibration, and a slicer-driven mesh command
+/// on top of that would either duplicate the work or race it. Turning this on
+/// hands the mesh step to the slicer instead, so it survives across different
+/// custom start scripts without being hand-copied into each one.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum BedMeshMode {
+    /// Emit no bed mesh directive; leveling is left entirely to the printer's
+    /// own start macro/config.
+    #[default]
+    Off,
+    /// Load a previously calibrated mesh profile (Klipper
+    /// `BED_MESH_PROFILE LOAD=<name>`, Marlin/RepRap `M420 S1`).
+    LoadProfile,
+    /// Recalibrate the mesh before printing (Klipper `BED_MESH_CALIBRATE`,
+    /// Marlin/RepRap `G29`), then load it.
+    Calibrate,
+}
+
 /// Camera angle used when the UI renders the embedded G-code thumbnail.
 ///
 /// The thumbnail is produced from a fixed, repeatable viewpoint (not the
@@ -2376,6 +2398,32 @@ more effectively than ironing along them.",
     )]
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub between_objects_gcode: Option<String>,
+
+    #[schemars(
+        description = "Bed mesh leveling directive emitted at print start: off (leave it to the \
+                       printer's own start macro/config), load a previously saved mesh profile, \
+                       or recalibrate before every print.",
+        extend("x-group" = "Hardware")
+    )]
+    #[serde(default)]
+    pub bed_mesh_mode: BedMeshMode,
+
+    #[schemars(
+        description = "Named mesh profile to load, e.g. Klipper's `SAVE_CONFIG`-persisted profile \
+                       name. `null` = the printer's default/active profile.",
+        extend("x-group" = "Hardware", "x-relevant-when" = serde_json::json!({"field": "bed_mesh_mode", "equals": "load_profile"}))
+    )]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub bed_mesh_profile_name: Option<String>,
+
+    #[schemars(
+        description = "Bound the recalibration area to the print's XY footprint instead of the \
+                       full bed, where the firmware supports it (Klipper `BED_MESH_CALIBRATE \
+                       AREA_MIN=.. AREA_MAX=..`). Skips probing points the print never covers.",
+        extend("x-group" = "Hardware", "x-relevant-when" = serde_json::json!({"field": "bed_mesh_mode", "equals": "calibrate"}))
+    )]
+    #[serde(default)]
+    pub bed_mesh_adaptive: bool,
 }
 
 /// Schema helper: emit the full [`SlicingParams`] schema for a
@@ -2559,6 +2607,9 @@ impl Default for SlicingParams {
             extruder_clearance_height_mm: Self::default_extruder_clearance_height(),
             extruder_clearance_radius_mm: Self::default_extruder_clearance_radius(),
             between_objects_gcode: None,
+            bed_mesh_mode: BedMeshMode::default(),
+            bed_mesh_profile_name: None,
+            bed_mesh_adaptive: false,
         }
     }
 }
