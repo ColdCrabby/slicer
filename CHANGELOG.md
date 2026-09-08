@@ -22,7 +22,7 @@ the one number worth quoting) — deep rationale lives in AGENTS.md and the modu
 READMEs, not here. Break a long category into `#### Theme` groups so it stays
 scannable, keep the bold **Feature name** lead on every bullet, and never put
 issue/PR numbers or repo links in the notes. See the tone rules in
-.github/skills/release/SKILL.md for the full voice.
+.claude/skills/release/SKILL.md for the full voice.
 -->
 
 ## [Unreleased]

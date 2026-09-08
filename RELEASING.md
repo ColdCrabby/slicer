@@ -44,7 +44,7 @@ OS and cannot hold that much content, the prompt links to the settings section
 instead.
 
 We maintain it with a **hybrid** workflow: a script drafts the notes from git
-history, then a human (or the [`release` skill](.github/skills/release/SKILL.md))
+history, then a human (or the [`release` skill](.claude/skills/release/SKILL.md))
 curates them into enthusiastic, contributor-aware notes before tagging.
 
 ## Cutting a release — the easy way
@@ -190,7 +190,7 @@ This requires a paid Apple Developer account. Until those are set, the ad-hoc +
 
 ## See also
 
-- [`release` skill](.github/skills/release/SKILL.md) — automates this process locally.
+- [`release` skill](.claude/skills/release/SKILL.md) — automates this process locally.
 - [CHANGELOG.md](CHANGELOG.md) — the notes themselves.
 - [`build.rs`](build.rs) — version derivation from git.
 - [`src/version.rs`](src/version.rs) — the version/changelog API.

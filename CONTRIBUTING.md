@@ -67,7 +67,7 @@ before/after images to the PR. A plausible explanation is not evidence; the QA
 gate has caught changes that looked obviously correct and destroyed real infill.
 
 Not sure what to check? Ask the agent "what should I test?" — the
-[`test-changes` skill](.github/skills/test-changes/SKILL.md) answers with a
+[`test-changes` skill](.claude/skills/test-changes/SKILL.md) answers with a
 checklist for the platform you name.
 
 ## Pitfalls that bite everyone once
