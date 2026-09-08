@@ -406,4 +406,31 @@ pub trait GcodeDialect: Send + Sync {
     fn object_end(&self, _object: &crate::core::ObjectIdentity) -> String {
         "M486 S-1".to_string()
     }
+
+    // ── Pause / color-change triggers (issue #113) ────────────────────────────
+    //
+    // Two commands let a [`crate::settings::params::PauseTrigger`] interrupt
+    // the print at a chosen layer boundary.  The defaults implement the
+    // Marlin/RepRap-standard `M0`/`M600`; Klipper overrides them with its
+    // `PAUSE` command and `M600`-style macro call.
+
+    /// Emit the firmware command(s) for a manual pause.
+    ///
+    /// The default targets Marlin/RepRap (`M0`); Klipper overrides this with
+    /// its `PAUSE` command (handled by the `PAUSE`/`RESUME`/`CANCEL_PRINT`
+    /// macro set most Klipper configs define).
+    fn pause_gcode(&self) -> Vec<String> {
+        vec!["M0 ; pause".to_string()]
+    }
+
+    /// Emit the firmware command(s) for a filament/color change.
+    ///
+    /// The default targets Marlin (`M600`, also understood by most Marlin
+    /// forks and by Prusa firmware); RepRap overrides this with `M226`
+    /// (RRF's generic pause-on-this-line command, commonly bound to a
+    /// filament-change macro); Klipper overrides this by invoking the
+    /// user's `M600` macro.
+    fn color_change_gcode(&self) -> Vec<String> {
+        vec!["M600 ; color change".to_string()]
+    }
 }

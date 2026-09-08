@@ -559,6 +559,56 @@ pub enum ThumbnailColorMode {
     Custom,
 }
 
+/// A mid-print interruption: a manual pause, a filament/color change, or
+/// arbitrary custom G-code, fired at a chosen layer or Z height.
+///
+/// See [`crate::gcode::GcodeDialect::pause_gcode`] and
+/// [`crate::gcode::GcodeDialect::color_change_gcode`] for the firmware
+/// commands emitted per [`GcodeFlavor`](crate::gcode::GcodeFlavor).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+pub struct PauseTrigger {
+    /// Where the trigger fires.
+    #[serde(flatten)]
+    pub position: TriggerPosition,
+    /// What happens when it fires.
+    pub action: TriggerAction,
+}
+
+/// Where a [`PauseTrigger`] fires.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[serde(tag = "position_type", rename_all = "snake_case")]
+pub enum TriggerPosition {
+    /// Fire immediately after the layer-change block for this 1-based layer
+    /// number (matches the `{layer_num}` placeholder semantics used
+    /// elsewhere in G-code generation).
+    AtLayer {
+        /// 1-based layer number.
+        layer: u32,
+    },
+    /// Fire once, on the first layer whose model Z is at or above this
+    /// value (mirrors "pause at height" semantics from other slicers).
+    AtZ {
+        /// Model Z height in mm.
+        z: f64,
+    },
+}
+
+/// What a [`PauseTrigger`] does when it fires.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[serde(tag = "type", rename_all = "snake_case")]
+pub enum TriggerAction {
+    /// Pause the print for manual intervention.
+    Pause,
+    /// Perform a filament/color change.
+    ColorChange,
+    /// Emit arbitrary custom G-code, supporting the same `{z}`/`{layer_num}`/
+    /// `{height}` placeholders as `custom_layer_script`.
+    Custom {
+        /// Raw G-code, one or more lines.
+        gcode: String,
+    },
+}
+
 /// Parameters that control how a model is sliced and printed.
 ///
 /// All dimensional values are in millimeters; speeds in mm/s;
@@ -1602,6 +1652,18 @@ Reduces the number of G-code points without visibly affecting print quality.
     pub gcode_flavor: GcodeFlavor,
 
     #[schemars(
+        description = "Pause / color-change / custom G-code triggers, fired at exact layer boundaries or Z heights.
+
+Each trigger fires once, immediately after the layer-change block for the
+layer it targets (see `at_layer`/`at_z`), before that layer's geometry is
+emitted. The firmware command emitted for `pause`/`color_change` depends on
+`gcode_flavor` (Marlin: `M0`/`M600`; Klipper: `PAUSE`/macro; RepRap: `M226`).",
+        extend("x-group" = "Output")
+    )]
+    #[serde(default = "SlicingParams::default_triggers")]
+    pub triggers: Vec<PauseTrigger>,
+
+    #[schemars(
         description = "Fan configurations for layer-time-based adaptive cooling.
 
 Each entry describes one physical fan in the printer. For multi-fan printers
@@ -2450,6 +2512,7 @@ impl Default for SlicingParams {
             min_infill_extrusion_mm: Self::default_min_infill_extrusion_mm(),
             path_tolerance: Self::default_path_tolerance(),
             gcode_flavor: Self::default_gcode_flavor(),
+            triggers: Self::default_triggers(),
             fan_configs: Self::default_fan_configs(),
             mesh_quality: Self::default_mesh_quality(),
             first_layer_height: Self::default_first_layer_height(),
@@ -3283,6 +3346,10 @@ impl SlicingParams {
         GcodeFlavor::Marlin
     }
 
+    fn default_triggers() -> Vec<PauseTrigger> {
+        Vec::new()
+    }
+
     fn default_fan_configs() -> Vec<FanConfig> {
         vec![FanConfig::default_part_cooling()]
     }
@@ -3541,6 +3608,23 @@ mod tests {
         assert!(
             !with_png.cache_fingerprint().contains("SHOULD_NOT_APPEAR"),
             "cache fingerprint must not embed the thumbnail image payload"
+        );
+    }
+
+    #[test]
+    fn test_cache_fingerprint_tracks_triggers() {
+        let base = SlicingParams::default();
+        let with_trigger = SlicingParams {
+            triggers: vec![PauseTrigger {
+                position: TriggerPosition::AtLayer { layer: 5 },
+                action: TriggerAction::Pause,
+            }],
+            ..SlicingParams::default()
+        };
+        assert_ne!(
+            base.cache_fingerprint(),
+            with_trigger.cache_fingerprint(),
+            "triggers change the emitted g-code and must be part of the cache fingerprint"
         );
     }
 

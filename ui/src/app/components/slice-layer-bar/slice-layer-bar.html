@@ -10,6 +10,16 @@
     <div class="slider-wrap" (wheel)="onWheel($event)">
       <div class="track-bg">
         <div class="track-fill" [style.height.%]="fillPercent()"></div>
+        @for (marker of triggerMarkers(); track marker.layerIndex) {
+          <button
+            type="button"
+            class="trigger-marker"
+            [style.bottom.%]="marker.percent"
+            [title]="'Trigger on layer ' + (marker.layerIndex + 1) + ' — click to select'"
+            (pointerdown)="$event.stopPropagation()"
+            (click)="selectTriggerLayer(marker.layerIndex)"
+          ></button>
+        }
       </div>
       <input
         type="range"
@@ -20,6 +30,37 @@
         (input)="onInput($event)"
         orient="vertical"
       />
+    </div>
+
+    <!-- ── Pause / color-change triggers (issue #113) ── -->
+    <div class="trigger-controls">
+      @if (currentLayerHasTrigger()) {
+        <button
+          type="button"
+          class="trigger-btn remove"
+          title="Remove trigger on this layer"
+          (click)="removeCurrentTrigger()"
+        >
+          −
+        </button>
+      } @else {
+        <button
+          type="button"
+          class="trigger-btn"
+          title="Add pause at this layer"
+          (click)="addTrigger('pause')"
+        >
+          ⏸
+        </button>
+        <button
+          type="button"
+          class="trigger-btn"
+          title="Add color change at this layer"
+          (click)="addTrigger('color_change')"
+        >
+          ⛃
+        </button>
+      }
     </div>
 
     <!-- ── Show-all vs current-only toggle ── -->
