@@ -18,15 +18,15 @@
   },
   "private": true,
   "dependencies": {
-    "@angular/animations": "^22.1.4",
-    "@angular/aria": "^22.1.4",
-    "@angular/cdk": "^22.1.4",
-    "@angular/common": "^22.1.4",
-    "@angular/compiler": "^22.1.4",
-    "@angular/core": "^22.1.4",
-    "@angular/forms": "^22.1.4",
-    "@angular/platform-browser": "^22.1.4",
-    "@angular/router": "^22.1.4",
+    "@angular/animations": "^22.1.5",
+    "@angular/aria": "^22.1.5",
+    "@angular/cdk": "^22.1.5",
+    "@angular/common": "^22.1.5",
+    "@angular/compiler": "^22.1.5",
+    "@angular/core": "^22.1.5",
+    "@angular/forms": "^22.1.5",
+    "@angular/platform-browser": "^22.1.5",
+    "@angular/router": "^22.1.5",
     "@floating-ui/core": "^1.8.0",
     "@floating-ui/dom": "^1.8.0",
     "@floating-ui/utils": "^0.2.12",
@@ -45,15 +45,15 @@
     "tslib": "^2.3.0"
   },
   "devDependencies": {
-    "@angular/build": "^22.1.6",
-    "@angular/cli": "^22.1.6",
-    "@angular/compiler-cli": "^22.1.4",
+    "@angular/build": "^22.1.7",
+    "@angular/cli": "^22.1.7",
+    "@angular/compiler-cli": "^22.1.5",
     "@hey-api/openapi-ts": "^0.99.0",
     "jsdom": "^30.0.1",
     "json-schema-to-typescript": "^15.0.4",
     "prettier": "^3.9.6",
     "typescript": "~6.0.3",
     "vitest": "^4.1.11",
-    "zone.js": "~0.16.2"
+    "zone.js": "~0.16.3"
   }
 }
