@@ -30,12 +30,19 @@ wasm-pack build --target web        # WebAssembly build
 
 ## Codebase Overview
 
-### Architecture
-Consult these key documents:
-- **AGENTS.md** — Deep architectural knowledge, pipeline invariants, fill rules, module contracts
-- **ARCHITECTURE.md** — High-level design, component relationships
-- **DEVELOPMENT.md** — Development workflow, common tasks
-- **Module READMEs** — Each `src/*/` directory has a README explaining its role
+### Primary Reference
+**Read [`AGENTS.md`](../AGENTS.md) first** — it's the authoritative source for:
+- Slicing pipeline orchestration and invariants
+- Clipper2 fill rules and polygon winding requirements
+- Module contracts and responsibilities
+- Deep architectural knowledge
+- Algorithm references and design decisions
+- Known issues and edge cases
+
+### Supporting Documents
+- **[ARCHITECTURE.md](../ARCHITECTURE.md)** — High-level design and component relationships
+- **[DEVELOPMENT.md](../DEVELOPMENT.md)** — Development workflow and common tasks
+- **Module READMEs** — Each `src/*/` directory has a README for detailed context
 
 ### Core Modules
 | Module | Purpose |

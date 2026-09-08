@@ -1,5 +1,10 @@
 {
   "instructions": ".claude/instructions.md",
+  "references": [
+    "AGENTS.md",
+    "ARCHITECTURE.md",
+    "DEVELOPMENT.md"
+  ],
   "permissions": {
     "allow": [
       "Bash(git checkout *)",
