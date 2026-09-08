@@ -91,7 +91,7 @@
   transition: height 40ms linear;
 }
 
-// Pause / color-change trigger marker (issue #113) — sits on top of the
+// Pause / color-change trigger marker — sits on top of the
 // track, offset to the side so it never blocks dragging the native input.
 .trigger-marker {
   position: absolute;
@@ -161,7 +161,7 @@
   }
 }
 
-// ── Pause / color-change trigger controls (issue #113) ─────────────────────────
+// ── Pause / color-change trigger controls ───────────────────────────────────────
 
 .trigger-controls {
   display: flex;

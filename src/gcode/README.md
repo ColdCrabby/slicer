@@ -130,6 +130,35 @@ Doing any of that afterwards would lower the nozzle into the part just finished.
 
 ---
 
+## Bed mesh leveling
+
+`bed_mesh_mode` is `off` by default: most printers already level inside their
+own start macro or a one-time manual calibration, and a slicer directive on top
+of that would either duplicate the work or race it. Turning it on hands the
+mesh step to the slicer instead, so it survives across different custom start
+scripts without being copied into each one by hand.
+
+| Mode           | Marlin / RepRapFirmware (default)          | Klipper                                  |
+| -------------- | ------------------------------------------- | ----------------------------------------- |
+| `off`          | (nothing emitted)                          | (nothing emitted)                        |
+| `load_profile` | `M420 S1`                                  | `BED_MESH_PROFILE LOAD=<name>`           |
+| `calibrate`    | `G29` (bounded by `L`/`R`/`F`/`B` when adaptive), then `M420 S1` | `BED_MESH_CALIBRATE` (bounded by `AREA_MIN`/`AREA_MAX` when adaptive) |
+
+`bed_mesh_adaptive` bounds `calibrate` to the print's own XY footprint —
+computed once from every extrusion point across every layer — instead of
+probing the whole bed, on firmware that honours the bounds. `load_profile`
+always restores the named (or default) saved mesh regardless of footprint;
+there is nothing to bound.
+
+The directive is emitted right after the start script (custom or the dialect
+default), so homing has already run — probing an unhomed axis either faults or
+reads garbage. **A start script that already probes or loads a mesh owns the
+job**: if it contains `G29`, `M420`, `BED_MESH_CALIBRATE` or
+`BED_MESH_PROFILE`, the generator emits a note and suppresses its own directive
+rather than probing twice or fighting over which mesh ends up active.
+
+---
+
 ## Extrusion math
 
 For each XY segment of length _L_ the required filament advance is:

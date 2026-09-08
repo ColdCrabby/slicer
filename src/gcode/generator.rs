@@ -8,7 +8,7 @@ use crate::gcode::dialects::{KlipperDialect, MarlinDialect, RepRapDialect};
 use crate::gcode::flavor::GcodeFlavor;
 use crate::gcode::stats::SliceStatistics;
 use crate::settings::params::{
-    fan_index, LifecycleMarkerConfig, SlicingParams, TriggerAction, TriggerPosition,
+    fan_index, BedMeshMode, LifecycleMarkerConfig, SlicingParams, TriggerAction, TriggerPosition,
 };
 
 // ── Private helpers ────────────────────────────────────────────────────────────
@@ -532,6 +532,51 @@ fn start_script_handles_chamber(script: &[String]) -> bool {
     })
 }
 
+/// Tokens that mean a custom start script already handles bed mesh leveling.
+///
+/// A `START_PRINT` macro (or hand-written Marlin start script) that already
+/// probes/loads a mesh owns the whole job; emitting our own directive on top
+/// would probe twice or fight over which mesh ends up active.
+const CUSTOM_BED_MESH_TOKENS: &[&str] = &["BED_MESH_CALIBRATE", "BED_MESH_PROFILE", "G29", "M420"];
+
+/// Whether a custom start script already takes care of bed mesh leveling.
+fn start_script_handles_bed_mesh(script: &[String]) -> bool {
+    script.iter().any(|line| {
+        let upper = line.to_uppercase();
+        CUSTOM_BED_MESH_TOKENS
+            .iter()
+            .any(|token| upper.contains(token))
+    })
+}
+
+/// Axis-aligned XY footprint `(min_x, min_y, max_x, max_y)` covering every
+/// extrusion point across every layer, or `None` for an empty slice.
+///
+/// Used to bound an adaptive bed mesh recalibration to the print's own
+/// footprint instead of probing the whole bed.
+fn xy_footprint(layers: &[SliceLayer]) -> Option<(f64, f64, f64, f64)> {
+    let mut min_x = f64::INFINITY;
+    let mut min_y = f64::INFINITY;
+    let mut max_x = f64::NEG_INFINITY;
+    let mut max_y = f64::NEG_INFINITY;
+    for layer in layers {
+        for path in layer.paths.iter() {
+            for pt in path.iter() {
+                let (x, y) = (pt.x(), pt.y());
+                min_x = min_x.min(x);
+                min_y = min_y.min(y);
+                max_x = max_x.max(x);
+                max_y = max_y.max(y);
+            }
+        }
+    }
+    if min_x.is_finite() {
+        Some((min_x, min_y, max_x, max_y))
+    } else {
+        None
+    }
+}
+
 // ── GcodeGenerator ─────────────────────────────────────────────────────────────
 
 /// High-level G-code generator that delegates all firmware-specific command
@@ -1052,11 +1097,17 @@ impl GcodeGenerator {
     ///    normal speed when that degree is left at `0`.
     /// 3. Role-specific speed (perimeter, infill, bridge, top/bottom surface)
     /// 4. General `print_speed` fallback when a role-specific speed is ≤ 0
+    ///
+    /// `speed_scale` applies the minimum-layer-time slowdown: a value below
+    /// `1.0` scales every non-first-layer feedrate uniformly so
+    /// the layer takes longer to print. The first layer is exempt (adhesion
+    /// speed is already deliberate), so `speed_scale` is ignored there.
     fn effective_speed_mm_min(
         role: crate::core::ExtrusionRole,
         overhang: crate::core::OverhangClass,
         is_first_layer: bool,
         params: &SlicingParams,
+        speed_scale: f64,
     ) -> f64 {
         use crate::core::ExtrusionRole;
         let fallback = params.print_speed * 60.0;
@@ -1151,10 +1202,10 @@ impl GcodeGenerator {
                     s = s.min(slowest * 60.0);
                 }
             }
-            return s;
+            return s * speed_scale;
         }
 
-        base
+        base * speed_scale
     }
 
     /// Resolve the target acceleration (mm/s²) for a path, or `None` when
@@ -1565,6 +1616,36 @@ impl GcodeGenerator {
             out.push('\n');
         }
 
+        // ── Bed mesh leveling (opt-in; off by default) ─────────────────────────
+        // Emitted right after the start script so homing (part of the start
+        // script, custom or default) has already run — probing an unhomed axis
+        // either faults or reads garbage. A start script that already probes or
+        // loads a mesh itself owns the job; emitting our own on top would either
+        // probe twice or clobber the mesh it just loaded.
+        let bed_mesh_delegated = params.bed_mesh_mode != BedMeshMode::Off
+            && start_script_handles_bed_mesh(&start_script);
+        if bed_mesh_delegated {
+            out.push_str(&self.dialect.comment(
+                "bed mesh leveling handled by the custom start G-code; \
+                 slicer bed mesh directive suppressed",
+            ));
+            out.push('\n');
+        } else if params.bed_mesh_mode != BedMeshMode::Off {
+            let area = if params.bed_mesh_adaptive {
+                xy_footprint(layers)
+            } else {
+                None
+            };
+            for line in self.dialect.bed_mesh_lines(
+                params.bed_mesh_mode,
+                params.bed_mesh_profile_name.as_deref(),
+                area,
+            ) {
+                out.push_str(&line);
+                out.push('\n');
+            }
+        }
+
         // The generator tracks a running extruder position `e_total` and, by
         // default, emits **absolute** E positions (`M82`, `G92 E0` per layer).
         // A custom start script or a Klipper `START_PRINT` macro that primes /
@@ -1938,7 +2019,7 @@ impl GcodeGenerator {
                 }
             }
 
-            // ── Pause / color-change triggers (issue #113) ────────────────────
+            // ── Pause / color-change triggers ──────────────────────────────────
             // Fired right after the layer-change block, before any of this
             // layer's geometry is emitted: the nozzle has just risen to the
             // new Z but has not yet extruded, which is the safe place to stop.
@@ -1980,6 +2061,37 @@ impl GcodeGenerator {
                 }
             }
 
+            // ── Minimum layer time (slow-down for cooling) ────────────────────
+            // Cheap pre-move estimate — the accurate acceleration-aware
+            // estimator only sees the layer after its G-code is emitted, so
+            // (like the adaptive fan curve below) the slowdown has to work
+            // off this proxy. Slowing happens first; the fan curve below
+            // reacts to the *resulting* (longer) layer time, matching real
+            // slicers pairing cooling with print-speed reduction.
+            let raw_layer_time = estimate_layer_time(layer, params.print_speed);
+            let mut speed_scale = 1.0_f64;
+            let mut dwell_deficit_s = 0.0_f64;
+            if !is_first_layer
+                && params.min_layer_time_s > 0.0
+                && raw_layer_time > 0.0
+                && raw_layer_time < params.min_layer_time_s
+            {
+                let desired_scale = raw_layer_time / params.min_layer_time_s;
+                let min_scale = if params.print_speed > 0.0 && params.min_print_speed > 0.0 {
+                    (params.min_print_speed / params.print_speed).clamp(0.0, 1.0)
+                } else {
+                    0.0
+                };
+                speed_scale = desired_scale.max(min_scale).min(1.0);
+                let effective_layer_time = raw_layer_time / speed_scale;
+                dwell_deficit_s = (params.min_layer_time_s - effective_layer_time).max(0.0);
+            }
+            let adjusted_layer_time = if speed_scale < 1.0 {
+                raw_layer_time / speed_scale
+            } else {
+                raw_layer_time
+            };
+
             // ── Adaptive fan speed ───────────────────────────────────────────
             // The part-cooling fan's emitted base speed, captured for the
             // dynamic fan override so it can restore normal cooling when
@@ -1987,7 +2099,7 @@ impl GcodeGenerator {
             let mut part_cooling_base: Option<f64> = None;
             let mut part_cooling_klipper_name: Option<String> = None;
             if !params.fan_configs.is_empty() {
-                let layer_time = estimate_layer_time(layer, params.print_speed);
+                let layer_time = adjusted_layer_time;
                 // Bridge detection: any path tagged Bridge or OverhangPerimeter
                 // triggers bridge boost on aux fans (overhanging walls cool just
                 // like bridge infill does).
@@ -2095,6 +2207,7 @@ impl GcodeGenerator {
                     crate::core::OverhangClass::None,
                     is_first_layer,
                     params,
+                    speed_scale,
                 );
 
                 // Adaptive acceleration (opt-in), same policy as normal walls.
@@ -2305,8 +2418,13 @@ impl GcodeGenerator {
                 }
 
                 // Resolve per-role print speed (with dynamic overhang override).
-                let speed_mm_min =
-                    Self::effective_speed_mm_min(role, overhang, is_first_layer, params);
+                let speed_mm_min = Self::effective_speed_mm_min(
+                    role,
+                    overhang,
+                    is_first_layer,
+                    params,
+                    speed_scale,
+                );
 
                 // ── Dynamic fan (bridges + overhangs) ────────────────────────
                 // Raise the part-cooling fan for material laid over air and
@@ -2922,6 +3040,17 @@ impl GcodeGenerator {
                     }
                     last_path_points = Some(traj);
                 }
+            }
+
+            // ── Minimum layer time dwell ───────────────────────────────────────
+            // Feedrates are already clamped at `min_print_speed`; whatever
+            // shortfall remains against `min_layer_time_s` is made up here
+            // with a pause rather than slowing extrusion further.
+            if dwell_deficit_s > 0.0 {
+                out.push_str(&format!(
+                    "{} ; min layer time\n",
+                    self.dialect.dwell(dwell_deficit_s * 1000.0)
+                ));
             }
 
             // Remember where this (non-spiral) layer left the nozzle so a
@@ -3894,7 +4023,7 @@ mod tests {
         );
     }
 
-    // ── Pause / color-change triggers (issue #113) ──────────────────────────────
+    // ── Pause / color-change triggers ────────────────────────────────────────────
 
     fn three_layers() -> Vec<SliceLayer> {
         vec![
@@ -5665,6 +5794,155 @@ CHAMBER={chamber_temp} MATERIAL={filament_type}"
     }
 
     #[test]
+    fn test_bed_mesh_off_by_default_emits_nothing() {
+        let gcode =
+            GcodeGenerator::new(GcodeFlavor::Marlin).generate(&[], &SlicingParams::default());
+        assert!(
+            !gcode.contains("G29") && !gcode.contains("M420") && !gcode.contains("BED_MESH"),
+            "bed mesh directives must be off by default: {gcode}"
+        );
+    }
+
+    #[test]
+    fn test_bed_mesh_calibrate_marlin() {
+        let params = SlicingParams {
+            bed_mesh_mode: BedMeshMode::Calibrate,
+            ..SlicingParams::default()
+        };
+        let gcode = GcodeGenerator::new(GcodeFlavor::Marlin).generate(&[], &params);
+        assert!(gcode.contains("G29 ; probe bed mesh"), "{gcode}");
+        assert!(
+            gcode.contains("M420 S1 ; enable bed leveling"),
+            "calibrate must also enable the mesh: {gcode}"
+        );
+    }
+
+    #[test]
+    fn test_bed_mesh_load_profile_marlin() {
+        let params = SlicingParams {
+            bed_mesh_mode: BedMeshMode::LoadProfile,
+            ..SlicingParams::default()
+        };
+        let gcode = GcodeGenerator::new(GcodeFlavor::Marlin).generate(&[], &params);
+        assert!(gcode.contains("M420 S1 ; load saved bed mesh"), "{gcode}");
+        assert!(
+            !gcode.contains("G29"),
+            "load_profile must not re-probe: {gcode}"
+        );
+    }
+
+    #[test]
+    fn test_bed_mesh_calibrate_klipper() {
+        let params = SlicingParams {
+            bed_mesh_mode: BedMeshMode::Calibrate,
+            ..SlicingParams::default()
+        };
+        let gcode = GcodeGenerator::new(GcodeFlavor::Klipper).generate(&[], &params);
+        assert!(gcode.contains("BED_MESH_CALIBRATE"), "{gcode}");
+        assert!(
+            !gcode.contains("AREA_MIN"),
+            "no footprint means no bounds: {gcode}"
+        );
+    }
+
+    #[test]
+    fn test_bed_mesh_load_profile_klipper_named() {
+        let params = SlicingParams {
+            bed_mesh_mode: BedMeshMode::LoadProfile,
+            bed_mesh_profile_name: Some("garage_printer".to_string()),
+            ..SlicingParams::default()
+        };
+        let gcode = GcodeGenerator::new(GcodeFlavor::Klipper).generate(&[], &params);
+        assert!(
+            gcode.contains("BED_MESH_PROFILE LOAD=garage_printer"),
+            "{gcode}"
+        );
+    }
+
+    #[test]
+    fn test_bed_mesh_adaptive_bounds_to_print_footprint_klipper() {
+        let params = SlicingParams {
+            bed_mesh_mode: BedMeshMode::Calibrate,
+            bed_mesh_adaptive: true,
+            ..SlicingParams::default()
+        };
+        let gcode =
+            GcodeGenerator::new(GcodeFlavor::Klipper).generate(&[one_square_layer()], &params);
+        assert!(
+            gcode.contains("BED_MESH_CALIBRATE AREA_MIN=0.0,0.0 AREA_MAX=10.0,10.0"),
+            "adaptive mesh must bound to the print's own footprint: {gcode}"
+        );
+    }
+
+    #[test]
+    fn test_bed_mesh_adaptive_bounds_to_print_footprint_marlin() {
+        let params = SlicingParams {
+            bed_mesh_mode: BedMeshMode::Calibrate,
+            bed_mesh_adaptive: true,
+            ..SlicingParams::default()
+        };
+        let gcode =
+            GcodeGenerator::new(GcodeFlavor::Marlin).generate(&[one_square_layer()], &params);
+        assert!(
+            gcode.contains("G29 L0.0 R10.0 F0.0 B10.0"),
+            "adaptive mesh must bound to the print's own footprint: {gcode}"
+        );
+    }
+
+    #[test]
+    fn test_bed_mesh_not_adaptive_ignores_footprint() {
+        let params = SlicingParams {
+            bed_mesh_mode: BedMeshMode::Calibrate,
+            bed_mesh_adaptive: false,
+            ..SlicingParams::default()
+        };
+        let gcode =
+            GcodeGenerator::new(GcodeFlavor::Klipper).generate(&[one_square_layer()], &params);
+        assert!(
+            gcode.contains("BED_MESH_CALIBRATE") && !gcode.contains("AREA_MIN"),
+            "adaptive is opt-in: {gcode}"
+        );
+    }
+
+    #[test]
+    fn test_custom_start_script_owns_bed_mesh() {
+        let params = SlicingParams {
+            bed_mesh_mode: BedMeshMode::Calibrate,
+            ..SlicingParams::default()
+        };
+        let gen = GcodeGenerator::new(GcodeFlavor::Klipper).with_start_script(vec![
+            "START_PRINT".to_string(),
+            "BED_MESH_CALIBRATE".to_string(),
+        ]);
+        let gcode = gen.generate(&[], &params);
+        assert_eq!(
+            gcode.matches("BED_MESH_CALIBRATE").count(),
+            1,
+            "a custom script that already calibrates the mesh must not get a second directive: {gcode}"
+        );
+        assert!(
+            gcode.contains("bed mesh leveling handled by the custom start G-code"),
+            "expected a suppression comment: {gcode}"
+        );
+    }
+
+    #[test]
+    fn test_bed_mesh_emitted_after_homing_start_script() {
+        let params = SlicingParams {
+            bed_mesh_mode: BedMeshMode::Calibrate,
+            ..SlicingParams::default()
+        };
+        let gen = GcodeGenerator::new(GcodeFlavor::Marlin)
+            .with_start_script(vec!["G28 ; home all axes".to_string()]);
+        let gcode = gen.generate(&[], &params);
+        let home = gcode.find("G28 ; home all axes").expect("start script");
+        let probe = gcode
+            .find("G29 ; probe bed mesh")
+            .expect("bed mesh directive");
+        assert!(home < probe, "bed mesh must probe after homing: {gcode}");
+    }
+
+    #[test]
     fn test_restores_normal_temperatures_on_second_layer_when_first_layer_overridden() {
         let params = SlicingParams {
             nozzle_temp: 210.0,
@@ -6270,6 +6548,7 @@ CHAMBER={chamber_temp} MATERIAL={filament_type}"
             crate::core::OverhangClass::None,
             false,
             &params,
+            1.0,
         );
         assert!(
             (s - 60.0 * 60.0).abs() < 1e-6,
@@ -6325,6 +6604,7 @@ CHAMBER={chamber_temp} MATERIAL={filament_type}"
             crate::core::OverhangClass::None,
             false,
             &params,
+            1.0,
         );
         assert!(
             (s - 45.0 * 60.0).abs() < 1e-6,
@@ -6335,6 +6615,7 @@ CHAMBER={chamber_temp} MATERIAL={filament_type}"
             crate::core::OverhangClass::None,
             false,
             &params,
+            1.0,
         );
         assert!(
             (s - 45.0 * 60.0).abs() < 1e-6,
@@ -6413,6 +6694,7 @@ CHAMBER={chamber_temp} MATERIAL={filament_type}"
             crate::core::OverhangClass::None,
             false,
             &params,
+            1.0,
         );
         assert!((s - 70.0 * 60.0).abs() < 1e-6, "expected infill_speed * 60");
     }
@@ -6430,6 +6712,7 @@ CHAMBER={chamber_temp} MATERIAL={filament_type}"
             crate::core::OverhangClass::None,
             false,
             &params,
+            1.0,
         );
         assert!((s - 25.0 * 60.0).abs() < 1e-6, "expected bridge_speed * 60");
     }
@@ -6449,6 +6732,7 @@ CHAMBER={chamber_temp} MATERIAL={filament_type}"
             crate::core::OverhangClass::None,
             true,
             &params,
+            1.0,
         );
         assert!(
             (s - 20.0 * 60.0).abs() < 1e-6,
@@ -6476,6 +6760,7 @@ CHAMBER={chamber_temp} MATERIAL={filament_type}"
             OverhangClass::Deg1,
             false,
             &params,
+            1.0,
         );
         assert!((s1 - 45.0 * 60.0).abs() < 1e-6, "Deg1=0 → perimeter_speed");
         // Deg2 uses its configured speed even on a still-InnerWall segment.
@@ -6484,6 +6769,7 @@ CHAMBER={chamber_temp} MATERIAL={filament_type}"
             OverhangClass::Deg2,
             false,
             &params,
+            1.0,
         );
         assert!((s2 - 40.0 * 60.0).abs() < 1e-6, "Deg2 → overhang_2_4_speed");
         // Deg3/Deg4 carry the OverhangPerimeter role and use their speeds.
@@ -6492,6 +6778,7 @@ CHAMBER={chamber_temp} MATERIAL={filament_type}"
             OverhangClass::Deg3,
             false,
             &params,
+            1.0,
         );
         assert!((s3 - 30.0 * 60.0).abs() < 1e-6, "Deg3 → overhang_3_4_speed");
         let s4 = GcodeGenerator::effective_speed_mm_min(
@@ -6499,6 +6786,7 @@ CHAMBER={chamber_temp} MATERIAL={filament_type}"
             OverhangClass::Deg4,
             false,
             &params,
+            1.0,
         );
         assert!((s4 - 15.0 * 60.0).abs() < 1e-6, "Deg4 → overhang_4_4_speed");
     }
@@ -6519,6 +6807,7 @@ CHAMBER={chamber_temp} MATERIAL={filament_type}"
             OverhangClass::Deg4,
             false,
             &params,
+            1.0,
         );
         assert!(
             (s - 25.0 * 60.0).abs() < 1e-6,
@@ -6544,6 +6833,7 @@ CHAMBER={chamber_temp} MATERIAL={filament_type}"
             OverhangClass::Deg3,
             false,
             &params,
+            1.0,
         );
         assert!(
             (s3 - 12.0 * 60.0).abs() < 1e-6,
@@ -6757,6 +7047,57 @@ CHAMBER={chamber_temp} MATERIAL={filament_type}"
         assert!(
             !gcode.contains("M106") && !gcode.contains("M107"),
             "unexpected fan command when fan_configs is empty:\n{gcode}"
+        );
+    }
+
+    // ── Minimum layer time ───────────────────────────────────────────────────
+
+    #[test]
+    fn test_min_layer_time_disabled_by_default() {
+        // A tiny 30mm-perimeter layer prints in well under a second, but
+        // `min_layer_time_s` defaults to 0 (disabled) so nothing slows down.
+        let params = SlicingParams::default();
+        let gcode = GcodeGenerator::new(GcodeFlavor::Marlin)
+            .generate(&[plain_wall_layer(0.2), plain_wall_layer(0.4)], &params);
+        assert!(
+            !gcode.contains("G4"),
+            "no dwell expected with min_layer_time_s disabled:\n{gcode}"
+        );
+        assert!(
+            gcode.contains("F2700"),
+            "perimeter speed should be unscaled:\n{gcode}"
+        );
+    }
+
+    #[test]
+    fn test_min_layer_time_slows_feedrate_and_dwells() {
+        // 30mm perimeter at the default 60 mm/s print_speed proxy ≈ 0.5s raw —
+        // far below the 5s floor. Scaling is capped at the min_print_speed
+        // floor (10 / 60 mm/s), so the layer still falls short and a dwell
+        // tops up the remainder.
+        let params = SlicingParams {
+            min_layer_time_s: 5.0,
+            min_print_speed: 10.0,
+            ..SlicingParams::default()
+        };
+        let gcode = GcodeGenerator::new(GcodeFlavor::Marlin)
+            .generate(&[plain_wall_layer(0.2), plain_wall_layer(0.4)], &params);
+
+        // First layer is exempt: still prints at first_layer_speed (25 mm/s → F1500).
+        assert!(
+            gcode.contains("F1500"),
+            "first layer must not be scaled:\n{gcode}"
+        );
+        // Second layer's perimeter speed (45 mm/s) scaled by the min-speed
+        // floor (10/60): 45 * 60 * (10/60) = 450 mm/min.
+        assert!(
+            gcode.contains("F450"),
+            "expected the perimeter feedrate scaled to the min-speed floor:\n{gcode}"
+        );
+        // Remaining shortfall (5s floor − 3s achieved) made up with a dwell.
+        assert!(
+            gcode.contains("G4 P2000"),
+            "expected a dwell to make up the remaining shortfall:\n{gcode}"
         );
     }
 

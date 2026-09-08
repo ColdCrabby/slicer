@@ -64,6 +64,18 @@ export class GeneralSettings implements OnInit {
    */
   protected readonly commit = computed(() => this.info()?.git_sha ?? '');
 
+  /** The short SHA (first 7 characters) of the build's commit. */
+  protected readonly shortCommit = computed(() => {
+    const sha = this.commit();
+    return sha.length >= 7 ? sha.substring(0, 7) : sha;
+  });
+
+  /** Direct GitHub link to the commit. */
+  protected readonly commitUrl = computed(() => {
+    const sha = this.commit();
+    return sha ? `https://github.com/ColdCrabby/slicer/commit/${sha}` : '';
+  });
+
   protected readonly platform =
     typeof globalThis !== 'undefined' &&
     ('__TAURI_INTERNALS__' in globalThis || '__TAURI__' in globalThis)

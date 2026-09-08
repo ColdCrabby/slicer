@@ -1011,7 +1011,7 @@ G1 X10 Y0 Z0.2 E1.0
         assert_eq!(layer.meta.layer_time_s, Some(12.5));
     }
 
-    /// `;TRIGGER` markers (issue #113) flag the layer they appear on.
+    /// `;TRIGGER` markers flag the layer they appear on.
     #[test]
     fn trigger_marker_is_captured() {
         let gcode = b"

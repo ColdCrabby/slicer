@@ -575,7 +575,7 @@ export class Slicer {
     this.settings.update((current) => ({ ...current, ...patch }));
   }
 
-  /** Add a pause/color-change/custom trigger (issue #113) at a 1-based layer number. */
+  /** Add a pause/color-change/custom trigger at a 1-based layer number. */
   addLayerTrigger(layer: number, action: PauseTrigger['action']): void {
     const triggers = this.settings().triggers ?? [];
     const next: PauseTrigger = { position_type: 'at_layer', layer, action } as PauseTrigger;

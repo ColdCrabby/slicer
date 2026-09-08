@@ -636,7 +636,7 @@ export class GcodePreview {
 
   /**
    * 0-based indices of every layer carrying a pause/color-change/custom
-   * trigger (issue #113), resolved from the parsed G-code's `;TRIGGER`
+   * trigger, resolved from the parsed G-code's `;TRIGGER`
    * markers rather than re-deriving `at_z` → layer mapping on the frontend.
    */
   readonly triggerLayers = computed<readonly number[]>(() =>

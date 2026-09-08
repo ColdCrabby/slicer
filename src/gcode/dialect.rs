@@ -1,7 +1,7 @@
 //! [`GcodeDialect`] trait — abstraction over firmware-specific command syntax.
 
 use crate::gcode::stats::{self, SliceStatistics};
-use crate::settings::params::SlicingParams;
+use crate::settings::params::{BedMeshMode, SlicingParams};
 
 /// Boxed warning callback type used by [`crate::gcode::GcodeGenerator`].
 ///
@@ -135,6 +135,15 @@ pub trait GcodeDialect: Send + Sync {
         } else {
             format!("M141 S{:.0}", temp)
         }
+    }
+
+    /// Pause motion for `ms` milliseconds (`G4 P<ms>`).
+    ///
+    /// Used by the minimum-layer-time slowdown to top up a layer that is
+    /// still under the configured floor after feedrates are already clamped
+    /// at `min_print_speed`.
+    fn dwell(&self, ms: f64) -> String {
+        format!("G4 P{:.0}", ms)
     }
 
     /// Move to `(x, y)` while extruding filament to absolute E position `e`
@@ -357,6 +366,47 @@ pub trait GcodeDialect: Send + Sync {
         ]
     }
 
+    // ── Bed mesh leveling ─────────────────────────────────────────────────────
+
+    /// Emit the bed mesh leveling directive for the given [`BedMeshMode`].
+    ///
+    /// Called once in the start section, after homing but before the first
+    /// print move. `profile_name` names a previously saved mesh (used by
+    /// [`BedMeshMode::LoadProfile`], ignored for [`BedMeshMode::Calibrate`]
+    /// since that always probes fresh). `area` is an optional
+    /// `(min_x, min_y, max_x, max_y)` footprint in mm — when
+    /// [`SlicingParams::bed_mesh_adaptive`](crate::settings::params::SlicingParams::bed_mesh_adaptive)
+    /// is set, this bounds recalibration to the print's own footprint on
+    /// firmware that supports it, rather than probing the whole bed.
+    ///
+    /// Returns no lines for [`BedMeshMode::Off`].
+    ///
+    /// The default implementation targets Marlin/RepRapFirmware (`G29` /
+    /// `M420 S1`); Klipper overrides this with `BED_MESH_CALIBRATE` /
+    /// `BED_MESH_PROFILE LOAD`.
+    fn bed_mesh_lines(
+        &self,
+        mode: BedMeshMode,
+        profile_name: Option<&str>,
+        area: Option<(f64, f64, f64, f64)>,
+    ) -> Vec<String> {
+        let _ = profile_name; // stock Marlin/RRF M420 has no named-profile support
+        match mode {
+            BedMeshMode::Off => Vec::new(),
+            BedMeshMode::LoadProfile => vec!["M420 S1 ; load saved bed mesh".to_string()],
+            BedMeshMode::Calibrate => {
+                let probe = match area {
+                    Some((min_x, min_y, max_x, max_y)) => format!(
+                        "G29 L{:.1} R{:.1} F{:.1} B{:.1} ; probe bed mesh over the print footprint",
+                        min_x, max_x, min_y, max_y
+                    ),
+                    None => "G29 ; probe bed mesh".to_string(),
+                };
+                vec![probe, "M420 S1 ; enable bed leveling".to_string()]
+            }
+        }
+    }
+
     // ── Object exclusion (issue #22) ─────────────────────────────────────────
     //
     // Three commands let a firmware attribute every move to a named object and
@@ -407,7 +457,7 @@ pub trait GcodeDialect: Send + Sync {
         "M486 S-1".to_string()
     }
 
-    // ── Pause / color-change triggers (issue #113) ────────────────────────────
+    // ── Pause / color-change triggers ──────────────────────────────────────────
     //
     // Two commands let a [`crate::settings::params::PauseTrigger`] interrupt
     // the print at a chosen layer boundary.  The defaults implement the

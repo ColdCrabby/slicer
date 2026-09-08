@@ -34,7 +34,9 @@
             >Exact source revision this build was compiled from.</span
           >
         </span>
-        <span class="settings-value settings-value-mono">{{ commit() }}</span>
+        <a [href]="commitUrl()" target="_blank" class="settings-value settings-value-mono">
+          {{ shortCommit() }}
+        </a>
       </div>
     }
   </div>

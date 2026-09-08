@@ -78,8 +78,7 @@ impl GcodeLayerBuffer {
         self.fan_speeds.get(i).copied().unwrap_or(0.0)
     }
 
-    /// `true` if a pause/color-change/custom trigger (issue #113) fired on
-    /// this layer.
+    /// `true` if a pause/color-change/custom trigger fired on this layer.
     #[wasm_bindgen(getter)]
     pub fn triggered(&self) -> bool {
         self.triggered
@@ -156,8 +155,8 @@ impl GcodeHandle {
         self.layers.get(index).map(|l| l.z).unwrap_or(0.0)
     }
 
-    /// Indices of every layer carrying a pause/color-change/custom trigger
-    /// (issue #113), in ascending order.
+    /// Indices of every layer carrying a pause/color-change/custom trigger,
+    /// in ascending order.
     #[wasm_bindgen(js_name = triggerLayers)]
     pub fn trigger_layers(&self) -> Vec<usize> {
         self.layers

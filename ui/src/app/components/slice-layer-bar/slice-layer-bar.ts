@@ -15,7 +15,7 @@ export class SliceLayerBar {
 
   /**
    * Percentage positions (bottom-up, matching `fillPercent`) of every layer
-   * carrying a pause/color-change/custom trigger (issue #113).
+   * carrying a pause/color-change/custom trigger.
    */
   protected readonly triggerMarkers = computed(() => {
     const count = this.preview.layerCount();

@@ -188,8 +188,8 @@ pub(super) struct LayerMeta {
     pub(super) layer_time_s: Option<f32>,
     /// Per-fan speeds active on this layer, in first-seen order.
     pub(super) fans: Vec<FanSample>,
-    /// `true` if a `;TRIGGER` marker (issue #113 pause/color-change/custom
-    /// trigger) was emitted on this layer.
+    /// `true` if a `;TRIGGER` marker (pause/color-change/custom trigger) was
+    /// emitted on this layer.
     pub(super) triggered: bool,
 }
 
