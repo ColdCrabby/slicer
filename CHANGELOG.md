@@ -36,6 +36,12 @@ issue/PR numbers or repo links in the notes. See the tone rules in
   8 mm/s to stay below the new bridge speed.
 ### Added
 
+- **Bed mesh leveling directives.** A new `bed_mesh_mode` setting emits
+  `BED_MESH_CALIBRATE`/`BED_MESH_PROFILE LOAD` (Klipper) or `G29`/`M420 S1`
+  (Marlin/RepRap) at print start — off by default, so existing output is
+  unchanged. `bed_mesh_adaptive` bounds recalibration to the print's own
+  footprint instead of the whole bed, and a custom start script that already
+  handles leveling takes priority over the slicer's own directive.
 - **Full role coverage for acceleration, on by default** — `inner_wall_acceleration`,
   `sparse_infill_acceleration`, `solid_infill_acceleration`,
   `gap_fill_acceleration` and `support_acceleration` round out the role table
