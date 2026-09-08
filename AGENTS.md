@@ -154,6 +154,8 @@ slicer-engine slice --help
 - Use `cargo fmt` for formatting (enforced by CI)
 - Run `cargo clippy -- -D warnings` before committing
 - Write inline tests with `#[cfg(test)]` in the same module
+- See [No Issue Numbers in Prose Unless Asked](.github/instructions/no-issue-numbers.instructions.md)
+  before writing commit messages, comments, or docs.
 
 ### Performance Priorities
 

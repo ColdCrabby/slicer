@@ -42,6 +42,12 @@ issue/PR numbers or repo links in the notes. See the tone rules in
   unchanged. `bed_mesh_adaptive` bounds recalibration to the print's own
   footprint instead of the whole bed, and a custom start script that already
   handles leveling takes priority over the slicer's own directive.
+- **Minimum layer time (slow-down for cooling)** — `min_layer_time_s` scales a
+  short layer's feedrates down so it takes at least that long to print,
+  giving thin walls and small details time to cool before the next layer
+  lands. Slowing is clamped at `min_print_speed` (default 10 mm/s) to avoid
+  heat-creep or grinding; any remaining shortfall is made up with a dwell.
+  The first layer is exempt. Disabled by default (`0`).
 - **Full role coverage for acceleration, on by default** — `inner_wall_acceleration`,
   `sparse_infill_acceleration`, `solid_infill_acceleration`,
   `gap_fill_acceleration` and `support_acceleration` round out the role table

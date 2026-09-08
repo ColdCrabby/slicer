@@ -1094,11 +1094,17 @@ impl GcodeGenerator {
     ///    normal speed when that degree is left at `0`.
     /// 3. Role-specific speed (perimeter, infill, bridge, top/bottom surface)
     /// 4. General `print_speed` fallback when a role-specific speed is ≤ 0
+    ///
+    /// `speed_scale` applies the minimum-layer-time slowdown: a value below
+    /// `1.0` scales every non-first-layer feedrate uniformly so
+    /// the layer takes longer to print. The first layer is exempt (adhesion
+    /// speed is already deliberate), so `speed_scale` is ignored there.
     fn effective_speed_mm_min(
         role: crate::core::ExtrusionRole,
         overhang: crate::core::OverhangClass,
         is_first_layer: bool,
         params: &SlicingParams,
+        speed_scale: f64,
     ) -> f64 {
         use crate::core::ExtrusionRole;
         let fallback = params.print_speed * 60.0;
@@ -1193,10 +1199,10 @@ impl GcodeGenerator {
                     s = s.min(slowest * 60.0);
                 }
             }
-            return s;
+            return s * speed_scale;
         }
 
-        base
+        base * speed_scale
     }
 
     /// Resolve the target acceleration (mm/s²) for a path, or `None` when
@@ -2010,6 +2016,37 @@ impl GcodeGenerator {
                 }
             }
 
+            // ── Minimum layer time (slow-down for cooling) ────────────────────
+            // Cheap pre-move estimate — the accurate acceleration-aware
+            // estimator only sees the layer after its G-code is emitted, so
+            // (like the adaptive fan curve below) the slowdown has to work
+            // off this proxy. Slowing happens first; the fan curve below
+            // reacts to the *resulting* (longer) layer time, matching real
+            // slicers pairing cooling with print-speed reduction.
+            let raw_layer_time = estimate_layer_time(layer, params.print_speed);
+            let mut speed_scale = 1.0_f64;
+            let mut dwell_deficit_s = 0.0_f64;
+            if !is_first_layer
+                && params.min_layer_time_s > 0.0
+                && raw_layer_time > 0.0
+                && raw_layer_time < params.min_layer_time_s
+            {
+                let desired_scale = raw_layer_time / params.min_layer_time_s;
+                let min_scale = if params.print_speed > 0.0 && params.min_print_speed > 0.0 {
+                    (params.min_print_speed / params.print_speed).clamp(0.0, 1.0)
+                } else {
+                    0.0
+                };
+                speed_scale = desired_scale.max(min_scale).min(1.0);
+                let effective_layer_time = raw_layer_time / speed_scale;
+                dwell_deficit_s = (params.min_layer_time_s - effective_layer_time).max(0.0);
+            }
+            let adjusted_layer_time = if speed_scale < 1.0 {
+                raw_layer_time / speed_scale
+            } else {
+                raw_layer_time
+            };
+
             // ── Adaptive fan speed ───────────────────────────────────────────
             // The part-cooling fan's emitted base speed, captured for the
             // dynamic fan override so it can restore normal cooling when
@@ -2017,7 +2054,7 @@ impl GcodeGenerator {
             let mut part_cooling_base: Option<f64> = None;
             let mut part_cooling_klipper_name: Option<String> = None;
             if !params.fan_configs.is_empty() {
-                let layer_time = estimate_layer_time(layer, params.print_speed);
+                let layer_time = adjusted_layer_time;
                 // Bridge detection: any path tagged Bridge or OverhangPerimeter
                 // triggers bridge boost on aux fans (overhanging walls cool just
                 // like bridge infill does).
@@ -2125,6 +2162,7 @@ impl GcodeGenerator {
                     crate::core::OverhangClass::None,
                     is_first_layer,
                     params,
+                    speed_scale,
                 );
 
                 // Adaptive acceleration (opt-in), same policy as normal walls.
@@ -2335,8 +2373,13 @@ impl GcodeGenerator {
                 }
 
                 // Resolve per-role print speed (with dynamic overhang override).
-                let speed_mm_min =
-                    Self::effective_speed_mm_min(role, overhang, is_first_layer, params);
+                let speed_mm_min = Self::effective_speed_mm_min(
+                    role,
+                    overhang,
+                    is_first_layer,
+                    params,
+                    speed_scale,
+                );
 
                 // ── Dynamic fan (bridges + overhangs) ────────────────────────
                 // Raise the part-cooling fan for material laid over air and
@@ -2952,6 +2995,17 @@ impl GcodeGenerator {
                     }
                     last_path_points = Some(traj);
                 }
+            }
+
+            // ── Minimum layer time dwell ───────────────────────────────────────
+            // Feedrates are already clamped at `min_print_speed`; whatever
+            // shortfall remains against `min_layer_time_s` is made up here
+            // with a pause rather than slowing extrusion further.
+            if dwell_deficit_s > 0.0 {
+                out.push_str(&format!(
+                    "{} ; min layer time\n",
+                    self.dialect.dwell(dwell_deficit_s * 1000.0)
+                ));
             }
 
             // Remember where this (non-spiral) layer left the nozzle so a
@@ -6254,6 +6308,7 @@ CHAMBER={chamber_temp} MATERIAL={filament_type}"
             crate::core::OverhangClass::None,
             false,
             &params,
+            1.0,
         );
         assert!(
             (s - 60.0 * 60.0).abs() < 1e-6,
@@ -6309,6 +6364,7 @@ CHAMBER={chamber_temp} MATERIAL={filament_type}"
             crate::core::OverhangClass::None,
             false,
             &params,
+            1.0,
         );
         assert!(
             (s - 45.0 * 60.0).abs() < 1e-6,
@@ -6319,6 +6375,7 @@ CHAMBER={chamber_temp} MATERIAL={filament_type}"
             crate::core::OverhangClass::None,
             false,
             &params,
+            1.0,
         );
         assert!(
             (s - 45.0 * 60.0).abs() < 1e-6,
@@ -6397,6 +6454,7 @@ CHAMBER={chamber_temp} MATERIAL={filament_type}"
             crate::core::OverhangClass::None,
             false,
             &params,
+            1.0,
         );
         assert!((s - 70.0 * 60.0).abs() < 1e-6, "expected infill_speed * 60");
     }
@@ -6414,6 +6472,7 @@ CHAMBER={chamber_temp} MATERIAL={filament_type}"
             crate::core::OverhangClass::None,
             false,
             &params,
+            1.0,
         );
         assert!((s - 25.0 * 60.0).abs() < 1e-6, "expected bridge_speed * 60");
     }
@@ -6433,6 +6492,7 @@ CHAMBER={chamber_temp} MATERIAL={filament_type}"
             crate::core::OverhangClass::None,
             true,
             &params,
+            1.0,
         );
         assert!(
             (s - 20.0 * 60.0).abs() < 1e-6,
@@ -6460,6 +6520,7 @@ CHAMBER={chamber_temp} MATERIAL={filament_type}"
             OverhangClass::Deg1,
             false,
             &params,
+            1.0,
         );
         assert!((s1 - 45.0 * 60.0).abs() < 1e-6, "Deg1=0 → perimeter_speed");
         // Deg2 uses its configured speed even on a still-InnerWall segment.
@@ -6468,6 +6529,7 @@ CHAMBER={chamber_temp} MATERIAL={filament_type}"
             OverhangClass::Deg2,
             false,
             &params,
+            1.0,
         );
         assert!((s2 - 40.0 * 60.0).abs() < 1e-6, "Deg2 → overhang_2_4_speed");
         // Deg3/Deg4 carry the OverhangPerimeter role and use their speeds.
@@ -6476,6 +6538,7 @@ CHAMBER={chamber_temp} MATERIAL={filament_type}"
             OverhangClass::Deg3,
             false,
             &params,
+            1.0,
         );
         assert!((s3 - 30.0 * 60.0).abs() < 1e-6, "Deg3 → overhang_3_4_speed");
         let s4 = GcodeGenerator::effective_speed_mm_min(
@@ -6483,6 +6546,7 @@ CHAMBER={chamber_temp} MATERIAL={filament_type}"
             OverhangClass::Deg4,
             false,
             &params,
+            1.0,
         );
         assert!((s4 - 15.0 * 60.0).abs() < 1e-6, "Deg4 → overhang_4_4_speed");
     }
@@ -6503,6 +6567,7 @@ CHAMBER={chamber_temp} MATERIAL={filament_type}"
             OverhangClass::Deg4,
             false,
             &params,
+            1.0,
         );
         assert!(
             (s - 25.0 * 60.0).abs() < 1e-6,
@@ -6528,6 +6593,7 @@ CHAMBER={chamber_temp} MATERIAL={filament_type}"
             OverhangClass::Deg3,
             false,
             &params,
+            1.0,
         );
         assert!(
             (s3 - 12.0 * 60.0).abs() < 1e-6,
@@ -6741,6 +6807,57 @@ CHAMBER={chamber_temp} MATERIAL={filament_type}"
         assert!(
             !gcode.contains("M106") && !gcode.contains("M107"),
             "unexpected fan command when fan_configs is empty:\n{gcode}"
+        );
+    }
+
+    // ── Minimum layer time ───────────────────────────────────────────────────
+
+    #[test]
+    fn test_min_layer_time_disabled_by_default() {
+        // A tiny 30mm-perimeter layer prints in well under a second, but
+        // `min_layer_time_s` defaults to 0 (disabled) so nothing slows down.
+        let params = SlicingParams::default();
+        let gcode = GcodeGenerator::new(GcodeFlavor::Marlin)
+            .generate(&[plain_wall_layer(0.2), plain_wall_layer(0.4)], &params);
+        assert!(
+            !gcode.contains("G4"),
+            "no dwell expected with min_layer_time_s disabled:\n{gcode}"
+        );
+        assert!(
+            gcode.contains("F2700"),
+            "perimeter speed should be unscaled:\n{gcode}"
+        );
+    }
+
+    #[test]
+    fn test_min_layer_time_slows_feedrate_and_dwells() {
+        // 30mm perimeter at the default 60 mm/s print_speed proxy ≈ 0.5s raw —
+        // far below the 5s floor. Scaling is capped at the min_print_speed
+        // floor (10 / 60 mm/s), so the layer still falls short and a dwell
+        // tops up the remainder.
+        let params = SlicingParams {
+            min_layer_time_s: 5.0,
+            min_print_speed: 10.0,
+            ..SlicingParams::default()
+        };
+        let gcode = GcodeGenerator::new(GcodeFlavor::Marlin)
+            .generate(&[plain_wall_layer(0.2), plain_wall_layer(0.4)], &params);
+
+        // First layer is exempt: still prints at first_layer_speed (25 mm/s → F1500).
+        assert!(
+            gcode.contains("F1500"),
+            "first layer must not be scaled:\n{gcode}"
+        );
+        // Second layer's perimeter speed (45 mm/s) scaled by the min-speed
+        // floor (10/60): 45 * 60 * (10/60) = 450 mm/min.
+        assert!(
+            gcode.contains("F450"),
+            "expected the perimeter feedrate scaled to the min-speed floor:\n{gcode}"
+        );
+        // Remaining shortfall (5s floor − 3s achieved) made up with a dwell.
+        assert!(
+            gcode.contains("G4 P2000"),
+            "expected a dwell to make up the remaining shortfall:\n{gcode}"
         );
     }
 
