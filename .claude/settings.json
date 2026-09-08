@@ -1,0 +1,34 @@
+{
+  "instructions": ".claude/instructions.md",
+  "permissions": {
+    "allow": [
+      "Bash(git checkout *)",
+      "Bash(git fetch *)",
+      "Bash(git reset *)",
+      "Bash(git merge *)",
+      "Bash(git rebase *)",
+      "Bash(git diff *)",
+      "Bash(git log *)",
+      "Bash(git status *)",
+      "Bash(pnpm install *)",
+      "Bash(pnpm run *)",
+      "Bash(npm run *)",
+      "Bash(git add *)",
+      "Bash(git commit *)",
+      "Bash(git push *)",
+      "Bash(cargo *)",
+      "Bash(make *)",
+      "Bash(find *)",
+      "Bash(grep *)",
+      "Bash(ls *)",
+      "Bash(cat *)",
+      "Bash(head *)",
+      "Bash(tail *)",
+      "Bash(wc *)"
+    ]
+  },
+  "agent-defaults": {
+    "model": "claude-opus-5",
+    "tools": ["read", "search", "edit", "execute", "todo"]
+  }
+}
