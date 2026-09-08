@@ -2,6 +2,8 @@
 
 This document describes the tools and capabilities available to all AI agents working on the Slicer Engine codebase.
 
+**Start here for architecture:** All agents should read [`AGENTS.md`](../AGENTS.md) first — it's the authoritative reference for slicing pipeline, algorithms, invariants, and design decisions. This document lists available agents and how to use them.
+
 ## Standard Tool Access
 
 All agents have access to these core operations:

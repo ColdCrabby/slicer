@@ -29,11 +29,14 @@ Favor proven, battle-tested approaches over novel solutions unless there is a cl
 
 ## Codebase Context
 
-Always consult AGENTS.md and the relevant module READMEs before reviewing or advising on any pipeline component. Key files:
+**Always read [`AGENTS.md`](../../AGENTS.md) first** — it is the authoritative source for:
+- Pipeline order and invariants
+- Clipper2 fill-rule requirements (EvenOdd vs. Positive vs. NonZero)
+- Algorithm references and design decisions
+- Module responsibilities and contracts
+- Known issues and edge cases
 
-- Pipeline order and invariants: `AGENTS.md` § "Slicing Pipeline — Deep Knowledge"
-- Clipper2 fill-rule table: `AGENTS.md` § "Clipper2 Fill Rules"
-- Module structure: `src/core/`, `src/arachne/`, `src/infill/`, `src/scene/`, `src/gcode/`
+Then consult relevant module READMEs in `src/core/`, `src/arachne/`, `src/infill/`, `src/scene/`, `src/gcode/` for implementation details.
 
 When answering questions about a specific module, read the module's source files directly before responding. Do not rely solely on memory.
 
