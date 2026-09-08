@@ -1951,18 +1951,20 @@ impl GcodeGenerator {
             let raw_layer_time = estimate_layer_time(layer, params.print_speed);
             let mut speed_scale = 1.0_f64;
             let mut dwell_deficit_s = 0.0_f64;
-            if !is_first_layer && params.min_layer_time_s > 0.0 && raw_layer_time > 0.0 {
-                if raw_layer_time < params.min_layer_time_s {
-                    let desired_scale = raw_layer_time / params.min_layer_time_s;
-                    let min_scale = if params.print_speed > 0.0 && params.min_print_speed > 0.0 {
-                        (params.min_print_speed / params.print_speed).clamp(0.0, 1.0)
-                    } else {
-                        0.0
-                    };
-                    speed_scale = desired_scale.max(min_scale).min(1.0);
-                    let effective_layer_time = raw_layer_time / speed_scale;
-                    dwell_deficit_s = (params.min_layer_time_s - effective_layer_time).max(0.0);
-                }
+            if !is_first_layer
+                && params.min_layer_time_s > 0.0
+                && raw_layer_time > 0.0
+                && raw_layer_time < params.min_layer_time_s
+            {
+                let desired_scale = raw_layer_time / params.min_layer_time_s;
+                let min_scale = if params.print_speed > 0.0 && params.min_print_speed > 0.0 {
+                    (params.min_print_speed / params.print_speed).clamp(0.0, 1.0)
+                } else {
+                    0.0
+                };
+                speed_scale = desired_scale.max(min_scale).min(1.0);
+                let effective_layer_time = raw_layer_time / speed_scale;
+                dwell_deficit_s = (params.min_layer_time_s - effective_layer_time).max(0.0);
             }
             let adjusted_layer_time = if speed_scale < 1.0 {
                 raw_layer_time / speed_scale
