@@ -137,6 +137,15 @@ pub trait GcodeDialect: Send + Sync {
         }
     }
 
+    /// Pause motion for `ms` milliseconds (`G4 P<ms>`).
+    ///
+    /// Used by the minimum-layer-time slowdown to top up a layer that is
+    /// still under the configured floor after feedrates are already clamped
+    /// at `min_print_speed`.
+    fn dwell(&self, ms: f64) -> String {
+        format!("G4 P{:.0}", ms)
+    }
+
     /// Move to `(x, y)` while extruding filament to absolute E position `e`
     /// at `speed_mm_min` mm/min.
     fn move_extrude(&self, x: f64, y: f64, e: f64, speed_mm_min: f64) -> String {
