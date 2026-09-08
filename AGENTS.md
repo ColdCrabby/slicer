@@ -154,14 +154,8 @@ slicer-engine slice --help
 - Use `cargo fmt` for formatting (enforced by CI)
 - Run `cargo clippy -- -D warnings` before committing
 - Write inline tests with `#[cfg(test)]` in the same module
-- **No issue/PR/ticket numbers in code, comments, or commit bodies** (`#220`,
-  `JIRA-123`, etc.). They rot the moment an issue is renumbered or closed, and
-  the tracker already owns that link — GitHub associates a commit with its PR
-  automatically. Name the constraint or behavior instead of the ticket that
-  requested it: `// bridges retract before travel to avoid oozing over the
-  gap` beats `// fix for #220`. This applies going forward; existing `(issue
-  #N)` comments are not being swept out on sight, but don't add new ones and
-  clean up ones you touch anyway.
+- See [No Issue Numbers in Prose Unless Asked](.github/instructions/no-issue-numbers.instructions.md)
+  before writing commit messages, comments, or docs.
 
 ### Performance Priorities
 
