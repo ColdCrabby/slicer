@@ -83,10 +83,14 @@ impl SceneObjectPayload {
 
 // Managed application state
 
-/// A previously-generated slice keyed by content hash, so an identical scene +
-/// settings can skip the pipeline entirely (mirrors the cloud server's
-/// `gcode_cache`).
+/// A previously-generated slice keyed by content hash. Written after every
+/// slice but never read back to skip one — every request runs the full
+/// pipeline, matching the cloud server's `gcode_cache` table.
+// Both fields are written on every slice and never read back — see the doc
+// comment above — so plain dead-code analysis flags them; keep them anyway,
+// they are the point of the struct.
 #[derive(Clone)]
+#[allow(dead_code)]
 struct CachedSlice {
     gcode_path: String,
     layer_count: usize,
@@ -100,9 +104,8 @@ pub struct AppState {
     pub gcode_path_by_slice: Arc<Mutex<HashMap<String, String>>>,
     pub history_sessions: Arc<Mutex<Vec<HistorySession>>>,
     pub cancel_flag: Arc<AtomicBool>,
-    /// Content hash → cached slice result. Lets a re-slice of an identical
-    /// scene + settings reuse the stored G-code instead of re-running the
-    /// pipeline, matching the cloud server's skip-on-cache-hit behaviour.
+    /// Content hash → most recent slice result for that hash. Every slice
+    /// writes here; nothing reads it to skip a slice — see `CachedSlice`.
     gcode_cache: Arc<Mutex<HashMap<String, CachedSlice>>>,
 }
 
@@ -164,41 +167,12 @@ pub async fn slice_start(
             serde_json::from_value(payload.settings)
                 .map_err(|e| format!("invalid settings: {e}"))?;
 
-        // Cache lookup: an identical scene + settings (+ engine version + source
-        // file identity) sliced before can reuse the stored G-code and skip the
-        // whole pipeline — including the mesh parse — exactly like the cloud
-        // server's `gcode_cache`. This is what keeps repeated desktop slices as
-        // fast as cloud.
+        // No cache lookup here on purpose: every slice request runs the full
+        // pipeline, even when `cache_key` matches a previous run byte-for-byte.
+        // The map below still gets written after slicing — it stays warm for
+        // whatever else might read it — it is just never consulted to *skip*
+        // a slice.
         let cache_key = compute_slice_cache_key(&params, file_path.as_deref(), &payload.scene);
-        if let Some(hit) = gcode_cache
-            .lock()
-            .ok()
-            .and_then(|cache| cache.get(&cache_key).cloned())
-        {
-            if std::path::Path::new(&hit.gcode_path).exists() {
-                logger.log_info("cache hit: reusing previously-sliced G-code");
-                register_slice_result(
-                    &slice_id,
-                    &hit.gcode_path,
-                    hit.layer_count,
-                    original_filename.clone(),
-                    &last_gcode_path,
-                    &gcode_path_by_slice,
-                    &history_sessions,
-                );
-                return Ok(json!({
-                    "ok": true,
-                    "sliceId": slice_id,
-                    "layer_count": hit.layer_count,
-                    "gcode_path": hit.gcode_path,
-                    "cached": true,
-                }));
-            }
-            // Stale entry (file cleaned up) — drop it and re-slice.
-            if let Ok(mut cache) = gcode_cache.lock() {
-                cache.remove(&cache_key);
-            }
-        }
 
         let plate_objects =
             load_plate_objects(file_path.as_deref(), payload.scene.as_ref(), &logger)?;

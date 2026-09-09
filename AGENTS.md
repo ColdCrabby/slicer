@@ -720,16 +720,17 @@ outbound transport to real printers. Today it implements **Moonraker/Klipper**
   (local/unknown), green (online), amber (checking/cors/error/unsupported), red
   (offline).
 
-## G-code result cache — skip re-slicing identical scenes
+## G-code result table — recorded on every slice, never used to skip one
 
 `handle_slice` ([src/server/ws_session.rs](src/server/ws_session.rs)) hashes the
 resolved `SlicingParams` (via `SlicingParams::cache_fingerprint`) + the ordered
-scene DTOs (file id + transform) + `crate::version::VERSION` into an FNV-1a key.
-A `gcode_cache` table (migration `m20250201_000002`) maps that key → the
-previously-generated `.gcode`. On a hit the pipeline is skipped entirely: the
-cached file is copied under the new workplate UUID and `SliceComplete` is emitted
-immediately. On a miss the fresh slice is stored. The desktop (Tauri) runtime
-keeps an in-memory mirror with the same key
+scene DTOs (file id + transform) + `crate::version::VERSION` into an FNV-1a key
+(`compute_slice_cache_key`) and writes the freshly-generated `.gcode` into a
+`gcode_cache` table (migration `m20250201_000002`) under it via
+`Db::put_cached_gcode`. **Every slice request runs the full pipeline** — the
+table is written, never read back to decide whether to slice. The desktop
+(Tauri) runtime keeps an in-memory mirror with the same key and the same
+write-only discipline
 ([ui-desktop/src-tauri/src/bridge/runtime_bridge.rs](ui-desktop/src-tauri/src/bridge/runtime_bridge.rs)).
 Notes:
 
@@ -740,12 +741,14 @@ Notes:
 - **The embedded thumbnail PNG is excluded from the key.**
   `SlicingParams::cache_fingerprint` drops `thumbnail_png_base64` (the
   camera-derived preview captured fresh from the viewer on every slice) so its
-  volatile bytes never bust the cache — the issue #106 requirement that camera
-  movement leave the cache-hit rate unaffected. The thumbnail *settings*
-  (`thumbnail_view`/`theme`/`size`/…) stay in the key, so a cached file's
-  embedded preview always matches the request that reused it.
-- Cache is best-effort: a dangling row (file cleaned up) is evicted lazily on
-  lookup and the scene re-sliced.
+  volatile bytes never end up part of the key. The thumbnail *settings*
+  (`thumbnail_view`/`theme`/`size`/…) stay in the key.
+- **`Db::get_cached_gcode` still exists and is still tested**
+  ([src/db/history_tests.rs](src/db/history_tests.rs)) — it is a working DB
+  primitive, just not called from the slice path. Don't wire it back into
+  `handle_slice` without discussing it first; the skip-on-hit behaviour it used
+  to drive was deliberately removed because a "cached" response could silently
+  serve stale G-code for a scene the engine had actually changed how it slices.
 
 ## Profile library — persisted next to the engine
 

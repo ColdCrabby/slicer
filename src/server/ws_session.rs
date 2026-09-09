@@ -452,53 +452,11 @@ async fn handle_slice(
     let gcode_output_path = work_dir.join(format!("{}.gcode", uuid));
     let gcode_output_path_clone = gcode_output_path.clone();
 
-    // Cache hit: an identical scene + settings was sliced before. Reuse the
-    // stored G-code, copy it under this workplate's download name, and skip the
-    // entire slicing pipeline.
-    if let Ok(Some((cached_path, _size, layer_count))) = db.get_cached_gcode(&cache_key).await {
-        // Re-slicing the same workplate reuses its request UUID, so the cached
-        // file and this run's output path can be the *same* file. `fs::copy`
-        // onto itself truncates it to empty (1-layer / blank viewer) — skip the
-        // copy in that case; the file is already in place.
-        let same_file = cached_path == gcode_output_path
-            || match (
-                std::fs::canonicalize(&cached_path),
-                std::fs::canonicalize(&gcode_output_path),
-            ) {
-                (Ok(a), Ok(b)) => a == b,
-                _ => false,
-            };
-        let copy_result = if same_file {
-            Ok(0)
-        } else {
-            std::fs::copy(&cached_path, &gcode_output_path)
-        };
-        match copy_result {
-            Ok(_) => {
-                send_or_return!(ServerMessage::log_info(format!(
-                    "Reusing cached slice ({layer_count} layers) — scene unchanged since last slice"
-                )));
-                // Register the download path BEFORE announcing completion. The
-                // cache path is instant, so the client's fetch of
-                // `/api/download/{uuid}` would otherwise race this DB write and
-                // hit `download_file_path == None` (404 → blank viewer).
-                if let Ok(file_size) = std::fs::metadata(&gcode_output_path).map(|m| m.len()) {
-                    let _ = db
-                        .set_download_file(uuid, &gcode_output_path, file_size)
-                        .await;
-                }
-                send_or_return!(ServerMessage::SliceComplete {
-                    layer_count,
-                    download_url: format!("{}/api/download/{}", base_url, uuid),
-                });
-                return;
-            }
-            Err(e) => {
-                // Fall through to a normal slice if the cached file vanished.
-                StderrLogger.log_warn(&format!("[WS] Cache copy failed ({e}); reslicing"));
-            }
-        }
-    }
+    // No cache lookup here on purpose: every slice request runs the full
+    // pipeline, even when `cache_key` matches a previous run byte-for-byte.
+    // `put_cached_gcode` below still records the result under that key — the
+    // table stays warm for whatever else might read it — it is just never
+    // consulted to *skip* a slice.
 
     let slice_handle = tokio::task::spawn_blocking(move || -> Option<usize> {
         /// Serializes `msg` to JSON; returns a hard-coded error frame on failure.
