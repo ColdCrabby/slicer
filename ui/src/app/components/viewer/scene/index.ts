@@ -7,7 +7,9 @@ import {
   HemisphereLight,
   Mesh,
   MeshBasicMaterial,
+  NoToneMapping,
   type Object3D,
+  PCFSoftShadowMap,
   PerspectiveCamera,
   Scene,
   SRGBColorSpace,
@@ -30,6 +32,10 @@ import { disposeObject } from './utils';
 const CAMERA_NEAR = 0.1;
 const CAMERA_FAR = 1_000_000;
 const MAX_PIXEL_RATIO = 2;
+/** Extra shadow-camera frustum margin (mm) beyond the bed footprint. */
+const SHADOW_BED_MARGIN_MM = 60;
+/** Extra shadow-camera near/far depth margin (mm), for tall prints. */
+const SHADOW_HEIGHT_MARGIN_MM = 400;
 
 /**
  * Canvas events that must force a repaint because they can change the image
@@ -64,6 +70,8 @@ export interface ViewerSceneOptions {
   pixelRatioCap?: number;
   /** Initial perspective field-of-view in degrees. */
   fieldOfView?: number;
+  /** Whether the model casts/receives shadows. Defaults to true. */
+  shadowsEnabled?: boolean;
 }
 
 /** Field-of-view (deg) used for the fixed-angle thumbnail render. */
@@ -247,6 +255,22 @@ export class ViewerScene {
     this.renderer.setClearColor(0x000000, 0);
     this.renderer.setSize(clientWidth, clientHeight);
     this.renderer.domElement.style.touchAction = 'none';
+    // Filmic tone mapping (ACES) was tried here and reverted: its per-channel
+    // highlight rolloff converges bright values toward white, which reads as
+    // washed-out/dull rather than punchy once real content (a light theme
+    // background, or this app's already carefully-tuned model/G-code
+    // palettes) is on screen — the renderer keeps its untouched linear output
+    // and "pop" instead comes from the light rig and materials below.
+    this.renderer.toneMapping = NoToneMapping;
+    // Shadow-map recompute rides the same on-demand gate as everything else:
+    // `shadowMap.autoUpdate` (default) only recomputes on frames where
+    // `renderer.render()` actually runs, and `tick()` below already gates
+    // that behind `needsRender || active` — see the viewer README's
+    // "a still view costs exactly one frame" invariant. Toggling
+    // `shadowMap.enabled` off (setShadowsEnabled) makes Three.js skip its
+    // shadow pre-pass entirely, not just hide the result.
+    this.renderer.shadowMap.enabled = options?.shadowsEnabled ?? true;
+    this.renderer.shadowMap.type = PCFSoftShadowMap;
     host.appendChild(this.renderer.domElement);
 
     // Palm rejection is installed on `host` (an ancestor of the canvas) in the
@@ -325,10 +349,21 @@ export class ViewerScene {
     this.scene.add(this.hemiLight);
     this.keyLight = new DirectionalLight(0xffffff, 0.8);
     this.keyLight.position.set(200, 300, 400);
+    // Only the key light casts shadows — a single shadow-map pass keeps the
+    // extra cost to one draw per shadow caster instead of one per light.
+    this.keyLight.castShadow = options?.shadowsEnabled ?? true;
+    this.keyLight.shadow.mapSize.set(1024, 1024);
+    this.keyLight.shadow.bias = -0.0005;
+    this.keyLight.shadow.normalBias = 0.5;
+    // The target must be part of the scene graph for its matrixWorld to be
+    // kept up to date by the render loop; its position is retuned to the bed
+    // centre in updateShadowCameraBounds() below and on every setPrintArea().
+    this.scene.add(this.keyLight.target);
     this.scene.add(this.keyLight);
     this.fillLight = new DirectionalLight(0xffffff, 0.25);
     this.fillLight.position.set(-180, 140, -220);
     this.scene.add(this.fillLight);
+    this.updateShadowCameraBounds(printArea);
     this.setTheme(true);
 
     this.axesGizmo = buildAxesGizmo(40, 0.6);
@@ -347,31 +382,70 @@ export class ViewerScene {
   setPrintArea(config: PrintAreaConfig): void {
     this._camera.setPrintArea(config);
     this._grid.setPrintArea(config);
+    this.updateShadowCameraBounds(config);
     this.needsRender = true;
   }
 
   /**
    * Retune the lighting rig for the active colour scheme. Light mode needs a
    * brighter hemisphere fill and a mid-grey ground tint so the model keeps
-   * readable form against the near-white background instead of collapsing into
-   * a dark shape; dark mode drops the fill so the faces don't wash out against
-   * the near-black background.
+   * readable form against the near-white background instead of collapsing
+   * into a dark shape. Dark mode carries a stronger key light and a brighter
+   * hemisphere/fill than the light theme actually needs, since a near-black
+   * background gives every face far less ambient bounce to work with — too
+   * little of either and the model reads as a flat, "darky" silhouette
+   * instead of a lit object.
    */
   setTheme(isDark: boolean): void {
     if (isDark) {
       this.hemiLight.groundColor.setHex(0x4a4e57);
-      this.hemiLight.intensity = 0.72;
-      this.keyLight.intensity = 0.9;
+      this.hemiLight.intensity = 0.85;
+      this.keyLight.intensity = 1.35;
       this.fillLight.color.setHex(0xd6deec);
-      this.fillLight.intensity = 0.26;
+      this.fillLight.intensity = 0.32;
     } else {
       this.hemiLight.groundColor.setHex(0xb2b8c2);
       this.hemiLight.intensity = 1.3;
-      this.keyLight.intensity = 1.25;
+      this.keyLight.intensity = 1.3;
       this.fillLight.color.setHex(0xffffff);
-      this.fillLight.intensity = 0.34;
+      this.fillLight.intensity = 0.3;
     }
     this.needsRender = true;
+  }
+
+  /**
+   * Enable/disable shadows. Setting `shadowMap.enabled = false` makes
+   * Three.js skip its shadow pre-pass entirely, not just hide the visual
+   * result, so this fully removes the cost rather than just the effect.
+   */
+  setShadowsEnabled(enabled: boolean): void {
+    this.renderer.shadowMap.enabled = enabled;
+    this.keyLight.castShadow = enabled;
+    this._grid.setShadowReceiverEnabled(enabled);
+    this.needsRender = true;
+  }
+
+  /**
+   * Size the key light's orthographic shadow-camera frustum to the bed
+   * footprint (plus a margin for tall prints) and re-aim its target at the
+   * bed centre. Called at construction and on every {@link setPrintArea}.
+   */
+  private updateShadowCameraBounds(config: PrintAreaConfig): void {
+    const { printableAreaWidth, printableAreaHeight, movableAreaX, movableAreaY } = config;
+    const centerX = movableAreaX + printableAreaWidth / 2;
+    const centerY = movableAreaY + printableAreaHeight / 2;
+    this.keyLight.target.position.set(centerX, centerY, 0);
+
+    const radius = Math.max(printableAreaWidth, printableAreaHeight) / 2 + SHADOW_BED_MARGIN_MM;
+    const distanceToTarget = this.keyLight.position.distanceTo(this.keyLight.target.position);
+    const cam = this.keyLight.shadow.camera;
+    cam.left = -radius;
+    cam.right = radius;
+    cam.top = radius;
+    cam.bottom = -radius;
+    cam.near = Math.max(distanceToTarget - radius - SHADOW_HEIGHT_MARGIN_MM, 0.1);
+    cam.far = distanceToTarget + radius + SHADOW_HEIGHT_MARGIN_MM;
+    cam.updateProjectionMatrix();
   }
 
   clearContent(): void {
