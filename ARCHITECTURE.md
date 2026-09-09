@@ -68,11 +68,18 @@ Every one of these has a README. They are the real documentation.
 | [`infill/`](src/infill/README.md) | Sparse fill patterns | Pattern generation |
 | [`adhesion/`](src/adhesion/README.md) | Skirt, brim, raft | Why it runs last |
 | [`gcode/`](src/gcode/README.md) | Emission, firmware dialects, lifecycle markers, the parseable footer | Output |
+| [`plugin/`](src/plugin/README.md) | The hook interface the pipeline's stages are addressed through | Extending it |
 
 The pipeline's execution order is load-bearing and documented in
 [`core/README.md`](src/core/README.md). Surfaces are computed after walls;
 infill after surfaces; adhesion dead last. Reordering breaks things in ways that
 are hard to see.
+
+That order is now **data**: [`core/stages.rs`](src/core/stages.rs) is a list of
+named stages, and a plugin extends the engine by naming one rather than by
+editing the pipeline. So the set of extension points grows with the pipeline
+itself — see [`plugin/README.md`](src/plugin/README.md), and
+[`PLUGINS.md`](src/PLUGINS.md) for the design and the milestones still ahead.
 
 ### Scene and configuration
 

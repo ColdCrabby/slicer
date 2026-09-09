@@ -2776,6 +2776,23 @@ duplicate the work or race it.",
     )]
     #[serde(default)]
     pub bed_mesh_adaptive: bool,
+
+    /// Settings owned by plugins, namespaced one object per plugin id.
+    ///
+    /// Kept as a nested bag rather than flattened into the 100-odd core keys
+    /// so ownership is obvious, a plugin can never collide with a core
+    /// setting, and the fingerprint below picks up plugin state for free.
+    /// Every plugin reserves `enabled` in its own namespace; the rest of the
+    /// object is whatever its [`settings_schema`] declares.
+    ///
+    /// The map is skipped when empty, so a build with no configured plugin
+    /// serializes — and therefore fingerprints — exactly as it did before
+    /// plugins existed.
+    ///
+    /// [`settings_schema`]: crate::plugin::Plugin::settings_schema
+    #[schemars(schema_with = "plugin_settings_schema")]
+    #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
+    pub plugins: std::collections::BTreeMap<String, serde_json::Value>,
 }
 
 /// Schema helper: emit the full [`SlicingParams`] schema for a
@@ -2787,101 +2804,20 @@ pub fn slicing_params_schema(generator: &mut schemars::SchemaGenerator) -> schem
     generator.subschema_for::<SlicingParams>()
 }
 
-/// Settings a profile may state as a **percentage of another setting**, and the
-/// setting each one is a percentage of.
+/// Schema helper: describe the `plugins` bag as an empty object.
 ///
-/// A bead width pinned to `0.44` mm is right on a 0.4 mm nozzle and under-fills
-/// a 0.6 by a quarter, so a process profile shared across machines cannot hold
-/// one. Stating `"110%"` instead lets the same recipe be correct on every
-/// nozzle the user owns — which is the whole reason a process profile is
-/// separate from a printer profile.
-///
-/// The base of a derived setting must itself be absolute, so one pass resolves
-/// everything; `no_derived_setting_is_the_base_of_another` holds that.
-///
-/// This is deliberately **not** [`RelativeSpeed`]: that type carries a
-/// percentage all the way to the point of use, because the speed it is a
-/// fraction of is chosen per *segment* (by overhang degree) and is not known
-/// until then. These are resolved once, against a sibling in the same document,
-/// and every consumer keeps reading a plain `f64`.
-pub const DERIVED_FROM: [(&str, &str); 7] = [
-    ("first_layer_height", "layer_height"),
-    ("inner_wall_line_width", "nozzle_diameter_mm"),
-    ("line_width", "nozzle_diameter_mm"),
-    ("outer_wall_line_width", "nozzle_diameter_mm"),
-    ("sparse_infill_line_width", "nozzle_diameter_mm"),
-    ("support_line_width", "nozzle_diameter_mm"),
-    ("top_surface_line_width", "nozzle_diameter_mm"),
-];
-
-/// Replace every `"NN%"` in `document` with its resolved number, in place.
-///
-/// Runs on the **merged** document, after every profile layer and the user's
-/// overrides, so a percentage always resolves against the nozzle (or layer
-/// height) that actually won — not the one the profile stating it happened to
-/// be written beside.
-///
-/// A percentage whose base is missing or not a number is left alone rather than
-/// guessed at; `SlicingParams` deserialization then rejects it, which is the
-/// honest outcome for a document that asks for a fraction of nothing.
-pub fn resolve_derived_values(document: &mut serde_json::Value) {
-    let Some(map) = document.as_object() else {
-        return;
-    };
-    let mut resolved: Vec<(String, f64)> = Vec::new();
-    for (field, base_field) in DERIVED_FROM {
-        let Some(percent) = map.get(field).and_then(parse_percent) else {
-            continue;
-        };
-        let Some(base) = map.get(base_field).and_then(serde_json::Value::as_f64) else {
-            continue;
-        };
-        resolved.push((field.to_string(), percent * base));
-    }
-    let Some(map) = document.as_object_mut() else {
-        return;
-    };
-    for (field, value) in resolved {
-        map.insert(field, serde_json::Value::from(value));
-    }
+/// Left deliberately bare here. The concrete per-plugin properties are grafted
+/// on at generation time by [`crate::plugin::schema::inject_plugin_settings`],
+/// which is the only place that knows which plugins a build actually ships —
+/// `schemars` derives from types, and the plugin set is a runtime value.
+fn plugin_settings_schema(_generator: &mut schemars::SchemaGenerator) -> schemars::Schema {
+    schemars::json_schema!({
+        "type": "object",
+        "description": "Settings owned by plugins, one object per plugin id.",
+        "properties": {},
+        "additionalProperties": true,
+    })
 }
-
-/// `"110%"` → `Some(1.1)`. Anything else — including a plain number — is `None`.
-fn parse_percent(value: &serde_json::Value) -> Option<f64> {
-    let text = value.as_str()?.trim().strip_suffix('%')?;
-    text.trim().parse::<f64>().ok().map(|n| n / 100.0)
-}
-
-/// The settings a machine may correct per material family — the closed set a
-/// [`material overlay`] is allowed to carry.
-///
-/// Each of these is a property of an extruder *and* a material together, so no
-/// single value on the filament is right across a user's machines: what a hotend
-/// can melt, what an extruder's pressure advance is, how much retraction an
-/// elastic filament wants out of this drive, what a given build plate needs
-/// under this material.
-///
-/// **This list is closed on purpose.** A machine correction that could name any
-/// setting would be a second override system with a different scope, and the
-/// user would have to hold both. Anything outside it belongs in the profile that
-/// owns it. Kept in step with the `x-per-machine-material` schema annotations by
-/// `the_per_machine_material_keys_match_the_schema`, so the UI can read the same
-/// set out of the schema rather than carrying a copy.
-///
-/// [`material overlay`]: crate::profiles::PrinterProfile::material_overlays
-pub const PER_MACHINE_MATERIAL_KEYS: [&str; 11] = [
-    "bed_temp",
-    "bed_temp_first_layer",
-    "fan_speed",
-    "flow_ratio",
-    "max_volumetric_speed",
-    "nozzle_temp",
-    "nozzle_temp_first_layer",
-    "pressure_advance",
-    "retract_mm",
-    "retract_speed_mm_min",
-    "z_hop_mm",
-];
 
 impl Default for SlicingParams {
     /// Sensible defaults for a standard PLA print.
@@ -3076,6 +3012,7 @@ impl Default for SlicingParams {
             bed_mesh_mode: BedMeshMode::default(),
             bed_mesh_profile_name: None,
             bed_mesh_adaptive: false,
+            plugins: std::collections::BTreeMap::new(),
         }
     }
 }

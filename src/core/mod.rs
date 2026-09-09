@@ -5,8 +5,7 @@ mod infill;
 mod objects;
 mod pipeline;
 mod slicer;
-mod support_paint;
-mod supports;
+pub mod stages;
 mod surfaces;
 mod types;
 mod walls;
@@ -20,7 +19,7 @@ pub use objects::{
 #[cfg(not(target_arch = "wasm32"))]
 pub use pipeline::process_mesh_debug;
 pub(crate) use pipeline::resolved_first_layer_height;
-pub use pipeline::{process_mesh, process_mesh_with_paint};
+pub use pipeline::{process_mesh, process_mesh_with_plugins};
 pub use slicer::{slice_mesh, slice_mesh_with_first_layer};
 pub use support_paint::{project_support_paint, SupportPaintMasks};
 pub use supports::{generate_supports, generate_supports_with_paint};

@@ -57,6 +57,15 @@
 /// | [`INFILL`] | Sparse and solid infill pattern generation |
 /// | [`GCODE_GENERATION`] | G-code program construction |
 /// | [`FILE_WRITE`] | Writing the G-code file to disk |
+/// | [`COMPENSATION`] | XY size / hole compensation on raw contours |
+/// | [`OVERHANG_SUPPORT_SNAPSHOT`] | Pristine outer-wall snapshot for overhang grading |
+/// | [`OVERHANG_CLASSIFICATION`] | Grading of walls crossing unsupported air |
+/// | [`GAP_FILL_PRUNE`] | Gap-fill beads a solid surface already covers |
+/// | [`PATH_ORDERING`] | Greedy-TSP ordering and seam placement |
+/// | [`FLOW_COMPENSATION`] | Extrusion scaling where wall beads overlap |
+/// | [`FUZZY_SKIN`] | Cosmetic outer-wall texture |
+/// | [`BED_ADHESION`] | Skirt / brim / raft |
+/// | [`FIRST_LAYER_HEIGHT`] | Charging the bottom layer at its own height |
 pub mod phases {
     /// Complete end-to-end slicing process (spans all other phases).
     pub const TOTAL: &str = "total";
@@ -88,6 +97,24 @@ pub mod phases {
     pub const GCODE_GENERATION: &str = "gcode_generation";
     /// Writing the G-code output file to disk phase.
     pub const FILE_WRITE: &str = "file_write";
+    /// XY size / hole dimensional compensation on the raw contours.
+    pub const COMPENSATION: &str = "compensation";
+    /// Snapshot of pristine outer walls taken for overhang-degree grading.
+    pub const OVERHANG_SUPPORT_SNAPSHOT: &str = "overhang_support_snapshot";
+    /// Grading of wall segments that cross unsupported air.
+    pub const OVERHANG_CLASSIFICATION: &str = "overhang_classification";
+    /// Removal of gap-fill beads a solid surface already covers.
+    pub const GAP_FILL_PRUNE: &str = "gap_fill_prune";
+    /// Greedy-TSP path ordering and seam placement.
+    pub const PATH_ORDERING: &str = "path_ordering";
+    /// Extrusion scaling where wall beads overlap.
+    pub const FLOW_COMPENSATION: &str = "flow_compensation";
+    /// Cosmetic outer-wall texture pass.
+    pub const FUZZY_SKIN: &str = "fuzzy_skin";
+    /// Skirt / brim / raft generation.
+    pub const BED_ADHESION: &str = "bed_adhesion";
+    /// Charging the object's bottom layer at the first-layer height.
+    pub const FIRST_LAYER_HEIGHT: &str = "first_layer_height";
 }
 
 /// Unified logging interface for the slicing pipeline.
