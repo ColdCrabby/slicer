@@ -36,6 +36,11 @@ issue/PR numbers or repo links in the notes. See the tone rules in
   8 mm/s to stay below the new bridge speed.
 ### Added
 
+- **Workplate tabs.** The title bar's single plate-name field is now a tab
+  strip, so several workplates can stay open at once — upload, open a recent
+  project, or follow a deep link and it opens in its own tab. Switch, rename,
+  or close tabs independently; closing one only removes it from the strip,
+  the plate itself is still reachable from Home.
 - **Fuzzy skin.** A new outer-wall texture option roughs the surface with a
   small random perpendicular jitter instead of a smooth wall — useful for
   hiding layer lines or giving a part a deliberately organic look. Tunable

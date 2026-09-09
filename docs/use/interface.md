@@ -147,6 +147,20 @@ If the app was updated while your tab stayed open, a part it hasn't loaded yet
 may have already been replaced on the server. Rather than failing silently, it
 offers you a **Reload** banner. Take it — a reloaded tab is a consistent one.
 
+## Workplate tabs
+
+The title bar keeps a tab for every workplate you have open, the way a browser
+keeps a tab per page. Uploading a model, opening a recent project, or following
+a link into a plate all open a tab; clicking one switches to that plate.
+
+- **Rename a tab** by clicking into it and typing — the same name is used for
+  the downloaded G-code file.
+- **Open a new, empty plate** with the `+` at the end of the strip.
+- **Close a tab** with its `×`. Closing the plate you're looking at switches you
+  to the next tab over, or back to a fresh plate if it was the last one open.
+  Closing a tab only removes it from the strip — the plate itself isn't
+  deleted, and you can always get back to it from **Home → Recent projects**.
+
 ## Undo
 
 `Ctrl`/`⌘ + Z` undoes, `Ctrl`/`⌘ + Y` (or `⌘ + Shift + Z`) redoes. This covers
