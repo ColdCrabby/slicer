@@ -6736,6 +6736,7 @@ CHAMBER={chamber_temp} MATERIAL={filament_type}"
             crate::core::OverhangClass::None,
             false,
             &params,
+            1.0,
         );
         assert!(
             (s - 45.0 * 60.0).abs() < 1e-6,
@@ -6758,6 +6759,7 @@ CHAMBER={chamber_temp} MATERIAL={filament_type}"
             crate::core::OverhangClass::None,
             false,
             &params,
+            1.0,
         );
         assert!((s - 60.0 * 60.0).abs() < 1e-6, "expected print_speed * 60");
     }

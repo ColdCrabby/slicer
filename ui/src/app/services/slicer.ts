@@ -588,7 +588,7 @@ export class Slicer {
   removeLayerTrigger(layer: number): void {
     const triggers = this.settings().triggers ?? [];
     this.updateSettings({
-      triggers: triggers.filter((t) => !('layer' in t && t.layer === layer)),
+      triggers: triggers.filter((t: PauseTrigger) => !('layer' in t && t.layer === layer)),
     });
   }
 
