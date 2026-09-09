@@ -1,4 +1,4 @@
-//! Fuzzy skin — a cosmetic outer-wall texture (issue #95).
+//! Fuzzy skin — a cosmetic outer-wall texture.
 //!
 //! Resamples every layer's closed `OuterWall` bead to a near-uniform vertex
 //! spacing and displaces each new vertex perpendicular to the wall by a
