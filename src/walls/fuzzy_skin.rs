@@ -1,9 +1,9 @@
 //! Fuzzy skin — a cosmetic outer-wall texture.
 //!
-//! Resamples every layer's closed `OuterWall` bead to a near-uniform vertex
-//! spacing and displaces each new vertex perpendicular to the wall by a
-//! small pseudo-random amount, replacing a smooth outer surface with a
-//! rough, hand-textured one.
+//! Resamples every layer's outer-wall bead to a near-uniform vertex spacing
+//! and displaces each new vertex perpendicular to the wall by a small
+//! pseudo-random amount, replacing a smooth outer surface with a rough,
+//! hand-textured one.
 //!
 //! This is deliberately **not** part of [`super::generate_walls`]: it must
 //! run after path ordering and flow compensation (so it perturbs the final
@@ -12,14 +12,29 @@
 //! invalidated) and before bed adhesion (whose skirt/brim trace the *clean*
 //! `OuterWall` centerlines — see [`crate::adhesion`]). The pipeline in
 //! [`crate::core::pipeline`] calls [`apply`] at that point.
+//!
+//! ## Open arcs (overhang-graded outer walls)
+//!
+//! `classify_overhang_perimeters` (in [`crate::core::walls`]) can split a
+//! closed `OuterWall` loop into several **open** sub-paths where it crosses
+//! unsupported air: the in-air run becomes `OverhangPerimeter`, and the
+//! supported runs either side keep the `OuterWall` role but are no longer
+//! closed. Both roles are fuzzed here, open or closed, so a wall that
+//! happens to be overhang-graded doesn't leave bald, un-textured segments
+//! next to fuzzed ones. Open arcs are resampled with their **two endpoints
+//! left untouched**: adjacent runs from the same split share those exact
+//! coordinates (see `classify_overhang_perimeters`'s doc comment), and
+//! jittering them would tear a visible gap between two runs of what is,
+//! physically, one continuous wall.
 
 use clipper2::{Path, Paths};
 
 use crate::core::{ExtrusionRole, SliceLayer};
 use crate::settings::params::SlicingParams;
 
-/// Perturb every layer's closed `OuterWall` beads per
-/// [`SlicingParams::fuzzy_skin`].
+/// Perturb every layer's outer-wall paths — `OuterWall`, open or closed, and
+/// `OverhangPerimeter` (the overhang-graded split of an outer or inner wall)
+/// — per [`SlicingParams::fuzzy_skin`].
 ///
 /// No-op when the option is off or either magnitude resolves to nothing, so
 /// the default configuration never allocates.
@@ -44,15 +59,21 @@ pub fn apply(layers: &mut [SliceLayer], params: &SlicingParams) {
 
         for (i, path) in layer.paths.iter().enumerate() {
             let widths = layer.path_vertex_widths.get(i).cloned().flatten();
-            let is_outer_loop =
-                layer.role_for_path(i) == ExtrusionRole::OuterWall && !layer.is_path_open(i);
+            let role = layer.role_for_path(i);
+            let is_fuzzable_wall = matches!(
+                role,
+                ExtrusionRole::OuterWall | ExtrusionRole::OverhangPerimeter
+            );
 
-            if is_outer_loop {
+            if is_fuzzable_wall {
                 let seed = path_seed(path, layer.z, i);
-                if let Some((fuzzed, fuzzed_widths)) =
+                let fuzzed = if layer.is_path_open(i) {
+                    fuzz_open_path(path, widths.as_deref(), point_dist, thickness, seed)
+                } else {
                     fuzz_closed_path(path, widths.as_deref(), point_dist, thickness, seed)
-                {
-                    new_paths.push(fuzzed);
+                };
+                if let Some((fuzzed_path, fuzzed_widths)) = fuzzed {
+                    new_paths.push(fuzzed_path);
                     new_widths.push(fuzzed_widths);
                     continue;
                 }
@@ -153,6 +174,94 @@ fn fuzz_closed_path(
             let (wa, wb) = (sw[seg], sw[(seg + 1) % n]);
             out.push(wa + (wb - wa) * t);
         }
+    }
+
+    Some((points.into(), widths))
+}
+
+/// Resample an **open** wall arc the same way as [`fuzz_closed_path`], except
+/// the two endpoints are left exactly where they are.
+///
+/// An open arc is a partial run of a loop split by
+/// `classify_overhang_perimeters`; adjacent runs from the same split share
+/// their boundary coordinates exactly, so jittering an endpoint would open a
+/// visible gap between an overhang run and the (fuzzed) wall run next to it.
+/// Only the interior is perturbed.
+///
+/// Returns `None` for a degenerate path (fewer than 2 vertices, or zero
+/// length).
+fn fuzz_open_path(
+    path: &Path,
+    source_widths: Option<&[f64]>,
+    point_dist_mm: f64,
+    thickness_mm: f64,
+    seed: u64,
+) -> Option<(Path, Option<Vec<f64>>)> {
+    let source: Vec<(f64, f64)> = path.iter().map(|p| (p.x(), p.y())).collect();
+    let n = source.len();
+    if n < 2 {
+        return None;
+    }
+    let source_widths = source_widths.filter(|w| w.len() == n);
+
+    let mut arc = Vec::with_capacity(n);
+    arc.push(0.0);
+    let mut total = 0.0;
+    for i in 1..n {
+        let (ax, ay) = source[i - 1];
+        let (bx, by) = source[i];
+        total += ((bx - ax).powi(2) + (by - ay).powi(2)).sqrt();
+        arc.push(total);
+    }
+    if total <= f64::EPSILON {
+        return None;
+    }
+
+    let sample_count = (((total / point_dist_mm).round() as i64) + 1).max(2) as usize;
+    let step = total / (sample_count - 1) as f64;
+
+    let mut rng = SplitMix64::new(seed);
+    let mut points = Vec::with_capacity(sample_count);
+    let mut widths = source_widths.map(|_| Vec::with_capacity(sample_count));
+
+    points.push(source[0]);
+    if let (Some(sw), Some(out)) = (source_widths, widths.as_mut()) {
+        out.push(sw[0]);
+    }
+
+    let mut seg = 0usize;
+    for k in 1..sample_count - 1 {
+        let target = step * k as f64;
+        while seg + 1 < n - 1 && arc[seg + 1] <= target {
+            seg += 1;
+        }
+        let (ax, ay) = source[seg];
+        let (bx, by) = source[seg + 1];
+        let (dx, dy) = (bx - ax, by - ay);
+        let seg_len = (dx * dx + dy * dy).sqrt();
+        let t = if seg_len > f64::EPSILON {
+            ((target - arc[seg]) / seg_len).clamp(0.0, 1.0)
+        } else {
+            0.0
+        };
+
+        let normal = if seg_len > f64::EPSILON {
+            (-dy / seg_len, dx / seg_len)
+        } else {
+            (0.0, 0.0)
+        };
+        let r = (rng.next_f64() * 2.0 - 1.0) * thickness_mm;
+        points.push((ax + dx * t + normal.0 * r, ay + dy * t + normal.1 * r));
+
+        if let (Some(sw), Some(out)) = (source_widths, widths.as_mut()) {
+            let (wa, wb) = (sw[seg], sw[seg + 1]);
+            out.push(wa + (wb - wa) * t);
+        }
+    }
+
+    points.push(source[n - 1]);
+    if let (Some(sw), Some(out)) = (source_widths, widths.as_mut()) {
+        out.push(sw[n - 1]);
     }
 
     Some((points.into(), widths))
@@ -269,9 +378,11 @@ mod tests {
     }
 
     #[test]
-    fn open_outer_wall_paths_are_left_alone() {
-        // Arachne's classify_overhang_perimeters can split a closed OuterWall
-        // loop into open arcs; fuzzy skin must not treat those as closed.
+    fn open_outer_wall_arcs_are_fuzzed_too() {
+        // classify_overhang_perimeters splits a closed OuterWall loop into
+        // open runs where it crosses air; the supported runs keep the
+        // OuterWall role but are no longer closed. These must not be left
+        // smooth next to the fuzzed rest of the wall.
         let params = fuzzy_params();
         let mut layer = SliceLayer::new(0.2);
         let arc: Path = vec![(-10.0, -10.0), (10.0, -10.0), (10.0, 10.0)].into();
@@ -284,7 +395,64 @@ mod tests {
         let mut layers = vec![layer];
         apply(&mut layers, &params);
 
-        assert_eq!(layers[0].paths.get(0), Some(&arc));
+        let fuzzed = layers[0].paths.get(0).expect("one path");
+        assert!(
+            fuzzed.len() > arc.len(),
+            "the open arc should be resampled and perturbed, not left alone"
+        );
+    }
+
+    #[test]
+    fn overhang_perimeter_arcs_are_fuzzed_too() {
+        let params = fuzzy_params();
+        let mut layer = SliceLayer::new(0.2);
+        let arc: Path = vec![(-10.0, -10.0), (10.0, -10.0), (10.0, 10.0)].into();
+        layer.paths.push(arc.clone());
+        layer.path_roles.push(ExtrusionRole::OverhangPerimeter);
+        layer.path_widths.push(None);
+        layer.path_vertex_widths.push(None);
+        layer.path_is_open.push(true);
+
+        let mut layers = vec![layer];
+        apply(&mut layers, &params);
+
+        let fuzzed = layers[0].paths.get(0).expect("one path");
+        assert!(
+            fuzzed.len() > arc.len(),
+            "an overhang-graded run of the outer wall should be fuzzed too"
+        );
+    }
+
+    #[test]
+    fn open_arc_endpoints_stay_exactly_put() {
+        // Two adjacent runs from the same overhang split share an exact
+        // boundary coordinate; fuzzing an endpoint would tear a gap between
+        // them, so only the interior of an open arc may move.
+        let params = fuzzy_params();
+        let mut layer = SliceLayer::new(0.2);
+        let arc: Path = vec![(-10.0, -10.0), (0.0, -10.0), (10.0, -10.0), (10.0, 10.0)].into();
+        layer.paths.push(arc.clone());
+        layer.path_roles.push(ExtrusionRole::OuterWall);
+        layer.path_widths.push(None);
+        layer.path_vertex_widths.push(None);
+        layer.path_is_open.push(true);
+
+        let mut layers = vec![layer];
+        apply(&mut layers, &params);
+
+        let fuzzed = layers[0].paths.get(0).expect("one path");
+        let first = fuzzed.iter().next().expect("first point");
+        let last = fuzzed.iter().next_back().expect("last point");
+        let (ox0, oy0) = (
+            arc.iter().next().unwrap().x(),
+            arc.iter().next().unwrap().y(),
+        );
+        let (oxn, oyn) = (
+            arc.iter().next_back().unwrap().x(),
+            arc.iter().next_back().unwrap().y(),
+        );
+        assert_eq!((first.x(), first.y()), (ox0, oy0));
+        assert_eq!((last.x(), last.y()), (oxn, oyn));
     }
 
     #[test]
