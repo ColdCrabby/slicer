@@ -1,0 +1,62 @@
+@use 'breakpoints' as *;
+
+:host {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  pointer-events: none;
+}
+
+.brush-popout {
+  position: fixed;
+  transform: translateX(-50%);
+  pointer-events: auto;
+  width: 216px;
+  padding: var(--spacing-sm);
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-sm);
+
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-lg);
+
+  animation: bp-in var(--duration-fast) var(--ease-standard);
+}
+
+@keyframes bp-in {
+  from {
+    opacity: 0;
+    transform: translateX(-50%) scale(0.96);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(-50%) scale(1);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .brush-popout {
+    animation: none;
+  }
+}
+
+.bp-hint {
+  margin: 0;
+  font-size: var(--font-size-2xs);
+  color: var(--color-text-tertiary);
+  text-align: center;
+}
+
+/* A fingertip needs the card wider than a cursor does, and the hint line is
+   mouse-only advice — a touch device has no scroll wheel to follow it. */
+@include coarse-pointer {
+  .brush-popout {
+    width: 260px;
+  }
+
+  .bp-hint {
+    display: none;
+  }
+}

@@ -36,6 +36,11 @@ export interface SceneGizmoHandlers {
   ): void;
   /** Fired once when a paint stroke finishes (pointer-up/cancel). Flush history here. */
   paintEnd(): void;
+  /**
+   * Fired when the viewport's scroll-wheel resizes the brush. Already clamped
+   * to the shared radius limits; the handler only has to store it.
+   */
+  paintRadiusChange(radiusMm: number): void;
 }
 
 /** A world-space surface point picked by the measuring tool. */

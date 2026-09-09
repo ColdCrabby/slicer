@@ -196,6 +196,7 @@ describe('SceneSelection', () => {
         facePicked: vi.fn(),
         paintDab: vi.fn(),
         paintEnd: vi.fn(),
+        paintRadiusChange: vi.fn(),
       };
       selection.setObjectMode('pullToFloor');
       tap('mouse', 0);
@@ -272,6 +273,7 @@ describe('SceneSelection', () => {
         facePicked: vi.fn(),
         paintDab: vi.fn(),
         paintEnd: vi.fn(),
+        paintRadiusChange: vi.fn(),
       };
       selection.gizmoHandlers = gizmoHandlers;
       selection.setDirectDragEnabled(true);
@@ -302,6 +304,7 @@ describe('SceneSelection', () => {
         facePicked: vi.fn(),
         paintDab: vi.fn(),
         paintEnd: vi.fn(),
+        paintRadiusChange: vi.fn(),
       };
       selection.gizmoHandlers = gizmoHandlers;
       selection.setDirectDragEnabled(true);
@@ -325,6 +328,7 @@ describe('SceneSelection', () => {
         facePicked: vi.fn(),
         paintDab: vi.fn(),
         paintEnd: vi.fn(),
+        paintRadiusChange: vi.fn(),
       };
       selection.gizmoHandlers = gizmoHandlers;
       selection.setDirectDragEnabled(true);
@@ -350,6 +354,7 @@ describe('SceneSelection', () => {
         facePicked: vi.fn(),
         paintDab: vi.fn(),
         paintEnd: vi.fn(),
+        paintRadiusChange: vi.fn(),
       };
       selection.setDirectDragEnabled(true);
       selection.setObjectMode('translate');
@@ -367,6 +372,7 @@ describe('SceneSelection', () => {
         facePicked: vi.fn(),
         paintDab: vi.fn(),
         paintEnd: vi.fn(),
+        paintRadiusChange: vi.fn(),
       };
       selection.gizmoHandlers = gizmoHandlers;
       selection.setDirectDragEnabled(true);

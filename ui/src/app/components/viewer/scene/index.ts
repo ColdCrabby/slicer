@@ -687,6 +687,11 @@ export class ViewerScene {
     this._selection.setPaintBrush(mode, radiusMm);
   }
 
+  /** Last pointer position over the canvas, in client pixels. */
+  getLastPointerClient(): { x: number; y: number } | null {
+    return this._selection.getLastPointerClient();
+  }
+
   /** Show or hide every object's painted-facet overlay. */
   setPaintOverlayVisible(visible: boolean): void {
     this.paintOverlay.setToolVisible(visible);

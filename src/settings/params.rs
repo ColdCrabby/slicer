@@ -2242,8 +2242,8 @@ overhang surface. Typically 0.6–0.9.",
         description = "Horizontal clearance in millimetres between support structures and the model \
 walls (XY distance).
 
-Larger values make supports easier to remove but reduce how well they hold up steep overhangs.
-Typical: 0.6–1.0 mm.",
+Larger values make supports easier to remove but reduce how well they hold up steep overhangs, and
+leave a visible gap around the part. **Default:** 0.35 mm; 0.2–0.5 mm covers most machines.",
         extend("x-group" = "Support", "x-relevant-when" = serde_json::json!({"field": "support_enabled", "equals": true}))
     )]
     #[serde(default = "SlicingParams::default_support_xy_distance_mm")]
@@ -3010,8 +3010,12 @@ impl SlicingParams {
     fn default_support_interface_density() -> f64 {
         0.7
     }
+    /// Matches OrcaSlicer and Bambu Studio (0.35 mm); PrusaSlicer's percentage
+    /// default lands near 0.22 mm. The 0.8 mm this used to be was chosen for
+    /// easy teardown, but it reads as a visible moat around the part and lets
+    /// steep overhangs sag before they reach the column holding them up.
     fn default_support_xy_distance_mm() -> f64 {
-        0.8
+        0.35
     }
     fn default_support_z_gap_layers() -> usize {
         1

@@ -1,4 +1,6 @@
 <div class="viewer-host" #host></div>
+<nexus-brush-popout />
+
 <div class="capture-shutter" [class.is-active]="thumbnailShutterActive()" aria-hidden="true"></div>
 @if (thumbnailPolaroidImage(); as thumbnailImage) {
   <div

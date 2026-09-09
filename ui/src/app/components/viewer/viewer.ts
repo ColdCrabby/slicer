@@ -17,6 +17,7 @@ import { BufferAttribute, BufferGeometry, Matrix4, Mesh, MeshPhongMaterial, Vect
 import { AppTheme } from '../../services/app-theme';
 import { Arrange } from '../../services/arrange';
 import { ContextMenuService } from '../../services/context-menu/context-menu.service';
+import { BrushPopout } from '../brush-popout/brush-popout';
 import type { ContextMenuItem } from '../../services/context-menu/context-menu.model';
 import { GcodePreview, ROLE_LABELS, scalarChannelFor } from '../../services/gcode-preview';
 import { ObjectTracker } from '../../services/object-tracker';
@@ -145,6 +146,7 @@ const THUMBNAIL_POLAROID_MS = 3200;
 @Component({
   selector: 'nexus-viewer',
   standalone: true,
+  imports: [BrushPopout],
   templateUrl: './viewer.html',
   styleUrl: './viewer.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -1151,6 +1153,7 @@ export class Viewer {
     };
     // Allow external gizmos (viewport-cube drag) to orbit the main camera.
     this.viewerControl.orbitSink = (azimuth, polar) => this.scene?.orbitBy(azimuth, polar);
+    this.viewerControl.pointerPositionSource = () => this.scene?.getLastPointerClient() ?? null;
     this.viewerControl.sliceThumbnailCaptureSink = this.captureSliceThumbnailSink;
     // Bridge raycast hits / gizmo gestures from the scene into the WASM
     // scene engine. Selection is stored locally; object manipulation is
@@ -1167,6 +1170,7 @@ export class Viewer {
       paintDab: (objectId, seedFace, worldPoint, radius, mode) =>
         this.handlePaintDab(objectId, seedFace, worldPoint, radius, mode),
       paintEnd: () => this.handlePaintEnd(),
+      paintRadiusChange: (radiusMm) => this.viewerControl.paintBrushRadius.set(radiusMm),
     };
     // Apply the current toolbar selections so the scene starts in sync with
     // whatever view / object mode the user already had selected.

@@ -42,6 +42,16 @@ issue/PR numbers or repo links in the notes. See the tone rules in
   for the support stage to measure. The threshold angle was inert as a result;
   it now does what it says. A 60° cone goes from nothing to full support, while
   a self-supporting 30° one is still left alone.
+- **Paint support where you want it** — a brush for marking overhangs the
+  automatic rule gets wrong: **enforce** where support is wanted regardless of
+  angle, **block** where it must never go. `B` picks up the brush (from the
+  G-code preview too), scrolling over the model resizes it, and `Shift`+`B`
+  opens size and mode at the pointer. **Support Auto** turns the overhang rule
+  off entirely, for plates supported only where painted.
+- **Support sits closer to the part** — the gap between support and model
+  drops from `0.8 mm` to **`0.35 mm`**, matching mainstream slicers. The old
+  figure left a visible moat and let steep overhangs sag before they reached
+  the column meant to be holding them up.
 - **Support islands print whole instead of missing an edge** — each island's
   perimeter is a closed loop, but the segment closing it back to its start was
   never extruded, leaving every island open on one side (about a fifth of all
