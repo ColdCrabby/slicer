@@ -57,7 +57,8 @@ never a hardcoded `:4213`.
 | **Surface Generation**         | [src/core/surfaces.rs](src/core/surfaces.rs) | Top/bottom solid surface detection and infill                                                 |
 | **Wall Restrictions**          | [src/core/walls.rs](src/core/walls.rs)       | Single-wall first/top-layer constraints                                                       |
 | **Infill Boundary**            | [src/core/infill.rs](src/core/infill.rs)     | Interior region calculation and sparse infill                                                 |
-| **Pipeline**                   | [src/core/pipeline.rs](src/core/pipeline.rs) | `process_mesh` — orchestrates the full slicing pipeline                                       |
+| **Pipeline**                   | [src/core/stages.rs](src/core/stages.rs) / [src/core/pipeline.rs](src/core/pipeline.rs) | The stage list, and `process_mesh` which runs it                                    |
+| **Plugins**                    | [src/plugin/](src/plugin/README.md)          | Hook interface: stages, namespaced settings; how the engine extends itself                    |
 | **Multi-object plates**        | [src/core/objects.rs](src/core/objects.rs)   | `slice_plate` — per-object identity for exclude-object & sequential printing                  |
 | **Scene Engine**               | [src/scene/](src/scene/)                     | Single source of truth for object placement (CLI / WS / WASM all consume `SceneState::apply`) |
 | **Clipper2 Integration**       | [src/core/](src/core/)                       | Geometric polygon clipping operations throughout                                              |
@@ -96,8 +97,16 @@ src/
 │   ├── surfaces.rs        # generate_top_bottom_surfaces*, rectilinear infill fill
 │   ├── walls.rs           # apply_single_wall_restrictions (per-island), compute_per_island_strip_masks
 │   ├── infill.rs          # calculate_interior_region, add_infill_to_layers
-│   ├── pipeline.rs        # process_mesh (full pipeline orchestrator)
+│   ├── stages.rs          # the pipeline as an ordered list of named stages (the hook surface)
+│   ├── pipeline.rs        # process_mesh — builds a run out of that list
 │   └── objects.rs         # slice_plate — multi-object plates, object identity (#22/#112)
+├── plugin/                # Plugin hooks (see plugin/README.md)
+│   ├── manifest.rs        # PluginManifest, Stability, PLUGIN_API_VERSION
+│   ├── context.rs         # SliceContext, Artifacts, Extensions (plugin-owned state)
+│   ├── stage.rs           # Stage / StageWrapper, StageId, StageRegistry, placements
+│   ├── settings.rs        # SlicingParams::plugins accessors (namespaced settings)
+│   ├── schema.rs          # grafts each plugin's schema fragment onto SlicingParams
+│   └── builtin/           # plugins compiled in; debug_capture replaces the old debug pipeline
 ├── scene/                 # Unified scene engine (issue #51 — SSOT for object placement)
 │   ├── mod.rs             # Re-exports public API
 │   ├── transform.rs       # Transform { translation, rotation: Quat, scale }; apply_transform; Euler-XYZ deg helpers
@@ -1250,6 +1259,76 @@ rationale.
   reports the diagnostics without slicing and exits non-zero when defects
   remain.
 
+## Plugins — the pipeline is a list, and hooks are keyed to it
+
+[src/plugin/](src/plugin/README.md) is the extension interface, and
+[src/core/stages.rs](src/core/stages.rs) is the pipeline it hooks into.
+`process_mesh` no longer runs the sequence as straight-line code: it builds a
+`StageRegistry` of 17 named stages, folds in any plugins, and runs it. The
+design, its milestones and its security model are in
+[src/PLUGINS.md](src/PLUGINS.md) — **M1 has shipped; M2 (layer model), M3 (move
+IR) and M4 (external WASM tier) have not.**
+
+- **A step added to `pipeline.rs` instead of `stages.rs` is a step no plugin can
+  reach.** That is the whole point of the split, and the easiest way to undo it.
+  New pipeline work is a `Stage` pushed into `core_stages()`, in the position
+  its comment justifies — the push order **is** the execution order, and
+  reordering it changes the output.
+- **Stage ids are the `phases::` constants.** The name a plugin targets and the
+  name the phase timings report are one string, so there is no second catalog to
+  drift. A new stage needs a new `phases::` constant, and the four ad-hoc Title
+  Case phase strings that used to exist are gone.
+- **`core_stages()`'s id list is a public API**, pinned by
+  `the_core_stage_order_is_what_plugins_target` in
+  [tests/plugin_hooks.rs](tests/plugin_hooks.rs). A plugin naming a stage is
+  entitled to run on that side of it; renaming or removing one breaks plugins,
+  so that test must be edited deliberately rather than re-recorded.
+- **Inter-stage state lives on `SliceContext::artifacts`, not in locals.**
+  `interior_regions`, `pre_strip_infill_regions`, `overhang_support` and
+  `first_layer_height` were local variables, which is exactly why an inserted
+  stage was impossible. Several are only populated when their feature is on, so
+  a stage reading one must cope with absence.
+- **A registration naming an unknown stage is rejected and logged, never
+  appended.** One plugin targeting a renamed stage should cost that plugin's
+  feature, not silently run at the wrong point — and not fail the user's slice.
+- **With no plugin active, output must stay byte-identical.** The QA baselines
+  are the gate; `tests/plugin_hooks.rs` additionally pins that *occupying* a
+  hook point changes nothing by itself. Break that and every future experiment
+  becomes a silent output change and the baselines stop meaning anything.
+- **Plugin settings are namespaced** at `params.plugins["<id>"]`, never
+  flattened into the ~100 core keys. Being a real field they survive serde
+  (nothing in the crate sets `deny_unknown_fields`, so an unknown key is
+  *silently dropped*) and they reach `cache_fingerprint` for free — without
+  which toggling a plugin hands back a stale cached G-code file. The map is
+  skipped when empty, so a build with no configured plugin fingerprints exactly
+  as it did before plugins existed. **Do not add a plugin setting as a flat
+  `SlicingParams` field.**
+- **A plugin's settings UI comes from its own JSON Schema fragment**, grafted on
+  by `plugin::schema::inject_plugin_settings` at generation time. The engine
+  supplies the reserved `enabled` toggle and gates every other field on it, so
+  a fragment carries only the plugin's own knobs and every experiment behaves
+  the same. Everything renders under the **Experiments** `x-group`, which is
+  claimed in [setting-contract.ts](ui/src/app/models/setting-contract.ts) —
+  a plugin inventing its own group name would land unclaimed and iconless, and
+  `setting-contract.spec.ts` fails on that.
+- **The settings form reads and writes namespaced fields by dotted path**
+  (`plugins.<id>.<key>`) via
+  [field-path.ts](ui/src/app/schema-form/models/field-path.ts). `x-relevant-when`
+  resolves its gate by path too. All four surfaces that render the schema — the
+  slice sidebar and the three profile editors — go through those helpers; a new
+  one that indexes `values[field.key]` directly will render plugin settings as
+  blank and silently drop writes.
+- **`process_mesh_debug` is the production pipeline plus one plugin**
+  ([debug_capture.rs](src/plugin/builtin/debug_capture.rs)), not a second copy.
+  The copy it replaced had already drifted — it skipped path ordering and bed
+  adhesion, so `--debug-geometry` wrote unordered G-code with no skirt. Do not
+  re-introduce a parallel sequence to capture something; insert a stage, or
+  wrap one.
+- **Tier 1 is not sandboxed.** A compile-time plugin has the same trust level as
+  the engine, in every build including WASM and iOS. Isolation is what the
+  later external tier is for; see the security model in
+  [src/PLUGINS.md](src/PLUGINS.md), particularly the promotion gate.
+
 ## Slicing Pipeline — Deep Knowledge
 
 This section records hard-won understanding of how the slicing pipeline works and
@@ -1263,6 +1342,11 @@ capsule/gap renders (`render.py`, `zoom.py`). Compare a change against the
 `classic` generator (the trusted reference) before claiming a fix.
 
 ### Pipeline Execution Order
+
+Each line below is a **named stage** in [src/core/stages.rs](src/core/stages.rs)
+(`slicing`, `compensation`, `elephant_foot`, …), which is both the execution
+order and the surface plugins hook into. The stage ids are the `phases::`
+constants, so what a plugin targets and what the timings report are one string.
 
 ```
 slice_mesh()                         — raw mesh → OuterWall contours per layer (layer 0 spans first_layer_height)

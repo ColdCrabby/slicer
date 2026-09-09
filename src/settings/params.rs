@@ -2521,6 +2521,23 @@ more effectively than ironing along them.",
     )]
     #[serde(default)]
     pub bed_mesh_adaptive: bool,
+
+    /// Settings owned by plugins, namespaced one object per plugin id.
+    ///
+    /// Kept as a nested bag rather than flattened into the 100-odd core keys
+    /// so ownership is obvious, a plugin can never collide with a core
+    /// setting, and the fingerprint below picks up plugin state for free.
+    /// Every plugin reserves `enabled` in its own namespace; the rest of the
+    /// object is whatever its [`settings_schema`] declares.
+    ///
+    /// The map is skipped when empty, so a build with no configured plugin
+    /// serializes — and therefore fingerprints — exactly as it did before
+    /// plugins existed.
+    ///
+    /// [`settings_schema`]: crate::plugin::Plugin::settings_schema
+    #[schemars(schema_with = "plugin_settings_schema")]
+    #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
+    pub plugins: std::collections::BTreeMap<String, serde_json::Value>,
 }
 
 /// Schema helper: emit the full [`SlicingParams`] schema for a
@@ -2530,6 +2547,21 @@ more effectively than ironing along them.",
 /// the UI can discover valid keys, groups, and relevance metadata.
 pub fn slicing_params_schema(generator: &mut schemars::SchemaGenerator) -> schemars::Schema {
     generator.subschema_for::<SlicingParams>()
+}
+
+/// Schema helper: describe the `plugins` bag as an empty object.
+///
+/// Left deliberately bare here. The concrete per-plugin properties are grafted
+/// on at generation time by [`crate::plugin::schema::inject_plugin_settings`],
+/// which is the only place that knows which plugins a build actually ships —
+/// `schemars` derives from types, and the plugin set is a runtime value.
+fn plugin_settings_schema(_generator: &mut schemars::SchemaGenerator) -> schemars::Schema {
+    schemars::json_schema!({
+        "type": "object",
+        "description": "Settings owned by plugins, one object per plugin id.",
+        "properties": {},
+        "additionalProperties": true,
+    })
 }
 
 impl Default for SlicingParams {
@@ -2711,6 +2743,7 @@ impl Default for SlicingParams {
             bed_mesh_mode: BedMeshMode::default(),
             bed_mesh_profile_name: None,
             bed_mesh_adaptive: false,
+            plugins: std::collections::BTreeMap::new(),
         }
     }
 }

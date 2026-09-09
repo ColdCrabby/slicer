@@ -186,7 +186,7 @@
                 @for (field of group.fields; track field.key) {
                   <nexus-param-field
                     [field]="field"
-                    [value]="paramsOf(profile)[field.key]"
+                    [value]="paramAt(profile, field.key)"
                     [siblings]="siblingsFor(profile)"
                     (valueChange)="setParam(profile.id, field.key, $event)"
                   />

@@ -1,9 +1,12 @@
 # Plugin support — design proposal
 
-> **Status: proposal. Nothing here is implemented yet.**
-> This document records the research behind a plugin system and the
-> architecture chosen for it. It describes what we intend to build, not how the
-> engine behaves today. Until it ships, treat every "is" below as "will be".
+> **Status: M1 has shipped; M2–M4 are still proposals.**
+> The hook interface, the reified stage list, `SliceContext` and namespaced
+> plugin settings exist — see [plugin/README.md](plugin/README.md) for the code
+> and [Staging](#staging) for what each milestone covers. Everything below
+> concerning the **layer model**, the **G-code move IR** and the **external
+> WASM tier** still describes what we intend to build, not how the engine
+> behaves today.
 
 The slicer should let people add behaviour — arc welding, wavy overhangs,
 whatever someone needs — without forking the pipeline. This document argues for
@@ -70,23 +73,25 @@ that already exists — the experiments toggle needs no new UI concept whatsoeve
 
 ---
 
-## What blocks it today
+## What blocked it — and what M1 cleared
 
-Four findings, in increasing order of how much work they imply.
+Four findings, in increasing order of how much work they imply. The first and
+the fourth are done; the middle two are still open, and are what M2 and M3
+exist for.
 
-### The pipeline is a function, not a list
+### The pipeline was a function, not a list — *fixed in M1*
 
-`process_mesh` ([core/pipeline.rs](core/pipeline.rs)) runs roughly 440 lines of
-straight-line code. It times **11 phases** — but 4 of them
-(`"Overhang Perimeter Classification"`, `"Path Ordering"`, `"Flow Compensation"`,
-`"Bed Adhesion"`) use ad-hoc string literals rather than the `phases::` catalog,
-and one step (`prune_redundant_gap_fill`) is not timed at all. The stages are
-real, they are simply not data.
+`process_mesh` ran roughly 440 lines of straight-line code. It timed **11
+phases** — but 4 of them (`"Overhang Perimeter Classification"`,
+`"Path Ordering"`, `"Flow Compensation"`, `"Bed Adhesion"`) used ad-hoc string
+literals rather than the `phases::` catalog, and one step
+(`prune_redundant_gap_fill`) was not timed at all. The stages were real, they
+were simply not data.
 
-Worse, inter-stage results live in **local variables** — `pre_strip_infill_regions`
-and `interior_regions` are computed in one part of the function and read in
-another. There is nowhere to insert a stage, and nothing for an inserted stage
-to read.
+Worse, inter-stage results lived in **local variables** —
+`pre_strip_infill_regions` and `interior_regions` were computed in one part of
+the function and read in another. There was nowhere to insert a stage, and
+nothing for an inserted stage to read.
 
 ```mermaid
 flowchart LR
@@ -96,9 +101,17 @@ flowchart LR
   J --> K[flow compensate] --> L[adhesion]
 ```
 
-`process_mesh_debug` re-implements this entire sequence a second time to capture
-snapshots. That is already a maintenance hazard; any naive hook scheme would
-make it a third copy.
+The sequence now lives in [core/stages.rs](core/stages.rs) as a
+`StageRegistry` of 17 named stages, every id a `phases::` constant; the locals
+are fields on `SliceContext::artifacts`.
+
+`process_mesh_debug` re-implemented this entire sequence a second time to
+capture snapshots — a maintenance hazard the design predicted any naive hook
+scheme would turn into a third copy. It had **already drifted**: the duplicate
+silently skipped path ordering and bed adhesion, so `--debug-geometry` emitted
+unordered G-code with no skirt. It is now the production pipeline plus one
+plugin ([plugin/builtin/debug_capture.rs](plugin/builtin/debug_capture.rs)),
+and a test pins the two to the same layers.
 
 ### `SliceLayer` cannot express non-planar intent
 
@@ -132,21 +145,32 @@ our *own* emitted text back into moves to drive the 3D preview. A shared move IR
 would serve the generator, the time estimator and the viewer from one
 representation.
 
-### `SlicingParams` is closed, and the cache will lie
+### `SlicingParams` was closed, and the cache would have lied — *fixed in M1*
 
-[settings/params.rs](settings/params.rs) is 105 flat fields with
+[settings/params.rs](settings/params.rs) is ~105 flat fields with
 `#[serde(default)]` and no `deny_unknown_fields` anywhere in the crate — so
-unknown keys are **silently dropped**. A plugin's settings would vanish on
-round-trip with no error.
+unknown keys are **silently dropped**. A plugin's settings would have vanished
+on round-trip with no error.
 
-More urgently, `SlicingParams::cache_fingerprint` feeds the G-code result cache.
-If plugin state is not in that fingerprint, **toggling a plugin hands back a
-stale G-code file.** That is a correctness bug, not an ergonomic one.
+More urgently, `SlicingParams::cache_fingerprint` feeds the G-code result
+cache. If plugin state were not in that fingerprint, **toggling a plugin would
+hand back a stale G-code file.** That is a correctness bug, not an ergonomic
+one.
 
-One smaller gap: the settings form is flat. `FieldType` is only
-`'number' | 'integer' | 'boolean' | 'string'`, and the parser reads a single
-level of `properties`, so nested `plugins.<id>.<key>` settings will not render
-without a small dotted-path change.
+Both are answered by the same decision: a namespaced
+`plugins: BTreeMap<String, Value>` field. Being a declared field it survives
+serde, and being part of the struct it reaches `cache_fingerprint` for free.
+It is skipped when empty, so a build with no configured plugin fingerprints
+exactly as it did before — no cache is invalidated by the mere existence of the
+feature.
+
+The settings form was also flat: the parser read a single level of `properties`,
+so nested `plugins.<id>.<key>` settings would not have rendered. It now descends
+into a namespace and keys those fields by dotted path
+([schema-parser.ts](../ui/src/app/schema-form/models/schema-parser.ts),
+[field-path.ts](../ui/src/app/schema-form/models/field-path.ts)), and
+`x-relevant-when` resolves its gate by path too — which is what lets a plugin
+hide its settings behind its own toggle with no new UI concept.
 
 ---
 
@@ -177,15 +201,22 @@ designed once rather than renegotiated per transport.
 
 ### Four hook families — and only four
 
-| Family | Shape | Serves |
-| --- | --- | --- |
-| **Stage** | `fn stages(&self) -> Vec<StageRegistration>` | fuzzy skin, ironing, wavy overhangs, supports |
-| **Registry** | `fn register(&self, r: &mut Registry)` | new infill patterns, wall generators, G-code dialects |
-| **Move filter** | `fn move_filter(&self) -> Option<Box<dyn MoveFilter>>` | arc welding, pause-at-height, travel optimisation |
-| **Settings** | `fn settings_schema(&self) -> Option<Value>` | every plugin — yields its UI automatically |
+| Family | Shape | Serves | Status |
+| --- | --- | --- | --- |
+| **Stage** | `fn stages(&self) -> Vec<StageRegistration>` | fuzzy skin, ironing, wavy overhangs, supports | shipped |
+| **Settings** | `fn settings_schema(&self) -> Option<Value>` | every plugin — yields its UI automatically | shipped |
+| **Registry** | `fn register(&self, r: &mut Registry)` | new infill patterns, wall generators, G-code dialects | with its milestone |
+| **Move filter** | `fn move_filter(&self) -> Option<Box<dyn MoveFilter>>` | arc welding, pause-at-height, travel optimisation | M3 |
 
 A stage registration says *where* it goes by naming an existing stage: insert
 before it, insert after it, or wrap it.
+
+The two unshipped families are deliberately *not* stubbed out. Each needs
+something that does not exist yet to attach to — a strategy registry, a G-code
+move IR — and a hook whose type cannot describe its feature is the exact dead
+end this design was written to avoid. Both arrive as **defaulted** trait
+methods, so no plugin written against today's trait has to change when they do;
+that property is what makes deferring them free rather than a deferred cost.
 
 ### Why this expands as the codebase expands
 
@@ -217,10 +248,10 @@ pub struct PluginManifest {
 }
 ```
 
-`SliceContext` replaces the local variables that currently trap inter-stage
+`SliceContext` replaces the local variables that used to trap inter-stage
 state: it owns the layers, an `artifacts` side-channel (`interior_regions`,
-`pre_strip_infill_regions`), the params, the logger, and a typed map for
-plugin-owned data.
+`pre_strip_infill_regions`, `overhang_support`, `first_layer_height`), the
+params, the logger, and a typed map for plugin-owned data.
 
 Everything reachable from a stage must be `Send + Sync` — rayon parallelises
 wall generation, interior regions, surfaces and infill.
@@ -230,7 +261,13 @@ wall generation, interior regions, surfaces and infill.
 An experiment is a plugin with `stability: Experimental`. Its settings live at
 `params.plugins["<id>"]`, with a reserved `enabled` boolean in its own
 namespace, and its other fields declare
-`x-relevant-when: { field: enabled, equals: true }`.
+`x-relevant-when: { field: "plugins.<id>.enabled", equals: true }`.
+
+Both of those are **supplied by the engine, not written by the plugin**: a
+fragment carries only the plugin's own knobs, and `inject_plugin_settings`
+adds the toggle and gates every other field on it. So every experiment gets the
+same shape, and a plugin cannot accidentally redefine the one field it does not
+own.
 
 The consequence is that the entire show/hide behaviour falls out of machinery
 that already exists. Experiments are statically linked, so they work on WASM and
@@ -324,20 +361,24 @@ enough that "just compile it in" feels like the obvious next step.
 Each milestone is independently shippable, and the risk climbs steeply at the
 end.
 
-| Milestone | Delivers | Unblocks |
-| --- | --- | --- |
-| **M1** Foundation | `SliceContext`, stage list, `Plugin` trait, namespaced settings, experiments UI | fuzzy skin, ironing |
-| **M2** Layer model | per-vertex Z, per-path plugin data | wavy overhangs; simplifies spiral mode |
-| **M3** Move IR | plan → `Vec<Move>` → filters → render | arc welding (#32), pause-at-height (#113) |
-| **M4** External | desktop-only WASM host, WIT interface | third-party plugins |
+| Milestone | Delivers | Unblocks | Status |
+| --- | --- | --- | --- |
+| **M1** Foundation | `SliceContext`, stage list, `Plugin` trait, namespaced settings, experiments UI | fuzzy skin, ironing | **shipped** |
+| **M2** Layer model | per-vertex Z, per-path plugin data | wavy overhangs; simplifies spiral mode | proposed |
+| **M3** Move IR | plan → `Vec<Move>` → filters → render | arc welding (#32) | proposed |
+| **M4** External | desktop-only WASM host, WIT interface | third-party plugins | proposed |
 
-M1 also **deletes the duplicated debug pipeline** by turning snapshot capture
-into an ordinary stage. M3 additionally lets the time estimator and the G-code
-viewer share one representation instead of round-tripping through text.
+M1 also **deleted the duplicated debug pipeline** by turning snapshot capture
+into an ordinary set of stages — see the first blocker above for what that copy
+had already drifted into. M3 additionally lets the time estimator and the
+G-code viewer share one representation instead of round-tripping through text.
 
 The non-negotiable constraint across all of them: with no plugin active, output
 must be **byte-identical**. The QA baselines are the gate, and refactors land
-separately from the hooks they enable.
+separately from the hooks they enable. M1 held it — the baselines did not move,
+and [tests/plugin_hooks.rs](../tests/plugin_hooks.rs) additionally pins that
+*occupying* a hook point changes nothing by itself, which is the property that
+keeps the baselines meaningful once experiments start shipping.
 
 ---
 
@@ -362,14 +403,22 @@ separately from the hooks they enable.
 
 ## Open questions
 
-- **How far does the first push go** — M1 alone, or through M2/M3? M3 means
-  splitting the emitter core, which is the single riskiest change proposed here.
-- **Which feature is the first experiment?** Fuzzy skin
-  ([#95](https://github.com/max-scopp/slicer-engine/issues/95)) and ironing
-  ([#94](https://github.com/max-scopp/slicer-engine/issues/94)) need only the
-  stage hook; a new infill pattern would exercise the registry family.
+- ~~**How far does the first push go** — M1 alone, or through M2/M3?~~
+  Answered: M1 alone. M3 means splitting the emitter core, which is the single
+  riskiest change proposed here, and M1 carried enough QA-baseline risk of its
+  own to be worth landing by itself.
+- **Which feature is the first experiment?** Still open, and now the thing
+  gating the **Experiments** settings group from appearing at all —
+  `builtin_plugins()` is empty, so a shipped build renders no plugin settings.
+  Fuzzy skin and ironing both landed as core features while M1 was in flight,
+  which makes them migrations rather than first experiments; a new infill
+  pattern would exercise the registry family instead, once it exists.
 - **Do existing features migrate to plugins** to dogfood the API, or do plugins
-  stay purely additive?
+  stay purely additive? Deliberately left open by M1: fuzzy skin shipped its
+  settings as core keys days before, and moving them would churn the schema,
+  saved profiles and docs for a feature that had just landed. The API is
+  dogfooded by the debug-capture plugin instead, which exercises the stage
+  family's insert *and* wrap forms against real geometry.
 - **Tier 2 runtime:** `wasmtime` with the Component Model, or the lighter
   `extism`? Deferred to M4 — it does not affect the Tier-1 design.
 - **The Tier 2 → Tier 1 promotion checklist is not yet written.** The
@@ -382,7 +431,9 @@ separately from the hooks they enable.
 
 ## See also
 
-- [core/pipeline.rs](core/pipeline.rs) — `process_mesh`, the stage sequence to be reified
+- [plugin/README.md](plugin/README.md) — the shipped hook interface, in detail
+- [core/stages.rs](core/stages.rs) — the pipeline as a stage list; the hook surface
+- [core/pipeline.rs](core/pipeline.rs) — `process_mesh`, now just a run builder
 - [core/types.rs](core/types.rs) — `SliceLayer`, `ExtrusionRole`
 - [gcode/generator.rs](gcode/generator.rs) — the emitter to be split behind a move IR
 - [gcode/dialect.rs](gcode/dialect.rs) — the trait-extension pattern this follows

@@ -41,6 +41,12 @@ issue/PR numbers or repo links in the notes. See the tone rules in
   project, or follow a deep link and it opens in its own tab. Switch, rename,
   or close tabs independently; closing one only removes it from the strip,
   the plate itself is still reachable from Home.
+- **Plugin foundation.** The slicing pipeline is now an ordered list of named
+  stages rather than one long function, and a plugin extends the engine by
+  naming a stage instead of editing it — so every stage the pipeline grows is a
+  new extension point for free. Plugin settings are namespaced and generate
+  their own UI from a JSON Schema fragment. No plugins ship yet and output is
+  byte-identical without one.
 - **Fuzzy skin.** A new outer-wall texture option roughs the surface with a
   small random perpendicular jitter instead of a smooth wall — useful for
   hiding layer lines or giving a part a deliberately organic look. Tunable
@@ -70,6 +76,13 @@ issue/PR numbers or repo links in the notes. See the tone rules in
   travel, down to 1000 for the first layer and bridges) instead of silently
   deferring to firmware defaults — a slower or untuned printer should dial
   these down. Set any of them to `0` to fall back to the previous behaviour.
+
+### Fixed
+
+- **`--debug-geometry` wrote incorrect G-code.** The debug pipeline was a second
+  copy of the slicing sequence and had drifted from it, silently skipping path
+  ordering and bed adhesion — so a slice run with debug output enabled came out
+  unordered and with no skirt or brim. Both paths are now the same pipeline.
 
 ## [0.4.0] - 2026-08-31
 

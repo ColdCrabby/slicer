@@ -75,6 +75,75 @@ function resolveFieldType(prop: RawProp): FieldType {
 }
 
 /**
+ * Whether a property is a namespace — an object with its own `properties` —
+ * rather than a leaf control.
+ *
+ * Only plugin settings are shaped this way today (`plugins.<id>.<key>`); they
+ * are namespaced so a plugin can never collide with one of the hundred-odd
+ * core keys. An object property with *no* declared properties is not a
+ * namespace but an open bag — a build that ships no plugins has one — and it
+ * contributes no fields at all rather than a stray text input labelled after
+ * the bag.
+ */
+function isNamespace(prop: RawProp): boolean {
+  const nested = prop['properties'];
+  return (
+    prop['type'] === 'object' &&
+    !!nested &&
+    typeof nested === 'object' &&
+    Object.keys(nested as object).length > 0
+  );
+}
+
+/**
+ * Build the `FieldDef`s one schema property contributes.
+ *
+ * A leaf yields exactly one, keyed by its own name — the flat case, unchanged.
+ * A namespace recurses, and its children are keyed by dotted path so the form
+ * can read and write them with {@link valueAtPath} / {@link patchForPath}.
+ */
+function fieldsFor(
+  key: string,
+  prop: RawProp,
+  defs: RawDefs,
+  required: Set<string>,
+  prefix = '',
+): FieldDef[] {
+  const path = prefix ? `${prefix}.${key}` : key;
+
+  if (isNamespace(prop)) {
+    const nested = prop['properties'] as Record<string, RawProp>;
+    const nestedRequired = new Set((prop['required'] as string[] | undefined) ?? []);
+    return Object.entries(nested).flatMap(([childKey, childProp]) =>
+      fieldsFor(childKey, childProp, defs, nestedRequired, path),
+    );
+  }
+
+  // An object with no properties is an open bag, not a control.
+  if (prop['type'] === 'object') {
+    return [];
+  }
+
+  return [
+    {
+      key: path,
+      type: resolveFieldType(prop),
+      format: prop['format'] as string | undefined,
+      title: (prop['title'] as string | undefined) ?? fieldLabel(key),
+      description: prop['description'] as string | undefined,
+      default: prop['default'],
+      required: required.has(key),
+      minimum: prop['minimum'] as number | undefined,
+      maximum: prop['maximum'] as number | undefined,
+      group: prop['x-group'] as string | undefined,
+      widget: prop['x-widget'] as string | undefined,
+      enumOptions: resolveEnumOptions(prop, defs),
+      relevantWhen: resolveRelevantWhen(prop),
+    },
+  ];
+}
+
+/**
  * Parse a JSON Schema object into grouped `FieldDef` entries.
  *
  * @param schema  A raw JSON Schema object. The function looks for `properties`
@@ -109,24 +178,9 @@ export function parseSchema(
     return { groups: [], fields: [] };
   }
 
-  const fields: FieldDef[] = Object.entries(properties).map(([key, prop]) => {
-    const fieldDef: FieldDef = {
-      key,
-      type: resolveFieldType(prop),
-      format: prop['format'] as string | undefined,
-      title: (prop['title'] as string | undefined) ?? fieldLabel(key),
-      description: prop['description'] as string | undefined,
-      default: prop['default'],
-      required: required.has(key),
-      minimum: prop['minimum'] as number | undefined,
-      maximum: prop['maximum'] as number | undefined,
-      group: prop['x-group'] as string | undefined,
-      widget: prop['x-widget'] as string | undefined,
-      enumOptions: resolveEnumOptions(prop, defs),
-      relevantWhen: resolveRelevantWhen(prop),
-    };
-    return fieldDef;
-  });
+  const fields: FieldDef[] = Object.entries(properties).flatMap(([key, prop]) =>
+    fieldsFor(key, prop, defs, required),
+  );
 
   // Group fields, preserving insertion order within each group.
   const groupMap = new Map<string, FieldDef[]>();
