@@ -122,11 +122,20 @@ pub fn project_support_paint(
             };
             let (lo, hi) = face_z_span(face);
             let (first, last) = slab_range(lo, hi, layers, layer_height, first_layer_height);
-            for layer_index in first..=last.min(n.saturating_sub(1)) {
+            let last = last.min(n.saturating_sub(1));
+            if first > last {
+                continue;
+            }
+            for (layer_index, layer_paths) in per_layer
+                .iter_mut()
+                .enumerate()
+                .skip(first)
+                .take(last - first + 1)
+            {
                 let (slab_lo, slab_hi) =
                     slab_bounds(layer_index, layers, layer_height, first_layer_height);
                 if let Some(path) = clip_face_to_slab(face, slab_lo, slab_hi) {
-                    per_layer[layer_index].push(path);
+                    layer_paths.push(path);
                 }
             }
         }
@@ -230,11 +239,7 @@ fn slab_range(
 /// Sutherland–Hodgman against the two horizontal planes, which for a triangle
 /// yields at most a pentagon.
 fn clip_face_to_slab(face: &Face, lo: f64, hi: f64) -> Option<Path> {
-    let mut poly: Vec<[f64; 3]> = face
-        .vertices
-        .iter()
-        .map(|v| [v.x, v.y, v.z])
-        .collect();
+    let mut poly: Vec<[f64; 3]> = face.vertices.iter().map(|v| [v.x, v.y, v.z]).collect();
 
     // Above the floor, then below the ceiling.
     poly = clip_half_space(&poly, lo, true);
@@ -321,7 +326,9 @@ mod tests {
 
     /// A stack of `n` layers 0.2mm apart, planes at the middle of each slab.
     fn layers(n: usize) -> Vec<SliceLayer> {
-        (0..n).map(|i| SliceLayer::new(0.1 + i as f64 * 0.2)).collect()
+        (0..n)
+            .map(|i| SliceLayer::new(0.1 + i as f64 * 0.2))
+            .collect()
     }
 
     fn area_of(paths: &Paths) -> f64 {
@@ -331,14 +338,7 @@ mod tests {
     #[test]
     fn nothing_painted_produces_no_masks() {
         let mesh = Mesh::new();
-        let masks = project_support_paint(
-            &mesh,
-            &FacetPaint::new(),
-            &layers(10),
-            0.2,
-            0.2,
-            0.4,
-        );
+        let masks = project_support_paint(&mesh, &FacetPaint::new(), &layers(10), 0.2, 0.2, 0.4);
         assert!(masks.is_empty());
         assert!(masks.enforcers.is_empty(), "no allocation when unpainted");
     }
@@ -348,11 +348,8 @@ mod tests {
         // The defining case: paint on a flat overhang must reach the layer at
         // that height and no other.
         let mut mesh = Mesh::new();
-        mesh.faces.push(tri(
-            [0.0, 0.0, 1.1],
-            [10.0, 0.0, 1.1],
-            [10.0, 10.0, 1.1],
-        ));
+        mesh.faces
+            .push(tri([0.0, 0.0, 1.1], [10.0, 0.0, 1.1], [10.0, 10.0, 1.1]));
         let mut paint = FacetPaint::new();
         paint.set(0, PaintState::Enforcer, 1);
 
@@ -368,7 +365,10 @@ mod tests {
             "landed at z={} for a facet at 1.1",
             stack[hit[0]].z
         );
-        assert!(area_of(&masks.enforcers[hit[0]]) > 40.0, "half of a 10x10 square");
+        assert!(
+            area_of(&masks.enforcers[hit[0]]) > 40.0,
+            "half of a 10x10 square"
+        );
     }
 
     #[test]
@@ -378,17 +378,11 @@ mod tests {
         // vertical walls because vertical edge-on faces project to lines
         // (zero area), which are deliberately rejected.
         let mut mesh = Mesh::new();
-        mesh.faces.push(tri(
-            [0.0, 0.0, 0.5],
-            [10.0, 0.0, 0.5],
-            [10.0, 10.0, 0.5],
-        ));
-        mesh.faces.push(tri(
-            [0.0, 0.0, 0.5],
-            [10.0, 10.0, 0.5],
-            [0.0, 10.0, 0.5],
-        ));
-        
+        mesh.faces
+            .push(tri([0.0, 0.0, 0.5], [10.0, 0.0, 0.5], [10.0, 10.0, 0.5]));
+        mesh.faces
+            .push(tri([0.0, 0.0, 0.5], [10.0, 10.0, 0.5], [0.0, 10.0, 0.5]));
+
         let mut paint = FacetPaint::new();
         paint.set(0, PaintState::Blocker, 2);
         paint.set(1, PaintState::Blocker, 2);
@@ -399,7 +393,10 @@ mod tests {
         let hit = (0..stack.len())
             .filter(|&i| !masks.blockers[i].is_empty())
             .count();
-        assert_eq!(hit, 1, "a horizontal facet at z=0.5 should land on exactly one layer");
+        assert_eq!(
+            hit, 1,
+            "a horizontal facet at z=0.5 should land on exactly one layer"
+        );
     }
 
     #[test]
@@ -407,11 +404,8 @@ mod tests {
         // The reason for slabs rather than a downward shadow: a blocker high up
         // must not delete a column holding something else near the bed.
         let mut mesh = Mesh::new();
-        mesh.faces.push(tri(
-            [0.0, 0.0, 3.0],
-            [5.0, 0.0, 3.0],
-            [5.0, 5.0, 3.0],
-        ));
+        mesh.faces
+            .push(tri([0.0, 0.0, 3.0], [5.0, 0.0, 3.0], [5.0, 5.0, 3.0]));
         let mut paint = FacetPaint::new();
         paint.set(0, PaintState::Blocker, 1);
 
@@ -432,12 +426,10 @@ mod tests {
     #[test]
     fn enforcers_and_blockers_stay_separate() {
         let mut mesh = Mesh::new();
-        mesh.faces.push(tri([0.0, 0.0, 1.1], [5.0, 0.0, 1.1], [5.0, 5.0, 1.1]));
-        mesh.faces.push(tri(
-            [20.0, 20.0, 1.1],
-            [25.0, 20.0, 1.1],
-            [25.0, 25.0, 1.1],
-        ));
+        mesh.faces
+            .push(tri([0.0, 0.0, 1.1], [5.0, 0.0, 1.1], [5.0, 5.0, 1.1]));
+        mesh.faces
+            .push(tri([20.0, 20.0, 1.1], [25.0, 20.0, 1.1], [25.0, 25.0, 1.1]));
         let mut paint = FacetPaint::new();
         paint.set(0, PaintState::Enforcer, 2);
         paint.set(1, PaintState::Blocker, 2);
@@ -451,7 +443,10 @@ mod tests {
         let blocker_layers: Vec<usize> = (0..stack.len())
             .filter(|&i| !masks.blockers[i].is_empty())
             .collect();
-        assert_eq!(enforcer_layers, blocker_layers, "both sit at the same height");
+        assert_eq!(
+            enforcer_layers, blocker_layers,
+            "both sit at the same height"
+        );
 
         let e = &masks.enforcers[enforcer_layers[0]];
         let b = &masks.blockers[blocker_layers[0]];
@@ -465,11 +460,8 @@ mod tests {
     #[test]
     fn a_facet_above_the_stack_contributes_nothing() {
         let mut mesh = Mesh::new();
-        mesh.faces.push(tri(
-            [0.0, 0.0, 99.0],
-            [5.0, 0.0, 99.0],
-            [5.0, 5.0, 99.0],
-        ));
+        mesh.faces
+            .push(tri([0.0, 0.0, 99.0], [5.0, 0.0, 99.0], [5.0, 5.0, 99.0]));
         let mut paint = FacetPaint::new();
         paint.set(0, PaintState::Enforcer, 1);
         let masks = project_support_paint(&mesh, &paint, &layers(10), 0.2, 0.2, 0.4);

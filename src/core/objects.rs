@@ -596,9 +596,9 @@ fn append_tagged(slot: &mut SliceLayer, layer: &SliceLayer, object_index: usize)
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::core::pipeline::process_mesh;
     use crate::logging::NullLogger;
     use crate::mesh::types::{Face, Vertex};
-    use crate::core::pipeline::process_mesh;
 
     /// Axis-aligned box mesh with its minimum corner at `(x, y, 0)`.
     fn box_mesh(x: f64, y: f64, size: f64, height: f64) -> Mesh {

@@ -99,11 +99,8 @@ impl Transform {
         if !inverse.is_finite() {
             return world;
         }
-        let p = inverse.transform_point3(Vec3::new(
-            world[0] as f32,
-            world[1] as f32,
-            world[2] as f32,
-        ));
+        let p =
+            inverse.transform_point3(Vec3::new(world[0] as f32, world[1] as f32, world[2] as f32));
         [p.x as f64, p.y as f64, p.z as f64]
     }
 

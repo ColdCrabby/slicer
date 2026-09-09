@@ -464,7 +464,11 @@ impl SceneState {
                 // nothing.
                 let scale = obj.transform.scale;
                 let shrink = scale[0].abs().max(scale[1].abs()).max(scale[2].abs()) as f64;
-                let local_radius = if shrink > 1e-9 { radius / shrink } else { radius };
+                let local_radius = if shrink > 1e-9 {
+                    radius / shrink
+                } else {
+                    radius
+                };
 
                 let adjacency = self.adjacency_for(&mesh);
                 let obj = self.get_mut(id).ok_or(SceneError::NotFound(id))?;

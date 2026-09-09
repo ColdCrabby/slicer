@@ -5,8 +5,8 @@ mod infill;
 mod objects;
 mod pipeline;
 mod slicer;
-mod supports;
 mod support_paint;
+mod supports;
 mod surfaces;
 mod types;
 mod walls;
@@ -17,10 +17,10 @@ pub use objects::{
     merge_meshes, merge_paint, sequential_order, sequential_warnings, slice_plate, ObjectIdentity,
     ObjectInput, PlateSlice,
 };
-pub use pipeline::{process_mesh, process_mesh_with_paint};
 #[cfg(not(target_arch = "wasm32"))]
 pub use pipeline::process_mesh_debug;
 pub(crate) use pipeline::resolved_first_layer_height;
+pub use pipeline::{process_mesh, process_mesh_with_paint};
 pub use slicer::{slice_mesh, slice_mesh_with_first_layer};
 pub use support_paint::{project_support_paint, SupportPaintMasks};
 pub use supports::{generate_supports, generate_supports_with_paint};
