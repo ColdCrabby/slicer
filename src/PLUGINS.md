@@ -242,6 +242,83 @@ fingerprint that is trivial to compute.
 
 ---
 
+## Security model: two trust tiers, and the seam between them
+
+The tiers above are not just a delivery mechanism — they are a trust boundary,
+and the design's safety claims hold only as long as that boundary is respected.
+
+- **Tier 1 trust = engine trust.** A compile-time plugin is reviewed like core
+  code (`cargo fmt`, `cargo clippy -- -D warnings`, human review, the QA
+  baselines) *because* it ships with the same privileges as the engine itself,
+  in every build we distribute — including WASM and iOS, where there is no
+  loader boundary at all to fall back on. There is deliberately no isolation
+  here; see Non-goals.
+- **Tier 2 trust = contained by construction.** Whatever a Tier 2 module does,
+  it can only do it through what the WIT interface exports to it — no ambient
+  filesystem or network access, no reach outside its own linear memory. A bug
+  or a malicious plugin is bounded by the host, not by the plugin author's
+  intentions.
+
+### Why the isolation is structural, not conventional
+
+This is worth being explicit about, because a scripting VM looks like a
+tempting shortcut for Tier 2 and it is not an equivalent one. A Lua embed
+(PrusaSlicer's own extension mechanism, scoped there to macro/G-code-expression
+text — not geometry) is sandboxed by *removing capability*: strip `os`, `io`,
+`debug`, `loadstring`, `package.loadlib` from the global table and hope nothing
+reaches them back through a metatable. The interpreter itself still runs in the
+host's address space, so a VM bug is a host memory-corruption bug. WASM's
+sandbox instead comes from the hardware/runtime enforcing a linear-memory
+boundary regardless of what the guest code does or what bugs it has — the
+capability grant (the WIT surface) and the isolation guarantee are two
+independent layers, and losing one doesn't lose the other. That difference is
+why Tier 2 is specified as WASM rather than an embedded scripting language: the
+guarantee needs to hold even when the plugin is actively hostile, not just
+when it is well-behaved.
+
+### The promotion path is where the guarantee disappears
+
+The scenario worth writing down now, before M4 exists: a Tier 2 plugin proves
+useful, gets popular, and someone proposes baking it into the engine as a Tier
+1 experiment — shipped by default, compiled in, no longer sandboxed. That
+proposal is exactly the moment the code's trust level jumps from "contained
+regardless of what it does" to "runs with full engine privileges on every
+user's machine, including iOS, which Tier 2 never reached in the first place."
+
+**A plugin having run safely inside the Tier 2 sandbox says nothing about
+whether it is safe to run outside one.** The sandbox validates that *whatever
+the plugin does, the blast radius is bounded* — it says nothing about the
+quality, intent, or memory-safety of the code once that bound is removed.
+Popularity and utility validate the feature; they do not substitute for the
+review a Tier 1 PR would otherwise get.
+
+Before M4 ships loadable Tier 2 plugins, promotion needs its own explicit gate
+— not "it worked fine and people like it" — covering at least:
+
+- **The same review bar as a first-party core PR**: full source read, `clippy
+  -D warnings`, `fmt`, and particular scrutiny of any `unsafe` block, since
+  Tier 1 has no memory-isolation backstop to catch a mistake there.
+- **Supply-chain review of everything the plugin newly pulls in.** A promoted
+  plugin's dependency tree becomes the engine's dependency tree — license,
+  maintenance status, and build-script behavior all need the same vetting a
+  new core dependency would get.
+- **No silent capability expansion.** A promoted plugin should not gain
+  filesystem/network/process reach it never exercised behind the WIT boundary
+  without that specifically being called out and justified — "it was sandboxed
+  before" is not a reason to wave through what it can touch now that it isn't.
+- **Provenance.** Who is vouching for this code, and who maintains it once it
+  is compiled into every release, on targets (iOS, WASM) the original sandboxed
+  version never ran on at all.
+- **Every existing Tier 1 gate applies unchanged**: the QA baselines, and the
+  byte-identical-output-when-disabled requirement that already governs
+  experiments.
+
+This is called out here, ahead of M4, specifically so it doesn't get decided
+implicitly under release pressure the first time a community plugin is good
+enough that "just compile it in" feels like the obvious next step.
+
+---
+
 ## Staging
 
 Each milestone is independently shippable, and the risk climbs steeply at the
@@ -272,7 +349,9 @@ separately from the hooks they enable.
 - **External plugins on iOS/iPadOS.** Out of scope. Experiments still run there
   because they are compiled in; third-party plugins will not.
 - **Sandboxing in Tier 1.** A compile-time plugin has the same trust level as
-  the engine. Isolation is what Tier 2 is for.
+  the engine. Isolation is what Tier 2 is for — see
+  [Security model](#security-model-two-trust-tiers-and-the-seam-between-them)
+  for what that isolation actually rests on, and where it stops applying.
 - **A stable ABI for native dynamic libraries.** Rust has no stable ABI, and
   flattening `SliceLayer` and `Paths` through a C boundary would discard the
   deep access that motivates the whole design.
@@ -293,6 +372,11 @@ separately from the hooks they enable.
   stay purely additive?
 - **Tier 2 runtime:** `wasmtime` with the Component Model, or the lighter
   `extism`? Deferred to M4 — it does not affect the Tier-1 design.
+- **The Tier 2 → Tier 1 promotion checklist is not yet written.** The
+  [Security model](#security-model-two-trust-tiers-and-the-seam-between-them)
+  section lists what it must cover; it needs to exist as an actual reviewable
+  gate (a PR template section, or a CONTRIBUTING.md checklist) before the first
+  promotion happens, not be improvised in the moment.
 
 ---
 
