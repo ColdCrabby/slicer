@@ -866,7 +866,7 @@ wall, matching Prusa's `external` mode.
         description = "Maximum perpendicular displacement (mm) `fuzzy_skin` applies to each point.
 
 Mirrors `fuzzy_skin_thickness` (PrusaSlicer/Slic3r).
-**Typical:** 0.1–0.5 mm.",
+**Default:** 0.15 mm. **Typical:** 0.1–0.5 mm.",
         extend("x-group" = "Walls", "x-relevant-when" = serde_json::json!({"field": "fuzzy_skin", "equals": true}))
     )]
     #[serde(default = "SlicingParams::default_fuzzy_skin_thickness_mm")]
@@ -878,7 +878,7 @@ Mirrors `fuzzy_skin_thickness` (PrusaSlicer/Slic3r).
 Smaller values pack in more, finer bumps; larger values give a coarser
 texture with fewer, wider ones.
 Mirrors `fuzzy_skin_point_dist` (PrusaSlicer/Slic3r).
-**Typical:** 0.3–1.0 mm.",
+**Default:** 0.5 mm. **Typical:** 0.3–1.0 mm.",
         extend("x-group" = "Walls", "x-relevant-when" = serde_json::json!({"field": "fuzzy_skin", "equals": true}))
     )]
     #[serde(default = "SlicingParams::default_fuzzy_skin_point_dist_mm")]
@@ -3179,11 +3179,11 @@ impl SlicingParams {
     }
 
     fn default_fuzzy_skin_thickness_mm() -> f64 {
-        0.3
+        0.15
     }
 
     fn default_fuzzy_skin_point_dist_mm() -> f64 {
-        0.8
+        0.5
     }
 
     fn default_infill_pattern() -> InfillPattern {
