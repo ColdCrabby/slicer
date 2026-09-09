@@ -19,6 +19,7 @@
 mod arachne;
 mod beads;
 mod classic;
+pub mod fuzzy_skin;
 mod types;
 
 pub use types::{Bead, WallParams, WallTimings};
