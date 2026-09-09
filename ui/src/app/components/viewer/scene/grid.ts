@@ -1,12 +1,16 @@
 import {
   BufferGeometry,
+  CircleGeometry,
   Color,
   Float32BufferAttribute,
   Group,
   LineBasicMaterial,
   LineSegments,
+  Mesh,
   type PerspectiveCamera,
+  PlaneGeometry,
   type Scene,
+  ShadowMaterial,
   type WebGLRenderer,
 } from 'three';
 import type { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
@@ -45,6 +49,9 @@ export class SceneGrid {
   private currentGridSpacingMm = 0;
   private printArea: PrintAreaConfig = { ...DEFAULT_PRINT_AREA };
   private readonly themeObserver: MutationObserver;
+  /** Whether the shadow-receiver plane is visible; survives grid rebuilds. */
+  private shadowReceiverEnabled = true;
+  private shadowPlane: Mesh | null = null;
 
   constructor(
     private readonly scene: Scene,
@@ -69,6 +76,14 @@ export class SceneGrid {
   setPrintArea(config: PrintAreaConfig): void {
     this.printArea = { ...config };
     this.refreshGridColor();
+  }
+
+  /** Show/hide the shadow-receiver plane. Cheap — no rebuild needed. */
+  setShadowReceiverEnabled(enabled: boolean): void {
+    this.shadowReceiverEnabled = enabled;
+    if (this.shadowPlane) {
+      this.shadowPlane.visible = enabled;
+    }
   }
 
   updateAdaptiveGrid(): void {
@@ -207,6 +222,30 @@ export class SceneGrid {
     );
     outline.renderOrder = 2;
     this.grid.add(outline);
+
+    // Shadow receiver: transparent everywhere except where a shadow falls,
+    // so it never visually competes with the grid lines/outline above. Sits
+    // at the same Z as the grid; renderOrder -1 (below the grid's 0/1/2) plus
+    // depthWrite:false keeps it from fighting the coplanar lines.
+    this.shadowPlane = null;
+    if (printableAreaWidth > 0 && printableAreaHeight > 0) {
+      const shadowGeometry =
+        bedShape === 'circular'
+          ? new CircleGeometry(Math.min(printableAreaWidth, printableAreaHeight) / 2, 128)
+          : new PlaneGeometry(printableAreaWidth, printableAreaHeight);
+      // Both geometries are centred at their own local origin; translate so
+      // they land on the same [0,width]x[0,height] corner-based footprint the
+      // grid/outline positions above use.
+      shadowGeometry.translate(printableAreaWidth / 2, printableAreaHeight / 2, 0);
+      const shadowMaterial = new ShadowMaterial({ opacity: 0.35, depthWrite: false });
+      const shadowPlane = new Mesh(shadowGeometry, shadowMaterial);
+      shadowPlane.position.set(offset.x, offset.y, 0);
+      shadowPlane.renderOrder = -1;
+      shadowPlane.receiveShadow = true;
+      shadowPlane.visible = this.shadowReceiverEnabled;
+      this.grid.add(shadowPlane);
+      this.shadowPlane = shadowPlane;
+    }
 
     this.scene.add(this.grid);
   }

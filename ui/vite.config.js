@@ -25,11 +25,20 @@ export default defineConfig({
   // Naming them here makes them part of the initial pre-bundle, so the specifier
   // is stable from the first request. Keep this list in step with the dynamic
   // imports in code-editor.ts.
+  //
+  // 'marked-katex-extension' is the same problem from a different caller:
+  // ngx-markdown (provided at the app root via provideMarkdown(), so its own
+  // static import is pre-bundled immediately) lazily `import()`s this optional
+  // KaTeX plugin from inside that pre-bundled code. We never enable KaTeX, but
+  // the crawler never sees the lazy import to pre-bundle it either, so the
+  // first time that code path is touched the specifier fails to resolve —
+  // a 500 on page load rather than Monaco's mid-session 504.
   optimizeDeps: {
     include: [
       'monaco-editor/editor/editor.api',
       'monaco-editor/features/register.all',
       'monaco-editor/language/json/monaco.contribution',
+      'marked-katex-extension',
     ],
   },
   server: {

@@ -5,6 +5,7 @@ import {
   MIN_FIELD_OF_VIEW,
   ViewerControl,
   type Antialiasing,
+  type ModelShading,
   type PreviewDetail,
   type RenderQuality,
   type TwoFingerGesture,
@@ -38,6 +39,9 @@ export class GeneralSettings implements OnInit {
   protected readonly renderQuality = this.viewer.renderQuality;
   protected readonly previewDetail = this.viewer.previewDetail;
   protected readonly useFilamentColor = this.viewer.useFilamentColor;
+  protected readonly shadowsEnabled = this.viewer.shadowsEnabled;
+  protected readonly modelShading = this.viewer.modelShading;
+  protected readonly glossEnabled = this.viewer.glossEnabled;
 
   protected readonly minFov = MIN_FIELD_OF_VIEW;
   protected readonly maxFov = MAX_FIELD_OF_VIEW;
@@ -116,6 +120,18 @@ export class GeneralSettings implements OnInit {
 
   setUseFilamentColor(value: boolean): void {
     this.viewer.setUseFilamentColor(value);
+  }
+
+  setShadowsEnabled(value: boolean): void {
+    this.viewer.setShadowsEnabled(value);
+  }
+
+  setModelShading(mode: ModelShading): void {
+    this.viewer.setModelShading(mode);
+  }
+
+  setGlossEnabled(value: boolean): void {
+    this.viewer.setGlossEnabled(value);
   }
 
   setHistoryControls(mode: HistoryControlsMode): void {

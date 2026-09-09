@@ -15,6 +15,7 @@ import {
   type GcodeLayerSource,
   type GcodeModel,
   setDetailLevel,
+  setGlossEnabled,
   tagInstanceRefs,
   TRIS_PER_SEGMENT_HIGH,
   updateViewColors,
@@ -44,6 +45,7 @@ export class GcodeOrchestrator {
   private lastMax = 0;
   private lastProgress = 1;
   private detail: GcodeDetail = 'low';
+  private gloss = true;
 
   constructor(private readonly contentRoot: Group) {}
 
@@ -88,7 +90,7 @@ export class GcodeOrchestrator {
   ): { totalSegments: number } {
     this.dispose();
 
-    const model = buildGcodeModel(handle, colors);
+    const model = buildGcodeModel(handle, colors, this.gloss);
     tagInstanceRefs(model);
     this.contentRoot.add(model.group);
     this.model = model;
@@ -183,6 +185,22 @@ export class GcodeOrchestrator {
     this.detail = detail;
     setDetailLevel(this.model, detail);
     return true;
+  }
+
+  /**
+   * Toggle the glossy specular highlight. Persisted on the orchestrator (not
+   * just the live model) so a future {@link buildFromHandle} — a fresh
+   * slice, a role change — starts with the current preference instead of
+   * reverting to the default.
+   */
+  setGloss(enabled: boolean): void {
+    if (this.gloss === enabled) {
+      return;
+    }
+    this.gloss = enabled;
+    if (this.model) {
+      setGlossEnabled(this.model, enabled);
+    }
   }
 
   /**
