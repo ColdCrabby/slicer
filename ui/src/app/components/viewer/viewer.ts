@@ -63,6 +63,14 @@ const MODEL_COLOR_DARK = 0xbcc0c6;
 const MODEL_COLOR_LIGHT = 0xccd0d4;
 
 /**
+ * Model specular colour when the "Gloss" setting is on — a visible, colour-
+ * neutral highlight. Off drops straight to black (fully matte) rather than
+ * MeshPhongMaterial's dim default, so the toggle reads as a clear on/off.
+ */
+const MODEL_SPECULAR_GLOSS = 0x3a3a3a;
+const MODEL_SPECULAR_MATTE = 0x000000;
+
+/**
  * Triangles per frame full detail may cost *while the user is interacting*.
  *
  * Under this, full detail is kept on permanently — including during orbit — so
@@ -423,6 +431,39 @@ export class Viewer {
     effect(() => {
       const quality = this.viewerControl.renderQuality();
       this.scene?.setPixelRatioCap(pixelRatioCapFor(quality));
+    });
+
+    // React to the shadows preference — a live renderer/light toggle, no
+    // scene rebuild needed.
+    effect(() => {
+      const enabled = this.viewerControl.shadowsEnabled();
+      this.scene?.setShadowsEnabled(enabled);
+    });
+
+    // React to the model-shading preference (flat/smooth). Changes the
+    // compiled shader program, so `needsUpdate` is required.
+    effect(() => {
+      const flat = this.viewerControl.modelShading() === 'flat';
+      for (const mesh of this.wasmMeshes.values()) {
+        const material = mesh.material as MeshPhongMaterial;
+        material.flatShading = flat;
+        material.needsUpdate = true;
+      }
+      this.scene?.invalidate();
+    });
+
+    // React to the gloss preference — a plain uniform (`specular`), so no
+    // `needsUpdate`/shader recompile is needed, unlike flat/smooth above.
+    // Drives both the model meshes and the G-code preview's shared role
+    // materials.
+    effect(() => {
+      const enabled = this.viewerControl.glossEnabled();
+      const specular = enabled ? MODEL_SPECULAR_GLOSS : MODEL_SPECULAR_MATTE;
+      for (const mesh of this.wasmMeshes.values()) {
+        (mesh.material as MeshPhongMaterial).specular.setHex(specular);
+      }
+      this.gcode?.setGloss(enabled);
+      this.scene?.invalidate();
     });
 
     // React to anti-aliasing changes. MSAA is a WebGLRenderer construction
@@ -1072,6 +1113,7 @@ export class Viewer {
       antialias: resolveAntialias(this.viewerControl.antialiasing()),
       pixelRatioCap: pixelRatioCapFor(this.viewerControl.renderQuality()),
       fieldOfView: this.viewerControl.fieldOfView(),
+      shadowsEnabled: this.viewerControl.shadowsEnabled(),
     });
     this.lastAntialiasing = this.viewerControl.antialiasing();
     // Mirror the live camera direction/up into ViewerControl so external
@@ -1146,6 +1188,10 @@ export class Viewer {
     this.scene.setPalmRejectionEnabled(this.viewerControl.palmRejection());
     this.scene.setTheme(this.appTheme.isDarkMode());
     this.gcode = new GcodeOrchestrator(this.scene.contentRoot);
+    // Prime the orchestrator's gloss preference so a later buildFromHandle()
+    // (the first slice load) starts with the user's current setting instead
+    // of the class's own default.
+    this.gcode.setGloss(this.viewerControl.glossEnabled());
     // Hover-inspect probe for the G-code scalar views: raycasts the visible
     // layer meshes and reports the extrusion value under the cursor.
     this.gcodeHover = new GcodeHoverProbe(
@@ -1371,12 +1417,17 @@ export class Viewer {
     geometry.computeBoundingSphere();
     const material = new MeshPhongMaterial({
       color: this.currentModelColor(),
-      flatShading: true,
+      flatShading: this.viewerControl.modelShading() === 'flat',
       shininess: 16,
+      specular: this.viewerControl.glossEnabled() ? MODEL_SPECULAR_GLOSS : MODEL_SPECULAR_MATTE,
     });
     const mesh = new Mesh(geometry, material);
     mesh.name = name;
     mesh.matrixAutoUpdate = false;
+    // Shadow on/off is toggled at the renderer/light level
+    // (ViewerScene.setShadowsEnabled), so these flags can stay unconditional.
+    mesh.castShadow = true;
+    mesh.receiveShadow = true;
     this.tmpMatrix.fromArray(this.sceneEngine.getMatrix(id));
     mesh.matrix.copy(this.tmpMatrix);
     mesh.matrixWorldNeedsUpdate = true;

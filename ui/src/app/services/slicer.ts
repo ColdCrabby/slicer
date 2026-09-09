@@ -1,7 +1,10 @@
 import { Injectable, computed, effect, inject, signal, untracked } from '@angular/core';
 import { environment } from '../../environments/environment';
 import { SlicingParams } from '../../generated/slicer-engine-ws-client-message-v1';
-import type { ProfileSelection } from '../../generated/slicer-engine-ws-client-message-v1';
+import type {
+  PauseTrigger,
+  ProfileSelection,
+} from '../../generated/slicer-engine-ws-client-message-v1';
 import { DEFAULT_SETTINGS } from '../models/slice-settings.model';
 import { RuntimeOrchestrator } from '../runtime/application/runtime-orchestrator';
 import { RuntimeSession } from '../runtime/application/runtime-session';
@@ -572,6 +575,21 @@ export class Slicer {
 
   updateSettings(patch: Partial<SlicingParams>): void {
     this.settings.update((current) => ({ ...current, ...patch }));
+  }
+
+  /** Add a pause/color-change/custom trigger at a 1-based layer number. */
+  addLayerTrigger(layer: number, action: PauseTrigger['action']): void {
+    const triggers = this.settings().triggers ?? [];
+    const next: PauseTrigger = { position_type: 'at_layer', layer, action } as PauseTrigger;
+    this.updateSettings({ triggers: [...triggers, next] });
+  }
+
+  /** Remove every trigger anchored to the given 1-based layer number. */
+  removeLayerTrigger(layer: number): void {
+    const triggers = this.settings().triggers ?? [];
+    this.updateSettings({
+      triggers: triggers.filter((t) => !('layer' in t && t.layer === layer)),
+    });
   }
 
   /**

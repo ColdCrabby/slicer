@@ -67,7 +67,7 @@ jobs:
           targets: wasm32-unknown-unknown
       - uses: Swatinem/rust-cache@v2
       - name: Install wasm-bindgen-cli
-        run: cargo install wasm-bindgen-cli --version 0.2.126 --locked
+        run: cargo install wasm-bindgen-cli --version 0.2.128 --locked
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
       # ui/src/generated + ui/src/schemas are gitignored, so the scene WASM

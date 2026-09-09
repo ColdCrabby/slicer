@@ -465,6 +465,8 @@ fn process_comment(
         if let Some(t) = parse_leading_f32(time_val) {
             current.meta.layer_time_s = Some(t);
         }
+    } else if trimmed.eq_ignore_ascii_case("TRIGGER") {
+        current.meta.triggered = true;
     }
 }
 
@@ -1007,5 +1009,32 @@ G1 X10 Y0 Z0.2 E1.0
         let layers = parse_gcode_bytes(gcode);
         let layer = first_printed_layer(&layers);
         assert_eq!(layer.meta.layer_time_s, Some(12.5));
+    }
+
+    /// `;TRIGGER` markers flag the layer they appear on.
+    #[test]
+    fn trigger_marker_is_captured() {
+        let gcode = b"
+;LAYER_CHANGE
+;Z:0.200
+;TRIGGER
+M0 ; pause
+;TYPE:Outer wall
+G1 X0 Y0 Z0.2 E0 F1800
+G1 X10 Y0 Z0.2 E1.0
+;LAYER_CHANGE
+;Z:0.400
+;TYPE:Outer wall
+G1 X0 Y0 Z0.4 E2.0 F1800
+G1 X10 Y0 Z0.4 E3.0
+";
+        let layers = parse_gcode_bytes(gcode);
+        let printed: Vec<&InternalLayer> = layers.iter().filter(|l| !l.is_empty()).collect();
+        assert!(printed.len() >= 2, "expected two printed layers");
+        assert!(printed[0].meta.triggered, "first layer must be flagged");
+        assert!(
+            !printed[1].meta.triggered,
+            "second layer has no trigger marker"
+        );
     }
 }

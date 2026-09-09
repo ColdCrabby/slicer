@@ -34,7 +34,9 @@
             >Exact source revision this build was compiled from.</span
           >
         </span>
-        <span class="settings-value settings-value-mono">{{ commit() }}</span>
+        <a [href]="commitUrl()" target="_blank" class="settings-value settings-value-mono">
+          {{ shortCommit() }}
+        </a>
       </div>
     }
   </div>
@@ -352,6 +354,96 @@
           [class.is-active]="!useFilamentColor()"
           [attr.aria-pressed]="!useFilamentColor()"
           (click)="setUseFilamentColor(false)"
+        >
+          Off
+        </button>
+      </div>
+    </div>
+
+    <div class="settings-field">
+      <span class="settings-field-label">
+        <span class="settings-field-title">Shadows</span>
+        <span class="settings-field-desc">
+          Cast a soft shadow from models onto the build plate for a more grounded, contrasty scene.
+          Turn off on weaker GPUs.
+        </span>
+      </span>
+      <div class="segmented" role="group" aria-label="Shadows">
+        <button
+          type="button"
+          class="segmented-btn"
+          [class.is-active]="shadowsEnabled()"
+          [attr.aria-pressed]="shadowsEnabled()"
+          (click)="setShadowsEnabled(true)"
+        >
+          On
+        </button>
+        <button
+          type="button"
+          class="segmented-btn"
+          [class.is-active]="!shadowsEnabled()"
+          [attr.aria-pressed]="!shadowsEnabled()"
+          (click)="setShadowsEnabled(false)"
+        >
+          Off
+        </button>
+      </div>
+    </div>
+
+    <div class="settings-field">
+      <span class="settings-field-label">
+        <span class="settings-field-title">Model shading</span>
+        <span class="settings-field-desc">
+          Smooth rounds the model's shading across curved surfaces; flat shows each triangle facet
+          distinctly, for a low-poly CAD look.
+        </span>
+      </span>
+      <div class="segmented" role="group" aria-label="Model shading">
+        <button
+          type="button"
+          class="segmented-btn"
+          [class.is-active]="modelShading() === 'smooth'"
+          [attr.aria-pressed]="modelShading() === 'smooth'"
+          (click)="setModelShading('smooth')"
+        >
+          Smooth
+        </button>
+        <button
+          type="button"
+          class="segmented-btn"
+          [class.is-active]="modelShading() === 'flat'"
+          [attr.aria-pressed]="modelShading() === 'flat'"
+          (click)="setModelShading('flat')"
+        >
+          Flat
+        </button>
+      </div>
+    </div>
+
+    <div class="settings-field">
+      <span class="settings-field-label">
+        <span class="settings-field-title">Gloss</span>
+        <span class="settings-field-desc">
+          Adds a specular highlight to models and the G-code preview for a glossy, "wet filament"
+          sheen. Turn off for a flat matte look.
+        </span>
+      </span>
+      <div class="segmented" role="group" aria-label="Gloss">
+        <button
+          type="button"
+          class="segmented-btn"
+          [class.is-active]="glossEnabled()"
+          [attr.aria-pressed]="glossEnabled()"
+          (click)="setGlossEnabled(true)"
+        >
+          On
+        </button>
+        <button
+          type="button"
+          class="segmented-btn"
+          [class.is-active]="!glossEnabled()"
+          [attr.aria-pressed]="!glossEnabled()"
+          (click)="setGlossEnabled(false)"
         >
           Off
         </button>

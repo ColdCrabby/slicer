@@ -506,6 +506,28 @@ impl PrintSequence {
     }
 }
 
+/// Bed mesh leveling directive emitted at print start.
+///
+/// Off by default: most printers already handle leveling inside a firmware
+/// macro or a one-time manual calibration, and a slicer-driven mesh command
+/// on top of that would either duplicate the work or race it. Turning this on
+/// hands the mesh step to the slicer instead, so it survives across different
+/// custom start scripts without being hand-copied into each one.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum BedMeshMode {
+    /// Emit no bed mesh directive; leveling is left entirely to the printer's
+    /// own start macro/config.
+    #[default]
+    Off,
+    /// Load a previously calibrated mesh profile (Klipper
+    /// `BED_MESH_PROFILE LOAD=<name>`, Marlin/RepRap `M420 S1`).
+    LoadProfile,
+    /// Recalibrate the mesh before printing (Klipper `BED_MESH_CALIBRATE`,
+    /// Marlin/RepRap `G29`), then load it.
+    Calibrate,
+}
+
 /// Camera angle used when the UI renders the embedded G-code thumbnail.
 ///
 /// The thumbnail is produced from a fixed, repeatable viewpoint (not the
@@ -558,6 +580,56 @@ pub enum ThumbnailColorMode {
     Filament,
     /// Use a specific colour picked in `thumbnail_custom_color`.
     Custom,
+}
+
+/// A mid-print interruption: a manual pause, a filament/color change, or
+/// arbitrary custom G-code, fired at a chosen layer or Z height.
+///
+/// See [`crate::gcode::GcodeDialect::pause_gcode`] and
+/// [`crate::gcode::GcodeDialect::color_change_gcode`] for the firmware
+/// commands emitted per [`GcodeFlavor`](crate::gcode::GcodeFlavor).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+pub struct PauseTrigger {
+    /// Where the trigger fires.
+    #[serde(flatten)]
+    pub position: TriggerPosition,
+    /// What happens when it fires.
+    pub action: TriggerAction,
+}
+
+/// Where a [`PauseTrigger`] fires.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[serde(tag = "position_type", rename_all = "snake_case")]
+pub enum TriggerPosition {
+    /// Fire immediately after the layer-change block for this 1-based layer
+    /// number (matches the `{layer_num}` placeholder semantics used
+    /// elsewhere in G-code generation).
+    AtLayer {
+        /// 1-based layer number.
+        layer: u32,
+    },
+    /// Fire once, on the first layer whose model Z is at or above this
+    /// value (mirrors "pause at height" semantics from other slicers).
+    AtZ {
+        /// Model Z height in mm.
+        z: f64,
+    },
+}
+
+/// What a [`PauseTrigger`] does when it fires.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[serde(tag = "type", rename_all = "snake_case")]
+pub enum TriggerAction {
+    /// Pause the print for manual intervention.
+    Pause,
+    /// Perform a filament/color change.
+    ColorChange,
+    /// Emit arbitrary custom G-code, supporting the same `{z}`/`{layer_num}`/
+    /// `{height}` placeholders as `custom_layer_script`.
+    Custom {
+        /// Raw G-code, one or more lines.
+        gcode: String,
+    },
 }
 
 /// Parameters that control how a model is sliced and printed.
@@ -777,6 +849,41 @@ normal (non-spiral) printing with a warning.
 **Default:** `false`.", extend("x-group" = "Walls"))]
     #[serde(default = "SlicingParams::default_spiral_vase")]
     pub spiral_vase: bool,
+
+    #[schemars(description = "Perturb the outer wall with a rough, hand-textured finish.
+
+Every vertex of the outer wall is displaced perpendicular to the wall by a
+small random amount, replacing the smooth outer surface with a fuzzy,
+non-uniform texture. Purely cosmetic — inner walls, infill and every other
+pass are unaffected.
+
+Mirrors `fuzzy_skin` (PrusaSlicer/Slic3r); this engine fuzzes only the outer
+wall, matching Prusa's `external` mode.
+**Default:** off.", extend("x-group" = "Walls"))]
+    #[serde(default = "SlicingParams::default_fuzzy_skin")]
+    pub fuzzy_skin: bool,
+
+    #[schemars(
+        description = "Maximum perpendicular displacement (mm) `fuzzy_skin` applies to each point.
+
+Mirrors `fuzzy_skin_thickness` (PrusaSlicer/Slic3r).
+**Default:** 0.15 mm. **Typical:** 0.1–0.5 mm.",
+        extend("x-group" = "Walls", "x-relevant-when" = serde_json::json!({"field": "fuzzy_skin", "equals": true}))
+    )]
+    #[serde(default = "SlicingParams::default_fuzzy_skin_thickness_mm")]
+    pub fuzzy_skin_thickness_mm: f64,
+
+    #[schemars(
+        description = "Spacing (mm) between the points `fuzzy_skin` perturbs along the outer wall.
+
+Smaller values pack in more, finer bumps; larger values give a coarser
+texture with fewer, wider ones.
+Mirrors `fuzzy_skin_point_dist` (PrusaSlicer/Slic3r).
+**Default:** 0.5 mm. **Typical:** 0.3–1.0 mm.",
+        extend("x-group" = "Walls", "x-relevant-when" = serde_json::json!({"field": "fuzzy_skin", "equals": true}))
+    )]
+    #[serde(default = "SlicingParams::default_fuzzy_skin_point_dist_mm")]
+    pub fuzzy_skin_point_dist_mm: f64,
 
     #[schemars(description = "Infill density as a fraction (0.0–1.0).
 
@@ -1232,6 +1339,36 @@ Typically disabled on the first layer to improve bed adhesion.
     pub first_layer_fan_speed: f64,
 
     #[schemars(
+        description = "Minimum time a layer (other than the first) is allowed to take, in seconds.
+
+When a layer's estimated print time falls below this floor, its feedrates are
+scaled down (never below `min_print_speed`) so the layer takes at least this
+long — giving each layer time to cool before the next one lands. Any shortfall
+still remaining once `min_print_speed` is reached is made up with a dwell.
+`0` = disabled.
+**Typical:** 5–15 s for small/detailed parts, `0` to disable.",
+        extend("x-group" = "Cooling")
+    )]
+    #[serde(default = "SlicingParams::default_min_layer_time_s")]
+    pub min_layer_time_s: f64,
+
+    #[schemars(
+        description = "Slowest print speed the minimum-layer-time slowdown may drop to, in mm/s.
+
+Once a layer's feedrates are scaled down to this floor, any remaining time
+needed to reach `min_layer_time_s` is made up with a dwell instead of slowing
+further — keeping extrusion fast enough to avoid heat-creep or grinding.
+Ignored when `min_layer_time_s` is `0`.
+**Typical:** 10 mm/s.",
+        extend(
+            "x-group" = "Cooling",
+            "x-relevant-when" = serde_json::json!({"field": "min_layer_time_s", "greaterThan": 0})
+        )
+    )]
+    #[serde(default = "SlicingParams::default_min_print_speed")]
+    pub min_print_speed: f64,
+
+    #[schemars(
         description = "Coasting distance in mm: stop extruding this far before the end of a perimeter.
 
 Reduces nozzle pressure at the seam, preventing blobs and improving surface quality.
@@ -1602,6 +1739,18 @@ Reduces the number of G-code points without visibly affecting print quality.
     )]
     #[serde(default = "SlicingParams::default_gcode_flavor")]
     pub gcode_flavor: GcodeFlavor,
+
+    #[schemars(
+        description = "Pause / color-change / custom G-code triggers, fired at exact layer boundaries or Z heights.
+
+Each trigger fires once, immediately after the layer-change block for the
+layer it targets (see `at_layer`/`at_z`), before that layer's geometry is
+emitted. The firmware command emitted for `pause`/`color_change` depends on
+`gcode_flavor` (Marlin: `M0`/`M600`; Klipper: `PAUSE`/macro; RepRap: `M226`).",
+        extend("x-group" = "Output")
+    )]
+    #[serde(default = "SlicingParams::default_triggers")]
+    pub triggers: Vec<PauseTrigger>,
 
     #[schemars(
         description = "Fan configurations for layer-time-based adaptive cooling.
@@ -2447,6 +2596,32 @@ more effectively than ironing along them.",
     )]
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub between_objects_gcode: Option<String>,
+
+    #[schemars(
+        description = "Bed mesh leveling directive emitted at print start: off (leave it to the \
+                       printer's own start macro/config), load a previously saved mesh profile, \
+                       or recalibrate before every print.",
+        extend("x-group" = "Hardware")
+    )]
+    #[serde(default)]
+    pub bed_mesh_mode: BedMeshMode,
+
+    #[schemars(
+        description = "Named mesh profile to load, e.g. Klipper's `SAVE_CONFIG`-persisted profile \
+                       name. `null` = the printer's default/active profile.",
+        extend("x-group" = "Hardware", "x-relevant-when" = serde_json::json!({"field": "bed_mesh_mode", "equals": "load_profile"}))
+    )]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub bed_mesh_profile_name: Option<String>,
+
+    #[schemars(
+        description = "Bound the recalibration area to the print's XY footprint instead of the \
+                       full bed, where the firmware supports it (Klipper `BED_MESH_CALIBRATE \
+                       AREA_MIN=.. AREA_MAX=..`). Skips probing points the print never covers.",
+        extend("x-group" = "Hardware", "x-relevant-when" = serde_json::json!({"field": "bed_mesh_mode", "equals": "calibrate"}))
+    )]
+    #[serde(default)]
+    pub bed_mesh_adaptive: bool,
 }
 
 /// Schema helper: emit the full [`SlicingParams`] schema for a
@@ -2480,6 +2655,9 @@ impl Default for SlicingParams {
             ensure_vertical_shell_thickness: Self::default_ensure_vertical_shell_thickness(),
             avoid_crossing_perimeters: Self::default_avoid_crossing_perimeters(),
             spiral_vase: Self::default_spiral_vase(),
+            fuzzy_skin: Self::default_fuzzy_skin(),
+            fuzzy_skin_thickness_mm: Self::default_fuzzy_skin_thickness_mm(),
+            fuzzy_skin_point_dist_mm: Self::default_fuzzy_skin_point_dist_mm(),
             infill_density: 0.2,
             infill_pattern: Self::default_infill_pattern(),
             infill_base_angle: Self::default_infill_base_angle(),
@@ -2515,6 +2693,8 @@ impl Default for SlicingParams {
             overhang_fan_speed: Self::default_overhang_fan_speed(),
             overhang_fan_threshold: Self::default_overhang_fan_threshold(),
             first_layer_fan_speed: Self::default_first_layer_fan_speed(),
+            min_layer_time_s: Self::default_min_layer_time_s(),
+            min_print_speed: Self::default_min_print_speed(),
             coasting_distance_mm: Self::default_coasting_distance_mm(),
             nozzle_temp: 210.0,
             bed_temp: 60.0,
@@ -2552,6 +2732,7 @@ impl Default for SlicingParams {
             min_infill_extrusion_mm: Self::default_min_infill_extrusion_mm(),
             path_tolerance: Self::default_path_tolerance(),
             gcode_flavor: Self::default_gcode_flavor(),
+            triggers: Self::default_triggers(),
             fan_configs: Self::default_fan_configs(),
             mesh_quality: Self::default_mesh_quality(),
             first_layer_height: Self::default_first_layer_height(),
@@ -2636,6 +2817,9 @@ impl Default for SlicingParams {
             extruder_clearance_height_mm: Self::default_extruder_clearance_height(),
             extruder_clearance_radius_mm: Self::default_extruder_clearance_radius(),
             between_objects_gcode: None,
+            bed_mesh_mode: BedMeshMode::default(),
+            bed_mesh_profile_name: None,
+            bed_mesh_adaptive: false,
         }
     }
 }
@@ -3127,6 +3311,18 @@ impl SlicingParams {
         false
     }
 
+    fn default_fuzzy_skin() -> bool {
+        false
+    }
+
+    fn default_fuzzy_skin_thickness_mm() -> f64 {
+        0.15
+    }
+
+    fn default_fuzzy_skin_point_dist_mm() -> f64 {
+        0.5
+    }
+
     fn default_infill_pattern() -> InfillPattern {
         InfillPattern::Rectilinear
     }
@@ -3300,6 +3496,14 @@ impl SlicingParams {
         0.0
     }
 
+    fn default_min_layer_time_s() -> f64 {
+        0.0
+    }
+
+    fn default_min_print_speed() -> f64 {
+        10.0
+    }
+
     fn default_coasting_distance_mm() -> f64 {
         0.2
     }
@@ -3429,6 +3633,10 @@ impl SlicingParams {
 
     fn default_gcode_flavor() -> GcodeFlavor {
         GcodeFlavor::Marlin
+    }
+
+    fn default_triggers() -> Vec<PauseTrigger> {
+        Vec::new()
     }
 
     fn default_fan_configs() -> Vec<FanConfig> {
@@ -3689,6 +3897,23 @@ mod tests {
         assert!(
             !with_png.cache_fingerprint().contains("SHOULD_NOT_APPEAR"),
             "cache fingerprint must not embed the thumbnail image payload"
+        );
+    }
+
+    #[test]
+    fn test_cache_fingerprint_tracks_triggers() {
+        let base = SlicingParams::default();
+        let with_trigger = SlicingParams {
+            triggers: vec![PauseTrigger {
+                position: TriggerPosition::AtLayer { layer: 5 },
+                action: TriggerAction::Pause,
+            }],
+            ..SlicingParams::default()
+        };
+        assert_ne!(
+            base.cache_fingerprint(),
+            with_trigger.cache_fingerprint(),
+            "triggers change the emitted g-code and must be part of the cache fingerprint"
         );
     }
 

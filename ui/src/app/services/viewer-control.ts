@@ -84,6 +84,14 @@ export type RenderQuality = 'performance' | 'balanced' | 'quality';
  */
 export type PreviewDetail = 'auto' | 'performance' | 'quality';
 
+/**
+ * Model mesh shading style. `'smooth'` interpolates the WASM-supplied
+ * per-vertex normals for a rounded look; `'flat'` uses per-triangle normals
+ * for the faceted, low-poly CAD look. Both read the same geometry — this is
+ * purely a material flag (`flatShading`), so switching is live and cheap.
+ */
+export type ModelShading = 'flat' | 'smooth';
+
 export interface SliceThumbnailCapture {
   pngBase64: string;
   sizePx: number;
@@ -151,6 +159,9 @@ const RENDER_QUALITY_KEY = 'nexus.viewer.renderQuality';
 const PREVIEW_DETAIL_KEY = 'nexus.viewer.previewDetail';
 const USE_FILAMENT_COLOR_KEY = 'nexus.viewer.useFilamentColor';
 const PALM_REJECTION_KEY = 'nexus.viewer.palmRejection';
+const SHADOWS_ENABLED_KEY = 'nexus.viewer.shadowsEnabled';
+const MODEL_SHADING_KEY = 'nexus.viewer.modelShading';
+const GLOSS_ENABLED_KEY = 'nexus.viewer.glossEnabled';
 
 /**
  * Shared state between the 3D-view toolbar and the viewer component.
@@ -228,6 +239,28 @@ export class ViewerControl {
    * Persisted so the choice survives reloads.
    */
   readonly palmRejection = signal(this.readPalmRejection());
+
+  /**
+   * Whether the model casts/receives shadows on the build plate and other
+   * objects. On by default — it's a pure lighting/renderer setting that
+   * rides the existing on-demand render loop, so a static view still costs
+   * one frame. Persisted so weaker hardware can opt out.
+   */
+  readonly shadowsEnabled = signal(this.readShadowsEnabled());
+
+  /**
+   * Model mesh shading style. Defaults to `'smooth'` for the modernized
+   * scene look; `'flat'` restores the previous faceted appearance.
+   * Persisted.
+   */
+  readonly modelShading = signal<ModelShading>(this.readModelShading());
+
+  /**
+   * Whether models and G-code toolpaths show a glossy specular highlight.
+   * On by default. Off drops every affected material's specular to black —
+   * a flat matte look — without touching diffuse/emissive colour. Persisted.
+   */
+  readonly glossEnabled = signal(this.readGlossEnabled());
 
   /**
    * Currently selected object-manipulation mode. Drives the gizmo shown
@@ -409,6 +442,24 @@ export class ViewerControl {
     this.storage.write(PALM_REJECTION_KEY, String(value));
   }
 
+  /** Update the shadows preference and persist it. */
+  setShadowsEnabled(value: boolean): void {
+    this.shadowsEnabled.set(value);
+    this.storage.write(SHADOWS_ENABLED_KEY, String(value));
+  }
+
+  /** Update the model-shading preference and persist it. */
+  setModelShading(mode: ModelShading): void {
+    this.modelShading.set(mode);
+    this.storage.write(MODEL_SHADING_KEY, mode);
+  }
+
+  /** Update the gloss preference and persist it. */
+  setGlossEnabled(value: boolean): void {
+    this.glossEnabled.set(value);
+    this.storage.write(GLOSS_ENABLED_KEY, String(value));
+  }
+
   private readTwoFingerGesture(): TwoFingerGesture {
     return this.storage.get(TWO_FINGER_GESTURE_KEY)() === 'pan' ? 'pan' : 'orbit';
   }
@@ -455,6 +506,20 @@ export class ViewerControl {
     // Default on — palm rejection only changes behaviour once a pen appears,
     // so it is safe to enable everywhere.
     return this.storage.get(PALM_REJECTION_KEY)() !== 'false';
+  }
+
+  private readShadowsEnabled(): boolean {
+    // Default on — the on-demand render loop keeps a static view to one
+    // frame regardless, so this is safe to enable everywhere.
+    return this.storage.get(SHADOWS_ENABLED_KEY)() !== 'false';
+  }
+
+  private readModelShading(): ModelShading {
+    return this.storage.get(MODEL_SHADING_KEY)() === 'flat' ? 'flat' : 'smooth';
+  }
+
+  private readGlossEnabled(): boolean {
+    return this.storage.get(GLOSS_ENABLED_KEY)() !== 'false';
   }
 
   /**

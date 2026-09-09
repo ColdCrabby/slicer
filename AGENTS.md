@@ -156,6 +156,8 @@ slicer-engine slice --help
 - Use `cargo fmt` for formatting (enforced by CI)
 - Run `cargo clippy -- -D warnings` before committing
 - Write inline tests with `#[cfg(test)]` in the same module
+- See [No Issue Numbers in Prose Unless Asked](.github/instructions/no-issue-numbers.instructions.md)
+  before writing commit messages, comments, or docs.
 
 ### Performance Priorities
 
@@ -345,7 +347,7 @@ user-facing version number.
 - **Releasing is tag-driven**: [.github/workflows/release.yml](.github/workflows/release.yml)
   fires on `v*` tags, extracts the changelog section, creates the GitHub Release,
   and attaches CLI binaries + desktop bundles. See [RELEASING.md](RELEASING.md).
-  Locally, the [`release` skill](.github/skills/release/SKILL.md) curates the
+  Locally, the [`release` skill](.claude/skills/release/SKILL.md) curates the
   changelog (biggest features first, first-time contributors spotlighted) and
   drives tag + push.
 - **Cargo.toml `version`** is the *next* target version only — not what users see.

@@ -73,7 +73,7 @@ part above it is not.
 | Group | What lives there |
 | --- | --- |
 | **Layer** | Layer height, first-layer height |
-| **Walls** | Wall count, wall generator, thin walls, extra perimeters, ordering, seam behaviour |
+| **Walls** | Wall count, wall generator, thin walls, extra perimeters, ordering, seam behaviour, fuzzy skin |
 | **Extrusion** | Line widths and flow |
 | **Infill** | Density, pattern, angle |
 | **Support** | On/off, type, density, overhang threshold, interface layers, clearances, whether support may only start from the build plate |
@@ -109,6 +109,19 @@ base.
 
 **Ironing** (Process → Surfaces) makes a second, hot, barely-extruding pass over
 top surfaces to smooth them. Slow, and only worth it on visible flat tops.
+
+**Fuzzy skin** (Process → Walls) roughs up the outer wall with a random,
+hand-textured bump instead of a smooth surface — useful for hiding layer lines
+or giving a part a deliberately organic look. It's purely cosmetic: inner
+walls and infill print exactly as they would otherwise, and turning it off
+always reproduces the original smooth output.
+
+::: details Advanced — tuning the texture
+**Thickness** is how far each bump can push in or out, in mm — larger values
+give a coarser, more pronounced texture. **Point distance** is how closely
+spaced the bumps are along the wall — smaller values pack in more, finer
+detail.
+:::
 
 ::: details Advanced — tuning the ironing pass
 **Type** chooses what gets swept: every top surface, only the single highest one

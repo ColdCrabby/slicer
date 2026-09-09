@@ -37,24 +37,53 @@ import {
 
 /**
  * Gcode tubes are lit by the scene rig, but the preview palette is chosen to
- * match the flat legend swatches. To keep every tube reading as its legend
- * colour (crisp, theme-correct) instead of being darkened into a muddy brown by
- * the lighting, the role colour is emitted as self-illumination and only a
- * small fraction is left as diffuse — just enough to give the cylinders a hint
- * of form. This also makes the tube colour essentially independent of the scene
- * lighting, so the model-oriented light rig can be tuned without washing out or
- * darkening the preview.
+ * match the flat legend swatches. To keep every tube reading as close to its
+ * legend colour as possible (crisp, theme-correct) instead of being darkened
+ * into a muddy brown or washed to white by the lighting, the role colour is
+ * emitted as self-illumination *and* used as the diffuse colour, split evenly
+ * between the two (see {@link EXTRUSION_EMISSIVE_INTENSITY}/
+ * {@link EXTRUSION_DIFFUSE_TINT}) — emissive anchors the hue so it survives
+ * bright lighting without washing out, while diffuse still responds to the
+ * light rig enough to shade each tube with a real light/shadow gradient, the
+ * cue that gives the preview visual "detail" and separates adjacent roles at
+ * a glance.
+ *
+ * A small, colour-neutral specular highlight is layered on top (see
+ * {@link EXTRUSION_SPECULAR_COLOR}/{@link EXTRUSION_SHININESS}) for the glossy,
+ * "wet filament" sheen modern slicer previews use. Specular is additive and
+ * near-grey, so it shows up as small bright highlights rather than tinting the
+ * legend colour — it doesn't fight the emissive-driven colour fidelity above.
  *
  * The tubes use {@link MeshPhongMaterial} rather than {@link MeshStandardMaterial}:
  * the preview is overdraw-heavy (millions of instanced tubes redrawn every
  * frame), and a full PBR BRDF + IBL per fragment is wasted here because the look
  * is dominated by flat emissive. Phong keeps per-fragment shading (so the
  * low-poly 8-radial tubes and 6x4 joint balls stay smooth — Lambert's per-vertex
- * lighting would facet them) at a fraction of the fragment cost, and `specular`
- * is left black so the matte, mostly-emissive look is preserved.
+ * lighting would facet them) at a fraction of the fragment cost, and its cheap
+ * Blinn-Phong specular term is enough for the highlight above without a full
+ * BRDF.
+ *
+ * `EXTRUSION_EMISSIVE_INTENSITY`/`EXTRUSION_DIFFUSE_TINT` were originally
+ * 0.45/0.9 — diffuse at 90% was actually the *dominant* term under any real
+ * light, so bright scene lighting washed the legend colour toward white. That
+ * was overcorrected to 0.8/0.3: emissive doesn't respond to light direction
+ * at all, so pushing it that high killed the very shading gradient (light
+ * side vs. shadow side of each tube) that gives the preview visual "detail"
+ * and helps adjacent same-brightness roles (e.g. gap fill against a wall)
+ * read as separate at a glance — everything went flat and hard to
+ * differentiate even though the base hues were fine. This settles on a more
+ * even split: emissive still anchors the colour so it can't wash all the way
+ * to white, but diffuse now carries enough weight to produce a real light/
+ * shadow gradient across each tube. The specular highlight is brighter and
+ * broader too (lower shininess), since on tube geometry this small a radius a
+ * tight, high-exponent highlight is essentially invisible — a broader sheen
+ * is what actually reads as glossy "detail" on screen.
  */
-const EXTRUSION_EMISSIVE_INTENSITY = 0.45;
-const EXTRUSION_DIFFUSE_TINT = 0.9;
+const EXTRUSION_EMISSIVE_INTENSITY = 0.6;
+/** Additive, colour-neutral highlight — see the module doc comment above. */
+const EXTRUSION_SPECULAR_COLOR = 0x4a4a4a;
+const EXTRUSION_SHININESS = 22;
+const EXTRUSION_DIFFUSE_TINT = 0.5;
 
 export interface RoleSegments {
   role: RoleName;
@@ -440,6 +469,7 @@ function emptyRoleCounts(): Record<RoleName, number> {
 export function buildGcodeModel(
   source: GcodeLayerSource,
   colors: RoleColorPalette = ROLE_COLORS_DARK,
+  glossEnabled = true,
 ): GcodeModel {
   const group = new Group();
   const layerCount = source.layerCount();
@@ -528,14 +558,12 @@ export function buildGcodeModel(
 
     if (role === 'seam') {
       // Seam points are rendered as spheres — no cylinder body, just dots.
-      // A small specular keeps the marker dots reading as slightly glossier
-      // than the matte tubes.
       const material = new MeshPhongMaterial({
-        color,
+        color: new Color(color).multiplyScalar(EXTRUSION_DIFFUSE_TINT),
         emissive: color,
         emissiveIntensity: EXTRUSION_EMISSIVE_INTENSITY,
-        specular: 0x222222,
-        shininess: 30,
+        specular: glossEnabled ? EXTRUSION_SPECULAR_COLOR : 0x000000,
+        shininess: EXTRUSION_SHININESS,
       });
       installInstanceShaderHooks(material, layerMinUniform, true);
       const geometry = seamDotGeometry.clone();
@@ -546,6 +574,11 @@ export function buildGcodeModel(
       const dots = new InstancedMesh(geometry, material, count);
       dots.instanceMatrix.setUsage(35044 /* THREE.DynamicDrawUsage */);
       dots.count = count;
+      // Cast (but don't receive) shadows onto the build plate — casting only
+      // feeds the shadow-map depth pass and never touches this material's own
+      // emissive-driven colour, so the legend-colour fidelity above is
+      // unaffected. Not receiving keeps one dot from darkening under another.
+      dots.castShadow = true;
       group.add(dots);
       // Re-use the `joints` slot so existing visibility / progress logic works.
       roleSegmentsMap[role] = {
@@ -560,10 +593,11 @@ export function buildGcodeModel(
     }
 
     const material = new MeshPhongMaterial({
-      color,
+      color: new Color(color).multiplyScalar(EXTRUSION_DIFFUSE_TINT),
       emissive: color,
       emissiveIntensity: EXTRUSION_EMISSIVE_INTENSITY,
-      specular: 0x000000,
+      specular: glossEnabled ? EXTRUSION_SPECULAR_COLOR : 0x000000,
+      shininess: EXTRUSION_SHININESS,
     });
     installInstanceShaderHooks(material, layerMinUniform, true);
 
@@ -600,6 +634,12 @@ export function buildGcodeModel(
 
     mesh.count = count;
     joints.count = count;
+    // Cast (but don't receive) shadows onto the build plate — same rationale
+    // as the seam dots above: casting is a depth-only pass that never touches
+    // this material's emissive colour, and not receiving keeps overlapping
+    // beads from darkening each other and muddying the legend colour.
+    mesh.castShadow = true;
+    joints.castShadow = true;
     group.add(mesh);
     group.add(joints);
 
@@ -1041,5 +1081,20 @@ export function setDetailLevel(model: GcodeModel, detail: GcodeDetail): void {
     if (rs.role !== 'seam' && rs.joints) {
       rs.joints.visible = high;
     }
+  }
+}
+
+/**
+ * Toggle the glossy specular highlight on every role's shared material.
+ * `mesh` and `joints` for a given role share one `MeshPhongMaterial`
+ * instance (seam dots live only in the `joints` slot), so touching either
+ * reference is enough. A pure uniform change — no shader recompile, no
+ * geometry rebuild — so this is cheap to call live from a settings toggle.
+ */
+export function setGlossEnabled(model: GcodeModel, enabled: boolean): void {
+  for (const rs of model.roleSegments) {
+    const material = (rs.mesh?.material ?? rs.joints?.material) as MeshPhongMaterial | undefined;
+    if (!material) continue;
+    material.specular.setHex(enabled ? EXTRUSION_SPECULAR_COLOR : 0x000000);
   }
 }

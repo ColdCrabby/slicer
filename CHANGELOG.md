@@ -22,7 +22,7 @@ the one number worth quoting) — deep rationale lives in AGENTS.md and the modu
 READMEs, not here. Break a long category into `#### Theme` groups so it stays
 scannable, keep the bold **Feature name** lead on every bullet, and never put
 issue/PR numbers or repo links in the notes. See the tone rules in
-.github/skills/release/SKILL.md for the full voice.
+.claude/skills/release/SKILL.md for the full voice.
 -->
 
 ## [Unreleased]
@@ -84,6 +84,23 @@ issue/PR numbers or repo links in the notes. See the tone rules in
   came out as a copy of the first; the in-browser slicer refused outright with
   "Missing mesh bytes". Each object now resolves to the file it was actually
   loaded from, in every runtime.
+- **Fuzzy skin.** A new outer-wall texture option roughs the surface with a
+  small random perpendicular jitter instead of a smooth wall — useful for
+  hiding layer lines or giving a part a deliberately organic look. Tunable
+  thickness and point spacing; off by default, and purely cosmetic — inner
+  walls, infill and every other pass print exactly as they would otherwise.
+- **Bed mesh leveling directives.** A new `bed_mesh_mode` setting emits
+  `BED_MESH_CALIBRATE`/`BED_MESH_PROFILE LOAD` (Klipper) or `G29`/`M420 S1`
+  (Marlin/RepRap) at print start — off by default, so existing output is
+  unchanged. `bed_mesh_adaptive` bounds recalibration to the print's own
+  footprint instead of the whole bed, and a custom start script that already
+  handles leveling takes priority over the slicer's own directive.
+- **Minimum layer time (slow-down for cooling)** — `min_layer_time_s` scales a
+  short layer's feedrates down so it takes at least that long to print,
+  giving thin walls and small details time to cool before the next layer
+  lands. Slowing is clamped at `min_print_speed` (default 10 mm/s) to avoid
+  heat-creep or grinding; any remaining shortfall is made up with a dwell.
+  The first layer is exempt. Disabled by default (`0`).
 - **Full role coverage for acceleration, on by default** — `inner_wall_acceleration`,
   `sparse_infill_acceleration`, `solid_infill_acceleration`,
   `gap_fill_acceleration` and `support_acceleration` round out the role table

@@ -491,7 +491,7 @@ pub fn process_mesh_with_paint(
             params.support_density * 100.0
         ));
         let t_support = PhaseTimer::start("Support Generation", logger);
-        
+
         // Project painted facets onto the layer stack to get enforcer and
         // blocker masks. An empty annotation is fast-pathed, so unpainted
         // slices don't pay for this.
@@ -743,6 +743,12 @@ pub fn process_mesh_with_paint(
     let t_flow = PhaseTimer::start("Flow Compensation", logger);
     crate::flow::compensate(&mut layers, params);
     t_flow.finish();
+
+    // Fuzzy skin — cosmetic outer-wall texture.  Runs after ordering and flow
+    // compensation (so it perturbs the final geometry and carries along any
+    // per-vertex widths already written) and before adhesion, whose skirt/brim
+    // trace the clean OuterWall centerlines and must not pick up the jitter.
+    crate::walls::fuzzy_skin::apply(&mut layers, params);
 
     // Bed-adhesion helpers (skirt / brim / raft).  Runs after the object's own
     // toolpaths are fully ordered and flow-compensated so it never perturbs
@@ -1005,6 +1011,9 @@ pub fn process_mesh_debug(
     ));
 
     crate::flow::compensate(&mut layers, params);
+
+    crate::walls::fuzzy_skin::apply(&mut layers, params);
+
     mark_first_layer_height(&mut layers, first_h, params.layer_height);
 
     layers
