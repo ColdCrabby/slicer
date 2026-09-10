@@ -39,7 +39,7 @@ pub(crate) use surfaces::{
     extrusion_flow_spacing_mm, outer_wall_nominal_width_mm, solid_surface_nominal_width_mm,
     sparse_infill_nominal_width_mm, support_nominal_width_mm,
 };
-pub use types::{ExtrusionRole, OverhangClass, SliceLayer};
+pub use types::{ExtrusionRole, OverhangClass, PathData, PathPick, SliceLayer, VertexOrder};
 
 #[cfg(test)]
 mod tests {

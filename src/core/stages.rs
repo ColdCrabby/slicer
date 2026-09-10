@@ -32,7 +32,7 @@ use super::surfaces::{
     generate_top_bottom_surfaces_with_interior, perimeter_paths_of, prune_redundant_gap_fill,
     SurfaceConfig,
 };
-use super::types::{ExtrusionRole, OverhangClass, SliceLayer};
+use super::types::{ExtrusionRole, OverhangClass, PathPick, SliceLayer, VertexOrder};
 use super::walls::{apply_single_wall_restrictions, classify_overhang_perimeters, OverhangGrading};
 
 /// The stage ids of the core pipeline, in execution order.
@@ -742,13 +742,10 @@ fn order_layer_paths(layers: &mut [SliceLayer], params: &SlicingParams) {
         }
 
         let paths_vec: Vec<_> = layer.paths.iter().cloned().collect();
-        let mut ordered_paths = clipper2::Paths::default();
-        let mut ordered_roles = Vec::with_capacity(path_count);
-        let mut ordered_widths = Vec::with_capacity(path_count);
-        let mut ordered_vertex_widths: Vec<Option<Vec<f64>>> = Vec::with_capacity(path_count);
-        let mut ordered_is_open = Vec::with_capacity(path_count);
-        let mut ordered_overhang = Vec::with_capacity(path_count);
-        let mut ordered_heights = Vec::with_capacity(path_count);
+        // The pass decides an *order*, not new geometry: it records which path
+        // to take next and how to walk its vertices, and the layer is rebuilt
+        // from that once at the end.
+        let mut picks: Vec<PathPick> = Vec::with_capacity(path_count);
 
         let mut current_pos = (0.0, 0.0);
 
@@ -782,13 +779,7 @@ fn order_layer_paths(layers: &mut [SliceLayer], params: &SlicingParams) {
                     if let Some(last) = path.iter().last() {
                         current_pos = (last.x(), last.y());
                     }
-                    ordered_paths.push(path.clone());
-                    ordered_roles.push(role);
-                    ordered_widths.push(layer.width_for_path(path_idx));
-                    ordered_vertex_widths.push(layer.vertex_widths_for_path(path_idx));
-                    ordered_is_open.push(layer.is_path_open(path_idx));
-                    ordered_overhang.push(layer.overhang_for_path(path_idx));
-                    ordered_heights.push(layer.height_for_path(path_idx));
+                    picks.push(PathPick::keep(path_idx));
                 }
                 continue;
             }
@@ -876,84 +867,49 @@ fn order_layer_paths(layers: &mut [SliceLayer], params: &SlicingParams) {
                 // Per-path closed/open determination for current_pos update.
                 let best_is_closed = role_is_closed && !layer.is_path_open(best_path_idx);
 
-                let mut final_path = clipper2::Path::default();
-                if best_is_closed && best_seam_vertex != 0 {
-                    // Rotate the closed loop so it starts at `best_seam_vertex`.
-                    // The path's first vertex is preserved as the closing
-                    // vertex by the G-code generator (which appends a move
-                    // back to vertex[0] for closed loops).  After rotation,
-                    // the loop reads: [v_seam, v_seam+1, …, v_n-1, v_0, v_1,
-                    // …, v_seam-1].  Note: we do NOT duplicate v_seam at the
-                    // end — the generator's "close contour" move handles the
-                    // wrap-around.
-                    let pts: Vec<_> = path.iter().copied().collect();
-                    let n = pts.len();
-                    for k in 0..n {
-                        final_path.push(pts[(best_seam_vertex + k) % n]);
-                    }
+                // Rotating a closed loop moves its seam to `best_seam_vertex`.
+                // The first vertex stays the closing vertex — the generator
+                // appends the move back to it — so the loop reads
+                // [v_seam, …, v_n-1, v_0, …, v_seam-1] with no duplicate.
+                let order = if best_is_closed && best_seam_vertex != 0 {
+                    VertexOrder::RotatedTo(best_seam_vertex)
                 } else if best_reverse {
-                    for p in path.iter().rev() {
-                        final_path.push(*p);
-                    }
+                    VertexOrder::Reversed
                 } else {
-                    for p in path.iter() {
-                        final_path.push(*p);
-                    }
+                    VertexOrder::AsIs
+                };
+
+                let points: Vec<_> = path.iter().copied().collect();
+                if !points.is_empty() {
+                    let first = match order {
+                        VertexOrder::AsIs => points[0],
+                        VertexOrder::Reversed => points[points.len() - 1],
+                        VertexOrder::RotatedTo(seam) => points[seam % points.len()],
+                    };
+                    let last = match order {
+                        VertexOrder::AsIs => points[points.len() - 1],
+                        VertexOrder::Reversed => points[0],
+                        VertexOrder::RotatedTo(seam) => {
+                            points[(seam + points.len() - 1) % points.len()]
+                        }
+                    };
+                    // A closed loop ends where it started; an open one ends at
+                    // its far end.
+                    let end = if best_is_closed { first } else { last };
+                    current_pos = (end.x(), end.y());
                 }
 
-                if !final_path.is_empty() {
-                    if best_is_closed {
-                        // Closed loop: nozzle ends at the start vertex (the
-                        // closing move in G-code returns to vertex[0]).
-                        let p = final_path.iter().next().unwrap();
-                        current_pos = (p.x(), p.y());
-                    } else {
-                        let p = final_path.iter().last().unwrap();
-                        current_pos = (p.x(), p.y());
-                    }
-                }
-
-                ordered_paths.push(final_path);
-                ordered_roles.push(layer.role_for_path(best_path_idx));
-                ordered_widths.push(layer.width_for_path(best_path_idx));
-                // Reorder any per-vertex widths with the same rotation/reversal
-                // applied to the path vertices above.
-                ordered_vertex_widths.push(layer.vertex_widths_for_path(best_path_idx).map(|vw| {
-                    let n = vw.len();
-                    if best_is_closed && best_seam_vertex != 0 && n > 0 {
-                        (0..n).map(|k| vw[(best_seam_vertex + k) % n]).collect()
-                    } else if best_reverse {
-                        let mut r = vw;
-                        r.reverse();
-                        r
-                    } else {
-                        vw
-                    }
-                }));
-                ordered_is_open.push(layer.is_path_open(best_path_idx));
-                ordered_overhang.push(layer.overhang_for_path(best_path_idx));
-                ordered_heights.push(layer.height_for_path(best_path_idx));
+                picks.push(PathPick {
+                    index: best_path_idx,
+                    order,
+                });
             }
         }
 
-        layer.paths = ordered_paths;
-        layer.path_roles = ordered_roles;
-        layer.path_widths = ordered_widths;
-        layer.path_vertex_widths = ordered_vertex_widths;
-        layer.path_is_open = ordered_is_open;
-        // Keep `path_overhang` populated only when it was graded; an all-`None`
-        // (empty source) layer collapses back to empty.
-        layer.path_overhang = if layer.path_overhang.is_empty() {
-            Vec::new()
-        } else {
-            ordered_overhang
-        };
-        // Same treatment for the height overrides: empty unless infill combining
-        // actually set any.
-        layer.path_heights = if layer.path_heights.is_empty() {
-            Vec::new()
-        } else {
-            ordered_heights
-        };
+        // One rebuild for the whole layer: paths, every per-path array, and
+        // every per-vertex array re-walked with the same order as the vertices
+        // they describe. Doing it by hand is how an array gets forgotten and
+        // somebody's tags end up on the wrong path.
+        layer.rebuild_paths(&picks);
     }
 }
