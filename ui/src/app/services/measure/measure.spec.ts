@@ -21,10 +21,10 @@ describe('Measure', () => {
   it('has no result until both endpoints are placed', () => {
     expect(measure.result()).toBeNull();
     measure.pick(pointAt([0, 0, 0]));
-    expect(measure.pointA()).not.toBeNull();
+    expect(measure.pointA() !== null).toBe(true);
     expect(measure.result()).toBeNull();
     measure.pick(pointAt([3, 4, 0]));
-    expect(measure.result()).not.toBeNull();
+    expect(measure.result() !== null).toBe(true);
   });
 
   it('computes the straight-line distance and per-axis deltas', () => {
@@ -95,7 +95,7 @@ describe('Measure', () => {
     // Same tool is a no-op and keeps picks.
     measure.pick(pointAt([1, 1, 1]));
     measure.setTool('face');
-    expect(measure.pointA()).not.toBeNull();
+    expect(measure.pointA() !== null).toBe(true);
   });
 
   it('deactivating forgets the measurement', () => {

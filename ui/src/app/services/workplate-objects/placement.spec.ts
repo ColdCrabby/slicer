@@ -49,7 +49,7 @@ describe('clearOffsetX', () => {
     const wide = box(0, 0, 150, 100);
     const dx = clearOffsetX(target, [wide], SPACING);
 
-    expect(dx).not.toBeNull();
+    expect(dx !== null).toBe(true);
     expect(dx).toBe(154);
     // The whole point: the resulting position must actually be clear.
     expect(
@@ -68,7 +68,7 @@ describe('clearOffsetX', () => {
     const others = [box(0, 0, 100, 50), box(100, 0, 200, 50)];
     const dx = clearOffsetX(target, others, SPACING);
 
-    expect(dx).not.toBeNull();
+    expect(dx !== null).toBe(true);
     for (const other of others) {
       expect(
         overlapsXY(

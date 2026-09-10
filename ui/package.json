@@ -55,7 +55,7 @@
     "json-schema-to-typescript": "^16.0.0",
     "prettier": "^3.9.6",
     "typescript": "^6.0.0",
-    "vitest": "^4.1.11",
+    "vitest": "^5.0.0",
     "zone.js": "~0.16.3"
   }
 }
