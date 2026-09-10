@@ -1,12 +1,12 @@
 # Plugin support — design proposal
 
-> **Status: M1–M3 have shipped; M4 is still a proposal.**
+> **Status: all four milestones have shipped.**
 > The hook interface, the reified stage list, `SliceContext`, namespaced plugin
-> settings, the non-planar layer model and the G-code move IR all exist — see
-> [plugin/README.md](plugin/README.md) for the code and
-> [Staging](#staging) for what each milestone covers. Everything below
-> concerning the **external WASM tier** still describes what we intend to
-> build, not how the engine behaves today.
+> settings, the non-planar layer model, the G-code move IR and the sandboxed
+> external tier all exist — see [plugin/README.md](plugin/README.md) for the
+> code. Two things named below are deliberately still open: the **registry**
+> hook family, which has no strategy registry to attach to yet, and **which
+> feature becomes the first shipped experiment**.
 
 The slicer should let people add behaviour — arc welding, wavy overhangs,
 whatever someone needs — without forking the pipeline. This document argues for
@@ -410,7 +410,7 @@ end.
 | **M1** Foundation | `SliceContext`, stage list, `Plugin` trait, namespaced settings, experiments UI | fuzzy skin, ironing | **shipped** |
 | **M2** Layer model | per-vertex Z, per-path plugin data | wavy overhangs | **shipped** |
 | **M3** Move IR | plan → `Vec<Move>` → filters → render | native arc welding | **shipped** |
-| **M4** External | desktop-only WASM host, WIT interface | third-party plugins | proposed |
+| **M4** External | desktop-only WASM host, coarse projection | third-party plugins | **shipped** |
 
 M1 also **deleted the duplicated debug pipeline** by turning snapshot capture
 into an ordinary set of stages — see the first blocker above for what that copy
@@ -427,13 +427,45 @@ keeps the baselines meaningful once experiments start shipping.
 
 ---
 
+## What Tier 2 actually gets
+
+The external tier does **not** get every hook family, and cannot. Tier 1 hands
+a plugin the *real* `SliceLayer` and the *real* `clipper2::Paths` — that deep
+access is the whole reason it is a compile-time trait, and nothing like it
+crosses a sandbox boundary without either losing fidelity or paying for the
+marshalling per layer, per slice.
+
+So Tier 2 gets the one family whose data is flat enough to project honestly:
+**move filters**. A move is a handful of numbers and an enum, and that survives
+a boundary intact. It is also the family the motivating case needs — a native
+arc welder is a move filter.
+
+| Concern | How it is handled |
+| --- | --- |
+| Projection | Fixed-size binary records ([external/abi.rs](plugin/external/abi.rs)) — a program is hundreds of thousands of moves, so a self-describing encoding would cost more than the filter saves |
+| G-code text | Comments and unmodelled commands stay **host-side** and travel as ids. A guest may reorder or drop them; it cannot author new ones |
+| Capabilities | **None.** No WASI, no filesystem, no network, no clock, no host functions — a module gets its own linear memory and one entry point |
+| Memory | Capped by a `ResourceLimiter`, enforced by the runtime rather than trusted |
+| Runaway code | An epoch interrupt cuts a module off on wall clock, so an infinite loop cannot hang a slice |
+| Bad output | The returned buffer is bounds-checked and decoded before a byte reaches the program; anything malformed leaves the program untouched |
+| Failure | Costs that plugin's feature, never the print — a module that will not load is reported and skipped |
+| State | A **fresh instance per call**, so one slice cannot influence the next |
+
+The load-bearing property holds: [`ExternalPlugin`](plugin/external/host.rs)
+implements the same `Plugin` trait as everything else, so adding the whole tier
+changed **no hook signature**.
+
+---
+
 ## Non-goals
 
 - **Post-processing scripts.** Spawning an executable over finished G-code is
   the traditional answer and is explicitly rejected: it sees text only, has no
   geometry, no settings integration, and no UI.
-- **External plugins on iOS/iPadOS.** Out of scope. Experiments still run there
-  because they are compiled in; third-party plugins will not.
+- **External plugins on iOS/iPadOS.** Out of scope, and enforced by the
+  dependency table: the host lives behind a feature in the desktop-only
+  section. A sandboxed app has nowhere to load a module from. Experiments still
+  run there because they are compiled in.
 - **Sandboxing in Tier 1.** A compile-time plugin has the same trust level as
   the engine. Isolation is what Tier 2 is for — see
   [Security model](#security-model-two-trust-tiers-and-the-seam-between-them)
@@ -464,8 +496,14 @@ keeps the baselines meaningful once experiments start shipping.
   saved profiles and docs for a feature that had just landed. The API is
   dogfooded by the debug-capture plugin instead, which exercises the stage
   family's insert *and* wrap forms against real geometry.
-- **Tier 2 runtime:** `wasmtime` with the Component Model, or the lighter
-  `extism`? Deferred to M4 — it does not affect the Tier-1 design.
+- ~~**Tier 2 runtime:** `wasmtime` with the Component Model, or the lighter
+  `extism`?~~ Answered: **`wasmtime`**, behind an off-by-default
+  `external-plugins` Cargo feature. It costs ~105 transitive crates and about
+  27 s of cold build, which is fine for someone who wants the tier and wrong to
+  charge everyone else for a tier that ships no plugins of its own. The
+  Component Model and a WIT interface are the intended evolution; the shipped
+  ABI is a plain core-wasm entry point, which is enough for the one hook family
+  Tier 2 gets and far less machinery to review.
 - **The Tier 2 → Tier 1 promotion checklist is not yet written.** The
   [Security model](#security-model-two-trust-tiers-and-the-seam-between-them)
   section lists what it must cover; it needs to exist as an actual reviewable

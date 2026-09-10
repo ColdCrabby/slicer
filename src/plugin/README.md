@@ -189,6 +189,35 @@ that occupying a hook point changes nothing by itself — a hook that perturbed
 the pipeline merely by existing would make every experiment a silent output
 change and the baselines meaningless.
 
+## Tier 2: loaded, sandboxed, desktop only
+
+[`external/`](external/) is the second tier — WASM modules loaded from
+`<config>/plugins/*.wasm`, behind the off-by-default `external-plugins` feature.
+
+The design's load-bearing claim is visible here: **the loader is itself just a
+Tier 1 plugin.** `ExternalPlugin` implements the same [`Plugin`](mod.rs) trait
+as everything else, which is why adding the entire tier changed no hook
+signature.
+
+**It gets move filters and nothing else**, and that is a consequence of the
+same reasoning that made Tier 1 a compile-time trait. Stages are handed the
+real `SliceLayer` and the real `clipper2::Paths`; that cannot cross a sandbox
+boundary without losing fidelity or paying to marshal it per layer, per slice.
+A move is a handful of numbers, so it can — and a native arc welder, the
+motivating case, is a move filter.
+
+What the sandbox actually rests on, all enforced rather than trusted:
+
+| Concern | Handling |
+| --- | --- |
+| Capabilities | **None** — no WASI, filesystem, network, clock or host functions |
+| Memory | Capped by a `ResourceLimiter` |
+| Runaway code | Epoch interrupt on wall clock, so a loop cannot hang a slice |
+| Output | Bounds-checked and decoded before a byte reaches the program |
+| G-code text | Comments and unmodelled commands stay host-side, referenced by id — a guest can rearrange them, never author one |
+| State | Fresh instance per call, so one slice cannot influence the next |
+| Failure | Costs that plugin's feature, never the print |
+
 ## Trust
 
 A compile-time plugin has **the same trust level as the engine**: it is
@@ -220,5 +249,6 @@ clear, is in [PLUGINS.md](../PLUGINS.md).
 - [core/pipeline.rs](../core/pipeline.rs) — the entry points that build a run
 - [builtin/debug_capture.rs](builtin/debug_capture.rs) — the first plugin, and what it replaced
 - [gcode/ir.rs](../gcode/ir.rs) — the move IR and the filter hook
+- [external/abi.rs](external/abi.rs) — the coarse projection a sandboxed plugin sees
 - [settings/params.rs](../settings/params.rs) — `SlicingParams::plugins`, `cache_fingerprint`
 - [ui/src/app/schema-form/](../../ui/src/app/schema-form/) — the schema-driven form the settings hook feeds

@@ -1367,8 +1367,35 @@ IR) and M4 (external WASM tier) have not.**
   made possible, not something it did.
 - **Tier 1 is not sandboxed.** A compile-time plugin has the same trust level as
   the engine, in every build including WASM and iOS. Isolation is what the
-  later external tier is for; see the security model in
-  [src/PLUGINS.md](src/PLUGINS.md), particularly the promotion gate.
+  external tier is for; see the security model in
+  [src/PLUGINS.md](src/PLUGINS.md), particularly the promotion gate a Tier 2
+  plugin has to clear before it can be baked in.
+- **Tier 2 is desktop-only and off by default.** The WASM host
+  ([src/plugin/external/](src/plugin/external/)) lives behind the
+  `external-plugins` Cargo feature, in the desktop-only dependency table. It
+  pulls wasmtime and ~105 crates in; charging every build for that, for a tier
+  that ships no plugins of its own, would be wrong. **Keep it optional**, and
+  keep it out of the wasm and iOS targets — a sandboxed app has nowhere to load
+  a module from.
+- **Tier 2 gets move filters and nothing else, on purpose.** Stages are handed
+  the real `SliceLayer` and the real `clipper2::Paths`; that deep access is why
+  Tier 1 is a compile-time trait, and it cannot cross a sandbox boundary without
+  losing fidelity or paying to marshal it per layer, per slice. A move is a
+  handful of numbers, so it can. **Do not add a hook family to Tier 2 whose data
+  cannot be projected honestly** — a hook whose type cannot describe its feature
+  is the dead end this design exists to avoid.
+- **A guest cannot author G-code text.** Comments and unmodelled commands stay
+  host-side in a side table and travel as ids; a module may reorder or drop
+  them but cannot invent one, and an id that does not resolve is rejected rather
+  than dropped. The host also grants **no** capabilities at all — no WASI, no
+  filesystem, no network, no clock — caps memory through a `ResourceLimiter`,
+  cuts a runaway module off with an epoch interrupt, bounds-checks the returned
+  buffer before reading it, and uses a fresh instance per call so one slice
+  cannot influence the next. Every one of those is enforced rather than trusted,
+  because a module may be hostile.
+- **A failing plugin costs its own feature, never the print.** A module that
+  will not load is reported and skipped; a filter that fails or returns
+  something malformed leaves the program exactly as it was.
 
 ## Slicing Pipeline — Deep Knowledge
 

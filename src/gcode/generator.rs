@@ -3405,6 +3405,11 @@ pub fn generate_gcode_from_params(layers: &[SliceLayer], params: &SlicingParams)
     if let Some(lines) = gcode_block_lines(params.end_filament_gcode.as_deref()) {
         generator = generator.with_filament_end_script(lines);
     }
+    // Move filters contributed by whatever plugins this build ships or loaded.
+    // Empty on an ordinary install, so the program renders exactly as planned.
+    generator = generator.with_move_filters(crate::plugin::move_filters(
+        &crate::plugin::all_plugins(&crate::logging::NullLogger),
+    ));
     generator.generate(layers, params)
 }
 
@@ -3432,6 +3437,11 @@ pub fn generate_gcode_for_plate(plate: &crate::core::PlateSlice, params: &Slicin
     if let Some(lines) = gcode_block_lines(params.end_filament_gcode.as_deref()) {
         generator = generator.with_filament_end_script(lines);
     }
+    // Same as its single-mesh sibling: install whatever move filters this
+    // build's plugins contribute, which is none on an ordinary install.
+    generator = generator.with_move_filters(crate::plugin::move_filters(
+        &crate::plugin::all_plugins(&crate::logging::NullLogger),
+    ));
     generator.generate(&plate.layers, params)
 }
 

@@ -57,6 +57,11 @@ issue/PR numbers or repo links in the notes. See the tone rules in
   rewrite motion — merging, splitting or replacing it — while the role, width
   and feedrate are still attached. That is what a native arc welder needs, and
   what editing finished text could never offer. Output is unchanged.
+- **Third-party plugins, sandboxed.** An optional build can load WASM modules
+  from a plugins folder and let them rewrite the G-code program. A module is
+  granted nothing — no files, no network, no clock — is capped on memory and
+  cut off if it runs away, and cannot write G-code text of its own. One that
+  misbehaves costs its own feature, never the print. Off by default.
 - **Fuzzy skin.** A new outer-wall texture option roughs the surface with a
   small random perpendicular jitter instead of a smooth wall — useful for
   hiding layer lines or giving a part a deliberately organic look. Tunable
