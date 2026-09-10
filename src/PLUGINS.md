@@ -349,13 +349,41 @@ text — not geometry) is sandboxed by *removing capability*: strip `os`, `io`,
 `debug`, `loadstring`, `package.loadlib` from the global table and hope nothing
 reaches them back through a metatable. The interpreter itself still runs in the
 host's address space, so a VM bug is a host memory-corruption bug. WASM's
-sandbox instead comes from the hardware/runtime enforcing a linear-memory
-boundary regardless of what the guest code does or what bugs it has — the
-capability grant (the WIT surface) and the isolation guarantee are two
-independent layers, and losing one doesn't lose the other. That difference is
-why Tier 2 is specified as WASM rather than an embedded scripting language: the
-guarantee needs to hold even when the plugin is actively hostile, not just
-when it is well-behaved.
+sandbox instead comes from the runtime enforcing a linear-memory boundary
+regardless of what the **guest** does — the capability grant and the isolation
+guarantee are two independent layers, and losing one doesn't lose the other.
+That difference is why Tier 2 is WASM rather than an embedded scripting
+language: the guarantee needs to hold even when the plugin is actively hostile,
+not just when it is well-behaved.
+
+**But the guarantee is only as good as the runtime, and that is not a
+footnote.** Shipping M4 immediately proved the point: the first `wasmtime`
+version picked for it carried two *critical* advisories
+([GHSA-jhxm-h53p-jm7w](https://github.com/advisories/GHSA-jhxm-h53p-jm7w),
+[GHSA-xx5w-cvp6-jv83](https://github.com/advisories/GHSA-xx5w-cvp6-jv83)) —
+both **sandbox escapes on aarch64**, the architecture most of this project is
+developed on, and one of them in the Cranelift backend the host actually uses.
+A miscompiled guest heap access is a host memory-corruption bug by another
+route.
+
+So the honest form of the claim is narrower than "regardless of what bugs it
+has": WASM's boundary is *explicit and machine-checked* rather than a denylist
+somebody has to keep complete, which is a categorically better starting point
+than curated globals — but it is still an implementation, and implementations
+have bugs. Three things follow, and they are requirements rather than advice:
+
+- **The runtime version floor is load-bearing.** `Cargo.toml` pins a minimum
+  past both advisories rather than a loose major, so a fresh checkout cannot
+  resolve back into them.
+- **Keeping it current is a security task, not maintenance.** The
+  `dependency-review` gate blocks a PR that *adds* a vulnerable dependency —
+  which is exactly how these two were caught — but a newly published advisory
+  against a version already in the tree surfaces through the weekly scheduled
+  scan, and `cargo-audit`/`cargo-deny` are deliberately report-only in this
+  repo.
+- **Off by default is a security property**, not only a build-time one. An
+  installation that never enables `external-plugins` has no WASM runtime linked
+  in at all, so a runtime advisory is not its problem.
 
 ### The promotion path is where the guarantee disappears
 

@@ -218,6 +218,13 @@ What the sandbox actually rests on, all enforced rather than trusted:
 | State | Fresh instance per call, so one slice cannot influence the next |
 | Failure | Costs that plugin's feature, never the print |
 
+**The sandbox is only as good as the runtime.** M4's first `wasmtime` version
+carried two critical advisories, both sandbox escapes on aarch64 — one in the
+Cranelift backend this host uses. `Cargo.toml` pins a minimum past them, and
+that floor is load-bearing: "WASM is structurally isolated" says the boundary is
+explicit and machine-checked, not that the implementation is bug-free. See the
+security model in [PLUGINS.md](../PLUGINS.md).
+
 ## Trust
 
 A compile-time plugin has **the same trust level as the engine**: it is

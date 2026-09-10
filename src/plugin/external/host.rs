@@ -53,7 +53,7 @@ pub enum LoadError {
     /// The file could not be read.
     Io(std::io::Error),
     /// The bytes are not a valid WASM module, or it failed to instantiate.
-    Wasm(anyhow::Error),
+    Wasm(wasmtime::Error),
     /// The module is missing an export the host requires.
     MissingExport(&'static str),
     /// The module was built against a different hook ABI.
@@ -95,7 +95,7 @@ impl wasmtime::ResourceLimiter for Limits {
         _current: usize,
         desired: usize,
         _maximum: Option<usize>,
-    ) -> anyhow::Result<bool> {
+    ) -> wasmtime::Result<bool> {
         Ok(desired <= MEMORY_LIMIT_BYTES)
     }
 
@@ -104,7 +104,7 @@ impl wasmtime::ResourceLimiter for Limits {
         _current: usize,
         desired: usize,
         _maximum: Option<usize>,
-    ) -> anyhow::Result<bool> {
+    ) -> wasmtime::Result<bool> {
         Ok(desired <= 10_000)
     }
 }
@@ -132,7 +132,7 @@ impl Loaded {
     /// A **fresh instance per call**, deliberately: a module cannot accumulate
     /// state across slices, so one slice cannot influence the next and a module
     /// that corrupts its own memory only ruins its own call.
-    fn run(&self, input: &[u8]) -> Result<Vec<u8>, anyhow::Error> {
+    fn run(&self, input: &[u8]) -> Result<Vec<u8>, wasmtime::Error> {
         let mut store = Store::new(&self.engine, Limits);
         store.set_epoch_deadline(1);
         store.limiter(|limits| limits);
@@ -142,7 +142,7 @@ impl Loaded {
 
         let memory: Memory = instance
             .get_memory(&mut store, "memory")
-            .ok_or_else(|| anyhow::anyhow!("module exports no memory"))?;
+            .ok_or_else(|| wasmtime::Error::msg("module exports no memory"))?;
         let alloc: TypedFunc<u32, u32> = instance.get_typed_func(&mut store, "plugin_alloc")?;
         let filter: TypedFunc<(u32, u32), u64> =
             instance.get_typed_func(&mut store, "plugin_filter_moves")?;
@@ -159,7 +159,9 @@ impl Loaded {
         // take its word for it.
         let data = memory.data(&store);
         if out_len > MEMORY_LIMIT_BYTES || out_ptr.saturating_add(out_len) > data.len() {
-            anyhow::bail!("module returned a buffer outside its own memory");
+            return Err(wasmtime::Error::msg(
+                "module returned a buffer outside its own memory",
+            ));
         }
         Ok(data[out_ptr..out_ptr + out_len].to_vec())
     }
