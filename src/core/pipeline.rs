@@ -105,7 +105,7 @@ pub fn process_mesh(
     params: &SlicingParams,
     logger: &dyn ProcessLogger,
 ) -> Vec<SliceLayer> {
-    let plugins = plugin::builtin_plugins();
+    let plugins = plugin::all_plugins(logger);
     run_pipeline(mesh, params, logger, &plugins).0
 }
 

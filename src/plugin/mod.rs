@@ -40,6 +40,7 @@
 
 pub mod builtin;
 pub mod context;
+pub mod external;
 pub mod manifest;
 pub mod schema;
 pub mod settings;
@@ -108,6 +109,42 @@ pub trait Plugin: Send + Sync {
 /// group therefore appears exactly when the first one does.
 pub fn builtin_plugins() -> Vec<Box<dyn Plugin>> {
     Vec::new()
+}
+
+/// Every plugin this run should install: the built-in set, plus any Tier 2
+/// modules loaded from disk.
+///
+/// The Tier 2 half exists only on desktop builds with the `external-plugins`
+/// feature; everywhere else this is exactly [`builtin_plugins`]. A module that
+/// fails to load is reported through `logger` and skipped — one bad plugin
+/// costs its own feature, not the user's print.
+pub fn all_plugins(logger: &dyn crate::logging::ProcessLogger) -> Vec<Box<dyn Plugin>> {
+    // `mut` only where the external tier compiles in and extends it.
+    #[allow(unused_mut)]
+    let mut plugins = builtin_plugins();
+
+    #[cfg(all(
+        feature = "external-plugins",
+        not(target_arch = "wasm32"),
+        not(target_os = "ios")
+    ))]
+    {
+        let dir = crate::config::io::config_dir().join("plugins");
+        let loaded = external::load_from(&dir);
+        for (path, err) in &loaded.failures {
+            logger.log_warn(&format!("plugin {}: {err}", path.display()));
+        }
+        for plugin in &loaded.plugins {
+            logger.log_info(&format!(
+                "loaded external plugin '{}'",
+                plugin.manifest().id
+            ));
+        }
+        plugins.extend(loaded.plugins);
+    }
+
+    let _ = logger;
+    plugins
 }
 
 /// Fold every plugin's stage registrations into `registry`.
