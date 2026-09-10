@@ -1,12 +1,12 @@
 # Plugin support — design proposal
 
-> **Status: M1 has shipped; M2–M4 are still proposals.**
-> The hook interface, the reified stage list, `SliceContext` and namespaced
-> plugin settings exist — see [plugin/README.md](plugin/README.md) for the code
-> and [Staging](#staging) for what each milestone covers. Everything below
-> concerning the **layer model**, the **G-code move IR** and the **external
-> WASM tier** still describes what we intend to build, not how the engine
-> behaves today.
+> **Status: M1 and M2 have shipped; M3–M4 are still proposals.**
+> The hook interface, the reified stage list, `SliceContext`, namespaced plugin
+> settings and the non-planar layer model exist — see
+> [plugin/README.md](plugin/README.md) for the code and
+> [Staging](#staging) for what each milestone covers. Everything below
+> concerning the **G-code move IR** and the **external WASM tier** still
+> describes what we intend to build, not how the engine behaves today.
 
 The slicer should let people add behaviour — arc welding, wavy overhangs,
 whatever someone needs — without forking the pipeline. This document argues for
@@ -113,19 +113,49 @@ unordered G-code with no skirt. It is now the production pipeline plus one
 plugin ([plugin/builtin/debug_capture.rs](plugin/builtin/debug_capture.rs)),
 and a test pins the two to the same layers.
 
-### `SliceLayer` cannot express non-planar intent
+### `SliceLayer` could not express non-planar intent — *fixed in M2*
 
-[core/types.rs](core/types.rs) gives every layer a single `z`. It carries
-per-vertex *width* (`path_vertex_widths`) but no per-vertex *Z*. Spiral/vase
-mode works around this with bespoke Z-ramping inside the G-code emitter.
+[core/types.rs](core/types.rs) gave every layer a single `z`. It carried
+per-vertex *width* (`path_vertex_widths`) but no per-vertex *Z*.
 
-So **wavy overhangs cannot be expressed at any hook point** — not because the
-hooks are in the wrong place, but because the type handed to them cannot
-represent the idea.
+So **wavy overhangs could not be expressed at any hook point** — not because
+the hooks were in the wrong place, but because the type handed to them could
+not represent the idea.
 
 This is the central lesson of the research: *the data model, not the hook list,
 is the real limit.* A hook that hands you a type that cannot describe your
 feature is a dead end, however well-placed it is.
+
+`SliceLayer::path_vertex_z` is the answer: one Z **offset** per vertex,
+relative to the layer's own `z`. Offsets rather than absolute heights, because
+`z` moves when a raft is prepended or a first layer is made thicker, and an
+offset stays correct across both. The generator emits those segments with
+`move_extrude_z` and charges them for the **3D** distance they travel, so a
+climbing bead is not under-extruded; it also suppresses path simplification and
+coasting for such a path, both of which would quietly flatten the shape that
+made it non-planar.
+
+`SliceLayer::path_data` lands with it: per-path scratch space keyed by plugin
+id, so a plugin can carry a conclusion from one stage to a later one, and two
+plugins annotating the same path cannot clobber each other.
+
+Both use the established empty-vector sentinel, so a flat print allocates
+neither and emits not one Z-bearing extrusion move.
+
+**Adding parallel arrays is the risk here, and M2 paid it down rather than
+adding to it.** Every per-path array used to be rebuilt by hand at each site
+that reorders, filters or prepends paths — and the ordering pass was already
+silently dropping `path_objects`, harmless only because nothing tags objects
+before it runs. `SliceLayer::rebuild_paths` now replaces the paths and *every*
+array together, re-walking per-vertex arrays with the same rotation or reversal
+as the vertices they describe. Sites call that instead of enumerating arrays,
+so forgetting one is no longer possible.
+
+**Spiral (vase) mode was deliberately left alone.** It keeps its bespoke
+Z-ramping in the emitter, which is coupled to its own flow fade-in and
+fade-out. Rebuilding it on `path_vertex_z` would be a behaviour change to
+working output for no user-visible gain, so it is a candidate for later rather
+than part of this milestone.
 
 ### There is no G-code move IR
 
@@ -364,7 +394,7 @@ end.
 | Milestone | Delivers | Unblocks | Status |
 | --- | --- | --- | --- |
 | **M1** Foundation | `SliceContext`, stage list, `Plugin` trait, namespaced settings, experiments UI | fuzzy skin, ironing | **shipped** |
-| **M2** Layer model | per-vertex Z, per-path plugin data | wavy overhangs; simplifies spiral mode | proposed |
+| **M2** Layer model | per-vertex Z, per-path plugin data | wavy overhangs | **shipped** |
 | **M3** Move IR | plan → `Vec<Move>` → filters → render | arc welding (#32) | proposed |
 | **M4** External | desktop-only WASM host, WIT interface | third-party plugins | proposed |
 

@@ -128,105 +128,10 @@ fn push_loop(layer: &mut SliceLayer, path: Path, role: ExtrusionRole, width: f64
     }
 }
 
-/// Pad every parallel per-path array on `layer` up to `layer.paths.len()` so a
-/// subsequent prepend keeps all arrays aligned.
-fn normalise(layer: &mut SliceLayer) {
-    let n = layer.paths.len();
-    while layer.path_roles.len() < n {
-        layer.path_roles.push(ExtrusionRole::OuterWall);
-    }
-    while layer.path_widths.len() < n {
-        layer.path_widths.push(None);
-    }
-    while layer.path_vertex_widths.len() < n {
-        layer.path_vertex_widths.push(None);
-    }
-    while layer.path_is_open.len() < n {
-        layer.path_is_open.push(false);
-    }
-    // Only pad `path_overhang` when the layer was graded (non-empty); an empty
-    // vector is the "not graded" sentinel and must stay empty.
-    if !layer.path_overhang.is_empty() {
-        while layer.path_overhang.len() < n {
-            layer.path_overhang.push(OverhangClass::None);
-        }
-    }
-    // Same sentinel rule for `path_heights`: empty means "every path prints at
-    // the layer height", and only combined sparse infill ever fills it in.
-    if !layer.path_heights.is_empty() {
-        while layer.path_heights.len() < n {
-            layer.path_heights.push(None);
-        }
-    }
-    // Same for object tags: an empty vector means "this layer was not sliced
-    // object-aware" and must stay empty.
-    if !layer.path_objects.is_empty() {
-        while layer.path_objects.len() < n {
-            layer.path_objects.push(None);
-        }
-    }
-}
-
 /// Prepend `additions` (a fully-populated adhesion layer) in front of `layer`'s
 /// existing paths so the adhesion loops print **first**.
 fn prepend(layer: &mut SliceLayer, additions: SliceLayer) {
-    if additions.paths.is_empty() {
-        return;
-    }
-    normalise(layer);
-    let additions_count = additions.paths.len();
-    let mut paths = additions.paths;
-    let mut roles = additions.path_roles;
-    let mut widths = additions.path_widths;
-    let mut vwidths = additions.path_vertex_widths;
-    let mut is_open = additions.path_is_open;
-
-    for p in layer.paths.iter() {
-        paths.push(p.clone());
-    }
-    roles.extend(layer.path_roles.iter().copied());
-    widths.extend(layer.path_widths.iter().copied());
-    vwidths.extend(layer.path_vertex_widths.iter().cloned());
-    is_open.extend(layer.path_is_open.iter().copied());
-
-    // Prepend `None` for the (unclassified) adhesion loops so the object's own
-    // overhang classes stay aligned to their walls.  Empty stays empty.
-    let overhang = if layer.path_overhang.is_empty() {
-        Vec::new()
-    } else {
-        let mut o = vec![OverhangClass::None; additions_count];
-        o.extend(layer.path_overhang.iter().copied());
-        o
-    };
-
-    // Adhesion loops always print at the layer height, so they prepend `None`;
-    // an object path that combined infill tagged with a stacked height keeps it.
-    let heights = if layer.path_heights.is_empty() {
-        Vec::new()
-    } else {
-        let mut h = vec![None; additions_count];
-        h.extend(layer.path_heights.iter().copied());
-        h
-    };
-
-    // Adhesion belongs to the plate, not to any one object: a skirt or brim
-    // still has to print when a single part is cancelled, so its tag is `None`.
-    let objects = if layer.path_objects.is_empty() {
-        Vec::new()
-    } else {
-        let mut o = vec![None; additions_count];
-        o.extend(layer.path_objects.iter().copied());
-        o
-    };
-
-    layer.paths = paths;
-    layer.path_roles = roles;
-    layer.path_widths = widths;
-    layer.path_vertex_widths = vwidths;
-    layer.path_is_open = is_open;
-    layer.path_overhang = overhang;
-    layer.path_heights = heights;
-    layer.path_objects = objects;
+    layer.prepend_paths(additions);
 }
 
 /// Concentric offset loops stepping **outward** from `footprint`, keeping only

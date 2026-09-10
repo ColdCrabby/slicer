@@ -79,6 +79,25 @@ never appended. A plugin targeting a stage the engine has since renamed should
 lose its own feature, not run at some arbitrary other point in the pipeline —
 and not take the user's print down with it either.
 
+### The layer model is not flat
+
+A hook is only as expressive as the type it is handed. `SliceLayer` carries
+per-vertex **Z offsets** (`path_vertex_z`) alongside its per-vertex widths, so a
+bead can rise and fall *within* a layer — which is what a feature like a wavy
+overhang is, and what no hook placement could have supplied on its own.
+
+`path_data` is its sibling: per-path scratch space keyed by plugin id, so a
+plugin can carry a conclusion from one stage to a later one and two plugins
+annotating the same path cannot clobber each other.
+
+Both use the empty-vector sentinel, so an ordinary flat print allocates neither.
+
+**Rebuild a layer's paths with [`SliceLayer::rebuild_paths`](../core/types.rs),
+never by hand.** It replaces the paths and every per-path array together, and
+re-walks per-vertex arrays with the same rotation or reversal as the vertices
+they describe. That is the failure this API exists to remove: an array left
+behind shifts somebody's tags onto the wrong path, silently.
+
 ### `SliceContext`: where inter-stage state lives
 
 Everything a stage may read or write is on [`SliceContext`](context.rs). Before

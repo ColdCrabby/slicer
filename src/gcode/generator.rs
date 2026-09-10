@@ -872,6 +872,30 @@ impl GcodeGenerator {
         self.dialect.move_extrude(x, y, value, speed_mm_min)
     }
 
+    /// Format an extruding move that also changes Z — a non-planar segment.
+    ///
+    /// Same E convention as [`GcodeGenerator::xy_extrude_line`]; the difference
+    /// is that the bead climbs while it is drawn, instead of the layer stepping
+    /// once and staying flat.
+    #[allow(clippy::too_many_arguments)]
+    fn xyz_extrude_line(
+        &self,
+        x: f64,
+        y: f64,
+        z: f64,
+        de: f64,
+        e_total: f64,
+        speed_mm_min: f64,
+        params: &SlicingParams,
+    ) -> String {
+        let value = if params.use_relative_e_distances {
+            de
+        } else {
+            e_total
+        };
+        self.dialect.move_extrude_z(x, y, z, value, speed_mm_min)
+    }
+
     /// Emit the wipe move: retrace `points` (the previous path's trajectory, in
     /// print order) backward from its end for up to `wipe_distance` mm.
     ///
@@ -2502,7 +2526,19 @@ impl GcodeGenerator {
                 // beads use the width-aware pass so `points` and their widths stay
                 // aligned (and long constant-width runs still collapse), instead
                 // of being emitted at full resolution.
-                let (points, vertex_widths): (Vec<(f64, f64)>, Option<Vec<f64>>) =
+                // Per-vertex Z offsets, when the path is non-planar. Their
+                // presence suppresses simplification below: dropping a vertex
+                // from a path whose shape *is* its Z profile flattens exactly
+                // the feature that put it there, and would leave the offsets
+                // misaligned with the points they describe besides.
+                let vertex_z = layer.vertex_z_for_path(path_idx).map(<[f64]>::to_vec);
+                let non_planar = vertex_z
+                    .as_ref()
+                    .is_some_and(|vz| vz.len() == raw_points.len());
+
+                let (points, vertex_widths): (Vec<(f64, f64)>, Option<Vec<f64>>) = if non_planar {
+                    (raw_points, raw_vertex_widths)
+                } else {
                     match raw_vertex_widths {
                         Some(vw)
                             if params.path_tolerance > 0.0
@@ -2526,7 +2562,8 @@ impl GcodeGenerator {
                             None,
                         ),
                         None => (raw_points, None),
-                    };
+                    }
+                };
 
                 // Guard against future algorithm changes that might produce degenerate paths.
                 debug_assert!(
@@ -2749,7 +2786,12 @@ impl GcodeGenerator {
                 // will add a linear pass per perimeter path. A future optimisation could
                 // pre-compute cumulative lengths once if profiling shows this to be a
                 // bottleneck.
-                let apply_coasting = is_closed_loop && params.coasting_distance_mm > 0.0;
+                // A non-planar path is deliberately excluded: the coasting
+                // branch is a flat-loop optimisation that emits XY-only moves,
+                // so routing a path with per-vertex Z through it would silently
+                // flatten the very shape that made it non-planar.
+                let apply_coasting =
+                    is_closed_loop && params.coasting_distance_mm > 0.0 && !non_planar;
 
                 // ── Print contour segments ────────────────────────────────────
                 if apply_coasting {
@@ -2942,11 +2984,42 @@ impl GcodeGenerator {
                             params.max_volumetric_speed,
                         )
                     };
+                    // Absolute Z at vertex `j` for a non-planar path: the
+                    // layer's own Z plus that vertex's offset. `None` for an
+                    // ordinary flat path, which is every path on a normal print.
+                    let vertex_z_at = |j: usize| -> Option<f64> {
+                        if !non_planar {
+                            return None;
+                        }
+                        vertex_z
+                            .as_ref()
+                            .and_then(|vz| vz.get(j).map(|dz| machine_z(layer.z, params) + dz))
+                    };
+
+                    // Lift to the first vertex's height before drawing, so a
+                    // path that does not start in the layer plane is not
+                    // approached diagonally from it.
+                    if let Some(z0) = vertex_z_at(0) {
+                        if (z0 - machine_z(layer.z, params)).abs() > 1e-9 {
+                            out.push_str(&format!(
+                                "{} ; non-planar path start\n",
+                                self.dialect.move_z(z0, params.travel_speed_mm_min)
+                            ));
+                        }
+                    }
+
                     let mut prev = points[0];
                     for (i, &(x, y)) in points.iter().enumerate().skip(1) {
                         let dx = x - prev.0;
                         let dy = y - prev.1;
-                        let len = (dx * dx + dy * dy).sqrt();
+                        // A non-planar segment climbs as well as travels, and
+                        // it is the 3D length that decides how much filament it
+                        // needs.
+                        let dz = match (vertex_z_at(i - 1), vertex_z_at(i)) {
+                            (Some(a), Some(b)) => b - a,
+                            _ => 0.0,
+                        };
+                        let len = (dx * dx + dy * dy + dz * dz).sqrt();
                         if len < 1e-6 {
                             prev = (x, y);
                             continue;
@@ -2984,10 +3057,13 @@ impl GcodeGenerator {
                         );
                         e_total += de;
                         total_filament_mm += de;
-                        out.push_str(&format!(
-                            "{}\n",
-                            self.xy_extrude_line(x, y, de, e_total, seg_speed(sw), params)
-                        ));
+                        let line = match vertex_z_at(i) {
+                            Some(zi) => {
+                                self.xyz_extrude_line(x, y, zi, de, e_total, seg_speed(sw), params)
+                            }
+                            None => self.xy_extrude_line(x, y, de, e_total, seg_speed(sw), params),
+                        };
+                        out.push_str(&format!("{}\n", line));
                         prev = (x, y);
                     }
 
@@ -2999,7 +3075,11 @@ impl GcodeGenerator {
                     if is_closed_loop {
                         let dx = start_x - prev.0;
                         let dy = start_y - prev.1;
-                        let len = (dx * dx + dy * dy).sqrt();
+                        let dz = match (vertex_z_at(points.len() - 1), vertex_z_at(0)) {
+                            (Some(a), Some(b)) => b - a,
+                            _ => 0.0,
+                        };
+                        let len = (dx * dx + dy * dy + dz * dz).sqrt();
                         if len >= 1e-6 {
                             let de = extrusion_for_move(
                                 len,
@@ -3010,17 +3090,26 @@ impl GcodeGenerator {
                             );
                             e_total += de;
                             total_filament_mm += de;
-                            out.push_str(&format!(
-                                "{} ; close contour\n",
-                                self.xy_extrude_line(
+                            let line = match vertex_z_at(0) {
+                                Some(z0) => self.xyz_extrude_line(
+                                    start_x,
+                                    start_y,
+                                    z0,
+                                    de,
+                                    e_total,
+                                    capped_speed_mm_min,
+                                    params,
+                                ),
+                                None => self.xy_extrude_line(
                                     start_x,
                                     start_y,
                                     de,
                                     e_total,
                                     capped_speed_mm_min,
-                                    params
-                                )
-                            ));
+                                    params,
+                                ),
+                            };
+                            out.push_str(&format!("{} ; close contour\n", line));
                         }
                         last_pos = Some((start_x, start_y));
                     } else {

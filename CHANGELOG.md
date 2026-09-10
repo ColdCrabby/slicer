@@ -47,6 +47,11 @@ issue/PR numbers or repo links in the notes. See the tone rules in
   new extension point for free. Plugin settings are namespaced and generate
   their own UI from a JSON Schema fragment. No plugins ship yet and output is
   byte-identical without one.
+- **Non-planar extrusion.** A layer is no longer necessarily flat: a path can
+  carry a Z offset per vertex, so a bead rises and falls within its own layer
+  and the filament it needs is measured along the distance it actually travels.
+  Nothing in the default pipeline produces one — it is the groundwork features
+  like wavy overhangs need in order to exist at all.
 - **Fuzzy skin.** A new outer-wall texture option roughs the surface with a
   small random perpendicular jitter instead of a smooth wall — useful for
   hiding layer lines or giving a part a deliberately organic look. Tunable

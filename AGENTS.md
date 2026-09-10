@@ -1324,6 +1324,28 @@ IR) and M4 (external WASM tier) have not.**
   adhesion, so `--debug-geometry` wrote unordered G-code with no skirt. Do not
   re-introduce a parallel sequence to capture something; insert a stage, or
   wrap one.
+- **A layer is not necessarily flat.** `SliceLayer::path_vertex_z` carries one
+  Z **offset** per vertex, relative to the layer's own `z` — offsets, because
+  `z` moves under a raft or a thicker first layer and an offset survives both.
+  The generator emits those segments with `move_extrude_z`, charges them for
+  the **3D** distance travelled (a climbing bead needs more filament than its
+  XY projection), and suppresses both path simplification and coasting for such
+  a path — either would silently flatten the shape that made it non-planar.
+  `path_data` is the sibling: per-path scratch space keyed by plugin id, so two
+  plugins can annotate one path without clobbering each other. Both use the
+  empty-vector sentinel, so a flat print allocates neither.
+- **Rebuild a layer's paths with `SliceLayer::rebuild_paths`, never by hand.**
+  It replaces the paths and **every** per-path array together, re-walking
+  per-vertex arrays with the same rotation or reversal as the vertices they
+  describe. Hand-enumerating the arrays is how one gets forgotten and somebody's
+  tags shift onto the wrong path — the ordering pass was already dropping
+  `path_objects` that way, harmless only because nothing tags objects before it
+  runs. `retain_paths`, `prepend_paths` and `pad_per_path_arrays` are the same
+  guarantee for filtering, prepending and padding.
+- **Spiral (vase) mode still ramps Z in the emitter**, coupled to its own flow
+  fade-in/out, rather than going through `path_vertex_z`. Folding it in would
+  change working output for no user-visible gain; leave it unless there is a
+  reason.
 - **Tier 1 is not sandboxed.** A compile-time plugin has the same trust level as
   the engine, in every build including WASM and iOS. Isolation is what the
   later external tier is for; see the security model in
