@@ -24,9 +24,14 @@ specific order, each consuming what the previous one produced:
 
 Each step depends on the geometric output of the one before. Putting them in
 the wrong order — or running surface detection on the original contours
-instead of the post-Arachne ones — produces visibly wrong G-code. The
-pipeline lives here, in [`pipeline::process_mesh`](pipeline.rs), as one
-function so the order is impossible to misread.
+instead of the post-Arachne ones — produces visibly wrong G-code. The order
+lives here, in [`stages.rs`](stages.rs), as an explicit list of named stages so
+it is impossible to misread; [`pipeline::process_mesh`](pipeline.rs) only builds
+a run out of that list.
+
+The list is also the extension surface: a plugin says *where* its work goes by
+naming a stage, so every stage this file grows becomes two new hook points for
+free. See [`plugin/README.md`](../plugin/README.md).
 
 ---
 
@@ -42,12 +47,20 @@ function so the order is impossible to misread.
 2. **All progress is reported through `ProcessLogger`.** No `eprintln!`,
    no `println!`. CLI verbosity and WS log streaming are then identical
    by construction.
-3. **Order of operations is fixed.** The comments in
-   [`pipeline.rs`](pipeline.rs) explain _why_ each step sits where it does;
-   re-ordering is a behaviour change, not a refactor.
+3. **Order of operations is fixed.** The push order in
+   [`core_stages`](stages.rs) *is* the execution order, and the comment on each
+   stage explains _why_ it sits where it does; re-ordering is a behaviour
+   change, not a refactor. The id list is additionally a public API — plugins
+   target it — and is pinned by `tests/plugin_hooks.rs`.
+   **A step added to [`pipeline.rs`](pipeline.rs) instead of a stage is a step
+   no plugin can reach.**
 4. **`SliceLayer` is the sole carrier between phases.** Each phase reads from
    and writes back into the same `Vec<SliceLayer>`; nothing escapes to
-   global state.
+   global state. Geometry that genuinely has to pass *between* stages —
+   `interior_regions`, `pre_strip_infill_regions`, `overhang_support` — lives on
+   `SliceContext::artifacts` rather than in a local, which is what makes an
+   inserted stage able to read it. Several are only populated when their feature
+   is on, so a reader must cope with absence.
 5. **Object identity is added around the pipeline, never inside it.** A part
    knows nothing of its neighbours: [`objects.rs`](objects.rs) slices each one
    with the untouched pipeline and only then tags and interleaves the results.
@@ -276,13 +289,13 @@ Two things to note:
 | Slice                         | [`slice_mesh`](slicer.rs)                                                     | `Mesh`                                      | `paths` (OuterWall)                          |
 | Dimensional compensation      | [`compensation::apply_dimensional_compensation`](compensation.rs)             | `paths` (raw contours), layer `i + 1`       | `paths` (corrected; skipped when unconfigured) |
 | Arachne walls                 | [`walls::arachne::generate_arachne_walls`](../walls/arachne/mod.rs)                        | `paths`                                     | `paths`, `path_roles`, `path_widths`         |
-| Infill snapshot               | [`infill::calculate_interior_region`](infill.rs)                              | `paths` (all walls)                         | `pre_strip_infill_regions` local             |
+| Infill snapshot               | [`infill::calculate_interior_region`](infill.rs)                              | `paths` (all walls)                         | `artifacts.pre_strip_infill_regions`             |
 | Single-wall strip             | [`walls::apply_single_wall_restrictions`](walls.rs)                           | `paths`, `path_roles`                       | `paths`, `path_roles` (inner walls + first-layer gap fill removed) |
-| Interior regions for surfaces | [`infill::calculate_interior_region`](infill.rs)                              | `paths` (post-strip)                        | `interior_regions` local                     |
+| Interior regions for surfaces | [`infill::calculate_interior_region`](infill.rs)                              | `paths` (post-strip)                        | `artifacts.interior_regions`                 |
 | Top / bottom surfaces         | [`surfaces::generate_top_bottom_surfaces_with_interior`](surfaces.rs)         | `paths`, `interior_regions`                 | `paths`, `path_roles`, `solid_regions`       |
 | Overhang classification       | [`walls::classify_overhang_perimeters`](walls.rs)                             | `paths`, `unsupported_regions`, `OverhangGrading` (opt) | `path_roles` (some `OverhangPerimeter`), `path_overhang` (when grading) |
 | Sparse infill                 | [`infill::add_infill_to_layers`](infill.rs)                                   | `pre_strip_infill_regions`, `solid_regions` | `paths`, `path_roles`, `path_heights`        |
-| Path ordering & seams         | inline in [`pipeline::process_mesh`](pipeline.rs) (uses `choose_seam_vertex`) | `paths`, `path_roles`, `seam_position`      | `paths` (rotated/reordered)                  |
+| Path ordering & seams         | [`stages::order_layer_paths`](stages.rs) (uses `choose_seam_vertex`)          | `paths`, `path_roles`, `seam_position`      | `paths` (rotated/reordered)                  |
 
 `pre_strip_infill_regions` is computed only when at least one of
 `only_one_wall_first_layer` / `only_one_wall_top` is enabled; otherwise the
@@ -488,7 +501,9 @@ guidance across the whole engine.
 
 ## See also
 
-- [pipeline.rs](pipeline.rs) — `process_mesh` orchestrator
+- [stages.rs](stages.rs) — the pipeline as an ordered list of named stages
+- [pipeline.rs](pipeline.rs) — `process_mesh`, which builds a run out of that list
+- [../plugin/README.md](../plugin/README.md) — how a plugin attaches to a stage
 - [slicer.rs](slicer.rs) — triangle-plane intersection, segment chaining
 - [compensation.rs](compensation.rs) — XY size + medial-limited elephant foot
 - [walls.rs](walls.rs) — per-island first/top single-wall restriction

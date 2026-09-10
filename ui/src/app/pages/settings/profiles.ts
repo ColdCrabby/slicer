@@ -11,6 +11,7 @@ import { type PrintProfile } from '../../models/print-profile.model';
 import { PROFILE_SOURCE_LABELS } from '../../models/profile-source';
 import { SETTING_CONTRACTS } from '../../models/setting-contract';
 import globalSettingsSchema from '../../../schemas/slicer-engine-global-settings-v1.json';
+import { patchForPath, valueAtPath } from '../../schema-form/models/field-path';
 import { parseSchema } from '../../schema-form/models/schema-parser';
 import type { SchemaGroup } from '../../schema-form/models/field-def';
 import { CloudCatalog, catalogSpecOf } from '../../services/catalog/cloud-catalog';
@@ -400,6 +401,16 @@ export class ProfilesSettings {
   }
 
   /**
+   * A single param value, addressed by field key.
+   *
+   * Plugin settings are namespaced (`plugins.<id>.<key>`), so the key can be a
+   * path; for every core setting this is the plain lookup it replaces.
+   */
+  protected paramAt(profile: PrintProfile, key: string): unknown {
+    return valueAtPath(this.paramsOf(profile), key);
+  }
+
+  /**
    * Sibling values for a process field's cross-contract notices: this profile's
    * own params over the **active printer's and filament's**, matching the
    * engine's `printer → filament → process` merge order.
@@ -418,7 +429,11 @@ export class ProfilesSettings {
 
   /** Apply a single param field edit (templates can't build computed keys). */
   protected setParam(id: string, key: string, value: unknown): void {
-    this.updateParams(id, { [key]: value });
+    // A namespaced (plugin) key patches its whole root branch so the merge in
+    // `updateParams` keeps that plugin's other values; a plain key is the
+    // shallow patch it always was.
+    const current = (this.store.getById(id)?.params as Record<string, unknown>) ?? {};
+    this.updateParams(id, patchForPath(current, key, value));
   }
 
   protected rename(id: string, event: Event): void {

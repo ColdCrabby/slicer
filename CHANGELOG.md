@@ -41,6 +41,31 @@ issue/PR numbers or repo links in the notes. See the tone rules in
   project, or follow a deep link and it opens in its own tab. Switch, rename,
   or close tabs independently; closing one only removes it from the strip,
   the plate itself is still reachable from Home.
+- **Plugin foundation.** The slicing pipeline is now an ordered list of named
+  stages rather than one long function, and a plugin extends the engine by
+  naming a stage instead of editing it — so every stage the pipeline grows is a
+  new extension point for free. Plugin settings are namespaced and generate
+  their own UI from a JSON Schema fragment. No plugins ship yet and output is
+  byte-identical without one.
+- **Non-planar extrusion.** A layer is no longer necessarily flat: a path can
+  carry a Z offset per vertex, so a bead rises and falls within its own layer
+  and the filament it needs is measured along the distance it actually travels.
+  Nothing in the default pipeline produces one — it is the groundwork features
+  like wavy overhangs need in order to exist at all.
+- **G-code is planned before it is written.** The generator now builds the
+  program as structured moves and renders it as a last step, so a plugin can
+  rewrite motion — merging, splitting or replacing it — while the role, width
+  and feedrate are still attached. That is what a native arc welder needs, and
+  what editing finished text could never offer. Output is unchanged.
+- **A "Hello world" experiment**, under Settings ▸ Experiments. It writes a
+  greeting into the G-code and reports what it saw, so you can confirm plugins
+  are running — and it is the worked example to copy when writing one. Off by
+  default.
+- **Third-party plugins, sandboxed.** An optional build can load WASM modules
+  from a plugins folder and let them rewrite the G-code program. A module is
+  granted nothing — no files, no network, no clock — is capped on memory and
+  cut off if it runs away, and cannot write G-code text of its own. One that
+  misbehaves costs its own feature, never the print. Off by default.
 - **Fuzzy skin.** A new outer-wall texture option roughs the surface with a
   small random perpendicular jitter instead of a smooth wall — useful for
   hiding layer lines or giving a part a deliberately organic look. Tunable
@@ -70,6 +95,13 @@ issue/PR numbers or repo links in the notes. See the tone rules in
   travel, down to 1000 for the first layer and bridges) instead of silently
   deferring to firmware defaults — a slower or untuned printer should dial
   these down. Set any of them to `0` to fall back to the previous behaviour.
+
+### Fixed
+
+- **`--debug-geometry` wrote incorrect G-code.** The debug pipeline was a second
+  copy of the slicing sequence and had drifted from it, silently skipping path
+  ordering and bed adhesion — so a slice run with debug output enabled came out
+  unordered and with no skirt or brim. Both paths are now the same pipeline.
 
 ## [0.4.0] - 2026-08-31
 

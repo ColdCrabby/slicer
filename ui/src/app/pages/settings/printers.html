@@ -313,7 +313,7 @@
                 @for (field of group.fields; track field.key) {
                   <nexus-param-field
                     [field]="field"
-                    [value]="paramsOf(printer)[field.key]"
+                    [value]="paramAt(printer, field.key)"
                     [siblings]="paramsOf(printer)"
                     (valueChange)="setParam(printer.id, field.key, $event)"
                   />

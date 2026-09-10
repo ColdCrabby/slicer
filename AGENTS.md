@@ -57,7 +57,8 @@ never a hardcoded `:4213`.
 | **Surface Generation**         | [src/core/surfaces.rs](src/core/surfaces.rs) | Top/bottom solid surface detection and infill                                                 |
 | **Wall Restrictions**          | [src/core/walls.rs](src/core/walls.rs)       | Single-wall first/top-layer constraints                                                       |
 | **Infill Boundary**            | [src/core/infill.rs](src/core/infill.rs)     | Interior region calculation and sparse infill                                                 |
-| **Pipeline**                   | [src/core/pipeline.rs](src/core/pipeline.rs) | `process_mesh` — orchestrates the full slicing pipeline                                       |
+| **Pipeline**                   | [src/core/stages.rs](src/core/stages.rs) / [src/core/pipeline.rs](src/core/pipeline.rs) | The stage list, and `process_mesh` which runs it                                    |
+| **Plugins**                    | [src/plugin/](src/plugin/README.md)          | Hook interface: stages, namespaced settings; how the engine extends itself                    |
 | **Multi-object plates**        | [src/core/objects.rs](src/core/objects.rs)   | `slice_plate` — per-object identity for exclude-object & sequential printing                  |
 | **Scene Engine**               | [src/scene/](src/scene/)                     | Single source of truth for object placement (CLI / WS / WASM all consume `SceneState::apply`) |
 | **Clipper2 Integration**       | [src/core/](src/core/)                       | Geometric polygon clipping operations throughout                                              |
@@ -96,8 +97,16 @@ src/
 │   ├── surfaces.rs        # generate_top_bottom_surfaces*, rectilinear infill fill
 │   ├── walls.rs           # apply_single_wall_restrictions (per-island), compute_per_island_strip_masks
 │   ├── infill.rs          # calculate_interior_region, add_infill_to_layers
-│   ├── pipeline.rs        # process_mesh (full pipeline orchestrator)
+│   ├── stages.rs          # the pipeline as an ordered list of named stages (the hook surface)
+│   ├── pipeline.rs        # process_mesh — builds a run out of that list
 │   └── objects.rs         # slice_plate — multi-object plates, object identity (#22/#112)
+├── plugin/                # Plugin hooks (see plugin/README.md)
+│   ├── manifest.rs        # PluginManifest, Stability, PLUGIN_API_VERSION
+│   ├── context.rs         # SliceContext, Artifacts, Extensions (plugin-owned state)
+│   ├── stage.rs           # Stage / StageWrapper, StageId, StageRegistry, placements
+│   ├── settings.rs        # SlicingParams::plugins accessors (namespaced settings)
+│   ├── schema.rs          # grafts each plugin's schema fragment onto SlicingParams
+│   └── builtin/           # plugins compiled in; debug_capture replaces the old debug pipeline
 ├── scene/                 # Unified scene engine (issue #51 — SSOT for object placement)
 │   ├── mod.rs             # Re-exports public API
 │   ├── transform.rs       # Transform { translation, rotation: Quat, scale }; apply_transform; Euler-XYZ deg helpers
@@ -1250,6 +1259,162 @@ rationale.
   reports the diagnostics without slicing and exits non-zero when defects
   remain.
 
+## Plugins — the pipeline is a list, and hooks are keyed to it
+
+[src/plugin/](src/plugin/README.md) is the extension interface, and
+[src/core/stages.rs](src/core/stages.rs) is the pipeline it hooks into.
+`process_mesh` no longer runs the sequence as straight-line code: it builds a
+`StageRegistry` of 17 named stages, folds in any plugins, and runs it. The
+design and its security model are in [src/PLUGINS.md](src/PLUGINS.md).
+
+- **A step added to `pipeline.rs` instead of `stages.rs` is a step no plugin can
+  reach.** That is the whole point of the split, and the easiest way to undo it.
+  New pipeline work is a `Stage` pushed into `core_stages()`, in the position
+  its comment justifies — the push order **is** the execution order, and
+  reordering it changes the output.
+- **Stage ids are the `phases::` constants.** The name a plugin targets and the
+  name the phase timings report are one string, so there is no second catalog to
+  drift. A new stage needs a new `phases::` constant, and the four ad-hoc Title
+  Case phase strings that used to exist are gone.
+- **`core_stages()`'s id list is a public API**, pinned by
+  `the_core_stage_order_is_what_plugins_target` in
+  [tests/plugin_hooks.rs](tests/plugin_hooks.rs). A plugin naming a stage is
+  entitled to run on that side of it; renaming or removing one breaks plugins,
+  so that test must be edited deliberately rather than re-recorded.
+- **Inter-stage state lives on `SliceContext::artifacts`, not in locals.**
+  `interior_regions`, `pre_strip_infill_regions`, `overhang_support` and
+  `first_layer_height` were local variables, which is exactly why an inserted
+  stage was impossible. Several are only populated when their feature is on, so
+  a stage reading one must cope with absence.
+- **A registration naming an unknown stage is rejected and logged, never
+  appended.** One plugin targeting a renamed stage should cost that plugin's
+  feature, not silently run at the wrong point — and not fail the user's slice.
+- **With no plugin active, output must stay byte-identical.** The QA baselines
+  are the gate; `tests/plugin_hooks.rs` additionally pins that *occupying* a
+  hook point changes nothing by itself. Break that and every future experiment
+  becomes a silent output change and the baselines stop meaning anything.
+- **Plugin settings are namespaced** at `params.plugins["<id>"]`, never
+  flattened into the ~100 core keys. Being a real field they survive serde
+  (nothing in the crate sets `deny_unknown_fields`, so an unknown key is
+  *silently dropped*) and they reach `cache_fingerprint` for free — without
+  which toggling a plugin hands back a stale cached G-code file. The map is
+  skipped when empty, so a build with no configured plugin fingerprints exactly
+  as it did before plugins existed. **Do not add a plugin setting as a flat
+  `SlicingParams` field.**
+- **A plugin's settings UI comes from its own JSON Schema fragment**, grafted on
+  by `plugin::schema::inject_plugin_settings` at generation time. The engine
+  supplies the reserved `enabled` toggle and gates every other field on it, so
+  a fragment carries only the plugin's own knobs and every experiment behaves
+  the same. Everything renders under the **Experiments** `x-group`, which is
+  claimed in [setting-contract.ts](ui/src/app/models/setting-contract.ts) —
+  a plugin inventing its own group name would land unclaimed and iconless, and
+  `setting-contract.spec.ts` fails on that.
+- **The settings form reads and writes namespaced fields by dotted path**
+  (`plugins.<id>.<key>`) via
+  [field-path.ts](ui/src/app/schema-form/models/field-path.ts). `x-relevant-when`
+  resolves its gate by path too. All four surfaces that render the schema — the
+  slice sidebar and the three profile editors — go through those helpers; a new
+  one that indexes `values[field.key]` directly will render plugin settings as
+  blank and silently drop writes.
+- **`process_mesh_debug` is the production pipeline plus one plugin**
+  ([debug_capture.rs](src/plugin/builtin/debug_capture.rs)), not a second copy.
+  The copy it replaced had already drifted — it skipped path ordering and bed
+  adhesion, so `--debug-geometry` wrote unordered G-code with no skirt. Do not
+  re-introduce a parallel sequence to capture something; insert a stage, or
+  wrap one.
+- **[`hello_world.rs`](src/plugin/builtin/hello_world.rs) is the worked
+  example** and the one plugin `builtin_plugins()` ships. It exercises all three
+  hook families in one readable file and is off by default. Point people at it
+  rather than describing the shape; keep it minimal, and keep it working.
+- **Every hook checks `plugin_enabled` itself.** Stages always run — the
+  registry has no notion of a disabled plugin — so a plugin that skips the check
+  changes output while switched off, which breaks the one invariant the QA
+  baselines rest on.
+- **A layer is not necessarily flat.** `SliceLayer::path_vertex_z` carries one
+  Z **offset** per vertex, relative to the layer's own `z` — offsets, because
+  `z` moves under a raft or a thicker first layer and an offset survives both.
+  The generator emits those segments with `move_extrude_z`, charges them for
+  the **3D** distance travelled (a climbing bead needs more filament than its
+  XY projection), and suppresses both path simplification and coasting for such
+  a path — either would silently flatten the shape that made it non-planar.
+  `path_data` is the sibling: per-path scratch space keyed by plugin id, so two
+  plugins can annotate one path without clobbering each other. Both use the
+  empty-vector sentinel, so a flat print allocates neither.
+- **Rebuild a layer's paths with `SliceLayer::rebuild_paths`, never by hand.**
+  It replaces the paths and **every** per-path array together, re-walking
+  per-vertex arrays with the same rotation or reversal as the vertices they
+  describe. Hand-enumerating the arrays is how one gets forgotten and somebody's
+  tags shift onto the wrong path — the ordering pass was already dropping
+  `path_objects` that way, harmless only because nothing tags objects before it
+  runs. `retain_paths`, `prepend_paths` and `pad_per_path_arrays` are the same
+  guarantee for filtering, prepending and padding.
+- **Spiral (vase) mode still ramps Z in the emitter**, coupled to its own flow
+  fade-in/out, rather than going through `path_vertex_z`. Folding it in would
+  change working output for no user-visible gain; leave it unless there is a
+  reason.
+- **The G-code emitter plans moves, then renders them.**
+  [src/gcode/ir.rs](src/gcode/ir.rs) is the IR: the emitter pushes `Move`s into
+  a `MoveProgram`, every `Plugin::move_filter` gets to rewrite it, and only then
+  is text produced. A filter sees motion with its role, width, feedrate and
+  extrusion intact — which is what native arc welding needs and what
+  post-processing finished text could never give it.
+- **Only motion is modelled; everything else is `Move::Raw`** — fan,
+  temperature, markers, comments, custom scripts, carried as already-rendered
+  text and emitted verbatim. That boundary is deliberate: it avoids re-deciding
+  in typed form every choice the emitter already makes correctly, and it is what
+  makes the split provably output-neutral, since the bytes for everything
+  unmodelled are literally the same bytes. **Add a `Move` variant only when a
+  filter genuinely needs to reason about that command.**
+- **A new emission site pushes a `Move`, not a string.** `out` is a
+  `MoveProgram`, not a `String`; `out.raw_str(...)` is the escape hatch for
+  non-motion text. Emitting motion as `Raw` would hide it from every filter.
+- **The time estimator and the G-code viewer still parse text.** The IR is the
+  representation they could share instead; nothing blocks it, nobody has done
+  it.
+- **Tier 1 is not sandboxed.** A compile-time plugin has the same trust level as
+  the engine, in every build including WASM and iOS. Isolation is what the
+  external tier is for; see the security model in
+  [src/PLUGINS.md](src/PLUGINS.md), particularly the promotion gate a Tier 2
+  plugin has to clear before it can be baked in.
+- **The wasmtime version floor is load-bearing — never loosen it.** The first
+  version the host first shipped against carried two *critical* advisories, both sandbox
+  escapes on aarch64 (the architecture we develop on), one of them in the
+  Cranelift backend the host uses. `Cargo.toml` therefore pins a minimum past
+  them rather than a bare major. A sandbox is only as good as the runtime
+  implementing it: "WASM is structurally isolated" is a statement about the
+  boundary being explicit and machine-checked, **not** a claim that the runtime
+  has no bugs. Keeping it current is a security task. `dependency-review` is the
+  gate that catches an added vulnerable dep; `cargo-audit` and `cargo-deny` are
+  report-only here and will not fail the build.
+- **Tier 2 is desktop-only and off by default.** The WASM host
+  ([src/plugin/external/](src/plugin/external/)) lives behind the
+  `external-plugins` Cargo feature, in the desktop-only dependency table. It
+  pulls wasmtime and ~105 crates in; charging every build for that, for a tier
+  that ships no plugins of its own, would be wrong. It is also a security
+  property: an installation that never enables the feature links no WASM
+  runtime, so a runtime advisory is not its problem. **Keep it optional**, and
+  keep it out of the wasm and iOS targets — a sandboxed app has nowhere to load
+  a module from.
+- **Tier 2 gets move filters and nothing else, on purpose.** Stages are handed
+  the real `SliceLayer` and the real `clipper2::Paths`; that deep access is why
+  Tier 1 is a compile-time trait, and it cannot cross a sandbox boundary without
+  losing fidelity or paying to marshal it per layer, per slice. A move is a
+  handful of numbers, so it can. **Do not add a hook family to Tier 2 whose data
+  cannot be projected honestly** — a hook whose type cannot describe its feature
+  is the dead end this design exists to avoid.
+- **A guest cannot author G-code text.** Comments and unmodelled commands stay
+  host-side in a side table and travel as ids; a module may reorder or drop
+  them but cannot invent one, and an id that does not resolve is rejected rather
+  than dropped. The host also grants **no** capabilities at all — no WASI, no
+  filesystem, no network, no clock — caps memory through a `ResourceLimiter`,
+  cuts a runaway module off with an epoch interrupt, bounds-checks the returned
+  buffer before reading it, and uses a fresh instance per call so one slice
+  cannot influence the next. Every one of those is enforced rather than trusted,
+  because a module may be hostile.
+- **A failing plugin costs its own feature, never the print.** A module that
+  will not load is reported and skipped; a filter that fails or returns
+  something malformed leaves the program exactly as it was.
+
 ## Slicing Pipeline — Deep Knowledge
 
 This section records hard-won understanding of how the slicing pipeline works and
@@ -1263,6 +1428,11 @@ capsule/gap renders (`render.py`, `zoom.py`). Compare a change against the
 `classic` generator (the trusted reference) before claiming a fix.
 
 ### Pipeline Execution Order
+
+Each line below is a **named stage** in [src/core/stages.rs](src/core/stages.rs)
+(`slicing`, `compensation`, `elephant_foot`, …), which is both the execution
+order and the surface plugins hook into. The stage ids are the `phases::`
+constants, so what a plugin targets and what the timings report are one string.
 
 ```
 slice_mesh()                         — raw mesh → OuterWall contours per layer (layer 0 spans first_layer_height)

@@ -1,12 +1,14 @@
 import { Component, computed, inject, signal } from '@angular/core';
 import { RouterLink } from '@angular/router';
 import globalSettingsSchema from '../../../schemas/slicer-engine-global-settings-v1.json';
+import { SlicingParams } from '../../../generated/slicer-engine-ws-client-message-v1';
 import {
   bucketGroupsByContract,
   GROUP_ICONS,
   SETTING_CONTRACTS,
   type SettingContractId,
 } from '../../models/setting-contract';
+import { patchForPath } from '../../schema-form/models/field-path';
 import { parseSchema } from '../../schema-form/models/schema-parser';
 import { FieldChangeEvent, SchemaForm } from '../../schema-form/schema-form';
 import { BrowserStorage } from '../../services/browser-storage';
@@ -89,6 +91,15 @@ export class SettingsPanel {
   }
 
   update(event: FieldChangeEvent): void {
-    this.slicer.updateSettings({ [event.key]: event.value });
+    // A dotted key (plugin settings) patches its whole root branch, so the
+    // shallow merge in `updateSettings` still lands the change without
+    // dropping the plugin's other values.
+    this.slicer.updateSettings(
+      patchForPath(
+        this.slicer.settings() as unknown as Record<string, unknown>,
+        event.key,
+        event.value,
+      ) as Partial<SlicingParams>,
+    );
   }
 }

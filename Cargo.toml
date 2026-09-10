@@ -8,6 +8,13 @@ default-run = "slicer-engine"
 [features]
 default = []
 web-slicer = ["dep:clipper2", "dep:boostvoronoi"]
+# Tier 2 plugins: a sandboxed WASM host that loads third-party modules.
+#
+# Off by default, and deliberately so. It pulls wasmtime and ~105 transitive
+# crates in, which everyone would otherwise pay for on every build for a tier
+# that ships no plugins of its own. Desktop only — a sandboxed app has nowhere
+# to load a module from, and the wasm build cannot host wasm.
+external-plugins = ["dep:wasmtime"]
 
 [dependencies]
 anyhow = "1.0"
@@ -70,6 +77,20 @@ sea-orm-migration = { version = "2.0", features = [
 actix-web = "4.13"
 actix-files = "0.7"
 actix-ws = "0.4"
+# Tier 2 plugin host — see the `external-plugins` feature.
+# Pinned at >= 42.0.2, not just "42": 40.x and everything below 42.0.2 carry
+# two critical advisories (GHSA-jhxm-h53p-jm7w, GHSA-xx5w-cvp6-jv83) that are
+# *sandbox escapes on aarch64* — the one guarantee this whole tier rests on, on
+# the architecture most of us develop on. A weaker bound would let a fresh
+# checkout resolve straight back into them.
+wasmtime = { version = "42.0.2", optional = true, default-features = false, features = [
+    "cranelift",
+    "runtime",
+    "std",
+    # Lets the host tests express a guest module as readable text instead of a
+    # committed binary blob nobody can review.
+    "wat",
+] }
 actix-multipart = "0.8.1"
 actix-cors = "0.7"
 base64 = "0.23"
@@ -93,6 +114,8 @@ tempfile = "3"
 anyhow = "1.0"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
+# Lets the Tier 2 host tests express a guest module as reviewable text.
+wat = "1"
 
 [lib]
 crate-type = ["rlib", "cdylib"]

@@ -5,6 +5,7 @@ mod infill;
 mod objects;
 mod pipeline;
 mod slicer;
+pub mod stages;
 mod surfaces;
 mod types;
 mod walls;
@@ -15,10 +16,10 @@ pub use objects::{
     merge_meshes, sequential_order, sequential_warnings, slice_plate, ObjectIdentity, ObjectInput,
     PlateSlice,
 };
-pub use pipeline::process_mesh;
 #[cfg(not(target_arch = "wasm32"))]
 pub use pipeline::process_mesh_debug;
 pub(crate) use pipeline::resolved_first_layer_height;
+pub use pipeline::{process_mesh, process_mesh_with_plugins};
 pub use slicer::{slice_mesh, slice_mesh_with_first_layer};
 pub use surfaces::{
     generate_top_bottom_surfaces, generate_top_bottom_surfaces_with_interior, SurfaceConfig,
@@ -34,7 +35,7 @@ pub(crate) use surfaces::{
     extrusion_flow_spacing_mm, outer_wall_nominal_width_mm, solid_surface_nominal_width_mm,
     sparse_infill_nominal_width_mm,
 };
-pub use types::{ExtrusionRole, OverhangClass, SliceLayer};
+pub use types::{ExtrusionRole, OverhangClass, PathData, PathPick, SliceLayer, VertexOrder};
 
 #[cfg(test)]
 mod tests {

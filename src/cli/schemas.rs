@@ -125,7 +125,7 @@ pub struct SchemaDefinition {
 
 /// Collect all schema definitions
 pub fn all_schemas() -> Vec<SchemaDefinition> {
-    vec![
+    let mut definitions = vec![
         SchemaDefinition {
             schema_id: "slicer-engine/result-v1",
             schema: serde_json::to_value(schemars::schema_for!(ResultSchema))
@@ -206,7 +206,19 @@ pub fn all_schemas() -> Vec<SchemaDefinition> {
             schema: serde_json::to_value(schemars::schema_for!(crate::profiles::PrinterProfile))
                 .expect("failed to serialize PrinterProfile"),
         },
-    ]
+    ];
+
+    // Graft each plugin's settings fragment onto every schema that carries a
+    // `SlicingParams` shape. `schemars` derives from types and the plugin set
+    // is a runtime value, so this is the only point the two can meet — and
+    // doing it here means a plugin's settings UI comes from its own schema
+    // rather than from Angular code written per plugin.
+    let plugins = crate::plugin::builtin_plugins();
+    for definition in &mut definitions {
+        crate::plugin::schema::inject_plugin_settings(&mut definition.schema, &plugins);
+    }
+
+    definitions
 }
 
 #[cfg(test)]

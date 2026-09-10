@@ -2,10 +2,11 @@
 
 use std::borrow::Cow;
 
-use crate::core::SliceLayer;
+use crate::core::{ExtrusionRole as Role, SliceLayer};
 use crate::gcode::dialect::{GcodeDialect, WarnFn};
 use crate::gcode::dialects::{KlipperDialect, MarlinDialect, RepRapDialect};
 use crate::gcode::flavor::GcodeFlavor;
+use crate::gcode::ir::{Move, MoveProgram};
 use crate::gcode::stats::SliceStatistics;
 use crate::settings::params::{
     fan_index, BedMeshMode, LifecycleMarkerConfig, SlicingParams, TriggerAction, TriggerPosition,
@@ -612,6 +613,11 @@ fn xy_footprint(layers: &[SliceLayer]) -> Option<(f64, f64, f64, f64)> {
 /// ```
 pub struct GcodeGenerator {
     dialect: Box<dyn GcodeDialect>,
+    /// Filters that rewrite the planned program before it is rendered.
+    ///
+    /// Empty on an ordinary build — a generator with no filters renders exactly
+    /// what it planned, which is what keeps the IR output-neutral.
+    move_filters: Vec<Box<dyn crate::gcode::ir::MoveFilter>>,
     warn_fn: Option<WarnFn>,
     /// Per-flavor lifecycle marker configuration.
     marker_config: LifecycleMarkerConfig,
@@ -647,6 +653,11 @@ impl GcodeGenerator {
         };
         Self {
             dialect,
+            // Installed here rather than at each entry point: a generator built
+            // anywhere — the CLI builds its own — must see the same filters, and
+            // a new call site cannot forget them. Empty on an ordinary install,
+            // so the program renders exactly what it planned.
+            move_filters: crate::plugin::move_filters(crate::plugin::installed()),
             warn_fn: None,
             marker_config: LifecycleMarkerConfig::default(),
             custom_start_script: None,
@@ -662,9 +673,26 @@ impl GcodeGenerator {
     /// Create a generator with a custom [`GcodeDialect`] implementation.
     ///
     /// Useful for testing or for dialects not covered by [`GcodeFlavor`].
+    /// Install move filters to run between planning and rendering.
+    ///
+    /// A generator with none renders exactly what it planned, which is what
+    /// keeps the move IR output-neutral.
+    pub fn with_move_filters(
+        mut self,
+        filters: Vec<Box<dyn crate::gcode::ir::MoveFilter>>,
+    ) -> Self {
+        self.move_filters = filters;
+        self
+    }
+
     pub fn with_dialect(dialect: Box<dyn GcodeDialect>) -> Self {
         Self {
             dialect,
+            // Installed here rather than at each entry point: a generator built
+            // anywhere — the CLI builds its own — must see the same filters, and
+            // a new call site cannot forget them. Empty on an ordinary install,
+            // so the program renders exactly what it planned.
+            move_filters: crate::plugin::move_filters(crate::plugin::installed()),
             warn_fn: None,
             marker_config: LifecycleMarkerConfig::default(),
             custom_start_script: None,
@@ -844,13 +872,18 @@ impl GcodeGenerator {
         e_total: f64,
         speed_mm_min: f64,
         params: &SlicingParams,
-    ) -> String {
+    ) -> Move {
         let value = if params.use_relative_e_distances {
             de
         } else {
             e_total
         };
-        self.dialect.set_extruder_pos(value, speed_mm_min)
+        Move::Extruder {
+            e: value,
+            de,
+            feed_mm_min: speed_mm_min,
+            comment: None,
+        }
     }
 
     /// Format an extruding XY move, honouring the absolute-vs-relative E
@@ -863,13 +896,57 @@ impl GcodeGenerator {
         e_total: f64,
         speed_mm_min: f64,
         params: &SlicingParams,
-    ) -> String {
+    ) -> Move {
         let value = if params.use_relative_e_distances {
             de
         } else {
             e_total
         };
-        self.dialect.move_extrude(x, y, value, speed_mm_min)
+        Move::Extrude {
+            x,
+            y,
+            z: None,
+            e: value,
+            de,
+            feed_mm_min: speed_mm_min,
+            role: Role::OuterWall,
+            width_mm: 0.0,
+            comment: None,
+        }
+    }
+
+    /// Format an extruding move that also changes Z — a non-planar segment.
+    ///
+    /// Same E convention as [`GcodeGenerator::xy_extrude_line`]; the difference
+    /// is that the bead climbs while it is drawn, instead of the layer stepping
+    /// once and staying flat.
+    #[allow(clippy::too_many_arguments)]
+    fn xyz_extrude_line(
+        &self,
+        x: f64,
+        y: f64,
+        z: f64,
+        de: f64,
+        e_total: f64,
+        speed_mm_min: f64,
+        params: &SlicingParams,
+    ) -> Move {
+        let value = if params.use_relative_e_distances {
+            de
+        } else {
+            e_total
+        };
+        Move::Extrude {
+            x,
+            y,
+            z: Some(z),
+            e: value,
+            de,
+            feed_mm_min: speed_mm_min,
+            role: Role::OuterWall,
+            width_mm: 0.0,
+            comment: None,
+        }
     }
 
     /// Emit the wipe move: retrace `points` (the previous path's trajectory, in
@@ -883,7 +960,7 @@ impl GcodeGenerator {
     /// the wipe.
     fn emit_wipe(
         &self,
-        out: &mut String,
+        out: &mut MoveProgram,
         e_total: &mut f64,
         points: &[(f64, f64)],
         wipe_distance: f64,
@@ -947,15 +1024,20 @@ impl GcodeGenerator {
                 let de = -e_per_mm * step;
                 *e_total += de;
                 applied += -de;
-                out.push_str(&format!(
-                    "{} ; wipe\n",
+                out.push(
                     self.xy_extrude_line(tx, ty, de, *e_total, feed, params)
-                ));
+                        .with_comment("wipe"),
+                );
             } else {
-                out.push_str(&format!(
-                    "{} ; wipe\n",
-                    self.dialect.travel_xy(tx, ty, feed)
-                ));
+                out.push(
+                    Move::Travel {
+                        x: tx,
+                        y: ty,
+                        feed_mm_min: feed,
+                        comment: None,
+                    }
+                    .with_comment("wipe"),
+                );
             }
             remaining -= step;
             if step >= seg {
@@ -976,7 +1058,7 @@ impl GcodeGenerator {
     /// the wipe; pass `None` to suppress wiping (e.g. the first path of a layer).
     fn do_retract(
         &self,
-        out: &mut String,
+        out: &mut MoveProgram,
         e_total: &mut f64,
         retracted: &mut bool,
         last_path_points: Option<&[(f64, f64)]>,
@@ -996,7 +1078,7 @@ impl GcodeGenerator {
                     self.emit_wipe(out, e_total, pts, params.wipe_distance_mm, 0.0, params);
                 }
             }
-            out.push_str(&format!(
+            out.raw_str(&format!(
                 "{} ; firmware retract\n",
                 self.dialect.firmware_retract()
             ));
@@ -1025,27 +1107,27 @@ impl GcodeGenerator {
             let mut applied = 0.0_f64;
             if pre > 1e-9 {
                 *e_total -= pre;
-                out.push_str(&format!(
-                    "{} ; retract before wipe\n",
+                out.push(
                     self.e_only_line(-pre, *e_total, speed, params)
-                ));
+                        .with_comment("retract before wipe"),
+                );
                 applied += pre;
             }
             applied += self.emit_wipe(out, e_total, pts, params.wipe_distance_mm, during, params);
             let remainder = retract_len - applied;
             if remainder > 1e-9 {
                 *e_total -= remainder;
-                out.push_str(&format!(
-                    "{} ; retract after wipe\n",
+                out.push(
                     self.e_only_line(-remainder, *e_total, speed, params)
-                ));
+                        .with_comment("retract after wipe"),
+                );
             }
         } else {
             *e_total -= retract_len;
-            out.push_str(&format!(
-                "{} ; retract\n",
+            out.push(
                 self.e_only_line(-retract_len, *e_total, speed, params)
-            ));
+                    .with_comment("retract"),
+            );
         }
         *retracted = true;
     }
@@ -1057,7 +1139,7 @@ impl GcodeGenerator {
     /// length plus any configured restart-extra.
     fn do_unretract(
         &self,
-        out: &mut String,
+        out: &mut MoveProgram,
         e_total: &mut f64,
         retracted: &mut bool,
         total_filament_mm: &mut f64,
@@ -1067,7 +1149,7 @@ impl GcodeGenerator {
             return;
         }
         if params.use_firmware_retraction {
-            out.push_str(&format!(
+            out.raw_str(&format!(
                 "{} ; firmware recover\n",
                 self.dialect.firmware_unretract()
             ));
@@ -1079,10 +1161,10 @@ impl GcodeGenerator {
         let de = params.retract_mm + restart;
         *e_total += de;
         *total_filament_mm += restart;
-        out.push_str(&format!(
-            "{} ; un-retract\n",
+        out.push(
             self.e_only_line(de, *e_total, speed, params)
-        ));
+                .with_comment("un-retract"),
+        );
         *retracted = false;
     }
 
@@ -1302,7 +1384,7 @@ impl GcodeGenerator {
     #[allow(clippy::too_many_arguments)]
     fn emit_spiral_loop(
         &self,
-        out: &mut String,
+        out: &mut MoveProgram,
         pts: &[(f64, f64)],
         z_bottom: f64,
         z_top: f64,
@@ -1363,7 +1445,7 @@ impl GcodeGenerator {
             ) * flow_scale;
             *e_total += de;
             *total_filament_mm += de;
-            out.push_str(&format!(
+            out.raw_str(&format!(
                 "{}\n",
                 self.dialect
                     .move_extrude_z(bx, by, z, *e_total, capped_speed)
@@ -1528,7 +1610,7 @@ impl GcodeGenerator {
 
         // The metadata header is prepended once the filament total and geometry
         // are known (see the end of this method); the body starts here.
-        let mut out = String::with_capacity(64 * 1024);
+        let mut out = MoveProgram::new();
 
         // ── Object definitions (issue #22) ────────────────────────────────────
         // Declared before the start script: Klipper's `[exclude_object]` module
@@ -1542,8 +1624,8 @@ impl GcodeGenerator {
         let object_markers = !self.objects.is_empty() && params.exclude_object;
         if object_markers {
             for line in self.dialect.object_definitions(&self.objects) {
-                out.push_str(&line);
-                out.push('\n');
+                out.raw_str(&line);
+                out.raw_str("\n");
             }
         }
 
@@ -1590,30 +1672,30 @@ impl GcodeGenerator {
         let emit_chamber = params.chamber_heating_active() && !chamber_delegated;
         let chamber_first_target = params.chamber_temp_first_layer_resolved();
         if chamber_delegated {
-            out.push_str(&self.dialect.comment(
+            out.raw_str(&self.dialect.comment(
                 "chamber temperature handled by the custom start G-code; \
                  slicer chamber directives suppressed",
             ));
-            out.push('\n');
+            out.raw_str("\n");
         }
         if emit_chamber {
-            out.push_str(&format!(
+            out.raw_str(&format!(
                 "{} ; bed target — the chamber's heat source on most enclosures\n",
                 self.dialect.set_bed_temp(first_bed, false)
             ));
-            out.push_str(&format!(
+            out.raw_str(&format!(
                 "{} ; set chamber temperature\n",
                 self.dialect.set_chamber_temp(chamber_first_target, false)
             ));
-            out.push_str(&format!(
+            out.raw_str(&format!(
                 "{} ; soak the chamber before the nozzle is heated\n",
                 self.dialect.set_chamber_temp(chamber_first_target, true)
             ));
         }
 
         for line in start_script.iter() {
-            out.push_str(&render_script_placeholders(line, params));
-            out.push('\n');
+            out.raw_str(&render_script_placeholders(line, params));
+            out.raw_str("\n");
         }
 
         // ── Bed mesh leveling (opt-in; off by default) ─────────────────────────
@@ -1625,11 +1707,11 @@ impl GcodeGenerator {
         let bed_mesh_delegated = params.bed_mesh_mode != BedMeshMode::Off
             && start_script_handles_bed_mesh(&start_script);
         if bed_mesh_delegated {
-            out.push_str(&self.dialect.comment(
+            out.raw_str(&self.dialect.comment(
                 "bed mesh leveling handled by the custom start G-code; \
                  slicer bed mesh directive suppressed",
             ));
-            out.push('\n');
+            out.raw_str("\n");
         } else if params.bed_mesh_mode != BedMeshMode::Off {
             let area = if params.bed_mesh_adaptive {
                 xy_footprint(layers)
@@ -1641,8 +1723,8 @@ impl GcodeGenerator {
                 params.bed_mesh_profile_name.as_deref(),
                 area,
             ) {
-                out.push_str(&line);
-                out.push('\n');
+                out.raw_str(&line);
+                out.raw_str("\n");
             }
         }
 
@@ -1655,11 +1737,11 @@ impl GcodeGenerator {
         //   - relative (`M83`, when `use_relative_e_distances`) — every move
         //     carries its incremental filament length instead.
         if params.use_relative_e_distances {
-            out.push_str(&format!("{}\n", self.dialect.extruder_relative_mode()));
+            out.raw_str(&format!("{}\n", self.dialect.extruder_relative_mode()));
         } else {
-            out.push_str(&format!("{}\n", self.dialect.extruder_absolute_mode()));
+            out.raw_str(&format!("{}\n", self.dialect.extruder_absolute_mode()));
         }
-        out.push_str(&format!("{}\n", self.dialect.reset_extruder()));
+        out.raw_str(&format!("{}\n", self.dialect.reset_extruder()));
 
         // ── Firmware retraction setup (opt-in) ────────────────────────────────
         // Sync the firmware's retraction length / speed / restart-extra to the
@@ -1672,8 +1754,8 @@ impl GcodeGenerator {
                 params.retract_speed_mm_min,
                 params.retract_restart_extra_mm,
             ) {
-                out.push_str(&line);
-                out.push('\n');
+                out.raw_str(&line);
+                out.raw_str("\n");
             }
         }
 
@@ -1684,7 +1766,7 @@ impl GcodeGenerator {
         // firmware-correct form (Klipper `SET_PRESSURE_ADVANCE`, Marlin
         // `M900 K`).
         if params.pressure_advance > 0.0 {
-            out.push_str(&format!(
+            out.raw_str(&format!(
                 "{} ; pressure advance\n",
                 self.dialect.set_pressure_advance(params.pressure_advance)
             ));
@@ -1706,8 +1788,8 @@ impl GcodeGenerator {
             params.max_velocity,
             kinematic_accel,
         ) {
-            out.push_str(&line);
-            out.push('\n');
+            out.raw_str(&line);
+            out.raw_str("\n");
         }
 
         // ── Per-filament start script ─────────────────────────────────────────
@@ -1717,8 +1799,8 @@ impl GcodeGenerator {
         // runs last before printing begins.
         if let Some(lines) = &self.custom_filament_start_script {
             for line in lines {
-                out.push_str(&render_script_placeholders(line, params));
-                out.push('\n');
+                out.raw_str(&render_script_placeholders(line, params));
+                out.raw_str("\n");
             }
         }
 
@@ -1793,8 +1875,8 @@ impl GcodeGenerator {
                 handover_object = layer_object;
                 if object_markers {
                     if let Some(previous) = current_object.and_then(|i| self.objects.get(i)) {
-                        out.push_str(&self.dialect.object_end(previous));
-                        out.push('\n');
+                        out.raw_str(&self.dialect.object_end(previous));
+                        out.raw_str("\n");
                     }
                 }
                 current_object = None;
@@ -1814,10 +1896,14 @@ impl GcodeGenerator {
                     max_printed_z + params.z_hop_mm.max(SEQUENTIAL_LIFT_MM),
                     params,
                 );
-                out.push_str(&format!(
-                    "{} ; clear the finished object\n",
-                    self.dialect.move_z(clearance_z, params.travel_speed_mm_min)
-                ));
+                out.push(
+                    Move::ZMove {
+                        z: clearance_z,
+                        feed_mm_min: params.travel_speed_mm_min,
+                        comment: None,
+                    }
+                    .with_comment("clear the finished object"),
+                );
                 // Aim at the incoming object's first path, falling back to its
                 // centre: an empty first layer would otherwise leave the nozzle
                 // parked over the part just finished when the layer block below
@@ -1834,16 +1920,21 @@ impl GcodeGenerator {
                             .map(|object| object.center)
                     });
                 if let Some((ex, ey)) = entry {
-                    out.push_str(&format!(
-                        "{} ; travel to the next object\n",
-                        self.dialect.travel_xy(ex, ey, params.travel_speed_mm_min)
-                    ));
+                    out.push(
+                        Move::Travel {
+                            x: ex,
+                            y: ey,
+                            feed_mm_min: params.travel_speed_mm_min,
+                            comment: None,
+                        }
+                        .with_comment("travel to the next object"),
+                    );
                     cur_xy = Some((ex, ey));
                 }
                 if let Some(lines) = &between_objects {
                     for line in lines {
-                        out.push_str(&render_script_placeholders(line, params));
-                        out.push('\n');
+                        out.raw_str(&render_script_placeholders(line, params));
+                        out.raw_str("\n");
                     }
                 }
             }
@@ -1916,23 +2007,23 @@ impl GcodeGenerator {
                     .layer_change
                     .as_deref()
                     .unwrap_or(";LAYER_CHANGE");
-                out.push_str(&render_marker(layer_change, &z_str, &height_str, "", ""));
-                out.push('\n');
+                out.raw_str(&render_marker(layer_change, &z_str, &height_str, "", ""));
+                out.raw_str("\n");
 
                 let z_marker = self.marker_config.z_marker.as_deref().unwrap_or(";Z:{z}");
-                out.push_str(&render_marker(z_marker, &z_str, &height_str, "", ""));
-                out.push('\n');
+                out.raw_str(&render_marker(z_marker, &z_str, &height_str, "", ""));
+                out.raw_str("\n");
 
                 let height_marker = self
                     .marker_config
                     .height_marker
                     .as_deref()
                     .unwrap_or(";HEIGHT:{height}");
-                out.push_str(&render_marker(height_marker, &z_str, &height_str, "", ""));
-                out.push('\n');
+                out.raw_str(&render_marker(height_marker, &z_str, &height_str, "", ""));
+                out.raw_str("\n");
 
                 // Per-layer print-time estimate for the viewer's "Layer Time" mode.
-                out.push_str(&format!(
+                out.raw_str(&format!(
                     ";LAYER_TIME:{:.1}\n",
                     estimate_layer_time(layer, params.print_speed)
                 ));
@@ -1942,22 +2033,22 @@ impl GcodeGenerator {
                     .before_layer_change
                     .as_deref()
                     .unwrap_or(";BEFORE_LAYER_CHANGE");
-                out.push_str(&render_marker(before_lc, &z_str, &height_str, "", ""));
-                out.push('\n');
+                out.raw_str(&render_marker(before_lc, &z_str, &height_str, "", ""));
+                out.raw_str("\n");
 
                 // Bare Z-value comment (`;0.200`) matches the OrcaSlicer / PrusaSlicer lifecycle
                 // format; it intentionally differs from the `;Z:` label above and is used by
                 // post-processing scripts that parse standalone numeric layer markers.
-                out.push_str(&format!(";{}\n", z_str));
+                out.raw_str(&format!(";{}\n", z_str));
 
                 // Reset extruder position at layer start
-                out.push_str(&format!("{}\n", self.dialect.reset_extruder()));
+                out.raw_str(&format!("{}\n", self.dialect.reset_extruder()));
                 e_total = 0.0;
 
                 // Spiral layers ramp Z along the perimeter, so no discrete Z
                 // move here — the nozzle is already at the previous layer's top.
                 if !is_spiral_layer {
-                    out.push_str(&format!(
+                    out.raw_str(&format!(
                         "{}\n",
                         self.dialect
                             .move_z(machine_z(layer.z, params), params.travel_speed_mm_min)
@@ -1969,15 +2060,15 @@ impl GcodeGenerator {
                     .after_layer_change
                     .as_deref()
                     .unwrap_or(";AFTER_LAYER_CHANGE");
-                out.push_str(&render_marker(after_lc, &z_str, &height_str, "", ""));
-                out.push('\n');
+                out.raw_str(&render_marker(after_lc, &z_str, &height_str, "", ""));
+                out.raw_str("\n");
 
                 // Same bare Z-value convention after the layer change (see note above).
-                out.push_str(&format!(";{}\n", z_str));
+                out.raw_str(&format!(";{}\n", z_str));
             } else {
-                out.push_str(&format!("; layer z={}\n", z_str));
+                out.raw_str(&format!("; layer z={}\n", z_str));
                 if !is_spiral_layer {
-                    out.push_str(&format!(
+                    out.raw_str(&format!(
                         "{}\n",
                         self.dialect
                             .move_z(machine_z(layer.z, params), params.travel_speed_mm_min)
@@ -1987,19 +2078,19 @@ impl GcodeGenerator {
 
             if layer_index == 1 {
                 if restore_nozzle_after_first_layer {
-                    out.push_str(&format!(
+                    out.raw_str(&format!(
                         "{} ; restore normal nozzle temperature\n",
                         self.dialect.set_nozzle_temp(params.nozzle_temp, false)
                     ));
                 }
                 if restore_bed_after_first_layer {
-                    out.push_str(&format!(
+                    out.raw_str(&format!(
                         "{} ; restore normal bed temperature\n",
                         self.dialect.set_bed_temp(params.bed_temp, false)
                     ));
                 }
                 if restore_chamber_after_first_layer {
-                    out.push_str(&format!(
+                    out.raw_str(&format!(
                         "{} ; restore normal chamber temperature\n",
                         self.dialect.set_chamber_temp(params.chamber_temp, false)
                     ));
@@ -2014,8 +2105,8 @@ impl GcodeGenerator {
                     // Z-offset (PrusaSlicer's `layer_z` placeholder semantics).
                     let rendered = render_marker(line, &model_z_str, &height_str, "", "")
                         .replace("{layer_num}", &layer_num);
-                    out.push_str(&render_script_placeholders(&rendered, params));
-                    out.push('\n');
+                    out.raw_str(&render_script_placeholders(&rendered, params));
+                    out.raw_str("\n");
                 }
             }
 
@@ -2036,26 +2127,26 @@ impl GcodeGenerator {
                 if !fires {
                     continue;
                 }
-                out.push_str(";TRIGGER\n");
+                out.raw_str(";TRIGGER\n");
                 match &trigger.action {
                     TriggerAction::Pause => {
                         for line in self.dialect.pause_gcode() {
-                            out.push_str(&line);
-                            out.push('\n');
+                            out.raw_str(&line);
+                            out.raw_str("\n");
                         }
                     }
                     TriggerAction::ColorChange => {
                         for line in self.dialect.color_change_gcode() {
-                            out.push_str(&line);
-                            out.push('\n');
+                            out.raw_str(&line);
+                            out.raw_str("\n");
                         }
                     }
                     TriggerAction::Custom { gcode } => {
                         for line in gcode.lines() {
                             let rendered = render_marker(line, &model_z_str, &height_str, "", "")
                                 .replace("{layer_num}", &layer_num_1based.to_string());
-                            out.push_str(&render_script_placeholders(&rendered, params));
-                            out.push('\n');
+                            out.raw_str(&render_script_placeholders(&rendered, params));
+                            out.raw_str("\n");
                         }
                     }
                 }
@@ -2134,7 +2225,7 @@ impl GcodeGenerator {
                         part_cooling_base = Some(speed);
                         part_cooling_klipper_name = fan.klipper_name.clone();
                     }
-                    out.push_str(&format!(
+                    out.raw_str(&format!(
                         "{}\n",
                         self.dialect.set_fan_speed_indexed(
                             fan.fan_index,
@@ -2176,14 +2267,14 @@ impl GcodeGenerator {
                 if !self.objects.is_empty() && layer_object != current_object {
                     if object_markers {
                         if let Some(previous) = current_object.and_then(|i| self.objects.get(i)) {
-                            out.push_str(&self.dialect.object_end(previous));
-                            out.push('\n');
+                            out.raw_str(&self.dialect.object_end(previous));
+                            out.raw_str("\n");
                         }
                         if let Some(index) = layer_object {
                             if let Some(object) = self.objects.get(index) {
                                 let first_use = !introduced_objects[index];
-                                out.push_str(&self.dialect.object_start(object, first_use));
-                                out.push('\n');
+                                out.raw_str(&self.dialect.object_start(object, first_use));
+                                out.raw_str("\n");
                                 introduced_objects[index] = true;
                             }
                         }
@@ -2213,7 +2304,7 @@ impl GcodeGenerator {
                 // Adaptive acceleration (opt-in), same policy as normal walls.
                 if let Some(accel) = Self::effective_acceleration(role, is_first_layer, params) {
                     if last_accel != Some(accel) {
-                        out.push_str(&format!(
+                        out.raw_str(&format!(
                             "{} ; acceleration\n",
                             self.dialect.set_acceleration(accel)
                         ));
@@ -2229,27 +2320,27 @@ impl GcodeGenerator {
                         .type_annotation
                         .as_deref()
                         .unwrap_or(";TYPE:{type}");
-                    out.push_str(&render_marker(
+                    out.raw_str(&render_marker(
                         type_ann,
                         &z_str,
                         &height_str,
                         role.type_name(),
                         &width_str,
                     ));
-                    out.push('\n');
+                    out.raw_str("\n");
                     let width_ann = self
                         .marker_config
                         .width_annotation
                         .as_deref()
                         .unwrap_or(";WIDTH:{width}mm");
-                    out.push_str(&render_marker(
+                    out.raw_str(&render_marker(
                         width_ann,
                         &z_str,
                         &height_str,
                         role.type_name(),
                         &width_str,
                     ));
-                    out.push('\n');
+                    out.raw_str("\n");
                 }
 
                 // Ramp from the previous layer's top Z to this layer's Z over
@@ -2289,10 +2380,15 @@ impl GcodeGenerator {
                     None => true,
                 };
                 if need_travel {
-                    out.push_str(&format!(
-                        "{} ; spiral travel\n",
-                        self.dialect.travel_xy(sx, sy, params.travel_speed_mm_min)
-                    ));
+                    out.push(
+                        Move::Travel {
+                            x: sx,
+                            y: sy,
+                            feed_mm_min: params.travel_speed_mm_min,
+                            comment: None,
+                        }
+                        .with_comment("spiral travel"),
+                    );
                 }
 
                 // Fade flow in on the first spiral loop and out on the last so
@@ -2353,14 +2449,14 @@ impl GcodeGenerator {
                 if !self.objects.is_empty() && path_object != current_object {
                     if object_markers {
                         if let Some(previous) = current_object.and_then(|i| self.objects.get(i)) {
-                            out.push_str(&self.dialect.object_end(previous));
-                            out.push('\n');
+                            out.raw_str(&self.dialect.object_end(previous));
+                            out.raw_str("\n");
                         }
                         if let Some(index) = path_object {
                             if let Some(object) = self.objects.get(index) {
                                 let first_use = !introduced_objects[index];
-                                out.push_str(&self.dialect.object_start(object, first_use));
-                                out.push('\n');
+                                out.raw_str(&self.dialect.object_start(object, first_use));
+                                out.raw_str("\n");
                                 introduced_objects[index] = true;
                             }
                         }
@@ -2406,14 +2502,14 @@ impl GcodeGenerator {
                         .height_marker
                         .as_deref()
                         .unwrap_or(";HEIGHT:{height}");
-                    out.push_str(&render_marker(
+                    out.raw_str(&render_marker(
                         height_marker,
                         &z_str,
                         &path_height_str,
                         "",
                         "",
                     ));
-                    out.push('\n');
+                    out.raw_str("\n");
                     last_height = Some(path_height_str.clone());
                 }
 
@@ -2450,7 +2546,7 @@ impl GcodeGenerator {
                         (None, None) => base_fan,
                     };
                     if dynamic_fan_state != Some(target) {
-                        out.push_str(&format!(
+                        out.raw_str(&format!(
                             "{} ; dynamic fan\n",
                             self.dialect.set_fan_speed_indexed(
                                 fan_index::PART_COOLING,
@@ -2488,7 +2584,7 @@ impl GcodeGenerator {
                 if travel_accel.is_none() {
                     if let Some(accel) = print_accel {
                         if last_accel != Some(accel) {
-                            out.push_str(&format!(
+                            out.raw_str(&format!(
                                 "{} ; acceleration\n",
                                 self.dialect.set_acceleration(accel)
                             ));
@@ -2502,7 +2598,19 @@ impl GcodeGenerator {
                 // beads use the width-aware pass so `points` and their widths stay
                 // aligned (and long constant-width runs still collapse), instead
                 // of being emitted at full resolution.
-                let (points, vertex_widths): (Vec<(f64, f64)>, Option<Vec<f64>>) =
+                // Per-vertex Z offsets, when the path is non-planar. Their
+                // presence suppresses simplification below: dropping a vertex
+                // from a path whose shape *is* its Z profile flattens exactly
+                // the feature that put it there, and would leave the offsets
+                // misaligned with the points they describe besides.
+                let vertex_z = layer.vertex_z_for_path(path_idx).map(<[f64]>::to_vec);
+                let non_planar = vertex_z
+                    .as_ref()
+                    .is_some_and(|vz| vz.len() == raw_points.len());
+
+                let (points, vertex_widths): (Vec<(f64, f64)>, Option<Vec<f64>>) = if non_planar {
+                    (raw_points, raw_vertex_widths)
+                } else {
                     match raw_vertex_widths {
                         Some(vw)
                             if params.path_tolerance > 0.0
@@ -2526,7 +2634,8 @@ impl GcodeGenerator {
                             None,
                         ),
                         None => (raw_points, None),
-                    };
+                    }
+                };
 
                 // Guard against future algorithm changes that might produce degenerate paths.
                 debug_assert!(
@@ -2560,28 +2669,28 @@ impl GcodeGenerator {
                             .type_annotation
                             .as_deref()
                             .unwrap_or(";TYPE:{type}");
-                        out.push_str(&render_marker(
+                        out.raw_str(&render_marker(
                             type_ann,
                             &z_str,
                             &path_height_str,
                             type_name,
                             &width_str,
                         ));
-                        out.push('\n');
+                        out.raw_str("\n");
 
                         let width_ann = self
                             .marker_config
                             .width_annotation
                             .as_deref()
                             .unwrap_or(";WIDTH:{width}mm");
-                        out.push_str(&render_marker(
+                        out.raw_str(&render_marker(
                             width_ann,
                             &z_str,
                             &path_height_str,
                             type_name,
                             &width_str,
                         ));
-                        out.push('\n');
+                        out.raw_str("\n");
 
                         last_role = Some(role);
                         last_width = Some(header_width);
@@ -2630,7 +2739,7 @@ impl GcodeGenerator {
                 // just before the extrusion moves below.
                 if let Some(accel) = travel_accel {
                     if last_accel != Some(accel) {
-                        out.push_str(&format!(
+                        out.raw_str(&format!(
                             "{} ; travel acceleration\n",
                             self.dialect.set_acceleration(accel)
                         ));
@@ -2651,25 +2760,31 @@ impl GcodeGenerator {
                         last_path_points.as_deref(),
                         params,
                     );
-                    out.push_str(&format!(
-                        "{} ; z-hop\n",
-                        self.dialect.move_z(
-                            machine_z(layer.z + params.z_hop_mm, params),
-                            params.travel_speed_mm_min
-                        )
-                    ));
+                    out.push(
+                        Move::ZMove {
+                            z: machine_z(layer.z + params.z_hop_mm, params),
+                            feed_mm_min: params.travel_speed_mm_min,
+                            comment: None,
+                        }
+                        .with_comment("z-hop"),
+                    );
                     for (wi, &(wx, wy)) in travel_route.iter().enumerate() {
                         let tag = if wi + 1 == travel_route.len() {
                             "travel"
                         } else {
                             "travel (avoid crossing)"
                         };
-                        out.push_str(&format!(
-                            "{} ; {tag}\n",
-                            self.dialect.travel_xy(wx, wy, params.travel_speed_mm_min)
-                        ));
+                        out.push(
+                            Move::Travel {
+                                x: wx,
+                                y: wy,
+                                feed_mm_min: params.travel_speed_mm_min,
+                                comment: None,
+                            }
+                            .with_comment(tag),
+                        );
                     }
-                    out.push_str(&format!(
+                    out.raw_str(&format!(
                         "{} ; lower\n",
                         self.dialect
                             .move_z(machine_z(layer.z, params), params.travel_speed_mm_min)
@@ -2693,10 +2808,15 @@ impl GcodeGenerator {
                         } else {
                             "short travel (avoid crossing)"
                         };
-                        out.push_str(&format!(
-                            "{} ; {tag}\n",
-                            self.dialect.travel_xy(wx, wy, params.travel_speed_mm_min)
-                        ));
+                        out.push(
+                            Move::Travel {
+                                x: wx,
+                                y: wy,
+                                feed_mm_min: params.travel_speed_mm_min,
+                                comment: None,
+                            }
+                            .with_comment(tag),
+                        );
                     }
                 }
 
@@ -2706,7 +2826,7 @@ impl GcodeGenerator {
                 if travel_accel.is_some() {
                     if let Some(accel) = print_accel {
                         if last_accel != Some(accel) {
-                            out.push_str(&format!(
+                            out.raw_str(&format!(
                                 "{} ; acceleration\n",
                                 self.dialect.set_acceleration(accel)
                             ));
@@ -2749,7 +2869,12 @@ impl GcodeGenerator {
                 // will add a linear pass per perimeter path. A future optimisation could
                 // pre-compute cumulative lengths once if profiling shows this to be a
                 // bottleneck.
-                let apply_coasting = is_closed_loop && params.coasting_distance_mm > 0.0;
+                // A non-planar path is deliberately excluded: the coasting
+                // branch is a flat-loop optimisation that emits XY-only moves,
+                // so routing a path with per-vertex Z through it would silently
+                // flatten the very shape that made it non-planar.
+                let apply_coasting =
+                    is_closed_loop && params.coasting_distance_mm > 0.0 && !non_planar;
 
                 // ── Print contour segments ────────────────────────────────────
                 if apply_coasting {
@@ -2792,16 +2917,13 @@ impl GcodeGenerator {
                             );
                             e_total += de;
                             total_filament_mm += de;
-                            out.push_str(&format!(
-                                "{}\n",
-                                self.xy_extrude_line(
-                                    x,
-                                    y,
-                                    de,
-                                    e_total,
-                                    capped_speed_mm_min,
-                                    params
-                                )
+                            out.push(self.xy_extrude_line(
+                                x,
+                                y,
+                                de,
+                                e_total,
+                                capped_speed_mm_min,
+                                params,
                             ));
                         } else if dist_traveled < coasting_start {
                             // Segment straddles the coasting boundary → split it
@@ -2818,28 +2940,35 @@ impl GcodeGenerator {
                             );
                             e_total += de;
                             total_filament_mm += de;
-                            out.push_str(&format!(
-                                "{}\n",
-                                self.xy_extrude_line(
-                                    bx,
-                                    by,
-                                    de,
-                                    e_total,
-                                    capped_speed_mm_min,
-                                    params
-                                )
+                            out.push(self.xy_extrude_line(
+                                bx,
+                                by,
+                                de,
+                                e_total,
+                                capped_speed_mm_min,
+                                params,
                             ));
                             // Remainder is a travel move
-                            out.push_str(&format!(
-                                "{} ; coasting\n",
-                                self.dialect.travel_xy(x, y, speed_mm_min)
-                            ));
+                            out.push(
+                                Move::Travel {
+                                    x,
+                                    y,
+                                    feed_mm_min: speed_mm_min,
+                                    comment: None,
+                                }
+                                .with_comment("coasting"),
+                            );
                         } else {
                             // Entirely in coasting zone → travel only
-                            out.push_str(&format!(
-                                "{} ; coasting\n",
-                                self.dialect.travel_xy(x, y, speed_mm_min)
-                            ));
+                            out.push(
+                                Move::Travel {
+                                    x,
+                                    y,
+                                    feed_mm_min: speed_mm_min,
+                                    comment: None,
+                                }
+                                .with_comment("coasting"),
+                            );
                         }
                         dist_traveled += seg_len;
                         prev = (x, y);
@@ -2860,17 +2989,17 @@ impl GcodeGenerator {
                             );
                             e_total += de;
                             total_filament_mm += de;
-                            out.push_str(&format!(
-                                "{} ; close contour\n",
+                            out.push(
                                 self.xy_extrude_line(
                                     start_x,
                                     start_y,
                                     de,
                                     e_total,
                                     capped_speed_mm_min,
-                                    params
+                                    params,
                                 )
-                            ));
+                                .with_comment("close contour"),
+                            );
                         } else if dist_traveled < coasting_start {
                             let dist_to_coast = coasting_start - dist_traveled;
                             let t = dist_to_coast / seg_len;
@@ -2885,26 +3014,33 @@ impl GcodeGenerator {
                             );
                             e_total += de;
                             total_filament_mm += de;
-                            out.push_str(&format!(
-                                "{}\n",
-                                self.xy_extrude_line(
-                                    bx,
-                                    by,
-                                    de,
-                                    e_total,
-                                    capped_speed_mm_min,
-                                    params
-                                )
+                            out.push(self.xy_extrude_line(
+                                bx,
+                                by,
+                                de,
+                                e_total,
+                                capped_speed_mm_min,
+                                params,
                             ));
-                            out.push_str(&format!(
-                                "{} ; coasting close\n",
-                                self.dialect.travel_xy(start_x, start_y, speed_mm_min)
-                            ));
+                            out.push(
+                                Move::Travel {
+                                    x: start_x,
+                                    y: start_y,
+                                    feed_mm_min: speed_mm_min,
+                                    comment: None,
+                                }
+                                .with_comment("coasting close"),
+                            );
                         } else {
-                            out.push_str(&format!(
-                                "{} ; coasting close\n",
-                                self.dialect.travel_xy(start_x, start_y, speed_mm_min)
-                            ));
+                            out.push(
+                                Move::Travel {
+                                    x: start_x,
+                                    y: start_y,
+                                    feed_mm_min: speed_mm_min,
+                                    comment: None,
+                                }
+                                .with_comment("coasting close"),
+                            );
                         }
                     }
                     last_pos = Some((start_x, start_y));
@@ -2942,11 +3078,46 @@ impl GcodeGenerator {
                             params.max_volumetric_speed,
                         )
                     };
+                    // Absolute Z at vertex `j` for a non-planar path: the
+                    // layer's own Z plus that vertex's offset. `None` for an
+                    // ordinary flat path, which is every path on a normal print.
+                    let vertex_z_at = |j: usize| -> Option<f64> {
+                        if !non_planar {
+                            return None;
+                        }
+                        vertex_z
+                            .as_ref()
+                            .and_then(|vz| vz.get(j).map(|dz| machine_z(layer.z, params) + dz))
+                    };
+
+                    // Lift to the first vertex's height before drawing, so a
+                    // path that does not start in the layer plane is not
+                    // approached diagonally from it.
+                    if let Some(z0) = vertex_z_at(0) {
+                        if (z0 - machine_z(layer.z, params)).abs() > 1e-9 {
+                            out.push(
+                                Move::ZMove {
+                                    z: z0,
+                                    feed_mm_min: params.travel_speed_mm_min,
+                                    comment: None,
+                                }
+                                .with_comment("non-planar path start"),
+                            );
+                        }
+                    }
+
                     let mut prev = points[0];
                     for (i, &(x, y)) in points.iter().enumerate().skip(1) {
                         let dx = x - prev.0;
                         let dy = y - prev.1;
-                        let len = (dx * dx + dy * dy).sqrt();
+                        // A non-planar segment climbs as well as travels, and
+                        // it is the 3D length that decides how much filament it
+                        // needs.
+                        let dz = match (vertex_z_at(i - 1), vertex_z_at(i)) {
+                            (Some(a), Some(b)) => b - a,
+                            _ => 0.0,
+                        };
+                        let len = (dx * dx + dy * dy + dz * dz).sqrt();
                         if len < 1e-6 {
                             prev = (x, y);
                             continue;
@@ -2965,14 +3136,14 @@ impl GcodeGenerator {
                                 .width_annotation
                                 .as_deref()
                                 .unwrap_or(";WIDTH:{width}mm");
-                            out.push_str(&render_marker(
+                            out.raw_str(&render_marker(
                                 width_ann,
                                 &z_str,
                                 &path_height_str,
                                 role.type_name(),
                                 &width_str,
                             ));
-                            out.push('\n');
+                            out.raw_str("\n");
                             last_width = Some(sw);
                         }
                         let de = extrusion_for_move(
@@ -2984,10 +3155,13 @@ impl GcodeGenerator {
                         );
                         e_total += de;
                         total_filament_mm += de;
-                        out.push_str(&format!(
-                            "{}\n",
-                            self.xy_extrude_line(x, y, de, e_total, seg_speed(sw), params)
-                        ));
+                        let line = match vertex_z_at(i) {
+                            Some(zi) => {
+                                self.xyz_extrude_line(x, y, zi, de, e_total, seg_speed(sw), params)
+                            }
+                            None => self.xy_extrude_line(x, y, de, e_total, seg_speed(sw), params),
+                        };
+                        out.push(line.with_role(role, sw));
                         prev = (x, y);
                     }
 
@@ -2999,7 +3173,11 @@ impl GcodeGenerator {
                     if is_closed_loop {
                         let dx = start_x - prev.0;
                         let dy = start_y - prev.1;
-                        let len = (dx * dx + dy * dy).sqrt();
+                        let dz = match (vertex_z_at(points.len() - 1), vertex_z_at(0)) {
+                            (Some(a), Some(b)) => b - a,
+                            _ => 0.0,
+                        };
+                        let len = (dx * dx + dy * dy + dz * dz).sqrt();
                         if len >= 1e-6 {
                             let de = extrusion_for_move(
                                 len,
@@ -3010,17 +3188,26 @@ impl GcodeGenerator {
                             );
                             e_total += de;
                             total_filament_mm += de;
-                            out.push_str(&format!(
-                                "{} ; close contour\n",
-                                self.xy_extrude_line(
+                            let line = match vertex_z_at(0) {
+                                Some(z0) => self.xyz_extrude_line(
+                                    start_x,
+                                    start_y,
+                                    z0,
+                                    de,
+                                    e_total,
+                                    capped_speed_mm_min,
+                                    params,
+                                ),
+                                None => self.xy_extrude_line(
                                     start_x,
                                     start_y,
                                     de,
                                     e_total,
                                     capped_speed_mm_min,
-                                    params
-                                )
-                            ));
+                                    params,
+                                ),
+                            };
+                            out.push(line.with_role(role, width_mm).with_comment("close contour"));
                         }
                         last_pos = Some((start_x, start_y));
                     } else {
@@ -3047,7 +3234,7 @@ impl GcodeGenerator {
             // shortfall remains against `min_layer_time_s` is made up here
             // with a pause rather than slowing extrusion further.
             if dwell_deficit_s > 0.0 {
-                out.push_str(&format!(
+                out.raw_str(&format!(
                     "{} ; min layer time\n",
                     self.dialect.dwell(dwell_deficit_s * 1000.0)
                 ));
@@ -3070,8 +3257,8 @@ impl GcodeGenerator {
         // The last object's marker block stays open until the print ends.
         if object_markers {
             if let Some(object) = current_object.and_then(|i| self.objects.get(i)) {
-                out.push_str(&self.dialect.object_end(object));
-                out.push('\n');
+                out.raw_str(&self.dialect.object_end(object));
+                out.raw_str("\n");
             }
         }
 
@@ -3080,8 +3267,8 @@ impl GcodeGenerator {
         // the machine end script.
         if let Some(lines) = &self.custom_filament_end_script {
             for line in lines {
-                out.push_str(&render_script_placeholders(line, params));
-                out.push('\n');
+                out.raw_str(&render_script_placeholders(line, params));
+                out.raw_str("\n");
             }
         }
 
@@ -3091,8 +3278,8 @@ impl GcodeGenerator {
             None => Cow::Owned(self.dialect.end_script()),
         };
         for line in end_script.iter() {
-            out.push_str(&render_script_placeholders(line, params));
-            out.push('\n');
+            out.raw_str(&render_script_placeholders(line, params));
+            out.raw_str("\n");
         }
 
         // ── Acceleration-aware print-time estimate (issue #117) ───────────────
@@ -3111,6 +3298,16 @@ impl GcodeGenerator {
         // clock the toolpath cannot show — are added. The per-layer markers get
         // the same scale so they stay consistent with the toolpath total, but
         // *not* the fixed allowances (those belong to no single layer).
+        // ── plan → filters → render ───────────────────────────────────────────
+        // The program has been *planned* as moves up to this point. This is the
+        // one moment it exists as structure rather than text, so it is where a
+        // move filter gets to rewrite it — before anything is rendered, and so
+        // before the roles, widths and feedrates it reasons about are gone.
+        for filter in &self.move_filters {
+            filter.filter(&mut out, params);
+        }
+        let mut out = out.render(self.dialect.as_ref());
+
         let est_cfg = crate::gcode::time_estimate::EstimatorConfig::from_params(params);
         let estimate = crate::gcode::time_estimate::estimate_print_time(&out, &est_cfg);
         let scale = if params.time_estimate_scale > 0.0 {
