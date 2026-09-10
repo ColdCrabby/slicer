@@ -78,7 +78,12 @@ actix-web = "4.13"
 actix-files = "0.7"
 actix-ws = "0.4"
 # Tier 2 plugin host — see the `external-plugins` feature.
-wasmtime = { version = "40", optional = true, default-features = false, features = [
+# Pinned at >= 42.0.2, not just "42": 40.x and everything below 42.0.2 carry
+# two critical advisories (GHSA-jhxm-h53p-jm7w, GHSA-xx5w-cvp6-jv83) that are
+# *sandbox escapes on aarch64* — the one guarantee this whole tier rests on, on
+# the architecture most of us develop on. A weaker bound would let a fresh
+# checkout resolve straight back into them.
+wasmtime = { version = "42.0.2", optional = true, default-features = false, features = [
     "cranelift",
     "runtime",
     "std",

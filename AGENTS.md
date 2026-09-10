@@ -1370,11 +1370,23 @@ IR) and M4 (external WASM tier) have not.**
   external tier is for; see the security model in
   [src/PLUGINS.md](src/PLUGINS.md), particularly the promotion gate a Tier 2
   plugin has to clear before it can be baked in.
+- **The wasmtime version floor is load-bearing — never loosen it.** The first
+  version M4 shipped against carried two *critical* advisories, both sandbox
+  escapes on aarch64 (the architecture we develop on), one of them in the
+  Cranelift backend the host uses. `Cargo.toml` therefore pins a minimum past
+  them rather than a bare major. A sandbox is only as good as the runtime
+  implementing it: "WASM is structurally isolated" is a statement about the
+  boundary being explicit and machine-checked, **not** a claim that the runtime
+  has no bugs. Keeping it current is a security task. `dependency-review` is the
+  gate that catches an added vulnerable dep; `cargo-audit` and `cargo-deny` are
+  report-only here and will not fail the build.
 - **Tier 2 is desktop-only and off by default.** The WASM host
   ([src/plugin/external/](src/plugin/external/)) lives behind the
   `external-plugins` Cargo feature, in the desktop-only dependency table. It
   pulls wasmtime and ~105 crates in; charging every build for that, for a tier
-  that ships no plugins of its own, would be wrong. **Keep it optional**, and
+  that ships no plugins of its own, would be wrong. It is also a security
+  property: an installation that never enables the feature links no WASM
+  runtime, so a runtime advisory is not its problem. **Keep it optional**, and
   keep it out of the wasm and iOS targets — a sandboxed app has nowhere to load
   a module from.
 - **Tier 2 gets move filters and nothing else, on purpose.** Stages are handed
