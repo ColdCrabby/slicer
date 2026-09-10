@@ -673,6 +673,7 @@ export class Slicer {
           theme: this.thumbnailTheme(requestSettings),
           colorMode: this.thumbnailColorMode(requestSettings),
           customColor: this.thumbnailCustomColor(requestSettings),
+          sceneEffects: this.thumbnailSceneEffects(requestSettings),
         });
         if (thumbnail) {
           requestSettings['thumbnail_size_px'] = thumbnail.sizePx;
@@ -1058,6 +1059,11 @@ export class Slicer {
   private thumbnailCustomColor(settings: Record<string, unknown>): string {
     const raw = settings['thumbnail_custom_color'];
     return typeof raw === 'string' && /^#[0-9a-fA-F]{6}$/.test(raw) ? raw : '#e0912f';
+  }
+
+  private thumbnailSceneEffects(settings: Record<string, unknown>): boolean {
+    const raw = settings['thumbnail_scene_effects'];
+    return raw === true || raw === 'true' || raw === 1;
   }
 
   private setDownloadUrl(url: string | null): void {

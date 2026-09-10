@@ -7,6 +7,7 @@ import {
   LineBasicMaterial,
   LineSegments,
   Mesh,
+  type Object3D,
   type PerspectiveCamera,
   PlaneGeometry,
   type Scene,
@@ -84,6 +85,33 @@ export class SceneGrid {
     if (this.shadowPlane) {
       this.shadowPlane.visible = enabled;
     }
+  }
+
+  /**
+   * Hide every part of the grid except the shadow-receiver plane, and return
+   * the function that puts it back.
+   *
+   * Used by the off-screen thumbnail render: the plate lines, bed outline and
+   * chrome are not part of the *model*, but the contact shadow is what grounds
+   * it. The receiver is a `ShadowMaterial` plane — fully transparent wherever
+   * no shadow falls — so keeping it never adds a visible floor to the shot.
+   */
+  isolateShadowReceiver(): () => void {
+    const hidden: Object3D[] = [];
+    for (const child of this.grid.children) {
+      if (child !== this.shadowPlane && child.visible) {
+        child.visible = false;
+        hidden.push(child);
+      }
+    }
+    const groupWasVisible = this.grid.visible;
+    this.grid.visible = true;
+    return () => {
+      this.grid.visible = groupWasVisible;
+      for (const child of hidden) {
+        child.visible = true;
+      }
+    };
   }
 
   updateAdaptiveGrid(): void {

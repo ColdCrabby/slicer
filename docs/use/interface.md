@@ -185,6 +185,11 @@ Windows — whatever your system accent is set to.
 render resolution and preview detail. Turn them down on a weak GPU, up on a good
 one.
 
+It also has the **screenshot animation** — the flash and the little preview card
+that flies off to the top of the view each time a slice captures the thumbnail
+embedded in its G-code. Turn it off if you'd rather the shot were taken quietly;
+the thumbnail is still captured either way.
+
 ## On a tablet
 
 An iPad has the screen for the full layout but not the mouse, so two things

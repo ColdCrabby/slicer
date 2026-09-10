@@ -91,6 +91,7 @@ export function defaultProcessParams(): Record<string, unknown> {
     thumbnail_theme: 'transparent',
     thumbnail_color_mode: 'filament',
     thumbnail_custom_color: '#e0912f',
+    thumbnail_scene_effects: false,
   };
 }
 

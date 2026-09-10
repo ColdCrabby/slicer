@@ -36,6 +36,13 @@ issue/PR numbers or repo links in the notes. See the tone rules in
   8 mm/s to stay below the new bridge speed.
 ### Added
 
+- **Screenshot animation is now optional.** The shutter flash and the preview
+  card that flies off after each slice can be turned off in **Settings →
+  General**. On by default; the thumbnail is still captured either way.
+- **Thumbnails can match the 3D view's look.** **Process → Thumbnail → Match 3D
+  view look** renders the embedded preview with the viewport's own shading,
+  gloss and contact shadow instead of the plain studio render. Off by default,
+  so the same plate still previews identically on every machine.
 - **Workplate tabs.** The title bar's single plate-name field is now a tab
   strip, so several workplates can stay open at once — upload, open a recent
   project, or follow a deep link and it opens in its own tab. Switch, rename,

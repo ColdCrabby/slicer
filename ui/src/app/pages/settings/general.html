@@ -422,6 +422,37 @@
 
     <div class="settings-field">
       <span class="settings-field-label">
+        <span class="settings-field-title">Screenshot animation</span>
+        <span class="settings-field-desc">
+          Flash the view and fly the captured preview off to the top each time a slice embeds its
+          thumbnail. Turn off to shoot it silently. What the thumbnail itself looks like is a print
+          setting.
+        </span>
+      </span>
+      <div class="segmented" role="group" aria-label="Screenshot animation">
+        <button
+          type="button"
+          class="segmented-btn"
+          [class.is-active]="thumbnailCaptureFx()"
+          [attr.aria-pressed]="thumbnailCaptureFx()"
+          (click)="setThumbnailCaptureFx(true)"
+        >
+          On
+        </button>
+        <button
+          type="button"
+          class="segmented-btn"
+          [class.is-active]="!thumbnailCaptureFx()"
+          [attr.aria-pressed]="!thumbnailCaptureFx()"
+          (click)="setThumbnailCaptureFx(false)"
+        >
+          Off
+        </button>
+      </div>
+    </div>
+
+    <div class="settings-field">
+      <span class="settings-field-label">
         <span class="settings-field-title">Gloss</span>
         <span class="settings-field-desc">
           Adds a specular highlight to models and the G-code preview for a glossy, "wet filament"

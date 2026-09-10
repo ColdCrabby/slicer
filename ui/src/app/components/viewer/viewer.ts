@@ -1521,7 +1521,7 @@ export class Viewer {
     // always depicts the model — even when the viewer is currently showing the
     // G-code preview (whose toolpaths would otherwise be captured and skew the
     // framing). These are throwaway meshes, never added to the live scene.
-    const subjects = this.buildThumbnailSubjects(thumbColor);
+    const subjects = this.buildThumbnailSubjects(thumbColor, request.sceneEffects);
 
     let dataUrl: string | null = null;
     try {
@@ -1533,6 +1533,7 @@ export class Viewer {
         liveIsDark,
         background: isTransparent ? null : thumbIsDark ? THUMBNAIL_BG_DARK : THUMBNAIL_BG_LIGHT,
         subjects: subjects.length > 0 ? subjects : undefined,
+        sceneEffects: request.sceneEffects,
       });
     } finally {
       for (const mesh of subjects) {
@@ -1550,16 +1551,17 @@ export class Viewer {
     }
     const pngBase64 = dataUrl.slice(comma + 1);
 
-    // Fling the shutter-flash + polaroid FX only when the user is looking at
-    // the model *and* this capture is actually a different image from the last
-    // one. Re-slicing an unchanged scene — tweaking a non-visual setting, or a
+    // Fling the shutter-flash + polaroid FX only when the user has left the
+    // animation on, is looking at the model, *and* this capture is actually a
+    // different image from the last one. Re-slicing an unchanged scene —
+    // tweaking a non-visual setting, or a
     // cache-hit re-slice — reproduces a byte-identical thumbnail from the fixed
     // capture viewpoint, so re-playing the same polaroid would just be noise.
     // The reference is refreshed on every capture (in either mode) so it always
     // tracks the thumbnail currently embedded in the print.
     const changed = pngBase64 !== this.lastThumbnailImage;
     this.lastThumbnailImage = pngBase64;
-    if (changed && this.mode() === 'model') {
+    if (changed && this.mode() === 'model' && this.viewerControl.thumbnailCaptureFx()) {
       this.playThumbnailCaptureFx(dataUrl);
     }
     return {
@@ -1575,7 +1577,7 @@ export class Viewer {
    * the caller — they are never added to the live scene or the selectable set,
    * so this works identically whether the viewer is in model or G-code mode.
    */
-  private buildThumbnailSubjects(color: number): Mesh[] {
+  private buildThumbnailSubjects(color: number, sceneEffects: boolean): Mesh[] {
     const subjects: Mesh[] = [];
     const objects = untracked(() => this.sceneEngine.objects());
     for (const obj of objects) {
@@ -1591,8 +1593,26 @@ export class Viewer {
       geometry.setIndex(new BufferAttribute(buf.indices, 1));
       geometry.computeBoundingBox();
       geometry.computeBoundingSphere();
-      const material = new MeshPhongMaterial({ color, flatShading: true, shininess: 16 });
+      // Plain by default: flat-shaded with the material's own dim highlight, so
+      // the same plate renders the same preview on every machine. With scene
+      // effects on, mirror `buildDisplayMesh` exactly instead — the thumbnail
+      // is then the model as this user's viewport draws it. The plain branch
+      // deliberately leaves `specular` untouched: pinning it here would shift
+      // every existing thumbnail's shading the moment this option landed.
+      const material = new MeshPhongMaterial({
+        color,
+        flatShading: sceneEffects ? this.viewerControl.modelShading() === 'flat' : true,
+        shininess: 16,
+        ...(sceneEffects
+          ? {
+              specular: this.viewerControl.glossEnabled()
+                ? MODEL_SPECULAR_GLOSS
+                : MODEL_SPECULAR_MATTE,
+            }
+          : {}),
+      });
       const mesh = new Mesh(geometry, material);
+      mesh.castShadow = sceneEffects;
       mesh.matrixAutoUpdate = false;
       this.tmpMatrix.fromArray(this.sceneEngine.getMatrix(obj.id));
       mesh.matrix.copy(this.tmpMatrix);

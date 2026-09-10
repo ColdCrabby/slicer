@@ -106,6 +106,7 @@ const FIELD_LABELS: Record<string, string> = {
   thumbnail_theme: 'Thumbnail Theme',
   thumbnail_color_mode: 'Model Color',
   thumbnail_custom_color: 'Custom Color',
+  thumbnail_scene_effects: 'Match 3D View Look',
   // Mesh
   mesh_quality: 'Mesh Quality',
 };

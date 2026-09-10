@@ -42,6 +42,7 @@ export class GeneralSettings implements OnInit {
   protected readonly shadowsEnabled = this.viewer.shadowsEnabled;
   protected readonly modelShading = this.viewer.modelShading;
   protected readonly glossEnabled = this.viewer.glossEnabled;
+  protected readonly thumbnailCaptureFx = this.viewer.thumbnailCaptureFx;
 
   protected readonly minFov = MIN_FIELD_OF_VIEW;
   protected readonly maxFov = MAX_FIELD_OF_VIEW;
@@ -132,6 +133,10 @@ export class GeneralSettings implements OnInit {
 
   setGlossEnabled(value: boolean): void {
     this.viewer.setGlossEnabled(value);
+  }
+
+  setThumbnailCaptureFx(value: boolean): void {
+    this.viewer.setThumbnailCaptureFx(value);
   }
 
   setHistoryControls(mode: HistoryControlsMode): void {

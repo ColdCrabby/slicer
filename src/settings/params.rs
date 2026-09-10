@@ -2452,6 +2452,15 @@ more effectively than ironing along them.",
     #[serde(default = "SlicingParams::default_thumbnail_custom_color")]
     pub thumbnail_custom_color: String,
 
+    #[schemars(
+        description = "Render the thumbnail with the 3D view's own look — its shading, gloss and \
+                       contact shadow — instead of the plain studio render. The camera angle, \
+                       theme and colour above still apply.",
+        extend("x-group" = "Thumbnail", "x-relevant-when" = serde_json::json!({"field": "thumbnail_enabled", "equals": true}))
+    )]
+    #[serde(default = "SlicingParams::default_thumbnail_scene_effects")]
+    pub thumbnail_scene_effects: bool,
+
     /// Optional base64-encoded PNG payload for the current slice request.
     ///
     /// This is an ephemeral request-scoped value (not a user-facing setting),
@@ -2702,6 +2711,7 @@ impl Default for SlicingParams {
             thumbnail_theme: ThumbnailTheme::default(),
             thumbnail_color_mode: ThumbnailColorMode::default(),
             thumbnail_custom_color: Self::default_thumbnail_custom_color(),
+            thumbnail_scene_effects: Self::default_thumbnail_scene_effects(),
             thumbnail_png_base64: None,
             print_sequence: PrintSequence::default(),
             exclude_object: false,
@@ -2959,6 +2969,12 @@ impl SlicingParams {
     }
     fn default_thumbnail_custom_color() -> String {
         "#e0912f".to_string()
+    }
+    /// Plain studio render. The scene look is a per-client preference (shading,
+    /// gloss, shadows), so inheriting it by default would make the embedded
+    /// preview vary between machines slicing the same plate.
+    fn default_thumbnail_scene_effects() -> bool {
+        false
     }
 }
 
@@ -3739,6 +3755,19 @@ mod tests {
             base.cache_fingerprint(),
             bigger_thumb.cache_fingerprint(),
             "thumbnail settings must remain part of the cache fingerprint"
+        );
+
+        // Including the ones the UI, not the engine, acts on: the rendered look
+        // is what ends up embedded, so a cached file shot the plain way must
+        // not be handed back for a request asking for the scene's look.
+        let scene_look = SlicingParams {
+            thumbnail_scene_effects: !base.thumbnail_scene_effects,
+            ..SlicingParams::default()
+        };
+        assert_ne!(
+            base.cache_fingerprint(),
+            scene_look.cache_fingerprint(),
+            "the thumbnail's render look must be part of the cache fingerprint"
         );
 
         // The fingerprint must never carry the raw image bytes.

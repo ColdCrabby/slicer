@@ -110,6 +110,12 @@ export interface SliceThumbnailRequest {
   colorMode: ThumbnailColorMode;
   /** `#rrggbb` used when `colorMode === 'custom'`. */
   customColor: string;
+  /**
+   * Render the model with the live 3D view's own treatment — its shading,
+   * gloss and contact shadow — instead of the plain studio look. The angle,
+   * theme and colour are unaffected either way.
+   */
+  sceneEffects: boolean;
 }
 
 /** Default perspective field-of-view in degrees. */
@@ -158,6 +164,7 @@ const PALM_REJECTION_KEY = 'nexus.viewer.palmRejection';
 const SHADOWS_ENABLED_KEY = 'nexus.viewer.shadowsEnabled';
 const MODEL_SHADING_KEY = 'nexus.viewer.modelShading';
 const GLOSS_ENABLED_KEY = 'nexus.viewer.glossEnabled';
+const THUMBNAIL_CAPTURE_FX_KEY = 'nexus.viewer.thumbnailCaptureFx';
 
 /**
  * Shared state between the 3D-view toolbar and the viewer component.
@@ -257,6 +264,17 @@ export class ViewerControl {
    * a flat matte look — without touching diffuse/emissive colour. Persisted.
    */
   readonly glossEnabled = signal(this.readGlossEnabled());
+
+  /**
+   * Whether capturing the slice thumbnail plays its shutter flash and the
+   * polaroid card that flies off to the top of the view.
+   *
+   * On by default — it is the only feedback that the preview embedded in the
+   * G-code was actually shot, and it plays at most once per slice. Purely
+   * cosmetic, so it is a client preference and never reaches the engine.
+   * Persisted.
+   */
+  readonly thumbnailCaptureFx = signal(this.readThumbnailCaptureFx());
 
   /**
    * Currently selected object-manipulation mode. Drives the gizmo shown
@@ -443,6 +461,12 @@ export class ViewerControl {
     this.storage.write(GLOSS_ENABLED_KEY, String(value));
   }
 
+  /** Update the thumbnail capture-animation preference and persist it. */
+  setThumbnailCaptureFx(value: boolean): void {
+    this.thumbnailCaptureFx.set(value);
+    this.storage.write(THUMBNAIL_CAPTURE_FX_KEY, String(value));
+  }
+
   private readTwoFingerGesture(): TwoFingerGesture {
     return this.storage.get(TWO_FINGER_GESTURE_KEY)() === 'pan' ? 'pan' : 'orbit';
   }
@@ -503,6 +527,10 @@ export class ViewerControl {
 
   private readGlossEnabled(): boolean {
     return this.storage.get(GLOSS_ENABLED_KEY)() !== 'false';
+  }
+
+  private readThumbnailCaptureFx(): boolean {
+    return this.storage.get(THUMBNAIL_CAPTURE_FX_KEY)() !== 'false';
   }
 
   /**
