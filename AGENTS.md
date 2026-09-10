@@ -1346,6 +1346,25 @@ IR) and M4 (external WASM tier) have not.**
   fade-in/out, rather than going through `path_vertex_z`. Folding it in would
   change working output for no user-visible gain; leave it unless there is a
   reason.
+- **The G-code emitter plans moves, then renders them.**
+  [src/gcode/ir.rs](src/gcode/ir.rs) is the IR: the emitter pushes `Move`s into
+  a `MoveProgram`, every `Plugin::move_filter` gets to rewrite it, and only then
+  is text produced. A filter sees motion with its role, width, feedrate and
+  extrusion intact — which is what native arc welding needs and what
+  post-processing finished text could never give it.
+- **Only motion is modelled; everything else is `Move::Raw`** — fan,
+  temperature, markers, comments, custom scripts, carried as already-rendered
+  text and emitted verbatim. That boundary is deliberate: it avoids re-deciding
+  in typed form every choice the emitter already makes correctly, and it is what
+  makes the split provably output-neutral, since the bytes for everything
+  unmodelled are literally the same bytes. **Add a `Move` variant only when a
+  filter genuinely needs to reason about that command.**
+- **A new emission site pushes a `Move`, not a string.** `out` is a
+  `MoveProgram`, not a `String`; `out.raw_str(...)` is the escape hatch for
+  non-motion text. Emitting motion as `Raw` would hide it from every filter.
+- **The time estimator and the G-code viewer still parse text.** The IR is the
+  representation they could share instead; moving them over is a follow-on M3
+  made possible, not something it did.
 - **Tier 1 is not sandboxed.** A compile-time plugin has the same trust level as
   the engine, in every build including WASM and iOS. Isolation is what the
   later external tier is for; see the security model in

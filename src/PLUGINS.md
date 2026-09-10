@@ -1,12 +1,12 @@
 # Plugin support — design proposal
 
-> **Status: M1 and M2 have shipped; M3–M4 are still proposals.**
+> **Status: M1–M3 have shipped; M4 is still a proposal.**
 > The hook interface, the reified stage list, `SliceContext`, namespaced plugin
-> settings and the non-planar layer model exist — see
+> settings, the non-planar layer model and the G-code move IR all exist — see
 > [plugin/README.md](plugin/README.md) for the code and
 > [Staging](#staging) for what each milestone covers. Everything below
-> concerning the **G-code move IR** and the **external WASM tier** still
-> describes what we intend to build, not how the engine behaves today.
+> concerning the **external WASM tier** still describes what we intend to
+> build, not how the engine behaves today.
 
 The slicer should let people add behaviour — arc welding, wavy overhangs,
 whatever someone needs — without forking the pipeline. This document argues for
@@ -157,23 +157,37 @@ fade-out. Rebuilding it on `path_vertex_z` would be a behaviour change to
 working output for no user-visible gain, so it is a candidate for later rather
 than part of this milestone.
 
-### There is no G-code move IR
+### There was no G-code move IR — *fixed in M3*
 
-`generate_with_stats` ([gcode/generator.rs](gcode/generator.rs)) interleaves
-geometry, extrusion accounting, fan, acceleration, temperature and spiral logic
-while appending directly to a `String`. Layer-time markers are already patched
-afterwards by string surgery.
+`generate_with_stats` ([gcode/generator.rs](gcode/generator.rs)) appended
+directly to a `String`, so the program never existed as *moves*. **Arc welding
+had nothing to attach to**: a native welder needs to see a run of extrusions
+and replace it, and post-processing finished text has been ruled out as a
+plugin mechanism precisely because it sees no geometry, no roles and no
+settings.
 
-**Arc welding has nothing to attach to.** Issue
-[#32](https://github.com/max-scopp/slicer-engine/issues/32) explicitly wants it
-native rather than as a post-processing pass — and post-processing has been
-ruled out as a plugin mechanism — so this is a hard prerequisite, not a
-preference.
+Emission is now split:
 
-There is a related cost: [gcode_viewer/parser.rs](gcode_viewer/parser.rs) parses
-our *own* emitted text back into moves to drive the 3D preview. A shared move IR
-would serve the generator, the time estimator and the viewer from one
-representation.
+```text
+plan  →  Vec<Move>  →  filters  →  render
+```
+
+[gcode/ir.rs](gcode/ir.rs) holds the `Move` enum and `MoveProgram`;
+[`Plugin::move_filter`](plugin/mod.rs) is the hook family. A filter sees motion
+with its **role, width, feedrate and extrusion intact**, and may merge, split,
+replace or drop moves before a character is rendered.
+
+**Only motion is modelled.** Fan, temperature, markers and comments are carried
+as `Move::Raw` — already-rendered text emitted verbatim. That is a deliberate
+boundary: modelling every command would mean re-deciding in typed form every
+choice the emitter already makes correctly, for no gain, and rendering `Raw`
+verbatim is what makes the split **provably** output-neutral — the bytes for
+everything unmodelled cannot drift, because they are the same bytes.
+
+The related cost is only partly paid. [gcode_viewer/parser.rs](gcode_viewer/parser.rs)
+and the time estimator still parse our own emitted text back into moves. The IR
+is now the representation they *could* share, and doing so is a follow-on this
+milestone makes possible rather than something it does.
 
 ### `SlicingParams` was closed, and the cache would have lied — *fixed in M1*
 
@@ -236,17 +250,17 @@ designed once rather than renegotiated per transport.
 | **Stage** | `fn stages(&self) -> Vec<StageRegistration>` | fuzzy skin, ironing, wavy overhangs, supports | shipped |
 | **Settings** | `fn settings_schema(&self) -> Option<Value>` | every plugin — yields its UI automatically | shipped |
 | **Registry** | `fn register(&self, r: &mut Registry)` | new infill patterns, wall generators, G-code dialects | with its milestone |
-| **Move filter** | `fn move_filter(&self) -> Option<Box<dyn MoveFilter>>` | arc welding, pause-at-height, travel optimisation | M3 |
+| **Move filter** | `fn move_filter(&self) -> Option<Box<dyn MoveFilter>>` | arc welding, travel optimisation | shipped |
 
 A stage registration says *where* it goes by naming an existing stage: insert
 before it, insert after it, or wrap it.
 
-The two unshipped families are deliberately *not* stubbed out. Each needs
-something that does not exist yet to attach to — a strategy registry, a G-code
-move IR — and a hook whose type cannot describe its feature is the exact dead
-end this design was written to avoid. Both arrive as **defaulted** trait
-methods, so no plugin written against today's trait has to change when they do;
-that property is what makes deferring them free rather than a deferred cost.
+The remaining family is deliberately *not* stubbed out. It needs something that
+does not exist yet to attach to — a strategy registry — and a hook whose type
+cannot describe its feature is the exact dead end this design was written to
+avoid. It arrives as a **defaulted** trait method, so no plugin written against
+today's trait has to change when it does. That property is what made deferring
+the move filter free rather than a deferred cost, and it holds here too.
 
 ### Why this expands as the codebase expands
 
@@ -395,13 +409,14 @@ end.
 | --- | --- | --- | --- |
 | **M1** Foundation | `SliceContext`, stage list, `Plugin` trait, namespaced settings, experiments UI | fuzzy skin, ironing | **shipped** |
 | **M2** Layer model | per-vertex Z, per-path plugin data | wavy overhangs | **shipped** |
-| **M3** Move IR | plan → `Vec<Move>` → filters → render | arc welding (#32) | proposed |
+| **M3** Move IR | plan → `Vec<Move>` → filters → render | native arc welding | **shipped** |
 | **M4** External | desktop-only WASM host, WIT interface | third-party plugins | proposed |
 
 M1 also **deleted the duplicated debug pipeline** by turning snapshot capture
 into an ordinary set of stages — see the first blocker above for what that copy
-had already drifted into. M3 additionally lets the time estimator and the
-G-code viewer share one representation instead of round-tripping through text.
+had already drifted into. M3 makes it *possible* for the time estimator and the
+G-code viewer to share one representation instead of round-tripping through
+text; both still parse, and moving them over is a follow-on.
 
 The non-negotiable constraint across all of them: with no plugin active, output
 must be **byte-identical**. The QA baselines are the gate, and refactors land

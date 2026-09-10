@@ -52,6 +52,11 @@ issue/PR numbers or repo links in the notes. See the tone rules in
   and the filament it needs is measured along the distance it actually travels.
   Nothing in the default pipeline produces one — it is the groundwork features
   like wavy overhangs need in order to exist at all.
+- **G-code is planned before it is written.** The generator now builds the
+  program as structured moves and renders it as a last step, so a plugin can
+  rewrite motion — merging, splitting or replacing it — while the role, width
+  and feedrate are still attached. That is what a native arc welder needs, and
+  what editing finished text could never offer. Output is unchanged.
 - **Fuzzy skin.** A new outer-wall texture option roughs the surface with a
   small random perpendicular jitter instead of a smooth wall — useful for
   hiding layer lines or giving a part a deliberately organic look. Tunable
