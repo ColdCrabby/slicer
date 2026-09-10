@@ -36,6 +36,16 @@ issue/PR numbers or repo links in the notes. See the tone rules in
   8 mm/s to stay below the new bridge speed.
 ### Added
 
+- **Workplate tabs.** The title bar's single plate-name field is now a tab
+  strip, so several workplates can stay open at once — upload, open a recent
+  project, or follow a deep link and it opens in its own tab. Switch, rename,
+  or close tabs independently; closing one only removes it from the strip,
+  the plate itself is still reachable from Home.
+- **Fuzzy skin.** A new outer-wall texture option roughs the surface with a
+  small random perpendicular jitter instead of a smooth wall — useful for
+  hiding layer lines or giving a part a deliberately organic look. Tunable
+  thickness and point spacing; off by default, and purely cosmetic — inner
+  walls, infill and every other pass print exactly as they would otherwise.
 - **Bed mesh leveling directives.** A new `bed_mesh_mode` setting emits
   `BED_MESH_CALIBRATE`/`BED_MESH_PROFILE LOAD` (Klipper) or `G29`/`M420 S1`
   (Marlin/RepRap) at print start — off by default, so existing output is

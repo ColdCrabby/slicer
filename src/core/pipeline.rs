@@ -683,6 +683,12 @@ pub fn process_mesh(
     crate::flow::compensate(&mut layers, params);
     t_flow.finish();
 
+    // Fuzzy skin — cosmetic outer-wall texture.  Runs after ordering and flow
+    // compensation (so it perturbs the final geometry and carries along any
+    // per-vertex widths already written) and before adhesion, whose skirt/brim
+    // trace the clean OuterWall centerlines and must not pick up the jitter.
+    crate::walls::fuzzy_skin::apply(&mut layers, params);
+
     // Bed-adhesion helpers (skirt / brim / raft).  Runs after the object's own
     // toolpaths are fully ordered and flow-compensated so it never perturbs
     // them: skirt/brim loops are prepended to the first layer(s); raft prepends
@@ -911,6 +917,8 @@ pub fn process_mesh_debug(
     ));
 
     crate::flow::compensate(&mut layers, params);
+
+    crate::walls::fuzzy_skin::apply(&mut layers, params);
 
     mark_first_layer_height(&mut layers, first_h, params.layer_height);
 

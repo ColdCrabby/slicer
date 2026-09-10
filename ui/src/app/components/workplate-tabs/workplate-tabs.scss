@@ -1,0 +1,110 @@
+@use 'breakpoints' as *;
+
+:host {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  gap: var(--spacing-xs);
+}
+
+.wp-tablist {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  min-width: 0;
+  height: 100%;
+  overflow-x: auto;
+  scrollbar-width: none;
+
+  &::-webkit-scrollbar {
+    display: none;
+  }
+}
+
+.wp-tab {
+  display: flex;
+  align-items: center;
+  flex: none;
+  gap: 2px;
+  max-width: 180px;
+  height: 28px;
+  padding: 0 2px 0 8px;
+  border-radius: var(--radius-md);
+  background: transparent;
+  border: 1px solid transparent;
+  cursor: pointer;
+  transition:
+    background-color var(--duration-fast) var(--ease-standard),
+    border-color var(--duration-fast) var(--ease-standard);
+
+  &:hover {
+    background: var(--color-surface-hover);
+  }
+
+  &.active {
+    background: var(--accent-soft);
+    border-color: var(--accent-border);
+  }
+}
+
+.wp-tab-name {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-family: var(--font-family-ui);
+  font-size: var(--font-size-md);
+  font-weight: var(--font-weight-medium);
+  height: 20px;
+  padding: 0 2px;
+  line-height: 1.2;
+  text-overflow: ellipsis;
+  background: transparent;
+  border: none;
+  border-radius: var(--radius-sm);
+  color: var(--color-text-primary);
+  cursor: inherit;
+
+  &::placeholder {
+    color: var(--color-text-tertiary);
+    font-weight: var(--font-weight-medium);
+  }
+
+  &:focus,
+  &:focus-visible {
+    outline: none;
+    cursor: text;
+    box-shadow: inset 0 0 0 1px var(--color-focus-ring);
+    background: var(--color-surface);
+  }
+}
+
+// A tab's own active/hover state already says "this is the one"; the close
+// button only needs to appear once the user is actually looking at this tab,
+// so a row of many plates doesn't turn into a row of many x's.
+.wp-tab-close {
+  flex: none;
+  color: var(--color-text-tertiary);
+  opacity: 0;
+  transition: opacity var(--duration-fast) var(--ease-standard);
+}
+
+.wp-tab:hover .wp-tab-close,
+.wp-tab:focus-within .wp-tab-close,
+.wp-tab.active .wp-tab-close {
+  opacity: 1;
+}
+
+.wp-tab-add {
+  flex: none;
+  color: var(--color-text-secondary);
+}
+
+// ── Phone / narrow window ────────────────────────────────────────────────
+//
+// Tabs become a scrollable chip strip rather than shrinking each one further —
+// the same idiom the settings sidebar uses (ui/README.md's "scrollable chip
+// strip" pattern) — so a renamed plate doesn't lose its name to an ellipsis.
+@include compact {
+  .wp-tab {
+    max-width: 120px;
+  }
+}

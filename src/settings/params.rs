@@ -849,6 +849,41 @@ normal (non-spiral) printing with a warning.
     #[serde(default = "SlicingParams::default_spiral_vase")]
     pub spiral_vase: bool,
 
+    #[schemars(description = "Perturb the outer wall with a rough, hand-textured finish.
+
+Every vertex of the outer wall is displaced perpendicular to the wall by a
+small random amount, replacing the smooth outer surface with a fuzzy,
+non-uniform texture. Purely cosmetic — inner walls, infill and every other
+pass are unaffected.
+
+Mirrors `fuzzy_skin` (PrusaSlicer/Slic3r); this engine fuzzes only the outer
+wall, matching Prusa's `external` mode.
+**Default:** off.", extend("x-group" = "Walls"))]
+    #[serde(default = "SlicingParams::default_fuzzy_skin")]
+    pub fuzzy_skin: bool,
+
+    #[schemars(
+        description = "Maximum perpendicular displacement (mm) `fuzzy_skin` applies to each point.
+
+Mirrors `fuzzy_skin_thickness` (PrusaSlicer/Slic3r).
+**Default:** 0.15 mm. **Typical:** 0.1–0.5 mm.",
+        extend("x-group" = "Walls", "x-relevant-when" = serde_json::json!({"field": "fuzzy_skin", "equals": true}))
+    )]
+    #[serde(default = "SlicingParams::default_fuzzy_skin_thickness_mm")]
+    pub fuzzy_skin_thickness_mm: f64,
+
+    #[schemars(
+        description = "Spacing (mm) between the points `fuzzy_skin` perturbs along the outer wall.
+
+Smaller values pack in more, finer bumps; larger values give a coarser
+texture with fewer, wider ones.
+Mirrors `fuzzy_skin_point_dist` (PrusaSlicer/Slic3r).
+**Default:** 0.5 mm. **Typical:** 0.3–1.0 mm.",
+        extend("x-group" = "Walls", "x-relevant-when" = serde_json::json!({"field": "fuzzy_skin", "equals": true}))
+    )]
+    #[serde(default = "SlicingParams::default_fuzzy_skin_point_dist_mm")]
+    pub fuzzy_skin_point_dist_mm: f64,
+
     #[schemars(description = "Infill density as a fraction (0.0–1.0).
 
 - `0.0` = completely hollow
@@ -2519,6 +2554,9 @@ impl Default for SlicingParams {
             ensure_vertical_shell_thickness: Self::default_ensure_vertical_shell_thickness(),
             avoid_crossing_perimeters: Self::default_avoid_crossing_perimeters(),
             spiral_vase: Self::default_spiral_vase(),
+            fuzzy_skin: Self::default_fuzzy_skin(),
+            fuzzy_skin_thickness_mm: Self::default_fuzzy_skin_thickness_mm(),
+            fuzzy_skin_point_dist_mm: Self::default_fuzzy_skin_point_dist_mm(),
             infill_density: 0.2,
             infill_pattern: Self::default_infill_pattern(),
             infill_base_angle: Self::default_infill_base_angle(),
@@ -3134,6 +3172,18 @@ impl SlicingParams {
 
     fn default_spiral_vase() -> bool {
         false
+    }
+
+    fn default_fuzzy_skin() -> bool {
+        false
+    }
+
+    fn default_fuzzy_skin_thickness_mm() -> f64 {
+        0.15
+    }
+
+    fn default_fuzzy_skin_point_dist_mm() -> f64 {
+        0.5
     }
 
     fn default_infill_pattern() -> InfillPattern {
