@@ -79,7 +79,7 @@ That order is now **data**: [`core/stages.rs`](src/core/stages.rs) is a list of
 named stages, and a plugin extends the engine by naming one rather than by
 editing the pipeline. So the set of extension points grows with the pipeline
 itself — see [`plugin/README.md`](src/plugin/README.md), and
-[`PLUGINS.md`](src/PLUGINS.md) for the design and the milestones still ahead.
+[`PLUGINS.md`](src/PLUGINS.md) for why it has that shape.
 
 ### Scene and configuration
 

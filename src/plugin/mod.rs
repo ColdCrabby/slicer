@@ -25,10 +25,9 @@
 //! | Settings | [`Plugin::settings_schema`] | the plugin's own settings, and their whole UI |
 //! | Move filter | [`Plugin::move_filter`] | rewriting the G-code program before it is rendered |
 //!
-//! The registry family named in the design arrives with the milestone that
-//! gives it something to attach to (a strategy registry). It is a new
-//! **defaulted** trait method when it lands, so no plugin written against this
-//! version has to change — the same way the move filter arrived here.
+//! The registry family named in the design is not built: it would attach to a
+//! strategy registry, and there isn't one. It arrives as a new **defaulted**
+//! trait method, so no plugin written against this version has to change.
 //!
 //! ## Trust
 //!
@@ -102,49 +101,50 @@ pub trait Plugin: Send + Sync {
 
 /// The plugins compiled into this build.
 ///
-/// Empty for now: the two internal plugins that exist
-/// ([`builtin::DebugCapture`], [`builtin::FuzzySkin`]) are installed by the
-/// pipeline entry point that needs them rather than being always-on, and no
-/// user-facing experiment has shipped yet. The settings UI's **Experiments**
-/// group therefore appears exactly when the first one does.
+/// [`builtin::HelloWorld`] is the worked example — off by default, and there
+/// so the hooks are exercised by something a person can switch on rather than
+/// only by tests. [`builtin::DebugCapture`] is deliberately absent: it is
+/// installed by the one entry point that needs it rather than being always-on.
 pub fn builtin_plugins() -> Vec<Box<dyn Plugin>> {
-    Vec::new()
+    vec![Box::new(builtin::HelloWorld)]
 }
 
-/// Every plugin this run should install: the built-in set, plus any Tier 2
+/// The plugins this process runs with, discovered once.
+///
+/// Memoised because Tier 2 discovery touches the filesystem and a slice builds
+/// several G-code generators; doing it per construction would read the plugin
+/// directory over and over for an answer that cannot change mid-run.
+static INSTALLED: std::sync::OnceLock<Vec<Box<dyn Plugin>>> = std::sync::OnceLock::new();
+
+/// Every plugin this process runs with: the built-in set, plus any Tier 2
 /// modules loaded from disk.
 ///
 /// The Tier 2 half exists only on desktop builds with the `external-plugins`
 /// feature; everywhere else this is exactly [`builtin_plugins`]. A module that
-/// fails to load is reported through `logger` and skipped — one bad plugin
-/// costs its own feature, not the user's print.
-pub fn all_plugins(logger: &dyn crate::logging::ProcessLogger) -> Vec<Box<dyn Plugin>> {
-    // `mut` only where the external tier compiles in and extends it.
-    #[allow(unused_mut)]
-    let mut plugins = builtin_plugins();
+/// fails to load is reported on stderr and skipped — one bad plugin costs its
+/// own feature, not the user's print.
+pub fn installed() -> &'static [Box<dyn Plugin>] {
+    INSTALLED.get_or_init(|| {
+        // `mut` only where the external tier compiles in and extends it.
+        #[allow(unused_mut)]
+        let mut plugins = builtin_plugins();
 
-    #[cfg(all(
-        feature = "external-plugins",
-        not(target_arch = "wasm32"),
-        not(target_os = "ios")
-    ))]
-    {
-        let dir = crate::config::io::config_dir().join("plugins");
-        let loaded = external::load_from(&dir);
-        for (path, err) in &loaded.failures {
-            logger.log_warn(&format!("plugin {}: {err}", path.display()));
+        #[cfg(all(
+            feature = "external-plugins",
+            not(target_arch = "wasm32"),
+            not(target_os = "ios")
+        ))]
+        {
+            let dir = crate::config::io::config_dir().join("plugins");
+            let loaded = external::load_from(&dir);
+            for (path, err) in &loaded.failures {
+                eprintln!("[warn] plugin {}: {err}", path.display());
+            }
+            plugins.extend(loaded.plugins);
         }
-        for plugin in &loaded.plugins {
-            logger.log_info(&format!(
-                "loaded external plugin '{}'",
-                plugin.manifest().id
-            ));
-        }
-        plugins.extend(loaded.plugins);
-    }
 
-    let _ = logger;
-    plugins
+        plugins
+    })
 }
 
 /// Fold every plugin's stage registrations into `registry`.
