@@ -9,7 +9,7 @@ pipeline. The single rule everything else defends:
 > API has failed.
 
 The design and the research behind it are in [PLUGINS.md](../PLUGINS.md). This
-document is about the code that now implements its first milestone.
+document is about the code.
 
 ## Why a compile-time trait, and not a script host
 
@@ -29,6 +29,23 @@ that runs *everywhere*, which is precisely what our own optional features need.
 
 **We wanted it for ourselves first.** The immediate goal is a home for
 optional, opinionated features that should not bloat the core.
+
+## Start here
+
+[`builtin/hello_world.rs`](builtin/hello_world.rs) is the shortest complete
+plugin: a manifest, settings that generate their own UI, a stage that reads the
+layers, and a filter that rewrites the G-code program — one readable file with
+nothing else in it. It ships switched off, so it is also the fastest way to
+confirm the machinery works end to end:
+
+```toml
+# slicer.toml
+[slicing.plugins.hello-world]
+enabled = true
+greeting = "sliced by a plugin"
+```
+
+Copy the file, replace the two `run` bodies, and you have a plugin.
 
 ## The contract
 
@@ -51,9 +68,9 @@ already written.
 | Settings | `settings_schema()` | *what can the user configure?* |
 | Move filter | `move_filter()` | *how do I rewrite the G-code program?* |
 
-The registry family the design names arrives with the milestone that gives it
-something to attach to — a strategy registry. It will not change the signatures
-above, the same way the move filter did not.
+The registry family the design names is not built: it would attach to a
+strategy registry, and there isn't one. It arrives as a defaulted method, so it
+will not change the signatures above.
 
 ### Stages: the pipeline is a list, not a function
 
@@ -218,8 +235,8 @@ What the sandbox actually rests on, all enforced rather than trusted:
 | State | Fresh instance per call, so one slice cannot influence the next |
 | Failure | Costs that plugin's feature, never the print |
 
-**The sandbox is only as good as the runtime.** M4's first `wasmtime` version
-carried two critical advisories, both sandbox escapes on aarch64 — one in the
+**The sandbox is only as good as the runtime.** The first `wasmtime` version
+this host shipped against carried two critical advisories, both sandbox escapes on aarch64 — one in the
 Cranelift backend this host uses. `Cargo.toml` pins a minimum past them, and
 that floor is load-bearing: "WASM is structurally isolated" says the boundary is
 explicit and machine-checked, not that the implementation is bug-free. See the
@@ -251,7 +268,7 @@ clear, is in [PLUGINS.md](../PLUGINS.md).
 
 ## See also
 
-- [PLUGINS.md](../PLUGINS.md) — the design, the research, the milestones, the security model
+- [PLUGINS.md](../PLUGINS.md) — the design, the research, the security model
 - [core/stages.rs](../core/stages.rs) — the core pipeline as a stage list
 - [core/pipeline.rs](../core/pipeline.rs) — the entry points that build a run
 - [builtin/debug_capture.rs](builtin/debug_capture.rs) — the first plugin, and what it replaced
