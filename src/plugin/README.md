@@ -49,10 +49,11 @@ already written.
 | --- | --- | --- |
 | Stage | `stages()` | *where does my work run?* |
 | Settings | `settings_schema()` | *what can the user configure?* |
+| Move filter | `move_filter()` | *how do I rewrite the G-code program?* |
 
-The registry and move-filter families the design names arrive with the
-milestones that give them something to attach to — a strategy registry, and a
-G-code move IR. Neither changes the signatures above.
+The registry family the design names arrives with the milestone that gives it
+something to attach to — a strategy registry. It will not change the signatures
+above, the same way the move filter did not.
 
 ### Stages: the pipeline is a list, not a function
 
@@ -97,6 +98,24 @@ never by hand.** It replaces the paths and every per-path array together, and
 re-walks per-vertex arrays with the same rotation or reversal as the vertices
 they describe. That is the failure this API exists to remove: an array left
 behind shifts somebody's tags onto the wrong path, silently.
+
+### Move filters: rewriting the program, not the text
+
+The emitter used to append strings, so the program never existed as *moves* and
+a plugin could only have edited finished text. That is the mechanism this design
+explicitly rejects — text has no geometry, no roles, no settings — and it is why
+native arc welding had nothing to attach to.
+
+Emission is now `plan → Vec<Move> → filters → render`
+([ir.rs](../gcode/ir.rs)). A [`MoveFilter`](../gcode/ir.rs) sees motion with its
+role, width, feedrate and extrusion intact, and may merge, split, replace or
+drop moves before a character is produced.
+
+**Only motion is modelled.** Fan, temperature, markers and comments travel as
+`Move::Raw` — already-rendered text, emitted verbatim. That boundary is
+deliberate rather than unfinished: a filter that welds arcs or reroutes travel
+cares about motion and needs the rest only to stay in order, and rendering
+`Raw` verbatim is what makes the split provably output-neutral.
 
 ### `SliceContext`: where inter-stage state lives
 
@@ -200,5 +219,6 @@ clear, is in [PLUGINS.md](../PLUGINS.md).
 - [core/stages.rs](../core/stages.rs) — the core pipeline as a stage list
 - [core/pipeline.rs](../core/pipeline.rs) — the entry points that build a run
 - [builtin/debug_capture.rs](builtin/debug_capture.rs) — the first plugin, and what it replaced
+- [gcode/ir.rs](../gcode/ir.rs) — the move IR and the filter hook
 - [settings/params.rs](../settings/params.rs) — `SlicingParams::plugins`, `cache_fingerprint`
 - [ui/src/app/schema-form/](../../ui/src/app/schema-form/) — the schema-driven form the settings hook feeds

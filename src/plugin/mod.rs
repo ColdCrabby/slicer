@@ -23,11 +23,12 @@
 //! | --- | --- | --- |
 //! | Stage | [`Plugin::stages`] | work inserted into, or wrapped around, a pipeline step |
 //! | Settings | [`Plugin::settings_schema`] | the plugin's own settings, and their whole UI |
+//! | Move filter | [`Plugin::move_filter`] | rewriting the G-code program before it is rendered |
 //!
-//! The registry and move-filter families named in the design arrive with the
-//! milestones that give them something to attach to (a strategy registry; a
-//! G-code move IR). Both are new **defaulted** trait methods when they land,
-//! so no plugin written against this version has to change.
+//! The registry family named in the design arrives with the milestone that
+//! gives it something to attach to (a strategy registry). It is a new
+//! **defaulted** trait method when it lands, so no plugin written against this
+//! version has to change — the same way the move filter arrived here.
 //!
 //! ## Trust
 //!
@@ -71,6 +72,20 @@ pub trait Plugin: Send + Sync {
     /// renamed stage says so instead of quietly running at the wrong point.
     fn stages(&self) -> Vec<StageRegistration> {
         Vec::new()
+    }
+
+    /// A filter that rewrites the G-code program before it is rendered.
+    ///
+    /// The emitter plans the whole program as [`Move`]s and hands it to every
+    /// filter in turn, so a plugin sees motion with its role, width, feedrate
+    /// and extrusion still attached — rather than finished text, which is what
+    /// post-processing would offer and why post-processing was rejected.
+    ///
+    /// `None` (the default) means the plugin does not touch the program.
+    ///
+    /// [`Move`]: crate::gcode::Move
+    fn move_filter(&self) -> Option<Box<dyn crate::gcode::MoveFilter>> {
+        None
     }
 
     /// A JSON Schema fragment describing this plugin's settings.
@@ -120,6 +135,19 @@ pub fn install(
             }
         }
     }
+}
+
+/// Collect the move filters `plugins` contribute, in plugin order.
+///
+/// Order is the load-bearing part: filters compose, and two that both rewrite
+/// motion see each other's output. Plugin order is the one order the caller
+/// controls, so it is the one used rather than anything derived.
+pub fn move_filters(plugins: &[Box<dyn Plugin>]) -> Vec<Box<dyn crate::gcode::MoveFilter>> {
+    plugins
+        .iter()
+        .filter(|p| p.manifest().api_version == PLUGIN_API_VERSION)
+        .filter_map(|p| p.move_filter())
+        .collect()
 }
 
 #[cfg(test)]
