@@ -75,6 +75,7 @@ that touch nothing are wasted plastic and a worse surface.
 | **Objects** | Print order, G-code run between objects |
 | **Thumbnail** | The preview image embedded in the G-code file |
 | **Mesh** | How the incoming model is interpreted |
+| **Experiments** | Optional extras, off by default — see below |
 
 Options that only apply in certain configurations hide themselves. Choosing the
 classic wall generator, for example, reveals options the Arachne generator
@@ -181,6 +182,23 @@ protect chunkier detail, lower it for a more literal correction.
 than the rest. The extra material absorbs what mesh bed levelling only
 approximates, which is why almost every profile sets it. It has no effect when
 you print on a raft, since the raft takes over contact with the bed.
+
+## Experiments
+
+The **Experiments** group holds optional extras that ship with the slicer but
+stay switched off. Each one has a single toggle; its own settings only appear
+once you turn it on, so the group stays short until you go looking.
+
+They are off by default because they are newer than the rest of the panel and
+may change between releases. Nothing in this group affects a print until you
+enable it — with everything switched off, the G-code is exactly what it would
+have been.
+
+**Hello world** is the one that ships today, and it exists to be turned on
+once. It writes a greeting as a comment at the top of the G-code and reports
+what it saw while slicing, which is a quick way to confirm the machinery is
+working before you trust it with anything real. It changes nothing about how
+the part prints.
 
 ## Where your settings are saved
 
