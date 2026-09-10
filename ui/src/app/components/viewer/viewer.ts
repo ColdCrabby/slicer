@@ -1521,7 +1521,10 @@ export class Viewer {
     // always depicts the model — even when the viewer is currently showing the
     // G-code preview (whose toolpaths would otherwise be captured and skew the
     // framing). These are throwaway meshes, never added to the live scene.
-    const subjects = this.buildThumbnailSubjects(thumbColor, request.sceneEffects);
+    // The scene look is a client preference, not part of the request: the
+    // engine has no imaging, so nothing about this render comes from it.
+    const sceneEffects = this.viewerControl.thumbnailSceneEffects();
+    const subjects = this.buildThumbnailSubjects(thumbColor, sceneEffects);
 
     let dataUrl: string | null = null;
     try {
@@ -1533,7 +1536,7 @@ export class Viewer {
         liveIsDark,
         background: isTransparent ? null : thumbIsDark ? THUMBNAIL_BG_DARK : THUMBNAIL_BG_LIGHT,
         subjects: subjects.length > 0 ? subjects : undefined,
-        sceneEffects: request.sceneEffects,
+        sceneEffects,
       });
     } finally {
       for (const mesh of subjects) {

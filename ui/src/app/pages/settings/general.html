@@ -422,6 +422,36 @@
 
     <div class="settings-field">
       <span class="settings-field-label">
+        <span class="settings-field-title">Gloss</span>
+        <span class="settings-field-desc">
+          Adds a specular highlight to models and the G-code preview for a glossy, "wet filament"
+          sheen. Turn off for a flat matte look.
+        </span>
+      </span>
+      <div class="segmented" role="group" aria-label="Gloss">
+        <button
+          type="button"
+          class="segmented-btn"
+          [class.is-active]="glossEnabled()"
+          [attr.aria-pressed]="glossEnabled()"
+          (click)="setGlossEnabled(true)"
+        >
+          On
+        </button>
+        <button
+          type="button"
+          class="segmented-btn"
+          [class.is-active]="!glossEnabled()"
+          [attr.aria-pressed]="!glossEnabled()"
+          (click)="setGlossEnabled(false)"
+        >
+          Off
+        </button>
+      </div>
+    </div>
+
+    <div class="settings-field">
+      <span class="settings-field-label">
         <span class="settings-field-title">Screenshot animation</span>
         <span class="settings-field-desc">
           Flash the view and fly the captured preview off to the top each time a slice embeds its
@@ -453,30 +483,32 @@
 
     <div class="settings-field">
       <span class="settings-field-label">
-        <span class="settings-field-title">Gloss</span>
+        <span class="settings-field-title">Thumbnail look</span>
         <span class="settings-field-desc">
-          Adds a specular highlight to models and the G-code preview for a glossy, "wet filament"
-          sheen. Turn off for a flat matte look.
+          The preview embedded in sliced G-code is shot here, in the 3D view. Plain renders it
+          flatly, so the same plate previews identically on every machine; match this view borrows
+          the shading, gloss and contact shadow above. Its angle, background and colour are print
+          settings, under Process → Thumbnail.
         </span>
       </span>
-      <div class="segmented" role="group" aria-label="Gloss">
+      <div class="segmented" role="group" aria-label="Thumbnail look">
         <button
           type="button"
           class="segmented-btn"
-          [class.is-active]="glossEnabled()"
-          [attr.aria-pressed]="glossEnabled()"
-          (click)="setGlossEnabled(true)"
+          [class.is-active]="!thumbnailSceneEffects()"
+          [attr.aria-pressed]="!thumbnailSceneEffects()"
+          (click)="setThumbnailSceneEffects(false)"
         >
-          On
+          Plain
         </button>
         <button
           type="button"
           class="segmented-btn"
-          [class.is-active]="!glossEnabled()"
-          [attr.aria-pressed]="!glossEnabled()"
-          (click)="setGlossEnabled(false)"
+          [class.is-active]="thumbnailSceneEffects()"
+          [attr.aria-pressed]="thumbnailSceneEffects()"
+          (click)="setThumbnailSceneEffects(true)"
         >
-          Off
+          Match this view
         </button>
       </div>
     </div>

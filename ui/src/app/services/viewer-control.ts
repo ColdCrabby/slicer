@@ -110,12 +110,6 @@ export interface SliceThumbnailRequest {
   colorMode: ThumbnailColorMode;
   /** `#rrggbb` used when `colorMode === 'custom'`. */
   customColor: string;
-  /**
-   * Render the model with the live 3D view's own treatment — its shading,
-   * gloss and contact shadow — instead of the plain studio look. The angle,
-   * theme and colour are unaffected either way.
-   */
-  sceneEffects: boolean;
 }
 
 /** Default perspective field-of-view in degrees. */
@@ -165,6 +159,7 @@ const SHADOWS_ENABLED_KEY = 'nexus.viewer.shadowsEnabled';
 const MODEL_SHADING_KEY = 'nexus.viewer.modelShading';
 const GLOSS_ENABLED_KEY = 'nexus.viewer.glossEnabled';
 const THUMBNAIL_CAPTURE_FX_KEY = 'nexus.viewer.thumbnailCaptureFx';
+const THUMBNAIL_SCENE_EFFECTS_KEY = 'nexus.viewer.thumbnailSceneEffects';
 
 /**
  * Shared state between the 3D-view toolbar and the viewer component.
@@ -275,6 +270,18 @@ export class ViewerControl {
    * Persisted.
    */
   readonly thumbnailCaptureFx = signal(this.readThumbnailCaptureFx());
+
+  /**
+   * Whether the slice thumbnail is rendered with this viewport's own look —
+   * its shading, gloss and contact shadow — instead of the plain studio render.
+   *
+   * A companion to `modelShading` / `glossEnabled` / `shadowsEnabled` rather
+   * than a print setting: the engine has no imaging at all, so every input to
+   * this render is client-side, and the answer is per-machine by nature. Off by
+   * default, so one plate previews the same way wherever it is sliced.
+   * Persisted.
+   */
+  readonly thumbnailSceneEffects = signal(this.readThumbnailSceneEffects());
 
   /**
    * Currently selected object-manipulation mode. Drives the gizmo shown
@@ -467,6 +474,12 @@ export class ViewerControl {
     this.storage.write(THUMBNAIL_CAPTURE_FX_KEY, String(value));
   }
 
+  /** Update the thumbnail scene-look preference and persist it. */
+  setThumbnailSceneEffects(value: boolean): void {
+    this.thumbnailSceneEffects.set(value);
+    this.storage.write(THUMBNAIL_SCENE_EFFECTS_KEY, String(value));
+  }
+
   private readTwoFingerGesture(): TwoFingerGesture {
     return this.storage.get(TWO_FINGER_GESTURE_KEY)() === 'pan' ? 'pan' : 'orbit';
   }
@@ -531,6 +544,10 @@ export class ViewerControl {
 
   private readThumbnailCaptureFx(): boolean {
     return this.storage.get(THUMBNAIL_CAPTURE_FX_KEY)() !== 'false';
+  }
+
+  private readThumbnailSceneEffects(): boolean {
+    return this.storage.get(THUMBNAIL_SCENE_EFFECTS_KEY)() === 'true';
   }
 
   /**
