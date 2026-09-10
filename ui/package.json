@@ -52,7 +52,7 @@
     "@angular/compiler-cli": "^22.1.5",
     "@hey-api/openapi-ts": "^0.99.0",
     "jsdom": "^30.0.1",
-    "json-schema-to-typescript": "^15.0.4",
+    "json-schema-to-typescript": "^16.0.0",
     "prettier": "^3.9.6",
     "typescript": "^6.0.0",
     "vitest": "^4.1.11",
