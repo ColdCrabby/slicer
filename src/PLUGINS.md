@@ -1,12 +1,8 @@
-# Plugin support — design proposal
+# Plugin support
 
-> **Status: all four milestones have shipped.**
-> The hook interface, the reified stage list, `SliceContext`, namespaced plugin
-> settings, the non-planar layer model, the G-code move IR and the sandboxed
-> external tier all exist — see [plugin/README.md](plugin/README.md) for the
-> code. Two things named below are deliberately still open: the **registry**
-> hook family, which has no strategy registry to attach to yet, and **which
-> feature becomes the first shipped experiment**.
+This is the design behind [`plugin/`](plugin/README.md) and why it has the
+shape it does. It is built; two things named below are deliberately not, and
+say so where they come up.
 
 The slicer should let people add behaviour — arc welding, wavy overhangs,
 whatever someone needs — without forking the pipeline. This document argues for
@@ -73,13 +69,13 @@ that already exists — the experiments toggle needs no new UI concept whatsoeve
 
 ---
 
-## What blocked it — and what M1 cleared
+## What had to change first
 
-Four findings, in increasing order of how much work they imply. The first and
-the fourth are done; the middle two are still open, and are what M2 and M3
-exist for.
+Four things stood in the way, and all four were dealt with before the hooks
+were worth having. They are worth reading because each one explains a decision
+that would otherwise look arbitrary.
 
-### The pipeline was a function, not a list — *fixed in M1*
+### The pipeline was a function, not a list
 
 `process_mesh` ran roughly 440 lines of straight-line code. It timed **11
 phases** — but 4 of them (`"Overhang Perimeter Classification"`,
@@ -113,7 +109,7 @@ unordered G-code with no skirt. It is now the production pipeline plus one
 plugin ([plugin/builtin/debug_capture.rs](plugin/builtin/debug_capture.rs)),
 and a test pins the two to the same layers.
 
-### `SliceLayer` could not express non-planar intent — *fixed in M2*
+### `SliceLayer` could not express non-planar intent
 
 [core/types.rs](core/types.rs) gave every layer a single `z`. It carried
 per-vertex *width* (`path_vertex_widths`) but no per-vertex *Z*.
@@ -142,8 +138,8 @@ plugins annotating the same path cannot clobber each other.
 Both use the established empty-vector sentinel, so a flat print allocates
 neither and emits not one Z-bearing extrusion move.
 
-**Adding parallel arrays is the risk here, and M2 paid it down rather than
-adding to it.** Every per-path array used to be rebuilt by hand at each site
+**Adding parallel arrays is the risk here, and it was paid down rather than
+added to.** Every per-path array used to be rebuilt by hand at each site
 that reorders, filters or prepends paths — and the ordering pass was already
 silently dropping `path_objects`, harmless only because nothing tags objects
 before it runs. `SliceLayer::rebuild_paths` now replaces the paths and *every*
@@ -153,11 +149,10 @@ so forgetting one is no longer possible.
 
 **Spiral (vase) mode was deliberately left alone.** It keeps its bespoke
 Z-ramping in the emitter, which is coupled to its own flow fade-in and
-fade-out. Rebuilding it on `path_vertex_z` would be a behaviour change to
-working output for no user-visible gain, so it is a candidate for later rather
-than part of this milestone.
+fade-out. Rebuilding it on `path_vertex_z` would change working output for no
+user-visible gain.
 
-### There was no G-code move IR — *fixed in M3*
+### There was no G-code move IR
 
 `generate_with_stats` ([gcode/generator.rs](gcode/generator.rs)) appended
 directly to a `String`, so the program never existed as *moves*. **Arc welding
@@ -184,12 +179,12 @@ choice the emitter already makes correctly, for no gain, and rendering `Raw`
 verbatim is what makes the split **provably** output-neutral — the bytes for
 everything unmodelled cannot drift, because they are the same bytes.
 
-The related cost is only partly paid. [gcode_viewer/parser.rs](gcode_viewer/parser.rs)
+One related cost is only partly paid. [gcode_viewer/parser.rs](gcode_viewer/parser.rs)
 and the time estimator still parse our own emitted text back into moves. The IR
-is now the representation they *could* share, and doing so is a follow-on this
-milestone makes possible rather than something it does.
+is the representation they *could* share instead; moving them over is possible
+now but not done.
 
-### `SlicingParams` was closed, and the cache would have lied — *fixed in M1*
+### `SlicingParams` was closed, and the cache would have lied
 
 [settings/params.rs](settings/params.rs) is ~105 flat fields with
 `#[serde(default)]` and no `deny_unknown_fields` anywhere in the crate — so
@@ -249,7 +244,7 @@ designed once rather than renegotiated per transport.
 | --- | --- | --- | --- |
 | **Stage** | `fn stages(&self) -> Vec<StageRegistration>` | fuzzy skin, ironing, wavy overhangs, supports | shipped |
 | **Settings** | `fn settings_schema(&self) -> Option<Value>` | every plugin — yields its UI automatically | shipped |
-| **Registry** | `fn register(&self, r: &mut Registry)` | new infill patterns, wall generators, G-code dialects | with its milestone |
+| **Registry** | `fn register(&self, r: &mut Registry)` | new infill patterns, wall generators, G-code dialects | not built |
 | **Move filter** | `fn move_filter(&self) -> Option<Box<dyn MoveFilter>>` | arc welding, travel optimisation | shipped |
 
 A stage registration says *where* it goes by naming an existing stage: insert
@@ -318,8 +313,12 @@ that already exists. Experiments are statically linked, so they work on WASM and
 iOS too — a free consequence of the Tier-1 choice rather than a goal.
 
 Settings are namespaced per plugin rather than flattened into one bag,
-deliberately: no collisions with the 105 core keys, obvious ownership, and a
+deliberately: no collisions with the core keys, obvious ownership, and a
 fingerprint that is trivial to compute.
+
+[`HelloWorld`](plugin/builtin/hello_world.rs) is the shortest complete example
+— a manifest, a settings fragment, a stage and a move filter, in one readable
+file. Copy it, replace the two bodies, and you have a plugin.
 
 ---
 
@@ -357,8 +356,8 @@ language: the guarantee needs to hold even when the plugin is actively hostile,
 not just when it is well-behaved.
 
 **But the guarantee is only as good as the runtime, and that is not a
-footnote.** Shipping M4 immediately proved the point: the first `wasmtime`
-version picked for it carried two *critical* advisories
+footnote.** Building the external tier proved the point immediately: the first
+`wasmtime` version picked for it carried two *critical* advisories
 ([GHSA-jhxm-h53p-jm7w](https://github.com/advisories/GHSA-jhxm-h53p-jm7w),
 [GHSA-xx5w-cvp6-jv83](https://github.com/advisories/GHSA-xx5w-cvp6-jv83)) —
 both **sandbox escapes on aarch64**, the architecture most of this project is
@@ -387,7 +386,7 @@ have bugs. Three things follow, and they are requirements rather than advice:
 
 ### The promotion path is where the guarantee disappears
 
-The scenario worth writing down now, before M4 exists: a Tier 2 plugin proves
+The scenario worth writing down before it comes up: a Tier 2 plugin proves
 useful, gets popular, and someone proposes baking it into the engine as a Tier
 1 experiment — shipped by default, compiled in, no longer sandboxed. That
 proposal is exactly the moment the code's trust level jumps from "contained
@@ -401,8 +400,8 @@ quality, intent, or memory-safety of the code once that bound is removed.
 Popularity and utility validate the feature; they do not substitute for the
 review a Tier 1 PR would otherwise get.
 
-Before M4 ships loadable Tier 2 plugins, promotion needs its own explicit gate
-— not "it worked fine and people like it" — covering at least:
+Promotion needs its own explicit gate — not "it worked fine and people like
+it" — covering at least:
 
 - **The same review bar as a first-party core PR**: full source read, `clippy
   -D warnings`, `fmt`, and particular scrutiny of any `unsafe` block, since
@@ -422,36 +421,37 @@ Before M4 ships loadable Tier 2 plugins, promotion needs its own explicit gate
   byte-identical-output-when-disabled requirement that already governs
   experiments.
 
-This is called out here, ahead of M4, specifically so it doesn't get decided
+This is written down in advance specifically so it doesn't get decided
 implicitly under release pressure the first time a community plugin is good
 enough that "just compile it in" feels like the obvious next step.
 
 ---
 
-## Staging
+## What is deliberately not built
 
-Each milestone is independently shippable, and the risk climbs steeply at the
-end.
+Two things named above do not exist, and neither is an oversight.
 
-| Milestone | Delivers | Unblocks | Status |
-| --- | --- | --- | --- |
-| **M1** Foundation | `SliceContext`, stage list, `Plugin` trait, namespaced settings, experiments UI | fuzzy skin, ironing | **shipped** |
-| **M2** Layer model | per-vertex Z, per-path plugin data | wavy overhangs | **shipped** |
-| **M3** Move IR | plan → `Vec<Move>` → filters → render | native arc welding | **shipped** |
-| **M4** External | desktop-only WASM host, coarse projection | third-party plugins | **shipped** |
+**The registry hook family.** New infill patterns, wall generators and G-code
+dialects would attach to a strategy registry, and there isn't one — the
+existing strategies are matched on an enum. Adding the hook before the registry
+would mean inventing a type that cannot describe the feature, which is the dead
+end this design is written to avoid. It arrives as a defaulted trait method, so
+nothing written today has to change when it does.
 
-M1 also **deleted the duplicated debug pipeline** by turning snapshot capture
-into an ordinary set of stages — see the first blocker above for what that copy
-had already drifted into. M3 makes it *possible* for the time estimator and the
-G-code viewer to share one representation instead of round-tripping through
-text; both still parse, and moving them over is a follow-on.
+**A first *real* experiment.** `builtin_plugins()` carries
+[`HelloWorld`](plugin/builtin/hello_world.rs) and nothing else — a worked
+example that greets the G-code and counts layers, there so the hooks are
+exercised by something a person can switch on rather than only by tests. Which
+real feature goes first is still open. Fuzzy skin and ironing both shipped their
+settings as ordinary core keys, so moving them now would churn the schema, saved
+profiles and docs for features that already work.
 
-The non-negotiable constraint across all of them: with no plugin active, output
-must be **byte-identical**. The QA baselines are the gate, and refactors land
-separately from the hooks they enable. M1 held it — the baselines did not move,
-and [tests/plugin_hooks.rs](../tests/plugin_hooks.rs) additionally pins that
-*occupying* a hook point changes nothing by itself, which is the property that
-keeps the baselines meaningful once experiments start shipping.
+One rule held throughout and still holds: **with no plugin active, output is
+byte-identical.** The QA baselines are the gate, and
+[tests/plugin_hooks.rs](../tests/plugin_hooks.rs) additionally pins that
+*occupying* a hook point changes nothing by itself — without which every future
+experiment becomes a silent output change and the baselines stop meaning
+anything.
 
 ---
 
@@ -508,35 +508,22 @@ changed **no hook signature**.
 
 ## Open questions
 
-- ~~**How far does the first push go** — M1 alone, or through M2/M3?~~
-  Answered: M1 alone. M3 means splitting the emitter core, which is the single
-  riskiest change proposed here, and M1 carried enough QA-baseline risk of its
-  own to be worth landing by itself.
-- **Which feature is the first experiment?** Still open, and now the thing
-  gating the **Experiments** settings group from appearing at all —
-  `builtin_plugins()` is empty, so a shipped build renders no plugin settings.
-  Fuzzy skin and ironing both landed as core features while M1 was in flight,
-  which makes them migrations rather than first experiments; a new infill
-  pattern would exercise the registry family instead, once it exists.
-- **Do existing features migrate to plugins** to dogfood the API, or do plugins
-  stay purely additive? Deliberately left open by M1: fuzzy skin shipped its
-  settings as core keys days before, and moving them would churn the schema,
-  saved profiles and docs for a feature that had just landed. The API is
-  dogfooded by the debug-capture plugin instead, which exercises the stage
-  family's insert *and* wrap forms against real geometry.
-- ~~**Tier 2 runtime:** `wasmtime` with the Component Model, or the lighter
-  `extism`?~~ Answered: **`wasmtime`**, behind an off-by-default
-  `external-plugins` Cargo feature. It costs ~105 transitive crates and about
-  27 s of cold build, which is fine for someone who wants the tier and wrong to
-  charge everyone else for a tier that ships no plugins of its own. The
-  Component Model and a WIT interface are the intended evolution; the shipped
-  ABI is a plain core-wasm entry point, which is enough for the one hook family
-  Tier 2 gets and far less machinery to review.
-- **The Tier 2 → Tier 1 promotion checklist is not yet written.** The
+- **Which feature is the first real experiment?** `builtin_plugins()` carries
+  only the hello-world demo. Fuzzy skin and ironing both shipped their settings
+  as ordinary core keys, so they would be migrations rather than first
+  experiments; a new infill pattern would exercise the registry family instead,
+  once that exists.
+- **Do existing features migrate to plugins**, or do plugins stay purely
+  additive? Migrating one churns the schema, saved profiles and docs for
+  something that already works, so it needs a better reason than tidiness.
+- **The Tier 2 → Tier 1 promotion checklist is not written as a gate.** The
   [Security model](#security-model-two-trust-tiers-and-the-seam-between-them)
-  section lists what it must cover; it needs to exist as an actual reviewable
-  gate (a PR template section, or a CONTRIBUTING.md checklist) before the first
-  promotion happens, not be improvised in the moment.
+  section lists what it must cover; it needs to exist as something reviewable —
+  a PR template section, or a `CONTRIBUTING.md` checklist — before the first
+  promotion happens, rather than being improvised in the moment.
+- **The move IR could serve the time estimator and the G-code viewer**, both of
+  which still parse our own emitted text back into moves. Nothing blocks it;
+  nobody has done it.
 
 ---
 

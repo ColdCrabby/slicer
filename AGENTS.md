@@ -1265,9 +1265,7 @@ rationale.
 [src/core/stages.rs](src/core/stages.rs) is the pipeline it hooks into.
 `process_mesh` no longer runs the sequence as straight-line code: it builds a
 `StageRegistry` of 17 named stages, folds in any plugins, and runs it. The
-design, its milestones and its security model are in
-[src/PLUGINS.md](src/PLUGINS.md) — **M1 has shipped; M2 (layer model), M3 (move
-IR) and M4 (external WASM tier) have not.**
+design and its security model are in [src/PLUGINS.md](src/PLUGINS.md).
 
 - **A step added to `pipeline.rs` instead of `stages.rs` is a step no plugin can
   reach.** That is the whole point of the split, and the easiest way to undo it.
@@ -1324,6 +1322,14 @@ IR) and M4 (external WASM tier) have not.**
   adhesion, so `--debug-geometry` wrote unordered G-code with no skirt. Do not
   re-introduce a parallel sequence to capture something; insert a stage, or
   wrap one.
+- **[`hello_world.rs`](src/plugin/builtin/hello_world.rs) is the worked
+  example** and the one plugin `builtin_plugins()` ships. It exercises all three
+  hook families in one readable file and is off by default. Point people at it
+  rather than describing the shape; keep it minimal, and keep it working.
+- **Every hook checks `plugin_enabled` itself.** Stages always run — the
+  registry has no notion of a disabled plugin — so a plugin that skips the check
+  changes output while switched off, which breaks the one invariant the QA
+  baselines rest on.
 - **A layer is not necessarily flat.** `SliceLayer::path_vertex_z` carries one
   Z **offset** per vertex, relative to the layer's own `z` — offsets, because
   `z` moves under a raft or a thicker first layer and an offset survives both.
@@ -1363,15 +1369,15 @@ IR) and M4 (external WASM tier) have not.**
   `MoveProgram`, not a `String`; `out.raw_str(...)` is the escape hatch for
   non-motion text. Emitting motion as `Raw` would hide it from every filter.
 - **The time estimator and the G-code viewer still parse text.** The IR is the
-  representation they could share instead; moving them over is a follow-on M3
-  made possible, not something it did.
+  representation they could share instead; nothing blocks it, nobody has done
+  it.
 - **Tier 1 is not sandboxed.** A compile-time plugin has the same trust level as
   the engine, in every build including WASM and iOS. Isolation is what the
   external tier is for; see the security model in
   [src/PLUGINS.md](src/PLUGINS.md), particularly the promotion gate a Tier 2
   plugin has to clear before it can be baked in.
 - **The wasmtime version floor is load-bearing — never loosen it.** The first
-  version M4 shipped against carried two *critical* advisories, both sandbox
+  version the host first shipped against carried two *critical* advisories, both sandbox
   escapes on aarch64 (the architecture we develop on), one of them in the
   Cranelift backend the host uses. `Cargo.toml` therefore pins a minimum past
   them rather than a bare major. A sandbox is only as good as the runtime

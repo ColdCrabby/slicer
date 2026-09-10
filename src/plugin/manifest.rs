@@ -4,8 +4,8 @@
 ///
 /// Bumped whenever an existing hook's *signature* or *contract* changes in a
 /// way a plugin could observe. Adding a new defaulted hook does not bump it —
-/// existing plugins keep compiling and keep behaving identically, which is the
-/// property that lets the trait grow one milestone at a time.
+/// existing plugins keep compiling and keep behaving identically, which is
+/// what lets the trait grow a hook family at a time.
 pub const PLUGIN_API_VERSION: u32 = 1;
 
 /// How settled a plugin is, and therefore how it is presented to the user.

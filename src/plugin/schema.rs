@@ -40,36 +40,25 @@ pub fn inject_plugin_settings(schema: &mut Value, plugins: &[Box<dyn Plugin>]) {
     if plugins.is_empty() {
         return;
     }
-    let Some(properties) = params_properties_mut(schema) else {
-        return;
+    let render = || -> Map<String, Value> {
+        plugins
+            .iter()
+            .map(|plugin| {
+                let manifest = plugin.manifest();
+                (
+                    manifest.id.to_string(),
+                    namespace_schema(
+                        manifest.name,
+                        manifest.description,
+                        manifest.stability,
+                        manifest.id,
+                        plugin.settings_schema(),
+                    ),
+                )
+            })
+            .collect()
     };
-    let Some(bag) = properties
-        .get_mut("plugins")
-        .and_then(Value::as_object_mut)
-        .map(|plugins_schema| {
-            plugins_schema
-                .entry("properties")
-                .or_insert_with(|| Value::Object(Map::new()))
-        })
-        .and_then(Value::as_object_mut)
-    else {
-        return;
-    };
-
-    for plugin in plugins {
-        let manifest = plugin.manifest();
-        let fragment = plugin.settings_schema();
-        bag.insert(
-            manifest.id.to_string(),
-            namespace_schema(
-                manifest.name,
-                manifest.description,
-                manifest.stability,
-                manifest.id,
-                fragment,
-            ),
-        );
-    }
+    inject_everywhere(schema, &render);
 }
 
 /// Build one plugin's namespace object: the reserved toggle plus its own
@@ -133,25 +122,45 @@ fn namespace_schema(
     })
 }
 
-/// Find the `properties` map of the `SlicingParams` object inside `schema`.
+/// Inject `render` into every `plugins` bag anywhere in `schema`.
 ///
-/// The generated document is sometimes the object itself and sometimes a
-/// wrapper with a single `$ref` into `$defs` — the same two shapes the UI's
-/// own schema parser copes with.
-fn params_properties_mut(schema: &mut Value) -> Option<&mut Map<String, Value>> {
-    if schema.get("properties").is_some() {
-        return schema.get_mut("properties")?.as_object_mut();
+/// The generated documents nest `SlicingParams` in several shapes — sometimes
+/// as the root object, sometimes behind a `$ref` into `$defs`, sometimes as
+/// one field of a wrapper that has `properties` of its own, and sometimes as
+/// the `params` bag of a profile. Looking only at the first `properties` found
+/// is what made this silently do nothing for the very schema the settings UI
+/// reads: the wrapper's own `properties` was found first, had no `plugins` key,
+/// and the fragment went nowhere.
+///
+/// So the whole document is walked and every `plugins` object is filled in.
+/// There is exactly one meaning of that key, so there is no ambiguity to
+/// resolve — and a schema that embeds `SlicingParams` twice gets both.
+fn inject_everywhere(schema: &mut Value, render: &dyn Fn() -> Map<String, Value>) {
+    match schema {
+        Value::Object(map) => {
+            if let Some(Value::Object(properties)) = map.get_mut("properties") {
+                if let Some(Value::Object(bag)) = properties.get_mut("plugins") {
+                    let entry = bag
+                        .entry("properties")
+                        .or_insert_with(|| Value::Object(Map::new()));
+                    if let Value::Object(target) = entry {
+                        for (id, fragment) in render() {
+                            target.insert(id, fragment);
+                        }
+                    }
+                }
+            }
+            for (_, child) in map.iter_mut() {
+                inject_everywhere(child, render);
+            }
+        }
+        Value::Array(items) => {
+            for item in items {
+                inject_everywhere(item, render);
+            }
+        }
+        _ => {}
     }
-    let target = schema
-        .get("$ref")
-        .and_then(Value::as_str)?
-        .strip_prefix("#/$defs/")?
-        .to_string();
-    schema
-        .get_mut("$defs")?
-        .get_mut(&target)?
-        .get_mut("properties")?
-        .as_object_mut()
 }
 
 #[cfg(test)]
@@ -248,5 +257,55 @@ mod tests {
                 .is_object(),
             "the fragment must land inside the $defs entry, not beside the $ref"
         );
+    }
+
+    #[test]
+    fn a_wrapper_with_properties_of_its_own_does_not_hide_the_bag() {
+        // The shape the settings UI actually reads: a root object whose own
+        // `properties` holds a single `params` field, with SlicingParams over
+        // in `$defs`. Stopping at the first `properties` found means the
+        // fragment goes nowhere — silently, because there is nothing to error
+        // about.
+        let mut schema = json!({
+            "type": "object",
+            "properties": { "params": { "$ref": "#/$defs/SlicingParams" } },
+            "$defs": {
+                "SlicingParams": {
+                    "type": "object",
+                    "properties": {
+                        "layer_height": { "type": "number" },
+                        "plugins": { "type": "object", "properties": {} }
+                    }
+                }
+            }
+        });
+        let plugins: Vec<Box<dyn Plugin>> = vec![Box::new(Demo)];
+        inject_plugin_settings(&mut schema, &plugins);
+        assert!(
+            schema["$defs"]["SlicingParams"]["properties"]["plugins"]["properties"]["demo"]
+                .is_object(),
+            "the fragment must reach the bag however deeply it is nested"
+        );
+    }
+
+    #[test]
+    fn every_embedded_copy_gets_the_fragment() {
+        // Several generated documents embed SlicingParams more than once — the
+        // profile bags alongside the settings schema. All of them should offer
+        // the same plugin settings.
+        let mut schema = json!({
+            "$defs": {
+                "A": { "properties": { "plugins": { "type": "object" } } },
+                "B": { "properties": { "plugins": { "type": "object" } } }
+            }
+        });
+        let plugins: Vec<Box<dyn Plugin>> = vec![Box::new(Demo)];
+        inject_plugin_settings(&mut schema, &plugins);
+        for def in ["A", "B"] {
+            assert!(
+                schema["$defs"][def]["properties"]["plugins"]["properties"]["demo"].is_object(),
+                "{def} missed the fragment"
+            );
+        }
     }
 }
