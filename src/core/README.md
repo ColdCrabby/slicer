@@ -490,145 +490,60 @@ in another tab.
 ## Support structure generation
 
 [`supports.rs`](supports.rs) runs **after infill and before path ordering**. It
-reads only `OuterWall` paths (via `perimeter_paths_of`) to derive each layer's
-model footprint, so it never disturbs wall, surface or infill geometry, and
-appends `ExtrusionRole::Support` **open** polylines. Running before ordering is
-what gets support strands ordered and flow-compensated with the rest of the
-layer.
+reads only `OuterWall` paths to derive each layer's model footprint, so it never
+disturbs wall, surface or infill geometry, and appends `ExtrusionRole::Support`
+open polylines. Running before ordering is what gets support strands ordered and
+flow-compensated with the rest of the layer.
 
-### Detecting an overhang
+The mechanism — overhang detection, downward projection with XY and Z clearance,
+interface layers, and the two column styles — is documented in that module's own
+doc comments. Four things are worth knowing from outside it:
 
-```
-overhang[i] = footprint[i] − inflate(footprint[i−1], max_step)
-max_step    = layer_height · tan(threshold_from_vertical) + facet_tol
-```
-
-`support_threshold_angle` is measured **from vertical** — 45° is the classic 45°
-rule, and a *smaller* angle triggers support on gentler overhangs. A facet
-tolerance plus a `SUPPORT_MIN_OVERHANG_AREA_MM2` filter reject the slicing noise
-a near-vertical faceted wall produces. Fill rule is **NonZero** throughout:
-footprints are Clipper2-normalised frames with CW holes, and `Positive` would
-erase their interiors.
-
-Two things about that input are load-bearing:
-
-- **Footprints come from a pristine snapshot, never from the live layer.**
+- **Footprints come from a pristine perimeter snapshot, never the live layer.**
   `classify_overhang_perimeters` retags an overhanging wall as
-  `OverhangPerimeter` and splits its loop, so on a steep slope there is **no
-  `OuterWall` path left** by the time supports run. A 60° cone reported 49 of 50
-  footprints empty and got no support at any threshold — while every hand-built
-  unit test passed. `process_mesh` therefore calls `snapshot_perimeters` before
-  surface generation and hands the result to `generate_supports`, exactly as
-  overhang grading already did.
+  `OverhangPerimeter` and splits its loop, so on a steep slope there is no
+  `OuterWall` path left by the time supports run. `process_mesh` takes the
+  snapshot before surface generation and hands it to `generate_supports`.
 
   **Any test for support behaviour must go through `process_mesh`**
-  ([tests/support_slice.rs](../../tests/support_slice.rs)); a unit test that
-  builds `SliceLayer`s by hand cannot see this class of bug.
-- **Per-layer contacts are welded before use.** A contact is only the *newly*
-  exposed sliver at its layer, so down a continuous slope successive contacts are
-  concentric rings separated by exactly `max_step` — 94 sub-paths ≈0.1 mm wide on
-  a 60° frustum, which the fill scanline discards. `accumulate_support_area`
-  closes the accumulation by just over half that gap, fusing them into the solid
-  annulus between the model and the widest overhang above. The close only bridges
-  *between* rings, so the supported area is unchanged — only its connectivity.
+  ([tests/support_slice.rs](../../tests/support_slice.rs)) — a test that builds
+  `SliceLayer`s by hand cannot see this class of bug, and did not.
+- **`Normal` carries the full overhang footprint down; `Tree` is a node-drop
+  simulation** whose tips migrate toward their local centroid, merge when they
+  meet, and reject any step entering the model. Tree costs markedly less
+  filament. It is a pragmatic approximation, **not** a collision-avoiding
+  branching tree with base flaring — the limitation is surfaced by
+  `unsupported_feature_warnings()`.
+- **`ExtrusionRole::forms_closed_loops` is one definition** shared by the G-code
+  generator and the path orderer. The two disagreeing about whether `Support`
+  closes silently drops the segment that closes each island back to its start.
+- **Support carries no explicit width.** An explicit width short-circuits
+  `resolve_width_mm`'s fill-role branch, which is what charges a support line the
+  volume of the strip it fills rather than a full nominal bead. The raft shares
+  the role but deliberately stamps its own coarser bead — `support_line_width`
+  must never reach it.
 
-### Getting it to the bed
-
-Each overhang is registered at its top-contact (activation) layer
-`i − 1 − support_z_gap_layers`, leaving a Z air-gap for clean removal, then
-accumulated top-down. The carried column is subtracted by
-`inflate(footprint[i], support_xy_distance_mm + ½ outer-wall width)`.
-
-**The half bead matters**: footprints are wall *centrelines*, so inflating by the
-raw distance leaves only `xy − ½d` of real air — 0.6 mm of a requested 0.8 mm at
-defaults.
-
-- **Interface layers.** The top contact under an overhang and the bottom contact
-  resting on the model, within `support_interface_layers`, are filled at the
-  denser `support_interface_density`; the body uses `support_density`.
-- **`support_on_build_plate_only`** keeps only what can descend to the bed
-  through empty space. `covered[i]` accumulates the model footprint **strictly
-  below** layer `i`, grown by `support_xy_distance_mm`, and contact pads
-  overlapping it are dropped — so the overhang above prints unsupported.
-
-  **Grow it by the same XY clearance the descent uses**, or a pad that clears the
-  model by less than that survives the test and is then eaten away layer by
-  layer, leaving a floating stub instead of a column. The mask is also subtracted
-  from both column builders, so "no support ever rests on the model" holds by
-  construction, and **tree re-checks it on every migration step** — a straight
-  column cannot wander, but a tree tip moves in XY and a plate-reachable seed
-  will otherwise drift over the print. The vector is built only when the option
-  is on.
-
-### Normal vs tree
-
-| Type | Shape | Cost |
-| --- | --- | --- |
-| `Normal` | Carries the full overhang footprint down as a grid column | Benchy ≈17 k mm |
-| `Tree` | Node-drop simulation — contact tips migrate toward their local centroid each layer, merge when they meet, and reject any step that would enter the model | Benchy ≈3.7 k mm |
-
-Wide interface caps still cover the full overhang, so trunks stay thin; edge tips
-lean inward and a wide field contracts into a few trunks (a wide flat plate costs
-≈3× less than normal).
-
-**Tree is a pragmatic approximation, not a full collision-avoiding branching tree
-with base flaring** — the honest limitation is surfaced by
-`unsupported_feature_warnings()`. Validate the converging shape with an XZ
-(front-elevation) projection of the `Support material` beads.
-
-### Widths, contours, and the raft
-
-`ExtrusionRole::Support` already emits `;TYPE:Support material`. Each island is
-drawn as a **closed contour plus open fill strands**, and carries **no** explicit
-width — an explicit width would short-circuit `resolve_width_mm`'s fill-role
-branch, which is what charges a support line the volume of the strip it fills
-(`support_line_width` → `extrusion_flow_spacing_mm`) rather than a full nominal
-bead. The contour is what keeps a thin column from degenerating into
-disconnected dashes; runs below `2 × nozzle` are dropped, the same splat rule gap
-fill uses.
-
-- **Whether a path is drawn closed is `ExtrusionRole::forms_closed_loops`, one
-  definition shared by the G-code generator and the path orderer.** The two
-  disagreeing — the generator's closed-loop list omitted `Support`, the
-  orderer's omitted nothing — silently dropped the segment that closes every
-  support island back to its start, about a fifth of all support contour length
-  on a test overhang.
-- **The raft carries support columns, and only the raft's own bead width.**
-  `printed_footprint` unions the object with the `Support` role's footprint so
-  neither the raft nor the skirt starts a column in mid-air. The raft shares the
-  role but stamps a deliberately coarser, explicit bead to match its own wider
-  line pitch — `support_line_width` is for the fill-role branch above and must
-  never reach it as a second override beneath.
-- **Spiral (vase) mode forces `support_enabled` off** in
-  `spiral_vase_normalized`. A vase is one continuous wall with retraction
-  disabled; there is no discrete layer for a column to stand on and no way to
-  travel to one.
-- **`process_mesh_debug` generates supports too**, on the same pristine snapshot,
-  recorded under `DebugStage::Support`. Skipping it left the QA gallery and
-  `--debug-geometry` showing a support-enabled model with no support in the
-  picture.
+Supports are also forced off in `spiral_vase_normalized` (a vase has no discrete
+layer to stand on), generated by `process_mesh_debug` under `DebugStage::Support`,
+and unioned into `printed_footprint` so the raft and skirt never start a column
+in mid-air.
 
 ### Supports are generated *after* bridge classification — deliberately
 
-`generate_supports` runs late, so bridge detection never learns that an overhang
-is supported. With the default `support_z_gap_layers ≥ 1` that is **correct**:
-the gap is real air, so the first model layer above support genuinely bridges and
-wants bridge speed and full cooling. Measured on a cap-on-post model, support
-stops at Z 9.70 and the cap's first layer at Z 10.10 spans a 0.4 mm void.
+Bridge detection never learns that an overhang is supported. With the default
+`support_z_gap_layers ≥ 1` that is **correct**: the gap is real air, so the first
+model layer above support genuinely bridges and wants bridge speed and cooling.
 
-At `support_z_gap_layers = 0` the support does touch the overhang, and that layer
-is still classified `Bridge`. Feeding support back into bridge *detection* is the
-only way to change that, and perturbing that pass is warned against throughout
-this document. **The asymmetry decides it**: bridge settings over supported
+At `support_z_gap_layers = 0` the support does touch, and that layer is still
+classified `Bridge`. The asymmetry decides it: bridge settings over supported
 material print a slightly worse surface, while normal settings over real air
-*fail*. So the conservative classification stands, the setting's own copy says
-so, and nothing silently depends on it.
+*fail*. So the conservative classification stands, and the setting's own copy
+says so.
 
-**If you do ever reorder it**, note that supports no longer need to run late for
-their own sake — they read a pristine perimeter snapshot taken before wall
-splitting, not the mutated layer. The only remaining reason for the current
-position is that support strands are ordered by the TSP with the rest of the
-layer.
+**If you ever reorder it**, note supports no longer need to run late for their
+own sake — they read the pristine snapshot, not the mutated layer. The only
+remaining reason is that support strands are ordered by the TSP with everything
+else.
 
 ---
 
@@ -637,238 +552,88 @@ layer.
 Everything that is not a wall is placed inside an **interior region**: the gross
 island outline deflated by the walls that will sit on it.
 [`calculate_interior_region`](infill.rs) computes it from the `OuterWall` paths,
-winding preserved, deflated inward by
+**winding preserved**, deflated inward by
 
 ```
 total_inward = (walls_per_island − 0.5) × nozzle_diameter − overlap_distance
 ```
 
 The `−0.5 × d` accounts for `OuterWall` centrelines already being inset half a
-bead from the model surface; without it the interior is over-shrunk by half a
-bead width.
+bead from the model surface.
 
 ### The estimate is an average, and Arachne breaks the assumption
 
-`walls_per_island = ceil(total_wall_bead_count / outer_contour_count)`. That is
-only a mean, and Arachne places a *variable* number of variable-width beads per
-island — even along one island. On a layer whose islands differ in bead count the
-estimate is too low and the interior under-deflated by up to a full bead, so
-solid surface, sparse infill and bottom fill land **on top of the innermost
-wall**. The classic generator, which places a fixed count, shows none of it.
+`walls_per_island` is a **mean** bead count, and Arachne places a variable number
+of variable-width beads per island — even along one island. Where a layer's
+islands differ, the interior is under-deflated and fill lands on top of the
+innermost wall. The classic generator, placing a fixed count, shows none of it.
 
-Three corrections follow from that one flaw, and each is deliberately narrow:
+Four corrections follow. Each is deliberately narrow, and **none of them reshape
+`interior_regions` itself** — bridge *detection* keys off the smooth interior, and
+reshaping it spawns phantom bridges from the jagged bead-following boundary. Only
+fill regions and the bridge *candidate* are clipped.
 
-| Correction | Applied to | Why it is safe |
+| Correction | Applied to | Stays safe because |
 | --- | --- | --- |
-| **Wall-footprint clip** | sparse infill · solid surfaces | Count- and width-agnostic, so it is a no-op wherever the estimate was already right |
-| **Opened interior** | top/bottom surfaces · bridge candidates | Erases sub-bead *channels*; a real surface sits on a thick interior and keeps its full extent |
-| **Sliver opening** | surface fill regions | A strip narrower than one bead cannot hold a bead by construction |
+| Wall-footprint clip | sparse infill · solid surfaces | Count- and width-agnostic — a no-op wherever the estimate was already right |
+| Opened interior | top/bottom surfaces · bridge candidates | Erases sub-bead *channels*; a real surface sits on a thick interior and keeps its full extent |
+| Sliver opening | surface fill regions | A strip narrower than one bead cannot hold a bead by construction |
+| Solid-region margin | sparse infill | Keyed to `solid_regions`, so an exact no-op on layers with no solid surface |
 
-**None of them reshape `interior_regions` itself.** Bridge *detection* keys off
-the smooth interior; reshaping it spawns phantom bridges from the jagged
-bead-following boundary. Only the fill regions and the bridge *candidate* are
-clipped.
+Each is implemented and fully justified beside its own constant in
+[`infill.rs`](infill.rs) and [`surfaces.rs`](surfaces.rs) — including what was
+tried first and why it failed. **Read those doc comments before changing a
+threshold**; the values are not arbitrary and the obvious generalisations have
+already been measured and rejected.
 
-### The wall-footprint clip
+Two rules that span the corrections and are easy to get wrong:
 
-[`compute_wall_bead_footprint`](surfaces.rs) inflates every wall centreline by
-its own half-width, giving the **actual** physical footprint.
+- **Use `FillRule::NonZero` for any subtraction of a wall footprint.** The
+  footprint is a frame with CW hole sub-paths; `Positive` ignores them, treats
+  the frame as solid, and erases the whole interior.
+- **A correction must be keyed to the thing it corrects**, not applied to the
+  fill area at large. The solid-region margin keys to `solid_regions`, so a thin
+  wall-to-wall cavity with no surface keeps its lattice; the region-area filter
+  is an area rule on connected regions, never a width rule, so a large-but-narrow
+  cavity survives. Both generalisations have been tried and both destroy real
+  geometry.
 
-- **Sparse infill** subtracts it grown by `infill_perimeter_gap_mm`, keeping its
-  intended clearance from the real innermost wall.
-- **Solid surfaces** subtract it eroded by `infill_overlap_percent × d`, so the
-  fill still welds that much into the innermost wall — the designed bond — and no
-  further. The un-eroded gap-fill footprint is unioned back in so surfaces
-  *abut* gap fill rather than welding to it.
+### Gap fill, surfaces and ironing
 
-Use **`FillRule::NonZero`** for these subtractions, never `Positive`: the wall
-footprint is a frame with CW hole sub-paths. `Positive` ignores CW holes, treats
-the frame as a solid block, and erases the whole interior.
-
-### Keeping tiny extrusions out of sparse infill
-
-Three filters, each keyed to a different artifact. What they have in common is
-that an isolated dab of material still costs a full retract → travel →
-un-retract to reach, which is the waste being removed.
-
-- **Grow `solid_regions` by one bead before subtracting it.** A surface is
-  printed as a rectilinear serpentine whose *stepped* extent only approximates
-  its nominal polygon, and the surface pass has already trimmed it off the wall
-  band. Subtracting the raw outline leaves a crescent sliver along every curved
-  perimeter, which the scanline shatters into sub-millimetre dashes — 31 on one
-  3DBenchy layer, ~4.8 mm³ of filament pushed back and forth to deposit
-  ~0.04 mm³. `SOLID_MARGIN_NOZZLE_MULT × nozzle` fixes it; `0.5` does not,
-  because the sliver is wider than half a bead.
-
-  **Key this to `solid_regions`, never to the infill area as a whole.** That
-  makes it an exact no-op on layers with no solid surface, so a genuinely thin
-  wall-to-wall cavity keeps its full lattice. An earlier attempt morphologically
-  *opened* the whole infill area instead and could not tell an artifact sliver
-  from a real thin cavity: it erased the filament caddy's hollow-box lattice
-  outright (wall-zone void 62 → 146 mm², 35 % of its infill gone) and the quality
-  gate caught it. A sweep found no safe threshold for that approach.
-  `test_thin_cavity_without_solid_surface_keeps_its_infill` pins the right
-  behaviour.
-- **Skip a connected region too small to hold more than one dash**
-  (`INFILL_MIN_REGION_AREA_NOZZLE_MULT × d²`, 2.0 mm² at 0.4 mm). Two properties
-  make it safe. It is an **area rule on whole connected regions, never a width
-  rule** — a cavity deserving a lattice is a *large* region that merely happens
-  to be narrow, and across the QA corpus the caddy has no infill region at all
-  between 0.01 mm² and 10 mm², an empty band two orders of magnitude wide. And
-  it filters the **generated paths, not the region**: `generate_rectilinear_infill`
-  seeds its scanline phase from the bounding box of the whole area, so deleting
-  an outlying sliver *first* shifts every infill line on the layer. Membership is
-  tested with segment **midpoints** — an infill line's endpoints lie exactly on
-  the boundary, where the integer-scaled point-in-polygon test can land either
-  side.
-- **`min_infill_extrusion_mm`** still guards the residual sub-threshold segments
-  a legitimate region's tapering corners produce.
-
-### Thin wall-band channels, and phantom surfaces
-
-Wherever a cross-section is *locally* thinner than the per-island average, the
-interior estimate leaves a sliver channel (≤ ~1 mm): Benchy hull-side wall tips,
-funnel-to-roof transitions, the cabin roof ridge, embossed calibration-cube
-logos. Arachne already fills those solid with wall and gap-fill beads — but where
-the geometry above or below recedes, the channel is detected as an "exposed"
-surface and filled with a zig-zag of sub-millimetre segments. `classic`, whose
-uniform offsets consume the same cross-sections, emits nothing there.
-
-`open_interior_for_surface` erodes then dilates the interior by
-`SURFACE_MIN_INTERIOR_WIDTH_NOZZLE_MULT × nozzle / 2`, erasing channels under
-1.0 mm at a 0.4 mm nozzle. A surface landing entirely inside a thin channel
-disappears; a genuine surface keeps its full extent, with only its corners
-rounded.
-
-- **The discriminator is the *interior*, not the strip.** A real fore-deck top
-  surface is an equally thin band. What separates it from an artifact is that it
-  sits on a *thick* interior. Filtering the strip by its own width wrongly
-  deletes legitimate thin surfaces — do not do that.
-- **Dropped strips stay solid** via the beads already filling them, and — no
-  longer being a `solid_region` — their gap-fill beads survive
-  `prune_redundant_gap_fill`. Expect a small **gap fill ↑ / surfaces ↓** shift in
-  the QA baselines.
-- **The absolute base cap (`i < bottom_layers`) is exempt** for bottom surfaces:
-  that is bed contact and must stay fully solid for adhesion.
-- **Bridges get the same clip**, in `clip_to_void` step A. The same
-  under-deflation that spawns a phantom surface fires a phantom **bridge** in the
-  same channel — laying sparse lines straight over the beads that already fill
-  it. A genuine bridge over a wide void sits on a thick interior and is
-  untouched. Only the candidate is clipped; bridge *detection* input never is.
-
-### Sub-bead slivers at grazing angles
-
-The wall-band trim subtracts a footprint whose boundary does not follow the
-surface outline exactly. Where the two meet at a **grazing angle** the difference
-is a long crescent far narrower than one bead — and because the fill direction is
-then near-parallel to it, **every span is a stub**.
-
-Measured on the caddy's hexagon logo: sliver sub-paths of ≈4.5 mm² at ≈0.22 mm
-mean width along the two edges lying 15° off the fill direction, producing a
-repeating 0.82 mm line / 0.62 mm connector micro-serpentine. **93 % of that
-material was already covered** by the flanking bead or the normal surface.
-
-`open_surface_region_for_fill` removes them:
-
-- **The threshold is physical, not heuristic** — erode by
-  `SURFACE_FILL_MIN_WIDTH_FRACTION (0.5) × solid-surface extrusion width`, an
-  erosion *diameter* of exactly one bead.
-- **It is a width filter, not an area filter.** Small-but-printable surfaces
-  survive intact (79 mm² and 37 mm² regions untouched while six slivers went to
-  zero).
-- **Corners are preserved.** A plain opening rounds convex corners, and a rounded
-  corner makes the scanline emit *extra* stubs — the very artifact being removed
-  (+31 on the Voron cube). The surviving core is re-grown by
-  `SURFACE_FILL_REGROW_FACTOR (2.0) × radius` and clipped back to the original
-  region, restoring the exact shape. That took the cube from +31 stubs to −1.
-- Use **`FillRule::NonZero`** for the final clip so CW hole sub-paths stay holes.
-
-This defect is **not** Arachne-specific — both generators produced byte-identical
-stub measurements on the caddy hexagon, because it originates in the surface
-fill, not the wall generator.
-
-### Redundant gap fill under a solid surface
-
-[`prune_redundant_gap_fill`](surfaces.rs) drops a `GapFill` bead when either a
-majority of its vertices lie **inside** `solid_regions`, or it is **sandwiched** —
-solid surface on *both* perpendicular sides (`gap_fill_sandwiched_by_surface`).
-
-The sandwich case exists because `blocked_for_surface` unions the gap-fill
-footprint *out* of the surface region, carving a bead-wide corridor exactly where
-each bead sits. A bead running down the centre of a thin solid strip is therefore
-never "inside" the surface, yet the surface's full-width zig-zag still deposits
-straight over it. The probe reaches `half-width + 0.5·d` to either side, just past
-that corridor: a bead the surface *surrounds* has surface on both probes and is
-dropped; a genuine neck that merely *abuts* a surface edge has it on at most one
-and is kept.
-
-**The surface must then *cover* the pruned bead's footprint, not carve it out.**
-Otherwise the corridor becomes a hole in `solid_regions`, which on a thin roof
-splits the top-surface serpentine into two disconnected bands and lets sparse
-infill dash across the void — the "two infill surfaces plus tiny blobs of goo"
-defect. The corridor was carved from **two** places, so both must stop for a
-sandwiched bead: `blocked_for_surface`'s explicit gap-fill term, which uses
-`compute_gap_fill_footprint_excluding_sandwiched`; and
-`compute_wall_bead_footprint`, which is called with `include_gap_fill = false`
-for the surface trim. The sandwich test runs against the layer's **combined**
-detected surface, pre-trim, so a centre bead is recognised before the trim would
-hole the surface.
-
-> Verify with a true-width **capsule** intersection, not a footprint-erosion
-> overlap scan — a thin bead hides from the latter. On the Benchy rear rail that
-> hidden double-extrusion was 6 mm²/layer.
-
-### Ironing is a treatment, not material
-
-`add_ironing_for_region` runs inside surface generation, where `top_region` is
-still live — and it must touch **no region field**. Ironing is a near-dry
-smoothing sweep, not solid material: were its footprint ever folded into
-`solid_regions`, `add_infill_to_layers` would subtract it (grown by a full bead)
-and punch a hole in the sparse infill underneath.
-
-Two more choices that look like details and are not:
-
-- **It carries its own `ExtrusionRole::Ironing`** rather than reusing
-  `TopSurface`. `resolve_width_mm` returns `top_surface_line_width` before it
-  ever reads an explicit width, so sharing the role would silently iron at full
-  flow on any profile that sets one. A shared role would also merge the two into
-  one path-ordering group, letting the TSP interleave ironing with fill that has
-  not been printed yet.
-- **The flow reduction is folded into the *width*** (`ironing_spacing ×
-  ironing_flow`), deliberately keeping it out of `extrusion_for_move`'s
-  `flow_ratio` — which reads a non-positive value as `1.0`, so routing a
-  "wipe only" setting through it would lay a full-width bead at 0.1 mm pitch.
+- **`prune_redundant_gap_fill`** drops a `GapFill` bead the surface already
+  covers — either inside `solid_regions`, or *sandwiched* between surface on both
+  sides. The surface must then **cover** the pruned bead's footprint rather than
+  carve a corridor out of it, or the corridor becomes a hole in `solid_regions`.
+- **Ironing must touch no region field.** It is a near-dry smoothing sweep, not
+  material: folded into `solid_regions`, it would punch a hole in the sparse
+  infill underneath. It carries its own `ExtrusionRole::Ironing` rather than
+  reusing `TopSurface` — sharing the role would iron at full flow and let the TSP
+  interleave it with fill not yet printed — and its flow reduction is folded into
+  the *width*, never `extrusion_for_move`'s `flow_ratio`.
 
 ### Which Clipper2 fill rule, and why
 
 | Operation | Rule | Why |
 | --- | --- | --- |
 | Surface detection (intersect / difference of layer perimeters) | `EvenOdd` | The mesh slicer does not guarantee consistent winding; EvenOdd is winding-independent |
-| Infill interior subtraction (infill area − solid regions) | `Positive` | Input winding is consistent Clipper2 output; `Positive` is more predictable for non-overlapping inputs |
+| Infill interior subtraction (infill area − solid regions) | `Positive` | Input winding is consistent Clipper2 output; predictable for non-overlapping inputs |
 | Wall-footprint subtraction | `NonZero` | The footprint is a frame with CW holes; `Positive` would erase the interior |
 | Variable elephant-foot offset cleanup | `Positive` | Discards the reversed folds a variable offset creates in a concavity, while a CW hole still subtracts |
 
 **Do not union Arachne bead paths with `EvenOdd`.** Tightly nested concentric
-closed paths under EvenOdd produce alternating in/out bands instead of one solid
-region. `NonZero` would work, but only after normalising winding — which is why
-that union was removed rather than fixed.
+closed paths produce alternating in/out bands instead of one solid region.
 
-> **Gap-fill length is not bit-reproducible** between runs of the same binary
-> (7399.6 vs 7401.8 mm on two Benchy slices), so small gap-fill deltas are noise,
-> not evidence. Sparse infill *is* deterministic and can be compared directly.
+### Measuring a change to any of this
 
-**So never judge "did my change alter the output?" on a 3DBenchy.** The whole
-file moves: three consecutive slices of the *same binary* reported 3924.69,
-3924.87 and 3924.86 mm of filament, and `diff` says they differ. A refactor
-measured that way looks like a regression when it is noise — and, worse, a real
-regression smaller than that spread looks clean.
+**Neither gap-fill length nor a 3DBenchy slice is bit-reproducible between runs
+of the same binary**, so `diff` reporting a change proves nothing, and a real
+regression smaller than that jitter hides in it. Byte-compare a **deterministic
+fixture** instead, skipping the timestamp header: `Voron_Design_Cube_v7.stl`,
+`bottom_panel_hinge_x2.stl` and `Filament_Card_Caddy_25.stl` all reproduce
+exactly. Sparse infill is deterministic and can be compared directly.
 
-Use a **deterministic fixture** and compare the G-code byte for byte, skipping
-the timestamp header. `Voron_Design_Cube_v7.stl`, `bottom_panel_hinge_x2.stl`
-and `Filament_Card_Caddy_25.stl` all reproduce exactly. The quality gate's
-tolerances exist to absorb the Benchy's jitter, so **a passing gate is not
-evidence that output is unchanged** — only a byte-compare on a deterministic
-fixture is.
+**A passing quality gate is not evidence that output is unchanged** — its
+tolerances exist to absorb that jitter.
 
 ---
 
@@ -935,44 +700,33 @@ the uncorrected model.
 
 ### 5. Elephant foot is medial-limited, never uniform
 
-A uniform inward offset of 0.2 mm deletes every first-layer feature narrower
-than 0.4 mm — embossed text, logo strokes, thin ribs — which is exactly the
-detail a first layer is judged on. So the shrink is computed per contour vertex
-from the largest circle that fits inside the material there, and applied as a
-**variable** offset: a feature ends up `max(w_min, w − 2δ)` wide, so nothing thin
+A uniform inward offset of 0.2 mm deletes every first-layer feature narrower than
+0.4 mm — embossed text, logo strokes, thin ribs — which is exactly the detail a
+first layer is judged on. The shrink is therefore computed **per contour vertex**
+from the largest circle that fits inside the material there and applied as a
+variable offset, so a feature ends up `max(w_min, w − 2δ)` wide and nothing thin
 is erased.
 
-Three further rules keep it honest, and each exists because the naive version
-gets it wrong:
+Three rules keep that honest; each exists because the obvious version is wrong,
+and [`compensation.rs`](compensation.rs) explains each at its implementation:
 
-- **Two measurements, not one.** The largest circle that fits inside the
-  material *touching* a point collapses toward zero all along a convex corner —
-  true, but useless as a limit, because it would leave an uncompensated nub on
-  every corner of every model. So the module takes a second reading that counts
-  only surfaces which actually **face** the point, as an opposite wall does and
-  a corner's adjoining edge does not. The first is restored by a running maximum
-  along the contour; the second caps that maximum back down so a thick body's
-  radius cannot leak down an attached rib and pinch it off at the root. Their
-  failure modes are disjoint, and the smaller of the two is right in both cases.
-- **Smoothing may only reduce.** Averaging alone would raise the shrink at a
-  thin spot back toward its thicker neighbours, re-eroding the feature the limit
-  just protected.
-- **Vertices move to the mitre point, not along the normal.** A right-angle
-  corner needs `√2 · δ` of travel along its bisector for both of its edges to
-  end up `δ` further in; displacing by `δ` would round every corner off.
+- **Two radius measurements, not one** — one restored by a running maximum along
+  the contour, the other capping it back down, taking the smaller. Either alone
+  fails: the first leaves a nub on every convex corner, the second lets a thick
+  body's radius leak down an attached rib and pinch it off.
+- **Smoothing may only reduce**, or it re-erodes the thin feature the limit just
+  protected.
+- **Vertices move to the mitre point, not along the normal**, or every corner
+  rounds off.
 
 The **cliff guard** is a separate limit on top: compensation is withheld where
-the layer above flares steeply outward past this one, so a narrow pedestal under
-a wide body is never undercut. The flare is measured *along the outward normal*,
-by `ray_exit_distance`, which walks out of the layer above until its material
-ends — the nearest boundary
-in any direction answers a different question, and a rim running tangentially
-past would hide a deep overhang behind it. It reads the model's own geometry,
-which is why the pass walks bottom-up: layer `i` consults layer `i + 1` before
-layer `i + 1` is itself rewritten.
+the layer above flares steeply outward, so a narrow pedestal under a wide body is
+never undercut. The flare is measured *along the outward normal*
+(`ray_exit_distance`) — nearest-boundary distance answers a different question.
+The pass walks **bottom-up** so layer `i` consults layer `i + 1` before that
+layer is itself rewritten.
 
-See [`../walls/README.md`](../walls/README.md) for the wall-side
-implications.
+See [`../walls/README.md`](../walls/README.md) for the wall-side implications.
 
 ---
 

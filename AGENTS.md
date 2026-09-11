@@ -185,6 +185,19 @@ function. [src/scene/README.md](src/scene/README.md) is the canonical example.
   to *this* subsystem. Define a term the first time it appears.
 - **End with a "See also"** pointing at the source files and related modules.
 
+**Detail belongs beside the code, not in the README.** A threshold's exact value,
+why it is not one notch lower, and what was tried before it — all of that goes in
+the `///` comment on the constant or function, where someone about to change it
+will actually read it. The README says the correction exists, what it is keyed
+to, and what breaks if you generalise it; then it points at the code.
+
+**Do not write the incident up.** A measured number from a debugging session, a
+defect's nickname, or a narrative of what went wrong once is not documentation —
+nobody holds it in mind, and it buries the rule it came from. Keep the rule and
+one clause of why ("never X — it erases thin features"); drop the forensics. The
+exception is a rule that looks arbitrary enough to be "simplified" away, and one
+sentence of consequence is enough to protect it.
+
 #### The docs site wears the app's design language
 
 [docs/.vitepress/theme/styles/_tokens.scss](docs/.vitepress/theme/styles/_tokens.scss)

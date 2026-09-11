@@ -104,15 +104,14 @@ density wrong for any nozzle or `sparse_infill_line_width` that was not 0.4 mm
 profile maps without a translation table.
 
 Every one of them deposits the density it is asked for, pinned by
-`every_line_pattern_deposits_the_density_it_is_asked_for` — measured on a Voron
-cube, all ten land within 4 % of each other (concentric excepted: it traces the
-whole outline of a thin sliver where a line fill would cross it once, so it
-over-fills complex cross-sections by design, exactly as libslic3r does).
+`every_line_pattern_deposits_the_density_it_is_asked_for`. Concentric is the one
+exception by design: it traces the whole outline of a thin sliver where a line
+fill would cross it once, so it over-fills complex cross-sections.
 
 **A marching-squares tracer must chain its output.** `TpmsD` walks a level set
 cell by cell, emitting one short segment per crossing. Left unchained those are
-isolated sub-cell dabs, and the splat filter deletes almost all of them — the
-pattern used to deposit barely a seventh of the requested density.
+isolated sub-cell dabs, and the splat filter deletes almost all of them, so the
+pattern deposits a fraction of the requested density.
 [`utils::chain_segments_into_polylines`](utils.rs) joins them back into the
 curves the tracer actually found.
 
@@ -163,9 +162,8 @@ multi-sweep and cellular fills all override `_layer_angle` to `0`:
 
 - **`Honeycomb` is cellular.** Its walls have to stack layer over layer to form
   tubes — that vertical structure *is* the pattern. Rotating the lattice 90°
-  drops each layer's walls onto the previous layer's voids. Measured on a Voron
-  cube before this was fixed, consecutive layers shared **2 %** of their infill
-  geometry; they now share **79 %**.
+  drops each layer's walls onto the previous layer's voids, and consecutive
+  layers end up sharing almost none of their infill geometry.
 - **`Triangles` / `TriHexagon` / `Cubic`** already sweep three directions, so
   rotating only misregisters the lattice against the layer below.
 - **`Grid`** sweeps 0° and 90°, so a 90° rotation maps it onto itself.
@@ -192,11 +190,10 @@ move. This is a port of libslic3r's `Fill::connect_infill`, driven by two knobs:
 The walk always follows the boundary, never cuts across the region, so an anchor
 can only be laid where the fill area already reaches.
 
-**This is not a cosmetic feature.** Measured on the Filament Card Caddy's
-hollow-box layers, anchoring turned **101 isolated sub-0.8 mm infill dashes**
-on a single layer — each an isolated dab costing a full retract → travel →
-un-retract — into one continuous serpentine, with none left over. The extra
-material is the connectors that make those dashes printable at all.
+**This is not a cosmetic feature.** On a hollow-box cross-section it turns a
+layer's worth of isolated sub-millimetre dashes — each costing a full retract →
+travel → un-retract — into one continuous serpentine. The extra material the QA
+baselines record is the connectors that make those dashes printable at all.
 
 **Anchoring must run before the splat and minimum-length filters** in
 [`core::infill::add_infill_to_layers`](../core/infill.rs). A line that anchoring
