@@ -61,15 +61,19 @@ html.is-coarse-pointer {
     min-height: 44px;
   }
 
-  // A segmented control is only a row of small targets while it is *a row*.
-  // `StackWhenCramped` turns it into a vertical list when the labels will not
-  // fit, and there each segment already spans the full width — giving those the
-  // same 44px floor just made a three-way switcher 144px tall and read as a
-  // menu rather than a control.
-  nexus-segmented:not(.stacked) .segment {
-    min-height: 44px;
+  // A segmented control in its horizontal form has a fixed-height host with the
+  // segments stretched inside it, so growing the *segment* just pushes it out
+  // through the container's own border. The host is what has to grow: 44px of
+  // target plus its 3px padding either side.
+  nexus-segmented:not(.stacked) {
+    height: 50px;
   }
 
+  // `StackWhenCramped` turns it into a vertical list when the labels will not
+  // fit. There the host is `height: auto` and each segment already spans the
+  // full width, so the segment is the right thing to size — but giving those the
+  // same 44px floor made a three-way switcher 144px tall and read as a menu
+  // rather than a control.
   nexus-segmented.stacked .segment {
     min-height: 36px;
   }

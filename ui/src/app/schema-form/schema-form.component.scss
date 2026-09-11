@@ -10,19 +10,6 @@
   background: var(--color-bg-secondary);
 }
 
-// The field inside grows to 44px for touch, so the block's own padding and its
-// fade-out below it stop being breathing room and start being a third of the
-// panel's first screen.
-@include coarse-pointer {
-  .schema-form-search {
-    padding: var(--spacing-xs) var(--spacing-xs) 0;
-  }
-
-  .schema-form-search::after {
-    height: var(--spacing-sm);
-  }
-}
-
 .schema-form-search::after {
   content: '';
   position: absolute;
@@ -337,4 +324,31 @@
   transform-origin: top center;
   transform: scale(1);
   transition: transform var(--duration-slow) var(--ease-standard);
+}
+
+// The field inside grows to 44px for touch, so the block's own padding and its
+// fade-out below it stop being breathing room and start being a third of the
+// panel's first screen.
+@include coarse-pointer {
+  .schema-form-search {
+    padding: var(--spacing-xs) var(--spacing-xs) 0;
+  }
+
+  .schema-form-search::after {
+    height: var(--spacing-sm);
+  }
+
+  // The pill is the 44px target, not the input inside it. The global touch rule
+  // raises every bare `input` to 44px, which here stacked on top of the pill's
+  // own 8px padding and made a 60px-tall search box. Sizing the wrapper and
+  // releasing the input is the idiom `_field-focus.scss` already describes for
+  // these wrapper pills.
+  .schema-form-search-field {
+    min-height: 44px;
+    padding: 0 var(--spacing-md);
+  }
+
+  .schema-form-search-field .schema-form-search-input {
+    min-height: 0;
+  }
 }
