@@ -69,7 +69,11 @@ every duplicate shares a filename, so naming it wouldn't tell you which.
 
 **Place objects** (`A`) lays the whole plate out in one go. Its card has:
 
-- **Auto-orient** — turn each part onto a sensible face first.
+- **Auto-orient** — turn each part onto a sensible face first. It looks for the
+  largest face the part can actually rest on, and picks a different one only
+  when that pose would leave a lot of the model hanging in the air or wouldn't
+  fit under the gantry. A part that already arrived the right way up is left
+  alone.
 - **Gap** — how much room to leave between parts, in mm.
 - **Preferred angle** — shown read-only, because it belongs to the printer, not
   the plate. Many CoreXY machines print best at 45°. Change it in

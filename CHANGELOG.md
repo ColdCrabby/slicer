@@ -29,6 +29,12 @@ issue/PR numbers or repo links in the notes. See the tone rules in
 
 ### Changed
 
+- **Auto-orient now goes for the biggest face that actually touches the bed.**
+  It measures real bed contact instead of counting every downward-facing
+  surface, and weights an overhang by how far it leans, so parts made of flat
+  undersides — overhang tests, card caddies — stop being tipped onto a corner.
+  A part already exported the right way up is left alone, and a pose too tall
+  for the machine is ranked behind every one that fits.
 - **Smooth-bridge defaults.** Bridges now print at **10 mm/s** with a **1.5×**
   flow ratio by default, so their strands fuse into a continuous floor and full
   part-cooling freezes them before they sag — the community "smooth unsupported
