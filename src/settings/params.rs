@@ -784,7 +784,7 @@ Supported values:
 - `sharpest_corner` — vertex with the sharpest convex angle (hidden in geometry).
 - `random` — different random vertex per loop (no visible seam line).
 
-**Default:** `nearest`.", extend("x-group" = "Walls"))]
+**Default:** `aligned`.", extend("x-group" = "Walls"))]
     #[serde(default = "SlicingParams::default_seam_position")]
     pub seam_position: SeamPosition,
 
@@ -2658,7 +2658,7 @@ impl Default for SlicingParams {
             fuzzy_skin: Self::default_fuzzy_skin(),
             fuzzy_skin_thickness_mm: Self::default_fuzzy_skin_thickness_mm(),
             fuzzy_skin_point_dist_mm: Self::default_fuzzy_skin_point_dist_mm(),
-            infill_density: 0.2,
+            infill_density: 0.15,
             infill_pattern: Self::default_infill_pattern(),
             infill_base_angle: Self::default_infill_base_angle(),
             infill_anchor_percent: Self::default_infill_anchor_percent(),
@@ -2667,7 +2667,7 @@ impl Default for SlicingParams {
             infill_combination_max_layer_height_mm:
                 Self::default_infill_combination_max_layer_height_mm(),
             solid_infill_every_layers: Self::default_solid_infill_every_layers(),
-            print_speed: 60.0,
+            print_speed: 120.0,
             perimeter_speed: Self::default_perimeter_speed(),
             infill_speed: Self::default_infill_speed(),
             bridge_speed: Self::default_bridge_speed(),
@@ -3047,8 +3047,11 @@ impl SlicingParams {
     fn default_raft_air_gap() -> f64 {
         0.1
     }
+    /// The first layer is pressed into the bed and spreads, so a part comes out
+    /// slightly too wide at the bottom and will not sit flush or fit a socket.
+    /// 0.2 mm is the usual correction; it only ever shrinks the bottom layer.
     fn default_elephant_foot_compensation_mm() -> f64 {
-        0.0
+        0.2
     }
     fn default_elephant_foot_layers() -> usize {
         1
@@ -3283,8 +3286,12 @@ impl SlicingParams {
         0.1
     }
 
+    /// A seam that lands in the same place on every layer reads as one tidy
+    /// line; `Nearest` scatters a blob at whatever vertex the nozzle happened to
+    /// finish beside, which is what most of a first print's surface defects look
+    /// like. The travel it costs is a fraction of a percent.
     fn default_seam_position() -> SeamPosition {
-        SeamPosition::Nearest
+        SeamPosition::Aligned
     }
 
     fn default_external_perimeters_first() -> bool {
@@ -3359,12 +3366,17 @@ impl SlicingParams {
         0
     }
 
+    /// The print speeds are one set, chosen for the same machine the
+    /// acceleration defaults above assume, and they are the speeds the shipped
+    /// process profile asks for — so a slice from the command line and a slice
+    /// from the app produce the same print. Walls run slower than infill because
+    /// they are the surface anyone looks at.
     fn default_perimeter_speed() -> f64 {
-        45.0
+        80.0
     }
 
     fn default_infill_speed() -> f64 {
-        70.0
+        150.0
     }
 
     fn default_bridge_speed() -> f64 {
@@ -3461,7 +3473,7 @@ impl SlicingParams {
     }
 
     fn default_top_surface_speed() -> f64 {
-        40.0
+        60.0
     }
 
     fn default_gap_fill_speed() -> f64 {
@@ -3484,8 +3496,10 @@ impl SlicingParams {
         0.0
     }
 
+    /// Slow, and deliberately not scaled with the rest: the first layer is an
+    /// adhesion problem, not a speed one.
     fn default_first_layer_speed() -> f64 {
-        25.0
+        30.0
     }
 
     fn default_fan_speed() -> f64 {
@@ -3500,20 +3514,31 @@ impl SlicingParams {
         0.0
     }
 
+    /// Small layers otherwise land on plastic that is still molten, and the
+    /// tip of a print slumps into a blob — the defect a first print is most
+    /// likely to show. Filament profiles lower it for the materials that dislike
+    /// being held back.
     fn default_min_layer_time_s() -> f64 {
-        0.0
+        4.0
     }
 
     fn default_min_print_speed() -> f64 {
         10.0
     }
 
+    /// Off. Coasting drops the last stretch of a path to an unfed nozzle to
+    /// bleed off pressure; pressure advance does the same thing without leaving
+    /// the end of every path under-extruded, and the shipped filament profiles
+    /// set it.
     fn default_coasting_distance_mm() -> f64 {
-        0.2
+        0.0
     }
 
+    /// Four layers is 0.8 mm of top shell at the default layer height — the
+    /// thickness the ecosystem settled on for a top surface that does not dimple
+    /// over sparse infill. The bottom sits on the bed and needs one fewer.
     fn default_top_layers() -> usize {
-        3
+        4
     }
 
     fn default_bottom_layers() -> usize {
@@ -3592,8 +3617,11 @@ impl SlicingParams {
         false
     }
 
+    /// Wiping while retracting costs nothing measurable and takes the bead of
+    /// molten filament off the nozzle before it travels, so it does not land on
+    /// the model as a string.
     fn default_wipe() -> bool {
-        false
+        true
     }
 
     fn default_wipe_distance_mm() -> f64 {
@@ -4051,7 +4079,7 @@ mod tests {
     #[test]
     fn test_slicing_params_top_bottom_layers_defaults() {
         let params = SlicingParams::default();
-        assert_eq!(params.top_layers, 3, "Default top layers should be 3");
+        assert_eq!(params.top_layers, 4, "Default top layers should be 4");
         assert_eq!(params.bottom_layers, 3, "Default bottom layers should be 3");
         assert_eq!(
             params.surface_infill_angle, 45.0,
@@ -4177,7 +4205,7 @@ mod tests {
         // Unknown fields such as "wall_thickness" from legacy files are silently ignored.
         let json = r#"{"layer_height":0.2,"infill_density":0.2,"print_speed":60.0,"nozzle_temp":210.0,"bed_temp":60.0}"#;
         let params: SlicingParams = serde_json::from_str(json).expect("deserialize");
-        assert_eq!(params.top_layers, 3, "Should default to 3 for legacy JSON");
+        assert_eq!(params.top_layers, 4, "Should default to 4 for legacy JSON");
         assert_eq!(
             params.bottom_layers, 3,
             "Should default to 3 for legacy JSON"

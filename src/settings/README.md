@@ -10,13 +10,13 @@ Configuration for slicing behavior and printer control. All values stored as JSO
 | ------------------------- | ---- | --------- | ----------------------------------- | ------------------------------------------------------------- |
 | `layer_height`            | mm   | 0.2       | 0.1–0.4                             | Distance between layers                                       |
 | `wall_thickness`          | mm   | 1.2       | 0.8–2.0                             | Perimeter width                                               |
-| `infill_density`          | 0–1  | 0.2       | 0.0–1.0                             | 0=hollow, 1=solid                                             |
-| `print_speed`             | mm/s | 60        | 20–100                              | Nozzle movement speed                                         |
+| `infill_density`          | 0–1  | 0.15      | 0.0–1.0                             | 0=hollow, 1=solid                                             |
+| `print_speed`             | mm/s | 120       | 10–500                              | Fallback speed for any role without its own                   |
 | `nozzle_temp`             | °C   | 210       | 180–250                             | Heat level (material-dependent)                               |
 | `bed_temp`                | °C   | 60        | 20–100                              | Bed heat (material-dependent)                                 |
-| `seam_position`           | enum | `nearest` | see [Seam Position](#seam-position) | Where each closed-loop seam sits                              |
+| `seam_position`           | enum | `aligned` | see [Seam Position](#seam-position) | Where each closed-loop seam sits                              |
 | `min_infill_extrusion_mm` | mm   | 0.4       | 0.0–nozzle                          | Drops sub-threshold solid-surface and sparse-infill segments to cut tiny travels |
-| `coasting_distance_mm`    | mm   | 0.2       | 0.0–1.0                             | Length of un-extruded tail at the end of each path            |
+| `coasting_distance_mm`    | mm   | 0         | 0.0–1.0                             | Length of un-extruded tail at the end of each path            |
 | `thumbnail_enabled`       | bool | `true`    | true/false                          | Embed a PNG thumbnail comment block in output G-code (Thumbnail group) |
 | `thumbnail_size_px`       | px   | 320       | 64–1024                             | Square thumbnail resolution (the quality knob)                 |
 | `thumbnail_view`          | enum | `isometric` | isometric/front/rear/left/right/top | Fixed camera angle the UI renders the thumbnail from         |
@@ -75,6 +75,8 @@ setting through it would lay a full-width bead at 0.1 mm pitch.
 | ----------------------- | ---- | ------- | --------------------------------------------------------- |
 | `xy_size_compensation`  | mm   | 0       | Grow (+) or shrink (−) every contour; also tightens holes |
 | `xy_hole_compensation`  | mm   | 0       | Enlarge (+) or tighten (−) holes only, applied after      |
+| `elephant_foot_compensation_mm` | mm | 0.2 | Shrink the layers at the bed to undo the first layer's squish |
+| `elephant_foot_layers`  | n    | 1       | How many layers the correction tapers over               |
 
 Both are applied to the raw contours between slicing and wall generation — the
 only point at which the rest of the pipeline's measurements stay true. See
@@ -119,6 +121,8 @@ rules in [gcode/README.md](../gcode/README.md#thermal-management--cooling--chamb
 | `fan_speed`                | 0–1  | 1.0     | **Ceiling** the adaptive `fan_configs` curve is clamped to (the high-temp material gate)   |
 | `first_layer_fan_speed`    | 0–1  | 0.0     | Part-cooling duty while pinned by `disable_fan_first_layers`                               |
 | `disable_fan_first_layers` | n    | 1       | Bottom layers where part cooling is pinned; bridge/overhang overrides are suppressed there |
+| `min_layer_time_s`         | s    | 4       | Shortest a layer may take; below it the layer is slowed, then dwelled. Filament profiles set their own |
+| `min_print_speed`          | mm/s | 10      | Floor the slowdown will not go below                                                       |
 | `overhang_fan_speed`       | 0–1  | 1.0     | Part-cooling duty on overhang segments (needs `enable_overhang_speed`)                     |
 | `overhang_fan_threshold`   | 0–1  | 0.5     | Unsupported fraction above which `overhang_fan_speed` engages                              |
 | `heated_chamber`           | bool | `false` | **Printer capability** — without it no `M141`/`M191` is ever emitted                        |
@@ -137,7 +141,7 @@ rules in [gcode/README.md](../gcode/README.md#thermal-management--cooling--chamb
 | `retract_on_layer_change`     | bool | `false` | Retract before every layer-change Z move                                                  |
 | `use_firmware_retraction`     | bool | `false` | Emit `G10`/`G11` and sync the firmware (`M207`/`M208` or `SET_RETRACTION`)                |
 | `use_relative_e_distances`    | bool | `false` | Emit `M83` + incremental E (`G1 … E<delta>`) instead of `M82` absolute positions          |
-| `wipe`                        | bool | `false` | Retrace the just-printed path while retracting to smear ooze onto printed material        |
+| `wipe`                        | bool | `true`  | Retrace the just-printed path while retracting to smear ooze onto printed material        |
 | `wipe_distance_mm`            | mm   | 1.0     | How far to wipe (capped at the previous path's length) when `wipe` is enabled             |
 | `retract_before_wipe_percent` | 0–1  | 0.0     | Fraction of the retraction performed before the wipe (the rest is distributed along it)   |
 
@@ -227,8 +231,8 @@ Managed via the `settings set` / `settings get` subcommands (see below).
   "params": {
     "layer_height": 0.2,
     "wall_thickness": 1.2,
-    "infill_density": 0.2,
-    "print_speed": 60.0,
+    "infill_density": 0.15,
+    "print_speed": 120.0,
     "nozzle_temp": 210.0,
     "bed_temp": 60.0
   },
@@ -453,9 +457,9 @@ leaves a small visible blob ("the seam") on the outer wall.
 
 | Value                 | Vertex chosen per loop                                              | Visual result                                   | Best for                               |
 | --------------------- | ------------------------------------------------------------------- | ----------------------------------------------- | -------------------------------------- |
-| `nearest` _(default)_ | Closest vertex to the previous path's end                           | Scattered seams; minimum travel & print time    | Prototypes, infill-heavy parts         |
+| `nearest`             | Closest vertex to the previous path's end                           | Scattered seams; minimum travel & print time    | Prototypes, infill-heavy parts         |
 | `rear`                | Vertex with the largest Y                                           | Single seam line at the back of the model       | Display pieces (Benchy-style)          |
-| `aligned`             | Vertex with the largest projection onto a fixed direction (+Y)      | Consistent vertical seam line across all layers | Parts whose loops shift between layers |
+| `aligned` _(default)_ | Vertex with the largest projection onto a fixed direction (+Y)      | Consistent vertical seam line across all layers | Parts whose loops shift between layers |
 | `sharpest_corner`     | Vertex with the largest convex turn angle (falls back to `nearest`) | Seam hidden in geometry corners                 | Mechanical parts with hard edges       |
 | `random`              | Hash of the loop's first-vertex bits (deterministic per loop)       | Seam blobs spread evenly; no visible line       | Cylinders, organic shapes              |
 

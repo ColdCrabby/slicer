@@ -59,6 +59,14 @@ pub fn base_filament(meta: ProfileMeta, material: FilamentMaterial) -> FilamentP
 }
 
 /// A blank-slate process profile, tagged with `meta`.
+///
+/// Everything here is the engine's own default, spelled out so the preset reads
+/// as a complete recipe, except what the preset genuinely decides: the thicker
+/// first layer and wider bead that go with a 0.20 mm layer, and the skirt. The
+/// rest is pinned to agree by
+/// `the_shipped_process_profile_agrees_with_the_engine_defaults` — a profile
+/// that quietly disagrees means a slice from the app and one from the command
+/// line print differently.
 pub fn base_process(meta: ProfileMeta) -> ProcessProfile {
     ProcessProfile {
         meta,
@@ -72,8 +80,8 @@ pub fn base_process(meta: ProfileMeta) -> ProcessProfile {
             "top_layers": 4,
             "bottom_layers": 3,
             "seam_position": "aligned",
-            "infill_density": 0.2,
-            "infill_pattern": "Gyroid",
+            "infill_density": 0.15,
+            "infill_pattern": "Rectilinear",
             "infill_base_angle": 45.0,
             "print_speed": 120.0,
             "perimeter_speed": 80.0,
@@ -143,4 +151,40 @@ pub fn default_process() -> ProcessProfile {
         "builtin-standard-02",
         "Standard — 0.20 mm",
     ))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::settings::params::SlicingParams;
+
+    /// What the preset is allowed to decide for itself: the two that define the
+    /// quality (a 0.20 mm layer needs a thicker first layer and a wider bead
+    /// than the nozzle), and the skirt — a product choice the engine's own
+    /// default deliberately leaves off, so a programmatic slice produces the
+    /// object and nothing else. Everything else it spells out must be what the
+    /// engine would have used anyway.
+    const PRESET_KEYS: [&str; 3] = ["first_layer_height", "line_width", "adhesion_type"];
+
+    #[test]
+    fn the_shipped_process_profile_agrees_with_the_engine_defaults() {
+        let defaults = serde_json::to_value(SlicingParams::default()).expect("params serialize");
+        let defaults = defaults.as_object().expect("params are an object");
+        let profile = default_process().params;
+        let profile = profile.as_object().expect("profile params are an object");
+
+        for (key, value) in profile {
+            if PRESET_KEYS.contains(&key.as_str()) {
+                continue;
+            }
+            let default = defaults
+                .get(key)
+                .unwrap_or_else(|| panic!("`{key}` is not a slicing parameter"));
+            assert_eq!(
+                value, default,
+                "the shipped profile sets `{key}` to {value}, but the engine defaults to {default}\
+                 — a slice from the app and one from the CLI would print differently"
+            );
+        }
+    }
 }

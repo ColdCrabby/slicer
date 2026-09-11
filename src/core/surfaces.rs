@@ -1702,6 +1702,7 @@ pub fn generate_top_bottom_surfaces(
             infill_overlap_percent: 0.25,
             ensure_vertical_shell_thickness: false,
             bridge_angle_deg: 0.0,
+            elephant_foot: None,
             top_pattern: SurfacePattern::Rectilinear,
             bottom_pattern: SurfacePattern::Rectilinear,
             internal_solid_pattern: SurfacePattern::Rectilinear,
@@ -1787,6 +1788,14 @@ pub struct SurfaceConfig {
     ///
     /// [`SlicingParams::bridge_angle`]: crate::settings::params::SlicingParams::bridge_angle
     pub bridge_angle_deg: f64,
+    /// Elephant-foot correction in force, when one is.
+    ///
+    /// The layers at the bed are deliberately drawn narrower than the model, so
+    /// the layer above one of them stands proud of it by the shrink. That is not
+    /// an overhang — the bead below spreads to fill it, which is the whole
+    /// reason the correction exists — so the support envelope is widened by the
+    /// same amount before the air below a wall is measured.
+    pub elephant_foot: Option<super::compensation::ElephantFootConfig>,
     /// Fill pattern for the **top** solid surface.
     pub top_pattern: SurfacePattern,
     /// Fill pattern for the **bottom** solid surface.
@@ -1844,6 +1853,7 @@ impl Default for SurfaceConfig {
             bridge_noise_filter_mm: 0.05,
             bridge_anchor_mm: 0.5,
             bridge_angle_deg: 0.0,
+            elephant_foot: None,
             top_pattern: SurfacePattern::Rectilinear,
             bottom_pattern: SurfacePattern::Rectilinear,
             internal_solid_pattern: SurfacePattern::Rectilinear,
@@ -2066,9 +2076,16 @@ pub fn generate_top_bottom_surfaces_with_interior(
             if prev.is_empty() {
                 perimeters[i].clone()
             } else {
+                // Plus whatever the elephant-foot correction took off the
+                // layer below: it was drawn narrower on purpose and its bead
+                // spreads back out to the model's own width.
+                let compensated = config
+                    .elephant_foot
+                    .as_ref()
+                    .map_or(0.0, |ef| ef.shrink_for_layer(i - 1));
                 let support_envelope = inflate(
                     prev.clone(),
-                    nozzle_diameter_mm * 0.5,
+                    nozzle_diameter_mm * 0.5 + compensated,
                     JoinType::Round,
                     EndType::Polygon,
                     2.0,

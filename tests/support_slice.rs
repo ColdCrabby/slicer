@@ -448,9 +448,16 @@ fn extruded_len(gcode: &str, label: &str) -> f64 {
         rest[..end].parse::<f64>().ok()
     };
     let (mut cur, mut x, mut y, mut total) = (String::new(), None::<f64>, None::<f64>, 0.0);
+    // E is absolute here, so "is this move extruding?" is a question about the
+    // delta — a wipe move carries a positive E that is *lower* than the last.
+    let mut e = 0.0_f64;
     for line in gcode.lines() {
         if let Some(rest) = line.strip_prefix(";TYPE:") {
             cur = rest.trim().to_string();
+            continue;
+        }
+        if line.starts_with("G92") {
+            e = num(line, 'E').unwrap_or(e);
             continue;
         }
         if !(line.starts_with("G0") || line.starts_with("G1")) {
@@ -458,7 +465,11 @@ fn extruded_len(gcode: &str, label: &str) -> f64 {
         }
         let nx = num(line, 'X').or(x);
         let ny = num(line, 'Y').or(y);
-        let extruding = num(line, 'E').map(|e| e > 0.0).unwrap_or(false);
+        let ne = num(line, 'E');
+        let extruding = ne.map(|v| v > e + 1e-9).unwrap_or(false);
+        if let Some(v) = ne {
+            e = v;
+        }
         if cur == label && extruding {
             if let (Some(px), Some(py), Some(cx), Some(cy)) = (x, y, nx, ny) {
                 total += (cx - px).hypot(cy - py);
