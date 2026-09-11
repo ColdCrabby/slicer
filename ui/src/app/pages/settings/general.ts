@@ -11,7 +11,11 @@ import {
   type TwoFingerGesture,
 } from '../../services/viewer-control';
 import { ProfileExportButton } from '../../components/profiles/profile-export-button';
-import { resolveRuntimeMode } from '../../runtime/domain/runtime-mode.util';
+import {
+  isTauriDesktop,
+  isTauriMobile,
+  resolveRuntimeMode,
+} from '../../runtime/domain/runtime-mode.util';
 import { AppVersion } from '../../services/app-version';
 import {
   HistoryControlsPreference,
@@ -82,11 +86,15 @@ export class GeneralSettings implements OnInit {
     return sha ? `https://github.com/ColdCrabby/slicer/commit/${sha}` : '';
   });
 
-  protected readonly platform =
-    typeof globalThis !== 'undefined' &&
-    ('__TAURI_INTERNALS__' in globalThis || '__TAURI__' in globalThis)
-      ? 'Desktop'
-      : 'Web';
+  /**
+   * Which runtime this build is actually in.
+   *
+   * A bare "is Tauri present?" check reported **Desktop** on iPadOS, which is a
+   * Tauri host with no desktop chrome at all — no window API, no native menus.
+   * The distinction is the same one `isTauriDesktop` exists to make everywhere
+   * else, so it is the one used here.
+   */
+  protected readonly platform = isTauriMobile() ? 'Mobile' : isTauriDesktop() ? 'Desktop' : 'Web';
 
   ngOnInit(): void {
     void this.appVersion.loadInfo();

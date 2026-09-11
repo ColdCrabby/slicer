@@ -249,7 +249,7 @@
                 <nexus-number-input
                   [value]="printer.bed_width ?? 220"
                   [min]="20"
-                  [max]="1000"
+                  [max]="3000"
                   unit="mm"
                   (valueChange)="update(printer.id, { bed_width: $event })"
                 />
@@ -259,7 +259,7 @@
                   <nexus-number-input
                     [value]="printer.bed_depth ?? 220"
                     [min]="20"
-                    [max]="1000"
+                    [max]="3000"
                     unit="mm"
                     (valueChange)="update(printer.id, { bed_depth: $event })"
                   />
@@ -269,7 +269,7 @@
                 <nexus-number-input
                   [value]="printer.bed_height ?? 250"
                   [min]="20"
-                  [max]="1000"
+                  [max]="3000"
                   unit="mm"
                   (valueChange)="update(printer.id, { bed_height: $event })"
                 />
@@ -282,12 +282,12 @@
               </nexus-field-row>
               <nexus-field-row
                 label="Preferred orientation"
-                description="Extra turn applied when parts are placed with auto-orient. 45° suits CoreXY machines, which move fastest along their diagonals. 0° leaves orientation alone."
+                description="Extra turn applied when parts are placed with auto-orient. 45° suits CoreXY machines, which move fastest along their diagonals — negative turns the other way. 0° leaves orientation alone."
               >
                 <nexus-number-input
                   [value]="printer.preferred_orientation_deg ?? 0"
-                  [min]="0"
-                  [max]="90"
+                  [min]="-180"
+                  [max]="180"
                   [step]="5"
                   unit="°"
                   (valueChange)="update(printer.id, { preferred_orientation_deg: $event })"

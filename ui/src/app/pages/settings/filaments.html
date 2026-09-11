@@ -193,7 +193,7 @@
                 <nexus-number-input
                   [value]="filament.cost_per_kg"
                   [min]="0"
-                  [max]="500"
+                  [max]="10000"
                   (valueChange)="update(filament.id, { cost_per_kg: $event })"
                 />
               </nexus-field-row>
