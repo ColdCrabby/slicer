@@ -76,15 +76,23 @@ impl ProfileStore {
         &self.path
     }
 
-    /// Load the library, returning an empty one when the file is absent.
+    /// Load the library, seeding any empty category with its built-in default.
+    ///
+    /// An absent file yields the built-ins alone. Seeding happens on the way
+    /// **out** rather than at install time, so a fresh install, a file written
+    /// by an older build, and a category the user never customised all behave
+    /// the same: every reader — `GET /api/profiles`, slice resolution, the
+    /// exporter — sees a library it can actually resolve an id against. See
+    /// [`ProfileLibrary::seeded`].
     pub fn load(&self) -> Result<ProfileLibrary> {
         if !self.path.exists() {
-            return Ok(ProfileLibrary::default());
+            return Ok(ProfileLibrary::default().seeded());
         }
         let content = fs::read_to_string(&self.path)
             .with_context(|| format!("read profiles '{}'", self.path.display()))?;
-        parse_library_toml(&content)
-            .with_context(|| format!("load profiles '{}'", self.path.display()))
+        Ok(parse_library_toml(&content)
+            .with_context(|| format!("load profiles '{}'", self.path.display()))?
+            .seeded())
     }
 
     /// Persist the whole library, creating parent directories as needed.
@@ -209,11 +217,43 @@ mod tests {
         let _ = fs::remove_dir_all(&dir);
     }
 
+    /// A slicer that has never been configured still has to be able to slice,
+    /// and a slice request names its profiles by id — so the three sliceable
+    /// categories are never empty, file or no file.
     #[test]
-    fn missing_file_loads_empty_library() {
+    fn a_missing_file_still_yields_something_to_slice_with() {
         let store = ProfileStore::at("/nonexistent/does/not/exist/profiles.toml");
         let library = store.load().expect("missing file is not an error");
-        assert_eq!(library, ProfileLibrary::default());
+
+        assert!(library.printer("builtin-generic-printer").is_some());
+        assert!(library.filament("builtin-generic-pla").is_some());
+        assert!(library.process("builtin-standard-02").is_some());
+        // Labels are a vocabulary, not a slice input: an empty one is correct.
+        assert!(library.labels.is_empty());
+    }
+
+    /// Seeding fills gaps; it never edits what the user has.
+    #[test]
+    fn seeding_leaves_a_populated_category_alone() {
+        let dir = std::env::temp_dir().join(format!("profiles-seed-{}", std::process::id()));
+        let path = dir.join("profiles.toml");
+        let store = ProfileStore::at(&path);
+
+        let mut mine = ProfileLibrary::default();
+        let mut only_printer = super::super::defaults::default_printer();
+        only_printer.meta.id = "my-only-printer".to_string();
+        mine.printers = vec![only_printer];
+        store.save(&mine).expect("save");
+
+        let loaded = store.load().expect("load");
+        assert_eq!(loaded.printers.len(), 1, "the user's list is untouched");
+        assert!(loaded.printer("my-only-printer").is_some());
+        assert!(loaded.printer("builtin-generic-printer").is_none());
+        // The categories they never touched are filled in.
+        assert!(loaded.filament("builtin-generic-pla").is_some());
+        assert!(loaded.process("builtin-standard-02").is_some());
+
+        let _ = fs::remove_dir_all(&dir);
     }
 
     #[test]

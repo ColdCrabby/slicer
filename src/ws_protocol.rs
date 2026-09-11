@@ -29,7 +29,7 @@ pub struct SessionSummary {
 /// Mirrors the `from_euler_xyz_deg` view of [`crate::scene::Transform`] so
 /// payloads stay human-readable JSON. Defaults to the identity transform so
 /// callers may omit any field.
-#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[derive(PartialEq, Debug, Clone, Serialize, Deserialize, JsonSchema)]
 pub struct TransformDto {
     /// Translation in millimeters.
     #[serde(default = "TransformDto::default_zero3")]
@@ -69,7 +69,7 @@ impl Default for TransformDto {
 /// `ofids` list — distinct from the workplate's `ruuid`. The server resolves
 /// the file (including its on-disk extension) from the database, so callers
 /// don't need to — and should not — encode the format here.
-#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[derive(PartialEq, Debug, Clone, Serialize, Deserialize, JsonSchema)]
 pub struct SceneObjectSliceDto {
     /// File identifier from `ofids` in the upload response.
     pub file_id: String,
@@ -271,6 +271,18 @@ pub enum ClientMessage {
         /// Legacy pre-flattened parameters (used only when `profiles` is absent).
         #[serde(default, skip_serializing_if = "Option::is_none")]
         settings: Option<Box<SlicingParams>>,
+        /// PNG preview of the plate, base64-encoded, for the G-code's thumbnail
+        /// block.
+        ///
+        /// **The client renders it and sends it on every slice.** It is a
+        /// picture of the user's own 3D view — their camera, their theme, their
+        /// filament colour — and the engine has no renderer and will never grow
+        /// one, so there is nothing for it to fall back to. It rides its own
+        /// field rather than `profiles.overrides` because it is not a setting
+        /// the user changed: mixing it in there made every slice look like it
+        /// carried a 30 KB override.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        thumbnail_png_base64: Option<String>,
     },
     /// Request a list of previously completed slicing sessions.
     ListSessions,
@@ -544,11 +556,17 @@ mod tests {
     /// A `Slice` may carry a structured profile selection instead of the legacy
     /// flattened settings; it must round-trip and resolve.
     #[test]
-    fn slice_message_with_profiles_round_trips() {
+    fn slice_message_with_inline_profiles_round_trips() {
         let selection = crate::profiles::ProfileSelection {
-            printer: crate::profiles::defaults::default_printer(),
-            filament: crate::profiles::defaults::default_filament(),
-            process: crate::profiles::defaults::default_process(),
+            printer: crate::profiles::ProfileRef::Inline(Box::new(
+                crate::profiles::defaults::default_printer(),
+            )),
+            filament: crate::profiles::ProfileRef::Inline(Box::new(
+                crate::profiles::defaults::default_filament(),
+            )),
+            process: crate::profiles::ProfileRef::Inline(Box::new(
+                crate::profiles::defaults::default_process(),
+            )),
             overrides: serde_json::json!({ "layer_height": 0.15 }),
         };
         let msg = serde_json::json!({
@@ -565,11 +583,101 @@ mod tests {
                 assert!(settings.is_none());
                 let resolved = profiles
                     .expect("profiles present")
-                    .resolve()
+                    .resolve(None)
                     .expect("resolve");
                 assert!((resolved.layer_height - 0.15).abs() < 1e-9);
             }
             _ => panic!("expected Slice"),
         }
+    }
+
+    /// The shape a browser actually sends: three ids and the user's diff.
+    /// Nothing else — this is the whole parameter half of a slice request.
+    #[test]
+    fn a_slice_names_its_profiles_by_id() {
+        let msg = serde_json::json!({
+            "type": "Slice",
+            "request_uuid": "00000000-0000-0000-0000-000000000005",
+            "scene": [{ "file_id": "00000000-0000-0000-0000-000000000050" }],
+            "profiles": {
+                "printer": "builtin-generic-printer",
+                "filament": "builtin-generic-petg",
+                "process": "builtin-standard-02",
+                "overrides": { "layer_height": 0.15 },
+            },
+        });
+        let parsed: ClientMessage = serde_json::from_value(msg).expect("parse id slice");
+        let ClientMessage::Slice { profiles, .. } = parsed else {
+            panic!("expected Slice");
+        };
+        let selection = profiles.expect("profiles present");
+        assert_eq!(selection.printer.id(), Some("builtin-generic-printer"));
+        assert_eq!(selection.filament.id(), Some("builtin-generic-petg"));
+        assert_eq!(selection.process.id(), Some("builtin-standard-02"));
+
+        let library = crate::profiles::ProfileLibrary::default().seeded();
+        let resolved = selection.resolve(Some(&library)).expect("resolve");
+        assert!(
+            (resolved.layer_height - 0.15).abs() < 1e-9,
+            "the override wins"
+        );
+        assert_eq!(
+            resolved.filament_type, "PETG",
+            "from the referenced filament"
+        );
+    }
+
+    /// An id the engine has never heard of must fail loudly. Quietly falling
+    /// back to defaults would print a plate with settings nobody chose.
+    #[test]
+    fn an_unknown_profile_id_is_an_error_not_a_default() {
+        let selection = crate::profiles::ProfileSelection {
+            printer: crate::profiles::ProfileRef::Id("no-such-printer".into()),
+            filament: crate::profiles::ProfileRef::Id("builtin-generic-pla".into()),
+            process: crate::profiles::ProfileRef::Id("builtin-standard-02".into()),
+            overrides: serde_json::Value::Null,
+        };
+        let library = crate::profiles::ProfileLibrary::default().seeded();
+        let err = selection
+            .resolve(Some(&library))
+            .expect_err("must not resolve");
+        let message = err.to_string();
+        assert!(
+            message.contains("no-such-printer"),
+            "names the id: {message}"
+        );
+        assert!(message.contains("printer"), "names the category: {message}");
+    }
+
+    /// The browser renders the thumbnail and sends it on every slice; it must
+    /// reach the generator without posing as a user override.
+    #[test]
+    fn the_thumbnail_rides_its_own_field() {
+        let msg = serde_json::json!({
+            "type": "Slice",
+            "request_uuid": "00000000-0000-0000-0000-000000000006",
+            "scene": [{ "file_id": "00000000-0000-0000-0000-000000000060" }],
+            "profiles": {
+                "printer": "builtin-generic-printer",
+                "filament": "builtin-generic-pla",
+                "process": "builtin-standard-02",
+            },
+            "thumbnail_png_base64": "iVBORw0KGgo=",
+        });
+        let parsed: ClientMessage = serde_json::from_value(msg).expect("parse");
+        let ClientMessage::Slice {
+            profiles,
+            thumbnail_png_base64,
+            ..
+        } = parsed
+        else {
+            panic!("expected Slice");
+        };
+        assert_eq!(thumbnail_png_base64.as_deref(), Some("iVBORw0KGgo="));
+        let selection = profiles.expect("profiles present");
+        assert!(
+            selection.overrides.is_null(),
+            "an untouched plate sends no overrides at all"
+        );
     }
 }

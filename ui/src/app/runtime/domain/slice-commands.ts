@@ -17,6 +17,13 @@ export interface RuntimeSliceRequest {
    * and the two answers drift.
    */
   profiles: ProfileSelection;
+  /**
+   * Base64 PNG preview of the plate, rendered by the viewer and sent on every
+   * slice. Absent only when the user turned thumbnails off or the capture
+   * failed — no runtime can produce one on its own, because the picture is of
+   * the user's camera, theme and filament colour.
+   */
+  thumbnailPngBase64?: string;
 }
 
 export interface RuntimeSliceResult {

@@ -219,23 +219,21 @@ async fn handle_ws_session(
                     scene: scene_objects,
                     profiles,
                     settings,
+                    thumbnail_png_base64,
                 }) => {
                     logger.log_debug(&format!("[WS] Processing slice request: {}", request_uuid));
                     // Resolve the parameters: prefer the structured profile
                     // selection (engine-owned composition); fall back to the
                     // legacy pre-flattened settings, then to defaults.
-                    let params = match resolve_slice_params(profiles, settings) {
-                        Ok(p) => Box::new(p),
-                        Err(e) => {
-                            logger.log_warn(&format!("[WS] Invalid profile selection: {e}"));
-                            let _ = send_msg(
-                                &mut session,
-                                &ServerMessage::error(format!("Invalid profile selection: {e}")),
-                            )
-                            .await;
-                            continue;
-                        }
-                    };
+                    let params =
+                        match resolve_slice_params(profiles, settings, thumbnail_png_base64) {
+                            Ok(p) => Box::new(p),
+                            Err(e) => {
+                                logger.log_warn(&format!("[WS] Invalid profile selection: {e}"));
+                                let _ = send_msg(&mut session, &ServerMessage::error(e)).await;
+                                continue;
+                            }
+                        };
                     handle_slice(
                         &mut session,
                         request_uuid,
@@ -326,16 +324,37 @@ async fn handle_ws_session(
 /// selection (preferred) or the legacy pre-flattened settings.
 ///
 /// Precedence: `profiles` (engine-owned composition) → `settings` (legacy) →
-/// engine defaults. Returns an error only when a provided profile selection
-/// fails to resolve (e.g. a malformed override diff).
+/// engine defaults.
+///
+/// A selection normally names its profiles by id, so this is where the
+/// server's own `profiles.toml` becomes the thing that is actually sliced from.
+/// Reading it per request rather than caching it is deliberate: the library is
+/// small, and a `PUT /api/profiles/:kind` from another tab must take effect on
+/// the very next slice, not whenever a cache happened to be refreshed.
+///
+/// `thumbnail_png_base64` is folded in afterwards. It is a per-slice artifact
+/// rendered from the browser's 3D view — the engine has no renderer and never
+/// makes one — so it rides its own field rather than posing as a user override.
 fn resolve_slice_params(
     profiles: Option<Box<crate::profiles::ProfileSelection>>,
     settings: Option<Box<crate::settings::params::SlicingParams>>,
-) -> Result<crate::settings::params::SlicingParams, serde_json::Error> {
-    if let Some(selection) = profiles {
-        return selection.resolve();
+    thumbnail_png_base64: Option<String>,
+) -> Result<crate::settings::params::SlicingParams, String> {
+    let mut params = match profiles {
+        Some(selection) => {
+            let library = crate::profiles::ProfileStore::new()
+                .load()
+                .map_err(|e| format!("could not read this slicer's profile library: {e}"))?;
+            selection
+                .resolve(Some(&library))
+                .map_err(|e| e.to_string())?
+        }
+        None => settings.map(|b| *b).unwrap_or_default(),
+    };
+    if let Some(png) = thumbnail_png_base64 {
+        params.thumbnail_png_base64 = Some(png);
     }
-    Ok(settings.map(|b| *b).unwrap_or_default())
+    Ok(params)
 }
 
 /// Process a slice request from the browser.

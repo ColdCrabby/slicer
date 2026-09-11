@@ -268,6 +268,7 @@ export class TauriRuntime implements RuntimePort {
           // Profiles plus the user's diff; the bridge resolves them with the
           // engine's own `profiles::resolve`, exactly as the server does.
           profiles: request.profiles,
+          thumbnail_png_base64: request.thumbnailPngBase64,
         },
       });
 

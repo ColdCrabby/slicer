@@ -206,6 +206,11 @@ pub fn all_schemas() -> Vec<SchemaDefinition> {
             schema: serde_json::to_value(schemars::schema_for!(crate::profiles::PrinterProfile))
                 .expect("failed to serialize PrinterProfile"),
         },
+        SchemaDefinition {
+            schema_id: "slicer-engine/workplate-setup-v1",
+            schema: serde_json::to_value(schemars::schema_for!(crate::workplate::WorkplateSetup))
+                .expect("failed to serialize WorkplateSetup"),
+        },
     ]
 }
 
@@ -216,7 +221,7 @@ mod tests {
     #[test]
     fn test_all_schemas_generates_definitions() {
         let schemas = all_schemas();
-        assert_eq!(schemas.len(), 16);
+        assert_eq!(schemas.len(), 17);
     }
 
     #[test]

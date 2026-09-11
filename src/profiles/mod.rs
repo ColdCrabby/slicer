@@ -58,7 +58,7 @@ pub use library::{Label, LabelTone, ProfileKind, ProfileLibrary};
 pub use meta::{ProfileMeta, ProfileSource};
 pub use printer::{BedShape, PrinterConnection, PrinterConnectionKind, PrinterProfile};
 pub use process::{PrintQuality, ProcessProfile};
-pub use resolve::{resolve, ProfileSelection};
+pub use resolve::{resolve, ProfileRef, ProfileSelection, ResolveError, UnknownProfile};
 
 #[cfg(not(target_arch = "wasm32"))]
 pub use store::ProfileStore;
@@ -67,18 +67,20 @@ pub use store::ProfileStore;
 mod tests {
     use super::*;
 
+    /// A selection that carries its profiles inline, the way the wasm build
+    /// (which has no library to look an id up in) sends them.
     fn selection() -> ProfileSelection {
         ProfileSelection {
-            printer: defaults::default_printer(),
-            filament: defaults::default_filament(),
-            process: defaults::default_process(),
+            printer: resolve::ProfileRef::Inline(Box::new(defaults::default_printer())),
+            filament: resolve::ProfileRef::Inline(Box::new(defaults::default_filament())),
+            process: resolve::ProfileRef::Inline(Box::new(defaults::default_process())),
             overrides: serde_json::Value::Null,
         }
     }
 
     #[test]
     fn resolve_composes_all_three_profiles() {
-        let params = selection().resolve().expect("resolve");
+        let params = selection().resolve(None).expect("resolve");
         // Printer-owned.
         assert_eq!(params.nozzle_diameter_mm, 0.4);
         assert_eq!(params.retract_mm, 0.8);
@@ -94,7 +96,7 @@ mod tests {
 
     #[test]
     fn resolve_stamps_filament_identity_and_density() {
-        let params = selection().resolve().expect("resolve");
+        let params = selection().resolve(None).expect("resolve");
         // Identity / display fields come from the chosen filament profile and
         // are surfaced in the G-code metadata footer.
         assert_eq!(params.filament_type, "PLA");
@@ -109,7 +111,7 @@ mod tests {
     /// what the material cost (issue #23).
     #[test]
     fn resolve_stamps_machine_identity_and_filament_price() {
-        let params = selection().resolve().expect("resolve");
+        let params = selection().resolve(None).expect("resolve");
         assert_eq!(params.printer_vendor, "Generic");
         assert_eq!(params.printer_model, "FDM 220");
         assert_eq!(params.filament_cost_per_kg, 25.0);
@@ -121,7 +123,7 @@ mod tests {
         // so an explicit user override still wins.
         let mut sel = selection();
         sel.overrides = serde_json::json!({ "filament_cost_per_kg": 42.0 });
-        let params = sel.resolve().expect("resolve");
+        let params = sel.resolve(None).expect("resolve");
         assert_eq!(params.filament_cost_per_kg, 42.0);
     }
 
@@ -130,8 +132,8 @@ mod tests {
         // A PETG filament (1.27 g/cm³) must not fall back to the PLA default
         // (1.24) — otherwise the metadata weight would be wrong for non-PLA.
         let mut sel = selection();
-        sel.filament = defaults::default_petg();
-        let params = sel.resolve().expect("resolve");
+        sel.filament = resolve::ProfileRef::Inline(Box::new(defaults::default_petg()));
+        let params = sel.resolve(None).expect("resolve");
         assert_eq!(params.filament_type, "PETG");
         assert_eq!(params.filament_name, "Generic PETG");
         assert_eq!(params.filament_color, "#2f7fb8");
@@ -144,7 +146,7 @@ mod tests {
         // explicit user override still wins.
         let mut sel = selection();
         sel.overrides = serde_json::json!({ "filament_density_g_cm3": 2.0 });
-        let params = sel.resolve().expect("resolve");
+        let params = sel.resolve(None).expect("resolve");
         assert_eq!(params.filament_density_g_cm3, 2.0);
     }
 
@@ -156,7 +158,7 @@ mod tests {
             "nozzle_temp": 225.0,
             "adhesion_type": "brim",
         });
-        let params = sel.resolve().expect("resolve");
+        let params = sel.resolve(None).expect("resolve");
         assert_eq!(params.layer_height, 0.15);
         assert_eq!(params.nozzle_temp, 225.0);
         assert_eq!(
@@ -171,8 +173,8 @@ mod tests {
     fn empty_overrides_are_a_no_op() {
         let mut sel = selection();
         sel.overrides = serde_json::json!({});
-        let a = sel.resolve().expect("resolve");
-        let b = selection().resolve().expect("resolve");
+        let a = sel.resolve(None).expect("resolve");
+        let b = selection().resolve(None).expect("resolve");
         assert_eq!(a, b);
     }
 

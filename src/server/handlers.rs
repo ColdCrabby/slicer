@@ -126,6 +126,52 @@ pub async fn put_profiles_category_handler(
     }
 }
 
+/// `GET /api/workplates/{request_uuid}` — the saved setup for one plate.
+///
+/// Returns `{}` for a plate nobody has configured, rather than 404: "this plate
+/// has no saved setup" and "this plate does not exist" are the same thing to the
+/// caller, which is about to render the defaults either way.
+pub async fn get_workplate_handler(
+    path: web::Path<String>,
+    state: web::Data<AppState>,
+) -> actix_web::HttpResponse {
+    let Ok(uuid) = uuid::Uuid::parse_str(&path.into_inner()) else {
+        return actix_web::HttpResponse::BadRequest()
+            .json(serde_json::json!({ "error": "invalid workplate uuid" }));
+    };
+    match state.db.get_workplate_setup(uuid).await {
+        Ok(setup) => actix_web::HttpResponse::Ok()
+            .json(setup.unwrap_or_else(crate::workplate::WorkplateSetup::default)),
+        Err(e) => actix_web::HttpResponse::InternalServerError()
+            .json(serde_json::json!({ "error": e.to_string() })),
+    }
+}
+
+/// `PUT /api/workplates/{request_uuid}` — replace one plate's saved setup.
+///
+/// Whole-document, last writer wins, matching how a profile category is
+/// written. The body is a [`WorkplateSetup`](crate::workplate::WorkplateSetup):
+/// three profile ids, the user's sparse override diff, and where each object
+/// sits. Never mesh bytes, and never a copy of a profile.
+pub async fn put_workplate_handler(
+    path: web::Path<String>,
+    body: web::Json<crate::workplate::WorkplateSetup>,
+    state: web::Data<AppState>,
+) -> actix_web::HttpResponse {
+    let Ok(uuid) = uuid::Uuid::parse_str(&path.into_inner()) else {
+        return actix_web::HttpResponse::BadRequest()
+            .json(serde_json::json!({ "error": "invalid workplate uuid" }));
+    };
+    let mut setup = body.into_inner();
+    setup.updated_at = Some(chrono::Utc::now().to_rfc3339());
+
+    match state.db.save_workplate_setup(uuid, &setup).await {
+        Ok(()) => actix_web::HttpResponse::Ok().json(setup),
+        Err(e) => actix_web::HttpResponse::InternalServerError()
+            .json(serde_json::json!({ "error": e.to_string() })),
+    }
+}
+
 /// Query for `GET /api/profiles/export`.
 #[derive(serde::Deserialize)]
 pub struct ProfileExportQuery {

@@ -204,6 +204,7 @@ export class CloudRuntime implements RuntimePort {
       request_uuid: requestUuid,
       scene,
       profiles: request.profiles,
+      ...(request.thumbnailPngBase64 ? { thumbnail_png_base64: request.thumbnailPngBase64 } : {}),
     };
 
     this.pendingSliceId = request.sliceId;

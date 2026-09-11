@@ -31,6 +31,8 @@ export type SlicerWorkerRequest =
       type: 'slice';
       sliceId: string;
       profiles: WorkerProfileSelection;
+      /** Base64 PNG rendered by the viewer; folded in after resolution. */
+      thumbnailPngBase64?: string;
       objects: WorkerSliceObject[];
     };
 

@@ -38,16 +38,31 @@ ones you deliberately changed on that plate.
 
 Your changes are saved to the plate as you make them; the panel says so briefly
 underneath. Come back to a plate a week later, from the tab bar or your history,
-and it opens with the printer, filament and profile it was set up with and the
-changes you made on top — even if you have been printing something else in
-PETG since.
+and it opens with the printer, filament and profile it was set up with, where
+you put each model, and the changes you made on top — even if you have been
+printing something else in PETG since.
+
+Where that is saved depends on how you run Cold Crabby, and it is the same rule
+as your profiles: on the server if you self-host, on the machine if you use the
+desktop app, and in the browser only if you use the web version. Clearing your
+browser does not cost you your plates unless the browser is all you have.
 
 ::: details Advanced — what actually gets sliced
-Cold Crabby sends the slicer your three chosen profiles and your list of
-changes, and the slicer combines them: engine defaults, then printer, then
-filament, then process, then your changes, each winning over the one before.
-The combining happens in one place, in the engine, so the command line, the
+Cold Crabby tells the slicer *which* printer, filament and print profile you
+picked — by name, not by sending copies of them — plus your list of changes. The
+slicer already has your profiles, and combines them itself: engine defaults,
+then printer, then filament, then process, then your changes, each winning over
+the one before. The combining happens in one place, so the command line, the
 desktop app and the browser cannot disagree about what a profile means.
+
+Naming them rather than sending them is also what makes an edit stick. If every
+slice shipped a copy of your profiles, the last browser to slice would quietly
+overwrite a change you made in another tab, or that a colleague made on a shared
+slicer.
+
+The one large thing still sent every time is the preview picture embedded in
+your G-code, because it is a picture of *your* 3D view — your camera angle, your
+theme, your filament colour — and only your browser can draw it.
 :::
 
 ## The five settings that matter most

@@ -55,7 +55,7 @@ async function handleMessage(message: SlicerWorkerRequest): Promise<void> {
         break;
       case 'slice':
         await ensureWasm();
-        runSlice(message.sliceId, message.profiles, message.objects);
+        runSlice(message.sliceId, message.profiles, message.objects, message.thumbnailPngBase64);
         break;
     }
   } catch (error) {
@@ -89,6 +89,7 @@ function runSlice(
   sliceId: string,
   profiles: WorkerProfileSelection,
   objects: WorkerSliceObject[],
+  thumbnailPngBase64?: string,
 ): void {
   const totalStart = performance.now();
   emitPhaseStart(sliceId, 'total');
@@ -108,6 +109,11 @@ function runSlice(
       );
     }
     const settings = resolveSliceParams(profiles);
+    // Rendered by the viewer on the main thread and handed over as-is. The
+    // engine never makes one; it only embeds what it is given.
+    if (thumbnailPngBase64) {
+      settings['thumbnail_png_base64'] = thumbnailPngBase64;
+    }
 
     const meshLoadStart = performance.now();
     emitPhaseStart(sliceId, 'mesh_load');

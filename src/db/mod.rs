@@ -150,6 +150,66 @@ impl Database {
         Ok(Self { conn })
     }
 
+    // ── Workplate setup ───────────────────────────────────────────────────────
+
+    /// The saved setup for a workplate, or `None` when it was never configured
+    /// (or the plate does not exist).
+    ///
+    /// A document the current build cannot parse is treated as absent rather
+    /// than as an error: the plate still opens, with the defaults, which is a
+    /// far better outcome than refusing to show the user their models.
+    pub async fn get_workplate_setup(
+        &self,
+        request_uuid: Uuid,
+    ) -> Result<Option<crate::workplate::WorkplateSetup>> {
+        let row = requests::Entity::find_by_id(request_uuid.to_string())
+            .one(&self.conn)
+            .await?;
+        Ok(row
+            .and_then(|r| r.setup)
+            .and_then(|json| serde_json::from_str(&json).ok()))
+    }
+
+    /// Replace a workplate's saved setup. Whole-document, last writer wins —
+    /// the same sync unit the profile library uses.
+    ///
+    /// Creates the plate's row if it does not exist yet, so a plate configured
+    /// before anything was uploaded to it is still remembered.
+    pub async fn save_workplate_setup(
+        &self,
+        request_uuid: Uuid,
+        setup: &crate::workplate::WorkplateSetup,
+    ) -> Result<()> {
+        let json = serde_json::to_string(setup)?;
+        let now = Utc::now().to_rfc3339();
+
+        match requests::Entity::find_by_id(request_uuid.to_string())
+            .one(&self.conn)
+            .await?
+        {
+            Some(row) => {
+                let mut active: requests::ActiveModel = row.into();
+                active.setup = Set(Some(json));
+                active.updated_at = Set(now);
+                active.update(&self.conn).await?;
+            }
+            None => {
+                requests::ActiveModel {
+                    request_uuid: Set(request_uuid.to_string()),
+                    status: Set(RequestStatus::AwaitingUpload.to_db().to_owned()),
+                    download_file_path: Set(None),
+                    download_file_size: Set(None),
+                    created_at: Set(now.clone()),
+                    updated_at: Set(now),
+                    setup: Set(Some(json)),
+                }
+                .insert(&self.conn)
+                .await?;
+            }
+        }
+        Ok(())
+    }
+
     // ── Write helpers ─────────────────────────────────────────────────────────
 
     /// Create a new request session in the `AwaitingUpload` state.
@@ -164,6 +224,8 @@ impl Database {
             download_file_size: Set(None),
             created_at: Set(now_str.clone()),
             updated_at: Set(now_str),
+            // Filled in when the user configures the plate, not at upload.
+            setup: Set(None),
         };
 
         model.insert(&self.conn).await?;

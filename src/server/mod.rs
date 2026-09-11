@@ -189,6 +189,14 @@ async fn run_server(
                         web::put().to(handlers::put_profiles_category_handler),
                     )
                     .route(
+                        "/workplates/{request_uuid}",
+                        web::get().to(handlers::get_workplate_handler),
+                    )
+                    .route(
+                        "/workplates/{request_uuid}",
+                        web::put().to(handlers::put_workplate_handler),
+                    )
+                    .route(
                         "/history",
                         web::delete().to(handlers::delete_history_handler),
                     ),

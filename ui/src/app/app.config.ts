@@ -17,6 +17,7 @@ import { RemoteCatalogSource } from './services/catalog/remote-catalog-source';
 import { KeyboardShortcuts } from './services/keyboard-shortcuts/keyboard-shortcuts';
 import { NavigationProgress } from './services/navigation-progress';
 import { provideProfilePersistence } from './services/profiles/profile-persistence';
+import { provideWorkplatePersistence } from './services/workplate-persistence';
 import { ProfileSync } from './services/profiles/profile-sync';
 import { IdleRoutePreload } from './services/route-preload';
 import { NexusTitleStrategy } from './services/title-strategy';
@@ -36,6 +37,7 @@ export const appConfig: ApplicationConfig = {
     provideCatalogClient(environment.catalogApiUrl),
     provideMarkdown(),
     provideProfilePersistence(),
+    provideWorkplatePersistence(),
     provideAppInitializer(() => {
       inject(AccentService);
       inject(KeyboardShortcuts);

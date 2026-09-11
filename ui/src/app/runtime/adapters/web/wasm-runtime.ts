@@ -186,6 +186,7 @@ export class WasmRuntime implements RuntimePort {
       type: 'slice',
       sliceId: request.sliceId,
       profiles: request.profiles as unknown as Record<string, unknown>,
+      thumbnailPngBase64: request.thumbnailPngBase64,
       objects,
     };
 

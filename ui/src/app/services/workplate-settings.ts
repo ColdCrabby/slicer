@@ -1,6 +1,7 @@
 import { Injectable, computed, inject, signal } from '@angular/core';
 import type { SettingContractId } from '../models/setting-contract';
 import { BrowserStorage } from './browser-storage';
+import { WorkplatePersistence, type WorkplateSetup } from './workplate-persistence';
 
 /** Where the per-plate diffs live. Exported so the Danger Zone can wipe it. */
 export const WORKPLATE_SETTINGS_STORAGE_KEY = 'workplate.settings';
@@ -29,9 +30,16 @@ export interface WorkplateSettings {
   overrides: Record<string, unknown>;
   /** Presets the overrides are measured against. */
   presets: PlatePresetIds;
+  /**
+   * Where each object sat, and which uploaded file it came from — the plate's
+   * "what and where". Recorded so reopening a plate restores the arrangement;
+   * the slice request carries its own copy of the live scene regardless, so a
+   * stale record here can never change what gets printed.
+   */
+  objects: WorkplateSetup['objects'];
 }
 
-const EMPTY: WorkplateSettings = Object.freeze({ overrides: {}, presets: {} });
+const EMPTY: WorkplateSettings = Object.freeze({ overrides: {}, presets: {}, objects: [] });
 
 /**
  * Remembers each workplate's slice setup: which printer / filament / process it
@@ -48,10 +56,14 @@ const EMPTY: WorkplateSettings = Object.freeze({ overrides: {}, presets: {} });
  * was measured against: reopening a plate that was set up for PETG must bring
  * PETG back, not reinterpret its `-15 °C` against whatever is selected now.
  *
- * Storage matches {@link WorkplateNames} — server scenes are ephemeral per WS
- * connection, so plate-scoped UI state lives in `localStorage` and survives
- * reloads. Writes are debounced, which is why {@link status} has a real
- * `pending` state to report rather than a decorative one.
+ * **Persisted where the engine runs**, not only in this browser — the same rule
+ * the profile library follows, and for the same reason: a cloud user who clears
+ * their browser must not lose their plates. `localStorage` stays the fast local
+ * cache and is the *only* copy in the web build, where the browser is the
+ * engine. See {@link WorkplatePersistence}.
+ *
+ * Writes are debounced, which is why {@link status} has a real `pending` state
+ * to report rather than a decorative one.
  */
 @Injectable({ providedIn: 'root' })
 export class WorkplateSettingsStore {
@@ -72,10 +84,17 @@ export class WorkplateSettingsStore {
   /** Why the last write failed (a full storage quota, typically). */
   readonly error = this._error.asReadonly();
 
+  private readonly persistence = inject(WorkplatePersistence);
+
+  /** Plates already pulled from the engine, so each is fetched at most once. */
+  private readonly hydrated = new Set<string>();
+
   private debounce: ReturnType<typeof setTimeout> | null = null;
   private settle: ReturnType<typeof setTimeout> | null = null;
   /** Whether the pending write has something to report to the user. */
   private announce = false;
+  /** Plates changed since the last write, so only those are sent up. */
+  private readonly touched = new Set<string>();
 
   constructor() {
     // A pending write must not die with the tab. Both events fire before the
@@ -132,6 +151,61 @@ export class WorkplateSettingsStore {
   }
 
   /**
+   * Record where the objects sit. Silent — the user is dragging a model, and
+   * they can see it move; a "Saved" line for that is noise.
+   */
+  setObjects(uuid: string | null | undefined, objects: WorkplateSettings['objects']): void {
+    if (JSON.stringify(this.settingsFor(uuid).objects ?? []) === JSON.stringify(objects ?? [])) {
+      return;
+    }
+    this.#update(uuid, (plate) => ({ ...plate, objects }), false);
+  }
+
+  /**
+   * Pull a plate's setup from the engine, once, and adopt it locally.
+   *
+   * The engine's copy wins on a cold open: it is the one that survived the
+   * browser being cleared, and it is what another device would have written.
+   * A plate this browser has already loaded is left alone — re-adopting
+   * mid-session would fight the user's live edits.
+   *
+   * Failure is not fatal: the local cache is still there, and a plate that
+   * opens with the settings this browser remembers beats one that refuses to
+   * open at all.
+   */
+  async hydrate(uuid: string | null | undefined): Promise<void> {
+    const key = this.#key(uuid);
+    if (!this.persistence.isEngineBacked || key === DRAFT_KEY || this.hydrated.has(key)) {
+      return;
+    }
+    this.hydrated.add(key);
+    try {
+      // "Nothing saved" arrives two ways: the REST route answers with an empty
+      // document rather than a 404, the Tauri command answers with null.
+      const remote = await this.persistence.load(key);
+      const adopted: WorkplateSettings = {
+        overrides: (remote?.overrides as Record<string, unknown>) ?? {},
+        presets: {
+          printer: remote?.presets?.printer ?? undefined,
+          filament: remote?.presets?.filament ?? undefined,
+          process: remote?.presets?.process ?? undefined,
+        },
+        objects: remote?.objects ?? [],
+      };
+      if (this.#isEmpty(adopted)) {
+        // The engine has nothing for this plate; whatever is cached locally is
+        // the only record, so push it up rather than blanking it.
+        void this.#persistRemote(key);
+        return;
+      }
+      this.plates.update((plates) => ({ ...plates, [key]: adopted }));
+      this.storage.writeJson(WORKPLATE_SETTINGS_STORAGE_KEY, this.plates(), 'local');
+    } catch (error) {
+      console.warn(`[workplate] could not load '${key}' from the engine; using local cache`, error);
+    }
+  }
+
+  /**
    * Move the draft plate's settings onto the uuid the engine just assigned.
    *
    * A plate is configured before it is uploaded — settings changed on the drop
@@ -169,7 +243,41 @@ export class WorkplateSettingsStore {
   ): void {
     const key = this.#key(uuid);
     this.plates.update((plates) => ({ ...plates, [key]: change(plates[key] ?? EMPTY) }));
+    this.touched.add(key);
     this.#schedule(announce);
+  }
+
+  /** Send one plate's document to the engine. Never throws at the caller. */
+  async #persistRemote(key: string): Promise<void> {
+    if (!this.persistence.isEngineBacked || key === DRAFT_KEY) {
+      return;
+    }
+    const plate = this.plates()[key];
+    if (!plate) {
+      return;
+    }
+    try {
+      await this.persistence.save(key, {
+        presets: plate.presets,
+        overrides: plate.overrides,
+        objects: plate.objects ?? [],
+      });
+    } catch (error) {
+      // Local storage already holds it; surface the failure without losing it.
+      this._error.set(error instanceof Error ? error.message : String(error));
+      this._status.set('error');
+    }
+  }
+
+  /** Whether a document carries anything the defaults would not supply. */
+  #isEmpty(plate: WorkplateSettings): boolean {
+    return (
+      Object.keys(plate.overrides ?? {}).length === 0 &&
+      !plate.presets?.printer &&
+      !plate.presets?.filament &&
+      !plate.presets?.process &&
+      (plate.objects?.length ?? 0) === 0
+    );
   }
 
   #schedule(announce: boolean): void {
@@ -195,6 +303,13 @@ export class WorkplateSettingsStore {
     try {
       this.storage.writeJson(WORKPLATE_SETTINGS_STORAGE_KEY, this.plates(), 'local');
       this._error.set(null);
+      // Write through to the engine for every plate this pass touched. The
+      // local cache is already written above, so a failed upload degrades to
+      // "this browser remembers it" rather than losing the edit.
+      for (const key of this.touched) {
+        void this.#persistRemote(key);
+      }
+      this.touched.clear();
       if (!announce) {
         return;
       }

@@ -61,6 +61,48 @@ pub struct ProfileLibrary {
     pub labels: Vec<Label>,
 }
 
+impl ProfileLibrary {
+    /// The printer with this id, if the library holds one.
+    pub fn printer(&self, id: &str) -> Option<&PrinterProfile> {
+        self.printers.iter().find(|p| p.meta.id == id)
+    }
+
+    /// The filament with this id, if the library holds one.
+    pub fn filament(&self, id: &str) -> Option<&FilamentProfile> {
+        self.filaments.iter().find(|f| f.meta.id == id)
+    }
+
+    /// The process with this id, if the library holds one.
+    pub fn process(&self, id: &str) -> Option<&ProcessProfile> {
+        self.processes.iter().find(|p| p.meta.id == id)
+    }
+
+    /// Fill any empty category with the offline built-in default.
+    ///
+    /// **Every category must hold at least one entry**, because a slice request
+    /// names its profiles by id and the engine has to be able to resolve them.
+    /// The UI has always enforced this on its own copy — built-ins are seeded on
+    /// first run and cannot be deleted — but the engine's copy could sit empty
+    /// indefinitely: it is only written when the user *edits* something, so a
+    /// category nobody had customised was never sent up. That was invisible
+    /// while slice requests carried whole profiles inline; it stops being
+    /// invisible the moment they carry ids.
+    ///
+    /// A category the user has populated is left exactly as it is.
+    pub fn seeded(mut self) -> Self {
+        if self.printers.is_empty() {
+            self.printers = vec![super::defaults::default_printer()];
+        }
+        if self.filaments.is_empty() {
+            self.filaments = super::defaults::default_filaments();
+        }
+        if self.processes.is_empty() {
+            self.processes = vec![super::defaults::default_process()];
+        }
+        self
+    }
+}
+
 /// One syncable profile category — the granularity of a write-through.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "lowercase")]

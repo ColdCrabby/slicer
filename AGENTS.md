@@ -61,6 +61,7 @@ Every module owns its own explanation. Start at the README, not the source.
 | `src/settings/` | `SlicingParams`, validation, the JSON Schema | [README](src/settings/README.md) |
 | `src/profiles/` | The user's printers, filaments, processes; export | [README](src/profiles/README.md) |
 | `src/printer/` | Outbound transport to real printers (native only) | [README](src/printer/README.md) |
+| `src/workplate/` | The saved form of a plate — presets, diff, placements | [README](src/workplate/README.md) |
 | `src/server/` | HTTP + WebSocket host, the G-code result cache | [README](src/server/README.md) |
 | `src/config/` | `slicer.toml`, `config_dir()` | [README](src/config/README.md) |
 | `src/db/` | SQLite history + migrations | [README](src/db/README.md) |
@@ -99,8 +100,22 @@ least once, with real consequences. The linked README explains why.
   settings section and the post-upgrade dialog can never drift apart.
   → [RELEASING.md](RELEASING.md)
 - **Profiles persist where the engine runs**, not only in `localStorage`, or a
-  cloud user who clears their browser loses every printer they own.
+  cloud user who clears their browser loses every printer they own. The same
+  rule covers **workplates** — a plate's presets, override diff and object
+  placements. → [profiles](src/profiles/README.md) ·
+  [workplate](src/workplate/README.md)
+- **A slice request names its profiles; it never carries them.** The client
+  sends three ids plus the user's sparse diff, and the engine composes
+  `defaults → printer → filament → process → overrides` from its own library.
+  Shipping the profiles would let a stale client copy silently overwrite an edit
+  made elsewhere — and every category is seeded engine-side precisely so an id
+  always resolves. Inline profiles are the wasm build's fallback only, because
+  there the browser *is* the engine.
   → [profiles](src/profiles/README.md)
+- **The thumbnail is rendered in the browser and sent on every slice.** It is a
+  picture of the user's own camera, theme and filament colour; the engine has no
+  renderer and must never grow one. It travels in its own field, not in the
+  override diff. → [gcode](src/gcode/README.md)
 - **Printer traffic goes slicer → printer, never browser → printer**, and the
   transport is chosen at *runtime*, not from a build-time constant.
   → [printer](src/printer/README.md)

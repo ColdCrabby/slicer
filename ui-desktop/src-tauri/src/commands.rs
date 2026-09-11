@@ -74,6 +74,34 @@ pub fn profiles_save_category(kind: String, items: Value) -> Result<Value, Strin
     serde_json::to_value(library).map_err(|e| e.to_string())
 }
 
+// ── Workplates ───────────────────────────────────────────────────────────────
+//
+// The desktop has no database — its history is in memory — so a plate's saved
+// setup lives beside `profiles.toml` in the config dir. Same reasoning as the
+// profile library: what the user built has to survive the webview's storage,
+// and "next to the engine" is where the engine can still find it.
+
+/// Load one workplate's saved setup, or `null` when it was never configured.
+#[tauri::command]
+pub fn workplate_load(request_uuid: String) -> Result<Value, String> {
+    let setup = slicer_engine::workplate::WorkplateStore::new()
+        .load(&request_uuid)
+        .map_err(|e| e.to_string())?;
+    serde_json::to_value(setup).map_err(|e| e.to_string())
+}
+
+/// Replace one workplate's saved setup. Whole-document, last writer wins.
+#[tauri::command]
+pub fn workplate_save(request_uuid: String, setup: Value) -> Result<Value, String> {
+    let mut parsed: slicer_engine::workplate::WorkplateSetup =
+        serde_json::from_value(setup).map_err(|e| format!("invalid workplate setup: {e}"))?;
+    parsed.updated_at = Some(chrono::Utc::now().to_rfc3339());
+    slicer_engine::workplate::WorkplateStore::new()
+        .save(&request_uuid, &parsed)
+        .map_err(|e| e.to_string())?;
+    serde_json::to_value(parsed).map_err(|e| e.to_string())
+}
+
 /// A rendered profile export, ready for the webview to save or share.
 #[derive(serde::Serialize)]
 pub struct ProfileExport {

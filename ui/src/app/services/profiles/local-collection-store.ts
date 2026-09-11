@@ -75,8 +75,16 @@ export class LocalCollectionStore<T extends ProfileMeta> {
 
   /**
    * Pull the authoritative copy from the engine store on startup. No-op on the
-   * browser-local (wasm) backend. On the first run against an empty engine
-   * store, migrate any existing local user data up instead of clobbering it.
+   * browser-local (wasm) backend. On the first run against an engine that holds
+   * nothing of the user's own, migrate this browser's library up instead of
+   * clobbering it.
+   *
+   * "Holds nothing of the user's own" is deliberately not "is empty". The
+   * engine seeds every sliceable category with its built-in default, because a
+   * slice request names its profiles by id and an empty category would leave
+   * nothing to resolve. A library of nothing but built-ins is therefore the
+   * real first-run signal — testing for emptiness here would silently discard a
+   * library someone had built up in this browser before the engine ever saw it.
    */
   private async hydrate(): Promise<void> {
     if (!this.persistence.isEngineBacked) {
@@ -87,9 +95,10 @@ export class LocalCollectionStore<T extends ProfileMeta> {
       const library = await this.persistence.loadLibrary();
       const remote = (library[this.category] as T[] | undefined) ?? [];
       const hasLocalUserData = this._items().some((item) => item.source !== 'builtin');
-      if (remote.length === 0 && hasLocalUserData) {
-        // First run: the engine has nothing yet but this browser does — push
-        // the local library up so the user keeps what they already made.
+      const remoteIsUntouched = remote.every((item) => item.source === 'builtin');
+      if (remoteIsUntouched && hasLocalUserData) {
+        // First run: the engine has only its own defaults but this browser has
+        // real work in it — push the local library up so the user keeps it.
         await this.persistence.saveCategory(this.category, this._items());
       } else {
         const merged = this.mergeSeed(remote);

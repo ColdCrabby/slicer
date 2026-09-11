@@ -18,6 +18,7 @@ import { onIdle } from './idle';
 import { ModelSourceRegistry, nativePathOf } from './model-source';
 import { NotificationService } from './notifications';
 import { ActiveSelection } from './profiles/active-selection';
+import { ProfilePersistence } from './profiles/profile-persistence';
 import { SceneEngine } from './scene-engine';
 import { SceneCommand } from './scene-command/scene-command';
 import { AppVersion } from './app-version';
@@ -96,6 +97,7 @@ export class Slicer {
   private readonly sceneCommand = inject(SceneCommand);
   private readonly workplateObjects = inject(WorkplateObjects);
   private readonly activeSelection = inject(ActiveSelection);
+  private readonly profilePersistence = inject(ProfilePersistence);
   private readonly appVersion = inject(AppVersion);
   private readonly viewerControl = inject(ViewerControl);
   private readonly workplateNames = inject(WorkplateNames);
@@ -377,6 +379,37 @@ export class Slicer {
         this.lastWorkplateUuid = uuid;
         this.clearSliceState();
         this.viewerControl.viewMode.set('model');
+      });
+    });
+
+    // Pull a plate's saved setup from the engine the first time it is opened,
+    // before anything is recorded back. Engine-backed runtimes only: in the web
+    // build the browser is the engine and the local cache already *is* the
+    // document.
+    effect(() => {
+      const uuid = this.currentRequestUuid();
+      untracked(() => void this.workplateSettings.hydrate(uuid));
+    });
+
+    // Remember where the objects sit. The plate is restored from this; the
+    // slice request still carries the live scene in full, so a record that is a
+    // few hundred milliseconds behind can never change what gets printed.
+    effect(() => {
+      const snapshot = this.sceneEngine.snapshot();
+      untracked(() => {
+        this.workplateSettings.setObjects(
+          this.currentRequestUuid(),
+          snapshot.objects.map((object) => ({
+            file_id: object.source_id ?? '',
+            part_index: object.source_part ?? 0,
+            transform: {
+              translation: object.translation,
+              euler_xyz_deg: object.euler_xyz_deg,
+              scale: object.scale,
+            },
+            support_paint: object.support_paint,
+          })),
+        );
       });
     });
 
@@ -696,28 +729,35 @@ export class Slicer {
   }
 
   /**
-   * Build the slice request: the three active profiles, already in the engine's
-   * own shape, plus the plate's sparse override diff.
+   * Build the parameter half of a slice request: which printer, filament and
+   * process, plus the plate's sparse override diff. That is the whole thing.
    *
-   * Nothing inherited is sent. The engine resolves
-   * `defaults → printer → filament → process → overrides` itself, so a value
-   * the user never touched arrives from the profile the engine already holds
-   * rather than from a flattened copy this client made of it — which is what
-   * keeps a profile edit from being silently undone by a stale snapshot.
+   * **Profiles go by id wherever the engine has a library to look them up in.**
+   * The library lives with the engine and this client writes through to it on
+   * every edit, so naming a profile is enough — and it is more correct than
+   * sending one, because a client's copy shipped with every slice would quietly
+   * win over an edit made in another tab or by someone else on a self-hosted
+   * instance. It is also the difference between about seventy bytes and two and
+   * a half kilobytes on a plate where nothing was touched.
    *
-   * `extraOverrides` carries the per-slice things that are not settings at all
-   * but ride the same channel: the captured thumbnail, above all. Support paint
-   * is not among them — it belongs to the object and travels with the scene.
+   * The web build is the exception, and the reason {@link ProfileRef} has two
+   * forms: there the browser *is* the engine, there is no `profiles.toml`
+   * behind it, and an id would name something nothing can resolve. That runtime
+   * sends the profiles themselves.
+   *
+   * Nothing inherited is ever sent. The engine composes
+   * `defaults → printer → filament → process → overrides` itself.
    */
-  private buildProfileSelection(extraOverrides: Record<string, unknown> = {}): ProfileSelection {
+  private buildProfileSelection(): ProfileSelection {
+    const byId = this.profilePersistence.isEngineBacked;
+    const printer = this.activeSelection.printer();
+    const filament = this.activeSelection.filament();
+    const process = this.activeSelection.profile();
     return {
-      printer: this.activeSelection.printer(),
-      filament: this.activeSelection.filament(),
-      process: this.activeSelection.profile(),
-      overrides: {
-        ...this.workplateSettings.settingsFor(this.currentRequestUuid()).overrides,
-        ...extraOverrides,
-      },
+      printer: byId ? printer.id : printer,
+      filament: byId ? filament.id : filament,
+      process: byId ? process.id : process,
+      overrides: this.workplateSettings.settingsFor(this.currentRequestUuid()).overrides,
     };
   }
 
@@ -770,19 +810,25 @@ export class Slicer {
       // thumbnail and at what size. It is never sent: the request carries the
       // profiles plus the diff, and the engine resolves the rest.
       const effective = this.settings() as unknown as Record<string, unknown>;
-      const thumbnailOverrides: Record<string, unknown> = {};
 
+      // The thumbnail is rendered here, from this viewer, and sent on every
+      // slice — the engine has no renderer and the picture is of the user's own
+      // camera, theme and filament colour, so there is nothing for it to fall
+      // back to. It travels in its own field rather than the override diff: it
+      // is an artifact of this slice, not a setting anybody changed, and while
+      // it rode in `overrides` an untouched plate looked like it carried a
+      // 30 kB deviation.
+      let thumbnail: string | undefined;
       if (this.thumbnailEnabled(effective)) {
-        const thumbnail = await this.viewerControl.captureSliceThumbnail({
+        const captured = await this.viewerControl.captureSliceThumbnail({
           sizePx: this.thumbnailSizePx(effective),
           view: this.thumbnailView(effective),
           theme: this.thumbnailTheme(effective),
           colorMode: this.thumbnailColorMode(effective),
           customColor: this.thumbnailCustomColor(effective),
         });
-        if (thumbnail) {
-          thumbnailOverrides['thumbnail_size_px'] = thumbnail.sizePx;
-          thumbnailOverrides['thumbnail_png_base64'] = thumbnail.pngBase64;
+        if (captured) {
+          thumbnail = captured.pngBase64;
         } else {
           this.outputLog.update((log) => [
             ...log,
@@ -790,7 +836,7 @@ export class Slicer {
           ]);
         }
       }
-      const profileSelection = this.buildProfileSelection(thumbnailOverrides);
+      const profileSelection = this.buildProfileSelection();
 
       this.status.set('slicing');
       this.sliceStartedAt = performance.now();
@@ -832,6 +878,7 @@ export class Slicer {
         model,
         scene,
         profiles: profileSelection,
+        thumbnailPngBase64: thumbnail,
       });
 
       // A workplate switch (opening another plate / history entry) cancels the
