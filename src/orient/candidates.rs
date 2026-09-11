@@ -24,6 +24,10 @@ const MAX_FLAT_CANDIDATES: usize = 64;
 ///
 /// If [`AutoOrientOptions::allow_rotations`] is `true`, also adds ~128 points
 /// uniformly distributed on the sphere (Fibonacci spiral).
+///
+/// The mesh's own `−Z` is always **first** in the result so the caller can give
+/// "stay as the author placed it" the tie-break, and so a model that is already
+/// well-oriented is never spun for a floating-point-sized improvement.
 pub(super) fn build_candidates(
     _mesh: &Mesh,
     options: &AutoOrientOptions,
@@ -60,20 +64,20 @@ pub(super) fn build_candidates(
     buckets.sort_unstable_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
     buckets.truncate(MAX_FLAT_CANDIDATES);
 
-    let mut candidates: Vec<Vec3> = buckets
-        .into_iter()
-        .filter_map(|(n_sum, area)| {
-            let n = (n_sum / area as f32).normalize_or_zero();
-            // Reject near-degenerate normals whose magnitude is less than 0.5
-            // (squared: 0.25). This guards against floating-point cancellation
-            // when many tiny faces produce an almost-zero sum vector.
-            if n.length_squared() > 0.25 {
-                Some(n)
-            } else {
-                None
-            }
-        })
-        .collect();
+    // Lead with the mesh's own −Z so "leave it as the author exported it" wins
+    // every tie — see `STAY_PUT_BONUS`, which keys off index 0.
+    let mut candidates: Vec<Vec3> = vec![Vec3::NEG_Z];
+    candidates.extend(buckets.into_iter().filter_map(|(n_sum, area)| {
+        let n = (n_sum / area as f32).normalize_or_zero();
+        // Reject near-degenerate normals whose magnitude is less than 0.5
+        // (squared: 0.25). This guards against floating-point cancellation
+        // when many tiny faces produce an almost-zero sum vector.
+        if n.length_squared() > 0.25 {
+            Some(n)
+        } else {
+            None
+        }
+    }));
 
     // -------------------------------------------------------------------------
     // 2. Fibonacci sphere (allow_rotations only)
@@ -95,10 +99,6 @@ pub(super) fn build_candidates(
             ));
         }
     }
-
-    // Also always include the mesh's current –Z direction so the algorithm
-    // can choose "stay as-is" when the model is already well-oriented.
-    candidates.push(Vec3::NEG_Z);
 
     candidates
 }

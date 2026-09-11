@@ -410,8 +410,10 @@ impl SceneState {
                 let obj = self.get(id).ok_or(SceneError::NotFound(id))?;
                 let prev = obj.transform;
                 let mesh = obj.mesh.clone();
-                // Compute the optimal rotation quaternion.
-                let q = crate::orient::auto_orient(&mesh, &options);
+                // Compute the optimal rotation quaternion.  The bed goes in
+                // too, so an orientation the machine is not tall enough to
+                // print is ranked behind every one that fits.
+                let q = crate::orient::auto_orient_in(&mesh, &options, Some(&self.bed));
                 // Apply the rotation, preserving the existing scale.
                 let mut new_t = prev;
                 new_t.set_quat(q);
@@ -452,7 +454,11 @@ impl SceneState {
                             continue;
                         }
                         let mesh = self.get(id).unwrap().mesh.clone();
-                        let q = crate::orient::auto_orient(&mesh, &options.orient_options);
+                        let q = crate::orient::auto_orient_in(
+                            &mesh,
+                            &options.orient_options,
+                            Some(&self.bed),
+                        );
                         let prev = self.get(id).unwrap().transform;
                         let mut new_t = prev;
                         new_t.set_quat(q);

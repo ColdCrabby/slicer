@@ -1,5 +1,5 @@
-//! Auto-orient: find the rotation that minimises overhangs and maximises
-//! flat bed-contact area for a given mesh.
+//! Auto-orient: find the rotation that puts the largest practical face on the
+//! bed without making the print harder than it has to be.
 //!
 //! ## Algorithm
 //!
@@ -11,44 +11,68 @@
 //!    - If [`AutoOrientOptions::allow_rotations`] is `true`, additionally
 //!      sample ~128 directions on a Fibonacci sphere (covers organic shapes
 //!      with no prominent flat regions).
+//!    - The mesh's own `−Z` leads the list, so an already-well-oriented model
+//!      wins every tie and stays where its author put it.
 //!
-//! 2. **Scoring** — for each candidate direction `d` (the direction that will
-//!    be rotated to face down / align with `−Z`):
-//!    - `rz(n) = −dot(d, n)` (equivalent to `(q * n).z` where
-//!      `q = from_rotation_arc(d, −Z)`, but computed with a single dot product
-//!      — no quaternion construction or matrix multiply needed).
-//!    - Score = `OVERHANG_W × net_overhang_area − CONTACT_W × contact_area + HEIGHT_W × height`
-//!      (lower is better).
-//!    - `net_overhang = overhang_area − contact_area`: bed-contact faces are
-//!      supported and must not be counted as overhangs.
-//!    - `height = max_v(dot(d, v)) − min_v(dot(d, v))` across all vertices
-//!      (no AABB transform needed).
+//! 2. **Measurement** ([`score::measure`]) — one pass over the faces per
+//!    candidate yields the four quantities that decide printability: the area
+//!    actually resting on the plate, the severity-weighted unsupported
+//!    overhang area, the footprint, and the height.
 //!
-//! 3. **Result** — build `Quat::from_rotation_arc(best_candidate, −Z)` **once**
-//!    for the winner, then optionally compose with a preferred Z-rotation.
+//! 3. **Scoring** — the measurements are normalised so the weights below mean
+//!    the same thing for a 10 mm trinket and a 300 mm vase, then combined into
+//!    one number (lower is better) and the winner is turned into a quaternion.
+//!
+//! ## Why contact is measured, not inferred
+//!
+//! Counting every downward-facing face as "contact" — and subtracting it from
+//! the overhang penalty — makes a model that rests on *nothing* look ideal:
+//! an overhang test is a stack of flat undersides, so tipping it onto a corner
+//! reads as both high contact and low overhang while being unprintable in
+//! practice.  Contact therefore means faces within one first layer of the
+//! bottom plane, and nothing else is treated as supported.
 
 mod candidates;
 mod geometry;
 pub mod pack;
+mod score;
 mod types;
 
 pub use types::{ArrangeOptions, AutoOrientOptions};
 
 use crate::mesh::types::Mesh;
+use crate::scene::bed::BedConfig;
 use glam::{Quat, Vec3};
 
 // ---------------------------------------------------------------------------
 // Scoring weights — intentionally not exposed; tune here if needed.
+//
+// Every term the weights multiply is dimensionless and lives in 0..1, so the
+// weights are directly comparable and a model's size cannot change the ranking.
 // ---------------------------------------------------------------------------
 
-/// Weight applied to overhang area (dominant term — matches Cura's approach).
-const OVERHANG_W: f64 = 1.0;
-/// Reward for large flat contact area with the bed (OrcaSlicer heuristic).
-const CONTACT_W: f64 = 0.5;
-/// Small height penalty so identical-overhang candidates prefer shorter prints.
-const HEIGHT_W: f64 = 0.01;
-/// Half-angle (degrees) for "essentially flat on bed" contact detection.
-const CONTACT_ANGLE_DEG: f64 = 10.0;
+/// Penalty on the fraction of the surface left unsupported.  Large enough that
+/// roughly a fifth of the model hanging in the air overrides a perfect bed
+/// face — the "unless it is unprintable" half of the contract.
+const OVERHANG_W: f64 = 3.0;
+/// Reward for bed-contact area, measured against the best candidate's.  This
+/// is the "prefer the biggest area on the bed" term.
+const CONTACT_W: f64 = 0.6;
+/// Reward for the share of the footprint that actually rests on the plate.
+/// Separates a wide flat base from a wide model balanced on a small pad.
+const COVERAGE_W: f64 = 0.25;
+/// Tiebreaker favouring shorter prints (less time, less wobble).
+const HEIGHT_W: f64 = 0.1;
+/// Tiny edge given to the orientation the model arrived in, so floating-point
+/// noise between two equivalent poses cannot spin a well-placed model.
+const STAY_PUT_BONUS: f64 = 0.02;
+/// Applied to an orientation taller than the machine can print.  It only ranks
+/// such candidates last — if every one of them overflows, the least-bad still
+/// wins rather than the caller getting an arbitrary pose.
+const EXCEEDS_BUILD_HEIGHT_W: f64 = 100.0;
+
+/// Guards the normalisation divisions against degenerate meshes.
+const EPSILON: f64 = 1e-9;
 
 // ---------------------------------------------------------------------------
 // Core function
@@ -56,14 +80,21 @@ const CONTACT_ANGLE_DEG: f64 = 10.0;
 
 /// Compute the rotation quaternion that best orients `mesh` for FDM printing.
 ///
-/// The returned quaternion, when applied to the mesh, minimises unsupported
-/// overhangs, maximises flat bed-contact area, and — as a tiebreaker — prefers
-/// shorter print heights.
+/// The returned quaternion, when applied to the mesh, puts the largest
+/// practical face on the plate, keeps unsupported overhangs down, and — as a
+/// tiebreaker — prefers shorter prints.
 ///
 /// The caller is responsible for:
 /// - Applying the quaternion (e.g. via [`crate::scene::ops::SceneOp::AutoOrient`]).
 /// - Dropping the oriented mesh to the floor (`DropToFloor`).
 pub fn auto_orient(mesh: &Mesh, options: &AutoOrientOptions) -> Quat {
+    auto_orient_in(mesh, options, None)
+}
+
+/// [`auto_orient`], additionally rejecting orientations the machine cannot
+/// print.  An orientation taller than `bed.height` is ranked below every
+/// orientation that fits, however good it otherwise looks.
+pub fn auto_orient_in(mesh: &Mesh, options: &AutoOrientOptions, bed: Option<&BedConfig>) -> Quat {
     if mesh.faces.is_empty() {
         return Quat::IDENTITY;
     }
@@ -81,80 +112,63 @@ pub fn auto_orient(mesh: &Mesh, options: &AutoOrientOptions) -> Quat {
         return Quat::IDENTITY;
     }
 
-    // Collect all mesh vertices once for height computation.
-    let vertices: Vec<Vec3> = mesh.vertices.iter().map(geometry::vertex_to_vec3).collect();
-
-    // Build candidate floor-normal directions.
+    // Build candidate floor-normal directions.  Index 0 is the mesh's own −Z
+    // (see `build_candidates`), which is what `STAY_PUT_BONUS` applies to.
     let cands = candidates::build_candidates(mesh, options, &normals, &areas);
     if cands.is_empty() {
         return Quat::IDENTITY;
     }
 
-    // Pre-compute scoring thresholds as f32 for the hot dot-product loop.
-    //
-    // `overhang_z_threshold` = sin(overhang_threshold_deg):
-    //   rz = -dot(candidate, n); rz < -threshold  →  face is an overhang.
-    // `contact_z_threshold` = cos(CONTACT_ANGLE_DEG):
-    //   rz < -threshold  →  face is essentially flat on the bed.
-    let overhang_z_threshold = options.overhang_threshold_deg.to_radians().sin() as f32;
-    let contact_z_threshold = CONTACT_ANGLE_DEG.to_radians().cos() as f32;
+    let measured: Vec<score::CandidateScore> = cands
+        .iter()
+        .map(|c| score::measure(mesh, &normals, &areas, *c, options.overhang_threshold_deg))
+        .collect();
+
+    // Contact and height are normalised against the best candidate rather than
+    // against the model's dimensions: the question is which of *these* poses
+    // puts the most on the plate, and the answer must not depend on scale.
+    let best_contact = measured
+        .iter()
+        .map(|m| m.contact_area)
+        .fold(0.0_f64, f64::max);
+    let tallest = measured.iter().map(|m| m.height).fold(0.0_f64, f64::max);
 
     let mut best_score = f64::MAX;
-    let mut best_candidate = Vec3::NEG_Z; // default: already pointing down
+    let mut best_candidate = Vec3::NEG_Z;
 
-    for candidate in &cands {
-        // ---------------------------------------------------------------------------
-        // Overhang + contact scoring
-        //
-        // Mathematical identity: (q * n).z  where  q = from_rotation_arc(c, -Z)
-        //   = -dot(c, n)
-        //
-        // Proof: q maps c → -Z, so q⁻¹ maps -Z → c and maps +Z → -c.
-        //   (q * n).z = n · (q⁻¹ * Z) = n · (-c) = -dot(c, n).
-        //
-        // This replaces a quaternion construction + multiplication per face with
-        // a single dot product — the dominant cost for large meshes.
-        // ---------------------------------------------------------------------------
-        let mut overhang_area = 0.0_f64;
-        let mut contact_area = 0.0_f64;
+    for (i, m) in measured.iter().enumerate() {
+        let overhang = m.overhang_area / total_area;
+        let contact = if best_contact > EPSILON {
+            m.contact_area / best_contact
+        } else {
+            0.0
+        };
+        let coverage = if m.footprint_area > EPSILON {
+            (m.contact_area / m.footprint_area).min(1.0)
+        } else {
+            0.0
+        };
+        let height = if tallest > EPSILON {
+            m.height / tallest
+        } else {
+            0.0
+        };
 
-        for (i, n) in normals.iter().enumerate() {
-            let rz = -candidate.dot(*n);
-            if rz < -overhang_z_threshold {
-                overhang_area += areas[i];
-            }
-            if rz < -contact_z_threshold {
-                contact_area += areas[i];
+        let mut s =
+            OVERHANG_W * overhang - CONTACT_W * contact - COVERAGE_W * coverage + HEIGHT_W * height;
+
+        if i == 0 {
+            s -= STAY_PUT_BONUS;
+        }
+        if let Some(bed) = bed {
+            if m.height > bed.height {
+                s += EXCEEDS_BUILD_HEIGHT_W;
             }
         }
 
-        // ---------------------------------------------------------------------------
-        // Height scoring
-        //
-        // After rotating so that `candidate` points to -Z, the print height equals
-        // the range of vertex projections onto `candidate`:
-        //   height = max_v(dot(c, v)) - min_v(dot(c, v))
-        //
-        // This avoids building a Transform + running transformed_aabb per candidate.
-        // ---------------------------------------------------------------------------
-        let mut min_proj = f32::INFINITY;
-        let mut max_proj = f32::NEG_INFINITY;
-        for v in &vertices {
-            let p = candidate.dot(*v);
-            min_proj = min_proj.min(p);
-            max_proj = max_proj.max(p);
-        }
-        let height = (max_proj - min_proj) as f64;
-
-        // Bed-contact faces (rz ≈ -1) are supported and must NOT be counted as
-        // overhangs.  Net unsupported overhang = total downward area minus the
-        // portion that rests on the bed.
-        let net_overhang = overhang_area - contact_area;
-        let score = OVERHANG_W * net_overhang - CONTACT_W * contact_area + HEIGHT_W * height;
-
-        if score < best_score {
-            best_score = score;
-            best_candidate = *candidate;
+        if s < best_score {
+            best_score = s;
+            best_candidate = cands[i];
         }
     }
 
@@ -183,17 +197,17 @@ mod tests {
     use super::*;
     use crate::mesh::types::{Face, Mesh, Vertex};
 
-    /// 10 × 10 × 10 mm axis-aligned cube with outward-facing normals.
-    fn cube_mesh() -> Mesh {
+    /// Axis-aligned box spanning `min`..`max`, with outward-facing normals.
+    fn box_faces(min: [f64; 3], max: [f64; 3]) -> (Vec<Vertex>, Vec<Face>) {
         let v = [
-            Vertex::new(0.0, 0.0, 0.0),    // 0 bottom corners
-            Vertex::new(10.0, 0.0, 0.0),   // 1
-            Vertex::new(10.0, 10.0, 0.0),  // 2
-            Vertex::new(0.0, 10.0, 0.0),   // 3
-            Vertex::new(0.0, 0.0, 10.0),   // 4 top corners
-            Vertex::new(10.0, 0.0, 10.0),  // 5
-            Vertex::new(10.0, 10.0, 10.0), // 6
-            Vertex::new(0.0, 10.0, 10.0),  // 7
+            Vertex::new(min[0], min[1], min[2]), // 0
+            Vertex::new(max[0], min[1], min[2]), // 1
+            Vertex::new(max[0], max[1], min[2]), // 2
+            Vertex::new(min[0], max[1], min[2]), // 3
+            Vertex::new(min[0], min[1], max[2]), // 4
+            Vertex::new(max[0], min[1], max[2]), // 5
+            Vertex::new(max[0], max[1], max[2]), // 6
+            Vertex::new(min[0], max[1], max[2]), // 7
         ];
         let idx: [[usize; 3]; 12] = [
             [0, 2, 1],
@@ -209,48 +223,45 @@ mod tests {
             [1, 2, 6],
             [1, 6, 5], // right +X
         ];
+        let faces = idx
+            .iter()
+            .map(|i| Face::new([v[i[0]], v[i[1]], v[i[2]]]))
+            .collect();
+        (v.to_vec(), faces)
+    }
+
+    fn box_mesh(min: [f64; 3], max: [f64; 3]) -> Mesh {
+        let (vertices, faces) = box_faces(min, max);
         Mesh {
-            vertices: v.to_vec(),
-            faces: idx
-                .iter()
-                .map(|i| Face::new([v[i[0]], v[i[1]], v[i[2]]]))
-                .collect(),
+            vertices,
+            faces,
             aabb: None,
         }
     }
 
+    /// 10 × 10 × 10 mm axis-aligned cube.
+    fn cube_mesh() -> Mesh {
+        box_mesh([0.0, 0.0, 0.0], [10.0, 10.0, 10.0])
+    }
+
     /// A tall thin box: 5 × 5 × 50 mm standing upright.
     fn tall_box_mesh() -> Mesh {
-        let v = [
-            Vertex::new(0.0, 0.0, 0.0),  // 0
-            Vertex::new(5.0, 0.0, 0.0),  // 1
-            Vertex::new(5.0, 5.0, 0.0),  // 2
-            Vertex::new(0.0, 5.0, 0.0),  // 3
-            Vertex::new(0.0, 0.0, 50.0), // 4
-            Vertex::new(5.0, 0.0, 50.0), // 5
-            Vertex::new(5.0, 5.0, 50.0), // 6
-            Vertex::new(0.0, 5.0, 50.0), // 7
-        ];
-        let idx: [[usize; 3]; 12] = [
-            [0, 2, 1],
-            [0, 3, 2], // bottom
-            [4, 5, 6],
-            [4, 6, 7], // top
-            [0, 1, 5],
-            [0, 5, 4], // front
-            [2, 3, 7],
-            [2, 7, 6], // back
-            [0, 4, 7],
-            [0, 7, 3], // left
-            [1, 2, 6],
-            [1, 6, 5], // right
-        ];
+        box_mesh([0.0, 0.0, 0.0], [5.0, 5.0, 50.0])
+    }
+
+    /// A 50 × 50 × 2 mm slab held 10 mm off the bed by a 10 × 10 × 10 pillar.
+    ///
+    /// The slab's underside is 2500 mm² of downward-facing area that touches
+    /// nothing — the shape of every model the old "any face pointing down is
+    /// contact" rule mis-read.
+    fn slab_on_pillar_mesh() -> Mesh {
+        let (mut vertices, mut faces) = box_faces([0.0, 0.0, 0.0], [10.0, 10.0, 10.0]);
+        let (slab_v, slab_f) = box_faces([-20.0, -20.0, 10.0], [30.0, 30.0, 12.0]);
+        vertices.extend(slab_v);
+        faces.extend(slab_f);
         Mesh {
-            vertices: v.to_vec(),
-            faces: idx
-                .iter()
-                .map(|i| Face::new([v[i[0]], v[i[1]], v[i[2]]]))
-                .collect(),
+            vertices,
+            faces,
             aabb: None,
         }
     }
@@ -301,45 +312,19 @@ mod tests {
     // Helpers
     // -----------------------------------------------------------------------
 
-    /// Height of the bounding box after applying `q` to `mesh`.
-    /// Uses the same vertex-projection formula as the production code:
-    ///   height = max_v(dot(candidate, v)) − min_v(dot(candidate, v))
-    fn oriented_height(mesh: &Mesh, q: Quat) -> f64 {
-        // Recover the candidate direction: q maps it to -Z, so candidate = q⁻¹ * (-Z)
-        // Equivalently, the height direction after rotation is (q * v).z → use dot(q⁻¹*Z_neg, v)
-        // Simpler: just project vertices through the quaternion and measure Z span.
-        let (mut min_z, mut max_z) = (f32::INFINITY, f32::NEG_INFINITY);
-        for f in &mesh.faces {
-            for v in &f.vertices {
-                let world = q * Vec3::new(v.x as f32, v.y as f32, v.z as f32);
-                min_z = min_z.min(world.z);
-                max_z = max_z.max(world.z);
-            }
-        }
-        (max_z - min_z) as f64
-    }
-
-    /// Net unsupported overhang area after rotation `q`:
-    /// faces pointing >threshold below horizontal, minus faces essentially flat
-    /// on the bed (within `CONTACT_ANGLE_DEG` of -Z). The bed-contact face
-    /// is always supported, so it must not be counted as an overhang.
-    fn net_overhang_area(mesh: &Mesh, q: Quat, threshold_deg: f64) -> f64 {
-        let overhang_z_threshold = threshold_deg.to_radians().sin() as f32;
-        let contact_z_threshold = CONTACT_ANGLE_DEG.to_radians().cos() as f32;
-        let mut overhang = 0.0f64;
-        let mut contact = 0.0f64;
-        for f in &mesh.faces {
-            let n = face_normal_vec3(f).unwrap_or(Vec3::Z);
-            let rz = (q * n).z;
-            let area = f.area();
-            if rz < -overhang_z_threshold {
-                overhang += area;
-            }
-            if rz < -contact_z_threshold {
-                contact += area;
-            }
-        }
-        overhang - contact
+    /// Measure the pose `q` picks, through the production scorer.
+    ///
+    /// `q` maps the winning floor direction onto `−Z`, so the direction it
+    /// chose is `q⁻¹ * −Z`.
+    fn measured(mesh: &Mesh, q: Quat) -> score::CandidateScore {
+        let normals: Vec<Vec3> = mesh
+            .faces
+            .iter()
+            .map(|f| face_normal_vec3(f).unwrap_or(Vec3::Z))
+            .collect();
+        let areas: Vec<f64> = mesh.faces.iter().map(|f| f.area()).collect();
+        let dir = (q.inverse() * Vec3::NEG_Z).normalize();
+        score::measure(mesh, &normals, &areas, dir, 45.0)
     }
 
     // -----------------------------------------------------------------------
@@ -350,40 +335,52 @@ mod tests {
         let mesh = cube_mesh();
         let opts = AutoOrientOptions::default();
         let q = auto_orient(&mesh, &opts);
-        // The cube is already flat. After applying q, the height should be ~10
-        // (the cube's side length) — any axis-aligned face can be chosen.
-        let h = oriented_height(&mesh, q);
+        // Every face of a cube is an equally good floor, so the tie must go to
+        // the orientation it arrived in rather than an arbitrary rotation.
+        assert_eq!(q, Quat::IDENTITY, "an upright cube must be left alone");
+        let m = measured(&mesh, q);
         assert!(
-            (h - 10.0).abs() < 0.5,
-            "cube height after orient should be ~10, got {h}"
+            (m.height - 10.0).abs() < 0.5,
+            "cube height after orient should be ~10, got {}",
+            m.height
         );
-        // Net unsupported overhangs should be zero: the bottom face is
-        // supported by the bed (it's the bed-contact face), so it cancels out.
-        let oa = net_overhang_area(&mesh, q, 45.0);
         assert!(
-            oa < 1e-6,
-            "cube should have zero net overhang after orient, got {oa}"
+            m.overhang_area < 1e-6,
+            "cube should have no overhang after orient, got {}",
+            m.overhang_area
+        );
+        assert!(
+            (m.contact_area - 100.0).abs() < 1e-3,
+            "a whole cube face should rest on the bed, got {}",
+            m.contact_area
         );
     }
 
     // -----------------------------------------------------------------------
-    // Test: tall thin box with allow_rotations=true → should lay flat
+    // Test: a tall thin box lays down on its biggest face
     // -----------------------------------------------------------------------
     #[test]
-    fn tall_box_lays_flat_with_rotations() {
-        let mesh = tall_box_mesh();
-        let opts = AutoOrientOptions {
-            allow_rotations: true,
-            ..Default::default()
-        };
-        let q = auto_orient(&mesh, &opts);
-        let h = oriented_height(&mesh, q);
-        // Laying flat: height ≈ 5 (the short side). Upright: height = 50.
-        // Accept anything ≤ 10 as "laid flat".
-        assert!(
-            h <= 10.0 + 0.5,
-            "tall box should lay flat (height ≤ 10), got {h}"
-        );
+    fn tall_box_lays_on_its_largest_face() {
+        for allow_rotations in [false, true] {
+            let mesh = tall_box_mesh();
+            let opts = AutoOrientOptions {
+                allow_rotations,
+                ..Default::default()
+            };
+            let m = measured(&mesh, auto_orient(&mesh, &opts));
+            // Lying down puts a 5 × 50 side on the bed and stands 5 mm tall;
+            // upright it rests on 5 × 5 and stands 50 mm.
+            assert!(
+                m.height <= 10.5,
+                "tall box should lay flat (height ≤ 10), got {} (allow_rotations={allow_rotations})",
+                m.height
+            );
+            assert!(
+                m.contact_area > 200.0,
+                "tall box should rest on a long side, got {} mm² (allow_rotations={allow_rotations})",
+                m.contact_area
+            );
+        }
     }
 
     // -----------------------------------------------------------------------
@@ -395,11 +392,72 @@ mod tests {
     fn wedge_no_overhang() {
         let mesh = wedge_mesh();
         let opts = AutoOrientOptions::default();
-        let q = auto_orient(&mesh, &opts);
-        let oa = net_overhang_area(&mesh, q, 45.0);
+        let m = measured(&mesh, auto_orient(&mesh, &opts));
         assert!(
-            oa < 1e-6,
-            "wedge should have zero net overhang after orient (threshold=45°), got {oa}"
+            m.overhang_area < 1e-6,
+            "wedge should have zero overhang after orient (threshold=45°), got {}",
+            m.overhang_area
+        );
+    }
+
+    // -----------------------------------------------------------------------
+    // Test: only faces that actually touch the plate count as contact
+    // -----------------------------------------------------------------------
+    #[test]
+    fn a_raised_underside_is_an_overhang_not_bed_contact() {
+        let mesh = slab_on_pillar_mesh();
+        let m = measured(&mesh, Quat::IDENTITY);
+        assert!(
+            (m.contact_area - 100.0).abs() < 1e-3,
+            "only the pillar's 100 mm² base touches the bed, got {}",
+            m.contact_area
+        );
+        assert!(
+            m.overhang_area > 2000.0,
+            "the slab's raised underside is an overhang, got {} mm²",
+            m.overhang_area
+        );
+    }
+
+    // -----------------------------------------------------------------------
+    // Test: the flat face wins over tipping the model onto an edge
+    // -----------------------------------------------------------------------
+    #[test]
+    fn the_largest_flat_face_goes_on_the_bed() {
+        let mesh = slab_on_pillar_mesh();
+        let m = measured(&mesh, auto_orient(&mesh, &AutoOrientOptions::default()));
+        // Laid on a slab face there is 2500 mm² on the plate and the pillar
+        // points up unsupported by nothing; nothing else comes close.
+        assert!(
+            m.contact_area > 2000.0,
+            "auto-orient should put the slab face down, got {} mm² of contact",
+            m.contact_area
+        );
+        assert!(
+            m.height <= 12.5,
+            "slab-down is the shortest pose, got height {}",
+            m.height
+        );
+    }
+
+    // -----------------------------------------------------------------------
+    // Test: an orientation the machine cannot fit is rejected
+    // -----------------------------------------------------------------------
+    #[test]
+    fn an_orientation_taller_than_the_machine_is_rejected() {
+        // 5 × 5 × 50 standing up is 50 mm tall; a 20 mm-tall machine can only
+        // print it lying down.
+        let mesh = tall_box_mesh();
+        let bed = BedConfig {
+            height: 20.0,
+            ..Default::default()
+        };
+        let opts = AutoOrientOptions::default();
+        let m = measured(&mesh, auto_orient_in(&mesh, &opts, Some(&bed)));
+        assert!(
+            m.height <= bed.height,
+            "orientation must fit the build height, got {}",
+            m.height
         );
     }
 
