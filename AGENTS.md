@@ -112,6 +112,12 @@ least once, with real consequences. The linked README explains why.
   always resolves. Inline profiles are the wasm build's fallback only, because
   there the browser *is* the engine.
   → [profiles](src/profiles/README.md)
+- **The API description is generated, never hand-written.** `/api/openapi.json`
+  is built from the `schemars` schemas on every request; only the route table in
+  [openapi.rs](src/server/openapi.rs) is maintained by hand, and a test fails
+  when it falls out of step with the router. Its viewer bundles no CDN assets —
+  a self-hosted slicer may have no route to the internet.
+  → [server](src/server/README.md)
 - **The thumbnail is rendered in the browser and sent on every slice.** It is a
   picture of the user's own camera, theme and filament colour; the engine has no
   renderer and must never grow one. It travels in its own field, not in the

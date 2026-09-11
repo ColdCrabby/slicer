@@ -1,0 +1,339 @@
+<!doctype html>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Cold Crabby slicer — API</title>
+<!--
+  The API reference this server serves for itself.
+
+  Self-contained on purpose: no CDN, no bundled viewer, nothing fetched from
+  the internet. A self-hosted slicer is routinely a box on a workshop LAN with
+  no route out, and a reference page that goes blank without internet is worse
+  than no page at all. Everything below is rendered from /api/openapi.json,
+  which is generated from the engine's own Rust types.
+-->
+<style>
+  :root {
+    color-scheme: light dark;
+    --bg: #fbfaf9;
+    --surface: #fff;
+    --text: #1b1a19;
+    --muted: #6b6764;
+    --line: #e6e2de;
+    --accent: #e0730f;
+    --code: #f4f1ee;
+    --get: #2b7a4b;
+    --post: #1f6feb;
+    --put: #9a6700;
+    --patch: #7a4bb8;
+    --delete: #b42318;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #17161a;
+      --surface: #1e1d22;
+      --text: #eceaf0;
+      --muted: #a09ca8;
+      --line: #302e36;
+      --accent: #f5883a;
+      --code: #131217;
+      --get: #5cc98a;
+      --post: #6fa8ff;
+      --put: #e0b341;
+      --patch: #b98ae0;
+      --delete: #ef7367;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font: 14px/1.6 ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  }
+  header {
+    padding: 40px 24px 24px;
+    border-bottom: 1px solid var(--line);
+  }
+  .wrap { max-width: 860px; margin: 0 auto; }
+  h1 { margin: 0 0 6px; font-size: 24px; letter-spacing: -0.01em; }
+  .version { color: var(--muted); font-size: 13px; }
+  .blurb { color: var(--muted); margin: 16px 0 0; white-space: pre-line; }
+  main { padding: 24px; }
+  details {
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    margin-bottom: 8px;
+    overflow: hidden;
+  }
+  summary {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 12px 14px;
+    cursor: pointer;
+    list-style: none;
+  }
+  summary::-webkit-details-marker { display: none; }
+  summary:hover { background: color-mix(in oklab, var(--accent) 6%, transparent); }
+  .method {
+    flex: none;
+    font: 600 11px/1 ui-monospace, SFMono-Regular, Menlo, monospace;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    padding: 5px 8px;
+    border-radius: 5px;
+    color: #fff;
+    min-width: 58px;
+    text-align: center;
+  }
+  .method.get { background: var(--get); }
+  .method.post { background: var(--post); }
+  .method.put { background: var(--put); }
+  .method.patch { background: var(--patch); }
+  .method.delete { background: var(--delete); }
+  .path { font: 13px ui-monospace, SFMono-Regular, Menlo, monospace; }
+  .summary-text {
+    color: var(--muted);
+    margin-left: auto;
+    padding-left: 12px;
+    text-align: right;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  /* A wrapped four-word summary beside a monospace path reads as a mess. On a
+     narrow window the path and method carry the meaning; drop the rest. */
+  @media (max-width: 680px) {
+    .summary-text { display: none; }
+  }
+  .body { padding: 0 14px 16px; border-top: 1px solid var(--line); }
+  .body > p { color: var(--muted); }
+  h3 {
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.07em;
+    color: var(--muted);
+    margin: 18px 0 8px;
+  }
+  table { width: 100%; border-collapse: collapse; }
+  td, th { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  th { font-size: 12px; color: var(--muted); font-weight: 600; }
+  code {
+    font: 12px ui-monospace, SFMono-Regular, Menlo, monospace;
+    background: var(--code);
+    padding: 1px 5px;
+    border-radius: 4px;
+  }
+  pre {
+    background: var(--code);
+    padding: 12px;
+    border-radius: 8px;
+    overflow-x: auto;
+    margin: 0;
+  }
+  pre code { background: none; padding: 0; }
+  .status { font-weight: 600; }
+  .ws-note {
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-left: 3px solid var(--accent);
+    border-radius: 8px;
+    padding: 14px;
+    margin: 24px 0;
+    color: var(--muted);
+  }
+  a { color: var(--accent); }
+  .fail { padding: 24px; color: var(--delete); }
+</style>
+
+<header>
+  <div class="wrap">
+    <h1>Cold Crabby slicer</h1>
+    <div class="version" id="version"></div>
+    <p class="blurb" id="blurb"></p>
+  </div>
+</header>
+
+<main class="wrap" id="main">Loading…</main>
+
+<script>
+  const el = (tag, props = {}, kids = []) => {
+    const node = Object.assign(document.createElement(tag), props);
+    for (const kid of [].concat(kids)) {
+      node.append(kid);
+    }
+    return node;
+  };
+
+  /** Resolve a `$ref` against the document, one hop — enough for our shapes. */
+  const deref = (doc, schema) => {
+    const ref = schema && schema.$ref;
+    if (!ref) return schema;
+    const name = ref.split('/').pop();
+    return doc.components?.schemas?.[name] ?? schema;
+  };
+
+  /** A one-line type for a schema, as a person would say it. */
+  const typeOf = (schema) => {
+    if (!schema) return '';
+    if (schema.$ref) return schema.$ref.split('/').pop();
+    if (Array.isArray(schema.type)) return schema.type.join(' | ');
+    if (schema.type === 'array') return `${typeOf(schema.items)}[]`;
+    if (schema.enum) return schema.enum.map((v) => JSON.stringify(v)).join(' | ');
+    if (schema.oneOf || schema.anyOf) {
+      return (schema.oneOf ?? schema.anyOf).map(typeOf).filter(Boolean).join(' | ');
+    }
+    return schema.type ?? 'object';
+  };
+
+  /** Render a schema's own fields. One level: nested shapes are named, not inlined. */
+  const fields = (doc, schema) => {
+    const resolved = deref(doc, schema);
+    const props = resolved?.properties;
+    if (!props) {
+      return el('pre', {}, el('code', { textContent: typeOf(resolved) || 'no body' }));
+    }
+    const required = new Set(resolved.required ?? []);
+    const table = el('table', {}, [
+      el('thead', {}, el('tr', {}, [
+        el('th', { textContent: 'Field' }),
+        el('th', { textContent: 'Type' }),
+        el('th', { textContent: 'Notes' }),
+      ])),
+    ]);
+    const body = el('tbody');
+    for (const [name, prop] of Object.entries(props)) {
+      const notes = [prop.description?.trim()].filter(Boolean);
+      if (prop.default !== undefined) notes.push(`Default: ${JSON.stringify(prop.default)}`);
+      body.append(
+        el('tr', {}, [
+          el('td', {}, [
+            el('code', { textContent: name }),
+            required.has(name) ? el('span', { textContent: ' *', title: 'required' }) : '',
+          ]),
+          el('td', {}, el('code', { textContent: typeOf(prop) })),
+          el('td', { textContent: notes.join(' — ') }),
+        ]),
+      );
+    }
+    table.append(body);
+    return table;
+  };
+
+  const render = (doc) => {
+    document.title = `${doc.info.title} — API`;
+    document.getElementById('version').textContent = `API reference · ${doc.info.version}`;
+    document.getElementById('blurb').textContent = doc.info.description ?? '';
+
+    const main = document.getElementById('main');
+    main.textContent = '';
+
+    for (const [path, item] of Object.entries(doc.paths)) {
+      for (const [method, op] of Object.entries(item)) {
+        const box = el('details');
+        box.append(
+          el('summary', {}, [
+            el('span', { className: `method ${method}`, textContent: method }),
+            el('span', { className: 'path', textContent: path }),
+            el('span', { className: 'summary-text', textContent: op.summary ?? '' }),
+          ]),
+        );
+
+        const body = el('div', { className: 'body' });
+        if (op.description) body.append(el('p', { textContent: op.description }));
+
+        if (op.parameters?.length) {
+          body.append(el('h3', { textContent: 'Parameters' }));
+          const table = el('table', {}, el('thead', {}, el('tr', {}, [
+            el('th', { textContent: 'Name' }),
+            el('th', { textContent: 'In' }),
+            el('th', { textContent: 'Notes' }),
+          ])));
+          const rows = el('tbody');
+          for (const p of op.parameters) {
+            rows.append(el('tr', {}, [
+              el('td', {}, el('code', { textContent: p.name })),
+              el('td', { textContent: p.in }),
+              el('td', { textContent: p.description ?? '' }),
+            ]));
+          }
+          table.append(rows);
+          body.append(table);
+        }
+
+        const requestSchema = op.requestBody?.content?.['application/json']?.schema;
+        if (requestSchema) {
+          body.append(el('h3', { textContent: `Request body — ${typeOf(requestSchema)}` }));
+          body.append(fields(doc, requestSchema));
+        }
+
+        body.append(el('h3', { textContent: 'Responses' }));
+        for (const [status, response] of Object.entries(op.responses ?? {})) {
+          const schema = response.content?.['application/json']?.schema;
+          body.append(
+            el('p', {}, [
+              el('span', { className: 'status', textContent: status }),
+              document.createTextNode(` — ${response.description ?? ''}`),
+              schema ? document.createTextNode(' ') : '',
+              schema ? el('code', { textContent: typeOf(schema) }) : '',
+            ]),
+          );
+          if (schema) body.append(fields(doc, schema));
+        }
+
+        box.append(body);
+        main.append(box);
+      }
+    }
+
+    const note = el('div', { className: 'ws-note' });
+    note.append(
+      el('strong', { textContent: 'Slicing runs over the WebSocket at /ws.' }),
+      document.createTextNode(
+        ' A slice streams progress and log lines for as long as it takes, which is not ' +
+          'a request/response shape. The messages that socket speaks are the ClientMessage ' +
+          'and ServerMessage schemas below.',
+      ),
+    );
+    main.append(note);
+
+    for (const name of ['ClientMessage', 'ServerMessage']) {
+      const schema = doc.components?.schemas?.[name];
+      if (!schema) continue;
+      const box = el('details');
+      box.append(
+        el('summary', {}, [
+          el('span', { className: 'method get', textContent: 'ws' }),
+          el('span', { className: 'path', textContent: name }),
+          el('span', {
+            className: 'summary-text',
+            textContent: name === 'ClientMessage' ? 'browser → slicer' : 'slicer → browser',
+          }),
+        ]),
+      );
+      const body = el('div', { className: 'body' });
+      if (schema.description) body.append(el('p', { textContent: schema.description }));
+      body.append(el('pre', {}, el('code', { textContent: JSON.stringify(schema, null, 2) })));
+      box.append(body);
+      main.append(box);
+    }
+
+    main.append(
+      el('p', { className: 'version', style: 'margin-top:24px' }, [
+        document.createTextNode('Machine-readable document: '),
+        el('a', { href: 'openapi.json', textContent: 'openapi.json' }),
+      ]),
+    );
+  };
+
+  fetch('openapi.json')
+    .then((r) => (r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`))))
+    .then(render)
+    .catch((error) => {
+      document.getElementById('main').innerHTML = '';
+      document.getElementById('main').append(
+        el('p', { className: 'fail', textContent: `Could not load openapi.json — ${error.message}` }),
+      );
+    });
+</script>

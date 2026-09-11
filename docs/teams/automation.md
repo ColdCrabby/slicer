@@ -101,3 +101,23 @@ all — a sandboxed app has no command line.
 - [CLI reference](/architecture/cli) — every command and flag
 - [Configuration](/teams/configuration) — the layered `slicer.toml`
 - [G-code](/architecture/gcode) — dialects, markers, what comes out
+
+## The API, from the slicer itself
+
+A running slicer publishes its own API reference at **`/api/docs`**, and the
+machine-readable document at **`/api/openapi.json`**. Point a client generator
+at the latter and what comes out matches the build you are talking to — the
+document is generated from the engine's types on each request, not from a spec
+file that someone remembered to update.
+
+Both are served by the slicer, so they work on a machine with no internet
+access, and they describe *that* instance: its version, its routes, its shapes.
+
+In the app, the **API reference** button in the title bar opens it. It only
+appears when you are working against a slicer server — the desktop app and the
+in-browser slicer have no HTTP surface for it to describe.
+
+Slicing itself is not in the REST surface. It runs over the WebSocket at `/ws`,
+because a slice streams progress and log lines for as long as it takes; the
+messages that socket speaks are published on the same page as the
+`ClientMessage` and `ServerMessage` schemas.

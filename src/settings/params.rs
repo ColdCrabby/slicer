@@ -3662,7 +3662,7 @@ impl SlicingParams {
 /// - `{height}` → layer height (e.g. `0.200`)
 /// - `{type}` → extrusion role type name (e.g. `Perimeter`)
 /// - `{width}` → default extrusion width for the role (e.g. `0.40`)
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, schemars::JsonSchema)]
 pub struct LifecycleMarkerConfig {
     /// Whether to emit lifecycle markers at all. Default: true.
     #[serde(default = "LifecycleMarkerConfig::default_enabled")]

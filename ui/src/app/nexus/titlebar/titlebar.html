@@ -33,6 +33,20 @@
   >
     <nexus-icon name="github" />
   </a>
+  @if (apiDocsUrl(); as apiDocs) {
+    <a
+      nexusIconButton
+      size="sm"
+      class="tb-api"
+      [href]="apiDocs"
+      target="_blank"
+      rel="noopener noreferrer"
+      aria-label="Open this slicer's API reference"
+      tooltip="API reference"
+    >
+      <nexus-icon name="code-brackets" />
+    </a>
+  }
   <a
     nexusIconButton
     size="sm"

@@ -18,6 +18,7 @@
 //! 6. Browser fetches an uploaded file by id: `GET /api/file/:file_uuid`
 
 pub mod handlers;
+pub mod openapi;
 pub mod ws_session;
 
 use clap::Parser;
@@ -196,6 +197,8 @@ async fn run_server(
                         "/workplates/{request_uuid}",
                         web::put().to(handlers::put_workplate_handler),
                     )
+                    .route("/openapi.json", web::get().to(handlers::openapi_handler))
+                    .route("/docs", web::get().to(handlers::api_docs_handler))
                     .route(
                         "/history",
                         web::delete().to(handlers::delete_history_handler),
