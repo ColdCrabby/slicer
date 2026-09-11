@@ -37,7 +37,7 @@ import type { FieldWidget } from '../../widgets/base-field';
     `,
   ],
   template: `
-    <label [for]="field().key">
+    <label class="field-label" [for]="field().key">
       <span>{{ field().title ?? field().key }}</span>
       @if (field().description) {
         <nexus-icon-button

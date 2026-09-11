@@ -250,12 +250,14 @@
  * that they announce themselves, and it reads the same to someone who cannot
  * tell the accent from the text.
  *
- * Each widget owns its own `<label>`, in its own component, so the parent's
- * scoping attribute never lands on it — `::ng-deep` is the only way to reach
- * it. Deliberately narrowed to the label: italicising the control as well would
- * slant the numbers, a legibility cost for no extra information.
+ * Every widget names its own label `.field-label`, whatever element it happens
+ * to be — three of them are not a `<label>` at all. The label lives in the
+ * widget's component, so the parent's scoping attribute never lands on it and
+ * `::ng-deep` is the only way to reach it. Deliberately narrowed to that hook:
+ * italicising the whole field would slant the numbers, and on a radio group the
+ * entire option list, for no extra information.
  */
-.schema-form-field.is-modified ::ng-deep label {
+.schema-form-field.is-modified ::ng-deep .field-label {
   font-style: italic;
 }
 

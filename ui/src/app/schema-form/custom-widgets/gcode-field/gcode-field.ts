@@ -20,7 +20,9 @@ import type { FieldWidget } from '../../widgets/base-field';
   imports: [CodeEditor],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
-    <label class="gcode-field__label" [for]="field().key">{{ field().title ?? field().key }}</label>
+    <label class="gcode-field__label field-label" [for]="field().key">{{
+      field().title ?? field().key
+    }}</label>
     @if (descriptionText(); as d) {
       <p class="gcode-field__desc">{{ d }}</p>
     }
