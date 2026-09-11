@@ -166,6 +166,32 @@ export class SettingsPanel {
 
   protected readonly saveIsError = computed(() => this.shownStatus() === 'error');
 
+  /**
+   * The footer says one thing at a time, in one row.
+   *
+   * A save is transient and a change count is not, so the save takes the slot
+   * while it lasts and the count comes back underneath it. Giving them a line
+   * each is what made the strip flicker: the save line appeared and vanished on
+   * every edit, resizing the footer and shifting the panel above it.
+   */
+  protected readonly footerLabel = computed(() => {
+    if (this.saveVisible()) {
+      return this.saveLabel();
+    }
+    const changed = this.modifiedCount();
+    // Short, because the sidebar is narrow and this shares its row with the
+    // reset button; the sentence it stands for is the tooltip.
+    return `${changed} ${changed === 1 ? 'setting' : 'settings'} changed`;
+  });
+
+  /** The full sentence, for the row's tooltip. */
+  protected readonly footerTitle = computed(() =>
+    this.saveVisible() ? this.saveLabel() : `${this.footerLabel()} from your presets`,
+  );
+
+  /** Nothing to report means no strip at all, rather than an empty one. */
+  protected readonly footerVisible = computed(() => this.saveVisible() || this.modifiedCount() > 0);
+
   constructor() {
     effect((onCleanup) => {
       const status = this.workplateSettings.status();

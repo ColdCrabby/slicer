@@ -53,36 +53,29 @@
     (fieldChange)="update($event)"
   />
 
-  <footer class="settings-footer">
-    @if (saveVisible()) {
-      <p
-        class="settings-save"
-        [class.is-error]="saveIsError()"
-        role="status"
-        aria-live="polite"
-        animate.enter="settings-save-enter"
-        animate.leave="settings-save-leave"
-      >
-        <span class="settings-save-dot"></span>
-        <span>{{ saveLabel() }}</span>
-      </p>
-    }
-
-    @if (modifiedCount(); as changed) {
-      <p class="settings-changed">
-        <span class="settings-changed-count">
-          {{ changed }} {{ changed === 1 ? 'setting' : 'settings' }} changed from your presets
-        </span>
+  @if (footerVisible()) {
+    <footer class="settings-footer" [class.is-error]="saveIsError()">
+      <!-- The dot keeps its space whether or not it is showing: this strip sits
+           under the user's cursor while they drag a slider, and a dot that
+           appears mid-save would shove the text sideways on every edit. -->
+      <span class="settings-footer-dot" [class.is-active]="saveVisible()"></span>
+      <span class="settings-footer-text" [title]="footerTitle()">{{ footerLabel() }}</span>
+      @if (modifiedCount()) {
         <button
           type="button"
-          class="settings-changed-reset"
+          class="settings-footer-reset"
           [class.is-confirming]="resetConfirming()"
           (click)="resetOverrides()"
           (blur)="cancelReset()"
         >
           {{ resetConfirming() ? 'Confirm?' : 'Reset all' }}
         </button>
-      </p>
-    }
-  </footer>
+      }
+      <!-- Only the save result is announced. The change count updates on every
+           keystroke and would turn a screen reader into a metronome. -->
+      <span class="settings-footer-announce" role="status" aria-live="polite">{{
+        saveVisible() ? saveLabel() : ''
+      }}</span>
+    </footer>
+  }
 </section>

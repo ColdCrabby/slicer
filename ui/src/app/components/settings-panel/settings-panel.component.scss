@@ -50,21 +50,27 @@
   flex: none;
 }
 
-// Footer rail under the form: what was changed, and whether it is stored yet.
-// Both lines are transient or conditional, so nothing here holds space when
-// there is nothing to say.
+// Footer rail: what was changed, and whether it is stored yet.
+//
+// Sticky to the bottom of the sidebar's scroll container, mirroring the search
+// bar that sticks to the top of it — the settings list is hundreds of rows, and
+// a status strip that only exists at the very bottom is a status strip nobody
+// sees. Same panel-coloured backing, so rows scrolling underneath never show
+// through, with the fade pointing the other way.
+//
+// One row, fixed height, no conditional children that resize it: everything it
+// can say swaps in place. It sits directly under the cursor while a slider is
+// being dragged, so anything that reflowed here would be felt, not just seen.
 .settings-footer {
-  display: flex;
-  flex-direction: column;
-  gap: var(--spacing-xs);
-  padding: 0 var(--spacing-sm) var(--spacing-sm);
-}
-
-.settings-save {
+  position: sticky;
+  bottom: 0;
+  z-index: 10;
   display: flex;
   align-items: center;
   gap: var(--spacing-sm);
-  margin: 0;
+  min-height: 32px;
+  padding: var(--spacing-xs) var(--spacing-sm);
+  background: var(--color-bg-secondary);
   font-size: var(--font-size-xs);
   color: var(--color-text-tertiary);
   user-select: none;
@@ -75,29 +81,43 @@
   }
 }
 
-.settings-save-enter {
-  animation: settings-save-in var(--duration-normal) var(--ease-standard) both;
+.settings-footer::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 100%;
+  height: var(--spacing-md);
+  background: linear-gradient(
+    to top,
+    var(--color-bg-secondary),
+    color-mix(in srgb, var(--color-bg-secondary) 40%, transparent) 55%,
+    transparent
+  );
+  pointer-events: none;
 }
 
-.settings-save-leave {
-  animation: settings-save-out var(--duration-normal) var(--ease-standard) forwards;
-}
-
-.settings-save-dot {
+.settings-footer-dot {
   flex: none;
   width: 6px;
   height: 6px;
   border-radius: 50%;
   background: var(--accent);
-  animation: settings-save-pulse 1.4s ease-in-out infinite;
+  // Reserved, not conditional — see the comment in the template.
+  visibility: hidden;
 
-  .settings-save.is-error & {
+  &.is-active {
+    visibility: visible;
+    animation: settings-footer-pulse 1.4s ease-in-out infinite;
+  }
+
+  .settings-footer.is-error & {
     background: var(--color-danger);
     animation: none;
   }
 }
 
-@keyframes settings-save-pulse {
+@keyframes settings-footer-pulse {
   0%,
   100% {
     opacity: 0.35;
@@ -107,57 +127,47 @@
   }
 }
 
-@keyframes settings-save-in {
-  from {
-    opacity: 0;
-    transform: translateY(2px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
-}
-
-@keyframes settings-save-out {
-  from {
-    opacity: 1;
-    transform: translateY(0);
-  }
-  to {
-    opacity: 0;
-    transform: translateY(2px);
-  }
-}
-
-.settings-changed {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: var(--spacing-sm);
-  margin: 0;
-  font-size: var(--font-size-xs);
-  color: var(--color-text-tertiary);
-}
-
-.settings-changed-count {
+.settings-footer-text {
   min-width: 0;
+  flex: 1 1 auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
-.settings-changed-reset {
+.settings-footer-reset {
   flex: none;
-  padding: 0;
+  padding: 3px var(--spacing-xs);
   border: 0;
+  border-radius: var(--radius-sm);
   background: none;
   font: inherit;
-  color: var(--color-text-tertiary);
+  color: var(--color-text-secondary);
   cursor: pointer;
-  transition: color var(--duration-fast) var(--ease-standard);
+  transition:
+    color var(--duration-fast) var(--ease-standard),
+    background var(--duration-fast) var(--ease-standard);
 
   &:hover {
-    color: var(--color-text-secondary);
+    background: var(--color-bg-primary);
+    color: var(--color-text-primary);
   }
 
   &.is-confirming {
+    background: var(--color-danger-light);
     color: var(--color-danger);
   }
+}
+
+// Announced, never drawn: the save result reaches a screen reader without the
+// change count following it on every keystroke.
+.settings-footer-announce {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
 }
