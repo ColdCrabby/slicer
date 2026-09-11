@@ -30,7 +30,7 @@ import { Icon, IconButton, TooltipDirective } from '@coldcrabby/ui';
   changeDetection: ChangeDetectionStrategy.OnPush,
   host: {
     class: 'nexus-workplate-tabs',
-    '[hidden]': 'tabs().length === 0',
+    '[hidden]': 'tabs().length === 0 && !isNewPlate()',
   },
 })
 export class WorkplateTabs {
@@ -48,6 +48,16 @@ export class WorkplateTabs {
 
   private readonly editInput = viewChild<ElementRef<HTMLInputElement>>('editInput');
   private readonly tabEls = viewChildren<ElementRef<HTMLElement>>('tabEl');
+
+  /**
+   * Width the label occupied when editing began, in px.
+   *
+   * The editor replaces a `<span>` sized by its text with an `<input>` sized by
+   * the browser's default, so without this the tab jumped to a different width
+   * the instant you double-clicked it. Held as the input's `min-width`; the
+   * input grows past it from there as the name gets longer.
+   */
+  protected readonly editWidth = signal<number | null>(null);
 
   constructor() {
     // The `autofocus` attribute is honoured when the parser meets it, so an
@@ -91,6 +101,12 @@ export class WorkplateTabs {
 
   startEditing(uuid: string, event?: Event): void {
     event?.preventDefault();
+    // Measure before the swap — afterwards the label is gone.
+    const label = this.tabEls()
+      .map((ref) => ref.nativeElement)
+      .find((el) => el.dataset['uuid'] === uuid)
+      ?.querySelector<HTMLElement>('.wp-tab-label');
+    this.editWidth.set(label ? Math.ceil(label.getBoundingClientRect().width) : null);
     this.editingUuid.set(uuid);
   }
 

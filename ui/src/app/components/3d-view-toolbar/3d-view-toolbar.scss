@@ -5,8 +5,24 @@
 
   display: flex;
   align-items: center;
-  justify-content: center;
+  // `safe center` rather than `center`: thirteen buttons at their 44px touch
+  // size need more room than an iPad leaves beside a docked settings column, and
+  // a plain `center` puts the overflow on *both* sides — the leftmost tools end
+  // up at a negative offset where no scroll can reach them. `safe` falls back to
+  // start-alignment exactly when that would happen.
+  justify-content: safe center;
   gap: var(--spacing-sm);
+
+  // Wrap to a second row rather than spilling past the window edge. Scrolling
+  // would be the tighter answer, but this element cannot become a scroll
+  // container: the transform and placement cards are absolutely positioned
+  // *inside* it, anchored under the buttons that open them, and a scroll port
+  // clips both axes — `overflow-x` alone leaves the other computing to `auto`,
+  // not `visible`.
+  flex-wrap: wrap;
+  row-gap: var(--spacing-xs);
+  max-width: 100%;
+  min-width: 0;
 }
 
 /* ── Floating pill groups ───────────────────────────────────────────────── */
@@ -20,8 +36,14 @@
 :host .button-radio-group {
   display: inline-flex;
   align-items: center;
+  // The pills wrap internally too. Wrapping only at the toolbar level still
+  // leaves the widest pill — seven 44px tool buttons — wider than an iPad has
+  // to spare beside a docked settings column.
+  flex-wrap: wrap;
+  justify-content: center;
   gap: 2px;
   padding: 3px;
+  min-width: 0;
 
   background: var(--color-surface);
   border: 1px solid var(--color-border-light);
@@ -106,6 +128,16 @@
 .tool-cluster {
   position: relative;
   display: inline-flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  min-width: 0;
+}
+
+.tool-modes {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  min-width: 0;
 }
 
 /* Hangs the open cards directly under the buttons that reveal them, centred on

@@ -208,8 +208,14 @@ const CLICK_DRAG_THRESHOLD = 4;
       :host {
         display: block;
         position: relative;
-        width: 96px;
-        height: 96px;
+        /*
+         * The cube is a navigation control, not an ornament — it is dragged to
+         * orbit and its faces are tapped to snap the view. At 96px the faces
+         * were around 30px each, below a comfortable target even with a mouse,
+         * and well under one on touch where it also has to survive a drag.
+         */
+        width: 116px;
+        height: 116px;
         background: transparent;
         pointer-events: auto;
         user-select: none;
@@ -222,6 +228,23 @@ const CLICK_DRAG_THRESHOLD = 4;
         height: 100%;
         background: transparent;
         cursor: grab;
+      }
+      /* Raw media query rather than the coarse-pointer() mixin: these styles are
+         inline in the component, so the Sass breakpoint partial is not in scope.
+         Keep the query identical to the one in styles/_breakpoints.scss. */
+      @media (pointer: coarse) {
+        :host {
+          width: 140px;
+          height: 140px;
+        }
+        .roll-btn {
+          width: 32px;
+          height: 32px;
+        }
+        .roll-btn svg {
+          width: 18px;
+          height: 18px;
+        }
       }
       .cube-canvas.is-dragging {
         cursor: grabbing;

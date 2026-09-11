@@ -4,6 +4,7 @@
       #tabEl
       class="wp-tab"
       role="tab"
+      [attr.data-uuid]="tab.uuid"
       [class.active]="tab.uuid === activeUuid()"
       [attr.aria-selected]="tab.uuid === activeUuid()"
       [attr.tabindex]="tab.uuid === activeUuid() ? 0 : -1"
@@ -19,6 +20,7 @@
           type="text"
           [value]="nameFor(tab)"
           [placeholder]="placeholderFor(tab)"
+          [style.min-width.px]="editWidth()"
           (blur)="onInputBlur(tab.uuid, $event)"
           (keydown)="onInputKeydown(tab.uuid, $event, editInput)"
           (click)="$event.stopPropagation()"

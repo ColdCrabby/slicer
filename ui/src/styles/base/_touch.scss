@@ -54,12 +54,24 @@ html.is-coarse-pointer {
     min-height: 28px;
   }
 
-  // Accordion headers, segmented-control segments and the legend's role chips:
-  // full-width rows that were still only 26–36px of vertical target.
+  // Accordion headers and the legend's role chips: full-width rows that were
+  // still only 26–36px of vertical target.
   .schema-form-group-trigger,
-  .segment,
   .role-badge {
     min-height: 44px;
+  }
+
+  // A segmented control is only a row of small targets while it is *a row*.
+  // `StackWhenCramped` turns it into a vertical list when the labels will not
+  // fit, and there each segment already spans the full width — giving those the
+  // same 44px floor just made a three-way switcher 144px tall and read as a
+  // menu rather than a control.
+  nexus-segmented:not(.stacked) .segment {
+    min-height: 44px;
+  }
+
+  nexus-segmented.stacked .segment {
+    min-height: 36px;
   }
 
   // Icon-only buttons in the chrome (titlebar links, viewport tools, the
@@ -68,6 +80,19 @@ html.is-coarse-pointer {
   a[nexusIconButton] {
     min-width: 44px;
     min-height: 44px;
+  }
+
+  // Grow the glyph with the target. A 44px button around an 18px icon reads as
+  // a small icon marooned in empty space — the control looks *less* pressable
+  // than it did at cursor size, which is the opposite of the point.
+  button[nexusIconButton],
+  a[nexusIconButton],
+  nexus-icon-button {
+    --icon-size: 20px;
+  }
+
+  .icon-btn nexus-icon {
+    --icon-size: 20px;
   }
 
   input:not([type='checkbox']):not([type='radio']):not([type='range']),
