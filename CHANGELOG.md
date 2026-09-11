@@ -43,6 +43,12 @@ issue/PR numbers or repo links in the notes. See the tone rules in
 
 ### Added
 
+- **Open a model straight from another app.** Cold Crabby now registers as a
+  handler for `.stl`, `.obj` and `.3mf`: double-click one on Windows, macOS or
+  Linux, or share one to it from Shapr3D, Files, Mail or AirDrop on iPhone and
+  iPad. The model joins the plate you already have open rather than replacing
+  it, and a second double-click reuses the running window instead of starting a
+  new one.
 - **Pause and colour change at a layer.** Mark any layer in the preview to stop
   the print for an insert or a filament swap; markers on the layer slider add and
   remove them. Emits the right directive per firmware — Marlin `M0`/`M600`,
