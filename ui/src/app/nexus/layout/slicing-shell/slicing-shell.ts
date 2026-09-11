@@ -18,7 +18,6 @@ import { ViewportCube } from '../../../components/viewport-cube/viewport-cube';
 import { PrintArea } from '../../../services/print-area';
 import { ActiveSelection } from '../../../services/profiles/active-selection';
 import { SceneEngine } from '../../../services/scene-engine';
-import { Slicer } from '../../../services/slicer';
 import { Sidebar } from '../../sidebar/sidebar';
 import { SliceControl } from '../../slice-control/slice-control';
 
@@ -44,38 +43,39 @@ export class NexusSlicingShell {
   private readonly activeSelection = inject(ActiveSelection);
   private readonly printArea = inject(PrintArea);
   private readonly sceneEngine = inject(SceneEngine);
-  private readonly slicer = inject(Slicer);
 
   constructor() {
-    // Apply the active printer/filament/print-profile selection to the live
-    // bed + slice params. Lives here (not in a root service) so opening
-    // Settings never boots the slicer runtime — this shell is only ever
-    // constructed inside the slice workspace.
+    // Apply the active printer's bed to the print area and the scene engine.
+    // Lives here (not in a root service) so opening Settings never boots the
+    // slicer runtime — this shell is only ever constructed inside the slice
+    // workspace.
     //
-    // Only `printAreaConfig()` / `sceneBedConfig()` / `sliceParams()` are tracked dependencies. The writes
-    // run inside `untracked()` because `updateConfig` / `updateSettings` read
-    // their own target signals (`{ ...current, ...patch }`); tracking those
-    // reads would make the effect depend on the very signals it writes and loop
-    // forever.
+    // The slice *parameters* are deliberately not pushed anywhere: `Slicer`
+    // derives them from the same selection plus the plate's override diff.
+    // Copying the resolved stack into a writable settings signal, as this
+    // effect used to, left values from the previously-selected preset behind
+    // whenever the new one was silent about a key — and those strays then read
+    // as deliberate user overrides.
+    //
+    // Only `printAreaConfig()` / `sceneBedConfig()` are tracked. The writes run
+    // inside `untracked()` because `updateConfig` reads its own target signal;
+    // tracking that read would make the effect depend on the signal it writes
+    // and loop forever.
     effect(() => {
       const printAreaBed = this.activeSelection.printAreaConfig();
       const sceneBed = this.activeSelection.sceneBedConfig();
-      const params = this.activeSelection.sliceParams();
       untracked(() => {
         if (printAreaBed) {
           this.printArea.updateConfig(printAreaBed);
         }
         if (sceneBed) {
           // A stale bundle without setBed throws; don't let that block the
-          // print-area and settings writes below.
+          // print-area write above.
           try {
             this.sceneEngine.setBed(sceneBed);
           } catch {
             /* update-banner already prompts a reload */
           }
-        }
-        if (params) {
-          this.slicer.updateSettings(params);
         }
       });
     });

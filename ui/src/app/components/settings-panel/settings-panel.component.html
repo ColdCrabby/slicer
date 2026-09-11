@@ -47,8 +47,42 @@
     class="settings-form"
     [schema]="schema"
     [value]="settings()"
+    [modifiedKeys]="modifiedKeys()"
     [visibleGroups]="activeGroups()"
     [groupIcons]="groupIcons"
     (fieldChange)="update($event)"
   />
+
+  <footer class="settings-footer">
+    @if (saveVisible()) {
+      <p
+        class="settings-save"
+        [class.is-error]="saveIsError()"
+        role="status"
+        aria-live="polite"
+        animate.enter="settings-save-enter"
+        animate.leave="settings-save-leave"
+      >
+        <span class="settings-save-dot"></span>
+        <span>{{ saveLabel() }}</span>
+      </p>
+    }
+
+    @if (modifiedCount(); as changed) {
+      <p class="settings-changed">
+        <span class="settings-changed-count">
+          {{ changed }} {{ changed === 1 ? 'setting' : 'settings' }} changed from your presets
+        </span>
+        <button
+          type="button"
+          class="settings-changed-reset"
+          [class.is-confirming]="resetConfirming()"
+          (click)="resetOverrides()"
+          (blur)="cancelReset()"
+        >
+          {{ resetConfirming() ? 'Confirm?' : 'Reset all' }}
+        </button>
+      </p>
+    }
+  </footer>
 </section>

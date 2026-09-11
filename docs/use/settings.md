@@ -18,6 +18,38 @@ Press `Ctrl`/`⌘ + F` and type. The search spans all three tabs, so you don't
 have to guess which one owns it.
 :::
 
+## Changes belong to the plate
+
+Everything you see in the panel comes from the three profiles you picked. When
+you change one of those values, the plate remembers **that one change** — not a
+copy of every setting.
+
+You can see which ones they are: a changed setting gets a thin amber line down
+its left edge, and its section gets a dot, so a collapsed **Walls** still tells
+you something inside it was touched. The bottom of the panel counts them and
+offers **Reset all**, which hands every changed setting back to its profile.
+Setting a single value back to what the profile says does the same for that one
+— it stops being a change and starts following the profile again.
+
+This matters for a reason that only shows up later. Edit a print profile — say
+you decide 4 walls, not 3 — and every plate using it prints with 4 walls,
+including the ones you already tuned. The only settings that stay put are the
+ones you deliberately changed on that plate.
+
+Your changes are saved to the plate as you make them; the panel says so briefly
+underneath. Come back to a plate a week later, from the tab bar or your history,
+and it opens with the printer, filament and profile it was set up with and the
+changes you made on top — even if you have been printing something else in
+PETG since.
+
+::: details Advanced — what actually gets sliced
+Cold Crabby sends the slicer your three chosen profiles and your list of
+changes, and the slicer combines them: engine defaults, then printer, then
+filament, then process, then your changes, each winning over the one before.
+The combining happens in one place, in the engine, so the command line, the
+desktop app and the browser cannot disagree about what a profile means.
+:::
+
 ## The five settings that matter most
 
 If you change nothing else, understand these.

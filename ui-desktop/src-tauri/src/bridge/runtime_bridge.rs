@@ -21,7 +21,20 @@ pub struct HistorySession {
 #[derive(Debug, serde::Deserialize)]
 struct SliceStartPayload {
     slice_id: Option<String>,
-    settings: Value,
+    /// The three active profiles plus the user's sparse override diff.
+    ///
+    /// The desktop resolves it here, with the engine's own
+    /// [`slicer_engine::profiles::resolve`] — the same call the server makes in
+    /// `ws_session` and the browser makes through the wasm binding. The webview
+    /// sends only what the user changed; every inherited value is composed on
+    /// this side, so a profile edit can never be undone by a stale flattened
+    /// copy the front-end happened to be holding.
+    #[serde(default)]
+    profiles: Option<Box<slicer_engine::profiles::ProfileSelection>>,
+    /// Pre-flattened parameters. Superseded by `profiles`; kept so an older
+    /// webview bundle paired with a newer shell still slices.
+    #[serde(default)]
+    settings: Option<Value>,
     /// Filesystem path to the model. Rust reads the file directly,
     /// avoiding any byte arrays crossing the IPC boundary.
     file_path: Option<String>,
@@ -142,7 +155,7 @@ pub async fn slice_start(
     let gcode_cache = Arc::clone(&state.gcode_cache);
 
     tauri::async_runtime::spawn_blocking(move || {
-        let payload: SliceStartPayload =
+        let mut payload: SliceStartPayload =
             serde_json::from_value(payload).map_err(|e| format!("invalid slice payload: {e}"))?;
 
         let slice_id = payload.slice_id.unwrap_or_else(|| "unknown".to_string());
@@ -163,9 +176,7 @@ pub async fn slice_start(
             .or(file_path.as_deref())
             .map(file_name_of);
 
-        let params: slicer_engine::settings::params::SlicingParams =
-            serde_json::from_value(payload.settings)
-                .map_err(|e| format!("invalid settings: {e}"))?;
+        let params = resolve_slice_params(payload.profiles.take(), payload.settings.take())?;
 
         // No cache lookup here on purpose: every slice request runs the full
         // pipeline, even when `cache_key` matches a previous run byte-for-byte.
@@ -281,6 +292,27 @@ fn register_slice_result(
                 download_url: String::new(),
             },
         );
+    }
+}
+
+/// Resolve a slice request's parameters, preferring the structured profile
+/// selection over the legacy pre-flattened blob.
+///
+/// Mirrors `ws_session::resolve_slice_params`: the composition rules live in
+/// the engine, and both hosts call the same one. Falling through to engine
+/// defaults when neither is present keeps a minimal payload sliceable.
+fn resolve_slice_params(
+    profiles: Option<Box<slicer_engine::profiles::ProfileSelection>>,
+    settings: Option<Value>,
+) -> Result<slicer_engine::settings::params::SlicingParams, String> {
+    if let Some(selection) = profiles {
+        return selection
+            .resolve()
+            .map_err(|e| format!("invalid profile selection: {e}"));
+    }
+    match settings {
+        Some(value) => serde_json::from_value(value).map_err(|e| format!("invalid settings: {e}")),
+        None => Ok(Default::default()),
     }
 }
 
@@ -864,6 +896,79 @@ mod plate_loading_tests {
         assert_ne!(
             compute_slice_cache_key(&params, Some(&cube), &scene),
             compute_slice_cache_key(&params, Some(&top_ac), &scene)
+        );
+    }
+}
+
+#[cfg(test)]
+mod slice_param_tests {
+    use super::*;
+
+    fn selection(overrides: Value) -> Box<slicer_engine::profiles::ProfileSelection> {
+        Box::new(slicer_engine::profiles::ProfileSelection {
+            printer: slicer_engine::profiles::defaults::default_printer(),
+            filament: slicer_engine::profiles::defaults::default_filament(),
+            process: slicer_engine::profiles::defaults::default_process(),
+            overrides,
+        })
+    }
+
+    /// The webview sends deviations only. Everything the user did not touch has
+    /// to come back from the profiles the engine composes here — if it did not,
+    /// a plate would silently print with engine defaults instead of its process
+    /// profile.
+    #[test]
+    fn a_sparse_diff_still_resolves_the_whole_stack() {
+        let params = resolve_slice_params(Some(selection(json!({ "layer_height": 0.12 }))), None)
+            .expect("resolve");
+
+        assert!(
+            (params.layer_height - 0.12).abs() < 1e-9,
+            "the override wins"
+        );
+        assert_eq!(
+            params.infill_pattern,
+            slicer_engine::infill::InfillPattern::Gyroid,
+            "from the process profile"
+        );
+        assert!(
+            (params.nozzle_diameter_mm - 0.4).abs() < 1e-9,
+            "from the printer"
+        );
+    }
+
+    /// An override of `null` is a value, not an omission: it must not be
+    /// mistaken for "inherit" and drop through to the profile's value.
+    #[test]
+    fn an_absent_override_bag_is_accepted() {
+        let params = resolve_slice_params(Some(selection(Value::Null)), None).expect("resolve");
+        assert!((params.layer_height - 0.2).abs() < 1e-9);
+    }
+
+    /// The pre-flattened blob is only the fallback for an older webview.
+    #[test]
+    fn profiles_win_over_legacy_settings() {
+        let params = resolve_slice_params(
+            Some(selection(json!({ "layer_height": 0.12 }))),
+            Some(json!({ "layer_height": 0.3 })),
+        )
+        .expect("resolve");
+        assert!((params.layer_height - 0.12).abs() < 1e-9);
+    }
+
+    #[test]
+    fn legacy_settings_still_slice_when_no_profiles_are_sent() {
+        let params =
+            resolve_slice_params(None, Some(json!({ "layer_height": 0.3 }))).expect("resolve");
+        assert!((params.layer_height - 0.3).abs() < 1e-9);
+    }
+
+    #[test]
+    fn an_empty_payload_falls_through_to_engine_defaults() {
+        let params = resolve_slice_params(None, None).expect("resolve");
+        assert_eq!(
+            params.layer_height,
+            slicer_engine::settings::params::SlicingParams::default().layer_height
         );
     }
 }

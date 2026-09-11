@@ -117,6 +117,15 @@ export class SchemaForm {
    */
   readonly groupIcons = input<Record<string, string>>({});
 
+  /**
+   * Keys whose value deviates from whatever the caller considers the baseline —
+   * for the slice panel, the resolved preset stack. Marked fields get a quiet
+   * accent rule and their group a dot, so a value that will follow its profile
+   * is distinguishable at a glance from one that has been pinned. Empty by
+   * default, which renders no marks at all.
+   */
+  readonly modifiedKeys = input<ReadonlySet<string>>(new Set());
+
   /** Emitted whenever the user changes a single field. */
   readonly fieldChange = output<FieldChangeEvent>();
 
@@ -228,6 +237,24 @@ export class SchemaForm {
     const names = new Set<string>();
     for (const group of this.relevantGroups()) {
       if (group.fields.some((f) => noticeForField(f, values[f.key], values) !== null)) {
+        names.add(group.name);
+      }
+    }
+    return names;
+  });
+
+  /**
+   * Groups holding at least one currently-visible modified field, so a
+   * collapsed section still advertises that something inside was changed.
+   */
+  protected readonly groupsWithModified = computed<ReadonlySet<string>>(() => {
+    const modified = this.modifiedKeys();
+    if (modified.size === 0) {
+      return new Set<string>();
+    }
+    const names = new Set<string>();
+    for (const group of this.relevantGroups()) {
+      if (group.fields.some((f) => modified.has(f.key))) {
         names.add(group.name);
       }
     }

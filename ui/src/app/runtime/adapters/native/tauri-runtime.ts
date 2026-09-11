@@ -265,7 +265,9 @@ export class TauriRuntime implements RuntimePort {
           // Rust reads the model directly from disk — bytes never cross IPC.
           file_path: filePath,
           scene,
-          settings: request.settings,
+          // Profiles plus the user's diff; the bridge resolves them with the
+          // engine's own `profiles::resolve`, exactly as the server does.
+          profiles: request.profiles,
         },
       });
 

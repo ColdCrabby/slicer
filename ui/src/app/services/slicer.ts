@@ -5,7 +5,7 @@ import type {
   PauseTrigger,
   ProfileSelection,
 } from '../../generated/slicer-engine-ws-client-message-v1';
-import { DEFAULT_SETTINGS } from '../models/slice-settings.model';
+import { applyOverridePatch } from '../models/slice-settings.model';
 import { RuntimeOrchestrator } from '../runtime/application/runtime-orchestrator';
 import { RuntimeSession } from '../runtime/application/runtime-session';
 import { RuntimeHistorySession } from '../runtime/domain/history-models';
@@ -31,6 +31,7 @@ import {
   type ThumbnailView,
 } from './viewer-control';
 import { WorkplateNames } from './workplate-names';
+import { WorkplateSettingsStore } from './workplate-settings';
 import { sliceProgressPercent, type ObjectScope, type PhaseTimingData } from './slicer-progress';
 
 /** Human-readable label for each pipeline phase. */
@@ -98,6 +99,7 @@ export class Slicer {
   private readonly appVersion = inject(AppVersion);
   private readonly viewerControl = inject(ViewerControl);
   private readonly workplateNames = inject(WorkplateNames);
+  private readonly workplateSettings = inject(WorkplateSettingsStore);
   private readonly fileExport = inject(FileExport);
   private readonly modelSources = inject(ModelSourceRegistry);
   private readonly runtimeMode = this.resolveRuntimeMode();
@@ -130,7 +132,38 @@ export class Slicer {
   readonly selectedFile = this.slicerFile.selectedFile;
   /** Workplate UUID of the current scene (the key sliced G-code is stored under). */
   readonly currentRequestUuid = this.slicerFile.requestUuid;
-  readonly settings = signal<SlicingParams>(DEFAULT_SETTINGS);
+  /**
+   * Every slice parameter's effective value: the resolved preset stack with the
+   * active plate's override diff laid over it.
+   *
+   * Derived, never assigned. The stack is the engine's own composition order
+   * mirrored in {@link ActiveSelection.sliceParams}, and the only thing stored
+   * anywhere is the diff — so switching printer, filament or process re-derives
+   * every inherited value while the user's own changes survive untouched. The
+   * previous arrangement pushed the whole resolved stack into a writable signal
+   * on every preset change, which left values from the *old* preset behind
+   * whenever the new one was silent about a key; those strays then read as
+   * deliberate user overrides and were sent on every slice.
+   *
+   * This is the flattened view for display and for the scene signature. The
+   * wire never sees it — {@link buildProfileSelection} sends the diff.
+   */
+  readonly settings = computed<SlicingParams>(
+    () =>
+      ({
+        ...(this.activeSelection.sliceParams() ?? {}),
+        ...this.workplateSettings.settingsFor(this.currentRequestUuid()).overrides,
+      }) as SlicingParams,
+  );
+
+  /**
+   * Keys the active plate deviates from its preset stack on — exactly what goes
+   * on the wire, and what the settings panel marks as changed.
+   */
+  readonly overriddenKeys = computed<ReadonlySet<string>>(
+    () =>
+      new Set(Object.keys(this.workplateSettings.settingsFor(this.currentRequestUuid()).overrides)),
+  );
   readonly status = signal<SlicerStatus>('idle');
   readonly runtimeConnected = signal(false);
   readonly historyVersion = signal(0);
@@ -239,6 +272,12 @@ export class Slicer {
   private lastWorkplateUuid: string | null | undefined = undefined;
 
   /**
+   * Plate whose preset stack has already been restored, so reopening it does
+   * not re-apply stored presets over a selection the user has since changed.
+   */
+  private presetBoundUuid: string | null | undefined = undefined;
+
+  /**
    * Overall slice progress 0–100.
    *
    * - When `status === 'done'`, always returns 100.
@@ -338,6 +377,35 @@ export class Slicer {
         this.lastWorkplateUuid = uuid;
         this.clearSliceState();
         this.viewerControl.viewMode.set('model');
+      });
+    });
+
+    // Keep each plate pinned to the presets its override diff was measured
+    // against, in both directions: opening a plate restores the stack it was
+    // set up with, and changing a preset while it is open re-pins it.
+    //
+    // A diff without its baseline is not restorable — "nozzle 15 °C down" means
+    // one thing against PETG and another against PLA — so the ids travel with
+    // the plate the same way the diff does. Restoring re-enters this effect
+    // through `presetIds`, and the recording pass then finds ids that already
+    // match, which is why it cannot oscillate.
+    effect(() => {
+      const uuid = this.currentRequestUuid();
+      const ids = this.activeSelection.presetIds();
+      untracked(() => {
+        if (uuid !== this.presetBoundUuid) {
+          this.presetBoundUuid = uuid;
+          const stored = this.workplateSettings.settingsFor(uuid).presets;
+          if (stored.printer || stored.filament || stored.process) {
+            this.activeSelection.applyPresetIds(stored);
+            return;
+          }
+        }
+        this.workplateSettings.setPresets(uuid, {
+          printer: ids.printer,
+          filament: ids.filament,
+          process: ids.process,
+        });
       });
     });
   }
@@ -542,6 +610,12 @@ export class Slicer {
     // it is also where a deferred boot gets claimed.
     await this.ensureRuntimeStarted();
 
+    // Settings tuned on the empty plate belong to the plate this upload is
+    // about to produce. Only carry them when we really were on the empty plate:
+    // dropping a model while another one is open starts a plate of its own and
+    // must not inherit a draft left behind from some earlier session.
+    const wasDraft = this.currentRequestUuid() === null;
+
     // Clear every trace of the previous plate (file, slice results, scene
     // objects, view mode) before adopting the new model so nothing bleeds
     // across — the old download URL, thumbnail source or a leftover scene
@@ -568,18 +642,42 @@ export class Slicer {
         fileId: source.sourceId,
         filename: file.name,
       });
+      if (wasDraft) {
+        this.workplateSettings.adoptDraft(requestUuid);
+      }
       return { requestUuid };
     }
 
     const uploadMeta = await this.slicerFile.upload();
+    if (wasDraft) {
+      this.workplateSettings.adoptDraft(uploadMeta.ruuid);
+    }
     return {
       requestUuid: uploadMeta.ruuid,
       uploadMeta,
     };
   }
 
+  /**
+   * Apply a settings change to the active plate, as a deviation from its
+   * presets. See {@link applyOverridePatch} for why a value equal to the
+   * baseline is dropped rather than stored.
+   */
   updateSettings(patch: Partial<SlicingParams>): void {
-    this.settings.update((current) => ({ ...current, ...patch }));
+    const uuid = this.currentRequestUuid();
+    this.workplateSettings.setOverrides(
+      uuid,
+      applyOverridePatch(
+        this.workplateSettings.settingsFor(uuid).overrides,
+        patch as Record<string, unknown>,
+        (this.activeSelection.sliceParams() ?? {}) as Record<string, unknown>,
+      ),
+    );
+  }
+
+  /** Drop every override, returning the plate to its presets as-published. */
+  resetAllSettings(): void {
+    this.workplateSettings.setOverrides(this.currentRequestUuid(), {});
   }
 
   /** Add a pause/color-change/custom trigger at a 1-based layer number. */
@@ -598,28 +696,28 @@ export class Slicer {
   }
 
   /**
-   * Build the structured slice request: the three active profiles (already in
-   * the engine's own shape — no mapping) plus the user's sparse override diff.
-   * The diff is every live setting that differs from the resolved profile
-   * baseline; the engine re-resolves `profiles → overrides` authoritatively.
+   * Build the slice request: the three active profiles, already in the engine's
+   * own shape, plus the plate's sparse override diff.
+   *
+   * Nothing inherited is sent. The engine resolves
+   * `defaults → printer → filament → process → overrides` itself, so a value
+   * the user never touched arrives from the profile the engine already holds
+   * rather than from a flattened copy this client made of it — which is what
+   * keeps a profile edit from being silently undone by a stale snapshot.
+   *
+   * `extraOverrides` carries the per-slice things that are not settings at all
+   * but ride the same channel: the captured thumbnail, above all. Support paint
+   * is not among them — it belongs to the object and travels with the scene.
    */
   private buildProfileSelection(extraOverrides: Record<string, unknown> = {}): ProfileSelection {
-    const baseline = (this.activeSelection.sliceParams() ?? {}) as Record<string, unknown>;
-    const settings = this.settings() as unknown as Record<string, unknown>;
-    const overrides: Record<string, unknown> = {};
-    for (const key of Object.keys(settings)) {
-      if (JSON.stringify(settings[key]) !== JSON.stringify(baseline[key])) {
-        overrides[key] = settings[key];
-      }
-    }
-    for (const [key, value] of Object.entries(extraOverrides)) {
-      overrides[key] = value;
-    }
     return {
       printer: this.activeSelection.printer(),
       filament: this.activeSelection.filament(),
       process: this.activeSelection.profile(),
-      overrides,
+      overrides: {
+        ...this.workplateSettings.settingsFor(this.currentRequestUuid()).overrides,
+        ...extraOverrides,
+      },
     };
   }
 
@@ -668,22 +766,21 @@ export class Slicer {
     try {
       const model = await this.readRuntimeMeshInput(file);
       const scene = await this.ensureRuntimeReadyForSlice(model);
-      const requestSettings = {
-        ...(this.settings() as unknown as Record<string, unknown>),
-      };
+      // The flattened view, read only to decide *whether* to capture a
+      // thumbnail and at what size. It is never sent: the request carries the
+      // profiles plus the diff, and the engine resolves the rest.
+      const effective = this.settings() as unknown as Record<string, unknown>;
       const thumbnailOverrides: Record<string, unknown> = {};
 
-      if (this.thumbnailEnabled(requestSettings)) {
+      if (this.thumbnailEnabled(effective)) {
         const thumbnail = await this.viewerControl.captureSliceThumbnail({
-          sizePx: this.thumbnailSizePx(requestSettings),
-          view: this.thumbnailView(requestSettings),
-          theme: this.thumbnailTheme(requestSettings),
-          colorMode: this.thumbnailColorMode(requestSettings),
-          customColor: this.thumbnailCustomColor(requestSettings),
+          sizePx: this.thumbnailSizePx(effective),
+          view: this.thumbnailView(effective),
+          theme: this.thumbnailTheme(effective),
+          colorMode: this.thumbnailColorMode(effective),
+          customColor: this.thumbnailCustomColor(effective),
         });
         if (thumbnail) {
-          requestSettings['thumbnail_size_px'] = thumbnail.sizePx;
-          requestSettings['thumbnail_png_base64'] = thumbnail.pngBase64;
           thumbnailOverrides['thumbnail_size_px'] = thumbnail.sizePx;
           thumbnailOverrides['thumbnail_png_base64'] = thumbnail.pngBase64;
         } else {
@@ -692,8 +789,6 @@ export class Slicer {
             '[warn] Thumbnail capture unavailable — slicing without embedded preview image.',
           ]);
         }
-      } else {
-        delete requestSettings['thumbnail_png_base64'];
       }
       const profileSelection = this.buildProfileSelection(thumbnailOverrides);
 
@@ -706,7 +801,7 @@ export class Slicer {
       // Commit the drift baseline NOW — the instant the slice is dispatched —
       // not when it completes. The G-code produced by this job reflects the
       // scene + settings as they are at *this* moment (the scene is already
-      // baked and `requestSettings` snapshotted above). Capturing the baseline
+      // baked and `profileSelection` snapshotted above). Capturing the baseline
       // at completion instead would fold any edit the user makes *during* the
       // slice into "what was sliced", so the preview-stale hint would wrongly
       // read clean even though the on-screen G-code predates that edit.
@@ -736,7 +831,6 @@ export class Slicer {
         request_uuid: this.slicerFile.requestUuid() ?? undefined,
         model,
         scene,
-        settings: requestSettings,
         profiles: profileSelection,
       });
 

@@ -60,6 +60,11 @@ All three lists behave the same:
 
 Duplicating and editing beats starting from scratch. Deleting asks first.
 
+Editing a profile reaches every plate that uses it, including plates you sliced
+weeks ago — that is the point of a profile. The exception is a setting you
+changed on a particular plate, which stays as you left it. See
+[Changes belong to the plate](/use/settings#changes-belong-to-the-plate).
+
 ## Labels
 
 Labels are a flat set of tags — `PLA`, `prototype`, `customer-work`, whatever
@@ -103,5 +108,7 @@ name order reproduces a valid `profiles.toml`, order intact.
 ## Starting over
 
 **Settings → Danger Zone** has **Reset profiles to defaults**, which restores
-the built-in library. It asks you to type a confirmation first. The same page
-can clear slice history or reset the whole app.
+the built-in library. It asks you to type a confirmation first. Because your
+plates remember their settings as *changes to a profile*, and those profiles are
+being replaced, this clears the per-plate changes too. The same page can clear
+slice history or reset the whole app.

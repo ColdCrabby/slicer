@@ -1,4 +1,4 @@
-import { Component, computed, inject, signal } from '@angular/core';
+import { Component, computed, effect, inject, signal } from '@angular/core';
 import { RouterLink } from '@angular/router';
 import globalSettingsSchema from '../../../schemas/slicer-engine-global-settings-v1.json';
 import {
@@ -14,6 +14,11 @@ import { ActivePresets } from '../../services/profiles/active-presets';
 import { LabelFilterStore } from '../../services/profiles/label-filter-store';
 import { LabelFilterBar } from '../labels/label-filter-bar';
 import { Slicer } from '../../services/slicer';
+import {
+  WORKPLATE_SAVE_DEBOUNCE_MS,
+  WorkplateSettingsStore,
+  type WorkplateSaveStatus,
+} from '../../services/workplate-settings';
 import { Icon, IconButton, Segmented, type SegmentOption, Select } from '@coldcrabby/ui';
 
 // Extract the SlicingParams sub-schema so the form renders all slicer settings.
@@ -26,6 +31,9 @@ const SLICING_PARAMS_SCHEMA = {
 };
 
 const CONTRACT_STORAGE_KEY = 'settings-panel.contract';
+
+/** How long an armed "Reset all" waits before disarming itself. */
+const CONFIRM_TIMEOUT_MS = 4000;
 
 /**
  * Slice-page sidebar. Categorises the flat slicer parameters by *contract*
@@ -44,12 +52,22 @@ const CONTRACT_STORAGE_KEY = 'settings-panel.contract';
 export class SettingsPanel {
   private readonly slicer = inject(Slicer);
   private readonly storage = inject(BrowserStorage);
+  private readonly workplateSettings = inject(WorkplateSettingsStore);
   protected readonly presets = inject(ActivePresets);
   protected readonly labelFilter = inject(LabelFilterStore);
 
   readonly settings = this.slicer.settings;
   readonly schema = SLICING_PARAMS_SCHEMA;
   protected readonly groupIcons = GROUP_ICONS;
+
+  /**
+   * Settings this plate deviates from its presets on — exactly the diff that
+   * goes on the wire. Marking them is what keeps the panel honest: every other
+   * value on screen is inherited and will follow its profile if that profile
+   * is edited.
+   */
+  protected readonly modifiedKeys = this.slicer.overriddenKeys;
+  protected readonly modifiedCount = computed(() => this.modifiedKeys().size);
 
   protected readonly contractTabs: SegmentOption[] = SETTING_CONTRACTS.map((contract) => ({
     value: contract.id,
@@ -90,5 +108,82 @@ export class SettingsPanel {
 
   update(event: FieldChangeEvent): void {
     this.slicer.updateSettings({ [event.key]: event.value });
+  }
+
+  /**
+   * Two-step: arm on the first press, act on the second. Dropping every
+   * override at once can undo a long evening of tuning, and there is no undo
+   * stack behind it.
+   */
+  protected readonly resetConfirming = signal(false);
+  private resetTimer: ReturnType<typeof setTimeout> | null = null;
+
+  /** Hand every changed setting back to the presets it came from. */
+  resetOverrides(): void {
+    if (!this.resetConfirming()) {
+      this.resetConfirming.set(true);
+      this.resetTimer = setTimeout(() => this.cancelReset(), CONFIRM_TIMEOUT_MS);
+      return;
+    }
+    this.cancelReset();
+    this.slicer.resetAllSettings();
+  }
+
+  /** Disarm the confirm — on blur, or when it has sat untouched long enough. */
+  cancelReset(): void {
+    if (this.resetTimer !== null) {
+      clearTimeout(this.resetTimer);
+      this.resetTimer = null;
+    }
+    this.resetConfirming.set(false);
+  }
+
+  // --- Save indicator ----------------------------------------------------
+
+  /**
+   * Whether to show the indicator. Held back by the save debounce so an edit
+   * that settles inside that window never flashes it, and dropped immediately
+   * once the store goes idle — the same restraint the Settings sidebar shows.
+   */
+  protected readonly saveVisible = signal(false);
+
+  /** Status being displayed; held through the fade so the label never blanks. */
+  private readonly shownStatus = signal<WorkplateSaveStatus>('idle');
+
+  protected readonly saveLabel = computed(() => {
+    switch (this.shownStatus()) {
+      case 'pending':
+      case 'saving':
+        return 'Saving…';
+      case 'saved':
+        return 'Saved to this workplate';
+      case 'error':
+        return "Couldn't save";
+      default:
+        return '';
+    }
+  });
+
+  protected readonly saveIsError = computed(() => this.shownStatus() === 'error');
+
+  constructor() {
+    effect((onCleanup) => {
+      const status = this.workplateSettings.status();
+      if (status === 'idle') {
+        this.saveVisible.set(false);
+        return;
+      }
+      this.shownStatus.set(status);
+      // Only `pending` waits: it is the one state that resolves on its own, and
+      // an edit that settles inside the debounce should never have flashed an
+      // indicator at all. Everything past it reports a write that has already
+      // happened, so it appears at once — the store retires `saved` itself.
+      if (status !== 'pending') {
+        this.saveVisible.set(true);
+        return;
+      }
+      const timer = setTimeout(() => this.saveVisible.set(true), WORKPLATE_SAVE_DEBOUNCE_MS);
+      onCleanup(() => clearTimeout(timer));
+    });
   }
 }

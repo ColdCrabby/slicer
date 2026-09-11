@@ -49,3 +49,115 @@
 .preset-manage {
   flex: none;
 }
+
+// Footer rail under the form: what was changed, and whether it is stored yet.
+// Both lines are transient or conditional, so nothing here holds space when
+// there is nothing to say.
+.settings-footer {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-xs);
+  padding: 0 var(--spacing-sm) var(--spacing-sm);
+}
+
+.settings-save {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  margin: 0;
+  font-size: var(--font-size-xs);
+  color: var(--color-text-tertiary);
+  user-select: none;
+  -webkit-user-select: none;
+
+  &.is-error {
+    color: var(--color-danger);
+  }
+}
+
+.settings-save-enter {
+  animation: settings-save-in var(--duration-normal) var(--ease-standard) both;
+}
+
+.settings-save-leave {
+  animation: settings-save-out var(--duration-normal) var(--ease-standard) forwards;
+}
+
+.settings-save-dot {
+  flex: none;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--accent);
+  animation: settings-save-pulse 1.4s ease-in-out infinite;
+
+  .settings-save.is-error & {
+    background: var(--color-danger);
+    animation: none;
+  }
+}
+
+@keyframes settings-save-pulse {
+  0%,
+  100% {
+    opacity: 0.35;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
+@keyframes settings-save-in {
+  from {
+    opacity: 0;
+    transform: translateY(2px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes settings-save-out {
+  from {
+    opacity: 1;
+    transform: translateY(0);
+  }
+  to {
+    opacity: 0;
+    transform: translateY(2px);
+  }
+}
+
+.settings-changed {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--spacing-sm);
+  margin: 0;
+  font-size: var(--font-size-xs);
+  color: var(--color-text-tertiary);
+}
+
+.settings-changed-count {
+  min-width: 0;
+}
+
+.settings-changed-reset {
+  flex: none;
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  color: var(--color-text-tertiary);
+  cursor: pointer;
+  transition: color var(--duration-fast) var(--ease-standard);
+
+  &:hover {
+    color: var(--color-text-secondary);
+  }
+
+  &.is-confirming {
+    color: var(--color-danger);
+  }
+}

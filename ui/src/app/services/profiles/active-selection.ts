@@ -1,6 +1,6 @@
 import { Injectable, computed, inject } from '@angular/core';
 import type { SlicingParams } from '../../../generated/slicer-engine-ws-client-message-v1';
-import { DEFAULT_SETTINGS } from '../../models/slice-settings.model';
+import { ENGINE_DEFAULTS } from '../../models/slice-settings.model';
 import { MATERIAL_WIRE_NAME } from '../../models/filament.model';
 import { printerBedConfig, printerSceneBedConfig } from '../../models/printer.model';
 import type { SceneBedSnapshot } from '../scene-engine';
@@ -53,19 +53,24 @@ export class ActiveSelection {
   });
 
   /**
-   * Resolved baseline slice params for the active profile stack — the same
-   * plain merge the engine performs (`default → printer → filament → process`),
-   * with **no field mapping**: every profile's `params` is already a partial
-   * `SlicingParams`. User deviations on top are tracked separately and sent as
-   * the override diff; the engine is the authority at slice time.
+   * Resolved baseline slice params for the active profile stack — a local
+   * mirror of `profiles::resolve`, in the same precedence
+   * (`engine defaults → printer → filament → process`) and with **no field
+   * mapping**: every profile's `params` is already a partial `SlicingParams`
+   * and the defaults come from the engine's own generated schema.
+   *
+   * It is a mirror, not a second authority. Nothing is sliced from it: it is
+   * what the form renders and what a user edit is measured against, so that
+   * only genuine deviations become overrides. Every runtime re-resolves the
+   * whole stack from the profiles plus that diff at slice time, and its answer
+   * wins.
    *
    * Identity fields (`filament_type`/`filament_name`/`filament_color`/
    * `printer_vendor`/`printer_model`) are stamped from the *chosen* profiles
-   * afterwards, same as `resolve.rs` — the desktop bridge slices from this
-   * flattened object directly (no server-side re-resolve), so a filament
-   * profile with no `filament_type` in its `params` blob must not leave
-   * `{filament_type}` substituting to an empty string in custom start G-code
-   * (Klippain / Klipper `MATERIAL=`).
+   * last, exactly as `resolve.rs` does. Mirroring that here is what keeps them
+   * out of the override diff: a filament whose `params` blob carries no
+   * `filament_type` would otherwise read as a deviation on every plate, and
+   * the form would show it blank while the engine stamped it anyway.
    */
   readonly sliceParams = computed<Partial<SlicingParams> | null>(() => {
     const printer = this.printer();
@@ -75,7 +80,7 @@ export class ActiveSelection {
       return null;
     }
     return {
-      ...DEFAULT_SETTINGS,
+      ...ENGINE_DEFAULTS,
       ...((printer.params as Record<string, unknown>) ?? {}),
       ...((filament.params as Record<string, unknown>) ?? {}),
       ...((profile.params as Record<string, unknown>) ?? {}),
@@ -86,6 +91,24 @@ export class ActiveSelection {
       printer_model: printer.model,
     } as Partial<SlicingParams>;
   });
+
+  /**
+   * Ids of the active presets, for the plate to remember its baseline by.
+   * A stored override diff is only meaningful against the stack it was
+   * measured against.
+   */
+  readonly presetIds = computed(() => ({
+    printer: this.printer()?.id,
+    filament: this.filament()?.id,
+    process: this.profile()?.id,
+  }));
+
+  /** Restore a plate's remembered preset stack; absent ids are left alone. */
+  applyPresetIds(ids: { printer?: string; filament?: string; process?: string }): void {
+    if (ids.printer) this.presets.select('printer', ids.printer);
+    if (ids.filament) this.presets.select('filament', ids.filament);
+    if (ids.process) this.presets.select('process', ids.process);
+  }
 
   selectPrinter(id: string): void {
     this.presets.select('printer', id);
