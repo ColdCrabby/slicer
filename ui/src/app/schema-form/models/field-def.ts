@@ -53,6 +53,17 @@ export interface FieldDef {
   /** x-group value from the schema, used for visual grouping. */
   group?: string;
   /**
+   * `x-unit` schema extension: how the stored number relates to what the user
+   * reads. The engine keeps most proportions as a fraction — `fan_speed: 1.0`
+   * is full speed — which is not what a box suffixed `%` appears to say.
+   *
+   * - `fraction` — stored 0–1, shown as 0–100 %.
+   * - `percent` — already on a 0–100 scale, and free to exceed it.
+   * - `ratio` — a multiplier against something else (nozzle diameter, nominal
+   *   flow), shown with `×` because it is not a proportion of a whole.
+   */
+  unit?: 'fraction' | 'percent' | 'ratio';
+  /**
    * `x-widget` schema extension: an explicit widget hint that overrides the
    * default control chosen from the field's shape. E.g. `"gcode"` selects a
    * code editor for a multiline G-code string that would otherwise fall through

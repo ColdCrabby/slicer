@@ -124,6 +124,7 @@ export function parseSchema(
       minimum: prop['minimum'] as number | undefined,
       maximum: prop['maximum'] as number | undefined,
       group: prop['x-group'] as string | undefined,
+      unit: prop['x-unit'] as FieldDef['unit'],
       widget: prop['x-widget'] as string | undefined,
       enumOptions: resolveEnumOptions(prop, defs),
       relevantWhen: resolveRelevantWhen(prop),

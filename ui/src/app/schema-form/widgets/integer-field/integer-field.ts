@@ -44,13 +44,13 @@ import type { FieldWidget } from '../base-field';
       }
     </label>
     <nexus-number-input
-      [value]="numeric()"
+      [value]="displayed()"
       [min]="min()"
       [max]="max()"
       [step]="step()"
       [unit]="unit()"
       [label]="field().title ?? field().key"
-      (valueChange)="valueChange.emit($event)"
+      (valueChange)="onValueChange($event)"
     ></nexus-number-input>
   `,
 })
@@ -69,6 +69,32 @@ export class IntegerField implements FieldWidget {
   private readonly resolvedUnit = computed(() => unitForField(this.field(), this.numeric()));
   protected readonly unit = computed(() => this.resolvedUnit().unit);
   protected readonly step = computed(() => this.resolvedUnit().step);
-  protected readonly min = computed(() => this.field().minimum ?? Number.NEGATIVE_INFINITY);
-  protected readonly max = computed(() => this.field().maximum ?? Number.POSITIVE_INFINITY);
+  /** Factor between what the engine stores and what the control shows. */
+  private readonly scale = computed(() => this.resolvedUnit().scale ?? 1);
+
+  /**
+   * The number the user sees. A fraction is shown as a percentage, so
+   * `fan_speed: 1.0` reads as `100 %` rather than as `1 %`.
+   */
+  protected readonly displayed = computed(() => {
+    const value = this.numeric() * this.scale();
+    // A fraction times 100 lands on values like 24.999999999999996.
+    return this.scale() === 1 ? value : Math.round(value * 1e6) / 1e6;
+  });
+
+  /** Convert back before emitting: the stored form is what the engine reads. */
+  protected onValueChange(shown: number): void {
+    const factor = this.scale();
+    this.valueChange.emit(factor === 1 ? shown : Math.round((shown / factor) * 1e6) / 1e6);
+  }
+
+  // Bounds are stated in the stored scale, so they are converted with the value.
+  protected readonly min = computed(() => {
+    const min = this.field().minimum;
+    return min === undefined ? Number.NEGATIVE_INFINITY : min * this.scale();
+  });
+  protected readonly max = computed(() => {
+    const max = this.field().maximum;
+    return max === undefined ? Number.POSITIVE_INFINITY : max * this.scale();
+  });
 }

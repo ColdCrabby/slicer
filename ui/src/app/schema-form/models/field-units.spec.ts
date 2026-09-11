@@ -31,6 +31,25 @@ describe('unitForField', () => {
     expect(unitForField(field('chamber_temp_first_layer')).unit).toBe('°C');
   });
 
+  it('honours an explicit x-unit over every name-based guess', () => {
+    // Stored 0–1, shown 0–100: `fan_speed: 1.0` is full speed, not one percent.
+    expect(unitForField(field('fan_speed', { unit: 'fraction' }))).toEqual({
+      unit: '%',
+      step: 5,
+      scale: 100,
+    });
+    // Already on a 0–100 scale, and free to exceed it.
+    expect(unitForField(field('infill_anchor_percent', { unit: 'percent' }))).toEqual({
+      unit: '%',
+      step: 5,
+    });
+    // A multiple of something else, so not a proportion of a whole.
+    expect(unitForField(field('wall_line_width_max', { unit: 'ratio' }))).toEqual({
+      unit: '×',
+      step: 0.05,
+    });
+  });
+
   it('reads a fan speed as a percentage, not a rate', () => {
     // `fan_speed` matches both the fan and the speed pattern; fan has to win.
     expect(unitForField(field('fan_speed')).unit).toBe('%');

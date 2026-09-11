@@ -668,7 +668,7 @@ The innermost bead may have variable width when narrow space remains.
 
 Beads narrower than `wall_line_width_min × nozzle_diameter_mm` are skipped entirely.
 **Range:** 0.5–1.0.",
-        extend("x-group" = "Walls")
+        extend("x-group" = "Walls", "x-unit" = "ratio")
     )]
     #[serde(default = "SlicingParams::default_wall_line_width_min")]
     pub wall_line_width_min: f64,
@@ -678,7 +678,7 @@ Beads narrower than `wall_line_width_min × nozzle_diameter_mm` are skipped enti
 
 Variable-width beads are capped at this multiple to avoid excessive over-extrusion at corners.
 **Range:** 1.0–2.0.",
-        extend("x-group" = "Walls")
+        extend("x-group" = "Walls", "x-unit" = "ratio")
     )]
     #[serde(default = "SlicingParams::default_wall_line_width_max")]
     pub wall_line_width_max: f64,
@@ -689,7 +689,7 @@ Variable-width beads are capped at this multiple to avoid excessive over-extrusi
 When remaining space is narrower than `wall_transition_threshold × nozzle_diameter_mm`,
 the algorithm widens the existing innermost bead instead of adding a new one.
 **Typical:** 0.4–0.8.",
-        extend("x-group" = "Walls")
+        extend("x-group" = "Walls", "x-unit" = "ratio")
     )]
     #[serde(default = "SlicingParams::default_wall_transition_threshold")]
     pub wall_transition_threshold: f64,
@@ -908,7 +908,7 @@ Mirrors `fuzzy_skin_point_dist` (PrusaSlicer/Slic3r).
 
 - `0.0` = completely hollow
 - `0.15`–`0.3` = typical range for good strength/speed balance
-- `1.0` = fully solid", extend("x-group" = "Infill"))]
+- `1.0` = fully solid", extend("x-group" = "Infill", "x-unit" = "fraction"))]
     pub infill_density: f64,
 
     #[schemars(description = "Infill pattern geometry.
@@ -953,7 +953,7 @@ a retract/travel pair.
 
 Has no effect when `infill_anchor_max_mm` is `0`.
 **Typical:** 0–1000 %.",
-        extend("x-group" = "Infill")
+        extend("x-group" = "Infill", "x-unit" = "percent")
     )]
     #[serde(default = "SlicingParams::default_infill_anchor_percent")]
     pub infill_anchor_percent: f64,
@@ -1148,7 +1148,7 @@ floor — the opposite of the old under-extrude approach that left thin, gappy,
 sag-prone strands.  Pair it with a slow `bridge_speed` and full `bridge_fan_speed`
 so the fatter bead freezes in place before it sags.
 **Default:** 1.5 (150% of normal flow).",
-        extend("x-group" = "Quality")
+        extend("x-group" = "Quality", "x-unit" = "ratio")
     )]
     #[serde(default = "SlicingParams::default_bridge_flow_ratio")]
     pub bridge_flow_ratio: f64,
@@ -1265,7 +1265,7 @@ compensation is unnecessary there and **off by default** — enabling it would
 shed clean walls that abut gap fill at nominal spacing.  Raise it only for a
 generator that emits genuinely overlapping walls.
 **Default:** 0.0.",
-        extend("x-group" = "Walls")
+        extend("x-group" = "Walls", "x-unit" = "fraction")
     )]
     #[serde(default = "SlicingParams::default_wall_overlap_compensation")]
     pub wall_overlap_compensation: f64,
@@ -1287,7 +1287,7 @@ Set to `0` to fall back to `print_speed`.
 - `0.0` = fan off
 - `1.0` = full speed
 **Typical:** 1.0 (100%).",
-        extend("x-group" = "Cooling")
+        extend("x-group" = "Cooling", "x-unit" = "fraction")
     )]
     #[serde(default = "SlicingParams::default_fan_speed")]
     pub fan_speed: f64,
@@ -1297,7 +1297,7 @@ Set to `0` to fall back to `print_speed`.
 
 High fan speeds cool bridge material rapidly, reducing sag.
 **Typical:** 1.0 (100%).",
-        extend("x-group" = "Cooling")
+        extend("x-group" = "Cooling", "x-unit" = "fraction")
     )]
     #[serde(default = "SlicingParams::default_bridge_fan_speed")]
     pub bridge_fan_speed: f64,
@@ -1310,7 +1310,7 @@ part-cooling fan is raised to this speed and restored to the layer's normal
 cooling afterwards, so sag-prone overhangs get a burst of extra airflow.  `0` =
 never override the layer's normal fan speed.
 **Default:** 1.0 (100%).",
-        extend("x-group" = "Cooling")
+        extend("x-group" = "Cooling", "x-unit" = "fraction")
     )]
     #[serde(default = "SlicingParams::default_overhang_fan_speed")]
     pub overhang_fan_speed: f64,
@@ -1323,7 +1323,7 @@ overhang-perimeter classifier already kicks in.  Lowering it also cools the
 milder degrees — at the cost of splitting otherwise-uniform walls into separate
 fan regions.
 **Default:** 0.5.",
-        extend("x-group" = "Cooling")
+        extend("x-group" = "Cooling", "x-unit" = "fraction")
     )]
     #[serde(default = "SlicingParams::default_overhang_fan_threshold")]
     pub overhang_fan_threshold: f64,
@@ -1333,7 +1333,7 @@ fan regions.
 
 Typically disabled on the first layer to improve bed adhesion.
 **Typical:** 0.0 (off).",
-        extend("x-group" = "Cooling")
+        extend("x-group" = "Cooling", "x-unit" = "fraction")
     )]
     #[serde(default = "SlicingParams::default_first_layer_fan_speed")]
     pub first_layer_fan_speed: f64,
@@ -1662,7 +1662,7 @@ wipe move); `1.0` retracts fully *before* wiping. Only used when `wipe` is
 enabled and firmware retraction is off (firmware retraction cannot split a
 retraction).
 **Typical:** 0.0.",
-        extend("x-group" = "Retraction")
+        extend("x-group" = "Retraction", "x-unit" = "fraction")
     )]
     #[serde(default = "SlicingParams::default_retract_before_wipe_percent")]
     pub retract_before_wipe_percent: f64,
@@ -1689,7 +1689,7 @@ Improves bed adhesion and avoids potential issues with multiple perimeters press
 
 Ensures surfaces bond to walls without leaving gaps at the perimeter boundary.
 **Typical:** 0.25 (25% of a bead width).",
-        extend("x-group" = "Infill")
+        extend("x-group" = "Infill", "x-unit" = "fraction")
     )]
     #[serde(default = "SlicingParams::default_infill_overlap_percent")]
     pub infill_overlap_percent: f64,
@@ -1871,7 +1871,7 @@ Convert from mm/s by multiplying by 60.
 
 Scales every extrusion volume. `1.0` = nominal. Tune per-material to correct
 under/over-extrusion.",
-        extend("x-group" = "Extrusion")
+        extend("x-group" = "Extrusion", "x-unit" = "ratio")
     )]
     #[serde(default = "SlicingParams::default_flow_ratio")]
     pub flow_ratio: f64,
@@ -2125,7 +2125,7 @@ For material/hardware that isn't \"done\" at the last move — e.g. an ABS chamb
 
 If real prints consistently run a few percent over/under the estimate (tiny details the model rounds off, firmware smoothing), nudge this to match your machine — `1.05` adds 5 %. Scales only the toolpath; the fixed warm-up/cool-down allowances are added afterward.
 **Typical:** 0.9–1.15.",
-        extend("x-group" = "Time estimate")
+        extend("x-group" = "Time estimate", "x-unit" = "ratio")
     )]
     #[serde(default = "SlicingParams::default_time_estimate_scale")]
     pub time_estimate_scale: f64,
@@ -2200,7 +2200,7 @@ conservative and supports gentler overhangs, a **larger** angle supports only se
 
 Controls the line spacing of the support body (`spacing = extrusion_width / density`).
 Lower is faster to print and easier to remove; higher is sturdier.",
-        extend("x-group" = "Support", "x-relevant-when" = serde_json::json!({"field": "support_enabled", "equals": true}))
+        extend("x-group" = "Support", "x-unit" = "fraction", "x-relevant-when" = serde_json::json!({"field": "support_enabled", "equals": true}))
     )]
     #[serde(default = "SlicingParams::default_support_density")]
     pub support_density: f64,
@@ -2221,7 +2221,7 @@ Set to `0` to disable interface layers (support body fills the whole column).",
 
 The top/bottom contact layers are filled at this (usually higher) density for a smoother
 overhang surface. Typically 0.6–0.9.",
-        extend("x-group" = "Support", "x-relevant-when" = serde_json::json!({"field": "support_enabled", "equals": true}))
+        extend("x-group" = "Support", "x-unit" = "fraction", "x-relevant-when" = serde_json::json!({"field": "support_enabled", "equals": true}))
     )]
     #[serde(default = "SlicingParams::default_support_interface_density")]
     pub support_interface_density: f64,
@@ -2431,7 +2431,7 @@ worth it on visible flat tops and little else.",
         description = "Material deposited during ironing, as a percentage of a normal solid-fill bead.
 
 Just enough to re-melt the surface without adding height. **Typical:** 8–15 %.",
-        extend("x-group" = "Surfaces", "x-relevant-when" = serde_json::json!({"field": "ironing_enabled", "equals": true}))
+        extend("x-group" = "Surfaces", "x-unit" = "percent", "x-relevant-when" = serde_json::json!({"field": "ironing_enabled", "equals": true}))
     )]
     #[serde(default = "SlicingParams::default_ironing_flow")]
     pub ironing_flow: f64,

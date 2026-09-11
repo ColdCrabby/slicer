@@ -19,6 +19,13 @@ export interface FieldUnit {
   unit: string;
   /** Increment for one press of the stepper, or one arrow key. */
   step: number;
+  /**
+   * Factor between the stored value and the displayed one.
+   *
+   * Only a `fraction` sets this: the engine stores `0.6` and the user should
+   * see `60 %`. Absent everywhere else, where the two are the same number.
+   */
+  scale?: number;
 }
 
 /** Dimensionless — a count, a ratio the user reads as a plain number. */
@@ -109,6 +116,19 @@ function scaleMillimetreStep(step: number, field: FieldDef, current?: number): n
  */
 export function unitForField(field: FieldDef, current?: number): FieldUnit {
   const key = field.key;
+
+  // An explicit `x-unit` from the schema outranks every guess below — it is the
+  // engine stating what the number means rather than the UI inferring it from a
+  // name, and it is the only way to tell a 0–1 fraction from a 0–100 percentage
+  // when both are called `..._percent`.
+  switch (field.unit) {
+    case 'fraction':
+      return { unit: '%', step: 5, scale: 100 };
+    case 'percent':
+      return { unit: '%', step: 5 };
+    case 'ratio':
+      return { unit: '×', step: 0.05 };
+  }
 
   let resolved: FieldUnit | undefined;
   for (const [pattern, unit] of BY_SUFFIX) {

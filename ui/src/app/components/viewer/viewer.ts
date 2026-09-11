@@ -47,6 +47,7 @@ import type { GizmoDelta } from './gizmo';
 import { ViewerScene } from './scene';
 import type { ViewerView } from './scene';
 import { applyFloating, type FloatingPlacement } from '@coldcrabby/ui';
+import { Slicer } from '../../services/slicer';
 
 export type ViewerMode = 'model' | 'gcode';
 
@@ -175,6 +176,7 @@ export class Viewer {
   private readonly sceneCommand = inject(SceneCommand);
   private readonly gcodePreview = inject(GcodePreview);
   private readonly activeSelection = inject(ActiveSelection);
+  private readonly slicer = inject(Slicer);
   private readonly appTheme = inject(AppTheme);
   private readonly viewport = inject(Viewport);
   private readonly contextMenu = inject(ContextMenuService);
@@ -494,7 +496,7 @@ export class Viewer {
       const color = resolveModelColor(
         isDark,
         this.viewerControl.useFilamentColor(),
-        this.activeSelection.filament()?.color,
+        this.filamentColor(),
       );
       for (const mesh of this.wasmMeshes.values()) {
         (mesh.material as MeshPhongMaterial).color.setHex(color);
@@ -1553,11 +1555,25 @@ export class Viewer {
     }
   }
 
+  /**
+   * The active filament's colour, as the user has it *right now*.
+   *
+   * `filament_color` exists twice: as a field on the filament profile, and as a
+   * slice parameter the sidebar can override per plate. Reading only the
+   * profile meant setting the colour in the sidebar changed nothing on screen —
+   * the override is the more specific answer, so it wins, and the profile is
+   * the fallback for a plate that has not overridden anything.
+   */
+  private filamentColor(): string | null | undefined {
+    const override = (this.slicer.settings() as { filament_color?: string }).filament_color;
+    return override || this.activeSelection.filament()?.color;
+  }
+
   private currentModelColor(): number {
     return resolveModelColor(
       this.appTheme.isDarkMode(),
       this.viewerControl.useFilamentColor(),
-      this.activeSelection.filament()?.color,
+      this.filamentColor(),
     );
   }
 
@@ -1577,7 +1593,7 @@ export class Viewer {
 
     // The thumbnail has its own colour mode (generic / filament / custom),
     // independent of the viewer's live filament-colour toggle.
-    const filamentColor = this.activeSelection.filament()?.color;
+    const filamentColor = this.filamentColor();
     const thumbColor = resolveThumbnailColor(
       thumbIsDark,
       request.colorMode,
