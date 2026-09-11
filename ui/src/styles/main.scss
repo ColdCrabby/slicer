@@ -8,6 +8,9 @@
 
 // Theme variables
 @use 'theme/root';
+// Local override: put the self-hosted variable face in front of the shared
+// stack. MUST come after `theme/root`, which declares the token.
+@use './theme/font-stack';
 @use 'theme/light';
 @use 'theme/dark';
 // Local override: raise the shared tertiary text tone to WCAG AA. MUST come

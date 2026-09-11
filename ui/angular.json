@@ -56,7 +56,12 @@
                 "output": "/assets/monaco"
               }
             ],
-            "styles": ["src/styles/main.scss"],
+            "styles": [
+              "node_modules/@fontsource-variable/plus-jakarta-sans/index.css",
+              "node_modules/@fontsource/ibm-plex-mono/400.css",
+              "node_modules/@fontsource/ibm-plex-mono/600.css",
+              "src/styles/main.scss"
+            ],
             "stylePreprocessorOptions": {
               "includePaths": ["vendor/coldcrabby-ui/src/styles", "src/styles"]
             },

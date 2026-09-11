@@ -1,0 +1,24 @@
+/// Local override: name the self-hosted variable face first.
+/// @group theme
+///
+/// The typefaces ship with the app rather than being fetched from Google at
+/// runtime, so a build needs no network and an offline iPad still renders in
+/// the brand face. `@fontsource-variable/plus-jakarta-sans` registers the
+/// family as `Plus Jakarta Sans Variable`; the shared stack names the Google
+/// family, which resolves to nothing here, so the variable face goes in front
+/// of it and the rest of the fallbacks stay intact.
+///
+/// The variable face is also what lets the non-round weights in `theme/root`
+/// (462, 536, 614 …) render as themselves instead of snapping to 400 or 500.
+///
+/// `IBM Plex Mono` needs no such alias — the static faces register under the
+/// name the shared stack already asks for.
+///
+/// Emitted after `theme/root` and on the same `:root` selector, which is what
+/// lets a plain re-declaration win.
+
+:root {
+  --font-family-ui:
+    'Plus Jakarta Sans Variable', 'Plus Jakarta Sans', 'Avenir Next', 'Segoe UI', system-ui,
+    sans-serif;
+}

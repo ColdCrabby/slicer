@@ -29,17 +29,13 @@
     -->
     <link rel="preload" as="image" href="splash-logo.webp" fetchpriority="high" />
     <!--
-      Only `fonts.gstatic.com` is worth a preconnect. The production build
-      inlines the Google Fonts stylesheet into this document, so
-      `fonts.googleapis.com` is never contacted at runtime and a preconnect to
-      it only buys a DNS lookup and TLS handshake nobody uses. The `.woff2`
-      files it names still come from gstatic, which is what this warms.
+      The typefaces are served by the app itself, from the stylesheet the build
+      emits — no Google Fonts link, and so no preconnect to warm. It buys three
+      things: a production build needs no network (the font inliner used to
+      fetch the stylesheet mid-build, and a flaky TLS handshake failed the whole
+      thing), an offline iPad renders in the brand face rather than a fallback,
+      and a self-hosted slicer behind a firewall looks like everyone else's.
     -->
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link
-      href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@200..800&family=IBM+Plex+Mono:wght@100;200;300;400;500;600;700&display=swap"
-      rel="stylesheet"
-    />
     <style>
       /* Prevent flashbang: paint correct theme background before app boots */
       html,
