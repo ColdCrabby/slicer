@@ -48,6 +48,32 @@ impl RenderBuffer {
     }
 }
 
+/// Painted-facet geometry for one object, split by state.
+///
+/// Positions are flat `[x, y, z, …]` triples in the object's local frame —
+/// three per triangle, un-indexed, so the viewer can hand them straight to a
+/// `BufferGeometry` and draw them under the object's own matrix.
+#[wasm_bindgen]
+pub struct PaintBuffer {
+    enforcers: Float32Array,
+    blockers: Float32Array,
+}
+
+#[wasm_bindgen]
+impl PaintBuffer {
+    /// Vertices of every facet painted as a support enforcer.
+    #[wasm_bindgen(getter)]
+    pub fn enforcers(&self) -> Float32Array {
+        self.enforcers.clone()
+    }
+
+    /// Vertices of every facet painted as a support blocker.
+    #[wasm_bindgen(getter)]
+    pub fn blockers(&self) -> Float32Array {
+        self.blockers.clone()
+    }
+}
+
 /// Wire-format scene op accepted by [`SceneHandle::apply_op`].
 ///
 /// Mirrors the WS protocol's `SceneOpDto` minus the `Add` variant (handled by
@@ -105,6 +131,23 @@ pub enum SceneOpJs {
         #[serde(default)]
         options: crate::orient::ArrangeOptions,
     },
+    /// Paint support enforcers or blockers with a spherical brush.
+    ///
+    /// `center` is the world-space point the cursor landed on and `seed_face`
+    /// the facet the raycast hit — both come straight from the viewer.
+    PaintSupport {
+        id: u64,
+        seed_face: usize,
+        center: [f64; 3],
+        radius: f64,
+        state: crate::mesh::paint::PaintState,
+    },
+    /// Replace an object's paint wholesale, or erase it with `null`.
+    SetSupportPaint {
+        id: u64,
+        #[serde(default)]
+        encoded: Option<String>,
+    },
 }
 
 /// JS-friendly snapshot of one scene object.
@@ -125,6 +168,15 @@ pub struct SceneObjectJs {
     pub out_of_bounds: bool,
     /// The object's footprint overlaps another object's.
     pub collides: bool,
+    /// Encoded support paint, or `None` when the object is unpainted.
+    ///
+    /// Carried in the snapshot so undo/redo — which restores from snapshots —
+    /// can put paint back. Without it, undoing any edit silently erases every
+    /// painted region on the plate.
+    pub support_paint: Option<String>,
+    /// How many facets carry paint, so the UI can show a count without
+    /// decoding the payload.
+    pub painted_facets: usize,
 }
 
 /// JS-friendly snapshot of the bed.
@@ -323,6 +375,45 @@ impl SceneHandle {
         })
     }
 
+    /// Triangles carrying support paint, ready to upload as overlay geometry.
+    ///
+    /// Returns the painted facets' vertices in the object's **local** frame,
+    /// split by state, so the viewer can draw an enforcer overlay and a blocker
+    /// overlay under the object's existing matrix — the same flattening
+    /// `getRenderBuffer` uses, so the two stay registered.
+    ///
+    /// Emitting geometry rather than an index list keeps the browser from
+    /// needing its own copy of the mesh to resolve indices against.
+    #[wasm_bindgen(js_name = getPaintBuffer)]
+    pub fn get_paint_buffer(&self, id: u64) -> Result<PaintBuffer, JsValue> {
+        let obj = self
+            .inner
+            .get(ObjectId(id))
+            .ok_or_else(|| JsValue::from_str(&format!("object {} not found", id)))?;
+
+        let mut per_state = [Vec::new(), Vec::new()];
+        if !obj.paint.is_empty() {
+            for (slot, state) in crate::mesh::paint::PaintState::PAINTED.iter().enumerate() {
+                let out = &mut per_state[slot];
+                for face_index in obj.paint.faces_with(*state) {
+                    let Some(face) = obj.mesh.faces.get(face_index) else {
+                        continue;
+                    };
+                    for v in &face.vertices {
+                        out.push(v.x as f32);
+                        out.push(v.y as f32);
+                        out.push(v.z as f32);
+                    }
+                }
+            }
+        }
+
+        Ok(PaintBuffer {
+            enforcers: Float32Array::from(per_state[0].as_slice()),
+            blockers: Float32Array::from(per_state[1].as_slice()),
+        })
+    }
+
     /// 4×4 transform matrix for an object as 16 column-major floats.
     #[wasm_bindgen(js_name = getMatrix)]
     pub fn get_matrix(&self, id: u64) -> Result<Float32Array, JsValue> {
@@ -414,6 +505,8 @@ impl SceneHandle {
                         source_part: o.source_part,
                         out_of_bounds: p.out_of_bounds,
                         collides: p.collides,
+                        support_paint: o.paint.encode(),
+                        painted_facets: o.paint.painted_count(),
                     }
                 })
                 .collect(),
@@ -478,6 +571,7 @@ impl SceneHandle {
                     object.name.clone(),
                     crate::scene::apply_transform(object.mesh.as_ref(), &object.transform),
                 )
+                .with_paint(object.paint.clone())
             })
             .collect();
 
@@ -655,6 +749,23 @@ fn js_to_op(op: SceneOpJs) -> SceneOp {
         SceneOpJs::ArrangeOnBed { ids, options } => SceneOp::ArrangeOnBed {
             ids: ids.into_iter().map(ObjectId).collect(),
             options,
+        },
+        SceneOpJs::PaintSupport {
+            id,
+            seed_face,
+            center,
+            radius,
+            state,
+        } => SceneOp::PaintSupport {
+            id: ObjectId(id),
+            seed_face,
+            center,
+            radius,
+            state,
+        },
+        SceneOpJs::SetSupportPaint { id, encoded } => SceneOp::SetSupportPaint {
+            id: ObjectId(id),
+            encoded,
         },
     }
 }

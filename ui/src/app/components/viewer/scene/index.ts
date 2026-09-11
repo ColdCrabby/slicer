@@ -19,11 +19,16 @@ import {
 } from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import type { PrintAreaConfig } from '../../../services/print-area';
-import type { ObjectMode, TwoFingerGesture } from '../../../services/viewer-control';
+import type {
+  ObjectMode,
+  PaintBrushMode,
+  TwoFingerGesture,
+} from '../../../services/viewer-control';
 import { GizmoManager } from '../gizmo';
 import { INITIAL_CAMERA_UP, INITIAL_PERSPECTIVE_FOV, SceneCamera } from './camera';
 import { SceneControls } from './controls';
 import { SceneGrid } from './grid';
+import { PaintOverlay } from './paint-overlay';
 import { PointerArbiter } from './pointer-arbiter';
 import { SceneSelection } from './selection';
 import type { SceneGizmoHandlers, SceneSelectionHandlers, ViewerView } from './types';
@@ -140,6 +145,7 @@ export class ViewerScene {
   private readonly _controls: SceneControls;
   private readonly _grid: SceneGrid;
   private readonly _selection: SceneSelection;
+  private readonly paintOverlay = new PaintOverlay();
   private readonly _pointerArbiter: PointerArbiter;
   private readonly gizmo: GizmoManager;
   private readonly axesGizmo: Group;
@@ -473,6 +479,7 @@ export class ViewerScene {
 
   unregisterSelectable(id: string): void {
     this._selection.unregister(id);
+    this.paintOverlay.remove(id);
     this.needsRender = true;
   }
 
@@ -691,6 +698,37 @@ export class ViewerScene {
     this._selection.setObjectMode(mode);
   }
 
+  setPaintBrush(mode: PaintBrushMode, radiusMm: number): void {
+    this._selection.setPaintBrush(mode, radiusMm);
+  }
+
+  /** Last pointer position over the canvas, in client pixels. */
+  getLastPointerClient(): { x: number; y: number } | null {
+    return this._selection.getLastPointerClient();
+  }
+
+  /** Show or hide every object's painted-facet overlay. */
+  setPaintOverlayVisible(visible: boolean): void {
+    this.paintOverlay.setToolVisible(visible);
+    this.needsRender = true;
+  }
+
+  /**
+   * Rebuild one object's paint overlay from a fresh buffer. A no-op if the
+   * object has no registered `Object3D` (not yet built, or already removed).
+   */
+  refreshPaintOverlay(
+    objectId: string,
+    buffer: { enforcers: Float32Array; blockers: Float32Array },
+  ): void {
+    const anchor = this._selection.getSelectableObject(objectId);
+    if (!anchor) {
+      return;
+    }
+    this.paintOverlay.refresh(objectId, anchor, buffer);
+    this.needsRender = true;
+  }
+
   /**
    * Make a plain tap toggle its object in and out of the selection, the way
    * ⌘/Ctrl-click does with a mouse. Touch offers no modifier key, so this is
@@ -750,6 +788,7 @@ export class ViewerScene {
     }
     this._controls.dispose();
     this._grid.dispose();
+    this.paintOverlay.disposeAll();
     this._selection.dispose();
     this._pointerArbiter.dispose();
     this.gizmo.dispose();

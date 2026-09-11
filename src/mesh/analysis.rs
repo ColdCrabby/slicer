@@ -53,6 +53,161 @@ fn uf_union(parent: &mut [u32], rank: &mut [u8], a: u32, b: u32) {
     }
 }
 
+/// Assign each raw corner (`face_index * 3 + corner`) a canonical vertex id, so
+/// positions within `merge_distance_mm` of each other collapse to one id.
+///
+/// A mesh's corners are stored per-face and floating-point near-duplicates are
+/// common, so topology can only be read after this quantisation. Two corners
+/// share an id exactly when they are the same point of the surface, which is
+/// what makes an edge key comparable between faces.
+///
+/// The representative chosen for a group is its **lowest raw index**, so the
+/// mapping is deterministic — [`crate::mesh::paint`] relies on that, because
+/// the browser and the engine each derive topology independently and must
+/// agree.
+fn canonical_vertex_ids(mesh: &Mesh, merge_distance_mm: f64) -> Vec<u32> {
+    let n = mesh.faces.len();
+    let quant = 1.0 / merge_distance_mm.max(1e-9);
+
+    let mut qverts: Vec<([i64; 3], u32)> = mesh
+        .faces
+        .iter()
+        .flat_map(|f| f.vertices.iter())
+        .enumerate()
+        .map(|(raw_idx, v)| {
+            let q = [
+                (v.x * quant).round() as i64,
+                (v.y * quant).round() as i64,
+                (v.z * quant).round() as i64,
+            ];
+            (q, raw_idx as u32)
+        })
+        .collect();
+    qverts.sort_unstable_by_key(|(q, _)| *q);
+
+    let mut canonical_id: Vec<u32> = vec![0; n * 3];
+    let mut group_start = 0usize;
+    while group_start < qverts.len() {
+        let key = qverts[group_start].0;
+        let mut group_end = group_start + 1;
+        while group_end < qverts.len() && qverts[group_end].0 == key {
+            group_end += 1;
+        }
+        let rep = qverts[group_start].1;
+        for &(_, raw) in &qverts[group_start..group_end] {
+            canonical_id[raw as usize] = rep;
+        }
+        group_start = group_end;
+    }
+    canonical_id
+}
+
+/// Every `(edge key, face)` pair in the mesh, sorted by key, so the faces
+/// sharing an edge are contiguous.
+fn sorted_half_edges(canonical_id: &[u32], face_count: usize) -> Vec<([u32; 2], u32)> {
+    let mut half_edges: Vec<([u32; 2], u32)> = Vec::with_capacity(face_count * 3);
+    for face_idx in 0..face_count {
+        for edge in 0..3usize {
+            let va = canonical_id[face_idx * 3 + edge];
+            let vb = canonical_id[face_idx * 3 + (edge + 1) % 3];
+            let key = if va < vb { [va, vb] } else { [vb, va] };
+            half_edges.push((key, face_idx as u32));
+        }
+    }
+    half_edges.sort_unstable_by_key(|(k, _)| *k);
+    half_edges
+}
+
+/// Which faces touch which, across shared edges.
+///
+/// Stored compressed (an offset table plus one flat neighbour list) because a
+/// brush stroke walks it once per pointer sample and a per-face `Vec` would
+/// make that allocation-bound.
+#[derive(Debug, Clone, Default)]
+pub struct FaceAdjacency {
+    offsets: Vec<u32>,
+    neighbours: Vec<u32>,
+}
+
+impl FaceAdjacency {
+    /// Faces sharing an edge with `face`.
+    pub fn neighbours_of(&self, face: usize) -> &[u32] {
+        if face + 1 >= self.offsets.len() {
+            return &[];
+        }
+        let start = self.offsets[face] as usize;
+        let end = self.offsets[face + 1] as usize;
+        &self.neighbours[start..end]
+    }
+
+    /// Number of faces covered.
+    pub fn face_count(&self) -> usize {
+        self.offsets.len().saturating_sub(1)
+    }
+}
+
+/// Build the edge-adjacency graph of a mesh.
+///
+/// Two faces are neighbours when they share an edge whose endpoints agree
+/// within `vertex_merge_distance_mm`. Used by the support-paint brush to grow a
+/// stroke across the surface rather than through it: without it, painting the
+/// front of a thin wall also paints the back, which the user cannot see and did
+/// not ask for.
+pub fn face_adjacency(mesh: &Mesh, vertex_merge_distance_mm: f64) -> FaceAdjacency {
+    let n = mesh.faces.len();
+    if n == 0 {
+        return FaceAdjacency::default();
+    }
+    let canonical_id = canonical_vertex_ids(mesh, vertex_merge_distance_mm);
+    let half_edges = sorted_half_edges(&canonical_id, n);
+
+    // Two passes: count neighbours per face to size the table, then fill it.
+    let mut counts: Vec<u32> = vec![0; n];
+    let mut pairs: Vec<(u32, u32)> = Vec::new();
+    let mut i = 0usize;
+    while i < half_edges.len() {
+        let key = half_edges[i].0;
+        let mut j = i;
+        while j < half_edges.len() && half_edges[j].0 == key {
+            j += 1;
+        }
+        for a in i..j {
+            for b in (a + 1)..j {
+                let (fa, fb) = (half_edges[a].1, half_edges[b].1);
+                if fa == fb {
+                    continue;
+                }
+                counts[fa as usize] += 1;
+                counts[fb as usize] += 1;
+                pairs.push((fa, fb));
+            }
+        }
+        i = j;
+    }
+
+    let mut offsets: Vec<u32> = Vec::with_capacity(n + 1);
+    offsets.push(0);
+    let mut running = 0u32;
+    for &c in &counts {
+        running += c;
+        offsets.push(running);
+    }
+
+    let mut cursor = offsets.clone();
+    let mut neighbours: Vec<u32> = vec![0; running as usize];
+    for (fa, fb) in pairs {
+        neighbours[cursor[fa as usize] as usize] = fb;
+        cursor[fa as usize] += 1;
+        neighbours[cursor[fb as usize] as usize] = fa;
+        cursor[fb as usize] += 1;
+    }
+
+    FaceAdjacency {
+        offsets,
+        neighbours,
+    }
+}
+
 /// Assign each face to a coplanar group and return a `Vec<u32>` of length
 /// `mesh.faces.len()` where `result[face_index]` is the canonical group id
 /// (the root of its union–find tree, renumbered 0…N-1).
@@ -89,62 +244,11 @@ pub fn compute_coplanar_groups(
     let cos_threshold = (angle_threshold_deg as f64).to_radians().cos();
 
     // --- 2. Build an edge → face adjacency map. ----------------------------
-    // Quantise vertex positions to a grid of `vertex_merge_distance_mm` so
-    // floating-point near-duplicates collapse to the same integer key.
-    // Typical values: 0.001 mm (STL precision) to 0.1 mm.
-    let quant = 1.0 / vertex_merge_distance_mm.max(1e-9);
-
-    // Assign a canonical integer id to each unique vertex position.
-    // We use a flat Vec<(quantised xyz, id)> sorted once; lookup is O(log N).
-    let mut qverts: Vec<([i64; 3], u32)> = mesh
-        .faces
-        .iter()
-        .flat_map(|f| f.vertices.iter())
-        .enumerate()
-        .map(|(raw_idx, v)| {
-            let q = [
-                (v.x * quant).round() as i64,
-                (v.y * quant).round() as i64,
-                (v.z * quant).round() as i64,
-            ];
-            (q, raw_idx as u32)
-        })
-        .collect();
-    qverts.sort_unstable_by_key(|(q, _)| *q);
-
-    // For a raw vertex index (face_idx * 3 + corner), look up its canonical id.
-    // First, build a mapping from sorted position → canonical id.
-    let mut canonical_id: Vec<u32> = vec![0; n * 3];
-    {
-        let mut group_start = 0usize;
-        while group_start < qverts.len() {
-            let key = qverts[group_start].0;
-            let mut group_end = group_start + 1;
-            while group_end < qverts.len() && qverts[group_end].0 == key {
-                group_end += 1;
-            }
-            // Pick the first raw index in the group as the canonical id.
-            let rep = qverts[group_start].1;
-            for &(_, raw) in &qverts[group_start..group_end] {
-                canonical_id[raw as usize] = rep;
-            }
-            group_start = group_end;
-        }
-    }
-
-    // Build: directed half-edge key (min_vert, max_vert) → list of face indices.
-    // Using a Vec of (key, face_idx) sorted by key is cache-friendly and avoids
-    // HashMap overhead for meshes with millions of faces.
-    let mut half_edges: Vec<([u32; 2], u32)> = Vec::with_capacity(n * 3);
-    for face_idx in 0..n {
-        for edge in 0..3usize {
-            let va = canonical_id[face_idx * 3 + edge];
-            let vb = canonical_id[face_idx * 3 + (edge + 1) % 3];
-            let key = if va < vb { [va, vb] } else { [vb, va] };
-            half_edges.push((key, face_idx as u32));
-        }
-    }
-    half_edges.sort_unstable_by_key(|(k, _)| *k);
+    // Quantise vertex positions so floating-point near-duplicates collapse to
+    // one id, then sort every (edge, face) pair so the faces sharing an edge
+    // are contiguous.
+    let canonical_id = canonical_vertex_ids(mesh, vertex_merge_distance_mm);
+    let half_edges = sorted_half_edges(&canonical_id, n);
 
     // --- 3. Union-find: merge adjacent coplanar faces. ---------------------
     let mut parent: Vec<u32> = (0..n as u32).collect();

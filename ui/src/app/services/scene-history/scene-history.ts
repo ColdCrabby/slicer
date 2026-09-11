@@ -112,6 +112,13 @@ export class SceneHistory {
           scale: obj.scale,
         },
       });
+      // Paint is per-facet, not part of the transform, so it needs its own
+      // replay — otherwise undoing any edit would silently erase every
+      // painted region on the plate.
+      this.engine.apply({
+        op: 'SetSupportPaint',
+        args: { id: obj.id, encoded: obj.support_paint },
+      });
     }
   }
 }

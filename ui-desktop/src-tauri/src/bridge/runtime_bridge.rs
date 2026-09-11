@@ -57,6 +57,12 @@ struct SceneObjectPayload {
     /// resolved one, in which case the request-level `file_path` is used.
     #[serde(default)]
     file_path: Option<String>,
+    /// Support paint for this object, encoded by
+    /// `slicer_engine::mesh::paint::FacetPaint::encode`, or `None` when
+    /// unpainted. Mirrors the cloud server's `SceneObjectSliceDto.support_paint`
+    /// so the two runtimes accept the same wire format.
+    #[serde(default)]
+    support_paint: Option<String>,
 }
 
 impl SceneObjectPayload {
@@ -77,10 +83,14 @@ impl SceneObjectPayload {
 
 // Managed application state
 
-/// A previously-generated slice keyed by content hash, so an identical scene +
-/// settings can skip the pipeline entirely (mirrors the cloud server's
-/// `gcode_cache`).
+/// A previously-generated slice keyed by content hash. Written after every
+/// slice but never read back to skip one — every request runs the full
+/// pipeline, matching the cloud server's `gcode_cache` table.
+// Both fields are written on every slice and never read back — see the doc
+// comment above — so plain dead-code analysis flags them; keep them anyway,
+// they are the point of the struct.
 #[derive(Clone)]
+#[allow(dead_code)]
 struct CachedSlice {
     gcode_path: String,
     layer_count: usize,
@@ -94,9 +104,8 @@ pub struct AppState {
     pub gcode_path_by_slice: Arc<Mutex<HashMap<String, String>>>,
     pub history_sessions: Arc<Mutex<Vec<HistorySession>>>,
     pub cancel_flag: Arc<AtomicBool>,
-    /// Content hash → cached slice result. Lets a re-slice of an identical
-    /// scene + settings reuse the stored G-code instead of re-running the
-    /// pipeline, matching the cloud server's skip-on-cache-hit behaviour.
+    /// Content hash → most recent slice result for that hash. Every slice
+    /// writes here; nothing reads it to skip a slice — see `CachedSlice`.
     gcode_cache: Arc<Mutex<HashMap<String, CachedSlice>>>,
 }
 
@@ -158,41 +167,12 @@ pub async fn slice_start(
             serde_json::from_value(payload.settings)
                 .map_err(|e| format!("invalid settings: {e}"))?;
 
-        // Cache lookup: an identical scene + settings (+ engine version + source
-        // file identity) sliced before can reuse the stored G-code and skip the
-        // whole pipeline — including the mesh parse — exactly like the cloud
-        // server's `gcode_cache`. This is what keeps repeated desktop slices as
-        // fast as cloud.
+        // No cache lookup here on purpose: every slice request runs the full
+        // pipeline, even when `cache_key` matches a previous run byte-for-byte.
+        // The map below still gets written after slicing — it stays warm for
+        // whatever else might read it — it is just never consulted to *skip*
+        // a slice.
         let cache_key = compute_slice_cache_key(&params, file_path.as_deref(), &payload.scene);
-        if let Some(hit) = gcode_cache
-            .lock()
-            .ok()
-            .and_then(|cache| cache.get(&cache_key).cloned())
-        {
-            if std::path::Path::new(&hit.gcode_path).exists() {
-                logger.log_info("cache hit: reusing previously-sliced G-code");
-                register_slice_result(
-                    &slice_id,
-                    &hit.gcode_path,
-                    hit.layer_count,
-                    original_filename.clone(),
-                    &last_gcode_path,
-                    &gcode_path_by_slice,
-                    &history_sessions,
-                );
-                return Ok(json!({
-                    "ok": true,
-                    "sliceId": slice_id,
-                    "layer_count": hit.layer_count,
-                    "gcode_path": hit.gcode_path,
-                    "cached": true,
-                }));
-            }
-            // Stale entry (file cleaned up) — drop it and re-slice.
-            if let Ok(mut cache) = gcode_cache.lock() {
-                cache.remove(&cache_key);
-            }
-        }
 
         let plate_objects =
             load_plate_objects(file_path.as_deref(), payload.scene.as_ref(), &logger)?;
@@ -362,12 +342,13 @@ fn compute_slice_cache_key(
             // `source_part` matters for the same reason — two objects can share
             // a file yet be different parts of it.
             canonical.push_str(&format!(
-                "[{}#{}|{:?}|{:?}|{:?}]",
+                "[{}#{}|{:?}|{:?}|{:?}|paint={:?}]",
                 obj.file_path.as_deref().or(file_path).unwrap_or(""),
                 obj.part_index(),
                 obj.translation,
                 obj.euler_xyz_deg,
-                obj.scale
+                obj.scale,
+                obj.support_paint.as_deref().unwrap_or("")
             ));
         }
     }
@@ -459,8 +440,8 @@ fn load_plate_objects(
     scene: Option<&SceneSnapshotPayload>,
     logger: &dyn ProcessLogger,
 ) -> Result<Vec<ObjectInput>, String> {
-    // (path, part index, transform) — one entry per object on the plate.
-    let placements: Vec<(String, usize, Transform)> = match scene {
+    // (path, part index, transform, support paint) — one entry per object.
+    let placements: Vec<(String, usize, Transform, Option<String>)> = match scene {
         Some(scene) if !scene.objects.is_empty() => {
             let mut placements = Vec::with_capacity(scene.objects.len());
             for object in &scene.objects {
@@ -473,7 +454,12 @@ fn load_plate_objects(
                             .to_string()
                     })?
                     .to_string();
-                placements.push((path, object.part_index(), object.transform()));
+                placements.push((
+                    path,
+                    object.part_index(),
+                    object.transform(),
+                    object.support_paint.clone(),
+                ));
             }
             placements
         }
@@ -485,14 +471,14 @@ fn load_plate_objects(
                 .to_string();
             let count = load_parts(&path, logger, &mut HashMap::new())?;
             (0..count)
-                .map(|index| (path.clone(), index, Transform::IDENTITY))
+                .map(|index| (path.clone(), index, Transform::IDENTITY, None))
                 .collect()
         }
     };
 
     let mut cache: HashMap<String, Vec<slicer_engine::scene::LoadedPart>> = HashMap::new();
     let mut objects = Vec::with_capacity(placements.len());
-    for (path, part_index, transform) in placements {
+    for (path, part_index, transform, support_paint) in placements {
         load_parts(&path, logger, &mut cache)?;
         let parts = &cache[&path];
         let file_name = file_name_of(&path);
@@ -518,10 +504,17 @@ fn load_plate_objects(
             .unwrap_or_else(|| format!("object_{}", objects.len()));
         // Bake the per-object transform exactly once, at the slicer boundary —
         // see the SSOT contract in src/scene/README.md.
-        objects.push(ObjectInput::new(
-            name,
-            slicer_engine::scene::apply_transform(&part.mesh, &transform),
-        ));
+        let baked = slicer_engine::scene::apply_transform(&part.mesh, &transform);
+        let mut object_input = ObjectInput::new(name, baked);
+        if let Some(encoded) = support_paint.as_deref() {
+            let paint = slicer_engine::mesh::paint::FacetPaint::decode(
+                encoded,
+                object_input.mesh.faces.len(),
+            )
+            .map_err(|e| format!("Invalid support paint for '{}': {}", object_input.name, e))?;
+            object_input = object_input.with_paint(paint);
+        }
+        objects.push(object_input);
     }
 
     Ok(objects)
@@ -611,6 +604,7 @@ mod plate_loading_tests {
             scale: None,
             source_part: Some(part),
             file_path: None,
+            support_paint: None,
         }
     }
 
@@ -758,6 +752,72 @@ mod plate_loading_tests {
             compute_slice_cache_key(&params, Some(&path), &first),
             compute_slice_cache_key(&params, Some(&path), &second)
         );
+    }
+
+    #[test]
+    fn the_cache_key_changes_when_support_paint_is_added() {
+        let params = slicer_engine::settings::params::SlicingParams::default();
+        let path = cube_path();
+        let unpainted = Some(SceneSnapshotPayload {
+            objects: vec![object_from(&path, 0, [0.0; 3])],
+        });
+        let painted = Some(SceneSnapshotPayload {
+            objects: vec![SceneObjectPayload {
+                support_paint: Some("abc".to_string()),
+                ..object_from(&path, 0, [0.0; 3])
+            }],
+        });
+
+        assert_ne!(
+            compute_slice_cache_key(&params, Some(&path), &unpainted),
+            compute_slice_cache_key(&params, Some(&path), &painted),
+            "a repaint must bust the cache, or the desktop app would keep \
+             serving G-code sliced before the stroke"
+        );
+    }
+
+    #[test]
+    fn a_valid_support_paint_payload_is_applied_to_the_object() {
+        let path = cube_path();
+        let plain = load_plate_objects(Some(&path), None, &NullLogger).unwrap();
+        let face_count = plain[0].mesh.faces.len();
+
+        let mut paint = slicer_engine::mesh::paint::FacetPaint::new();
+        paint.set(
+            0,
+            slicer_engine::mesh::paint::PaintState::Enforcer,
+            face_count,
+        );
+        let encoded = paint.encode().unwrap();
+
+        let scene = Some(SceneSnapshotPayload {
+            objects: vec![SceneObjectPayload {
+                support_paint: Some(encoded),
+                ..object_from(&path, 0, [0.0; 3])
+            }],
+        });
+        let painted = load_plate_objects(Some(&path), scene.as_ref(), &NullLogger).unwrap();
+        assert_eq!(painted[0].paint.painted_count(), 1);
+    }
+
+    #[test]
+    fn a_support_paint_payload_with_the_wrong_face_count_is_a_clear_error() {
+        let path = cube_path();
+        // Encoded against a face count the cube does not actually have, so
+        // decode must reject it rather than silently painting the wrong
+        // triangles.
+        let mut paint = slicer_engine::mesh::paint::FacetPaint::new();
+        paint.set(0, slicer_engine::mesh::paint::PaintState::Enforcer, 999);
+        let encoded = paint.encode().unwrap();
+
+        let scene = Some(SceneSnapshotPayload {
+            objects: vec![SceneObjectPayload {
+                support_paint: Some(encoded),
+                ..object_from(&path, 0, [0.0; 3])
+            }],
+        });
+        let error = load_plate_objects(Some(&path), scene.as_ref(), &NullLogger).unwrap_err();
+        assert!(error.contains("Invalid support paint"), "{error}");
     }
 
     /// Two plates that differ only in their *second* model must not collide —

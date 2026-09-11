@@ -40,6 +40,16 @@ Two traps that have cost real time here:
 - **Gap-fill length is not bit-reproducible** between runs of the same binary.
   Small gap-fill deltas are noise, not evidence. Sparse infill *is*
   deterministic and can be compared directly.
+- **Never judge "did my change alter the output?" on a 3DBenchy.** The whole
+  file moves — three consecutive slices of the *same binary* reported 3924.69,
+  3924.87 and 3924.86 mm of filament, and `diff` says they differ. A refactor
+  measured that way looks like a regression when it is noise, and a real
+  regression smaller than that spread looks clean. Byte-compare a
+  **deterministic fixture** instead, skipping the timestamp header:
+  `Voron_Design_Cube_v7.stl`, `bottom_panel_hinge_x2.stl` and
+  `Filament_Card_Caddy_25.stl` all reproduce exactly. **A passing quality gate
+  is not evidence that output is unchanged** — its tolerances exist to absorb
+  the Benchy's jitter.
 
 ## Then run the quality gate
 

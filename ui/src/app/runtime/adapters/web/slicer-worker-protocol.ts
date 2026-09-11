@@ -13,6 +13,8 @@ export interface WorkerSliceObject {
   /** Which object inside `bytes` to slice — a 3MF can hold several. */
   partIndex?: number;
   transform: WorkerSliceTransform;
+  /** Encoded support paint (enforcers/blockers), or absent when unpainted. */
+  supportPaint?: string;
 }
 
 export type SlicerWorkerRequest =

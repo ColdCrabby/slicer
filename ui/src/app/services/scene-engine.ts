@@ -4,6 +4,7 @@ import init, {
   appInfo as wasmAppInfo,
   changelogEntries as wasmChangelogEntries,
   changelogMarkdown as wasmChangelogMarkdown,
+  type PaintBuffer,
   type RenderBuffer,
 } from '../../generated/scene-wasm/scene_engine';
 import type { SlicingParams } from '../../generated/slicer-engine-ws-client-message-v1';
@@ -72,6 +73,15 @@ export interface SceneObjectSnapshot {
   out_of_bounds: boolean;
   /** The object's footprint overlaps another object's. */
   collides: boolean;
+  /**
+   * Encoded support paint (enforcers/blockers), or `null` when unpainted.
+   *
+   * Carried in the snapshot so undo/redo — which restores objects from
+   * snapshots — can put paint back.
+   */
+  support_paint: string | null;
+  /** Facet count with paint, so a UI can show a count without decoding. */
+  painted_facets: number;
 }
 
 export interface SceneBedSnapshot {
@@ -160,7 +170,31 @@ export type SceneOp =
           };
         };
       };
+    }
+  | {
+      op: 'PaintSupport';
+      args: {
+        id: bigint;
+        /** Facet the raycast hit; the stroke spreads from here. */
+        seed_face: number;
+        /** World-space point the cursor landed on, in mm. */
+        center: [number, number, number];
+        /** Brush radius in mm (object-local, after un-scaling). */
+        radius: number;
+        state: SupportPaintState;
+      };
+    }
+  | {
+      op: 'SetSupportPaint';
+      args: {
+        id: bigint;
+        /** Encoded `FacetPaint` payload, or `null` to erase all paint. */
+        encoded: string | null;
+      };
     };
+
+/** What a painted facet is marked as. */
+export type SupportPaintState = 'none' | 'enforcer' | 'blocker';
 
 const DEFAULT_BED: SceneBedSnapshot = {
   width: 220,
@@ -545,6 +579,22 @@ export class SceneEngine {
     return result;
   }
 
+  /**
+   * Painted-facet geometry for one object, split by state, in the object's
+   * local frame — draw it under the object's own matrix, same as
+   * {@link getRenderBuffer}. The returned arrays are owned by the caller.
+   */
+  getPaintBuffer(id: bigint): { enforcers: Float32Array; blockers: Float32Array } {
+    const handle = this.requireHandle();
+    const buffer: PaintBuffer = handle.getPaintBuffer(id);
+    const result = {
+      enforcers: new Float32Array(buffer.enforcers),
+      blockers: new Float32Array(buffer.blockers),
+    };
+    buffer.free();
+    return result;
+  }
+
   /** 4×4 transform matrix as 16 column-major floats. */
   getMatrix(id: bigint): Float32Array {
     const handle = this.requireHandle();
@@ -600,6 +650,8 @@ export class SceneEngine {
         source_part: o.source_part ?? 0,
         out_of_bounds: o.out_of_bounds ?? false,
         collides: o.collides ?? false,
+        support_paint: o.support_paint ?? null,
+        painted_facets: o.painted_facets ?? 0,
       })),
     };
     this.snapshotSignal.set(snap);

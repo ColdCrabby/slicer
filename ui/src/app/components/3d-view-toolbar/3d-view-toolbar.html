@@ -145,6 +145,14 @@
         >
           <nexus-icon name="constrained-surface"></nexus-icon>
         </button>
+        <button
+          radioButtonValue="paint"
+          [tooltip]="'Paint support enforcers and blockers'"
+          aria-label="Paint support enforcers and blockers"
+          [tooltipShortcut]="keyboardShortcuts.shortcutFor('object-mode-paint')"
+        >
+          <nexus-icon name="palette"></nexus-icon>
+        </button>
       </div>
 
       <!-- Placing is an object operation, so it sits with the object tools.
@@ -187,6 +195,7 @@
     <div class="tool-panels">
       <nexus-transform-panel />
       <nexus-placement-panel />
+      <nexus-paint-panel />
     </div>
   </div>
 }

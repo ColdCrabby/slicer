@@ -1,11 +1,13 @@
 //! Scene state: objects, transforms, and bed.
 
-use crate::mesh::analysis::calculate_aabb;
+use crate::mesh::analysis::{calculate_aabb, face_adjacency, FaceAdjacency};
+use crate::mesh::paint::FacetPaint;
 use crate::mesh::repair::MeshReport;
 use crate::mesh::types::{Mesh, AABB};
 use crate::scene::bed::BedConfig;
 use crate::scene::transform::{transformed_aabb, Transform};
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use std::sync::Arc;
 
 /// Monotonically-allocated identifier for a scene object.
@@ -55,6 +57,13 @@ pub struct SceneObject {
     /// Populated by [`SceneOp::Add`](crate::scene::SceneOp::Add); `None` for
     /// meshes handed in directly through [`SceneState::add_mesh`].
     pub report: Option<MeshReport>,
+    /// Per-facet support paint — where the user forced or forbade support.
+    ///
+    /// Empty for an unpainted object, which is the overwhelmingly common case
+    /// and costs nothing. Indices address [`Mesh::faces`] of this object's own
+    /// mesh, so paint follows the geometry through every transform rather than
+    /// being tied to a place on the plate.
+    pub paint: FacetPaint,
 }
 
 impl SceneObject {
@@ -77,6 +86,15 @@ pub struct SceneState {
     /// Print bed configuration.
     pub bed: BedConfig,
     next_id: u64,
+    /// Edge-adjacency graphs, keyed by the identity of the `Arc<Mesh>` they
+    /// describe.
+    ///
+    /// Building one is O(faces log faces), and a held brush fires an op per
+    /// pointer sample, so recomputing per stroke would make painting a dense
+    /// model unusable. Keying on the `Arc` rather than the object means every
+    /// duplicate of a model shares one graph — N instances cost one build, the
+    /// same bargain `Arc<Mesh>` already makes for the geometry itself.
+    adjacency: HashMap<usize, Arc<FaceAdjacency>>,
 }
 
 impl SceneState {
@@ -86,7 +104,43 @@ impl SceneState {
             objects: Vec::new(),
             bed,
             next_id: 1,
+            adjacency: HashMap::new(),
         }
+    }
+
+    /// Edge-adjacency graph for `mesh`, building and caching it on first use.
+    ///
+    /// Entries are dropped by [`prune_adjacency_cache`](Self::prune_adjacency_cache)
+    /// once no object references the mesh any more.
+    pub(crate) fn adjacency_for(&mut self, mesh: &Arc<Mesh>) -> Arc<FaceAdjacency> {
+        let key = Arc::as_ptr(mesh) as usize;
+        if let Some(existing) = self.adjacency.get(&key) {
+            return Arc::clone(existing);
+        }
+        let built = Arc::new(face_adjacency(
+            mesh.as_ref(),
+            crate::mesh::paint::BRUSH_WELD_TOLERANCE_MM,
+        ));
+        self.adjacency.insert(key, Arc::clone(&built));
+        built
+    }
+
+    /// Forget adjacency graphs for meshes no object holds any more.
+    ///
+    /// The cache is keyed by `Arc` address, and an address can be reused once
+    /// the allocation is freed — so a stale entry is not merely wasted memory,
+    /// it could hand a *different* mesh the wrong topology. Called after every
+    /// removal.
+    fn prune_adjacency_cache(&mut self) {
+        if self.adjacency.is_empty() {
+            return;
+        }
+        let live: std::collections::HashSet<usize> = self
+            .objects
+            .iter()
+            .map(|o| Arc::as_ptr(&o.mesh) as usize)
+            .collect();
+        self.adjacency.retain(|key, _| live.contains(key));
     }
 
     /// Add a mesh to the scene. Returns the assigned [`ObjectId`].
@@ -143,6 +197,7 @@ impl SceneState {
             source_id,
             source_part,
             report,
+            paint: FacetPaint::new(),
         });
         id
     }
@@ -156,14 +211,16 @@ impl SceneState {
     pub fn duplicate(&mut self, id: ObjectId) -> Option<ObjectId> {
         let src = self.get(id)?;
         // A copy is the same geometry, so it inherits the original's health
-        // report along with its mesh and provenance.
-        let (name, mesh, transform, source_id, source_part, report) = (
+        // report along with its mesh and provenance — and its paint, which
+        // addresses that shared geometry and is just as true of the copy.
+        let (name, mesh, transform, source_id, source_part, report, paint) = (
             src.name.clone(),
             Arc::clone(&src.mesh),
             src.transform,
             src.source_id.clone(),
             src.source_part,
             src.report.clone(),
+            src.paint.clone(),
         );
         let new_id = ObjectId(self.next_id);
         self.next_id += 1;
@@ -175,6 +232,7 @@ impl SceneState {
             source_id,
             source_part,
             report,
+            paint,
         });
         Some(new_id)
     }
@@ -183,12 +241,26 @@ impl SceneState {
     pub fn remove(&mut self, id: ObjectId) -> bool {
         let len = self.objects.len();
         self.objects.retain(|o| o.id != id);
-        self.objects.len() != len
+        let removed = self.objects.len() != len;
+        if removed {
+            self.prune_adjacency_cache();
+        }
+        removed
     }
 
     /// Get a reference to an object by id.
     pub fn get(&self, id: ObjectId) -> Option<&SceneObject> {
         self.objects.iter().find(|o| o.id == id)
+    }
+
+    /// Number of cached adjacency graphs.
+    ///
+    /// Exposed for the test that pins the cache being released with the last
+    /// object referencing a mesh — a stale entry is a correctness bug, not just
+    /// wasted memory, because `Arc` addresses are reused.
+    #[cfg(test)]
+    pub(crate) fn adjacency_cache_len(&self) -> usize {
+        self.adjacency.len()
     }
 
     /// Get a mutable reference to an object by id.

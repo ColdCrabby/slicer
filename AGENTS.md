@@ -52,7 +52,7 @@ Every module owns its own explanation. Start at the README, not the source.
 | --- | --- | --- |
 | `src/mesh/` | Mesh types, loaders, analysis, import-time repair | [README](src/mesh/README.md) |
 | `src/scene/` | **SSOT for object placement** — `SceneOp`, `SceneState` | [README](src/scene/README.md) |
-| `src/core/` | The slicing pipeline, surfaces, infill boundary, object identity | [README](src/core/README.md) |
+| `src/core/` | The slicing pipeline, surfaces, infill boundary, supports, object identity | [README](src/core/README.md) |
 | `src/walls/` | Perimeter generation (Arachne + classic) | [README](src/walls/README.md) |
 | `src/infill/` | Pattern generation inside a boundary | [README](src/infill/README.md) |
 | `src/adhesion/` | Skirt, brim, raft | [README](src/adhesion/README.md) |
@@ -114,6 +114,15 @@ least once, with real consequences. The linked README explains why.
 - **Mesh repair is deterministic and borrows clean meshes.** A clean mesh is
   returned `Cow::Borrowed` and never rebuilt, which is what makes default-on
   repair safe for the QA baselines. → [mesh](src/mesh/README.md)
+- **The `gcode_cache` table is written on every slice and never read to skip
+  one.** `Db::get_cached_gcode` still exists and is still tested, but wiring it
+  back into `handle_slice` would let a "cached" response serve stale G-code for
+  a scene the engine has since changed how it slices. Discuss before changing.
+  → [server](src/server/README.md#the-g-code-result-table--written-on-every-slice-never-read-to-skip-one)
+- **Support generation reads a pristine perimeter snapshot**, not the live
+  layer — `classify_overhang_perimeters` has already split the very walls it
+  would measure. Any test for support behaviour must go through `process_mesh`.
+  → [core](src/core/README.md#support-structure-generation)
 
 ---
 

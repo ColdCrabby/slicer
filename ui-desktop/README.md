@@ -101,7 +101,9 @@ slice fails instead of guessing.
 **The G-code cache key fingerprints every file on the plate** (path + length +
 mtime), not just the first, plus each object's `source_part`. Hashing one file
 would let two plates that differ only in their *second* model collide on one
-cached result.
+key. As on the server, the table is **write-only** — every slice request runs
+the full pipeline, and the key is recorded rather than consulted to skip one.
+See [src/server/README.md](../src/server/README.md#the-g-code-result-table--written-on-every-slice-never-read-to-skip-one).
 
 The webview half of this contract lives in `ModelSourceRegistry`
 ([ui/src/app/services/model-source/](../ui/src/app/services/model-source/)),
