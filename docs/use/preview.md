@@ -39,6 +39,23 @@ Roles are grouped so you can toggle a whole family at once: **Shell**,
   you can follow the nozzle through a tricky bit.
 - **Hover** any line for its role, layer, Z height, width, height and speed.
 
+## Pausing mid-print
+
+Insert a nut, drop in a magnet, or swap filament for a two-colour print: pick the
+layer on the slider and use the buttons beside it.
+
+- **⏸ Pause** stops the print at that layer so you can reach in.
+- **🎨 Colour change** stops and asks the printer for a filament change.
+- **−** removes whatever is set on the selected layer.
+
+Each trigger shows as a mark on the slider — click one to jump to its layer. The
+pause happens at the start of that layer, before anything is printed on it, so
+set it to the first layer that would cover what you need to reach.
+
+The command sent depends on your printer's firmware (Marlin `M0` / `M600`,
+Klipper `PAUSE`, RepRap `M226`), and adding or removing a trigger means the model
+is re-sliced.
+
 ## Folding it away
 
 The legend and its controls are a tall panel sitting over the plate. Tap the
