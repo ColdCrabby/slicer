@@ -5,9 +5,9 @@
       role="tab"
       [class.active]="tab.uuid === activeUuid()"
       [attr.aria-selected]="tab.uuid === activeUuid()"
-      (click)="activate(tab.uuid)"
+      (click)="activate(tab.uuid, $event)"
       (dblclick)="startEditing(tab.uuid, $event)"
-      (contextmenu)="showContextMenu($event, tab.uuid)"
+      (nexusContextMenu)="onContextMenu($event, tab.uuid)"
     >
       @if (editingUuid() === tab.uuid) {
         <input
@@ -36,7 +36,7 @@
         type="button"
         aria-label="Close workplate tab"
         tooltip="Close"
-        (click)="closeTab($event, tab.uuid)"
+        (click)="closeTab(tab.uuid, $event)"
       >
         <nexus-icon name="xmark" />
       </button>

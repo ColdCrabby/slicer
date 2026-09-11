@@ -3,6 +3,9 @@ import { Router } from '@angular/router';
 import { OpenWorkplateTab, OpenWorkplates } from '../../services/open-workplates';
 import { Slicer } from '../../services/slicer';
 import { WorkplateNames } from '../../services/workplate-names';
+import { ContextMenuService } from '../../services/context-menu/context-menu.service';
+import { ContextMenuTrigger } from '../../services/context-menu/context-menu-trigger';
+import type { ContextMenuItem } from '../../services/context-menu/context-menu.model';
 import { Icon, IconButton, TooltipDirective } from '@coldcrabby/ui';
 
 /**
@@ -12,7 +15,7 @@ import { Icon, IconButton, TooltipDirective } from '@coldcrabby/ui';
  */
 @Component({
   selector: 'nexus-workplate-tabs',
-  imports: [Icon, IconButton, TooltipDirective],
+  imports: [Icon, IconButton, TooltipDirective, ContextMenuTrigger],
   templateUrl: './workplate-tabs.html',
   styleUrl: './workplate-tabs.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -26,9 +29,11 @@ export class WorkplateTabs {
   private readonly slicer = inject(Slicer);
   private readonly names = inject(WorkplateNames);
   private readonly openWorkplates = inject(OpenWorkplates);
+  private readonly contextMenu = inject(ContextMenuService);
 
   readonly tabs = this.openWorkplates.tabs;
   readonly activeUuid = this.openWorkplates.activeUuid;
+  /** UUID of the tab whose name is currently being edited, if any. */
   readonly editingUuid = signal<string | null>(null);
 
   /** The stored custom name, if the tab was renamed. */
@@ -41,20 +46,21 @@ export class WorkplateTabs {
     return this.names.displayNameFor(tab.uuid, tab.filename);
   }
 
-  rename(uuid: string, event: Event): void {
-    this.names.setName(uuid, (event.target as HTMLInputElement).value);
-    this.editingUuid.set(null);
-  }
-
-  activate(uuid: string): void {
+  /**
+   * Switching tabs and renaming share the same click: a tab you're not on
+   * activates it, like any tab strip; clicking the one you're already on has
+   * nothing left to *do* but rename it, so that's what a re-click means here.
+   */
+  activate(uuid: string, event: Event): void {
     if (uuid === this.activeUuid()) {
+      this.startEditing(uuid, event);
       return;
     }
     void this.router.navigate(['/slice', uuid]);
   }
 
-  startEditing(uuid: string, event: Event): void {
-    event.stopPropagation();
+  startEditing(uuid: string, event?: Event): void {
+    event?.preventDefault();
     this.editingUuid.set(uuid);
   }
 
@@ -88,8 +94,8 @@ export class WorkplateTabs {
     await this.router.navigate(['/slice', 'new']);
   }
 
-  async closeTab(event: Event, uuid: string): Promise<void> {
-    event.stopPropagation();
+  async closeTab(uuid: string, event?: Event): Promise<void> {
+    event?.stopPropagation();
     if (uuid === this.activeUuid() && this.tabs().length === 1) {
       // Closing the only open tab is the same as discarding the plate: there
       // is nothing left to switch to, so clear the scene before navigating
@@ -99,36 +105,39 @@ export class WorkplateTabs {
     this.openWorkplates.close(uuid);
   }
 
-  showContextMenu(event: MouseEvent, uuid: string): void {
-    event.preventDefault();
-    event.stopPropagation();
-    const menu = document.createElement('div');
-    menu.className = 'wp-context-menu';
-    menu.style.position = 'fixed';
-    menu.style.left = event.clientX + 'px';
-    menu.style.top = event.clientY + 'px';
-    menu.style.zIndex = '1000';
-    menu.innerHTML = `
-      <button class="wp-context-item" data-action="rename">Rename</button>
-      <hr class="wp-context-divider" />
-      <button class="wp-context-item" data-action="close">Close Tab</button>
-    `;
-    document.body.appendChild(menu);
-
-    const handleClick = (e: Event) => {
-      const target = e.target as HTMLElement;
-      const action = target.getAttribute('data-action');
-      if (action === 'rename') {
-        this.editingUuid.set(uuid);
-      } else if (action === 'close') {
-        void this.closeTab(e, uuid);
+  /** Close every tab except `uuid`. */
+  closeOthers(uuid: string): void {
+    for (const tab of this.tabs()) {
+      if (tab.uuid !== uuid) {
+        this.openWorkplates.close(tab.uuid);
       }
-      document.body.removeChild(menu);
-      document.removeEventListener('click', handleClick);
-    };
+    }
+  }
 
-    setTimeout(() => {
-      document.addEventListener('click', handleClick);
-    });
+  /** Close every open tab, clearing the scene since nothing is left on screen. */
+  async closeAll(): Promise<void> {
+    const all = this.tabs();
+    if (all.length === 0) {
+      return;
+    }
+    await this.slicer.resetWorkplate();
+    for (const tab of all) {
+      this.openWorkplates.close(tab.uuid);
+    }
+  }
+
+  onContextMenu(event: MouseEvent, uuid: string): void {
+    const items: ContextMenuItem[] = [
+      { label: 'Rename…', icon: 'edit-pencil', action: () => this.startEditing(uuid) },
+      { separator: true, label: '' },
+      { label: 'Close Tab', icon: 'xmark', action: () => void this.closeTab(uuid) },
+      {
+        label: 'Close Other Tabs',
+        action: () => this.closeOthers(uuid),
+        disabled: this.tabs().length <= 1,
+      },
+      { label: 'Close All Tabs', action: () => void this.closeAll() },
+    ];
+    void this.contextMenu.open(event, items);
   }
 }
