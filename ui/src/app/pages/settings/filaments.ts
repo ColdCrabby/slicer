@@ -69,18 +69,27 @@ const FILAMENT_GROUPS = SETTING_CONTRACTS.find((c) => c.id === 'filament')!.grou
 
 /**
  * The filament-parameter groups rendered in the editor, in the Filament
- * contract's display order (`Temperature`, `Cooling`, `Filament G-code`). Parsed
- * once from the schema (it never changes at runtime); groups owned by other
- * contracts (Hardware, Extrusion, …) are left out so the filament editor only
+ * contract's display order (`Material`, `Temperature`, `Cooling`, `Extrusion`,
+ * `Filament G-code`). Parsed once from the schema (it never changes at runtime);
+ * groups owned by other contracts are left out so the filament editor only
  * shows material settings.
  *
  * Each group's fields are filtered to those `nexus-param-field` can actually
  * render (enum → select, boolean → switch, number → number input, and the
  * `x-widget: "gcode"` string fields → code editor). Plain `string`/array fields
  * without a widget hint are dropped, which excludes `filament_type` and
- * `fan_configs` automatically. `filament_diameter_mm` (Hardware) stays a
- * bespoke "Diameter" row under Identity, so no param key renders twice.
+ * `fan_configs` automatically. Keys the editor already renders by hand under
+ * Identity are dropped by {@link BESPOKE_PARAM_KEYS} so none appears twice.
  */
+/**
+ * Param keys this editor lays out itself, in the Identity card at the top.
+ *
+ * They are schema params like any other, so once their group moved onto the
+ * Filament contract they would render a second time inside it. The curated row
+ * wins — it sits with the name and colour it belongs beside.
+ */
+const BESPOKE_PARAM_KEYS = new Set(['filament_diameter_mm']);
+
 const PARAM_GROUPS: SchemaGroup[] = (() => {
   const order = new Map(FILAMENT_GROUPS.map((name, index) => [name, index]));
   return parseSchema(SLICING_PARAMS_SCHEMA)
@@ -89,11 +98,12 @@ const PARAM_GROUPS: SchemaGroup[] = (() => {
       ...g,
       fields: g.fields.filter(
         (f) =>
-          !!f.enumOptions?.length ||
-          f.type === 'boolean' ||
-          f.type === 'number' ||
-          f.type === 'integer' ||
-          f.widget === 'gcode',
+          !BESPOKE_PARAM_KEYS.has(f.key) &&
+          (!!f.enumOptions?.length ||
+            f.type === 'boolean' ||
+            f.type === 'number' ||
+            f.type === 'integer' ||
+            f.widget === 'gcode'),
       ),
     }))
     .filter((g) => g.fields.length > 0)

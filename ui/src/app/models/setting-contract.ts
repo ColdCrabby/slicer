@@ -33,6 +33,12 @@ export interface SettingContract {
  * established slicers: retraction/output live with the *printer* (extruder +
  * firmware), temperature/cooling live with the *filament*, and everything that
  * shapes the print itself is a *process* parameter.
+ *
+ * **Extrusion is a filament contract, not a process one.** Flow ratio, maximum
+ * volumetric speed and pressure advance all describe how a given material
+ * behaves coming out of the nozzle — they are calibrated per spool and travel
+ * with it, so a process preset that carried them would overwrite that
+ * calibration every time the user changed print profile.
  */
 export const SETTING_CONTRACTS: readonly SettingContract[] = [
   {
@@ -47,7 +53,7 @@ export const SETTING_CONTRACTS: readonly SettingContract[] = [
     label: 'Filament',
     icon: 'droplet',
     managePath: '/settings/filaments',
-    groups: ['Temperature', 'Cooling', 'Filament G-code'],
+    groups: ['Material', 'Temperature', 'Cooling', 'Extrusion', 'Filament G-code'],
   },
   {
     id: 'process',
@@ -57,7 +63,6 @@ export const SETTING_CONTRACTS: readonly SettingContract[] = [
     groups: [
       'Layer',
       'Walls',
-      'Extrusion',
       'Infill',
       'Support',
       'Speed',
@@ -90,6 +95,7 @@ export const GROUP_ICONS: Record<string, string> = {
   Output: 'code-brackets',
   'Time estimate': 'timer',
   'Filament G-code': 'code-brackets',
+  Material: 'droplet',
   Extrusion: 'extrude',
   Support: 'view-structure-down',
   Adhesion: 'magnet-energy',

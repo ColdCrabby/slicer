@@ -1148,7 +1148,7 @@ floor — the opposite of the old under-extrude approach that left thin, gappy,
 sag-prone strands.  Pair it with a slow `bridge_speed` and full `bridge_fan_speed`
 so the fatter bead freezes in place before it sags.
 **Default:** 1.5 (150% of normal flow).",
-        extend("x-group" = "Speed")
+        extend("x-group" = "Quality")
     )]
     #[serde(default = "SlicingParams::default_bridge_flow_ratio")]
     pub bridge_flow_ratio: f64,
@@ -1473,7 +1473,7 @@ Same choices as `top_surface_pattern`. **Default:** `monotonic`.",
 
 Used to calculate extrusion volume from feed distance. Standard sizes:
 - `1.75 mm` — most common
-- `2.85 mm` — some older or larger-format printers", extend("x-group" = "Hardware"))]
+- `2.85 mm` — some older or larger-format printers", extend("x-group" = "Material"))]
     #[serde(default = "SlicingParams::default_filament_diameter_mm")]
     pub filament_diameter_mm: f64,
 
@@ -1483,7 +1483,7 @@ Used to convert the extruded volume into a filament **weight** for the G-code
 metadata header. Typical values:
 - `1.24` — PLA
 - `1.27` — PETG
-- `1.04` — ABS", extend("x-group" = "Hardware"))]
+- `1.04` — ABS", extend("x-group" = "Material"))]
     #[serde(default = "SlicingParams::default_filament_density_g_cm3")]
     pub filament_density_g_cm3: f64,
 
@@ -1491,7 +1491,7 @@ metadata header. Typical values:
 
 Combined with the filament weight to report a material cost in the G-code
 metadata footer. Populated from the active filament profile at resolve time.
-`0` = unknown, which omits the cost line.", extend("x-group" = "Hardware"))]
+`0` = unknown, which omits the cost line.", extend("x-group" = "Material"))]
     #[serde(default)]
     pub filament_cost_per_kg: f64,
 
@@ -1922,7 +1922,7 @@ custom start G-code as `{chamber_temp_first_layer}`.",
         description = "Material family name (e.g. `PLA`, `PETG`, `ABS`). Populated from the \
 active filament profile at resolve time. Exposed to custom start G-code as `{filament_type}` \
 (e.g. Klippain `START_PRINT … MATERIAL={filament_type}`).",
-        extend("x-group" = "Temperature")
+        extend("x-group" = "Material")
     )]
     #[serde(default)]
     pub filament_type: String,
@@ -1932,7 +1932,7 @@ active filament profile at resolve time. Exposed to custom start G-code as `{fil
 `filament_settings_id`. Populated from the active filament profile at resolve time so \
 Moonraker / Mainsail / Fluidd, OctoPrint, and other front-ends can show which filament the \
 file was sliced for. Empty = omit the line.",
-        extend("x-group" = "Temperature")
+        extend("x-group" = "Material")
     )]
     #[serde(default)]
     pub filament_name: String,
@@ -1941,7 +1941,7 @@ file was sliced for. Empty = omit the line.",
         description = "Filament colour (hex string, e.g. `#E0730F`) recorded in the G-code \
 metadata footer as `filament_colour`. Populated from the active filament profile at resolve \
 time so printer front-ends can render a swatch for the file. Empty = omit the line.",
-        extend("x-group" = "Temperature")
+        extend("x-group" = "Material")
     )]
     #[serde(default)]
     pub filament_color: String,

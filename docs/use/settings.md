@@ -112,8 +112,10 @@ part above it is not.
 
 | Group | What lives there |
 | --- | --- |
+| **Material** | What the spool *is* — type, name, colour, diameter, density, cost |
 | **Temperature** | Nozzle and bed, with separate first-layer values |
 | **Cooling** | Fan speeds, minimum layer time |
+| **Extrusion** | Flow ratio, maximum volumetric speed, pressure advance — the numbers you calibrate per spool |
 | **Filament G-code** | Custom G-code for this material |
 
 ### Process
@@ -122,7 +124,6 @@ part above it is not.
 | --- | --- |
 | **Layer** | Layer height, first-layer height |
 | **Walls** | Wall count, wall generator, thin walls, extra perimeters, ordering, seam behaviour, fuzzy skin |
-| **Extrusion** | Line widths and flow |
 | **Infill** | Density, pattern, angle |
 | **Support** | On/off, type, density, overhang threshold, interface layers, clearances, whether support may only start from the build plate |
 | **Speed** | Per-role print speeds and travel speed |
@@ -247,7 +248,7 @@ feature below. Left at 0 it works this out from your wall width; raise it to
 protect chunkier detail, lower it for a more literal correction.
 :::
 
-**First layer height** (Process → Extrusion) prints the bottom layer thicker
+**First layer height** (Process → Layer) prints the bottom layer thicker
 than the rest. The extra material absorbs what mesh bed levelling only
 approximates, which is why almost every profile sets it. It has no effect when
 you print on a raft, since the raft takes over contact with the bed.

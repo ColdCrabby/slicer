@@ -6,7 +6,7 @@ re-typing. There are four kinds, and they live in **Settings**.
 | | Where | What it holds |
 | --- | --- | --- |
 | **Printers** | `/settings/printers` | Bed size, nozzle, firmware, network connection |
-| **Filaments** | `/settings/filaments` | Temperatures, cooling, colour |
+| **Filaments** | `/settings/filaments` | Material identity, temperatures, cooling, flow |
 | **Print profiles** | `/settings/profiles` | Layer height, walls, infill — everything in the Process tab |
 | **Labels** | `/settings/labels` | Tags for organising the three above |
 
