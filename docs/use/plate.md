@@ -5,11 +5,12 @@ many more as fit. Everything on it is sliced into one G-code file.
 
 ## Adding models
 
-Four ways, all equivalent:
+Five ways, all equivalent:
 
 - Drag files onto the window
 - The **add model** button in the tool cluster
 - **Open Model to Slice** on the home screen
+- **Open with Cold Crabby**, from anywhere else on the device — see below
 - Reopening a recent plate, which brings all its models back
 
 Adding never clears what's already there. Only **Empty Workplate** does that.
@@ -22,6 +23,32 @@ inside each other.
 A 3MF is a scene, not a model. Cold Crabby expands one into **one object per
 build item**, named from the file, all sharing the uploaded bytes. Duplicating
 an object shares them too — ten copies of a model cost one upload.
+:::
+
+## Opening a model from another app
+
+On the desktop app and on iPhone/iPad, Cold Crabby registers itself as an app
+that opens `.stl`, `.obj` and `.3mf` — so a model can be sent straight to the
+plate without going through the file picker.
+
+- **Windows, macOS and Linux** — double-click a model, or right-click it and
+  choose **Open with → Cold Crabby**. If Cold Crabby is already running the
+  model goes to the window you already have open, rather than starting a second
+  one.
+- **iPhone and iPad** — share a model to Cold Crabby from Shapr3D, Files, Mail
+  or AirDrop, or long-press it in Files and choose **Open With**. In the share
+  sheet the entry reads **Copy to Cold Crabby**.
+
+A model opened this way **joins the plate you are looking at** if there is one,
+exactly as dropping it on the window would. It only starts a fresh plate when
+there is nothing on the bed — opening a file never throws away an arrangement
+you have already made.
+
+::: details Advanced — making Cold Crabby the default
+Cold Crabby registers as an *alternate* handler, so a machine that already has
+a slicer keeps it. To make Cold Crabby the one that opens on a double-click:
+on Windows, right-click a model → **Open with → Choose another app** → **Always**;
+on macOS, **Get Info** on a model → **Open with** → **Change All**.
 :::
 
 ## Moving things around

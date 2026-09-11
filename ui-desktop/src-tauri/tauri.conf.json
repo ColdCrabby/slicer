@@ -22,7 +22,36 @@
     ],
     "iOS": {
       "minimumSystemVersion": "16.0"
-    }
+    },
+    "fileAssociations": [
+      {
+        "ext": ["stl"],
+        "name": "STL Model",
+        "description": "3D model",
+        "mimeType": "model/stl",
+        "role": "Viewer",
+        "rank": "Alternate",
+        "contentTypes": ["public.standard-tesselated-geometry-format"]
+      },
+      {
+        "ext": ["obj"],
+        "name": "Wavefront OBJ Model",
+        "description": "3D model",
+        "mimeType": "model/obj",
+        "role": "Viewer",
+        "rank": "Alternate",
+        "contentTypes": ["public.geometry-definition-format"]
+      },
+      {
+        "ext": ["3mf"],
+        "name": "3MF Model",
+        "description": "3D model",
+        "mimeType": "model/3mf",
+        "role": "Viewer",
+        "rank": "Alternate",
+        "contentTypes": ["org.3mf.3mf"]
+      }
+    ]
   },
   "app": {
     "security": {
