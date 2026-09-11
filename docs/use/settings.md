@@ -98,6 +98,31 @@ somewhere you could never get a tool into. Expect to lose coverage: on a shelf
 overhanging a wider base, the part beyond the base is still supported and the
 part above it is not.
 
+## Advanced and Expert
+
+Each section shows the settings a print actually depends on, then a quiet
+**Advanced** row at the bottom with a count — `Advanced 10`. Pressing it expands
+that section in place, so you keep your scroll position and your context; a
+second press reveals **Expert**. Nothing moves, and there is no "expert mode" to
+switch the app into.
+
+The split is about whether you can form an intention, not about how experienced
+you are. Seam position is Advanced because you can want the seam at the back.
+A bead-transition threshold is Expert because almost nobody can predict what
+changing it does — including people who have been printing for years.
+
+Two things worth knowing:
+
+- **Search ignores all of this.** Type into the settings search and you reach
+  every setting the slicer has, whatever tier it sits in and whichever tab owns
+  it. If you know the name — including the name another slicer uses for it —
+  that is the fastest way there.
+- **Anything you have changed stays visible**, even if it lives in Expert. A
+  setting you can't find is a setting you can't put back.
+
+Each section remembers how far you opened it, so if you work in Advanced you
+only say so once.
+
 ## Everything else, by group
 
 ### Printer

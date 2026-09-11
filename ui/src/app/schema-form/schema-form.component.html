@@ -116,7 +116,7 @@
           <ng-template ngAccordionContent>
             <div class="schema-form-group-fields">
               <div class="schema-form-group-fields-inner">
-                @for (f of group.fields; track f.key) {
+                @for (f of visibleFields(group); track f.key) {
                   <div class="schema-form-field" [class.is-modified]="modifiedKeys().has(f.key)">
                     <se-field-host
                       [field]="f"
@@ -125,6 +125,33 @@
                       (fieldChange)="onFieldChange(f.key, $event)"
                     />
                   </div>
+                }
+
+                <!--
+                  Advanced is an expansion, not a destination: this reveals the
+                  next tier inside the section the user is already looking at,
+                  keeping their place, their context and their scroll position.
+                  It is absent entirely when the group has nothing deeper.
+                -->
+                @if (pendingTier(group); as pending) {
+                  <button
+                    type="button"
+                    class="schema-form-tier-toggle"
+                    (click)="revealDeeper(group.name)"
+                  >
+                    <nexus-icon name="nav-arrow-down" aria-hidden="true" />
+                    <span>{{ tierLabel(pending) }}</span>
+                    <span class="schema-form-tier-count">{{ pendingCount(group) }}</span>
+                  </button>
+                } @else if (revealedTier(group.name) !== 'everyday') {
+                  <button
+                    type="button"
+                    class="schema-form-tier-toggle is-open"
+                    (click)="hideDeeper(group.name)"
+                  >
+                    <nexus-icon name="nav-arrow-up" aria-hidden="true" />
+                    <span>Show less</span>
+                  </button>
                 }
               </div>
             </div>

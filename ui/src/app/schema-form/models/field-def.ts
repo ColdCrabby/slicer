@@ -53,6 +53,20 @@ export interface FieldDef {
   /** x-group value from the schema, used for visual grouping. */
   group?: string;
   /**
+   * `x-tier` schema extension: how much the user has to know before this
+   * setting is worth showing them.
+   *
+   * Absent means *everyday* — the decisions a print actually depends on, and
+   * what the panel shows before the user asks for more. `advanced` is a real
+   * choice a user can form an intention about ("keep the seam at the back");
+   * `expert` is an algorithm knob almost nobody can predict the effect of.
+   *
+   * A tier governs what is shown **by default**, never what exists: search
+   * spans every tier, and a tier that hid a setting from search would have
+   * become a feature flag.
+   */
+  tier?: 'advanced' | 'expert';
+  /**
    * `x-unit` schema extension: how the stored number relates to what the user
    * reads. The engine keeps most proportions as a fraction — `fan_speed: 1.0`
    * is full speed — which is not what a box suffixed `%` appears to say.

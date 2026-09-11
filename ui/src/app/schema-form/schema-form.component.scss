@@ -312,6 +312,53 @@
   min-height: 0;
 }
 
+// The tier disclosure at the foot of a group. Deliberately quiet — a chevron
+// and a word, not a button that competes with the settings above it. The count
+// is what makes it worth pressing: "Advanced 7" says how much is behind it,
+// where a bare chevron says only that something is.
+.schema-form-tier-toggle {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-xs);
+  align-self: flex-start;
+  margin-top: var(--spacing-xs);
+  padding: var(--spacing-xs) var(--spacing-sm);
+  border: none;
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: var(--color-text-tertiary);
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-medium);
+  cursor: pointer;
+  transition:
+    background-color var(--duration-fast) var(--ease-standard),
+    color var(--duration-fast) var(--ease-standard);
+
+  --icon-size: 14px;
+
+  &:hover {
+    background: var(--color-surface-hover);
+    color: var(--color-text-secondary);
+  }
+
+  &:active {
+    background: var(--color-surface-active);
+  }
+
+  &:focus-visible {
+    outline: 2px solid var(--color-focus-ring);
+    outline-offset: -2px;
+  }
+}
+
+.schema-form-tier-count {
+  padding: 0 var(--spacing-xs);
+  border-radius: 999px;
+  background: var(--color-surface-hover);
+  color: var(--color-text-tertiary);
+  font-variant-numeric: tabular-nums;
+}
+
 .schema-form-group-fields-inner {
   display: flex;
   flex-direction: column;

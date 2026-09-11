@@ -28,7 +28,14 @@ import { FieldHost } from './field-host/field-host';
 import { noticeForField } from './field-exceptions/field-exceptions';
 import { FieldDef, SchemaGroup } from './models/field-def';
 import { parseSchema } from './models/schema-parser';
-import { filterRelevantGroups } from './models/relevance';
+import {
+  type Tier,
+  deepestTier,
+  filterRelevantGroups,
+  isFieldInTier,
+  nextTier,
+  tierOf,
+} from './models/relevance';
 
 export interface FieldChangeEvent {
   key: string;
@@ -36,6 +43,20 @@ export interface FieldChangeEvent {
 }
 
 const ACCORDION_STORAGE_KEY = 'schema-form-accordion';
+
+/**
+ * How far each group has been revealed, persisted per group.
+ *
+ * A stated preference outranks the default the same way the accordion's own
+ * expand state does: someone who works in Advanced all day should not re-open
+ * it every session. This is not a mode switch — it is per section, it never
+ * changes the shape of the app, and the panel still opens quiet for anyone who
+ * has not asked.
+ */
+const TIER_STORAGE_KEY = 'schema-form-revealed-tiers';
+
+/** Depth of each tier, for comparing "is there anything deeper here?". */
+const TIER_RANK: Record<Tier, number> = { everyday: 0, advanced: 1, expert: 2 };
 
 /**
  * Schema-driven form container.
@@ -247,6 +268,13 @@ export class SchemaForm {
    * All currently-relevant fields flattened with their group name, used to
    * build the Fuse index. Hidden (gated-off) fields are excluded so they do
    * not surface in search results while their gate condition is unmet.
+   *
+   * **Deliberately not tier-filtered.** Search is the escape hatch that makes a
+   * calm default view affordable: someone who knows the term types it and lands
+   * on the control wherever it sits in the taxonomy. A tier governs what is
+   * shown before the user asks — a tier that hid a setting from search would
+   * have stopped being disclosure and become a feature flag. `relevantGroups`
+   * is the untiered set, and this must keep reading from it.
    */
   private readonly flatFields = computed<FieldDefIndexed[]>(() =>
     this.relevantGroups().flatMap((g) => g.fields.map((f) => ({ ...f, groupName: g.name }))),
@@ -300,6 +328,86 @@ export class SchemaForm {
     const fuse = new Fuse(this.flatFields(), FUSE_OPTIONS);
     return fuse.search(query).map((r) => ({ ...r.item, score: r.score ?? 0 }));
   });
+
+  /**
+   * How far each group is currently revealed. Missing means `everyday`.
+   *
+   * Read from storage once and then held here, so a reveal survives a reload
+   * without the template touching storage on every change detection.
+   */
+  private readonly revealedTiers = signal<Record<string, Tier>>(
+    this.storage.getJson<Record<string, Tier>>(TIER_STORAGE_KEY, 'local') ?? {},
+  );
+
+  /** How far `groupName` is revealed right now. */
+  protected revealedTier(groupName: string): Tier {
+    return this.revealedTiers()[groupName] ?? 'everyday';
+  }
+
+  /**
+   * Fields of `group` that should be on screen, given how far it is revealed.
+   *
+   * A *modified* field is always shown whatever its tier. Hiding a value the
+   * user has already changed is the one disclosure failure that cannot be
+   * argued for: they cannot put it back if they cannot find it, and the group
+   * header's "changed" dot would point into an empty section.
+   */
+  protected visibleFields(group: SchemaGroup): FieldDef[] {
+    const revealed = this.revealedTier(group.name);
+    const modified = this.modifiedKeys();
+    return group.fields.filter((f) => isFieldInTier(f, revealed) || modified.has(f.key));
+  }
+
+  /**
+   * The tier the disclosure below a group would reveal next, or `null` when
+   * there is nothing deeper to show.
+   */
+  protected pendingTier(group: SchemaGroup): Tier | null {
+    const next = nextTier(this.revealedTier(group.name));
+    if (!next) {
+      return null;
+    }
+    const deepest = deepestTier(group.fields);
+    // Only offer a step the group can actually fill. A section whose extra
+    // fields are all `advanced` must not advertise an Expert tier that would
+    // expand to nothing.
+    return TIER_RANK[next] <= TIER_RANK[deepest] ? next : null;
+  }
+
+  /** How many more fields the pending disclosure would bring into view. */
+  protected pendingCount(group: SchemaGroup): number {
+    const next = this.pendingTier(group);
+    if (!next) {
+      return 0;
+    }
+    const shown = new Set(this.visibleFields(group).map((f) => f.key));
+    return group.fields.filter((f) => !shown.has(f.key) && isFieldInTier(f, next)).length;
+  }
+
+  /** Reveal one tier deeper in `groupName`, and remember it. */
+  protected revealDeeper(groupName: string): void {
+    const next = nextTier(this.revealedTier(groupName));
+    if (!next) {
+      return;
+    }
+    this.revealedTiers.update((map) => ({ ...map, [groupName]: next }));
+    this.storage.writeJson(TIER_STORAGE_KEY, this.revealedTiers(), 'local');
+  }
+
+  /** Collapse `groupName` back to the everyday view. */
+  protected hideDeeper(groupName: string): void {
+    this.revealedTiers.update((map) => {
+      const next = { ...map };
+      delete next[groupName];
+      return next;
+    });
+    this.storage.writeJson(TIER_STORAGE_KEY, this.revealedTiers(), 'local');
+  }
+
+  /** Label for the disclosure control under a group. */
+  protected tierLabel(tier: Tier): string {
+    return tier === 'advanced' ? 'Advanced' : 'Expert';
+  }
 
   /**
    * Map of group names to their expanded state signals.

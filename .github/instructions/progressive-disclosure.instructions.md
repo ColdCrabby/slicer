@@ -215,6 +215,7 @@ serialized struct by name.
 | --- | --- | --- |
 | `x-group` | `src/settings/params.rs` | Puts the field in an accordion group |
 | `x-relevant-when` | same | Hides a field until a sibling makes it meaningful — `equals` for a switch, `greaterThan` for a numeric feature that is off at `0` |
+| `x-tier` | same | Everyday (omit) / `advanced` / `expert` — what the panel shows before the user asks |
 | `x-widget` | same | Overrides the control chosen from the field's shape |
 | `SETTING_CONTRACTS` | [`setting-contract.ts`](../../ui/src/app/models/setting-contract.ts) | Assigns each group to the Printer / Filament / Process tab |
 | `GROUP_ICONS` | same | The group's icon |
@@ -230,16 +231,47 @@ anything new. Evaluation lives in exactly one place,
 settings panel and the profile editor pages, so every schema-driven surface hides
 the same fields.
 
-**What does not exist yet:** there is no `x-tier` extension. The Everyday /
-Advanced / Expert split above is the design contract to build toward, not a
-switch you can set today. Until it lands:
+**`x-tier` implements the three tiers above.** Omit it for Everyday; set
+`"advanced"` or `"expert"` for the rest. It is evaluated in
+[`relevance.ts`](../../ui/src/app/schema-form/models/relevance.ts) beside
+`x-relevant-when`, because the two answer the same shape of question — *should
+this be on screen right now?* Relevance is about the state of the plate; tier is
+about how far the user has asked to look.
 
-- Use `x-relevant-when` for anything whose *relevance* is conditional.
-- Use group membership and group order for coarse prominence.
-- **Do not fake a tier** with a bespoke per-field condition in the generic form.
-  If a field genuinely needs tiering, that is a reason to add `x-tier` to the
-  schema — one extension, evaluated in `relevance.ts` beside the existing
-  operators — not a reason to special-case the renderer.
+```rust
+#[schemars(
+    description = "…",
+    extend("x-group" = "Walls", "x-tier" = "expert")
+)]
+pub wall_transition_threshold: f64,
+```
+
+Each accordion group renders its Everyday fields, then a quiet
+`Advanced ⌄ 10` footer that expands **in place** — the count is what makes it
+worth pressing, since a bare chevron says only that something is there. A second
+press reveals Expert. The step is offered only when the group can actually fill
+it, so a section whose extra fields are all Advanced never advertises an Expert
+tier that would expand to nothing.
+
+Three rules the implementation depends on — each has a test in
+[`tier.spec.ts`](../../ui/src/app/schema-form/models/tier.spec.ts):
+
+- **Search is never tier-filtered.** `flatFields` builds the Fuse index from the
+  untiered `relevantGroups`, and must keep doing so. This is what makes a calm
+  default view affordable, and a tier that hid a setting from search would have
+  stopped being disclosure and become a feature flag.
+- **A modified field is always shown, whatever its tier.** Hiding a value the
+  user has already changed is the one failure that cannot be argued for: they
+  cannot put it back if they cannot find it, and the group header's "changed"
+  dot would point into an empty section.
+- **The Everyday set has a ceiling.** If it grows without anyone noticing, the
+  panel is a wall of settings again and the tiers have stopped working, so the
+  size is asserted rather than assumed.
+
+Reveal state is persisted per group, the same way the accordion's own expansion
+is: someone who works in Advanced all day should not reopen it every session.
+That is not the "I am an expert" switch the non-goals rule out — it is per
+section, per intent, and it never changes the shape of the app.
 
 ### Adding a setting
 

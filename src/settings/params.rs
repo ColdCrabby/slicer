@@ -651,7 +651,7 @@ Supported values:
 - `classic` — fixed-width concentric perimeters with thin-wall gap fill (fast, robust).
 - `arachne` — medial-axis variable-width walls that better fill thin features (engraved text, tapering ribs).
 
-**Default:** `arachne`.", extend("x-group" = "Walls"))]
+**Default:** `arachne`.", extend("x-group" = "Walls", "x-tier" = "advanced"))]
     #[serde(default = "SlicingParams::default_wall_generator")]
     pub wall_generator: WallGenerator,
 
@@ -668,7 +668,7 @@ The innermost bead may have variable width when narrow space remains.
 
 Beads narrower than `wall_line_width_min × nozzle_diameter_mm` are skipped entirely.
 **Range:** 0.5–1.0.",
-        extend("x-group" = "Walls", "x-unit" = "ratio")
+        extend("x-group" = "Walls", "x-tier" = "expert", "x-unit" = "ratio")
     )]
     #[serde(default = "SlicingParams::default_wall_line_width_min")]
     pub wall_line_width_min: f64,
@@ -678,7 +678,7 @@ Beads narrower than `wall_line_width_min × nozzle_diameter_mm` are skipped enti
 
 Variable-width beads are capped at this multiple to avoid excessive over-extrusion at corners.
 **Range:** 1.0–2.0.",
-        extend("x-group" = "Walls", "x-unit" = "ratio")
+        extend("x-group" = "Walls", "x-tier" = "expert", "x-unit" = "ratio")
     )]
     #[serde(default = "SlicingParams::default_wall_line_width_max")]
     pub wall_line_width_max: f64,
@@ -689,7 +689,7 @@ Variable-width beads are capped at this multiple to avoid excessive over-extrusi
 When remaining space is narrower than `wall_transition_threshold × nozzle_diameter_mm`,
 the algorithm widens the existing innermost bead instead of adding a new one.
 **Typical:** 0.4–0.8.",
-        extend("x-group" = "Walls", "x-unit" = "ratio")
+        extend("x-group" = "Walls", "x-tier" = "expert", "x-unit" = "ratio")
     )]
     #[serde(default = "SlicingParams::default_wall_transition_threshold")]
     pub wall_transition_threshold: f64,
@@ -699,7 +699,7 @@ the algorithm widens the existing innermost bead instead of adding a new one.
 
 Larger values produce a gradual width ramp at transitions; smaller values create abrupt changes.
 **Typical:** 0.5–2.0 mm.",
-        extend("x-group" = "Walls")
+        extend("x-group" = "Walls", "x-tier" = "expert")
     )]
     #[serde(default = "SlicingParams::default_wall_transition_length")]
     pub wall_transition_length: f64,
@@ -710,7 +710,7 @@ When space is too narrow for a separate bead, up to this many innermost beads
 are widened proportionally to fill the gap.
 
 Classic generator only — Arachne varies bead width along the medial axis instead.
-**Typical:** 1–2.", extend("x-group" = "Walls", "x-relevant-when" = serde_json::json!({"field": "wall_generator", "equals": "classic"})))]
+**Typical:** 1–2.", extend("x-group" = "Walls", "x-tier" = "expert", "x-relevant-when" = serde_json::json!({"field": "wall_generator", "equals": "classic"})))]
     #[serde(default = "SlicingParams::default_wall_distribution_count")]
     pub wall_distribution_count: usize,
 
@@ -729,7 +729,7 @@ construction — that is what the generator is for — so it always prints them 
 ignores this option.
 
 Mirrors `thin_walls` (PrusaSlicer/Slic3r) / `detect_thin_wall` (OrcaSlicer), both
-of which are likewise classic-only.", extend("x-group" = "Walls", "x-relevant-when" = serde_json::json!({"field": "wall_generator", "equals": "classic"})))]
+of which are likewise classic-only.", extend("x-group" = "Walls", "x-tier" = "advanced", "x-relevant-when" = serde_json::json!({"field": "wall_generator", "equals": "classic"})))]
     #[serde(default = "SlicingParams::default_thin_walls")]
     pub thin_walls: bool,
 
@@ -747,7 +747,7 @@ would have filled is bridged by the squish of the flanking wall beads.
 Arachne generator only — the classic generator emits a single residual bead per
 shell rather than walking a medial skeleton.
 **Typical:** 0.4–1.0 mm.",
-        extend("x-group" = "Walls", "x-relevant-when" = serde_json::json!({"field": "wall_generator", "equals": "arachne"}))
+        extend("x-group" = "Walls", "x-tier" = "expert", "x-relevant-when" = serde_json::json!({"field": "wall_generator", "equals": "arachne"}))
     )]
     #[serde(default = "SlicingParams::default_gap_fill_min_length_mm")]
     pub gap_fill_min_length_mm: f64,
@@ -759,7 +759,7 @@ Arachne-walk only.  A bead is added or removed along the medial axis only where
 the local branch angle exceeds this, so ribs are not placed on near-parallel
 edges where the count is ambiguous.
 **Typical:** 5–20°.",
-        extend("x-group" = "Walls")
+        extend("x-group" = "Walls", "x-tier" = "expert")
     )]
     #[serde(default = "SlicingParams::default_wall_transition_angle")]
     pub wall_transition_angle: f64,
@@ -770,7 +770,7 @@ edges where the count is ambiguous.
 Arachne-walk only.  Transitions closer together than this are merged, de-noising
 rapid count flip-flops along a faceted or slightly-tapering wall.
 **Typical:** 0.05–0.3 mm.",
-        extend("x-group" = "Walls")
+        extend("x-group" = "Walls", "x-tier" = "expert")
     )]
     #[serde(default = "SlicingParams::default_wall_transition_filter_distance")]
     pub wall_transition_filter_distance: f64,
@@ -784,7 +784,7 @@ Supported values:
 - `sharpest_corner` — vertex with the sharpest convex angle (hidden in geometry).
 - `random` — different random vertex per loop (no visible seam line).
 
-**Default:** `nearest`.", extend("x-group" = "Walls"))]
+**Default:** `nearest`.", extend("x-group" = "Walls", "x-tier" = "advanced"))]
     #[serde(default = "SlicingParams::default_seam_position")]
     pub seam_position: SeamPosition,
 
@@ -799,7 +799,7 @@ Supported values:
   it) at some cost to surface finish.
 
 Mirrors `external_perimeters_first` (PrusaSlicer/Slic3r) / `wall_sequence`
-(OrcaSlicer).", extend("x-group" = "Walls"))]
+(OrcaSlicer).", extend("x-group" = "Walls", "x-tier" = "advanced"))]
     #[serde(default = "SlicingParams::default_external_perimeters_first")]
     pub external_perimeters_first: bool,
 
@@ -812,7 +812,7 @@ regions (up to `extra_perimeters_max_gap × nozzle_diameter_mm` wide); wide core
 still get normal infill, so this never turns a part solid.
 
 Mirrors `extra_perimeters` (PrusaSlicer/Slic3r).
-**Default:** off.", extend("x-group" = "Walls"))]
+**Default:** off.", extend("x-group" = "Walls", "x-tier" = "advanced"))]
     #[serde(default = "SlicingParams::default_extra_perimeters")]
     pub extra_perimeters: bool,
 
@@ -823,7 +823,7 @@ A residual core wider than `extra_perimeters_max_gap × nozzle_diameter_mm` is
 left for sparse infill; a narrower one is filled with extra concentric
 perimeters.
 **Typical:** 2–4.",
-        extend("x-group" = "Walls", "x-relevant-when" = serde_json::json!({"field": "extra_perimeters", "equals": true}))
+        extend("x-group" = "Walls", "x-tier" = "expert", "x-relevant-when" = serde_json::json!({"field": "extra_perimeters", "equals": true}))
     )]
     #[serde(default = "SlicingParams::default_extra_perimeters_max_gap")]
     pub extra_perimeters_max_gap: f64,
@@ -837,7 +837,7 @@ perimeters in the layers immediately above *and* below is filled solid, so the
 side wall keeps a continuous shell.
 
 Mirrors `ensure_vertical_shell_thickness` (PrusaSlicer/Slic3r).
-**Default:** off.", extend("x-group" = "Walls"))]
+**Default:** off.", extend("x-group" = "Walls", "x-tier" = "advanced"))]
     #[serde(default = "SlicingParams::default_ensure_vertical_shell_thickness")]
     pub ensure_vertical_shell_thickness: bool,
 
@@ -851,7 +851,7 @@ time.
 
 Mirrors `avoid_crossing_perimeters` (PrusaSlicer/Slic3r) / `reduce_crossing_wall`
 (OrcaSlicer).
-**Default:** off.", extend("x-group" = "Walls"))]
+**Default:** off.", extend("x-group" = "Walls", "x-tier" = "advanced"))]
     #[serde(default = "SlicingParams::default_avoid_crossing_perimeters")]
     pub avoid_crossing_perimeters: bool,
 
@@ -865,7 +865,7 @@ open-bottomed tube. Best on **solid, single-island** models; only the outermost 
 layer is spiralized (interior holes are ignored). Layers with more than one island fall back to \
 normal (non-spiral) printing with a warning.
 
-**Default:** `false`.", extend("x-group" = "Walls"))]
+**Default:** `false`.", extend("x-group" = "Walls", "x-tier" = "advanced"))]
     #[serde(default = "SlicingParams::default_spiral_vase")]
     pub spiral_vase: bool,
 
@@ -878,7 +878,7 @@ pass are unaffected.
 
 Mirrors `fuzzy_skin` (PrusaSlicer/Slic3r); this engine fuzzes only the outer
 wall, matching Prusa's `external` mode.
-**Default:** off.", extend("x-group" = "Walls"))]
+**Default:** off.", extend("x-group" = "Walls", "x-tier" = "advanced"))]
     #[serde(default = "SlicingParams::default_fuzzy_skin")]
     pub fuzzy_skin: bool,
 
@@ -887,7 +887,7 @@ wall, matching Prusa's `external` mode.
 
 Mirrors `fuzzy_skin_thickness` (PrusaSlicer/Slic3r).
 **Default:** 0.15 mm. **Typical:** 0.1–0.5 mm.",
-        extend("x-group" = "Walls", "x-relevant-when" = serde_json::json!({"field": "fuzzy_skin", "equals": true}))
+        extend("x-group" = "Walls", "x-tier" = "advanced", "x-relevant-when" = serde_json::json!({"field": "fuzzy_skin", "equals": true}))
     )]
     #[serde(default = "SlicingParams::default_fuzzy_skin_thickness_mm")]
     pub fuzzy_skin_thickness_mm: f64,
@@ -899,7 +899,7 @@ Smaller values pack in more, finer bumps; larger values give a coarser
 texture with fewer, wider ones.
 Mirrors `fuzzy_skin_point_dist` (PrusaSlicer/Slic3r).
 **Default:** 0.5 mm. **Typical:** 0.3–1.0 mm.",
-        extend("x-group" = "Walls", "x-relevant-when" = serde_json::json!({"field": "fuzzy_skin", "equals": true}))
+        extend("x-group" = "Walls", "x-tier" = "advanced", "x-relevant-when" = serde_json::json!({"field": "fuzzy_skin", "equals": true}))
     )]
     #[serde(default = "SlicingParams::default_fuzzy_skin_point_dist_mm")]
     pub fuzzy_skin_point_dist_mm: f64,
@@ -933,7 +933,7 @@ line sets across the same area splits the density between them.", extend("x-grou
     #[schemars(description = "Base angle in degrees for sparse infill lines.
 
 Alternating layers rotate by +90° on top of this base angle to create a crossing pattern.
-**Default:** 45°.", extend("x-group" = "Infill"))]
+**Default:** 45°.", extend("x-group" = "Infill", "x-tier" = "advanced"))]
     #[serde(default = "SlicingParams::default_infill_base_angle")]
     pub infill_base_angle: f64,
 
@@ -953,7 +953,7 @@ a retract/travel pair.
 
 Has no effect when `infill_anchor_max_mm` is `0`.
 **Typical:** 0–1000 %.",
-        extend("x-group" = "Infill", "x-unit" = "percent")
+        extend("x-group" = "Infill", "x-tier" = "expert", "x-unit" = "percent")
     )]
     #[serde(default = "SlicingParams::default_infill_anchor_percent")]
     pub infill_anchor_percent: f64,
@@ -970,7 +970,7 @@ the infill — one move instead of two plus a travel.
 - `0` — turns anchoring off completely; every infill line is printed on its own.
 
 **Typical:** 0–50 mm.",
-        extend("x-group" = "Infill")
+        extend("x-group" = "Infill", "x-tier" = "expert")
     )]
     #[serde(default = "SlicingParams::default_infill_anchor_max_mm")]
     pub infill_anchor_max_mm: f64,
@@ -990,7 +990,7 @@ the nozzle diameter) — going beyond that would ask the nozzle to lay a bead
 taller than its own orifice.
 
 **Default:** `1` (no combining).",
-        extend("x-group" = "Infill")
+        extend("x-group" = "Infill", "x-tier" = "advanced")
     )]
     #[serde(default = "SlicingParams::default_infill_every_layers")]
     pub infill_every_layers: u32,
@@ -1002,7 +1002,7 @@ Set to `0` to use the nozzle diameter, which is the practical ceiling — a bead
 cannot reliably be laid taller than the orifice that extrudes it.  A smaller
 value combines fewer layers per group.
 **Default:** `0` (use the nozzle diameter).",
-        extend("x-group" = "Infill")
+        extend("x-group" = "Infill", "x-tier" = "expert")
     )]
     #[serde(default = "SlicingParams::default_infill_combination_max_layer_height_mm")]
     pub infill_combination_max_layer_height_mm: f64,
@@ -1017,7 +1017,7 @@ hollow parts and gives the layers above a dense base to print on.
 `0` disables it.  Set it very high (e.g. `9999`) and only the layers a solid
 sheet still fits under will be filled.
 **Default:** `0` (off).",
-        extend("x-group" = "Infill")
+        extend("x-group" = "Infill", "x-tier" = "advanced")
     )]
     #[serde(default = "SlicingParams::default_solid_infill_every_layers")]
     pub solid_infill_every_layers: u32,
@@ -1036,7 +1036,7 @@ positive value.
 Lower speeds improve surface quality and layer adhesion on perimeters.
 Set to `0` to fall back to `print_speed`.
 **Typical:** 40–50 mm/s.",
-        extend("x-group" = "Speed")
+        extend("x-group" = "Speed", "x-tier" = "advanced")
     )]
     #[serde(default = "SlicingParams::default_perimeter_speed")]
     pub perimeter_speed: f64,
@@ -1047,7 +1047,7 @@ Set to `0` to fall back to `print_speed`.
 Higher speeds are acceptable for infill since it is not visible.
 Set to `0` to fall back to `print_speed`.
 **Typical:** 60–80 mm/s.",
-        extend("x-group" = "Speed")
+        extend("x-group" = "Speed", "x-tier" = "advanced")
     )]
     #[serde(default = "SlicingParams::default_infill_speed")]
     pub infill_speed: f64,
@@ -1060,7 +1060,7 @@ every other extrusion.  Crawling across the gap gives full part-cooling
 (`bridge_fan_speed`) time to freeze the strand in place before it can sag.
 Set to `0` to fall back to `print_speed`.
 **Typical:** 10–25 mm/s. **Default:** 10 mm/s.",
-        extend("x-group" = "Speed")
+        extend("x-group" = "Speed", "x-tier" = "advanced")
     )]
     #[serde(default = "SlicingParams::default_bridge_speed")]
     pub bridge_speed: f64,
@@ -1075,7 +1075,7 @@ airflow (`overhang_fan_speed`).  Mirrors the OrcaSlicer / PrusaSlicer *slow down
 for overhangs* feature.  Set to `false` to print every overhang wall at a single
 `bridge_speed` instead.
 **Default:** true.",
-        extend("x-group" = "Speed")
+        extend("x-group" = "Speed", "x-tier" = "advanced")
     )]
     #[serde(default = "SlicingParams::default_enable_overhang_speed")]
     pub enable_overhang_speed: bool,
@@ -1087,7 +1087,7 @@ for overhangs* feature.  Set to `false` to print every overhang wall at a single
 almost entirely on the layer below, so the default leaves it at full speed —
 slowing it taxes a large share of ordinary walls on curved models for no gain.
 **Default:** 0 (no slowdown).",
-        extend("x-group" = "Speed")
+        extend("x-group" = "Speed", "x-tier" = "advanced")
     )]
     #[serde(default = "SlicingParams::default_overhang_degree_speed")]
     pub overhang_1_4_speed: f64,
@@ -1098,7 +1098,7 @@ slowing it taxes a large share of ordinary walls on curved models for no gain.
 `0` = print at the normal `perimeter_speed` (no slowdown).  Half of this bead
 still rests on the layer below, so the default leaves it at full speed.
 **Default:** 0 (no slowdown).",
-        extend("x-group" = "Speed")
+        extend("x-group" = "Speed", "x-tier" = "advanced")
     )]
     #[serde(default = "SlicingParams::default_overhang_degree_speed")]
     pub overhang_2_4_speed: f64,
@@ -1109,7 +1109,7 @@ still rests on the layer below, so the default leaves it at full speed.
 `0` = inherit `bridge_speed`, so this band tracks that setting instead of
 pinning a second number that can drift out of sync with it.
 **Typical:** 20–35 mm/s.",
-        extend("x-group" = "Speed")
+        extend("x-group" = "Speed", "x-tier" = "advanced")
     )]
     #[serde(default = "SlicingParams::default_overhang_degree_speed")]
     pub overhang_3_4_speed: f64,
@@ -1121,7 +1121,7 @@ The steepest, most sag-prone band — effectively extruding into air, but withou
 a bridge's anchored far end to tension against, so it wants to run slower than
 `bridge_speed`.  `0` = inherit `bridge_speed`.
 **Default:** 8 mm/s.",
-        extend("x-group" = "Speed")
+        extend("x-group" = "Speed", "x-tier" = "advanced")
     )]
     #[serde(default = "SlicingParams::default_overhang_4_4_speed")]
     pub overhang_4_4_speed: f64,
@@ -1134,7 +1134,7 @@ configured overhang speed, so a curling wall never outruns the most conservative
 setting.  Off by default because it collapses the 50–75% band into the 75–100%
 one, discarding the grading — enable it deliberately when a model curls.
 **Default:** false.",
-        extend("x-group" = "Speed")
+        extend("x-group" = "Speed", "x-tier" = "advanced")
     )]
     #[serde(default = "SlicingParams::default_slowdown_for_curled_perimeters")]
     pub slowdown_for_curled_perimeters: bool,
@@ -1148,7 +1148,7 @@ floor — the opposite of the old under-extrude approach that left thin, gappy,
 sag-prone strands.  Pair it with a slow `bridge_speed` and full `bridge_fan_speed`
 so the fatter bead freezes in place before it sags.
 **Default:** 1.5 (150% of normal flow).",
-        extend("x-group" = "Quality", "x-unit" = "ratio")
+        extend("x-group" = "Quality", "x-tier" = "advanced", "x-unit" = "ratio")
     )]
     #[serde(default = "SlicingParams::default_bridge_flow_ratio")]
     pub bridge_flow_ratio: f64,
@@ -1162,7 +1162,7 @@ classified as ordinary `BottomSurface` solid infill instead of `Bridge`.  This
 matches OrcaSlicer's `min_bridge_area` filter and prevents stippling of the
 preview with one-line bridge fragments.
 **Default:** 0.5 mm² (≈ a 0.7 × 0.7 mm sliver). Set to `0.0` to disable.",
-        extend("x-group" = "Quality")
+        extend("x-group" = "Quality", "x-tier" = "expert")
     )]
     #[serde(default = "SlicingParams::default_bridge_min_area_mm2")]
     pub bridge_min_area_mm2: f64,
@@ -1177,7 +1177,7 @@ that show up around fine surface features (e.g. Benchy's embossed name).
 **Default:** 0.05 mm (just enough to wipe sub-pixel rounding from
 Clipper2's Centi quantisation; small enough to preserve real
 0.4 mm-wide bridge frames around windows).  Set to `0.0` to disable.",
-        extend("x-group" = "Quality")
+        extend("x-group" = "Quality", "x-tier" = "expert")
     )]
     #[serde(default = "SlicingParams::default_bridge_noise_filter_mm")]
     pub bridge_noise_filter_mm: f64,
@@ -1194,7 +1194,7 @@ PrusaSlicer / OrcaSlicer `bridge_anchor` behaviour.
 (text, embossed details) to expand past the first inner wall and look
 visually wrong, even though they print fine.  Set to `0.0` to disable
 anchoring.",
-        extend("x-group" = "Quality")
+        extend("x-group" = "Quality", "x-tier" = "expert")
     )]
     #[serde(default = "SlicingParams::default_bridge_anchor_mm")]
     pub bridge_anchor_mm: f64,
@@ -1211,7 +1211,7 @@ choice flip-flops between layers.
 Following PrusaSlicer/OrcaSlicer, `0` is the auto trigger, so use **180** to
 force a horizontal (0°) bridge direction.
 **Default:** `0` (automatic).",
-        extend("x-group" = "Quality")
+        extend("x-group" = "Quality", "x-tier" = "advanced")
     )]
     #[serde(default = "SlicingParams::default_bridge_angle")]
     pub bridge_angle: f64,
@@ -1222,7 +1222,7 @@ force a horizontal (0°) bridge direction.
 Slightly slower than infill to improve surface finish.
 Set to `0` to fall back to `print_speed`.
 **Typical:** 40–50 mm/s.",
-        extend("x-group" = "Speed")
+        extend("x-group" = "Speed", "x-tier" = "advanced")
     )]
     #[serde(default = "SlicingParams::default_top_surface_speed")]
     pub top_surface_speed: f64,
@@ -1234,7 +1234,7 @@ Gap fill lays narrow, variable-width beads into spaces too thin for a full
 perimeter.  A slower speed keeps pressure stable in these short, narrow moves.
 Set to `0` to fall back to `perimeter_speed` (then `print_speed`).
 **Typical:** 20–40 mm/s.",
-        extend("x-group" = "Speed")
+        extend("x-group" = "Speed", "x-tier" = "advanced")
     )]
     #[serde(default = "SlicingParams::default_gap_fill_speed")]
     pub gap_fill_speed: f64,
@@ -1245,7 +1245,7 @@ Set to `0` to fall back to `perimeter_speed` (then `print_speed`).
 Support is sacrificial and sparse, so it is usually run faster than the model — but it is also
 poorly anchored, so going too fast knocks columns over. Set to `0` to fall back to `print_speed`.
 **Typical:** 40–80 mm/s.",
-        extend("x-group" = "Speed")
+        extend("x-group" = "Speed", "x-tier" = "advanced")
     )]
     #[serde(default = "SlicingParams::default_support_speed")]
     pub support_speed: f64,
@@ -1265,7 +1265,7 @@ compensation is unnecessary there and **off by default** — enabling it would
 shed clean walls that abut gap fill at nominal spacing.  Raise it only for a
 generator that emits genuinely overlapping walls.
 **Default:** 0.0.",
-        extend("x-group" = "Walls", "x-unit" = "fraction")
+        extend("x-group" = "Walls", "x-tier" = "expert", "x-unit" = "fraction")
     )]
     #[serde(default = "SlicingParams::default_wall_overlap_compensation")]
     pub wall_overlap_compensation: f64,
@@ -1297,7 +1297,7 @@ Set to `0` to fall back to `print_speed`.
 
 High fan speeds cool bridge material rapidly, reducing sag.
 **Typical:** 1.0 (100%).",
-        extend("x-group" = "Cooling", "x-unit" = "fraction")
+        extend("x-group" = "Cooling", "x-tier" = "advanced", "x-unit" = "fraction")
     )]
     #[serde(default = "SlicingParams::default_bridge_fan_speed")]
     pub bridge_fan_speed: f64,
@@ -1310,7 +1310,7 @@ part-cooling fan is raised to this speed and restored to the layer's normal
 cooling afterwards, so sag-prone overhangs get a burst of extra airflow.  `0` =
 never override the layer's normal fan speed.
 **Default:** 1.0 (100%).",
-        extend("x-group" = "Cooling", "x-unit" = "fraction")
+        extend("x-group" = "Cooling", "x-tier" = "advanced", "x-unit" = "fraction")
     )]
     #[serde(default = "SlicingParams::default_overhang_fan_speed")]
     pub overhang_fan_speed: f64,
@@ -1323,7 +1323,7 @@ overhang-perimeter classifier already kicks in.  Lowering it also cools the
 milder degrees — at the cost of splitting otherwise-uniform walls into separate
 fan regions.
 **Default:** 0.5.",
-        extend("x-group" = "Cooling", "x-unit" = "fraction")
+        extend("x-group" = "Cooling", "x-tier" = "advanced", "x-unit" = "fraction")
     )]
     #[serde(default = "SlicingParams::default_overhang_fan_threshold")]
     pub overhang_fan_threshold: f64,
@@ -1333,7 +1333,7 @@ fan regions.
 
 Typically disabled on the first layer to improve bed adhesion.
 **Typical:** 0.0 (off).",
-        extend("x-group" = "Cooling", "x-unit" = "fraction")
+        extend("x-group" = "Cooling", "x-tier" = "advanced", "x-unit" = "fraction")
     )]
     #[serde(default = "SlicingParams::default_first_layer_fan_speed")]
     pub first_layer_fan_speed: f64,
@@ -1347,7 +1347,7 @@ long — giving each layer time to cool before the next one lands. Any shortfall
 still remaining once `min_print_speed` is reached is made up with a dwell.
 `0` = disabled.
 **Typical:** 5–15 s for small/detailed parts, `0` to disable.",
-        extend("x-group" = "Cooling")
+        extend("x-group" = "Cooling", "x-tier" = "advanced")
     )]
     #[serde(default = "SlicingParams::default_min_layer_time_s")]
     pub min_layer_time_s: f64,
@@ -1362,6 +1362,7 @@ Ignored when `min_layer_time_s` is `0`.
 **Typical:** 10 mm/s.",
         extend(
             "x-group" = "Cooling",
+            "x-tier" = "advanced",
             "x-relevant-when" = serde_json::json!({"field": "min_layer_time_s", "greaterThan": 0})
         )
     )]
@@ -1374,7 +1375,7 @@ Ignored when `min_layer_time_s` is `0`.
 Reduces nozzle pressure at the seam, preventing blobs and improving surface quality.
 Set to `0.0` to disable.
 **Typical:** 0.1–0.3 mm.",
-        extend("x-group" = "Speed")
+        extend("x-group" = "Speed", "x-tier" = "expert")
     )]
     #[serde(default = "SlicingParams::default_coasting_distance_mm")]
     pub coasting_distance_mm: f64,
@@ -1422,7 +1423,7 @@ More layers improve bottom surface finish and bed adhesion strength.
 
 Changing from the default can improve finish on curved or organic models.
 **Default:** 45°.",
-        extend("x-group" = "Surfaces")
+        extend("x-group" = "Surfaces", "x-tier" = "advanced")
     )]
     #[serde(default = "SlicingParams::default_surface_infill_angle")]
     pub surface_infill_angle: f64,
@@ -1443,7 +1444,7 @@ Supported values:
 \"Monotonic\" means every line is drawn in the same direction: the nozzle never
 returns across a finished line, which is what removes the mottled, direction-
 dependent sheen a serpentine leaves on a visible top surface.",
-        extend("x-group" = "Surfaces")
+        extend("x-group" = "Surfaces", "x-tier" = "advanced")
     )]
     #[serde(default = "SlicingParams::default_top_surface_pattern")]
     pub top_surface_pattern: SurfacePattern,
@@ -1454,7 +1455,7 @@ dependent sheen a serpentine leaves on a visible top surface.",
 Same choices as `top_surface_pattern`. **Default:** `monotonic` — the bottom is
 against the bed, so the short boundary connectors cost nothing visually and save
 travel.",
-        extend("x-group" = "Surfaces")
+        extend("x-group" = "Surfaces", "x-tier" = "advanced")
     )]
     #[serde(default = "SlicingParams::default_bottom_surface_pattern")]
     pub bottom_surface_pattern: SurfacePattern,
@@ -1464,7 +1465,7 @@ travel.",
 
 Used for the dense layers `solid_infill_every_layers` inserts inside the part.
 Same choices as `top_surface_pattern`. **Default:** `monotonic`.",
-        extend("x-group" = "Surfaces")
+        extend("x-group" = "Surfaces", "x-tier" = "advanced")
     )]
     #[serde(default = "SlicingParams::default_internal_solid_infill_pattern")]
     pub internal_solid_infill_pattern: SurfacePattern,
@@ -1483,7 +1484,7 @@ Used to convert the extruded volume into a filament **weight** for the G-code
 metadata header. Typical values:
 - `1.24` — PLA
 - `1.27` — PETG
-- `1.04` — ABS", extend("x-group" = "Material"))]
+- `1.04` — ABS", extend("x-group" = "Material", "x-tier" = "advanced"))]
     #[serde(default = "SlicingParams::default_filament_density_g_cm3")]
     pub filament_density_g_cm3: f64,
 
@@ -1491,7 +1492,7 @@ metadata header. Typical values:
 
 Combined with the filament weight to report a material cost in the G-code
 metadata footer. Populated from the active filament profile at resolve time.
-`0` = unknown, which omits the cost line.", extend("x-group" = "Material"))]
+`0` = unknown, which omits the cost line.", extend("x-group" = "Material", "x-tier" = "advanced"))]
     #[serde(default)]
     pub filament_cost_per_kg: f64,
 
@@ -1513,7 +1514,7 @@ Applies to the axis moves and the layer markers only; the model, the slice
 layers and the print statistics are unchanged, and your own start/end G-code is
 never rewritten. **Prefer fixing the endstop** — this is a compensation, not a
 calibration. **Typical:** −0.1 to 0.1 mm. `0` = disabled.",
-        extend("x-group" = "Hardware")
+        extend("x-group" = "Hardware", "x-tier" = "advanced")
     )]
     #[serde(default = "SlicingParams::default_z_offset_mm")]
     pub z_offset_mm: f64,
@@ -1536,7 +1537,7 @@ enclosure or a machine with no chamber heater — an unknown chamber command
 aborts the print on Klipper.
 
 `chamber_temp` still reaches custom start G-code as `{chamber_temp}` either way.",
-        extend("x-group" = "Hardware")
+        extend("x-group" = "Hardware", "x-tier" = "advanced")
     )]
     #[serde(default = "SlicingParams::default_heated_chamber")]
     pub heated_chamber: bool,
@@ -1563,14 +1564,14 @@ a different machine. Empty = omit the line.", extend("x-group" = "Hardware"))]
     #[schemars(description = "Non-print (travel) move speed in **mm/min**.
 
 Convert from mm/s by multiplying by 60. Fast travel reduces print time without affecting print quality.
-**Example:** 9000 mm/min = 150 mm/s.", extend("x-group" = "Speed"))]
+**Example:** 9000 mm/min = 150 mm/s.", extend("x-group" = "Speed", "x-tier" = "advanced"))]
     #[serde(default = "SlicingParams::default_travel_speed_mm_min")]
     pub travel_speed_mm_min: f64,
 
     #[schemars(description = "Z-hop lift height in mm during travel moves.
 
 Lifts the nozzle before travelling to reduce stringing and nozzle drag across the print.
-**Typical:** 0.2–0.5 mm. Set to `0` to disable.", extend("x-group" = "Retraction"))]
+**Typical:** 0.2–0.5 mm. Set to `0` to disable.", extend("x-group" = "Retraction", "x-tier" = "advanced"))]
     #[serde(default = "SlicingParams::default_z_hop_mm")]
     pub z_hop_mm: f64,
 
@@ -1586,7 +1587,7 @@ Pulls filament back into the nozzle to reduce oozing and stringing.
 Short hops between adjacent paths do not ooze enough to justify the
 retract → travel → un-retract cycle (which itself takes longer than the hop).
 Travels longer than 2 mm always retract regardless of this value.
-**Typical:** 1.0–2.0 mm. Set to `0` to retract on every travel.", extend("x-group" = "Retraction"))]
+**Typical:** 1.0–2.0 mm. Set to `0` to retract on every travel.", extend("x-group" = "Retraction", "x-tier" = "advanced"))]
     #[serde(default = "SlicingParams::default_retract_before_travel_mm")]
     pub retract_before_travel_mm: f64,
 
@@ -1595,7 +1596,7 @@ Travels longer than 2 mm always retract regardless of this value.
 Compensates for filament that oozed away during the travel by depositing a
 little extra material on restart. In firmware retraction mode this is forwarded
 to the firmware (`M208`/`SET_RETRACTION`).
-**Typical:** 0.0–0.2 mm. Set to `0` to disable.", extend("x-group" = "Retraction"))]
+**Typical:** 0.0–0.2 mm. Set to `0` to disable.", extend("x-group" = "Retraction", "x-tier" = "expert"))]
     #[serde(default = "SlicingParams::default_retract_restart_extra_mm")]
     pub retract_restart_extra_mm: f64,
 
@@ -1605,7 +1606,7 @@ to the firmware (`M208`/`SET_RETRACTION`).
 Retracts before the layer-change Z move so the nozzle does not ooze while
 lifting and travelling to the first path of the next layer.
 **Recommended:** off (the first travel of each layer already retracts).",
-        extend("x-group" = "Retraction")
+        extend("x-group" = "Retraction", "x-tier" = "advanced")
     )]
     #[serde(default = "SlicingParams::default_retract_on_layer_change")]
     pub retract_on_layer_change: bool,
@@ -1618,7 +1619,7 @@ syncs the firmware's retraction length, speed and restart-extra from the
 retraction settings (`M207`/`M208` on Marlin, `SET_RETRACTION` on Klipper).
 Requires firmware retraction support (`[firmware_retraction]` on Klipper).
 **Recommended:** off unless your firmware is configured for it.",
-        extend("x-group" = "Retraction")
+        extend("x-group" = "Retraction", "x-tier" = "advanced")
     )]
     #[serde(default = "SlicingParams::default_use_firmware_retraction")]
     pub use_firmware_retraction: bool,
@@ -1630,7 +1631,7 @@ Each extrusion move carries the incremental filament length rather than a
 running absolute position. Relative E is more robust across custom start
 G-code / macros that leave the extruder in an unknown state.
 **Recommended:** off for maximum compatibility; on if your macros expect it.",
-        extend("x-group" = "Retraction")
+        extend("x-group" = "Retraction", "x-tier" = "expert")
     )]
     #[serde(default = "SlicingParams::default_use_relative_e_distances")]
     pub use_relative_e_distances: bool,
@@ -1641,7 +1642,7 @@ G-code / macros that leave the extruder in an unknown state.
 Retraces the tail of the previous path before travelling, smearing any ooze
 onto already-printed material instead of leaving a blob at the seam.
 **Recommended:** off; enable to reduce stringing on some materials.",
-        extend("x-group" = "Retraction")
+        extend("x-group" = "Retraction", "x-tier" = "advanced")
     )]
     #[serde(default = "SlicingParams::default_wipe")]
     pub wipe: bool,
@@ -1650,7 +1651,7 @@ onto already-printed material instead of leaving a blob at the seam.
 
 The nozzle retraces this far back along the just-printed path. Capped at the
 length of that path.
-**Typical:** 1.0–3.0 mm.", extend("x-group" = "Retraction"))]
+**Typical:** 1.0–3.0 mm.", extend("x-group" = "Retraction", "x-tier" = "expert"))]
     #[serde(default = "SlicingParams::default_wipe_distance_mm")]
     pub wipe_distance_mm: f64,
 
@@ -1662,7 +1663,7 @@ wipe move); `1.0` retracts fully *before* wiping. Only used when `wipe` is
 enabled and firmware retraction is off (firmware retraction cannot split a
 retraction).
 **Typical:** 0.0.",
-        extend("x-group" = "Retraction", "x-unit" = "fraction")
+        extend("x-group" = "Retraction", "x-tier" = "expert", "x-unit" = "fraction")
     )]
     #[serde(default = "SlicingParams::default_retract_before_wipe_percent")]
     pub retract_before_wipe_percent: f64,
@@ -1672,7 +1673,7 @@ retraction).
 
 Reduces the chance of pillowing and prevents infill patterns from showing through the top surface.
 **Recommended:** enabled.",
-        extend("x-group" = "Surfaces")
+        extend("x-group" = "Surfaces", "x-tier" = "advanced")
     )]
     #[serde(default = "SlicingParams::default_only_one_wall_top")]
     pub only_one_wall_top: bool,
@@ -1680,7 +1681,7 @@ Reduces the chance of pillowing and prevents infill patterns from showing throug
     #[schemars(description = "Use a single outer wall on the first layer.
 
 Improves bed adhesion and avoids potential issues with multiple perimeters pressing against the bed simultaneously.
-**Recommended:** enabled.", extend("x-group" = "Surfaces"))]
+**Recommended:** enabled.", extend("x-group" = "Surfaces", "x-tier" = "advanced"))]
     #[serde(default = "SlicingParams::default_only_one_wall_first_layer")]
     pub only_one_wall_first_layer: bool,
 
@@ -1689,7 +1690,7 @@ Improves bed adhesion and avoids potential issues with multiple perimeters press
 
 Ensures surfaces bond to walls without leaving gaps at the perimeter boundary.
 **Typical:** 0.25 (25% of a bead width).",
-        extend("x-group" = "Infill", "x-unit" = "fraction")
+        extend("x-group" = "Infill", "x-tier" = "advanced", "x-unit" = "fraction")
     )]
     #[serde(default = "SlicingParams::default_infill_overlap_percent")]
     pub infill_overlap_percent: f64,
@@ -1700,7 +1701,7 @@ Ensures surfaces bond to walls without leaving gaps at the perimeter boundary.
 A small gap prevents infill from pressing too hard against walls, reducing surface artefacts
 where the infill pattern shows through the outer wall.
 **Typical:** 0.0–0.2 mm. Set to `0.0` for no gap (infill touches the inner wall).",
-        extend("x-group" = "Infill")
+        extend("x-group" = "Infill", "x-tier" = "expert")
     )]
     #[serde(default = "SlicingParams::default_infill_perimeter_gap_mm")]
     pub infill_perimeter_gap_mm: f64,
@@ -1718,7 +1719,7 @@ adjacent lines and the flanking walls fill the space naturally.
 Set to the nozzle diameter for best results (e.g. `0.4` for a 0.4 mm nozzle).
 Set to `0.0` to disable the filter entirely.
 **Default:** 0.4 mm (one standard nozzle diameter).",
-        extend("x-group" = "Surfaces")
+        extend("x-group" = "Surfaces", "x-tier" = "expert")
     )]
     #[serde(default = "SlicingParams::default_min_infill_extrusion_mm")]
     pub min_infill_extrusion_mm: f64,
@@ -1728,7 +1729,7 @@ Set to `0.0` to disable the filter entirely.
 
 Reduces the number of G-code points without visibly affecting print quality.
 **Typical:** 0.01–0.1 mm. Set to `0.0` to disable.",
-        extend("x-group" = "Output")
+        extend("x-group" = "Output", "x-tier" = "expert")
     )]
     #[serde(default = "SlicingParams::default_path_tolerance")]
     pub path_tolerance: f64,
@@ -1747,7 +1748,7 @@ Each trigger fires once, immediately after the layer-change block for the
 layer it targets (see `at_layer`/`at_z`), before that layer's geometry is
 emitted. The firmware command emitted for `pause`/`color_change` depends on
 `gcode_flavor` (Marlin: `M0`/`M600`; Klipper: `PAUSE`/macro; RepRap: `M226`).",
-        extend("x-group" = "Output")
+        extend("x-group" = "Output", "x-tier" = "advanced")
     )]
     #[serde(default = "SlicingParams::default_triggers")]
     pub triggers: Vec<PauseTrigger>,
@@ -1765,7 +1766,7 @@ Fan speed is adapted to the estimated layer print time:
 - Between: smooth linear interpolation
 
 **Default:** single part-cooling fan (P0) at 35%–100% speed.",
-        extend("x-group" = "Cooling")
+        extend("x-group" = "Cooling", "x-tier" = "expert")
     )]
     #[serde(default = "SlicingParams::default_fan_configs")]
     pub fan_configs: Vec<FanConfig>,
@@ -1777,7 +1778,7 @@ Supported values:
 - `normal` — no decimation (default)
 - `high-quality` — no decimation, signals maximum fidelity
 - `draft` — aggressive polygon reduction for faster slicing",
-        extend("x-group" = "Mesh")
+        extend("x-group" = "Mesh", "x-tier" = "advanced")
     )]
     #[serde(default = "SlicingParams::default_mesh_quality")]
     pub mesh_quality: MeshQuality,
@@ -1815,7 +1816,7 @@ Overrides the width used for outer-wall paths and their `;TYPE:Outer wall` /
 `;WIDTH:` G-code annotations. Ignored for variable-width Arachne beads, which
 carry their own per-segment width.
 **Typical:** 100–105% of nozzle diameter for dimensional accuracy.",
-        extend("x-group" = "Walls")
+        extend("x-group" = "Walls", "x-tier" = "advanced")
     )]
     #[serde(default = "SlicingParams::default_role_line_width")]
     pub outer_wall_line_width: f64,
@@ -1827,7 +1828,7 @@ carry their own per-segment width.
 Overrides the width used for inner-wall paths and their `;TYPE:Inner wall` /
 `;WIDTH:` G-code annotations. Ignored for variable-width Arachne beads.
 **Typical:** 110–120% of nozzle diameter for faster, stronger walls.",
-        extend("x-group" = "Walls")
+        extend("x-group" = "Walls", "x-tier" = "advanced")
     )]
     #[serde(default = "SlicingParams::default_role_line_width")]
     pub inner_wall_line_width: f64,
@@ -1839,7 +1840,7 @@ derive from `line_width` / nozzle diameter.
 Overrides the width used for top and bottom surface paths and their
 `;TYPE:Top surface` / `;TYPE:Bottom surface` and `;WIDTH:` annotations.
 **Typical:** 100% of nozzle diameter for a fine finish.",
-        extend("x-group" = "Surfaces")
+        extend("x-group" = "Surfaces", "x-tier" = "advanced")
     )]
     #[serde(default = "SlicingParams::default_role_line_width")]
     pub top_surface_line_width: f64,
@@ -1851,7 +1852,7 @@ Overrides the width used for top and bottom surface paths and their
 Overrides the width used for sparse-infill paths and their `;TYPE:Sparse infill`
 / `;WIDTH:` annotations.
 **Typical:** 100–150% of nozzle diameter; wider infill prints faster.",
-        extend("x-group" = "Infill")
+        extend("x-group" = "Infill", "x-tier" = "advanced")
     )]
     #[serde(default = "SlicingParams::default_role_line_width")]
     pub sparse_infill_line_width: f64,
@@ -1861,7 +1862,7 @@ Overrides the width used for sparse-infill paths and their `;TYPE:Sparse infill`
 
 Convert from mm/s by multiplying by 60.
 **Example:** 2400 mm/min = 40 mm/s.",
-        extend("x-group" = "Retraction")
+        extend("x-group" = "Retraction", "x-tier" = "advanced")
     )]
     #[serde(default = "SlicingParams::default_retract_speed_mm_min")]
     pub retract_speed_mm_min: f64,
@@ -1878,14 +1879,14 @@ under/over-extrusion.",
 
     #[schemars(
         description = "First-layer nozzle temperature in °C. `0` = use `nozzle_temp`.",
-        extend("x-group" = "Temperature")
+        extend("x-group" = "Temperature", "x-tier" = "advanced")
     )]
     #[serde(default = "SlicingParams::default_nozzle_temp_first_layer")]
     pub nozzle_temp_first_layer: f64,
 
     #[schemars(
         description = "First-layer bed temperature in °C. `0` = use `bed_temp`.",
-        extend("x-group" = "Temperature")
+        extend("x-group" = "Temperature", "x-tier" = "advanced")
     )]
     #[serde(default = "SlicingParams::default_bed_temp_first_layer")]
     pub bed_temp_first_layer: f64,
@@ -1901,7 +1902,7 @@ custom start G-code as `{chamber_temp}` (e.g. Klippain
 `START_PRINT … CHAMBER={chamber_temp}`); a start script that heats the chamber
 itself suppresses the automatic directives so the chamber is never heated twice.
 **Typical:** 0 for PLA/PETG, 50–60 for ABS/ASA/PC.",
-        extend("x-group" = "Temperature")
+        extend("x-group" = "Temperature", "x-tier" = "advanced")
     )]
     #[serde(default = "SlicingParams::default_chamber_temp")]
     pub chamber_temp: f64,
@@ -1913,7 +1914,7 @@ A hotter initial soak helps the first layer bond on high-temperature materials;
 the chamber drops back to `chamber_temp` once the first layer finishes.
 Equivalent to OrcaSlicer's `chamber_temperature_initial_layer` and exposed to
 custom start G-code as `{chamber_temp_first_layer}`.",
-        extend("x-group" = "Temperature")
+        extend("x-group" = "Temperature", "x-tier" = "advanced")
     )]
     #[serde(default = "SlicingParams::default_chamber_temp_first_layer")]
     pub chamber_temp_first_layer: f64,
@@ -1951,7 +1952,7 @@ time so printer front-ends can render a swatch for the file. Empty = omit the li
 
 `0` disables. Compensates for pressure lag at corners.
 **Typical:** 0.02–0.08.",
-        extend("x-group" = "Extrusion")
+        extend("x-group" = "Extrusion", "x-tier" = "advanced")
     )]
     #[serde(default = "SlicingParams::default_pressure_advance")]
     pub pressure_advance: f64,
@@ -1963,7 +1964,7 @@ When set, the slicer emits a firmware acceleration command whenever the target
 changes (Klipper `SET_VELOCITY_LIMIT ACCEL=…`, Marlin `M204 P…`). Lower values
 smooth motion and reduce ringing; higher values print faster.
 **Typical:** 3000–10000.",
-        extend("x-group" = "Speed")
+        extend("x-group" = "Speed", "x-tier" = "advanced")
     )]
     #[serde(default = "SlicingParams::default_acceleration")]
     pub acceleration: f64,
@@ -1974,7 +1975,7 @@ smooth motion and reduce ringing; higher values print faster.
 A lower first-layer acceleration improves bed adhesion by giving the nozzle more
 dwell time. Applies to every role on the first layer.
 **Typical:** 1000–3000.",
-        extend("x-group" = "Speed")
+        extend("x-group" = "Speed", "x-tier" = "expert")
     )]
     #[serde(default = "SlicingParams::default_first_layer_acceleration")]
     pub first_layer_acceleration: f64,
@@ -1985,7 +1986,7 @@ dwell time. Applies to every role on the first layer.
 Solid top surfaces benefit from a distinct (often higher) acceleration for a
 smoother finish. Applies to top-surface solid infill.
 **Typical:** 5000–10000.",
-        extend("x-group" = "Speed")
+        extend("x-group" = "Speed", "x-tier" = "expert")
     )]
     #[serde(default = "SlicingParams::default_top_surface_acceleration")]
     pub top_surface_acceleration: f64,
@@ -1996,7 +1997,7 @@ smoother finish. Applies to top-surface solid infill.
 The outermost perimeter defines the visible surface; a lower, dedicated
 acceleration reduces ringing and ghosting on external walls.
 **Typical:** 2000–6000.",
-        extend("x-group" = "Speed")
+        extend("x-group" = "Speed", "x-tier" = "expert")
     )]
     #[serde(default = "SlicingParams::default_outer_wall_acceleration")]
     pub outer_wall_acceleration: f64,
@@ -2008,7 +2009,7 @@ Strands printed into air (bridge infill and overhang perimeters) cool and sag
 without support below; a low acceleration keeps flow steady and lets each strand
 tension before the nozzle moves on.
 **Typical:** 1000–3000.",
-        extend("x-group" = "Speed")
+        extend("x-group" = "Speed", "x-tier" = "expert")
     )]
     #[serde(default = "SlicingParams::default_bridge_acceleration")]
     pub bridge_acceleration: f64,
@@ -2019,7 +2020,7 @@ tension before the nozzle moves on.
 Inner perimeters are hidden inside the part, so they can accelerate harder than
 the visible outer wall. Applies to inner-wall paths only.
 **Typical:** 4000–10000.",
-        extend("x-group" = "Speed")
+        extend("x-group" = "Speed", "x-tier" = "expert")
     )]
     #[serde(default = "SlicingParams::default_inner_wall_acceleration")]
     pub inner_wall_acceleration: f64,
@@ -2030,7 +2031,7 @@ the visible outer wall. Applies to inner-wall paths only.
 Sparse infill is interior and invisible, so it usually gets the highest
 acceleration to save print time. Applies to the sparse infill pattern.
 **Typical:** 5000–12000.",
-        extend("x-group" = "Speed")
+        extend("x-group" = "Speed", "x-tier" = "expert")
     )]
     #[serde(default = "SlicingParams::default_sparse_infill_acceleration")]
     pub sparse_infill_acceleration: f64,
@@ -2041,7 +2042,7 @@ acceleration to save print time. Applies to the sparse infill pattern.
 Internal solid layers and bottom surfaces (distinct from the visible top
 surface). Applies to bottom-surface and internal solid infill.
 **Typical:** 4000–10000.",
-        extend("x-group" = "Speed")
+        extend("x-group" = "Speed", "x-tier" = "expert")
     )]
     #[serde(default = "SlicingParams::default_solid_infill_acceleration")]
     pub solid_infill_acceleration: f64,
@@ -2052,7 +2053,7 @@ surface). Applies to bottom-surface and internal solid infill.
 Gap fill lays short, variable-width beads that a lower acceleration keeps clean.
 Applies to gap-fill paths.
 **Typical:** 1000–4000.",
-        extend("x-group" = "Speed")
+        extend("x-group" = "Speed", "x-tier" = "expert")
     )]
     #[serde(default = "SlicingParams::default_gap_fill_acceleration")]
     pub gap_fill_acceleration: f64,
@@ -2062,7 +2063,7 @@ Applies to gap-fill paths.
 
 Support material is sacrificial, so it can run fast. Applies to support paths.
 **Typical:** 4000–10000.",
-        extend("x-group" = "Speed")
+        extend("x-group" = "Speed", "x-tier" = "expert")
     )]
     #[serde(default = "SlicingParams::default_support_acceleration")]
     pub support_acceleration: f64,
@@ -2075,7 +2076,7 @@ spent hopping between paths. When set, the slicer switches the firmware
 acceleration to this value before each travel and back to the printing value
 before extruding, and the print-time estimate follows the same switch.
 **Typical:** 6000–15000.",
-        extend("x-group" = "Speed")
+        extend("x-group" = "Speed", "x-tier" = "expert")
     )]
     #[serde(default = "SlicingParams::default_travel_acceleration")]
     pub travel_acceleration: f64,
@@ -2085,7 +2086,7 @@ before extruding, and the print-time estimate follows the same switch.
 
 Higher values corner faster (shorter prints, more ringing); lower values slow into corners for cleaner edges. When set, the slicer emits the firmware limit (Klipper `SET_VELOCITY_LIMIT SQUARE_CORNER_VELOCITY=…`, Marlin `M205 J…` junction deviation) and the print-time estimate uses the same value, so the ETA tracks reality.
 **Typical:** 5–10.",
-        extend("x-group" = "Speed")
+        extend("x-group" = "Speed", "x-tier" = "expert")
     )]
     #[serde(default = "SlicingParams::default_square_corner_velocity")]
     pub square_corner_velocity: f64,
@@ -2095,7 +2096,7 @@ Higher values corner faster (shorter prints, more ringing); lower values slow in
 
 The machine's top speed: any role feedrate above this is clamped by the firmware, so the estimate honors it too. When set, the slicer emits the firmware limit (Klipper `SET_VELOCITY_LIMIT VELOCITY=…`, Marlin `M203 X… Y…`).
 **Typical:** 150–500.",
-        extend("x-group" = "Speed")
+        extend("x-group" = "Speed", "x-tier" = "expert")
     )]
     #[serde(default = "SlicingParams::default_max_velocity")]
     pub max_velocity: f64,
@@ -2105,7 +2106,7 @@ The machine's top speed: any role feedrate above this is clamped by the firmware
 
 Accounts for wall-clock the toolpath can't show — homing, bed mesh, heat-soak, purge — none of which is derivable from the moves. A flat allowance, not a thermal model.
 **Typical:** 60–300.",
-        extend("x-group" = "Time estimate")
+        extend("x-group" = "Time estimate", "x-tier" = "expert")
     )]
     #[serde(default = "SlicingParams::default_time_estimate_warmup_s")]
     pub time_estimate_warmup_s: f64,
@@ -2115,7 +2116,7 @@ Accounts for wall-clock the toolpath can't show — homing, bed mesh, heat-soak,
 
 For material/hardware that isn't \"done\" at the last move — e.g. an ABS chamber cool-off or a park-and-cool end sequence — before the print is truly finished.
 **Typical:** 0–120.",
-        extend("x-group" = "Time estimate")
+        extend("x-group" = "Time estimate", "x-tier" = "expert")
     )]
     #[serde(default = "SlicingParams::default_time_estimate_cooldown_s")]
     pub time_estimate_cooldown_s: f64,
@@ -2125,7 +2126,7 @@ For material/hardware that isn't \"done\" at the last move — e.g. an ABS chamb
 
 If real prints consistently run a few percent over/under the estimate (tiny details the model rounds off, firmware smoothing), nudge this to match your machine — `1.05` adds 5 %. Scales only the toolpath; the fixed warm-up/cool-down allowances are added afterward.
 **Typical:** 0.9–1.15.",
-        extend("x-group" = "Time estimate", "x-unit" = "ratio")
+        extend("x-group" = "Time estimate", "x-tier" = "expert", "x-unit" = "ratio")
     )]
     #[serde(default = "SlicingParams::default_time_estimate_scale")]
     pub time_estimate_scale: f64,
@@ -2135,7 +2136,7 @@ If real prints consistently run a few percent over/under the estimate (tiny deta
 
 Improves adhesion of the first few layers.
 **Typical:** 1.",
-        extend("x-group" = "Cooling")
+        extend("x-group" = "Cooling", "x-tier" = "advanced")
     )]
     #[serde(default = "SlicingParams::default_disable_fan_first_layers")]
     pub disable_fan_first_layers: usize,
@@ -2145,14 +2146,14 @@ Improves adhesion of the first few layers.
 
 Caps print speed so the hotend can keep up with the flow.
 **Typical:** 8–24 mm³/s depending on material and hotend.",
-        extend("x-group" = "Extrusion")
+        extend("x-group" = "Extrusion", "x-tier" = "advanced")
     )]
     #[serde(default = "SlicingParams::default_max_volumetric_speed")]
     pub max_volumetric_speed: f64,
 
     #[schemars(
         description = "Number of extruders (tools) on the machine. Multi-material is not yet supported.",
-        extend("x-group" = "Hardware")
+        extend("x-group" = "Hardware", "x-tier" = "advanced")
     )]
     #[serde(default = "SlicingParams::default_extruder_count")]
     pub extruder_count: usize,
@@ -2171,7 +2172,7 @@ On (the default), overhangs steeper than the threshold angle get support and pai
 or subtract from that. Turn it **off** to place support *only* where you painted it — the overhang \
 rule is skipped entirely, so nothing is generated that you did not ask for. Painted blockers still \
 apply either way.",
-        extend("x-group" = "Support", "x-relevant-when" = serde_json::json!({"field": "support_enabled", "equals": true}))
+        extend("x-group" = "Support", "x-tier" = "advanced", "x-relevant-when" = serde_json::json!({"field": "support_enabled", "equals": true}))
     )]
     #[serde(default = "SlicingParams::default_support_auto")]
     pub support_auto: bool,
@@ -2200,7 +2201,7 @@ conservative and supports gentler overhangs, a **larger** angle supports only se
 
 Controls the line spacing of the support body (`spacing = extrusion_width / density`).
 Lower is faster to print and easier to remove; higher is sturdier.",
-        extend("x-group" = "Support", "x-unit" = "fraction", "x-relevant-when" = serde_json::json!({"field": "support_enabled", "equals": true}))
+        extend("x-group" = "Support", "x-tier" = "advanced", "x-unit" = "fraction", "x-relevant-when" = serde_json::json!({"field": "support_enabled", "equals": true}))
     )]
     #[serde(default = "SlicingParams::default_support_density")]
     pub support_density: f64,
@@ -2211,7 +2212,7 @@ Lower is faster to print and easier to remove; higher is sturdier.",
 
 Denser contact layers give a cleaner overhang surface and detach more easily.
 Set to `0` to disable interface layers (support body fills the whole column).",
-        extend("x-group" = "Support", "x-relevant-when" = serde_json::json!({"field": "support_enabled", "equals": true}))
+        extend("x-group" = "Support", "x-tier" = "advanced", "x-relevant-when" = serde_json::json!({"field": "support_enabled", "equals": true}))
     )]
     #[serde(default = "SlicingParams::default_support_interface_layers")]
     pub support_interface_layers: usize,
@@ -2221,7 +2222,7 @@ Set to `0` to disable interface layers (support body fills the whole column).",
 
 The top/bottom contact layers are filled at this (usually higher) density for a smoother
 overhang surface. Typically 0.6–0.9.",
-        extend("x-group" = "Support", "x-unit" = "fraction", "x-relevant-when" = serde_json::json!({"field": "support_enabled", "equals": true}))
+        extend("x-group" = "Support", "x-tier" = "advanced", "x-unit" = "fraction", "x-relevant-when" = serde_json::json!({"field": "support_enabled", "equals": true}))
     )]
     #[serde(default = "SlicingParams::default_support_interface_density")]
     pub support_interface_density: f64,
@@ -2232,7 +2233,7 @@ walls (XY distance).
 
 Larger values make supports easier to remove but reduce how well they hold up steep overhangs, and
 leave a visible gap around the part. **Default:** 0.35 mm; 0.2–0.5 mm covers most machines.",
-        extend("x-group" = "Support", "x-relevant-when" = serde_json::json!({"field": "support_enabled", "equals": true}))
+        extend("x-group" = "Support", "x-tier" = "advanced", "x-relevant-when" = serde_json::json!({"field": "support_enabled", "equals": true}))
     )]
     #[serde(default = "SlicingParams::default_support_xy_distance_mm")]
     pub support_xy_distance_mm: f64,
@@ -2245,7 +2246,7 @@ A gap of 1–2 layers leaves a small air pocket so the support detaches cleanly 
 the model. Set to `0` for supports that touch the overhang directly (strongest, hardest to remove) —
 note that the first model layer above support is still printed with bridging speed and cooling
 either way.",
-        extend("x-group" = "Support", "x-relevant-when" = serde_json::json!({"field": "support_enabled", "equals": true}))
+        extend("x-group" = "Support", "x-tier" = "advanced", "x-relevant-when" = serde_json::json!({"field": "support_enabled", "equals": true}))
     )]
     #[serde(default = "SlicingParams::default_support_z_gap_layers")]
     pub support_z_gap_layers: usize,
@@ -2260,7 +2261,7 @@ surface you care about, or would be impossible to remove.
 
 A painted enforcer is exempt: it is a direct instruction to support that exact spot, so it keeps its
 support even if the column has to rest on the model instead of reaching the plate.",
-        extend("x-group" = "Support", "x-relevant-when" = serde_json::json!({"field": "support_enabled", "equals": true}))
+        extend("x-group" = "Support", "x-tier" = "advanced", "x-relevant-when" = serde_json::json!({"field": "support_enabled", "equals": true}))
     )]
     #[serde(default = "SlicingParams::default_support_on_build_plate_only")]
     pub support_on_build_plate_only: bool,
@@ -2272,7 +2273,7 @@ support even if the column has to rest on the model instead of reaching the plat
 Overrides the width used for support strands and their `;WIDTH:` annotations. Support is laid at
 `spacing / density`, so this sets the pitch and the flow together — a wider bead spends less time
 per unit area but is coarser to break off.",
-        extend("x-group" = "Support", "x-relevant-when" = serde_json::json!({"field": "support_enabled", "equals": true}))
+        extend("x-group" = "Support", "x-tier" = "expert", "x-relevant-when" = serde_json::json!({"field": "support_enabled", "equals": true}))
     )]
     #[serde(default = "SlicingParams::default_role_line_width")]
     pub support_line_width: f64,
@@ -2293,49 +2294,49 @@ per unit area but is coarser to break off.",
 
     #[schemars(
         description = "Where brim material is placed: `outer_only`, `inner_only`, `outer_and_inner`, or `ears`.",
-        extend("x-group" = "Adhesion", "x-relevant-when" = serde_json::json!({"field": "adhesion_type", "equals": "brim"}))
+        extend("x-group" = "Adhesion", "x-tier" = "advanced", "x-relevant-when" = serde_json::json!({"field": "adhesion_type", "equals": "brim"}))
     )]
     #[serde(default)]
     pub brim_type: BrimType,
 
     #[schemars(
         description = "Gap in mm between the brim and the object's first-layer contour (a.k.a. brim separation / offset). `0` fuses the brim directly onto the wall.",
-        extend("x-group" = "Adhesion", "x-relevant-when" = serde_json::json!({"field": "adhesion_type", "equals": "brim"}))
+        extend("x-group" = "Adhesion", "x-tier" = "advanced", "x-relevant-when" = serde_json::json!({"field": "adhesion_type", "equals": "brim"}))
     )]
     #[serde(default = "SlicingParams::default_brim_separation")]
     pub brim_separation: f64,
 
     #[schemars(
         description = "Number of skirt loops (when `adhesion_type = skirt`).",
-        extend("x-group" = "Adhesion", "x-relevant-when" = serde_json::json!({"field": "adhesion_type", "equals": "skirt"}))
+        extend("x-group" = "Adhesion", "x-tier" = "advanced", "x-relevant-when" = serde_json::json!({"field": "adhesion_type", "equals": "skirt"}))
     )]
     #[serde(default = "SlicingParams::default_skirt_loops")]
     pub skirt_loops: usize,
 
     #[schemars(
         description = "Gap in mm between the object and the innermost skirt loop.",
-        extend("x-group" = "Adhesion", "x-relevant-when" = serde_json::json!({"field": "adhesion_type", "equals": "skirt"}))
+        extend("x-group" = "Adhesion", "x-tier" = "advanced", "x-relevant-when" = serde_json::json!({"field": "adhesion_type", "equals": "skirt"}))
     )]
     #[serde(default = "SlicingParams::default_skirt_distance")]
     pub skirt_distance: f64,
 
     #[schemars(
         description = "Number of layers the skirt spans (≥1). Values >1 act as a draft shield around the print.",
-        extend("x-group" = "Adhesion", "x-relevant-when" = serde_json::json!({"field": "adhesion_type", "equals": "skirt"}))
+        extend("x-group" = "Adhesion", "x-tier" = "advanced", "x-relevant-when" = serde_json::json!({"field": "adhesion_type", "equals": "skirt"}))
     )]
     #[serde(default = "SlicingParams::default_skirt_height")]
     pub skirt_height: usize,
 
     #[schemars(
         description = "Raft layer count: sacrificial base + interface layers printed under the object (when `adhesion_type = raft`, or any value >0).",
-        extend("x-group" = "Adhesion", "x-relevant-when" = serde_json::json!({"field": "adhesion_type", "equals": "raft"}))
+        extend("x-group" = "Adhesion", "x-tier" = "advanced", "x-relevant-when" = serde_json::json!({"field": "adhesion_type", "equals": "raft"}))
     )]
     #[serde(default = "SlicingParams::default_raft_layers")]
     pub raft_layers: usize,
 
     #[schemars(
         description = "Vertical air gap in mm between the top of the raft and the object's first layer (eases raft removal).",
-        extend("x-group" = "Adhesion", "x-relevant-when" = serde_json::json!({"field": "adhesion_type", "equals": "raft"}))
+        extend("x-group" = "Adhesion", "x-tier" = "advanced", "x-relevant-when" = serde_json::json!({"field": "adhesion_type", "equals": "raft"}))
     )]
     #[serde(default = "SlicingParams::default_raft_air_gap")]
     pub raft_air_gap: f64,
@@ -2347,7 +2348,7 @@ Corrects a printer that consistently prints parts slightly over- or under-sized.
 Because the material expands inward as well as outward, a positive value also
 makes holes *smaller* — use `xy_hole_compensation` to correct holes separately.
 **Typical:** -0.1 to 0.1. `0` = off.",
-        extend("x-group" = "Quality")
+        extend("x-group" = "Quality", "x-tier" = "advanced")
     )]
     #[serde(default = "SlicingParams::default_xy_size_compensation")]
     pub xy_size_compensation: f64,
@@ -2358,7 +2359,7 @@ makes holes *smaller* — use `xy_hole_compensation` to correct holes separately
 Applied after `xy_size_compensation` and only to enclosed voids, so a press-fit
 hole can be opened up without changing the part's outside dimensions. **Typical:**
 0 to 0.1. `0` = off.",
-        extend("x-group" = "Quality")
+        extend("x-group" = "Quality", "x-tier" = "advanced")
     )]
     #[serde(default = "SlicingParams::default_xy_hole_compensation")]
     pub xy_hole_compensation: f64,
@@ -2377,7 +2378,7 @@ withheld where the model itself flares steeply outward, so a narrow base under a
 wide body is never undercut, and it is skipped entirely when printing on a raft.
 
 **Typical:** 0.10-0.20 mm. Measure the bulge with calipers and halve it.",
-        extend("x-group" = "Quality")
+        extend("x-group" = "Quality", "x-tier" = "advanced")
     )]
     #[serde(default = "SlicingParams::default_elephant_foot_compensation_mm")]
     pub elephant_foot_compensation_mm: f64,
@@ -2390,7 +2391,7 @@ default, because only the first layer is squashed. Higher values ramp the shrink
 linearly to zero over that many layers, trading a little accuracy for a gentler
 profile when a large correction would otherwise leave a visible step.
 **Typical:** 1-3.",
-        extend("x-group" = "Quality", "x-relevant-when" = serde_json::json!({"field": "elephant_foot_compensation_mm", "greaterThan": 0.0}))
+        extend("x-group" = "Quality", "x-tier" = "expert", "x-relevant-when" = serde_json::json!({"field": "elephant_foot_compensation_mm", "greaterThan": 0.0}))
     )]
     #[serde(default = "SlicingParams::default_elephant_foot_layers")]
     pub elephant_foot_layers: usize,
@@ -2404,7 +2405,7 @@ already at or below this width is left completely alone; wider ones are shrunk
 only as far as this width. Raise it to protect chunkier detail, lower it for a
 more literal correction.
 **Typical:** 0 (automatic), or 0.5-1.0 mm.",
-        extend("x-group" = "Quality", "x-relevant-when" = serde_json::json!({"field": "elephant_foot_compensation_mm", "greaterThan": 0.0}))
+        extend("x-group" = "Quality", "x-tier" = "expert", "x-relevant-when" = serde_json::json!({"field": "elephant_foot_compensation_mm", "greaterThan": 0.0}))
     )]
     #[serde(default = "SlicingParams::default_elephant_foot_min_contour_width_mm")]
     pub elephant_foot_min_contour_width_mm: f64,
@@ -2415,14 +2416,14 @@ more literal correction.
 A second, nearly dry pass that re-melts the surface and spreads it flat. Slow —
 it re-traverses the whole surface at a fraction of the fill spacing — so it is
 worth it on visible flat tops and little else.",
-        extend("x-group" = "Surfaces")
+        extend("x-group" = "Surfaces", "x-tier" = "advanced")
     )]
     #[serde(default = "SlicingParams::default_ironing_enabled")]
     pub ironing_enabled: bool,
 
     #[schemars(
         description = "Which surfaces the ironing pass sweeps.",
-        extend("x-group" = "Surfaces", "x-relevant-when" = serde_json::json!({"field": "ironing_enabled", "equals": true}))
+        extend("x-group" = "Surfaces", "x-tier" = "advanced", "x-relevant-when" = serde_json::json!({"field": "ironing_enabled", "equals": true}))
     )]
     #[serde(default)]
     pub ironing_type: IroningType,
@@ -2431,7 +2432,7 @@ worth it on visible flat tops and little else.",
         description = "Material deposited during ironing, as a percentage of a normal solid-fill bead.
 
 Just enough to re-melt the surface without adding height. **Typical:** 8–15 %.",
-        extend("x-group" = "Surfaces", "x-unit" = "percent", "x-relevant-when" = serde_json::json!({"field": "ironing_enabled", "equals": true}))
+        extend("x-group" = "Surfaces", "x-tier" = "advanced", "x-unit" = "percent", "x-relevant-when" = serde_json::json!({"field": "ironing_enabled", "equals": true}))
     )]
     #[serde(default = "SlicingParams::default_ironing_flow")]
     pub ironing_flow: f64,
@@ -2441,7 +2442,7 @@ Just enough to re-melt the surface without adding height. **Typical:** 8–15 %.
 
 Much finer than the fill spacing — this is what flattens the ridges between
 beads. **Typical:** 0.1–0.2.",
-        extend("x-group" = "Surfaces", "x-relevant-when" = serde_json::json!({"field": "ironing_enabled", "equals": true}))
+        extend("x-group" = "Surfaces", "x-tier" = "advanced", "x-relevant-when" = serde_json::json!({"field": "ironing_enabled", "equals": true}))
     )]
     #[serde(default = "SlicingParams::default_ironing_spacing")]
     pub ironing_spacing: f64,
@@ -2451,7 +2452,7 @@ beads. **Typical:** 0.1–0.2.",
 
 Slow is the point: the nozzle needs dwell time to re-melt what it passes over.
 **Typical:** 15–30 mm/s.",
-        extend("x-group" = "Surfaces", "x-relevant-when" = serde_json::json!({"field": "ironing_enabled", "equals": true}))
+        extend("x-group" = "Surfaces", "x-tier" = "advanced", "x-relevant-when" = serde_json::json!({"field": "ironing_enabled", "equals": true}))
     )]
     #[serde(default = "SlicingParams::default_ironing_speed")]
     pub ironing_speed: f64,
@@ -2461,21 +2462,21 @@ Slow is the point: the nozzle needs dwell time to re-melt what it passes over.
 
 Set an explicit angle to cross the fill direction, which flattens the ridges
 more effectively than ironing along them.",
-        extend("x-group" = "Surfaces", "x-relevant-when" = serde_json::json!({"field": "ironing_enabled", "equals": true}))
+        extend("x-group" = "Surfaces", "x-tier" = "advanced", "x-relevant-when" = serde_json::json!({"field": "ironing_enabled", "equals": true}))
     )]
     #[serde(default = "SlicingParams::default_ironing_angle")]
     pub ironing_angle: f64,
 
     #[schemars(
         description = "Custom start G-code block, inserted before the first print move. `null` = flavor default.",
-        extend("x-group" = "Output", "x-widget" = "gcode")
+        extend("x-group" = "Output", "x-tier" = "advanced", "x-widget" = "gcode")
     )]
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub start_gcode: Option<String>,
 
     #[schemars(
         description = "Custom end G-code block, inserted after the last print move. `null` = flavor default.",
-        extend("x-group" = "Output", "x-widget" = "gcode")
+        extend("x-group" = "Output", "x-tier" = "advanced", "x-widget" = "gcode")
     )]
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub end_gcode: Option<String>,
@@ -2484,7 +2485,7 @@ more effectively than ironing along them.",
         description = "Custom G-code block inserted at every layer change, after the Z move. \
                        Supports `{z}`, `{height}`, and `{layer_num}` (1-based) placeholders. \
                        `null` = none.",
-        extend("x-group" = "Output", "x-widget" = "gcode")
+        extend("x-group" = "Output", "x-tier" = "advanced", "x-widget" = "gcode")
     )]
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub layer_gcode: Option<String>,
@@ -2494,7 +2495,7 @@ more effectively than ironing along them.",
                        before the first print move. Typically supplied by the filament profile \
                        (temperatures, purge, pressure advance). Supports the same temperature / \
                        material placeholders as `start_gcode`. `null` = none.",
-        extend("x-group" = "Filament G-code", "x-widget" = "gcode")
+        extend("x-group" = "Filament G-code", "x-tier" = "advanced", "x-widget" = "gcode")
     )]
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub start_filament_gcode: Option<String>,
@@ -2503,7 +2504,7 @@ more effectively than ironing along them.",
         description = "Per-filament end G-code, inserted after the last print move and before the \
                        machine end G-code. Typically supplied by the filament profile. Supports \
                        the same temperature / material placeholders as `end_gcode`. `null` = none.",
-        extend("x-group" = "Filament G-code", "x-widget" = "gcode")
+        extend("x-group" = "Filament G-code", "x-tier" = "advanced", "x-widget" = "gcode")
     )]
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub end_filament_gcode: Option<String>,
@@ -2512,28 +2513,28 @@ more effectively than ironing along them.",
         description = "Embed a PNG thumbnail comment block in generated G-code files. \
                        The UI renders it from a fixed camera angle and theme (see \
                        `thumbnail_view` / `thumbnail_theme`) when slicing.",
-        extend("x-group" = "Thumbnail")
+        extend("x-group" = "Thumbnail", "x-tier" = "advanced")
     )]
     #[serde(default = "SlicingParams::default_thumbnail_enabled")]
     pub thumbnail_enabled: bool,
 
     #[schemars(
         description = "Square thumbnail resolution in pixels — this is the thumbnail's quality knob.",
-        extend("x-group" = "Thumbnail", "x-relevant-when" = serde_json::json!({"field": "thumbnail_enabled", "equals": true}))
+        extend("x-group" = "Thumbnail", "x-tier" = "advanced", "x-relevant-when" = serde_json::json!({"field": "thumbnail_enabled", "equals": true}))
     )]
     #[serde(default = "SlicingParams::default_thumbnail_size_px")]
     pub thumbnail_size_px: u32,
 
     #[schemars(
         description = "Fixed camera angle used to render the embedded thumbnail (not the live view).",
-        extend("x-group" = "Thumbnail", "x-relevant-when" = serde_json::json!({"field": "thumbnail_enabled", "equals": true}))
+        extend("x-group" = "Thumbnail", "x-tier" = "advanced", "x-relevant-when" = serde_json::json!({"field": "thumbnail_enabled", "equals": true}))
     )]
     #[serde(default)]
     pub thumbnail_view: ThumbnailView,
 
     #[schemars(
         description = "Fixed colour scheme for the embedded thumbnail — independent of the app/OS theme.",
-        extend("x-group" = "Thumbnail", "x-relevant-when" = serde_json::json!({"field": "thumbnail_enabled", "equals": true}))
+        extend("x-group" = "Thumbnail", "x-tier" = "advanced", "x-relevant-when" = serde_json::json!({"field": "thumbnail_enabled", "equals": true}))
     )]
     #[serde(default)]
     pub thumbnail_theme: ThumbnailTheme,
@@ -2541,14 +2542,14 @@ more effectively than ironing along them.",
     #[schemars(
         description = "How the model is coloured in the thumbnail: a neutral grey, the active \
                        filament's colour, or a specific colour you choose.",
-        extend("x-group" = "Thumbnail", "x-relevant-when" = serde_json::json!({"field": "thumbnail_enabled", "equals": true}))
+        extend("x-group" = "Thumbnail", "x-tier" = "advanced", "x-relevant-when" = serde_json::json!({"field": "thumbnail_enabled", "equals": true}))
     )]
     #[serde(default)]
     pub thumbnail_color_mode: ThumbnailColorMode,
 
     #[schemars(
         description = "Specific model colour (`#rrggbb`) used when the thumbnail colour mode is `custom`.",
-        extend("x-group" = "Thumbnail", "x-relevant-when" = serde_json::json!({"field": "thumbnail_color_mode", "equals": "custom"}))
+        extend("x-group" = "Thumbnail", "x-tier" = "advanced", "x-relevant-when" = serde_json::json!({"field": "thumbnail_color_mode", "equals": "custom"}))
     )]
     #[serde(default = "SlicingParams::default_thumbnail_custom_color")]
     pub thumbnail_custom_color: String,
@@ -2564,35 +2565,35 @@ more effectively than ironing along them.",
 
     #[schemars(
         description = "How a plate with several objects is printed: all objects together, rising one layer at a time — or each object finished completely before the next begins.",
-        extend("x-group" = "Objects")
+        extend("x-group" = "Objects", "x-tier" = "advanced")
     )]
     #[serde(default)]
     pub print_sequence: PrintSequence,
 
     #[schemars(
         description = "Let a single object be cancelled while the print continues, if it fails or lifts off the bed — without losing the rest of the plate. Needs a printer that supports skipping objects.",
-        extend("x-group" = "Hardware")
+        extend("x-group" = "Hardware", "x-tier" = "advanced")
     )]
     #[serde(default)]
     pub exclude_object: bool,
 
     #[schemars(
         description = "Clearance height in mm: an object shorter than this fits under the printhead as it moves. Used when printing objects one at a time to warn before a tall part is left in the printhead's path.",
-        extend("x-group" = "Hardware")
+        extend("x-group" = "Hardware", "x-tier" = "expert")
     )]
     #[serde(default = "SlicingParams::default_extruder_clearance_height")]
     pub extruder_clearance_height_mm: f64,
 
     #[schemars(
         description = "How far the printhead and its fan shroud reach out around the nozzle, in mm. Used when printing objects one at a time to warn before two parts are placed too close to reach safely.",
-        extend("x-group" = "Hardware")
+        extend("x-group" = "Hardware", "x-tier" = "expert")
     )]
     #[serde(default = "SlicingParams::default_extruder_clearance_radius")]
     pub extruder_clearance_radius_mm: f64,
 
     #[schemars(
         description = "Custom G-code to run after one object is finished and before the next one starts, when printing objects one at a time. Leave empty for none.",
-        extend("x-group" = "Objects", "x-widget" = "gcode", "x-relevant-when" = serde_json::json!({"field": "print_sequence", "equals": "by_object"}))
+        extend("x-group" = "Objects", "x-tier" = "expert", "x-widget" = "gcode", "x-relevant-when" = serde_json::json!({"field": "print_sequence", "equals": "by_object"}))
     )]
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub between_objects_gcode: Option<String>,
@@ -2601,7 +2602,7 @@ more effectively than ironing along them.",
         description = "Bed mesh leveling directive emitted at print start: off (leave it to the \
                        printer's own start macro/config), load a previously saved mesh profile, \
                        or recalibrate before every print.",
-        extend("x-group" = "Hardware")
+        extend("x-group" = "Hardware", "x-tier" = "advanced")
     )]
     #[serde(default)]
     pub bed_mesh_mode: BedMeshMode,
@@ -2609,7 +2610,7 @@ more effectively than ironing along them.",
     #[schemars(
         description = "Named mesh profile to load, e.g. Klipper's `SAVE_CONFIG`-persisted profile \
                        name. `null` = the printer's default/active profile.",
-        extend("x-group" = "Hardware", "x-relevant-when" = serde_json::json!({"field": "bed_mesh_mode", "equals": "load_profile"}))
+        extend("x-group" = "Hardware", "x-tier" = "advanced", "x-relevant-when" = serde_json::json!({"field": "bed_mesh_mode", "equals": "load_profile"}))
     )]
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub bed_mesh_profile_name: Option<String>,
@@ -2618,7 +2619,7 @@ more effectively than ironing along them.",
         description = "Bound the recalibration area to the print's XY footprint instead of the \
                        full bed, where the firmware supports it (Klipper `BED_MESH_CALIBRATE \
                        AREA_MIN=.. AREA_MAX=..`). Skips probing points the print never covers.",
-        extend("x-group" = "Hardware", "x-relevant-when" = serde_json::json!({"field": "bed_mesh_mode", "equals": "calibrate"}))
+        extend("x-group" = "Hardware", "x-tier" = "advanced", "x-relevant-when" = serde_json::json!({"field": "bed_mesh_mode", "equals": "calibrate"}))
     )]
     #[serde(default)]
     pub bed_mesh_adaptive: bool,

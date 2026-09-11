@@ -53,3 +53,46 @@ export function filterRelevantGroups(
     }))
     .filter((group) => group.fields.length > 0);
 }
+
+/**
+ * Disclosure tiers, ordered from what everyone sees to what only a specialist
+ * goes looking for. The index is the comparison: a view revealing `advanced`
+ * shows everything at or below it.
+ */
+export const TIER_ORDER = ['everyday', 'advanced', 'expert'] as const;
+
+export type Tier = (typeof TIER_ORDER)[number];
+
+/** A field's tier, defaulting to `everyday` for anything the schema left bare. */
+export function tierOf(field: FieldDef): Tier {
+  return field.tier ?? 'everyday';
+}
+
+/**
+ * Whether `field` is shown when a section is revealed up to `revealed`.
+ *
+ * Lives here beside `isFieldRelevant` because the two answer the same shape of
+ * question — "should this be on screen right now?" — and every schema-driven
+ * surface has to agree on both. Relevance is about the *state* of the plate;
+ * tier is about how far the user has asked to look.
+ */
+export function isFieldInTier(field: FieldDef, revealed: Tier): boolean {
+  return TIER_ORDER.indexOf(tierOf(field)) <= TIER_ORDER.indexOf(revealed);
+}
+
+/** The deepest tier present in `fields`, or `everyday` when there is nothing more. */
+export function deepestTier(fields: readonly FieldDef[]): Tier {
+  let deepest: Tier = 'everyday';
+  for (const field of fields) {
+    if (TIER_ORDER.indexOf(tierOf(field)) > TIER_ORDER.indexOf(deepest)) {
+      deepest = tierOf(field);
+    }
+  }
+  return deepest;
+}
+
+/** The tier one step beyond `revealed`, or `null` when already at the deepest. */
+export function nextTier(revealed: Tier): Tier | null {
+  const index = TIER_ORDER.indexOf(revealed);
+  return index < TIER_ORDER.length - 1 ? TIER_ORDER[index + 1] : null;
+}
