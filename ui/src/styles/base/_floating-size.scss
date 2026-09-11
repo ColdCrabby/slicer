@@ -1,0 +1,37 @@
+/// Width ceiling for floating panels
+/// @group base
+///
+/// The shared `.nexus-floating` is `width: max-content` with `max-width: 100vw`,
+/// which is the right default for a panel that must never be clipped — but it
+/// means one long option, one verbose parameter description, or one printer with
+/// a lavish name stretches a dropdown across the entire window. A menu that wide
+/// stops reading as a menu: the eye has to travel the full viewport to pair a
+/// label with the row it belongs to, and on a tablet it covers the thing the
+/// user was looking at.
+///
+/// The cap goes on the panel's **child**, not on `.nexus-floating` itself.
+/// Floating UI's `size` middleware writes a `max-width` inline on the host as
+/// it positions it, and no stylesheet rule beats an inline style. The host is
+/// `width: max-content`, so constraining what it contains shrinks the host to
+/// match — the same result, reached from the side the library leaves open.
+///
+/// `min()` rather than a flat pixel value: the cap is what keeps a dropdown
+/// shaped like a dropdown on a desktop, and the viewport term is what keeps it
+/// inside a phone screen, where 26rem is already wider than the display.
+.nexus-floating > * {
+  max-width: min(26rem, calc(100vw - var(--spacing-lg, 16px) * 2));
+}
+
+/// Option labels stop being a single clipped line once the panel has a ceiling.
+///
+/// Truncating was the only option while the panel could grow without bound;
+/// now that it cannot, wrapping is what keeps a long name readable instead of
+/// ending it in an ellipsis the user cannot expand.
+/// One class deeper than the component's own `.option-label`, which it has to
+/// beat on specificity — a tie would be settled by source order, and the
+/// component's stylesheet is emitted after this one.
+.nexus-floating .popover .option-label {
+  overflow: visible;
+  overflow-wrap: anywhere;
+  white-space: normal;
+}
