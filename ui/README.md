@@ -312,14 +312,18 @@ flowchart LR
   unlabelled on a tablet, which has no hover to reveal it. Give every icon-only
   control an `aria-label` mirroring its tooltip **at the call site** — the
   directive lives in the shared repo and is not ours to change here.
-- **Pinch-to-zoom belongs to the browser everywhere except the 3D canvas.** The
-  viewport meta carries no `user-scalable=no` / `maximum-scale`, and
-  `touch-action: none` sits on the viewer's `:host`
-  ([viewer.scss](src/app/components/viewer/viewer.scss)) rather than on `html`.
-  Both used to be page-wide, and between them they took magnification away from
-  every settings form and every block of prose — the one affordance a low-vision
-  user has on a phone, and an outright accessibility failure. Lock a gesture on
-  the specific surface that claims it, never on the document.
+- **The page does not zoom; surfaces claim their own gestures.** Cold Crabby is
+  an application shell, not a document: the plate is manipulated by direct pinch
+  and drag, and a page zooming underneath those fights every one of them. So the
+  viewport meta carries `user-scalable=no` / `maximum-scale=1`, `html` carries
+  `touch-action: pan-x pan-y` (pan, never pinch), and — because iOS has ignored
+  that meta since iOS 10 — [index.html](src/index.html) preventDefaults the
+  `gesture*` events and multi-touch `touchmove` to enforce the same rule there.
+  A surface can opt back in with `data-allow-gesture`.
+  **Double-tap zoom is suppressed per control**, via `touch-action: manipulation`
+  in [_reset.scss](src/styles/base/_reset.scss) — not document-wide, because a
+  blanket `touchend` preventDefault also eats legitimate taps.
+  Text scaling stays available through the OS and the app's own theme settings.
 
 ### Folding the chrome over the plate
 

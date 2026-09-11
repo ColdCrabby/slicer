@@ -1,5 +1,6 @@
 import {
   ChangeDetectionStrategy,
+  ChangeDetectorRef,
   Component,
   ElementRef,
   effect,
@@ -39,6 +40,7 @@ export class WorkplateTabs {
   private readonly names = inject(WorkplateNames);
   private readonly openWorkplates = inject(OpenWorkplates);
   private readonly contextMenu = inject(ContextMenuService);
+  private readonly cdr = inject(ChangeDetectorRef);
 
   readonly tabs = this.openWorkplates.tabs;
   readonly activeUuid = this.openWorkplates.activeUuid;
@@ -75,27 +77,13 @@ export class WorkplateTabs {
     // Safari in particular ignores it entirely. Focusing here is what makes the
     // box you just opened the box you are typing in; selecting the text means
     // the common case (replace the name outright) needs no extra gesture.
+    // Backstop for any path that opens the editor without going through
+    // `startEditing` — that method focuses synchronously, and re-focusing an
+    // already-focused input is a no-op.
     effect(() => {
-      const input = this.editInput()?.nativeElement;
-      if (!input) {
-        return;
+      if (this.editInput()) {
+        this.focusEditor();
       }
-      const focus = (): void => {
-        input.focus();
-        // Only select when there is a real name to replace. Calling `select()`
-        // on an empty box whose text is a placeholder put the caret in a
-        // "selected" state with nothing in it, which reads as a stuck field.
-        if (input.value) {
-          input.select();
-        }
-        this.editGrowWidth.set(measureTextWidth(input));
-      };
-      focus();
-      // iOS/iPadOS raises the keyboard from the focus that lands *after* the
-      // element is laid out; the first call above is often a frame too early
-      // and silently focuses without opening it. Repeating on the next frame
-      // costs nothing where the first one already worked.
-      requestAnimationFrame(focus);
     });
   }
 
@@ -134,6 +122,32 @@ export class WorkplateTabs {
     this.editWidth.set(label ? Math.ceil(label.getBoundingClientRect().width) : null);
     this.editGrowWidth.set(null);
     this.editingUuid.set(uuid);
+
+    // Render the input *now*, still inside the tap that asked for it.
+    //
+    // iOS and iPadOS only raise the keyboard for a `focus()` that happens in the
+    // same task as the user gesture. Left to its own schedule the control-flow
+    // block renders a frame later, so by the time the effect below could focus
+    // the box the gesture is over — the field takes focus and no keyboard
+    // appears, which is exactly what "it doesn't open the keyboard" looked like.
+    // Flushing this view synchronously puts the input in the DOM in time.
+    this.cdr.detectChanges();
+    this.focusEditor();
+  }
+
+  /** Focus the rename box and select any existing name. */
+  private focusEditor(): void {
+    const input = this.editInput()?.nativeElement;
+    if (!input) {
+      return;
+    }
+    input.focus();
+    // Only select where there is a real name to replace; selecting an empty box
+    // whose text is a placeholder reads as a stuck field.
+    if (input.value) {
+      input.select();
+    }
+    this.editGrowWidth.set(measureTextWidth(input));
   }
 
   /**

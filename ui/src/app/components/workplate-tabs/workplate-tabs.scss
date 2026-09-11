@@ -118,7 +118,12 @@
     // active/focus treatment, and a second box inside it read as two nested
     // controls — the editor is just the tab's own text, made editable.
     background: transparent;
+    // The shared `input:focus` rule in base/forms paints a border plus an inset
+    // ring on every field; clearing only the outline left that ring behind,
+    // nested inside the tab's own active border.
     outline: none;
+    border-color: transparent;
+    box-shadow: none;
     // `min-width` (the label's measured width) holds the tab steady at the
     // moment of the swap; `width` is then set per keystroke from the measured
     // text, since Safari does not implement `field-sizing: content`.
@@ -189,6 +194,13 @@
     // Roomier than the cursor cap: the text is larger here and a fingertip has
     // no tooltip to fall back on when a name is cut off.
     max-width: 300px;
+  }
+
+  // Re-stated inside this block: the rule above resets the padding shorthand
+  // and, being later in the file, would otherwise drop the draft tab — which
+  // has no close button to fill the gap — back to 4px on the right.
+  .wp-tab--draft {
+    padding-right: 12px;
   }
 
   .wp-tab-label,
