@@ -66,8 +66,15 @@
 	  resolves for types the system knows. iOS knows `stl`, but not `obj` or
 	  `3mf` — so without these declarations those files render greyed-out and
 	  unselectable in Files, and the model cannot be imported at all.
-	  Declaring them also makes the app a target for "Open with…", which is
-	  what `LSSupportsOpeningDocumentsInPlace` above is for.
+	  Declaring them also makes the app a target for "Open with…" and for the
+	  share sheet's "Copy to Cold Crabby" — how a model reaches the plate from
+	  Shapr3D, Files, Mail or AirDrop. `src/open_with.rs` receives it.
+
+	  `bundle.fileAssociations` in tauri.conf.json says the same thing for the
+	  desktop bundles, and `tauri ios init` writes a `CFBundleDocumentTypes`
+	  from it too — which the richer one below replaces on merge. It cannot
+	  replace `UTImportedTypeDeclarations`: that config key only describes types
+	  an app *exports* (its own formats), and STL/OBJ/3MF are nobody's to own.
 	-->
 	<key>UTImportedTypeDeclarations</key>
 	<array>

@@ -36,6 +36,13 @@ serde_json = "1"
 chrono = { version = "0.4", features = ["clock"] }
 slicer-engine = { path = "../../" }
 
+# "Open with Cold Crabby" on Windows and Linux arrives as the `argv` of a
+# *second* process launch, so the running app has to intercept it — otherwise
+# double-clicking a model opens a whole second window. The cfg mirrors Tauri's
+# own `desktop` cfg (`not(mobile)`), which is what gates the plugin in lib.rs.
+[target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dependencies]
+tauri-plugin-single-instance = "2"
+
 # Event-driven OS accent watcher (src/system_accent.rs). Windows reads the DWM
 # accent from the registry and blocks on `RegNotifyChangeKeyValue`; macOS
 # observes the accent distributed notification via objc2. Both are transitive
@@ -64,7 +71,10 @@ objc2-foundation = { version = "0.3", features = [
 block2 = "0.6"
 objc2 = "0.6"
 objc2-core-foundation = { version = "0.3", features = ["CFCGTypes"] }
-objc2-foundation = { version = "0.3", features = ["NSString"] }
+# `NSURL` is what lets an incoming document be read: a model opened in place
+# from Files or another app's container is security-scoped, and only native
+# code holding the `NSURL` may open the scope (see src/open_with.rs).
+objc2-foundation = { version = "0.3", features = ["NSString", "NSURL"] }
 objc2-ui-kit = { version = "0.3", features = [
     "block2",
     "objc2-core-foundation",

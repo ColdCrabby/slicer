@@ -1,9 +1,9 @@
-import { afterNextRender, Component, inject } from '@angular/core';
+import { afterNextRender, Component, Injector, inject } from '@angular/core';
 import { RouterOutlet } from '@angular/router';
 import { CelebrationOverlay } from './components/celebration-overlay/celebration-overlay';
 import { NotificationCenter } from './components/notification-center/notification-center';
 import { UpdateBanner } from './components/update-banner/update-banner';
-import { isTauriDesktop } from './runtime/domain/runtime-mode.util';
+import { isTauriDesktop, isTauriHost } from './runtime/domain/runtime-mode.util';
 import { AppVersion } from './services/app-version';
 import { DialogOutlet } from './shared/dialog/dialog-outlet';
 
@@ -16,6 +16,7 @@ import { DialogOutlet } from './shared/dialog/dialog-outlet';
 })
 export class App {
   private readonly appVersion = inject(AppVersion);
+  private readonly injector = inject(Injector);
 
   constructor() {
     // Fire-and-forget: detect upgrades and surface "What's New" without
@@ -26,6 +27,19 @@ export class App {
     // gets a reload prompt even though there's no server to announce a version.
     this.appVersion.startUpdateWatch();
 
+    // Accept models the OS hands us — "Open with Cold Crabby", a double-clicked
+    // .3mf, a share sheet from Shapr3D. Started from the root component because
+    // a cold launch's file is already waiting in the shell: the sooner
+    // something is listening, the shorter the gap between the tap in the other
+    // app and the model landing on the plate.
+    //
+    // Imported dynamically and only where the feature exists, so the web build
+    // never downloads it — and so neither the Tauri APIs nor the slicing
+    // runtime it reaches for ride into the initial bundle.
+    if (isTauriHost()) {
+      void this.startOpenWith();
+    }
+
     // The Windows/Linux desktop window is created hidden so the user never sees
     // WebView2's blank, unresponsive cold-start frame (the "app hangs before it
     // works" symptom). Reveal it now that the shell has painted its first frame.
@@ -33,6 +47,16 @@ export class App {
     // the start; the desktop shell also arms a Rust-side fallback in case this
     // never runs.
     afterNextRender(() => void this.revealDesktopWindow());
+  }
+
+  private async startOpenWith(): Promise<void> {
+    try {
+      const { OpenWith } = await import('./services/open-with');
+      this.injector.get(OpenWith).start();
+    } catch {
+      // Nothing to fall back to: without the shell there is no OS handing us
+      // files. The app's own open/drop paths are unaffected.
+    }
   }
 
   private async revealDesktopWindow(): Promise<void> {

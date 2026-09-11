@@ -43,7 +43,10 @@ The home screen gives you three ways in:
 - **Open Model to Slice** — pick a file and go straight to the build plate.
 - **Empty Workplate** — start with a bare bed and add models yourself.
 
-You can also just **drag a file onto the window** at any time.
+You can also just **drag a file onto the window** at any time. In the desktop
+and iPhone/iPad apps you can skip Cold Crabby's own file picker altogether and
+send a model over from wherever it already is — see
+[Opening a model from another app](/use/plate#opening-a-model-from-another-app).
 
 **Supported formats:** `.stl`, `.obj`, `.3mf`, up to 500 MB each. A 3MF holding
 several parts is split into one object per part, so you can move them

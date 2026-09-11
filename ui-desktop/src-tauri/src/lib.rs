@@ -14,6 +14,8 @@ mod commands;
 mod context_menu;
 /// Native iOS alerts, confirmations and the share sheet.
 mod native_dialog;
+/// Models the OS hands us — "Open with Cold Crabby".
+mod open_with;
 mod system_accent;
 
 /// Build and run the Tauri application.
@@ -22,10 +24,23 @@ mod system_accent;
 /// `extern "C"` symbol the platform launcher invokes.
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    tauri::Builder::default()
+    let builder = tauri::Builder::default();
+
+    // Registered before every other plugin, as the plugin requires: a second
+    // launch has to be intercepted before the first instance starts building
+    // anything for it. Double-clicking a model while the app is already open is
+    // exactly that second launch, and without this it would open a whole second
+    // window instead of adding the model to the plate in front of you.
+    #[cfg(desktop)]
+    let builder = builder.plugin(tauri_plugin_single_instance::init(|app, argv, _cwd| {
+        open_with::ingest_args(app, argv, true);
+    }));
+
+    let app = builder
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_fs::init())
         .manage(bridge::runtime_bridge::AppState::new())
+        .manage(open_with::OpenedFiles::default())
         .setup(|_app| {
             // Window chrome only exists on desktop — mobile has no resizable,
             // decorated window to correct.
@@ -66,6 +81,11 @@ pub fn run() {
 
                 // Track live OS accent changes and push them to the UI.
                 system_accent::spawn_watcher(_app.handle().clone());
+
+                // Windows and Linux deliver a double-clicked model as `argv`,
+                // and this is the launch that carries it. macOS and iOS never
+                // use argv for this — they raise `RunEvent::Opened` below.
+                open_with::ingest_args(_app.handle(), std::env::args(), false);
             }
 
             Ok(())
@@ -87,7 +107,18 @@ pub fn run() {
             context_menu::show_context_menu,
             native_dialog::show_native_dialog,
             native_dialog::share_file,
+            open_with::take_opened_files,
         ])
-        .run(tauri::generate_context!())
-        .expect("failed to run desktop runtime");
+        .build(tauri::generate_context!())
+        .expect("failed to build desktop runtime");
+
+    // `.build()` rather than `.run()` because a model opened from Files,
+    // Shapr3D or the macOS Dock arrives as a `RunEvent`, which only the
+    // long-hand form can see.
+    app.run(|_app, _event| {
+        #[cfg(any(target_os = "macos", target_os = "ios"))]
+        if let tauri::RunEvent::Opened { urls } = &_event {
+            open_with::ingest_urls(_app, urls);
+        }
+    });
 }

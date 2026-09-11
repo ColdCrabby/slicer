@@ -55,6 +55,7 @@ depend on it like any other crate.
 | `src/commands.rs`       | `#[tauri::command]` surface exposed to the webview.                     |
 | `src/context_menu.rs`   | Native iOS context menus (UIKit). See [Native menus](#native-menus).    |
 | `src/native_dialog.rs`  | Native iOS alerts/confirmations and the share sheet.                    |
+| `src/open_with.rs`      | Models the OS hands us. See [Opening a model from elsewhere](#opening-a-model-from-elsewhere). |
 | `src/bridge/`           | Slice orchestration, G-code cache, and the progress-event logger.       |
 | `src/system_accent.rs`  | OS accent-colour polling. Desktop only — mobile has no user accent.     |
 | `tauri.conf.json`       | Shared configuration.                                                   |
@@ -172,6 +173,61 @@ iOS, which is why they were changed:
 Anything presented as a popover on iPad — the action sheet and the share sheet —
 **must** carry a `sourceView`/`sourceRect`. UIKit raises
 `NSInvalidArgumentException` otherwise and the app terminates.
+
+### Opening a model from elsewhere
+
+Every platform can say *this `.3mf` belongs to that app*, and no two of them say
+it the same way. [`src/open_with.rs`](src-tauri/src/open_with.rs) is where the
+three become one list of readable paths.
+
+```mermaid
+flowchart LR
+    W["Windows / Linux<br/>double-click"] -->|argv| G
+    M["macOS<br/>Finder, Dock"] -->|RunEvent::Opened| G
+    I["iOS<br/>Files, Shapr3D, AirDrop"] -->|RunEvent::Opened| S["stage into<br/>app cache"] --> G
+    G["open_with::ingest"] --> B["buffer"] & E["emit"]
+    B & E --> F["OpenWith<br/>(webview)"]
+
+    style G fill:#fff9c4
+```
+
+What the shape is defending:
+
+- **`argv` and `RunEvent::Opened` are not alternatives.** Windows and Linux
+  *only* use argv; macOS and iOS *never* do. Reading argv on a Mac finds
+  `-psn_0_…` and nothing else, which is why flags are skipped rather than
+  parsed.
+- **The buffer and the event are not alternatives either.** A cold launch
+  delivers the file to the shell before the webview has run a line of
+  JavaScript, so an event alone is shouted into an empty room. The frontend
+  drains `take_opened_files` *after* subscribing, and the shell fills the buffer
+  *before* it emits — either order reversed leaves a gap in which a file is
+  silently lost.
+- **An iOS document must be copied before the webview can read it.**
+  `LSSupportsOpeningDocumentsInPlace` means a model opened from Files or another
+  app's container stays where it is and arrives **security-scoped**: readable
+  only inside `startAccessingSecurityScopedResource`, and only by native code
+  holding the `NSURL`. The webview has neither. Copying the bytes inside that
+  scope into the app's cache is what makes the model readable for the rest of
+  its life on the plate — and the copy that iOS drops in `Documents/Inbox` is
+  deleted, because nothing else ever will.
+- **A second launch must not become a second window.** `tauri-plugin-single-
+  instance` is registered *before* every other plugin and forwards the new
+  argv to the running app, which is the whole reason double-clicking a model on
+  Windows adds it to the plate you are looking at.
+
+The declarations that make the app a candidate at all live in two places, and
+both are needed: `bundle.fileAssociations` in
+[`tauri.conf.json`](src-tauri/tauri.conf.json) for the desktop bundles
+(Windows registry, macOS `CFBundleDocumentTypes`, the Linux `.desktop`
+`MimeType=`), and [`Info.ios.plist`](src-tauri/Info.ios.plist) for iOS, whose
+`UTImportedTypeDeclarations` the config key cannot express — it only describes
+types an app *exports*, and STL/OBJ/3MF are nobody's to own.
+
+The webview half is
+[`OpenWith`](../ui/src/app/services/open-with/open-with.ts), which owns the one
+decision the OS cannot make: an opened model **joins** the plate on screen and
+only **opens** a new one when the bed is empty.
 
 ### Native menus
 

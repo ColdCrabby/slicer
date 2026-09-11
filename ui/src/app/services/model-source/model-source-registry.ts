@@ -18,6 +18,21 @@ export function isSupportedModelFile(fileName: string): boolean {
 }
 
 /**
+ * The native path of a file, when the host exposes one.
+ *
+ * Some webview hosts put the originating filesystem path on the `File`, which
+ * lets the desktop slicer read the model directly instead of writing the bytes
+ * back out to a cache file — and is how a model opened from Files or another
+ * app keeps its identity on the way to the plate. Absent in a plain browser,
+ * and not guaranteed anywhere: the desktop runtime caches the bytes itself when
+ * it is missing, so this is an optimisation rather than something to depend on.
+ */
+export function nativePathOf(file: File): string | undefined {
+  const path = (file as File & { path?: unknown }).path;
+  return typeof path === 'string' && path.length > 0 ? path : undefined;
+}
+
+/**
  * One model file that objects on the plate were loaded from.
  *
  * `bytes` is what the browser slicer re-parses; `filePath` is what the native

@@ -15,7 +15,7 @@ import { createRuntime } from '../runtime/factory/runtime-factory';
 import { RuntimeEvent } from '../runtime/ports/runtime-events';
 import { FileExport } from './file-export';
 import { onIdle } from './idle';
-import { ModelSourceRegistry } from './model-source';
+import { ModelSourceRegistry, nativePathOf } from './model-source';
 import { NotificationService } from './notifications';
 import { ActiveSelection } from './profiles/active-selection';
 import { SceneEngine } from './scene-engine';
@@ -558,6 +558,11 @@ export class Slicer {
       const source = this.modelSources.register({
         fileName: file.name,
         bytes: new Uint8Array(await file.arrayBuffer()),
+        // Present when the host handed us a real file — the native picker, a
+        // drop, or "Open with Cold Crabby". Recording it here lets the desktop
+        // slicer read the model off disk instead of writing the same bytes
+        // back out to a cache file.
+        filePath: nativePathOf(file),
       });
       this.slicerFile.adoptLocal(requestUuid, {
         fileId: source.sourceId,
