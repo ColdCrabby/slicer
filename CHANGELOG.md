@@ -94,6 +94,18 @@ issue/PR numbers or repo links in the notes. See the tone rules in
   came out as a copy of the first; the in-browser slicer refused outright with
   "Missing mesh bytes". Each object now resolves to the file it was actually
   loaded from, in every runtime.
+- **Screenshot animation is now optional.** The shutter flash and the preview
+  card that flies off after each slice can be turned off in **Settings →
+  General**. On by default; the thumbnail is still captured either way.
+- **Thumbnails can match the 3D view's look.** **Settings → General →
+  Thumbnail look** renders the embedded preview with the viewport's own shading,
+  gloss and contact shadow instead of the plain studio render. Plain by default,
+  so the same plate still previews identically wherever it is sliced.
+- **Workplate tabs.** The title bar's single plate-name field is now a tab
+  strip, so several workplates can stay open at once — upload, open a recent
+  project, or follow a deep link and it opens in its own tab. Switch, rename,
+  or close tabs independently; closing one only removes it from the strip,
+  the plate itself is still reachable from Home.
 - **Fuzzy skin.** A new outer-wall texture option roughs the surface with a
   small random perpendicular jitter instead of a smooth wall — useful for
   hiding layer lines or giving a part a deliberately organic look. Tunable

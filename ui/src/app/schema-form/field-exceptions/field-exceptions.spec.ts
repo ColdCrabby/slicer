@@ -23,7 +23,7 @@ function field(key: string, type: FieldType = 'string'): FieldDef {
 describe('sequential printing', () => {
   it('warns and links to printer settings when sequential printing is chosen', () => {
     const notice = noticeForField(field('print_sequence'), 'by_object');
-    expect(notice).not.toBeNull();
+    expect(notice !== null).toBe(true);
     expect(notice?.tone).toBe('warning');
     expect(notice?.link?.routerLink).toBe('/settings/printers');
     // The message must name the actual failure mode, not just say "be careful".
@@ -41,7 +41,7 @@ describe('chamber temperature without a heated chamber', () => {
       heated_chamber: false,
     });
 
-    expect(notice).not.toBeNull();
+    expect(notice !== null).toBe(true);
     expect(notice?.tone).toBe('warning');
     // The consequence must be stated outright, not hedged.
     expect(notice?.text).toContain('No chamber command will be emitted');

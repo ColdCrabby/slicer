@@ -1,6 +1,7 @@
 import { BoxGeometry, Mesh, MeshBasicMaterial, PerspectiveCamera, Scene } from 'three';
 import type { WebGLRenderer } from 'three';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import type { Mock } from 'vitest';
 import type { GizmoManager } from '../gizmo';
 import { SceneSelection } from './selection';
 import type { SceneSelectionHandlers } from './types';
@@ -38,12 +39,12 @@ describe('SceneSelection', () => {
    * same canvas. Whether it runs is exactly the question of whether the camera
    * gets to act on a press.
    */
-  let cameraListener: ReturnType<typeof vi.fn>;
-  let cameraLiftListener: ReturnType<typeof vi.fn>;
+  let cameraListener: Mock<(event: Event) => void>;
+  let cameraLiftListener: Mock<(event: Event) => void>;
   let handlers: {
-    select: ReturnType<typeof vi.fn>;
-    clearSelection: ReturnType<typeof vi.fn>;
-    contextMenu: ReturnType<typeof vi.fn>;
+    select: Mock<(id: string, additive: boolean) => void>;
+    clearSelection: Mock<() => void>;
+    contextMenu: Mock<(id: string | null, event: MouseEvent) => void>;
   };
 
   /** Dispatch a pointer event on the canvas the selection listens to. */
@@ -149,12 +150,12 @@ describe('SceneSelection', () => {
 
     it('does not select when the pointer travels far enough to be a drag', () => {
       tap('touch', 40);
-      expect(handlers.select).not.toHaveBeenCalled();
+      expect(handlers.select).toHaveBeenCalledTimes(0);
     });
 
     it('keeps a mouse drag from selecting, so it can orbit', () => {
       tap('mouse', 10);
-      expect(handlers.select).not.toHaveBeenCalled();
+      expect(handlers.select).toHaveBeenCalledTimes(0);
     });
   });
 
@@ -220,7 +221,7 @@ describe('SceneSelection', () => {
       expect(handlers.contextMenu).toHaveBeenCalledWith('7', expect.anything());
 
       dispatch('pointerup', { pointerType: 'touch' });
-      expect(handlers.select).not.toHaveBeenCalled();
+      expect(handlers.select).toHaveBeenCalledTimes(0);
     });
 
     it('does not open when the press moves away first', () => {
@@ -228,7 +229,7 @@ describe('SceneSelection', () => {
       dispatch('pointerdown', { pointerType: 'touch' });
       dispatch('pointermove', { pointerType: 'touch', clientX: CENTRE + 60, clientY: CENTRE });
       vi.advanceTimersByTime(600);
-      expect(handlers.contextMenu).not.toHaveBeenCalled();
+      expect(handlers.contextMenu).toHaveBeenCalledTimes(0);
     });
 
     it('reports empty space as no object', () => {
@@ -249,7 +250,7 @@ describe('SceneSelection', () => {
       dispatch('pointerdown', { button: 2 });
       dispatch('pointermove', { clientX: CENTRE + 60, clientY: CENTRE });
       dispatch('pointerup', { button: 2, clientX: CENTRE + 60, clientY: CENTRE });
-      expect(handlers.contextMenu).not.toHaveBeenCalled();
+      expect(handlers.contextMenu).toHaveBeenCalledTimes(0);
     });
 
     it('is never asked for when no handler is wired', () => {
@@ -294,7 +295,7 @@ describe('SceneSelection', () => {
       expect(delta.delta[2]).toBe(0);
       expect(gizmoHandlers.end).toHaveBeenCalled();
       // A drag is not a tap.
-      expect(handlers.select).not.toHaveBeenCalled();
+      expect(handlers.select).toHaveBeenCalledTimes(0);
     });
 
     it('leaves an unselected object alone, so the drag can orbit', () => {
@@ -314,7 +315,7 @@ describe('SceneSelection', () => {
       dispatch('pointermove', { pointerType: 'touch', clientX: CENTRE + 60, clientY: CENTRE });
       dispatch('pointerup', { pointerType: 'touch', clientX: CENTRE + 60, clientY: CENTRE });
 
-      expect(gizmoHandlers.delta).not.toHaveBeenCalled();
+      expect(gizmoHandlers.delta).toHaveBeenCalledTimes(0);
       // …and the camera really did get the press, rather than the drag simply
       // going nowhere. `cameraListener` is a bubble-phase listener, the shape
       // OrbitControls has on this same canvas.
@@ -339,7 +340,7 @@ describe('SceneSelection', () => {
       dispatch('pointermove', { pointerType: 'mouse', clientX: CENTRE + 60, clientY: CENTRE });
       dispatch('pointerup', { pointerType: 'mouse', clientX: CENTRE + 60, clientY: CENTRE });
 
-      expect(gizmoHandlers.delta).not.toHaveBeenCalled();
+      expect(gizmoHandlers.delta).toHaveBeenCalledTimes(0);
       expect(cameraListener).toHaveBeenCalled();
     });
 
@@ -362,7 +363,7 @@ describe('SceneSelection', () => {
 
       dispatch('pointerdown', { pointerType: 'touch' });
 
-      expect(cameraListener).not.toHaveBeenCalled();
+      expect(cameraListener).toHaveBeenCalledTimes(0);
     });
 
     it('ignores a second finger rather than dropping the drag', () => {
@@ -407,7 +408,7 @@ describe('SceneSelection', () => {
       dispatch('pointerdown', { pointerType: 'touch', pointerId: 2 });
       dispatch('pointerup', { pointerType: 'touch', pointerId: 2 });
 
-      expect(handlers.select).not.toHaveBeenCalled();
+      expect(handlers.select).toHaveBeenCalledTimes(0);
     });
   });
 });

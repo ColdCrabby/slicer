@@ -36,7 +36,7 @@ describe('ModelSourceRegistry', () => {
     const cube = registry.register({ fileName: 'cube.stl', bytes: CUBE });
     const sphere = registry.register({ fileName: 'sphere.stl', bytes: SPHERE });
 
-    expect(cube.sourceId).not.toBe(sphere.sourceId);
+    expect(cube.sourceId === sphere.sourceId).toBe(false);
     expect(registry.get(cube.sourceId)?.bytes).toBe(CUBE);
     expect(registry.get(sphere.sourceId)?.bytes).toBe(SPHERE);
   });

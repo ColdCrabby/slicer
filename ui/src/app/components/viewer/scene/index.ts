@@ -111,6 +111,13 @@ export interface ThumbnailCaptureOptions {
    * mode. When omitted, the live {@link ViewerScene.contentRoot} is framed.
    */
   subjects?: Object3D[];
+  /**
+   * Keep the live scene's contact shadow under the subjects, instead of the
+   * plain studio render. The caller is responsible for the *material* side of
+   * the same choice (shading / gloss) when it builds the subjects; this flag
+   * covers what only the scene owns.
+   */
+  sceneEffects?: boolean;
 }
 
 /**
@@ -612,6 +619,13 @@ export class ViewerScene {
       }
     }
 
+    // With scene effects on, bring back just the build plate's shadow-receiver
+    // plane so the model keeps the contact shadow that grounds it in the live
+    // view. The receiver is transparent everywhere a shadow does not fall, so
+    // it works over a solid studio background and a transparent one alike.
+    const restoreShadowReceiver =
+      options.sceneEffects === true ? this._grid.isolateShadowReceiver() : null;
+
     // Apply the thumbnail theme, then a solid studio background or a fully
     // transparent one (`background === null` → the renderer's 0-alpha clear).
     const prevBackground = this.scene.background;
@@ -647,6 +661,7 @@ export class ViewerScene {
     } finally {
       // Restore everything, regardless of encode outcome.
       this._selection.setHighlightVisible(true);
+      restoreShadowReceiver?.();
       for (const node of unculled) {
         node.frustumCulled = true;
       }

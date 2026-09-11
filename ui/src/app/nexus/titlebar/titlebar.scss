@@ -47,7 +47,7 @@
   --icon-size: 18px;
 }
 
-// Active workplate name, sitting next to the brand with a hairline divider.
+// Open workplate tabs, sitting next to the brand with a hairline divider.
 // Hidden (along with its divider) when no workplate is open.
 .tb-workplate {
   display: flex;
@@ -65,6 +65,7 @@
   margin-right: var(--spacing-sm);
 }
 
+.tb-docs,
 .tb-github,
 .tb-catalog,
 .tb-sponsor {

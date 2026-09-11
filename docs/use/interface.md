@@ -147,6 +147,20 @@ If the app was updated while your tab stayed open, a part it hasn't loaded yet
 may have already been replaced on the server. Rather than failing silently, it
 offers you a **Reload** banner. Take it — a reloaded tab is a consistent one.
 
+## Workplate tabs
+
+The title bar keeps a tab for every workplate you have open, the way a browser
+keeps a tab per page. Uploading a model, opening a recent project, or following
+a link into a plate all open a tab; clicking one switches to that plate.
+
+- **Rename a tab** by clicking into it and typing — the same name is used for
+  the downloaded G-code file.
+- **Open a new, empty plate** with the `+` at the end of the strip.
+- **Close a tab** with its `×`. Closing the plate you're looking at switches you
+  to the next tab over, or back to a fresh plate if it was the last one open.
+  Closing a tab only removes it from the strip — the plate itself isn't
+  deleted, and you can always get back to it from **Home → Recent projects**.
+
 ## Undo
 
 `Ctrl`/`⌘ + Z` undoes, `Ctrl`/`⌘ + Y` (or `⌘ + Shift + Z`) redoes. This covers
@@ -170,6 +184,14 @@ Windows — whatever your system accent is set to.
 **Settings → General** has the graphics knobs: field of view, anti-aliasing,
 render resolution and preview detail. Turn them down on a weak GPU, up on a good
 one.
+
+Two of them are about the thumbnail embedded in sliced G-code, which is shot in
+the 3D view rather than by the slicer. The **screenshot animation** is the flash
+and the little preview card that flies off to the top after each capture — turn
+it off if you'd rather the shot were taken quietly; it is still taken.
+**Thumbnail look** decides whether the model is rendered plainly or with this
+view's own shading, gloss and contact shadow. What goes *in* the picture — its
+angle, background and colour — is a print setting, under Process → Thumbnail.
 
 ## On a tablet
 

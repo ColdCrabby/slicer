@@ -1,7 +1,7 @@
 import { ChangeDetectionStrategy, Component, computed, signal } from '@angular/core';
 import { ConnectionState } from '../../components/connection-state/connection-state';
 import { Logo } from '../../components/logo/logo';
-import { WorkplateName } from '../../components/workplate-name/workplate-name';
+import { WorkplateTabs } from '../../components/workplate-tabs/workplate-tabs';
 import { isTauriDesktop, isTauriMobile } from '../../runtime/domain/runtime-mode.util';
 import { Icon, IconButton, TooltipDirective } from '@coldcrabby/ui';
 
@@ -21,7 +21,7 @@ import { Icon, IconButton, TooltipDirective } from '@coldcrabby/ui';
  */
 @Component({
   selector: 'nexus-titlebar',
-  imports: [ConnectionState, Logo, WorkplateName, Icon, IconButton, TooltipDirective],
+  imports: [ConnectionState, Logo, WorkplateTabs, Icon, IconButton, TooltipDirective],
   templateUrl: './titlebar.html',
   styleUrl: './titlebar.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,

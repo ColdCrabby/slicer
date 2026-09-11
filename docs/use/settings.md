@@ -89,6 +89,19 @@ Options that only apply in certain configurations hide themselves. Choosing the
 classic wall generator, for example, reveals options the Arachne generator
 doesn't use — so the panel never offers you a control that would do nothing.
 
+### The thumbnail in your G-code
+
+Most printers show a preview of the print on their screen, and that picture is
+embedded in the G-code file. **Process → Thumbnail** decides what goes in it:
+its size, the camera angle it's shot from, a light, dark or transparent
+background, and the model's colour.
+
+How the model is *rendered* is not a print setting — the picture is taken in the
+3D view, on your machine — so it sits with the other graphics options under
+**Settings → General → Thumbnail look**. Plain, the default, shoots it flatly,
+which means the same plate previews identically wherever it's sliced. Match this
+view borrows your own scene's shading, gloss and contact shadow instead.
+
 ## Infill patterns
 
 | Pattern | Character |

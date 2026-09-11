@@ -1,0 +1,45 @@
+<div class="wp-tablist" role="tablist" aria-label="Open workplates">
+  @for (tab of tabs(); track tab.uuid) {
+    <div
+      class="wp-tab"
+      role="tab"
+      [class.active]="tab.uuid === activeUuid()"
+      [attr.aria-selected]="tab.uuid === activeUuid()"
+      (click)="activate(tab.uuid)"
+    >
+      <input
+        class="wp-tab-name"
+        type="text"
+        [value]="nameFor(tab)"
+        [placeholder]="placeholderFor(tab)"
+        (change)="rename(tab.uuid, $event)"
+        aria-label="Workplate name"
+        spellcheck="false"
+        autocomplete="off"
+      />
+      <button
+        nexusIconButton
+        size="sm"
+        class="wp-tab-close"
+        type="button"
+        aria-label="Close workplate tab"
+        tooltip="Close"
+        (click)="closeTab($event, tab.uuid)"
+      >
+        <nexus-icon name="xmark" />
+      </button>
+    </div>
+  }
+</div>
+
+<button
+  nexusIconButton
+  size="sm"
+  class="wp-tab-add"
+  type="button"
+  aria-label="Open a new workplate"
+  tooltip="New workplate"
+  (click)="addTab()"
+>
+  <nexus-icon name="plus" />
+</button>
