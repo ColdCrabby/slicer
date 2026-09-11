@@ -200,8 +200,22 @@ export class SchemaForm {
     setTimeout(() => this.searchInputRef()?.nativeElement.focus({ preventScroll: true }), 0);
   }
 
-  /** Every group parsed from the schema, unaffected by the visible filter. */
-  private readonly allGroups = computed<SchemaGroup[]>(() => parseSchema(this.schema()).groups);
+  /**
+   * Every group parsed from the schema, unaffected by the visible filter.
+   *
+   * Array parameters are dropped here. A fan curve and a set of pause triggers
+   * are structured lists with dedicated editors elsewhere; there is no generic
+   * control that can edit one, and offering the fallback widget rendered a
+   * single input for a list of objects.
+   */
+  private readonly allGroups = computed<SchemaGroup[]>(() =>
+    parseSchema(this.schema())
+      .groups.map((group) => ({
+        ...group,
+        fields: group.fields.filter((field) => field.type !== 'array'),
+      }))
+      .filter((group) => group.fields.length > 0),
+  );
 
   /**
    * Every group with only the fields that are currently relevant given the

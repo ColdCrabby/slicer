@@ -9,6 +9,7 @@ import { EnumRadio } from '../widgets/enum-radio/enum-radio';
 import { EnumSelect } from '../widgets/enum-select/enum-select';
 import { IntegerField } from '../widgets/integer-field/integer-field';
 import { NumberField } from '../widgets/number-field/number-field';
+import { TextField } from '../widgets/text-field/text-field';
 
 /**
  * Maximum number of enum options for which a radio group is used.
@@ -38,6 +39,10 @@ const KEY_REGISTRY: Record<string, Type<FieldWidget>> = {
   // schema description. A hand-written picker here previously hard-coded five
   // of them, which silently hid the rest as the engine grew.
   thumbnail_custom_color: ColorField,
+  // A colour is a colour wherever it appears. Without this the filament's own
+  // swatch was a text box holding `#RRGGBB` — and before the string fix above,
+  // a number spinner.
+  filament_color: ColorField,
 };
 
 /**
@@ -48,10 +53,20 @@ function defaultWidgetFor(field: FieldDef): Type<FieldWidget> {
     return field.enumOptions.length <= RADIO_MAX_OPTIONS ? EnumRadio : EnumSelect;
   }
 
-  if (field.type === 'boolean') {
-    return BooleanField;
+  switch (field.type) {
+    case 'boolean':
+      return BooleanField;
+    case 'integer':
+      return IntegerField;
+    case 'number':
+      return NumberField;
+    default:
+      // Exhaustive on purpose. The old default returned `NumberField` for
+      // everything it did not recognise, which is how a filament's name, type
+      // and colour all became number spinners the moment their group moved onto
+      // a contract the sidebar renders.
+      return TextField;
   }
-  return field.type === 'integer' ? IntegerField : NumberField;
 }
 
 /**

@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { FieldDef } from './field-def';
+import { fieldLabel } from './field-labels';
 import { unitForField } from './field-units';
 
 function field(key: string, extra: Partial<FieldDef> = {}): FieldDef {
@@ -28,6 +29,19 @@ describe('unitForField', () => {
     expect(unitForField(field('nozzle_temp')).unit).toBe('°C');
     expect(unitForField(field('nozzle_temp_first_layer')).unit).toBe('°C');
     expect(unitForField(field('chamber_temp_first_layer')).unit).toBe('°C');
+  });
+
+  it('reads a fan speed as a percentage, not a rate', () => {
+    // `fan_speed` matches both the fan and the speed pattern; fan has to win.
+    expect(unitForField(field('fan_speed')).unit).toBe('%');
+    expect(unitForField(field('bridge_fan_speed')).unit).toBe('%');
+    expect(unitForField(field('first_layer_fan_speed')).unit).toBe('%');
+    expect(unitForField(field('print_speed')).unit).toBe('mm/s');
+  });
+
+  it('drops a unit suffix from the label, since the control shows the unit', () => {
+    expect(fieldLabel('filament_density_g_cm3')).toBe('Filament Density');
+    expect(fieldLabel('min_layer_time_s')).toBe('Min Layer Time');
   });
 
   it('does not mistake volumetric flow for a linear speed', () => {

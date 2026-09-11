@@ -71,6 +71,9 @@ function resolveFieldType(prop: RawProp): FieldType {
   if (type === 'number') {
     return 'number';
   }
+  if (type === 'array') {
+    return 'array';
+  }
   return 'string';
 }
 

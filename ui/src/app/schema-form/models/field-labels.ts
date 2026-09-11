@@ -176,8 +176,20 @@ const TOKEN_OVERRIDES: Record<string, string> = {
  * Generic identifier → label fallback: splits snake_case / camelCase into words
  * and title-cases them, honouring the known-token casing overrides.
  */
+/**
+ * Unit suffixes stripped before humanising a key.
+ *
+ * The control now prints the unit inside itself (see `field-units.ts`), so
+ * carrying it in the label too produced "Filament Density G Cm3" and "Min Layer
+ * Time S" — the unit spelled out as words, next to a box already showing it
+ * properly. Anchored to the end and only whole trailing tokens, so a key like
+ * `min_infill_extrusion_mm` loses `_mm` while `mm_per_sec_mode` keeps its name.
+ */
+const UNIT_SUFFIX = /_(mm3_s|mm_s|mm2|mm3|mm|g_cm3|deg|px|s)$/;
+
 export function humanize(id: string): string {
   return id
+    .replace(UNIT_SUFFIX, '')
     .replace(/([a-z0-9])([A-Z])/g, '$1 $2')
     .split(/[-_\s]+/)
     .filter(Boolean)

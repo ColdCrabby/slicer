@@ -5,7 +5,13 @@ export interface EnumOption {
   description?: string;
 }
 
-export type FieldType = 'number' | 'integer' | 'boolean' | 'string';
+/**
+ * `array` is carried through rather than collapsed into `string` so the form can
+ * *skip* it. Fan curves and pause triggers are structured lists with editors of
+ * their own; folding them into the string bucket handed them to the fallback
+ * widget, which rendered a number spinner for a list of objects.
+ */
+export type FieldType = 'number' | 'integer' | 'boolean' | 'string' | 'array';
 
 /**
  * Conditional relevance rule for a field, mirroring the `x-relevant-when`

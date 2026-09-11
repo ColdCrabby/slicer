@@ -52,6 +52,9 @@ const BY_NAME: ReadonlyArray<readonly [RegExp, FieldUnit]> = [
   // the `speed` in its name would otherwise claim it for mm/s.
   [/volumetric/, { unit: 'mm³/s', step: 1 }],
   [/_g_cm3$|_g_cm³$/, { unit: 'g/cm³', step: 0.01 }],
+  // Before the speed rule: a fan "speed" is a percentage of full power, not a
+  // rate in mm/s, and `fan_speed` matches both patterns.
+  [/fan/, { unit: '%', step: 5 }],
   [/speed$|^speed_/, { unit: 'mm/s', step: 5 }],
   [/acceleration|_accel$/, { unit: 'mm/s²', step: 100 }],
   // Substring, not a suffix: the first-layer variants are named
@@ -60,7 +63,7 @@ const BY_NAME: ReadonlyArray<readonly [RegExp, FieldUnit]> = [
   [/angle$/, { unit: '°', step: 5 }],
   // `density` is deliberately absent — `filament_density_g_cm3` is a material
   // property in g/cm³, and infill density has a slider of its own.
-  [/fan|overlap|_flow$|infill_anchor|_percent/, { unit: '%', step: 1 }],
+  [/overlap|_flow$|infill_anchor|_percent/, { unit: '%', step: 1 }],
   [
     /(height|width|length|distance|thickness|diameter|offset|gap|margin|radius|extrusion)(_min|_max)?$|brim|skirt_distance|_z$/,
     { unit: 'mm', step: 0.1 },
