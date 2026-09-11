@@ -64,7 +64,7 @@ Hover-scrolling is the fast one — you don't have to click into the field first
 | Pan | Right-drag |
 | Zoom | Scroll |
 | Select | Click a model |
-| Context menu | Right-click a list row |
+| Context menu | Right-click a model, a workplate tab, or a list row |
 
 ## Touch and pen
 

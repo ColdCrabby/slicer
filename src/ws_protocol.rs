@@ -299,6 +299,15 @@ pub enum ClientMessage {
     /// Request the current scene snapshot. Server replies with
     /// [`ServerMessage::SceneState`].
     SceneSnapshot,
+    /// Liveness probe. The server answers immediately with
+    /// [`ServerMessage::Pong`] and does nothing else.
+    ///
+    /// A WebSocket whose peer has gone without sending a close frame stays
+    /// `OPEN` on the other side indefinitely, so a browser has no way to tell a
+    /// quiet connection from a dead one. Without this the UI reported itself
+    /// "Connected" to an engine that was no longer running, and the next slice
+    /// waited on a reply that could never arrive.
+    Ping,
     /// Probe a printer connection and report its live status.
     ///
     /// The server performs the HTTP request on the client's behalf so the
@@ -343,6 +352,9 @@ pub enum ClientMessage {
 pub enum ServerMessage {
     /// Sent once immediately after the WebSocket handshake completes.
     Connected { version: String },
+    /// Reply to [`ClientMessage::Ping`]. Carries nothing — its arrival is the
+    /// whole message.
+    Pong,
     /// A log line for the status panel.
     Log { level: String, message: String },
     /// A performance timing marker for a pipeline phase.

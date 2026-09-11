@@ -46,6 +46,25 @@ export interface Celebration {
 /** Lifetime (ms) of a celebration overlay — matches its fade-out keyframes. */
 export const CELEBRATION_MS = 2200;
 
+/**
+ * Most toasts on screen at once.
+ *
+ * The stack grows upward from the bottom-left corner with nothing to stop it,
+ * so a burst — a multi-model import, a run of failures — climbed over the
+ * settings panel and the object list and eventually off the top of the window.
+ * Oldest goes first: the newest message is the one the user is waiting on.
+ */
+const MAX_VISIBLE = 4;
+
+/**
+ * How long an error stays before dismissing itself.
+ *
+ * Errors used to persist until clicked, which reads as tidy until three of them
+ * are covering the plate and the user has already moved on. Long enough to read
+ * twice, short enough to clear up after itself.
+ */
+const ERROR_DISMISS_MS = 12000;
+
 let _nextId = 1;
 
 @Injectable({ providedIn: 'root' })
@@ -77,7 +96,13 @@ export class NotificationService {
   }
 
   error(title: string, message?: string): string {
-    return this.push({ severity: 'error', title, message, dismissible: true });
+    return this.push({
+      severity: 'error',
+      title,
+      message,
+      autoDismissMs: ERROR_DISMISS_MS,
+      dismissible: true,
+    });
   }
 
   /**
@@ -138,13 +163,47 @@ export class NotificationService {
   }
 
   dismiss(id: string): void {
+    this.pauseAutoDismiss(id);
     this.notifications.update((list) => list.filter((n) => n.id !== id));
   }
+
+  /**
+   * Hold the auto-dismiss countdown — while a toast is hovered or focused, so a
+   * message cannot evaporate mid-sentence while it is being read.
+   */
+  pauseAutoDismiss(id: string): void {
+    const handle = this.#timers.get(id);
+    if (handle !== undefined) {
+      clearTimeout(handle);
+      this.#timers.delete(id);
+    }
+  }
+
+  /** Restart the countdown a {@link pauseAutoDismiss} held. */
+  resumeAutoDismiss(id: string): void {
+    if (this.#timers.has(id)) {
+      return;
+    }
+    const remaining = this.notifications().find((n) => n.id === id)?.autoDismissMs;
+    if (remaining) {
+      this.scheduleAutoDismiss(id, remaining);
+    }
+  }
+
+  readonly #timers = new Map<string, ReturnType<typeof setTimeout>>();
 
   private push(partial: Omit<Notification, 'id'>): string {
     const id = String(_nextId++);
     const notification: Notification = { id, ...partial };
-    this.notifications.update((list) => [...list, notification]);
+
+    this.notifications.update((list) => {
+      // An identical message repeated (the same failure retried, the same file
+      // re-imported) replaces its predecessor rather than stacking a duplicate.
+      const deduped = list.filter(
+        (n) => !(n.title === notification.title && n.message === notification.message),
+      );
+      return [...deduped, notification].slice(-MAX_VISIBLE);
+    });
 
     if (notification.autoDismissMs) {
       this.scheduleAutoDismiss(id, notification.autoDismissMs);
@@ -154,6 +213,13 @@ export class NotificationService {
   }
 
   private scheduleAutoDismiss(id: string, delayMs: number): void {
-    setTimeout(() => this.dismiss(id), delayMs);
+    this.pauseAutoDismiss(id);
+    this.#timers.set(
+      id,
+      setTimeout(() => {
+        this.#timers.delete(id);
+        this.dismiss(id);
+      }, delayMs),
+    );
   }
 }

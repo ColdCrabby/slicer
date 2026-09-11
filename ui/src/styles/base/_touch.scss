@@ -22,10 +22,52 @@
 /// `Viewport` service.
 
 html.is-coarse-pointer {
+  // Fixed-height chrome has to grow before anything inside it can reach 44px.
+  // The titlebar carries the workplate tabs, which are the densest targets in
+  // the app; at the 40px desktop height a tab cannot be more than 28px tall.
+  --titlebar-height: 52px;
+
   // ── Touch targets ───────────────────────────────────────────────────────
   nexus-select .trigger,
   nexus-number-input .field {
     height: 44px;
+  }
+
+  // The steppers beside a number field, and the "more info" button beside a
+  // label, are the two most numerous controls in the settings form — roughly
+  // 140 and 96 of them on a single page — and the two smallest. Neither is
+  // reachable through the selectors above, so both stayed at cursor size on
+  // every tablet.
+  nexus-number-input .step {
+    min-width: 44px;
+    min-height: 44px;
+  }
+
+  .icon-btn {
+    min-width: 44px;
+    min-height: 44px;
+  }
+
+  // A 20px-tall switch is a toggle you aim at rather than flick.
+  nexus-switch .switch,
+  .switch {
+    min-height: 28px;
+  }
+
+  // Accordion headers, segmented-control segments and the legend's role chips:
+  // full-width rows that were still only 26–36px of vertical target.
+  .schema-form-group-trigger,
+  .segment,
+  .role-badge {
+    min-height: 44px;
+  }
+
+  // Icon-only buttons in the chrome (titlebar links, viewport tools, the
+  // objects-panel row actions) inherit the shared component's cursor sizes.
+  button[nexusIconButton],
+  a[nexusIconButton] {
+    min-width: 44px;
+    min-height: 44px;
   }
 
   input:not([type='checkbox']):not([type='radio']):not([type='range']),

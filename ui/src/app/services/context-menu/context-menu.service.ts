@@ -38,11 +38,17 @@ export class ContextMenuService {
 
   #openRef: FloatingComponentRef<ContextMenu> | null = null;
   #openSub: OutputRefSubscription | null = null;
+  #detachScrollDismiss: (() => void) | null = null;
+  #openNativeMenu: unknown = null;
 
   /** Show a context menu for `event`'s pointer position. */
   async open(event: MouseEvent, items: readonly ContextMenuItem[]): Promise<void> {
     event.preventDefault();
     event.stopPropagation();
+
+    // A web menu may still be up when the platform path changes under us; the
+    // native paths have no equivalent of `#openWeb`'s own `close()` call.
+    this.close();
 
     if (isTauriDesktop()) {
       await this.#openNative(items);
@@ -57,6 +63,8 @@ export class ContextMenuService {
 
   /** Dismiss the web fallback menu, if one is open. */
   close(): void {
+    this.#detachScrollDismiss?.();
+    this.#detachScrollDismiss = null;
     this.#openSub?.unsubscribe();
     this.#openSub = null;
     this.#openRef?.close();
@@ -71,7 +79,16 @@ export class ContextMenuService {
         : { text: item.label, enabled: !item.disabled, action: () => item.action?.() },
     );
     const menu = await Menu.new({ items: menuItems });
-    await menu.popup();
+    // Held on the instance for as long as the menu is up. The item callbacks
+    // live on the JS side of the Tauri bridge, so letting the only reference go
+    // out of scope the moment `popup()` resolves leaves them eligible for
+    // collection while the user is still reading the menu.
+    this.#openNativeMenu = menu;
+    try {
+      await menu.popup();
+    } finally {
+      this.#openNativeMenu = null;
+    }
   }
 
   /**
@@ -139,6 +156,14 @@ export class ContextMenuService {
       onOutsidePointer: () => this.close(),
       onEscape: () => this.close(),
     });
+
+    // The menu is pinned to the viewport point the press happened at, so
+    // scrolling the list underneath leaves it pointing at a different row than
+    // the one it was opened for. Native menus dismiss on scroll; so does this.
+    const onScroll = () => this.close();
+    window.addEventListener('scroll', onScroll, { capture: true, passive: true });
+    this.#detachScrollDismiss = () =>
+      window.removeEventListener('scroll', onScroll, { capture: true });
 
     ref.setInput('items', items);
     this.#openSub = ref.instance.choose.subscribe((item: ContextMenuItem) => {

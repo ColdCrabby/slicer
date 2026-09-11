@@ -1,4 +1,4 @@
-import { Component, computed, inject } from '@angular/core';
+import { ChangeDetectionStrategy, Component, computed, inject } from '@angular/core';
 import { Slicer } from '../../services/slicer';
 import { Badge, BadgeVariant } from '@coldcrabby/ui';
 
@@ -12,7 +12,7 @@ const STATUS_CONFIG: Record<string, StatusConfig> = {
   connecting: { label: 'Connecting…', variant: 'warning', pulse: true },
   connected: { label: 'Connected', variant: 'success', pulse: false },
   disconnected: { label: 'Disconnected', variant: 'default', pulse: false },
-  failed: { label: '', variant: 'danger', pulse: false },
+  failed: { label: 'Engine unreachable', variant: 'danger', pulse: false },
 };
 
 @Component({
@@ -21,6 +21,7 @@ const STATUS_CONFIG: Record<string, StatusConfig> = {
   imports: [Badge],
   templateUrl: './connection-state.html',
   styleUrl: './connection-state.scss',
+  changeDetection: ChangeDetectionStrategy.OnPush,
   host: {
     '[hidden]': '!slicer.shouldShowConnectionStatus()',
   },

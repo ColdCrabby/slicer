@@ -93,6 +93,10 @@
 }
 
 .op-row {
+  &:active {
+    background: var(--color-surface-active);
+  }
+
   display: flex;
   align-items: center;
   gap: var(--spacing-xs);

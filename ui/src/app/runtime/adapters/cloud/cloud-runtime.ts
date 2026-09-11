@@ -97,6 +97,13 @@ export class CloudRuntime implements RuntimePort {
 
   async applySceneOps(ops: RuntimeSceneOp[]): Promise<void> {
     this.requireReady();
+    // `send` drops a message when the socket is down, with nothing but a console
+    // warning to show for it — so every move, rotate and duplicate made during
+    // an outage vanished while the viewer went on showing it applied. Failing
+    // here is what lets the caller tell the user, and matches `slice()`.
+    if (!this.ws.isConnected()) {
+      throw new Error(this.ws.lastError() || 'Not connected to the slicer engine.');
+    }
     const payload: ClientMessage = {
       type: 'Scene',
       ops: ops.map((op) => {

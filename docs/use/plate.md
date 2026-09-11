@@ -152,8 +152,10 @@ Right-click a model — or press and hold it on a touch screen — for **Duplica
 **Drop to floor**, **Centre on bed** and **Remove**, right where the model is. If
 you have several selected, the menu acts on all of them.
 
-The objects panel has the same **Duplicate** and **Remove** on each row. There,
-Remove asks once before it takes effect.
+The objects panel has the same **Duplicate** and **Remove** as buttons on each
+row — there, Remove asks once before it takes effect — and right-clicking (or
+pressing and holding) a row gives you the full menu, **Drop to floor** and
+**Centre on bed** included, without hunting for the model on the plate.
 
 Duplicates are cheap — they share the original's geometry.
 

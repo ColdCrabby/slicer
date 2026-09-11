@@ -14,6 +14,12 @@
   min-width: 0;
   height: 100%;
   overflow-x: auto;
+  // Without this the other axis computes to `auto`, not `visible` — so the
+  // strip scrolls vertically the moment anything inside exceeds its height
+  // (the rename box does exactly that at coarse-pointer sizes). Same pairing
+  // the settings chip strip uses.
+  overflow-y: hidden;
+  overscroll-behavior-x: contain;
   scrollbar-width: none;
 
   &::-webkit-scrollbar {
@@ -41,10 +47,26 @@
     background: var(--color-surface-hover);
   }
 
+  &:active {
+    background: var(--color-surface-active);
+  }
+
+  &:focus-visible {
+    outline: 2px solid var(--color-focus-ring);
+    outline-offset: -1px;
+  }
+
   &.active {
     background: var(--accent-soft);
     border-color: var(--accent-border);
   }
+}
+
+// The draft plate has nothing to close and nothing to rename; it exists only so
+// the strip can say which plate is on screen.
+.wp-tab--draft {
+  padding-right: 8px;
+  cursor: default;
 }
 
 .wp-tab-label {
@@ -95,17 +117,27 @@
 // A tab's own active/hover state already says "this is the one"; the close
 // button only needs to appear once the user is actually looking at this tab,
 // so a row of many plates doesn't turn into a row of many x's.
+//
+// `visibility` rather than `opacity` alone: an `opacity: 0` button still takes
+// the click. On a touch device — which never produces the hover that would
+// reveal it — that put an invisible close button over the last quarter of every
+// inactive tab, so tapping a tab near its right edge closed it instead of
+// switching to it.
 .wp-tab-close {
   flex: none;
   color: var(--color-text-tertiary);
   opacity: 0;
-  transition: opacity var(--duration-fast) var(--ease-standard);
+  visibility: hidden;
+  transition:
+    opacity var(--duration-fast) var(--ease-standard),
+    visibility var(--duration-fast) var(--ease-standard);
 }
 
 .wp-tab:hover .wp-tab-close,
 .wp-tab:focus-within .wp-tab-close,
 .wp-tab.active .wp-tab-close {
   opacity: 1;
+  visibility: visible;
 }
 
 .wp-tab-add {
@@ -121,5 +153,33 @@
 @include compact {
   .wp-tab {
     max-width: 120px;
+  }
+}
+
+// ── Touch ────────────────────────────────────────────────────────────────────
+//
+// A 28px chip with a 26px close button is a coin-flip under a fingertip, and
+// the titlebar is fixed-height chrome, so the bar itself has to grow to make
+// room for targets worth aiming at — `--titlebar-height` is raised for touch in
+// styles/base/_touch.scss. Keyed to the `html.is-coarse-pointer` class
+// for the specificity needed to beat the shared icon-button's own `:host`
+// size attribute, per styles/base/_touch.scss.
+html.is-coarse-pointer {
+  .wp-tab {
+    height: 44px;
+    padding: 0 4px 0 12px;
+  }
+
+  // There is no hover to reveal it, so it is simply always there.
+  .wp-tab-close {
+    opacity: 1;
+    visibility: visible;
+  }
+
+  .wp-tab-close,
+  .wp-tab-add {
+    width: 44px;
+    height: 44px;
+    --icon-size: 20px;
   }
 }

@@ -214,47 +214,6 @@
         );
         mark('(pointer: coarse)', 'is-coarse-pointer');
       })();
-
-      // iOS Safari ignores `user-scalable=no` in the viewport meta since
-      // iOS 10. Block pinch-zoom (gesture events) and double-tap zoom
-      // explicitly. Allow multi-touch inside elements that opt in via
-      // `data-allow-gesture` (e.g. the 3D viewer canvas if it ever needs it).
-      (function () {
-        var allow = function (target) {
-          return target && target.closest && target.closest('[data-allow-gesture]');
-        };
-        ['gesturestart', 'gesturechange', 'gestureend'].forEach(function (evt) {
-          document.addEventListener(
-            evt,
-            function (e) {
-              if (!allow(e.target)) e.preventDefault();
-            },
-            { passive: false },
-          );
-        });
-        document.addEventListener(
-          'touchmove',
-          function (e) {
-            if (e.touches && e.touches.length > 1 && !allow(e.target)) {
-              e.preventDefault();
-            }
-          },
-          { passive: false },
-        );
-        // Suppress double-tap zoom (iOS triggers it within ~300ms of a tap).
-        var lastTouchEnd = 0;
-        document.addEventListener(
-          'touchend',
-          function (e) {
-            var now = Date.now();
-            if (now - lastTouchEnd <= 300 && !allow(e.target)) {
-              e.preventDefault();
-            }
-            lastTouchEnd = now;
-          },
-          { passive: false },
-        );
-      })();
     </script>
   </head>
   <body>

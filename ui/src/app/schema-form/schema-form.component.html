@@ -97,26 +97,38 @@
           </button>
         </h3>
 
+        <!--
+          The fields live in an `ngAccordionContent` template so the panel only
+          builds them when the section is first opened. Without it the accordion
+          warned on every render and every group was instantiated up front —
+          around 340 controls across the twelve collapsed sections, none of them
+          on screen. `preserveContent` keeps a section alive once it has been
+          opened, so the collapse animation still has something to animate and
+          re-opening is instant.
+        -->
         <div
           ngAccordionPanel
           #panel="ngAccordionPanel"
+          [preserveContent]="true"
           class="schema-form-group-panel"
           [attr.data-expanded]="expandedSig()"
         >
-          <div class="schema-form-group-fields">
-            <div class="schema-form-group-fields-inner">
-              @for (f of group.fields; track f.key) {
-                <div class="schema-form-field" [class.is-modified]="modifiedKeys().has(f.key)">
-                  <se-field-host
-                    [field]="f"
-                    [value]="valueFor(f)"
-                    [siblings]="value()"
-                    (fieldChange)="onFieldChange(f.key, $event)"
-                  />
-                </div>
-              }
+          <ng-template ngAccordionContent>
+            <div class="schema-form-group-fields">
+              <div class="schema-form-group-fields-inner">
+                @for (f of group.fields; track f.key) {
+                  <div class="schema-form-field" [class.is-modified]="modifiedKeys().has(f.key)">
+                    <se-field-host
+                      [field]="f"
+                      [value]="valueFor(f)"
+                      [siblings]="value()"
+                      (fieldChange)="onFieldChange(f.key, $event)"
+                    />
+                  </div>
+                }
+              </div>
             </div>
-          </div>
+          </ng-template>
         </div>
       </div>
     }

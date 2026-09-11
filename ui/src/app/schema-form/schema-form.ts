@@ -1,4 +1,9 @@
-import { AccordionGroup, AccordionPanel, AccordionTrigger } from '@angular/aria/accordion';
+import {
+  AccordionContent,
+  AccordionGroup,
+  AccordionPanel,
+  AccordionTrigger,
+} from '@angular/aria/accordion';
 import {
   ChangeDetectionStrategy,
   Component,
@@ -82,7 +87,15 @@ const FUSE_OPTIONS: IFuseOptions<FieldDefIndexed> = {
 @Component({
   selector: 'se-schema-form',
   standalone: true,
-  imports: [FormsModule, Icon, FieldHost, AccordionGroup, AccordionPanel, AccordionTrigger],
+  imports: [
+    FormsModule,
+    Icon,
+    FieldHost,
+    AccordionGroup,
+    AccordionPanel,
+    AccordionTrigger,
+    AccordionContent,
+  ],
   changeDetection: ChangeDetectionStrategy.OnPush,
   templateUrl: './schema-form.component.html',
   styleUrl: './schema-form.component.scss',

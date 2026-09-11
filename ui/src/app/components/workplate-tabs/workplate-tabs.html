@@ -1,12 +1,15 @@
 <div class="wp-tablist" role="tablist" aria-label="Open workplates">
-  @for (tab of tabs(); track tab.uuid) {
+  @for (tab of tabs(); track tab.uuid; let i = $index) {
     <div
+      #tabEl
       class="wp-tab"
       role="tab"
       [class.active]="tab.uuid === activeUuid()"
       [attr.aria-selected]="tab.uuid === activeUuid()"
-      (click)="activate(tab.uuid, $event)"
+      [attr.tabindex]="tab.uuid === activeUuid() ? 0 : -1"
+      (click)="activate(tab.uuid)"
       (dblclick)="startEditing(tab.uuid, $event)"
+      (keydown)="onTabKeydown($event, tab.uuid, i)"
       (nexusContextMenu)="onContextMenu($event, tab.uuid)"
     >
       @if (editingUuid() === tab.uuid) {
@@ -22,7 +25,6 @@
           aria-label="Workplate name"
           spellcheck="false"
           autocomplete="off"
-          autofocus
         />
       } @else {
         <span class="wp-tab-label" (dblclick)="startEditing(tab.uuid, $event)">
@@ -34,12 +36,24 @@
         size="sm"
         class="wp-tab-close"
         type="button"
-        aria-label="Close workplate tab"
+        tabindex="-1"
+        [attr.aria-label]="'Close ' + (nameFor(tab) || placeholderFor(tab))"
         tooltip="Close"
         (click)="closeTab(tab.uuid, $event)"
       >
         <nexus-icon name="xmark" />
       </button>
+    </div>
+  }
+
+  <!--
+    The plate on screen before it has a `request_uuid` of its own. Without it the
+    strip renders a tablist with nothing selected while the user is plainly
+    working somewhere; it is replaced by a real tab the moment a model lands.
+  -->
+  @if (isNewPlate()) {
+    <div class="wp-tab wp-tab--draft active" role="tab" aria-selected="true" tabindex="0">
+      <span class="wp-tab-label">New plate</span>
     </div>
   }
 </div>

@@ -49,6 +49,7 @@
             [attr.aria-pressed]="row.selected"
             (click)="select(row, $event)"
             (keydown.enter)="select(row, $event)"
+            (nexusContextMenu)="onContextMenu($event, row)"
           >
             <nexus-icon class="op-row-icon" name="cube"></nexus-icon>
 

@@ -168,3 +168,12 @@
     width: auto;
   }
 }
+
+// Dismissing a toast is the one thing a user reliably wants to do to one, and
+// at cursor size the target sat well under a fingertip.
+@include coarse-pointer {
+  .notification__close {
+    width: 44px;
+    height: 44px;
+  }
+}

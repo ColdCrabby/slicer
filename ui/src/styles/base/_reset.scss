@@ -35,6 +35,24 @@ body {
   inset: 0;
 }
 
+// Double-tap-to-zoom is what the removed page-wide gesture script was really
+// trying to suppress, and it is the one part worth keeping — a stray double tap
+// on a button should press it twice, not magnify the page. `manipulation` says
+// exactly that, per control, and leaves pinch-to-zoom alone. Blocking the
+// gesture events document-wide took magnification away from every settings form
+// and every block of prose, which is the accessibility failure the viewport meta
+// above is careful not to commit.
+button,
+a,
+label,
+summary,
+[role='button'],
+[role='tab'],
+input:not([type='text']):not([type='number']):not([type='search']),
+select {
+  touch-action: manipulation;
+}
+
 // Inner scrollable regions should opt in via this class (or set their own
 // overflow). `contain` keeps inertia natural while preventing scroll chaining
 // back to the locked body.

@@ -1,4 +1,13 @@
-import { ChangeDetectionStrategy, Component, inject, signal } from '@angular/core';
+import {
+  ChangeDetectionStrategy,
+  Component,
+  ElementRef,
+  effect,
+  inject,
+  signal,
+  viewChild,
+  viewChildren,
+} from '@angular/core';
 import { Router } from '@angular/router';
 import { OpenWorkplateTab, OpenWorkplates } from '../../services/open-workplates';
 import { Slicer } from '../../services/slicer';
@@ -33,8 +42,27 @@ export class WorkplateTabs {
 
   readonly tabs = this.openWorkplates.tabs;
   readonly activeUuid = this.openWorkplates.activeUuid;
+  readonly isNewPlate = this.openWorkplates.isNewPlate;
   /** UUID of the tab whose name is currently being edited, if any. */
   readonly editingUuid = signal<string | null>(null);
+
+  private readonly editInput = viewChild<ElementRef<HTMLInputElement>>('editInput');
+  private readonly tabEls = viewChildren<ElementRef<HTMLElement>>('tabEl');
+
+  constructor() {
+    // The `autofocus` attribute is honoured when the parser meets it, so an
+    // input swapped in by a control-flow block is simply never focused —
+    // Safari in particular ignores it entirely. Focusing here is what makes the
+    // box you just opened the box you are typing in; selecting the text means
+    // the common case (replace the name outright) needs no extra gesture.
+    effect(() => {
+      const input = this.editInput()?.nativeElement;
+      if (input) {
+        input.focus();
+        input.select();
+      }
+    });
+  }
 
   /** The stored custom name, if the tab was renamed. */
   nameFor(tab: OpenWorkplateTab): string {
@@ -47,13 +75,15 @@ export class WorkplateTabs {
   }
 
   /**
-   * Switching tabs and renaming share the same click: a tab you're not on
-   * activates it, like any tab strip; clicking the one you're already on has
-   * nothing left to *do* but rename it, so that's what a re-click means here.
+   * A click switches tabs and nothing else.
+   *
+   * Renaming is a double-click (or the context menu), the way a tab strip
+   * behaves everywhere else. Opening an editor on a single click meant every
+   * re-click of the tab you were already on dropped a text box in your path,
+   * and a click is far too cheap a gesture to start editing on.
    */
-  activate(uuid: string, event: Event): void {
+  activate(uuid: string): void {
     if (uuid === this.activeUuid()) {
-      this.startEditing(uuid, event);
       return;
     }
     void this.router.navigate(['/slice', uuid]);
@@ -64,13 +94,19 @@ export class WorkplateTabs {
     this.editingUuid.set(uuid);
   }
 
+  /**
+   * Commit an edit. Clearing the box is a deliberate "use the default again",
+   * not a no-op: leaving the old custom name in place made an emptied field
+   * look like it had simply failed to save.
+   */
   stopEditing(uuid: string, newName: string): void {
-    if (this.editingUuid() === uuid) {
-      if (newName.trim()) {
-        this.names.setName(uuid, newName.trim());
-      }
-      this.editingUuid.set(null);
+    if (this.editingUuid() !== uuid) {
+      return;
     }
+    // `setName` deletes the entry for a blank value, so this is both "rename"
+    // and "go back to the derived name" in one call.
+    this.names.setName(uuid, newName);
+    this.editingUuid.set(null);
   }
 
   onInputBlur(uuid: string, event: FocusEvent): void {
@@ -124,6 +160,43 @@ export class WorkplateTabs {
     for (const tab of all) {
       this.openWorkplates.close(tab.uuid);
     }
+  }
+
+  /**
+   * Arrow-key movement across the strip, plus Enter/Space to switch and F2 to
+   * rename — what `role="tablist"` promises a keyboard user and what a strip of
+   * unfocusable `div`s could not deliver. Home/End jump to the ends.
+   */
+  onTabKeydown(event: KeyboardEvent, uuid: string, index: number): void {
+    const tabs = this.tabs();
+    let next: number | null = null;
+    switch (event.key) {
+      case 'ArrowRight':
+        next = (index + 1) % tabs.length;
+        break;
+      case 'ArrowLeft':
+        next = (index - 1 + tabs.length) % tabs.length;
+        break;
+      case 'Home':
+        next = 0;
+        break;
+      case 'End':
+        next = tabs.length - 1;
+        break;
+      case 'Enter':
+      case ' ':
+        event.preventDefault();
+        this.activate(uuid);
+        return;
+      case 'F2':
+        event.preventDefault();
+        this.startEditing(uuid);
+        return;
+      default:
+        return;
+    }
+    event.preventDefault();
+    this.tabEls()[next]?.nativeElement.focus();
   }
 
   onContextMenu(event: MouseEvent, uuid: string): void {

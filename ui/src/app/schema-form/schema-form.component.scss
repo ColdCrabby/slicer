@@ -166,6 +166,12 @@
 }
 
 .schema-form-group-trigger {
+  // A press with no acknowledgement reads as a press that missed, and there is
+  // no hover to fall back on under a fingertip.
+  &:active {
+    background: var(--color-surface-active);
+  }
+
   display: flex;
   align-items: center;
   justify-content: space-between;

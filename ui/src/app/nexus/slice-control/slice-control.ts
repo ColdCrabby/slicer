@@ -109,7 +109,10 @@ export class SliceControl {
     }
     if (this.isStale()) return 'Scene changed — re-slice to update';
     if (s === 'done') {
-      const n = this.preview.layerCount();
+      // What the slice produced, not what the preview has drawn — the preview
+      // count is zero or partial while it loads, and quoting it made a finished
+      // slice report the wrong size.
+      const n = this.slicer.lastLayerCount() ?? this.preview.layerCount();
       const elapsed = this.slicer.totalElapsedMs();
       const time = elapsed != null ? ` · ${formatDuration(elapsed)}` : '';
       return n > 0 ? `Sliced · ${n} layers${time}` : `Slice complete${time}`;

@@ -266,6 +266,9 @@ async fn handle_ws_session(
                 Ok(ClientMessage::SceneSnapshot) => {
                     let _ = send_msg(&mut session, &snapshot_msg(&scene)).await;
                 }
+                Ok(ClientMessage::Ping) => {
+                    let _ = send_msg(&mut session, &ServerMessage::Pong).await;
+                }
                 Ok(ClientMessage::CheckPrinter {
                     printer_id,
                     connection,

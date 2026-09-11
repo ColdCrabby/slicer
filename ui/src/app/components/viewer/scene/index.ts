@@ -9,7 +9,7 @@ import {
   MeshBasicMaterial,
   NoToneMapping,
   type Object3D,
-  PCFSoftShadowMap,
+  PCFShadowMap,
   PerspectiveCamera,
   Scene,
   SRGBColorSpace,
@@ -283,7 +283,10 @@ export class ViewerScene {
     // `shadowMap.enabled` off (setShadowsEnabled) makes Three.js skip its
     // shadow pre-pass entirely, not just hide the result.
     this.renderer.shadowMap.enabled = options?.shadowsEnabled ?? true;
-    this.renderer.shadowMap.type = PCFSoftShadowMap;
+    // Three deprecated `PCFSoftShadowMap` and silently substitutes `PCFShadowMap`
+    // anyway, logging a warning on every renderer it builds — so name what we
+    // actually get.
+    this.renderer.shadowMap.type = PCFShadowMap;
     host.appendChild(this.renderer.domElement);
 
     // Palm rejection is installed on `host` (an ancestor of the canvas) in the

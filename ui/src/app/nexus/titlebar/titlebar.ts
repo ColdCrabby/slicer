@@ -10,7 +10,6 @@ import {
   resolveRuntimeMode,
 } from '../../runtime/domain/runtime-mode.util';
 import { Icon, IconButton, TooltipDirective } from '@coldcrabby/ui';
-import { ExternalLinkDirective } from '../../directives/external-link.directive';
 
 /**
  * Where a runtime's API reference lives, or `null` when it has no server.
@@ -39,15 +38,7 @@ export function apiDocsUrlFor(mode: RuntimeMode, apiUrl: string): string | null 
  */
 @Component({
   selector: 'nexus-titlebar',
-  imports: [
-    ConnectionState,
-    Logo,
-    WorkplateTabs,
-    Icon,
-    IconButton,
-    TooltipDirective,
-    ExternalLinkDirective,
-  ],
+  imports: [ConnectionState, Logo, WorkplateTabs, Icon, IconButton, TooltipDirective],
   templateUrl: './titlebar.html',
   styleUrl: './titlebar.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,

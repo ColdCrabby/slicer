@@ -153,8 +153,12 @@ The title bar keeps a tab for every workplate you have open, the way a browser
 keeps a tab per page. Uploading a model, opening a recent project, or following
 a link into a plate all open a tab; clicking one switches to that plate.
 
-- **Rename a tab** by clicking into it and typing — the same name is used for
-  the downloaded G-code file.
+- **Rename a tab** by double-clicking it, or right-clicking and choosing
+  **Rename**. The box opens with the current name selected, so you can type
+  straight over it; `Enter` saves, `Esc` cancels, and clearing it puts the
+  automatic name back. The same name is used for the downloaded G-code file.
+- **Move between tabs from the keyboard** with `←` and `→` once a tab has
+  focus — `Home` and `End` jump to the ends, `Enter` switches, `F2` renames.
 - **Open a new, empty plate** with the `+` at the end of the strip.
 - **Close a tab** with its `×`. Closing the plate you're looking at switches you
   to the next tab over, or back to a fresh plate if it was the last one open.
@@ -165,7 +169,8 @@ a link into a plate all open a tab; clicking one switches to that plate.
 
 `Ctrl`/`⌘ + Z` undoes, `Ctrl`/`⌘ + Y` (or `⌘ + Shift + Z`) redoes. This covers
 what you do to the plate — moving, rotating, scaling, adding, deleting,
-arranging.
+arranging. While you're typing in a settings field or a name box the shortcut
+belongs to that field, so it undoes your typing rather than the plate.
 
 On a touch device without a keyboard, undo and redo buttons appear in the 3D
 view toolbar so you can step through history without a shortcut. They show up
