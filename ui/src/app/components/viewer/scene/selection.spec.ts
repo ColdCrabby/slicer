@@ -191,7 +191,14 @@ describe('SceneSelection', () => {
     });
 
     it('lets the camera see the lift of a face pick too', () => {
-      selection.gizmoHandlers = { delta: vi.fn(), end: vi.fn(), facePicked: vi.fn() };
+      selection.gizmoHandlers = {
+        delta: vi.fn(),
+        end: vi.fn(),
+        facePicked: vi.fn(),
+        paintDab: vi.fn(),
+        paintEnd: vi.fn(),
+        paintRadiusChange: vi.fn(),
+      };
       selection.setObjectMode('pullToFloor');
       tap('mouse', 0);
       expect(cameraLiftListener).toHaveBeenCalled();
@@ -261,7 +268,14 @@ describe('SceneSelection', () => {
 
   describe('direct drag', () => {
     it('slides the selection when a finger drags an already-selected object', () => {
-      const gizmoHandlers = { delta: vi.fn(), end: vi.fn(), facePicked: vi.fn() };
+      const gizmoHandlers = {
+        delta: vi.fn(),
+        end: vi.fn(),
+        facePicked: vi.fn(),
+        paintDab: vi.fn(),
+        paintEnd: vi.fn(),
+        paintRadiusChange: vi.fn(),
+      };
       selection.gizmoHandlers = gizmoHandlers;
       selection.setDirectDragEnabled(true);
       selection.setObjectMode('translate');
@@ -285,7 +299,14 @@ describe('SceneSelection', () => {
     });
 
     it('leaves an unselected object alone, so the drag can orbit', () => {
-      const gizmoHandlers = { delta: vi.fn(), end: vi.fn(), facePicked: vi.fn() };
+      const gizmoHandlers = {
+        delta: vi.fn(),
+        end: vi.fn(),
+        facePicked: vi.fn(),
+        paintDab: vi.fn(),
+        paintEnd: vi.fn(),
+        paintRadiusChange: vi.fn(),
+      };
       selection.gizmoHandlers = gizmoHandlers;
       selection.setDirectDragEnabled(true);
       selection.setObjectMode('translate');
@@ -302,7 +323,14 @@ describe('SceneSelection', () => {
     });
 
     it('never takes a mouse drag away from the camera', () => {
-      const gizmoHandlers = { delta: vi.fn(), end: vi.fn(), facePicked: vi.fn() };
+      const gizmoHandlers = {
+        delta: vi.fn(),
+        end: vi.fn(),
+        facePicked: vi.fn(),
+        paintDab: vi.fn(),
+        paintEnd: vi.fn(),
+        paintRadiusChange: vi.fn(),
+      };
       selection.gizmoHandlers = gizmoHandlers;
       selection.setDirectDragEnabled(true);
       selection.setObjectMode('translate');
@@ -321,7 +349,14 @@ describe('SceneSelection', () => {
     // it never starts a rotate there is nothing left to wrestle it away from.
     // If this stops holding, the view spins under the object being dragged.
     it('shuts the camera out of a press it is about to claim', () => {
-      selection.gizmoHandlers = { delta: vi.fn(), end: vi.fn(), facePicked: vi.fn() };
+      selection.gizmoHandlers = {
+        delta: vi.fn(),
+        end: vi.fn(),
+        facePicked: vi.fn(),
+        paintDab: vi.fn(),
+        paintEnd: vi.fn(),
+        paintRadiusChange: vi.fn(),
+      };
       selection.setDirectDragEnabled(true);
       selection.setObjectMode('translate');
       selection.setSelectedIds(new Set(['7']));
@@ -332,7 +367,14 @@ describe('SceneSelection', () => {
     });
 
     it('ignores a second finger rather than dropping the drag', () => {
-      const gizmoHandlers = { delta: vi.fn(), end: vi.fn(), facePicked: vi.fn() };
+      const gizmoHandlers = {
+        delta: vi.fn(),
+        end: vi.fn(),
+        facePicked: vi.fn(),
+        paintDab: vi.fn(),
+        paintEnd: vi.fn(),
+        paintRadiusChange: vi.fn(),
+      };
       selection.gizmoHandlers = gizmoHandlers;
       selection.setDirectDragEnabled(true);
       selection.setObjectMode('translate');

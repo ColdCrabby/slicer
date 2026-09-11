@@ -133,6 +133,20 @@ export class KeyboardShortcuts {
       handleAction: () => this.viewerControl.objectMode.set('pullToFloor'),
     },
     {
+      actionId: 'object-mode-paint',
+      shortcut: 'b',
+      displayDescription: 'Switch to paint-support mode',
+      canMatch: () => !this.isTextInputFocused(),
+      handleAction: () => this.enterPaintMode(),
+    },
+    {
+      actionId: 'brush-quick-adjust',
+      shortcut: 'Shift+b',
+      displayDescription: 'Brush size and mode, at the pointer',
+      canMatch: () => !this.isTextInputFocused(),
+      handleAction: () => this.toggleBrushPopout(),
+    },
+    {
       actionId: 'toggle-gravity',
       shortcut: 'g',
       displayDescription: 'Toggle gravity',
@@ -256,6 +270,32 @@ export class KeyboardShortcuts {
     const currentView = this.viewerControl.view();
     const newView = currentView === 'perspective' ? 'ortho' : 'perspective';
     this.viewerControl.view.set(newView);
+  }
+
+  /**
+   * Enter paint mode, leaving G-code preview if that is where we are.
+   *
+   * The paint tools only exist over the model, so pressing `b` in preview used
+   * to appear to do nothing at all: the mode changed behind a view that cannot
+   * show it. Reaching for the brush is a clear enough statement of intent to
+   * switch back on the user's behalf.
+   */
+  private enterPaintMode(): void {
+    this.viewerControl.viewMode.set('model');
+    this.viewerControl.objectMode.set('paint');
+  }
+
+  /** Open (or dismiss) the quick-adjust brush card at the pointer. */
+  private toggleBrushPopout(): void {
+    if (this.viewerControl.brushPopoutAt() !== null) {
+      this.viewerControl.brushPopoutAt.set(null);
+      return;
+    }
+    this.enterPaintMode();
+    const at = this.viewerControl.pointerPositionSource?.() ?? null;
+    this.viewerControl.brushPopoutAt.set(
+      at ?? { x: window.innerWidth / 2, y: window.innerHeight / 2 },
+    );
   }
 
   private isTextInputFocused(): boolean {

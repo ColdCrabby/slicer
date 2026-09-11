@@ -83,6 +83,27 @@ impl Transform {
         )
     }
 
+    /// Map a point from world space back into the object's local frame.
+    ///
+    /// The inverse of [`to_matrix`](Self::to_matrix) applied to a point. Used by
+    /// support painting, where the cursor lands somewhere in world millimetres
+    /// but the paint has to be recorded against the geometry, so it survives
+    /// every later move, rotate and scale.
+    ///
+    /// Returns the point unchanged if the transform is singular (a zero scale
+    /// on some axis), which is the only sensible answer — there is no local
+    /// point to speak of once an axis has been collapsed.
+    pub fn inverse_point(&self, world: [f64; 3]) -> [f64; 3] {
+        let matrix = self.to_matrix();
+        let inverse = matrix.inverse();
+        if !inverse.is_finite() {
+            return world;
+        }
+        let p =
+            inverse.transform_point3(Vec3::new(world[0] as f32, world[1] as f32, world[2] as f32));
+        [p.x as f64, p.y as f64, p.z as f64]
+    }
+
     /// Compose `self` with `other`: `result = self ∘ other` (apply `other` first).
     ///
     /// Lossy when scale is non-uniform combined with rotation; sufficient for

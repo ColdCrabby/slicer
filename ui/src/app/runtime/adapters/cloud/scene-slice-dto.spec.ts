@@ -11,6 +11,7 @@ function object(name: string, sourceId: string | null, x = 0, part = 0): TestObj
     scale: [1, 1, 1],
     source_id: sourceId,
     source_part: part,
+    support_paint: null,
   };
 }
 
@@ -68,6 +69,7 @@ describe('toSliceDtos', () => {
           scale: [1, 2, 3],
           source_id: 'file-a',
           source_part: 0,
+          support_paint: null,
         },
       ],
       ['file-a'],

@@ -29,6 +29,7 @@ import {
 } from '@coldcrabby/ui';
 import { Card } from '../card/card';
 import { OperationPipelineDialog } from '../operation-pipeline-dialog/operation-pipeline-dialog';
+import { PaintPanel } from '../paint-panel/paint-panel';
 import { PlacementPanel } from '../placement-panel/placement-panel';
 import { TransformPanel } from '../transform-panel/transform-panel';
 
@@ -42,6 +43,7 @@ import { TransformPanel } from '../transform-panel/transform-panel';
     TooltipDirective,
     TransformPanel,
     PlacementPanel,
+    PaintPanel,
   ],
   templateUrl: './3d-view-toolbar.html',
   styleUrl: './3d-view-toolbar.scss',
