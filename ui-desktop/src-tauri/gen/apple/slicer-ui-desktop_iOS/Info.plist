@@ -57,8 +57,6 @@
 	<true/>
 	<key>LSSupportsOpeningDocumentsInPlace</key>
 	<true/>
-	<key>ITSAppUsesNonExemptEncryption</key>
-	<false/>
 	<key>UTImportedTypeDeclarations</key>
 	<array>
 		<dict>
@@ -116,19 +114,55 @@
 	<key>CFBundleDocumentTypes</key>
 	<array>
 		<dict>
-			<key>CFBundleTypeName</key>
-			<string>3D Model</string>
-			<key>LSHandlerRank</key>
-			<string>Alternate</string>
-			<key>CFBundleTypeRole</key>
-			<string>Viewer</string>
+			<key>CFBundleTypeExtensions</key>
+			<array>
+				<string>stl</string>
+			</array>
 			<key>LSItemContentTypes</key>
 			<array>
 				<string>public.standard-tesselated-geometry-format</string>
+			</array>
+			<key>CFBundleTypeName</key>
+			<string>STL Model</string>
+			<key>CFBundleTypeRole</key>
+			<string>Viewer</string>
+			<key>LSHandlerRank</key>
+			<string>Alternate</string>
+		</dict>
+		<dict>
+			<key>CFBundleTypeExtensions</key>
+			<array>
+				<string>obj</string>
+			</array>
+			<key>LSItemContentTypes</key>
+			<array>
 				<string>public.geometry-definition-format</string>
+			</array>
+			<key>CFBundleTypeName</key>
+			<string>Wavefront OBJ Model</string>
+			<key>CFBundleTypeRole</key>
+			<string>Viewer</string>
+			<key>LSHandlerRank</key>
+			<string>Alternate</string>
+		</dict>
+		<dict>
+			<key>CFBundleTypeExtensions</key>
+			<array>
+				<string>3mf</string>
+			</array>
+			<key>LSItemContentTypes</key>
+			<array>
 				<string>org.3mf.3mf</string>
 			</array>
+			<key>CFBundleTypeName</key>
+			<string>3MF Model</string>
+			<key>CFBundleTypeRole</key>
+			<string>Viewer</string>
+			<key>LSHandlerRank</key>
+			<string>Alternate</string>
 		</dict>
 	</array>
+	<key>ITSAppUsesNonExemptEncryption</key>
+	<false/>
 </dict>
 </plist>
