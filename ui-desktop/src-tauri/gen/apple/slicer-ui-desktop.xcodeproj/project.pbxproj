@@ -18,8 +18,6 @@
 		BBD2819B46F3047BA12706CE /* QuartzCore.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = E79D5A3BC9153443F1F5FA1C /* QuartzCore.framework */; };
 		BCF016EC5802E109DB328011 /* assets in Resources */ = {isa = PBXBuildFile; fileRef = 05F074B6FA91D4C81530F7B4 /* assets */; };
 		D7CD46EC45B6EB5661AF05F4 /* MetalKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 8D3EF52759E4667CB5799FC1 /* MetalKit.framework */; };
-		E0558C23827C356A4482D07F /* libapp.a in Resources */ = {isa = PBXBuildFile; fileRef = 78AE4A6059ACF1734C383153 /* libapp.a */; };
-		E62A045F07967E79A9E0BBEB /* libapp.a in Resources */ = {isa = PBXBuildFile; fileRef = 04F1A72BA27EF573344A6FB1 /* libapp.a */; };
 		EBF22AD0200B1407BAC7FE3C /* UIKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 9AF12395A1B1F12C51D33B0A /* UIKit.framework */; };
 /* End PBXBuildFile section */
 
@@ -263,8 +261,6 @@
 				372BFD9D5EA5692DF2E7B18E /* Assets.xcassets in Resources */,
 				126A06D1521B989BB84B209E /* LaunchScreen.storyboard in Resources */,
 				BCF016EC5802E109DB328011 /* assets in Resources */,
-				E0558C23827C356A4482D07F /* libapp.a in Resources */,
-				E62A045F07967E79A9E0BBEB /* libapp.a in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
