@@ -9,7 +9,7 @@ use std::sync::Arc;
 /// identifiers that have been placed in that scene. Today there is exactly
 /// one file per upload, but the protocol intentionally supports multiple so
 /// the slice path doesn't have to change when multi-file UX lands.
-#[derive(serde::Serialize, serde::Deserialize)]
+#[derive(serde::Serialize, serde::Deserialize, schemars::JsonSchema)]
 pub struct UploadResponse {
     pub ruuid: String,
     pub ofids: Vec<String>,
@@ -26,13 +26,13 @@ pub struct AppState {
 // ── Config handlers ───────────────────────────────────────────────────────────
 
 /// Request body for `GET /api/config`.
-#[derive(serde::Serialize, serde::Deserialize)]
+#[derive(serde::Serialize, serde::Deserialize, schemars::JsonSchema)]
 pub struct ConfigResponse {
     pub config: crate::config::AppConfig,
 }
 
 /// Request body for `PATCH /api/config`.
-#[derive(serde::Serialize, serde::Deserialize)]
+#[derive(serde::Serialize, serde::Deserialize, schemars::JsonSchema)]
 pub struct PatchConfigRequest {
     /// Dot-separated key, e.g. `"slicing.layer_height"` or `"server.port"`.
     pub key: String,
@@ -124,6 +124,73 @@ pub async fn put_profiles_category_handler(
         Err(e) => actix_web::HttpResponse::BadRequest()
             .json(serde_json::json!({ "error": e.to_string() })),
     }
+}
+
+/// `GET /api/workplates/{request_uuid}` — the saved setup for one plate.
+///
+/// Returns `{}` for a plate nobody has configured, rather than 404: "this plate
+/// has no saved setup" and "this plate does not exist" are the same thing to the
+/// caller, which is about to render the defaults either way.
+pub async fn get_workplate_handler(
+    path: web::Path<String>,
+    state: web::Data<AppState>,
+) -> actix_web::HttpResponse {
+    let Ok(uuid) = uuid::Uuid::parse_str(&path.into_inner()) else {
+        return actix_web::HttpResponse::BadRequest()
+            .json(serde_json::json!({ "error": "invalid workplate uuid" }));
+    };
+    match state.db.get_workplate_setup(uuid).await {
+        Ok(setup) => actix_web::HttpResponse::Ok()
+            .json(setup.unwrap_or_else(crate::workplate::WorkplateSetup::default)),
+        Err(e) => actix_web::HttpResponse::InternalServerError()
+            .json(serde_json::json!({ "error": e.to_string() })),
+    }
+}
+
+/// `PUT /api/workplates/{request_uuid}` — replace one plate's saved setup.
+///
+/// Whole-document, last writer wins, matching how a profile category is
+/// written. The body is a [`WorkplateSetup`](crate::workplate::WorkplateSetup):
+/// three profile ids, the user's sparse override diff, and where each object
+/// sits. Never mesh bytes, and never a copy of a profile.
+pub async fn put_workplate_handler(
+    path: web::Path<String>,
+    body: web::Json<crate::workplate::WorkplateSetup>,
+    state: web::Data<AppState>,
+) -> actix_web::HttpResponse {
+    let Ok(uuid) = uuid::Uuid::parse_str(&path.into_inner()) else {
+        return actix_web::HttpResponse::BadRequest()
+            .json(serde_json::json!({ "error": "invalid workplate uuid" }));
+    };
+    let mut setup = body.into_inner();
+    setup.updated_at = Some(chrono::Utc::now().to_rfc3339());
+
+    match state.db.save_workplate_setup(uuid, &setup).await {
+        Ok(()) => actix_web::HttpResponse::Ok().json(setup),
+        Err(e) => actix_web::HttpResponse::InternalServerError()
+            .json(serde_json::json!({ "error": e.to_string() })),
+    }
+}
+
+/// `GET /api/openapi.json` — this server's OpenAPI 3.1 document.
+///
+/// Generated from the engine's own Rust types on every request, so it describes
+/// what *this build* accepts rather than what a checked-in spec last claimed.
+/// Cheap enough to build per call, and building it per call is what removes any
+/// possibility of serving a stale one.
+pub async fn openapi_handler() -> actix_web::HttpResponse {
+    actix_web::HttpResponse::Ok().json(super::openapi::document())
+}
+
+/// `GET /api/docs` — a browsable reference rendered from that document.
+///
+/// Self-contained: no CDN, no bundled viewer library. A self-hosted slicer is
+/// routinely a machine on a workshop network with no route out, and a reference
+/// page that goes blank without internet is worse than no page at all.
+pub async fn api_docs_handler() -> actix_web::HttpResponse {
+    actix_web::HttpResponse::Ok()
+        .content_type("text/html; charset=utf-8")
+        .body(include_str!("docs.html"))
 }
 
 /// Query for `GET /api/profiles/export`.
@@ -381,7 +448,7 @@ pub async fn download_handler(
 }
 
 /// One file entry returned by `GET /api/request/:request_uuid`.
-#[derive(serde::Serialize)]
+#[derive(serde::Serialize, schemars::JsonSchema)]
 pub struct RequestFileSummary {
     pub file_uuid: String,
     pub original_filename: String,
@@ -392,7 +459,7 @@ pub struct RequestFileSummary {
 /// Returns the workplate's status, the G-code download status, and the list
 /// of file IDs (`ofids`-style) so the UI can rebuild a slice payload after a
 /// page reload without having to re-upload anything.
-#[derive(serde::Serialize)]
+#[derive(serde::Serialize, schemars::JsonSchema)]
 pub struct RequestMetaResponse {
     pub ruuid: String,
     pub status: String,

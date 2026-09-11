@@ -53,6 +53,11 @@ pub mod config;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod ws_protocol;
 
+// The saved form of a workplate. Server/native only: the web runtime keeps its
+// plates in the browser, which *is* its engine.
+#[cfg(not(target_arch = "wasm32"))]
+pub mod workplate;
+
 // `cli`, `db` and `server` are host-only: they are the command line, the SQLite
 // history/cache store and the HTTP+WebSocket surface, none of which an iOS app
 // links (it drives the engine through `tauri::invoke` instead, and a sandboxed

@@ -18,6 +18,54 @@ Press `Ctrl`/`⌘ + F` and type. The search spans all three tabs, so you don't
 have to guess which one owns it.
 :::
 
+## Changes belong to the plate
+
+Everything you see in the panel comes from the three profiles you picked. When
+you change one of those values, the plate remembers **that one change** — not a
+copy of every setting.
+
+You can see which ones they are: a changed setting's name is *italic*, and its
+section gets a dot, so a collapsed **Walls** still tells you something inside it
+was touched. A strip pinned to the bottom of the panel counts
+them and offers **Reset all**, which hands every changed setting back to its
+profile.
+Setting a single value back to what the profile says does the same for that one
+— it stops being a change and starts following the profile again.
+
+This matters for a reason that only shows up later. Edit a print profile — say
+you decide 4 walls, not 3 — and every plate using it prints with 4 walls,
+including the ones you already tuned. The only settings that stay put are the
+ones you deliberately changed on that plate.
+
+Your changes are saved to the plate as you make them; the panel says so briefly
+underneath. Come back to a plate a week later, from the tab bar or your history,
+and it opens with the printer, filament and profile it was set up with, where
+you put each model, and the changes you made on top — even if you have been
+printing something else in PETG since.
+
+Where that is saved depends on how you run Cold Crabby, and it is the same rule
+as your profiles: on the server if you self-host, on the machine if you use the
+desktop app, and in the browser only if you use the web version. Clearing your
+browser does not cost you your plates unless the browser is all you have.
+
+::: details Advanced — what actually gets sliced
+Cold Crabby tells the slicer *which* printer, filament and print profile you
+picked — by name, not by sending copies of them — plus your list of changes. The
+slicer already has your profiles, and combines them itself: engine defaults,
+then printer, then filament, then process, then your changes, each winning over
+the one before. The combining happens in one place, so the command line, the
+desktop app and the browser cannot disagree about what a profile means.
+
+Naming them rather than sending them is also what makes an edit stick. If every
+slice shipped a copy of your profiles, the last browser to slice would quietly
+overwrite a change you made in another tab, or that a colleague made on a shared
+slicer.
+
+The one large thing still sent every time is the preview picture embedded in
+your G-code, because it is a picture of *your* 3D view — your camera angle, your
+theme, your filament colour — and only your browser can draw it.
+:::
+
 ## The five settings that matter most
 
 If you change nothing else, understand these.

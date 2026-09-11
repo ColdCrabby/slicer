@@ -17,12 +17,22 @@ export interface WorkerSliceObject {
   supportPaint?: string;
 }
 
+/**
+ * `{ printer, filament, process, overrides }` — the engine's own
+ * `ProfileSelection`, passed through untouched. The worker hands it to the
+ * wasm `resolveSliceParams` binding, so the browser composes profiles with the
+ * same Rust code the server runs rather than a TypeScript lookalike.
+ */
+export type WorkerProfileSelection = Record<string, unknown>;
+
 export type SlicerWorkerRequest =
   | { type: 'init'; wasmUrl: string }
   | {
       type: 'slice';
       sliceId: string;
-      settings: Record<string, unknown>;
+      profiles: WorkerProfileSelection;
+      /** Base64 PNG rendered by the viewer; folded in after resolution. */
+      thumbnailPngBase64?: string;
       objects: WorkerSliceObject[];
     };
 

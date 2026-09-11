@@ -6,6 +6,7 @@ import { DEFAULT_PRINTERS } from '../models/printer.model';
 import { resolveRuntimeMode } from '../runtime/domain/runtime-mode.util';
 import { ProfilePersistence } from './profiles/profile-persistence';
 import { Slicer } from './slicer';
+import { WORKPLATE_SETTINGS_STORAGE_KEY } from './workplate-settings';
 
 /**
  * localStorage keys owned by the profile library. Cleared when the user resets
@@ -30,7 +31,8 @@ const PROFILE_STORAGE_KEYS = [
  *   no-op there and {@link canClearHistory} is `false`.
  * - **Reset profiles** rewrites every profile category to its built-in default
  *   — both in the engine store (native/cloud) and in this browser's cache — so
- *   the user gets a clean library back.
+ *   the user gets a clean library back. Per-workplate setting overrides go with
+ *   them: they are diffs against presets that are being replaced.
  * - **Factory reset** does both of the above and additionally wipes *all* of
  *   this browser's app state (appearance, view, layout preferences), returning
  *   the app to a first-launch state.
@@ -75,6 +77,11 @@ export class DangerZone {
     for (const key of PROFILE_STORAGE_KEYS) {
       localStorage.removeItem(key);
     }
+    // Each workplate stores its settings as a *diff* against the presets it was
+    // set up with. Those presets no longer exist, so the diffs no longer
+    // describe anything: kept, they would reappear as deviations from whatever
+    // the built-in defaults happen to say.
+    localStorage.removeItem(WORKPLATE_SETTINGS_STORAGE_KEY);
     this.reload();
   }
 

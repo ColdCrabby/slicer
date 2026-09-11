@@ -37,7 +37,7 @@ import type { FieldWidget } from '../base-field';
   ],
   template: `
     <div class="bool-row">
-      <span class="bool-label" (click)="toggle()">
+      <span class="bool-label field-label" (click)="toggle()">
         {{ field().title ?? field().key }}
         @if (field().description) {
           <nexus-icon-button

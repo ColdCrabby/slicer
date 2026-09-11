@@ -27,6 +27,7 @@
     @for (f of searchResults(); track f.key) {
       <div
         class="schema-form-field schema-form-search-result"
+        [class.is-modified]="modifiedKeys().has(f.key)"
         role="listitem"
         [style.opacity]="1 - f.score * 0.65"
       >
@@ -69,6 +70,14 @@
                 <nexus-icon [name]="groupIcon" class="schema-form-group-icon" aria-hidden="true" />
               }
               <span class="schema-form-group-title">{{ group.name }}</span>
+              @if (groupsWithModified().has(group.name)) {
+                <span
+                  class="schema-form-group-modified"
+                  role="img"
+                  aria-label="Some settings in this section differ from the presets"
+                  title="Some settings in this section differ from the presets"
+                ></span>
+              }
               @if (groupsWithNotice().has(group.name)) {
                 <span
                   class="schema-form-group-notice-hint"
@@ -97,7 +106,7 @@
           <div class="schema-form-group-fields">
             <div class="schema-form-group-fields-inner">
               @for (f of group.fields; track f.key) {
-                <div class="schema-form-field">
+                <div class="schema-form-field" [class.is-modified]="modifiedKeys().has(f.key)">
                   <se-field-host
                     [field]="f"
                     [value]="valueFor(f)"

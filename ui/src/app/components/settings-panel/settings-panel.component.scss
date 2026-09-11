@@ -49,3 +49,125 @@
 .preset-manage {
   flex: none;
 }
+
+// Footer rail: what was changed, and whether it is stored yet.
+//
+// Sticky to the bottom of the sidebar's scroll container, mirroring the search
+// bar that sticks to the top of it — the settings list is hundreds of rows, and
+// a status strip that only exists at the very bottom is a status strip nobody
+// sees. Same panel-coloured backing, so rows scrolling underneath never show
+// through, with the fade pointing the other way.
+//
+// One row, fixed height, no conditional children that resize it: everything it
+// can say swaps in place. It sits directly under the cursor while a slider is
+// being dragged, so anything that reflowed here would be felt, not just seen.
+.settings-footer {
+  position: sticky;
+  bottom: 0;
+  z-index: 10;
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  min-height: 32px;
+  padding: var(--spacing-xs) var(--spacing-sm);
+  background: var(--color-bg-secondary);
+  font-size: var(--font-size-xs);
+  color: var(--color-text-tertiary);
+  user-select: none;
+  -webkit-user-select: none;
+
+  &.is-error {
+    color: var(--color-danger);
+  }
+}
+
+.settings-footer::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 100%;
+  height: var(--spacing-md);
+  background: linear-gradient(
+    to top,
+    var(--color-bg-secondary),
+    color-mix(in srgb, var(--color-bg-secondary) 40%, transparent) 55%,
+    transparent
+  );
+  pointer-events: none;
+}
+
+.settings-footer-dot {
+  flex: none;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--accent);
+  // Reserved, not conditional — see the comment in the template.
+  visibility: hidden;
+
+  &.is-active {
+    visibility: visible;
+    animation: settings-footer-pulse 1.4s ease-in-out infinite;
+  }
+
+  .settings-footer.is-error & {
+    background: var(--color-danger);
+    animation: none;
+  }
+}
+
+@keyframes settings-footer-pulse {
+  0%,
+  100% {
+    opacity: 0.35;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
+.settings-footer-text {
+  min-width: 0;
+  flex: 1 1 auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.settings-footer-reset {
+  flex: none;
+  padding: 3px var(--spacing-xs);
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: none;
+  font: inherit;
+  color: var(--color-text-secondary);
+  cursor: pointer;
+  transition:
+    color var(--duration-fast) var(--ease-standard),
+    background var(--duration-fast) var(--ease-standard);
+
+  &:hover {
+    background: var(--color-bg-primary);
+    color: var(--color-text-primary);
+  }
+
+  &.is-confirming {
+    background: var(--color-danger-light);
+    color: var(--color-danger);
+  }
+}
+
+// Announced, never drawn: the save result reaches a screen reader without the
+// change count following it on every keystroke.
+.settings-footer-announce {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}

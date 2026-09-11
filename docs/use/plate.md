@@ -51,6 +51,17 @@ on Windows, right-click a model → **Open with → Choose another app** → **A
 on macOS, **Get Info** on a model → **Open with** → **Change All**.
 :::
 
+## What a plate remembers
+
+A plate is saved as you work on it: its printer, filament and print profile, any
+settings you changed, and where each model sits. Reopening it — from the tab
+bar, from your history, or from a link — brings all of that back.
+
+It remembers *which* profiles you picked, not a copy of them. So editing a print
+profile later reaches every plate using it, while the settings you changed on a
+particular plate stay as you left them. See
+[Changes belong to the plate](/use/settings#changes-belong-to-the-plate).
+
 ## Moving things around
 
 Pick a tool (or press its key), then drag the handles in the 3D view or type

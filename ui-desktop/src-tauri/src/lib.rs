@@ -93,6 +93,8 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             commands::runtime_init,
             commands::slice_start,
+            commands::workplate_load,
+            commands::workplate_save,
             commands::slice_cancel,
             commands::preview_get_source,
             commands::history_list,

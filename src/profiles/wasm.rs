@@ -14,13 +14,16 @@ use super::resolve::ProfileSelection;
 /// [`crate::settings::params::SlicingParams`].
 ///
 /// `selection` is a JS object matching [`ProfileSelection`]:
-/// `{ printer, filament, process, overrides }`.
+/// `{ printer, filament, process, overrides }`. Here the three profiles must be
+/// sent **inline**, not as ids: in the web build the browser is the engine,
+/// there is no `profiles.toml` behind it, and so there is no library to look an
+/// id up in. Passing an id yields a clear error rather than a silent default.
 #[wasm_bindgen(js_name = resolveSliceParams)]
 pub fn resolve_slice_params(selection: JsValue) -> Result<JsValue, JsValue> {
     let selection: ProfileSelection = serde_wasm_bindgen::from_value(selection)
         .map_err(|e| JsValue::from_str(&format!("invalid profile selection: {e}")))?;
     let params = selection
-        .resolve()
+        .resolve(None)
         .map_err(|e| JsValue::from_str(&format!("failed to resolve profiles: {e}")))?;
     serde_wasm_bindgen::to_value(&params).map_err(|e| JsValue::from_str(&e.to_string()))
 }

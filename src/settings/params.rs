@@ -714,6 +714,44 @@ Classic generator only — Arachne varies bead width along the medial axis inste
     #[serde(default = "SlicingParams::default_wall_distribution_count")]
     pub wall_distribution_count: usize,
 
+    #[schemars(description = "Detect thin walls and print them as a single centered bead.
+
+A **thin feature** is model material too narrow for even one full perimeter —
+engraved text, a tapering rib, the card-slot fins of a card holder. When on, such
+a feature is traced by a single variable-width bead; when off it is **not printed
+at all** (the feature disappears from the part).
+
+- `true` (default) — thin features are printed.
+- `false` — thin features are skipped.
+
+Classic generator only. Arachne fills thin features from the medial axis by
+construction — that is what the generator is for — so it always prints them and
+ignores this option.
+
+Mirrors `thin_walls` (PrusaSlicer/Slic3r) / `detect_thin_wall` (OrcaSlicer), both
+of which are likewise classic-only.", extend("x-group" = "Walls", "x-relevant-when" = serde_json::json!({"field": "wall_generator", "equals": "classic"})))]
+    #[serde(default = "SlicingParams::default_thin_walls")]
+    pub thin_walls: bool,
+
+    #[schemars(
+        description = "Minimum length in mm for a gap-fill bead to be kept.
+
+Gap-fill beads shorter than this are dropped to avoid stringy sub-millimetre
+dribbles the medial pass finds along faceted boundaries — the isolated \"splat\"
+beads that waste print time on a retract/travel/un-retract cycle and risk
+filament grinding for a mechanically-insignificant dab.  Set to `0` to use the
+automatic default (twice the nozzle diameter), which matches the faceting-noise
+floor used when de-noising the medial skeleton; the residual such short beads
+would have filled is bridged by the squish of the flanking wall beads.
+
+Arachne generator only — the classic generator emits a single residual bead per
+shell rather than walking a medial skeleton.
+**Typical:** 0.4–1.0 mm.",
+        extend("x-group" = "Walls", "x-relevant-when" = serde_json::json!({"field": "wall_generator", "equals": "arachne"}))
+    )]
+    #[serde(default = "SlicingParams::default_gap_fill_min_length_mm")]
+    pub gap_fill_min_length_mm: f64,
+
     #[schemars(
         description = "Minimum medial-axis angle (degrees) at which a bead-count transition may occur.
 
@@ -789,25 +827,6 @@ perimeters.
     )]
     #[serde(default = "SlicingParams::default_extra_perimeters_max_gap")]
     pub extra_perimeters_max_gap: f64,
-
-    #[schemars(description = "Detect thin walls and print them as a single centered bead.
-
-A **thin feature** is model material too narrow for even one full perimeter —
-engraved text, a tapering rib, the card-slot fins of a card holder. When on, such
-a feature is traced by a single variable-width bead; when off it is **not printed
-at all** (the feature disappears from the part).
-
-- `true` (default) — thin features are printed.
-- `false` — thin features are skipped.
-
-Classic generator only. Arachne fills thin features from the medial axis by
-construction — that is what the generator is for — so it always prints them and
-ignores this option.
-
-Mirrors `thin_walls` (PrusaSlicer/Slic3r) / `detect_thin_wall` (OrcaSlicer), both
-of which are likewise classic-only.", extend("x-group" = "Walls", "x-relevant-when" = serde_json::json!({"field": "wall_generator", "equals": "classic"})))]
-    #[serde(default = "SlicingParams::default_thin_walls")]
-    pub thin_walls: bool,
 
     #[schemars(description = "Ensure a minimum solid vertical-shell thickness on sloped surfaces.
 
@@ -1226,29 +1245,10 @@ Set to `0` to fall back to `perimeter_speed` (then `print_speed`).
 Support is sacrificial and sparse, so it is usually run faster than the model — but it is also
 poorly anchored, so going too fast knocks columns over. Set to `0` to fall back to `print_speed`.
 **Typical:** 40–80 mm/s.",
-        extend("x-group" = "Speed", "x-relevant-when" = serde_json::json!({"field": "support_enabled", "equals": true}))
+        extend("x-group" = "Speed")
     )]
     #[serde(default = "SlicingParams::default_support_speed")]
     pub support_speed: f64,
-
-    #[schemars(
-        description = "Minimum length in mm for a gap-fill bead to be kept.
-
-Gap-fill beads shorter than this are dropped to avoid stringy sub-millimetre
-dribbles the medial pass finds along faceted boundaries — the isolated \"splat\"
-beads that waste print time on a retract/travel/un-retract cycle and risk
-filament grinding for a mechanically-insignificant dab.  Set to `0` to use the
-automatic default (twice the nozzle diameter), which matches the faceting-noise
-floor used when de-noising the medial skeleton; the residual such short beads
-would have filled is bridged by the squish of the flanking wall beads.
-
-Arachne generator only — the classic generator emits a single residual bead per
-shell rather than walking a medial skeleton.
-**Typical:** 0.4–1.0 mm.",
-        extend("x-group" = "Walls", "x-relevant-when" = serde_json::json!({"field": "wall_generator", "equals": "arachne"}))
-    )]
-    #[serde(default = "SlicingParams::default_gap_fill_min_length_mm")]
-    pub gap_fill_min_length_mm: f64,
 
     #[schemars(
         description = "Wall overlap flow compensation strength (0.0–1.0).
@@ -1857,18 +1857,6 @@ Overrides the width used for sparse-infill paths and their `;TYPE:Sparse infill`
     pub sparse_infill_line_width: f64,
 
     #[schemars(
-        description = "Per-role support extrusion width in mm. `0` = derive from \
-`line_width` / nozzle diameter.
-
-Overrides the width used for support strands and their `;WIDTH:` annotations. Support is laid at
-`spacing / density`, so this sets the pitch and the flow together — a wider bead spends less time
-per unit area but is coarser to break off.",
-        extend("x-group" = "Support", "x-relevant-when" = serde_json::json!({"field": "support_enabled", "equals": true}))
-    )]
-    #[serde(default = "SlicingParams::default_role_line_width")]
-    pub support_line_width: f64,
-
-    #[schemars(
         description = "Retraction speed in **mm/min**.
 
 Convert from mm/s by multiplying by 60.
@@ -2276,6 +2264,18 @@ support even if the column has to rest on the model instead of reaching the plat
     )]
     #[serde(default = "SlicingParams::default_support_on_build_plate_only")]
     pub support_on_build_plate_only: bool,
+
+    #[schemars(
+        description = "Per-role support extrusion width in mm. `0` = derive from \
+`line_width` / nozzle diameter.
+
+Overrides the width used for support strands and their `;WIDTH:` annotations. Support is laid at
+`spacing / density`, so this sets the pitch and the flow together — a wider bead spends less time
+per unit area but is coarser to break off.",
+        extend("x-group" = "Support", "x-relevant-when" = serde_json::json!({"field": "support_enabled", "equals": true}))
+    )]
+    #[serde(default = "SlicingParams::default_role_line_width")]
+    pub support_line_width: f64,
 
     #[schemars(
         description = "Bed-adhesion helper: `none`, `skirt`, `brim`, or `raft`.",
@@ -3662,7 +3662,7 @@ impl SlicingParams {
 /// - `{height}` → layer height (e.g. `0.200`)
 /// - `{type}` → extrusion role type name (e.g. `Perimeter`)
 /// - `{width}` → default extrusion width for the role (e.g. `0.40`)
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, schemars::JsonSchema)]
 pub struct LifecycleMarkerConfig {
     /// Whether to emit lifecycle markers at all. Default: true.
     #[serde(default = "LifecycleMarkerConfig::default_enabled")]
@@ -3808,6 +3808,62 @@ mod tests {
                 "{field} should only be shown for the {generator} generator"
             );
         }
+    }
+
+    /// Every conditional field must sit **below** the control that reveals it,
+    /// in the same accordion group.
+    ///
+    /// The settings panel renders each group in schema-property order, which is
+    /// this struct's declaration order. A gated field declared above its gate
+    /// therefore appears *above* the switch the user just pressed, shoving that
+    /// switch down the panel under their cursor — which is how `support_line_width`
+    /// made the supports toggle jump on every press. A gate in a different group
+    /// is the same defect at a distance: a section the user is not looking at
+    /// silently grows or shrinks.
+    ///
+    /// Declaration order is invisible while reading a 4000-line struct, so it
+    /// needs a test rather than a convention.
+    #[test]
+    fn every_conditional_field_follows_the_control_that_reveals_it() {
+        let schema =
+            serde_json::to_value(schemars::schema_for!(SlicingParams)).expect("schema serializes");
+        let props = schema["properties"].as_object().expect("properties");
+
+        let position: std::collections::HashMap<&str, usize> = props
+            .keys()
+            .enumerate()
+            .map(|(i, k)| (k.as_str(), i))
+            .collect();
+        let group = |field: &str| props[field]["x-group"].as_str();
+
+        let mut problems = Vec::new();
+        for (field, spec) in props {
+            let Some(gate) = spec.get("x-relevant-when").and_then(|r| r.get("field")) else {
+                continue;
+            };
+            let gate = gate.as_str().expect("gate names a field");
+            if !props.contains_key(gate) {
+                problems.push(format!(
+                    "{field} is gated on '{gate}', which is not a parameter"
+                ));
+                continue;
+            }
+            if group(field) != group(gate) {
+                problems.push(format!(
+                    "{field} is in {:?} but its gate {gate} is in {:?} — toggling one group \
+                     would reshape another",
+                    group(field),
+                    group(gate)
+                ));
+            } else if position[field.as_str()] < position[gate] {
+                problems.push(format!(
+                    "{field} is declared above its gate {gate}, so it appears above the control \
+                     that reveals it and pushes that control down the panel"
+                ));
+            }
+        }
+
+        assert!(problems.is_empty(), "{}", problems.join("\n"));
     }
 
     #[test]

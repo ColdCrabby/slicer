@@ -185,7 +185,8 @@ export class WasmRuntime implements RuntimePort {
     const message: SlicerWorkerRequest = {
       type: 'slice',
       sliceId: request.sliceId,
-      settings: request.settings,
+      profiles: request.profiles as unknown as Record<string, unknown>,
+      thumbnailPngBase64: request.thumbnailPngBase64,
       objects,
     };
 

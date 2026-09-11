@@ -242,6 +242,37 @@
   --icon-size: 15px;
 }
 
+/**
+ * A setting that deviates from the baseline the host passed in.
+ *
+ * The parameter's own label goes italic — nothing else. Quiet on purpose: the
+ * point is that the eye can find pinned values while scanning a long panel, not
+ * that they announce themselves, and it reads the same to someone who cannot
+ * tell the accent from the text.
+ *
+ * Every widget names its own label `.field-label`, whatever element it happens
+ * to be — three of them are not a `<label>` at all. The label lives in the
+ * widget's component, so the parent's scoping attribute never lands on it and
+ * `::ng-deep` is the only way to reach it. Deliberately narrowed to that hook:
+ * italicising the whole field would slant the numbers, and on a radio group the
+ * entire option list, for no extra information.
+ */
+.schema-form-field.is-modified ::ng-deep .field-label {
+  font-style: italic;
+}
+
+/**
+ * A collapsed group still has to advertise that something inside it changed,
+ * and a closed accordion shows no labels to slant — so the group keeps a dot.
+ */
+.schema-form-group-modified {
+  flex-shrink: 0;
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--accent);
+}
+
 .schema-form-group-chevron {
   flex-shrink: 0;
   color: currentColor;

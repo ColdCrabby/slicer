@@ -19,6 +19,10 @@ pub struct Model {
     pub created_at: String,
     /// RFC 3339 last-update timestamp.
     pub updated_at: String,
+    /// The saved workplate as JSON — presets, override diff, object placements.
+    /// `None` for a plate the user never configured. See
+    /// [`crate::workplate::WorkplateSetup`].
+    pub setup: Option<String>,
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]

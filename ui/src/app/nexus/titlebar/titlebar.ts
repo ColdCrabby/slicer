@@ -2,9 +2,26 @@ import { ChangeDetectionStrategy, Component, computed, signal } from '@angular/c
 import { ConnectionState } from '../../components/connection-state/connection-state';
 import { Logo } from '../../components/logo/logo';
 import { WorkplateTabs } from '../../components/workplate-tabs/workplate-tabs';
-import { isTauriDesktop, isTauriMobile } from '../../runtime/domain/runtime-mode.util';
+import { environment } from '../../../environments/environment';
+import type { RuntimeMode } from '../../runtime/domain/runtime-mode';
+import {
+  isTauriDesktop,
+  isTauriMobile,
+  resolveRuntimeMode,
+} from '../../runtime/domain/runtime-mode.util';
 import { Icon, IconButton, TooltipDirective } from '@coldcrabby/ui';
 import { ExternalLinkDirective } from '../../directives/external-link.directive';
+
+/**
+ * Where a runtime's API reference lives, or `null` when it has no server.
+ *
+ * Split out so the rule is testable without standing up the title bar: only
+ * the cloud runtime talks to an HTTP server, and a link that leads nowhere is
+ * worse than a missing one.
+ */
+export function apiDocsUrlFor(mode: RuntimeMode, apiUrl: string): string | null {
+  return mode === 'cloud' ? `${apiUrl}/docs` : null;
+}
 
 /**
  * Custom window title bar for the desktop shell.
@@ -44,6 +61,19 @@ import { ExternalLinkDirective } from '../../directives/external-link.directive'
 })
 export class NexusTitlebar {
   readonly isMobile = signal(isTauriMobile());
+
+  /**
+   * Where this slicer's API reference lives, or `null` when there is no server
+   * to have one.
+   *
+   * Only the cloud runtime talks to an HTTP server; the desktop app drives the
+   * engine over Tauri commands and the web build runs it in a worker, so in
+   * both of those the link would point at nothing. It resolves off
+   * `environment.apiUrl`, which is same-origin by design — this is *this*
+   * slicer's API, not a hosted copy of the docs, so a self-hosted instance
+   * links to its own.
+   */
+  readonly apiDocsUrl = signal(apiDocsUrlFor(resolveRuntimeMode(), environment.apiUrl));
   /** A Tauri host *with* a window frame. iPad is a Tauri host but has none. */
   readonly isDesktop = signal(isTauriDesktop());
   readonly isMac = signal(this.detectMac());

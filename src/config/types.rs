@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
 /// Machine hardware specification embedded in the config file.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, schemars::JsonSchema)]
 pub struct MachineConfig {
     /// Human-readable machine name.
     #[serde(default = "MachineConfig::default_name")]
@@ -89,7 +89,7 @@ impl Default for MachineConfig {
 }
 
 /// Server runtime configuration.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, schemars::JsonSchema)]
 pub struct ServerConfig {
     /// Host address to bind.
     #[serde(default = "ServerConfig::default_host")]
@@ -133,7 +133,7 @@ impl Default for ServerConfig {
 }
 
 /// Global application settings stored in the config file.
-#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, schemars::JsonSchema)]
 pub struct GlobalConfig {
     /// Log level (e.g. "info", "debug", "warn", "error").
     #[serde(default)]
@@ -141,7 +141,7 @@ pub struct GlobalConfig {
 }
 
 /// A named slicing preset.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, schemars::JsonSchema)]
 pub struct SlicingPreset {
     /// Human-readable description.
     #[serde(default)]
@@ -152,7 +152,7 @@ pub struct SlicingPreset {
 }
 
 /// A named material profile.
-#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, schemars::JsonSchema)]
 pub struct MaterialProfile {
     /// Human-readable description.
     #[serde(default)]
@@ -172,7 +172,7 @@ pub struct MaterialProfile {
 }
 
 /// Profile collection: presets, machine profiles, material profiles.
-#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, schemars::JsonSchema)]
 pub struct ProfilesConfig {
     /// Named slicing presets (draft, standard, high-quality, etc.).
     #[serde(default)]
@@ -186,7 +186,7 @@ pub struct ProfilesConfig {
 }
 
 /// Root application configuration persisted to `slicer.toml`.
-#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, schemars::JsonSchema)]
 pub struct AppConfig {
     /// Global application settings.
     #[serde(default)]

@@ -288,6 +288,33 @@ directory if none exists, then loads it via
 
 ---
 
+## The API describes itself
+
+`GET /api/openapi.json` is an OpenAPI 3.1 document **built from the engine's own
+types on every request**, and `GET /api/docs` renders it as a browsable
+reference. Two things about it are load-bearing:
+
+- **Bodies come from `schemars`, only the route table is hand-written.**
+  ([openapi.rs](openapi.rs)) A spec file maintained by hand is a second
+  description of the API that nothing keeps honest — correct the day it is
+  written, quietly wrong from the first handler change. The bodies are where the
+  hundreds of fields are and where drift actually hurts; the routes are a dozen
+  entries beside the router, and `routes_match_router` fails when the two
+  disagree. Field descriptions, defaults and ranges carry through from the Rust
+  doc comments, which is why the reference reads like the settings panel.
+- **The viewer is self-contained.** ([docs.html](docs.html)) No CDN, no bundled
+  viewer library. A self-hosted slicer is routinely a box on a workshop network
+  with no route out, and a reference page that goes blank without internet is
+  worse than no page at all.
+
+`schemars` spells its subschemas `$defs`; OpenAPI wants `components/schemas`.
+`hoist` moves them and rewrites every `$ref`, and a test asserts no `$defs`
+survives — one that did would render as a dead link.
+
+Slicing is deliberately absent from the paths: it runs over `/ws`, because a
+slice streams progress for as long as it takes. The socket's vocabulary is
+published as the `ClientMessage` / `ServerMessage` schemas instead.
+
 ## See also
 
 - [mod.rs](mod.rs) — `ServeCommand`, app wiring, route registration

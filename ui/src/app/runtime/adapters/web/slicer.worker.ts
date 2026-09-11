@@ -4,6 +4,7 @@ import init, { SceneHandle } from '../../../../generated/scene-wasm/scene_engine
 import type {
   SlicerWorkerRequest,
   WasmSliceEvent,
+  WorkerProfileSelection,
   WorkerSliceObject,
 } from './slicer-worker-protocol';
 
@@ -29,6 +30,17 @@ const DEFAULT_BED = {
 
 let wasmUrl = 'scene_engine_bg.wasm';
 let wasmReady: Promise<void> | null = null;
+/**
+ * The engine's own profile resolver, claimed when the module is initialised.
+ *
+ * Looked up dynamically rather than imported by name — the same idiom
+ * `BrowserProfilePersistence` uses for `exportProfileLibrary`. Only the
+ * `web-slicer` build exports it, so a static import would be a name the
+ * checked-in scene-only declarations do not have. That is also the build which
+ * exports `sliceGcodeWithEvents`: a bundle that can slice can always resolve.
+ */
+let resolveSliceParams: ((selection: WorkerProfileSelection) => Record<string, unknown>) | null =
+  null;
 
 self.addEventListener('message', (event: MessageEvent<SlicerWorkerRequest>) => {
   void handleMessage(event.data);
@@ -43,7 +55,7 @@ async function handleMessage(message: SlicerWorkerRequest): Promise<void> {
         break;
       case 'slice':
         await ensureWasm();
-        runSlice(message.sliceId, message.settings, message.objects);
+        runSlice(message.sliceId, message.profiles, message.objects, message.thumbnailPngBase64);
         break;
     }
   } catch (error) {
@@ -61,7 +73,13 @@ async function ensureWasm(nextUrl?: string): Promise<void> {
   }
 
   if (!wasmReady) {
-    wasmReady = init({ module_or_path: wasmUrl }).then(() => undefined);
+    wasmReady = (async () => {
+      const wasm = (await import('../../../../generated/scene-wasm/scene_engine')) as unknown as {
+        resolveSliceParams?: (selection: WorkerProfileSelection) => Record<string, unknown>;
+      };
+      await init({ module_or_path: wasmUrl });
+      resolveSliceParams = wasm.resolveSliceParams ?? null;
+    })();
   }
 
   return wasmReady;
@@ -69,8 +87,9 @@ async function ensureWasm(nextUrl?: string): Promise<void> {
 
 function runSlice(
   sliceId: string,
-  settings: Record<string, unknown>,
+  profiles: WorkerProfileSelection,
   objects: WorkerSliceObject[],
+  thumbnailPngBase64?: string,
 ): void {
   const totalStart = performance.now();
   emitPhaseStart(sliceId, 'total');
@@ -79,6 +98,21 @@ function runSlice(
   try {
     if (objects.length === 0) {
       throw new Error('Cannot slice an empty scene.');
+    }
+
+    // Compose the profile stack here, in the engine, rather than sending a
+    // pre-flattened blob across from the UI. The request carries only the
+    // user's deviations; everything inherited comes from the profiles.
+    if (!resolveSliceParams) {
+      throw new Error(
+        'This wasm bundle does not include the profile resolver. Rebuild with pnpm run hydrate:web-slicer.',
+      );
+    }
+    const settings = resolveSliceParams(profiles);
+    // Rendered by the viewer on the main thread and handed over as-is. The
+    // engine never makes one; it only embeds what it is given.
+    if (thumbnailPngBase64) {
+      settings['thumbnail_png_base64'] = thumbnailPngBase64;
     }
 
     const meshLoadStart = performance.now();
