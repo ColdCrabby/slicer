@@ -24,9 +24,9 @@ Everything you see in the panel comes from the three profiles you picked. When
 you change one of those values, the plate remembers **that one change** — not a
 copy of every setting.
 
-You can see which ones they are: a changed setting gets a thin amber line down
-its left edge, and its section gets a dot, so a collapsed **Walls** still tells
-you something inside it was touched. The bottom of the panel counts them and
+You can see which ones they are: a changed setting's name is *italic*, and its
+section gets a dot, so a collapsed **Walls** still tells you something inside it
+was touched. The bottom of the panel counts them and
 offers **Reset all**, which hands every changed setting back to its profile.
 Setting a single value back to what the profile says does the same for that one
 — it stops being a change and starts following the profile again.

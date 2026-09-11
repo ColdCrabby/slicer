@@ -243,25 +243,26 @@
 }
 
 /**
- * A setting that deviates from the baseline the host passed in. Quiet on
- * purpose: a thin accent rule in the gutter, not a badge — the point is that
- * the eye can find pinned values while scanning, not that they shout.
+ * A setting that deviates from the baseline the host passed in.
+ *
+ * The parameter's own label goes italic — nothing else. Quiet on purpose: the
+ * point is that the eye can find pinned values while scanning a long panel, not
+ * that they announce themselves, and it reads the same to someone who cannot
+ * tell the accent from the text.
+ *
+ * Each widget owns its own `<label>`, in its own component, so the parent's
+ * scoping attribute never lands on it — `::ng-deep` is the only way to reach
+ * it. Deliberately narrowed to the label: italicising the control as well would
+ * slant the numbers, a legibility cost for no extra information.
  */
-.schema-form-field.is-modified {
-  position: relative;
-  padding-inline-start: var(--spacing-sm);
-
-  &::before {
-    content: '';
-    position: absolute;
-    inset-block: 0;
-    inset-inline-start: 0;
-    width: 2px;
-    border-radius: var(--radius-full);
-    background: var(--accent);
-  }
+.schema-form-field.is-modified ::ng-deep label {
+  font-style: italic;
 }
 
+/**
+ * A collapsed group still has to advertise that something inside it changed,
+ * and a closed accordion shows no labels to slant — so the group keeps a dot.
+ */
 .schema-form-group-modified {
   flex-shrink: 0;
   width: 5px;
