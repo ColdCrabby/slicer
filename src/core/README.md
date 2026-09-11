@@ -120,7 +120,7 @@ flowchart TD
     IN --> CB[combine_fill_areas<br/>infill_every_layers · solid_infill_every_layers]
     CB --> AN[connect_infill<br/>anchor line ends to the perimeter]
     AN --> SP[generate_supports<br/>overhang detection → projected columns<br/>reads the pristine perimeter snapshot]
-    SP --> ORD[order_paths_per_layer<br/>greedy NN + seam vertex rotation<br/>skipped for monotonic surfaces]
+    SP --> ORD[order_paths_per_layer<br/>island → role → greedy NN + seam rotation<br/>skipped for monotonic surfaces]
     ORD --> L[Vec~SliceLayer~]
 ```
 
@@ -164,9 +164,28 @@ suppressed under a raft, which owns bed contact and prints at `layer_height`.
 
 ### Path ordering & seam placement
 
-After every path on a layer has been classified, the pipeline runs a
-role-grouped greedy-nearest-neighbour ordering pass to minimise travel
-between extrusions. Closed loops are **cyclic** — picking vertex 0 as the
+After every path on a layer has been classified, the pipeline orders it for
+printing: **island first, then role, then a greedy nearest-neighbour walk**
+inside each role run.
+
+- **An island is finished before the nozzle leaves it.** Surface and infill
+  generation runs per *layer*, so the paths arrive as "every island's walls,
+  then every island's fill". Printed in that order the nozzle lays every wall
+  on the plate and then crosses back over all of them again to fill each one.
+  `Islands::of` regroups them: one outermost closed `OuterWall` loop plus
+  everything inside it — inner walls, hole contours, fills. A path inside no
+  island (a free-standing support strand) joins the nearest one.
+- **The visible top surface is laid last** in its island, after the sparse fill
+  beside it, so no travel crosses a finished top; ironing then sweeps it. That
+  is the only reordering *within* an island — everything else keeps the order
+  the generators emitted, because that order is the wall sequence and the
+  monotonic sweep.
+- **The nozzle carries over between layers.** The walk starts where the layer
+  below ended. Restarting it at the origin opened every layer with a hop toward
+  whichever path sat nearest the bed's corner — on a 30 mm cube that was a full
+  crossing of the part, 150 times over.
+
+Closed loops are **cyclic** — picking vertex 0 as the
 start point would force unnecessary travel to a fixed first point — so the
 ordering pass picks the start vertex per loop using
 `SlicingParams::seam_position`:

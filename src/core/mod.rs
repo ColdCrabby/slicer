@@ -3081,31 +3081,50 @@ mod tests {
         assert!(layers_with_ironing(&all) >= layers_with_ironing(&topmost));
     }
 
-    /// The pass is off by default, so a default slice must be untouched by it —
-    /// this is what keeps the whole QA baseline corpus stable.
+    /// The default correction reaches the bed layer and nothing else: every
+    /// layer above it must come out of the pass byte-identical.
     #[test]
-    fn default_params_slice_identically_with_and_without_the_elephant_foot_pass() {
+    fn the_elephant_foot_pass_touches_only_the_layer_on_the_bed() {
         let mesh = make_cube_mesh();
         let params = SlicingParams::default();
+        let config = ElephantFootConfig::resolve(&params).expect("the correction is on by default");
 
-        assert!(
-            ElephantFootConfig::resolve(&params).is_none(),
-            "default params must resolve to no elephant-foot correction at all"
-        );
-
-        // Running the pass explicitly over raw contours must change nothing,
-        // so every stage downstream sees exactly what it saw before.
         let untouched = slice_mesh(&mesh, params.layer_height);
         let mut passed_through = untouched.clone();
-        if let Some(config) = ElephantFootConfig::resolve(&params) {
-            apply_elephant_foot(&mut passed_through, &config);
-        }
+        apply_elephant_foot(&mut passed_through, &config);
 
         assert_eq!(passed_through.len(), untouched.len());
-        for (i, (after, before)) in passed_through.iter().zip(&untouched).enumerate() {
+        assert_ne!(
+            passed_through[0].paths, untouched[0].paths,
+            "the bed layer should have moved inward"
+        );
+        for (i, (after, before)) in passed_through.iter().zip(&untouched).enumerate().skip(1) {
             assert_eq!(after.paths, before.paths, "layer {i} contours moved");
             assert_eq!(after.path_roles, before.path_roles, "layer {i} roles moved");
         }
+    }
+
+    /// The bed layer is drawn narrower on purpose, so the layer above it stands
+    /// proud of it by the shrink. That is not an overhang — the bead below
+    /// spreads out to the model's own width, which is the whole reason the
+    /// correction exists — and grading it as one prints the layer just above the
+    /// bed slowly, at reduced flow, under full part cooling.
+    #[test]
+    fn the_layer_above_the_elephant_foot_is_not_graded_as_an_overhang() {
+        let mesh = make_cube_mesh();
+        let params = SlicingParams::default();
+        assert!(params.elephant_foot_compensation_mm > 0.0, "on by default");
+
+        let layers = process_mesh(&mesh, &params, &crate::logging::NullLogger);
+        let overhangs = layers[1]
+            .path_roles
+            .iter()
+            .filter(|role| **role == ExtrusionRole::OverhangPerimeter)
+            .count();
+        assert_eq!(
+            overhangs, 0,
+            "a straight prism has no overhang on the layer above the bed"
+        );
     }
 
     /// Elephant-foot compensation must reach the finished walls, not just the
@@ -3115,6 +3134,7 @@ mod tests {
         let mesh = make_cube_mesh();
         let mut params = SlicingParams {
             nozzle_diameter_mm: 0.4,
+            elephant_foot_compensation_mm: 0.0,
             ..SlicingParams::default()
         };
 
