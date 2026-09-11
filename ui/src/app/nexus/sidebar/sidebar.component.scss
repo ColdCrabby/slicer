@@ -192,7 +192,10 @@ $edge-control-top: calc(var(--main-scene-inset, 48px) + var(--spacing-sm));
 // scene, so no backdrop blur (per design language).
 .sidebar-scrolltop {
   position: absolute;
-  bottom: var(--spacing-md);
+  // Clears whatever is pinned to the bottom of the panel — the settings
+  // footer publishes its height, and this resolves to the plain inset
+  // everywhere else. Without it the button is drawn behind that strip.
+  bottom: calc(var(--spacing-md) + var(--settings-footer-h, 0px));
   left: 50%;
   z-index: 5;
   display: inline-flex;

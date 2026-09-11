@@ -1,4 +1,13 @@
-import { Component, computed, effect, inject, signal } from '@angular/core';
+import {
+  Component,
+  ElementRef,
+  afterRenderEffect,
+  computed,
+  effect,
+  inject,
+  signal,
+  viewChild,
+} from '@angular/core';
 import { RouterLink } from '@angular/router';
 import globalSettingsSchema from '../../../schemas/slicer-engine-global-settings-v1.json';
 import {
@@ -192,7 +201,45 @@ export class SettingsPanel {
   /** Nothing to report means no strip at all, rather than an empty one. */
   protected readonly footerVisible = computed(() => this.saveVisible() || this.modifiedCount() > 0);
 
+  private readonly footerRef = viewChild<ElementRef<HTMLElement>>('footer');
+
   constructor() {
+    // Publish the footer's height so anything floating at the bottom of the
+    // sidebar can clear it. The sidebar's "scroll to top" button is positioned
+    // from that same edge and has a lower stacking order, so before this it was
+    // simply drawn behind the footer — visible as a half-circle poking out of
+    // the top of the strip. The footer comes and goes, and changes height with
+    // the text, so the value is measured rather than assumed; `0px` when there
+    // is no footer keeps the button where it has always been.
+    let observer: ResizeObserver | null = null;
+    afterRenderEffect({
+      read: (onCleanup) => {
+        const el = this.footerRef()?.nativeElement;
+        observer?.disconnect();
+        observer = null;
+
+        const clear = () => document.documentElement.style.removeProperty('--settings-footer-h');
+        if (!el) {
+          clear();
+          return;
+        }
+
+        observer = new ResizeObserver(() => {
+          document.documentElement.style.setProperty(
+            '--settings-footer-h',
+            `${Math.round(el.offsetHeight)}px`,
+          );
+        });
+        observer.observe(el);
+
+        onCleanup(() => {
+          observer?.disconnect();
+          observer = null;
+          clear();
+        });
+      },
+    });
+
     effect((onCleanup) => {
       const status = this.workplateSettings.status();
       if (status === 'idle') {

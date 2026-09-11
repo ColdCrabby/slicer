@@ -54,7 +54,7 @@
   />
 
   @if (footerVisible()) {
-    <footer class="settings-footer" [class.is-error]="saveIsError()">
+    <footer #footer class="settings-footer" [class.is-error]="saveIsError()">
       <!-- The dot keeps its space whether or not it is showing: this strip sits
            under the user's cursor while they drag a slider, and a dot that
            appears mid-save would shove the text sideways on every edit. -->
