@@ -134,7 +134,27 @@ the squish, and is deliberately **not** a uniform offset — see the module docs
 for why, and [§ Critical invariants](#5-elephant-foot-is-medial-limited-never-uniform).
 
 The whole pass is skipped when neither is configured, which is the default, so
-an ordinary slice never allocates for it.
+an ordinary slice never allocates for it — `ElephantFootConfig::resolve` returns
+`None`, and the QA baselines therefore cannot move.
+
+`apply_elephant_foot` is additionally **raft-gated and bed-gated**: skipped when
+`adhesion_type = raft`, because the first layer then lands on sacrificial
+material across an air gap; and skipped for any layer whose `z` is inconsistent
+with resting on the plate, which is how a lifted or sequentially-printed object
+avoids being "corrected" in mid-air.
+
+### The first layer has its own height, set at both ends of the pipeline
+
+`first_layer_height` is split deliberately. The slicer gives layer 0 its own Z
+span — sampled at its **own mid-plane**, so an unset value reproduces the uniform
+slicer plane-for-plane and the QA baselines cannot move — and
+`mark_first_layer_height` then charges it through `path_heights` *after*
+adhesion, so a skirt sharing that layer's Z is charged at the same height.
+
+**Both ends resolve the value through `resolved_first_layer_height`**, which the
+G-code generator also uses to decide which layer gets first-layer speeds and
+temperatures. The two must never disagree about which layer is the first. It is
+suppressed under a raft, which owns bed contact and prints at `layer_height`.
 
 ### Path ordering & seam placement
 
@@ -389,6 +409,330 @@ exceed the wall-clock duration of those phases.
 
 ---
 
+## Object identity through slicing
+
+A *plate* is several placed objects; layers are flat. Turning one into the other
+without losing track of which part is which is what
+[`objects.rs`](objects.rs) is for, and both exclude-object (cancel a part
+mid-print) and sequential printing (finish one part before starting the next)
+need exactly the same segmentation — so it is built once.
+
+**[`slice_plate`](objects.rs) is the single slicing entry point.** CLI, WS
+server, wasm `web-slicer` and the desktop bridge all hand it a `&[ObjectInput]`
+instead of merging meshes themselves. Do not re-introduce a "just concatenate
+the faces and call `process_mesh`" site — that merge is what erased object
+identity in the first place.
+
+### The merged fast path is not optional
+
+When [`SlicingParams::object_aware()`](../settings/params.rs) is false — neither
+`exclude_object` nor `print_sequence = by_object` — `slice_plate` merges and
+calls `process_mesh` exactly as before, so the default configuration produces
+**byte-identical G-code**. `merged_path_matches_a_plain_process_mesh` pins this.
+
+Object-aware slicing runs the pipeline once *per object*, which is **not**
+output-equivalent: `calculate_interior_region` averages the wall-bead count
+across a layer's islands, so an island's interior estimate depends on what else
+shares its layer. Slicing a part alone is the more faithful result, but it is
+still a change, and must only happen when asked for.
+
+### Rules that hold the segmentation together
+
+- **`SliceLayer::path_objects` is a parallel array with an empty sentinel**,
+  like `path_overhang`: empty means "not sliced object-aware", and `None` at an
+  index means "belongs to no object". Every helper that rebuilds a layer's
+  parallel arrays — notably [`adhesion::prepend`](../adhesion/mod.rs) — must
+  carry it along, or the tags silently shift onto the wrong paths.
+- **Adhesion is plate-wide in `by_layer`, object-owned in `by_object`.** In
+  layer order the skirt or brim is generated once on the merged stack and tagged
+  `None`, so cancelling one part does not take the plate's adhesion with it. In
+  object order each object is a self-contained print and owns its own.
+- **Layers merge by Z slot, not by index.** Two parts resting on the bed slice
+  onto the same grid, but a part lifted off the bed keeps its own — its bottom
+  layers are *its* bottom layers. `merge_layers_by_z` groups within a quarter
+  layer and takes at most one layer per object per slot, so emitted Z is always
+  strictly ascending.
+- **Sequential order is front-to-back** (`min_y`, then `min_x`). The gantry
+  sweeps from behind, so finishing the nearest part first keeps the carriage away
+  from finished work longest. Clearance problems are **warnings, not errors** —
+  the clearances are machine estimates, and refusing to slice would be worse than
+  saying what to check. Only objects printed *before* another are height-checked;
+  the last one has nothing reaching over it.
+- **Object names are sanitised and de-duplicated here.** Klipper parses
+  `EXCLUDE_OBJECT_DEFINE NAME=…` as a G-code parameter, so a space splits the
+  token, and two parts sharing a name would cancel together. Every runtime feeds
+  user-chosen filenames straight in, so `unique_object_name` fixes both centrally
+  rather than at each call site.
+
+Where the markers themselves are emitted — `M486` by default, `EXCLUDE_OBJECT_*`
+for Klipper — is [`gcode`](../gcode/README.md)'s business.
+
+### What belongs on the printer, not the process
+
+Whether the machine *can* cancel an object (`exclude_object`) and how much room
+its printhead needs (`extruder_clearance_height_mm` /
+`extruder_clearance_radius_mm`) are properties of the **machine**, so all three
+carry the **Hardware** `x-group`. Two printers can run the same `by_object`
+process yet differ in gantry height, duct radius and firmware support. Only the
+print-behaviour choices (`print_sequence`, `between_objects_gcode`) are process
+settings. The clearances carry **no** `x-relevant-when` gate — a printer always
+has a clearance, and gating it would point across contracts at a process field
+in another tab.
+
+---
+
+## The infill / surface boundary
+
+Everything that is not a wall is placed inside an **interior region**: the gross
+island outline deflated by the walls that will sit on it.
+[`calculate_interior_region`](infill.rs) computes it from the `OuterWall` paths,
+winding preserved, deflated inward by
+
+```
+total_inward = (walls_per_island − 0.5) × nozzle_diameter − overlap_distance
+```
+
+The `−0.5 × d` accounts for `OuterWall` centrelines already being inset half a
+bead from the model surface; without it the interior is over-shrunk by half a
+bead width.
+
+### The estimate is an average, and Arachne breaks the assumption
+
+`walls_per_island = ceil(total_wall_bead_count / outer_contour_count)`. That is
+only a mean, and Arachne places a *variable* number of variable-width beads per
+island — even along one island. On a layer whose islands differ in bead count the
+estimate is too low and the interior under-deflated by up to a full bead, so
+solid surface, sparse infill and bottom fill land **on top of the innermost
+wall**. The classic generator, which places a fixed count, shows none of it.
+
+Three corrections follow from that one flaw, and each is deliberately narrow:
+
+| Correction | Applied to | Why it is safe |
+| --- | --- | --- |
+| **Wall-footprint clip** | sparse infill · solid surfaces | Count- and width-agnostic, so it is a no-op wherever the estimate was already right |
+| **Opened interior** | top/bottom surfaces · bridge candidates | Erases sub-bead *channels*; a real surface sits on a thick interior and keeps its full extent |
+| **Sliver opening** | surface fill regions | A strip narrower than one bead cannot hold a bead by construction |
+
+**None of them reshape `interior_regions` itself.** Bridge *detection* keys off
+the smooth interior; reshaping it spawns phantom bridges from the jagged
+bead-following boundary. Only the fill regions and the bridge *candidate* are
+clipped.
+
+### The wall-footprint clip
+
+[`compute_wall_bead_footprint`](surfaces.rs) inflates every wall centreline by
+its own half-width, giving the **actual** physical footprint.
+
+- **Sparse infill** subtracts it grown by `infill_perimeter_gap_mm`, keeping its
+  intended clearance from the real innermost wall.
+- **Solid surfaces** subtract it eroded by `infill_overlap_percent × d`, so the
+  fill still welds that much into the innermost wall — the designed bond — and no
+  further. The un-eroded gap-fill footprint is unioned back in so surfaces
+  *abut* gap fill rather than welding to it.
+
+Use **`FillRule::NonZero`** for these subtractions, never `Positive`: the wall
+footprint is a frame with CW hole sub-paths. `Positive` ignores CW holes, treats
+the frame as a solid block, and erases the whole interior.
+
+### Keeping tiny extrusions out of sparse infill
+
+Three filters, each keyed to a different artifact. What they have in common is
+that an isolated dab of material still costs a full retract → travel →
+un-retract to reach, which is the waste being removed.
+
+- **Grow `solid_regions` by one bead before subtracting it.** A surface is
+  printed as a rectilinear serpentine whose *stepped* extent only approximates
+  its nominal polygon, and the surface pass has already trimmed it off the wall
+  band. Subtracting the raw outline leaves a crescent sliver along every curved
+  perimeter, which the scanline shatters into sub-millimetre dashes — 31 on one
+  3DBenchy layer, ~4.8 mm³ of filament pushed back and forth to deposit
+  ~0.04 mm³. `SOLID_MARGIN_NOZZLE_MULT × nozzle` fixes it; `0.5` does not,
+  because the sliver is wider than half a bead.
+
+  **Key this to `solid_regions`, never to the infill area as a whole.** That
+  makes it an exact no-op on layers with no solid surface, so a genuinely thin
+  wall-to-wall cavity keeps its full lattice. An earlier attempt morphologically
+  *opened* the whole infill area instead and could not tell an artifact sliver
+  from a real thin cavity: it erased the filament caddy's hollow-box lattice
+  outright (wall-zone void 62 → 146 mm², 35 % of its infill gone) and the quality
+  gate caught it. A sweep found no safe threshold for that approach.
+  `test_thin_cavity_without_solid_surface_keeps_its_infill` pins the right
+  behaviour.
+- **Skip a connected region too small to hold more than one dash**
+  (`INFILL_MIN_REGION_AREA_NOZZLE_MULT × d²`, 2.0 mm² at 0.4 mm). Two properties
+  make it safe. It is an **area rule on whole connected regions, never a width
+  rule** — a cavity deserving a lattice is a *large* region that merely happens
+  to be narrow, and across the QA corpus the caddy has no infill region at all
+  between 0.01 mm² and 10 mm², an empty band two orders of magnitude wide. And
+  it filters the **generated paths, not the region**: `generate_rectilinear_infill`
+  seeds its scanline phase from the bounding box of the whole area, so deleting
+  an outlying sliver *first* shifts every infill line on the layer. Membership is
+  tested with segment **midpoints** — an infill line's endpoints lie exactly on
+  the boundary, where the integer-scaled point-in-polygon test can land either
+  side.
+- **`min_infill_extrusion_mm`** still guards the residual sub-threshold segments
+  a legitimate region's tapering corners produce.
+
+### Thin wall-band channels, and phantom surfaces
+
+Wherever a cross-section is *locally* thinner than the per-island average, the
+interior estimate leaves a sliver channel (≤ ~1 mm): Benchy hull-side wall tips,
+funnel-to-roof transitions, the cabin roof ridge, embossed calibration-cube
+logos. Arachne already fills those solid with wall and gap-fill beads — but where
+the geometry above or below recedes, the channel is detected as an "exposed"
+surface and filled with a zig-zag of sub-millimetre segments. `classic`, whose
+uniform offsets consume the same cross-sections, emits nothing there.
+
+`open_interior_for_surface` erodes then dilates the interior by
+`SURFACE_MIN_INTERIOR_WIDTH_NOZZLE_MULT × nozzle / 2`, erasing channels under
+1.0 mm at a 0.4 mm nozzle. A surface landing entirely inside a thin channel
+disappears; a genuine surface keeps its full extent, with only its corners
+rounded.
+
+- **The discriminator is the *interior*, not the strip.** A real fore-deck top
+  surface is an equally thin band. What separates it from an artifact is that it
+  sits on a *thick* interior. Filtering the strip by its own width wrongly
+  deletes legitimate thin surfaces — do not do that.
+- **Dropped strips stay solid** via the beads already filling them, and — no
+  longer being a `solid_region` — their gap-fill beads survive
+  `prune_redundant_gap_fill`. Expect a small **gap fill ↑ / surfaces ↓** shift in
+  the QA baselines.
+- **The absolute base cap (`i < bottom_layers`) is exempt** for bottom surfaces:
+  that is bed contact and must stay fully solid for adhesion.
+- **Bridges get the same clip**, in `clip_to_void` step A. The same
+  under-deflation that spawns a phantom surface fires a phantom **bridge** in the
+  same channel — laying sparse lines straight over the beads that already fill
+  it. A genuine bridge over a wide void sits on a thick interior and is
+  untouched. Only the candidate is clipped; bridge *detection* input never is.
+
+### Sub-bead slivers at grazing angles
+
+The wall-band trim subtracts a footprint whose boundary does not follow the
+surface outline exactly. Where the two meet at a **grazing angle** the difference
+is a long crescent far narrower than one bead — and because the fill direction is
+then near-parallel to it, **every span is a stub**.
+
+Measured on the caddy's hexagon logo: sliver sub-paths of ≈4.5 mm² at ≈0.22 mm
+mean width along the two edges lying 15° off the fill direction, producing a
+repeating 0.82 mm line / 0.62 mm connector micro-serpentine. **93 % of that
+material was already covered** by the flanking bead or the normal surface.
+
+`open_surface_region_for_fill` removes them:
+
+- **The threshold is physical, not heuristic** — erode by
+  `SURFACE_FILL_MIN_WIDTH_FRACTION (0.5) × solid-surface extrusion width`, an
+  erosion *diameter* of exactly one bead.
+- **It is a width filter, not an area filter.** Small-but-printable surfaces
+  survive intact (79 mm² and 37 mm² regions untouched while six slivers went to
+  zero).
+- **Corners are preserved.** A plain opening rounds convex corners, and a rounded
+  corner makes the scanline emit *extra* stubs — the very artifact being removed
+  (+31 on the Voron cube). The surviving core is re-grown by
+  `SURFACE_FILL_REGROW_FACTOR (2.0) × radius` and clipped back to the original
+  region, restoring the exact shape. That took the cube from +31 stubs to −1.
+- Use **`FillRule::NonZero`** for the final clip so CW hole sub-paths stay holes.
+
+This defect is **not** Arachne-specific — both generators produced byte-identical
+stub measurements on the caddy hexagon, because it originates in the surface
+fill, not the wall generator.
+
+### Redundant gap fill under a solid surface
+
+[`prune_redundant_gap_fill`](surfaces.rs) drops a `GapFill` bead when either a
+majority of its vertices lie **inside** `solid_regions`, or it is **sandwiched** —
+solid surface on *both* perpendicular sides (`gap_fill_sandwiched_by_surface`).
+
+The sandwich case exists because `blocked_for_surface` unions the gap-fill
+footprint *out* of the surface region, carving a bead-wide corridor exactly where
+each bead sits. A bead running down the centre of a thin solid strip is therefore
+never "inside" the surface, yet the surface's full-width zig-zag still deposits
+straight over it. The probe reaches `half-width + 0.5·d` to either side, just past
+that corridor: a bead the surface *surrounds* has surface on both probes and is
+dropped; a genuine neck that merely *abuts* a surface edge has it on at most one
+and is kept.
+
+**The surface must then *cover* the pruned bead's footprint, not carve it out.**
+Otherwise the corridor becomes a hole in `solid_regions`, which on a thin roof
+splits the top-surface serpentine into two disconnected bands and lets sparse
+infill dash across the void — the "two infill surfaces plus tiny blobs of goo"
+defect. The corridor was carved from **two** places, so both must stop for a
+sandwiched bead: `blocked_for_surface`'s explicit gap-fill term, which uses
+`compute_gap_fill_footprint_excluding_sandwiched`; and
+`compute_wall_bead_footprint`, which is called with `include_gap_fill = false`
+for the surface trim. The sandwich test runs against the layer's **combined**
+detected surface, pre-trim, so a centre bead is recognised before the trim would
+hole the surface.
+
+> Verify with a true-width **capsule** intersection, not a footprint-erosion
+> overlap scan — a thin bead hides from the latter. On the Benchy rear rail that
+> hidden double-extrusion was 6 mm²/layer.
+
+### Ironing is a treatment, not material
+
+`add_ironing_for_region` runs inside surface generation, where `top_region` is
+still live — and it must touch **no region field**. Ironing is a near-dry
+smoothing sweep, not solid material: were its footprint ever folded into
+`solid_regions`, `add_infill_to_layers` would subtract it (grown by a full bead)
+and punch a hole in the sparse infill underneath.
+
+Two more choices that look like details and are not:
+
+- **It carries its own `ExtrusionRole::Ironing`** rather than reusing
+  `TopSurface`. `resolve_width_mm` returns `top_surface_line_width` before it
+  ever reads an explicit width, so sharing the role would silently iron at full
+  flow on any profile that sets one. A shared role would also merge the two into
+  one path-ordering group, letting the TSP interleave ironing with fill that has
+  not been printed yet.
+- **The flow reduction is folded into the *width*** (`ironing_spacing ×
+  ironing_flow`), deliberately keeping it out of `extrusion_for_move`'s
+  `flow_ratio` — which reads a non-positive value as `1.0`, so routing a
+  "wipe only" setting through it would lay a full-width bead at 0.1 mm pitch.
+
+### Which Clipper2 fill rule, and why
+
+| Operation | Rule | Why |
+| --- | --- | --- |
+| Surface detection (intersect / difference of layer perimeters) | `EvenOdd` | The mesh slicer does not guarantee consistent winding; EvenOdd is winding-independent |
+| Infill interior subtraction (infill area − solid regions) | `Positive` | Input winding is consistent Clipper2 output; `Positive` is more predictable for non-overlapping inputs |
+| Wall-footprint subtraction | `NonZero` | The footprint is a frame with CW holes; `Positive` would erase the interior |
+| Variable elephant-foot offset cleanup | `Positive` | Discards the reversed folds a variable offset creates in a concavity, while a CW hole still subtracts |
+
+**Do not union Arachne bead paths with `EvenOdd`.** Tightly nested concentric
+closed paths under EvenOdd produce alternating in/out bands instead of one solid
+region. `NonZero` would work, but only after normalising winding — which is why
+that union was removed rather than fixed.
+
+> **Gap-fill length is not bit-reproducible** between runs of the same binary
+> (7399.6 vs 7401.8 mm on two Benchy slices), so small gap-fill deltas are noise,
+> not evidence. Sparse infill *is* deterministic and can be compared directly.
+
+---
+
+## Spiral (vase) mode
+
+`spiral_vase` prints a single continuous outer wall whose Z ramps over each
+layer. It is split across two boundaries so every runtime behaves identically.
+
+**Normalization** ([`SlicingParams::spiral_vase_normalized`](../settings/params.rs))
+forces the incompatible settings off — `wall_count = 1`, `infill_density = 0`,
+`top_layers = 0`, `retract_mm = 0`, `z_hop_mm = 0`, `ironing_enabled = false` —
+while **keeping `bottom_layers`** as the solid base. It is a `Cow` (a no-op
+borrow when the flag is off) and **idempotent**, so it is applied at both
+boundaries without double effect: the top of `process_mesh` / `process_mesh_debug`,
+and the top of `generate_with_stats`.
+
+**The pipeline skips `classify_overhang_perimeters` in spiral mode.** That pass
+splits closed wall loops into open arcs, and the spiral emitter needs each
+layer's outer wall to stay one closed loop. Nothing else changes — surface
+generation still runs for the base, and everything else is a plain single-wall
+slice.
+
+**The generator owns the spiralization**; see
+[`gcode`](../gcode/README.md). Multi-island layers fall back to a normal flat
+print with a single warning — spiral vase is for solid, single-island models.
+
+---
+
 ## Critical invariants
 
 These have all been hit as bugs at least once. Read before changing
@@ -456,15 +800,15 @@ gets it wrong:
 The **cliff guard** is a separate limit on top: compensation is withheld where
 the layer above flares steeply outward past this one, so a narrow pedestal under
 a wide body is never undercut. The flare is measured *along the outward normal*,
-by walking out of the layer above until its material ends — the nearest boundary
+by `ray_exit_distance`, which walks out of the layer above until its material
+ends — the nearest boundary
 in any direction answers a different question, and a rim running tangentially
 past would hide a deep overhang behind it. It reads the model's own geometry,
 which is why the pass walks bottom-up: layer `i` consults layer `i + 1` before
 layer `i + 1` is itself rewritten.
 
 See [`../walls/README.md`](../walls/README.md) for the wall-side
-implications and [`../../AGENTS.md`](../../AGENTS.md) for fill-rule
-guidance across the whole engine.
+implications.
 
 ---
 
@@ -498,4 +842,4 @@ guidance across the whole engine.
 - [../walls/README.md](../walls/README.md) — wall generation (Arachne + classic)
 - [../infill/README.md](../infill/README.md) — sparse infill pattern catalog
 - [../SLICING.md](../SLICING.md) — slicing-algorithm walkthrough
-- [../../AGENTS.md](../../AGENTS.md) — pipeline-wide invariants and fill-rule guidance
+- [../../AGENTS.md](../../AGENTS.md) — the repo map

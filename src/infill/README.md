@@ -142,7 +142,8 @@ surface disappears. `MonotonicLine` is exactly `Monotonic` with joining switched
 off, which libslic3r encodes as `anchor_length_max = 0`.
 
 Because that ordering *is* the feature, [`core::pipeline`](../core/pipeline.rs)
-skips the greedy-TSP path reordering for a monotonic surface group — the TSP is
+skips the greedy-TSP path reordering for a monotonic surface group
+(`monotonic_surface_role`) — the TSP is
 free to reverse an open path, which would scramble the sweep and leave the
 surface looking no different from a plain serpentine.
 
@@ -350,4 +351,4 @@ is needed as long as the input is canonical Clipper2 output.
 - [../core/infill.rs](../core/infill.rs) — `calculate_interior_region`,
   `add_infill_to_layers`, layer combining
 - [../core/surfaces.rs](../core/surfaces.rs) — `generate_solid_infill`
-- Issue [#99](https://github.com/ColdCrabby/slicer/issues/99) — advanced infill options
+- [../settings/README.md](../settings/README.md) — the infill parameter reference

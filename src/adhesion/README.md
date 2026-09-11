@@ -35,7 +35,8 @@ flowchart LR
   centerlines inset `d/2` from the true surface (`d` = nozzle diameter), so the
   object outline is recovered by unioning the layer-0 `OuterWall` paths and
   inflating outward by `d/2`. **Winding is preserved** (CCW solids, CW holes) so
-  Clipper2 treats holes as voids — see `AGENTS.md` § "Clipper2 Fill Rules".
+  Clipper2 treats holes as voids — see
+  [`../core/README.md`](../core/README.md#which-clipper2-fill-rule-and-why).
 - **Loops print first.** Skirt/brim paths are prepended so the nozzle primes on
   them before the part. They carry the `Skirt` role (a closed-loop role in the
   G-code generator, Orca-compatible `;TYPE:Skirt`).
@@ -94,7 +95,5 @@ a pure function of the finished layers plus params.
 - [`../settings/params.rs`](../settings/params.rs) — `AdhesionType`, `BrimType`,
   and the sub-parameters.
 - [`../core/pipeline.rs`](../core/pipeline.rs) — where `apply_adhesion` is called.
-- `AGENTS.md` § "Slicing Pipeline — Deep Knowledge" and § "Clipper2 Fill Rules".
-- Issue [#93](https://github.com/max-scopp/slicer-engine/issues/93) — the
-  originating feature; part of [#92](https://github.com/max-scopp/slicer-engine/issues/92)
-  (profile import).
+- [../core/README.md](../core/README.md) — the pipeline order this pass runs
+  last in, and which Clipper2 fill rule to use where.

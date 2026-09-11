@@ -240,4 +240,4 @@ sceneEngine.apply({
 - [`src/orient/pack.rs`](pack.rs) — shelf-first-fit packing algorithm
 - [`src/orient/types.rs`](types.rs) — `AutoOrientOptions`, `ArrangeOptions`
 - [`src/scene/ops.rs`](../scene/ops.rs) — `SceneOp::AutoOrient`, `SceneOp::ArrangeOnBed`
-- Issue [#51](https://github.com/max-scopp/slicer-engine/issues/51) — scene SSOT
+- [../scene/README.md](../scene/README.md) — the scene SSOT contract

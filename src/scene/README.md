@@ -11,7 +11,8 @@ Angular UI (via WASM). There is no second copy.
 
 ## Why it exists
 
-Before issue #51, "just translate this mesh real quick" lived in three places:
+Before this module existed, "just translate this mesh real quick" lived in
+three places:
 the CLI flag handler baked transforms into mesh vertices, the UI tracked its
 own Three.js matrices, and the WS server… kind of guessed. Three placement
 paths meant three sets of bugs and three subtly different answers to "what
@@ -95,6 +96,32 @@ A few things worth knowing:
   slice time hands back *every* part, so the index picks the right one —
   otherwise a two-part file prints both parts twice. It survives duplication
   for the same reason `source_id` does.
+
+### Every slice entry point resolves objects *and* parts — all four of them
+
+A 3MF's build-item transform is baked into each part's vertices, so a **merged**
+load returns the file exactly as its author assembled it: parts stacked,
+geometry floating well above the bed. Slicing that instead of the plate silently
+ignores every placement the user made, and it looks like the slicer "prints the
+file, not the scene".
+
+`load_bytes_multi` / `load_path_multi` are the splitting loaders; `load_bytes` /
+`load_path` still merge and are what the slicer sees *after* a part is picked.
+All four runtimes load with `load_*_multi`, pick `parts[source_part]`, and bake
+**that object's own** transform:
+
+| Runtime        | Entry point                                                          |
+| -------------- | -------------------------------------------------------------------- |
+| CLI            | [`cli/commands/slice.rs`](../cli/commands/slice.rs)                   |
+| WS server      | [`server/ws_session.rs`](../server/ws_session.rs)                     |
+| Browser slicer | [`scene/wasm.rs`](wasm.rs)                                            |
+| Desktop bridge | `ui-desktop/src-tauri/src/bridge/runtime_bridge.rs`                   |
+
+**Never reach for `load_path` / `load_bytes` in a slice path.** The merging
+loaders exist for callers that genuinely want one mesh; a runtime that uses one
+loses both the part split and every transform but the first. An out-of-range
+`source_part` is an **error, never a fallback to part 0** — guessing slices the
+wrong geometry without saying so.
 
 ---
 
@@ -254,6 +281,11 @@ identical.
   geometry is `mesh::*`'s job.
 - **No protocol concerns.** Wire framing, auth, upload tokens — all of that
   lives in `server::` and `ws_protocol`. The scene only knows `SceneOp`.
+- **No second placement path.** The temptation to "just translate this mesh real
+  quick" in `mesh::transforms` is exactly what this module was built to
+  eliminate. The CLI's `--center` / `--drop-to-floor` survive only as aliases
+  that log a deprecation warning and dispatch the equivalent `SceneOp`; do not
+  add new flags that bypass the engine.
 
 ---
 
@@ -263,7 +295,5 @@ identical.
 - [state.rs](state.rs) — `SceneState`, `SceneObject`, `ObjectId`
 - [transform.rs](transform.rs) — `Transform`, `apply_transform`, Euler helpers
 - [wasm.rs](wasm.rs) — `SceneHandle` exposed to the Angular UI (`applyOp`, `getMatrix`, `getFaceGroups`)
-- [../../AGENTS.md](../../AGENTS.md) — "Scene Engine — SSOT Contract" section
+- [../../AGENTS.md](../../AGENTS.md) — the repo map
 - [../../ui/src/app/components/viewer/README.md](../../ui/src/app/components/viewer/README.md) — gizmo system and object-manipulation modes
-- [issue #51](https://github.com/max-scopp/slicer-engine/issues/51) — original
-  motivation and design discussion

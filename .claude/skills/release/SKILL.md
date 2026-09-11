@@ -8,7 +8,7 @@ description: Cut a release locally — curate CHANGELOG.md, acknowledge contribu
 Drive the whole local release flow for Slicer Engine: turn the commits since the
 last tag into curated, enthusiastic release notes, acknowledge every
 contributor (and give first-timers an extra spotlight), then tag and push so
-[`.github/workflows/release.yml`](../../workflows/release.yml) builds and
+[`.github/workflows/release.yml`](../../../.github/workflows/release.yml) builds and
 publishes the GitHub Release.
 
 **A git tag is the single source of truth.** You are producing two artifacts —

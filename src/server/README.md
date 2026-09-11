@@ -198,6 +198,40 @@ sequenceDiagram
 
 ---
 
+## The G-code result cache — skipping identical scenes
+
+Re-slicing a plate nobody changed is pure waste, so `handle_slice` looks for a
+previous result first. The key is an FNV-1a hash over three things:
+
+1. the resolved `SlicingParams`, via `SlicingParams::cache_fingerprint`,
+2. the **ordered** scene DTOs (file id + part index + transform), and
+3. `crate::version::VERSION`.
+
+A `gcode_cache` table (migration `m20250201_000002`) maps that key to the
+`.gcode` it produced. On a hit the pipeline is skipped entirely — the cached
+file is copied under the new workplate UUID and `SliceComplete` is emitted
+immediately. On a miss the fresh slice is stored.
+
+- **Object order is part of the key.** It affects the merged mesh and therefore
+  the output. Do not sort.
+- **The engine version is part of the key**, so output changes across releases
+  bust the cache automatically.
+- **`part_index` is part of the key**, because a file id alone is ambiguous for
+  a multi-part 3MF — see [scene](../scene/README.md).
+- **The embedded thumbnail PNG is excluded.** `cache_fingerprint` drops
+  `thumbnail_png_base64` — a camera-derived preview captured fresh from the
+  viewer on every slice — so its volatile bytes never bust the cache and moving
+  the camera leaves the hit rate untouched. The thumbnail *settings*
+  (`thumbnail_view` / `theme` / `size` / …) **stay** in the key, so a reused
+  file's embedded preview always matches the request that reused it.
+- **It is best-effort.** A dangling row (the file was cleaned up) is evicted
+  lazily on lookup and the scene re-sliced.
+
+The desktop (Tauri) runtime keeps an in-memory mirror with the same key in
+`ui-desktop/src-tauri/src/bridge/runtime_bridge.rs`.
+
+---
+
 ## Threading model
 
 - **Actix-web** drives the HTTP and WebSocket I/O on its async runtime.

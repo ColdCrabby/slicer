@@ -141,6 +141,105 @@ lands, `pnpm vendor:ui` brings it in.
 
 ---
 
+## Multi-object plates
+
+**A workplate is a build plate, not a file.** It starts from one model and must
+accept more, so responsibilities are split strictly.
+
+- **[`WorkplateObjects`](src/app/services/workplate-objects/workplate-objects.ts)
+  is the only way an object gets onto a plate.** It uploads (cloud), calls
+  `addMesh` with the resulting `source_id`, places the result using the shared
+  [`Arrange`](src/app/services/arrange/arrange.ts) settings, and nudges the new
+  object clear of the ones already there. Every entry point — the toolbar's add
+  button, drag-and-drop, restoring a saved plate — goes through it, so they
+  cannot drift apart. **Adding never clears existing objects**; only an explicit
+  clear does.
+- **[`SlicerFile`](src/app/services/slicer-file.ts) holds a list, not a file.**
+  `files` accumulates `{fileId, filename}` and `upload(file)` appends, attaching
+  to the open workplate. `fetchFile` adopts a file as the *primary displayed*
+  model — it sets `selectedFile`, which retargets the viewer's `model` input — so
+  additional objects must use **`downloadFile`**, which registers without
+  touching `selectedFile`. Otherwise restoring an N-object plate leaves only the
+  last file on screen.
+- **[`toSliceDtos`](src/app/runtime/adapters/cloud/scene-slice-dto.ts) resolves
+  each object to its file via `source_id` and throws rather than guessing.** It
+  is a pure function with tests pinning the regression; keep the mapping there,
+  not inline in the runtime adapter.
+- **The viewer mirrors, it does not own.** `Viewer.syncWasmMeshes()` diffs
+  `sceneEngine.objects()` against its Three.js nodes and adds or disposes to
+  match, so an object created by *anyone* — the add button, `Duplicate`, undo —
+  renders without the viewer being told. Do not add a second place that
+  constructs display meshes.
+
+### Placing objects is one command, not two
+
+"Auto-orient" and "arrange all" used to be rival buttons that undid each other's
+work. [`Arrange`](src/app/services/arrange/arrange.ts) owns the single
+`ArrangeOnBed` dispatch plus the settings it needs — gap, auto-orient, and the
+printer's preferred angle.
+
+Its UI follows the object-tools idiom exactly: a uniform toolbar button **in the
+same group as move / rotate / scale**, revealing a contextual card
+([`PlacementPanel`](src/app/components/placement-panel/placement-panel.ts), a
+sibling of [`TransformPanel`](src/app/components/transform-panel/transform-panel.ts)).
+**Do not give it a split caret** — that made one button in the group behave
+unlike its neighbours. **Add-time placement reads the same settings**: dropping a
+file in and pressing the button must not disagree about orientation or spacing.
+Do not re-introduce a bare "auto-orient everything" action beside it.
+
+`preferred_orientation_deg` lives on the **printer profile**, not in plate
+preferences, because it describes the machine (a CoreXY prints everything at
+45°). Settings → Printers is the only editor; the placement panel shows it
+read-only and links there, so one machine's angle is never changed from a
+plate-scoped surface. It rides along inside
+`orient_options.preferred_z_rotation_deg` and is therefore **only applied when
+auto-orient runs** — the panel says so rather than showing a live-looking value
+that does nothing.
+
+### Contextual tool cards hang off the tools that open them
+
+Both cards render inside `3d-view-toolbar.html`, in a `.tool-panels` column
+**absolutely positioned** under the `.tool-cluster` and centred on it, so they
+follow the buttons instead of sitting in a screen corner the user has to connect
+them to.
+
+Absolute positioning is what makes this safe: the toolbar's own `contentRect`
+height is unchanged, so the shell's `--main-scene-inset` — and with it the
+viewport cube and the slice rail — never shifts as cards appear. That invariant
+is why the transform card originally lived in the shell. The column stacks, so
+transform and placement can be open at once, and the container is
+`pointer-events: none` so gaps stay click-through to the scene.
+
+**The toolbar's own pill rules must keep their `:host ` prefix.** `nexus-card`
+styles itself with `:host(.small){border-radius:var(--radius-md)}`, which a bare
+class selector ties on specificity and loses to on order — squaring off the pill.
+
+### `TransformPanel` edits the whole selection
+
+It used to render nothing unless *exactly one* object was selected, which made a
+multi-object plate untransformable.
+
+| Edit | Applied as |
+| --- | --- |
+| Position | a **delta** off the selection's combined AABB centre, so a spread-out arrangement keeps its layout instead of collapsing onto one coordinate |
+| Rotation · scale | **per object**, about each one's own centre |
+| `setSize` | measured against each object's own AABB, so a batch of different-sized parts all reach the requested size |
+
+A single-object selection is the exact previous behaviour — the anchor is then
+its own translation, so an edit is still an absolute set. The header shows
+`"N objects"` for a batch and **nothing** for one; it deliberately does not name
+the file, since every duplicate shares a name and it identified nothing.
+
+### Plate-editing chrome hides in G-code preview
+
+The placement control, add-model button, gravity toggle, multi-select toggle,
+gizmo-mode group and objects list are all gated on `viewMode() === 'model'`, and
+the `A` shortcut matches only there. The scene's context menu is gated the same
+way. Preview shows toolpaths, so an edit made from it changes something the user
+cannot see change.
+
+---
+
 ## Phones and tablets
 
 The desktop layout assumes horizontal room the slicer does not have on a
@@ -203,7 +302,24 @@ flowchart LR
   `:host` block compiles to an attribute selector, which a plain element selector
   loses to; the class buys exactly the specificity needed without `!important`.
   Both are set before first paint by the inline script in `index.html`, and
-  `Viewport` keeps them live.
+  `Viewport` keeps them live (`AppShell` constructs it, so they exist on every
+  route).
+- **`handheld()` keeps a width-bounded short-landscape arm**, so a docked-but-
+  short desktop window is not mistaken for a handset. A height test alone
+  reclassifies a perfectly roomy window the moment someone drags it shorter.
+- **The `tooltip` directive contributes no accessible name.** An icon-only
+  button whose only label is `[tooltip]` is unlabelled to VoiceOver *and*
+  unlabelled on a tablet, which has no hover to reveal it. Give every icon-only
+  control an `aria-label` mirroring its tooltip **at the call site** — the
+  directive lives in the shared repo and is not ours to change here.
+- **Pinch-to-zoom belongs to the browser everywhere except the 3D canvas.** The
+  viewport meta carries no `user-scalable=no` / `maximum-scale`, and
+  `touch-action: none` sits on the viewer's `:host`
+  ([viewer.scss](src/app/components/viewer/viewer.scss)) rather than on `html`.
+  Both used to be page-wide, and between them they took magnification away from
+  every settings form and every block of prose — the one affordance a low-vision
+  user has on a phone, and an outright accessibility failure. Lock a gesture on
+  the specific surface that claims it, never on the document.
 
 ### Folding the chrome over the plate
 
@@ -220,7 +336,9 @@ persists once the user states it.
 
 Until the user folds or unfolds one, the default is derived; afterwards their
 choice is remembered across sessions **and viewports**, because a stated
-preference outranks a guess.
+preference outranks a guess. The preference is therefore **tri-state**: `null`
+until the user states one, at which point the derived default (`!isCompact()`)
+stops applying entirely. Do not add a floating panel without one.
 
 **Unfolded, a panel gets the room that is actually there.** The rail card is
 bounded by `100dvh` minus the chrome above it — titlebar, safe area, toolbar
@@ -347,6 +465,20 @@ The rules worth knowing before editing it:
   and one-finger orbit dies outright. The only surviving stops are on
   `pointermove` inside a live drag, whose `pointerdown` was withheld too, so a
   bubble consumer is absent for the whole gesture rather than half of it.
+- **A raycast hit is not a visible hit.** Three's `Raycaster` filters on
+  `layers` and **never on `visible`**, so hidden geometry reports hits like any
+  other. This is not academic: `GizmoManager.hitTest` — the touch/pen-only path
+  that asks "did this press land on a transform handle?" — raycasts
+  TransformControls' *pickers*, which are invisible-by-design shapes much larger
+  than the handles they stand for. A detached gizmo parks them at the origin,
+  i.e. the middle of the bed, so every tap near the centre of an empty plate was
+  swallowed as "on the gizmo" and **no model could be selected by touch or pen
+  at all** — the original iPad complaint, and invisible to a mouse, which reaches
+  `isHovering()` instead. Anything deciding "did the user touch this?" from a
+  raycast must apply visibility itself (`isVisibleWithin`) and check that the
+  gizmo is attached and enabled first.
+  [`gizmo.spec.ts`](src/app/components/viewer/gizmo.spec.ts) pins it, and also
+  asserts the three.js behaviour so a future release changing it is noticed.
 - **Palm rejection sits above all of it** in
   [`scene/pointer-arbiter.ts`](src/app/components/viewer/scene/pointer-arbiter.ts),
   on the host element in the capture phase, so a resting wrist never reaches any
@@ -474,14 +606,104 @@ Shortcuts are no-ops when the corresponding history direction is unavailable (gu
 ## Route chunking and navigation feedback
 
 Every screen below `AppShell` is a lazily-loaded chunk, and the initial-bundle
-budgets in [angular.json](angular.json) exist to keep it that way. The rules for
-what may and may not join the initial download — and why three.js, Monaco and
-`marked` each ended up there — are in
-[AGENTS.md](../AGENTS.md#bundle-chunking--what-may-sit-in-the-initial-download).
-The short version: **anything routed uses `loadComponent`**, and a root-provided
-service's imports are initial-bundle imports.
+budgets in [angular.json](angular.json) exist to keep it that way.
 
-Two pieces keep splitting from turning into waiting:
+### What may sit in the initial download
+
+**The initial bundle is the code the browser must have before it can draw
+anything**, so it belongs to the *first* screen — not to the app as a whole.
+Left unwatched this regresses silently: the app still works, it just starts
+slower every release, and the usual response is to raise the budget until it
+means nothing (it had reached 2 MB against a 1.58 MB bundle).
+
+- **A route's `component:` is a static import.** Naming a component in the route
+  table pulls its entire import graph into the initial bundle, no matter how
+  deeply nested the route is. `NexusSlicingShell` reaches three.js, the viewer
+  toolbar, the schema-driven settings panel and fuse.js, so a single
+  `component: NexusSlicingShell` put ~700 kB of the slice workspace in front of
+  the home screen. **Everything routed uses `loadComponent`**; `AppShell` is the
+  only exception, because it is the chrome every route renders inside.
+- **A root-provided service drags its whole import graph in with it**, because
+  something in `provideAppInitializer` constructs it during startup. That is how
+  three.js got in *twice*: `KeyboardShortcuts` injects `ViewerControl`, and
+  `ViewerControl` imported one class from three. **three's ESM build is a single
+  pre-bundled module, so importing `Vector3` costs all ~550 kB of it** — nothing
+  is tree-shaken. `ViewerControl` therefore holds a plain
+  [`Vec3`](src/app/services/viewer-control.ts) that three's `Vector3` is
+  structurally assignable to, and the three-aware components convert at their
+  own boundary. Watch for the same trap with any pre-bundled library.
+- **Import the narrow entry point, not the package root.** Monaco's root export
+  is `editor.main`, which registers ~90 language grammars and the TypeScript,
+  CSS and HTML language services — a 2.7 MB chunk plus **9.6 MB of web workers**
+  (the TypeScript one alone is 7 MB) for an app that shows G-code and JSON.
+  [code-editor.ts](src/app/components/code-editor/code-editor.ts) composes the
+  editor from `editor/editor.api` + `features/register.all` and pulls the JSON
+  language only when a JSON editor mounts. **Naming a worker in
+  `MonacoEnvironment.getWorker` is what makes the bundler emit it**, so the
+  switch there lists only the two that can be asked for.
+- **A dynamic `import()` is lazy in the *bundle*, not in *time*.** It still runs
+  the moment the component is created, so a heavy off-screen widget charges its
+  download to the page the user is actually reading. `CodeEditor` therefore
+  waits for an `IntersectionObserver` before touching Monaco: the printer
+  settings page mounts three editors ~4 500 px below a 720 px fold, which
+  fetched **4.1 MB** before anyone had scrolled near them. Deferring made
+  opening that page cost **0 kB** of editor, while a visible editor (the
+  operation-pipeline dialog) still loads immediately. Waiting for a widget you
+  are looking at is fine; making the rest of the app wait for one you are not is
+  the thing to avoid.
+- **`provideMarkdown()` stays at the root**, even though it is 54 kB of the
+  initial bundle. The shared UI's tooltip renders markdown and tooltips appear
+  everywhere, including in dialogs drawn from the root outlet — moving the
+  provider under a route trades 54 kB for a `NullInjectorError` in whichever
+  surface was overlooked.
+- **Measure before concluding.** Build with `--source-map`, then attribute each
+  initial chunk's bytes back to its modules through the source map. Chunk names
+  are hashes and the sizes alone tell you nothing about *why* something is there.
+
+### Bytes are only half of it — what a service *does* on construction
+
+A chunk the browser has already downloaded costs nothing until something runs
+it, and the reverse is the trap: a small service can start very expensive work
+the moment it is injected. `Slicer` used to call `orchestrator.init()` straight
+from its constructor, which on the web build downloads the ~750 kB
+`scene_engine_bg.wasm` and starts the slicer worker. The home dashboard injects
+`Slicer` for its history list, so **every visitor paid for the whole slicing
+engine before the first screen had painted** — three quarters of the page's
+bytes and, once compiled, 2 s of blocked main thread.
+
+The fix is the pattern to follow for anything similarly heavy:
+
+- **Boot lazily, and warm on idle.** `Slicer.ensureRuntimeStarted()` is
+  idempotent and shared, scheduled from the constructor through
+  [`onIdle`](src/app/services/idle.ts) and awaited by every path that reaches
+  the runtime (`startWorkplate`, `getHistory`, `clearHistory`,
+  `openAndSelectFile`, `ensureRuntimeReadyForSlice`). A user who drops a model
+  before idle fires simply claims the same promise a moment early, so deferring
+  cannot leave the runtime un-booted — only later.
+- **Gate on demand as well as on idle**, never on idle alone. An idle callback
+  is a hint, not a guarantee; on a busy tab it may not fire before the user acts.
+- **A failed boot must not be cached.** `ensureRuntimeStarted` clears its promise
+  on failure so the next demand retries, and never rejects — callers fail in
+  their own terms against the same `status`/`outputLog` they always did.
+- [`onIdle`](src/app/services/idle.ts) is the one place that knows
+  `requestIdleCallback` must be called through `globalThis` (it is a Web IDL
+  operation and throws "Illegal invocation" through a detached reference) and
+  that Safari before 17 needs a timer fallback. `IdleRoutePreload` uses the same
+  helper — do not re-derive it.
+
+**A modal shown at startup becomes the page's Largest Contentful Paint.** The
+web build's "Running in your browser" notice was raised from `App`'s
+constructor; being the biggest block of text on screen, it *was* the LCP
+element, so the site measured as loading however long that dialog took to
+appear — worth 20 points of Lighthouse performance on its own. It now fires from
+`WorkplateObjects.placeMesh`, when a model actually lands on the plate, which is
+both cheaper and the moment its advice means anything. Raise first-run
+explanations from the action they describe, not from app boot.
+
+### Paying the wait back
+
+Splitting the app moves the wait rather than removing it, so two pieces exist to
+pay it back:
 
 ```mermaid
 flowchart LR
@@ -533,8 +755,16 @@ before a single byte of the bundle has run, and tears itself down from
   available: the logo is RGBA and JPEG has no alpha channel. Neither WebP nor
   AVIF decodes progressively, so the refinement is staged explicitly — which is
   faster anyway, since a progressive format's first pass still costs a round
-  trip and an inlined placeholder costs none. Regenerate both with
-  `pnpm run splash-logo`; never hand-edit the base64.
+  trip and an inlined placeholder costs none. Both stages, and the in-app header
+  logo's `srcset`, come from
+  [scripts/gen-logo-assets.sh](../scripts/gen-logo-assets.sh) — `pnpm run
+  logo-assets` at the repo root, `--check` to verify. **Never hand-edit the
+  base64**, and note that Prettier rewrites CSS `url()` to single quotes, which
+  the generator has to tolerate or it stops finding its own output.
+- **Every logo the app serves is WebP, with no PNG fallback.** The `.png` files
+  in `public/` are the masters the generator reads, not assets. That is safe
+  because the app needs WebAssembly and WebGL2 to do anything at all, so no
+  browser that can run it lacks WebP.
 - **The progress bar is the only thing that animates.** It is real: the build
   lists every initial chunk in the document as `<link rel="modulepreload">`, and
   a `PerformanceObserver` reports each one as it lands, so the bar tracks actual
@@ -553,6 +783,70 @@ before a single byte of the bundle has run, and tears itself down from
 
 ---
 
+## The preset catalog
+
+The **catalog** is the read-only library of vendor presets the profile wizards
+browse ("Pick it from the catalog"). Its data lives in a separate service — the
+**Cold Crabby Preset Cloud** (repo `cloud-presets`) — not in this project, so
+everything here is a client concern.
+
+- **The client is generated from the *remote* OpenAPI, not a vendored copy.**
+  [openapi-ts.config.ts](openapi-ts.config.ts) feeds `@hey-api/openapi-ts` the
+  document on the cloud repo's `main` branch, so `pnpm --filter slicer-ui
+  gen-catalog-client` (folded into `gen`/`hydrate`) always tracks the deployed
+  contract — the frontend cannot silently drift from the API. It uses the
+  **Angular** client (`@hey-api/client-angular`), so requests go through
+  Angular's `HttpClient` and its interceptors, not a bare `fetch`. Output lands
+  in `src/generated/catalog-client/` (git-ignored, like every other generated
+  artifact). **Never hand-edit it, and never re-add the vendored spec** —
+  regenerate instead.
+- **The served API is search-plus-detail, never bulk.** `GET /v1/presets`
+  (fuzzy search returning *summaries* — id, type, name, vendor, model/material,
+  a short human `spec` string) and `GET /v1/vendors` are both cursor-paginated;
+  `GET /v1/presets/{id}` returns the *complete* preset in the slicer's own shape
+  (`source`, `import_url`, the full sparse `params` bag). There is no "dump
+  everything" endpoint, so a plate-wide import is one round trip per preset.
+- **`CatalogSource` is the seam.**
+  [`CloudCatalog`](src/app/services/catalog/cloud-catalog.ts) talks only to the
+  `CatalogSource` interface, so the backend is a one-line provider override.
+  Each of the three categories is **loaded and searched independently** —
+  opening the printer picker fetches only printers — with its own status, active
+  query, cursor and out-of-order guard.
+  [`RemoteCatalogSource`](src/app/services/catalog/remote-catalog-source.ts) is
+  the real implementation: list calls fetch **one page at a time** (an empty
+  query browses, a non-empty one searches) rather than walking the cursor to
+  exhaustion, so opening a picker never blocks on — or holds in memory — a whole
+  category. Every summary is widened into the profile shape the wizards consume,
+  tagged `source: 'catalog'` with an `import_url` back to the preset's canonical
+  detail URL, and carries the summary's `spec` string through the hidden
+  `CATALOG_SPEC_KEY` so the picker shows the *catalog's own* spec line rather
+  than one reconstructed from defaulted fields; `toUserCopy` strips it on
+  import. Any transport error rejects, which `CloudCatalog` turns into its
+  `unavailable` state — the UI then offers "create from scratch", and the single
+  builtin default per category keeps the app working offline.
+- **Importing fetches the real preset before committing.** A summary carries no
+  slicing parameters, so every "Use preset" and every settings-page "Import"
+  calls `CloudCatalog.printerDetail`/`filamentDetail`/`profileDetail` and
+  overlays the response's `params` onto the already-widened summary *before*
+  creating the local copy — never the summary alone. That is a real network
+  round trip, so each of the six call sites tracks its own `importingId` signal
+  and passes it to `nexus-catalog-picker`'s `[importingId]` input, which swaps
+  that one entry's pick button for a disabled "Importing…" state. **The busy
+  affordance is per-row, not a modal-wide block**, so browsing and picking a
+  *different* entry stays live. A failure surfaces through
+  `NotificationService.error` and adds nothing. Domain fields a detail response
+  does not carry yet (a printer's bed size; a filament's colour, density, cost)
+  keep the summary's best-effort defaults — only `params` is authoritative.
+- **The base URL is configured once at startup.** `environment.catalogApiUrl`
+  feeds both the `RemoteCatalogSource` provider and `provideCatalogClient()` in
+  [app.config.ts](src/app/app.config.ts), which wires the client's `HttpClient`
+  and sets its base URL. The generated client's default base URL is the
+  raw-GitHub host of the spec and is **never** what you want for requests. Dev
+  builds point at a local cloud-presets (`http://<host>:8787`, the repo's `pnpm
+  sample-api`); prod and web builds point at the deployed cloud.
+
+---
+
 ## Generated artifacts
 
 Anything under `src/generated/` is **regenerated, not edited**. Each file maps 1:1 to a Rust type or wasm-pack output, and any drift is treated as a bug in the generator, not in this folder.
@@ -562,7 +856,7 @@ Anything under `src/generated/` is **regenerated, not edited**. Each file maps 1
 | `src/generated/*.d.ts`      | Rust schemas via `slicer-engine gen-schemas`      | `pnpm run gen` (also runs on `install`) |
 | `src/generated/scene-wasm/` | `src/scene/wasm.rs` (`cfg(target_arch="wasm32")`) | `make build-wasm` at the repo root      |
 | `src/schemas/*.json`        | JSON Schema emitted by the Rust CLI               | `pnpm run gen-schemas`                  |
-| `public/splash-logo.webp` + the base64 blob in `src/index.html` | `public/logo_still@3x.png` | `pnpm run splash-logo` at the repo root |
+| `public/splash-logo.webp` + the base64 blob in `src/index.html` | `public/logo_still@3x.png` | `pnpm run logo-assets` at the repo root |
 
 The `postinstall` script in [package.json](package.json) wires this up: cloning the repo and running `pnpm install` (with the WASM bundle already built) is enough to get a working dev environment.
 
@@ -639,6 +933,7 @@ The UI follows the project [`.editorconfig`](.editorconfig) and is formatted wit
 - [src/scene/README.md](../src/scene/README.md) — the scene engine SSOT this UI sits on top of
 - [src/server/README.md](../src/server/README.md) — HTTP + WebSocket protocol
 - [src/cli/README.md](../src/cli/README.md) — the same engine, different surface
-- [ui/src/styles/README.md](src/styles/README.md) — design tokens and SCSS architecture
+- [`.github/instructions/ui-design-language.instructions.md`](../.github/instructions/ui-design-language.instructions.md) — the design language
+- [src/styles/](src/styles/) — slicer-local SCSS; tokens themselves live in `@coldcrabby/ui`
 - [THEME.md](THEME.md) — colour and spacing system
 - [AGENTS.md](../AGENTS.md) — repo-wide conventions and AI-agent guidance
