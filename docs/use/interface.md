@@ -185,6 +185,14 @@ Windows — whatever your system accent is set to.
 render resolution and preview detail. Turn them down on a weak GPU, up on a good
 one.
 
+Two of them are about the thumbnail embedded in sliced G-code, which is shot in
+the 3D view rather than by the slicer. The **screenshot animation** is the flash
+and the little preview card that flies off to the top after each capture — turn
+it off if you'd rather the shot were taken quietly; it is still taken.
+**Thumbnail look** decides whether the model is rendered plainly or with this
+view's own shading, gloss and contact shadow. What goes *in* the picture — its
+angle, background and colour — is a print setting, under Process → Thumbnail.
+
 ## On a tablet
 
 An iPad has the screen for the full layout but not the mouse, so two things
