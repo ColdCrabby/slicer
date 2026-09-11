@@ -145,7 +145,7 @@ rules in [gcode/README.md](../gcode/README.md#thermal-management--cooling--chamb
 
 | Parameter      | Type | Default | Effect                                                                                         |
 | -------------- | ---- | ------- | ---------------------------------------------------------------------------------------------- |
-| `z_offset_mm`  | mm   | 0.0     | Added to every Z coordinate in the output G-code to compensate a mis-zeroed Z endstop (negative lowers the nozzle). Emitted coordinates and layer markers only — the model, statistics and your start/end G-code are untouched. See [gcode/README.md](../gcode/README.md#machine-z-offset-issue-102). |
+| `z_offset_mm`  | mm   | 0.0     | Added to every Z coordinate in the output G-code to compensate a mis-zeroed Z endstop (negative lowers the nozzle). Emitted coordinates and layer markers only — the model, statistics and your start/end G-code are untouched. See [gcode/README.md](../gcode/README.md#machine-z-offset). |
 
 
 ### Global Settings (top-level)

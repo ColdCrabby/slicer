@@ -198,6 +198,52 @@ sequenceDiagram
 
 ---
 
+## The G-code result table — written on every slice, never read to skip one
+
+`handle_slice` hashes three things into an FNV-1a key (`compute_slice_cache_key`):
+
+1. the resolved `SlicingParams`, via `SlicingParams::cache_fingerprint`,
+2. the **ordered** scene DTOs — file id, part index, transform, support paint —
+3. and `crate::version::VERSION`.
+
+The freshly-generated `.gcode` is written into the `gcode_cache` table
+(migration `m20250201_000002`) under that key via `Db::put_cached_gcode`.
+
+> **Every slice request runs the full pipeline.** The table is written, never
+> read back to decide whether to slice. There is an explicit comment at the
+> would-be lookup site saying so.
+
+`Db::get_cached_gcode` still exists and is still tested
+([`history_tests.rs`](../db/history_tests.rs)) — it is a working DB primitive,
+just not called from the slice path. **Do not wire it back into `handle_slice`
+without discussing it first.** The skip-on-hit behaviour it used to drive was
+deliberately removed, because a "cached" response could silently serve stale
+G-code for a scene the engine had since changed how it slices.
+
+What the key still has to get right, for whatever does eventually read it:
+
+- **Object order is part of the key.** It affects the merged mesh and therefore
+  the output. Do not sort.
+- **The engine version is part of the key**, so output changes across releases
+  can never be confused for the same result.
+- **`part_index` is part of the key**, because a file id alone is ambiguous for
+  a multi-part 3MF — see [scene](../scene/README.md).
+- **`support_paint` is part of the key** for the same reason: a repaint has to
+  produce a different key, or a reader would match G-code sliced before the
+  stroke.
+- **The embedded thumbnail PNG is excluded.** `cache_fingerprint` drops
+  `thumbnail_png_base64` — a camera-derived preview captured fresh from the
+  viewer on every slice — so its volatile bytes never enter the key. The
+  thumbnail *settings* (`thumbnail_view` / `theme` / `size` / …) stay in.
+- **FNV-1a, not `DefaultHasher`.** The latter's output is not
+  stability-guaranteed across runs or platforms.
+
+The desktop (Tauri) runtime keeps an in-memory mirror with the same key and the
+same write-only discipline, in
+`ui-desktop/src-tauri/src/bridge/runtime_bridge.rs`.
+
+---
+
 ## Threading model
 
 - **Actix-web** drives the HTTP and WebSocket I/O on its async runtime.

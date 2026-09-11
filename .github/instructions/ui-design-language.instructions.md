@@ -21,7 +21,11 @@ doubt, choose the quieter, more restrained option.
 - **Apple-quality finish.** Consistent spacing, aligned edges, no reflow/jitter,
   fixed-height chrome, purposeful motion. Details matter.
 - **Beginners + power users.** Dashboards and big obvious actions for newcomers;
-  keyboard shortcuts, dense settings, and full control for experts.
+  keyboard shortcuts, dense settings, and full control for experts. **How much
+  to show, and when, is its own discipline** — see
+  [`progressive-disclosure.instructions.md`](progressive-disclosure.instructions.md).
+  The short form: *simple by default, complete by design*. Every capability
+  exists; the interface only asks the user to think about one when it matters.
 
 ## Blur / Glass — One Sanctioned Effect Only
 
@@ -260,4 +264,5 @@ asks or for a major new feature.
 - `ui/src/app/ui/inline-notice/inline-notice.ts` — the contextual-notice primitive
 - `ui/src/app/schema-form/` — the "detail at the source, neutral hint on the container" pattern in practice
 - `ui/src/app/services/accent.ts` — OS-accent inheritance (`AccentService`)
+- `.github/instructions/progressive-disclosure.instructions.md` — what to show, and when
 - `.github/instructions/ui-style-no-build.instructions.md` — build-verification policy

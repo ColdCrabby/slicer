@@ -22,7 +22,7 @@
 //! surface, so the object footprint is reconstructed by inflating the unioned
 //! `OuterWall` paths outward by `d/2` (`d` = nozzle diameter).  Winding is
 //! preserved throughout (CCW solids, CW holes) so Clipper2 treats holes as
-//! voids — see `AGENTS.md` § "Clipper2 Fill Rules".
+//! voids — see `src/core/README.md` § "Which Clipper2 fill rule, and why".
 
 use clipper2::*;
 

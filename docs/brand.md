@@ -41,7 +41,7 @@ platform via `pnpm run icons`. If an icon looks wrong, fix the master and
 regenerate.
 
 **The boot splash's logo is generated too**, from `logo_still@3x.png` via
-`pnpm run splash-logo` (needs `brew install webp`). It emits two things: the
+`pnpm run logo-assets` (needs `brew install webp`). It emits two things: the
 `splash-logo.webp` asset, and a tiny base64 stand-in embedded directly in
 `ui/src/index.html` that shows before any request completes. Never hand-edit
 that blob — change the artwork and regenerate.

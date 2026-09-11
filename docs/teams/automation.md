@@ -85,9 +85,10 @@ Two things determine the output: the resolved configuration and the engine
 version. Pin both — commit the `slicer.toml`, record the version from
 `slicer-engine info` — and a re-slice is a re-slice, not a re-negotiation.
 
-The server's G-code cache follows the same rule: an identical scene with an
-identical configuration returns the cached file instead of re-slicing, and any
-engine upgrade invalidates it automatically.
+The server records every result in a `gcode_cache` table keyed by scene,
+configuration and engine version, so an identical job is identifiable as such
+after the fact. It does **not** short-circuit a slice: every request runs the
+full pipeline, and you get freshly generated G-code every time.
 
 ## Where the CLI can't go
 
