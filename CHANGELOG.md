@@ -34,8 +34,13 @@ issue/PR numbers or repo links in the notes. See the tone rules in
   part-cooling freezes them before they sag — the community "smooth unsupported
   bridge" recipe, out of the box. The most-airborne overhang band drops to
   8 mm/s to stay below the new bridge speed.
+
 ### Added
 
+- **Pause and colour change at a layer.** Mark any layer in the preview to stop
+  the print for an insert or a filament swap; markers on the layer slider add and
+  remove them. Emits the right directive per firmware — Marlin `M0`/`M600`,
+  Klipper `PAUSE`, RepRap `M226`.
 - **Screenshot animation is now optional.** The shutter flash and the preview
   card that flies off after each slice can be turned off in **Settings →
   General**. On by default; the thumbnail is still captured either way.
