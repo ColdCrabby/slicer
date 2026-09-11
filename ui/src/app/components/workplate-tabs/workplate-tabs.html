@@ -5,18 +5,30 @@
       role="tab"
       [class.active]="tab.uuid === activeUuid()"
       [attr.aria-selected]="tab.uuid === activeUuid()"
-      (click)="activate(tab.uuid)"
+      (click)="activate(tab.uuid, $event)"
+      (dblclick)="startEditing(tab.uuid, $event)"
+      (nexusContextMenu)="onContextMenu($event, tab.uuid)"
     >
-      <input
-        class="wp-tab-name"
-        type="text"
-        [value]="nameFor(tab)"
-        [placeholder]="placeholderFor(tab)"
-        (change)="rename(tab.uuid, $event)"
-        aria-label="Workplate name"
-        spellcheck="false"
-        autocomplete="off"
-      />
+      @if (editingUuid() === tab.uuid) {
+        <input
+          #editInput
+          class="wp-tab-name wp-tab-name--editing"
+          type="text"
+          [value]="nameFor(tab)"
+          [placeholder]="placeholderFor(tab)"
+          (blur)="onInputBlur(tab.uuid, $event)"
+          (keydown)="onInputKeydown(tab.uuid, $event, editInput)"
+          (click)="$event.stopPropagation()"
+          aria-label="Workplate name"
+          spellcheck="false"
+          autocomplete="off"
+          autofocus
+        />
+      } @else {
+        <span class="wp-tab-label" (dblclick)="startEditing(tab.uuid, $event)">
+          {{ nameFor(tab) || placeholderFor(tab) }}
+        </span>
+      }
       <button
         nexusIconButton
         size="sm"
@@ -24,7 +36,7 @@
         type="button"
         aria-label="Close workplate tab"
         tooltip="Close"
-        (click)="closeTab($event, tab.uuid)"
+        (click)="closeTab(tab.uuid, $event)"
       >
         <nexus-icon name="xmark" />
       </button>
