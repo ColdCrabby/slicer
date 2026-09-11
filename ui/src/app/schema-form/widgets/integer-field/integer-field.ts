@@ -2,6 +2,7 @@ import { ChangeDetectionStrategy, Component, EventEmitter, computed, input } fro
 import { NumberInput, TooltipDirective } from '@coldcrabby/ui';
 import { IconButton } from '../../../shared/icon-button/icon-button';
 import type { FieldDef } from '../../models/field-def';
+import { unitForField } from '../../models/field-units';
 import type { FieldWidget } from '../base-field';
 
 @Component({
@@ -46,7 +47,8 @@ import type { FieldWidget } from '../base-field';
       [value]="numeric()"
       [min]="min()"
       [max]="max()"
-      [step]="1"
+      [step]="step()"
+      [unit]="unit()"
       [label]="field().title ?? field().key"
       (valueChange)="valueChange.emit($event)"
     ></nexus-number-input>
@@ -63,6 +65,10 @@ export class IntegerField implements FieldWidget {
       return Math.round(Number(this.field().default ?? 0));
     return Math.round(Number(v));
   });
+  /** Unit + step derived from the parameter's name — see `field-units.ts`. */
+  private readonly resolvedUnit = computed(() => unitForField(this.field(), this.numeric()));
+  protected readonly unit = computed(() => this.resolvedUnit().unit);
+  protected readonly step = computed(() => this.resolvedUnit().step);
   protected readonly min = computed(() => this.field().minimum ?? Number.NEGATIVE_INFINITY);
   protected readonly max = computed(() => this.field().maximum ?? Number.POSITIVE_INFINITY);
 }

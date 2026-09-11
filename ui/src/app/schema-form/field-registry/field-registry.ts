@@ -48,14 +48,10 @@ function defaultWidgetFor(field: FieldDef): Type<FieldWidget> {
     return field.enumOptions.length <= RADIO_MAX_OPTIONS ? EnumRadio : EnumSelect;
   }
 
-  switch (field.type) {
-    case 'integer':
-      return IntegerField;
-    case 'boolean':
-      return BooleanField;
-    default:
-      return NumberField;
+  if (field.type === 'boolean') {
+    return BooleanField;
   }
+  return field.type === 'integer' ? IntegerField : NumberField;
 }
 
 /**
