@@ -1,6 +1,7 @@
 import { Injectable, computed, inject } from '@angular/core';
 import type { SlicingParams } from '../../../generated/slicer-engine-ws-client-message-v1';
 import { DEFAULT_SETTINGS } from '../../models/slice-settings.model';
+import { MATERIAL_WIRE_NAME } from '../../models/filament.model';
 import { printerBedConfig, printerSceneBedConfig } from '../../models/printer.model';
 import type { SceneBedSnapshot } from '../scene-engine';
 import { ActivePresets } from './active-presets';
@@ -57,6 +58,14 @@ export class ActiveSelection {
    * with **no field mapping**: every profile's `params` is already a partial
    * `SlicingParams`. User deviations on top are tracked separately and sent as
    * the override diff; the engine is the authority at slice time.
+   *
+   * Identity fields (`filament_type`/`filament_name`/`filament_color`/
+   * `printer_vendor`/`printer_model`) are stamped from the *chosen* profiles
+   * afterwards, same as `resolve.rs` — the desktop bridge slices from this
+   * flattened object directly (no server-side re-resolve), so a filament
+   * profile with no `filament_type` in its `params` blob must not leave
+   * `{filament_type}` substituting to an empty string in custom start G-code
+   * (Klippain / Klipper `MATERIAL=`).
    */
   readonly sliceParams = computed<Partial<SlicingParams> | null>(() => {
     const printer = this.printer();
@@ -70,6 +79,11 @@ export class ActiveSelection {
       ...((printer.params as Record<string, unknown>) ?? {}),
       ...((filament.params as Record<string, unknown>) ?? {}),
       ...((profile.params as Record<string, unknown>) ?? {}),
+      filament_type: MATERIAL_WIRE_NAME[filament.material],
+      filament_name: filament.name,
+      filament_color: filament.color,
+      printer_vendor: printer.vendor,
+      printer_model: printer.model,
     } as Partial<SlicingParams>;
   });
 
