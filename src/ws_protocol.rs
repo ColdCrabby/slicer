@@ -83,6 +83,16 @@ pub struct SceneObjectSliceDto {
     /// Transform to bake into the mesh before slicing.
     #[serde(default)]
     pub transform: TransformDto,
+    /// Support paint for this object, encoded by
+    /// [`crate::mesh::paint::FacetPaint::encode`], or `None` when unpainted.
+    ///
+    /// Indexed against the object's own mesh *before* the transform above is
+    /// applied — baking a transform maps faces in order, so the indices this
+    /// was encoded against still name the same triangles afterward. The
+    /// server re-checks the face count on decode and rejects a mismatch
+    /// rather than risk silently painting the wrong triangles.
+    #[serde(default)]
+    pub support_paint: Option<String>,
 }
 
 /// Euler-XYZ degrees and a `file_id` reference for `Add` so payloads stay
@@ -153,6 +163,25 @@ pub enum SceneOpDto {
         #[serde(default)]
         options: crate::orient::ArrangeOptions,
     },
+    /// Paint support enforcers or blockers with a spherical brush.
+    ///
+    /// `center` is the world-space point the cursor landed on and
+    /// `seed_face` the facet the raycast hit — both come straight from the
+    /// viewer. Mirrors the WASM `SceneOpJs::PaintSupport` so a cloud-backed
+    /// session paints identically to a local one.
+    PaintSupport {
+        id: u64,
+        seed_face: usize,
+        center: [f64; 3],
+        radius: f64,
+        state: crate::mesh::paint::PaintState,
+    },
+    /// Replace an object's paint wholesale, or erase it with `null`.
+    SetSupportPaint {
+        id: u64,
+        #[serde(default)]
+        encoded: Option<String>,
+    },
 }
 
 /// Optional modifiers applied to every op in a [`ClientMessage::Scene`] batch.
@@ -177,6 +206,16 @@ pub struct SceneObjectDto {
     pub triangle_count: usize,
     /// World-space AABB after applying the current transform: `[min, max]`.
     pub world_aabb: [[f64; 3]; 2],
+    /// Encoded support paint, or `None` when the object is unpainted.
+    ///
+    /// Carried in the snapshot so a client rebuilding its scene from
+    /// `SceneState` — including replaying history for undo/redo — can put
+    /// paint back. Without it, restoring any earlier snapshot would silently
+    /// erase every painted region on the plate.
+    pub support_paint: Option<String>,
+    /// How many facets carry paint, so a client can show a count without
+    /// decoding the payload.
+    pub painted_facets: usize,
 }
 
 /// Snapshot of the bed configuration sent to the client.

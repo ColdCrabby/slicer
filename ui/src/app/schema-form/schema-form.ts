@@ -274,6 +274,21 @@ export class SchemaForm {
     this.persistExpandedState();
   }
 
+  /**
+   * The value to render for `field`, falling back to the schema's own default
+   * when the settings object does not carry the key.
+   *
+   * The engine fills an absent field in from the same default (`#[serde(default
+   * = …)]`), so showing blank-as-`false` told the user the opposite of what the
+   * slice would do — `support_auto` defaults to on, and its switch read off
+   * until someone touched it. This is display only: a key the user never set
+   * stays absent, so the sparse override diff sent to the engine is unchanged.
+   */
+  protected valueFor(field: FieldDef): unknown {
+    const current = this.value()[field.key];
+    return current === undefined || current === null ? field.default : current;
+  }
+
   protected onFieldChange(key: string, value: unknown): void {
     this.fieldChange.emit({ key, value });
   }

@@ -390,8 +390,8 @@ async fn handle_slice(
     // it is cheap and does not require reading mesh bytes.
     let cache_key = compute_slice_cache_key(&scene_objects, &params);
 
-    // (path, part index within that file, transform, file size)
-    let mut slice_inputs: Vec<(std::path::PathBuf, usize, Transform, u64)> =
+    // (path, part index within that file, transform, file size, support paint)
+    let mut slice_inputs: Vec<(std::path::PathBuf, usize, Transform, u64, Option<String>)> =
         Vec::with_capacity(scene_objects.len());
 
     for obj in scene_objects {
@@ -434,10 +434,11 @@ async fn handle_slice(
             obj.part_index,
             transform,
             entry.file_size as u64,
+            obj.support_paint,
         ));
     }
 
-    let total_bytes: u64 = slice_inputs.iter().map(|(_, _, _, sz)| *sz).sum();
+    let total_bytes: u64 = slice_inputs.iter().map(|(_, _, _, sz, _)| *sz).sum();
     send_or_return!(ServerMessage::log_info(format!(
         "Slicing {} object(s), {} bytes total…",
         slice_inputs.len(),
@@ -451,53 +452,11 @@ async fn handle_slice(
     let gcode_output_path = work_dir.join(format!("{}.gcode", uuid));
     let gcode_output_path_clone = gcode_output_path.clone();
 
-    // Cache hit: an identical scene + settings was sliced before. Reuse the
-    // stored G-code, copy it under this workplate's download name, and skip the
-    // entire slicing pipeline.
-    if let Ok(Some((cached_path, _size, layer_count))) = db.get_cached_gcode(&cache_key).await {
-        // Re-slicing the same workplate reuses its request UUID, so the cached
-        // file and this run's output path can be the *same* file. `fs::copy`
-        // onto itself truncates it to empty (1-layer / blank viewer) — skip the
-        // copy in that case; the file is already in place.
-        let same_file = cached_path == gcode_output_path
-            || match (
-                std::fs::canonicalize(&cached_path),
-                std::fs::canonicalize(&gcode_output_path),
-            ) {
-                (Ok(a), Ok(b)) => a == b,
-                _ => false,
-            };
-        let copy_result = if same_file {
-            Ok(0)
-        } else {
-            std::fs::copy(&cached_path, &gcode_output_path)
-        };
-        match copy_result {
-            Ok(_) => {
-                send_or_return!(ServerMessage::log_info(format!(
-                    "Reusing cached slice ({layer_count} layers) — scene unchanged since last slice"
-                )));
-                // Register the download path BEFORE announcing completion. The
-                // cache path is instant, so the client's fetch of
-                // `/api/download/{uuid}` would otherwise race this DB write and
-                // hit `download_file_path == None` (404 → blank viewer).
-                if let Ok(file_size) = std::fs::metadata(&gcode_output_path).map(|m| m.len()) {
-                    let _ = db
-                        .set_download_file(uuid, &gcode_output_path, file_size)
-                        .await;
-                }
-                send_or_return!(ServerMessage::SliceComplete {
-                    layer_count,
-                    download_url: format!("{}/api/download/{}", base_url, uuid),
-                });
-                return;
-            }
-            Err(e) => {
-                // Fall through to a normal slice if the cached file vanished.
-                StderrLogger.log_warn(&format!("[WS] Cache copy failed ({e}); reslicing"));
-            }
-        }
-    }
+    // No cache lookup here on purpose: every slice request runs the full
+    // pipeline, even when `cache_key` matches a previous run byte-for-byte.
+    // `put_cached_gcode` below still records the result under that key — the
+    // table stays warm for whatever else might read it — it is just never
+    // consulted to *skip* a slice.
 
     let slice_handle = tokio::task::spawn_blocking(move || -> Option<usize> {
         /// Serializes `msg` to JSON; returns a hard-coded error frame on failure.
@@ -531,7 +490,7 @@ async fn handle_slice(
             Vec<crate::scene::LoadedPart>,
         > = std::collections::HashMap::new();
 
-        for (path, part_index, transform, _) in &slice_inputs {
+        for (path, part_index, transform, _, support_paint) in &slice_inputs {
             if !parts_cache.contains_key(path) {
                 match crate::scene::load_path_multi_reporting(
                     path,
@@ -593,7 +552,22 @@ async fn handle_slice(
                 .map(str::to_string)
                 .or_else(|| path.file_stem().map(|s| s.to_string_lossy().into_owned()))
                 .unwrap_or_else(|| format!("object_{}", plate_objects.len()));
-            plate_objects.push(crate::core::ObjectInput::new(name, baked));
+            let mut object_input = crate::core::ObjectInput::new(name, baked);
+            if let Some(encoded) = support_paint.as_deref() {
+                match crate::mesh::paint::FacetPaint::decode(encoded, object_input.mesh.faces.len())
+                {
+                    Ok(paint) => object_input = object_input.with_paint(paint),
+                    Err(e) => {
+                        let msg = ServerMessage::error(format!(
+                            "Invalid support paint for '{}': {}",
+                            object_input.name, e
+                        ));
+                        let _ = tx.blocking_send(to_json(&msg));
+                        return None;
+                    }
+                }
+            }
+            plate_objects.push(object_input);
         }
         if plate_objects.iter().all(|o| o.mesh.faces.is_empty()) {
             let msg = ServerMessage::error(
@@ -890,6 +864,23 @@ async fn dto_to_op(
             ids: ids.into_iter().map(crate::scene::ObjectId).collect(),
             options,
         }),
+        SceneOpDto::PaintSupport {
+            id,
+            seed_face,
+            center,
+            radius,
+            state,
+        } => Ok(SceneOp::PaintSupport {
+            id: crate::scene::ObjectId(id),
+            seed_face,
+            center,
+            radius,
+            state,
+        }),
+        SceneOpDto::SetSupportPaint { id, encoded } => Ok(SceneOp::SetSupportPaint {
+            id: crate::scene::ObjectId(id),
+            encoded,
+        }),
     }
 }
 
@@ -911,6 +902,8 @@ fn snapshot_msg(scene: &SceneState) -> ServerMessage {
                     [world.min.x, world.min.y, world.min.z],
                     [world.max.x, world.max.y, world.max.z],
                 ],
+                support_paint: o.paint.encode(),
+                painted_facets: o.paint.painted_count(),
             }
         })
         .collect();
@@ -952,10 +945,17 @@ fn compute_slice_cache_key(
         let t = &obj.transform;
         // `part_index` is part of the identity: two objects can share a
         // file_id yet be different parts of it, and omitting it would let
-        // distinct plates collide on one cached G-code.
+        // distinct plates collide on one cached G-code. `support_paint` is
+        // included the same way — a repaint has to bust the cache, or the
+        // server would keep serving G-code sliced before the stroke.
         canonical.push_str(&format!(
-            "[{}#{}|{:?}|{:?}|{:?}]",
-            obj.file_id, obj.part_index, t.translation, t.euler_xyz_deg, t.scale
+            "[{}#{}|{:?}|{:?}|{:?}|paint={:?}]",
+            obj.file_id,
+            obj.part_index,
+            t.translation,
+            t.euler_xyz_deg,
+            t.scale,
+            obj.support_paint.as_deref().unwrap_or("")
         ));
     }
     format!("{:016x}", fnv1a_64(canonical.as_bytes()))
@@ -1096,4 +1096,48 @@ async fn handle_send_to_printer(
         },
     };
     let _ = send_msg(session, &msg).await;
+}
+
+#[cfg(test)]
+mod cache_key_tests {
+    use super::*;
+    use crate::settings::params::SlicingParams;
+    use crate::ws_protocol::{SceneObjectSliceDto, TransformDto};
+
+    fn object(paint: Option<&str>) -> SceneObjectSliceDto {
+        SceneObjectSliceDto {
+            file_id: "11111111-1111-1111-1111-111111111111".to_string(),
+            part_index: 0,
+            transform: TransformDto::default(),
+            support_paint: paint.map(str::to_string),
+        }
+    }
+
+    #[test]
+    fn the_cache_key_changes_when_support_paint_is_added() {
+        let params = SlicingParams::default();
+        let unpainted = compute_slice_cache_key(&[object(None)], &params);
+        let painted = compute_slice_cache_key(&[object(Some("abc"))], &params);
+        assert_ne!(
+            unpainted, painted,
+            "a repaint must bust the cache, or the server would keep serving \
+             G-code sliced before the stroke"
+        );
+    }
+
+    #[test]
+    fn the_cache_key_distinguishes_two_different_paint_payloads() {
+        let params = SlicingParams::default();
+        let a = compute_slice_cache_key(&[object(Some("aaa"))], &params);
+        let b = compute_slice_cache_key(&[object(Some("bbb"))], &params);
+        assert_ne!(a, b, "different paint must not collide on one cache entry");
+    }
+
+    #[test]
+    fn the_cache_key_is_stable_for_identical_input() {
+        let params = SlicingParams::default();
+        let a = compute_slice_cache_key(&[object(Some("abc"))], &params);
+        let b = compute_slice_cache_key(&[object(Some("abc"))], &params);
+        assert_eq!(a, b);
+    }
 }

@@ -62,6 +62,13 @@ export interface RuntimeSceneObject {
    * which geometry to slice.
    */
   source_part: number;
+  /**
+   * Encoded support paint (enforcers/blockers), or `null` when unpainted.
+   *
+   * Every runtime forwards this into its own slice payload so paint affects
+   * the actual G-code, not just the local editing view.
+   */
+  support_paint: string | null;
 }
 
 export interface RuntimeSceneSnapshot {

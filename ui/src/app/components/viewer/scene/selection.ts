@@ -14,7 +14,13 @@ import {
   Vector3,
   type WebGLRenderer,
 } from 'three';
-import type { ObjectMode } from '../../../services/viewer-control';
+import {
+  PAINT_RADIUS_MAX_MM,
+  PAINT_RADIUS_MIN_MM,
+  type ObjectMode,
+  type PaintBrushMode,
+} from '../../../services/viewer-control';
+import { BrushCursor } from './brush-cursor';
 import { computeSelectionCentroid, type GizmoManager, raycastFace } from '../gizmo';
 import type { SceneGizmoHandlers, SceneSelectionHandlers } from './types';
 
@@ -41,6 +47,13 @@ const DEFAULT_TAP_SLOP_PX = 4;
  * feels the same here as everywhere else on the device.
  */
 const LONG_PRESS_MS = 500;
+
+/**
+ * Radius change per unit of wheel delta, as an exponent. A mouse notch
+ * (`deltaY` ≈ 100) lands on ~×1.2 per click, which is a firm but controllable
+ * step; a trackpad's much smaller deltas scale down from the same law.
+ */
+const WHEEL_RADIUS_GAIN = 0.0018;
 
 const SELECTION_EMISSIVE = new Color(0xff8a3d);
 const SELECTION_EMISSIVE_INTENSITY = 0.55;
@@ -153,6 +166,16 @@ export class SceneSelection {
   private pendingHighlightEvent: PointerEvent | null = null;
   private highlightRafHandle = 0;
 
+  // Paint-support brush state — set externally via `setPaintBrush`, applied
+  // to every dab. Not read at all outside `'paint'` mode.
+  private paintBrushMode: PaintBrushMode = 'enforcer';
+  private paintBrushRadius = 2;
+  private pendingPaintEvent: PointerEvent | null = null;
+  private paintRafHandle = 0;
+  private readonly paintNormalScratch = new Vector3();
+  private readonly brushCursor: BrushCursor;
+  private lastPointerClient: { x: number; y: number } | null = null;
+
   constructor(
     private readonly scene: Scene,
     private readonly camera: PerspectiveCamera,
@@ -160,6 +183,7 @@ export class SceneSelection {
     private readonly gizmo: GizmoManager,
   ) {
     scene.add(this.faceHighlight);
+    this.brushCursor = new BrushCursor(scene);
     this.install();
   }
 
@@ -169,6 +193,10 @@ export class SceneSelection {
     el.addEventListener('pointermove', this.onPointerMove, { capture: true });
     el.addEventListener('pointerup', this.onPointerUp, { capture: true });
     el.addEventListener('pointercancel', this.onPointerCancel, { capture: true });
+    el.addEventListener('pointerleave', this.onPointerLeave);
+    // Capture, and not passive: the wheel has to be taken off the camera
+    // before OrbitControls sees it, and that needs `preventDefault`.
+    el.addEventListener('wheel', this.onWheel, { capture: true, passive: false });
     el.addEventListener('contextmenu', this.onContextMenu);
   }
 
@@ -178,6 +206,8 @@ export class SceneSelection {
     el.removeEventListener('pointermove', this.onPointerMove, { capture: true });
     el.removeEventListener('pointerup', this.onPointerUp, { capture: true });
     el.removeEventListener('pointercancel', this.onPointerCancel, { capture: true });
+    el.removeEventListener('pointerleave', this.onPointerLeave);
+    el.removeEventListener('wheel', this.onWheel, { capture: true });
     el.removeEventListener('contextmenu', this.onContextMenu);
   }
 
@@ -194,6 +224,11 @@ export class SceneSelection {
   register(id: string, object: Object3D): void {
     object.userData['selectableId'] = id;
     this.selectables.set(id, object);
+  }
+
+  /** The registered `Object3D` for a scene object id, or `null` if unknown. */
+  getSelectableObject(id: string): Object3D | null {
+    return this.selectables.get(id) ?? null;
   }
 
   unregister(id: string): void {
@@ -324,6 +359,15 @@ export class SceneSelection {
     if (mode !== 'pullToFloor') {
       this.hideFaceHighlight();
     }
+    if (mode !== 'paint') {
+      this.cancelPendingPaint();
+    }
+  }
+
+  /** Brush settings applied to every paint dab. See {@link paintBrushMode}. */
+  setPaintBrush(mode: PaintBrushMode, radiusMm: number): void {
+    this.paintBrushMode = mode;
+    this.paintBrushRadius = radiusMm;
   }
 
   dispose(): void {
@@ -335,6 +379,8 @@ export class SceneSelection {
       cancelAnimationFrame(this.highlightRafHandle);
       this.highlightRafHandle = 0;
     }
+    this.cancelPendingPaint();
+    this.brushCursor.dispose();
     this.faceHighlight.geometry.dispose();
     (this.faceHighlight.material as Material).dispose();
     this.scene.remove(this.faceHighlight);
@@ -411,8 +457,15 @@ export class SceneSelection {
       this.updateFaceHighlight(event);
     }
 
-    // Pull-to-floor is a picking mode: a held press there is someone lining up
-    // a face, not asking for a menu.
+    // Support paint: a tap alone must mark the facet under the cursor even
+    // when the pointer never moves, so the first dab happens on contact —
+    // every later sample comes from `onPointerMove`.
+    if (this.currentObjectMode === 'paint') {
+      this.paintSample(event, true);
+    }
+
+    // Pull-to-floor and paint are picking/painting modes: a held press there
+    // is lining up a face or dragging a stroke, not asking for a menu.
     //
     // No trailing-click guard is needed, unlike the generic `ContextMenuTrigger`
     // directive: a press on a model already cancels its compatibility mouse
@@ -422,7 +475,8 @@ export class SceneSelection {
     if (
       this.selectionHandlers.contextMenu &&
       event.pointerType !== 'mouse' &&
-      this.currentObjectMode !== 'pullToFloor'
+      this.currentObjectMode !== 'pullToFloor' &&
+      this.currentObjectMode !== 'paint'
     ) {
       const press = this.pressState;
       press.longPressTimer = setTimeout(() => {
@@ -447,13 +501,20 @@ export class SceneSelection {
       // something the user has not picked still orbits the view — dragging from
       // a model used to do nothing at all, which on a touch screen turns most
       // of the scene into a dead zone.
-      if (this.claimsDirectDrag(hitId, event.pointerType)) {
+      //
+      // A paint stroke claims the gesture on every pointer type and without a
+      // prior selection: the dab has already landed, so letting the camera have
+      // the same drag spins the model out from under the brush. Painting from
+      // *empty bed* is deliberately still an orbit — that is how the user turns
+      // the model around to reach its other side without leaving the tool.
+      if (this.currentObjectMode === 'paint' || this.claimsDirectDrag(hitId, event.pointerType)) {
         event.stopPropagation();
       }
     }
   };
 
   private onPointerMove = (event: PointerEvent): void => {
+    this.lastPointerClient = { x: event.clientX, y: event.clientY };
     const right = this.rightPress;
     if (right && event.pointerId === right.pointerId && !right.moved) {
       const drift = Math.hypot(
@@ -468,6 +529,23 @@ export class SceneSelection {
       this.pendingHighlightEvent = event;
       if (this.highlightRafHandle === 0) {
         this.highlightRafHandle = requestAnimationFrame(this.flushFaceHighlight);
+      }
+    }
+    // In paint mode every move is sampled, pressed or not: a held pointer lays
+    // a stroke (throttled to one dab per frame so a fast drag cannot outrun the
+    // wasm calls it triggers), a hovering one just carries the size ring.
+    if (this.currentObjectMode === 'paint') {
+      this.pendingPaintEvent = event;
+      if (this.paintRafHandle === 0) {
+        this.paintRafHandle = requestAnimationFrame(this.flushPaint);
+      }
+      // A stroke that began on a model owns the whole gesture — its
+      // `pointerdown` was withheld from the camera, so every move of it must be
+      // too, or the view starts turning halfway through the stroke. The lift is
+      // still let through (see `onPointerUp`).
+      if (this.pressState?.pointerId === event.pointerId && this.pressState.hitId !== null) {
+        event.preventDefault();
+        event.stopPropagation();
       }
     }
     const ps = this.pressState;
@@ -545,6 +623,16 @@ export class SceneSelection {
       return;
     }
 
+    if (this.currentObjectMode === 'paint') {
+      // Every dab already applied its own op; the lift only commits the
+      // stroke as one history entry. Selection is left untouched, same as
+      // pull-to-floor — painting is a manipulation gesture, not a pick.
+      this.cancelPendingPaint();
+      this.gizmoHandlers?.paintEnd();
+      event.preventDefault();
+      return;
+    }
+
     if (hitId === null) {
       if (this.currentSelectedIds.size > 0) {
         this.selectionHandlers?.clearSelection();
@@ -566,6 +654,10 @@ export class SceneSelection {
     }
     if (ps.drag) {
       this.gizmoHandlers?.end();
+    }
+    if (this.currentObjectMode === 'paint') {
+      this.cancelPendingPaint();
+      this.gizmoHandlers?.paintEnd();
     }
     this.endPress();
   };
@@ -855,6 +947,128 @@ export class SceneSelection {
     if (ev !== null && this.currentObjectMode === 'pullToFloor') {
       this.updateFaceHighlight(ev);
     }
+  };
+
+  // -------------------------------------------------------------------------
+  // Support-paint brush
+  // -------------------------------------------------------------------------
+
+  /**
+   * Raycast under `event` for the first hit on a registered selectable.
+   *
+   * Unlike {@link raycastFace} this also reports the world-space hit point
+   * (`PaintSupport`'s `center`) and surface normal, so one cast serves both the
+   * dab and the cursor ring rather than tracing the scene twice a frame.
+   */
+  private raycastPaintTarget(
+    event: PointerEvent,
+  ): { objectId: string; faceIndex: number; point: Vector3; normal: Vector3 } | null {
+    const targets = Array.from(this.selectables.values());
+    if (targets.length === 0) {
+      return null;
+    }
+    const ndc = this.toNdc(event, this.ndcScratch);
+    this.raycaster.setFromCamera(ndc, this.camera);
+    const hits = this.raycaster.intersectObjects(targets, true);
+    for (const hit of hits) {
+      if (hit.faceIndex === undefined || hit.faceIndex === null) {
+        continue;
+      }
+      const objectId = this.findSelectableId(hit.object);
+      if (objectId === null) {
+        continue;
+      }
+      // `face.normal` is object-local; the ring is placed in world space.
+      const normal = this.paintNormalScratch.set(0, 0, 1);
+      if (hit.face) {
+        normal.copy(hit.face.normal).transformDirection(hit.object.matrixWorld);
+      }
+      return { objectId, faceIndex: hit.faceIndex, point: hit.point, normal };
+    }
+    return null;
+  }
+
+  /** Dab the brush and move the cursor ring, from a single raycast. */
+  private paintSample(event: PointerEvent, dab: boolean): void {
+    const hit = this.raycastPaintTarget(event);
+    if (!hit) {
+      this.brushCursor.hide();
+      return;
+    }
+    this.brushCursor.show(hit.point, hit.normal, this.paintBrushRadius);
+    if (dab) {
+      this.gizmoHandlers?.paintDab(
+        hit.objectId,
+        hit.faceIndex,
+        [hit.point.x, hit.point.y, hit.point.z],
+        this.paintBrushRadius,
+        this.paintBrushMode,
+      );
+    }
+  }
+
+  /**
+   * Scroll resizes the brush instead of zooming, which is the whole point of
+   * having a size at all — the alternative is a trip to the panel between
+   * strokes. Zoom stays reachable on ⌘/Ctrl + wheel, which is also what a
+   * trackpad pinch sends, so pinching still zooms.
+   */
+  private onWheel = (event: WheelEvent): void => {
+    if (this.currentObjectMode !== 'paint' || event.ctrlKey || event.metaKey) {
+      return;
+    }
+    event.preventDefault();
+    // `stopImmediatePropagation`, not `stopPropagation`: OrbitControls' wheel
+    // listener sits on this same canvas, and stopping propagation only keeps an
+    // event from reaching *other* nodes — a sibling listener on the target still
+    // runs, so the camera zoomed along with every resize.
+    event.stopImmediatePropagation();
+    // One exponential law covers both devices: a mouse notch (~100) is a firm
+    // step, a trackpad's stream of small deltas is smooth, and neither can
+    // invert the radius the way a linear step would near the minimum.
+    const lines = event.deltaMode === 1 ? 16 : event.deltaMode === 2 ? 100 : 1;
+    const next = this.paintBrushRadius * Math.exp(-event.deltaY * lines * WHEEL_RADIUS_GAIN);
+    const clamped = Math.min(PAINT_RADIUS_MAX_MM, Math.max(PAINT_RADIUS_MIN_MM, next));
+    // Rounded here rather than at each readout: the radius is shown in three
+    // places, and a raw `3.4320137243697117` in any of them is noise.
+    this.gizmoHandlers?.paintRadiusChange(Math.round(clamped * 100) / 100);
+  };
+
+  private cancelPendingPaint(): void {
+    if (this.paintRafHandle !== 0) {
+      cancelAnimationFrame(this.paintRafHandle);
+      this.paintRafHandle = 0;
+    }
+    this.pendingPaintEvent = null;
+    this.brushCursor.hide();
+  }
+
+  /** The pointer left the canvas, so there is no surface to sit the ring on. */
+  private onPointerLeave = (): void => {
+    this.brushCursor.hide();
+    this.lastPointerClient = null;
+  };
+
+  /**
+   * Where the pointer last was over the canvas, in client pixels — what the
+   * brush popout opens at. Recorded on the move this class already handles, so
+   * it costs nothing beyond two numbers.
+   */
+  getLastPointerClient(): { x: number; y: number } | null {
+    return this.lastPointerClient;
+  }
+
+  private flushPaint = (): void => {
+    this.paintRafHandle = 0;
+    const ev = this.pendingPaintEvent;
+    this.pendingPaintEvent = null;
+    if (ev === null || this.currentObjectMode !== 'paint') {
+      return;
+    }
+    // Hovering only moves the ring; a held press also lays paint. Both come
+    // from the same cast, so tracking the cursor costs nothing extra mid-stroke.
+    const pressed = this.pressState?.pointerId === ev.pointerId;
+    this.paintSample(ev, pressed);
   };
 
   // -------------------------------------------------------------------------

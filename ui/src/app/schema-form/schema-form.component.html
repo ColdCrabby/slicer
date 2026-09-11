@@ -38,7 +38,7 @@
         </span>
         <se-field-host
           [field]="f"
-          [value]="value()[f.key]"
+          [value]="valueFor(f)"
           [siblings]="value()"
           (fieldChange)="onFieldChange(f.key, $event)"
         />
@@ -100,7 +100,7 @@
                 <div class="schema-form-field">
                   <se-field-host
                     [field]="f"
-                    [value]="value()[f.key]"
+                    [value]="valueFor(f)"
                     [siblings]="value()"
                     (fieldChange)="onFieldChange(f.key, $event)"
                   />

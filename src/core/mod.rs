@@ -5,6 +5,8 @@ mod infill;
 mod objects;
 mod pipeline;
 mod slicer;
+mod support_paint;
+mod supports;
 mod surfaces;
 mod types;
 mod walls;
@@ -12,14 +14,16 @@ mod walls;
 pub use compensation::{apply_dimensional_compensation, CompensationReport};
 pub use infill::{add_infill_to_layers, InfillConfig};
 pub use objects::{
-    merge_meshes, sequential_order, sequential_warnings, slice_plate, ObjectIdentity, ObjectInput,
-    PlateSlice,
+    merge_meshes, merge_paint, sequential_order, sequential_warnings, slice_plate, ObjectIdentity,
+    ObjectInput, PlateSlice,
 };
-pub use pipeline::process_mesh;
 #[cfg(not(target_arch = "wasm32"))]
 pub use pipeline::process_mesh_debug;
 pub(crate) use pipeline::resolved_first_layer_height;
+pub use pipeline::{process_mesh, process_mesh_with_paint};
 pub use slicer::{slice_mesh, slice_mesh_with_first_layer};
+pub use support_paint::{project_support_paint, SupportPaintMasks};
+pub use supports::{generate_supports, generate_supports_with_paint};
 pub use surfaces::{
     generate_top_bottom_surfaces, generate_top_bottom_surfaces_with_interior, SurfaceConfig,
     SurfaceSubTimings,
@@ -28,11 +32,13 @@ pub use surfaces::{
 // generator so the flow it charges for each top/bottom fill line matches the
 // pitch the lines are laid at (deposited volume = spacing × layer_height, no
 // over-extrusion) and both honour `top_surface_line_width` / `line_width`.
-// `sparse_infill_nominal_width_mm` is the sparse-infill twin, and
-// `extrusion_flow_spacing_mm` the shared `Flow::spacing()` relation both rest on.
+// `sparse_infill_nominal_width_mm` is the sparse-infill twin,
+// `support_nominal_width_mm` the support twin, `outer_wall_nominal_width_mm` the
+// wall twin, and `extrusion_flow_spacing_mm` the shared `Flow::spacing()`
+// relation the fill roles rest on.
 pub(crate) use surfaces::{
     extrusion_flow_spacing_mm, outer_wall_nominal_width_mm, solid_surface_nominal_width_mm,
-    sparse_infill_nominal_width_mm,
+    sparse_infill_nominal_width_mm, support_nominal_width_mm,
 };
 pub use types::{ExtrusionRole, OverhangClass, SliceLayer};
 

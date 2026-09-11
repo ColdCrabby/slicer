@@ -41,6 +41,64 @@ issue/PR numbers or repo links in the notes. See the tone rules in
   the print for an insert or a filament swap; markers on the layer slider add and
   remove them. Emits the right directive per firmware — Marlin `M0`/`M600`,
   Klipper `PAUSE`, RepRap `M226`.
+- **Supports now work on sloped overhangs** — a cone or chamfer steeper than the
+  threshold angle used to come out with essentially no support, because the
+  overhang-classification pass had already retagged its walls and left nothing
+  for the support stage to measure. The threshold angle was inert as a result;
+  it now does what it says. A 60° cone goes from nothing to full support, while
+  a self-supporting 30° one is still left alone.
+- **Paint support where you want it** — a brush for marking overhangs the
+  automatic rule gets wrong: **enforce** where support is wanted regardless of
+  angle, **block** where it must never go. `B` picks up the brush (from the
+  G-code preview too), scrolling over the model resizes it, and `Shift`+`B`
+  opens size and mode at the pointer. **Support Auto** turns the overhang rule
+  off entirely, for plates supported only where painted.
+- **Support sits closer to the part** — the gap between support and model
+  drops from `0.8 mm` to **`0.35 mm`**, matching mainstream slicers. The old
+  figure left a visible moat and let steep overhangs sag before they reached
+  the column meant to be holding them up.
+- **Support islands print whole instead of missing an edge** — each island's
+  perimeter is a closed loop, but the segment closing it back to its start was
+  never extruded, leaving every island open on one side (about a fifth of all
+  support contour length on a test overhang, with individual gaps over 25 mm).
+  The same fix closes a wall loop that overhangs along its **entire** length —
+  a hard 90° ledge, for instance — which was silently missing its closing edge
+  for the same reason.
+- **Support prints as continuous loops instead of dabs** — each support island
+  gets a perimeter, and runs shorter than two nozzle widths are dropped. On a
+  3DBenchy that took degenerate sub-millimetre extrusions from 37% of tree
+  support runs to 1.5%, for the same amount of material.
+- **Support no longer over-extrudes** — it is charged at its flow spacing like
+  every other fill role, rather than a full nozzle-width bead (about 12% too
+  much, and a density that drifted with nozzle size). A new **support line
+  width** setting sits alongside the other per-role widths, without pulling the
+  raft's own (deliberately coarser) bead width along with it.
+- **Rafts and skirts account for supports** — a raft built only from the object
+  left support columns starting in mid-air just above the plate.
+- **Supports no longer print in spiral (vase) mode** — a vase is one continuous
+  wall climbing through Z with retraction disabled, so a column dropped into it
+  had no way to be reached. Support is now switched off with the other
+  vase-incompatible settings.
+- **The slice progress bar tracks real work** — its phase weights came from a
+  single guess and mis-ranked everything: mesh slicing counted for nearly half
+  the bar despite taking a few percent of the time, while wall generation, the
+  most expensive phase, counted for a tenth. Four phases had no weight at all
+  and froze the bar completely while they ran.
+- **Tapping a model on a tablet now selects it** — two separate faults made touch
+  and Pencil selection fail. An invisible transform-gizmo hit area sat parked at
+  the centre of the bed whenever nothing was selected, and swallowed any tap that
+  landed on it; that check runs only for touch and pen, so a mouse never saw it.
+  Selection was also judged by a mouse-sized 4px tolerance, and a fingertip is a
+  ~10mm disc whose reported centre wanders as the skin flattens, so most real
+  taps were discarded as drags. Taps are now judged per pointer — 4px for a
+  mouse, 9 for a pen, 16 for a finger — and a hidden gizmo no longer intercepts
+  anything.
+- **Plates holding several models now slice correctly everywhere** — a workplate
+  is a build plate, not a file, but only the hosted slicer treated it that way.
+  The desktop app sliced every object out of the *first* model, so a second one
+  came out as a copy of the first; the in-browser slicer refused outright with
+  "Missing mesh bytes". Each object now resolves to the file it was actually
+  loaded from, in every runtime.
 - **Screenshot animation is now optional.** The shutter flash and the preview
   card that flies off after each slice can be turned off in **Settings →
   General**. On by default; the thumbnail is still captured either way.
@@ -115,6 +173,17 @@ that draws in a fraction of the time.
   2 s to under 30 ms.
 
 ### Added
+
+- **Support structures** — overhangs steeper than the threshold angle (45° by
+  default) now get real support geometry instead of a "not implemented" warning.
+  Two styles: `normal` grid columns and `tree` branches that converge as they
+  descend. Dense interface layers, an XY clearance and a Z air gap keep the
+  contact clean enough to snap off.
+- **Only from build plate** — restricts support to columns that can reach the
+  bed through open space, so nothing lands on the print. Overhangs with no route
+  down are left unsupported on purpose. Off by default; on a shelf overhanging a
+  wider base it removed every millimetre resting on the model while keeping the
+  support beyond it.
 
 #### Print quality
 

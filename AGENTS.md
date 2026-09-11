@@ -57,6 +57,7 @@ never a hardcoded `:4213`.
 | **Surface Generation**         | [src/core/surfaces.rs](src/core/surfaces.rs) | Top/bottom solid surface detection and infill                                                 |
 | **Wall Restrictions**          | [src/core/walls.rs](src/core/walls.rs)       | Single-wall first/top-layer constraints                                                       |
 | **Infill Boundary**            | [src/core/infill.rs](src/core/infill.rs)     | Interior region calculation and sparse infill                                                 |
+| **Support Generation**         | [src/core/supports.rs](src/core/supports.rs) | Overhang detection, normal/tree support columns, interface layers                             |
 | **Pipeline**                   | [src/core/pipeline.rs](src/core/pipeline.rs) | `process_mesh` — orchestrates the full slicing pipeline                                       |
 | **Multi-object plates**        | [src/core/objects.rs](src/core/objects.rs)   | `slice_plate` — per-object identity for exclude-object & sequential printing                  |
 | **Scene Engine**               | [src/scene/](src/scene/)                     | Single source of truth for object placement (CLI / WS / WASM all consume `SceneState::apply`) |
@@ -96,6 +97,7 @@ src/
 │   ├── surfaces.rs        # generate_top_bottom_surfaces*, rectilinear infill fill
 │   ├── walls.rs           # apply_single_wall_restrictions (per-island), compute_per_island_strip_masks
 │   ├── infill.rs          # calculate_interior_region, add_infill_to_layers
+│   ├── supports.rs        # generate_supports (overhang detection, normal + tree, interface layers)
 │   ├── pipeline.rs        # process_mesh (full pipeline orchestrator)
 │   └── objects.rs         # slice_plate — multi-object plates, object identity (#22/#112)
 ├── scene/                 # Unified scene engine (issue #51 — SSOT for object placement)
@@ -718,16 +720,17 @@ outbound transport to real printers. Today it implements **Moonraker/Klipper**
   (local/unknown), green (online), amber (checking/cors/error/unsupported), red
   (offline).
 
-## G-code result cache — skip re-slicing identical scenes
+## G-code result table — recorded on every slice, never used to skip one
 
 `handle_slice` ([src/server/ws_session.rs](src/server/ws_session.rs)) hashes the
 resolved `SlicingParams` (via `SlicingParams::cache_fingerprint`) + the ordered
-scene DTOs (file id + transform) + `crate::version::VERSION` into an FNV-1a key.
-A `gcode_cache` table (migration `m20250201_000002`) maps that key → the
-previously-generated `.gcode`. On a hit the pipeline is skipped entirely: the
-cached file is copied under the new workplate UUID and `SliceComplete` is emitted
-immediately. On a miss the fresh slice is stored. The desktop (Tauri) runtime
-keeps an in-memory mirror with the same key
+scene DTOs (file id + transform) + `crate::version::VERSION` into an FNV-1a key
+(`compute_slice_cache_key`) and writes the freshly-generated `.gcode` into a
+`gcode_cache` table (migration `m20250201_000002`) under it via
+`Db::put_cached_gcode`. **Every slice request runs the full pipeline** — the
+table is written, never read back to decide whether to slice. The desktop
+(Tauri) runtime keeps an in-memory mirror with the same key and the same
+write-only discipline
 ([ui-desktop/src-tauri/src/bridge/runtime_bridge.rs](ui-desktop/src-tauri/src/bridge/runtime_bridge.rs)).
 Notes:
 
@@ -738,12 +741,14 @@ Notes:
 - **The embedded thumbnail PNG is excluded from the key.**
   `SlicingParams::cache_fingerprint` drops `thumbnail_png_base64` (the
   camera-derived preview captured fresh from the viewer on every slice) so its
-  volatile bytes never bust the cache — the issue #106 requirement that camera
-  movement leave the cache-hit rate unaffected. The thumbnail *settings*
-  (`thumbnail_view`/`theme`/`size`/…) stay in the key, so a cached file's
-  embedded preview always matches the request that reused it.
-- Cache is best-effort: a dangling row (file cleaned up) is evicted lazily on
-  lookup and the scene re-sliced.
+  volatile bytes never end up part of the key. The thumbnail *settings*
+  (`thumbnail_view`/`theme`/`size`/…) stay in the key.
+- **`Db::get_cached_gcode` still exists and is still tested**
+  ([src/db/history_tests.rs](src/db/history_tests.rs)) — it is a working DB
+  primitive, just not called from the slice path. Don't wire it back into
+  `handle_slice` without discussing it first; the skip-on-hit behaviour it used
+  to drive was deliberately removed because a "cached" response could silently
+  serve stale G-code for a scene the engine had actually changed how it slices.
 
 ## Profile library — persisted next to the engine
 
@@ -1278,6 +1283,7 @@ add_infill_to_layers()               — sparse infill using pre-strip regions m
   ├─ combine_fill_areas()            — stack sparse areas across layers (infill_every_layers);
   │                                    mark forced solid layers (solid_infill_every_layers)
   └─ connect_infill()                — anchor line ends to the perimeter, before the splat filters
+generate_supports()                  — overhang detection → projected support columns (if support_enabled)
 path ordering + flow compensation    — greedy-TSP per role group, then wall-overlap flow scaling
 apply_adhesion()                     — skirt/brim prepended to first layer(s); raft prepends layers + Z-shifts object (src/adhesion/)
 mark_first_layer_height()            — charges layer 0 at first_layer_height via path_heights, after adhesion so the skirt matches
@@ -1285,10 +1291,132 @@ mark_first_layer_height()            — charges layer 0 at first_layer_height v
 
 Order matters critically. Surfaces are computed **after** Arachne walls so that
 `calculate_interior_region` sees the correct bead geometry. Infill is computed
-**after** surfaces so it can subtract `solid_regions`. **Bed adhesion runs dead
-last**, after ordering and flow compensation, so its loops are appended cleanly
-and the object's own toolpaths are provably unperturbed — see
-[src/adhesion/README.md](src/adhesion/README.md).
+**after** surfaces so it can subtract `solid_regions`. Supports are generated
+**after infill but before path ordering** so they read the final `OuterWall`
+footprints and their strands are ordered/flow-compensated alongside the rest of
+the layer. **Bed adhesion runs dead last**, after ordering and flow
+compensation, so its loops are appended cleanly and the object's own toolpaths
+are provably unperturbed — see [src/adhesion/README.md](src/adhesion/README.md).
+
+### Support Structure Generation
+
+[src/core/supports.rs](src/core/supports.rs) implements support generation
+(issue #10). It only reads `OuterWall` paths (via `perimeter_paths_of`) to
+derive each layer's model footprint, so it never disturbs wall/surface/infill
+geometry, and appends `ExtrusionRole::Support` **open** polylines.
+
+- **Overhang detection**: `overhang[i] = footprint[i] − inflate(footprint[i−1], max_step)`
+  where `max_step = layer_height · tan(threshold_from_vertical) + facet_tol`.
+  `support_threshold_angle` is measured from vertical (45° → the classic 45°
+  rule; a smaller angle triggers support on gentler overhangs). A facet
+  tolerance and a `SUPPORT_MIN_OVERHANG_AREA_MM2` filter reject near-vertical
+  faceted-wall slicing noise. Fill rule **NonZero** throughout (footprints are
+  Clipper2-normalised frames with CW holes; `Positive` would erase interiors).
+- **`footprints` come from a pristine snapshot, never from the live layer.**
+  `classify_overhang_perimeters` retags an overhanging wall as
+  `OverhangPerimeter` and splits its loop, so on a steep slope there is **no
+  `OuterWall` path left** by the time supports run — a 60° cone reported 49 of
+  50 footprints empty and got no support at any threshold, while every
+  hand-built unit test passed. `process_mesh` therefore calls
+  `snapshot_perimeters` before surface generation and hands the result to
+  `generate_supports`, exactly as overhang grading already did. **Any test for
+  support behaviour must go through `process_mesh`** ([tests/support_slice.rs](tests/support_slice.rs));
+  a unit test that builds `SliceLayer`s by hand cannot see this class of bug.
+- **Per-layer contacts are welded before use.** A contact is only the *newly*
+  exposed sliver at its layer, so down a continuous slope successive contacts
+  are concentric rings separated by exactly `max_step` — 94 sub-paths ≈0.1 mm
+  wide on a 60° frustum, which the fill scanline discards.
+  `accumulate_support_area` closes the accumulation by just over half that gap,
+  fusing them into the solid annulus between the model and the widest overhang
+  above. The close only bridges *between* rings, so the supported area is
+  unchanged — only its connectivity.
+- **Downward projection**: each overhang is registered at its top-contact
+  (activation) layer `i − 1 − support_z_gap_layers`, leaving a Z air-gap for
+  clean removal, then accumulated top-down. The carried column is subtracted by
+  `inflate(footprint[i], support_xy_distance_mm + ½ outer-wall width)` —
+  the half bead matters because footprints are wall **centrelines**, so
+  inflating by the raw distance leaves only `xy − ½d` of real air (0.6 mm of a
+  requested 0.8 mm at defaults).
+- **Interface layers**: the top contact under an overhang and the bottom contact
+  resting on the model — within `support_interface_layers` — are filled at the
+  denser `support_interface_density`; the body uses `support_density`.
+- **`support_on_build_plate_only`** keeps only what can descend to the bed
+  through empty space. `covered[i]` accumulates the model footprint **strictly
+  below** layer `i`, grown by `support_xy_distance_mm`, and contact pads
+  overlapping it are dropped — so the overhang above prints unsupported. **Grow
+  it by the same XY clearance the descent uses**, or a pad that clears the model
+  by less than that survives the test and is then eaten away layer by layer,
+  leaving a floating stub instead of a column. The mask is also subtracted from
+  both column builders so "no support ever rests on the model" holds by
+  construction, and **tree re-checks it on every migration step** — a straight
+  column cannot wander, but a tree tip moves in XY and a plate-reachable seed
+  will otherwise drift over the print. The vector is built only when the option
+  is on.
+- **Normal vs tree**: `Normal` carries the full overhang footprint down (grid
+  column). `Tree` is a **node-drop simulation**: contact tips are sampled from
+  each overhang, migrate toward their local centroid each layer (so edge tips
+  lean inward and a wide field contracts into a few thin trunks), merge when
+  they meet, and reject any step that would enter the model. Wide interface caps
+  still cover the full overhang, so trunks stay thin — tree uses markedly less
+  filament than normal (Benchy: ≈3.7 k mm vs ≈17 k mm; a wide flat plate ≈3×
+  less). It is a pragmatic approximation, **not** a full collision-avoiding
+  branching tree with base flaring — the honest limitation is surfaced by
+  `unsupported_feature_warnings()`. Validate the converging shape with an XZ
+  (front-elevation) projection of the `Support material` beads.
+- **G-code**: `ExtrusionRole::Support` already emits `;TYPE:Support material`
+  (issue #6). Each island is drawn as a **closed contour plus open fill
+  strands**, and carries **no** explicit width — an explicit width would
+  short-circuit `resolve_width_mm`'s fill-role branch, which is what charges a
+  support line the volume of the strip it fills (`support_line_width` →
+  `extrusion_flow_spacing_mm`) rather than a full nominal bead. The contour is
+  what keeps a thin column from degenerating into disconnected dashes; runs
+  below `2 × nozzle` are dropped, the same splat rule gap fill uses.
+  **Whether a path is drawn closed is `ExtrusionRole::forms_closed_loops`, one
+  definition shared by the G-code generator and the path orderer** — the two
+  disagreeing (the generator's closed-loop list omitted `Support`, the orderer's
+  omitted nothing) is what silently dropped the segment that closes every
+  support island back to its start, about a fifth of all support contour length
+  on a test overhang. `support_line_width` must never reach the raft's own
+  explicit width the same way: the raft shares this role but stamps a
+  deliberately coarser bead to match its own wider line pitch, and the setting
+  is meant for the fill-role branch above, not a second override beneath it.
+- **The raft carries support columns, and only the raft's own bead width.**
+  `printed_footprint` unions the object with the `Support` role's footprint so
+  neither the raft nor the skirt starts a column in mid-air; the raft's coarse,
+  explicit bead width must stay untouched by `support_line_width`, which is for
+  the fill role's implicit width only (see above).
+- **Spiral (vase) mode forces `support_enabled` off** in
+  `spiral_vase_normalized`, alongside the other incompatible settings. A vase
+  is one continuous wall with retraction disabled; there is no discrete layer
+  for a column to stand on and no way to travel to one.
+- **`process_mesh_debug` generates supports too**, on the same pristine
+  perimeter snapshot `process_mesh` uses, and records them under
+  `DebugStage::Support`. Skipping this left the QA gallery and
+  `--debug-geometry` showing a support-enabled model with no support in the
+  picture.
+
+#### Supports are generated *after* bridge classification — deliberately
+
+`generate_supports` runs late, so bridge detection never learns that an overhang
+is supported. With the default `support_z_gap_layers ≥ 1` that is **correct**:
+the gap is real air, so the first model layer above support genuinely bridges
+and wants bridge speed and full cooling — the same thing PrusaSlicer/Orca do at
+a non-zero contact distance. Measured on a cap-on-post model, support stops at
+Z 9.70 and the cap's first layer at Z 10.10 spans a 0.4 mm void.
+
+At `support_z_gap_layers = 0` the support does touch the overhang, and that
+layer is still classified `Bridge`. Feeding support back into bridge *detection*
+is the only way to change that, and this file warns repeatedly against
+perturbing that pass. The asymmetry decides it: bridge settings over supported
+material print a slightly worse surface, while normal settings over real air
+**fail**. So the conservative classification stands, the setting's own copy says
+so, and nothing silently depends on it.
+
+**If you do ever reorder it**, note that supports no longer need to run late for
+their own sake — they read a pristine perimeter snapshot taken before wall
+splitting, not the mutated layer. The only remaining reason for the current
+position is that support strands are ordered by the TSP with the rest of the
+layer.
 
 **Dimensional compensation runs first, on the raw contours, and nowhere else.**
 Every later stage measures relative to the contour the wall generator consumed —
@@ -1752,6 +1880,18 @@ point-in-polygon test can land either side.
 binary (measured 7399.6 vs 7401.8 mm on two Benchy slices), so small gap-fill
 deltas are run-to-run noise, not evidence of a change. Sparse infill *is*
 deterministic and can be compared directly.
+
+**So never judge "did my change alter the output?" on a 3DBenchy.** The whole
+file moves: three consecutive slices of the *same binary* reported 3924.69,
+3924.87 and 3924.86 mm of filament, and `diff` says they differ. A refactor
+measured that way looks like a regression when it is noise — and, worse, a real
+regression smaller than that spread looks clean. Use a **deterministic fixture**
+and compare the G-code byte for byte (skipping the timestamp header):
+`Voron_Design_Cube_v7.stl`, `bottom_panel_hinge_x2.stl` and
+`Filament_Card_Caddy_25.stl` all reproduce exactly. The quality gate's
+tolerances exist to absorb the Benchy's jitter, so **a passing gate is not
+evidence that output is unchanged** — only a byte-compare on a deterministic
+fixture is.
 
 ### Thin Wall-Band Channels — Opened-Interior Surface Clip
 
