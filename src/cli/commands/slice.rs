@@ -273,8 +273,8 @@ pub struct SliceCommand {
     pub debug_geometry: Option<PathBuf>,
 
     /// Enable support-structure generation for overhangs.
-    #[arg(long)]
-    pub support: bool,
+    #[arg(long = "support")]
+    pub support_enabled: bool,
 
     /// Support style: `normal` (grid) or `tree` (organic). Implies --support.
     #[arg(long, value_name = "TYPE")]
@@ -558,7 +558,7 @@ impl SliceCommand {
         // Support-structure overrides.  Any support-specific flag implies that
         // supports should be generated, matching the "flag turns the feature
         // on" convention of the other override groups.
-        if self.support
+        if self.support_enabled
             || self.support_type.is_some()
             || self.support_density.is_some()
             || self.support_threshold_angle.is_some()
