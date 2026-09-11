@@ -1,0 +1,48 @@
+@if (visible()) {
+  <div class="paint-panel" role="group" aria-label="Support paint">
+    <header class="pp-head">
+      <span class="pp-name">Paint support</span>
+      <div class="pp-head-right">
+        <button
+          type="button"
+          class="pp-action"
+          [tooltip]="'Clear every painted region on the plate'"
+          [disabled]="paintedFacetTotal() === 0"
+          (click)="clearAllPaint()"
+        >
+          <nexus-icon name="trash"></nexus-icon>
+        </button>
+      </div>
+    </header>
+
+    <div class="pp-body">
+      <nexus-segmented
+        [options]="brushModeOptions"
+        [value]="brushMode()"
+        (valueChange)="setBrushMode($event)"
+        label="Brush mode"
+      />
+
+      <div class="pp-row">
+        <span class="pp-label">Radius</span>
+        <nexus-number-input
+          [value]="brushRadius()"
+          [step]="0.5"
+          [precision]="1"
+          [min]="0.2"
+          [max]="20"
+          unit="mm"
+          label="Brush radius"
+          [wheelHover]="true"
+          (valueChange)="setBrushRadius($event)"
+        />
+      </div>
+
+      @if (paintedFacetTotal() > 0) {
+        <p class="pp-hint">
+          {{ paintedFacetTotal() }} facet{{ paintedFacetTotal() === 1 ? '' : 's' }} painted
+        </p>
+      }
+    </div>
+  </div>
+}

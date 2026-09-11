@@ -272,6 +272,47 @@ pub struct SliceCommand {
     #[arg(long, value_name = "DIR")]
     pub debug_geometry: Option<PathBuf>,
 
+    /// Enable support-structure generation for overhangs.
+    #[arg(long = "support")]
+    pub support_enabled: bool,
+
+    /// Support style: `normal` (grid) or `tree` (organic). Implies --support.
+    #[arg(long, value_name = "TYPE")]
+    pub support_type: Option<String>,
+
+    /// Support body density as a percentage (0-100). Implies --support.
+    #[arg(long, value_name = "PERCENT")]
+    pub support_density: Option<f64>,
+
+    /// Overhang threshold angle in degrees, measured from vertical (0-89).
+    /// Overhangs steeper than this get support. Implies --support.
+    #[arg(long, value_name = "DEG")]
+    pub support_threshold_angle: Option<f64>,
+
+    /// Number of dense interface (contact) layers between support and model.
+    /// Implies --support.
+    #[arg(long, value_name = "N")]
+    pub support_interface_layers: Option<usize>,
+
+    /// Only generate support that can reach down to the build plate.
+    ///
+    /// Overhangs that would need a column resting on the model are left
+    /// unsupported. Use it when supports landing on the print would mar a
+    /// surface or be impossible to remove. Implies --support.
+    #[arg(long)]
+    pub support_on_build_plate_only: bool,
+
+    /// Apply painted support enforcers/blockers from a file holding an
+    /// encoded `FacetPaint` payload (the same wire format the UI and WS
+    /// protocol use). Implies --support.
+    ///
+    /// Only valid when the plate has exactly one object — paint is indexed
+    /// against a specific mesh's faces, so there is no single object to
+    /// apply it to on a multi-object plate. Use the WS protocol or the UI for
+    /// per-object paint on a full plate.
+    #[arg(long, value_name = "FILE")]
+    pub support_paint: Option<PathBuf>,
+
     /// Skip the mesh validation/repair pass and slice the model exactly as it
     /// was authored.
     ///
@@ -512,6 +553,45 @@ impl SliceCommand {
                     "Unknown seam position: '{}'. Supported: nearest, rear, aligned, sharpest-corner, random",
                     policy_str
                 ))?;
+        }
+
+        // Support-structure overrides.  Any support-specific flag implies that
+        // supports should be generated, matching the "flag turns the feature
+        // on" convention of the other override groups.
+        if self.support_enabled
+            || self.support_type.is_some()
+            || self.support_density.is_some()
+            || self.support_threshold_angle.is_some()
+            || self.support_interface_layers.is_some()
+            || self.support_on_build_plate_only
+            || self.support_paint.is_some()
+        {
+            slice_params.support_enabled = true;
+        }
+        if let Some(ref ty) = self.support_type {
+            slice_params.support_type = match ty.to_lowercase().as_str() {
+                "normal" | "grid" => crate::settings::params::SupportType::Normal,
+                "tree" | "organic" => crate::settings::params::SupportType::Tree,
+                other => {
+                    return Err(format!(
+                        "Unknown support type: '{}'. Supported: normal, tree",
+                        other
+                    )
+                    .into())
+                }
+            };
+        }
+        if let Some(density) = self.support_density {
+            slice_params.support_density = density / 100.0;
+        }
+        if let Some(angle) = self.support_threshold_angle {
+            slice_params.support_threshold_angle = angle;
+        }
+        if let Some(layers) = self.support_interface_layers {
+            slice_params.support_interface_layers = layers;
+        }
+        if self.support_on_build_plate_only {
+            slice_params.support_on_build_plate_only = true;
         }
 
         // Spiral (vase) mode is a plain on/off flag; enabling it here defers the
@@ -759,6 +839,39 @@ impl SliceCommand {
                 before, after
             ));
         }
+
+        // Apply painted support enforcers/blockers, after decimation so the
+        // face count checked below is the mesh's final one. Paint is per-facet
+        // and the CLI has no way to address "the second object on the plate",
+        // so this only supports the common single-object slice.
+        if let Some(ref path) = self.support_paint {
+            if plate_objects.len() != 1 {
+                return Err(format!(
+                    "--support-paint requires exactly one object on the plate (found {}); \
+                     use the WS protocol or the UI to paint a multi-object plate",
+                    plate_objects.len()
+                )
+                .into());
+            }
+            let encoded = std::fs::read_to_string(path).map_err(|e| {
+                format!(
+                    "Failed to read --support-paint file '{}': {}",
+                    path.display(),
+                    e
+                )
+            })?;
+            let object = &mut plate_objects[0];
+            let paint =
+                crate::mesh::paint::FacetPaint::decode(encoded.trim(), object.mesh.faces.len())
+                    .map_err(|e| format!("Invalid --support-paint payload: {}", e))?;
+            logger.log_debug(&format!(
+                "support paint: {} facet(s) painted from {}",
+                paint.painted_count(),
+                path.display()
+            ));
+            object.paint = paint;
+        }
+
         // Whole-plate geometry, for the analysis log and the debug pipeline.
         let mesh = crate::core::merge_meshes(&plate_objects);
 
@@ -1057,6 +1170,33 @@ mod tests {
     #[test]
     fn test_input_is_required() {
         assert!(SliceCommand::try_parse_from(["slice", "--layer-height", "0.2"]).is_err());
+    }
+
+    #[test]
+    fn test_support_paint_flag_parses_and_implies_support() {
+        let cmd = parse(&["-i", "test.stl", "--support-paint", "paint.txt"]);
+        assert_eq!(cmd.support_paint, Some(PathBuf::from("paint.txt")));
+    }
+
+    #[test]
+    fn support_paint_on_a_multi_object_plate_is_a_clear_error() {
+        // Paint is per-facet against one specific mesh, so the CLI has no way
+        // to address "the second object on the plate" — this must fail before
+        // it ever tries to read the (deliberately nonexistent) paint file.
+        let fixture = format!(
+            "{}/tests/fixtures/simple-cube.stl",
+            env!("CARGO_MANIFEST_DIR")
+        );
+        let cmd = parse(&[
+            "-i",
+            fixture.as_str(),
+            "-i",
+            fixture.as_str(),
+            "--support-paint",
+            "/nonexistent/paint.txt",
+        ]);
+        let error = cmd.execute().unwrap_err();
+        assert!(error.to_string().contains("exactly one object"), "{error}");
     }
 
     #[test]

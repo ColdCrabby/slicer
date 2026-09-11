@@ -82,6 +82,32 @@ every duplicate shares a filename, so naming it wouldn't tell you which.
 This is one command, not two. There's no separate "orient everything" button
 that would fight with the arrangement.
 
+## Painting where support goes
+
+**Paint support** (`B`) brushes support onto the model by hand, for the places
+the overhang rule gets wrong. Pressing `B` from the G-code preview switches back
+to the model for you.
+
+- **Enforce** — put support here even if nothing overhangs enough to ask for it.
+- **Block** — never put support here, however steep it gets.
+- **Erase** — take painted marks back off.
+
+Paint with a drag; the view stays still while you do, so a stroke can follow a
+curve. Dragging from empty bed still turns the model, which is how you reach the
+other side without leaving the brush.
+
+**Size the brush by scrolling** over the model — the ring under the pointer is
+its actual footprint. Zoom is still there on ⌘/Ctrl + scroll, and a trackpad
+pinch. `Shift`+`B` opens the mode and size controls at the pointer, so you don't
+have to travel back to the toolbar mid-stroke; the same two settings live on the
+tool's card as well, next to a count of what you've painted and a button to
+clear the plate.
+
+Painting is independent of the overhang rule, and **Support Auto** (Process →
+Support) decides whether that rule runs at all. Leave it on and painting adds to
+what the slicer already found; turn it off and *only* what you paint gets
+support. Blockers apply either way.
+
 ## Duplicating and deleting
 
 Right-click a model — or press and hold it on a touch screen — for **Duplicate**,

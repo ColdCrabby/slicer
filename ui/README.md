@@ -141,6 +141,105 @@ lands, `pnpm vendor:ui` brings it in.
 
 ---
 
+## Multi-object plates
+
+**A workplate is a build plate, not a file.** It starts from one model and must
+accept more, so responsibilities are split strictly.
+
+- **[`WorkplateObjects`](src/app/services/workplate-objects/workplate-objects.ts)
+  is the only way an object gets onto a plate.** It uploads (cloud), calls
+  `addMesh` with the resulting `source_id`, places the result using the shared
+  [`Arrange`](src/app/services/arrange/arrange.ts) settings, and nudges the new
+  object clear of the ones already there. Every entry point — the toolbar's add
+  button, drag-and-drop, restoring a saved plate — goes through it, so they
+  cannot drift apart. **Adding never clears existing objects**; only an explicit
+  clear does.
+- **[`SlicerFile`](src/app/services/slicer-file.ts) holds a list, not a file.**
+  `files` accumulates `{fileId, filename}` and `upload(file)` appends, attaching
+  to the open workplate. `fetchFile` adopts a file as the *primary displayed*
+  model — it sets `selectedFile`, which retargets the viewer's `model` input — so
+  additional objects must use **`downloadFile`**, which registers without
+  touching `selectedFile`. Otherwise restoring an N-object plate leaves only the
+  last file on screen.
+- **[`toSliceDtos`](src/app/runtime/adapters/cloud/scene-slice-dto.ts) resolves
+  each object to its file via `source_id` and throws rather than guessing.** It
+  is a pure function with tests pinning the regression; keep the mapping there,
+  not inline in the runtime adapter.
+- **The viewer mirrors, it does not own.** `Viewer.syncWasmMeshes()` diffs
+  `sceneEngine.objects()` against its Three.js nodes and adds or disposes to
+  match, so an object created by *anyone* — the add button, `Duplicate`, undo —
+  renders without the viewer being told. Do not add a second place that
+  constructs display meshes.
+
+### Placing objects is one command, not two
+
+"Auto-orient" and "arrange all" used to be rival buttons that undid each other's
+work. [`Arrange`](src/app/services/arrange/arrange.ts) owns the single
+`ArrangeOnBed` dispatch plus the settings it needs — gap, auto-orient, and the
+printer's preferred angle.
+
+Its UI follows the object-tools idiom exactly: a uniform toolbar button **in the
+same group as move / rotate / scale**, revealing a contextual card
+([`PlacementPanel`](src/app/components/placement-panel/placement-panel.ts), a
+sibling of [`TransformPanel`](src/app/components/transform-panel/transform-panel.ts)).
+**Do not give it a split caret** — that made one button in the group behave
+unlike its neighbours. **Add-time placement reads the same settings**: dropping a
+file in and pressing the button must not disagree about orientation or spacing.
+Do not re-introduce a bare "auto-orient everything" action beside it.
+
+`preferred_orientation_deg` lives on the **printer profile**, not in plate
+preferences, because it describes the machine (a CoreXY prints everything at
+45°). Settings → Printers is the only editor; the placement panel shows it
+read-only and links there, so one machine's angle is never changed from a
+plate-scoped surface. It rides along inside
+`orient_options.preferred_z_rotation_deg` and is therefore **only applied when
+auto-orient runs** — the panel says so rather than showing a live-looking value
+that does nothing.
+
+### Contextual tool cards hang off the tools that open them
+
+Both cards render inside `3d-view-toolbar.html`, in a `.tool-panels` column
+**absolutely positioned** under the `.tool-cluster` and centred on it, so they
+follow the buttons instead of sitting in a screen corner the user has to connect
+them to.
+
+Absolute positioning is what makes this safe: the toolbar's own `contentRect`
+height is unchanged, so the shell's `--main-scene-inset` — and with it the
+viewport cube and the slice rail — never shifts as cards appear. That invariant
+is why the transform card originally lived in the shell. The column stacks, so
+transform and placement can be open at once, and the container is
+`pointer-events: none` so gaps stay click-through to the scene.
+
+**The toolbar's own pill rules must keep their `:host ` prefix.** `nexus-card`
+styles itself with `:host(.small){border-radius:var(--radius-md)}`, which a bare
+class selector ties on specificity and loses to on order — squaring off the pill.
+
+### `TransformPanel` edits the whole selection
+
+It used to render nothing unless *exactly one* object was selected, which made a
+multi-object plate untransformable.
+
+| Edit | Applied as |
+| --- | --- |
+| Position | a **delta** off the selection's combined AABB centre, so a spread-out arrangement keeps its layout instead of collapsing onto one coordinate |
+| Rotation · scale | **per object**, about each one's own centre |
+| `setSize` | measured against each object's own AABB, so a batch of different-sized parts all reach the requested size |
+
+A single-object selection is the exact previous behaviour — the anchor is then
+its own translation, so an edit is still an absolute set. The header shows
+`"N objects"` for a batch and **nothing** for one; it deliberately does not name
+the file, since every duplicate shares a name and it identified nothing.
+
+### Plate-editing chrome hides in G-code preview
+
+The placement control, add-model button, gravity toggle, multi-select toggle,
+gizmo-mode group and objects list are all gated on `viewMode() === 'model'`, and
+the `A` shortcut matches only there. The scene's context menu is gated the same
+way. Preview shows toolpaths, so an edit made from it changes something the user
+cannot see change.
+
+---
+
 ## Phones and tablets
 
 The desktop layout assumes horizontal room the slicer does not have on a
@@ -203,7 +302,24 @@ flowchart LR
   `:host` block compiles to an attribute selector, which a plain element selector
   loses to; the class buys exactly the specificity needed without `!important`.
   Both are set before first paint by the inline script in `index.html`, and
-  `Viewport` keeps them live.
+  `Viewport` keeps them live (`AppShell` constructs it, so they exist on every
+  route).
+- **`handheld()` keeps a width-bounded short-landscape arm**, so a docked-but-
+  short desktop window is not mistaken for a handset. A height test alone
+  reclassifies a perfectly roomy window the moment someone drags it shorter.
+- **The `tooltip` directive contributes no accessible name.** An icon-only
+  button whose only label is `[tooltip]` is unlabelled to VoiceOver *and*
+  unlabelled on a tablet, which has no hover to reveal it. Give every icon-only
+  control an `aria-label` mirroring its tooltip **at the call site** — the
+  directive lives in the shared repo and is not ours to change here.
+- **Pinch-to-zoom belongs to the browser everywhere except the 3D canvas.** The
+  viewport meta carries no `user-scalable=no` / `maximum-scale`, and
+  `touch-action: none` sits on the viewer's `:host`
+  ([viewer.scss](src/app/components/viewer/viewer.scss)) rather than on `html`.
+  Both used to be page-wide, and between them they took magnification away from
+  every settings form and every block of prose — the one affordance a low-vision
+  user has on a phone, and an outright accessibility failure. Lock a gesture on
+  the specific surface that claims it, never on the document.
 
 ### Folding the chrome over the plate
 
@@ -220,7 +336,9 @@ persists once the user states it.
 
 Until the user folds or unfolds one, the default is derived; afterwards their
 choice is remembered across sessions **and viewports**, because a stated
-preference outranks a guess.
+preference outranks a guess. The preference is therefore **tri-state**: `null`
+until the user states one, at which point the derived default (`!isCompact()`)
+stops applying entirely. Do not add a floating panel without one.
 
 **Unfolded, a panel gets the room that is actually there.** The rail card is
 bounded by `100dvh` minus the chrome above it — titlebar, safe area, toolbar
@@ -249,32 +367,27 @@ What changes on a phone specifically, and why:
 
 ### The edge tab, and why hover is armed by geometry
 
-Collapsed, the settings drawer leaves a **"Print settings" tab** on the left
-edge. Two things about it are deliberate:
+Collapsed, the settings drawer leaves a **"Print settings" tab** on the left edge.
 
-- **It hangs just under the toolbar, not at `top: 50%`.** Vertically centred is
-  precisely where the model sits, which is the worst place for a permanent
-  affordance. The dock nub shares the same anchor, so toggling the drawer changes
-  the control's form without moving it. Its hover state is **tone and elevation
-  only, never a transform** — the tab's left edge is flush against the nav rail,
-  so nudging it sideways tears a gap open between the two.
-- **The peek has no backdrop.** The scrim element stays (it is what gives touch a
-  tap-outside-to-close gesture) but it is fully transparent: a peek is not a
-  modal, and the point of peeking at the settings is to keep watching the plate
-  while you change them.
-- **The tab does not arm the hover peek — the pointer's own position does.**
-  While the peek was armed by the host's own `mouseenter`, hovering the tab
-  opened the drawer, which unmounted the tab, which put the pointer on the scene,
-  which fired the matching `mouseleave` — open, close, open. Arming now reads
-  `clientX` from a document `pointermove` while the panel is collapsed, so there
-  is no element to unmount. **Do not "simplify" this back to an invisible edge
-  strip**: the strip would need `pointer-events: auto` to receive `mouseenter`,
-  the collapsed host is zero-width, and it would therefore lie over the leftmost
-  slice of the 3D scene for its whole height — swallowing camera drags,
-  click-to-select and, since the sidebar is a _sibling_ of `<main>`, file drops.
-  Closing is the same idea: pointer geometry measured against the panel's edge,
-  not `mouseleave`, because a panel that mounts, unmounts and slides under a
-  stationary pointer emits enter/leave pairs that say nothing about intent.
+- **It hangs just under the toolbar, not at `top: 50%`** — vertically centred is
+  where the model sits, the worst place for a permanent affordance. The dock nub
+  shares the anchor, so toggling the drawer changes the control's form without
+  moving it. Its hover state is **tone and elevation only, never a transform**:
+  the tab is flush against the nav rail, so nudging it sideways tears a gap open.
+- **The peek has no backdrop.** The scrim element stays — it is what gives touch a
+  tap-outside-to-close — but is fully transparent. A peek is not a modal, and the
+  point of peeking at the settings is to keep watching the plate.
+- **Hover intent is armed by pointer geometry, never by element events.** A panel
+  that mounts, unmounts and slides under a stationary pointer emits enter/leave
+  pairs that say nothing about intent — arming from the tab's own `mouseenter`
+  oscillates, because opening the drawer unmounts the tab. Arming reads `clientX`
+  from a document `pointermove`; closing compares against the panel's edge.
+
+  **Do not "simplify" this to an invisible edge strip.** It would need
+  `pointer-events: auto`, and since the collapsed host is zero-width it would lie
+  over the leftmost slice of the 3D scene for its full height — swallowing camera
+  drags, click-to-select and, the sidebar being a *sibling* of `<main>`, file
+  drops.
 
 ---
 
@@ -303,54 +416,48 @@ flowchart TB
 Everything in that flow is [`scene/selection.ts`](src/app/components/viewer/scene/selection.ts).
 The rules worth knowing before editing it:
 
-- **Tap slop is per pointer type** (`TAP_SLOP_PX`): 4px for a mouse, 9 for a pen,
-  16 for a finger. One mouse-sized threshold for all three is what made tapping a
-  model on an iPad do nothing at all — a fingertip is a ~10mm disc whose reported
-  centre wanders as the skin flattens, so most real taps drifted past it and were
-  discarded as drags. Any change here is a change to whether touch selection
-  works; [`selection.spec.ts`](src/app/components/viewer/scene/selection.spec.ts)
-  pins it.
-- **A tap resolves on the lift, never the press.** That is what lets a
-  mis-aimed press be dragged off to cancel — including in pull-to-floor, where
-  the press only *paints* the candidate face (there is no hover on touch to paint
-  it earlier) and the lift commits it.
-- **Additive selection has no modifier on touch**, so `ViewerControl.additiveSelection`
-  is a real mode, toggled from the tool cluster and offered only on
-  touch-primary devices with more than one object on the plate. Without it a
-  multi-object selection could only be built from the objects list.
-- **The long press is the right-click.** iOS never fires `contextmenu` for one,
-  so it is recognised from the press itself; the menu is asked for through
-  `SceneSelectionHandlers.contextMenu`, and the viewer decides what goes in it.
-  **Right-click is driven off the button's press and release, not the
+- **Tap slop is per pointer type** (`TAP_SLOP_PX`): 4px mouse, 9 pen, 16 finger.
+  One mouse-sized threshold for all three makes tapping a model on a tablet do
+  nothing at all — a fingertip is a ~10 mm disc whose reported centre wanders, so
+  most real taps drift past it and are discarded as drags. Pinned by
+  [`selection.spec.ts`](src/app/components/viewer/scene/selection.spec.ts).
+- **A tap resolves on the lift, never the press**, so a mis-aimed press can be
+  dragged off to cancel. That includes pull-to-floor, where the press only
+  *paints* the candidate face and the lift commits it.
+- **Additive selection is a mode, not a modifier** — there is no ⌘ to hold. It is
+  offered from the tool cluster on touch-primary devices only.
+- **The long press is the right-click**, since iOS never fires `contextmenu` for
+  one. **Right-click itself is driven off the button's press and release, not the
   `contextmenu` event** — Windows raises that after the button comes up and macOS
-  the moment it goes down, so only the button's own travel can tell a right
-  *click* from the right *drag* that pans the camera.
+  the moment it goes down, so only the button's travel separates a right *click*
+  from the right *drag* that pans the camera.
 - **Direct drag is deliberately narrow**: touch or pen, translate mode, and an
-  object that is *already* selected. Requiring a prior tap means a model can
-  never be shoved across the plate by a stray swipe, and drag-to-orbit stays
-  available everywhere else.
-- **OrbitControls listens on the same canvas without capture**, and at the target
-  the DOM runs capture-flagged listeners before non-capture ones *whatever the
-  registration order*. So a `stopPropagation()` from `SceneSelection`'s capture
-  handler at `pointerdown` stops the camera starting a rotate at all — which is
-  why the drag needs no hand-off once it begins. It is applied only to a press
-  the drag will claim; every other press on a model is let through, because
-  dragging from a model the user has not picked used to do nothing, making a
-  dead zone of most of the scene. A bubble-phase probe in the spec pins both
-  directions; break the invariant and the view spins under the dragged object.
-- **The lift is never stopped**, whatever the press turned out to be. Since only
-  *some* presses are withheld, blocking a `pointerup` strands OrbitControls
-  mid-gesture in the ones it *was* let into: its pointer-up handler lives on the
-  **document**, so a stop at the canvas reaches it, and without it the pointer
-  stays tracked, `state` never returns to `NONE`, and the next button-less move
-  orbits the view — on touch, the next single finger reads as a second contact
-  and one-finger orbit dies outright. The only surviving stops are on
-  `pointermove` inside a live drag, whose `pointerdown` was withheld too, so a
-  bubble consumer is absent for the whole gesture rather than half of it.
+  object that is *already* selected. Requiring a prior tap means a stray swipe can
+  never shove a model across the plate.
+- **The camera is shut out at `pointerdown`, and only for a press the drag will
+  claim.** OrbitControls listens on the same canvas without capture, and the DOM
+  runs capture-flagged listeners first whatever the registration order, so a
+  `stopPropagation()` there stops a rotate starting at all. Every *other* press on
+  a model is deliberately let through, or most of the scene becomes a dead zone.
+  A bubble-phase probe in the spec pins both directions.
+- **Never stop the lift.** OrbitControls' pointer-up handler is on the
+  **document**, so blocking `pointerup` strands it mid-gesture in the presses it
+  *was* let into — the pointer stays tracked and the next move orbits the view.
+  The only safe stops are on `pointermove` inside a live drag, whose
+  `pointerdown` was withheld too.
+- **A raycast hit is not a visible hit.** Three's `Raycaster` filters on `layers`
+  and **never on `visible`**, so hidden geometry reports hits like anything else.
+  `GizmoManager.hitTest` raycasts TransformControls' *pickers* — invisible,
+  deliberately oversized shapes that a detached gizmo parks at the origin, i.e.
+  the middle of the bed. Anything deciding "did the user touch this?" from a
+  raycast must apply visibility itself (`isVisibleWithin`) and check the gizmo is
+  attached first. [`gizmo.spec.ts`](src/app/components/viewer/gizmo.spec.ts) pins
+  it, and asserts the three.js behaviour so a future release changing it is
+  noticed.
 - **Palm rejection sits above all of it** in
   [`scene/pointer-arbiter.ts`](src/app/components/viewer/scene/pointer-arbiter.ts),
-  on the host element in the capture phase, so a resting wrist never reaches any
-  of these handlers.
+  on the host in the capture phase, so a resting wrist never reaches these
+  handlers.
 
 | Surface        | Touch form                     | Reason                                                                    |
 | -------------- | ------------------------------ | ------------------------------------------------------------------------- |
@@ -474,14 +581,79 @@ Shortcuts are no-ops when the corresponding history direction is unavailable (gu
 ## Route chunking and navigation feedback
 
 Every screen below `AppShell` is a lazily-loaded chunk, and the initial-bundle
-budgets in [angular.json](angular.json) exist to keep it that way. The rules for
-what may and may not join the initial download — and why three.js, Monaco and
-`marked` each ended up there — are in
-[AGENTS.md](../AGENTS.md#bundle-chunking--what-may-sit-in-the-initial-download).
-The short version: **anything routed uses `loadComponent`**, and a root-provided
-service's imports are initial-bundle imports.
+budgets in [angular.json](angular.json) exist to keep it that way.
 
-Two pieces keep splitting from turning into waiting:
+### What may sit in the initial download
+
+**The initial bundle is the code the browser must have before it can draw
+anything**, so it belongs to the *first* screen — not to the app as a whole. Left
+unwatched this regresses silently: the app still works, it just starts slower
+every release, and the reflex is to raise the budget until it means nothing.
+
+- **A route's `component:` is a static import.** Naming a component in the route
+  table pulls its entire import graph into the initial bundle, however deeply
+  nested the route. **Everything routed uses `loadComponent`**; `AppShell` is the
+  only exception, being the chrome every route renders inside.
+- **A root-provided service drags its whole import graph in with it**, because
+  `provideAppInitializer` constructs it during startup. Watch for this with any
+  **pre-bundled** library — three's ESM build is a single module, so importing
+  one class costs all of it. `ViewerControl` therefore holds a plain `Vec3` that
+  three's `Vector3` is structurally assignable to, and the three-aware components
+  convert at their own boundary.
+- **Import the narrow entry point, not the package root.** Monaco's root export
+  registers ~90 language grammars and three language services, most of the cost
+  being web workers. `code-editor.ts` composes the editor from
+  `editor/editor.api` + `features/register.all`. **Naming a worker in
+  `MonacoEnvironment.getWorker` is what makes the bundler emit it**, so that
+  switch lists only the two that can be asked for.
+- **A dynamic `import()` is lazy in the *bundle*, not in *time*.** It runs the
+  moment the component is created, so a heavy off-screen widget charges its
+  download to the page the user is actually reading. `CodeEditor` waits for an
+  `IntersectionObserver`. Waiting for a widget you are looking at is fine; making
+  the rest of the app wait for one you are not is the thing to avoid.
+- **`provideMarkdown()` stays at the root.** The shared UI's tooltip renders
+  markdown and tooltips appear everywhere, including in dialogs drawn from the
+  root outlet — moving it under a route trades bytes for a `NullInjectorError` in
+  whichever surface was overlooked.
+- **Measure before concluding.** Build with `--source-map` and attribute each
+  chunk's bytes back to its modules. Chunk names are hashes; sizes alone tell you
+  nothing about *why* something is there.
+
+### Bytes are only half of it — what a service *does* on construction
+
+A chunk the browser already downloaded costs nothing until something runs it, and
+the reverse is the trap: a small service can start very expensive work the moment
+it is injected. `Slicer` used to call `orchestrator.init()` from its constructor,
+and because the home dashboard injects `Slicer` for its history list, every
+visitor downloaded and compiled the whole slicing engine before the first screen
+had painted.
+
+The pattern to follow for anything similarly heavy:
+
+- **Boot lazily, and warm on idle.** `Slicer.ensureRuntimeStarted()` is
+  idempotent and shared, scheduled from the constructor through
+  [`onIdle`](src/app/services/idle.ts) and awaited by every path that reaches the
+  runtime. A user who acts before idle fires simply claims the same promise
+  early, so deferring can only make the boot later, never absent.
+- **Gate on demand as well as on idle.** An idle callback is a hint, not a
+  guarantee; on a busy tab it may not fire before the user acts.
+- **A failed boot must not be cached.** `ensureRuntimeStarted` clears its promise
+  on failure so the next demand retries, and never rejects — callers fail in
+  their own terms.
+- **[`onIdle`](src/app/services/idle.ts) is the one place** that knows
+  `requestIdleCallback` must be called through `globalThis` and that older Safari
+  needs a timer fallback. `IdleRoutePreload` uses the same helper — do not
+  re-derive it.
+
+**Raise first-run explanations from the action they describe, not from app
+boot.** A modal shown at startup becomes the page's Largest Contentful Paint, so
+the web build's "Running in your browser" notice now fires from
+`WorkplateObjects.placeMesh` — cheaper, and the moment its advice means anything.
+
+### Paying the wait back
+
+Splitting the app moves the wait rather than removing it, so two pieces exist to
+pay it back:
 
 ```mermaid
 flowchart LR
@@ -516,40 +688,74 @@ where preloading was skipped.
 ### The boot splash
 
 Route feedback cannot cover the *first* load, because Angular is the thing being
-waited for. That gap belongs to
-[index.html](src/index.html), which paints a logo, a progress bar and a label
-before a single byte of the bundle has run, and tears itself down from
-[main.ts](src/main.ts) once the app is on screen.
+waited for. That gap belongs to [index.html](src/index.html), which paints a
+logo, a progress bar and a label before a byte of the bundle has run, and tears
+itself down from [main.ts](src/main.ts) once the app is on screen.
 
-- **It has to be inline.** A splash component ships inside the bundle it is
-  meant to cover, so it could only appear once the wait was already over. Same
-  reason its colours are literals rather than design tokens — the stylesheet
-  carrying those tokens is part of what is still loading. Keep them in step with
-  `--accent` and `--color-bg-primary` by hand.
-- **The logo arrives in two stages, and neither is animated.** A ~700-byte WebP
-  is embedded in the document as base64, so it paints with the HTML at no
-  request cost; `public/splash-logo.webp` (240 px, 22 kB) then cross-fades over
-  it. Progressive JPEG, the usual answer for "rough now, sharp later", is not
-  available: the logo is RGBA and JPEG has no alpha channel. Neither WebP nor
-  AVIF decodes progressively, so the refinement is staged explicitly — which is
-  faster anyway, since a progressive format's first pass still costs a round
-  trip and an inlined placeholder costs none. Regenerate both with
-  `pnpm run splash-logo`; never hand-edit the base64.
-- **The progress bar is the only thing that animates.** It is real: the build
-  lists every initial chunk in the document as `<link rel="modulepreload">`, and
-  a `PerformanceObserver` reports each one as it lands, so the bar tracks actual
-  downloads instead of easing along a timer. Downloads map to 0–90 %; the last
-  tenth is parse + bootstrap, closed by `__nexusSplashDone()`.
-- **Survey the chunk list on every tick, never once at startup.** The build
-  appends those `modulepreload` links *after* this inline script, so a single
-  survey at parse time finds nothing and the bar never moves — which is exactly
-  how it was first written, and what measuring caught.
-- **The full-resolution logo is `rel="preload"`ed at high priority**, or it
-  queues behind the chunks and arrives after the splash it belongs to has gone.
-- Degrades quietly: with no `modulepreload` links (the dev server) or no
-  `PerformanceObserver`, the splash still covers the blank page and still
-  clears. If the app never boots at all, the label admits it after 30 s rather
-  than leaving a bar frozen mid-way.
+- **It has to be inline.** A splash component ships inside the bundle it is meant
+  to cover. Same reason its colours are literals rather than tokens — the
+  stylesheet carrying those tokens is part of what is still loading. Keep them in
+  step with `--accent` and `--color-bg-primary` by hand.
+- **The logo arrives in two stages, neither animated.** A tiny WebP is embedded in
+  the document as base64 so it paints with the HTML at no request cost;
+  `public/splash-logo.webp` then cross-fades over it. Progressive JPEG is not an
+  option (the logo is RGBA) and neither WebP nor AVIF decodes progressively, so
+  the refinement is staged explicitly. Both stages and the header logo's `srcset`
+  come from [scripts/gen-logo-assets.sh](../scripts/gen-logo-assets.sh) —
+  `pnpm run logo-assets`, `--check` to verify. **Never hand-edit the base64**, and
+  note Prettier rewrites CSS `url()` to single quotes, which the generator
+  tolerates.
+- **Every logo the app serves is WebP, with no PNG fallback.** The `.png` files in
+  `public/` are the masters the generator reads. Safe because the app needs
+  WebAssembly and WebGL2 anyway, so nothing that can run it lacks WebP.
+- **The progress bar is real.** The build lists every initial chunk as
+  `<link rel="modulepreload">` and a `PerformanceObserver` reports each as it
+  lands; downloads map to 0–90 %, the last tenth is parse + bootstrap.
+  **Survey the chunk list on every tick, never once at startup** — the build
+  appends those links *after* this inline script.
+- **The full-resolution logo is `rel="preload"`ed at high priority**, or it queues
+  behind the chunks and arrives after the splash has gone.
+- Degrades quietly: with no `modulepreload` links or no `PerformanceObserver` the
+  splash still covers the blank page and still clears, and admits failure after
+  30 s rather than freezing mid-bar.
+
+---
+
+## The preset catalog
+
+The **catalog** is the read-only library of vendor presets the profile wizards
+browse. Its data lives in a separate service — the Cold Crabby Preset Cloud (repo
+`cloud-presets`) — so everything here is a client concern.
+
+- **The client is generated from the *remote* OpenAPI, not a vendored copy.**
+  [openapi-ts.config.ts](openapi-ts.config.ts) feeds `@hey-api/openapi-ts` the
+  document on the cloud repo's `main`, so the frontend cannot silently drift from
+  the deployed contract. It uses the **Angular** client, so requests go through
+  `HttpClient` and its interceptors, not a bare `fetch`. Output lands in
+  `src/generated/catalog-client/`. **Never hand-edit it, and never re-add the
+  vendored spec** — regenerate.
+- **The served API is search-plus-detail, never bulk.** `GET /v1/presets` returns
+  cursor-paginated *summaries*; `GET /v1/presets/{id}` returns the complete preset
+  with its `params` bag. There is no "dump everything" endpoint, so a plate-wide
+  import is one round trip per preset.
+- **`CatalogSource` is the seam.**
+  [`CloudCatalog`](src/app/services/catalog/cloud-catalog.ts) talks only to that
+  interface, so the backend is a one-line provider override. Each of the three
+  categories loads and searches **independently**, one page at a time, so opening
+  a picker never blocks on a whole category. Any transport error becomes the
+  `unavailable` state — the UI then offers "create from scratch", and the builtin
+  default per category keeps the app working offline.
+- **Importing fetches the real preset before committing.** A summary carries no
+  slicing parameters, so every "Use preset" and "Import" overlays the detail
+  response's `params` onto the widened summary *before* creating the local copy.
+  That is a real round trip, so each call site tracks its own `importingId` and
+  `nexus-catalog-picker` swaps that one row's button for a disabled "Importing…"
+  state — **per-row, not a modal-wide block**, so picking a different entry stays
+  live. A failure notifies and adds nothing.
+- **The base URL is configured once at startup.** `environment.catalogApiUrl`
+  feeds both the `RemoteCatalogSource` provider and `provideCatalogClient()` in
+  [app.config.ts](src/app/app.config.ts). The generated client's default base URL
+  is the raw-GitHub host of the spec and is **never** what you want.
 
 ---
 
@@ -562,7 +768,7 @@ Anything under `src/generated/` is **regenerated, not edited**. Each file maps 1
 | `src/generated/*.d.ts`      | Rust schemas via `slicer-engine gen-schemas`      | `pnpm run gen` (also runs on `install`) |
 | `src/generated/scene-wasm/` | `src/scene/wasm.rs` (`cfg(target_arch="wasm32")`) | `make build-wasm` at the repo root      |
 | `src/schemas/*.json`        | JSON Schema emitted by the Rust CLI               | `pnpm run gen-schemas`                  |
-| `public/splash-logo.webp` + the base64 blob in `src/index.html` | `public/logo_still@3x.png` | `pnpm run splash-logo` at the repo root |
+| `public/splash-logo.webp` + the base64 blob in `src/index.html` | `public/logo_still@3x.png` | `pnpm run logo-assets` at the repo root |
 
 The `postinstall` script in [package.json](package.json) wires this up: cloning the repo and running `pnpm install` (with the WASM bundle already built) is enough to get a working dev environment.
 
@@ -639,6 +845,7 @@ The UI follows the project [`.editorconfig`](.editorconfig) and is formatted wit
 - [src/scene/README.md](../src/scene/README.md) — the scene engine SSOT this UI sits on top of
 - [src/server/README.md](../src/server/README.md) — HTTP + WebSocket protocol
 - [src/cli/README.md](../src/cli/README.md) — the same engine, different surface
-- [ui/src/styles/README.md](src/styles/README.md) — design tokens and SCSS architecture
+- [`.github/instructions/ui-design-language.instructions.md`](../.github/instructions/ui-design-language.instructions.md) — the design language
+- [src/styles/](src/styles/) — slicer-local SCSS; tokens themselves live in `@coldcrabby/ui`
 - [THEME.md](THEME.md) — colour and spacing system
 - [AGENTS.md](../AGENTS.md) — repo-wide conventions and AI-agent guidance

@@ -90,9 +90,7 @@ gives the centerline path.
 
 ---
 
----
-
-## Perimeter routing & ordering options ([#98](https://github.com/ColdCrabby/slicer/issues/98))
+## Perimeter routing & ordering options
 
 Three of these are wall-generation concerns handled in this module; the other two
 live downstream (surfaces, G-code travel) but are listed here for a complete
@@ -190,7 +188,8 @@ add_infill_to_layers()                        — sparse infill = pre_strip regi
 
 Order matters: [`crate::core::surfaces`](../core/surfaces.rs) runs **after**
 walls so [`calculate_interior_region`](../core/infill.rs) sees the correct bead
-geometry. See [`AGENTS.md`](../../AGENTS.md) for the full invariant list.
+geometry. See [`../core/README.md`](../core/README.md) for the full invariant
+list.
 
 [`fuzzy_skin::apply`](fuzzy_skin.rs) runs much later — after path ordering and
 flow compensation, before bed adhesion — so it perturbs only the *final*
@@ -255,6 +254,26 @@ radius-ratio [`prune_boundary_spurs`](arachne/skeleton.rs) alone does *not*
 suffice — it only catches spurs that dive toward the boundary, not the
 uniform-radius facet spurs of a constant-thickness band.
 
+### 6. Drop isolated gap-fill runs shorter than `2d`
+
+Separate from the *spur* prune above: [`emit_medial_beads`](arachne/generate.rs)
+and the residual pre-filter [`emit_residual_medial_fill`](arachne/generate.rs)
+both discard any emitted gap-fill **run** shorter than `gap_fill_min_run_len_mm`
+— `gap_fill_min_length_mm` when the user set it (`> 0`), otherwise `2d`
+(0.8 mm at a 0.4 mm nozzle).
+
+The old auto-default was `d`, which left ~270 sub-`2d` beads on the 3DBenchy:
+each an isolated dab of material that still costs a full retract → travel →
+un-retract to reach. That is the "tiny inner-body splat" — wasted time and a
+filament-grinding risk.
+
+Dropping them is safe because the residual such a splat would fill is bridged by
+the squish of the flanking wall beads. `classic`, which has no gap fill at all,
+leaves the same curved and tapering wall corners bead-free with **no** measurable
+wall-zone void (`voids.py`). Matching the spur floor is deliberate: a run below
+the same `2d` that separates a real gap spine from facet noise *is* facet noise
+once isolated as its own bead.
+
 ---
 
 ## Non-goals (deliberately not done here)
@@ -285,5 +304,5 @@ uniform-radius facet spurs of a constant-thickness band.
   `(path, role, width)` triples; variable widths come from `path_widths[i]`
 - [src/settings/params.rs](../settings/params.rs) — `SlicingParams`,
   `WallGenerator`
-- [AGENTS.md](../../AGENTS.md) — pipeline-wide invariants and Clipper2
+- [../core/README.md](../core/README.md) — pipeline-wide invariants and Clipper2
   fill-rule guidance

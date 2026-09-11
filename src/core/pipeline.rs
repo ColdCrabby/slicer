@@ -1,6 +1,7 @@
 use clipper2::Paths;
 
 use crate::logging::{phases, PhaseTimer, ProcessLogger};
+use crate::mesh::paint::FacetPaint;
 use crate::mesh::types::Mesh;
 use crate::settings::params::{SeamPosition, SlicingParams};
 
@@ -204,6 +205,23 @@ pub fn process_mesh(
     params: &SlicingParams,
     logger: &dyn ProcessLogger,
 ) -> Vec<SliceLayer> {
+    process_mesh_with_paint(mesh, params, logger, &FacetPaint::new())
+}
+
+/// Slice a mesh that carries per-facet support paint.
+///
+/// Identical to [`process_mesh`] in every respect but one: the painted facets
+/// are projected onto the layer stack and handed to support generation, so the
+/// user's enforcers and blockers override the automatic overhang rule. An empty
+/// annotation reproduces [`process_mesh`] exactly — the projection is skipped
+/// entirely rather than producing empty masks — so an unpainted slice cannot
+/// drift.
+pub fn process_mesh_with_paint(
+    mesh: &Mesh,
+    params: &SlicingParams,
+    logger: &dyn ProcessLogger,
+    paint: &FacetPaint,
+) -> Vec<SliceLayer> {
     // Spiral (vase) mode forces a consistent single-wall configuration
     // (no infill/top surfaces/retraction) for the whole pipeline. Applied here
     // so every entry point (CLI, WebSocket, WASM) observes the same rules.
@@ -360,6 +378,17 @@ pub fn process_mesh(
     // degree.  Only taken when the feature is enabled.
     let overhang_support: Option<Vec<Paths>> = snapshot_overhang_support(&layers, params);
 
+    // Supports need the same un-split outlines, and for the same reason: the
+    // classification pass below retags an overhanging wall as
+    // `OverhangPerimeter` and splits its loop, so a steep slope keeps no
+    // `OuterWall` path for `generate_supports` to measure. Taken here — before
+    // that happens — rather than at the support step further down.
+    let support_footprints: Option<Vec<Paths>> = if params.support_enabled {
+        Some(snapshot_perimeters(&layers))
+    } else {
+        None
+    };
+
     // Now generate top/bottom surfaces INSIDE the walls
     if params.top_layers > 0 || params.bottom_layers > 0 {
         let t_surfaces = PhaseTimer::start(phases::SURFACES, logger);
@@ -451,6 +480,39 @@ pub fn process_mesh(
         logger.log_debug("infill generation complete");
     }
 
+    // Generate support structures for overhangs steeper than the threshold
+    // angle.  Runs before path ordering so support strands are grouped and
+    // ordered with the rest of the layer.
+    if params.support_enabled {
+        logger.log_debug(&format!(
+            "generating supports (type: {:?}, threshold: {}°, density: {:.0}%)",
+            params.support_type,
+            params.support_threshold_angle,
+            params.support_density * 100.0
+        ));
+        let t_support = PhaseTimer::start("Support Generation", logger);
+
+        // Project painted facets onto the layer stack to get enforcer and
+        // blocker masks. An empty annotation is fast-pathed, so unpainted
+        // slices don't pay for this.
+        let paint_masks = crate::core::project_support_paint(
+            mesh,
+            paint,
+            &layers,
+            params.layer_height,
+            resolved_first_layer_height(params),
+            params.nozzle_diameter_mm,
+        );
+        crate::core::generate_supports_with_paint(
+            &mut layers,
+            params,
+            support_footprints.as_deref(),
+            &paint_masks,
+        );
+        t_support.finish();
+        logger.log_debug("support generation complete");
+    }
+
     // Optimize path order (Greedy TSP within role groups)
     let t_tsp = PhaseTimer::start("Path Ordering", logger);
     for layer in layers.iter_mut() {
@@ -511,18 +573,17 @@ pub fn process_mesh(
                 continue;
             }
 
-            // Wall/skirt roles are nominally "closed" for TSP purposes, but
-            // individual paths may be open arcs (split sub-segments from
-            // classify_overhang_perimeters).  Open arcs are treated like open
-            // polylines: both endpoints are candidate starts and current_pos
-            // is updated to the path *end* (not the start) after emission.
-            let role_is_closed = matches!(
-                role,
-                crate::core::ExtrusionRole::OuterWall
-                    | crate::core::ExtrusionRole::InnerWall
-                    | crate::core::ExtrusionRole::OverhangPerimeter
-                    | crate::core::ExtrusionRole::Skirt
-            );
+            // Wall/skirt/support roles are nominally "closed" for TSP purposes,
+            // but individual paths may be open arcs (split sub-segments from
+            // classify_overhang_perimeters, or a support island's fill strands).
+            // Open arcs are treated like open polylines: both endpoints are
+            // candidate starts and current_pos is updated to the path *end*
+            // (not the start) after emission.
+            //
+            // This must be the same predicate the G-code generator applies, or
+            // the orderer's idea of where the nozzle ends up is wrong — hence
+            // `ExtrusionRole::forms_closed_loops` rather than a second list.
+            let role_is_closed = role.forms_closed_loops();
 
             while !remaining.is_empty() {
                 let mut best_i = 0;
@@ -822,6 +883,15 @@ pub fn process_mesh_debug(
         vec![]
     };
 
+    // Support footprints must be snapshotted before `classify_overhang_perimeters`
+    // splits and retags the overhanging walls — the same ordering constraint
+    // `process_mesh` observes, and for the same reason.
+    let support_footprints: Option<Vec<Paths>> = if params.support_enabled {
+        Some(snapshot_perimeters(&layers))
+    } else {
+        None
+    };
+
     // Surfaces.
     if params.top_layers > 0 || params.bottom_layers > 0 {
         let overhang_support = snapshot_overhang_support(&layers, params);
@@ -910,6 +980,30 @@ pub fn process_mesh_debug(
         }
     }
 
+    // Supports. Mirrors `process_mesh`: after infill, reading the pristine
+    // perimeter snapshot taken above rather than the now-split walls.
+    if params.support_enabled {
+        crate::core::generate_supports(&mut layers, params, support_footprints.as_deref());
+
+        for (layer_index, layer) in layers.iter().enumerate() {
+            let support_paths: Vec<clipper2::Path> = layer
+                .paths
+                .iter()
+                .enumerate()
+                .filter(|(i, _)| layer.role_for_path(*i) == ExtrusionRole::Support)
+                .map(|(_, p)| p.clone())
+                .collect();
+            if !support_paths.is_empty() {
+                debug.push(
+                    DebugStage::Support,
+                    layer_index,
+                    layer.z,
+                    clipper2::Paths::new(support_paths),
+                );
+            }
+        }
+    }
+
     logger.log_debug(&format!(
         "debug geometry: {} records captured across {} layers",
         debug.len(),
@@ -936,14 +1030,24 @@ fn snapshot_overhang_support(layers: &[SliceLayer], params: &SlicingParams) -> O
     if !params.enable_overhang_speed {
         return None;
     }
+    Some(snapshot_perimeters(layers))
+}
+
+/// Snapshot every layer's `OuterWall` centreline outline as it stands now.
+///
+/// Shared by overhang grading and support generation, both of which must read
+/// the outlines *before* bridge clipping and overhang classification split and
+/// retag them.
+fn snapshot_perimeters(layers: &[SliceLayer]) -> Vec<Paths> {
     #[cfg(not(target_arch = "wasm32"))]
-    let snapshot = {
+    {
         use rayon::prelude::*;
         layers.par_iter().map(perimeter_paths_of).collect()
-    };
+    }
     #[cfg(target_arch = "wasm32")]
-    let snapshot = layers.iter().map(perimeter_paths_of).collect();
-    Some(snapshot)
+    {
+        layers.iter().map(perimeter_paths_of).collect()
+    }
 }
 
 /// Fold each raw overhang band `0..=4` to the [`OverhangClass`] the classifier

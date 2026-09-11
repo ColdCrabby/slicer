@@ -19,8 +19,15 @@ pub struct AutoOrientOptions {
     pub preferred_z_rotation_deg: f64,
 
     /// Faces whose outward normal points more than this many degrees below
-    /// horizontal are counted as overhanging (and penalised).  Should match
-    /// the printer's support angle threshold.  **Default: 45°.**
+    /// horizontal are counted as overhanging (and penalised).
+    ///
+    /// Same convention as
+    /// [`SlicingParams::support_threshold_angle`](crate::settings::params::SlicingParams::support_threshold_angle)
+    /// — a surface leaning `θ` from vertical puts its normal `θ` below
+    /// horizontal — so the two numbers are directly comparable and want to
+    /// agree: orienting against a threshold the support pass does not share
+    /// means avoiding overhangs that would have been supported anyway.
+    /// **Default: 45°.**
     pub overhang_threshold_deg: f64,
 }
 

@@ -1,4 +1,5 @@
 import type { GizmoDelta } from '../gizmo';
+import type { PaintBrushMode } from '../../../services/viewer-control';
 
 export interface SceneSelectionHandlers {
   /** A bare click on a selectable object — `additive` for ctrl/⌘/shift. */
@@ -20,6 +21,26 @@ export interface SceneGizmoHandlers {
   end(): void;
   /** Fired when a face has been picked in `pullToFloor` mode. */
   facePicked(objectId: string, faceIndex: number): void;
+  /**
+   * Fired for each brush dab while painting support in `'paint'` mode —
+   * on contact and again on every rAF-throttled sample while the pointer
+   * drags. `worldPoint` is where the raycast hit, `seedFace` the facet it
+   * hit; both are forwarded to the `PaintSupport` op unchanged.
+   */
+  paintDab(
+    objectId: string,
+    seedFace: number,
+    worldPoint: [number, number, number],
+    radius: number,
+    mode: PaintBrushMode,
+  ): void;
+  /** Fired once when a paint stroke finishes (pointer-up/cancel). Flush history here. */
+  paintEnd(): void;
+  /**
+   * Fired when the viewport's scroll-wheel resizes the brush. Already clamped
+   * to the shared radius limits; the handler only has to store it.
+   */
+  paintRadiusChange(radiusMm: number): void;
 }
 
 /** A world-space surface point picked by the measuring tool. */

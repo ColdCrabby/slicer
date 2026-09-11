@@ -22,7 +22,7 @@
 //! surface, so the object footprint is reconstructed by inflating the unioned
 //! `OuterWall` paths outward by `d/2` (`d` = nozzle diameter).  Winding is
 //! preserved throughout (CCW solids, CW holes) so Clipper2 treats holes as
-//! voids — see `AGENTS.md` § "Clipper2 Fill Rules".
+//! voids — see `src/core/README.md` § "Which Clipper2 fill rule, and why".
 
 use clipper2::*;
 
@@ -108,6 +108,55 @@ fn object_footprint_sharp(layer: &SliceLayer, d: f64) -> Paths {
     }
     let merged = clean_union(outer);
     offset_join(&merged, d / 2.0, JoinType::Miter)
+}
+
+/// Footprint of the `Support` strands on `layer`, as a filled region.
+///
+/// Support is emitted as **open** polylines, so unlike the wall contours it has
+/// to be stroked (`EndType::Round`) rather than unioned as closed polygons —
+/// treating an open path as a polygon would close it implicitly and enclose
+/// area that was never printed.
+fn support_footprint(layer: &SliceLayer, d: f64) -> Paths {
+    let strands = Paths::new(
+        layer
+            .paths
+            .iter()
+            .enumerate()
+            .filter(|(i, _)| layer.role_for_path(*i) == ExtrusionRole::Support)
+            .map(|(_, p)| p.clone())
+            .collect(),
+    );
+    if strands.is_empty() {
+        return Paths::default();
+    }
+    let stroked = inflate(strands, d / 2.0, JoinType::Round, EndType::Round, 2.0);
+    if stroked.is_empty() {
+        Paths::default()
+    } else {
+        clean_union(stroked)
+    }
+}
+
+/// The whole first-layer footprint: the object **plus** anything support puts
+/// on the bed beside it.
+///
+/// A raft that only covers the object leaves its support columns extruding into
+/// thin air one layer above the plate — measured on a cap-on-post model, the
+/// raft spanned x∈[7,22] while support reached x∈[0.2,29.8]. A skirt drawn from
+/// the object alone likewise cuts straight through the support it is supposed
+/// to enclose.
+fn printed_footprint(layer: &SliceLayer, d: f64) -> Paths {
+    let object = object_footprint(layer, d);
+    let support = support_footprint(layer, d);
+    if support.is_empty() {
+        return object;
+    }
+    if object.is_empty() {
+        return support;
+    }
+    clean_union(Paths::new(
+        object.iter().chain(support.iter()).cloned().collect(),
+    ))
 }
 
 /// Append a closed loop path to a layer's parallel path arrays.
@@ -339,7 +388,8 @@ fn generate_skirt(layers: &mut [SliceLayer], params: &SlicingParams, d: f64) {
     if params.skirt_loops == 0 || layers.is_empty() {
         return;
     }
-    let footprint = object_footprint(&layers[0], d);
+    // The skirt encloses everything printed on the bed, support included.
+    let footprint = printed_footprint(&layers[0], d);
     if footprint.is_empty() {
         return;
     }
@@ -426,7 +476,9 @@ fn build_raft(object: &[SliceLayer], params: &SlicingParams, d: f64) -> Vec<Slic
     } else {
         2
     };
-    let footprint = object_footprint(&object[0], d);
+    // The raft is what the first layer is printed onto, so it has to carry the
+    // support columns as well as the object — otherwise they start in mid-air.
+    let footprint = printed_footprint(&object[0], d);
     if footprint.is_empty() {
         return Vec::new();
     }

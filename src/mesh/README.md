@@ -386,5 +386,4 @@ After step 6 the original `Arc<Mesh>` is still alive and unchanged in
 - [transforms.rs](transforms.rs) — pure translate / scale / rotate helpers
 - [../scene/README.md](../scene/README.md) — how meshes are placed in a scene
 - [../SLICING.md](../SLICING.md) — the triangle-plane intersection algorithm
-- [issue #114](https://github.com/ColdCrabby/slicer/issues/114) — why the
-  repair pass exists
+- [../scene/loader.rs](../scene/loader.rs) — the one funnel every runtime loads through

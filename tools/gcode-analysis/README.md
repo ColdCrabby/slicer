@@ -114,4 +114,5 @@ A tight zoom on a hull wall (`zoom.py … 60 -11.5 -1 3.5`):
 
 - [src/walls/README.md](../../src/walls/README.md) — wall generators (Classic / Arachne).
 - [src/gcode/README.md](../../src/gcode/README.md) — G-code emission and the volumetric flow balance.
-- `AGENTS.md` → “Slicing Pipeline — Deep Knowledge”.
+- [`src/core/README.md`](../../src/core/README.md) — the pipeline order and the
+  infill/surface boundary these measurements are about.

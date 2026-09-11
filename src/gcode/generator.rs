@@ -364,6 +364,10 @@ pub(crate) fn resolve_width_mm(
                 let nominal = crate::core::sparse_infill_nominal_width_mm(params);
                 return crate::core::extrusion_flow_spacing_mm(nominal, params.layer_height);
             }
+            ExtrusionRole::Support => {
+                let nominal = crate::core::support_nominal_width_mm(params);
+                return crate::core::extrusion_flow_spacing_mm(nominal, params.layer_height);
+            }
             _ => {}
         }
     }
@@ -371,6 +375,13 @@ pub(crate) fn resolve_width_mm(
     // A per-role override wins over the constant, generator-stamped width for
     // its role (walls included). Skipped for variable-width beads, whose
     // per-vertex widths are authoritative and applied separately.
+    //
+    // `Support` is deliberately absent. Support paths carry no explicit width,
+    // so `support_line_width` already reached them through the fill-role branch
+    // above (via `support_nominal_width_mm`) — an arm here could therefore only
+    // ever match the *raft*, which shares the role but stamps a deliberately
+    // coarse bead to match its own wide line pitch. Overriding that silently
+    // under-extrudes the raft base by the ratio of the two widths.
     if !has_vertex_widths {
         let role_override = match role {
             ExtrusionRole::OuterWall | ExtrusionRole::OverhangPerimeter => {
@@ -1175,6 +1186,16 @@ impl GcodeGenerator {
                 } else {
                     params.perimeter_speed
                 };
+                if s > 0.0 {
+                    s * 60.0
+                } else {
+                    fallback
+                }
+            }
+            ExtrusionRole::Support => {
+                // Support (and the raft, which shares this role) is sacrificial
+                // and sparse. `0` inherits the model's print speed.
+                let s = params.support_speed;
                 if s > 0.0 {
                     s * 60.0
                 } else {
@@ -2718,7 +2739,8 @@ impl GcodeGenerator {
                 // Determine if this is a closed-loop role.
                 //
                 // A path is a closed loop only when BOTH:
-                //   1. Its role is one that normally forms closed contours, AND
+                //   1. Its role normally forms closed contours
+                //      ([`ExtrusionRole::forms_closed_loops`]), AND
                 //   2. It is NOT marked as an open arc in `path_is_open`.
                 //
                 // `path_is_open` is set to `true` for sub-segments produced by
@@ -2727,13 +2749,13 @@ impl GcodeGenerator {
                 // open polylines even though their role may still be `OuterWall`
                 // or `InnerWall`.  Emitting a "close contour" G1 move for them
                 // would create a phantom extrusion back through the model.
+                //
+                // Support uses the same distinction for a different reason: an
+                // island contour is a closed loop, while the fill strands
+                // inside it — and every raft line, which shares this role — are
+                // open polylines.
                 let is_open_arc = layer.is_path_open(path_idx);
-                let is_closed_loop = matches!(
-                    role,
-                    crate::core::ExtrusionRole::OuterWall
-                        | crate::core::ExtrusionRole::InnerWall
-                        | crate::core::ExtrusionRole::Skirt
-                ) && !is_open_arc;
+                let is_closed_loop = role.forms_closed_loops() && !is_open_arc;
 
                 // ── Coasting: stop extruding before end of perimeter ──────────
                 // Coasting applies only to closed-loop perimeter paths and only
@@ -2749,7 +2771,8 @@ impl GcodeGenerator {
                 // will add a linear pass per perimeter path. A future optimisation could
                 // pre-compute cumulative lengths once if profiling shows this to be a
                 // bottleneck.
-                let apply_coasting = is_closed_loop && params.coasting_distance_mm > 0.0;
+                let apply_coasting =
+                    is_closed_loop && role.coasts_into_seam() && params.coasting_distance_mm > 0.0;
 
                 // ── Print contour segments ────────────────────────────────────
                 if apply_coasting {
@@ -2992,10 +3015,11 @@ impl GcodeGenerator {
                     }
 
                     // Close the contour — only for inherently closed-loop roles such as
-                    // perimeter walls and skirt/brim.  Open infill polylines (Infill,
-                    // TopSurface, BottomSurface, Bridge, Support) must NOT be closed;
-                    // doing so would add a long diagonal extrusion back to the path start,
-                    // producing the "weird line crossing" artifact visible in gyroid infill.
+                    // perimeter walls, skirt/brim and support island contours.  Open
+                    // polylines (Infill, TopSurface, BottomSurface, Bridge, support fill
+                    // strands, raft lines) must NOT be closed; doing so would add a long
+                    // diagonal extrusion back to the path start, producing the "weird line
+                    // crossing" artifact visible in gyroid infill.
                     if is_closed_loop {
                         let dx = start_x - prev.0;
                         let dy = start_y - prev.1;
@@ -6697,6 +6721,47 @@ CHAMBER={chamber_temp} MATERIAL={filament_type}"
             1.0,
         );
         assert!((s - 70.0 * 60.0).abs() < 1e-6, "expected infill_speed * 60");
+    }
+
+    #[test]
+    fn test_effective_speed_mm_min_support_role() {
+        use crate::core::ExtrusionRole;
+        let params = SlicingParams {
+            print_speed: 60.0,
+            support_speed: 45.0,
+            ..SlicingParams::default()
+        };
+        let s = GcodeGenerator::effective_speed_mm_min(
+            ExtrusionRole::Support,
+            crate::core::OverhangClass::None,
+            false,
+            &params,
+            1.0,
+        );
+        assert!(
+            (s - 45.0 * 60.0).abs() < 1e-6,
+            "expected support_speed * 60"
+        );
+    }
+
+    #[test]
+    fn test_effective_speed_support_falls_back_to_print_speed() {
+        // `0` inherits, so a profile that never heard of support speed still
+        // prints support rather than stalling at zero feedrate.
+        use crate::core::ExtrusionRole;
+        let params = SlicingParams {
+            print_speed: 60.0,
+            support_speed: 0.0,
+            ..SlicingParams::default()
+        };
+        let s = GcodeGenerator::effective_speed_mm_min(
+            ExtrusionRole::Support,
+            crate::core::OverhangClass::None,
+            false,
+            &params,
+            1.0,
+        );
+        assert!((s - 60.0 * 60.0).abs() < 1e-6, "expected print_speed * 60");
     }
 
     #[test]

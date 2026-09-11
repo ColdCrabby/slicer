@@ -233,7 +233,7 @@ time.
 |---|---|---|
 | `allow_rotations` | `false` | Add Fibonacci-sphere candidates (organic shapes). |
 | `preferred_z_rotation_deg` | `0.0` | Extra Z-rotation after orienting (e.g. 45° for CoreXY). |
-| `overhang_threshold_deg` | `45.0` | Overhang angle that triggers a penalty. |
+| `overhang_threshold_deg` | `45.0` | Overhang angle that triggers a penalty.  Same convention as the process's `support_threshold_angle`, and wants to agree with it. |
 
 ### `ArrangeOptions`
 
@@ -293,4 +293,4 @@ sceneEngine.apply({
 - [`src/orient/types.rs`](types.rs) — `AutoOrientOptions`, `ArrangeOptions`
 - [`src/scene/ops.rs`](../scene/ops.rs) — `SceneOp::AutoOrient`, `SceneOp::ArrangeOnBed`
 - [`tests/auto_orient.rs`](../../tests/auto_orient.rs) — corpus pins for the contact rule
-- Issue [#51](https://github.com/max-scopp/slicer-engine/issues/51) — scene SSOT
+- [../scene/README.md](../scene/README.md) — the scene SSOT contract

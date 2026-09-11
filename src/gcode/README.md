@@ -14,7 +14,7 @@ gcode/
 ├── generator.rs    GcodeGenerator façade + generate_gcode()
 ├── stats.rs        SliceStatistics + metadata/settings header lines
 ├── simplify.rs     Ramer-Douglas-Peucker polyline simplification
-├── time_estimate.rs  acceleration-aware print-time estimator (#117)
+├── time_estimate.rs  acceleration-aware print-time estimator
 ├── source.rs       resolve_gcode_source() file/string resolver
 └── dialects/
     ├── mod.rs      re-exports
@@ -97,7 +97,7 @@ classDiagram
 
 ---
 
-## Object markers (issues #22, #112)
+## Object markers
 
 Three trait methods let a firmware attribute every move to a named part and
 cancel one mid-print. The **defaults implement `M486`** — the RepRap standard,
@@ -123,10 +123,48 @@ output is unchanged. Three placement rules matter:
 - **A `None` tag closes the block without opening one.** Bed adhesion belongs to
   the plate, so it must still print when a single part is cancelled.
 
+Two more, about what goes *inside* the markers:
+
+- **`M486 A"name"` is spent once per object** (`first_use`). Repeating the name
+  on every layer would bloat the file for no gain.
+- **Klipper's exclusion polygon is a convex hull, resampled to ≤ 64 points.** A
+  turned cylinder hulls to one vertex per facet, which would push a multi-kilobyte
+  line into the file for no added precision.
+
 In `by_object` (sequential) order the generator additionally hands over between
 objects **before the layer's own Z move**: close the block → retract → lift
 above the tallest thing already printed → travel across → `between_objects_gcode`.
 Doing any of that afterwards would lower the nozzle into the part just finished.
+
+---
+
+## Spiral (vase) mode
+
+The pipeline hands over a plain single-wall slice; **the spiralization happens
+here**. A spiral layer is one at index `≥ bottom_layers.max(1)` — layer 0 is
+always flat, since a spiral cannot climb from Z = 0 — that exposes exactly **one**
+outermost closed `OuterWall` loop.
+
+`detect_spiral_loop` finds it. Hole sub-loops are ignored by a
+winding-independent point-in-polygon containment test, so a solid island with
+holes still spiralizes as one contour.
+
+For those layers the discrete per-layer `move_z` is skipped and
+`emit_spiral_loop` walks the loop once, ramping Z from the previous layer's top
+to this layer's Z **in proportion to the distance travelled** (`move_extrude_z`).
+
+- **Flow fades in over the first spiral loop and out over the last**, so both
+  ends of the seam disappear. It is applied as a multiplier *after*
+  `extrusion_for_move` — passing zero as that function's `flow_ratio` would trip
+  its "non-positive → 1.0" guard and lay a full bead instead of none.
+- **Each loop is rotated to start nearest the previous nozzle position**, keeping
+  the start line aligned and travel minimal.
+- **A multi-island layer falls back** to a normal flat print — all paths,
+  discrete Z — with a single warning. Spiral vase is for solid, single-island
+  models.
+
+Which settings are forced off, and why the normalization is idempotent, is
+[`core`](../core/README.md#spiral-vase-mode)'s half of the contract.
 
 ---
 
@@ -177,7 +215,7 @@ nozzle ø = 0.40 mm.
 
 ---
 
-## Metadata header & config-block footer (issues #15, #23)
+## Metadata header & config-block footer
 
 Two blocks bracket the program, and they serve different readers.
 
@@ -311,7 +349,7 @@ bridge lines toggles the fan at most twice per layer.
 
 ---
 
-## Print-time estimation (issue #117)
+## Print-time estimation
 
 The header / footer ETA and the viewer's **Layer Time** colouring come from
 [`time_estimate`](./time_estimate.rs), an **acceleration-aware** estimator that
@@ -656,7 +694,7 @@ behaves exactly as before.
 
 ---
 
-## Machine Z offset (issue #102)
+## Machine Z offset
 
 `z_offset_mm` (default `0.0`) compensates for a Z endstop that does not zero at
 the bed: a negative value lowers the nozzle (endstop leaves a gap), a positive

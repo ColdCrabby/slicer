@@ -48,8 +48,10 @@ export const PHASE_LABELS: Record<string, string> = {
   surfaces: 'Generating surfaces',
   'Overhang Perimeter Classification': 'Classifying overhangs',
   infill: 'Generating infill',
+  'Support Generation': 'Building supports',
   'Path Ordering': 'Ordering travel paths',
   'Flow Compensation': 'Compensating flow',
+  'Bed Adhesion': 'Adding bed adhesion',
   gcode_generation: 'Generating G-code',
   file_write: 'Writing output',
 };
@@ -586,7 +588,7 @@ export class Slicer {
   removeLayerTrigger(layer: number): void {
     const triggers = this.settings().triggers ?? [];
     this.updateSettings({
-      triggers: triggers.filter((t) => !('layer' in t && t.layer === layer)),
+      triggers: triggers.filter((t: PauseTrigger) => !('layer' in t && t.layer === layer)),
     });
   }
 
@@ -999,6 +1001,7 @@ export class Slicer {
         // first upload — slicing one model N times instead of N models.
         source_id: object.source_id,
         source_part: object.source_part,
+        support_paint: object.support_paint,
       })),
     };
   }

@@ -36,10 +36,23 @@ export type ViewerView = 'perspective' | 'ortho';
 /**
  * Object-manipulation mode. Drives the on-canvas gizmo for the current
  * selection. `'none'` is the default — no gizmo is shown, clicks select.
- * `'pullToFloor'` is a transient face-pick mode that auto-exits to
- * `'none'` after a single face has been picked.
+ * `'pullToFloor'` and `'paint'` are sticky face/surface-picking modes: the
+ * user can pick or paint repeatedly across different objects without
+ * re-entering the mode each time.
  */
-export type ObjectMode = 'none' | 'translate' | 'rotate' | 'scale' | 'pullToFloor';
+export type ObjectMode = 'none' | 'translate' | 'rotate' | 'scale' | 'pullToFloor' | 'paint';
+
+/** What a paint-support brush stroke marks the facets underneath it as. */
+export type PaintBrushMode = 'enforcer' | 'blocker' | 'erase';
+
+/**
+ * Brush radius limits, in millimetres. Shared by every control that sets one —
+ * the panel's field, the quick-adjust popout and the viewport's scroll-wheel —
+ * so no route can put the brush somewhere another route cannot bring it back
+ * from.
+ */
+export const PAINT_RADIUS_MIN_MM = 0.2;
+export const PAINT_RADIUS_MAX_MM = 20;
 
 /**
  * Which camera action a bare two-finger trackpad swipe performs on macOS.
@@ -291,6 +304,28 @@ export class ViewerControl {
   readonly objectMode = signal<ObjectMode>('translate');
 
   /**
+   * Support-paint brush mode: whether a stroke marks facets as an enforcer
+   * (force support), a blocker (never support), or erases existing paint.
+   * Only meaningful while {@link objectMode} is `'paint'`.
+   */
+  readonly paintBrushMode = signal<PaintBrushMode>('enforcer');
+
+  /**
+   * Support-paint brush radius in millimetres. Applies in the object's local
+   * frame — see `SceneOp.PaintSupport`.
+   */
+  readonly paintBrushRadius = signal<number>(2);
+
+  /**
+   * Whether the quick-adjust brush popout is open, and where it was summoned.
+   *
+   * The panel under the toolbar has the same controls, but reaching it means
+   * leaving the model mid-stroke; this opens the same two settings at the
+   * pointer instead. Position is viewport pixels, `null` when closed.
+   */
+  readonly brushPopoutAt = signal<{ x: number; y: number } | null>(null);
+
+  /**
    * WASM scene-engine ids of the currently selected objects, published by
    * the viewer as the user clicks meshes. Shared here (rather than kept
    * private to the viewer) so the toolbar's transform sub-settings panel can
@@ -371,6 +406,15 @@ export class ViewerControl {
    * drags it. Bypasses signal/effect overhead.
    */
   orbitSink: ((azimuth: number, polar: number) => void) | null = null;
+
+  /**
+   * Last pointer position over the 3D canvas, in client pixels, or `null` when
+   * the pointer has not been over it. Set by the viewer, read by the brush
+   * popout's shortcut so it can open where the hand already is. A plain
+   * callback rather than a signal — the scene updates it on every pointer move
+   * and nothing should re-render for that.
+   */
+  pointerPositionSource: (() => { x: number; y: number } | null) | null = null;
 
   /**
    * Optional callback exposed by the active 3D viewer to render a square PNG

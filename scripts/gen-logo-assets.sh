@@ -139,7 +139,7 @@ updated = pattern.sub(lambda m: f"{m.group(1)}'{data}'{m.group(2)}", html, count
 
 if mode == "--check":
     if updated != html:
-        sys.exit(f"error: {target} placeholder is stale — run scripts/gen-splash-logo.sh")
+        sys.exit(f"error: {target} placeholder is stale — run scripts/gen-logo-assets.sh")
     print(f"{target} placeholder is up to date")
 elif updated == html:
     print(f"{target} placeholder already current")

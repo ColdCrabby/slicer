@@ -33,6 +33,45 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for workflow, [AGENTS.md](AGENTS.md) for 
 
 ---
 
+## Common tasks
+
+**Add a CLI command.** Create `src/cli/commands/your_command.rs` with a clap
+`#[derive(Parser)]` struct, implement it against the library API adapters,
+register it in `src/cli/commands/mod.rs` and the dispatcher, add `CliError`
+conversions, then check `cargo run -- your-command --help`. The command catalog
+and argument reference are in [src/cli/README.md](src/cli/README.md).
+
+**Add a database migration.** Scaffold, implement `up`/`down`, then register in
+**both** places or it never runs:
+
+```bash
+sea-orm-cli migrate generate "your_migration_name" -d src/db
+```
+
+1. `src/db/migrations/mod.rs` — declare the module.
+2. `src/db/migrator.rs` — add it to the `migrations()` vector.
+
+**Add a slicing setting.** Add the field to `SlicingParams` with an `x-group`,
+and it appears in the UI with no TypeScript change — the settings panel is
+schema-driven, and `cache_fingerprint` and profile resolution both walk the
+serialized struct by name. Regenerate with `pnpm run gen-schemas` (the schema is
+git-ignored). A brand-new **group** needs two more lines; see the
+[progressive-disclosure instruction](.github/instructions/progressive-disclosure.instructions.md).
+
+**Implement a geometric operation.** Use the Clipper2 API rather than
+reimplementing clipping, take and return `SliceLayer` or `Paths`, and cover the
+degenerate cases (empty paths, zero-area polygons, collinear runs) in tests.
+Which fill rule to use where is in
+[src/core/README.md](src/core/README.md#which-clipper2-fill-rule-and-why).
+
+**Verify across platforms.** `cargo test` covers native;
+`wasm-pack test --headless --firefox` covers wasm; CI builds the
+cross-compilation targets. Use `#[cfg(...)]` for anything platform-specific, and
+check the wasm dependency split with
+`cargo metadata --filter-platform aarch64-apple-ios-sim`.
+
+---
+
 ## Architecture at a glance
 
 ```mermaid

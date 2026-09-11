@@ -114,6 +114,28 @@ fn the_corpus_keeps_a_flat_face_on_the_bed() {
     }
 }
 
+/// The support fixture is authored the wrong way up on purpose — an 8 x 8 mm
+/// stem on the plate holding a wide cantilever in the air.  Auto-orient has to
+/// *rotate* this one, which is the other half of the contract: staying put is
+/// the tie-break, not the answer.
+#[test]
+fn a_deliberately_bad_pose_is_turned_over() {
+    let mesh = load("tests/fixtures/support-overhang.stl");
+    let authored = pose(&mesh, Quat::IDENTITY);
+    assert!(
+        authored.contact_area < 100.0,
+        "fixture should arrive balanced on its stem, got {:.1} mm²",
+        authored.contact_area
+    );
+
+    let p = pose(&mesh, auto_orient(&mesh, &AutoOrientOptions::default()));
+    assert!(
+        p.contact_area > 700.0,
+        "the wide plate should end up on the bed, got {:.1} mm²",
+        p.contact_area
+    );
+}
+
 /// A multi-part 3MF is oriented part by part; none of them may be tipped up.
 #[test]
 fn every_part_of_a_multi_part_file_lands_flat() {

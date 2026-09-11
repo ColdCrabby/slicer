@@ -21,7 +21,13 @@ import type { RuntimeSceneObject } from '../../domain/scene-commands';
 export function toSliceDtos(
   objects: readonly Pick<
     RuntimeSceneObject,
-    'name' | 'translation' | 'euler_xyz_deg' | 'scale' | 'source_id' | 'source_part'
+    | 'name'
+    | 'translation'
+    | 'euler_xyz_deg'
+    | 'scale'
+    | 'source_id'
+    | 'source_part'
+    | 'support_paint'
   >[],
   uploadFileIds: readonly string[],
 ): SceneObjectSliceDto[] {
@@ -57,6 +63,7 @@ export function toSliceDtos(
         euler_xyz_deg: object.euler_xyz_deg,
         scale: object.scale,
       },
+      support_paint: object.support_paint,
     };
   });
 }

@@ -42,9 +42,10 @@
 //!
 //! # Winding is load-bearing
 //!
-//! The mesh slicer does not guarantee consistent winding (see AGENTS.md §
-//! "Clipper2 Fill Rules"), so a raw `inflate` over its output would grow some
-//! holes and shrink others. The pass therefore normalises with an `EvenOdd`
+//! The mesh slicer does not guarantee consistent winding (see
+//! `src/core/README.md` § "Which Clipper2 fill rule, and why"), so a raw
+//! `inflate` over its output would grow some holes and shrink others. The pass
+//! therefore normalises with an `EvenOdd`
 //! union first — after which solids are CCW and holes CW — and every subsequent
 //! set operation uses `NonZero`, which honours those CW sub-paths as voids.
 //! `Positive` would discard them and turn every hole solid.

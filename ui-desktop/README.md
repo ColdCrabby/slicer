@@ -101,7 +101,9 @@ slice fails instead of guessing.
 **The G-code cache key fingerprints every file on the plate** (path + length +
 mtime), not just the first, plus each object's `source_part`. Hashing one file
 would let two plates that differ only in their *second* model collide on one
-cached result.
+key. As on the server, the table is **write-only** — every slice request runs
+the full pipeline, and the key is recorded rather than consulted to skip one.
+See [src/server/README.md](../src/server/README.md#the-g-code-result-table--written-on-every-slice-never-read-to-skip-one).
 
 The webview half of this contract lives in `ModelSourceRegistry`
 ([ui/src/app/services/model-source/](../ui/src/app/services/model-source/)),
@@ -218,6 +220,19 @@ platform dismissal gestures for free. Points worth knowing before changing it:
   returned index still refers to the original array, so the frontend's item list
   and the reply cannot drift apart.
 
+**Long-press is the touch equivalent of right-click, and the frontend has to
+synthesise it** — iOS never fires `contextmenu` for one.
+[`ContextMenuTrigger`](../ui/src/app/services/context-menu/context-menu-trigger.ts)
+does, with three non-obvious requirements:
+
+- **Swallow the trailing `click` wherever it lands.** The menu opens at the
+  pointer, so restricting the guard to the host lets the click produced when the
+  finger lifts activate a menu item instantly.
+- **Offset the menu further on touch**, or it opens under the fingertip.
+- **iOS needs `-webkit-touch-callout: none` on trigger elements** (see
+  `ui/src/styles/base/_reset.scss`), or its own selection callout hijacks the
+  gesture.
+
 ### Capabilities are split by platform
 
 `capabilities/default.json` holds what every platform needs (events, dialogs,
@@ -255,6 +270,23 @@ Both settings fix a Windows launch hang:
 
 Do **not** re-add a runtime decoration toggle, and do **not** drop `visible: false`
 from the desktop platform configs — either one brings the launch hang back.
+
+### Gate on `isTauriDesktop()`, not `isTauriHost()`
+
+Mobile is **not** a new runtime mode: `resolveRuntimeMode()` still reports
+`native` on an iPad. Anything that draws or drives **native chrome** asks
+[`isTauriMobile()` / `isTauriDesktop()`](../ui/src/app/runtime/domain/runtime-mode.util.ts)
+instead.
+
+**Every `@tauri-apps/api` module Tauri marks `#[cfg(desktop)]` — `menu` and most
+of `window` — must sit behind `isTauriDesktop()`.** Those commands do not exist
+on mobile, so the call rejects and the feature silently vanishes rather than
+falling back. That is exactly how iPad lost its context menus: `ContextMenuService`
+asked `isTauriHost()` and tried to build an OS menu iOS has no API for.
+
+**A user-agent sniff alone classifies an iPad as a desktop Mac.** Measured on the
+simulator, an iPad reports UA `Macintosh…`, platform `MacIntel`, and **no** `iPad`
+token — so the helper keys off `maxTouchPoints` as well.
 
 ---
 
@@ -408,7 +440,7 @@ The app is **universal** (`TARGETED_DEVICE_FAMILY = "1,2"`), so everything below
 applies to an iPhone exactly as it does to an iPad — same script, same signing,
 same seven-day clock. The UI adapts on its own: an iPhone falls under the
 handheld breakpoint and gets the bottom tab bar, settings drawer and slice
-sheet described in [ui/README.md](../ui/README.md#phones), and iOS draws the
+sheet described in [ui/README.md](../ui/README.md#phones-and-tablets), and iOS draws the
 context menu as a bottom sheet rather than the popover it uses on iPad.
 
 The only wrinkle is having both plugged in at once. The script will not guess
@@ -433,7 +465,10 @@ Both need signing — the simulator needs none, a real device needs all of it:
 - **Team ID.** Detected from the signing certificate in your keychain, or set
   `APPLE_DEVELOPMENT_TEAM` explicitly. It is the certificate's **OU**, not the
   identifier printed in its common name, and a free Apple ID has no Membership
-  page to read it off — which is why `ios-install.sh` digs it out for you.
+  page to read it off — which is why `ios-install.sh` digs it out for you. It
+  reads **only** certificates `security find-identity -v` still considers valid;
+  an expired cert from an old employer would otherwise turn a working machine
+  into "several teams found".
 - **The dev server must be reachable over the network** *for the dev loop only*.
   `tauri ios dev --host` publishes the address as `TAURI_DEV_HOST` and rewrites
   the dev URL to match. The Angular dev server already binds `0.0.0.0`, so it
@@ -554,12 +589,21 @@ entries there exist for concrete reasons:
 
 ---
 
+## The helper scripts run on a stock Mac
+
+**macOS ships bash 3.2**, and the iOS helper scripts have to work on a machine
+with nothing installed. So: no `mapfile`, no `${var,,}`, no associative arrays.
+Splitting a concatenated PEM stream with `awk` and a NUL separator does not work
+in the awk macOS ships either — the loop is plain `read`.
+
+---
+
 ## Non-goals
 
 - **This module does not slice.** Anything resembling geometry belongs in
   `slicer-engine`. The shell marshals JSON and paths.
 - **It does not keep a second version number.** Everything reads
-  `slicer_engine::version` (see the AGENTS.md SSOT contract).
+  `slicer_engine::version` (see [RELEASING.md](../RELEASING.md)).
 - **It does not fork the UI for mobile.** The Angular app is one codebase; where
   behaviour must differ it asks `isTauriMobile()`, not a build flag.
 - **Android is not set up.** The `cdylib` crate type and the platform-split
@@ -572,5 +616,5 @@ entries there exist for concrete reasons:
 - [`src/lib.rs`](src-tauri/src/lib.rs) — the entry point
 - [`scripts/ios-doctor.sh`](../scripts/ios-doctor.sh) · [`ios-simulator.sh`](../scripts/ios-simulator.sh) · [`ios-dev.sh`](../scripts/ios-dev.sh) · [`ios-install.sh`](../scripts/ios-install.sh)
 - [SETUP.md](../SETUP.md) — prerequisites for every surface
-- [AGENTS.md](../AGENTS.md) — "Native shell targets" contract
+- [AGENTS.md](../AGENTS.md) — the repo map
 - [Tauri: iOS distribution](https://v2.tauri.app/distribute/app-store/)
