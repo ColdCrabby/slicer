@@ -78,9 +78,10 @@ exact numbers into the card that appears underneath.
 that should sit on the bed, click it, done. No arithmetic about which axis to
 rotate.
 
-**Gravity** (`G`) keeps objects resting on the bed after every move. Turn it off
-if you deliberately want something floating — for example when you're checking
-a support-free overhang.
+**Gravity** (`G`) keeps objects resting on the bed after every move. It is on by
+default — a part left floating is not printable — and whichever way you set it
+is remembered for next time. Turn it off if you deliberately want something
+floating, for example when you're checking a support-free overhang.
 
 On a touch screen you can skip the handles for a simple reposition: tap a model
 to select it, then drag it straight across the bed. Dragging anywhere else

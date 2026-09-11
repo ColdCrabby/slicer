@@ -155,9 +155,14 @@ export class FilamentsSettings {
   protected readonly groupBy = signal<'category' | 'label' | 'none'>('category');
   protected readonly labelFilter = this.filterStore.selectedIds;
 
-  /** Typed-name delete challenge state (high-impact delete — design language). */
+  /**
+   * Inline two-step delete — the design language's default for a routine
+   * destructive action. This used to be a typed-name challenge, which is
+   * reserved for irreversible data loss; a profile is a handful of settings the
+   * user can recreate, and typing its name out to remove one was friction
+   * without a matching risk.
+   */
   protected readonly deleteArmed = signal(false);
-  protected readonly deleteText = signal('');
 
   /** Filaments narrowed by the active label filter and the search query. */
   protected readonly filtered = computed(() => {
@@ -207,12 +212,6 @@ export class FilamentsSettings {
   protected readonly selected = computed(() => {
     const id = this.selectedId();
     return id ? (this.store.getById(id) ?? null) : null;
-  });
-
-  /** Whether the typed name matches the selected filament's name exactly. */
-  protected readonly deleteReady = computed(() => {
-    const f = this.selected();
-    return !!f && this.deleteText().trim() === f.name.trim();
   });
 
   constructor() {
@@ -368,22 +367,16 @@ export class FilamentsSettings {
 
   protected armDelete(): void {
     this.deleteArmed.set(true);
-    this.deleteText.set('');
   }
 
   protected disarmDelete(): void {
     this.deleteArmed.set(false);
-    this.deleteText.set('');
-  }
-
-  protected setDeleteText(event: Event): void {
-    this.deleteText.set((event.target as HTMLInputElement).value);
   }
 
   /** Delete the selected filament once its name has been typed to confirm. */
   protected confirmDelete(): void {
     const filament = this.selected();
-    if (!filament || !this.deleteReady()) {
+    if (!filament) {
       return;
     }
     this.deleteFilamentById(filament.id);

@@ -169,6 +169,7 @@ const PREVIEW_DETAIL_KEY = 'nexus.viewer.previewDetail';
 const USE_FILAMENT_COLOR_KEY = 'nexus.viewer.useFilamentColor';
 const PALM_REJECTION_KEY = 'nexus.viewer.palmRejection';
 const SHADOWS_ENABLED_KEY = 'nexus.viewer.shadowsEnabled';
+const GRAVITY_ENABLED_KEY = 'nexus.viewer.gravityEnabled';
 const MODEL_SHADING_KEY = 'nexus.viewer.modelShading';
 const GLOSS_ENABLED_KEY = 'nexus.viewer.glossEnabled';
 const THUMBNAIL_CAPTURE_FX_KEY = 'nexus.viewer.thumbnailCaptureFx';
@@ -374,7 +375,7 @@ export class ViewerControl {
    * drops the affected objects to the floor (applies `DropToFloor`) so
    * objects never float above the bed after being moved or rotated.
    */
-  readonly gravityEnabled = signal(false);
+  readonly gravityEnabled = signal(this.readGravityEnabled());
 
   /**
    * Pending request for the viewer to animate to a specific look direction
@@ -494,6 +495,12 @@ export class ViewerControl {
     this.storage.write(PALM_REJECTION_KEY, String(value));
   }
 
+  /** Update the drop-to-floor preference and persist it. */
+  setGravityEnabled(value: boolean): void {
+    this.gravityEnabled.set(value);
+    this.storage.write(GRAVITY_ENABLED_KEY, String(value));
+  }
+
   /** Update the shadows preference and persist it. */
   setShadowsEnabled(value: boolean): void {
     this.shadowsEnabled.set(value);
@@ -570,6 +577,13 @@ export class ViewerControl {
     // Default on — palm rejection only changes behaviour once a pen appears,
     // so it is safe to enable everywhere.
     return this.storage.get(PALM_REJECTION_KEY)() !== 'false';
+  }
+
+  private readGravityEnabled(): boolean {
+    // Default on: a part left floating above the plate is not printable, and
+    // every move the user makes is an intent to place it *somewhere on the bed*.
+    // Opting out is the unusual case, so it is the one that gets remembered.
+    return this.storage.get(GRAVITY_ENABLED_KEY)() !== 'false';
   }
 
   private readShadowsEnabled(): boolean {

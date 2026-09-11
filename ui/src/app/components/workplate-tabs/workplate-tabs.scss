@@ -32,8 +32,12 @@
   align-items: center;
   flex: none;
   gap: 2px;
-  max-width: 180px;
+  // Long enough for a real plate name before the ellipsis; the strip scrolls,
+  // so a wide tab costs its neighbours nothing.
+  max-width: 260px;
   height: 28px;
+  // The close button contributes the right-hand room; a tab without one gets it
+  // back below, rather than sitting on 2px and looking clipped.
   padding: 0 2px 0 8px;
   border-radius: var(--radius-md);
   background: transparent;
@@ -63,7 +67,8 @@
 }
 
 // The draft plate has nothing to close and nothing to rename; it exists only so
-// the strip can say which plate is on screen.
+// the strip can say which plate is on screen — and with no close button to fill
+// the gap it needs its own right-hand padding to match the left.
 .wp-tab--draft {
   padding-right: 8px;
   cursor: default;
@@ -109,13 +114,14 @@
 
   &.wp-tab-name--editing {
     cursor: text;
-    box-shadow: inset 0 0 0 1px var(--color-focus-ring);
-    background: var(--color-surface);
-    // Grow with the text rather than sitting at the browser's default input
-    // width. `min-width` (set from the label's measured width) holds the tab
-    // steady at the moment of the swap; where `field-sizing` is unsupported the
-    // box simply stays at that width, which is still the right starting point.
-    field-sizing: content;
+    // No ring and no fill of its own. The tab around it is already showing the
+    // active/focus treatment, and a second box inside it read as two nested
+    // controls — the editor is just the tab's own text, made editable.
+    background: transparent;
+    outline: none;
+    // `min-width` (the label's measured width) holds the tab steady at the
+    // moment of the swap; `width` is then set per keystroke from the measured
+    // text, since Safari does not implement `field-sizing: content`.
     flex: 0 1 auto;
   }
 }
@@ -182,7 +188,7 @@
     padding: 0 4px 0 12px;
     // Roomier than the cursor cap: the text is larger here and a fingertip has
     // no tooltip to fall back on when a name is cut off.
-    max-width: 220px;
+    max-width: 300px;
   }
 
   .wp-tab-label,

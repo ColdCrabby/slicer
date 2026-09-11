@@ -136,26 +136,14 @@
             @if (deleteArmed()) {
               <div class="mgr__danger">
                 <p>
-                  Type <strong>{{ profile.name }}</strong> to permanently delete this profile.
+                  Delete <strong>{{ profile.name }}</strong
+                  >? This cannot be undone.
                 </p>
                 <div class="mgr__danger-row">
-                  <input
-                    type="text"
-                    autocomplete="off"
-                    placeholder="Profile name"
-                    [value]="deleteText()"
-                    (input)="setDeleteText($event)"
-                  />
                   <button nexusButton variant="ghost" size="sm" (click)="disarmDelete()">
                     Cancel
                   </button>
-                  <button
-                    nexusButton
-                    variant="danger"
-                    size="sm"
-                    [disabled]="!deleteReady()"
-                    (click)="confirmDelete()"
-                  >
+                  <button nexusButton variant="danger" size="sm" (click)="confirmDelete()">
                     Delete
                   </button>
                 </div>

@@ -166,7 +166,7 @@ export class ThreeDViewToolbar {
   }
 
   toggleGravity(): void {
-    this.gravityEnabled.update((v) => !v);
+    this.viewerControl.setGravityEnabled(!this.gravityEnabled());
   }
 
   /** Open the file picker to place more models on the current plate. */

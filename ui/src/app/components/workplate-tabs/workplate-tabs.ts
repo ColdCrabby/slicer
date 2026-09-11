@@ -59,6 +59,16 @@ export class WorkplateTabs {
    */
   protected readonly editWidth = signal<number | null>(null);
 
+  /**
+   * Live width of the rename box, in px.
+   *
+   * `field-sizing: content` would do this in CSS, but Safari — and so every
+   * iPad — does not implement it, which left the box stuck at its starting
+   * width there. Measuring the text against the input's own font is the
+   * portable equivalent.
+   */
+  protected readonly editGrowWidth = signal<number | null>(null);
+
   constructor() {
     // The `autofocus` attribute is honoured when the parser meets it, so an
     // input swapped in by a control-flow block is simply never focused —
@@ -67,10 +77,25 @@ export class WorkplateTabs {
     // the common case (replace the name outright) needs no extra gesture.
     effect(() => {
       const input = this.editInput()?.nativeElement;
-      if (input) {
-        input.focus();
-        input.select();
+      if (!input) {
+        return;
       }
+      const focus = (): void => {
+        input.focus();
+        // Only select when there is a real name to replace. Calling `select()`
+        // on an empty box whose text is a placeholder put the caret in a
+        // "selected" state with nothing in it, which reads as a stuck field.
+        if (input.value) {
+          input.select();
+        }
+        this.editGrowWidth.set(measureTextWidth(input));
+      };
+      focus();
+      // iOS/iPadOS raises the keyboard from the focus that lands *after* the
+      // element is laid out; the first call above is often a frame too early
+      // and silently focuses without opening it. Repeating on the next frame
+      // costs nothing where the first one already worked.
+      requestAnimationFrame(focus);
     });
   }
 
@@ -104,9 +129,10 @@ export class WorkplateTabs {
     // Measure before the swap — afterwards the label is gone.
     const label = this.tabEls()
       .map((ref) => ref.nativeElement)
-      .find((el) => el.dataset['uuid'] === uuid)
+      .find((el) => el.getAttribute('data-uuid') === uuid)
       ?.querySelector<HTMLElement>('.wp-tab-label');
     this.editWidth.set(label ? Math.ceil(label.getBoundingClientRect().width) : null);
+    this.editGrowWidth.set(null);
     this.editingUuid.set(uuid);
   }
 
@@ -128,6 +154,11 @@ export class WorkplateTabs {
   onInputBlur(uuid: string, event: FocusEvent): void {
     const input = event.target as HTMLInputElement;
     this.stopEditing(uuid, input.value);
+  }
+
+  /** Re-measure after each keystroke so the box tracks the text. */
+  onInputChanged(input: HTMLInputElement): void {
+    this.editGrowWidth.set(measureTextWidth(input));
   }
 
   onInputKeydown(uuid: string, event: KeyboardEvent, input: HTMLInputElement): void {
@@ -184,6 +215,11 @@ export class WorkplateTabs {
    * unfocusable `div`s could not deliver. Home/End jump to the ends.
    */
   onTabKeydown(event: KeyboardEvent, uuid: string, index: number): void {
+    // Keystrokes in the rename box bubble to the tab, where Space means
+    // "activate this tab" — which swallowed every space in a workplate name.
+    if (event.target !== event.currentTarget) {
+      return;
+    }
     const tabs = this.tabs();
     let next: number | null = null;
     switch (event.key) {
@@ -229,4 +265,33 @@ export class WorkplateTabs {
     ];
     void this.contextMenu.open(event, items);
   }
+}
+
+/**
+ * Width in px of an input's current text, measured in the input's own font.
+ *
+ * A single reused canvas — creating one per keystroke would be a fresh
+ * allocation on every character typed.
+ */
+let measureCanvas: HTMLCanvasElement | null = null;
+
+function measureTextWidth(input: HTMLInputElement): number | null {
+  const text = input.value;
+  if (!text) {
+    return null;
+  }
+  measureCanvas ??= document.createElement('canvas');
+  const ctx = measureCanvas.getContext('2d');
+  if (!ctx) {
+    return null;
+  }
+  // The `font` shorthand serialises to an empty string wherever a longhand it
+  // cannot represent is in play — `font-variation-settings`, which this app sets
+  // on every text style. Reading the parts is what keeps the measurement in the
+  // input's actual face rather than the canvas default of 10px sans-serif.
+  const cs = getComputedStyle(input);
+  ctx.font = `${cs.fontStyle} ${cs.fontWeight} ${cs.fontSize} / ${cs.lineHeight} ${cs.fontFamily}`;
+  // A couple of px of slack so the caret at the end of the text is never
+  // sitting on the box's own edge.
+  return Math.ceil(ctx.measureText(text).width) + 4;
 }

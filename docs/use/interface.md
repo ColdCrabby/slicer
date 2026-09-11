@@ -154,7 +154,7 @@ keeps a tab per page. Uploading a model, opening a recent project, or following
 a link into a plate all open a tab; clicking one switches to that plate.
 
 - **Rename a tab** by double-clicking it, or right-clicking and choosing
-  **Rename**. The box opens with the current name selected, so you can type
+  **Rename**. Spaces are fine, and the box grows as you type. The box opens with the current name selected, so you can type
   straight over it; `Enter` saves, `Esc` cancels, and clearing it puts the
   automatic name back. The same name is used for the downloaded G-code file.
 - **Move between tabs from the keyboard** with `←` and `→` once a tab has

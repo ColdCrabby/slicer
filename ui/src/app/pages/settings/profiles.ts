@@ -127,7 +127,6 @@ export class ProfilesSettings {
 
   /** Typed-name delete challenge state (high-impact delete — design language). */
   protected readonly deleteArmed = signal(false);
-  protected readonly deleteText = signal('');
 
   /** Print profiles narrowed by the active label filter and the search query. */
   protected readonly filtered = computed(() => {
@@ -168,11 +167,6 @@ export class ProfilesSettings {
   });
 
   /** Whether the typed name matches the selected profile's name exactly. */
-  protected readonly deleteReady = computed(() => {
-    const p = this.selected();
-    return !!p && this.deleteText().trim() === p.name.trim();
-  });
-
   constructor() {
     // Arriving from the wizard's "Add & configure": open the new profile and
     // scroll to the full editor so the user can keep tuning it.
@@ -333,22 +327,16 @@ export class ProfilesSettings {
 
   protected armDelete(): void {
     this.deleteArmed.set(true);
-    this.deleteText.set('');
   }
 
   protected disarmDelete(): void {
     this.deleteArmed.set(false);
-    this.deleteText.set('');
-  }
-
-  protected setDeleteText(event: Event): void {
-    this.deleteText.set((event.target as HTMLInputElement).value);
   }
 
   /** Delete the selected profile once its name has been typed to confirm. */
   protected confirmDelete(): void {
     const profile = this.selected();
-    if (!profile || !this.deleteReady()) {
+    if (!profile) {
       return;
     }
     this.deleteProfileById(profile.id);

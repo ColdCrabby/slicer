@@ -11,7 +11,8 @@ import {
   viewChild,
 } from '@angular/core';
 import type * as Monaco from 'monaco-editor';
-import { NEXUS_CODE_THEME, registerGcodeLanguage } from './gcode-language';
+import { codeThemeFor, registerGcodeLanguage } from './gcode-language';
+import { AppTheme } from '../../services/app-theme';
 
 // Extend the window type to allow the MonacoEnvironment global required by the
 // Monaco editor loader.
@@ -196,6 +197,8 @@ async function loadMonaco(language: string): Promise<MonacoApi> {
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class CodeEditor {
+  private readonly appTheme = inject(AppTheme);
+
   /** Text content to display. Changing this signal updates the editor live. */
   readonly content = input('');
   /** Monaco language identifier (default: `'plaintext'`). */
@@ -213,6 +216,8 @@ export class CodeEditor {
   private visibility: IntersectionObserver | null = null;
   /** Set on teardown, so a load still in flight does not build a dead editor. */
   private destroyed = false;
+  /** Monaco's editor namespace, kept so the theme can be swapped after create. */
+  private monacoEditor: typeof Monaco.editor | null = null;
 
   constructor() {
     const destroyRef = inject(DestroyRef);
@@ -220,6 +225,13 @@ export class CodeEditor {
 
     afterNextRender(() => {
       this.initWhenVisible(host.nativeElement);
+    });
+
+    // Follow the app's light/dark choice. `setTheme` is global to Monaco, so a
+    // single call moves every open editor at once.
+    effect(() => {
+      const theme = codeThemeFor(this.appTheme.isDarkMode());
+      this.monacoEditor?.setTheme(theme);
     });
 
     // Push content / readOnly changes into the live editor whenever they change.
@@ -325,10 +337,11 @@ export class CodeEditor {
       return;
     }
 
+    this.monacoEditor = monaco.editor;
     this.editor = monaco.editor.create(this.mount().nativeElement, {
       value: this.content(),
       language: this.language(),
-      theme: NEXUS_CODE_THEME,
+      theme: codeThemeFor(this.appTheme.isDarkMode()),
       automaticLayout: true,
       fontSize: 13,
       minimap: { enabled: false },

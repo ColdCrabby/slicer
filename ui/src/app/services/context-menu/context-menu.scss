@@ -1,3 +1,5 @@
+@use 'breakpoints' as *;
+
 :host {
   display: block;
 }
@@ -68,4 +70,32 @@
   height: 1px;
   margin: var(--spacing-xs) 0;
   background: var(--color-border-light, var(--color-border));
+}
+
+// ── Touch ────────────────────────────────────────────────────────────────────
+//
+// This is the browser fallback menu, so on a tablet it is a real surface the
+// user aims at with a finger — the OS menus the other runtimes borrow are
+// already sized by the platform. Rows were a ~30px target opened by a
+// long-press, which is the gesture least likely to be repeated patiently.
+@include coarse-pointer {
+  .cm {
+    min-width: 240px;
+    padding: var(--spacing-xs);
+  }
+
+  .cm-item {
+    min-height: 44px;
+    padding: var(--spacing-xs) var(--spacing-md);
+    font-size: var(--font-size-md);
+    gap: var(--spacing-md);
+  }
+
+  .cm-icon {
+    --icon-size: 20px;
+  }
+
+  .cm-sep {
+    margin: var(--spacing-xs) 0;
+  }
 }

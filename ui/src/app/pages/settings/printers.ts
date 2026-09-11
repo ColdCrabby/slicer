@@ -179,9 +179,14 @@ export class PrintersSettings {
   protected readonly groupBy = signal<'category' | 'label' | 'none'>('category');
   protected readonly labelFilter = this.filterStore.selectedIds;
 
-  /** Typed-name delete challenge state (high-impact delete — design language). */
+  /**
+   * Inline two-step delete — the design language's default for a routine
+   * destructive action. This used to be a typed-name challenge, which is
+   * reserved for irreversible data loss; a profile is a handful of settings the
+   * user can recreate, and typing its name out to remove one was friction
+   * without a matching risk.
+   */
   protected readonly deleteArmed = signal(false);
-  protected readonly deleteText = signal('');
 
   /** Printers narrowed by the active label filter and the search query. */
   protected readonly filtered = computed(() => {
@@ -235,12 +240,6 @@ export class PrintersSettings {
   protected readonly selected = computed(() => {
     const id = this.selectedId();
     return id ? (this.store.getById(id) ?? null) : null;
-  });
-
-  /** Whether the typed name matches the selected printer's name exactly. */
-  protected readonly deleteReady = computed(() => {
-    const p = this.selected();
-    return !!p && this.deleteText().trim() === p.name.trim();
   });
 
   constructor() {
@@ -414,22 +413,16 @@ export class PrintersSettings {
 
   protected armDelete(): void {
     this.deleteArmed.set(true);
-    this.deleteText.set('');
   }
 
   protected disarmDelete(): void {
     this.deleteArmed.set(false);
-    this.deleteText.set('');
-  }
-
-  protected setDeleteText(event: Event): void {
-    this.deleteText.set((event.target as HTMLInputElement).value);
   }
 
   /** Delete the selected printer once its name has been typed to confirm. */
   protected confirmDelete(): void {
     const printer = this.selected();
-    if (!printer || !this.deleteReady()) {
+    if (!printer) {
       return;
     }
     this.deletePrinterById(printer.id);
