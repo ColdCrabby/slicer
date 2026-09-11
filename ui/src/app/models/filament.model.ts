@@ -33,6 +33,22 @@ export const FILAMENT_MATERIAL_LABELS: Record<FilamentMaterial, string> = {
   PVA: 'PVA (support)',
 };
 
+/**
+ * Wire name for `{filament_type}` / `MATERIAL=` substitution in custom G-code
+ * (Klippain, mainline Klipper), mirroring the engine's
+ * `FilamentMaterial::wire_name`. Always uppercase — `Nylon` is the odd one out.
+ */
+export const MATERIAL_WIRE_NAME: Record<FilamentMaterial, string> = {
+  PLA: 'PLA',
+  PETG: 'PETG',
+  ABS: 'ABS',
+  ASA: 'ASA',
+  TPU: 'TPU',
+  PC: 'PC',
+  Nylon: 'NYLON',
+  PVA: 'PVA',
+};
+
 /** Density (g/cm³) per material, for weight / cost estimation. */
 export const MATERIAL_DENSITY: Record<FilamentMaterial, number> = {
   PLA: 1.24,
