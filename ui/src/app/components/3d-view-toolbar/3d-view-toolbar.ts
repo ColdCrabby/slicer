@@ -233,13 +233,14 @@ export class ThreeDViewToolbar {
   /**
    * What the button is doing and what pressing it will do next.
    *
-   * `auto` quotes the measurement it decided on, so a plate that has stopped
-   * re-slicing itself says why instead of looking broken.
+   * `auto` quotes the measurement it decided on — this plate's own, which is
+   * why a heavy plate can sit quiet while a light one keeps up — so a plate
+   * that has stopped re-slicing itself says why instead of looking broken.
    */
   protected readonly autoSliceLabel = computed(() => {
     const mode = this.autoSlice.mode();
     const last = this.autoSlice.lastSliceMs();
-    const measured = last !== null ? `the last slice took ${formatDuration(last)}` : null;
+    const measured = last !== null ? `this plate last sliced in ${formatDuration(last)}` : null;
     const next: Record<AutoSliceMode, string> = {
       auto: 'always on',
       on: 'off',

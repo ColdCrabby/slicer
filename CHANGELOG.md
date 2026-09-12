@@ -46,8 +46,8 @@ issue/PR numbers or repo links in the notes. See the tone rules in
 - **The preview re-slices itself, when that is worth doing.** A flash button
   beside the model / preview toggle steps through Automatic, Always and Off;
   Automatic re-slices about a second after you stop changing things, but only
-  while slices stay under 5 s — measured from your own last one, so a heavy
-  plate goes back to waiting for the button on its own. Set it for good in
+  while slices stay under 5 s — timed per plate, so a heavy one goes back to
+  waiting for the button while a light one keeps up. Set it for good in
   Settings → General → Slicing.
 - **The view no longer always jumps to the G-code preview when a slice
   finishes.** Settings → General → Slicing → Show the preview after slicing

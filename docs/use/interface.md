@@ -117,7 +117,8 @@ Once it succeeds, the result button lets you **Download**, **Just upload**, or
 
 Some plates come back in a second; some take a minute. Waiting for the button
 every time is tedious on the first kind and unavoidable on the second, so the
-slicer decides from how long *your* last slice actually took.
+slicer decides from how long *that plate's* last slice actually took. Each plate
+is judged on its own, so a heavy one can sit quiet while a light one keeps up.
 
 Once you've sliced once, a flash button appears next to the model / preview
 toggle. Click it to step through three settings:
@@ -130,8 +131,11 @@ toggle. Click it to step through three settings:
 
 The icon says which: a bolt with an **A** for Automatic, a plain bolt for
 Always, a struck-through bolt for Off. It's lit whenever changes are re-slicing
-themselves, and its tooltip says what it decided and what your last slice cost —
-so a plate that has gone quiet tells you why.
+themselves, and its tooltip says what it decided and what this plate's last
+slice cost — so a plate that has gone quiet tells you why.
+
+The timing is remembered for as long as the app is open and no longer. After a
+reload the first slice is yours to press, which is what re-establishes it.
 
 An automatic re-slice waits about a second after you stop, so dragging a model
 across the bed or typing a temperature is one slice, not one per frame. While

@@ -1,5 +1,6 @@
 import { computed, inject, Injectable, signal } from '@angular/core';
 import { BrowserStorage } from './browser-storage';
+import { SlicerFile } from './slicer-file';
 
 /**
  * Whether an edit re-slices the plate on its own.
@@ -12,7 +13,6 @@ import { BrowserStorage } from './browser-storage';
 export type AutoSliceMode = 'auto' | 'on' | 'off';
 
 const AUTO_SLICE_KEY = 'general.autoSlice';
-const LAST_SLICE_MS_KEY = 'general.autoSlice.lastSliceMs';
 
 /**
  * How still the scene has to sit before an automatic re-slice fires.
@@ -38,26 +38,44 @@ export const AUTO_SLICE_DELAY_MS = 1200;
 export const AUTO_SLICE_BUDGET_MS = 5000;
 
 /**
- * Owns the app-wide policy for re-slicing after a change, and the one
- * measurement that policy is made of.
+ * Owns the app-wide policy for re-slicing after a change, and the measurements
+ * that policy is made of.
  *
  * Some plates come back in under a second; some take a minute. The same
  * behaviour cannot be right for both, and asking the user to predict which they
  * have is asking the wrong person — the slicer already knows, because it just
- * timed one. `auto` therefore reads the last slice's duration and re-slices
- * only while that stays cheap, which means a plate that grows heavy stops
- * auto-slicing by itself, and a plate that gets lighter starts again.
+ * timed one. `auto` therefore reads how long *this plate's* last slice took and
+ * re-slices only while that stays cheap, which means a plate that grows heavy
+ * stops auto-slicing by itself, and a plate that gets lighter starts again.
  *
- * Deliberately storage-only: the timer that acts on this lives in
- * {@link Slicer}, which owns the drift signal and the slice call, so nothing
- * that merely wants to *read* the preference (the settings page) has to pull
- * the slicing runtime in behind it.
+ * The mode is a preference and is persisted. The timings are not — see
+ * {@link measured}.
+ *
+ * Holds no reference to the slicing runtime: the timer that acts on this lives
+ * in {@link Slicer}, which owns the drift signal and the slice call, so nothing
+ * that merely wants to *read* the preference (the settings page) pulls the
+ * runtime in behind it.
  */
 @Injectable({ providedIn: 'root' })
 export class AutoSlice {
   private readonly storage = inject(BrowserStorage);
+  private readonly slicerFile = inject(SlicerFile);
   private readonly storedMode = this.storage.get(AUTO_SLICE_KEY, 'local');
-  private readonly storedLastMs = this.storage.get(LAST_SLICE_MS_KEY, 'local');
+
+  /**
+   * Slice durations measured this session, keyed by workplate.
+   *
+   * In memory on purpose. The measurement belongs to the plate — one heavy
+   * plate must not decide what a light one does — and equally to the machine
+   * that produced it, so a figure written on a desktop would be wrong the
+   * moment the same plate opened on a phone.
+   *
+   * Losing it on reload costs nothing, because an automatic re-slice can only
+   * ever follow a slice the user pressed on that plate: the drift baseline it
+   * waits on is set by slicing, so the timing is always taken before anything
+   * needs to read it.
+   */
+  private readonly measured = signal<ReadonlyMap<string, number>>(new Map());
 
   /** The user's chosen mode; defaults to `auto`. */
   readonly mode = computed<AutoSliceMode>(() => {
@@ -66,23 +84,18 @@ export class AutoSlice {
   });
 
   /**
-   * How long the last completed slice took, in milliseconds, or `null` before
-   * the first one. Persisted so a reload does not throw away the evidence
-   * `auto` decides on.
+   * How long the open plate's last slice took, in milliseconds, or `null`
+   * before it has been sliced in this session.
    */
   readonly lastSliceMs = computed<number | null>(() => {
-    const raw = this.storedLastMs();
-    if (raw === null) {
-      return null;
-    }
-    const ms = Number(raw);
-    return Number.isFinite(ms) && ms > 0 ? ms : null;
+    const uuid = this.slicerFile.requestUuid();
+    return uuid === null ? null : (this.measured().get(uuid) ?? null);
   });
 
   /**
-   * Whether a change should currently re-slice on its own.
+   * Whether a change to the open plate should currently re-slice on its own.
    *
-   * With no slice timed yet this reads `true`, which costs nothing: an
+   * With nothing timed for it yet this reads `true`, which costs nothing: an
    * automatic re-slice only ever follows a slice the user asked for, so by the
    * time it could fire there is always a real measurement to have replaced this
    * guess.
@@ -123,11 +136,15 @@ export class AutoSlice {
     this.setMode(next[this.mode()]);
   }
 
-  /** Remember what the slice that just finished cost. Ignores unmeasured runs. */
+  /**
+   * Remember what the slice that just finished cost, against the plate it was
+   * run for. Ignores unmeasured runs and a slice with no plate behind it.
+   */
   recordSliceDuration(ms: number | null): void {
-    if (ms === null || !Number.isFinite(ms) || ms <= 0) {
+    const uuid = this.slicerFile.requestUuid();
+    if (uuid === null || ms === null || !Number.isFinite(ms) || ms <= 0) {
       return;
     }
-    this.storage.write(LAST_SLICE_MS_KEY, String(Math.round(ms)), 'local');
+    this.measured.update((byPlate) => new Map(byPlate).set(uuid, Math.round(ms)));
   }
 }

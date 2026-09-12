@@ -64,21 +64,21 @@ export class GeneralSettings implements OnInit {
       : 'Exports the library saved with the slicer.';
 
   /**
-   * The evidence `Automatic` is deciding on right now. Quoted live so a plate
-   * that has quietly stopped re-slicing itself says why, instead of looking
-   * like the setting stopped working.
+   * The evidence `Automatic` is deciding on right now, for the plate that is
+   * open. Quoted live so a plate that has quietly stopped re-slicing itself
+   * says why, instead of looking like the setting stopped working.
    */
   protected readonly autoSliceNote = computed(() => {
     const last = this.autoSlice.lastSliceMs();
     if (last === null) {
-      return 'Nothing timed yet — Automatic starts out re-slicing and settles once it has measured a slice.';
+      return 'The open plate has not been sliced yet — Automatic starts out re-slicing and settles once it has timed one.';
     }
-    const took = `Your last slice took ${formatDuration(last)}`;
+    const took = `The open plate last sliced in ${formatDuration(last)}`;
     if (this.autoSlice.mode() !== 'auto') {
       return `${took}.`;
     }
     return this.autoSlice.enabled()
-      ? `${took}, so Automatic is re-slicing on its own.`
+      ? `${took}, so Automatic is re-slicing it on its own.`
       : `${took}, so Automatic is leaving it to the Slice button.`;
   });
 
