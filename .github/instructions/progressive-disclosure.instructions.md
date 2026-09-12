@@ -274,6 +274,19 @@ Two traps that follow from group tiering, both fixed and both tested:
 A group's own reveal is never shallower than the panel's, or a section listed
 only because the user reached Advanced would render empty.
 
+**A disclosure appends; it never inserts.** Fields are ordered simple-to-complex
+before they are filtered — everyday, then advanced, then expert, keeping the
+schema's own order inside each tier — and sections are ordered the same way by
+the shallowest tier they hold. Filtering alone leaves a revealed field wherever
+the Rust struct happens to declare it, which slid the controls the reader was
+looking at down the panel and cost them their place. `orderFieldsByTier` and
+`orderGroupsByTier` in
+[`relevance.ts`](../../ui/src/app/schema-form/models/relevance.ts) do it, the
+parser applies the first so every surface lists a group alike, and the ordering
+is asserted in `tier.spec.ts`. One consequence to write for: **a field's
+position in `params.rs` only orders it against its own tier**, so put a field
+next to the one it belongs with and let the tier decide the rest.
+
 Three rules the implementation depends on — each has a test in
 [`tier.spec.ts`](../../ui/src/app/schema-form/models/tier.spec.ts):
 
@@ -325,9 +338,26 @@ a line of explanation under each choice. Cards are the tallest control the panel
 has; a section where every branch is a stack of explanations is no calmer than
 one with none, so the count is capped by a test.
 
-An option's description — on a card, in a segment's tooltip, on a dropdown line
-— is the variant's **opening sentence only**. The rest of the schema doc reaches
-the reader through the field's own ⓘ.
+**Schema prose reaches the UI exactly as written.** Nothing trims, splits or
+strips it on the way — the ⓘ renders the doc comment as Markdown, so write the
+comment for a reader and it arrives that way. Which means the length of a
+variant's doc is the length of the line under its option: keep the first
+paragraph to a sentence, and the rest will read as the detail it is.
+
+**That sentence must not restate the option's name.** It is the only line the
+reader gets, and it sits directly under the label, so a variant doc that opens
+by naming itself spends the whole budget saying nothing:
+
+| Don't | Do |
+| --- | --- |
+| **Classic** — Classic fixed-width concentric perimeters | **Classic** — Every wall the same width, so a feature too thin for a whole bead is left to gap fill |
+| **Light** — Light studio background | **Light** — A solid pale backdrop is baked into the image |
+| **Calibrate Before Print** — Recalibrate the mesh before printing | **Calibrate Before Print** — Always current, at a few minutes a job |
+
+The same applies one level up: a field's ⓘ should not re-list the choices the
+control is already showing. Spend it on what the options cannot say for
+themselves — the default, the prerequisite, what else in the panel the choice
+drags with it.
 
 ### Adding a setting
 

@@ -36,6 +36,7 @@ import {
   filterRelevantGroups,
   isFieldInTier,
   isTierAtMost,
+  orderGroupsByTier,
   nextTier,
   shallowestTier,
   tierOf,
@@ -284,12 +285,16 @@ export class SchemaForm {
     const all = this.tieredGroups();
     const visible = this.visibleGroups();
     if (!visible) {
-      return all;
+      return orderGroupsByTier(all);
     }
     const order = new Map(visible.map((name, index) => [name, index]));
-    return all
+    const inTaxonomyOrder = all
       .filter((group) => order.has(group.name))
       .sort((a, b) => order.get(a.name)! - order.get(b.name)!);
+    // Taxonomy order first, then tier — so revealing advanced sections adds
+    // them below the everyday ones instead of slotting `Quality` in between
+    // `Speed` and `Surfaces` and moving the rest of the panel down.
+    return orderGroupsByTier(inTaxonomyOrder);
   });
 
   /**

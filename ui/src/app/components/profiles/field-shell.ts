@@ -1,4 +1,5 @@
 import { ChangeDetectionStrategy, Component, input } from '@angular/core';
+import { MarkdownComponent } from 'ngx-markdown';
 
 /**
  * The bare row primitive shared by every editor field: an optional title and a
@@ -21,6 +22,7 @@ import { ChangeDetectionStrategy, Component, input } from '@angular/core';
 @Component({
   selector: 'nexus-field-shell',
   standalone: true,
+  imports: [MarkdownComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div
@@ -37,7 +39,7 @@ import { ChangeDetectionStrategy, Component, input } from '@angular/core';
         </span>
       </div>
       @if (description(); as d) {
-        <p class="field-shell__desc">{{ d }}</p>
+        <markdown class="field-shell__desc" [data]="d" />
       }
     </div>
   `,
@@ -86,13 +88,38 @@ import { ChangeDetectionStrategy, Component, input } from '@angular/core';
       .field-shell--stacked .field-shell__control {
         flex: 1;
       }
+      /* The engine writes its descriptions as Markdown and they arrive that
+         way, unaltered. ngx-markdown emits raw HTML, so those nodes never carry
+         this component's scoping attribute and ::ng-deep is the only way to
+         reach them — the same hook changelog-list.scss uses. */
       .field-shell__desc {
+        display: block;
         margin: var(--spacing-xs) 0 0;
         max-width: 62ch;
         font-size: var(--font-size-xs);
         line-height: 1.5;
         color: var(--color-text-tertiary);
-        white-space: pre-line;
+      }
+      .field-shell__desc ::ng-deep > :first-child {
+        margin-top: 0;
+      }
+      .field-shell__desc ::ng-deep > :last-child {
+        margin-bottom: 0;
+      }
+      .field-shell__desc ::ng-deep p {
+        margin: 0 0 var(--spacing-xs);
+      }
+      .field-shell__desc ::ng-deep ul,
+      .field-shell__desc ::ng-deep ol {
+        margin: 0 0 var(--spacing-xs);
+        padding-left: var(--spacing-lg);
+      }
+      .field-shell__desc ::ng-deep li {
+        margin-bottom: 2px;
+      }
+      .field-shell__desc ::ng-deep code {
+        font-family: var(--font-family-mono);
+        font-size: 0.95em;
       }
     `,
   ],
@@ -100,7 +127,7 @@ import { ChangeDetectionStrategy, Component, input } from '@angular/core';
 export class FieldShell {
   /** Left-hand label for the row. Omit to let a section header do the labelling. */
   readonly title = input('');
-  /** Optional helper text rendered inline below the row. */
+  /** Optional helper text rendered inline below the row, as Markdown. */
   readonly description = input('');
   /** Put the control under the label, full width, instead of beside it. */
   readonly stacked = input(false);

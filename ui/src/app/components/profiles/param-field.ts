@@ -1,7 +1,6 @@
 import { ChangeDetectionStrategy, Component, computed, input, output } from '@angular/core';
 import type { FieldDef } from '../../schema-form/models/field-def';
 import { controlFor } from '../../schema-form/models/field-control';
-import { optionSummary } from '../../schema-form/models/field-labels';
 import { unitForField } from '../../schema-form/models/field-units';
 import { filamentTypeOptions } from '../../schema-form/custom-widgets/filament-type-field/filament-types';
 import { noticeForField } from '../../schema-form/field-exceptions/field-exceptions';
@@ -78,7 +77,7 @@ import { FieldShell } from './field-shell';
     } @else {
       <nexus-field-shell
         [title]="field().title ?? field().key"
-        [description]="descriptionText()"
+        [description]="field().description ?? ''"
         [stacked]="isStacked()"
       >
         @switch (kind()) {
@@ -172,6 +171,12 @@ import { FieldShell } from './field-shell';
         margin-bottom: var(--spacing-sm);
       }
 
+      /* Projected into the shell's stacked row, where the flex direction is the
+         shell's business and not something this control should depend on. */
+      nexus-radio-group {
+        flex: 1;
+      }
+
       .param-field-text {
         min-width: 0;
         padding: var(--spacing-sm) var(--spacing-md);
@@ -215,7 +220,7 @@ export class ParamField {
     (this.field().enumOptions ?? []).map((o) => ({
       value: o.value,
       label: o.label,
-      description: optionSummary(o.description),
+      description: o.description,
     })),
   );
 
@@ -223,7 +228,7 @@ export class ParamField {
     (this.field().enumOptions ?? []).map((o) => ({
       value: o.value,
       label: o.label,
-      description: optionSummary(o.description),
+      description: o.description,
     })),
   );
 
@@ -233,15 +238,6 @@ export class ParamField {
    */
   protected readonly materialOptions = computed<SelectOption[]>(() =>
     filamentTypeOptions(this.stringValue()).map((o) => ({ value: o.value, label: o.label })),
-  );
-
-  /**
-   * Schema description with the lightweight Markdown the engine emits
-   * (`**bold**`, `` `code` ``) stripped, so it reads cleanly as plain helper
-   * text. Paragraph breaks are preserved and shown via `white-space: pre-line`.
-   */
-  protected readonly descriptionText = computed(() =>
-    (this.field().description ?? '').replace(/\*\*/g, '').replace(/`/g, '').trim(),
   );
 
   /**

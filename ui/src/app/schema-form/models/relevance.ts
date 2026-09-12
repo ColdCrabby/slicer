@@ -110,6 +110,41 @@ export function shallowestTier(fields: readonly FieldDef[]): Tier {
   return fields.length === 0 ? 'everyday' : shallowest;
 }
 
+/**
+ * Fields ordered simple-to-complex: everyday first, then advanced, then expert,
+ * keeping the schema's own order inside each tier.
+ *
+ * This is what makes a disclosure *append*. Filtering alone leaves a revealed
+ * field wherever the Rust struct happens to declare it, so pressing "Advanced"
+ * inserted controls between the ones already on screen and slid everything the
+ * user was looking at down the panel. Sorting first means the new block always
+ * starts below the last thing that was visible.
+ *
+ * The sort is stable, so a group's own field order still says what goes next to
+ * what — it only ever moves a field later, never past a peer of its own tier.
+ */
+export function orderFieldsByTier(fields: readonly FieldDef[]): FieldDef[] {
+  return [...fields].sort((a, b) => TIER_ORDER.indexOf(tierOf(a)) - TIER_ORDER.indexOf(tierOf(b)));
+}
+
+/**
+ * Groups ordered the same way, by the shallowest tier each one contains.
+ *
+ * The panel hides a group whose every field sits deeper than the reader has
+ * asked, so the same insertion problem applies one level up: `Quality` is
+ * advanced-only and sits between `Speed` and `Surfaces` in the taxonomy, and
+ * revealing advanced sections used to push half the panel down to make room
+ * for it.
+ *
+ * Stable again — the contract's taxonomy order survives within a tier.
+ */
+export function orderGroupsByTier(groups: readonly SchemaGroup[]): SchemaGroup[] {
+  return [...groups].sort(
+    (a, b) =>
+      TIER_ORDER.indexOf(shallowestTier(a.fields)) - TIER_ORDER.indexOf(shallowestTier(b.fields)),
+  );
+}
+
 /** Whether `tier` is at or above `revealed` in the disclosure order. */
 export function isTierAtMost(tier: Tier, revealed: Tier): boolean {
   return TIER_ORDER.indexOf(tier) <= TIER_ORDER.indexOf(revealed);

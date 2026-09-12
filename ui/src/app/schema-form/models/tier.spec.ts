@@ -9,6 +9,8 @@ import {
   isFieldInTier,
   isTierAtMost,
   nextTier,
+  orderFieldsByTier,
+  orderGroupsByTier,
   shallowestTier,
   tierOf,
 } from './relevance';
@@ -71,7 +73,9 @@ describe('group-level tiers', () => {
 
 describe('the engine schema', () => {
   const schema = processSchema as unknown as { $defs: Record<string, Record<string, unknown>> };
-  const fields = parseSchema({ ...schema.$defs['SlicingParams'], $defs: schema.$defs }).fields;
+  const parsed = parseSchema({ ...schema.$defs['SlicingParams'], $defs: schema.$defs });
+  const fields = parsed.fields;
+  const groups = parsed.groups;
 
   it('only uses tiers the UI knows how to render', () => {
     const unknown = fields.filter((f) => f.tier && !TIER_ORDER.includes(f.tier));
@@ -120,6 +124,47 @@ describe('the engine schema', () => {
       ([, groupFields]) => shallowestTier(groupFields) === 'expert',
     );
     expect(expertOnly.map(([name]) => name)).toContain('Time estimate');
+  });
+
+  /**
+   * Revealing a tier must *append*. Filtering alone left a revealed field
+   * wherever the Rust struct declared it, so pressing "Advanced" slid the
+   * controls the reader was looking at down the panel and cost them their
+   * place — which is the whole reason the ordering exists.
+   */
+  it('appends a revealed tier instead of inserting into what is on screen', () => {
+    for (const group of groups) {
+      const ordered = orderFieldsByTier(group.fields);
+      const everyday = ordered.filter((f) => isFieldInTier(f, 'everyday'));
+      const advanced = ordered.filter((f) => isFieldInTier(f, 'advanced'));
+      const all = ordered.filter((f) => isFieldInTier(f, 'expert'));
+      expect(
+        advanced.slice(0, everyday.length).map((f) => f.key),
+        `${group.name}: revealing advanced reordered the everyday fields`,
+      ).toEqual(everyday.map((f) => f.key));
+      expect(
+        all.slice(0, advanced.length).map((f) => f.key),
+        `${group.name}: revealing expert reordered the advanced fields`,
+      ).toEqual(advanced.map((f) => f.key));
+    }
+  });
+
+  it('orders sections the same way, so a revealed section lands at the end', () => {
+    const ordered = orderGroupsByTier(groups);
+    const ranks = ordered.map((g) => TIER_ORDER.indexOf(shallowestTier(g.fields)));
+    expect(
+      [...ranks].sort((a, b) => a - b),
+      `sections out of simple-to-complex order: ${ordered.map((g) => g.name).join(', ')}`,
+    ).toEqual(ranks);
+  });
+
+  it('keeps the schema order inside a tier, so related fields stay together', () => {
+    const walls = groups.find((g) => g.name === 'Walls')!;
+    const expert = orderFieldsByTier(walls.fields)
+      .filter((f) => tierOf(f) === 'expert')
+      .map((f) => f.key);
+    const declared = walls.fields.filter((f) => tierOf(f) === 'expert').map((f) => f.key);
+    expect(expert).toEqual(declared);
   });
 
   it('demotes the knobs nobody can reason about', () => {

@@ -22,16 +22,33 @@
   max-width: min(26rem, calc(100vw - var(--spacing-lg, 16px) * 2));
 }
 
-/// Option labels stop being a single clipped line once the panel has a ceiling.
+/// Option text stops being a single clipped line once the panel has a ceiling.
 ///
 /// Truncating was the only option while the panel could grow without bound;
 /// now that it cannot, wrapping is what keeps a long name readable instead of
-/// ending it in an ellipsis the user cannot expand.
-/// One class deeper than the component's own `.option-label`, which it has to
-/// beat on specificity — a tie would be settled by source order, and the
-/// component's stylesheet is emitted after this one.
-.nexus-floating .popover .option-label {
+/// ending it in an ellipsis the user cannot expand. That goes double for the
+/// second line: an option's description is the sentence that separates it from
+/// its neighbours, so a description cut at the panel edge is the one piece of
+/// text in the menu that had a job to do and did not do it.
+///
+/// One class deeper than the component's own `.option-label` / `.option-desc`,
+/// which these have to beat on specificity — a tie would be settled by source
+/// order, and the component's stylesheet is emitted after this one.
+.nexus-floating .popover .option-label,
+.nexus-floating .popover .option-desc {
   overflow: visible;
   overflow-wrap: anywhere;
   white-space: normal;
+}
+
+/// With the description free to wrap, an option is no longer one line tall, so
+/// the check and the swatches have to stop centring against a block they now
+/// share a column with — they belong beside the label, at the top.
+.nexus-floating .popover .option {
+  align-items: flex-start;
+}
+
+.nexus-floating .popover .option-check,
+.nexus-floating .popover .option-swatches {
+  margin-top: 1px;
 }

@@ -2,7 +2,6 @@ import { describe, expect, it } from 'vitest';
 import processSchema from '../../../schemas/slicer-engine-process-profile-v1.json';
 import { SEGMENTED_MAX_OPTIONS, controlFor } from './field-control';
 import type { FieldDef } from './field-def';
-import { optionSummary } from './field-labels';
 import { parseSchema } from './schema-parser';
 
 function field(extra: Partial<FieldDef> = {}): FieldDef {
@@ -46,25 +45,6 @@ describe('controlFor', () => {
     expect(controlFor(field({ key: 'infill_density', type: 'number', widget: 'cards' }))).toBe(
       'slider',
     );
-  });
-});
-
-describe('optionSummary', () => {
-  it('keeps the opening sentence and drops the essay', () => {
-    expect(optionSummary('Grid infill. Strong in every axis. Slower than lines.')).toBe(
-      'Grid infill.',
-    );
-  });
-
-  it('strips the Markdown the engine emits', () => {
-    expect(optionSummary('Uses **medial axis** and `wall_count`.')).toBe(
-      'Uses medial axis and wall_count.',
-    );
-  });
-
-  it('survives a description that is missing or has no full stop', () => {
-    expect(optionSummary(undefined)).toBe('');
-    expect(optionSummary('Organic branches')).toBe('Organic branches');
   });
 });
 
