@@ -71,8 +71,9 @@ Labels are a flat set of tags — `PLA`, `prototype`, `customer-work`, whatever
 suits. Create them in **Settings → Labels**, assign them to any profile, then
 use the label bar to filter long lists — selecting more than one widens the
 list rather than narrowing it, so `PLA` plus `PETG` shows both. A card's right-click menu carries a
-**Labels** submenu with a tick beside each one already assigned, which is the
-quick way to tag a shelf of profiles one after another. On a shared machine with a dozen
+**Labels** submenu holding the same picker — coloured, searchable, with a tick
+beside each one already assigned and a row to create a label that does not exist
+yet. It stays open while you pick, so tagging a shelf of profiles is one pass. On a shared machine with a dozen
 printers this is the difference between a list and a mess.
 
 ## Where profiles are stored

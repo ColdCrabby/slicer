@@ -1,3 +1,22 @@
+import type { Type } from '@angular/core';
+
+/**
+ * A component rendered inside an item's flyout, instead of nested menu items.
+ *
+ * Some submenus are a list of commands; some are a *picker*. A picker needs
+ * search, its own colours and a way to create the thing being picked, none of
+ * which a menu row can carry — so the flyout hosts a real component and the
+ * menu just decides where it goes.
+ *
+ * Outputs are wired by name because the panel is created imperatively; that is
+ * also what lets the flyout stay open across several toggles.
+ */
+export interface ContextMenuPanel {
+  component: Type<unknown>;
+  inputs?: Record<string, unknown>;
+  outputs?: Record<string, (value: never) => void>;
+}
+
 /** A single entry in a context menu. */
 export interface ContextMenuItem {
   /** Text shown to the user. Ignored when {@link separator} is set. */
@@ -36,4 +55,12 @@ export interface ContextMenuItem {
    * An item with a submenu performs no action of its own.
    */
   submenu?: ContextMenuItem[];
+  /**
+   * Rich content for the flyout, used in place of {@link submenu} wherever the
+   * menu is drawn by the app rather than by the OS.
+   *
+   * Both are given for the same item: the native menus on desktop and iOS can
+   * only show rows, and rows are the idiomatic thing there anyway.
+   */
+  submenuPanel?: ContextMenuPanel;
 }

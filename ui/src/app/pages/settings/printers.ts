@@ -64,6 +64,7 @@ import { CodeEditor } from '../../components/code-editor/code-editor';
 import { LabelFilterBar } from '../../components/labels/label-filter-bar';
 import { LabelPicker } from '../../components/labels/label-picker';
 import { focusConfigureTarget } from './configure-scroll';
+import { LabelPickerPanel } from '../../components/labels/label-picker-panel';
 
 /**
  * The `SlicingParams` sub-schema extracted from the generated global-settings
@@ -405,13 +406,17 @@ export class PrintersSettings {
   }
 
   /**
-   * The labels, as a submenu of toggles.
+   * The labels, as a flyout on the profile's own context menu.
    *
    * Assigning the same label across a shelf of profiles is what labels are for,
    * and doing it from the card is one gesture instead of selecting each one and
-   * scrolling to its Labels row. Each entry carries its current state, so the
-   * menu says what is already assigned rather than asking the user to toggle
-   * blind.
+   * scrolling to its Labels row.
+   *
+   * The flyout hosts the same picker the detail pane uses — coloured dots,
+   * search, and "create this one" for a name that does not exist yet — because
+   * a row of plain text is not a label, and a shelf of twenty needs filtering.
+   * `submenu` carries the same labels as plain rows for the OS-drawn menus on
+   * desktop and iOS, which can only show rows.
    */
   private labelSubmenu(item: { id: string; label_ids?: string[] }): ContextMenuItem {
     const owned = new Set(item.label_ids ?? []);
@@ -419,12 +424,16 @@ export class PrintersSettings {
     return {
       label: 'Labels',
       icon: 'label',
-      disabled: labels.length === 0,
       submenu: labels.map((label) => ({
         label: label.name,
         checked: owned.has(label.id),
         action: () => this.toggleLabel(item.id, label.id),
       })),
+      submenuPanel: {
+        component: LabelPickerPanel,
+        inputs: { assignedIds: () => this.store.getById(item.id)?.label_ids ?? [] },
+        outputs: { toggle: (labelId: string) => this.toggleLabel(item.id, labelId) },
+      },
     };
   }
 

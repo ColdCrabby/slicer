@@ -16,8 +16,13 @@
   gap: 1px;
 }
 
-.cm-item {
+.cm-row {
   position: relative;
+  display: flex;
+  flex-direction: column;
+}
+
+.cm-item {
   display: flex;
   align-items: center;
   gap: var(--spacing-sm);
@@ -83,16 +88,31 @@
   --icon-size: 14px;
 }
 
-// The flyout. Positioned against the parent row, flush with the panel's right
-// edge, and overlapping by the panel border so the pointer can cross between
-// the two without passing over the gap and closing it.
+// The flyout, anchored to its own row. `top: -(panel padding)` lines its first
+// entry up with the row that opened it, the way a native submenu does, rather
+// than hanging a few pixels low.
 .cm-sub {
   position: absolute;
-  top: 0;
+  top: calc(var(--spacing-xs) * -1);
   left: 100%;
   z-index: 1;
+  // Overlaps the parent's border so the pointer can cross between the two
+  // without passing over a gap and closing the flyout.
   margin-left: -2px;
-  // A long shelf of labels scrolls rather than running off the screen.
+}
+
+// No room to the right — open to the left instead.
+.cm-sub--flip {
+  left: auto;
+  right: 100%;
+  margin-left: 0;
+  margin-right: -2px;
+}
+
+// A nested menu of plain rows scrolls if it is long; a hosted panel manages its
+// own height, so this must not clip it.
+.cm-sub > nexus-context-menu {
+  display: block;
   max-height: min(60vh, 420px);
   overflow-y: auto;
   overscroll-behavior: contain;
