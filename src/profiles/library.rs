@@ -91,13 +91,13 @@ impl ProfileLibrary {
     /// A category the user has populated is left exactly as it is.
     pub fn seeded(mut self) -> Self {
         if self.printers.is_empty() {
-            self.printers = vec![super::defaults::default_printer()];
+            self.printers = super::defaults::default_printers();
         }
         if self.filaments.is_empty() {
             self.filaments = super::defaults::default_filaments();
         }
         if self.processes.is_empty() {
-            self.processes = vec![super::defaults::default_process()];
+            self.processes = super::defaults::default_processes();
         }
         self
     }

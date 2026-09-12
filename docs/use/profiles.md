@@ -65,9 +65,35 @@ several spools and want to see which is which.
 
 ## Adding a print profile
 
-**Settings → Profiles → Add print profile**. A print profile is nothing more
-than a saved set of Process settings, so the quickest way to make one is to get
-a plate slicing the way you like, then save those settings as a profile.
+**Settings → Print Profiles → Add profile.** Three come built in, and they are a
+scale rather than three unrelated recipes — all 0.20 mm, differing in how hard
+they drive the machine:
+
+| Preset | Walls / infill | For |
+| --- | --- | --- |
+| **Standard** | 120 mm/s | Anything. Slow enough that it cannot embarrass a machine you have not commissioned. |
+| **High Speed** | 200 mm/s | A well-built CoreXY with a high-flow hotend. |
+| **Maximum** | 300 mm/s | The top of the sensible range — a tuned machine at 30 000 mm/s². |
+
+All three hold the **outer wall and the top surface back**, because those are
+what the print is judged by and neither is where the time goes. Going fast on
+the inside is what pays for going slowly on the outside.
+
+Two things decide whether the fast ones are honest on your machine:
+
+- **Your printer profile has to carry the speed.** A process asking for
+  300 mm/s behind a printer that travels at 150 does not get it. The built-in
+  **Generic CoreXY 350 mm** printer is the matching starting point.
+- **Flow is the real ceiling**, and it belongs to the spool, not the recipe. Set
+  **Max Volumetric Speed** on the filament — around 24 mm³/s for a modern
+  high-flow hotend — and every speed above is held to what the hotend can melt.
+
+::: tip Pressure advance stays where you tuned it
+No shipped preset sets it. It is calibrated per machine and per spool and lives
+in your firmware; a profile that shipped a number would overwrite a calibration
+it knows nothing about. Same for retraction on a Klipper machine — the CoreXY
+preset turns **firmware retraction** on so the printer's own values win.
+:::
 
 ## Everyday management
 

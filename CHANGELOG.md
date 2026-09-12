@@ -71,6 +71,14 @@ issue/PR numbers or repo links in the notes. See the tone rules in
 
 ### Added
 
+- **Two faster print presets, and a CoreXY printer to run them on.** Standard is
+  written for a machine that may be a decade old; **High Speed** (200 mm/s) and
+  **Maximum** (300 mm/s, 30 000 mm/s²) ask for what a commissioned CoreXY is
+  actually built to do, both holding the outer wall and top surface back so the
+  speed comes out of the inside of the print. A **Generic CoreXY 350 mm** printer
+  preset carries the machine side — 0.6 nozzle, firmware retraction, object
+  exclusion. No preset sets pressure advance: it is tuned on your machine and
+  none of the slicer's business.
 - **Hold `+` or `−` to run a number up or down.** It repeats after a moment and
   accelerates the longer you hold, so a skirt distance near 200 or a bed at
   100 °C is a press rather than forty clicks.
