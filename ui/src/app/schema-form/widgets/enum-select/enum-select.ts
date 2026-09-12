@@ -1,7 +1,6 @@
 import { ChangeDetectionStrategy, Component, EventEmitter, computed, input } from '@angular/core';
 import { Select, type SelectOption, TooltipDirective } from '@coldcrabby/ui';
 import { IconButton } from '../../../shared/icon-button/icon-button';
-import { optionSummary } from '../../models/field-labels';
 import type { FieldDef } from '../../models/field-def';
 import type { FieldWidget } from '../base-field';
 
@@ -11,7 +10,7 @@ import type { FieldWidget } from '../base-field';
  * modes, which is what separates it from the segmented control; the boundary
  * is option count alone (see `models/field-control.ts`).
  *
- * Each variant's opening sentence rides along as the option's secondary line.
+ * Each variant's summary rides along as the option's secondary line.
  */
 @Component({
   selector: 'se-enum-select',
@@ -67,7 +66,7 @@ export class EnumSelect implements FieldWidget {
     (this.field().enumOptions ?? []).map((o) => ({
       value: o.value,
       label: o.label,
-      description: optionSummary(o.description),
+      description: o.description,
     })),
   );
 

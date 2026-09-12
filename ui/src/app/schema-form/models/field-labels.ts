@@ -16,7 +16,7 @@
  * one, so every such string quietly claimed an editorial care that was never
  * applied — and the raw key, which is at least searchable and unambiguous, was
  * hidden behind it. An unmapped parameter reads as `wall_transition_length`
- * until somebody gives it a real name — and `field-labels.spec.ts` fails while
+ * until somebody gives it a real name — and `field-units.spec.ts` fails while
  * one is unnamed, so the raw key is a build-time defect rather than something a
  * user finds.
  */
@@ -318,43 +318,4 @@ export function fieldLabel(key: string): string {
 /** Friendly label for an enum const value. */
 export function enumLabel(value: string): string {
   return ENUM_LABELS[value] ?? value;
-}
-
-/**
- * Abbreviations whose full stop does not end a sentence. Without them
- * `… commands (e.g. M291 …` is cut after "e.g." — the next word is capitalised,
- * so nothing else distinguishes it from a real sentence break.
- */
-const ABBREVIATIONS = /(?:^|[\s(])(?:e\.g|i\.e|etc|vs|approx|cf|Fig|No)$/i;
-
-/**
- * The one-line form of a schema description, for a control that shows its
- * options' explanations rather than hiding them behind a tooltip.
- *
- * Variant docs in `params.rs` are written for the API reference and run to
- * several paragraphs — `wall_generator`'s two choices alone would fill a
- * sidebar. The opening sentence is the part that separates the options; the
- * rest is detail the reader can reach through the field's own ⓘ.
- *
- * The lightweight Markdown the engine emits (`**bold**`, `` `code` ``) is
- * stripped with it, so a card does not show a parameter name in backticks.
- */
-export function optionSummary(description?: string): string {
-  const plain = (description ?? '')
-    .replace(/\*\*/g, '')
-    .replace(/`/g, '')
-    .split(/\n\s*\n/)[0]
-    .replace(/\s+/g, ' ')
-    .trim();
-
-  // A full stop ends the sentence when the text runs out or a capital follows.
-  // A lowercase continuation is mid-sentence punctuation — a decimal, a version
-  // number, an abbreviation the list above does not carry.
-  for (const match of plain.matchAll(/\.(?=\s+[A-Z(]|\s*$)/g)) {
-    const end = match.index + 1;
-    if (!ABBREVIATIONS.test(plain.slice(0, match.index))) {
-      return plain.slice(0, end);
-    }
-  }
-  return plain;
 }

@@ -326,8 +326,11 @@ has; a section where every branch is a stack of explanations is no calmer than
 one with none, so the count is capped by a test.
 
 An option's description — on a card, in a segment's tooltip, on a dropdown line
-— is the variant's **opening sentence only**. The rest of the schema doc reaches
-the reader through the field's own ⓘ.
+— is the **first paragraph of the variant's doc comment**, shown verbatim. The
+blank line after it is the delimiter, so write the summary short and put the
+detail below it; nothing trims at render time, and `field-units.spec.ts` fails
+on a summary too long to show whole or carrying Markdown. The rest of the doc
+reaches the reader through the field's own ⓘ.
 
 **That sentence must not restate the option's name.** It is the only line the
 reader gets, and it sits directly under the label, so a variant doc that opens

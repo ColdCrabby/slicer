@@ -23,7 +23,7 @@ import type { FieldWidget } from '../../widgets/base-field';
     <label class="gcode-field__label field-label" [for]="field().key">{{
       field().title ?? field().key
     }}</label>
-    @if (descriptionText(); as d) {
+    @if (field().description; as d) {
       <p class="gcode-field__desc">{{ d }}</p>
     }
     <nexus-code-editor
@@ -71,9 +71,4 @@ export class GcodeField implements FieldWidget {
     const raw = this.value() ?? this.field().default;
     return typeof raw === 'string' ? raw : '';
   });
-
-  /** Schema description with the engine's lightweight Markdown stripped. */
-  protected readonly descriptionText = computed(() =>
-    (this.field().description ?? '').replace(/\*\*/g, '').replace(/`/g, '').trim(),
-  );
 }

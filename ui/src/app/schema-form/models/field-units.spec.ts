@@ -58,6 +58,9 @@ describe('fieldLabel', () => {
   });
 });
 
+/** Longest an option summary may be and still read as one line of help. */
+const SUMMARY_MAX_CHARS = 140;
+
 describe('the engine schema', () => {
   const schema = processSchema as unknown as { $defs: Record<string, Record<string, unknown>> };
   const fields = parseSchema({ ...schema.$defs['SlicingParams'], $defs: schema.$defs }).fields;
@@ -92,6 +95,29 @@ describe('the engine schema', () => {
   it('has a curated label for every parameter', () => {
     const unnamed = fields.filter((f) => !(f.key in FIELD_LABELS)).map((f) => f.key);
     expect(unnamed, `parameters with no entry in FIELD_LABELS: ${unnamed.join(', ')}`).toEqual([]);
+  });
+
+  /**
+   * An option's summary is its doc comment's first paragraph, shown verbatim.
+   * Nothing trims it at render time any more, so the doc has to be written
+   * short — the blank line after the summary is where the detail goes.
+   */
+  it('keeps every enum summary short enough to show whole', () => {
+    const long = fields
+      .flatMap((f) => f.enumOptions ?? [])
+      .filter((o) => (o.description?.length ?? 0) > SUMMARY_MAX_CHARS)
+      .map((o) => `${o.value} (${o.description?.length})`);
+    expect(long, `enum summaries over ${SUMMARY_MAX_CHARS} chars: ${long.join(', ')}`).toEqual([]);
+  });
+
+  it('leaves no Markdown in the text it renders', () => {
+    // Stripping happens once, in the parser. A marker surviving into a
+    // `FieldDef` means something bypassed it.
+    const marked = [
+      ...fields.map((f) => f.description),
+      ...fields.flatMap((f) => (f.enumOptions ?? []).map((o) => o.description)),
+    ].filter((text) => text && /\*\*|`/.test(text));
+    expect(marked).toEqual([]);
   });
 
   it('has a curated label for every enum choice', () => {

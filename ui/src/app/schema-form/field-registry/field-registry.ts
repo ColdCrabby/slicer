@@ -10,7 +10,6 @@ import { BooleanField } from '../widgets/boolean-field/boolean-field';
 import { EnumCards } from '../widgets/enum-cards/enum-cards';
 import { EnumSegmented } from '../widgets/enum-segmented/enum-segmented';
 import { EnumSelect } from '../widgets/enum-select/enum-select';
-import { IntegerField } from '../widgets/integer-field/integer-field';
 import { NumberField } from '../widgets/number-field/number-field';
 import { TextField } from '../widgets/text-field/text-field';
 
@@ -44,16 +43,7 @@ const WIDGETS: Partial<Record<ControlKind, Type<FieldWidget>>> = {
   'filament-type': FilamentTypeField,
 };
 
-/**
- * Resolve the widget component class for a given field.
- *
- * Integers keep their own widget rather than sharing the number one, because
- * the two differ in step and in what they will accept typed into them.
- */
+/** Resolve the widget component class for a given field. */
 export function resolveWidget(field: FieldDef): Type<FieldWidget> {
-  const kind = controlFor(field);
-  if (kind === 'number' && field.type === 'integer') {
-    return IntegerField;
-  }
-  return WIDGETS[kind] ?? TextField;
+  return WIDGETS[controlFor(field)] ?? TextField;
 }

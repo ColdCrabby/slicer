@@ -290,14 +290,17 @@ pub enum SeamPosition {
     /// across the surface.  Good for prototypes and infill-heavy parts.
     #[default]
     Nearest,
-    /// Place the seam at the vertex with the largest Y coordinate (rear of
-    /// the build plate).  Deterministic per-loop, gives a single visible
-    /// seam line on the back of the model — a common default for display
-    /// pieces like the Benchy.
+    /// Puts the seam at the back of the plate, where a display piece is least
+    /// often looked at.
+    ///
+    /// The vertex with the largest Y coordinate.  Deterministic per loop, so
+    /// the seams stack into one visible line rather than scattering.
     Rear,
-    /// Place the seam at the vertex closest to a fixed XY direction
-    /// (default: rear-aligned).  Like `Rear` but consistent across layers
-    /// even when the loop's bounding box shifts.
+    /// Like rear, but holds its line even where the model twists.
+    ///
+    /// Places the seam at the vertex closest to a fixed XY direction (default:
+    /// rear-aligned), which stays put across layers even when the loop's
+    /// bounding box shifts.
     Aligned,
     /// Place the seam at the vertex with the sharpest convex corner.
     ///
@@ -463,9 +466,11 @@ pub enum IroningType {
     /// Only the single highest top surface of the model — the one face a
     /// viewer actually looks down on, at a fraction of the print-time cost.
     TopmostOnly,
-    /// Every solid surface, including the internal solid floors that brace
-    /// sparse infill. Rarely useful: those surfaces are buried under later
-    /// layers, so the finish is invisible and the time is spent regardless.
+    /// Every solid surface, including the internal floors that brace sparse
+    /// infill.
+    ///
+    /// Rarely useful: those floors are buried under later layers, so the finish
+    /// is invisible and the time is spent regardless.
     AllSolid,
 }
 
@@ -524,12 +529,15 @@ pub enum BedMeshMode {
     /// Leveling is left entirely to the printer's own start macro or config.
     #[default]
     Off,
-    /// Reuses a mesh probed earlier, so it costs no print time (Klipper
-    /// `BED_MESH_PROFILE LOAD=<name>`, Marlin/RepRap `M420 S1`).
+    /// Reuses a mesh probed earlier, so it costs no print time.
+    ///
+    /// Klipper `BED_MESH_PROFILE LOAD=<name>`, Marlin/RepRap `M420 S1`.
     LoadProfile,
-    /// Probes the bed at the start of every print and loads the result — always
-    /// current, at a few minutes a job (Klipper `BED_MESH_CALIBRATE`,
-    /// Marlin/RepRap `G29`).
+    /// Probes the bed before every print — always current, at a few minutes
+    /// a job.
+    ///
+    /// Klipper `BED_MESH_CALIBRATE`, Marlin/RepRap `G29`, then loads the
+    /// result.
     Calibrate,
 }
 

@@ -59,10 +59,20 @@ export class NumberField implements FieldWidget {
   readonly value = input<unknown>(undefined);
   readonly valueChange = new EventEmitter<unknown>();
 
+  /**
+   * The stored value as a number, rounded when the engine's type is integral.
+   *
+   * One widget covers both: a `u32` field and an `f64` field differ in exactly
+   * this rounding and in their step, which `unitForField` already floors at 1
+   * for an integer. They were two near-identical components until the split
+   * had to be re-derived in the registry — which meant the control taxonomy
+   * gave an answer and then something downstream second-guessed it.
+   */
   protected readonly numeric = computed(() => {
     const v = this.value();
-    if (v === null || v === undefined || v === '') return Number(this.field().default ?? 0);
-    return Number(v);
+    const raw = v === null || v === undefined || v === '' ? this.field().default : v;
+    const n = Number(raw ?? 0);
+    return this.field().type === 'integer' ? Math.round(n) : n;
   });
   /** Unit + step derived from the parameter's name — see `field-units.ts`. */
   private readonly resolvedUnit = computed(() => unitForField(this.field()));

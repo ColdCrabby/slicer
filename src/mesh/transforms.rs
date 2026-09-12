@@ -22,8 +22,10 @@ pub enum MeshQuality {
     /// Slices the mesh exactly as it arrived (default).
     #[default]
     Normal,
-    /// Also slices the mesh exactly as it arrived — identical to `normal`
-    /// today, and kept so a file asking for maximum fidelity still loads.
+    /// Also slices the mesh exactly as it arrived — identical to Normal today.
+    ///
+    /// Kept so a profile asking for maximum fidelity still loads, and so a
+    /// future refinement pass has somewhere to land.
     HighQuality,
     /// Collapses nearby vertices first: quicker on dense models, at the cost of
     /// fine surface detail.

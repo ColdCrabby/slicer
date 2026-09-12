@@ -1,7 +1,6 @@
 import { ChangeDetectionStrategy, Component, EventEmitter, computed, input } from '@angular/core';
 import { RadioGroup, type RadioOption, TooltipDirective } from '@coldcrabby/ui';
 import { IconButton } from '../../../shared/icon-button/icon-button';
-import { optionSummary } from '../../models/field-labels';
 import type { FieldDef } from '../../models/field-def';
 import type { FieldWidget } from '../base-field';
 
@@ -70,7 +69,7 @@ export class EnumCards implements FieldWidget {
     (this.field().enumOptions ?? []).map((o) => ({
       value: o.value,
       label: o.label,
-      description: optionSummary(o.description),
+      description: o.description,
     })),
   );
 
