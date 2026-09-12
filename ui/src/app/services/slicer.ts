@@ -13,6 +13,7 @@ import { RuntimeMode } from '../runtime/domain/runtime-mode';
 import { RuntimeMeshInput, RuntimeSceneSnapshot } from '../runtime/domain/scene-commands';
 import { createRuntime } from '../runtime/factory/runtime-factory';
 import { RuntimeEvent } from '../runtime/ports/runtime-events';
+import { AUTO_SLICE_DELAY_MS, AutoSlice } from './auto-slice';
 import { FileExport } from './file-export';
 import { onIdle } from './idle';
 import { ModelSourceRegistry, nativePathOf } from './model-source';
@@ -59,20 +60,6 @@ export const PHASE_LABELS: Record<string, string> = {
 };
 
 /**
- * Format a millisecond duration as a compact, human-friendly string:
- * `940` → `0.9 s`, `2519` → `2.5 s`, `72500` → `1 m 12 s`.
- */
-export function formatDuration(ms: number): string {
-  if (!Number.isFinite(ms) || ms < 0) return '';
-  if (ms < 1000) return `${Math.round(ms)} ms`;
-  const totalSeconds = ms / 1000;
-  if (totalSeconds < 60) return `${totalSeconds.toFixed(1)} s`;
-  const minutes = Math.floor(totalSeconds / 60);
-  const seconds = Math.round(totalSeconds - minutes * 60);
-  return `${minutes} m ${seconds} s`;
-}
-
-/**
  * Proportional weights per phase derived from typical Benchy timings.
  * `total` is the outer span and excluded from progress accumulation.
  */
@@ -103,6 +90,7 @@ export class Slicer {
   private readonly workplateNames = inject(WorkplateNames);
   private readonly workplateSettings = inject(WorkplateSettingsStore);
   private readonly fileExport = inject(FileExport);
+  private readonly autoSlice = inject(AutoSlice);
   private readonly modelSources = inject(ModelSourceRegistry);
   private readonly runtimeMode = this.resolveRuntimeMode();
   private readonly runtime = createRuntime({
@@ -331,8 +319,55 @@ export class Slicer {
     return this.lastSliceElapsedMs();
   });
 
+  /**
+   * Whether the slice now running — or the last one to finish — was started by
+   * the automatic re-slice timer rather than by a press.
+   *
+   * Read by the viewer, which follows a deliberate slice into G-code preview
+   * but leaves an automatic one where the user was: the plate-editing tools are
+   * hidden in preview, so switching mid-edit lands the next drag on a view that
+   * cannot show it.
+   */
+  readonly sliceWasAutomatic = signal(false);
+
+  /** Handle of the armed automatic re-slice, or `null` when none is queued. */
+  private autoSliceTimer: ReturnType<typeof setTimeout> | null = null;
+
+  /**
+   * Scene signature the last *automatic* re-slice was fired for.
+   *
+   * The loop-breaker. An automatic slice is driven by the same drift flag it is
+   * supposed to clear, so anything that leaves the plate looking changed after
+   * slicing it — a transform baked on the way out, a setting normalised by the
+   * engine — would otherwise re-arm the timer for ever, and unlike an amber
+   * button that failure burns the machine. Refusing to fire twice for one
+   * signature caps any such bug at a single extra slice. A press is never
+   * affected, and the user's next real edit moves the signature on.
+   */
+  private autoSlicedSignature: string | null = null;
+
   constructor() {
     this.orchestrator.onEvent((event) => this.handleRuntimeEvent(event));
+
+    // Re-slice unasked once the scene has sat still for a moment — but only
+    // while {@link AutoSlice} says the plate is cheap enough to be worth it.
+    //
+    // Every signal read here is tracked on purpose:
+    //
+    // - `sceneSignature` is what makes this a debounce rather than a one-shot.
+    //   `previewStale` latches true on the first edit and stays true, so it
+    //   alone would arm the timer once and never push it out again; the
+    //   signature changes on *every* edit, which is what collapses a drag
+    //   across the bed into a single slice at the end of it.
+    // - `status` brings us back the moment a slice finishes, which is how an
+    //   edit made while the previous slice was running gets picked up instead
+    //   of being stranded behind a `previewStale` that never changes value.
+    effect(() => {
+      const wanted = this.autoSlice.enabled() && this.previewStale();
+      void this.sceneSignature();
+      const status = this.status();
+      untracked(() => this.scheduleAutoSlice(wanted, status));
+    });
 
     // Raise the monotonic progress floor whenever the candidate advances, so
     // the bar never retreats even as the per-object pipeline restarts.
@@ -761,7 +796,76 @@ export class Slicer {
     };
   }
 
-  async slice(): Promise<void> {
+  /**
+   * Arm, re-arm or drop the automatic re-slice timer.
+   *
+   * Called on every scene or settings change, so the common case is "clear the
+   * old timer and set a fresh one" — that restart is the debounce.
+   */
+  private scheduleAutoSlice(wanted: boolean, status: SlicerStatus): void {
+    this.cancelAutoSlice();
+
+    if (!wanted) {
+      this.autoSlice.pending.set(false);
+      return;
+    }
+
+    // Stay pending without a timer while a job runs: the effect's `status` read
+    // brings us back here when it ends, and arming now would only fire into the
+    // concurrency guard.
+    this.autoSlice.pending.set(true);
+    if (status === 'slicing' || status === 'uploading') {
+      return;
+    }
+
+    this.autoSliceTimer = setTimeout(() => {
+      this.autoSliceTimer = null;
+      this.autoSlice.pending.set(false);
+      // Nothing automatic happens with the viewer unmounted — the user is in
+      // full-screen Settings, and the thumbnail is rendered from the live
+      // scene, so this slice would silently publish G-code without one. The
+      // plate simply stays marked stale until they come back and edit or press
+      // Slice.
+      if (!this.viewerControl.hasActiveViewer) {
+        return;
+      }
+      const signature = this.sceneSignature();
+      if (signature === this.autoSlicedSignature) {
+        return;
+      }
+      this.autoSlicedSignature = signature;
+      void this.slice({ automatic: true });
+    }, AUTO_SLICE_DELAY_MS);
+  }
+
+  /** Drop any queued automatic re-slice. A deliberate press supersedes it. */
+  private cancelAutoSlice(): void {
+    if (this.autoSliceTimer !== null) {
+      clearTimeout(this.autoSliceTimer);
+      this.autoSliceTimer = null;
+    }
+  }
+
+  /** Forget the loop-breaker, so a fresh plate starts from a clean slate. */
+  private resetAutoSlice(): void {
+    this.cancelAutoSlice();
+    this.autoSlicedSignature = null;
+    this.autoSlice.pending.set(false);
+  }
+
+  /**
+   * Slice the current plate. `automatic` marks a run the re-slice timer started
+   * rather than the user, which is the only thing downstream needs in order to
+   * treat the two differently.
+   */
+  async slice(options?: { automatic?: boolean }): Promise<void> {
+    // A press (or a timer that just fired) supersedes anything queued — without
+    // this, the window between here and `status = 'slicing'` below is long
+    // enough for an armed timer to start a second, concurrent job.
+    this.cancelAutoSlice();
+    this.autoSlice.pending.set(false);
+    this.sliceWasAutomatic.set(options?.automatic === true);
+
     // Guard: prevent concurrent slice operations
     if (
       this.status() !== 'idle' &&
@@ -919,6 +1023,10 @@ export class Slicer {
       }
       this.status.set('done');
       this.currentPhase.set(null);
+      // What this plate costs is the whole basis of the automatic re-slice
+      // decision, and it is only knowable here — so every slice, however it was
+      // started, updates it.
+      this.autoSlice.recordSliceDuration(this.totalElapsedMs());
       this.notifications.success(
         'Slice complete',
         `${result.layerCount} layers — click Download to save G-code`,
@@ -953,6 +1061,7 @@ export class Slicer {
    * a circular dependency).
    */
   private clearSliceState(): void {
+    this.resetAutoSlice();
     if (this.activeSliceId) {
       void this.orchestrator.cancel(this.activeSliceId);
       this.activeSliceId = null;

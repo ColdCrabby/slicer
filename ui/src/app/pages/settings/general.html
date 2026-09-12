@@ -41,6 +41,90 @@
     }
   </div>
 
+  <h2 class="subhead">Slicing</h2>
+  <div class="settings-card">
+    <div class="settings-field">
+      <span class="settings-field-label">
+        <span class="settings-field-title">Re-slice after a change</span>
+        <span class="settings-field-desc">
+          Refresh the preview on its own a moment after you move a model or change a setting,
+          instead of waiting for the Slice button. Automatic does it only while slices stay quick,
+          judged per plate, so a heavy one goes back to slicing on request while a light one keeps
+          up. {{ autoSliceNote() }}
+        </span>
+      </span>
+      <div class="segmented" role="group" aria-label="Re-slice after a change">
+        <button
+          type="button"
+          class="segmented-btn"
+          [class.is-active]="autoSlice.mode() === 'auto'"
+          [attr.aria-pressed]="autoSlice.mode() === 'auto'"
+          (click)="setAutoSlice('auto')"
+        >
+          Automatic
+        </button>
+        <button
+          type="button"
+          class="segmented-btn"
+          [class.is-active]="autoSlice.mode() === 'on'"
+          [attr.aria-pressed]="autoSlice.mode() === 'on'"
+          (click)="setAutoSlice('on')"
+        >
+          Always
+        </button>
+        <button
+          type="button"
+          class="segmented-btn"
+          [class.is-active]="autoSlice.mode() === 'off'"
+          [attr.aria-pressed]="autoSlice.mode() === 'off'"
+          (click)="setAutoSlice('off')"
+        >
+          Off
+        </button>
+      </div>
+    </div>
+
+    <div class="settings-field">
+      <span class="settings-field-label">
+        <span class="settings-field-title">Show the preview after slicing</span>
+        <span class="settings-field-desc">
+          Switch the 3D view to the sliced G-code when a slice finishes. Automatic follows a slice
+          you asked for and leaves an automatic re-slice alone, so an edit in progress doesn't get
+          pulled into a view where the plate tools are hidden.
+        </span>
+      </span>
+      <div class="segmented" role="group" aria-label="Show the preview after slicing">
+        <button
+          type="button"
+          class="segmented-btn"
+          [class.is-active]="previewFollow() === 'auto'"
+          [attr.aria-pressed]="previewFollow() === 'auto'"
+          (click)="setPreviewFollow('auto')"
+        >
+          Automatic
+        </button>
+        <button
+          type="button"
+          class="segmented-btn"
+          [class.is-active]="previewFollow() === 'always'"
+          [attr.aria-pressed]="previewFollow() === 'always'"
+          (click)="setPreviewFollow('always')"
+        >
+          Always
+        </button>
+        <button
+          type="button"
+          class="segmented-btn"
+          [class.is-active]="previewFollow() === 'never'"
+          [attr.aria-pressed]="previewFollow() === 'never'"
+          (click)="setPreviewFollow('never')"
+        >
+          Never
+        </button>
+      </div>
+    </div>
+  </div>
+
   <h2 class="subhead">Controls</h2>
   <div class="settings-card">
     <div class="settings-field">

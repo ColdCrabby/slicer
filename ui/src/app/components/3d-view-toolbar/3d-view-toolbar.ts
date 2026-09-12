@@ -9,7 +9,9 @@ import {
   viewChild,
 } from '@angular/core';
 import type { ElementRef } from '@angular/core';
+import { formatDuration } from '../../models/duration';
 import { Arrange } from '../../services/arrange';
+import { AutoSlice, type AutoSliceMode } from '../../services/auto-slice';
 import { Dialog } from '../../services/dialog';
 import { GcodePreview } from '../../services/gcode-preview';
 import { HistoryControlsPreference } from '../../services/history-controls-preference';
@@ -61,6 +63,7 @@ export class ThreeDViewToolbar {
   private readonly viewport = inject(Viewport);
   private readonly sceneEngine = inject(SceneEngine);
   protected readonly historyControls = inject(HistoryControlsPreference);
+  protected readonly autoSlice = inject(AutoSlice);
   protected readonly keyboardShortcuts = inject(KeyboardShortcuts);
 
   private readonly addInput = viewChild<ElementRef<HTMLInputElement>>('addObjectInput');
@@ -217,6 +220,49 @@ export class ThreeDViewToolbar {
   protected readonly hasSliceResult = computed(
     () => this.gcodePreview.gcodeHandle() !== null || this.gcodePreview.loading(),
   );
+
+  /** Camera-flash idiom: automatic, forced on, forced off. */
+  private readonly autoSliceIcons: Record<AutoSliceMode, string> = {
+    auto: 'auto-flash',
+    on: 'flash',
+    off: 'flash-off',
+  };
+
+  protected readonly autoSliceIcon = computed(() => this.autoSliceIcons[this.autoSlice.mode()]);
+
+  /**
+   * What the button is doing and what pressing it will do next.
+   *
+   * `auto` quotes the measurement it decided on — this plate's own, which is
+   * why a heavy plate can sit quiet while a light one keeps up — so a plate
+   * that has stopped re-slicing itself says why instead of looking broken.
+   */
+  protected readonly autoSliceLabel = computed(() => {
+    const mode = this.autoSlice.mode();
+    const last = this.autoSlice.lastSliceMs();
+    const measured = last !== null ? `this plate last sliced in ${formatDuration(last)}` : null;
+    const next: Record<AutoSliceMode, string> = {
+      auto: 'always on',
+      on: 'off',
+      off: 'automatic',
+    };
+
+    let state: string;
+    if (mode === 'on') {
+      state = 'Auto-slice always on — every change re-slices';
+    } else if (mode === 'off') {
+      state = 'Auto-slice off — changes wait for the Slice button';
+    } else if (this.autoSlice.enabled()) {
+      state = `Auto-slice automatic — on${measured ? `, ${measured}` : ' while slices stay quick'}`;
+    } else {
+      state = `Auto-slice automatic — holding off${measured ? `, ${measured}` : ''}`;
+    }
+    return `${state}. Click for ${next[mode]}`;
+  });
+
+  protected cycleAutoSlice(): void {
+    this.autoSlice.cycleMode();
+  }
 
   resetView(): void {
     this.viewerControl.reset();

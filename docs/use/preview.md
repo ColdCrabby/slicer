@@ -3,7 +3,10 @@
 The G-code preview shows exactly what the nozzle will do — not a render of your
 model, but the actual toolpaths. Two minutes here saves a failed print.
 
-Press `P` to switch between the model and the preview.
+Press `P` to switch between the model and the preview. A slice you press brings
+you here by itself; a re-slice the slicer ran on its own leaves you where you
+were. Change that under
+[Whether the view follows the slice](/use/interface#whether-the-view-follows-the-slice).
 
 ## Colour by
 
@@ -94,3 +97,8 @@ guessing.
 The **Re-Slice** button turns amber the moment you change a setting or move a
 model. The preview you're looking at is from before that change. Re-slice before
 you trust it.
+
+Most of the time it re-slices itself a second later and the amber clears on its
+own — that's the flash button beside the model / preview toggle, and it holds
+off automatically on plates slow enough that you'd rather choose the moment. See
+[Re-slicing on its own](/use/interface#re-slicing-on-its-own).

@@ -101,6 +101,17 @@ export type PreviewDetail = 'auto' | 'performance' | 'quality';
  */
 export type ModelShading = 'flat' | 'smooth';
 
+/**
+ * Whether a finished slice pulls the view into G-code preview.
+ *
+ * - `auto` — follow a slice you pressed, and leave an automatic re-slice
+ *   alone. Being thrown into preview mid-edit is the one case that actually
+ *   costs something: the plate-editing tools are hidden there, so the next
+ *   drag lands on a view that cannot show it.
+ * - `always` / `never` — every slice, or none of them.
+ */
+export type PreviewFollow = 'auto' | 'always' | 'never';
+
 export interface SliceThumbnailCapture {
   pngBase64: string;
   sizePx: number;
@@ -173,6 +184,7 @@ const MODEL_SHADING_KEY = 'nexus.viewer.modelShading';
 const GLOSS_ENABLED_KEY = 'nexus.viewer.glossEnabled';
 const THUMBNAIL_CAPTURE_FX_KEY = 'nexus.viewer.thumbnailCaptureFx';
 const THUMBNAIL_SCENE_EFFECTS_KEY = 'nexus.viewer.thumbnailSceneEffects';
+const PREVIEW_FOLLOW_KEY = 'nexus.viewer.previewFollow';
 
 /**
  * Shared state between the 3D-view toolbar and the viewer component.
@@ -208,6 +220,9 @@ export class ViewerControl {
 
   /** Whether the viewport shows the raw mesh ('model') or sliced G-code ('gcode'). */
   readonly viewMode = signal<ViewerMode>('model');
+
+  /** When a finished slice switches the view to G-code preview. Persisted. */
+  readonly previewFollow = signal<PreviewFollow>(this.readPreviewFollow());
 
   /**
    * Perspective field-of-view in degrees. Persisted. The viewer pushes it
@@ -424,6 +439,15 @@ export class ViewerControl {
   sliceThumbnailCaptureSink:
     ((request: SliceThumbnailRequest) => Promise<SliceThumbnailCapture | null>) | null = null;
 
+  /**
+   * Whether a 3D viewer is mounted right now. False in full-screen Settings,
+   * where nothing can render the slice thumbnail — which is why a slice nobody
+   * pressed should wait rather than publish G-code without a picture.
+   */
+  get hasActiveViewer(): boolean {
+    return this.sliceThumbnailCaptureSink !== null;
+  }
+
   async captureSliceThumbnail(
     request: SliceThumbnailRequest,
   ): Promise<SliceThumbnailCapture | null> {
@@ -444,6 +468,12 @@ export class ViewerControl {
   setTrackpadTwoFingerGesture(gesture: TwoFingerGesture): void {
     this.trackpadTwoFingerGesture.set(gesture);
     this.storage.write(TWO_FINGER_GESTURE_KEY, gesture);
+  }
+
+  /** Update when a slice pulls the view into preview, and persist it. */
+  setPreviewFollow(mode: PreviewFollow): void {
+    this.previewFollow.set(mode);
+    this.storage.write(PREVIEW_FOLLOW_KEY, mode);
   }
 
   /** Update telemetry visibility and persist the preference. */
@@ -555,6 +585,11 @@ export class ViewerControl {
   private readRenderQuality(): RenderQuality {
     const raw = this.storage.get(RENDER_QUALITY_KEY)();
     return raw === 'performance' || raw === 'quality' ? raw : 'balanced';
+  }
+
+  private readPreviewFollow(): PreviewFollow {
+    const raw = this.storage.get(PREVIEW_FOLLOW_KEY)();
+    return raw === 'always' || raw === 'never' ? raw : 'auto';
   }
 
   private readPreviewDetail(): PreviewDetail {

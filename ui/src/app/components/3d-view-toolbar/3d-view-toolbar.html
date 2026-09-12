@@ -201,7 +201,22 @@
 }
 
 <div class="view-group">
+  <!-- Only offered once a slice exists: an automatic re-slice is a reaction to
+       drift from a previous result, so before the first one there is nothing
+       for this to do. -->
   @if (hasSliceResult()) {
+    <button
+      class="reset-view-button"
+      type="button"
+      [class.active]="autoSlice.enabled()"
+      [attr.aria-pressed]="autoSlice.enabled()"
+      [tooltip]="autoSliceLabel()"
+      [attr.aria-label]="autoSliceLabel()"
+      (click)="cycleAutoSlice()"
+    >
+      <nexus-icon [name]="autoSliceIcon()"></nexus-icon>
+    </button>
+
     @let viewLabel = viewMode() === 'gcode' ? 'Switch to model view' : 'Switch to G-code preview';
     <button
       class="reset-view-button"

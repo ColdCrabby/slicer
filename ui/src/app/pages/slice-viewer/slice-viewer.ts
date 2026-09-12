@@ -5,6 +5,7 @@ import {
   effect,
   inject,
   signal,
+  untracked,
 } from '@angular/core';
 import { toSignal } from '@angular/core/rxjs-interop';
 import { ActivatedRoute, Router } from '@angular/router';
@@ -172,11 +173,27 @@ export class SliceViewer {
   }
 
   constructor() {
-    // Auto-switch to gcode view as soon as a slice completes.
+    // Follow a finished slice into G-code preview, as far as the preference
+    // allows. `auto` follows a slice the user pressed and leaves an automatic
+    // re-slice alone: the plate-editing tools are hidden in preview, so being
+    // pulled there mid-edit lands the next drag on a view that cannot show it.
+    // Never switches *away* from preview, so someone already inspecting a slice
+    // stays put whatever re-sliced it.
+    //
+    // Only `status` is tracked. Reading the preference reactively would make
+    // changing it in Settings retro-apply to the slice already on screen and
+    // yank the user into preview; it should decide what the *next* slice does.
     effect(() => {
-      if (this.#slicer.status() === 'done') {
-        this.#viewerControl.viewMode.set('gcode');
+      if (this.#slicer.status() !== 'done') {
+        return;
       }
+      untracked(() => {
+        const follow = this.#viewerControl.previewFollow();
+        if (follow === 'never' || (follow === 'auto' && this.#slicer.sliceWasAutomatic())) {
+          return;
+        }
+        this.#viewerControl.viewMode.set('gcode');
+      });
     });
 
     // Always reload the file whenever the route UUID changes — the in-memory
