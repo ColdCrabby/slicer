@@ -26,6 +26,7 @@ import { Viewport } from '../services/viewport';
 import { Icon, UserInputModality } from '@coldcrabby/ui';
 import { FieldHost } from './field-host/field-host';
 import { noticeForField } from './field-exceptions/field-exceptions';
+import { controlFor } from './models/field-control';
 import { FieldDef, SchemaGroup } from './models/field-def';
 import { parseSchema } from './models/schema-parser';
 import {
@@ -243,13 +244,15 @@ export class SchemaForm {
    * Array parameters are dropped here. A fan curve and a set of pause triggers
    * are structured lists with dedicated editors elsewhere; there is no generic
    * control that can edit one, and offering the fallback widget rendered a
-   * single input for a list of objects.
+   * single input for a list of objects. Asking `controlFor` rather than testing
+   * the type keeps that judgement in the one place the profile editors read it
+   * from too.
    */
   private readonly allGroups = computed<SchemaGroup[]>(() =>
     parseSchema(this.schema())
       .groups.map((group) => ({
         ...group,
-        fields: group.fields.filter((field) => field.type !== 'array'),
+        fields: group.fields.filter((field) => controlFor(field) !== 'array'),
       }))
       .filter((group) => group.fields.length > 0),
   );

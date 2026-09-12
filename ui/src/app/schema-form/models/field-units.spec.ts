@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import processSchema from '../../../schemas/slicer-engine-process-profile-v1.json';
 import type { FieldDef } from './field-def';
-import { fieldLabel } from './field-labels';
+import { ENUM_LABELS, FIELD_LABELS, fieldLabel } from './field-labels';
 import { unitForField } from './field-units';
 import { parseSchema } from './schema-parser';
 
@@ -80,5 +80,25 @@ describe('the engine schema', () => {
       .filter((f) => f.unit && unitForField(f).unit === '' && f.unit !== 'count')
       .map((f) => `${f.key}=${f.unit}`);
     expect(unknown).toEqual([]);
+  });
+
+  /**
+   * Labels are curated, never generated — so a parameter nobody has named shows
+   * its raw schema key to the user. That is the right *behaviour* (see
+   * `fieldLabel` above) and the wrong *outcome*: the reader should never meet
+   * `extruder_clearance_radius_mm` in the sidebar. Failing here turns it into a
+   * build-time defect, caught by whoever added the field.
+   */
+  it('has a curated label for every parameter', () => {
+    const unnamed = fields.filter((f) => !(f.key in FIELD_LABELS)).map((f) => f.key);
+    expect(unnamed, `parameters with no entry in FIELD_LABELS: ${unnamed.join(', ')}`).toEqual([]);
+  });
+
+  it('has a curated label for every enum choice', () => {
+    const unnamed = fields
+      .flatMap((f) => (f.enumOptions ?? []).map((o) => ({ key: f.key, value: o.value })))
+      .filter(({ value }) => !(value in ENUM_LABELS))
+      .map(({ key, value }) => `${key}.${value}`);
+    expect(unnamed, `enum consts with no entry in ENUM_LABELS: ${unnamed.join(', ')}`).toEqual([]);
   });
 });

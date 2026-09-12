@@ -651,7 +651,7 @@ Supported values:
 - `classic` — fixed-width concentric perimeters with thin-wall gap fill (fast, robust).
 - `arachne` — medial-axis variable-width walls that better fill thin features (engraved text, tapering ribs).
 
-**Default:** `arachne`.", extend("x-group" = "Walls", "x-tier" = "advanced"))]
+**Default:** `arachne`.", extend("x-group" = "Walls", "x-tier" = "advanced", "x-widget" = "cards"))]
     #[serde(default = "SlicingParams::default_wall_generator")]
     pub wall_generator: WallGenerator,
 
@@ -2192,7 +2192,7 @@ conservative and supports gentler overhangs, a **larger** angle supports only se
 
     #[schemars(
         description = "Support style: `normal` (grid columns) or `tree` (organic branches).",
-        extend("x-group" = "Support", "x-relevant-when" = serde_json::json!({"field": "support_enabled", "equals": true}))
+        extend("x-group" = "Support", "x-widget" = "cards", "x-relevant-when" = serde_json::json!({"field": "support_enabled", "equals": true}))
     )]
     #[serde(default)]
     pub support_type: SupportType,
@@ -2281,7 +2281,7 @@ per unit area but is coarser to break off.",
 
     #[schemars(
         description = "Bed-adhesion helper: `none`, `skirt`, `brim`, or `raft`.",
-        extend("x-group" = "Adhesion")
+        extend("x-group" = "Adhesion", "x-widget" = "cards")
     )]
     #[serde(default)]
     pub adhesion_type: AdhesionType,
@@ -2323,7 +2323,7 @@ per unit area but is coarser to break off.",
 
     #[schemars(
         description = "Number of layers the skirt spans (≥1). Values >1 act as a draft shield around the print.",
-        extend("x-group" = "Adhesion", "x-unit" = "mm", "x-step" = 1, "x-tier" = "advanced", "x-relevant-when" = serde_json::json!({"field": "adhesion_type", "equals": "skirt"}))
+        extend("x-group" = "Adhesion", "x-unit" = "count", "x-tier" = "advanced", "x-relevant-when" = serde_json::json!({"field": "adhesion_type", "equals": "skirt"}))
     )]
     #[serde(default = "SlicingParams::default_skirt_height")]
     pub skirt_height: usize,
@@ -2566,7 +2566,7 @@ more effectively than ironing along them.",
 
     #[schemars(
         description = "How a plate with several objects is printed: all objects together, rising one layer at a time — or each object finished completely before the next begins.",
-        extend("x-group" = "Objects", "x-tier" = "advanced")
+        extend("x-group" = "Objects", "x-tier" = "advanced", "x-widget" = "cards")
     )]
     #[serde(default)]
     pub print_sequence: PrintSequence,
@@ -2603,7 +2603,7 @@ more effectively than ironing along them.",
         description = "Bed mesh leveling directive emitted at print start: off (leave it to the \
                        printer's own start macro/config), load a previously saved mesh profile, \
                        or recalibrate before every print.",
-        extend("x-group" = "Hardware", "x-tier" = "advanced")
+        extend("x-group" = "Hardware", "x-tier" = "advanced", "x-widget" = "cards")
     )]
     #[serde(default)]
     pub bed_mesh_mode: BedMeshMode,

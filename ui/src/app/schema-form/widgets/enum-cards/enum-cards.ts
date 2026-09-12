@@ -1,22 +1,25 @@
 import { ChangeDetectionStrategy, Component, EventEmitter, computed, input } from '@angular/core';
-import { Select, type SelectOption, TooltipDirective } from '@coldcrabby/ui';
+import { RadioGroup, type RadioOption, TooltipDirective } from '@coldcrabby/ui';
 import { IconButton } from '../../../shared/icon-button/icon-button';
 import { optionSummary } from '../../models/field-labels';
 import type { FieldDef } from '../../models/field-def';
 import type { FieldWidget } from '../base-field';
 
 /**
- * Dropdown for a longer enum — the infill and surface patterns, the seam
- * strategies, the thumbnail angles. A list you pick from rather than a set of
- * modes, which is what separates it from the segmented control; the boundary
- * is option count alone (see `models/field-control.ts`).
+ * Option-card widget for an enum whose branches work differently enough that
+ * the names alone will not separate them — `Classic` vs `Arachne`, `All at
+ * Once` vs `One at a Time`. Renders the design-system `nexus-radio-group` as
+ * selectable cards, each carrying the variant's description on its own line.
  *
- * Each variant's opening sentence rides along as the option's secondary line.
+ * It is the **tallest** control the form has, so it is never chosen by option
+ * count: a field opts in with `x-widget = "cards"` and everything else with
+ * three or fewer choices stays a segmented control. `ControlKind` in
+ * `models/field-control.ts` carries the whole set and the rule separating them.
  */
 @Component({
-  selector: 'se-enum-select',
+  selector: 'se-enum-cards',
   standalone: true,
-  imports: [IconButton, TooltipDirective, Select],
+  imports: [IconButton, TooltipDirective, RadioGroup],
   changeDetection: ChangeDetectionStrategy.OnPush,
   styles: [
     `
@@ -26,7 +29,7 @@ import type { FieldWidget } from '../base-field';
         gap: 6px;
       }
 
-      label {
+      .legend {
         display: flex;
         align-items: center;
         gap: 4px;
@@ -34,12 +37,11 @@ import type { FieldWidget } from '../base-field';
         font-weight: 500;
         color: var(--color-text-secondary);
         user-select: none;
-        cursor: default;
       }
     `,
   ],
   template: `
-    <label class="field-label" [for]="field().key">
+    <span class="legend field-label">
       <span>{{ field().title ?? field().key }}</span>
       @if (field().description) {
         <nexus-icon-button
@@ -50,20 +52,21 @@ import type { FieldWidget } from '../base-field';
           [tooltipClickToggle]="true"
         />
       }
-    </label>
-    <nexus-select
+    </span>
+    <nexus-radio-group
       [options]="options()"
       [value]="stringValue()"
+      [label]="field().title ?? field().key"
       (valueChange)="valueChange.emit($event)"
-    ></nexus-select>
+    ></nexus-radio-group>
   `,
 })
-export class EnumSelect implements FieldWidget {
+export class EnumCards implements FieldWidget {
   readonly field = input.required<FieldDef>();
   readonly value = input<unknown>(undefined);
   readonly valueChange = new EventEmitter<unknown>();
 
-  protected readonly options = computed<SelectOption[]>(() =>
+  protected readonly options = computed<RadioOption[]>(() =>
     (this.field().enumOptions ?? []).map((o) => ({
       value: o.value,
       label: o.label,

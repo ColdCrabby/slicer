@@ -20,6 +20,7 @@ import {
 import { PROFILE_SOURCE_LABELS } from '../../models/profile-source';
 import { SETTING_CONTRACTS } from '../../models/setting-contract';
 import globalSettingsSchema from '../../../schemas/slicer-engine-global-settings-v1.json';
+import { controlFor } from '../../schema-form/models/field-control';
 import { parseSchema } from '../../schema-form/models/schema-parser';
 import type { SchemaGroup } from '../../schema-form/models/field-def';
 import {
@@ -91,12 +92,23 @@ const PRINTER_PARAM_GROUPS = SETTING_CONTRACTS.find((c) => c.id === 'printer')!.
 );
 
 /**
+ * Params the printer editor does not offer.
+ *
+ * `resolve` writes both from the chosen printer profile on every slice, so a
+ * box here would accept an edit and then quietly discard it. The machine's
+ * vendor and model are shown with its name in the header instead, where they
+ * read as what they are: a description of the printer, not a setting.
+ */
+const DERIVED_PARAM_KEYS = new Set(['printer_vendor', 'printer_model']);
+
+/**
  * The slice-parameter groups rendered in the printer editor, in contract
  * display order. Parsed once from the schema (it never changes at runtime).
- * Each group's fields are filtered to those `nexus-param-field` can render —
- * enums (→ select), booleans (→ switch), and numbers/integers (→ number) —
- * dropping plain string/array fields that would render as broken inputs. Groups
- * left with no renderable field are dropped entirely.
+ *
+ * `nexus-param-field` renders every control in the shared taxonomy except
+ * `array` — fan curves and pause triggers have editors of their own — so that
+ * and {@link DERIVED_PARAM_KEYS} are all that is filtered out. Groups left with
+ * no renderable field are dropped entirely.
  */
 const PARAM_GROUPS: SchemaGroup[] = (() => {
   const order = new Map<string, number>(PRINTER_PARAM_GROUPS.map((name, index) => [name, index]));
@@ -104,13 +116,7 @@ const PARAM_GROUPS: SchemaGroup[] = (() => {
     .groups.filter((g) => order.has(g.name))
     .map((g) => ({
       ...g,
-      fields: g.fields.filter(
-        (f) =>
-          !!f.enumOptions?.length ||
-          f.type === 'boolean' ||
-          f.type === 'number' ||
-          f.type === 'integer',
-      ),
+      fields: g.fields.filter((f) => !DERIVED_PARAM_KEYS.has(f.key) && controlFor(f) !== 'array'),
     }))
     .filter((g) => g.fields.length > 0)
     .sort((a, b) => (order.get(a.name) ?? 0) - (order.get(b.name) ?? 0));

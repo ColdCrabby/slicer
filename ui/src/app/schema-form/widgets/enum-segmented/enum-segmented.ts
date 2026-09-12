@@ -1,18 +1,28 @@
 import { ChangeDetectionStrategy, Component, EventEmitter, computed, input } from '@angular/core';
-import { RadioGroup, type RadioOption, TooltipDirective } from '@coldcrabby/ui';
+import { Segmented, type SegmentOption, TooltipDirective } from '@coldcrabby/ui';
 import { IconButton } from '../../../shared/icon-button/icon-button';
+import { optionSummary } from '../../models/field-labels';
 import type { FieldDef } from '../../models/field-def';
 import type { FieldWidget } from '../base-field';
 
 /**
- * Radio-group widget for enum fields with 3 or fewer options. Renders the
- * design-system `nexus-radio-group` as selectable option cards, each showing
- * the variant description so the user can tell the options apart at a glance.
+ * The default control for a short enum: a recessed track showing every choice
+ * at once, with the selection raised as a pill.
+ *
+ * This is what a small, plainly-named choice looks like — `Draft · Normal ·
+ * High Quality`, `Light · Dark · Transparent`. Nothing has to be opened to see
+ * the alternatives, and the row stays one line tall, which is what keeps a
+ * settings group scannable. Each variant's description rides along as a
+ * tooltip; a field whose options genuinely need that text on screen asks for
+ * `x-widget = "cards"` instead.
+ *
+ * The control stacks itself vertically when the sidebar is too narrow for the
+ * labels, so long variant names stay readable rather than being clipped.
  */
 @Component({
-  selector: 'se-enum-radio',
+  selector: 'se-enum-segmented',
   standalone: true,
-  imports: [IconButton, TooltipDirective, RadioGroup],
+  imports: [IconButton, TooltipDirective, Segmented],
   changeDetection: ChangeDetectionStrategy.OnPush,
   styles: [
     `
@@ -46,24 +56,24 @@ import type { FieldWidget } from '../base-field';
         />
       }
     </span>
-    <nexus-radio-group
+    <nexus-segmented
       [options]="options()"
       [value]="stringValue()"
       [label]="field().title ?? field().key"
       (valueChange)="valueChange.emit($event)"
-    ></nexus-radio-group>
+    ></nexus-segmented>
   `,
 })
-export class EnumRadio implements FieldWidget {
+export class EnumSegmented implements FieldWidget {
   readonly field = input.required<FieldDef>();
   readonly value = input<unknown>(undefined);
   readonly valueChange = new EventEmitter<unknown>();
 
-  protected readonly options = computed<RadioOption[]>(() =>
+  protected readonly options = computed<SegmentOption[]>(() =>
     (this.field().enumOptions ?? []).map((o) => ({
       value: o.value,
       label: o.label,
-      description: o.description,
+      description: optionSummary(o.description),
     })),
   );
 

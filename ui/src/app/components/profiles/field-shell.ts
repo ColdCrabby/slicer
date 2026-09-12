@@ -14,14 +14,20 @@ import { ChangeDetectionStrategy, Component, input } from '@angular/core';
  *
  * Give it a {@link title} and project the control via `<ng-content>`. Omit the
  * title and the control takes the full width, letting a section header (or a
- * `profile-editor__group-title`) label it instead.
+ * `profile-editor__group-title`) label it instead. Set {@link stacked} for a
+ * control that cannot share a line with its label — option cards, which are as
+ * tall as their explanations.
  */
 @Component({
   selector: 'nexus-field-shell',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
-    <div class="field-shell" [class.field-shell--titled]="!!title()">
+    <div
+      class="field-shell"
+      [class.field-shell--titled]="!!title()"
+      [class.field-shell--stacked]="stacked()"
+    >
       <div class="field-shell__row">
         @if (title(); as t) {
           <span class="field-shell__title">{{ t }}</span>
@@ -53,7 +59,10 @@ import { ChangeDetectionStrategy, Component, input } from '@angular/core';
         gap: var(--spacing-lg);
       }
       .field-shell__title {
-        min-width: 0;
+        /* Keep enough room for a two-word label: a wide control used to squeeze
+           the title until "Thumbnail Size" broke as "Thumbna / Size". */
+        flex: 1;
+        min-width: 7rem;
         font-size: var(--font-size-md);
         color: var(--color-text-primary);
       }
@@ -63,9 +72,19 @@ import { ChangeDetectionStrategy, Component, input } from '@angular/core';
         gap: var(--spacing-sm);
         flex: 1;
       }
-      /* With a title the control hugs the right; titleless rows span the width. */
+      /* With a title the control hugs the right, giving up width before the
+         label does; titleless rows span the row. */
       .field-shell--titled .field-shell__control {
-        flex: none;
+        flex: 0 1 auto;
+      }
+      /* A stacked control drops under its label and takes the full width. */
+      .field-shell--stacked .field-shell__row {
+        flex-direction: column;
+        align-items: stretch;
+        gap: var(--spacing-sm);
+      }
+      .field-shell--stacked .field-shell__control {
+        flex: 1;
       }
       .field-shell__desc {
         margin: var(--spacing-xs) 0 0;
@@ -83,4 +102,6 @@ export class FieldShell {
   readonly title = input('');
   /** Optional helper text rendered inline below the row. */
   readonly description = input('');
+  /** Put the control under the label, full width, instead of beside it. */
+  readonly stacked = input(false);
 }
