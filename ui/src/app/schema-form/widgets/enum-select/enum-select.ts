@@ -10,7 +10,7 @@ import type { FieldWidget } from '../base-field';
  * modes, which is what separates it from the segmented control; the boundary
  * is option count alone (see `models/field-control.ts`).
  *
- * Each variant's summary rides along as the option's secondary line.
+ * Each variant's description rides along as the option's secondary line.
  */
 @Component({
   selector: 'se-enum-select',

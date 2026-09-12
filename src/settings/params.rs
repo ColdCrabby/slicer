@@ -281,37 +281,25 @@ impl FanConfig {
 ///
 /// Mirrors the seam options offered by PrusaSlicer / OrcaSlicer / Bambu Studio
 /// so users can transfer their preferences.
+///
+/// `Nearest` minimises travel but scatters seams; `Rear` and `Aligned` stack
+/// them into one line (aligned holds that line through a twisting model, since
+/// it measures against a fixed XY direction rather than the loop's bounding
+/// box); `SharpestCorner` falls back to `Nearest` on a cornerless loop; and
+/// `Random` is deterministic per loop, seeded from the path geometry.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum SeamPosition {
-    /// Pick the loop vertex closest to the nozzle's current position.
-    ///
-    /// Minimises travel and therefore print time, but seams scatter randomly
-    /// across the surface.  Good for prototypes and infill-heavy parts.
+    /// Whichever vertex the nozzle is nearest — quickest, but seams scatter.
     #[default]
     Nearest,
-    /// Puts the seam at the back of the plate, where a display piece is least
-    /// often looked at.
-    ///
-    /// The vertex with the largest Y coordinate.  Deterministic per loop, so
-    /// the seams stack into one visible line rather than scattering.
+    /// At the back of the plate, where a display piece is least often looked at.
     Rear,
     /// Like rear, but holds its line even where the model twists.
-    ///
-    /// Places the seam at the vertex closest to a fixed XY direction (default:
-    /// rear-aligned), which stays put across layers even when the loop's
-    /// bounding box shifts.
     Aligned,
-    /// Place the seam at the vertex with the sharpest convex corner.
-    ///
-    /// Hides the blob in a corner where it is geometrically expected and
-    /// least visible.  Falls back to `Nearest` for smooth (cornerless) loops.
+    /// Tucked into the sharpest corner, where a blob is expected and least seen.
     SharpestCorner,
-    /// Pick a different random vertex for every loop.
-    ///
-    /// Spreads seam blobs evenly so no single line is visible — useful for
-    /// organic or cylindrical parts where a single seam line would stand
-    /// out.  Deterministic per-loop given a seed (uses path geometry hash).
+    /// A different vertex every loop, so no seam line forms at all.
     Random,
 }
 
@@ -346,25 +334,18 @@ impl SeamPosition {
 /// Mirrors the "Wall generator" choice offered by PrusaSlicer / OrcaSlicer /
 /// Bambu Studio: a robust classic offset generator, or the Arachne
 /// variable-width generator.
+///
+/// `Classic` is deterministic and dependency-free: `wall_count` constant-width
+/// beads per shell, plus one variable-width residual bead in whatever narrow
+/// space remains. `Arachne` adapts the loop count to the local wall thickness
+/// and follows the medial axis into thin features a fixed-width perimeter
+/// cannot reach, after Kuipers et al. (2020). Arachne is the default.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum WallGenerator {
-    /// Every wall the same width — fast and predictable, but a feature too
-    /// thin for a whole bead is left to gap fill.
-    ///
-    /// Deterministic, fast, and dependency-free.  Produces `wall_count`
-    /// constant-width beads per shell plus a variable-width residual bead in
-    /// any narrow space that remains.  Matches the approach the mature slicers
-    /// ship as their "Classic" wall generator.
+    /// Every wall the same width; anything too thin for a bead becomes gap fill.
     Classic,
-    /// Walls that change width as the model does, reaching into engraved text
-    /// and tapering ribs a fixed bead cannot.
-    ///
-    /// Concentric perimeter loops whose count adapts to the local wall
-    /// thickness, plus variable-width beads that follow the medial axis to fill
-    /// thin features (engraved text, tapering ribs) a fixed-width perimeter
-    /// cannot.  Based on the medial-axis approach of Kuipers et al. (2020) used
-    /// by CuraEngine / PrusaSlicer / OrcaSlicer.  This is the default.
+    /// Walls that vary in width to reach thin features a fixed bead cannot.
     #[default]
     Arachne,
 }
@@ -399,12 +380,10 @@ impl WallGenerator {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum SupportType {
-    /// Straight grid columns dropped from every overhang — predictable, and
-    /// more of it to cut away afterwards.
+    /// Straight grid columns under every overhang — predictable, more to cut off.
     #[default]
     Normal,
-    /// Branches that taper and merge on the way down, so they touch the model
-    /// in fewer places and use less material.
+    /// Branches that taper and merge, touching the model in fewer places.
     Tree,
 }
 
@@ -424,8 +403,7 @@ pub enum AdhesionType {
     /// The object alone, printed straight onto the plate.
     #[default]
     None,
-    /// A loop traced around the object without touching it — primes the nozzle,
-    /// and taller ones shield the print from draughts.
+    /// A loop traced around the object without touching it; primes the nozzle.
     Skirt,
     /// A flat apron fused to the object's first layer for extra bed grip.
     Brim,
@@ -442,13 +420,11 @@ pub enum BrimType {
     /// Loops around the outer contour of every island (the common case).
     #[default]
     OuterOnly,
-    /// Loops inside every hole / concavity only (frees the outer edge, e.g.
-    /// when the outside must stay dimensionally clean).
+    /// Inside holes and concavities only, leaving the outer edge clean.
     InnerOnly,
     /// Both outer contours and holes get brim loops.
     OuterAndInner,
-    /// Small brim discs ("mouse ears") stamped only at sharp convex corners —
-    /// minimal material where warping actually starts.
+    /// Small discs at sharp corners only — least material where warping starts.
     Ears,
 }
 
@@ -463,14 +439,9 @@ pub enum IroningType {
     /// Every exposed top surface, on any layer (the common case).
     #[default]
     TopSurfaces,
-    /// Only the single highest top surface of the model — the one face a
-    /// viewer actually looks down on, at a fraction of the print-time cost.
+    /// Only the model's highest face — the one a viewer actually looks down on.
     TopmostOnly,
-    /// Every solid surface, including the internal floors that brace sparse
-    /// infill.
-    ///
-    /// Rarely useful: those floors are buried under later layers, so the finish
-    /// is invisible and the time is spent regardless.
+    /// Every solid surface, internal floors included. Rarely worth the time.
     AllSolid,
 }
 
@@ -487,12 +458,6 @@ pub enum PrintSequence {
     #[default]
     ByLayer,
     /// Finish each object completely before starting the next.
-    ///
-    /// Cuts the stringing and scars that plate-wide travel moves leave on
-    /// finished surfaces, and lets a completed part be lifted off before the
-    /// rest of the plate is done. In return the printhead has to clear whatever
-    /// is already on the bed, so parts that are too tall or too close together
-    /// are flagged before printing.
     ByObject,
 }
 
@@ -523,6 +488,10 @@ impl PrintSequence {
 /// on top of that would either duplicate the work or race it. Turning this on
 /// hands the mesh step to the slicer instead, so it survives across different
 /// custom start scripts without being hand-copied into each one.
+///
+/// `LoadProfile` emits Klipper `BED_MESH_PROFILE LOAD=<name>` or Marlin/RepRap
+/// `M420 S1`; `Calibrate` emits `BED_MESH_CALIBRATE` / `G29` and then loads the
+/// result.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum BedMeshMode {
@@ -530,14 +499,8 @@ pub enum BedMeshMode {
     #[default]
     Off,
     /// Reuses a mesh probed earlier, so it costs no print time.
-    ///
-    /// Klipper `BED_MESH_PROFILE LOAD=<name>`, Marlin/RepRap `M420 S1`.
     LoadProfile,
-    /// Probes the bed before every print — always current, at a few minutes
-    /// a job.
-    ///
-    /// Klipper `BED_MESH_CALIBRATE`, Marlin/RepRap `G29`, then loads the
-    /// result.
+    /// Probes the bed before every print: always current, a few minutes a job.
     Calibrate,
 }
 
@@ -549,8 +512,7 @@ pub enum BedMeshMode {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum ThumbnailView {
-    /// Three-quarter isometric from the front-right, slightly above — the
-    /// classic "hero" product shot. Shows depth and the top face at once.
+    /// Three-quarter view from the front-right, slightly above.
     #[default]
     Isometric,
     /// Straight-on from the front (−Y), a hair above the horizon.
@@ -577,8 +539,7 @@ pub enum ThumbnailTheme {
     Light,
     /// A solid near-black backdrop is baked into the image.
     Dark,
-    /// No backdrop at all — a PNG cutout, so whatever the printer's screen puts
-    /// behind it shows through (default).
+    /// No backdrop — a PNG cutout the printer's own screen shows through.
     #[default]
     Transparent,
 }

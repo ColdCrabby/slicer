@@ -17,13 +17,9 @@ pub enum GcodeFlavor {
     #[serde(alias = "Marlin")]
     Marlin,
     /// Adds velocity, pressure-advance and custom-macro commands.
-    ///
-    /// `SET_VELOCITY_LIMIT`, `SET_PRESSURE_ADVANCE`, and user-defined macros.
     #[serde(alias = "Klipper")]
     Klipper,
     /// A Marlin-compatible baseline plus a few RepRapFirmware-only commands.
-    ///
-    /// Such as `M226` for pause-on-this-line.
     #[serde(alias = "RepRap")]
     RepRap,
 }

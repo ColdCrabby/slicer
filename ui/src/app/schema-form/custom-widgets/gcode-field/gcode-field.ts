@@ -1,4 +1,5 @@
 import { ChangeDetectionStrategy, Component, EventEmitter, computed, input } from '@angular/core';
+import { MarkdownComponent } from 'ngx-markdown';
 import { CodeEditor } from '../../../components/code-editor/code-editor';
 import type { FieldDef } from '../../models/field-def';
 import type { FieldWidget } from '../../widgets/base-field';
@@ -17,14 +18,14 @@ import type { FieldWidget } from '../../widgets/base-field';
 @Component({
   selector: 'se-gcode-field',
   standalone: true,
-  imports: [CodeEditor],
+  imports: [CodeEditor, MarkdownComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <label class="gcode-field__label field-label" [for]="field().key">{{
       field().title ?? field().key
     }}</label>
     @if (field().description; as d) {
-      <p class="gcode-field__desc">{{ d }}</p>
+      <markdown class="gcode-field__desc" [data]="d" />
     }
     <nexus-code-editor
       class="gcode-field__editor"
@@ -46,12 +47,27 @@ import type { FieldWidget } from '../../widgets/base-field';
         color: var(--color-text-secondary);
         user-select: none;
       }
+      /* Rendered Markdown: ngx-markdown's output carries no scoping
+         attribute, so the inner elements need ::ng-deep. */
       .gcode-field__desc {
+        display: block;
         margin: 0;
         font-size: var(--font-size-xs);
         line-height: 1.5;
         color: var(--color-text-tertiary);
-        white-space: pre-line;
+      }
+      .gcode-field__desc ::ng-deep > :first-child {
+        margin-top: 0;
+      }
+      .gcode-field__desc ::ng-deep > :last-child {
+        margin-bottom: 0;
+      }
+      .gcode-field__desc ::ng-deep p {
+        margin: 0 0 var(--spacing-xs);
+      }
+      .gcode-field__desc ::ng-deep code {
+        font-family: var(--font-family-mono);
+        font-size: 0.95em;
       }
       .gcode-field__editor {
         height: 160px;

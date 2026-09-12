@@ -171,17 +171,12 @@ const MIN_SPACING_MM: f64 = 0.01;
 pub enum SurfacePattern {
     /// Back-and-forth serpentine: every second line is drawn in reverse.
     Rectilinear,
-    /// Serpentine that keeps a constant angle on every layer instead of
-    /// cross-hatching.
-    ///
-    /// Spelled `alignedrectilinear` by PrusaSlicer and OrcaSlicer.
+    /// Serpentine holding one angle on every layer instead of cross-hatching.
     AlignedRectilinear,
     /// One-way sweep with the line ends joined along the region boundary.
     #[default]
     Monotonic,
     /// One-way sweep with the lines left separate, so no join marks the turn.
-    ///
-    /// Spelled `monotonicline` by OrcaSlicer, `monotoniclines` by PrusaSlicer.
     MonotonicLine,
     /// Loops following the region outline, stepping inward one bead at a time.
     Concentric,

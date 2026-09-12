@@ -325,12 +325,11 @@ a line of explanation under each choice. Cards are the tallest control the panel
 has; a section where every branch is a stack of explanations is no calmer than
 one with none, so the count is capped by a test.
 
-An option's description — on a card, in a segment's tooltip, on a dropdown line
-— is the **first paragraph of the variant's doc comment**, shown verbatim. The
-blank line after it is the delimiter, so write the summary short and put the
-detail below it; nothing trims at render time, and `field-units.spec.ts` fails
-on a summary too long to show whole or carrying Markdown. The rest of the doc
-reaches the reader through the field's own ⓘ.
+**Schema prose reaches the UI exactly as written.** Nothing trims, splits or
+strips it on the way — the ⓘ renders the doc comment as Markdown, so write the
+comment for a reader and it arrives that way. Which means the length of a
+variant's doc is the length of the line under its option: keep the first
+paragraph to a sentence, and the rest will read as the detail it is.
 
 **That sentence must not restate the option's name.** It is the only line the
 reader gets, and it sits directly under the label, so a variant doc that opens

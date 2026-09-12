@@ -7,42 +7,6 @@ type RawDefs = Record<string, { oneOf?: Array<{ const?: unknown; description?: s
 const UNGROUPED = 'General';
 
 /**
- * The engine writes its schema prose as Rust doc comments, so a description
- * arrives with two things the UI cannot render: the lightweight Markdown
- * `schemars` passes through (`**bold**`, `` `code` ``), and the source's hard
- * line wrapping.
- *
- * Both are dealt with here, once, at the boundary — so a `FieldDef` holds plain
- * text and nothing downstream owns a copy of this rule. Widgets used to strip
- * the markers themselves, which meant a description read one way in the profile
- * editor and another in the tooltip two clicks away.
- *
- * Blank lines survive: they are the doc's paragraph breaks, and the editor
- * renders them with `white-space: pre-line`.
- */
-function plainText(markdown: string | undefined): string | undefined {
-  return markdown?.replace(/\*\*/g, '').replace(/`/g, '').trim();
-}
-
-/**
- * The first paragraph of a doc comment — its summary line, by Rust convention,
- * and the only part short enough to sit under an option in a card, a segment's
- * tooltip or a dropdown row.
- *
- * The blank line is a real delimiter the author wrote, which is the whole
- * reason this is a split and not an attempt to find where a sentence ends. An
- * earlier version searched for the first full stop and needed a list of
- * abbreviations to stop cutting "(e.g. `M226` …)" in half.
- *
- * `field-units.spec.ts` holds the other half of the bargain: every variant's
- * summary must be plain and short enough to show whole.
- */
-function summaryParagraph(doc: string | undefined): string | undefined {
-  const [summary] = (doc ?? '').split(/\n\s*\n/);
-  return summary.replace(/\s+/g, ' ').trim() || undefined;
-}
-
-/**
  * Read the `x-relevant-when` extension from a raw property, defensively.
  * Returns a `FieldRelevance` only when the value is an object carrying a
  * string `field`; otherwise `undefined` (the field is always relevant).
@@ -76,7 +40,7 @@ function resolveEnumOptions(prop: RawProp, defs: RawDefs): EnumOption[] | undefi
       return def.oneOf.map((v) => ({
         value: String(v.const),
         label: enumLabel(String(v.const)),
-        description: summaryParagraph(v.description),
+        description: v.description,
       }));
     }
   }
@@ -86,7 +50,7 @@ function resolveEnumOptions(prop: RawProp, defs: RawDefs): EnumOption[] | undefi
     return oneOf.map((v) => ({
       value: String(v.const),
       label: enumLabel(String(v.const)),
-      description: summaryParagraph(v.description),
+      description: v.description,
     }));
   }
 
@@ -154,7 +118,7 @@ export function parseSchema(
       type: resolveFieldType(prop),
       format: prop['format'] as string | undefined,
       title: (prop['title'] as string | undefined) ?? fieldLabel(key),
-      description: plainText(prop['description'] as string | undefined),
+      description: prop['description'] as string | undefined,
       default: prop['default'],
       required: required.has(key),
       minimum: prop['minimum'] as number | undefined,
