@@ -1,7 +1,12 @@
 import { Injectable, computed, inject, signal } from '@angular/core';
 import { environment } from '../../environments/environment';
 import type { ClientMessage } from '../../generated/slicer-engine-ws-client-message-v1';
-import type { ServerMessage } from '../../generated/slicer-engine-ws-server-message-v1';
+import type {
+  DetectionFinding,
+  DetectionOption,
+  DetectionQuestion,
+  ServerMessage,
+} from '../../generated/slicer-engine-ws-server-message-v1';
 import { isTauriHost } from '../runtime/domain/runtime-mode.util';
 import type {
   BedShape,
@@ -11,6 +16,8 @@ import type {
 } from '../models/printer.model';
 import { NotificationService } from './notifications';
 import { SlicerConnection } from './slicer-connection';
+
+export type { DetectionFinding, DetectionOption, DetectionQuestion };
 
 /**
  * Live reachability of a printer.
@@ -79,6 +86,19 @@ export interface PrinterDetectionResult {
   originAtCenter?: boolean;
   /** Nozzle diameter (mm), when known. */
   nozzleDiameterMm?: number;
+  /**
+   * Sparse `SlicingParams` overlay read straight off the machine's own config.
+   * Merged into the printer profile's `params` bag like a preset's overrides.
+   */
+  params?: Record<string, unknown>;
+  /** Where each applied value came from, so the wizard can show its work. */
+  findings?: DetectionFinding[];
+  /**
+   * Setup decisions the config could not make for us. Each carries a suggested
+   * answer the wizard applies up front, so they refine a finished profile
+   * rather than blocking one.
+   */
+  questions?: DetectionQuestion[];
 }
 
 const LOCAL_STATUS: PrinterLiveStatus = { state: 'local', label: 'Local profile' };
@@ -296,7 +316,7 @@ export class PrinterConnectionService {
       const resolve = this.pendingDetections.get(msg.host);
       if (resolve) {
         this.pendingDetections.delete(msg.host);
-        resolve(this.fromServerDetection(msg));
+        resolve(this.fromServerDetection(msg.host, msg));
       }
     }
   }
@@ -420,11 +440,15 @@ export class PrinterConnectionService {
     });
   }
 
-  private fromServerDetection(
-    msg: Extract<ServerMessage, { type: 'PrinterDetected' }>,
-  ): PrinterDetectionResult {
+  /**
+   * Map the engine's wire shape onto the camelCase result the wizard consumes.
+   *
+   * The single funnel for all three transports — server WebSocket, native
+   * command and wasm — so a new detection field is wired up once.
+   */
+  private fromServerDetection(host: string, msg: DetectedPayload): PrinterDetectionResult {
     return {
-      host: msg.host,
+      host,
       reachable: msg.reachable,
       kind: msg.kind,
       message: msg.message ?? undefined,
@@ -438,6 +462,9 @@ export class PrinterConnectionService {
       bedHeight: msg.bed_height ?? undefined,
       originAtCenter: msg.origin_at_center ?? undefined,
       nozzleDiameterMm: msg.nozzle_diameter_mm ?? undefined,
+      params: (msg.params as Record<string, unknown> | undefined) ?? undefined,
+      findings: msg.findings ?? undefined,
+      questions: msg.questions ?? undefined,
     };
   }
 
@@ -472,65 +499,69 @@ export class PrinterConnectionService {
     };
   }
 
+  /**
+   * Probe Moonraker from the browser, then hand the raw replies to the
+   * engine's own derivation through wasm.
+   *
+   * The `fetch` calls have to happen here — this path exists precisely because
+   * there is no server to make them — but the *interpretation* does not. In
+   * the web build the browser is the engine, so it reads a printer's config
+   * with the same rules the server and the desktop app use rather than a
+   * second copy of them in TypeScript.
+   *
+   * Stages mirror `src/printer/transport.rs`: cheap and load-bearing first,
+   * the large `configfile` payload last, each one optional after `/printer/info`.
+   */
   private async detectMoonrakerFromBrowser(
     host: string,
     base: string,
   ): Promise<PrinterDetectionResult | null> {
-    try {
-      const info = await fetch(`${base}/printer/info`, {
-        ...this.localNetworkRequestInit(DETECT_FAST_REQUEST_TIMEOUT_MS),
-      });
-      if (!info.ok) {
-        return null;
-      }
-      const result = ((await info.json()) as MoonrakerInfoResponse)?.result ?? {};
-      if (result.state == null && result.hostname == null) {
-        return null;
-      }
+    const info = await this.fetchJson(`${base}/printer/info`, DETECT_FAST_REQUEST_TIMEOUT_MS);
+    if (!info) {
+      return null;
+    }
 
-      const detection: PrinterDetectionResult = {
+    // Sequential, not parallel: a printer is a single-board computer on the
+    // end of a LAN, and four concurrent requests is how you make the slow one
+    // time out.
+    const fast = DETECT_FAST_REQUEST_TIMEOUT_MS;
+    const toolhead = await this.fetchJson(`${base}/printer/objects/query?toolhead`, fast);
+    const objectList = await this.fetchJson(`${base}/printer/objects/list`, fast);
+    const bedMesh = await this.fetchJson(`${base}/printer/objects/query?bed_mesh`, fast);
+    const configfile = await this.fetchJson(
+      `${base}/printer/objects/query?configfile`,
+      DETECT_SLOW_REQUEST_TIMEOUT_MS,
+    );
+
+    const derive = await loadKlipperDerivation();
+    if (!derive) {
+      return {
         host,
         reachable: true,
         kind: 'moonraker',
-        vendor: 'Klipper',
         firmware: 'klipper',
-        name: result.hostname || undefined,
+        message: 'Found a Klipper printer, but this build cannot read its settings.',
       };
+    }
 
-      try {
-        // Split enrichment calls: `toolhead` is tiny and carries bed spans,
-        // while `configfile` can be large on macro-heavy Klipper setups.
-        const queryToolhead = await fetch(`${base}/printer/objects/query?toolhead`, {
-          ...this.localNetworkRequestInit(DETECT_FAST_REQUEST_TIMEOUT_MS),
-        });
-        if (queryToolhead.ok) {
-          const status =
-            ((await queryToolhead.json()) as MoonrakerObjectsResponse)?.result?.status ?? {};
-          enrichFromMoonrakerObjects(detection, status);
-        }
-      } catch {
-        // Enrichment is best-effort; a bare Moonraker id is still useful.
-      }
-
-      try {
-        const queryConfig = await fetch(`${base}/printer/objects/query?configfile`, {
-          ...this.localNetworkRequestInit(DETECT_SLOW_REQUEST_TIMEOUT_MS),
-        });
-        if (queryConfig.ok) {
-          const status =
-            ((await queryConfig.json()) as MoonrakerObjectsResponse)?.result?.status ?? {};
-          enrichFromMoonrakerObjects(detection, status);
-        }
-      } catch {
-        // Optional enrichment only (kinematics/nozzle).
-      }
-
-      detection.message = detection.name
-        ? `Found Klipper printer \u201c${detection.name}\u201d.`
-        : 'Found a Klipper (Moonraker) printer.';
-      return detection;
-    } catch {
+    const detection = derive({ info, toolhead, objectList, bedMesh, configfile });
+    if (!detection) {
       return null;
+    }
+    return this.fromServerDetection(host, detection);
+  }
+
+  /**
+   * GET a printer endpoint and parse its JSON, or `undefined` on any failure.
+   * Every stage after the identifying one is best-effort: a refusal, a CORS
+   * rejection or a timeout costs that stage's findings and nothing more.
+   */
+  private async fetchJson(url: string, timeoutMs: number): Promise<unknown | undefined> {
+    try {
+      const resp = await fetch(url, { ...this.localNetworkRequestInit(timeoutMs) });
+      return resp.ok ? await resp.json() : undefined;
+    } catch {
+      return undefined;
     }
   }
 
@@ -619,7 +650,7 @@ export class PrinterConnectionService {
 
   /** Native equivalent of {@link detectFromBrowser} — no CORS. */
   private async detectViaNative(host: string): Promise<PrinterDetectionResult> {
-    const detection = await this.invokeNative<NativeDetection>('printer_detect', { host });
+    const detection = await this.invokeNative<DetectedPayload>('printer_detect', { host });
     if (!detection) {
       return {
         host,
@@ -628,7 +659,7 @@ export class PrinterConnectionService {
         message: 'Could not reach the desktop runtime to probe the printer.',
       };
     }
-    return this.fromServerDetection({ type: 'PrinterDetected', host, ...detection });
+    return this.fromServerDetection(host, detection);
   }
 
   /** Native equivalent of the server-side upload — no CORS. */
@@ -804,8 +835,15 @@ interface NativeStatusReport {
   message?: string | null;
 }
 
-/** JSON from the native `printer_detect` command (WS `PrinterDetected` minus envelope). */
-interface NativeDetection {
+/**
+ * The engine's `PrinterDetection`, in its own snake_case wire shape.
+ *
+ * Identical whether it arrives from the native `printer_detect` command, the
+ * `PrinterDetected` WebSocket message or the wasm derivation — which is the
+ * point: one derivation, three transports, one shape to map.
+ * {@link PrinterConnectionService.fromServerDetection} is that single mapping.
+ */
+interface DetectedPayload {
   reachable: boolean;
   kind: PrinterConnectionKind;
   message?: string | null;
@@ -819,6 +857,9 @@ interface NativeDetection {
   bed_height?: number | null;
   origin_at_center?: boolean | null;
   nozzle_diameter_mm?: number | null;
+  params?: Record<string, unknown> | null;
+  findings?: DetectionFinding[] | null;
+  questions?: DetectionQuestion[] | null;
 }
 
 /** JSON from the native `printer_send` command (WS `PrinterSendResult` minus envelope). */
@@ -826,24 +867,6 @@ interface NativeSendResult {
   ok: boolean;
   message: string;
   started: boolean;
-}
-
-interface MoonrakerInfoResponse {
-  result?: { state?: string; hostname?: string };
-}
-
-interface MoonrakerObjectsStatus {
-  configfile?: {
-    settings?: {
-      printer?: { kinematics?: string };
-      extruder?: { nozzle_diameter?: number };
-    };
-  };
-  toolhead?: { axis_maximum?: number[]; axis_minimum?: number[] };
-}
-
-interface MoonrakerObjectsResponse {
-  result?: { status?: MoonrakerObjectsStatus };
 }
 
 interface ApiVersionResponse {
@@ -864,52 +887,42 @@ type NavigatorWithLocalNetworkPermissions = Navigator & {
   };
 };
 
+/** The raw Moonraker replies the engine's derivation takes, all optional but `info`. */
+interface KlipperProbes {
+  info: unknown;
+  toolhead?: unknown;
+  objectList?: unknown;
+  bedMesh?: unknown;
+  configfile?: unknown;
+}
+
+type KlipperDerivation = (probes: KlipperProbes) => DetectedPayload | null;
+
+/** Resolved once; `null` in a build whose wasm bundle omits the binding. */
+let klipperDerivation: KlipperDerivation | null | undefined;
+
 /**
- * Pull any available bed dimensions, kinematics, and nozzle diameter out of a
- * Moonraker `printer/objects/query?...` status payload. Mirrors the engine's
- * `enrich_from_moonraker_objects`.
+ * Load the engine's Klipper derivation out of the wasm bundle.
+ *
+ * Only the `web-slicer` bundle carries it — the lean viewer-only build has no
+ * profile system to detect *into* — so the export is treated as optional and
+ * its absence surfaces as an honest message rather than a crash.
  */
-function enrichFromMoonrakerObjects(
-  detection: PrinterDetectionResult,
-  status: MoonrakerObjectsStatus,
-): void {
-  const settings = status.configfile?.settings;
-  const kinematics = settings?.printer?.kinematics?.trim().toLowerCase();
-  if (kinematics) {
-    const isDelta = kinematics === 'delta';
-    detection.bedShape = isDelta ? 'circular' : 'rectangular';
-    detection.originAtCenter = isDelta;
+async function loadKlipperDerivation(): Promise<KlipperDerivation | null> {
+  if (klipperDerivation !== undefined) {
+    return klipperDerivation;
   }
-
-  const max = status.toolhead?.axis_maximum ?? [];
-  const min = status.toolhead?.axis_minimum ?? [];
-  const span = (i: number): number | undefined => {
-    const hi = Number(max[i]);
-    if (!Number.isFinite(hi)) {
-      return undefined;
-    }
-    const lo = Number(min[i]);
-    const value = Number.isFinite(lo) && lo < 0 ? hi - lo : hi;
-    return value > 0 ? Math.round(value * 10) / 10 : undefined;
-  };
-
-  const width = span(0);
-  if (width != null) {
-    detection.bedWidth = width;
+  try {
+    const wasm = (await import('../../generated/scene-wasm/scene_engine')) as unknown as {
+      default: (options: { module_or_path: string }) => Promise<unknown>;
+      deriveKlipperDetection?: KlipperDerivation;
+    };
+    await wasm.default({ module_or_path: 'scene_engine_bg.wasm' });
+    klipperDerivation = wasm.deriveKlipperDetection ?? null;
+  } catch {
+    klipperDerivation = null;
   }
-  const depth = span(1);
-  if (depth != null) {
-    detection.bedDepth = depth;
-  }
-  const height = Number(max[2]);
-  if (Number.isFinite(height)) {
-    detection.bedHeight = Math.round(height * 10) / 10;
-  }
-
-  const nozzle = Number(settings?.extruder?.nozzle_diameter);
-  if (Number.isFinite(nozzle) && nozzle > 0) {
-    detection.nozzleDiameterMm = nozzle;
-  }
+  return klipperDerivation;
 }
 
 /** Normalize a connection into a base URL (`http://host[:port]`), or `null`. */

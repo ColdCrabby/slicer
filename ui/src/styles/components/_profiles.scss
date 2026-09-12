@@ -484,35 +484,95 @@
   gap: var(--spacing-sm);
 }
 
-// Klipper macro-convention picker inside the detected card. Kept intentionally
-// quiet — one question, the segmented control, and a single learn-more link —
-// so it reads as a small follow-up, not a second alarm on the amber card.
-.wz-macros {
-  display: flex;
-  flex-direction: column;
-  gap: var(--spacing-sm);
+// "What we read from your printer" — folded away by default. Detection applies
+// a dozen settings silently, which is only fair if the user can unfold the list
+// and check it against their own printer.cfg. Kept as a plain disclosure with
+// no surface of its own so it reads as a footnote to the card, not a panel.
+.wz-read {
   padding-top: var(--spacing-md);
   border-top: 1px solid color-mix(in oklab, var(--accent) 20%, transparent);
 }
 
-.wz-macros__head {
+.wz-read__summary {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-xs);
+  font-size: var(--font-size-xs);
+  color: var(--color-text-secondary);
+  cursor: pointer;
+  list-style: none;
+  --icon-size: 14px;
+
+  &::-webkit-details-marker {
+    display: none;
+  }
+
+  &:hover {
+    color: var(--color-text-primary);
+  }
+}
+
+.wz-read__table {
+  width: 100%;
+  margin-top: var(--spacing-sm);
+  border-collapse: collapse;
+  font-size: var(--font-size-xs);
+
+  th,
+  td {
+    padding: var(--spacing-xs) 0;
+    text-align: left;
+    font-weight: var(--font-weight-normal);
+    vertical-align: top;
+  }
+
+  th {
+    width: 40%;
+    color: var(--color-text-tertiary);
+  }
+
+  td {
+    color: var(--color-text-primary);
+  }
+}
+
+.wz-read__source {
+  width: 32%;
+  text-align: right;
+
+  code {
+    font-family: var(--font-family-mono);
+    font-size: var(--font-size-2xs);
+    color: var(--color-text-tertiary);
+  }
+}
+
+// One question per step. Deliberately sparse — a heading, the choice, and the
+// reason we leaned the way we did — so a step reads as a single decision rather
+// than a form with one field in it.
+.wz-question {
+  gap: var(--spacing-md);
+}
+
+.wz-question__head {
   display: flex;
   align-items: baseline;
   justify-content: space-between;
   gap: var(--spacing-md);
 }
 
-.wz-macros__q {
-  font-size: var(--font-size-sm);
-  font-weight: var(--font-weight-medium);
+.wz-question__q {
+  margin: 0;
+  font-size: var(--font-size-md);
+  font-weight: var(--font-weight-semibold);
   color: var(--color-text-primary);
 }
 
-.wz-macros__learn {
+.wz-question__learn {
   flex: none;
   display: inline-flex;
   align-items: center;
-  gap: var(--spacing-2xs, 4px);
+  gap: var(--spacing-xs);
   font-size: var(--font-size-xs);
   color: var(--accent);
   text-decoration: none;
@@ -523,11 +583,27 @@
   }
 }
 
-.wz-macros__hint {
+.wz-question__detail,
+.wz-question__why {
   margin: 0;
   font-size: var(--font-size-xs);
-  color: var(--color-text-tertiary);
+  color: var(--color-text-secondary);
   line-height: 1.4;
+}
+
+// The "why we think so" line. Accented icon, quiet text: it explains the
+// pre-selected answer without competing with the question itself.
+.wz-question__why {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--spacing-xs);
+  color: var(--color-text-tertiary);
+  --icon-size: 14px;
+
+  nexus-icon {
+    margin-top: 1px;
+    color: var(--accent);
+  }
 }
 
 .wz-swatch-row {

@@ -1039,6 +1039,9 @@ async fn handle_detect_printer(session: &mut actix_ws::Session, host: String) {
         bed_height: detection.bed_height,
         origin_at_center: detection.origin_at_center,
         nozzle_diameter_mm: detection.nozzle_diameter_mm,
+        params: detection.params,
+        findings: detection.findings,
+        questions: detection.questions,
     };
     let _ = send_msg(session, &msg).await;
 }

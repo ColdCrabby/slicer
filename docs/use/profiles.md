@@ -15,10 +15,30 @@ re-typing. There are four kinds, and they live in **Settings**.
 **Settings → Printers → Add printer** gives you three routes:
 
 **Detect it.** If it's a Klipper machine on your network, paste its address
-(`mainsailos.local`, or an IP) and press **Detect**. Bed size, nozzle diameter,
-firmware flavour and kinematics come back from the printer itself, and the
-connection is configured in the same step. This is by far the least error-prone
-option.
+(`mainsailos.local`, or an IP) and press **Detect**. This is by far the least
+error-prone option, and usually there is nothing left to fill in.
+
+Your printer's own configuration answers most of the setup, so the slicer reads
+it rather than asking you: build volume and kinematics, nozzle and filament
+diameter, the machine's velocity and acceleration limits, pressure advance, and
+whether it has firmware retraction or can cancel individual objects. It also
+works out which start and end macros your printer uses (`PRINT_START` or
+Klippain's `START_PRINT`) and writes the matching G-code. Open **What we read
+from your printer** on the first screen to see every value and which section of
+`printer.cfg` it came from.
+
+You can add the printer right there. What the configuration *can't* settle is
+put to you as a short question or two, each with an answer already picked and a
+line explaining why — for example what an extra fan is for, since Klipper can't
+say whether it cools prints or an electronics bay. Skip them with **Just add
+it** and change anything later in the printer's settings.
+
+::: details When detection can't tell everything
+A printer that answers slowly may not return its full configuration. You still
+get its build volume and connection, and the wizard falls back to the manual
+steps for the rest. Machines the slicer doesn't recognise leave the vendor and
+model blank for you to name.
+:::
 
 **Pick it from the catalog.** A library of common machines, pre-filled.
 
@@ -33,6 +53,8 @@ describe the *machine*, not the print:
 - **Gantry clearance height and radius** — how much room the printhead needs.
   Used to warn you about sequential printing.
 - **Can cancel individual objects** — whether the firmware supports it.
+  Detection turns this on by itself when your Klipper config has the
+  `[exclude_object]` module.
 
 ## Adding a filament
 

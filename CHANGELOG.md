@@ -29,6 +29,11 @@ issue/PR numbers or repo links in the notes. See the tone rules in
 
 ### Changed
 
+- **Every speed reads in mm/s, including travel and retraction.** Those two are
+  stored in mm/min because that is what a G-code `F` word carries, and the panel
+  used to ask for `9000` beside a print speed of `120`. Press the unit next to
+  any speed box to read them all in mm/min instead — the preference is
+  remembered and the saved value never changes, only how it is written.
 - **Material settings live with the filament.** Flow ratio, maximum volumetric
   speed and pressure advance move from Process to Filament, where they belong:
   they are calibrated per spool, and a print profile carrying them overwrote
@@ -72,6 +77,19 @@ issue/PR numbers or repo links in the notes. See the tone rules in
   control, in its section. It lists what the panel folds away too, marked with
   the tier it sits behind, for the case search cannot help with: you know the
   setting exists, you just can't name it.
+- **Your Klipper printer sets itself up.** Detection now reads the machine's own
+  configuration instead of two fields of it: build volume and kinematics, nozzle
+  and filament diameter, velocity and acceleration limits, pressure advance,
+  firmware retraction, object cancellation, and which start macros it uses — so
+  the right `PRINT_START` or Klippain G-code is written for you. Open **What we
+  read from your printer** to see every value and the `printer.cfg` section it
+  came from.
+- **The wizard only asks what your printer can't answer.** After a detection it
+  drops the setup form for a short question or two — an extra fan's purpose, bed
+  levelling, plate orientation — each with an answer already picked and a line
+  saying why. You can add the printer from the first screen and skip all of
+  them. Common machines are recognised by name, and the vendor field finally
+  holds the machine's maker rather than "Klipper".
 - **Settings start calm and open all the way.** Every section shows the handful
   of settings a print actually depends on, then an `Advanced 10` row that
   expands it in place; a second press reveals Expert. Sections holding nothing
