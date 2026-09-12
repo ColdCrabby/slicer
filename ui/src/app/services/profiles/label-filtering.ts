@@ -1,9 +1,16 @@
 /**
- * Whether a profile matches an active label filter. Uses AND semantics — the
- * profile must carry *every* selected label — matching how issue trackers
- * narrow a list as more labels are added. An empty filter matches everything.
+ * Whether a profile matches an active label filter.
+ *
+ * **OR semantics** — the profile must carry *any* of the selected labels. This
+ * is a shelf of things to pick from, not a search over one: a user selecting
+ * `PLA` and then `PETG` is asking to see both, and requiring every label meant
+ * the second click emptied the list unless something happened to carry the pair.
+ * Labels here name what a profile *is*, and a profile is rarely two things at
+ * once.
+ *
+ * An empty filter matches everything.
  */
-export function matchesAllLabels(
+export function matchesAnyLabel(
   item: { label_ids?: string[] },
   selectedIds: readonly string[],
 ): boolean {
@@ -11,7 +18,7 @@ export function matchesAllLabels(
     return true;
   }
   const owned = item.label_ids ?? [];
-  return selectedIds.every((id) => owned.includes(id));
+  return selectedIds.some((id) => owned.includes(id));
 }
 
 /** Toggle a label id in a list, returning a new array (add if absent, else remove). */

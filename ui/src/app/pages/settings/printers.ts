@@ -39,7 +39,7 @@ import { Dialog } from '../../services/dialog';
 import { NotificationService } from '../../services/notifications';
 import { PrinterConnectionService } from '../../services/printer-connection';
 import { ActiveSelection } from '../../services/profiles/active-selection';
-import { matchesAllLabels, toggledLabelIds } from '../../services/profiles/label-filtering';
+import { matchesAnyLabel, toggledLabelIds } from '../../services/profiles/label-filtering';
 import { paramNum, paramStr } from '../../models/params-access';
 import { LabelFilterStore } from '../../services/profiles/label-filter-store';
 import { LabelsStore } from '../../services/profiles/labels-store';
@@ -64,6 +64,7 @@ import { CodeEditor } from '../../components/code-editor/code-editor';
 import { LabelFilterBar } from '../../components/labels/label-filter-bar';
 import { LabelPicker } from '../../components/labels/label-picker';
 import { focusConfigureTarget } from './configure-scroll';
+import { LabelMenuService } from '../../components/labels/label-menu.service';
 
 /**
  * The `SlicingParams` sub-schema extracted from the generated global-settings
@@ -149,6 +150,7 @@ export class PrintersSettings {
   private readonly filterStore = inject(LabelFilterStore);
   private readonly catalog = inject(CloudCatalog);
   private readonly contextMenu = inject(ContextMenuService);
+  private readonly labelMenu = inject(LabelMenuService);
   private readonly dialog = inject(Dialog);
   private readonly notifications = inject(NotificationService);
   private readonly printerConn = inject(PrinterConnectionService);
@@ -195,7 +197,7 @@ export class PrintersSettings {
       .items()
       .filter(
         (p) =>
-          matchesAllLabels(p, this.labelFilter()) &&
+          matchesAnyLabel(p, this.labelFilter()) &&
           (!q || `${p.name} ${p.vendor ?? ''} ${p.model ?? ''}`.toLowerCase().includes(q)),
       );
   });
@@ -391,6 +393,17 @@ export class PrintersSettings {
         action: () => this.testConnection(printer),
       });
     }
+    items.push({ separator: true, label: '' });
+    items.push({
+      label: 'Labels\u2026',
+      icon: 'label',
+      action: () =>
+        this.labelMenu.open(
+          { x: event.clientX, y: event.clientY },
+          () => this.store.getById(printer.id)?.label_ids ?? [],
+          (labelId) => this.toggleLabel(printer.id, labelId),
+        ),
+    });
     if (printer.source !== 'builtin') {
       items.push({ separator: true, label: '' });
       items.push({

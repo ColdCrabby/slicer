@@ -55,7 +55,7 @@ All three lists behave the same:
 - **Group by** vendor or connection type.
 - **Filter by label**.
 - **Star** one as the default — that's what a new plate starts with.
-- **Right-click** (or long-press on touch) a card for **Duplicate**, **Edit**,
+- **Right-click** (or long-press on touch) a card for **Labels…**, **Duplicate**, **Edit**,
   **Make default**, **Delete**.
 
 Duplicating and editing beats starting from scratch. Deleting asks first.
@@ -69,7 +69,10 @@ changed on a particular plate, which stays as you left it. See
 
 Labels are a flat set of tags — `PLA`, `prototype`, `customer-work`, whatever
 suits. Create them in **Settings → Labels**, assign them to any profile, then
-use the label bar to filter long lists. On a shared machine with a dozen
+use the label bar to filter long lists — selecting more than one widens the
+list rather than narrowing it, so `PLA` plus `PETG` shows both. **Labels…** in a
+card's right-click menu opens the same searchable picker without leaving the
+list, which is the quick way to tag a shelf of profiles one after another. On a shared machine with a dozen
 printers this is the difference between a list and a mess.
 
 ## Where profiles are stored

@@ -27,7 +27,7 @@ import type { ContextMenuItem } from '../../services/context-menu/context-menu.m
 import { Dialog } from '../../services/dialog';
 import { NotificationService } from '../../services/notifications';
 import { ActiveSelection } from '../../services/profiles/active-selection';
-import { matchesAllLabels, toggledLabelIds } from '../../services/profiles/label-filtering';
+import { matchesAnyLabel, toggledLabelIds } from '../../services/profiles/label-filtering';
 import { paramNum } from '../../models/params-access';
 import { LabelFilterStore } from '../../services/profiles/label-filter-store';
 import { LabelsStore } from '../../services/profiles/labels-store';
@@ -51,6 +51,7 @@ import { ParamField } from '../../components/profiles/param-field';
 import { LabelFilterBar } from '../../components/labels/label-filter-bar';
 import { LabelPicker } from '../../components/labels/label-picker';
 import { focusConfigureTarget } from './configure-scroll';
+import { LabelMenuService } from '../../components/labels/label-menu.service';
 
 /**
  * The `SlicingParams` sub-schema extracted from the generated global-settings
@@ -143,6 +144,7 @@ export class FilamentsSettings {
   private readonly filterStore = inject(LabelFilterStore);
   private readonly catalog = inject(CloudCatalog);
   private readonly contextMenu = inject(ContextMenuService);
+  private readonly labelMenu = inject(LabelMenuService);
   private readonly dialog = inject(Dialog);
   private readonly notifications = inject(NotificationService);
   private readonly route = inject(ActivatedRoute);
@@ -181,7 +183,7 @@ export class FilamentsSettings {
       .items()
       .filter(
         (f) =>
-          matchesAllLabels(f, this.labelFilter()) &&
+          matchesAnyLabel(f, this.labelFilter()) &&
           (!q || `${f.name} ${f.vendor ?? ''} ${f.material}`.toLowerCase().includes(q)),
       );
   });
@@ -355,6 +357,17 @@ export class FilamentsSettings {
       },
       { label: 'Duplicate', icon: 'copy', action: () => this.duplicate(filament.id) },
     ];
+    items.push({ separator: true, label: '' });
+    items.push({
+      label: 'Labels\u2026',
+      icon: 'label',
+      action: () =>
+        this.labelMenu.open(
+          { x: event.clientX, y: event.clientY },
+          () => this.store.getById(filament.id)?.label_ids ?? [],
+          (labelId) => this.toggleLabel(filament.id, labelId),
+        ),
+    });
     if (filament.source !== 'builtin') {
       items.push({ separator: true, label: '' });
       items.push({
