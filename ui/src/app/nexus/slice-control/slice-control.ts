@@ -8,11 +8,13 @@ import {
   viewChild,
 } from '@angular/core';
 import type { ElementRef, TemplateRef } from '@angular/core';
+import { formatDuration } from '../../models/duration';
+import { AutoSlice } from '../../services/auto-slice';
+import { BrowserStorage } from '../../services/browser-storage';
 import { GcodePreview } from '../../services/gcode-preview';
 import { PrinterConnectionService } from '../../services/printer-connection';
 import { ActiveSelection } from '../../services/profiles/active-selection';
-import { BrowserStorage } from '../../services/browser-storage';
-import { formatDuration, Slicer } from '../../services/slicer';
+import { Slicer } from '../../services/slicer';
 import { FloatingService, type FloatingRef, Icon, TooltipDirective } from '@coldcrabby/ui';
 
 /** The action the result split button runs on the sliced G-code. */
@@ -34,6 +36,7 @@ export class SliceControl {
   private readonly active = inject(ActiveSelection);
   private readonly printerConn = inject(PrinterConnectionService);
   private readonly storage = inject(BrowserStorage);
+  protected readonly autoSlice = inject(AutoSlice);
   private readonly floating = inject(FloatingService);
 
   /** Busy = a job is in flight (upload or slice). */
@@ -81,8 +84,12 @@ export class SliceControl {
     return this.isDone() ? 'Re-Slice' : 'Slice';
   });
 
+  /** A re-slice is already coming — the button is now "don't wait", not "do it". */
+  protected readonly isQueued = computed(() => this.autoSlice.pending() && this.isStale());
+
   protected readonly ctaTooltip = computed(() => {
     if (this.isActive()) return 'Slicing in progress…';
+    if (this.isQueued()) return 'Re-slice now instead of waiting';
     if (this.isStale()) return 'Scene changed — re-slice to refresh the preview';
     return this.canSlice() ? 'Slice and generate G-code' : 'Add a model first';
   });
@@ -107,6 +114,7 @@ export class SliceControl {
     if (s === 'slicing') {
       return this.slicer.currentPhaseLabel() ?? 'Preparing…';
     }
+    if (this.isQueued()) return 'Scene changed — re-slicing shortly…';
     if (this.isStale()) return 'Scene changed — re-slice to update';
     if (s === 'done') {
       // What the slice produced, not what the preview has drawn — the preview

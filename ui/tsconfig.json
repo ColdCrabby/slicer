@@ -14,6 +14,10 @@
     "experimentalDecorators": true,
     "importHelpers": true,
     "target": "ES2022",
+    // The default lib for this target, plus ES2025's Intl — which is where
+    // `Intl.DurationFormat` is typed. Listing `lib` explicitly means the DOM
+    // entries have to be named too; they are the ES2022 default's own.
+    "lib": ["ES2022", "ES2025.Intl", "DOM", "DOM.Iterable"],
     "module": "preserve",
     "paths": {
       "@coldcrabby/ui": ["./vendor/coldcrabby-ui/src/public-api.ts"]

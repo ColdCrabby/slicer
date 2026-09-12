@@ -43,6 +43,17 @@ issue/PR numbers or repo links in the notes. See the tone rules in
 
 ### Added
 
+- **The preview re-slices itself, when that is worth doing.** A flash button
+  beside the model / preview toggle steps through Automatic, Always and Off;
+  Automatic re-slices about a second after you stop changing things, but only
+  while slices stay under 5 s — timed per plate, so a heavy one goes back to
+  waiting for the button while a light one keeps up. Set it for good in
+  Settings → General → Slicing.
+- **The view no longer always jumps to the G-code preview when a slice
+  finishes.** Settings → General → Slicing → Show the preview after slicing
+  offers Automatic, Always and Never; Automatic follows a slice you pressed and
+  leaves an automatic re-slice alone, so an edit in progress is never pulled
+  into a view where the plate tools are hidden.
 - **Open a model straight from another app.** Cold Crabby now registers as a
   handler for `.stl`, `.obj` and `.3mf`: double-click one on Windows, macOS or
   Linux, or share one to it from Shapr3D, Files, Mail or AirDrop on iPhone and
