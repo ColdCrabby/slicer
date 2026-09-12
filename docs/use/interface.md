@@ -105,7 +105,15 @@ Press **Slice**. Afterwards it becomes **Re-Slice**, and turns amber when you've
 changed something since the last slice — so a stale preview always looks stale.
 
 Below it, a status line: `Ready to slice` → `Slicing…` → `Sliced · N layers ·
-1h 12m`, or a red failure with the reason.
+4.9s`, or a red failure with the reason. The time in that line is how long
+*slicing* took.
+
+On the right of the same line sits the estimated **print** time, `~1h 12m`. It
+is worked out from your process settings — the speeds and accelerations the
+G-code actually asks for. It is not worked out from your printer's limits,
+because the slicer does not have them: a machine that cannot reach a commanded
+speed simply takes longer than the figure says. Treat it as a good guide to
+whether a plate is a coffee or an afternoon, not as a countdown.
 
 It doesn't always wait for you. See
 [Re-slicing on its own](#re-slicing-on-its-own).

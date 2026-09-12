@@ -373,6 +373,22 @@
   }
 }
 
+// Pushed to the far end of the status row so the slice outcome reads left and
+// the print figure right, rather than the two running into one sentence.
+.print-estimate {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-left: auto;
+  padding-left: var(--spacing-sm);
+  flex: none;
+  color: var(--color-text-secondary);
+  font-variant-numeric: tabular-nums;
+  cursor: default;
+
+  --icon-size: 12px;
+}
+
 .status-dot {
   flex: none;
   width: 6px;
