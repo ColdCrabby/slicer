@@ -38,6 +38,7 @@ import {
 } from '@coldcrabby/ui';
 import { CatalogPicker, type CatalogEntryVm } from '../../components/profiles/catalog-picker';
 import { ParamField } from '../../components/profiles/param-field';
+import { controlFor } from '../../schema-form/models/field-control';
 import { LabelFilterBar } from '../../components/labels/label-filter-bar';
 import { LabelPicker } from '../../components/labels/label-picker';
 import { focusConfigureTarget } from './configure-scroll';
@@ -67,6 +68,8 @@ const PARAM_GROUPS: SchemaGroup[] = (() => {
   const order = new Map(PROCESS_GROUPS.map((name, index) => [name, index]));
   return parseSchema(SLICING_PARAMS_SCHEMA)
     .groups.filter((g) => order.has(g.name))
+    .map((g) => ({ ...g, fields: g.fields.filter((f) => controlFor(f) !== 'array') }))
+    .filter((g) => g.fields.length > 0)
     .sort((a, b) => order.get(a.name)! - order.get(b.name)!);
 })();
 

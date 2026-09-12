@@ -218,7 +218,7 @@ serialized struct by name.
 | `x-tier` | same | Everyday (omit) / `advanced` / `expert` — what the panel shows before the user asks |
 | `x-unit` | same | What the number *is* — `mm`, `mm_s`, `celsius`, `fraction`, `ratio`, … Declared on every numeric parameter; the UI maps it to a suffix and a step |
 | `x-step` | same | The increment, where the unit's default is wrong for the field's range |
-| `x-widget` | same | Overrides the control chosen from the field's shape |
+| `x-widget` | same | Overrides the control chosen from the field's shape — `gcode`, `cards`, `segmented`, `select`, `color`. See *Which control* below |
 | `SETTING_CONTRACTS` | [`setting-contract.ts`](../../ui/src/app/models/setting-contract.ts) | Assigns each group to the Printer / Filament / Process tab |
 | `GROUP_ICONS` | same | The group's icon |
 | Field exceptions | [`field-exceptions.ts`](../../ui/src/app/schema-form/field-exceptions/field-exceptions.ts) | Conditional `FieldNotice`, including a `link` to a prerequisite on another tab |
@@ -299,6 +299,35 @@ mode — see the non-goals.
 Two controls that cannot act must not be offered, and both cases are live once a
 floor is set: a group cannot collapse below the floor, and neither can the
 panel. Offering "Show less" there is a button that does nothing when pressed.
+
+### Which control — one taxonomy, both surfaces
+
+Which control a field renders as is decided once, by `controlFor` in
+[`field-control.ts`](../../ui/src/app/schema-form/models/field-control.ts). The
+slice sidebar and the profile editors both ask it and then dress the answer for
+their own width, which is what stops a parameter being option cards in one place
+and a dropdown in the other.
+
+| Control | For |
+| --- | --- |
+| Switch | every boolean — on/off is not a choice between two things |
+| Segmented | an enum of up to three plainly-named choices |
+| Option cards | an enum whose branches need a sentence each — opt in with `x-widget = "cards"` |
+| Dropdown | a longer enum, or an open list |
+| Number / slider | numeric parameters; unit and step come from `x-unit` / `x-step` |
+| Text / colour / G-code editor | the string shapes |
+
+**The segmented/cards line is the one that has to be held.** It is not about how
+many options there are — it is whether the names alone separate them. `Light ·
+Dark · Transparent` they do. `Classic` vs `Arachne` they do not, and choosing
+wrong changes every wall on the print, so that one earns cards and the room for
+a line of explanation under each choice. Cards are the tallest control the panel
+has; a section where every branch is a stack of explanations is no calmer than
+one with none, so the count is capped by a test.
+
+An option's description — on a card, in a segment's tooltip, on a dropdown line
+— is the variant's **opening sentence only**. The rest of the schema doc reaches
+the reader through the field's own ⓘ.
 
 ### Adding a setting
 

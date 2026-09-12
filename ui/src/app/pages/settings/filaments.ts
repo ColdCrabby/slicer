@@ -48,6 +48,7 @@ import {
 } from '@coldcrabby/ui';
 import { CatalogPicker, type CatalogEntryVm } from '../../components/profiles/catalog-picker';
 import { ParamField } from '../../components/profiles/param-field';
+import { controlFor } from '../../schema-form/models/field-control';
 import { LabelFilterBar } from '../../components/labels/label-filter-bar';
 import { LabelPicker } from '../../components/labels/label-picker';
 import { focusConfigureTarget } from './configure-scroll';
@@ -69,43 +70,42 @@ const SLICING_PARAMS_SCHEMA = {
 const FILAMENT_GROUPS = SETTING_CONTRACTS.find((c) => c.id === 'filament')!.groups;
 
 /**
+ * Param keys this editor lays out itself, in the Identity card at the top.
+ *
+ * They are schema params like any other, so they would render a second time
+ * inside their group. The curated row wins — it sits with the name and colour
+ * it belongs beside.
+ *
+ * The four identity fields are here for a second reason: `resolve` overwrites
+ * them from the chosen profile on every slice, so the Identity card is not just
+ * the nicer place to edit them, it is the only one that has any effect.
+ */
+const BESPOKE_PARAM_KEYS = new Set([
+  'filament_diameter_mm',
+  'filament_cost_per_kg',
+  'filament_name',
+  'filament_color',
+  'filament_type',
+]);
+
+/**
  * The filament-parameter groups rendered in the editor, in the Filament
  * contract's display order (`Material`, `Temperature`, `Cooling`, `Extrusion`,
  * `Filament G-code`). Parsed once from the schema (it never changes at runtime);
  * groups owned by other contracts are left out so the filament editor only
  * shows material settings.
  *
- * Each group's fields are filtered to those `nexus-param-field` can actually
- * render (enum → select, boolean → switch, number → number input, and the
- * `x-widget: "gcode"` string fields → code editor). Plain `string`/array fields
- * without a widget hint are dropped, which excludes `filament_type` and
- * `fan_configs` automatically. Keys the editor already renders by hand under
- * Identity are dropped by {@link BESPOKE_PARAM_KEYS} so none appears twice.
+ * `nexus-param-field` renders every control in the shared taxonomy except
+ * `array` — `fan_configs` is a structured list with an editor of its own — so
+ * that and {@link BESPOKE_PARAM_KEYS} are all that is filtered out.
  */
-/**
- * Param keys this editor lays out itself, in the Identity card at the top.
- *
- * They are schema params like any other, so once their group moved onto the
- * Filament contract they would render a second time inside it. The curated row
- * wins — it sits with the name and colour it belongs beside.
- */
-const BESPOKE_PARAM_KEYS = new Set(['filament_diameter_mm']);
-
 const PARAM_GROUPS: SchemaGroup[] = (() => {
   const order = new Map(FILAMENT_GROUPS.map((name, index) => [name, index]));
   return parseSchema(SLICING_PARAMS_SCHEMA)
     .groups.filter((g) => order.has(g.name))
     .map((g) => ({
       ...g,
-      fields: g.fields.filter(
-        (f) =>
-          !BESPOKE_PARAM_KEYS.has(f.key) &&
-          (!!f.enumOptions?.length ||
-            f.type === 'boolean' ||
-            f.type === 'number' ||
-            f.type === 'integer' ||
-            f.widget === 'gcode'),
-      ),
+      fields: g.fields.filter((f) => !BESPOKE_PARAM_KEYS.has(f.key) && controlFor(f) !== 'array'),
     }))
     .filter((g) => g.fields.length > 0)
     .sort((a, b) => order.get(a.name)! - order.get(b.name)!);
