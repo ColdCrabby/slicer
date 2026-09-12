@@ -76,7 +76,14 @@ export interface FieldDef {
    * - `ratio` — a multiplier against something else (nozzle diameter, nominal
    *   flow), shown with `×` because it is not a proportion of a whole.
    */
-  unit?: 'fraction' | 'percent' | 'ratio';
+  unit?: string;
+  /**
+   * `x-step` schema extension: the increment for this field's control, where
+   * the unit's default is wrong for its working range. A layer height lives
+   * near 0.2 and needs 0.01; a skirt distance near 200 would take a lifetime to
+   * reach at that increment.
+   */
+  step?: number;
   /**
    * `x-widget` schema extension: an explicit widget hint that overrides the
    * default control chosen from the field's shape. E.g. `"gcode"` selects a

@@ -216,6 +216,8 @@ serialized struct by name.
 | `x-group` | `src/settings/params.rs` | Puts the field in an accordion group |
 | `x-relevant-when` | same | Hides a field until a sibling makes it meaningful — `equals` for a switch, `greaterThan` for a numeric feature that is off at `0` |
 | `x-tier` | same | Everyday (omit) / `advanced` / `expert` — what the panel shows before the user asks |
+| `x-unit` | same | What the number *is* — `mm`, `mm_s`, `celsius`, `fraction`, `ratio`, … Declared on every numeric parameter; the UI maps it to a suffix and a step |
+| `x-step` | same | The increment, where the unit's default is wrong for the field's range |
 | `x-widget` | same | Overrides the control chosen from the field's shape |
 | `SETTING_CONTRACTS` | [`setting-contract.ts`](../../ui/src/app/models/setting-contract.ts) | Assigns each group to the Printer / Filament / Process tab |
 | `GROUP_ICONS` | same | The group's icon |
@@ -300,7 +302,15 @@ panel. Offering "Show less" there is a button that does nothing when pressed.
 
 ### Adding a setting
 
-Add the field with an `x-group` and it appears. Regenerate the schema
+Add the field with an `x-group` and it appears. **A numeric field also needs an
+`x-unit`** — units are declared, never inferred from the name, and a field
+without one renders as a bare number. `field-units.spec.ts` fails on any numeric
+parameter that omits it.
+
+**There is no label fallback.** A field shows its curated entry in
+`field-labels.ts` or its raw schema key, so a new parameter reads as
+`wall_transition_length` until somebody names it. That is deliberate: a
+generated label looks authored, and a reader cannot tell the two apart. Regenerate the schema
 (`pnpm run gen-schemas`; it is git-ignored). Write the `title` and `description`
 as search corpus and as the contextual explanation — that is what §5 and §7 are
 made of.

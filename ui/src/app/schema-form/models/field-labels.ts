@@ -6,10 +6,17 @@
  * `wall_transition_filter_distance` or enum consts like `sharpest_corner`.
  * This module translates those ids into readable labels.
  *
- * Two curated dictionaries provide the high-quality wording; a generic
- * `humanize` fallback keeps any *unmapped* key/value (e.g. a newly added
- * parameter) legible until it earns a curated entry, so labels never regress
- * to a raw identifier.
+ * Two curated dictionaries provide the wording. **Anything not in them shows
+ * its raw schema key**, on purpose.
+ *
+ * There used to be a `humanize` fallback that split an identifier on
+ * underscores and title-cased the pieces. It invented labels that looked
+ * authored but were not: "Filament Density G Cm3", "Min Layer Time S", "Xy
+ * Hole Compensation". A reader cannot tell a manufactured label from a written
+ * one, so every such string quietly claimed an editorial care that was never
+ * applied — and the raw key, which is at least searchable and unambiguous, was
+ * hidden behind it. An unmapped parameter now reads as `wall_transition_length`
+ * until somebody gives it a real name.
  */
 
 /** Curated field-key → label map. Keyed by the schema property name. */
@@ -157,56 +164,12 @@ const ENUM_LABELS: Record<string, string> = {
   klipper: 'Klipper',
 };
 
-/** Tokens that should keep a specific casing when the generic fallback runs. */
-const TOKEN_OVERRIDES: Record<string, string> = {
-  mm: 'mm',
-  mm2: 'mm²',
-  deg: '°',
-  pct: '%',
-  percent: '%',
-  id: 'ID',
-  gcode: 'G-code',
-  tpms: 'TPMS',
-  z: 'Z',
-  min: 'Min',
-  max: 'Max',
-};
-
-/**
- * Generic identifier → label fallback: splits snake_case / camelCase into words
- * and title-cases them, honouring the known-token casing overrides.
- */
-/**
- * Unit suffixes stripped before humanising a key.
- *
- * The control now prints the unit inside itself (see `field-units.ts`), so
- * carrying it in the label too produced "Filament Density G Cm3" and "Min Layer
- * Time S" — the unit spelled out as words, next to a box already showing it
- * properly. Anchored to the end and only whole trailing tokens, so a key like
- * `min_infill_extrusion_mm` loses `_mm` while `mm_per_sec_mode` keeps its name.
- */
-const UNIT_SUFFIX = /_(mm3_s|mm_s|mm2|mm3|mm|g_cm3|deg|px|s)$/;
-
-export function humanize(id: string): string {
-  return id
-    .replace(UNIT_SUFFIX, '')
-    .replace(/([a-z0-9])([A-Z])/g, '$1 $2')
-    .split(/[-_\s]+/)
-    .filter(Boolean)
-    .map((word) => {
-      const lower = word.toLowerCase();
-      if (lower in TOKEN_OVERRIDES) return TOKEN_OVERRIDES[lower];
-      return lower.charAt(0).toUpperCase() + lower.slice(1);
-    })
-    .join(' ');
-}
-
 /** Friendly label for a schema field key. */
 export function fieldLabel(key: string): string {
-  return FIELD_LABELS[key] ?? humanize(key);
+  return FIELD_LABELS[key] ?? key;
 }
 
 /** Friendly label for an enum const value. */
 export function enumLabel(value: string): string {
-  return ENUM_LABELS[value] ?? humanize(value);
+  return ENUM_LABELS[value] ?? value;
 }

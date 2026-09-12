@@ -65,7 +65,7 @@ export class NumberField implements FieldWidget {
     return Number(v);
   });
   /** Unit + step derived from the parameter's name — see `field-units.ts`. */
-  private readonly resolvedUnit = computed(() => unitForField(this.field(), this.numeric()));
+  private readonly resolvedUnit = computed(() => unitForField(this.field()));
   protected readonly unit = computed(() => this.resolvedUnit().unit);
   protected readonly step = computed(() => this.resolvedUnit().step);
   /** Factor between what the engine stores and what the control shows. */
