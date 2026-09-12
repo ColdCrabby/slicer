@@ -202,11 +202,11 @@ view borrows your own scene's shading, gloss and contact shadow instead.
 
 | Pattern | Character |
 | --- | --- |
-| **Rectilinear** (default) | Parallel lines, alternating direction each layer. Fastest. |
+| **Rectilinear** | Parallel lines, alternating direction each layer. Fastest. |
 | **Grid** | Lines crossing at right angles. Stronger, slower. |
 | **Honeycomb** | Hexagons. Good strength for the material spent. |
 | **Gyroid** | A 3D curve. Equal strength in every direction; nice for flexibles. |
-| **TPMS-D** | Diamond minimal surface. Organic and isotropic. |
+| **TPMS-D** (default) | Diamond minimal surface. Organic and isotropic — the same density holds up in every direction. |
 
 ## Two special modes
 

@@ -898,7 +898,7 @@ Supported values:
 - `honeycomb` — hexagonal cells (good strength-to-weight ratio)
 - `concentric` — loops following the outline
 - `gyroid` — smooth triply-periodic surface (excellent isotropy)
-- `tpms-d` — triply-periodic minimal surface, diamond variant
+- `tpms-d` — triply-periodic minimal surface, diamond variant (**default**)
 
 Every pattern deposits the density you ask for: a pattern that draws several
 line sets across the same area splits the density between them.", extend("x-group" = "Infill"))]
@@ -1408,11 +1408,12 @@ Changing from the default can improve finish on curved or organic models.
         description = "Fill pattern for the **top** solid surface.
 
 Supported values:
+- `rectilinear` — classic back-and-forth serpentine (**default**). One
+  continuous pass, so the bead is never restarted cold.
 - `monotonic-line` — parallel lines all drawn in the same direction, never
-  connected (**default**, matching OrcaSlicer). The most uniform-looking top.
+  connected.
 - `monotonic` — same one-way sweep, but consecutive line ends are joined along
   the surface boundary, so there is less travel.
-- `rectilinear` — classic back-and-forth serpentine.
 - `aligned-rectilinear` — serpentine that keeps the same angle on every layer
   instead of cross-hatching.
 - `concentric` — loops following the surface outline.
@@ -1428,9 +1429,9 @@ dependent sheen a serpentine leaves on a visible top surface.",
     #[schemars(
         description = "Fill pattern for the **bottom** solid surface.
 
-Same choices as `top_surface_pattern`. **Default:** `monotonic` — the bottom is
-against the bed, so the short boundary connectors cost nothing visually and save
-travel.",
+Same choices as `top_surface_pattern`. **Default:** `rectilinear` — the bottom
+is pressed against the bed, and the continuous serpentine keeps the flow even
+across it.",
         extend("x-group" = "Surfaces", "x-tier" = "advanced")
     )]
     #[serde(default = "SlicingParams::default_bottom_surface_pattern")]
@@ -3327,8 +3328,11 @@ impl SlicingParams {
         0.5
     }
 
+    /// TPMS-D rather than plain lines: a minimal surface carries load in every
+    /// direction, so the same density buys a stiffer part, and its curves never
+    /// stack a straight seam layer over layer the way alternating lines do.
     fn default_infill_pattern() -> InfillPattern {
-        InfillPattern::Rectilinear
+        InfillPattern::TpmsD
     }
 
     fn default_infill_base_angle() -> f64 {
@@ -3542,13 +3546,16 @@ impl SlicingParams {
         45.0
     }
 
+    /// A serpentine sweep, not a monotonic one. The one-way sweeps leave a
+    /// visibly poorer top on a well-tuned machine — the extra travel between
+    /// lines lets the bead start cold — and the back-and-forth pass lays a
+    /// continuous, evenly pressed surface instead.
     fn default_top_surface_pattern() -> SurfacePattern {
-        // OrcaSlicer's default: the most uniform-looking visible surface.
-        SurfacePattern::MonotonicLine
+        SurfacePattern::Rectilinear
     }
 
     fn default_bottom_surface_pattern() -> SurfacePattern {
-        SurfacePattern::Monotonic
+        SurfacePattern::Rectilinear
     }
 
     fn default_internal_solid_infill_pattern() -> SurfacePattern {

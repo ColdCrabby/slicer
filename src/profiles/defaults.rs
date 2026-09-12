@@ -87,7 +87,7 @@ pub fn base_process(meta: ProfileMeta) -> ProcessProfile {
             "bottom_layers": 3,
             "seam_position": "aligned",
             "infill_density": 0.15,
-            "infill_pattern": "Rectilinear",
+            "infill_pattern": "TpmsD",
             "infill_base_angle": 45.0,
             "print_speed": 120.0,
             "perimeter_speed": 80.0,
@@ -232,6 +232,9 @@ pub fn high_speed_process() -> ProcessProfile {
         "builtin-high-speed-02",
         "High Speed — 0.20 mm",
     ));
+    // Tagged draft, not standard: the layer height is the same 0.20 mm, but a
+    // preset that spends surface finish to save time is what the badge is for.
+    p.quality = PrintQuality::Draft;
     p.params = json!({
         "layer_height": 0.2,
         "first_layer_height": 0.24,
@@ -245,7 +248,7 @@ pub fn high_speed_process() -> ProcessProfile {
         "bottom_layers": 3,
         "seam_position": "aligned",
         "infill_density": 0.15,
-        "infill_pattern": "Rectilinear",
+        "infill_pattern": "TpmsD",
         "infill_base_angle": 45.0,
         "print_speed": 200.0,
         "perimeter_speed": 120.0,
@@ -287,6 +290,7 @@ pub fn high_speed_process() -> ProcessProfile {
 pub fn maximum_process() -> ProcessProfile {
     let mut p = high_speed_process();
     p.meta = ProfileMeta::builtin("builtin-maximum-02", "Maximum — 0.20 mm");
+    p.quality = PrintQuality::Draft;
     p.params = json!({
         "layer_height": 0.2,
         "first_layer_height": 0.24,
@@ -297,7 +301,7 @@ pub fn maximum_process() -> ProcessProfile {
         "bottom_layers": 3,
         "seam_position": "aligned",
         "infill_density": 0.15,
-        "infill_pattern": "Rectilinear",
+        "infill_pattern": "TpmsD",
         "infill_base_angle": 45.0,
         "print_speed": 300.0,
         "perimeter_speed": 200.0,
@@ -433,6 +437,32 @@ mod tests {
         assert!(
             speeds.windows(2).all(|w| w[0] < w[1]),
             "process presets are not ordered slowest first: {speeds:?}"
+        );
+    }
+
+    /// The badge has to say something. It may repeat — two presets can trade
+    /// different amounts of the same thing — but it must fall as the list gets
+    /// faster, and one tag across the whole list makes it decoration.
+    #[test]
+    fn the_quality_tag_falls_as_the_presets_get_faster() {
+        let rank = |q: PrintQuality| match q {
+            PrintQuality::Draft => 0,
+            PrintQuality::Standard => 1,
+            PrintQuality::Fine => 2,
+        };
+        let all = every_shipped_process();
+        for pair in all.windows(2) {
+            assert!(
+                rank(pair[1].quality) <= rank(pair[0].quality),
+                "`{}` is faster than `{}` but claims a better quality",
+                pair[1].meta.name,
+                pair[0].meta.name
+            );
+        }
+        let tags: std::collections::HashSet<_> = all.iter().map(|p| rank(p.quality)).collect();
+        assert!(
+            tags.len() > 1,
+            "every shipped preset carries the same quality tag, which makes the badge decoration"
         );
     }
 

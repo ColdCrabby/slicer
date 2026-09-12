@@ -75,7 +75,7 @@ export function defaultProcessParams(): Record<string, unknown> {
     bottom_layers: 3,
     seam_position: 'aligned',
     infill_density: 0.15,
-    infill_pattern: 'Rectilinear',
+    infill_pattern: 'TpmsD',
     infill_base_angle: 45,
     print_speed: 120,
     perimeter_speed: 80,

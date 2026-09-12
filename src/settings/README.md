@@ -28,7 +28,7 @@ Configuration for slicing behavior and printer control. All values stored as JSO
 
 | Parameter                                | Type  | Default          | Effect                                                                        |
 | ---------------------------------------- | ----- | ---------------- | ----------------------------------------------------------------------------- |
-| `infill_pattern`                         | enum  | `Rectilinear`    | see below                                                                     |
+| `infill_pattern`                         | enum  | `TpmsD`          | see below                                                                     |
 | `infill_base_angle`                      | °     | 45               | Sparse fill direction; alternating layers add 90°                             |
 | `infill_anchor_percent`                  | %     | 400              | How far a lone infill line end runs along the wall, as a % of the bead spacing |
 | `infill_anchor_max_mm`                   | mm    | 20               | Longest wall stretch that may join two infill lines; `0` = no anchoring        |
@@ -49,8 +49,8 @@ pattern deposits the same amount. See
 | Parameter                       | Type | Default           | Effect                                        |
 | ------------------------------- | ---- | ----------------- | --------------------------------------------- |
 | `surface_infill_angle`          | °    | 45                | Solid fill direction; alternates 90° per layer |
-| `top_surface_pattern`           | enum | `monotonic-line`  | Fill pattern for the visible top surface       |
-| `bottom_surface_pattern`        | enum | `monotonic`       | Fill pattern for the bottom surface            |
+| `top_surface_pattern`           | enum | `rectilinear`     | Fill pattern for the visible top surface       |
+| `bottom_surface_pattern`        | enum | `rectilinear`     | Fill pattern for the bottom surface            |
 | `internal_solid_infill_pattern` | enum | `monotonic`       | Fill pattern for forced internal solid layers  |
 | `ironing_enabled`               | bool | `false`           | Sweep finished top surfaces with a near-dry smoothing pass |
 | `ironing_type`                  | enum | `top_surfaces`    | `top_surfaces` / `topmost_only` / `all_solid`  |

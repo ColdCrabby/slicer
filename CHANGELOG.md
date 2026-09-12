@@ -29,6 +29,13 @@ issue/PR numbers or repo links in the notes. See the tone rules in
 
 ### Changed
 
+- **Better infill and surface defaults out of the box.** Sparse infill is now
+  **TPMS-D** instead of rectilinear: a minimal surface carries load in every
+  direction, so 15 % density buys a stiffer part without printing more. Top and
+  bottom solid surfaces are **rectilinear**, one continuous serpentine pass
+  rather than the one-way monotonic sweeps, which leaves an even, evenly-pressed
+  face. The shipped presets move with the engine, so a slice from the app and
+  one from the command line still agree.
 - **Every speed reads in mm/s, including travel and retraction.** Those two are
   stored in mm/min because that is what a G-code `F` word carries, and the panel
   used to ask for `9000` beside a print speed of `120`. Press the unit next to
