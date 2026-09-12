@@ -351,6 +351,45 @@
   }
 }
 
+// The panel-level twin of `.schema-form-tier-toggle`, sitting under the last
+// accordion header rather than inside a section. Full width and centred so it
+// reads as belonging to the list as a whole, not to the group above it.
+.schema-form-panel-tier {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--spacing-xs);
+  width: 100%;
+  margin-top: var(--spacing-sm);
+  padding: var(--spacing-sm);
+  border: none;
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: var(--color-text-tertiary);
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-medium);
+  cursor: pointer;
+  transition:
+    background-color var(--duration-fast) var(--ease-standard),
+    color var(--duration-fast) var(--ease-standard);
+
+  --icon-size: 14px;
+
+  &:hover {
+    background: var(--color-surface-hover);
+    color: var(--color-text-secondary);
+  }
+
+  &:active {
+    background: var(--color-surface-active);
+  }
+
+  &:focus-visible {
+    outline: 2px solid var(--color-focus-ring);
+    outline-offset: -2px;
+  }
+}
+
 .schema-form-tier-count {
   padding: 0 var(--spacing-xs);
   border-radius: 999px;

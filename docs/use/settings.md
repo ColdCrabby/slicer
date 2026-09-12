@@ -120,8 +120,14 @@ Two things worth knowing:
 - **Anything you have changed stays visible**, even if it lives in Expert. A
   setting you can't find is a setting you can't put back.
 
-Each section remembers how far you opened it, so if you work in Advanced you
-only say so once.
+Whole sections work the same way. A few hold nothing but advanced settings —
+Quality, Thumbnail, Time estimate — so they are not listed until you ask for
+them; a section header that opens onto nothing is worse than no header. The
+**Advanced sections** control at the bottom of the list brings them in, which is
+what keeps Process at seven sections rather than eleven.
+
+Each section, and the list itself, remembers how far you opened it — so if you
+work in Advanced you only say so once.
 
 ## Everything else, by group
 

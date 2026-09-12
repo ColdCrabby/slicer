@@ -253,6 +253,25 @@ press reveals Expert. The step is offered only when the group can actually fill
 it, so a section whose extra fields are all Advanced never advertises an Expert
 tier that would expand to nothing.
 
+**Whole groups are tiered too**, by the *shallowest* tier they contain. A group
+with nothing but Advanced and Expert fields (Quality, Thumbnail, Time estimate)
+is not listed in the everyday view at all — offering a section header that opens
+onto an empty body is worse than not offering it. A matching
+`Advanced sections ⌄ 4` control at the foot of the panel reveals them, which is
+what keeps the Process tab at seven sections instead of eleven.
+
+Two traps that follow from group tiering, both fixed and both tested:
+
+- **The step must skip a tier that would reveal nothing.** `Time estimate` is
+  expert-only and the sole such group on the Printer tab; offering "Advanced"
+  there revealed nothing, and suppressing the step for that reason left the
+  section permanently unreachable.
+- **Revealing must land on the tier the control advertised.** A button reading
+  "Expert" that advances one step to Advanced appears to do nothing at all.
+
+A group's own reveal is never shallower than the panel's, or a section listed
+only because the user reached Advanced would render empty.
+
 Three rules the implementation depends on — each has a test in
 [`tier.spec.ts`](../../ui/src/app/schema-form/models/tier.spec.ts):
 

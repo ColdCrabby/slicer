@@ -91,6 +91,35 @@ export function deepestTier(fields: readonly FieldDef[]): Tier {
   return deepest;
 }
 
+/**
+ * The *shallowest* tier present in `fields` — the point at which a group first
+ * has something to show.
+ *
+ * A group whose every field is advanced has nothing to put on screen in the
+ * everyday view, so listing its header there offers the user a section that
+ * opens onto nothing. This is what lets the panel hide the whole group until
+ * the tier it belongs to is revealed.
+ */
+export function shallowestTier(fields: readonly FieldDef[]): Tier {
+  let shallowest: Tier = 'expert';
+  for (const field of fields) {
+    if (TIER_ORDER.indexOf(tierOf(field)) < TIER_ORDER.indexOf(shallowest)) {
+      shallowest = tierOf(field);
+    }
+  }
+  return fields.length === 0 ? 'everyday' : shallowest;
+}
+
+/** Whether `tier` is at or above `revealed` in the disclosure order. */
+export function isTierAtMost(tier: Tier, revealed: Tier): boolean {
+  return TIER_ORDER.indexOf(tier) <= TIER_ORDER.indexOf(revealed);
+}
+
+/** Whichever of the two tiers reveals more. */
+export function deeperOf(a: Tier, b: Tier): Tier {
+  return TIER_ORDER.indexOf(a) >= TIER_ORDER.indexOf(b) ? a : b;
+}
+
 /** The tier one step beyond `revealed`, or `null` when already at the deepest. */
 export function nextTier(revealed: Tier): Tier | null {
   const index = TIER_ORDER.indexOf(revealed);

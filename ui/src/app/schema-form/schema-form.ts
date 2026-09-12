@@ -31,9 +31,12 @@ import { parseSchema } from './models/schema-parser';
 import {
   type Tier,
   deepestTier,
+  deeperOf,
   filterRelevantGroups,
   isFieldInTier,
+  isTierAtMost,
   nextTier,
+  shallowestTier,
   tierOf,
 } from './models/relevance';
 
@@ -54,6 +57,17 @@ const ACCORDION_STORAGE_KEY = 'schema-form-accordion';
  * has not asked.
  */
 const TIER_STORAGE_KEY = 'schema-form-revealed-tiers';
+
+/**
+ * How far the *panel* is revealed — which whole sections are listed at all.
+ *
+ * Separate from the per-group key above: that one answers "how deep inside this
+ * section", this one answers "which sections exist for me right now". Some
+ * groups hold nothing but advanced or expert settings (Quality, Thumbnail, Time
+ * estimate), and listing their headers in the everyday view offers the reader a
+ * section that opens onto nothing.
+ */
+const PANEL_TIER_STORAGE_KEY = 'schema-form-revealed-panel-tier';
 
 /** Depth of each tier, for comparing "is there anything deeper here?". */
 const TIER_RANK: Record<Tier, number> = { everyday: 0, advanced: 1, expert: 2 };
@@ -251,9 +265,18 @@ export class SchemaForm {
     filterRelevantGroups(this.allGroups(), this.value()),
   );
 
-  /** Groups actually rendered in the accordion, honouring `visibleGroups`. */
+  /**
+   * Groups the panel is currently listing, honouring `visibleGroups` *and* the
+   * panel's revealed tier.
+   *
+   * A group whose shallowest field is advanced has nothing to show in the
+   * everyday view, so its header is not listed there — opening a section onto
+   * an empty body is worse than not offering it. A group holding a modified
+   * field is always listed whatever its tier, for the same reason a modified
+   * field is always shown: the user has to be able to find what they changed.
+   */
   protected readonly groups = computed<SchemaGroup[]>(() => {
-    const all = this.relevantGroups();
+    const all = this.tieredGroups();
     const visible = this.visibleGroups();
     if (!visible) {
       return all;
@@ -263,6 +286,94 @@ export class SchemaForm {
       .filter((group) => order.has(group.name))
       .sort((a, b) => order.get(a.name)! - order.get(b.name)!);
   });
+
+  /**
+   * How far the panel as a whole is revealed — which sections are listed.
+   * Persisted, like the per-group reveal beside it.
+   */
+  private readonly revealedPanelTier = signal<Tier>(
+    this.storage.getJson<Tier>(PANEL_TIER_STORAGE_KEY, 'local') ?? 'everyday',
+  );
+
+  /**
+   * Relevant groups narrowed to the ones this panel is scoped to show at all.
+   *
+   * The tab filter has to come *before* tiering: `Time estimate` is an
+   * expert-only group on the Printer contract, and counting it while the Process
+   * tab is open offered an "Expert sections 1" step that revealed nothing.
+   */
+  private readonly contractGroups = computed<SchemaGroup[]>(() => {
+    const visible = this.visibleGroups();
+    if (!visible) {
+      return this.relevantGroups();
+    }
+    const allowed = new Set(visible);
+    return this.relevantGroups().filter((g) => allowed.has(g.name));
+  });
+
+  /** Contract groups, minus the ones whose whole contents sit deeper than asked. */
+  private readonly tieredGroups = computed<SchemaGroup[]>(() => {
+    const revealed = this.revealedPanelTier();
+    const modified = this.modifiedKeys();
+    return this.contractGroups().filter(
+      (group) =>
+        isTierAtMost(shallowestTier(group.fields), revealed) ||
+        group.fields.some((f) => modified.has(f.key)),
+    );
+  });
+
+  /**
+   * The tier the panel-level disclosure would reveal next, or `null` at the end.
+   *
+   * Walks forward to the first tier that actually reveals a section rather than
+   * stopping at the immediately next one. `Time estimate` is expert-only and the
+   * sole such group on the Printer tab: offering "Advanced" there would have
+   * revealed nothing, and suppressing the step for that reason left the section
+   * permanently unreachable.
+   */
+  protected readonly pendingPanelTier = computed<Tier | null>(() => {
+    let candidate = nextTier(this.revealedPanelTier());
+    while (candidate) {
+      if (this.hiddenGroupCount(candidate) > 0) {
+        return candidate;
+      }
+      candidate = nextTier(candidate);
+    }
+    return null;
+  });
+
+  /** How many more sections revealing `tier` would list. */
+  protected hiddenGroupCount(tier: Tier): number {
+    const shown = new Set(this.tieredGroups().map((g) => g.name));
+    return this.contractGroups().filter(
+      (g) => !shown.has(g.name) && isTierAtMost(shallowestTier(g.fields), tier),
+    ).length;
+  }
+
+  /** Count for the template, for whichever tier is pending. */
+  protected readonly pendingPanelCount = computed<number>(() => {
+    const next = this.pendingPanelTier();
+    return next ? this.hiddenGroupCount(next) : 0;
+  });
+
+  /** Reveal the tier the panel disclosure advertised, and remember it. */
+  protected revealPanelDeeper(): void {
+    const next = this.pendingPanelTier();
+    if (!next) {
+      return;
+    }
+    this.revealedPanelTier.set(next);
+    this.storage.writeJson(PANEL_TIER_STORAGE_KEY, next, 'local');
+  }
+
+  /** Collapse the panel back to the everyday set of sections. */
+  protected hidePanelDeeper(): void {
+    this.revealedPanelTier.set('everyday');
+    this.storage.writeJson(PANEL_TIER_STORAGE_KEY, 'everyday', 'local');
+  }
+
+  /** True once the panel is showing more sections than the everyday set. */
+  protected readonly panelRevealed = computed(() => this.revealedPanelTier() !== 'everyday');
 
   /**
    * All currently-relevant fields flattened with their group name, used to
@@ -341,7 +452,9 @@ export class SchemaForm {
 
   /** How far `groupName` is revealed right now. */
   protected revealedTier(groupName: string): Tier {
-    return this.revealedTiers()[groupName] ?? 'everyday';
+    // Never shallower than the panel: a section that only exists because the
+    // user revealed Advanced must show its advanced fields, not an empty body.
+    return deeperOf(this.revealedTiers()[groupName] ?? 'everyday', this.revealedPanelTier());
   }
 
   /**
@@ -363,34 +476,47 @@ export class SchemaForm {
    * there is nothing deeper to show.
    */
   protected pendingTier(group: SchemaGroup): Tier | null {
-    const next = nextTier(this.revealedTier(group.name));
-    if (!next) {
-      return null;
-    }
     const deepest = deepestTier(group.fields);
-    // Only offer a step the group can actually fill. A section whose extra
-    // fields are all `advanced` must not advertise an Expert tier that would
-    // expand to nothing.
-    return TIER_RANK[next] <= TIER_RANK[deepest] ? next : null;
+    let candidate = nextTier(this.revealedTier(group.name));
+    // Walk to the first step that actually fills. A section whose extra fields
+    // are all expert must offer "Expert" directly rather than an "Advanced"
+    // step that expands to nothing — and one whose extras are all advanced must
+    // not advertise an Expert tier at all.
+    while (candidate && TIER_RANK[candidate] <= TIER_RANK[deepest]) {
+      if (this.countInTier(group, candidate) > 0) {
+        return candidate;
+      }
+      candidate = nextTier(candidate);
+    }
+    return null;
+  }
+
+  /** Fields of `group` that revealing `tier` would newly bring into view. */
+  private countInTier(group: SchemaGroup, tier: Tier): number {
+    const shown = new Set(this.visibleFields(group).map((f) => f.key));
+    return group.fields.filter((f) => !shown.has(f.key) && isFieldInTier(f, tier)).length;
   }
 
   /** How many more fields the pending disclosure would bring into view. */
   protected pendingCount(group: SchemaGroup): number {
     const next = this.pendingTier(group);
-    if (!next) {
-      return 0;
-    }
-    const shown = new Set(this.visibleFields(group).map((f) => f.key));
-    return group.fields.filter((f) => !shown.has(f.key) && isFieldInTier(f, next)).length;
+    return next ? this.countInTier(group, next) : 0;
   }
 
-  /** Reveal one tier deeper in `groupName`, and remember it. */
-  protected revealDeeper(groupName: string): void {
-    const next = nextTier(this.revealedTier(groupName));
+  /**
+   * Reveal the tier the disclosure advertised, and remember it.
+   *
+   * Takes the tier from `pendingTier` rather than stepping one place: where the
+   * next step would reveal nothing, the button says "Expert" and pressing it has
+   * to land on Expert. Stepping blindly meant the first press appeared to do
+   * nothing at all.
+   */
+  protected revealDeeper(group: SchemaGroup): void {
+    const next = this.pendingTier(group);
     if (!next) {
       return;
     }
-    this.revealedTiers.update((map) => ({ ...map, [groupName]: next }));
+    this.revealedTiers.update((map) => ({ ...map, [group.name]: next }));
     this.storage.writeJson(TIER_STORAGE_KEY, this.revealedTiers(), 'local');
   }
 

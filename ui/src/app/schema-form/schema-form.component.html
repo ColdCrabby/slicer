@@ -137,7 +137,7 @@
                   <button
                     type="button"
                     class="schema-form-tier-toggle"
-                    (click)="revealDeeper(group.name)"
+                    (click)="revealDeeper(group)"
                   >
                     <nexus-icon name="nav-arrow-down" aria-hidden="true" />
                     <span>{{ tierLabel(pending) }}</span>
@@ -158,6 +158,25 @@
           </ng-template>
         </div>
       </div>
+    }
+
+    <!--
+      Panel-level disclosure. Some sections hold nothing but advanced or expert
+      settings, so listing their headers by default offers the reader a section
+      that opens onto nothing. This reveals those sections in place, at the foot
+      of the list where it does not compete with the settings above it.
+    -->
+    @if (pendingPanelTier(); as pendingPanel) {
+      <button type="button" class="schema-form-panel-tier" (click)="revealPanelDeeper()">
+        <nexus-icon name="nav-arrow-down" aria-hidden="true" />
+        <span>{{ tierLabel(pendingPanel) }} sections</span>
+        <span class="schema-form-tier-count">{{ pendingPanelCount() }}</span>
+      </button>
+    } @else if (panelRevealed()) {
+      <button type="button" class="schema-form-panel-tier" (click)="hidePanelDeeper()">
+        <nexus-icon name="nav-arrow-up" aria-hidden="true" />
+        <span>Fewer sections</span>
+      </button>
     }
   </div>
 }
