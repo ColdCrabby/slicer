@@ -25,6 +25,8 @@ import { KeyboardShortcuts } from '../services/keyboard-shortcuts/keyboard-short
 import { Viewport } from '../services/viewport';
 import { Icon, UserInputModality } from '@coldcrabby/ui';
 import { FieldHost } from './field-host/field-host';
+import { SettingsOutline, type OutlineFieldJump } from './outline/settings-outline';
+import { buildOutline, filterOutline, type OutlineSection } from './models/outline';
 import { noticeForField } from './field-exceptions/field-exceptions';
 import { controlFor } from './models/field-control';
 import { FieldDef, SchemaGroup } from './models/field-def';
@@ -74,6 +76,20 @@ const PANEL_TIER_STORAGE_KEY = 'schema-form-revealed-panel-tier';
 
 /** Depth of each tier, for comparing "is there anything deeper here?". */
 const TIER_RANK: Record<Tier, number> = { everyday: 0, advanced: 1, expert: 2 };
+
+/** Marker class on the row an outline jump landed on, while the hint lasts. */
+const JUMP_CLASS = 'is-jump-target';
+
+/** How long that hint lasts. Long enough to find, short enough not to nag. */
+const JUMP_FLASH_MS = 1400;
+
+/**
+ * How many times a jump re-looks for its target, and how long it waits between
+ * tries. A section's fields are built lazily when it first expands, so the
+ * element a jump is aiming at does not exist in the frame the outline closes in.
+ */
+const JUMP_RETRIES = 4;
+const JUMP_RETRY_MS = 60;
 
 /**
  * Schema-driven form container.
@@ -133,6 +149,7 @@ const FUSE_OPTIONS: IFuseOptions<FieldDefIndexed> = {
     AccordionPanel,
     AccordionTrigger,
     AccordionContent,
+    SettingsOutline,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
   templateUrl: './schema-form.component.html',
@@ -194,11 +211,14 @@ export class SchemaForm {
    * "(⌘+f)" is a shortcut the user cannot press, and it is long enough to push
    * the words that matter out of a narrow field.
    */
-  protected readonly searchPlaceholder = computed(() =>
-    this.viewport.isHandheld()
+  protected readonly searchPlaceholder = computed(() => {
+    if (this.outlineOpen()) {
+      return 'Filter outline…';
+    }
+    return this.viewport.isHandheld()
       ? 'Search settings…'
-      : `Search settings… (${this.keyboardShortcuts.shortcutFor('focus-settings-search')})`,
-  );
+      : `Search settings… (${this.keyboardShortcuts.shortcutFor('focus-settings-search')})`;
+  });
 
   constructor() {
     this.keyboardShortcuts.schemaFormRef = this;
@@ -405,6 +425,175 @@ export class SchemaForm {
 
   /** True once the panel is showing more sections than the everyday set. */
   protected readonly panelRevealed = computed(() => this.revealedPanelTier() !== 'everyday');
+
+  // --- Outline -----------------------------------------------------------
+
+  /**
+   * Whether the panel is showing its outline instead of its controls.
+   *
+   * The accordion answers "what is in this section" and search answers "where
+   * is the thing I can name". Neither answers "I know this exists, I just don't
+   * know what it's called" — the question a panel of several hundred settings
+   * gets asked most. The outline is that third view: every section and every
+   * setting name at once, dense enough to skim, with a jump behind each row.
+   *
+   * It is a view of the same form, not a place of its own: following a row
+   * lands the user on the real control, in its real section.
+   */
+  protected readonly outlineOpen = signal(false);
+
+  /** Section the form was scrolled to when the outline was opened. */
+  private readonly outlineAnchor = signal<string | null>(null);
+  protected readonly currentOutlineSection = this.outlineAnchor.asReadonly();
+
+  /**
+   * The contract as a table of contents, narrowed by whatever is in the box.
+   *
+   * Built from `contractGroups` — the *untiered* set — for the same reason
+   * search reads from it: a user who cannot name a setting is exactly the user
+   * disclosure has stranded, so the outline lists what the form is folding away
+   * and marks the tier each row sits behind.
+   */
+  protected readonly outlineSections = computed<OutlineSection[]>(() =>
+    filterOutline(
+      buildOutline(this.contractGroups(), this.groupIcons(), this.modifiedKeys()),
+      this.searchQuery(),
+    ),
+  );
+
+  /**
+   * Open or close the outline.
+   *
+   * Opening notes where the form was scrolled to, so the outline can say "you
+   * are here" rather than dropping the reader at the top of a list of twelve
+   * sections. It also clears the box: the same field filters the outline and
+   * searches the form, and carrying a half-typed query across would narrow one
+   * view by a query meant for the other.
+   */
+  toggleOutline(): void {
+    const opening = !this.outlineOpen();
+    if (opening) {
+      this.sidebar?.expand();
+      this.outlineAnchor.set(this.sectionInView());
+    }
+    this.searchQuery.set('');
+    this.outlineOpen.set(opening);
+  }
+
+  /**
+   * Which section the form is scrolled to, read straight from layout.
+   *
+   * Deliberately not an IntersectionObserver: the answer is wanted at exactly
+   * one instant — when the outline opens — and an observer would run for the
+   * whole session to have it ready.
+   */
+  private sectionInView(): string | null {
+    const elements = Array.from(
+      this.hostEl.nativeElement.querySelectorAll<HTMLElement>('[data-group]'),
+    );
+    if (elements.length === 0) {
+      return null;
+    }
+    // Anything above the bottom of the sticky search is already scrolled past,
+    // so the last such section is the one the reader is looking at.
+    const anchor = (this.searchBarRef()?.nativeElement.getBoundingClientRect().bottom ?? 0) + 1;
+    let current = elements[0].dataset['group'] ?? null;
+    for (const element of elements) {
+      if (element.getBoundingClientRect().top <= anchor) {
+        current = element.dataset['group'] ?? current;
+      }
+    }
+    return current;
+  }
+
+  /** Follow an outline section header to its section in the form. */
+  protected jumpToSection(name: string): void {
+    const group = this.contractGroups().find((g) => g.name === name);
+    if (!group) {
+      return;
+    }
+    this.listSection(group);
+    this.expand(group.name);
+    this.jumpTo(`[data-group="${CSS.escape(name)}"]`);
+  }
+
+  /** Follow an outline row to the control it names, revealing whatever hides it. */
+  protected jumpToField(jump: OutlineFieldJump): void {
+    const group = this.contractGroups().find((g) => g.name === jump.group);
+    const field = group?.fields.find((f) => f.key === jump.key);
+    if (!group || !field) {
+      return;
+    }
+    this.listSection(group);
+    this.revealField(group.name, field);
+    this.expand(group.name);
+    this.jumpTo(`[data-field="${CSS.escape(jump.key)}"]`);
+  }
+
+  /**
+   * Make sure the panel is listing `group` at all.
+   *
+   * A section whose shallowest field sits behind a tier is not in the panel
+   * until that tier is revealed, so a jump into one would scroll to nothing.
+   */
+  private listSection(group: SchemaGroup): void {
+    const needed = shallowestTier(group.fields);
+    if (isTierAtMost(needed, this.revealedPanelTier())) {
+      return;
+    }
+    this.storedPanelTier.set(needed);
+    this.storage.writeJson(PANEL_TIER_STORAGE_KEY, needed, 'local');
+  }
+
+  /** Reveal `group` far enough for `field` to be on screen. */
+  private revealField(groupName: string, field: FieldDef): void {
+    if (isFieldInTier(field, this.revealedTier(groupName))) {
+      return;
+    }
+    this.revealedTiers.update((map) => ({ ...map, [groupName]: tierOf(field) }));
+    this.storage.writeJson(TIER_STORAGE_KEY, this.revealedTiers(), 'local');
+  }
+
+  private expand(groupName: string): void {
+    this.getExpandedSignal(groupName).set(true);
+    this.persistExpandedState();
+  }
+
+  /** Leave the outline and bring `selector` into view. */
+  private jumpTo(selector: string): void {
+    this.outlineOpen.set(false);
+    this.searchQuery.set('');
+    setTimeout(() => this.scrollToTarget(selector), 0);
+  }
+
+  private scrollToTarget(selector: string, attempt = 0): void {
+    const element = this.hostEl.nativeElement.querySelector<HTMLElement>(selector);
+    if (!element) {
+      if (attempt < JUMP_RETRIES) {
+        setTimeout(() => this.scrollToTarget(selector, attempt + 1), JUMP_RETRY_MS);
+      }
+      return;
+    }
+    // `scroll-margin-top` on the target clears the sticky search bar, so
+    // `start` lands the row under the chrome rather than behind it.
+    element.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    this.flash(element);
+  }
+
+  /**
+   * Mark where a jump landed, briefly.
+   *
+   * A smooth scroll ends with the target somewhere on a panel of near-identical
+   * rows, and the row the user asked for looks like every other one.
+   */
+  private flash(element: HTMLElement): void {
+    element.classList.remove(JUMP_CLASS);
+    // Force a reflow so jumping to the same row twice restarts the animation
+    // instead of being folded into the one already running.
+    void element.offsetWidth;
+    element.classList.add(JUMP_CLASS);
+    setTimeout(() => element.classList.remove(JUMP_CLASS), JUMP_FLASH_MS);
+  }
 
   /**
    * All currently-relevant fields flattened with their group name, used to

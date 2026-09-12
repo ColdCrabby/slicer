@@ -26,7 +26,15 @@
   pointer-events: none;
 }
 
+.schema-form-search-row {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-xs);
+}
+
 .schema-form-search-field {
+  flex: 1 1 auto;
+  min-width: 0;
   display: flex;
   align-items: center;
   gap: var(--spacing-xs);
@@ -95,6 +103,46 @@
 
   &:hover {
     color: var(--color-text-primary);
+  }
+}
+
+// Sits outside the field so it reads as a second way to look at the settings
+// rather than as a control belonging to the search itself.
+.schema-form-outline-toggle {
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border: none;
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: var(--color-text-tertiary);
+  cursor: pointer;
+  transition:
+    background-color var(--duration-fast) var(--ease-standard),
+    color var(--duration-fast) var(--ease-standard);
+
+  --icon-size: 17px;
+
+  &:hover {
+    background: var(--color-surface-hover);
+    color: var(--color-text-primary);
+  }
+
+  &:active {
+    background: var(--color-surface-active);
+  }
+
+  &:focus-visible {
+    outline: 2px solid var(--color-focus-ring);
+    outline-offset: -2px;
+  }
+
+  &.is-active {
+    background: var(--accent-soft);
+    color: var(--accent);
   }
 }
 
@@ -167,6 +215,11 @@
   background: var(--color-bg-secondary);
 }
 
+/** Height of a section header, which pins below the search bar. */
+:host {
+  --schema-form-group-header-h: 36px;
+}
+
 .schema-form-group-trigger {
   // A press with no acknowledgement reads as a press that missed, and there is
   // no hover to fall back on under a fingertip.
@@ -178,7 +231,7 @@
   align-items: center;
   justify-content: space-between;
   width: 100%;
-  min-height: 36px;
+  min-height: var(--schema-form-group-header-h);
   padding: 8px 12px;
   background: none;
   border: none;
@@ -440,5 +493,60 @@
 
   .schema-form-search-field .schema-form-search-input {
     min-height: 0;
+  }
+
+  .schema-form-outline-toggle {
+    width: 44px;
+    height: 44px;
+  }
+}
+
+/**
+ * An outline jump aims at `block: start`; without a scroll margin the row would
+ * land behind the chrome pinned above it.
+ *
+ * A section clears the search bar and its fade. A *field* has to clear its own
+ * section header too — that header is sticky, so scrolling a field to the top
+ * of the panel parked its label directly underneath it and the jump appeared to
+ * land one row late.
+ */
+.schema-form-group {
+  scroll-margin-top: calc(var(--schema-form-search-h, 44px) + var(--spacing-lg));
+}
+
+.schema-form-field {
+  scroll-margin-top: calc(
+    var(--schema-form-search-h, 44px) + var(--spacing-lg) + var(--schema-form-group-header-h)
+  );
+}
+
+/**
+ * Where an outline jump landed.
+ *
+ * A smooth scroll ends with the target amongst a column of near-identical rows,
+ * so the row the user asked for is marked for a moment and then left alone. It
+ * fades rather than blinks — this fires on a deliberate navigation, not on an
+ * error, and has nothing to interrupt.
+ */
+.schema-form-field.is-jump-target,
+.schema-form-group.is-jump-target {
+  animation: schema-form-jump-flash var(--duration-slow) var(--ease-decelerate) 2 alternate;
+  border-radius: var(--radius-md);
+}
+
+@keyframes schema-form-jump-flash {
+  from {
+    background: transparent;
+  }
+  to {
+    background: var(--accent-softer);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .schema-form-field.is-jump-target,
+  .schema-form-group.is-jump-target {
+    animation: none;
+    background: var(--accent-softer);
   }
 }

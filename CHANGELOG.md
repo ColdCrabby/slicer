@@ -66,6 +66,12 @@ issue/PR numbers or repo links in the notes. See the tone rules in
 
 ### Added
 
+- **An outline for the settings panel.** Press the list button beside the search
+  box — or `Ctrl`/`⌘ + Shift + O` — and the panel becomes a table of contents:
+  every section, and under it every setting by name. Click a line to land on the
+  control, in its section. It lists what the panel folds away too, marked with
+  the tier it sits behind, for the case search cannot help with: you know the
+  setting exists, you just can't name it.
 - **Settings start calm and open all the way.** Every section shows the handful
   of settings a print actually depends on, then an `Advanced 10` row that
   expands it in place; a second press reveals Expert. Sections holding nothing
