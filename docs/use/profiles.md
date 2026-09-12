@@ -106,8 +106,14 @@ shows you that there is one in Walls, one in Infill, one in Support and two in
 Speed — *where* each lives, not just that it exists. It is the fastest way to a
 setting you can picture but cannot name.
 
-The outline needs a window wide enough for a third column; below that the list
-and the editor keep the room.
+**Fold the section list to see it.** Settings is already three columns wide, so
+the outline only appears once you collapse the section list on the far left to
+icons — the button beside the word *Settings*. It also needs a window wide
+enough for the extra column; below that the list and the editor keep the room.
+
+The list column itself is draggable: pull the edge between the list and the
+editor to give long profile names the width they need. It stays where you put
+it.
 
 ## Labels
 

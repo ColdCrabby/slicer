@@ -5,15 +5,28 @@ import {
   ElementRef,
   afterNextRender,
   computed,
+  effect,
   inject,
   signal,
 } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { Icon } from '@coldcrabby/ui';
+import { SettingsNav } from '../../services/settings-nav';
 import { filterOutline, scanOutline, type OutlineSection } from './outline';
 
 /** How long the landing mark on a jumped-to row lasts; matches `configure-flash`. */
 const FLASH_MS = 1600;
+
+/**
+ * How long the editor must sit still before the outline re-reads it.
+ *
+ * Typing in a field mutates the subtree on every keystroke. A frame-coalesced
+ * rescan still walked a two-hundred-row form between keystrokes, which is
+ * precisely the cost a contents list is not allowed to add to typing; waiting
+ * for a pause costs nothing the user can perceive, because the outline only has
+ * to be right by the time they look at it.
+ */
+const RESCAN_QUIET_MS = 200;
 
 /**
  * The contents rail beside a profile editor: every section of the page, and
@@ -31,16 +44,35 @@ const FLASH_MS = 1600;
   changeDetection: ChangeDetectionStrategy.OnPush,
   templateUrl: './profile-outline.html',
   styleUrl: './profile-outline.scss',
+  host: {
+    // Drives both its own `display` and the grid track the page reserves for
+    // it, so a hidden rail costs no column.
+    '[class.is-off]': '!visible()',
+  },
 })
 export class ProfileOutline {
   private readonly host = inject<ElementRef<HTMLElement>>(ElementRef);
+  private readonly settingsNav = inject(SettingsNav);
+
+  /**
+   * The rail appears only once the Settings section list has been folded to
+   * icons.
+   *
+   * Settings is already sections + list + editor before the outline asks for
+   * anything, and a fourth column at once is what made the page feel crowded.
+   * Tying the two together makes it a trade the user makes deliberately —
+   * fold the sections, gain the contents — rather than a column that turns up
+   * uninvited.
+   */
+  protected readonly visible = this.settingsNav.collapsed;
 
   protected readonly query = signal('');
 
   /** The editor as it currently stands, rescanned whenever it changes. */
   private readonly sections = signal<OutlineSection[]>([]);
 
-  protected readonly visible = computed(() => filterOutline(this.sections(), this.query()));
+  /** The sections actually listed, narrowed by the filter box. */
+  protected readonly rows = computed(() => filterOutline(this.sections(), this.query()));
 
   /** Section the editor is scrolled to, so the rail can say "you are here". */
   protected readonly currentId = signal<string | null>(null);
@@ -49,6 +81,12 @@ export class ProfileOutline {
 
   constructor() {
     afterNextRender(() => this.attach());
+    // Unfolding the rail has to read an editor the hidden rail never scanned.
+    effect(() => {
+      if (this.visible()) {
+        this.scheduleRescan();
+      }
+    });
     inject(DestroyRef).onDestroy(() => this.detach());
   }
 
@@ -56,7 +94,8 @@ export class ProfileOutline {
 
   private observer: MutationObserver | null = null;
   private scrollHandler: (() => void) | null = null;
-  private pending = 0;
+  private rescanTimer: ReturnType<typeof setTimeout> | null = null;
+  private spyFrame = 0;
 
   private attach(): void {
     const scroller = this.host.nativeElement
@@ -72,8 +111,12 @@ export class ProfileOutline {
     // and a gated field appears or disappears as its sibling changes. A contents
     // list that went stale on either would send the user somewhere that is no
     // longer there, so it follows the DOM instead of being told.
+    //
+    // `childList` only: a section or a row arriving and leaving is a node
+    // change, and watching `characterData` as well woke the observer on every
+    // character typed into every field for a set of titles that never move.
     this.observer = new MutationObserver(() => this.scheduleRescan());
-    this.observer.observe(scroller, { childList: true, subtree: true, characterData: true });
+    this.observer.observe(scroller, { childList: true, subtree: true });
 
     this.scrollHandler = () => this.scheduleSpy();
     scroller.addEventListener('scroll', this.scrollHandler, { passive: true });
@@ -86,41 +129,49 @@ export class ProfileOutline {
       this.scroller.removeEventListener('scroll', this.scrollHandler);
     }
     this.scrollHandler = null;
-    if (this.pending) {
-      cancelAnimationFrame(this.pending);
-      this.pending = 0;
+    if (this.rescanTimer !== null) {
+      clearTimeout(this.rescanTimer);
+      this.rescanTimer = null;
     }
+    if (this.spyFrame) {
+      cancelAnimationFrame(this.spyFrame);
+      this.spyFrame = 0;
+    }
+  }
+
+  /** Coalesce a burst of mutations into one rescan, once the editor settles. */
+  private scheduleRescan(): void {
+    if (this.rescanTimer !== null) {
+      clearTimeout(this.rescanTimer);
+    }
+    this.rescanTimer = setTimeout(() => {
+      this.rescanTimer = null;
+      this.rescan();
+      this.spy();
+    }, RESCAN_QUIET_MS);
   }
 
   /**
-   * Coalesce a burst of mutations into one rescan.
+   * One "you are here" update per frame.
    *
-   * Typing in a field mutates the editor on every keystroke; rescanning each
-   * time would walk a two-hundred-row form for an answer that has not changed.
+   * Kept on its own handle rather than sharing the rescan's: while they shared
+   * one, scrolling during a pending rescan cancelled it and the outline stayed
+   * stale until the next mutation.
    */
-  private scheduleRescan(): void {
-    if (this.pending) {
-      return;
-    }
-    this.pending = requestAnimationFrame(() => {
-      this.pending = 0;
-      this.rescan();
-      this.spy();
-    });
-  }
-
   private scheduleSpy(): void {
-    if (this.pending) {
+    if (this.spyFrame) {
       return;
     }
-    this.pending = requestAnimationFrame(() => {
-      this.pending = 0;
+    this.spyFrame = requestAnimationFrame(() => {
+      this.spyFrame = 0;
       this.spy();
     });
   }
 
   private rescan(): void {
-    if (!this.scroller) {
+    // Nothing to read while the rail is not on screen, and nothing to draw with
+    // it — the work resumes on the first mutation after it comes back.
+    if (!this.scroller || !this.visible()) {
       return;
     }
     this.sections.set(scanOutline(this.scroller));

@@ -72,10 +72,13 @@ issue/PR numbers or repo links in the notes. See the tone rules in
 ### Added
 
 - **An outline for the printer, filament and profile editors.** These pages show
-  every parameter there is, in one long column with no way to search it. A
-  contents rail now sits beside them: every section, and under it every setting
-  by name, with a filter box — so a setting you can picture but cannot name is
-  one glance away, and one click takes you to it.
+  every parameter there is, in one long column with no way to search it. Collapse
+  the Settings section list to icons and a contents rail takes its place: every
+  section, and under it every setting by name, with a filter box — so a setting
+  you can picture but cannot name is one glance away, and one click takes you to
+  it.
+- **The Settings section list folds to icons**, and the list of printers,
+  filaments or profiles beside it can be dragged wider. Both are remembered.
 - **Your Klipper printer sets itself up.** Detection now reads the machine's own
   configuration instead of two fields of it: build volume and kinematics, nozzle
   and filament diameter, velocity and acceleration limits, pressure advance,

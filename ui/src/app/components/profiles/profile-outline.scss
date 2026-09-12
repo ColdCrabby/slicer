@@ -5,6 +5,12 @@
   min-height: 0;
 }
 
+// Hidden because the Settings section list is not folded. The page's grid keys
+// off the same class, so the track goes with it.
+:host(.is-off) {
+  display: none;
+}
+
 .profile-outline {
   display: flex;
   flex-direction: column;

@@ -19,7 +19,8 @@
   flex: 1;
   min-height: 0;
   display: grid;
-  grid-template-columns: minmax(280px, 340px) 1fr;
+  // The list column is draggable; `--mgr-list-w` is what the resizer writes.
+  grid-template-columns: var(--mgr-list-w, minmax(280px, 340px)) 1fr;
   gap: var(--spacing-xl);
 }
 
@@ -27,21 +28,22 @@
 // editor's scroll: as a grid child it is given the full height for free, and
 // scrolls a long outline independently of the form it describes.
 //
-.mgr__body:has(nexus-profile-outline) {
-  grid-template-columns: minmax(280px, 340px) 1fr auto;
+.mgr__body:has(nexus-profile-outline:not(.is-off)) {
+  grid-template-columns: var(--mgr-list-w, minmax(280px, 340px)) 1fr auto;
 }
 
 // Below the width where a docked column stops fitting the rail takes itself off
 // screen (see its own stylesheet); the grid has to give its track back.
 @media (max-width: #{$compact-max-width}) {
-  .mgr__body:has(nexus-profile-outline) {
-    grid-template-columns: minmax(280px, 340px) 1fr;
+  .mgr__body:has(nexus-profile-outline:not(.is-off)) {
+    grid-template-columns: var(--mgr-list-w, minmax(280px, 340px)) 1fr;
   }
 }
 
 // ── List column ─────────────────────────────────────────────────────────────
 
 .mgr__list {
+  position: relative;
   display: flex;
   flex-direction: column;
   min-height: 0;
