@@ -23,6 +23,10 @@ import {
 } from '../../services/history-controls-preference';
 import { Button, SectionHeader, Slider } from '@coldcrabby/ui';
 import { FovCube } from '../../ui/fov-cube/fov-cube';
+import {
+  SettingsDetailPreference,
+  type SettingsDetailMode,
+} from '../../services/settings-detail-preference';
 
 @Component({
   selector: 'nexus-settings-general',
@@ -35,6 +39,7 @@ export class GeneralSettings implements OnInit {
   protected readonly viewer = inject(ViewerControl);
   private readonly appVersion = inject(AppVersion);
   protected readonly historyControls = inject(HistoryControlsPreference);
+  protected readonly settingsDetail = inject(SettingsDetailPreference);
   protected readonly gesture = this.viewer.trackpadTwoFingerGesture;
   protected readonly statsVisible = this.viewer.statsVisible;
   protected readonly palmRejection = this.viewer.palmRejection;
@@ -106,6 +111,11 @@ export class GeneralSettings implements OnInit {
 
   setStatsVisible(value: boolean): void {
     this.viewer.setStatsVisible(value);
+  }
+
+  /** Choose how much detail the settings panels open at. */
+  setSettingsDetail(mode: SettingsDetailMode): void {
+    this.settingsDetail.setMode(mode);
   }
 
   setPalmRejection(value: boolean): void {

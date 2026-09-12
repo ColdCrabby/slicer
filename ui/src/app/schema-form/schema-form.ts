@@ -39,6 +39,7 @@ import {
   shallowestTier,
   tierOf,
 } from './models/relevance';
+import { SettingsDetailPreference } from '../services/settings-detail-preference';
 
 export interface FieldChangeEvent {
   key: string;
@@ -137,6 +138,7 @@ const FUSE_OPTIONS: IFuseOptions<FieldDefIndexed> = {
 })
 export class SchemaForm {
   private readonly storage = inject(BrowserStorage);
+  private readonly settingsDetail = inject(SettingsDetailPreference);
   private readonly inputModality = inject(UserInputModality);
   private readonly sidebar = inject(Sidebar, { optional: true });
   private readonly viewport = inject(Viewport);
@@ -291,8 +293,19 @@ export class SchemaForm {
    * How far the panel as a whole is revealed — which sections are listed.
    * Persisted, like the per-group reveal beside it.
    */
-  private readonly revealedPanelTier = signal<Tier>(
+  private readonly storedPanelTier = signal<Tier>(
     this.storage.getJson<Tier>(PANEL_TIER_STORAGE_KEY, 'local') ?? 'everyday',
+  );
+
+  /**
+   * Where the panel is actually revealed to: the deeper of the user's standing
+   * preference and whatever they have revealed in this panel.
+   *
+   * The preference is a floor, not a mode — it moves where a panel *starts*, and
+   * the per-section controls still open further from there.
+   */
+  private readonly revealedPanelTier = computed<Tier>(() =>
+    deeperOf(this.storedPanelTier(), this.settingsDetail.mode()),
   );
 
   /**
@@ -362,15 +375,25 @@ export class SchemaForm {
     if (!next) {
       return;
     }
-    this.revealedPanelTier.set(next);
+    this.storedPanelTier.set(next);
     this.storage.writeJson(PANEL_TIER_STORAGE_KEY, next, 'local');
   }
 
   /** Collapse the panel back to the everyday set of sections. */
   protected hidePanelDeeper(): void {
-    this.revealedPanelTier.set('everyday');
+    this.storedPanelTier.set('everyday');
     this.storage.writeJson(PANEL_TIER_STORAGE_KEY, 'everyday', 'local');
   }
+
+  /**
+   * Whether the "fewer" control can do anything.
+   *
+   * With a standing preference of Advanced or deeper, collapsing the panel would
+   * put it straight back where it was — so the control is not offered.
+   */
+  protected readonly canCollapsePanel = computed(
+    () => this.settingsDetail.mode() === 'everyday' && this.storedPanelTier() !== 'everyday',
+  );
 
   /** True once the panel is showing more sections than the everyday set. */
   protected readonly panelRevealed = computed(() => this.revealedPanelTier() !== 'everyday');
@@ -454,6 +477,8 @@ export class SchemaForm {
   protected revealedTier(groupName: string): Tier {
     // Never shallower than the panel: a section that only exists because the
     // user revealed Advanced must show its advanced fields, not an empty body.
+    // The panel tier already folds in the standing preference, so a user who
+    // works at Expert gets every section open at Expert without touching one.
     return deeperOf(this.revealedTiers()[groupName] ?? 'everyday', this.revealedPanelTier());
   }
 
@@ -518,6 +543,18 @@ export class SchemaForm {
     }
     this.revealedTiers.update((map) => ({ ...map, [group.name]: next }));
     this.storage.writeJson(TIER_STORAGE_KEY, this.revealedTiers(), 'local');
+  }
+
+  /**
+   * Whether collapsing `groupName` would change anything.
+   *
+   * With a standing preference of Advanced or deeper, a section cannot go below
+   * that floor — offering "Show less" there is a control that does nothing when
+   * pressed.
+   */
+  protected canCollapseGroup(groupName: string): boolean {
+    const own = this.revealedTiers()[groupName] ?? 'everyday';
+    return own !== 'everyday' && own !== this.settingsDetail.mode();
   }
 
   /** Collapse `groupName` back to the everyday view. */

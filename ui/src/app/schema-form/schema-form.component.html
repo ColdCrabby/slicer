@@ -143,7 +143,7 @@
                     <span>{{ tierLabel(pending) }}</span>
                     <span class="schema-form-tier-count">{{ pendingCount(group) }}</span>
                   </button>
-                } @else if (revealedTier(group.name) !== 'everyday') {
+                } @else if (canCollapseGroup(group.name)) {
                   <button
                     type="button"
                     class="schema-form-tier-toggle is-open"
@@ -172,7 +172,7 @@
         <span>{{ tierLabel(pendingPanel) }} sections</span>
         <span class="schema-form-tier-count">{{ pendingPanelCount() }}</span>
       </button>
-    } @else if (panelRevealed()) {
+    } @else if (canCollapsePanel()) {
       <button type="button" class="schema-form-panel-tier" (click)="hidePanelDeeper()">
         <nexus-icon name="nav-arrow-up" aria-hidden="true" />
         <span>Fewer sections</span>

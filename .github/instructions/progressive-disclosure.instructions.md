@@ -289,8 +289,14 @@ Three rules the implementation depends on — each has a test in
 
 Reveal state is persisted per group, the same way the accordion's own expansion
 is: someone who works in Advanced all day should not reopen it every session.
-That is not the "I am an expert" switch the non-goals rule out — it is per
-section, per intent, and it never changes the shape of the app.
+`Settings → General → Settings detail` sets the floor those panels open at, for
+the user who already knows every parameter and would otherwise press the same
+two controls on every section, every session. It is a starting point, not a
+mode — see the non-goals.
+
+Two controls that cannot act must not be offered, and both cases are live once a
+floor is set: a group cannot collapse below the floor, and neither can the
+panel. Offering "Show less" there is a button that does nothing when pressed.
 
 ### Adding a setting
 
@@ -323,8 +329,12 @@ does nothing. That is a disclosure failure, and the rules for it are in
 
 - **Not a permissions model.** Tiers change what is *shown by default*. They
   never gate capability, and they never hide a setting from search.
-- **Not a per-user preference.** There is no "I am an expert" switch to flip
-  once; disclosure is per-section and per-intent.
+- **Not a mode the app runs in.** `Settings → General → Settings detail` sets
+  the tier the panels *open* at — a floor, not a mode. The per-section controls
+  still reveal deeper from it, nothing about the app's shape changes, and no
+  capability is gated either way. What the tier model rules out is a switch that
+  makes the interface a different application: two layouts, two vocabularies,
+  two sets of things a user can do.
 - **Not a reason to add settings.** "It can live in Expert" is not a
   justification for a knob nobody can reason about. A defensible Expert setting
   is one a real person has wanted to change.

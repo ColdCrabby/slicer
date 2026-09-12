@@ -321,6 +321,8 @@
   align-items: center;
   gap: var(--spacing-xs);
   align-self: flex-start;
+  // Indented to the field column it belongs to, so it reads as the last line of
+  // this section rather than as a peer of the panel control below it.
   margin-top: var(--spacing-xs);
   padding: var(--spacing-xs) var(--spacing-sm);
   border: none;
@@ -328,13 +330,13 @@
   background: transparent;
   color: var(--color-text-tertiary);
   font-size: var(--font-size-xs);
-  font-weight: var(--font-weight-medium);
+  font-weight: var(--font-weight-normal);
   cursor: pointer;
   transition:
     background-color var(--duration-fast) var(--ease-standard),
     color var(--duration-fast) var(--ease-standard);
 
-  --icon-size: 14px;
+  --icon-size: 13px;
 
   &:hover {
     background: var(--color-surface-hover);
@@ -351,29 +353,30 @@
   }
 }
 
-// The panel-level twin of `.schema-form-tier-toggle`, sitting under the last
-// accordion header rather than inside a section. Full width and centred so it
-// reads as belonging to the list as a whole, not to the group above it.
+// The panel-level control adds whole *sections*, so it is shaped like the
+// section headers it sits under — same left edge, same padding, chevron first —
+// rather than like the in-group "Advanced" link directly above it. Those two
+// were landing adjacent, in the same shape, and read as a repeat of each other.
 .schema-form-panel-tier {
   display: flex;
   align-items: center;
-  justify-content: center;
-  gap: var(--spacing-xs);
+  gap: var(--spacing-sm);
   width: 100%;
-  margin-top: var(--spacing-sm);
-  padding: var(--spacing-sm);
+  margin-top: var(--spacing-lg);
+  padding: var(--spacing-sm) var(--spacing-md);
   border: none;
   border-radius: var(--radius-md);
   background: transparent;
   color: var(--color-text-tertiary);
-  font-size: var(--font-size-xs);
+  font-size: var(--font-size-sm);
   font-weight: var(--font-weight-medium);
+  text-align: left;
   cursor: pointer;
   transition:
     background-color var(--duration-fast) var(--ease-standard),
     color var(--duration-fast) var(--ease-standard);
 
-  --icon-size: 14px;
+  --icon-size: 16px;
 
   &:hover {
     background: var(--color-surface-hover);
