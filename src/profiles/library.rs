@@ -77,7 +77,7 @@ impl ProfileLibrary {
         self.processes.iter().find(|p| p.meta.id == id)
     }
 
-    /// Fill any empty category with the offline built-in default.
+    /// Add any built-in preset the library is missing, by id.
     ///
     /// **Every category must hold at least one entry**, because a slice request
     /// names its profiles by id and the engine has to be able to resolve them.
@@ -88,19 +88,44 @@ impl ProfileLibrary {
     /// while slice requests carried whole profiles inline; it stops being
     /// invisible the moment they carry ids.
     ///
-    /// A category the user has populated is left exactly as it is.
+    /// **Missing, not empty.** Filling only an empty category was enough while
+    /// there was one built-in per kind; the moment a release ships a second, an
+    /// existing library would never see it — it is not empty, so nothing was
+    /// added, and the UI would offer a preset the engine could not resolve.
+    /// Merging by id also means a built-in the user has edited is left alone:
+    /// their copy already holds that id, so nothing replaces it.
     pub fn seeded(mut self) -> Self {
-        if self.printers.is_empty() {
-            self.printers = super::defaults::default_printers();
-        }
-        if self.filaments.is_empty() {
-            self.filaments = super::defaults::default_filaments();
-        }
-        if self.processes.is_empty() {
-            self.processes = super::defaults::default_processes();
-        }
+        merge_missing(
+            &mut self.printers,
+            super::defaults::default_printers(),
+            |p| p.meta.id.clone(),
+        );
+        merge_missing(
+            &mut self.filaments,
+            super::defaults::default_filaments(),
+            |f| f.meta.id.clone(),
+        );
+        merge_missing(
+            &mut self.processes,
+            super::defaults::default_processes(),
+            |p| p.meta.id.clone(),
+        );
         self
     }
+}
+
+/// Append every entry of `defaults` whose id `items` does not already carry.
+///
+/// Order matters: the built-ins arrive in the order they are meant to be read
+/// (slowest preset first), and appending keeps whatever order the user's own
+/// library is already in.
+fn merge_missing<T>(items: &mut Vec<T>, defaults: Vec<T>, id_of: impl Fn(&T) -> String) {
+    let present: std::collections::HashSet<String> = items.iter().map(&id_of).collect();
+    items.extend(
+        defaults
+            .into_iter()
+            .filter(|d| !present.contains(&id_of(d))),
+    );
 }
 
 /// One syncable profile category — the granularity of a write-through.
@@ -159,5 +184,57 @@ mod tests {
             );
         }
         assert_eq!(ProfileKind::parse("bogus"), None);
+    }
+
+    #[test]
+    fn seeding_an_empty_library_brings_every_built_in() {
+        let seeded = ProfileLibrary::default().seeded();
+        assert_eq!(
+            seeded.processes.len(),
+            super::super::defaults::default_processes().len()
+        );
+        assert_eq!(
+            seeded.printers.len(),
+            super::super::defaults::default_printers().len()
+        );
+    }
+
+    /// The case that made a new preset invisible: a library that already holds
+    /// the old built-in is not empty, so filling-when-empty added nothing and
+    /// the UI offered a profile the engine could not resolve.
+    #[test]
+    fn seeding_adds_a_built_in_an_existing_library_never_saw() {
+        let library = ProfileLibrary {
+            processes: vec![super::super::defaults::default_process()],
+            ..Default::default()
+        }
+        .seeded();
+
+        for expected in super::super::defaults::default_processes() {
+            assert!(
+                library.process(&expected.meta.id).is_some(),
+                "`{}` never reached an existing library",
+                expected.meta.id
+            );
+        }
+    }
+
+    #[test]
+    fn seeding_leaves_an_edited_built_in_alone() {
+        let mut edited = super::super::defaults::default_process();
+        edited.meta.name = "Standard — my way".into();
+
+        let library = ProfileLibrary {
+            processes: vec![edited],
+            ..Default::default()
+        }
+        .seeded();
+
+        assert_eq!(
+            library
+                .process("builtin-standard-02")
+                .map(|p| p.meta.name.as_str()),
+            Some("Standard — my way")
+        );
     }
 }
