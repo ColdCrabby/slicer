@@ -29,6 +29,29 @@ issue/PR numbers or repo links in the notes. See the tone rules in
 
 ### Changed
 
+- **Material settings live with the filament.** Flow ratio, maximum volumetric
+  speed and pressure advance move from Process to Filament, where they belong:
+  they are calibrated per spool, and a print profile carrying them overwrote
+  that calibration on every profile switch. A new **Material** group collects
+  what the spool is — type, name, colour, diameter, density, cost — which had
+  been split between the printer's hardware page and its temperatures.
+- **Deleting a printer, filament or process no longer asks you to type its
+  name.** A profile is a handful of settings you can recreate, so it confirms
+  inline like every other destructive action; the typed challenge is kept for
+  things that are genuinely unrecoverable.
+- **Gravity is on by default, and remembered.** A part left floating above the
+  plate is not printable, so dropping to the bed after every move is the
+  starting point; turn it off and it stays off.
+- **Filament type is a list, not a text box.** The value goes into the G-code
+  header where firmware and other slicers read it back, so it offers the
+  materials they understand — while keeping whatever a vendor profile already
+  carries, `PLA+` included.
+- **The G-code editor follows the app theme** instead of staying dark in a light
+  window.
+- **Touch targets across the app** now meet the 44pt floor — workplate tabs,
+  number steppers, context menus, the viewport cube — and the page no longer
+  zooms out from under a pinch on the plate.
+
 - **Auto-orient now goes for the biggest face that actually touches the bed.**
   It measures real bed contact instead of counting every downward-facing
   surface, and weights an overhang by how far it leans, so parts made of flat
@@ -42,6 +65,21 @@ issue/PR numbers or repo links in the notes. See the tone rules in
   8 mm/s to stay below the new bridge speed.
 
 ### Added
+
+- **Settings start calm and open all the way.** Every section shows the handful
+  of settings a print actually depends on, then an `Advanced 10` row that
+  expands it in place; a second press reveals Expert. Sections holding nothing
+  but advanced settings stay out of the list until you ask for them, taking
+  Process from eleven down to seven. Search still reaches every setting at every
+  level, and anything you have changed stays visible wherever it lives. Set
+  where the panels open for good in Settings → General → Settings detail.
+- **Every setting says what it measures.** The slice sidebar shows units and
+  steps — °C, mm/s, mm³/s, `×` — and nudges by something sensible instead of
+  0.01, so a nozzle temperature steps by 5 °C rather than to 210.01.
+  Proportions the engine stores as a fraction read as percentages, so full fan
+  speed shows as `100 %` and not `1`.
+- **Right-click a model in the objects list** for Duplicate, Drop to floor,
+  Centre on bed and Remove — the same menu the model already had on the plate.
 
 - **The preview re-slices itself, when that is worth doing.** A flash button
   beside the model / preview toggle steps through Automatic, Always and Off;
@@ -163,6 +201,33 @@ issue/PR numbers or repo links in the notes. See the tone rules in
   travel, down to 1000 for the first layer and bridges) instead of silently
   deferring to firmware defaults — a slower or untuned printer should dial
   these down. Set any of them to `0` to fall back to the previous behaviour.
+
+### Fixed
+
+- **Closing a workplate tab works.** The close button did nothing whenever the
+  tab's plate was still loaded, because the list that opens a tab per loaded
+  file put it straight back.
+- **The app notices when the engine goes away.** It kept reporting "Connected"
+  to a slicer that was no longer running, and an ordinary server restart left it
+  disconnected until you reloaded. A heartbeat spots a dead connection within
+  seconds and reconnects on its own; scene edits made while it is down now
+  report the problem instead of vanishing.
+- **Renaming a workplate tab.** Renaming is a double-click, so a single click no
+  longer drops a text box in your path; the box opens focused with the name
+  selected, accepts spaces, and grows as you type. Tabs are reachable from the
+  keyboard with the arrow keys, `Enter` and `F2`.
+- **"Use filament colour" honours the colour you set.** It read only the
+  filament profile, so changing the colour for a plate repainted nothing — and
+  the thumbnail embedded in the G-code was wrong for the same reason.
+- **Undo while typing undoes your typing**, not the last thing you did to the
+  plate.
+- **Notifications no longer pile up.** They are capped, errors clear themselves,
+  hovering one holds it open long enough to read, and a repeated message
+  replaces itself instead of stacking.
+- **Dialogs fit on iPhone and iPad.** A tall one ran past the bottom of the
+  screen on a page that cannot scroll, putting its buttons out of reach.
+- **A finished slice reports its own layer count**, rather than however much of
+  the preview had loaded.
 
 ## [0.4.0] - 2026-08-31
 
