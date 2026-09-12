@@ -191,8 +191,16 @@ mod tests {
         store.save(&library).expect("save");
         assert!(path.exists(), "profiles.toml should be written");
 
+        // Compared against the seeded form, because loading seeds: every
+        // built-in the file predates is merged in on the way back. What has to
+        // survive the round-trip is the user's own data, not the absence of a
+        // preset a later release added.
         let loaded = store.load().expect("load");
-        assert_eq!(loaded, library, "library must survive a TOML round-trip");
+        assert_eq!(
+            loaded,
+            library.seeded(),
+            "library must survive a TOML round-trip"
+        );
 
         let _ = fs::remove_dir_all(&dir);
     }
@@ -232,9 +240,9 @@ mod tests {
         assert!(library.labels.is_empty());
     }
 
-    /// Seeding fills gaps; it never edits what the user has.
+    /// Seeding adds what is missing; it never edits or drops what the user has.
     #[test]
-    fn seeding_leaves_a_populated_category_alone() {
+    fn seeding_keeps_the_users_own_and_adds_the_built_ins() {
         let dir = std::env::temp_dir().join(format!("profiles-seed-{}", std::process::id()));
         let path = dir.join("profiles.toml");
         let store = ProfileStore::at(&path);
@@ -246,12 +254,22 @@ mod tests {
         store.save(&mine).expect("save");
 
         let loaded = store.load().expect("load");
-        assert_eq!(loaded.printers.len(), 1, "the user's list is untouched");
-        assert!(loaded.printer("my-only-printer").is_some());
-        assert!(loaded.printer("builtin-generic-printer").is_none());
-        // The categories they never touched are filled in.
+        assert!(
+            loaded.printer("my-only-printer").is_some(),
+            "the user's own printer is untouched"
+        );
+        assert_eq!(
+            loaded.printers[0].meta.id, "my-only-printer",
+            "the user's own list keeps its order; built-ins are appended"
+        );
+        // Every built-in reaches the library, including ones a later release
+        // added — that is what makes a new preset selectable at all.
+        assert!(loaded.printer("builtin-generic-printer").is_some());
+        assert!(loaded.printer("builtin-corexy-350").is_some());
         assert!(loaded.filament("builtin-generic-pla").is_some());
         assert!(loaded.process("builtin-standard-02").is_some());
+        assert!(loaded.process("builtin-high-speed-02").is_some());
+        assert!(loaded.process("builtin-maximum-02").is_some());
 
         let _ = fs::remove_dir_all(&dir);
     }
@@ -272,10 +290,12 @@ mod tests {
 
         assert_eq!(updated.labels.len(), 1);
         assert_eq!(updated.labels[0].id, "label-only");
-        // Other categories are untouched.
-        assert_eq!(updated.printers.len(), 2);
-        assert_eq!(updated.filaments.len(), 1);
-        assert_eq!(updated.processes.len(), 1);
+        // Other categories keep everything they had — the user's own entries
+        // plus the built-ins seeding merged in on load.
+        assert!(updated.printer("user-printer-1").is_some());
+        assert!(updated.printer("user-printer-2").is_some());
+        assert!(updated.filament("builtin-generic-pla").is_some());
+        assert!(updated.process("builtin-standard-02").is_some());
 
         let _ = fs::remove_dir_all(&dir);
     }

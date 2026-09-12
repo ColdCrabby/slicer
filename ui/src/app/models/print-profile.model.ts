@@ -105,7 +105,30 @@ export function makePrintProfile(overrides: Partial<PrintProfile> = {}): PrintPr
   };
 }
 
-/** The single offline default print profile. */
+/**
+ * Speeds and accelerations for a well-built CoreXY, at `x` times the standard
+ * preset's pace.
+ *
+ * Everything the fast presets change lives in one place because they differ
+ * from Standard in exactly this and nothing else: a "go faster" preset that
+ * quietly reshaped the print — a wall count, an infill pattern — would not be
+ * what the user picked it for.
+ *
+ * The outer wall and the top surface deliberately lag the rest. They are what
+ * the print is judged by and neither is where the time goes; going fast on the
+ * inside is what pays for going slowly on the outside.
+ */
+function fastParams(speeds: Record<string, number>): Record<string, unknown> {
+  return {
+    ...defaultProcessParams(),
+    // Derived from the nozzle rather than pinned at 0.44: these are the
+    // machines least likely to be running a 0.4.
+    line_width: 0,
+    ...speeds,
+  };
+}
+
+/** The offline default print profile — what every fallback resolves to. */
 export const DEFAULT_PRINT_PROFILE: PrintProfile = makePrintProfile({
   id: 'builtin-standard-02',
   name: 'Standard — 0.20 mm',
@@ -113,4 +136,63 @@ export const DEFAULT_PRINT_PROFILE: PrintProfile = makePrintProfile({
   quality: 'standard',
 });
 
-export const DEFAULT_PRINT_PROFILES: PrintProfile[] = [DEFAULT_PRINT_PROFILE];
+/** 0.20 mm for a well-built CoreXY with a high-flow hotend. */
+export const HIGH_SPEED_PRINT_PROFILE: PrintProfile = makePrintProfile({
+  id: 'builtin-high-speed-02',
+  name: 'High Speed — 0.20 mm',
+  source: 'builtin',
+  quality: 'standard',
+  params: fastParams({
+    print_speed: 200,
+    perimeter_speed: 120,
+    infill_speed: 250,
+    top_surface_speed: 100,
+    first_layer_speed: 40,
+    travel_speed_mm_min: 24000,
+    acceleration: 15000,
+    first_layer_acceleration: 3000,
+    outer_wall_acceleration: 6000,
+    inner_wall_acceleration: 12000,
+    sparse_infill_acceleration: 18000,
+    solid_infill_acceleration: 12000,
+    top_surface_acceleration: 8000,
+    travel_acceleration: 25000,
+    // Below this a fast machine rounds every corner it is allowed to; above it,
+    // it rings.
+    square_corner_velocity: 5,
+  }),
+});
+
+/** 0.20 mm at the limits a tuned machine can actually hold. */
+export const MAXIMUM_PRINT_PROFILE: PrintProfile = makePrintProfile({
+  id: 'builtin-maximum-02',
+  name: 'Maximum — 0.20 mm',
+  source: 'builtin',
+  quality: 'standard',
+  params: fastParams({
+    print_speed: 300,
+    perimeter_speed: 200,
+    infill_speed: 300,
+    top_surface_speed: 150,
+    first_layer_speed: 50,
+    travel_speed_mm_min: 36000,
+    acceleration: 25000,
+    first_layer_acceleration: 5000,
+    outer_wall_acceleration: 10000,
+    inner_wall_acceleration: 20000,
+    sparse_infill_acceleration: 30000,
+    solid_infill_acceleration: 20000,
+    top_surface_acceleration: 10000,
+    gap_fill_acceleration: 5000,
+    support_acceleration: 20000,
+    travel_acceleration: 30000,
+    square_corner_velocity: 5,
+  }),
+});
+
+/** The built-in print profiles, slowest first — they read as one scale. */
+export const DEFAULT_PRINT_PROFILES: PrintProfile[] = [
+  DEFAULT_PRINT_PROFILE,
+  HIGH_SPEED_PRINT_PROFILE,
+  MAXIMUM_PRINT_PROFILE,
+];

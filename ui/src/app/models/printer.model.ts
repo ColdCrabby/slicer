@@ -3,7 +3,11 @@ import type {
   PrinterConnection,
 } from '../../generated/slicer-engine-ws-client-message-v1';
 import type { SceneBedSnapshot } from '../services/scene-engine';
-import { DEFAULT_GCODE_TEMPLATE_ID, gcodeTemplatePatch } from './gcode-templates';
+import {
+  DEFAULT_GCODE_TEMPLATE_ID,
+  defaultGcodeTemplateIdForFlavor,
+  gcodeTemplatePatch,
+} from './gcode-templates';
 import { uid } from './id';
 
 /**
@@ -80,7 +84,7 @@ export function makePrinter(overrides: Partial<PrinterProfile> = {}): PrinterPro
   };
 }
 
-/** The single offline default printer. */
+/** The offline default printer — what every fallback resolves to. */
 export const DEFAULT_PRINTER: PrinterProfile = makePrinter({
   id: 'builtin-generic-printer',
   name: 'Generic 220 mm printer',
@@ -89,7 +93,43 @@ export const DEFAULT_PRINTER: PrinterProfile = makePrinter({
   model: 'FDM 220',
 });
 
-export const DEFAULT_PRINTERS: PrinterProfile[] = [DEFAULT_PRINTER];
+/**
+ * A generic high-performance CoreXY — the class, not a model.
+ *
+ * It exists because the fast print profiles are unusable behind a printer that
+ * travels at 250 mm/s and retracts 0.8 mm: a process can ask for speed the
+ * printer profile then refuses to carry.
+ *
+ * **No pressure advance, and firmware retraction on.** Both are calibrated on
+ * the machine and live in its firmware; a preset shipping numbers for them
+ * would overwrite a calibration it knows nothing about. The retraction lengths
+ * below are only the fallback for a firmware that does not answer `G10`/`G11`.
+ */
+export const COREXY_PRINTER: PrinterProfile = makePrinter({
+  id: 'builtin-corexy-350',
+  name: 'Generic CoreXY 350 mm',
+  source: 'builtin',
+  vendor: 'Generic',
+  model: 'CoreXY 350',
+  bed_width: 350,
+  bed_depth: 350,
+  bed_height: 370,
+  params: {
+    ...defaultPrinterParams(),
+    nozzle_diameter_mm: 0.6,
+    gcode_flavor: 'klipper',
+    travel_speed_mm_min: 36000,
+    use_firmware_retraction: true,
+    retract_mm: 0.4,
+    retract_speed_mm_min: 1800,
+    // A failed part can be skipped without losing the plate.
+    exclude_object: true,
+    ...gcodeTemplatePatch(defaultGcodeTemplateIdForFlavor('klipper')),
+  },
+});
+
+/** The built-in printers: a 220 mm bedslinger and a 350 mm CoreXY. */
+export const DEFAULT_PRINTERS: PrinterProfile[] = [DEFAULT_PRINTER, COREXY_PRINTER];
 
 /** Shared bed dimensions derived from a printer profile. */
 function resolvedBedFootprint(printer: PrinterProfile): { width: number; depth: number } {
