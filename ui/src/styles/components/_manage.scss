@@ -19,13 +19,31 @@
   flex: 1;
   min-height: 0;
   display: grid;
-  grid-template-columns: minmax(280px, 340px) 1fr;
+  // The list column is draggable; `--mgr-list-w` is what the resizer writes.
+  grid-template-columns: var(--mgr-list-w, minmax(280px, 340px)) 1fr;
   gap: var(--spacing-xl);
+}
+
+// The contents rail takes a column of its own rather than floating inside the
+// editor's scroll: as a grid child it is given the full height for free, and
+// scrolls a long outline independently of the form it describes.
+//
+.mgr__body:has(nexus-profile-outline:not(.is-off)) {
+  grid-template-columns: var(--mgr-list-w, minmax(280px, 340px)) 1fr auto;
+}
+
+// Below the width where a docked column stops fitting the rail takes itself off
+// screen (see its own stylesheet); the grid has to give its track back.
+@media (max-width: #{$compact-max-width}) {
+  .mgr__body:has(nexus-profile-outline:not(.is-off)) {
+    grid-template-columns: var(--mgr-list-w, minmax(280px, 340px)) 1fr;
+  }
 }
 
 // ── List column ─────────────────────────────────────────────────────────────
 
 .mgr__list {
+  position: relative;
   display: flex;
   flex-direction: column;
   min-height: 0;
@@ -247,6 +265,9 @@
 .mgr__detail {
   min-height: 0;
   overflow-y: auto;
+  // An outline jump aims at `block: start`; a bare scroll would park the target
+  // under the section title pinned above it.
+  scroll-padding-top: var(--spacing-xl);
   border-left: 1px solid var(--color-border-light);
   padding-left: var(--spacing-xl);
   // Concrete surface source so sticky group titles can `inherit` a backing.
@@ -451,7 +472,8 @@
     padding-right: calc(var(--spacing-md) + env(safe-area-inset-right, 0px));
   }
 
-  .mgr__body {
+  .mgr__body,
+  .mgr__body:has(nexus-profile-outline) {
     grid-template-columns: 1fr;
     grid-template-rows: minmax(0, 2fr) minmax(0, 3fr);
     gap: var(--spacing-md);

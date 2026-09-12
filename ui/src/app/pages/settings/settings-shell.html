@@ -1,6 +1,18 @@
-<div class="settings">
+<div class="settings" [class.is-nav-collapsed]="nav.collapsed()">
   <aside class="settings-nav">
-    <h1 class="settings-title">Settings</h1>
+    <div class="settings-nav-head">
+      <h1 class="settings-title">Settings</h1>
+      <button
+        type="button"
+        class="settings-nav-collapse"
+        [attr.aria-label]="nav.collapsed() ? 'Expand section list' : 'Collapse section list'"
+        [attr.aria-expanded]="!nav.collapsed()"
+        [tooltip]="nav.collapsed() ? 'Expand section list' : 'Collapse section list'"
+        (click)="nav.toggle()"
+      >
+        <nexus-icon [name]="nav.collapsed() ? 'sidebar-expand' : 'sidebar-collapse'" />
+      </button>
+    </div>
     <nav class="settings-nav-list" aria-label="Settings sections">
       @for (item of sections; track item.path) {
         @let pending = isPending(item.path);
@@ -12,6 +24,7 @@
           [routerLinkActiveOptions]="{ exact: true }"
           ariaCurrentWhenActive="page"
           [attr.aria-busy]="pending ? 'true' : null"
+          [tooltip]="nav.collapsed() ? item.label : ''"
         >
           <span class="settings-nav-icon">
             <nexus-icon [name]="item.icon" />
@@ -19,7 +32,7 @@
               <span class="settings-nav-spinner" aria-hidden="true"></span>
             }
           </span>
-          <span>{{ item.label }}</span>
+          <span class="settings-nav-label">{{ item.label }}</span>
         </a>
       }
     </nav>

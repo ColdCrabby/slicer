@@ -87,6 +87,8 @@
             <p class="mgr__empty">No filaments match your filters.</p>
           }
         </div>
+
+        <nexus-column-resizer />
       </div>
 
       <!-- ── Detail column ────────────────────────────────────────────────── -->
@@ -221,6 +223,12 @@
           />
         }
       </div>
+
+      <!-- The contents rail reads the editor beside it, so it needs nothing
+           from this page but a place to stand. -->
+      @if (selected()) {
+        <nexus-profile-outline />
+      }
     </div>
   } @else {
     <nexus-empty-state

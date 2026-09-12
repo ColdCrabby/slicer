@@ -47,15 +47,15 @@ Every numeric field takes more than typing:
 | Step up / down | `↑` / `↓`, or scroll the wheel while hovering |
 | Coarse step (×10) | Hold `Shift` |
 | Fine step (×0.1) | Hold `Alt` / `⌥` |
+| Run up or down | Hold `+` or `−` — it repeats, and speeds up as you hold |
 
 Hover-scrolling is the fast one — you don't have to click into the field first.
 
-## Settings
+## Search
 
 | Action | Key |
 | --- | --- |
 | Focus settings search | `⌘/Ctrl + F` |
-| Toggle the settings outline | `⌘/Ctrl + Shift + O` |
 
 ## Mouse
 

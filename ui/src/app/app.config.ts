@@ -16,6 +16,7 @@ import { provideCatalogClient } from './services/catalog/catalog-client';
 import { RemoteCatalogSource } from './services/catalog/remote-catalog-source';
 import { KeyboardShortcuts } from './services/keyboard-shortcuts/keyboard-shortcuts';
 import { NavigationProgress } from './services/navigation-progress';
+import { StepperRepeat } from './services/stepper-repeat';
 import { provideProfilePersistence } from './services/profiles/profile-persistence';
 import { provideWorkplatePersistence } from './services/workplate-persistence';
 import { ProfileSync } from './services/profiles/profile-sync';
@@ -43,6 +44,7 @@ export const appConfig: ApplicationConfig = {
       inject(KeyboardShortcuts);
       inject(UserInputModality);
       inject(UploadGuard);
+      inject(StepperRepeat);
       inject(ProfileSync);
       // Has to exist before the first navigation starts, or the app's very
       // first (and slowest, uncached) route transition is the one it misses.

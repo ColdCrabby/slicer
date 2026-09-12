@@ -1,0 +1,47 @@
+@use 'breakpoints' as *;
+
+// A wide invisible strip on the column's edge with a hairline drawn inside it:
+// the target is comfortable, the mark is not. It sits in the gutter between the
+// two columns, so it takes no layout room of its own.
+:host {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  // Landed on the editor's own `border-left`, not floated in the middle of the
+  // gutter: that hairline is the divider the user already sees, so the handle
+  // has to be the same line rather than a second one a few pixels off it.
+  // Offset = the grid gap plus the border's own width.
+  right: calc((var(--spacing-xl) + 1px) * -1);
+  width: var(--spacing-lg);
+  display: grid;
+  place-items: center end;
+  cursor: col-resize;
+  touch-action: none;
+  z-index: 2;
+
+  &:hover .grip,
+  &.is-dragging .grip {
+    background: var(--accent);
+  }
+
+  &:focus-visible {
+    outline: 2px solid var(--color-focus-ring);
+    outline-offset: -2px;
+    border-radius: var(--radius-sm);
+  }
+}
+
+.grip {
+  width: 2px;
+  height: 100%;
+  border-radius: 999px;
+  background: transparent;
+  transition: background-color var(--duration-fast) var(--ease-standard);
+}
+
+// Stacked layout: the columns are rows, so there is no width to drag.
+@include handheld {
+  :host {
+    display: none;
+  }
+}

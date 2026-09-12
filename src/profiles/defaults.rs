@@ -1,10 +1,16 @@
 //! Bare-minimum blank-slate defaults — the *only* profile data the engine
 //! ships.
 //!
-//! The engine deliberately carries **no product/vendor profiles**. It provides
-//! exactly one generic `builtin` default per category so an offline install can
-//! always create, edit, and slice; the vendor catalog (Prusa, Bambu, …) is a
-//! cloud concern and lives entirely outside this crate.
+//! The engine deliberately carries **no product/vendor profiles**. What it does
+//! ship is a small set of generic `builtin` presets — enough that an offline
+//! install can create, edit and slice without inventing anything; the vendor
+//! catalog is a cloud concern and lives entirely outside this crate.
+//!
+//! "Generic" is the rule that decides what belongs here. A preset named after a
+//! machine, or carrying one machine's calibration, is catalog data. A preset
+//! named after a *class* of machine — a 220 mm bedslinger, a 350 mm CoreXY — is
+//! a starting point any owner of that class can recognise and correct, and that
+//! is what these are.
 
 use serde_json::json;
 
@@ -95,7 +101,10 @@ pub fn base_process(meta: ProfileMeta) -> ProcessProfile {
     }
 }
 
-/// The single offline default printer.
+const KLIPPER_START_GCODE: &str = "; Cold Crabby Klipper start\nPRINT_START BED={bed_temp_first_layer} EXTRUDER={nozzle_temp_first_layer}";
+const KLIPPER_END_GCODE: &str = "; Cold Crabby Klipper end\nPRINT_END";
+
+/// The offline default printer.
 pub fn default_printer() -> PrinterProfile {
     let mut p = base_printer(ProfileMeta::builtin(
         "builtin-generic-printer",
@@ -104,6 +113,57 @@ pub fn default_printer() -> PrinterProfile {
     p.vendor = "Generic".to_string();
     p.model = "FDM 220".to_string();
     p
+}
+
+/// A generic high-performance CoreXY, of the kind a 0.6 nozzle and firmware
+/// retraction are ordinary on.
+///
+/// Not a model, a *class*: a 350 mm cube running Klipper, with the machine
+/// limits such a printer is normally commissioned with. It exists because the
+/// fast process presets are unusable behind a profile that travels at 150 mm/s
+/// and retracts 0.8 mm on a bowden-length setting — the process can ask for
+/// speed the printer profile then refuses to carry.
+///
+/// **Pressure advance stays off here, deliberately.** On these machines it is
+/// tuned on the printer and lives in the firmware; a profile that shipped a
+/// number would overwrite a calibration it knows nothing about. The same goes
+/// for retraction, which is why firmware retraction is on: the printer's own
+/// values win, and the lengths below are only what a slicer-side fallback would
+/// use.
+pub fn corexy_printer() -> PrinterProfile {
+    let mut p = base_printer(ProfileMeta::builtin(
+        "builtin-corexy-350",
+        "Generic CoreXY 350 mm",
+    ));
+    p.vendor = "Generic".to_string();
+    p.model = "CoreXY 350".to_string();
+    p.bed_width = 350.0;
+    p.bed_depth = 350.0;
+    p.bed_height = 370.0;
+    p.params = json!({
+        "nozzle_diameter_mm": 0.6,
+        "filament_diameter_mm": 1.75,
+        "extruder_count": 1,
+        "gcode_flavor": "klipper",
+        // The machine's own retraction is the tuned one; these are the fallback
+        // for a firmware build that does not answer `G10`/`G11`.
+        "use_firmware_retraction": true,
+        "retract_mm": 0.4,
+        "retract_speed_mm_min": 1800.0,
+        "z_hop_mm": 0.2,
+        // A failed part can be skipped without losing the plate — standard on a
+        // Klipper machine with object exclusion built in.
+        "exclude_object": true,
+        "start_gcode": KLIPPER_START_GCODE,
+        "end_gcode": KLIPPER_END_GCODE,
+    });
+    p
+}
+
+/// The built-in offline printer presets: a 220 mm bedslinger and a 350 mm
+/// CoreXY — the two shapes almost every desktop machine is one of.
+pub fn default_printers() -> Vec<PrinterProfile> {
+    vec![default_printer(), corexy_printer()]
 }
 
 /// The default offline filament (a generic PLA). Kept as the resolve fallback.
@@ -145,12 +205,127 @@ pub fn default_filaments() -> Vec<FilamentProfile> {
     vec![default_filament(), default_petg(), default_abs()]
 }
 
-/// The single offline default process profile.
+/// The offline default process profile — the one every fallback resolves to.
 pub fn default_process() -> ProcessProfile {
     base_process(ProfileMeta::builtin(
         "builtin-standard-02",
         "Standard — 0.20 mm",
     ))
+}
+
+/// 0.20 mm tuned for a well-built CoreXY — roughly twice the standard preset.
+///
+/// The standard profile is written for a machine that may be a decade old and a
+/// bedslinger; it is deliberately slow enough that it cannot embarrass itself.
+/// A modern CoreXY with a high-flow hotend spends that margin doing nothing, so
+/// this preset asks for what such a machine is actually commissioned to do —
+/// 200 mm/s on walls-and-infill work, accelerations in the tens of thousands —
+/// while keeping the outer wall and the top surface slow, because those two are
+/// what the print is judged by and neither is where the time goes.
+///
+/// **What caps it is the filament, not this profile.** Flow is the real ceiling
+/// at these speeds, and the volumetric limit that enforces it belongs to the
+/// spool, not the recipe: set `Max Volumetric Speed` on the filament and every
+/// speed here is held to whatever the hotend can actually melt.
+pub fn high_speed_process() -> ProcessProfile {
+    let mut p = base_process(ProfileMeta::builtin(
+        "builtin-high-speed-02",
+        "High Speed — 0.20 mm",
+    ));
+    p.params = json!({
+        "layer_height": 0.2,
+        "first_layer_height": 0.24,
+        // Derived from the nozzle rather than pinned: this preset is for
+        // machines that are often not on a 0.4, and a hard 0.44 would under-fill
+        // a 0.6 by a third.
+        "line_width": 0.0,
+        "wall_generator": "arachne",
+        "wall_count": 3,
+        "top_layers": 4,
+        "bottom_layers": 3,
+        "seam_position": "aligned",
+        "infill_density": 0.15,
+        "infill_pattern": "Rectilinear",
+        "infill_base_angle": 45.0,
+        "print_speed": 200.0,
+        "perimeter_speed": 120.0,
+        "infill_speed": 250.0,
+        "top_surface_speed": 100.0,
+        "first_layer_speed": 40.0,
+        "travel_speed_mm_min": 24000.0,
+        "acceleration": 15000.0,
+        "first_layer_acceleration": 3000.0,
+        "outer_wall_acceleration": 6000.0,
+        "inner_wall_acceleration": 12000.0,
+        "sparse_infill_acceleration": 18000.0,
+        "solid_infill_acceleration": 12000.0,
+        "top_surface_acceleration": 8000.0,
+        "travel_acceleration": 25000.0,
+        // Klipper's own default. Below this a fast machine rounds every corner
+        // it is allowed to; above it, it rings.
+        "square_corner_velocity": 5.0,
+        "support_threshold_angle": 45.0,
+        "adhesion_type": "skirt",
+        "skirt_loops": 1,
+    });
+    p
+}
+
+/// 0.20 mm at the limits a well-tuned machine can actually hold.
+///
+/// The top of the sensible range, not past it: 300 mm/s and accelerations at
+/// 30 000 mm/s² are what a commissioned CoreXY runs at, and the shape of the
+/// profile is the same as the one below it — the outer wall and the top surface
+/// are still held back, because the point of going fast on the inside is to
+/// afford going slowly on the outside.
+///
+/// This asks more of the machine than of the slicer, so it is the preset most
+/// likely to need correcting: a printer that cannot hold these limits will
+/// simply not reach them, and one whose hotend cannot melt the flow will ring
+/// or under-extrude. The flow ceiling belongs on the filament — around
+/// 24 mm³/s is what a modern high-flow hotend sustains.
+pub fn maximum_process() -> ProcessProfile {
+    let mut p = high_speed_process();
+    p.meta = ProfileMeta::builtin("builtin-maximum-02", "Maximum — 0.20 mm");
+    p.params = json!({
+        "layer_height": 0.2,
+        "first_layer_height": 0.24,
+        "line_width": 0.0,
+        "wall_generator": "arachne",
+        "wall_count": 3,
+        "top_layers": 4,
+        "bottom_layers": 3,
+        "seam_position": "aligned",
+        "infill_density": 0.15,
+        "infill_pattern": "Rectilinear",
+        "infill_base_angle": 45.0,
+        "print_speed": 300.0,
+        "perimeter_speed": 200.0,
+        "infill_speed": 300.0,
+        "top_surface_speed": 150.0,
+        "first_layer_speed": 50.0,
+        "travel_speed_mm_min": 36000.0,
+        "acceleration": 25000.0,
+        "first_layer_acceleration": 5000.0,
+        "outer_wall_acceleration": 10000.0,
+        "inner_wall_acceleration": 20000.0,
+        "sparse_infill_acceleration": 30000.0,
+        "solid_infill_acceleration": 20000.0,
+        "top_surface_acceleration": 10000.0,
+        "gap_fill_acceleration": 5000.0,
+        "support_acceleration": 20000.0,
+        "travel_acceleration": 30000.0,
+        "square_corner_velocity": 5.0,
+        "support_threshold_angle": 45.0,
+        "adhesion_type": "skirt",
+        "skirt_loops": 1,
+    });
+    p
+}
+
+/// The built-in offline process presets, slowest first.
+pub fn default_processes() -> Vec<ProcessProfile> {
+    vec![default_process(), high_speed_process(), maximum_process()]
 }
 
 #[cfg(test)]
@@ -165,6 +340,101 @@ mod tests {
     /// object and nothing else. Everything else it spells out must be what the
     /// engine would have used anyway.
     const PRESET_KEYS: [&str; 3] = ["first_layer_height", "line_width", "adhesion_type"];
+
+    /// The `Speed` group — everything a "go faster" preset is allowed to touch.
+    /// Kept in step with the `x-group = "Speed"` annotations in
+    /// `settings::params`; a new speed parameter belongs in both.
+    const SPEED_KEYS: [&str; 20] = [
+        "print_speed",
+        "perimeter_speed",
+        "infill_speed",
+        "top_surface_speed",
+        "first_layer_speed",
+        "gap_fill_speed",
+        "support_speed",
+        "bridge_speed",
+        "travel_speed_mm_min",
+        "acceleration",
+        "first_layer_acceleration",
+        "outer_wall_acceleration",
+        "inner_wall_acceleration",
+        "sparse_infill_acceleration",
+        "solid_infill_acceleration",
+        "top_surface_acceleration",
+        "gap_fill_acceleration",
+        "support_acceleration",
+        "travel_acceleration",
+        "square_corner_velocity",
+    ];
+
+    /// Every shipped process preset, and the speed keys each is allowed to
+    /// disagree with the engine on.
+    ///
+    /// A fast preset exists precisely to disagree about speed, so the agreement
+    /// check has to know that — but only about speed. It must still be caught
+    /// if it quietly changes a wall count or an infill pattern, because a preset
+    /// that differs in something it never advertises is the failure this test
+    /// was written for.
+    fn every_shipped_process() -> Vec<ProcessProfile> {
+        default_processes()
+    }
+
+    #[test]
+    fn the_fast_presets_only_disagree_about_speed() {
+        let defaults = serde_json::to_value(SlicingParams::default()).expect("params serialize");
+        let defaults = defaults.as_object().expect("params are an object");
+
+        for profile in every_shipped_process().into_iter().skip(1) {
+            let name = profile.meta.name.clone();
+            let params = profile.params;
+            let params = params.as_object().expect("profile params are an object");
+            for (key, value) in params {
+                let default = defaults
+                    .get(key)
+                    .unwrap_or_else(|| panic!("`{key}` is not a slicing parameter"));
+                if value == default || PRESET_KEYS.contains(&key.as_str()) {
+                    continue;
+                }
+                assert!(
+                    SPEED_KEYS.contains(&key.as_str()),
+                    "`{name}` changes `{key}`, which is not a speed setting — a speed preset that \
+                     quietly reshapes the print is not what the user picked it for"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn every_preset_has_its_own_id_and_name() {
+        let all = every_shipped_process();
+        let ids: std::collections::HashSet<_> = all.iter().map(|p| &p.meta.id).collect();
+        let names: std::collections::HashSet<_> = all.iter().map(|p| &p.meta.name).collect();
+        assert_eq!(ids.len(), all.len(), "two process presets share an id");
+        assert_eq!(names.len(), all.len(), "two process presets share a name");
+
+        let printers = default_printers();
+        let printer_ids: std::collections::HashSet<_> =
+            printers.iter().map(|p| &p.meta.id).collect();
+        assert_eq!(
+            printer_ids.len(),
+            printers.len(),
+            "two printer presets share an id"
+        );
+    }
+
+    /// The presets get faster in the order they are listed, so the picker reads
+    /// as a scale rather than as three unrelated recipes.
+    #[test]
+    fn the_presets_are_listed_slowest_first() {
+        let speeds: Vec<f64> = every_shipped_process()
+            .iter()
+            .map(|p| p.params["print_speed"].as_f64().expect("a print speed"))
+            .collect();
+        assert!(
+            speeds.windows(2).all(|w| w[0] < w[1]),
+            "process presets are not ordered slowest first: {speeds:?}"
+        );
+    }
 
     #[test]
     fn the_shipped_process_profile_agrees_with_the_engine_defaults() {

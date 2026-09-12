@@ -25,11 +25,6 @@
   background: var(--color-bg-secondary);
 }
 
-/** Height of a section header, which pins below the search bar. */
-:host {
-  --schema-form-group-header-h: 36px;
-}
-
 .schema-form-group-trigger {
   // A press with no acknowledgement reads as a press that missed, and there is
   // no hover to fall back on under a fingertip.
@@ -41,7 +36,7 @@
   align-items: center;
   justify-content: space-between;
   width: 100%;
-  min-height: var(--schema-form-group-header-h);
+  min-height: 36px;
   padding: 8px 12px;
   background: none;
   border: none;
@@ -277,54 +272,4 @@
   transform-origin: top center;
   transform: scale(1);
   transition: transform var(--duration-slow) var(--ease-standard);
-}
-
-/**
- * An outline jump aims at `block: start`; without a scroll margin the row would
- * land behind the chrome pinned above it.
- *
- * A section clears the search bar and its fade. A *field* has to clear its own
- * section header too — that header is sticky, so scrolling a field to the top
- * of the panel parked its label directly underneath it and the jump appeared to
- * land one row late.
- */
-.schema-form-group {
-  scroll-margin-top: calc(var(--schema-form-search-h, 44px) + var(--spacing-lg));
-}
-
-.schema-form-field {
-  scroll-margin-top: calc(
-    var(--schema-form-search-h, 44px) + var(--spacing-lg) + var(--schema-form-group-header-h)
-  );
-}
-
-/**
- * Where an outline jump landed.
- *
- * A smooth scroll ends with the target amongst a column of near-identical rows,
- * so the row the user asked for is marked for a moment and then left alone. It
- * fades rather than blinks — this fires on a deliberate navigation, not on an
- * error, and has nothing to interrupt.
- */
-.schema-form-field.is-jump-target,
-.schema-form-group.is-jump-target {
-  animation: schema-form-jump-flash var(--duration-slow) var(--ease-decelerate) 2 alternate;
-  border-radius: var(--radius-md);
-}
-
-@keyframes schema-form-jump-flash {
-  from {
-    background: transparent;
-  }
-  to {
-    background: var(--accent-softer);
-  }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .schema-form-field.is-jump-target,
-  .schema-form-group.is-jump-target {
-    animation: none;
-    background: var(--accent-softer);
-  }
 }

@@ -15,8 +15,7 @@ option below it fills in. Managing those profiles is covered in
 
 ::: tip Can't find something?
 Press `Ctrl`/`⌘ + F` and type. The search spans all three tabs, so you don't
-have to guess which one owns it. If you know the setting exists but not what it
-is called, open [the outline](#the-outline) instead.
+have to guess which one owns it.
 :::
 
 ## Changes belong to the plate
@@ -99,34 +98,6 @@ somewhere you could never get a tool into. Expect to lose coverage: on a shelf
 overhanging a wider base, the part beyond the base is still supported and the
 part above it is not.
 
-## The outline
-
-Search only helps once you know the word. The outline is for the other case:
-you are sure the slicer can do the thing, you just can't name it.
-
-Press the list button beside the search box — or `Ctrl`/`⌘ + Shift + O` — and
-the panel swaps its controls for a table of contents: every section of the tab
-you are on, and under each one, every setting it holds, by name. No controls, no
-descriptions, just names, dense enough to read a whole section in a glance.
-
-Click any line and you land on the real control, in its real section, briefly
-highlighted so you can see where you arrived.
-
-Three things make it worth reaching for:
-
-- **It lists everything**, including the Advanced and Expert settings the panel
-  folds away — each marked with the tier it sits behind. Following one opens
-  that tier for you. Not knowing a name is exactly the situation those tiers
-  leave you stuck in, so the outline is the one view that never hides anything.
-- **It shows what you changed.** Changed settings are italic and their sections
-  carry a dot, the same as in the panel — so the outline doubles as the answer
-  to "what have I touched on this plate?"
-- **The search box filters it** while it is open. Type `wall` and you get the
-  wall settings still grouped under their sections, rather than a flat list of
-  results — you see *where* the matches live, not just that they exist.
-
-Press the button again, or follow a line, to go back to the controls.
-
 ## Advanced and Expert
 
 Each section shows the settings a print actually depends on, then a quiet
@@ -142,10 +113,10 @@ changing it does — including people who have been printing for years.
 
 Two things worth knowing:
 
-- **Search and the outline ignore all of this.** Both reach every setting the
-  slicer has, whatever tier it sits in and whichever tab owns it. If you know
-  the name — including the name another slicer uses for it — search is the
-  fastest way there; if you don't, the outline lists it anyway.
+- **Search ignores all of this.** Type into the settings search and you reach
+  every setting the slicer has, whatever tier it sits in and whichever tab owns
+  it. If you know the name — including the name another slicer uses for it —
+  that is the fastest way there.
 - **Anything you have changed stays visible**, even if it lives in Expert. A
   setting you can't find is a setting you can't put back.
 

@@ -65,9 +65,35 @@ several spools and want to see which is which.
 
 ## Adding a print profile
 
-**Settings → Profiles → Add print profile**. A print profile is nothing more
-than a saved set of Process settings, so the quickest way to make one is to get
-a plate slicing the way you like, then save those settings as a profile.
+**Settings → Print Profiles → Add profile.** Three come built in, and they are a
+scale rather than three unrelated recipes — all 0.20 mm, differing in how hard
+they drive the machine:
+
+| Preset | Walls / infill | For |
+| --- | --- | --- |
+| **Standard** | 120 mm/s | Anything. Slow enough that it cannot embarrass a machine you have not commissioned. |
+| **High Speed** | 200 mm/s | A well-built CoreXY with a high-flow hotend. |
+| **Maximum** | 300 mm/s | The top of the sensible range — a tuned machine at 30 000 mm/s². |
+
+All three hold the **outer wall and the top surface back**, because those are
+what the print is judged by and neither is where the time goes. Going fast on
+the inside is what pays for going slowly on the outside.
+
+Two things decide whether the fast ones are honest on your machine:
+
+- **Your printer profile has to carry the speed.** A process asking for
+  300 mm/s behind a printer that travels at 150 does not get it. The built-in
+  **Generic CoreXY 350 mm** printer is the matching starting point.
+- **Flow is the real ceiling**, and it belongs to the spool, not the recipe. Set
+  **Max Volumetric Speed** on the filament — around 24 mm³/s for a modern
+  high-flow hotend — and every speed above is held to what the hotend can melt.
+
+::: tip Pressure advance stays where you tuned it
+No shipped preset sets it. It is calibrated per machine and per spool and lives
+in your firmware; a profile that shipped a number would overwrite a calibration
+it knows nothing about. Same for retraction on a Klipper machine — the CoreXY
+preset turns **firmware retraction** on so the printer's own values win.
+:::
 
 ## Everyday management
 
@@ -86,6 +112,34 @@ Editing a profile reaches every plate that uses it, including plates you sliced
 weeks ago — that is the point of a profile. The exception is a setting you
 changed on a particular plate, which stays as you left it. See
 [Changes belong to the plate](/use/settings#changes-belong-to-the-plate).
+
+## Finding a setting in the editor
+
+These three pages are the one place that shows **every** parameter the slicer
+has — nothing folded away, nothing behind an *Advanced* step. That is what they
+are for, and it is also what makes them long: a printer's editor runs to sixty
+settings, a print profile past two hundred.
+
+The **outline** down the right-hand side is the map. It lists every section of
+the editor and, under each, every setting by name — a whole section in a glance.
+Click a line and the editor jumps to that control and marks where you landed.
+The section you are currently scrolled to is highlighted, so you never lose your
+place.
+
+Above it, **Filter settings** narrows the outline as you type. Matches stay
+grouped under their own sections, which is the part that helps: typing `gap`
+shows you that there is one in Walls, one in Infill, one in Support and two in
+Speed — *where* each lives, not just that it exists. It is the fastest way to a
+setting you can picture but cannot name.
+
+**Fold the section list to see it.** Settings is already three columns wide, so
+the outline only appears once you collapse the section list on the far left to
+icons — the button beside the word *Settings*. It also needs a window wide
+enough for the extra column; below that the list and the editor keep the room.
+
+The list column itself is draggable: pull the edge between the list and the
+editor to give long profile names the width they need. It stays where you put
+it.
 
 ## Labels
 

@@ -61,6 +61,8 @@ import {
 } from '@coldcrabby/ui';
 import { CatalogPicker, type CatalogEntryVm } from '../../components/profiles/catalog-picker';
 import { ParamField } from '../../components/profiles/param-field';
+import { ColumnResizer } from '../../components/profiles/column-resizer';
+import { ProfileOutline } from '../../components/profiles/profile-outline';
 import { CodeEditor } from '../../components/code-editor/code-editor';
 import { LabelFilterBar } from '../../components/labels/label-filter-bar';
 import { LabelPicker } from '../../components/labels/label-picker';
@@ -144,6 +146,8 @@ const PARAM_GROUPS: SchemaGroup[] = (() => {
     LabelFilterBar,
     LabelPicker,
     ContextMenuTrigger,
+    ProfileOutline,
+    ColumnResizer,
   ],
   templateUrl: './printers.html',
   styleUrl: './printers.scss',

@@ -28,9 +28,19 @@ import type { FieldWidget } from '../base-field';
       }
 
       .control {
+        position: relative;
         display: flex;
         align-items: center;
-        gap: 2px;
+      }
+
+      /*
+       * The design-system suffix still renders — it is what reserves the right
+       * width and shrinks the input — but the toggle is drawn over it. Hiding
+       * it rather than dropping it is what keeps a switchable field the exact
+       * same shape as a fixed-unit one.
+       */
+      .control.has-unit-toggle ::ng-deep .unit {
+        visibility: hidden;
       }
 
       label {
@@ -58,13 +68,13 @@ import type { FieldWidget } from '../base-field';
         />
       }
     </label>
-    <div class="control">
+    <div class="control" [class.has-unit-toggle]="switchable()">
       <nexus-number-input
         [value]="displayed()"
         [min]="min()"
         [max]="max()"
         [step]="step()"
-        [unit]="switchable() ? '' : unit()"
+        [unit]="unit()"
         [label]="field().title ?? field().key"
         (valueChange)="onValueChange($event)"
       ></nexus-number-input>

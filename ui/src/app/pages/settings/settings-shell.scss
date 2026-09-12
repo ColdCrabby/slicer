@@ -21,8 +21,45 @@
   overflow-y: auto;
 }
 
+.settings-nav-head {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-xs);
+  margin-bottom: var(--spacing-lg);
+}
+
+.settings-nav-collapse {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 32px;
+  height: 32px;
+  margin-left: auto;
+  padding: 0;
+  border: none;
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: var(--color-text-tertiary);
+  cursor: pointer;
+  transition:
+    background-color var(--duration-fast) var(--ease-standard),
+    color var(--duration-fast) var(--ease-standard);
+
+  --icon-size: 17px;
+
+  &:hover {
+    background: var(--color-surface-hover);
+    color: var(--color-text-primary);
+  }
+
+  &:focus-visible {
+    outline: 2px solid var(--color-focus-ring);
+    outline-offset: -2px;
+  }
+}
+
 .settings-title {
-  margin: var(--spacing-sm) var(--spacing-sm) var(--spacing-lg);
+  margin: var(--spacing-sm) 0 var(--spacing-sm) var(--spacing-sm);
   font-size: var(--font-size-xl);
   font-weight: var(--font-weight-semibold);
   letter-spacing: -0.01em;
@@ -328,5 +365,60 @@
 
   :host ::ng-deep .settings-page {
     max-width: none;
+  }
+}
+
+/**
+ * Folded to an icon rail.
+ *
+ * Settings is three columns before anything else asks for room — sections,
+ * list, editor — so folding the first is what pays for the contents outline on
+ * the profile pages. Everything but the icons goes: the labels become tooltips,
+ * and the storage note is prose that cannot be usefully narrowed.
+ */
+.settings.is-nav-collapsed {
+  .settings-nav {
+    width: 56px;
+    padding-left: var(--spacing-xs);
+    padding-right: var(--spacing-xs);
+    overflow: visible;
+  }
+
+  .settings-title,
+  .settings-nav-label,
+  .settings-nav-footer {
+    display: none;
+  }
+
+  .settings-nav-collapse {
+    margin: 0 auto;
+  }
+
+  .settings-nav-item {
+    justify-content: center;
+    padding: 8px 0;
+  }
+}
+
+// A phone already shows the sections as a horizontal chip strip, so there is no
+// column to fold and nothing the control could do. The stored preference is
+// simply ignored at this width rather than being reset, so it is still there
+// when the same user opens the same app on a desktop.
+@include handheld {
+  .settings-nav-head {
+    display: none;
+  }
+
+  .settings.is-nav-collapsed .settings-nav {
+    width: 100%;
+    padding: var(--spacing-sm);
+  }
+
+  .settings.is-nav-collapsed .settings-nav-label {
+    display: initial;
+  }
+
+  .settings.is-nav-collapsed .settings-nav-item {
+    padding: 8px 12px;
   }
 }

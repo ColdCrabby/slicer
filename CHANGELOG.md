@@ -71,6 +71,25 @@ issue/PR numbers or repo links in the notes. See the tone rules in
 
 ### Added
 
+- **Two faster print presets, and a CoreXY printer to run them on.** Standard is
+  written for a machine that may be a decade old; **High Speed** (200 mm/s) and
+  **Maximum** (300 mm/s, 30 000 mm/s²) ask for what a commissioned CoreXY is
+  actually built to do, both holding the outer wall and top surface back so the
+  speed comes out of the inside of the print. A **Generic CoreXY 350 mm** printer
+  preset carries the machine side — 0.6 nozzle, firmware retraction, object
+  exclusion. No preset sets pressure advance: it is tuned on your machine and
+  none of the slicer's business.
+- **Hold `+` or `−` to run a number up or down.** It repeats after a moment and
+  accelerates the longer you hold, so a skirt distance near 200 or a bed at
+  100 °C is a press rather than forty clicks.
+- **An outline for the printer, filament and profile editors.** These pages show
+  every parameter there is, in one long column with no way to search it. Collapse
+  the Settings section list to icons and a contents rail takes its place: every
+  section, and under it every setting by name, with a filter box — so a setting
+  you can picture but cannot name is one glance away, and one click takes you to
+  it.
+- **The Settings section list folds to icons**, and the list of printers,
+  filaments or profiles beside it can be dragged wider. Both are remembered.
 - **The slice dock now says how long the print will take.** An estimate sits
   beside the slice result, read from the G-code itself. It comes from your
   process settings — the speeds and accelerations the file commands — not from

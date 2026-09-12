@@ -11,7 +11,8 @@ import { resolveRuntimeMode } from '../../runtime/domain/runtime-mode.util';
 import { NavigationProgress } from '../../services/navigation-progress';
 import { SAVE_DEBOUNCE_MS } from '../../services/profiles/engine-write-through';
 import { ProfileSync, type ProfileSyncStatus } from '../../services/profiles/profile-sync';
-import { Icon } from '@coldcrabby/ui';
+import { Icon, TooltipDirective } from '@coldcrabby/ui';
+import { SettingsNav } from '../../services/settings-nav';
 
 interface SettingsSection {
   path: string;
@@ -33,12 +34,18 @@ type StorageMode = 'device' | 'server' | 'browser';
 /** Settings area frame: a section sub-nav on the left, routed content right. */
 @Component({
   selector: 'nexus-settings-shell',
-  imports: [RouterLink, RouterLinkActive, RouterOutlet, Icon],
+  imports: [RouterLink, RouterLinkActive, RouterOutlet, Icon, TooltipDirective],
   templateUrl: './settings-shell.html',
   styleUrl: './settings-shell.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class SettingsShell {
+  /**
+   * Folded to an icon rail or not. Public because the template drives the
+   * toggle from it, and shared because the profile editors' contents outline
+   * only appears once this rail has given the room back.
+   */
+  protected readonly nav = inject(SettingsNav);
   private readonly profileSync = inject(ProfileSync);
   private readonly navigation = inject(NavigationProgress);
 
