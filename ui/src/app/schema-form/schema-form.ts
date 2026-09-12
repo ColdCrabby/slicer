@@ -153,7 +153,7 @@ const FUSE_OPTIONS: IFuseOptions<FieldDefIndexed> = {
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
   templateUrl: './schema-form.component.html',
-  styleUrl: './schema-form.component.scss',
+  styleUrls: ['./schema-form.component.scss', './schema-form-search.scss'],
 })
 export class SchemaForm {
   private readonly storage = inject(BrowserStorage);
