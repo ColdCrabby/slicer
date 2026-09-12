@@ -345,8 +345,8 @@ const SIMPLIFY_EPS_MM: f64 = 0.005;
 
 /// Resolved elephant-foot settings for one slice.
 ///
-/// Produced by [`ElephantFootConfig::resolve`], which returns `None` when there
-/// is nothing to do — the common case, since the correction defaults to off.
+/// Produced by [`ElephantFootConfig::resolve`], which returns `None` when the
+/// correction is switched off or a raft owns bed contact.
 #[derive(Debug, Clone, PartialEq)]
 pub struct ElephantFootConfig {
     /// Inward shrink in mm applied at the bed.
@@ -411,7 +411,7 @@ impl ElephantFootConfig {
     ///
     /// Layer 0 always receives the full correction; with the default single
     /// layer every layer above it receives none.
-    fn shrink_for_layer(&self, index: usize) -> f64 {
+    pub(crate) fn shrink_for_layer(&self, index: usize) -> f64 {
         let n = self.layers;
         if index >= n {
             return 0.0;
@@ -1665,15 +1665,26 @@ mod tests {
     // ── Defaults & gates ────────────────────────────────────────────────────
 
     #[test]
-    fn default_settings_resolve_to_no_compensation_at_all() {
-        assert_eq!(ElephantFootConfig::resolve(&params()), None);
+    fn the_default_correction_is_the_first_layer_only() {
+        let config = ElephantFootConfig::resolve(&params()).expect("on by default");
+        assert_eq!(config.shrink_mm, 0.2);
+        assert_eq!(config.layers, 1);
+    }
+
+    #[test]
+    fn zero_compensation_resolves_to_no_pass_at_all() {
+        let mut p = params();
+        p.elephant_foot_compensation_mm = 0.0;
+        assert_eq!(ElephantFootConfig::resolve(&p), None);
     }
 
     #[test]
     fn a_disabled_pass_leaves_every_contour_byte_identical() {
+        let mut p = params();
+        p.elephant_foot_compensation_mm = 0.0;
         let mut layers = layers_of(vec![vec![rect(0.0, 0.0, 20.0, 20.0)]; 3], 0.2);
         let before = layers[0].paths.clone();
-        run(&mut layers, &params());
+        run(&mut layers, &p);
         assert_eq!(layers[0].paths, before);
     }
 

@@ -62,16 +62,21 @@ impl FilamentMaterial {
     /// for every material — part cooling on the bed-contact layer costs adhesion
     /// and buys nothing.
     pub fn default_params(self) -> serde_json::Value {
-        let (nozzle, nozzle1, bed, bed1, fan_max, bridge_fan, vmax, chamber) = match self {
-            Self::PLA => (210.0, 215.0, 60.0, 60.0, 1.0, 1.0, 15.0, 0.0),
-            Self::PETG => (240.0, 245.0, 80.0, 80.0, 0.6, 1.0, 12.0, 0.0),
-            Self::ABS => (250.0, 255.0, 100.0, 105.0, 0.3, 0.4, 11.0, 50.0),
-            Self::ASA => (250.0, 255.0, 100.0, 105.0, 0.3, 0.4, 11.0, 50.0),
-            Self::TPU => (230.0, 235.0, 40.0, 45.0, 0.8, 1.0, 4.0, 0.0),
-            Self::PC => (270.0, 275.0, 110.0, 110.0, 0.2, 0.3, 10.0, 60.0),
-            Self::Nylon => (260.0, 265.0, 90.0, 90.0, 0.2, 0.3, 10.0, 45.0),
-            Self::PVA => (215.0, 220.0, 60.0, 60.0, 0.5, 1.0, 6.0, 0.0),
-        };
+        // The last column is the cooling floor: the shortest a layer may take
+        // before the slicer slows it down, so a small cross-section is not laid
+        // onto plastic that is still molten. The warm materials get a lower one
+        // — held back too long they cool between layers and split.
+        let (nozzle, nozzle1, bed, bed1, fan_max, bridge_fan, vmax, chamber, min_layer_s) =
+            match self {
+                Self::PLA => (210.0, 215.0, 60.0, 60.0, 1.0, 1.0, 15.0, 0.0, 4.0),
+                Self::PETG => (240.0, 245.0, 80.0, 80.0, 0.6, 1.0, 12.0, 0.0, 4.0),
+                Self::ABS => (250.0, 255.0, 100.0, 105.0, 0.3, 0.4, 11.0, 50.0, 2.0),
+                Self::ASA => (250.0, 255.0, 100.0, 105.0, 0.3, 0.4, 11.0, 50.0, 2.0),
+                Self::TPU => (230.0, 235.0, 40.0, 45.0, 0.8, 1.0, 4.0, 0.0, 4.0),
+                Self::PC => (270.0, 275.0, 110.0, 110.0, 0.2, 0.3, 10.0, 60.0, 2.0),
+                Self::Nylon => (260.0, 265.0, 90.0, 90.0, 0.2, 0.3, 10.0, 45.0, 2.0),
+                Self::PVA => (215.0, 220.0, 60.0, 60.0, 0.5, 1.0, 6.0, 0.0, 4.0),
+            };
         serde_json::json!({
             "nozzle_temp": nozzle,
             "nozzle_temp_first_layer": nozzle1,
@@ -84,6 +89,7 @@ impl FilamentMaterial {
             "bridge_fan_speed": bridge_fan,
             "max_volumetric_speed": vmax,
             "disable_fan_first_layers": 1,
+            "min_layer_time_s": min_layer_s,
             "flow_ratio": 1.0,
             "pressure_advance": 0.04,
             "filament_diameter_mm": 1.75,

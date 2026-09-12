@@ -413,6 +413,7 @@ pub fn process_mesh_with_paint(
                 infill_overlap_percent: params.infill_overlap_percent,
                 ensure_vertical_shell_thickness: params.ensure_vertical_shell_thickness,
                 bridge_angle_deg: params.bridge_angle,
+                elephant_foot: super::compensation::ElephantFootConfig::resolve(params),
                 top_pattern: params.top_surface_pattern,
                 bottom_pattern: params.bottom_surface_pattern,
                 internal_solid_pattern: params.internal_solid_infill_pattern,
@@ -513,11 +514,16 @@ pub fn process_mesh_with_paint(
         logger.log_debug("support generation complete");
     }
 
-    // Optimize path order (Greedy TSP within role groups)
+    // Optimize path order: island by island, greedy TSP within each role run.
     let t_tsp = PhaseTimer::start("Path Ordering", logger);
+    // The nozzle carries over from the layer below. Restarting every layer's
+    // walk at the origin made each layer open with a hop toward whichever path
+    // happened to sit nearest the bed's corner — a full crossing of the part,
+    // every layer, on a plate that is nowhere near the origin.
+    let mut current_pos = (0.0, 0.0);
     for layer in layers.iter_mut() {
         let path_count = layer.paths.len();
-        if path_count <= 1 {
+        if path_count == 0 {
             continue;
         }
 
@@ -529,189 +535,195 @@ pub fn process_mesh_with_paint(
         let mut ordered_is_open = Vec::with_capacity(path_count);
         let mut ordered_overhang = Vec::with_capacity(path_count);
         let mut ordered_heights = Vec::with_capacity(path_count);
+        let mut ordered_objects = Vec::with_capacity(path_count);
 
-        let mut current_pos = (0.0, 0.0);
+        // Split the layer into islands and print one island out before moving
+        // to the next. The fill generators emit per layer, not per island, so
+        // without this every island's walls were laid first and the nozzle then
+        // came back across the plate to fill each of them in turn.
+        let islands = Islands::of(layer);
 
-        // Group into contiguous ranges of the same role to preserve wall/infill print order
-        let mut groups = Vec::new();
-        let mut current_group = Vec::new();
-        let mut current_group_role = layer.role_for_path(0);
-
-        for (i, _) in paths_vec.iter().enumerate() {
-            let role = layer.role_for_path(i);
-            if role != current_group_role && !current_group.is_empty() {
-                groups.push((current_group_role, current_group.clone()));
-                current_group.clear();
-                current_group_role = role;
-            }
-            current_group.push(i);
-        }
-        if !current_group.is_empty() {
-            groups.push((current_group_role, current_group));
-        }
-
-        for (role, mut remaining) in groups {
-            // A monotonic solid-surface group must keep the order and direction
-            // the fill generator emitted. Re-optimising it with the greedy TSP —
-            // which is free to reverse an open path — would scramble exactly the
-            // uniform sweep the pattern exists to produce, and the surface would
-            // look no different from a plain serpentine.
-            if monotonic_surface_role(role, params) {
-                for path_idx in remaining.drain(..) {
-                    let path = &paths_vec[path_idx];
-                    if let Some(last) = path.iter().last() {
-                        current_pos = (last.x(), last.y());
-                    }
-                    ordered_paths.push(path.clone());
-                    ordered_roles.push(role);
-                    ordered_widths.push(layer.width_for_path(path_idx));
-                    ordered_vertex_widths.push(layer.vertex_widths_for_path(path_idx));
-                    ordered_is_open.push(layer.is_path_open(path_idx));
-                    ordered_overhang.push(layer.overhang_for_path(path_idx));
-                    ordered_heights.push(layer.height_for_path(path_idx));
+        for island in islands.visiting_order(current_pos) {
+            // Contiguous runs of one role, in the order the generators emitted
+            // them — that order is the wall sequence and the monotonic sweep.
+            // Only the phase sort above moves anything.
+            let mut groups: Vec<(ExtrusionRole, Vec<usize>)> = Vec::new();
+            for &i in island {
+                let role = layer.role_for_path(i);
+                match groups.last_mut() {
+                    Some((last_role, run)) if *last_role == role => run.push(i),
+                    _ => groups.push((role, vec![i])),
                 }
-                continue;
             }
 
-            // Wall/skirt/support roles are nominally "closed" for TSP purposes,
-            // but individual paths may be open arcs (split sub-segments from
-            // classify_overhang_perimeters, or a support island's fill strands).
-            // Open arcs are treated like open polylines: both endpoints are
-            // candidate starts and current_pos is updated to the path *end*
-            // (not the start) after emission.
-            //
-            // This must be the same predicate the G-code generator applies, or
-            // the orderer's idea of where the nozzle ends up is wrong — hence
-            // `ExtrusionRole::forms_closed_loops` rather than a second list.
-            let role_is_closed = role.forms_closed_loops();
-
-            while !remaining.is_empty() {
-                let mut best_i = 0;
-                let mut min_dist_sq = f64::MAX;
-                let mut best_reverse = false;
-                // For closed loops: the vertex index in the path to start at
-                // (= seam position).  Loops are cyclic, so any vertex can be
-                // the start; picking the one closest to `current_pos` minimises
-                // travel and consolidates seams ("nearest" seam policy used by
-                // PrusaSlicer/Orca).  For open paths this stays 0.
-                let mut best_seam_vertex: usize = 0;
-
-                for (i, &path_idx) in remaining.iter().enumerate() {
-                    let path = &paths_vec[path_idx];
-                    if path.is_empty() {
-                        continue;
+            for (role, mut remaining) in groups {
+                // A monotonic solid-surface group must keep the order and direction
+                // the fill generator emitted. Re-optimising it with the greedy TSP —
+                // which is free to reverse an open path — would scramble exactly the
+                // uniform sweep the pattern exists to produce, and the surface would
+                // look no different from a plain serpentine.
+                if monotonic_surface_role(role, params) {
+                    for path_idx in remaining.drain(..) {
+                        let path = &paths_vec[path_idx];
+                        if let Some(last) = path.iter().last() {
+                            current_pos = (last.x(), last.y());
+                        }
+                        ordered_paths.push(path.clone());
+                        ordered_roles.push(role);
+                        ordered_widths.push(layer.width_for_path(path_idx));
+                        ordered_vertex_widths.push(layer.vertex_widths_for_path(path_idx));
+                        ordered_is_open.push(layer.is_path_open(path_idx));
+                        ordered_overhang.push(layer.overhang_for_path(path_idx));
+                        ordered_heights.push(layer.height_for_path(path_idx));
+                        ordered_objects.push(layer.object_for_path(path_idx));
                     }
-
-                    // A path that is nominally "closed" by role but flagged as
-                    // an open arc is treated as open for path-ordering purposes.
-                    let is_closed = role_is_closed && !layer.is_path_open(path_idx);
-
-                    if is_closed {
-                        // Choose this loop's seam vertex per the configured
-                        // policy, then score the loop by the distance from
-                        // current_pos to that seam vertex (= actual travel
-                        // we'd incur if we picked this loop next).
-                        let seam_v = choose_seam_vertex(path, params.seam_position, current_pos);
-                        let p = path.iter().nth(seam_v).unwrap();
-                        let dx = p.x() - current_pos.0;
-                        let dy = p.y() - current_pos.1;
-                        let d = dx * dx + dy * dy;
-                        if d < min_dist_sq {
-                            min_dist_sq = d;
-                            best_i = i;
-                            best_reverse = false;
-                            best_seam_vertex = seam_v;
-                        }
-                    } else {
-                        // Open path: only the two endpoints are candidate starts.
-                        let p_start = path.iter().next().unwrap();
-                        let dx1 = p_start.x() - current_pos.0;
-                        let dy1 = p_start.y() - current_pos.1;
-                        let dist1 = dx1 * dx1 + dy1 * dy1;
-
-                        if dist1 < min_dist_sq {
-                            min_dist_sq = dist1;
-                            best_i = i;
-                            best_reverse = false;
-                            best_seam_vertex = 0;
-                        }
-
-                        let p_end = path.iter().last().unwrap();
-                        let dx2 = p_end.x() - current_pos.0;
-                        let dy2 = p_end.y() - current_pos.1;
-                        let dist2 = dx2 * dx2 + dy2 * dy2;
-                        if dist2 < min_dist_sq {
-                            min_dist_sq = dist2;
-                            best_i = i;
-                            best_reverse = true;
-                            best_seam_vertex = 0;
-                        }
-                    }
+                    continue;
                 }
 
-                let best_path_idx = remaining.remove(best_i);
-                let path = &paths_vec[best_path_idx];
+                // Wall/skirt/support roles are nominally "closed" for TSP purposes,
+                // but individual paths may be open arcs (split sub-segments from
+                // classify_overhang_perimeters, or a support island's fill strands).
+                // Open arcs are treated like open polylines: both endpoints are
+                // candidate starts and current_pos is updated to the path *end*
+                // (not the start) after emission.
+                //
+                // This must be the same predicate the G-code generator applies, or
+                // the orderer's idea of where the nozzle ends up is wrong — hence
+                // `ExtrusionRole::forms_closed_loops` rather than a second list.
+                let role_is_closed = role.forms_closed_loops();
 
-                // Per-path closed/open determination for current_pos update.
-                let best_is_closed = role_is_closed && !layer.is_path_open(best_path_idx);
+                while !remaining.is_empty() {
+                    let mut best_i = 0;
+                    let mut min_dist_sq = f64::MAX;
+                    let mut best_reverse = false;
+                    // For closed loops: the vertex index in the path to start at
+                    // (= seam position).  Loops are cyclic, so any vertex can be
+                    // the start; picking the one closest to `current_pos` minimises
+                    // travel and consolidates seams ("nearest" seam policy used by
+                    // PrusaSlicer/Orca).  For open paths this stays 0.
+                    let mut best_seam_vertex: usize = 0;
 
-                let mut final_path = clipper2::Path::default();
-                if best_is_closed && best_seam_vertex != 0 {
-                    // Rotate the closed loop so it starts at `best_seam_vertex`.
-                    // The path's first vertex is preserved as the closing
-                    // vertex by the G-code generator (which appends a move
-                    // back to vertex[0] for closed loops).  After rotation,
-                    // the loop reads: [v_seam, v_seam+1, …, v_n-1, v_0, v_1,
-                    // …, v_seam-1].  Note: we do NOT duplicate v_seam at the
-                    // end — the generator's "close contour" move handles the
-                    // wrap-around.
-                    let pts: Vec<_> = path.iter().copied().collect();
-                    let n = pts.len();
-                    for k in 0..n {
-                        final_path.push(pts[(best_seam_vertex + k) % n]);
-                    }
-                } else if best_reverse {
-                    for p in path.iter().rev() {
-                        final_path.push(*p);
-                    }
-                } else {
-                    for p in path.iter() {
-                        final_path.push(*p);
-                    }
-                }
+                    for (i, &path_idx) in remaining.iter().enumerate() {
+                        let path = &paths_vec[path_idx];
+                        if path.is_empty() {
+                            continue;
+                        }
 
-                if !final_path.is_empty() {
-                    if best_is_closed {
-                        // Closed loop: nozzle ends at the start vertex (the
-                        // closing move in G-code returns to vertex[0]).
-                        let p = final_path.iter().next().unwrap();
-                        current_pos = (p.x(), p.y());
-                    } else {
-                        let p = final_path.iter().last().unwrap();
-                        current_pos = (p.x(), p.y());
-                    }
-                }
+                        // A path that is nominally "closed" by role but flagged as
+                        // an open arc is treated as open for path-ordering purposes.
+                        let is_closed = role_is_closed && !layer.is_path_open(path_idx);
 
-                ordered_paths.push(final_path);
-                ordered_roles.push(layer.role_for_path(best_path_idx));
-                ordered_widths.push(layer.width_for_path(best_path_idx));
-                // Reorder any per-vertex widths with the same rotation/reversal
-                // applied to the path vertices above.
-                ordered_vertex_widths.push(layer.vertex_widths_for_path(best_path_idx).map(|vw| {
-                    let n = vw.len();
-                    if best_is_closed && best_seam_vertex != 0 && n > 0 {
-                        (0..n).map(|k| vw[(best_seam_vertex + k) % n]).collect()
+                        if is_closed {
+                            // Choose this loop's seam vertex per the configured
+                            // policy, then score the loop by the distance from
+                            // current_pos to that seam vertex (= actual travel
+                            // we'd incur if we picked this loop next).
+                            let seam_v =
+                                choose_seam_vertex(path, params.seam_position, current_pos);
+                            let p = path.iter().nth(seam_v).unwrap();
+                            let dx = p.x() - current_pos.0;
+                            let dy = p.y() - current_pos.1;
+                            let d = dx * dx + dy * dy;
+                            if d < min_dist_sq {
+                                min_dist_sq = d;
+                                best_i = i;
+                                best_reverse = false;
+                                best_seam_vertex = seam_v;
+                            }
+                        } else {
+                            // Open path: only the two endpoints are candidate starts.
+                            let p_start = path.iter().next().unwrap();
+                            let dx1 = p_start.x() - current_pos.0;
+                            let dy1 = p_start.y() - current_pos.1;
+                            let dist1 = dx1 * dx1 + dy1 * dy1;
+
+                            if dist1 < min_dist_sq {
+                                min_dist_sq = dist1;
+                                best_i = i;
+                                best_reverse = false;
+                                best_seam_vertex = 0;
+                            }
+
+                            let p_end = path.iter().last().unwrap();
+                            let dx2 = p_end.x() - current_pos.0;
+                            let dy2 = p_end.y() - current_pos.1;
+                            let dist2 = dx2 * dx2 + dy2 * dy2;
+                            if dist2 < min_dist_sq {
+                                min_dist_sq = dist2;
+                                best_i = i;
+                                best_reverse = true;
+                                best_seam_vertex = 0;
+                            }
+                        }
+                    }
+
+                    let best_path_idx = remaining.remove(best_i);
+                    let path = &paths_vec[best_path_idx];
+
+                    // Per-path closed/open determination for current_pos update.
+                    let best_is_closed = role_is_closed && !layer.is_path_open(best_path_idx);
+
+                    let mut final_path = clipper2::Path::default();
+                    if best_is_closed && best_seam_vertex != 0 {
+                        // Rotate the closed loop so it starts at `best_seam_vertex`.
+                        // The path's first vertex is preserved as the closing
+                        // vertex by the G-code generator (which appends a move
+                        // back to vertex[0] for closed loops).  After rotation,
+                        // the loop reads: [v_seam, v_seam+1, …, v_n-1, v_0, v_1,
+                        // …, v_seam-1].  Note: we do NOT duplicate v_seam at the
+                        // end — the generator's "close contour" move handles the
+                        // wrap-around.
+                        let pts: Vec<_> = path.iter().copied().collect();
+                        let n = pts.len();
+                        for k in 0..n {
+                            final_path.push(pts[(best_seam_vertex + k) % n]);
+                        }
                     } else if best_reverse {
-                        let mut r = vw;
-                        r.reverse();
-                        r
+                        for p in path.iter().rev() {
+                            final_path.push(*p);
+                        }
                     } else {
-                        vw
+                        for p in path.iter() {
+                            final_path.push(*p);
+                        }
                     }
-                }));
-                ordered_is_open.push(layer.is_path_open(best_path_idx));
-                ordered_overhang.push(layer.overhang_for_path(best_path_idx));
-                ordered_heights.push(layer.height_for_path(best_path_idx));
+
+                    if !final_path.is_empty() {
+                        if best_is_closed {
+                            // Closed loop: nozzle ends at the start vertex (the
+                            // closing move in G-code returns to vertex[0]).
+                            let p = final_path.iter().next().unwrap();
+                            current_pos = (p.x(), p.y());
+                        } else {
+                            let p = final_path.iter().last().unwrap();
+                            current_pos = (p.x(), p.y());
+                        }
+                    }
+
+                    ordered_paths.push(final_path);
+                    ordered_roles.push(layer.role_for_path(best_path_idx));
+                    ordered_widths.push(layer.width_for_path(best_path_idx));
+                    // Reorder any per-vertex widths with the same rotation/reversal
+                    // applied to the path vertices above.
+                    ordered_vertex_widths.push(layer.vertex_widths_for_path(best_path_idx).map(
+                        |vw| {
+                            let n = vw.len();
+                            if best_is_closed && best_seam_vertex != 0 && n > 0 {
+                                (0..n).map(|k| vw[(best_seam_vertex + k) % n]).collect()
+                            } else if best_reverse {
+                                let mut r = vw;
+                                r.reverse();
+                                r
+                            } else {
+                                vw
+                            }
+                        },
+                    ));
+                    ordered_is_open.push(layer.is_path_open(best_path_idx));
+                    ordered_overhang.push(layer.overhang_for_path(best_path_idx));
+                    ordered_heights.push(layer.height_for_path(best_path_idx));
+                    ordered_objects.push(layer.object_for_path(best_path_idx));
+                }
             }
         }
 
@@ -733,6 +745,14 @@ pub fn process_mesh_with_paint(
             Vec::new()
         } else {
             ordered_heights
+        };
+        // And for the object tags, which only a plate sliced object by object
+        // carries. Reordering the paths without them would hand every path the
+        // previous occupant's identity and cancel the wrong part.
+        layer.path_objects = if layer.path_objects.is_empty() {
+            Vec::new()
+        } else {
+            ordered_objects
         };
     }
     t_tsp.finish();
@@ -912,6 +932,7 @@ pub fn process_mesh_debug(
                 infill_overlap_percent: params.infill_overlap_percent,
                 ensure_vertical_shell_thickness: params.ensure_vertical_shell_thickness,
                 bridge_angle_deg: params.bridge_angle,
+                elephant_foot: super::compensation::ElephantFootConfig::resolve(params),
                 top_pattern: params.top_surface_pattern,
                 bottom_pattern: params.bottom_surface_pattern,
                 internal_solid_pattern: params.internal_solid_infill_pattern,
@@ -1017,6 +1038,236 @@ pub fn process_mesh_debug(
     mark_first_layer_height(&mut layers, first_h, params.layer_height);
 
     layers
+}
+
+/// Print phase of a role *within* its island.
+///
+/// Everything that is covered by something else prints first. The visible top
+/// surface is laid after the sparse fill beside it, so the nozzle never crosses
+/// a finished top to reach anything; ironing then sweeps the finished top.
+/// Order inside a phase is the order the generators emitted — that order is the
+/// wall sequence and the monotonic sweep, and neither may be disturbed.
+fn print_phase(role: ExtrusionRole) -> u8 {
+    match role {
+        ExtrusionRole::Infill => 1,
+        ExtrusionRole::TopSurface => 2,
+        ExtrusionRole::Ironing => 3,
+        _ => 0,
+    }
+}
+
+/// One layer's path indices, split into the islands the nozzle should finish
+/// one at a time.
+///
+/// An island is one outermost closed [`ExtrusionRole::OuterWall`] loop together
+/// with everything printed inside it — its inner walls, its hole contours, its
+/// fills. Surface and infill generation runs per *layer*, not per island, so
+/// the paths arrive as "every island's walls, then every island's fill": the
+/// nozzle used to lay all the walls on the plate, then cross back over all of
+/// them again for the fill. Grouping first by island and only then by role is
+/// what keeps a travel inside the island that is being printed.
+struct Islands {
+    /// Path indices per island, in print order.
+    members: Vec<Vec<usize>>,
+    /// A few approach points per island, for picking the nearest island next.
+    anchors: Vec<Vec<(f64, f64)>>,
+}
+
+impl Islands {
+    fn of(layer: &SliceLayer) -> Self {
+        let bounds = |pts: &[(f64, f64)]| {
+            pts.iter().fold(
+                (f64::MAX, f64::MAX, f64::MIN, f64::MIN),
+                |(x0, y0, x1, y1), &(x, y)| (x0.min(x), y0.min(y), x1.max(x), y1.max(y)),
+            )
+        };
+
+        // Candidate island outlines: every closed outer-wall loop. A hole's
+        // boundary is one of these too, and is filtered out below.
+        let mut loops: Vec<(usize, Vec<(f64, f64)>)> = Vec::new();
+        for (i, path) in layer.paths.iter().enumerate() {
+            if layer.role_for_path(i) == ExtrusionRole::OuterWall && !layer.is_path_open(i) {
+                let pts: Vec<(f64, f64)> = path.iter().map(|p| (p.x(), p.y())).collect();
+                if pts.len() >= 3 {
+                    loops.push((i, pts));
+                }
+            }
+        }
+
+        // Outermost = whose first vertex lies inside no other loop. Separate
+        // islands are disjoint, so only a hole is contained by anything.
+        let outlines: Vec<Vec<(f64, f64)>> = loops
+            .iter()
+            .enumerate()
+            .filter(|(k, (_, pts))| {
+                !loops
+                    .iter()
+                    .enumerate()
+                    .any(|(other, (_, o))| other != *k && point_inside(pts[0], o))
+            })
+            .map(|(_, (_, pts))| pts.clone())
+            .collect();
+
+        if outlines.len() <= 1 {
+            // One island (or none to speak of): nothing to separate, but the
+            // phase order still applies.
+            let mut all: Vec<usize> = (0..layer.paths.len()).collect();
+            all.sort_by_key(|&i| print_phase(layer.role_for_path(i)));
+            let anchors = outlines.iter().map(|o| sample_anchors(o)).collect();
+            return Self {
+                members: vec![all],
+                anchors,
+            };
+        }
+
+        let boxes: Vec<(f64, f64, f64, f64)> = outlines.iter().map(|pts| bounds(pts)).collect();
+        let mut members: Vec<Vec<usize>> = vec![Vec::new(); outlines.len()];
+        for (i, path) in layer.paths.iter().enumerate() {
+            let Some(first) = path.iter().next() else {
+                continue;
+            };
+            let probe = (first.x(), first.y());
+            members[Self::owner(probe, &outlines, &boxes)].push(i);
+        }
+        for island in members.iter_mut() {
+            island.sort_by_key(|&i| print_phase(layer.role_for_path(i)));
+        }
+
+        let anchors = outlines.iter().map(|o| sample_anchors(o)).collect();
+        Self { members, anchors }
+    }
+
+    /// The island a path belongs to: the outline that contains its first
+    /// vertex, or — for a path that lies inside none of them, a support strand
+    /// standing free of the part — the nearest one, so the nozzle still deals
+    /// with one neighbourhood at a time.
+    fn owner(
+        probe: (f64, f64),
+        outlines: &[Vec<(f64, f64)>],
+        boxes: &[(f64, f64, f64, f64)],
+    ) -> usize {
+        for (i, outline) in outlines.iter().enumerate() {
+            let (x0, y0, x1, y1) = boxes[i];
+            if probe.0 < x0 || probe.0 > x1 || probe.1 < y0 || probe.1 > y1 {
+                continue;
+            }
+            if point_inside_or_on(probe, outline) {
+                return i;
+            }
+        }
+        outlines
+            .iter()
+            .enumerate()
+            .min_by(|(_, a), (_, b)| {
+                nearest_vertex_dist_sq(probe, a)
+                    .partial_cmp(&nearest_vertex_dist_sq(probe, b))
+                    .unwrap_or(std::cmp::Ordering::Equal)
+            })
+            .map_or(0, |(i, _)| i)
+    }
+
+    /// The islands in the order to print them: nearest first, then nearest to
+    /// where that one was entered.
+    ///
+    /// Islands are scored against a handful of sampled outline vertices rather
+    /// than all of them — picking the next island is quadratic in their count,
+    /// and a lattice cross-section can carry hundreds per layer.
+    fn visiting_order(&self, from: (f64, f64)) -> Vec<&[usize]> {
+        if self.members.len() <= 1 {
+            return self.members.iter().map(Vec::as_slice).collect();
+        }
+        let mut remaining: Vec<usize> = (0..self.members.len()).collect();
+        let mut order = Vec::with_capacity(remaining.len());
+        let mut pos = from;
+        while !remaining.is_empty() {
+            let mut best = (0usize, f64::MAX, pos);
+            for (slot, &island) in remaining.iter().enumerate() {
+                let Some(anchors) = self.anchors.get(island) else {
+                    continue;
+                };
+                for &v in anchors {
+                    let d = (v.0 - pos.0).powi(2) + (v.1 - pos.1).powi(2);
+                    if d < best.1 {
+                        best = (slot, d, v);
+                    }
+                }
+            }
+            let island = remaining.remove(best.0);
+            pos = best.2;
+            order.push(self.members[island].as_slice());
+        }
+        order
+    }
+}
+
+/// At most this many outline vertices are kept as an island's approach points.
+const ISLAND_ANCHORS: usize = 16;
+
+/// Evenly sample up to [`ISLAND_ANCHORS`] vertices from a closed outline.
+fn sample_anchors(outline: &[(f64, f64)]) -> Vec<(f64, f64)> {
+    if outline.len() <= ISLAND_ANCHORS {
+        return outline.to_vec();
+    }
+    let step = outline.len() as f64 / ISLAND_ANCHORS as f64;
+    (0..ISLAND_ANCHORS)
+        .map(|k| outline[((k as f64 * step) as usize).min(outline.len() - 1)])
+        .collect()
+}
+
+fn nearest_vertex_dist_sq(probe: (f64, f64), pts: &[(f64, f64)]) -> f64 {
+    pts.iter()
+        .map(|v| (v.0 - probe.0).powi(2) + (v.1 - probe.1).powi(2))
+        .fold(f64::MAX, f64::min)
+}
+
+fn point_inside(probe: (f64, f64), poly: &[(f64, f64)]) -> bool {
+    matches!(ray_cast(probe, poly), Containment::Inside)
+}
+
+fn point_inside_or_on(probe: (f64, f64), poly: &[(f64, f64)]) -> bool {
+    !matches!(ray_cast(probe, poly), Containment::Outside)
+}
+
+enum Containment {
+    Inside,
+    Outside,
+    On,
+}
+
+/// Even-odd ray cast, winding-independent — the wall loops it is asked about
+/// carry whatever orientation the generator gave them.
+fn ray_cast(probe: (f64, f64), poly: &[(f64, f64)]) -> Containment {
+    const ON_EDGE_TOLERANCE: f64 = 1e-9;
+    let (px, py) = probe;
+    let n = poly.len();
+    if n < 3 {
+        return Containment::Outside;
+    }
+    let mut inside = false;
+    let mut j = n - 1;
+    for i in 0..n {
+        let (xi, yi) = poly[i];
+        let (xj, yj) = poly[j];
+        // Collinear with this edge and within its span: on the boundary.
+        let cross = (xj - xi) * (py - yi) - (yj - yi) * (px - xi);
+        if cross.abs() <= ON_EDGE_TOLERANCE
+            && px >= xi.min(xj) - ON_EDGE_TOLERANCE
+            && px <= xi.max(xj) + ON_EDGE_TOLERANCE
+            && py >= yi.min(yj) - ON_EDGE_TOLERANCE
+            && py <= yi.max(yj) + ON_EDGE_TOLERANCE
+        {
+            return Containment::On;
+        }
+        if ((yi > py) != (yj > py)) && (px < (xj - xi) * (py - yi) / (yj - yi) + xi) {
+            inside = !inside;
+        }
+        j = i;
+    }
+    if inside {
+        Containment::Inside
+    } else {
+        Containment::Outside
+    }
 }
 
 /// Snapshot each layer's pristine OuterWall perimeter outline for dynamic
@@ -1208,5 +1459,101 @@ fn choose_seam_vertex(
             z ^= z >> 31;
             (z as usize) % n
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use clipper2::Path;
+
+    fn square(x: f64, y: f64, side: f64) -> Path {
+        vec![(x, y), (x + side, y), (x + side, y + side), (x, y + side)].into()
+    }
+
+    fn line(x0: f64, y0: f64, x1: f64, y1: f64) -> Path {
+        vec![(x0, y0), (x1, y1)].into()
+    }
+
+    /// Add one path with its role, keeping the parallel vectors aligned.
+    fn push(layer: &mut SliceLayer, path: Path, role: ExtrusionRole) {
+        layer.paths.push(path);
+        layer.path_roles.push(role);
+        layer.path_is_open.push(role == ExtrusionRole::Infill);
+    }
+
+    /// Two islands, emitted the way the pipeline emits them: every island's
+    /// walls first, then every island's fill.
+    fn two_islands() -> SliceLayer {
+        let mut layer = SliceLayer::new(0.2);
+        push(&mut layer, square(0.0, 0.0, 10.0), ExtrusionRole::OuterWall);
+        push(
+            &mut layer,
+            square(30.0, 0.0, 10.0),
+            ExtrusionRole::OuterWall,
+        );
+        push(&mut layer, line(2.0, 5.0, 8.0, 5.0), ExtrusionRole::Infill);
+        push(
+            &mut layer,
+            line(32.0, 5.0, 38.0, 5.0),
+            ExtrusionRole::Infill,
+        );
+        layer
+    }
+
+    #[test]
+    fn an_islands_fill_stays_with_its_own_walls() {
+        let islands = Islands::of(&two_islands());
+        assert_eq!(islands.members.len(), 2, "two separate islands");
+        assert!(
+            islands.members.contains(&vec![0, 2]) && islands.members.contains(&vec![1, 3]),
+            "each island keeps its own wall and fill: {:?}",
+            islands.members
+        );
+    }
+
+    #[test]
+    fn the_nearest_island_is_printed_first() {
+        let islands = Islands::of(&two_islands());
+        let near_right = islands.visiting_order((40.0, 5.0));
+        assert_eq!(
+            near_right[0],
+            [1, 3],
+            "start at the island under the nozzle"
+        );
+        let near_left = islands.visiting_order((-5.0, 5.0));
+        assert_eq!(near_left[0], [0, 2]);
+    }
+
+    #[test]
+    fn the_top_surface_is_laid_after_the_fill_beside_it() {
+        let mut layer = SliceLayer::new(0.2);
+        push(&mut layer, square(0.0, 0.0, 10.0), ExtrusionRole::OuterWall);
+        push(
+            &mut layer,
+            line(2.0, 3.0, 8.0, 3.0),
+            ExtrusionRole::TopSurface,
+        );
+        push(&mut layer, line(2.0, 7.0, 8.0, 7.0), ExtrusionRole::Infill);
+
+        let islands = Islands::of(&layer);
+        assert_eq!(
+            islands.members[0],
+            vec![0, 2, 1],
+            "wall, then sparse fill, then the visible top"
+        );
+    }
+
+    /// A hole's contour is an outer-wall loop too. Treating it as an island of
+    /// its own would split the island that surrounds it in two.
+    #[test]
+    fn a_hole_belongs_to_the_island_around_it() {
+        let mut layer = SliceLayer::new(0.2);
+        push(&mut layer, square(0.0, 0.0, 20.0), ExtrusionRole::OuterWall);
+        push(&mut layer, square(8.0, 8.0, 4.0), ExtrusionRole::OuterWall);
+
+        let islands = Islands::of(&layer);
+        assert_eq!(islands.members.len(), 1);
+        assert_eq!(islands.members[0], vec![0, 1]);
     }
 }

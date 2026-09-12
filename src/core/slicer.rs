@@ -17,8 +17,21 @@ const SLICE_EPSILON: f64 = 1e-3;
 /// Given two vertices `a` and `b` that straddle the plane `z`, returns the XY
 /// point where the edge crosses that plane.
 fn edge_intersect(a: Vertex, b: Vertex, z: f64) -> (f64, f64) {
-    let t = (z - a.z) / (b.z - a.z);
-    (a.x + t * (b.x - a.x), a.y + t * (b.y - a.y))
+    // Interpolate from a canonical end of the edge.  The two triangles that
+    // share an edge see it in opposite directions, and `a + t·(b−a)` is not
+    // bit-identical to `b + t'·(a−b)`: the results differ in the last ulp.
+    // `chain_segments` snaps endpoints to a 0.1 µm grid, so a value that lands
+    // exactly on a grid tie rounds one way for one triangle and the other way
+    // for its neighbour — the chain breaks there and the whole contour is
+    // discarded, dropping an entire island from that layer.  Ordering the two
+    // ends first makes both triangles compute the same bits.
+    let (lo, hi) = if (a.z, a.y, a.x) <= (b.z, b.y, b.x) {
+        (a, b)
+    } else {
+        (b, a)
+    };
+    let t = (z - lo.z) / (hi.z - lo.z);
+    (lo.x + t * (hi.x - lo.x), lo.y + t * (hi.y - lo.y))
 }
 
 /// Slice a mesh into layers separated by `layer_height` millimeters.
@@ -304,4 +317,89 @@ fn chain_segments(segments: Vec<[(f64, f64); 2]>) -> Vec<Vec<(f64, f64)>> {
     }
 
     contours
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::mesh::types::{Face, Mesh};
+
+    /// An upright box as 12 triangles, its lower-left corner at `(x, y, 0)`.
+    fn box_mesh(x: f64, y: f64, w: f64, h: f64) -> Vec<Face> {
+        let v = [
+            Vertex::new(x, y, 0.0),
+            Vertex::new(x + w, y, 0.0),
+            Vertex::new(x + w, y + w, 0.0),
+            Vertex::new(x, y + w, 0.0),
+            Vertex::new(x, y, h),
+            Vertex::new(x + w, y, h),
+            Vertex::new(x + w, y + w, h),
+            Vertex::new(x, y + w, h),
+        ];
+        [
+            [0, 3, 2],
+            [0, 2, 1],
+            [4, 5, 6],
+            [4, 6, 7],
+            [0, 1, 5],
+            [0, 5, 4],
+            [1, 2, 6],
+            [1, 6, 5],
+            [2, 3, 7],
+            [2, 7, 6],
+            [3, 0, 4],
+            [3, 4, 7],
+        ]
+        .iter()
+        .map(|[a, b, c]| Face::new([v[*a], v[*b], v[*c]]))
+        .collect()
+    }
+
+    /// The two triangles sharing an edge see it from opposite ends, so the
+    /// crossing point must not depend on which end it is interpolated from —
+    /// a one-ulp split is enough to round the two copies to different cells of
+    /// `chain_segments`' 0.1 µm grid and break the contour there.
+    #[test]
+    fn edge_intersect_does_not_depend_on_edge_direction() {
+        let a = Vertex::new(0.0, 0.0, 0.0);
+        let b = Vertex::new(15.0, 0.0, 12.0);
+        for step in 0..2000 {
+            let z = 0.141 + step as f64 * 0.2;
+            if z >= 12.0 {
+                break;
+            }
+            assert_eq!(
+                edge_intersect(a, b, z),
+                edge_intersect(b, a, z),
+                "edge crossing at z={z} differs by direction"
+            );
+        }
+    }
+
+    /// A layer must never lose a whole island. The three prisms here cross the
+    /// 0.1 µm grid exactly on a tie at several layers, which used to break the
+    /// contour walk and discard the island outright.
+    #[test]
+    fn every_layer_keeps_all_three_islands() {
+        let mut faces = box_mesh(0.0, 0.0, 15.0, 12.0);
+        faces.extend(box_mesh(30.0, 0.0, 15.0, 12.0));
+        faces.extend(box_mesh(15.0, 30.0, 15.0, 12.0));
+        let vertices = faces.iter().flat_map(|f| f.vertices).collect();
+        let mesh = Mesh {
+            vertices,
+            faces,
+            aabb: None,
+        };
+
+        let layers = slice_mesh_with_first_layer(&mesh, 0.2, 0.24);
+        assert!(!layers.is_empty());
+        for (i, layer) in layers.iter().enumerate() {
+            assert_eq!(
+                layer.paths.len(),
+                3,
+                "layer {i} (z={:.3}) lost an island",
+                layer.z
+            );
+        }
+    }
 }

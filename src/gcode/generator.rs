@@ -3527,12 +3527,16 @@ mod tests {
         l2.paths.push(square_at(0.0, 0.0));
         let layers = vec![l1, l2];
 
-        let off = generate_gcode(&layers, &SlicingParams::default());
+        let plain = SlicingParams {
+            wipe: false,
+            ..SlicingParams::default()
+        };
+        let off = generate_gcode(&layers, &plain);
         let on = generate_gcode(
             &layers,
             &SlicingParams {
                 retract_on_layer_change: true,
-                ..SlicingParams::default()
+                ..plain.clone()
             },
         );
 
@@ -3557,7 +3561,13 @@ mod tests {
         layer.paths.push(square_at(0.0, 0.0));
         layer.paths.push(square_at(0.0, 5.0));
 
-        let off = generate_gcode(&[layer.clone()], &SlicingParams::default());
+        let off = generate_gcode(
+            &[layer.clone()],
+            &SlicingParams {
+                wipe: false,
+                ..SlicingParams::default()
+            },
+        );
         assert!(!off.contains("; wipe"), "no wipe without the flag: {off}");
 
         let params = SlicingParams {
@@ -3590,12 +3600,16 @@ mod tests {
 
         let count = |g: &str| g.lines().filter(|l| l.ends_with("; retract")).count();
 
-        let default = generate_gcode(&[layer.clone()], &SlicingParams::default());
+        let plain = SlicingParams {
+            wipe: false,
+            ..SlicingParams::default()
+        };
+        let default = generate_gcode(&[layer.clone()], &plain);
         let high = generate_gcode(
             &[layer],
             &SlicingParams {
                 retract_before_travel_mm: 20.0,
-                ..SlicingParams::default()
+                ..plain.clone()
             },
         );
         assert_eq!(
@@ -6128,7 +6142,7 @@ CHAMBER={chamber_temp} MATERIAL={filament_type}"
         );
         assert!(gcode.contains("; bed_temp: 60 °C"), "missing bed_temp");
         assert!(
-            gcode.contains("; print_speed: 60 mm/s"),
+            gcode.contains("; print_speed: 120 mm/s"),
             "missing print_speed"
         );
         assert!(
@@ -6136,7 +6150,7 @@ CHAMBER={chamber_temp} MATERIAL={filament_type}"
             "missing wall_count"
         );
         assert!(
-            gcode.contains("; infill_density: 20%"),
+            gcode.contains("; infill_density: 15%"),
             "missing infill_density"
         );
     }
@@ -7082,6 +7096,7 @@ CHAMBER={chamber_temp} MATERIAL={filament_type}"
             layer_height: 0.2,
             infill_speed: 70.0,
             coasting_distance_mm: 0.0,
+            min_layer_time_s: 0.0,
             ..SlicingParams::default()
         };
         let gcode = GcodeGenerator::new(GcodeFlavor::Marlin)
@@ -7118,10 +7133,14 @@ CHAMBER={chamber_temp} MATERIAL={filament_type}"
     // ── Minimum layer time ───────────────────────────────────────────────────
 
     #[test]
-    fn test_min_layer_time_disabled_by_default() {
-        // A tiny 30mm-perimeter layer prints in well under a second, but
-        // `min_layer_time_s` defaults to 0 (disabled) so nothing slows down.
-        let params = SlicingParams::default();
+    fn test_min_layer_time_can_be_switched_off() {
+        // A tiny 30mm-perimeter layer prints in well under a second and the
+        // default floor would stretch it; at zero nothing slows down.
+        let params = SlicingParams {
+            min_layer_time_s: 0.0,
+            perimeter_speed: 45.0,
+            ..SlicingParams::default()
+        };
         let gcode = GcodeGenerator::new(GcodeFlavor::Marlin)
             .generate(&[plain_wall_layer(0.2), plain_wall_layer(0.4)], &params);
         assert!(
@@ -7143,6 +7162,9 @@ CHAMBER={chamber_temp} MATERIAL={filament_type}"
         let params = SlicingParams {
             min_layer_time_s: 5.0,
             min_print_speed: 10.0,
+            print_speed: 60.0,
+            perimeter_speed: 45.0,
+            first_layer_speed: 25.0,
             ..SlicingParams::default()
         };
         let gcode = GcodeGenerator::new(GcodeFlavor::Marlin)
