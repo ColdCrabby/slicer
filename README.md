@@ -23,12 +23,12 @@ The web version runs fully in the browser, so you can slice on an iPad or any de
 
 Drop in an STL, OBJ, or 3MF and get print-ready G-code. One engine, wherever you are:
 
-|                    | Where it runs                                        | Setup                                                    |
-| ------------------ | ---------------------------------------------------- | -------------------------------------------------------- |
-| 🌐 **Web**         | In any browser - desktop, tablet, iPad               | None - [just open the link](https://slicer.maxscopp.de/) |
-| 🖥️ **Desktop**     | Native app, runs entirely on your machine            | [Set it up](SETUP.md#desktop-app)                        |
-| 📱 **iPad**        | The same app, with touch and pen                     | [Set it up](SETUP.md#ipad--ios-app)                      |
-| ☁️ **Self-hosted** | Host it yourself, share with your team               | [Set it up](SETUP.md#self-hosted-web-ui)                 |
+|                    | Where it runs                             | Setup                                                    |
+| ------------------ | ----------------------------------------- | -------------------------------------------------------- |
+| 🌐 **Web**         | In any browser - desktop, tablet, iPad    | None - [just open the link](https://slicer.maxscopp.de/) |
+| 🖥️ **Desktop**     | Native app, runs entirely on your machine | [Set it up](SETUP.md#desktop-app)                        |
+| 📱 **iPad**        | The same app, with touch and pen          | [Set it up](SETUP.md#ipad--ios-app)                      |
+| ☁️ **Self-hosted** | Host it yourself, share with your team    | [Set it up](SETUP.md#self-hosted-web-ui)                 |
 
 Same slicing engine everywhere, so the G-code is identical no matter where you run it. In the browser, your files never leave your machine.
 
@@ -74,7 +74,7 @@ So it's two things at once for me: a real product I want to use, and a running e
 
 ## License
 
-All rights reserved until an official license is decided. No use, reproduction, modification, or distribution permitted without written authorization. TBD.
+This project is licensed under the terms in [LICENSE](LICENSE).
 
 ---
 

@@ -18,38 +18,38 @@
 		BBD2819B46F3047BA12706CE /* QuartzCore.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = E79D5A3BC9153443F1F5FA1C /* QuartzCore.framework */; };
 		BCF016EC5802E109DB328011 /* assets in Resources */ = {isa = PBXBuildFile; fileRef = 05F074B6FA91D4C81530F7B4 /* assets */; };
 		D7CD46EC45B6EB5661AF05F4 /* MetalKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 8D3EF52759E4667CB5799FC1 /* MetalKit.framework */; };
+		E0558C23827C356A4482D07F /* libapp.a in Resources */ = {isa = PBXBuildFile; fileRef = 78AE4A6059ACF1734C383153 /* libapp.a */; };
 		EBF22AD0200B1407BAC7FE3C /* UIKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 9AF12395A1B1F12C51D33B0A /* UIKit.framework */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
-		04F1A72BA27EF573344A6FB1 /* libapp.a */ = {isa = PBXFileReference; lastKnownFileType = archive.ar; path = libapp.a; sourceTree = "<group>"; };
 		05F074B6FA91D4C81530F7B4 /* assets */ = {isa = PBXFileReference; lastKnownFileType = folder; path = assets; sourceTree = SOURCE_ROOT; };
-		0BB7BC9793C5AE259D0D91D3 /* Cold Crabby.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "Cold Crabby.app"; sourceTree = BUILT_PRODUCTS_DIR; };
-		1698DBBB98982E4684B85E48 /* open_with.rs */ = {isa = PBXFileReference; lastKnownFileType = text; path = open_with.rs; sourceTree = "<group>"; };
+		0BB7BC9793C5AE259D0D91D3 /* slicer-ui-desktop_iOS.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = "slicer-ui-desktop_iOS.app"; sourceTree = BUILT_PRODUCTS_DIR; };
+		1698DBBB98982E4684B85E48 /* open_with.rs */ = {isa = PBXFileReference; path = open_with.rs; sourceTree = "<group>"; };
 		1F0629109293FDBDA6C327CB /* slicer-ui-desktop_iOS.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = "slicer-ui-desktop_iOS.entitlements"; sourceTree = "<group>"; };
 		3FA875DC7EC1CBC2681E0472 /* Metal.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Metal.framework; path = System/Library/Frameworks/Metal.framework; sourceTree = SDKROOT; };
 		403C1F73CFF5FDAAD86179B9 /* bindings.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = bindings.h; sourceTree = "<group>"; };
-		5B34B5F20FFC04CE48EB07C5 /* lib.rs */ = {isa = PBXFileReference; lastKnownFileType = text; path = lib.rs; sourceTree = "<group>"; };
+		5B34B5F20FFC04CE48EB07C5 /* lib.rs */ = {isa = PBXFileReference; path = lib.rs; sourceTree = "<group>"; };
 		720845A4D2C999F270CBC0E0 /* Security.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Security.framework; path = System/Library/Frameworks/Security.framework; sourceTree = SDKROOT; };
-		72102C2285C688EA1FD2D856 /* main.rs */ = {isa = PBXFileReference; lastKnownFileType = text; path = main.rs; sourceTree = "<group>"; };
+		72102C2285C688EA1FD2D856 /* main.rs */ = {isa = PBXFileReference; path = main.rs; sourceTree = "<group>"; };
 		78AE4A6059ACF1734C383153 /* libapp.a */ = {isa = PBXFileReference; lastKnownFileType = archive.ar; path = libapp.a; sourceTree = "<group>"; };
 		87DC3B7E7921578994D38842 /* LaunchScreen.storyboard */ = {isa = PBXFileReference; lastKnownFileType = file.storyboard; path = LaunchScreen.storyboard; sourceTree = "<group>"; };
 		8D3EF52759E4667CB5799FC1 /* MetalKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = MetalKit.framework; path = System/Library/Frameworks/MetalKit.framework; sourceTree = SDKROOT; };
 		9565B2C95A5C307E868D3C43 /* CoreGraphics.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = CoreGraphics.framework; path = System/Library/Frameworks/CoreGraphics.framework; sourceTree = SDKROOT; };
 		96A2AFDE28A0A75EADCA914D /* WebKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = WebKit.framework; path = System/Library/Frameworks/WebKit.framework; sourceTree = SDKROOT; };
 		9AF12395A1B1F12C51D33B0A /* UIKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = UIKit.framework; path = System/Library/Frameworks/UIKit.framework; sourceTree = SDKROOT; };
-		9DC2C5D75468900551379884 /* context_menu.rs */ = {isa = PBXFileReference; lastKnownFileType = text; path = context_menu.rs; sourceTree = "<group>"; };
-		A85E700CF57B27958058EF91 /* mod.rs */ = {isa = PBXFileReference; lastKnownFileType = text; path = mod.rs; sourceTree = "<group>"; };
+		9DC2C5D75468900551379884 /* context_menu.rs */ = {isa = PBXFileReference; path = context_menu.rs; sourceTree = "<group>"; };
+		A85E700CF57B27958058EF91 /* mod.rs */ = {isa = PBXFileReference; path = mod.rs; sourceTree = "<group>"; };
 		B00C04AFB3C7601F6174FE2F /* libapp.a */ = {isa = PBXFileReference; lastKnownFileType = archive.ar; path = libapp.a; sourceTree = "<group>"; };
 		B6ACA6609099D2F7C2E26462 /* main.mm */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.objcpp; path = main.mm; sourceTree = "<group>"; };
-		BF7BE4477320F870159CF638 /* runtime_bridge.rs */ = {isa = PBXFileReference; lastKnownFileType = text; path = runtime_bridge.rs; sourceTree = "<group>"; };
+		BF7BE4477320F870159CF638 /* runtime_bridge.rs */ = {isa = PBXFileReference; path = runtime_bridge.rs; sourceTree = "<group>"; };
 		D0EAD43CCEF46A8195A40F1F /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
-		D57F656E97BDB12F7D1F54A3 /* native_dialog.rs */ = {isa = PBXFileReference; lastKnownFileType = text; path = native_dialog.rs; sourceTree = "<group>"; };
-		D61B331DD4AB190CEB987EE1 /* system_accent.rs */ = {isa = PBXFileReference; lastKnownFileType = text; path = system_accent.rs; sourceTree = "<group>"; };
+		D57F656E97BDB12F7D1F54A3 /* native_dialog.rs */ = {isa = PBXFileReference; path = native_dialog.rs; sourceTree = "<group>"; };
+		D61B331DD4AB190CEB987EE1 /* system_accent.rs */ = {isa = PBXFileReference; path = system_accent.rs; sourceTree = "<group>"; };
 		E79D5A3BC9153443F1F5FA1C /* QuartzCore.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = QuartzCore.framework; path = System/Library/Frameworks/QuartzCore.framework; sourceTree = SDKROOT; };
-		E7AD1C4381DB6BFFAD4FBC03 /* tauri_logger.rs */ = {isa = PBXFileReference; lastKnownFileType = text; path = tauri_logger.rs; sourceTree = "<group>"; };
+		E7AD1C4381DB6BFFAD4FBC03 /* tauri_logger.rs */ = {isa = PBXFileReference; path = tauri_logger.rs; sourceTree = "<group>"; };
 		E9EC0766200C748C089DEC74 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
-		F35580C47E4C75095C57F8C5 /* commands.rs */ = {isa = PBXFileReference; lastKnownFileType = text; path = commands.rs; sourceTree = "<group>"; };
+		F35580C47E4C75095C57F8C5 /* commands.rs */ = {isa = PBXFileReference; path = commands.rs; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -74,7 +74,7 @@
 		1CE03B03668752349FA56A8C /* Products */ = {
 			isa = PBXGroup;
 			children = (
-				0BB7BC9793C5AE259D0D91D3 /* Cold Crabby.app */,
+				0BB7BC9793C5AE259D0D91D3 /* slicer-ui-desktop_iOS.app */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -97,7 +97,6 @@
 		310D744DC70BC90A9AD26216 /* arm64 */ = {
 			isa = PBXGroup;
 			children = (
-				64985A77CEA56FE01E5FC6B4 /* debug */,
 				5A497556D1B15B35D7F738FD /* release */,
 			);
 			path = arm64;
@@ -126,14 +125,6 @@
 				78AE4A6059ACF1734C383153 /* libapp.a */,
 			);
 			path = release;
-			sourceTree = "<group>";
-		};
-		64985A77CEA56FE01E5FC6B4 /* debug */ = {
-			isa = PBXGroup;
-			children = (
-				04F1A72BA27EF573344A6FB1 /* libapp.a */,
-			);
-			path = debug;
 			sourceTree = "<group>";
 		};
 		99AABA6FBD20A8DD4F57AB96 /* slicer-ui-desktop */ = {
@@ -202,6 +193,13 @@
 			path = ../../src;
 			sourceTree = "<group>";
 		};
+		"TEMP_092076AE-0D4D-4FB6-9DD9-215270D601C5" /* x86_64 */ = {
+			isa = PBXGroup;
+			children = (
+			);
+			path = x86_64;
+			sourceTree = "<group>";
+		};
 /* End PBXGroup section */
 
 /* Begin PBXNativeTarget section */
@@ -222,7 +220,7 @@
 			packageProductDependencies = (
 			);
 			productName = "slicer-ui-desktop_iOS";
-			productReference = 0BB7BC9793C5AE259D0D91D3 /* Cold Crabby.app */;
+			productReference = 0BB7BC9793C5AE259D0D91D3 /* slicer-ui-desktop_iOS.app */;
 			productType = "com.apple.product-type.application";
 		};
 /* End PBXNativeTarget section */
@@ -233,6 +231,8 @@
 			attributes = {
 				BuildIndependentTargetsInParallel = YES;
 				LastUpgradeCheck = 1430;
+				TargetAttributes = {
+				};
 			};
 			buildConfigurationList = 98CEE0891C6FBB4530338E02 /* Build configuration list for PBXProject "slicer-ui-desktop" */;
 			developmentRegion = en;
@@ -261,6 +261,7 @@
 				372BFD9D5EA5692DF2E7B18E /* Assets.xcassets in Resources */,
 				126A06D1521B989BB84B209E /* LaunchScreen.storyboard in Resources */,
 				BCF016EC5802E109DB328011 /* assets in Resources */,
+				E0558C23827C356A4482D07F /* libapp.a in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -306,11 +307,12 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				ALWAYS_EMBED_SWIFT_STANDARD_LIBRARIES = YES;
-				ARCHS = arm64;
+				ARCHS = (
+					arm64,
+				);
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_ENTITLEMENTS = "slicer-ui-desktop_iOS/slicer-ui-desktop_iOS.entitlements";
 				CODE_SIGN_IDENTITY = "iPhone Developer";
-				DEVELOPMENT_TEAM = L2S3WAS3WH;
 				ENABLE_BITCODE = NO;
 				"EXCLUDED_ARCHS[sdk=iphoneos*]" = x86_64;
 				FRAMEWORK_SEARCH_PATHS = (
@@ -322,20 +324,8 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				"LIBRARY_SEARCH_PATHS[arch=arm64]" = (
-					"$(inherited)",
-					"$(PROJECT_DIR)/Externals/arm64/$(CONFIGURATION)",
-					"$(SDKROOT)/usr/lib/swift",
-					"$(DEVELOPER_DIR)/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift/$(PLATFORM_NAME)",
-					"$(DEVELOPER_DIR)/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift-5.0/$(PLATFORM_NAME)",
-				);
-				"LIBRARY_SEARCH_PATHS[arch=x86_64]" = (
-					"$(inherited)",
-					"$(PROJECT_DIR)/Externals/x86_64/$(CONFIGURATION)",
-					"$(SDKROOT)/usr/lib/swift",
-					"$(DEVELOPER_DIR)/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift/$(PLATFORM_NAME)",
-					"$(DEVELOPER_DIR)/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift-5.0/$(PLATFORM_NAME)",
-				);
+				"LIBRARY_SEARCH_PATHS[arch=arm64]" = "$(inherited) $(PROJECT_DIR)/Externals/arm64/$(CONFIGURATION) $(SDKROOT)/usr/lib/swift $(DEVELOPER_DIR)/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift/$(PLATFORM_NAME) $(DEVELOPER_DIR)/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift-5.0/$(PLATFORM_NAME)";
+				"LIBRARY_SEARCH_PATHS[arch=x86_64]" = "$(inherited) $(PROJECT_DIR)/Externals/x86_64/$(CONFIGURATION) $(SDKROOT)/usr/lib/swift $(DEVELOPER_DIR)/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift/$(PLATFORM_NAME) $(DEVELOPER_DIR)/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift-5.0/$(PLATFORM_NAME)";
 				PRODUCT_BUNDLE_IDENTIFIER = com.maxscopp.slicerengine;
 				PRODUCT_NAME = "Cold Crabby";
 				SDKROOT = iphoneos;
@@ -404,11 +394,12 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				ALWAYS_EMBED_SWIFT_STANDARD_LIBRARIES = YES;
-				ARCHS = arm64;
+				ARCHS = (
+					arm64,
+				);
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_ENTITLEMENTS = "slicer-ui-desktop_iOS/slicer-ui-desktop_iOS.entitlements";
 				CODE_SIGN_IDENTITY = "iPhone Developer";
-				DEVELOPMENT_TEAM = L2S3WAS3WH;
 				ENABLE_BITCODE = NO;
 				"EXCLUDED_ARCHS[sdk=iphoneos*]" = x86_64;
 				FRAMEWORK_SEARCH_PATHS = (
@@ -420,20 +411,8 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				"LIBRARY_SEARCH_PATHS[arch=arm64]" = (
-					"$(inherited)",
-					"$(PROJECT_DIR)/Externals/arm64/$(CONFIGURATION)",
-					"$(SDKROOT)/usr/lib/swift",
-					"$(DEVELOPER_DIR)/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift/$(PLATFORM_NAME)",
-					"$(DEVELOPER_DIR)/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift-5.0/$(PLATFORM_NAME)",
-				);
-				"LIBRARY_SEARCH_PATHS[arch=x86_64]" = (
-					"$(inherited)",
-					"$(PROJECT_DIR)/Externals/x86_64/$(CONFIGURATION)",
-					"$(SDKROOT)/usr/lib/swift",
-					"$(DEVELOPER_DIR)/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift/$(PLATFORM_NAME)",
-					"$(DEVELOPER_DIR)/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift-5.0/$(PLATFORM_NAME)",
-				);
+				"LIBRARY_SEARCH_PATHS[arch=arm64]" = "$(inherited) $(PROJECT_DIR)/Externals/arm64/$(CONFIGURATION) $(SDKROOT)/usr/lib/swift $(DEVELOPER_DIR)/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift/$(PLATFORM_NAME) $(DEVELOPER_DIR)/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift-5.0/$(PLATFORM_NAME)";
+				"LIBRARY_SEARCH_PATHS[arch=x86_64]" = "$(inherited) $(PROJECT_DIR)/Externals/x86_64/$(CONFIGURATION) $(SDKROOT)/usr/lib/swift $(DEVELOPER_DIR)/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift/$(PLATFORM_NAME) $(DEVELOPER_DIR)/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift-5.0/$(PLATFORM_NAME)";
 				PRODUCT_BUNDLE_IDENTIFIER = com.maxscopp.slicerengine;
 				PRODUCT_NAME = "Cold Crabby";
 				SDKROOT = iphoneos;

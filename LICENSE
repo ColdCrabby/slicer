@@ -1,0 +1,132 @@
+# ColdCrabby Slicer — License
+
+Copyright © 2026 Max Scopp.
+
+ColdCrabby Slicer is source-available software.
+
+## 1. License
+
+ColdCrabby Slicer is licensed under the **PolyForm Noncommercial License 1.0.0**.
+
+The complete license terms are available at:
+
+https://polyformproject.org/licenses/noncommercial/1.0.0
+
+The PolyForm Noncommercial License permits use, modification, and redistribution of the Software for permitted noncommercial purposes.
+
+## 2. What You May Do
+
+Subject to the PolyForm Noncommercial License, you may:
+
+- use ColdCrabby Slicer for personal and hobby purposes;
+- use it for private experimentation, research, education, and development;
+- modify the source code;
+- create private forks and modified versions;
+- build and run your own versions;
+- host your own instance for personal or otherwise permitted noncommercial use;
+- redistribute the Software or modified versions for noncommercial purposes.
+
+You do not have to publish or disclose private modifications.
+
+## 3. Attribution
+
+If you publicly redistribute ColdCrabby Slicer, or a modified version of it, you must retain attribution to the original project.
+
+A reasonable attribution is:
+
+> Based on ColdCrabby Slicer by Max Scopp
+> https://slicer.maxscopp.de/
+
+You must also retain the applicable license notice and license terms as required by the PolyForm Noncommercial License.
+
+Private use and private modifications do not require public attribution.
+
+## 4. Commercial Use
+
+This license does **not** grant commercial rights.
+
+Commercial use requires a separate written commercial license from the copyright holder.
+
+Commercial use includes, but is not limited to:
+
+- using ColdCrabby Slicer as part of a commercial product or service;
+- providing slicing functionality to customers or other external users;
+- operating ColdCrabby Slicer as a commercial hosted service;
+- incorporating ColdCrabby Slicer into a commercial application, device, platform, or workflow;
+- selling access to functionality provided by ColdCrabby Slicer;
+- distributing ColdCrabby Slicer as part of a commercial offering;
+- using ColdCrabby Slicer to provide a service to customers for commercial benefit.
+
+The mere fact that ColdCrabby Slicer is technically hosted on a server does not by itself constitute commercial use. Personal and otherwise permitted noncommercial hosting remains permitted.
+
+## 5. Commercial Licensing
+
+The copyright holder may grant commercial licenses separately from this license.
+
+Commercial licenses may permit uses that are not permitted under this license, including:
+
+### Internal Use
+
+A company may obtain a license to use ColdCrabby Slicer for its own internal business operations.
+
+This may include internally hosted installations, automated workflows, internal applications, and employee use.
+
+### Hosted Use
+
+A company may obtain a license to operate ColdCrabby Slicer as part of a hosted or cloud-based service.
+
+The license may specify limits based on users, installations, compute resources, usage volume, or other agreed terms.
+
+### Customer-Facing Use
+
+A company may obtain a license to expose ColdCrabby Slicer functionality directly to its customers or end users.
+
+This includes integrating the Software into a customer-facing application, website, service, printer workflow, or other commercial product.
+
+### White-Label Use
+
+A separate license may permit the Software to be presented as part of another company's product or service without ColdCrabby branding.
+
+White-label rights are not granted by this license and require explicit written permission.
+
+Commercial license fees and terms are determined separately by the copyright holder and may differ according to the type, scale, and visibility of the use.
+
+## 6. Trademarks and Branding
+
+The license to the Software does not grant rights to use the ColdCrabby name, logo, visual identity, domains, or other trademarks or branding.
+
+Permission to modify or redistribute the Software does not permit a modified version to be represented as the official ColdCrabby Slicer or to imply endorsement, affiliation, or sponsorship by Max Scopp.
+
+## 7. Presets and Catalog Content
+
+Printer profiles, material profiles, configuration files, and other preset data may be distributed separately from the Software and may be subject to their own license terms.
+
+The ColdCrabby online catalog is governed by separate catalog terms.
+
+## 8. Third-Party Software
+
+ColdCrabby Slicer may contain or depend upon software distributed under separate licenses.
+
+Those components remain subject to their respective license terms.
+
+## 9. No Warranty
+
+ColdCrabby Slicer is provided "as is", without warranty of any kind, to the maximum extent permitted by law.
+
+The copyright holder is not responsible for damage, loss, failed prints, damaged equipment, or other consequences resulting from the use of the Software.
+
+## 10. Changes to Licensing
+
+Future versions of ColdCrabby Slicer may be distributed under different license terms.
+
+Each released version remains governed by the license applicable to that version unless otherwise stated.
+
+## 11. Copyright
+
+Copyright © 2026 Max Scopp.
+
+ColdCrabby Slicer is a source-available project and is not licensed as Open Source under the Open Source Definition.
+
+For commercial licensing inquiries:
+
+[slicer@maxscopp.de](mailto:slicer@maxscopp.de)
