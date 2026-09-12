@@ -5,13 +5,18 @@
     <title>Cold Crabby</title>
     <base href="/" />
     <!--
-      No `user-scalable=no` / `maximum-scale`: blocking zoom locks out anyone
-      who needs to magnify text, and it is not what keeps the 3D view from
-      pinching anyway — `touch-action: none` in styles/base/_reset.scss does
-      that, per-surface, where a gesture actually belongs to the canvas.
+      `user-scalable=no` states the intent; iOS has ignored it since iOS 10, so
+      the script at the end of this file is what actually enforces it there.
+      Cold Crabby is an application, not a document — the plate is manipulated by
+      direct pinch and drag, and a page that zooms underneath those gestures
+      fights every one of them. Text scaling is available through the OS and the
+      app's own theme settings rather than by magnifying the whole shell.
       `viewport-fit=cover` extends the page under the iOS safe areas.
     -->
-    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover"
+    />
     <meta
       name="description"
       content="Cold Crabby is a fast, open-source 3D printing slicer. Drop in an STL, OBJ or 3MF and slice it right in your browser — no account, no install, nothing uploaded."
@@ -195,30 +200,14 @@
         }
       })();
 
-      // Mark phone-sized viewports and touch input before first paint, for the
-      // same reason as the theme class: the global overrides keyed to them (see
-      // styles/base/_handheld.scss and _touch.scss) must not land a frame late.
-      // The Viewport service keeps both live afterwards; the queries here are
-      // copies of HANDHELD_MEDIA_QUERY / COARSE_POINTER_MEDIA_QUERY and must
-      // match them.
-      (function () {
-        if (!window.matchMedia) return;
-        var mark = function (query, className) {
-          if (window.matchMedia(query).matches) {
-            document.documentElement.classList.add(className);
-          }
-        };
-        mark(
-          '(max-width: 640px), (max-width: 950px) and (max-height: 500px) and (orientation: landscape)',
-          'is-handheld',
-        );
-        mark('(pointer: coarse)', 'is-coarse-pointer');
-      })();
-
-      // iOS Safari ignores `user-scalable=no` in the viewport meta since
-      // iOS 10. Block pinch-zoom (gesture events) and double-tap zoom
-      // explicitly. Allow multi-touch inside elements that opt in via
-      // `data-allow-gesture` (e.g. the 3D viewer canvas if it ever needs it).
+      // iOS Safari has ignored `user-scalable=no` since iOS 10, so the viewport
+      // meta above is a statement of intent there rather than a control. These
+      // listeners are what enforce it: `gesture*` covers the pinch, and the
+      // two-finger `touchmove` guard covers the drag that follows it.
+      //
+      // Scoped so a surface can opt back in with `data-allow-gesture` — nothing
+      // uses it today, but the 3D canvas is the obvious candidate if it ever
+      // wants the raw pinch rather than the one its own controls synthesise.
       (function () {
         var allow = function (target) {
           return target && target.closest && target.closest('[data-allow-gesture]');
@@ -241,19 +230,26 @@
           },
           { passive: false },
         );
-        // Suppress double-tap zoom (iOS triggers it within ~300ms of a tap).
-        var lastTouchEnd = 0;
-        document.addEventListener(
-          'touchend',
-          function (e) {
-            var now = Date.now();
-            if (now - lastTouchEnd <= 300 && !allow(e.target)) {
-              e.preventDefault();
-            }
-            lastTouchEnd = now;
-          },
-          { passive: false },
+      })();
+
+      // Mark phone-sized viewports and touch input before first paint, for the
+      // same reason as the theme class: the global overrides keyed to them (see
+      // styles/base/_handheld.scss and _touch.scss) must not land a frame late.
+      // The Viewport service keeps both live afterwards; the queries here are
+      // copies of HANDHELD_MEDIA_QUERY / COARSE_POINTER_MEDIA_QUERY and must
+      // match them.
+      (function () {
+        if (!window.matchMedia) return;
+        var mark = function (query, className) {
+          if (window.matchMedia(query).matches) {
+            document.documentElement.classList.add(className);
+          }
+        };
+        mark(
+          '(max-width: 640px), (max-width: 950px) and (max-height: 500px) and (orientation: landscape)',
+          'is-handheld',
         );
+        mark('(pointer: coarse)', 'is-coarse-pointer');
       })();
     </script>
   </head>

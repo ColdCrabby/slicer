@@ -184,6 +184,13 @@ $edge-control-top: calc(var(--main-scene-inset, 48px) + var(--spacing-sm));
   // The panel is a fixed width, so content simply fills it — no reflow pinning
   // needed, which is what previously made resizing jump.
   width: 100%;
+
+  // Room under the last control for the two things that float over this
+  // scroller: the settings footer pinned to the bottom (which publishes its own
+  // height) and the scroll-to-top button above it. Without this the final row —
+  // the sections disclosure — sits underneath both, and on a laptop the OS dock
+  // as well, so the thing the user most needs to reach is the least reachable.
+  padding-bottom: calc(var(--spacing-2xl) + var(--settings-footer-h, 0px));
 }
 
 // Floating shortcut back to the top of the panel (where the preset controls

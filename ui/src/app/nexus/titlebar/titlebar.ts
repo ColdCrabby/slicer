@@ -1,4 +1,4 @@
-import { ChangeDetectionStrategy, Component, computed, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, computed, signal, inject } from '@angular/core';
 import { ConnectionState } from '../../components/connection-state/connection-state';
 import { Logo } from '../../components/logo/logo';
 import { WorkplateTabs } from '../../components/workplate-tabs/workplate-tabs';
@@ -10,7 +10,7 @@ import {
   resolveRuntimeMode,
 } from '../../runtime/domain/runtime-mode.util';
 import { Icon, IconButton, TooltipDirective } from '@coldcrabby/ui';
-import { ExternalLinkDirective } from '../../directives/external-link.directive';
+import { Viewport } from '../../services/viewport';
 
 /**
  * Where a runtime's API reference lives, or `null` when it has no server.
@@ -39,15 +39,7 @@ export function apiDocsUrlFor(mode: RuntimeMode, apiUrl: string): string | null 
  */
 @Component({
   selector: 'nexus-titlebar',
-  imports: [
-    ConnectionState,
-    Logo,
-    WorkplateTabs,
-    Icon,
-    IconButton,
-    TooltipDirective,
-    ExternalLinkDirective,
-  ],
+  imports: [ConnectionState, Logo, WorkplateTabs, Icon, IconButton, TooltipDirective],
   templateUrl: './titlebar.html',
   styleUrl: './titlebar.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -60,6 +52,23 @@ export function apiDocsUrlFor(mode: RuntimeMode, apiUrl: string): string | null 
   },
 })
 export class NexusTitlebar {
+  private readonly viewport = inject(Viewport);
+
+  /**
+   * Drop the wordmark where the bar is tight.
+   *
+   * With touch-sized controls the titlebar is over-committed on a tablet: the
+   * logo, the name, a tab strip, five links and a status badge do not fit, and
+   * the brand — which does not shrink — spilled over the first tab. The crab
+   * still says whose app this is; the word next to it is the part nothing else
+   * is depending on.
+   *
+   * Keyed to the pointer, not to `isCompact()`: it is the 44px controls that
+   * overcommit the bar, and a 1024px *desktop* window — which `compact()` also
+   * matches — has room for the name and should keep it.
+   */
+  protected readonly hideProductName = computed(() => this.viewport.isCoarsePointer());
+
   readonly isMobile = signal(isTauriMobile());
 
   /**

@@ -97,28 +97,86 @@
           </button>
         </h3>
 
+        <!--
+          The fields live in an `ngAccordionContent` template so the panel only
+          builds them when the section is first opened. Without it the accordion
+          warned on every render and every group was instantiated up front —
+          around 340 controls across the twelve collapsed sections, none of them
+          on screen. `preserveContent` keeps a section alive once it has been
+          opened, so the collapse animation still has something to animate and
+          re-opening is instant.
+        -->
         <div
           ngAccordionPanel
           #panel="ngAccordionPanel"
+          [preserveContent]="true"
           class="schema-form-group-panel"
           [attr.data-expanded]="expandedSig()"
         >
-          <div class="schema-form-group-fields">
-            <div class="schema-form-group-fields-inner">
-              @for (f of group.fields; track f.key) {
-                <div class="schema-form-field" [class.is-modified]="modifiedKeys().has(f.key)">
-                  <se-field-host
-                    [field]="f"
-                    [value]="valueFor(f)"
-                    [siblings]="value()"
-                    (fieldChange)="onFieldChange(f.key, $event)"
-                  />
-                </div>
-              }
+          <ng-template ngAccordionContent>
+            <div class="schema-form-group-fields">
+              <div class="schema-form-group-fields-inner">
+                @for (f of visibleFields(group); track f.key) {
+                  <div class="schema-form-field" [class.is-modified]="modifiedKeys().has(f.key)">
+                    <se-field-host
+                      [field]="f"
+                      [value]="valueFor(f)"
+                      [siblings]="value()"
+                      (fieldChange)="onFieldChange(f.key, $event)"
+                    />
+                  </div>
+                }
+
+                <!--
+                  Advanced is an expansion, not a destination: this reveals the
+                  next tier inside the section the user is already looking at,
+                  keeping their place, their context and their scroll position.
+                  It is absent entirely when the group has nothing deeper.
+                -->
+                @if (pendingTier(group); as pending) {
+                  <button
+                    type="button"
+                    class="schema-form-tier-toggle"
+                    (click)="revealDeeper(group)"
+                  >
+                    <nexus-icon name="nav-arrow-down" aria-hidden="true" />
+                    <span>{{ tierLabel(pending) }}</span>
+                    <span class="schema-form-tier-count">{{ pendingCount(group) }}</span>
+                  </button>
+                } @else if (canCollapseGroup(group.name)) {
+                  <button
+                    type="button"
+                    class="schema-form-tier-toggle is-open"
+                    (click)="hideDeeper(group.name)"
+                  >
+                    <nexus-icon name="nav-arrow-up" aria-hidden="true" />
+                    <span>Show less</span>
+                  </button>
+                }
+              </div>
             </div>
-          </div>
+          </ng-template>
         </div>
       </div>
+    }
+
+    <!--
+      Panel-level disclosure. Some sections hold nothing but advanced or expert
+      settings, so listing their headers by default offers the reader a section
+      that opens onto nothing. This reveals those sections in place, at the foot
+      of the list where it does not compete with the settings above it.
+    -->
+    @if (pendingPanelTier(); as pendingPanel) {
+      <button type="button" class="schema-form-panel-tier" (click)="revealPanelDeeper()">
+        <nexus-icon name="nav-arrow-down" aria-hidden="true" />
+        <span>{{ tierLabel(pendingPanel) }} sections</span>
+        <span class="schema-form-tier-count">{{ pendingPanelCount() }}</span>
+      </button>
+    } @else if (canCollapsePanel()) {
+      <button type="button" class="schema-form-panel-tier" (click)="hidePanelDeeper()">
+        <nexus-icon name="nav-arrow-up" aria-hidden="true" />
+        <span>Fewer sections</span>
+      </button>
     }
   </div>
 }

@@ -5,7 +5,7 @@ import { type SelectOption } from '@coldcrabby/ui';
 import { BrowserStorage } from '../browser-storage';
 import { FilamentsStore } from './filaments-store';
 import { LabelFilterStore } from './label-filter-store';
-import { matchesAllLabels } from './label-filtering';
+import { matchesAnyLabel } from './label-filtering';
 import { LabelsStore } from './labels-store';
 import { PrintProfilesStore } from './print-profiles-store';
 import { PrintersStore } from './printers-store';
@@ -66,7 +66,7 @@ export class ActivePresets {
     const selected = this.labelFilter.selectedIds();
     const activeId = this.selectedId(contract);
     return this.itemsFor(contract)
-      .filter((item) => item.id === activeId || matchesAllLabels(item, selected))
+      .filter((item) => item.id === activeId || matchesAnyLabel(item, selected))
       .map((item) => {
         const swatches = this.labels.resolve(item.label_ids).map((l) => labelDotColor(l));
         return {

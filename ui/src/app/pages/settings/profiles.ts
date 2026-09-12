@@ -20,7 +20,7 @@ import type { ContextMenuItem } from '../../services/context-menu/context-menu.m
 import { Dialog } from '../../services/dialog';
 import { NotificationService } from '../../services/notifications';
 import { ActiveSelection } from '../../services/profiles/active-selection';
-import { matchesAllLabels, toggledLabelIds } from '../../services/profiles/label-filtering';
+import { matchesAnyLabel, toggledLabelIds } from '../../services/profiles/label-filtering';
 import { paramNum } from '../../models/params-access';
 import { LabelFilterStore } from '../../services/profiles/label-filter-store';
 import { LabelsStore } from '../../services/profiles/labels-store';
@@ -41,6 +41,7 @@ import { ParamField } from '../../components/profiles/param-field';
 import { LabelFilterBar } from '../../components/labels/label-filter-bar';
 import { LabelPicker } from '../../components/labels/label-picker';
 import { focusConfigureTarget } from './configure-scroll';
+import { LabelPickerPanel } from '../../components/labels/label-picker-panel';
 
 /**
  * The `SlicingParams` sub-schema extracted from the generated global-settings
@@ -127,7 +128,6 @@ export class ProfilesSettings {
 
   /** Typed-name delete challenge state (high-impact delete — design language). */
   protected readonly deleteArmed = signal(false);
-  protected readonly deleteText = signal('');
 
   /** Print profiles narrowed by the active label filter and the search query. */
   protected readonly filtered = computed(() => {
@@ -135,7 +135,7 @@ export class ProfilesSettings {
     return this.store
       .items()
       .filter(
-        (p) => matchesAllLabels(p, this.labelFilter()) && (!q || p.name.toLowerCase().includes(q)),
+        (p) => matchesAnyLabel(p, this.labelFilter()) && (!q || p.name.toLowerCase().includes(q)),
       );
   });
 
@@ -168,11 +168,6 @@ export class ProfilesSettings {
   });
 
   /** Whether the typed name matches the selected profile's name exactly. */
-  protected readonly deleteReady = computed(() => {
-    const p = this.selected();
-    return !!p && this.deleteText().trim() === p.name.trim();
-  });
-
   constructor() {
     // Arriving from the wizard's "Add & configure": open the new profile and
     // scroll to the full editor so the user can keep tuning it.
@@ -311,6 +306,7 @@ export class ProfilesSettings {
       },
       { label: 'Duplicate', icon: 'copy', action: () => this.duplicate(profile.id) },
     ];
+    items.push(this.labelSubmenu(profile));
     if (profile.source !== 'builtin') {
       items.push({ separator: true, label: '' });
       items.push({
@@ -323,6 +319,38 @@ export class ProfilesSettings {
     void this.contextMenu.open(event, items);
   }
 
+  /**
+   * The labels, as a flyout on the profile's own context menu.
+   *
+   * Assigning the same label across a shelf of profiles is what labels are for,
+   * and doing it from the card is one gesture instead of selecting each one and
+   * scrolling to its Labels row.
+   *
+   * The flyout hosts the same picker the detail pane uses — coloured dots,
+   * search, and "create this one" for a name that does not exist yet — because
+   * a row of plain text is not a label, and a shelf of twenty needs filtering.
+   * `submenu` carries the same labels as plain rows for the OS-drawn menus on
+   * desktop and iOS, which can only show rows.
+   */
+  private labelSubmenu(item: { id: string; label_ids?: string[] }): ContextMenuItem {
+    const owned = new Set(item.label_ids ?? []);
+    const labels = this.labels.items();
+    return {
+      label: 'Labels',
+      icon: 'label',
+      submenu: labels.map((label) => ({
+        label: label.name,
+        checked: owned.has(label.id),
+        action: () => this.toggleLabel(item.id, label.id),
+      })),
+      submenuPanel: {
+        component: LabelPickerPanel,
+        inputs: { assignedIds: () => this.store.getById(item.id)?.label_ids ?? [] },
+        outputs: { toggle: (labelId: string) => this.toggleLabel(item.id, labelId) },
+      },
+    };
+  }
+
   protected toggleDelete(): void {
     if (this.deleteArmed()) {
       this.disarmDelete();
@@ -333,22 +361,16 @@ export class ProfilesSettings {
 
   protected armDelete(): void {
     this.deleteArmed.set(true);
-    this.deleteText.set('');
   }
 
   protected disarmDelete(): void {
     this.deleteArmed.set(false);
-    this.deleteText.set('');
-  }
-
-  protected setDeleteText(event: Event): void {
-    this.deleteText.set((event.target as HTMLInputElement).value);
   }
 
   /** Delete the selected profile once its name has been typed to confirm. */
   protected confirmDelete(): void {
     const profile = this.selected();
-    if (!profile || !this.deleteReady()) {
+    if (!profile) {
       return;
     }
     this.deleteProfileById(profile.id);

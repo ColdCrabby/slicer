@@ -12,7 +12,11 @@ import {
   type TwoFingerGesture,
 } from '../../services/viewer-control';
 import { ProfileExportButton } from '../../components/profiles/profile-export-button';
-import { resolveRuntimeMode } from '../../runtime/domain/runtime-mode.util';
+import {
+  isTauriDesktop,
+  isTauriMobile,
+  resolveRuntimeMode,
+} from '../../runtime/domain/runtime-mode.util';
 import { formatDuration } from '../../models/duration';
 import { AppVersion } from '../../services/app-version';
 import { AutoSlice, type AutoSliceMode } from '../../services/auto-slice';
@@ -22,6 +26,10 @@ import {
 } from '../../services/history-controls-preference';
 import { Button, SectionHeader, Slider } from '@coldcrabby/ui';
 import { FovCube } from '../../ui/fov-cube/fov-cube';
+import {
+  SettingsDetailPreference,
+  type SettingsDetailMode,
+} from '../../services/settings-detail-preference';
 
 @Component({
   selector: 'nexus-settings-general',
@@ -34,6 +42,7 @@ export class GeneralSettings implements OnInit {
   protected readonly viewer = inject(ViewerControl);
   private readonly appVersion = inject(AppVersion);
   protected readonly historyControls = inject(HistoryControlsPreference);
+  protected readonly settingsDetail = inject(SettingsDetailPreference);
   protected readonly autoSlice = inject(AutoSlice);
   protected readonly gesture = this.viewer.trackpadTwoFingerGesture;
   protected readonly statsVisible = this.viewer.statsVisible;
@@ -106,11 +115,15 @@ export class GeneralSettings implements OnInit {
     return sha ? `https://github.com/ColdCrabby/slicer/commit/${sha}` : '';
   });
 
-  protected readonly platform =
-    typeof globalThis !== 'undefined' &&
-    ('__TAURI_INTERNALS__' in globalThis || '__TAURI__' in globalThis)
-      ? 'Desktop'
-      : 'Web';
+  /**
+   * Which runtime this build is actually in.
+   *
+   * A bare "is Tauri present?" check reported **Desktop** on iPadOS, which is a
+   * Tauri host with no desktop chrome at all — no window API, no native menus.
+   * The distinction is the same one `isTauriDesktop` exists to make everywhere
+   * else, so it is the one used here.
+   */
+  protected readonly platform = isTauriMobile() ? 'Mobile' : isTauriDesktop() ? 'Desktop' : 'Web';
 
   ngOnInit(): void {
     void this.appVersion.loadInfo();
@@ -122,6 +135,11 @@ export class GeneralSettings implements OnInit {
 
   setStatsVisible(value: boolean): void {
     this.viewer.setStatsVisible(value);
+  }
+
+  /** Choose how much detail the settings panels open at. */
+  setSettingsDetail(mode: SettingsDetailMode): void {
+    this.settingsDetail.setMode(mode);
   }
 
   setPalmRejection(value: boolean): void {

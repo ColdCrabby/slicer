@@ -3,8 +3,16 @@ import type * as Monaco from 'monaco-editor';
 /** Monaco language id for G-code. */
 export const GCODE_LANGUAGE_ID = 'gcode';
 
-/** Shared theme id used by every {@link CodeEditor}. Inherits `vs-dark`. */
+/** Shared dark theme id used by every {@link CodeEditor}. Inherits `vs-dark`. */
 export const NEXUS_CODE_THEME = 'nexus-code';
+
+/** Light counterpart, used when the app is in light mode. */
+export const NEXUS_CODE_THEME_LIGHT = 'nexus-code-light';
+
+/** The theme id matching the app's current mode. */
+export function codeThemeFor(isDark: boolean): string {
+  return isDark ? NEXUS_CODE_THEME : NEXUS_CODE_THEME_LIGHT;
+}
 
 let registered = false;
 
@@ -54,6 +62,22 @@ export function registerGcodeLanguage(monaco: Pick<typeof Monaco, 'editor' | 'la
       { token: 'attribute.name', foreground: 'dcdcaa' },
       { token: 'number', foreground: 'b5cea8' },
       { token: 'variable.placeholder', foreground: 'ffa657', fontStyle: 'bold' },
+    ],
+    colors: {},
+  });
+
+  // A dark editor embedded in a light app is the one panel that ignores the
+  // user's choice. Same token roles, re-picked against a light ground so each
+  // one still clears contrast on white.
+  monaco.editor.defineTheme(NEXUS_CODE_THEME_LIGHT, {
+    base: 'vs',
+    inherit: true,
+    rules: [
+      { token: 'comment', foreground: '3f7f3f', fontStyle: 'italic' },
+      { token: 'keyword', foreground: '0b62c4' },
+      { token: 'attribute.name', foreground: '8a6d00' },
+      { token: 'number', foreground: '2a7a4b' },
+      { token: 'variable.placeholder', foreground: 'a5430b', fontStyle: 'bold' },
     ],
     colors: {},
   });

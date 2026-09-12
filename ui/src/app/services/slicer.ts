@@ -304,6 +304,16 @@ export class Slicer {
    */
   readonly lastSliceElapsedMs = signal<number | null>(null);
 
+  /**
+   * Layers produced by the last successful slice.
+   *
+   * Distinct from the G-code preview's own layer count, which is a property of
+   * what the viewer has managed to render. The two diverge whenever the preview
+   * is empty or still loading, and the readout that quoted the preview then
+   * claimed a 240-layer slice had produced one layer.
+   */
+  readonly lastLayerCount = signal<number | null>(null);
+
   /** Timestamp (performance.now) when the active slice job began. */
   private sliceStartedAt: number | null = null;
 
@@ -895,6 +905,7 @@ export class Slicer {
     this.objectScope.set({ current: 1, count: 1 });
     this.progressFloor.set(0);
     this.lastSliceElapsedMs.set(null);
+    this.lastLayerCount.set(null);
     this.sliceStartedAt = null;
     this.setDownloadUrl(null);
 
@@ -1023,6 +1034,7 @@ export class Slicer {
       }
       this.status.set('done');
       this.currentPhase.set(null);
+      this.lastLayerCount.set(result.layerCount);
       // What this plate costs is the whole basis of the automatic re-slice
       // decision, and it is only knowable here — so every slice, however it was
       // started, updates it.
@@ -1074,6 +1086,7 @@ export class Slicer {
     this.progressFloor.set(0);
     this.sliceStartedAt = null;
     this.lastSliceElapsedMs.set(null);
+    this.lastLayerCount.set(null);
     this.setDownloadUrl(null);
     this.slicedObjectIds.set([]);
     this.slicedSignature.set(null);

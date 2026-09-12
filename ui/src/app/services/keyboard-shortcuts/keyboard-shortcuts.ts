@@ -54,21 +54,24 @@ export class KeyboardShortcuts {
       actionId: 'undo',
       shortcut: '$mod+z',
       displayDescription: 'Undo',
-      canMatch: () => this.history.canUndo(),
+      // Gated like every other shortcut here: without this, correcting a typo
+      // in a settings field reached past the caret and undid the last *scene*
+      // operation instead.
+      canMatch: () => !this.isTextInputFocused() && this.history.canUndo(),
       handleAction: () => this.history.undo(),
     },
     {
       actionId: 'redo',
       shortcut: '$mod+y',
       displayDescription: 'Redo',
-      canMatch: () => this.history.canRedo(),
+      canMatch: () => !this.isTextInputFocused() && this.history.canRedo(),
       handleAction: () => this.history.redo(),
     },
     {
       actionId: 'redo-alt',
       shortcut: '$mod+Shift+z',
       displayDescription: 'Redo (alternate)',
-      canMatch: () => this.history.canRedo(),
+      canMatch: () => !this.isTextInputFocused() && this.history.canRedo(),
       handleAction: () => this.history.redo(),
     },
     {
@@ -304,7 +307,16 @@ export class KeyboardShortcuts {
       return false;
     }
     const tag = target.tagName.toUpperCase();
-    return tag === 'INPUT' || tag === 'TEXTAREA' || target.isContentEditable;
+    return (
+      tag === 'INPUT' ||
+      tag === 'TEXTAREA' ||
+      tag === 'SELECT' ||
+      target.isContentEditable ||
+      // A control inside an open dialog owns the keyboard for as long as the
+      // dialog is up; scene shortcuts firing behind it act on something the
+      // user cannot even see.
+      target.closest('dialog[open]') !== null
+    );
   }
 
   private isApplePlatform(): boolean {

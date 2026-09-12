@@ -37,6 +37,10 @@
 .tb-leading {
   display: flex;
   align-items: center;
+  // `flex: none` so the brand keeps its own width instead of being squeezed
+  // into overlapping whatever follows it. The tab strip beside it is the piece
+  // that gives — it scrolls, so losing width costs it nothing.
+  flex: none;
   min-width: 0;
   height: 100%;
 }
@@ -44,6 +48,8 @@
 .tb-brand {
   display: inline-flex;
   align-items: center;
+  flex: none;
+  overflow: hidden;
   --icon-size: 18px;
 }
 

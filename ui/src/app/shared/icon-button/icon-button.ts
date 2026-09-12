@@ -36,8 +36,18 @@ import { Icon } from '@coldcrabby/ui';
       .icon-btn {
         display: inline-grid;
         place-items: center;
-        width: 24px;
-        height: 24px;
+        /*
+         * Sized in em units so it tracks whatever text it sits beside.
+         *
+         * This is the "more info" question mark that follows a field's label,
+         * and a fixed 24px box was taller than the 12px label line — it, not
+         * the text, was setting the height of every row in the settings
+         * sidebar. It is an affordance beside the label rather than a target
+         * in its own right, so it stays out of the touch sizing in
+         * styles/base/_touch.scss too.
+         */
+        width: 1.4em;
+        height: 1.4em;
         border: none;
         padding: 0;
         background: transparent;
@@ -50,7 +60,7 @@ import { Icon } from '@coldcrabby/ui';
           background-color var(--transition-fast);
 
         nexus-icon {
-          --icon-size: 18px;
+          --icon-size: 1.15em;
         }
 
         &:hover {

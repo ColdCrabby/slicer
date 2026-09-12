@@ -23,7 +23,11 @@ $default-inset: 40px;
   width: 100%;
   height: 100%;
 
-  grid-template-columns: 1fr auto;
+  // `minmax(0, 1fr)`, not `1fr`: the shorthand is `minmax(auto, 1fr)`, and that
+  // `auto` minimum is a floor at the content's min-content width. The toolbar
+  // spans both columns, so at touch sizes it pushed the track — and itself —
+  // past the right edge of the window rather than wrapping inside it.
+  grid-template-columns: minmax(0, 1fr) minmax(0, auto);
   grid-template-rows: auto auto 1fr;
   grid-template-areas:
     'top-bar  top-bar'
@@ -39,6 +43,17 @@ $default-inset: 40px;
   .shell-toolbar {
     grid-area: top-bar;
     z-index: 2;
+
+    // The toolbar spans both columns, so its own max-content width feeds back
+    // into sizing the `auto` one — at touch sizes that inflated the gizmo/rail
+    // column to the toolbar's full width and pushed the cube and the slice rail
+    // off the right of the window.
+    //
+    // `width: 0` takes it out of track sizing entirely; `min-width: 100%` then
+    // fills whatever the tracks actually resolved to. The pair is what makes the
+    // wrap below happen inside the window instead of past it.
+    width: 0;
+    min-width: 100%;
   }
 
   // The contextual tool cards (transform, placement) live inside the toolbar,
@@ -88,7 +103,11 @@ $default-inset: 40px;
     grid-area: rail;
     align-self: end;
     justify-self: end;
-    width: 380px;
+    // `min()` rather than a flat 380px: with a docked settings column an iPad
+    // leaves about 427px beside the plate, and 380 plus two 40px insets is
+    // wider than that — the card, the viewport cube above it and the whole
+    // gizmo column were pushed off the right of the window.
+    width: min(380px, 100%);
     margin: var(--spacing-md) var(--main-scene-inset, #{$default-inset})
       var(--main-scene-inset, #{$default-inset});
 

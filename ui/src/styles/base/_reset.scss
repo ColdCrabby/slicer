@@ -12,13 +12,12 @@
 // Prevent iOS rubber-band / overscroll bounce at the page level. The body is
 // fixed and non-scrolling, so nothing is lost by that.
 //
-// Note what is deliberately *absent*: a page-wide `touch-action: none`. It used
-// to live here (paired with `user-scalable=no` in index.html) to stop pinch
-// gestures reaching the browser, but between them they also took away
-// pinch-to-zoom on every settings form and every block of prose — the one
-// magnification affordance a low-vision user has on a phone. The gesture lock
-// now sits on the 3D canvas, which is the only surface that actually claims a
-// pinch for itself.
+// `pan-x pan-y` rather than a blanket `none`: the page itself must not pinch —
+// this is an application shell, and a zooming page fights the direct-manipulation
+// gestures the plate is built around — but inner scrollers still have to pan.
+// The 3D canvas claims everything for itself with its own `touch-action: none`.
+// iOS ignores the viewport meta, so the gesture listeners in index.html are what
+// enforce the same rule there.
 html,
 body {
   margin: 0;
@@ -26,6 +25,7 @@ body {
   width: 100%;
   overflow: hidden;
   overscroll-behavior: none;
+  touch-action: pan-x pan-y;
   -webkit-text-size-adjust: 100%;
 }
 
@@ -33,6 +33,24 @@ body {
 body {
   position: fixed;
   inset: 0;
+}
+
+// Double-tap-to-zoom is what the removed page-wide gesture script was really
+// trying to suppress, and it is the one part worth keeping — a stray double tap
+// on a button should press it twice, not magnify the page. `manipulation` says
+// exactly that, per control, and leaves pinch-to-zoom alone. Blocking the
+// gesture events document-wide took magnification away from every settings form
+// and every block of prose, which is the accessibility failure the viewport meta
+// above is careful not to commit.
+button,
+a,
+label,
+summary,
+[role='button'],
+[role='tab'],
+input:not([type='text']):not([type='number']):not([type='search']),
+select {
+  touch-action: manipulation;
 }
 
 // Inner scrollable regions should opt in via this class (or set their own

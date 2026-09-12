@@ -98,6 +98,42 @@ somewhere you could never get a tool into. Expect to lose coverage: on a shelf
 overhanging a wider base, the part beyond the base is still supported and the
 part above it is not.
 
+## Advanced and Expert
+
+Each section shows the settings a print actually depends on, then a quiet
+**Advanced** row at the bottom with a count — `Advanced 10`. Pressing it expands
+that section in place, so you keep your scroll position and your context; a
+second press reveals **Expert**. Nothing moves, and there is no "expert mode" to
+switch the app into.
+
+The split is about whether you can form an intention, not about how experienced
+you are. Seam position is Advanced because you can want the seam at the back.
+A bead-transition threshold is Expert because almost nobody can predict what
+changing it does — including people who have been printing for years.
+
+Two things worth knowing:
+
+- **Search ignores all of this.** Type into the settings search and you reach
+  every setting the slicer has, whatever tier it sits in and whichever tab owns
+  it. If you know the name — including the name another slicer uses for it —
+  that is the fastest way there.
+- **Anything you have changed stays visible**, even if it lives in Expert. A
+  setting you can't find is a setting you can't put back.
+
+Whole sections work the same way. A few hold nothing but advanced settings —
+Quality, Thumbnail, Time estimate — so they are not listed until you ask for
+them; a section header that opens onto nothing is worse than no header. The
+**Advanced sections** control at the bottom of the list brings them in, which is
+what keeps Process at seven sections rather than eleven.
+
+Each section, and the list itself, remembers how far you opened it — so if you
+work in Advanced you only say so once.
+
+If you always want everything in view, **Settings → General → Settings detail**
+sets where the panels open: *Standard*, *Advanced*, or *Everything*. It moves
+the starting point only — the per-section controls still open further, search
+still reaches everything, and nothing is hidden from you at any level.
+
 ## Everything else, by group
 
 ### Printer
@@ -112,8 +148,10 @@ part above it is not.
 
 | Group | What lives there |
 | --- | --- |
+| **Material** | What the spool *is* — type, name, colour, diameter, density, cost |
 | **Temperature** | Nozzle and bed, with separate first-layer values |
 | **Cooling** | Fan speeds, minimum layer time |
+| **Extrusion** | Flow ratio, maximum volumetric speed, pressure advance — the numbers you calibrate per spool |
 | **Filament G-code** | Custom G-code for this material |
 
 ### Process
@@ -122,7 +160,6 @@ part above it is not.
 | --- | --- |
 | **Layer** | Layer height, first-layer height |
 | **Walls** | Wall count, wall generator, thin walls, extra perimeters, ordering, seam behaviour, fuzzy skin |
-| **Extrusion** | Line widths and flow |
 | **Infill** | Density, pattern, angle |
 | **Support** | On/off, type, density, overhang threshold, interface layers, clearances, whether support may only start from the build plate |
 | **Speed** | Per-role print speeds and travel speed |
@@ -247,7 +284,7 @@ feature below. Left at 0 it works this out from your wall width; raise it to
 protect chunkier detail, lower it for a more literal correction.
 :::
 
-**First layer height** (Process → Extrusion) prints the bottom layer thicker
+**First layer height** (Process → Layer) prints the bottom layer thicker
 than the rest. The extra material absorbs what mesh bed levelling only
 approximates, which is why almost every profile sets it. It has no effect when
 you print on a raft, since the raft takes over contact with the bed.

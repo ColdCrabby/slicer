@@ -1,4 +1,4 @@
-import { Injectable, effect, inject, signal } from '@angular/core';
+import { Injectable, effect, inject, signal, untracked } from '@angular/core';
 import { toSignal } from '@angular/core/rxjs-interop';
 import { NavigationEnd, Router } from '@angular/router';
 import { filter, map, startWith } from 'rxjs';
@@ -46,15 +46,36 @@ export class OpenWorkplates {
     { initialValue: this.#uuidFromUrl(this.router.url) },
   );
 
+  /**
+   * True while `/slice/new` is on screen — a plate the user is working on that
+   * has no `request_uuid` yet, and therefore no tab of its own. Without this the
+   * strip renders a tablist with nothing selected while the user is demonstrably
+   * somewhere.
+   */
+  readonly isNewPlate = toSignal(
+    this.router.events.pipe(
+      filter((event) => event instanceof NavigationEnd),
+      startWith(null),
+      map(() => this.#isNewPlateUrl(this.router.url)),
+    ),
+    { initialValue: this.#isNewPlateUrl(this.router.url) },
+  );
+
   constructor() {
     // A plate becomes a tab the moment it's loaded — upload, history entry, or
     // deep link — mirroring how a browser tab opens the moment its page loads,
     // not only when the user explicitly asks for a new one.
+    // `open()` reads `_tabs`, so calling it straight from the effect would make
+    // the tab list one of the effect's own dependencies — and closing a tab
+    // writes that list. The effect would re-run, still see the closed plate in
+    // `requestUuid()`, and immediately re-open the tab it had just removed,
+    // which is why the close button did nothing for the plate on screen.
+    // `untracked` keeps the trigger to "which file is loaded", as intended.
     effect(() => {
       const uuid = this.slicerFile.requestUuid();
       const filename = this.slicerFile.sourceFilename();
       if (uuid) {
-        this.open(uuid, filename);
+        untracked(() => this.open(uuid, filename));
       }
     });
   }
@@ -95,6 +116,11 @@ export class OpenWorkplates {
   #persist(tabs: readonly OpenWorkplateTab[]): void {
     this._tabs.set(tabs);
     this.storage.writeJson(STORAGE_KEY, tabs, 'local');
+  }
+
+  /** True when `url` is the tab-less "fresh plate" route. */
+  #isNewPlateUrl(url: string): boolean {
+    return url.split(/[?#]/)[0] === '/slice/new';
   }
 
   /** Extract the workplate UUID from a `/slice/:requestUuid` URL. */

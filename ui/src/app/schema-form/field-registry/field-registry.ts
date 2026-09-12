@@ -1,5 +1,6 @@
 import { Type } from '@angular/core';
 import { ColorField } from '../custom-widgets/color-field/color-field';
+import { FilamentTypeField } from '../custom-widgets/filament-type-field/filament-type-field';
 import { GcodeField } from '../custom-widgets/gcode-field/gcode-field';
 import { InfillDensitySlider } from '../custom-widgets/infill-density-slider/infill-density-slider';
 import { FieldDef } from '../models/field-def';
@@ -9,6 +10,7 @@ import { EnumRadio } from '../widgets/enum-radio/enum-radio';
 import { EnumSelect } from '../widgets/enum-select/enum-select';
 import { IntegerField } from '../widgets/integer-field/integer-field';
 import { NumberField } from '../widgets/number-field/number-field';
+import { TextField } from '../widgets/text-field/text-field';
 
 /**
  * Maximum number of enum options for which a radio group is used.
@@ -38,6 +40,13 @@ const KEY_REGISTRY: Record<string, Type<FieldWidget>> = {
   // schema description. A hand-written picker here previously hard-coded five
   // of them, which silently hid the rest as the engine grew.
   thumbnail_custom_color: ColorField,
+  // A colour is a colour wherever it appears. Without this the filament's own
+  // swatch was a text box holding `#RRGGBB` — and before the string fix above,
+  // a number spinner.
+  filament_color: ColorField,
+  // A closed list, not a text box: the value is written into the G-code header
+  // as `; filament_type = …`, where firmware and other slicers read it back.
+  filament_type: FilamentTypeField,
 };
 
 /**
@@ -49,12 +58,18 @@ function defaultWidgetFor(field: FieldDef): Type<FieldWidget> {
   }
 
   switch (field.type) {
-    case 'integer':
-      return IntegerField;
     case 'boolean':
       return BooleanField;
-    default:
+    case 'integer':
+      return IntegerField;
+    case 'number':
       return NumberField;
+    default:
+      // Exhaustive on purpose. The old default returned `NumberField` for
+      // everything it did not recognise, which is how a filament's name, type
+      // and colour all became number spinners the moment their group moved onto
+      // a contract the sidebar renders.
+      return TextField;
   }
 }
 

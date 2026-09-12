@@ -11,7 +11,7 @@ const STORAGE_KEY = 'profiles.labelFilter';
  * write this one store, so a filter set in the sidebar is reflected in Settings
  * and vice-versa.
  *
- * Filtering uses AND semantics (see {@link ./label-filtering}); this store owns
+ * Filtering uses OR semantics (see {@link ./label-filtering}); this store owns
  * only the selected-id set, not the matching logic.
  */
 @Injectable({ providedIn: 'root' })

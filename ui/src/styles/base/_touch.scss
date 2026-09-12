@@ -22,10 +22,77 @@
 /// `Viewport` service.
 
 html.is-coarse-pointer {
+  // Fixed-height chrome has to grow before anything inside it can reach 44px.
+  // The titlebar carries the workplate tabs, which are the densest targets in
+  // the app; at the 40px desktop height a tab cannot be more than 28px tall.
+  --titlebar-height: 52px;
+
   // ── Touch targets ───────────────────────────────────────────────────────
   nexus-select .trigger,
   nexus-number-input .field {
     height: 44px;
+  }
+
+  // The steppers beside a number field are the most numerous control in the
+  // settings form — roughly 140 on a single page — and among the smallest.
+  // They are not reachable through the selectors above, so they stayed at
+  // cursor size on every tablet.
+  nexus-number-input .step {
+    min-width: 44px;
+    min-height: 44px;
+  }
+
+  // Deliberately NOT `.icon-btn`: that is the "more info" question mark sitting
+  // inside a field's label, and it is the one control that must stay small.
+  // Growing it to 44px set the height of every label row in the sidebar, so a
+  // form of forty settings gained forty rows of padding for an affordance
+  // nobody aims at — the label text beside it is the target that matters, and
+  // the tooltip it opens is reachable from the description either way.
+
+  // A 20px-tall switch is a toggle you aim at rather than flick.
+  nexus-switch .switch,
+  .switch {
+    min-height: 28px;
+  }
+
+  // Accordion headers and the legend's role chips: full-width rows that were
+  // still only 26–36px of vertical target.
+  .schema-form-group-trigger,
+  .role-badge {
+    min-height: 44px;
+  }
+
+  // A segmented control in its horizontal form has a fixed-height host with the
+  // segments stretched inside it, so growing the *segment* just pushes it out
+  // through the container's own border. The host is what has to grow: 44px of
+  // target plus its 3px padding either side.
+  nexus-segmented:not(.stacked) {
+    height: 50px;
+  }
+
+  // `StackWhenCramped` turns it into a vertical list when the labels will not
+  // fit. There the host is `height: auto` and each segment already spans the
+  // full width, so the segment is the right thing to size — but giving those the
+  // same 44px floor made a three-way switcher 144px tall and read as a menu
+  // rather than a control.
+  nexus-segmented.stacked .segment {
+    min-height: 36px;
+  }
+
+  // Icon-only buttons in the chrome (titlebar links, viewport tools, the
+  // objects-panel row actions) inherit the shared component's cursor sizes.
+  button[nexusIconButton],
+  a[nexusIconButton] {
+    min-width: 44px;
+    min-height: 44px;
+  }
+
+  // Grow the glyph with the target. A 44px button around an 18px icon reads as
+  // a small icon marooned in empty space — the control looks *less* pressable
+  // than it did at cursor size, which is the opposite of the point.
+  button[nexusIconButton],
+  a[nexusIconButton] {
+    --icon-size: 20px;
   }
 
   input:not([type='checkbox']):not([type='radio']):not([type='range']),

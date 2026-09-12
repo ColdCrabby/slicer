@@ -125,6 +125,9 @@
 
     pre {
       overflow-x: auto;
+      // Pairs with the axis above, which would otherwise compute to `auto` and
+      // let the block scroll vertically by a pixel or two.
+      overflow-y: hidden;
       padding: var(--spacing-md);
       border-radius: var(--radius-md);
       background: var(--color-bg-tertiary);

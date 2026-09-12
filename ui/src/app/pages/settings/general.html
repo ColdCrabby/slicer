@@ -217,6 +217,46 @@
 
     <div class="settings-field">
       <span class="settings-field-label">
+        <span class="settings-field-title">Settings detail</span>
+        <span class="settings-field-desc">
+          How much each settings panel shows before you ask for more. Every setting is always
+          reachable from search and from the controls in each section — this only moves where the
+          panels start.
+        </span>
+      </span>
+      <div class="segmented" role="group" aria-label="Settings detail">
+        <button
+          type="button"
+          class="segmented-btn"
+          [class.is-active]="settingsDetail.mode() === 'everyday'"
+          [attr.aria-pressed]="settingsDetail.mode() === 'everyday'"
+          (click)="setSettingsDetail('everyday')"
+        >
+          Standard
+        </button>
+        <button
+          type="button"
+          class="segmented-btn"
+          [class.is-active]="settingsDetail.mode() === 'advanced'"
+          [attr.aria-pressed]="settingsDetail.mode() === 'advanced'"
+          (click)="setSettingsDetail('advanced')"
+        >
+          Advanced
+        </button>
+        <button
+          type="button"
+          class="segmented-btn"
+          [class.is-active]="settingsDetail.mode() === 'expert'"
+          [attr.aria-pressed]="settingsDetail.mode() === 'expert'"
+          (click)="setSettingsDetail('expert')"
+        >
+          Everything
+        </button>
+      </div>
+    </div>
+
+    <div class="settings-field">
+      <span class="settings-field-label">
         <span class="settings-field-title">Undo / redo buttons</span>
         <span class="settings-field-desc">
           Show forward and backward history buttons in the 3D view toolbar. Auto shows them only on

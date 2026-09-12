@@ -14,6 +14,12 @@
   min-width: 0;
   height: 100%;
   overflow-x: auto;
+  // Without this the other axis computes to `auto`, not `visible` — so the
+  // strip scrolls vertically the moment anything inside exceeds its height
+  // (the rename box does exactly that at coarse-pointer sizes). Same pairing
+  // the settings chip strip uses.
+  overflow-y: hidden;
+  overscroll-behavior-x: contain;
   scrollbar-width: none;
 
   &::-webkit-scrollbar {
@@ -26,8 +32,12 @@
   align-items: center;
   flex: none;
   gap: 2px;
-  max-width: 180px;
+  // Long enough for a real plate name before the ellipsis; the strip scrolls,
+  // so a wide tab costs its neighbours nothing.
+  max-width: 260px;
   height: 28px;
+  // The close button contributes the right-hand room; a tab without one gets it
+  // back below, rather than sitting on 2px and looking clipped.
   padding: 0 2px 0 8px;
   border-radius: var(--radius-md);
   background: transparent;
@@ -41,10 +51,27 @@
     background: var(--color-surface-hover);
   }
 
+  &:active {
+    background: var(--color-surface-active);
+  }
+
+  &:focus-visible {
+    outline: 2px solid var(--color-focus-ring);
+    outline-offset: -1px;
+  }
+
   &.active {
     background: var(--accent-soft);
     border-color: var(--accent-border);
   }
+}
+
+// The draft plate has nothing to close and nothing to rename; it exists only so
+// the strip can say which plate is on screen — and with no close button to fill
+// the gap it needs its own right-hand padding to match the left.
+.wp-tab--draft {
+  padding-right: 8px;
+  cursor: default;
 }
 
 .wp-tab-label {
@@ -87,25 +114,47 @@
 
   &.wp-tab-name--editing {
     cursor: text;
-    box-shadow: inset 0 0 0 1px var(--color-focus-ring);
-    background: var(--color-surface);
+    // No ring and no fill of its own. The tab around it is already showing the
+    // active/focus treatment, and a second box inside it read as two nested
+    // controls — the editor is just the tab's own text, made editable.
+    background: transparent;
+    // The shared `input:focus` rule in base/forms paints a border plus an inset
+    // ring on every field; clearing only the outline left that ring behind,
+    // nested inside the tab's own active border.
+    outline: none;
+    border-color: transparent;
+    box-shadow: none;
+    // `min-width` (the label's measured width) holds the tab steady at the
+    // moment of the swap; `width` is then set per keystroke from the measured
+    // text, since Safari does not implement `field-sizing: content`.
+    flex: 0 1 auto;
   }
 }
 
 // A tab's own active/hover state already says "this is the one"; the close
 // button only needs to appear once the user is actually looking at this tab,
 // so a row of many plates doesn't turn into a row of many x's.
+//
+// `visibility` rather than `opacity` alone: an `opacity: 0` button still takes
+// the click. On a touch device — which never produces the hover that would
+// reveal it — that put an invisible close button over the last quarter of every
+// inactive tab, so tapping a tab near its right edge closed it instead of
+// switching to it.
 .wp-tab-close {
   flex: none;
   color: var(--color-text-tertiary);
   opacity: 0;
-  transition: opacity var(--duration-fast) var(--ease-standard);
+  visibility: hidden;
+  transition:
+    opacity var(--duration-fast) var(--ease-standard),
+    visibility var(--duration-fast) var(--ease-standard);
 }
 
 .wp-tab:hover .wp-tab-close,
 .wp-tab:focus-within .wp-tab-close,
 .wp-tab.active .wp-tab-close {
   opacity: 1;
+  visibility: visible;
 }
 
 .wp-tab-add {
@@ -118,8 +167,52 @@
 // Tabs become a scrollable chip strip rather than shrinking each one further —
 // the same idiom the settings sidebar uses (ui/README.md's "scrollable chip
 // strip" pattern) — so a renamed plate doesn't lose its name to an ellipsis.
-@include compact {
+// Narrow windows only. This deliberately does *not* key off `compact()`, which
+// is true for any coarse pointer however wide — an iPad has room for a full tab
+// name and was truncating to 120px for no reason.
+@media (max-width: 640px) {
   .wp-tab {
     max-width: 120px;
+  }
+}
+
+// ── Touch ────────────────────────────────────────────────────────────────────
+//
+// A 28px chip with a 26px close button is a coin-flip under a fingertip, and
+// the titlebar is fixed-height chrome, so the bar itself has to grow to make
+// room for targets worth aiming at — `--titlebar-height` is raised for touch in
+// styles/base/_touch.scss.
+//
+// Uses the media query, NOT the `html.is-coarse-pointer` class. That class is
+// for the *global* stylesheets only: inside a component, emulated encapsulation
+// rewrites the selector to `html.is-coarse-pointer[_ngcontent-x]`, and <html>
+// carries no such attribute, so the rule silently never matches.
+@include coarse-pointer {
+  .wp-tab {
+    height: 44px;
+    padding: 0 4px 0 12px;
+    // Roomier than the cursor cap: the text is larger here and a fingertip has
+    // no tooltip to fall back on when a name is cut off.
+    max-width: 300px;
+  }
+
+  // Re-stated inside this block: the rule above resets the padding shorthand
+  // and, being later in the file, would otherwise drop the draft tab — which
+  // has no close button to fill the gap — back to 4px on the right.
+  .wp-tab--draft {
+    padding-right: 12px;
+  }
+
+  .wp-tab-label,
+  .wp-tab-name {
+    height: auto;
+    font-size: var(--font-size-lg);
+  }
+
+  // There is no hover to reveal it, so it is simply always there. Its 44px box
+  // comes from the shared icon-button rule in styles/base/_touch.scss.
+  .wp-tab-close {
+    opacity: 1;
+    visibility: visible;
   }
 }

@@ -27,7 +27,7 @@ import type { ContextMenuItem } from '../../services/context-menu/context-menu.m
 import { Dialog } from '../../services/dialog';
 import { NotificationService } from '../../services/notifications';
 import { ActiveSelection } from '../../services/profiles/active-selection';
-import { matchesAllLabels, toggledLabelIds } from '../../services/profiles/label-filtering';
+import { matchesAnyLabel, toggledLabelIds } from '../../services/profiles/label-filtering';
 import { paramNum } from '../../models/params-access';
 import { LabelFilterStore } from '../../services/profiles/label-filter-store';
 import { LabelsStore } from '../../services/profiles/labels-store';
@@ -51,6 +51,7 @@ import { ParamField } from '../../components/profiles/param-field';
 import { LabelFilterBar } from '../../components/labels/label-filter-bar';
 import { LabelPicker } from '../../components/labels/label-picker';
 import { focusConfigureTarget } from './configure-scroll';
+import { LabelPickerPanel } from '../../components/labels/label-picker-panel';
 
 /**
  * The `SlicingParams` sub-schema extracted from the generated global-settings
@@ -69,18 +70,27 @@ const FILAMENT_GROUPS = SETTING_CONTRACTS.find((c) => c.id === 'filament')!.grou
 
 /**
  * The filament-parameter groups rendered in the editor, in the Filament
- * contract's display order (`Temperature`, `Cooling`, `Filament G-code`). Parsed
- * once from the schema (it never changes at runtime); groups owned by other
- * contracts (Hardware, Extrusion, …) are left out so the filament editor only
+ * contract's display order (`Material`, `Temperature`, `Cooling`, `Extrusion`,
+ * `Filament G-code`). Parsed once from the schema (it never changes at runtime);
+ * groups owned by other contracts are left out so the filament editor only
  * shows material settings.
  *
  * Each group's fields are filtered to those `nexus-param-field` can actually
  * render (enum → select, boolean → switch, number → number input, and the
  * `x-widget: "gcode"` string fields → code editor). Plain `string`/array fields
  * without a widget hint are dropped, which excludes `filament_type` and
- * `fan_configs` automatically. `filament_diameter_mm` (Hardware) stays a
- * bespoke "Diameter" row under Identity, so no param key renders twice.
+ * `fan_configs` automatically. Keys the editor already renders by hand under
+ * Identity are dropped by {@link BESPOKE_PARAM_KEYS} so none appears twice.
  */
+/**
+ * Param keys this editor lays out itself, in the Identity card at the top.
+ *
+ * They are schema params like any other, so once their group moved onto the
+ * Filament contract they would render a second time inside it. The curated row
+ * wins — it sits with the name and colour it belongs beside.
+ */
+const BESPOKE_PARAM_KEYS = new Set(['filament_diameter_mm']);
+
 const PARAM_GROUPS: SchemaGroup[] = (() => {
   const order = new Map(FILAMENT_GROUPS.map((name, index) => [name, index]));
   return parseSchema(SLICING_PARAMS_SCHEMA)
@@ -89,11 +99,12 @@ const PARAM_GROUPS: SchemaGroup[] = (() => {
       ...g,
       fields: g.fields.filter(
         (f) =>
-          !!f.enumOptions?.length ||
-          f.type === 'boolean' ||
-          f.type === 'number' ||
-          f.type === 'integer' ||
-          f.widget === 'gcode',
+          !BESPOKE_PARAM_KEYS.has(f.key) &&
+          (!!f.enumOptions?.length ||
+            f.type === 'boolean' ||
+            f.type === 'number' ||
+            f.type === 'integer' ||
+            f.widget === 'gcode'),
       ),
     }))
     .filter((g) => g.fields.length > 0)
@@ -155,9 +166,14 @@ export class FilamentsSettings {
   protected readonly groupBy = signal<'category' | 'label' | 'none'>('category');
   protected readonly labelFilter = this.filterStore.selectedIds;
 
-  /** Typed-name delete challenge state (high-impact delete — design language). */
+  /**
+   * Inline two-step delete — the design language's default for a routine
+   * destructive action. This used to be a typed-name challenge, which is
+   * reserved for irreversible data loss; a profile is a handful of settings the
+   * user can recreate, and typing its name out to remove one was friction
+   * without a matching risk.
+   */
   protected readonly deleteArmed = signal(false);
-  protected readonly deleteText = signal('');
 
   /** Filaments narrowed by the active label filter and the search query. */
   protected readonly filtered = computed(() => {
@@ -166,7 +182,7 @@ export class FilamentsSettings {
       .items()
       .filter(
         (f) =>
-          matchesAllLabels(f, this.labelFilter()) &&
+          matchesAnyLabel(f, this.labelFilter()) &&
           (!q || `${f.name} ${f.vendor ?? ''} ${f.material}`.toLowerCase().includes(q)),
       );
   });
@@ -207,12 +223,6 @@ export class FilamentsSettings {
   protected readonly selected = computed(() => {
     const id = this.selectedId();
     return id ? (this.store.getById(id) ?? null) : null;
-  });
-
-  /** Whether the typed name matches the selected filament's name exactly. */
-  protected readonly deleteReady = computed(() => {
-    const f = this.selected();
-    return !!f && this.deleteText().trim() === f.name.trim();
   });
 
   constructor() {
@@ -346,6 +356,7 @@ export class FilamentsSettings {
       },
       { label: 'Duplicate', icon: 'copy', action: () => this.duplicate(filament.id) },
     ];
+    items.push(this.labelSubmenu(filament));
     if (filament.source !== 'builtin') {
       items.push({ separator: true, label: '' });
       items.push({
@@ -358,6 +369,38 @@ export class FilamentsSettings {
     void this.contextMenu.open(event, items);
   }
 
+  /**
+   * The labels, as a flyout on the profile's own context menu.
+   *
+   * Assigning the same label across a shelf of profiles is what labels are for,
+   * and doing it from the card is one gesture instead of selecting each one and
+   * scrolling to its Labels row.
+   *
+   * The flyout hosts the same picker the detail pane uses — coloured dots,
+   * search, and "create this one" for a name that does not exist yet — because
+   * a row of plain text is not a label, and a shelf of twenty needs filtering.
+   * `submenu` carries the same labels as plain rows for the OS-drawn menus on
+   * desktop and iOS, which can only show rows.
+   */
+  private labelSubmenu(item: { id: string; label_ids?: string[] }): ContextMenuItem {
+    const owned = new Set(item.label_ids ?? []);
+    const labels = this.labels.items();
+    return {
+      label: 'Labels',
+      icon: 'label',
+      submenu: labels.map((label) => ({
+        label: label.name,
+        checked: owned.has(label.id),
+        action: () => this.toggleLabel(item.id, label.id),
+      })),
+      submenuPanel: {
+        component: LabelPickerPanel,
+        inputs: { assignedIds: () => this.store.getById(item.id)?.label_ids ?? [] },
+        outputs: { toggle: (labelId: string) => this.toggleLabel(item.id, labelId) },
+      },
+    };
+  }
+
   protected toggleDelete(): void {
     if (this.deleteArmed()) {
       this.disarmDelete();
@@ -368,22 +411,16 @@ export class FilamentsSettings {
 
   protected armDelete(): void {
     this.deleteArmed.set(true);
-    this.deleteText.set('');
   }
 
   protected disarmDelete(): void {
     this.deleteArmed.set(false);
-    this.deleteText.set('');
-  }
-
-  protected setDeleteText(event: Event): void {
-    this.deleteText.set((event.target as HTMLInputElement).value);
   }
 
   /** Delete the selected filament once its name has been typed to confirm. */
   protected confirmDelete(): void {
     const filament = this.selected();
-    if (!filament || !this.deleteReady()) {
+    if (!filament) {
       return;
     }
     this.deleteFilamentById(filament.id);

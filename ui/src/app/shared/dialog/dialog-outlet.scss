@@ -14,8 +14,12 @@ nexus-dialog-outlet {
     color: inherit;
     outline: none;
     width: min(var(--dialog-preferred-width, 460px), calc(100vw - 44px));
+    // `dvh`, not `vh`: on iOS Safari `100vh` is the *large* viewport, so with
+    // the URL bar on screen a tall dialog runs past the bottom of what you can
+    // see — and the body is `position: fixed`, so there is no scrolling down to
+    // the buttons. The slicing shell already uses `dvh` for the same reason.
     max-height: calc(
-      100vh - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px) - 48px
+      100dvh - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px) - 48px
     );
     overflow: hidden;
     margin: auto;
@@ -138,5 +142,17 @@ nexus-dialog-outlet {
     opacity: 0;
     scale: 0.985;
     translate: 0 6px;
+  }
+}
+
+// Every other animated component in the app honours this; the dialog was the
+// exception. The enter/leave animations are decoration — the dialog appearing
+// is the information — so they simply stop.
+@media (prefers-reduced-motion: reduce) {
+  nexus-dialog-outlet dialog,
+  nexus-dialog-outlet dialog.dialog--leaving,
+  nexus-dialog-outlet dialog::backdrop,
+  nexus-dialog-outlet dialog.dialog--leaving::backdrop {
+    animation: none;
   }
 }

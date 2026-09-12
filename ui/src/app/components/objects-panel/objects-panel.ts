@@ -5,6 +5,10 @@ import { ViewerControl } from '../../services/viewer-control';
 import { Viewport } from '../../services/viewport';
 import { WorkplateObjects } from '../../services/workplate-objects';
 import { Icon, TooltipDirective } from '@coldcrabby/ui';
+import { ContextMenuService } from '../../services/context-menu/context-menu.service';
+import { ContextMenuTrigger } from '../../services/context-menu/context-menu-trigger';
+import type { ContextMenuItem } from '../../services/context-menu/context-menu.model';
+import { SceneCommand } from '../../services/scene-command/scene-command';
 
 /** Remembers whether the user folded the list away, per device. */
 const EXPANDED_KEY = 'plate.objectsPanelExpanded';
@@ -40,7 +44,7 @@ interface ObjectRow {
 @Component({
   selector: 'nexus-objects-panel',
   standalone: true,
-  imports: [Icon, TooltipDirective],
+  imports: [Icon, TooltipDirective, ContextMenuTrigger],
   templateUrl: './objects-panel.html',
   styleUrl: './objects-panel.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -51,6 +55,8 @@ export class ObjectsPanel {
   private readonly viewerControl = inject(ViewerControl);
   private readonly viewport = inject(Viewport);
   private readonly storage = inject(BrowserStorage);
+  private readonly contextMenu = inject(ContextMenuService);
+  private readonly sceneCommand = inject(SceneCommand);
 
   /** Id awaiting delete confirmation, if any. */
   protected readonly pendingDelete = signal<bigint | null>(null);
@@ -158,6 +164,39 @@ export class ObjectsPanel {
       return;
     }
     this.pendingDelete.set(row.id);
+  }
+
+  /**
+   * The same actions the 3D scene offers on a long-press, on the row that
+   * stands for the same object. The list had only the two buttons that fit
+   * beside a name, so drop-to-floor and centre were reachable only by finding
+   * the part on the plate.
+   */
+  protected onContextMenu(event: MouseEvent, row: ObjectRow): void {
+    const items: ContextMenuItem[] = [
+      { label: 'Duplicate', icon: 'copy', action: () => this.workplate.duplicate(row.id) },
+      {
+        label: 'Drop to floor',
+        icon: 'download',
+        action: () => this.sceneCommand.apply({ op: 'DropToFloor', args: { id: row.id } }),
+      },
+      {
+        label: 'Centre on bed',
+        icon: 'frame-alt',
+        action: () => this.sceneCommand.apply({ op: 'CenterOnBed', args: { id: row.id } }),
+      },
+      { label: '', separator: true },
+      {
+        label: 'Remove',
+        icon: 'bin',
+        danger: true,
+        action: () => {
+          this.workplate.remove(row.id);
+          this.viewerControl.selectedObjectIds.update((ids) => ids.filter((id) => id !== row.id));
+        },
+      },
+    ];
+    void this.contextMenu.open(event, items);
   }
 
   protected cancelDelete(event: Event): void {

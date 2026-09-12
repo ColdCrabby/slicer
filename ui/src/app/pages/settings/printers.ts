@@ -39,7 +39,7 @@ import { Dialog } from '../../services/dialog';
 import { NotificationService } from '../../services/notifications';
 import { PrinterConnectionService } from '../../services/printer-connection';
 import { ActiveSelection } from '../../services/profiles/active-selection';
-import { matchesAllLabels, toggledLabelIds } from '../../services/profiles/label-filtering';
+import { matchesAnyLabel, toggledLabelIds } from '../../services/profiles/label-filtering';
 import { paramNum, paramStr } from '../../models/params-access';
 import { LabelFilterStore } from '../../services/profiles/label-filter-store';
 import { LabelsStore } from '../../services/profiles/labels-store';
@@ -64,6 +64,7 @@ import { CodeEditor } from '../../components/code-editor/code-editor';
 import { LabelFilterBar } from '../../components/labels/label-filter-bar';
 import { LabelPicker } from '../../components/labels/label-picker';
 import { focusConfigureTarget } from './configure-scroll';
+import { LabelPickerPanel } from '../../components/labels/label-picker-panel';
 
 /**
  * The `SlicingParams` sub-schema extracted from the generated global-settings
@@ -179,9 +180,14 @@ export class PrintersSettings {
   protected readonly groupBy = signal<'category' | 'label' | 'none'>('category');
   protected readonly labelFilter = this.filterStore.selectedIds;
 
-  /** Typed-name delete challenge state (high-impact delete — design language). */
+  /**
+   * Inline two-step delete — the design language's default for a routine
+   * destructive action. This used to be a typed-name challenge, which is
+   * reserved for irreversible data loss; a profile is a handful of settings the
+   * user can recreate, and typing its name out to remove one was friction
+   * without a matching risk.
+   */
   protected readonly deleteArmed = signal(false);
-  protected readonly deleteText = signal('');
 
   /** Printers narrowed by the active label filter and the search query. */
   protected readonly filtered = computed(() => {
@@ -190,7 +196,7 @@ export class PrintersSettings {
       .items()
       .filter(
         (p) =>
-          matchesAllLabels(p, this.labelFilter()) &&
+          matchesAnyLabel(p, this.labelFilter()) &&
           (!q || `${p.name} ${p.vendor ?? ''} ${p.model ?? ''}`.toLowerCase().includes(q)),
       );
   });
@@ -235,12 +241,6 @@ export class PrintersSettings {
   protected readonly selected = computed(() => {
     const id = this.selectedId();
     return id ? (this.store.getById(id) ?? null) : null;
-  });
-
-  /** Whether the typed name matches the selected printer's name exactly. */
-  protected readonly deleteReady = computed(() => {
-    const p = this.selected();
-    return !!p && this.deleteText().trim() === p.name.trim();
   });
 
   constructor() {
@@ -392,6 +392,7 @@ export class PrintersSettings {
         action: () => this.testConnection(printer),
       });
     }
+    items.push(this.labelSubmenu(printer));
     if (printer.source !== 'builtin') {
       items.push({ separator: true, label: '' });
       items.push({
@@ -404,6 +405,38 @@ export class PrintersSettings {
     void this.contextMenu.open(event, items);
   }
 
+  /**
+   * The labels, as a flyout on the profile's own context menu.
+   *
+   * Assigning the same label across a shelf of profiles is what labels are for,
+   * and doing it from the card is one gesture instead of selecting each one and
+   * scrolling to its Labels row.
+   *
+   * The flyout hosts the same picker the detail pane uses — coloured dots,
+   * search, and "create this one" for a name that does not exist yet — because
+   * a row of plain text is not a label, and a shelf of twenty needs filtering.
+   * `submenu` carries the same labels as plain rows for the OS-drawn menus on
+   * desktop and iOS, which can only show rows.
+   */
+  private labelSubmenu(item: { id: string; label_ids?: string[] }): ContextMenuItem {
+    const owned = new Set(item.label_ids ?? []);
+    const labels = this.labels.items();
+    return {
+      label: 'Labels',
+      icon: 'label',
+      submenu: labels.map((label) => ({
+        label: label.name,
+        checked: owned.has(label.id),
+        action: () => this.toggleLabel(item.id, label.id),
+      })),
+      submenuPanel: {
+        component: LabelPickerPanel,
+        inputs: { assignedIds: () => this.store.getById(item.id)?.label_ids ?? [] },
+        outputs: { toggle: (labelId: string) => this.toggleLabel(item.id, labelId) },
+      },
+    };
+  }
+
   protected toggleDelete(): void {
     if (this.deleteArmed()) {
       this.disarmDelete();
@@ -414,22 +447,16 @@ export class PrintersSettings {
 
   protected armDelete(): void {
     this.deleteArmed.set(true);
-    this.deleteText.set('');
   }
 
   protected disarmDelete(): void {
     this.deleteArmed.set(false);
-    this.deleteText.set('');
-  }
-
-  protected setDeleteText(event: Event): void {
-    this.deleteText.set((event.target as HTMLInputElement).value);
   }
 
   /** Delete the selected printer once its name has been typed to confirm. */
   protected confirmDelete(): void {
     const printer = this.selected();
-    if (!printer || !this.deleteReady()) {
+    if (!printer) {
       return;
     }
     this.deletePrinterById(printer.id);

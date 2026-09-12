@@ -5,7 +5,13 @@ export interface EnumOption {
   description?: string;
 }
 
-export type FieldType = 'number' | 'integer' | 'boolean' | 'string';
+/**
+ * `array` is carried through rather than collapsed into `string` so the form can
+ * *skip* it. Fan curves and pause triggers are structured lists with editors of
+ * their own; folding them into the string bucket handed them to the fallback
+ * widget, which rendered a number spinner for a list of objects.
+ */
+export type FieldType = 'number' | 'integer' | 'boolean' | 'string' | 'array';
 
 /**
  * Conditional relevance rule for a field, mirroring the `x-relevant-when`
@@ -46,6 +52,38 @@ export interface FieldDef {
   maximum?: number;
   /** x-group value from the schema, used for visual grouping. */
   group?: string;
+  /**
+   * `x-tier` schema extension: how much the user has to know before this
+   * setting is worth showing them.
+   *
+   * Absent means *everyday* — the decisions a print actually depends on, and
+   * what the panel shows before the user asks for more. `advanced` is a real
+   * choice a user can form an intention about ("keep the seam at the back");
+   * `expert` is an algorithm knob almost nobody can predict the effect of.
+   *
+   * A tier governs what is shown **by default**, never what exists: search
+   * spans every tier, and a tier that hid a setting from search would have
+   * become a feature flag.
+   */
+  tier?: 'advanced' | 'expert';
+  /**
+   * `x-unit` schema extension: how the stored number relates to what the user
+   * reads. The engine keeps most proportions as a fraction — `fan_speed: 1.0`
+   * is full speed — which is not what a box suffixed `%` appears to say.
+   *
+   * - `fraction` — stored 0–1, shown as 0–100 %.
+   * - `percent` — already on a 0–100 scale, and free to exceed it.
+   * - `ratio` — a multiplier against something else (nozzle diameter, nominal
+   *   flow), shown with `×` because it is not a proportion of a whole.
+   */
+  unit?: string;
+  /**
+   * `x-step` schema extension: the increment for this field's control, where
+   * the unit's default is wrong for its working range. A layer height lives
+   * near 0.2 and needs 0.01; a skirt distance near 200 would take a lifetime to
+   * reach at that increment.
+   */
+  step?: number;
   /**
    * `x-widget` schema extension: an explicit widget hint that overrides the
    * default control chosen from the field's shape. E.g. `"gcode"` selects a

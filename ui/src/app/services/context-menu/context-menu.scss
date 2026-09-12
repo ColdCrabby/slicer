@@ -1,3 +1,5 @@
+@use 'breakpoints' as *;
+
 :host {
   display: block;
 }
@@ -12,6 +14,12 @@
   display: flex;
   flex-direction: column;
   gap: 1px;
+}
+
+.cm-row {
+  position: relative;
+  display: flex;
+  flex-direction: column;
 }
 
 .cm-item {
@@ -57,6 +65,63 @@
   --icon-size: 16px;
 }
 
+.cm-check {
+  display: grid;
+  place-items: center;
+  flex: none;
+  // Same box as `.cm-icon`, so a menu mixing actions and toggles keeps one text
+  // column down its left edge.
+  width: 16px;
+  color: var(--accent);
+  --icon-size: 14px;
+}
+
+.cm-arrow {
+  display: grid;
+  place-items: center;
+  flex: none;
+  margin-left: auto;
+  // Nudged into the panel's own padding so the chevron sits at the edge the way
+  // a native submenu marker does.
+  margin-right: calc(var(--spacing-xs) * -1);
+  color: var(--color-text-tertiary);
+  --icon-size: 14px;
+}
+
+// The flyout, anchored to its own row. `top: -(panel padding)` lines its first
+// entry up with the row that opened it, the way a native submenu does, rather
+// than hanging a few pixels low.
+.cm-sub {
+  position: absolute;
+  top: calc(var(--spacing-xs) * -1);
+  left: 100%;
+  z-index: 1;
+  // Overlaps the parent's border so the pointer can cross between the two
+  // without passing over a gap and closing the flyout.
+  margin-left: -2px;
+}
+
+// No room to the right — open to the left instead.
+.cm-sub--flip {
+  left: auto;
+  right: 100%;
+  margin-left: 0;
+  margin-right: -2px;
+}
+
+// A nested menu of plain rows scrolls if it is long; a hosted panel manages its
+// own height, so this must not clip it.
+.cm-sub > nexus-context-menu {
+  display: block;
+  max-height: min(60vh, 420px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.cm-item.is-open {
+  background: var(--color-surface-hover);
+}
+
 .cm-label {
   min-width: 0;
   white-space: nowrap;
@@ -68,4 +133,32 @@
   height: 1px;
   margin: var(--spacing-xs) 0;
   background: var(--color-border-light, var(--color-border));
+}
+
+// ── Touch ────────────────────────────────────────────────────────────────────
+//
+// This is the browser fallback menu, so on a tablet it is a real surface the
+// user aims at with a finger — the OS menus the other runtimes borrow are
+// already sized by the platform. Rows were a ~30px target opened by a
+// long-press, which is the gesture least likely to be repeated patiently.
+@include coarse-pointer {
+  .cm {
+    min-width: 240px;
+    padding: var(--spacing-xs);
+  }
+
+  .cm-item {
+    min-height: 44px;
+    padding: var(--spacing-xs) var(--spacing-md);
+    font-size: var(--font-size-md);
+    gap: var(--spacing-md);
+  }
+
+  .cm-icon {
+    --icon-size: 20px;
+  }
+
+  .cm-sep {
+    margin: var(--spacing-xs) 0;
+  }
 }

@@ -38,11 +38,17 @@ export class ContextMenuService {
 
   #openRef: FloatingComponentRef<ContextMenu> | null = null;
   #openSub: OutputRefSubscription | null = null;
+  #detachScrollDismiss: (() => void) | null = null;
+  #openNativeMenu: unknown = null;
 
   /** Show a context menu for `event`'s pointer position. */
   async open(event: MouseEvent, items: readonly ContextMenuItem[]): Promise<void> {
     event.preventDefault();
     event.stopPropagation();
+
+    // A web menu may still be up when the platform path changes under us; the
+    // native paths have no equivalent of `#openWeb`'s own `close()` call.
+    this.close();
 
     if (isTauriDesktop()) {
       await this.#openNative(items);
@@ -57,6 +63,8 @@ export class ContextMenuService {
 
   /** Dismiss the web fallback menu, if one is open. */
   close(): void {
+    this.#detachScrollDismiss?.();
+    this.#detachScrollDismiss = null;
     this.#openSub?.unsubscribe();
     this.#openSub = null;
     this.#openRef?.close();
@@ -65,13 +73,24 @@ export class ContextMenuService {
 
   async #openNative(items: readonly ContextMenuItem[]): Promise<void> {
     const { Menu } = await import('@tauri-apps/api/menu');
-    const menuItems = items.map((item) =>
-      item.separator
-        ? { item: 'Separator' as const }
-        : { text: item.label, enabled: !item.disabled, action: () => item.action?.() },
-    );
-    const menu = await Menu.new({ items: menuItems });
-    await menu.popup();
+    // The union Tauri accepts here is wide and structural; each branch of
+    // `toNativeItem` builds one of its shapes, which TypeScript cannot see
+    // through a `Record` return.
+    const menu = await Menu.new({
+      items: items.map(toNativeItem) as unknown as NonNullable<
+        Parameters<typeof Menu.new>[0]
+      >['items'],
+    });
+    // Held on the instance for as long as the menu is up. The item callbacks
+    // live on the JS side of the Tauri bridge, so letting the only reference go
+    // out of scope the moment `popup()` resolves leaves them eligible for
+    // collection while the user is still reading the menu.
+    this.#openNativeMenu = menu;
+    try {
+      await menu.popup();
+    } finally {
+      this.#openNativeMenu = null;
+    }
   }
 
   /**
@@ -84,9 +103,13 @@ export class ContextMenuService {
    */
   async #openNativeMobile(event: MouseEvent, items: readonly ContextMenuItem[]): Promise<void> {
     const { invoke } = await import('@tauri-apps/api/core');
+    // A UIAlertController has neither submenus nor checked rows, so a nested
+    // menu is flattened into the sheet under its parent's name and the tick
+    // moves into the title — the only place an action sheet can carry either.
+    const flat = flattenForSheet(items);
     const chosen = await invoke<number | null>('show_context_menu', {
-      items: items.map((item) => ({
-        label: item.label,
+      items: flat.map((item) => ({
+        label: item.checked ? `\u2713 ${item.label}` : item.label,
         disabled: item.disabled ?? false,
         separator: item.separator ?? false,
         danger: item.danger ?? false,
@@ -96,7 +119,7 @@ export class ContextMenuService {
     });
 
     if (chosen !== null && chosen !== undefined) {
-      items[chosen]?.action?.();
+      flat[chosen]?.action?.();
     }
   }
 
@@ -140,6 +163,14 @@ export class ContextMenuService {
       onEscape: () => this.close(),
     });
 
+    // The menu is pinned to the viewport point the press happened at, so
+    // scrolling the list underneath leaves it pointing at a different row than
+    // the one it was opened for. Native menus dismiss on scroll; so does this.
+    const onScroll = () => this.close();
+    window.addEventListener('scroll', onScroll, { capture: true, passive: true });
+    this.#detachScrollDismiss = () =>
+      window.removeEventListener('scroll', onScroll, { capture: true });
+
     ref.setInput('items', items);
     this.#openSub = ref.instance.choose.subscribe((item: ContextMenuItem) => {
       this.close();
@@ -147,4 +178,56 @@ export class ContextMenuService {
     });
     this.#openRef = ref;
   }
+}
+
+/**
+ * One item for `@tauri-apps/api/menu`.
+ *
+ * `checked` present (even `false`) makes Tauri build a CheckMenuItem, so an
+ * unticked box still reads as one thing in a list of toggles; `items` makes it
+ * a real OS submenu.
+ */
+function toNativeItem(item: ContextMenuItem): Record<string, unknown> {
+  if (item.separator) {
+    return { item: 'Separator' as const };
+  }
+  if (item.submenu) {
+    return {
+      text: item.label,
+      enabled: !item.disabled,
+      items: item.submenu.map(toNativeItem),
+    };
+  }
+  const base: Record<string, unknown> = {
+    text: item.label,
+    enabled: !item.disabled,
+    action: () => item.action?.(),
+  };
+  return item.checked === undefined ? base : { ...base, checked: item.checked };
+}
+
+/**
+ * Flatten a menu for an iOS action sheet, which has no nesting.
+ *
+ * A submenu's children are inlined after a separator, each prefixed with its
+ * parent — "Labels: PLA" — so the sheet still says what a row belongs to. The
+ * parent row itself is dropped: it has no action, and a row that does nothing
+ * when tapped is worse than no row.
+ */
+function flattenForSheet(items: readonly ContextMenuItem[]): ContextMenuItem[] {
+  const out: ContextMenuItem[] = [];
+  for (const item of items) {
+    if (!item.submenu) {
+      out.push(item);
+      continue;
+    }
+    if (item.submenu.length === 0) {
+      continue;
+    }
+    out.push({ separator: true, label: '' });
+    for (const child of item.submenu) {
+      out.push({ ...child, label: `${item.label}: ${child.label}` });
+    }
+  }
+  return out;
 }

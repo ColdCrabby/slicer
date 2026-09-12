@@ -215,6 +215,9 @@ serialized struct by name.
 | --- | --- | --- |
 | `x-group` | `src/settings/params.rs` | Puts the field in an accordion group |
 | `x-relevant-when` | same | Hides a field until a sibling makes it meaningful — `equals` for a switch, `greaterThan` for a numeric feature that is off at `0` |
+| `x-tier` | same | Everyday (omit) / `advanced` / `expert` — what the panel shows before the user asks |
+| `x-unit` | same | What the number *is* — `mm`, `mm_s`, `celsius`, `fraction`, `ratio`, … Declared on every numeric parameter; the UI maps it to a suffix and a step |
+| `x-step` | same | The increment, where the unit's default is wrong for the field's range |
 | `x-widget` | same | Overrides the control chosen from the field's shape |
 | `SETTING_CONTRACTS` | [`setting-contract.ts`](../../ui/src/app/models/setting-contract.ts) | Assigns each group to the Printer / Filament / Process tab |
 | `GROUP_ICONS` | same | The group's icon |
@@ -230,20 +233,84 @@ anything new. Evaluation lives in exactly one place,
 settings panel and the profile editor pages, so every schema-driven surface hides
 the same fields.
 
-**What does not exist yet:** there is no `x-tier` extension. The Everyday /
-Advanced / Expert split above is the design contract to build toward, not a
-switch you can set today. Until it lands:
+**`x-tier` implements the three tiers above.** Omit it for Everyday; set
+`"advanced"` or `"expert"` for the rest. It is evaluated in
+[`relevance.ts`](../../ui/src/app/schema-form/models/relevance.ts) beside
+`x-relevant-when`, because the two answer the same shape of question — *should
+this be on screen right now?* Relevance is about the state of the plate; tier is
+about how far the user has asked to look.
 
-- Use `x-relevant-when` for anything whose *relevance* is conditional.
-- Use group membership and group order for coarse prominence.
-- **Do not fake a tier** with a bespoke per-field condition in the generic form.
-  If a field genuinely needs tiering, that is a reason to add `x-tier` to the
-  schema — one extension, evaluated in `relevance.ts` beside the existing
-  operators — not a reason to special-case the renderer.
+```rust
+#[schemars(
+    description = "…",
+    extend("x-group" = "Walls", "x-tier" = "expert")
+)]
+pub wall_transition_threshold: f64,
+```
+
+Each accordion group renders its Everyday fields, then a quiet
+`Advanced ⌄ 10` footer that expands **in place** — the count is what makes it
+worth pressing, since a bare chevron says only that something is there. A second
+press reveals Expert. The step is offered only when the group can actually fill
+it, so a section whose extra fields are all Advanced never advertises an Expert
+tier that would expand to nothing.
+
+**Whole groups are tiered too**, by the *shallowest* tier they contain. A group
+with nothing but Advanced and Expert fields (Quality, Thumbnail, Time estimate)
+is not listed in the everyday view at all — offering a section header that opens
+onto an empty body is worse than not offering it. A matching
+`Advanced sections ⌄ 4` control at the foot of the panel reveals them, which is
+what keeps the Process tab at seven sections instead of eleven.
+
+Two traps that follow from group tiering, both fixed and both tested:
+
+- **The step must skip a tier that would reveal nothing.** `Time estimate` is
+  expert-only and the sole such group on the Printer tab; offering "Advanced"
+  there revealed nothing, and suppressing the step for that reason left the
+  section permanently unreachable.
+- **Revealing must land on the tier the control advertised.** A button reading
+  "Expert" that advances one step to Advanced appears to do nothing at all.
+
+A group's own reveal is never shallower than the panel's, or a section listed
+only because the user reached Advanced would render empty.
+
+Three rules the implementation depends on — each has a test in
+[`tier.spec.ts`](../../ui/src/app/schema-form/models/tier.spec.ts):
+
+- **Search is never tier-filtered.** `flatFields` builds the Fuse index from the
+  untiered `relevantGroups`, and must keep doing so. This is what makes a calm
+  default view affordable, and a tier that hid a setting from search would have
+  stopped being disclosure and become a feature flag.
+- **A modified field is always shown, whatever its tier.** Hiding a value the
+  user has already changed is the one failure that cannot be argued for: they
+  cannot put it back if they cannot find it, and the group header's "changed"
+  dot would point into an empty section.
+- **The Everyday set has a ceiling.** If it grows without anyone noticing, the
+  panel is a wall of settings again and the tiers have stopped working, so the
+  size is asserted rather than assumed.
+
+Reveal state is persisted per group, the same way the accordion's own expansion
+is: someone who works in Advanced all day should not reopen it every session.
+`Settings → General → Settings detail` sets the floor those panels open at, for
+the user who already knows every parameter and would otherwise press the same
+two controls on every section, every session. It is a starting point, not a
+mode — see the non-goals.
+
+Two controls that cannot act must not be offered, and both cases are live once a
+floor is set: a group cannot collapse below the floor, and neither can the
+panel. Offering "Show less" there is a button that does nothing when pressed.
 
 ### Adding a setting
 
-Add the field with an `x-group` and it appears. Regenerate the schema
+Add the field with an `x-group` and it appears. **A numeric field also needs an
+`x-unit`** — units are declared, never inferred from the name, and a field
+without one renders as a bare number. `field-units.spec.ts` fails on any numeric
+parameter that omits it.
+
+**There is no label fallback.** A field shows its curated entry in
+`field-labels.ts` or its raw schema key, so a new parameter reads as
+`wall_transition_length` until somebody names it. That is deliberate: a
+generated label looks authored, and a reader cannot tell the two apart. Regenerate the schema
 (`pnpm run gen-schemas`; it is git-ignored). Write the `title` and `description`
 as search corpus and as the contextual explanation — that is what §5 and §7 are
 made of.
@@ -272,8 +339,17 @@ does nothing. That is a disclosure failure, and the rules for it are in
 
 - **Not a permissions model.** Tiers change what is *shown by default*. They
   never gate capability, and they never hide a setting from search.
-- **Not a per-user preference.** There is no "I am an expert" switch to flip
-  once; disclosure is per-section and per-intent.
+- **Not a mode the app runs in.** `Settings → General → Settings detail`
+  (Standard / Advanced / Everything) sets the tier the panels *open* at — a
+  floor, not a mode. Note the labels: the first option is **Standard**, not
+  "Simple", and the last is **Everything**, not "Expert". §2 forbids naming the
+  default view after the reader, and a preference is the easiest place to
+  forget it — "Simple" makes the calm view a statement about who is looking at
+  it, which is exactly what a professional working there must not be told. The per-section controls
+  still reveal deeper from it, nothing about the app's shape changes, and no
+  capability is gated either way. What the tier model rules out is a switch that
+  makes the interface a different application: two layouts, two vocabularies,
+  two sets of things a user can do.
 - **Not a reason to add settings.** "It can live in Expert" is not a
   justification for a knob nobody can reason about. A defensible Expert setting
   is one a real person has wanted to change.

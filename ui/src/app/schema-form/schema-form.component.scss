@@ -1,3 +1,5 @@
+@use 'breakpoints' as *;
+
 .schema-form-search {
   position: sticky;
   top: 0;
@@ -166,6 +168,12 @@
 }
 
 .schema-form-group-trigger {
+  // A press with no acknowledgement reads as a press that missed, and there is
+  // no hover to fall back on under a fingertip.
+  &:active {
+    background: var(--color-surface-active);
+  }
+
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -304,12 +312,133 @@
   min-height: 0;
 }
 
+// The tier disclosure at the foot of a group. Deliberately quiet — a chevron
+// and a word, not a button that competes with the settings above it. The count
+// is what makes it worth pressing: "Advanced 7" says how much is behind it,
+// where a bare chevron says only that something is.
+.schema-form-tier-toggle {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-xs);
+  align-self: flex-start;
+  // Indented to the field column it belongs to, so it reads as the last line of
+  // this section rather than as a peer of the panel control below it.
+  margin-top: var(--spacing-xs);
+  padding: var(--spacing-xs) var(--spacing-sm);
+  border: none;
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: var(--color-text-tertiary);
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-normal);
+  cursor: pointer;
+  transition:
+    background-color var(--duration-fast) var(--ease-standard),
+    color var(--duration-fast) var(--ease-standard);
+
+  --icon-size: 13px;
+
+  &:hover {
+    background: var(--color-surface-hover);
+    color: var(--color-text-secondary);
+  }
+
+  &:active {
+    background: var(--color-surface-active);
+  }
+
+  &:focus-visible {
+    outline: 2px solid var(--color-focus-ring);
+    outline-offset: -2px;
+  }
+}
+
+// The panel-level control adds whole *sections*, so it is shaped like the
+// section headers it sits under — same left edge, same padding, chevron first —
+// rather than like the in-group "Advanced" link directly above it. Those two
+// were landing adjacent, in the same shape, and read as a repeat of each other.
+.schema-form-panel-tier {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  width: 100%;
+  margin-top: var(--spacing-lg);
+  margin-bottom: var(--spacing-2xl);
+  padding: var(--spacing-sm) var(--spacing-md);
+  border: none;
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: var(--color-text-tertiary);
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-medium);
+  text-align: left;
+  cursor: pointer;
+  transition:
+    background-color var(--duration-fast) var(--ease-standard),
+    color var(--duration-fast) var(--ease-standard);
+
+  --icon-size: 16px;
+
+  &:hover {
+    background: var(--color-surface-hover);
+    color: var(--color-text-secondary);
+  }
+
+  &:active {
+    background: var(--color-surface-active);
+  }
+
+  &:focus-visible {
+    outline: 2px solid var(--color-focus-ring);
+    outline-offset: -2px;
+  }
+}
+
+.schema-form-tier-count {
+  padding: 0 var(--spacing-xs);
+  border-radius: 999px;
+  background: var(--color-surface-hover);
+  color: var(--color-text-tertiary);
+  font-variant-numeric: tabular-nums;
+}
+
 .schema-form-group-fields-inner {
   display: flex;
   flex-direction: column;
-  gap: var(--spacing-md);
+  // Half the previous `--spacing-md`. Each field already carries its own label,
+  // control and (sometimes) a notice, so it reads as a block without a wide
+  // channel around it; at 16px a group of six settings needed scrolling that
+  // had nothing to do with the content.
+  gap: var(--spacing-sm);
   padding: var(--spacing-xs) var(--spacing-sm) var(--spacing-sm);
   transform-origin: top center;
   transform: scale(1);
   transition: transform var(--duration-slow) var(--ease-standard);
+}
+
+// The field inside grows to 44px for touch, so the block's own padding and its
+// fade-out below it stop being breathing room and start being a third of the
+// panel's first screen.
+@include coarse-pointer {
+  .schema-form-search {
+    padding: var(--spacing-xs) var(--spacing-xs) 0;
+  }
+
+  .schema-form-search::after {
+    height: var(--spacing-sm);
+  }
+
+  // The pill is the 44px target, not the input inside it. The global touch rule
+  // raises every bare `input` to 44px, which here stacked on top of the pill's
+  // own 8px padding and made a 60px-tall search box. Sizing the wrapper and
+  // releasing the input is the idiom `_field-focus.scss` already describes for
+  // these wrapper pills.
+  .schema-form-search-field {
+    min-height: 44px;
+    padding: 0 var(--spacing-md);
+  }
+
+  .schema-form-search-field .schema-form-search-input {
+    min-height: 0;
+  }
 }

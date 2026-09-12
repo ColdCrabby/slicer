@@ -39,6 +39,9 @@
 @use './base/touch';
 @use 'base/scrollbar';
 @use 'base/floating';
+// Local override: a width ceiling for floating panels. MUST come after
+// `base/floating`, whose identical selector it needs to beat on order.
+@use './base/floating-size';
 
 // Utilities
 @use 'utilities/utilities';

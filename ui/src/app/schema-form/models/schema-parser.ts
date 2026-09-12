@@ -71,6 +71,9 @@ function resolveFieldType(prop: RawProp): FieldType {
   if (type === 'number') {
     return 'number';
   }
+  if (type === 'array') {
+    return 'array';
+  }
   return 'string';
 }
 
@@ -121,6 +124,9 @@ export function parseSchema(
       minimum: prop['minimum'] as number | undefined,
       maximum: prop['maximum'] as number | undefined,
       group: prop['x-group'] as string | undefined,
+      unit: prop['x-unit'] as string | undefined,
+      step: prop['x-step'] as number | undefined,
+      tier: prop['x-tier'] as FieldDef['tier'],
       widget: prop['x-widget'] as string | undefined,
       enumOptions: resolveEnumOptions(prop, defs),
       relevantWhen: resolveRelevantWhen(prop),

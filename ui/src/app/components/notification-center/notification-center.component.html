@@ -1,11 +1,20 @@
 <div class="notification-center" aria-live="polite" aria-atomic="false">
   @for (notification of notifications(); track trackById($index, notification)) {
+    <!--
+      `alert` is implicitly assertive, so every routine success used to cut a
+      screen reader off mid-word — and it fought the container's `polite`.
+      Only a genuine error earns the interruption.
+    -->
     <div
       animate.enter="notif-enter"
       animate.leave="notif-leave"
       class="notification"
       [class]="'notification notification--' + notification.severity"
-      role="alert"
+      [attr.role]="notification.severity === 'error' ? 'alert' : 'status'"
+      (mouseenter)="pause(notification)"
+      (mouseleave)="resume(notification)"
+      (focusin)="pause(notification)"
+      (focusout)="resume(notification)"
     >
       <div class="notification__body">
         <nexus-icon

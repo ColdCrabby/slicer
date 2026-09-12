@@ -1,8 +1,9 @@
 import { DestroyRef, inject, Injectable } from '@angular/core';
 import { takeUntilDestroyed, toObservable } from '@angular/core/rxjs-interop';
 import { CanDeactivateFn } from '@angular/router';
-import { fromEvent } from 'rxjs';
+import { Observable, fromEvent, of } from 'rxjs';
 import { switchMap } from 'rxjs/operators';
+import { Dialog } from './dialog';
 import { SlicerFile } from './slicer-file';
 
 /**
@@ -14,6 +15,7 @@ import { SlicerFile } from './slicer-file';
 export class UploadGuard {
   readonly #slicerFile = inject(SlicerFile);
   readonly #destroyRef = inject(DestroyRef);
+  readonly #dialog = inject(Dialog);
 
   constructor() {
     // Convert the uploadProgress signal to an observable, then switch to a
@@ -30,12 +32,25 @@ export class UploadGuard {
       });
   }
 
-  canLeave(): boolean {
+  /**
+   * `window.confirm` put an unstyled OS prompt in the middle of an app that
+   * ships its own dialog — and on the Tauri targets a blocking `confirm` is not
+   * something the webview is guaranteed to honour at all. `Dialog` renders the
+   * same question in the app's own language, and routes to a native sheet where
+   * there is one.
+   */
+  canLeave(): Observable<boolean> {
     if (!this.#slicerFile.isUploading()) {
-      return true;
+      return of(true);
     }
 
-    return window.confirm('An upload is in progress. Are you sure you want to leave?');
+    return this.#dialog.confirm({
+      title: 'Leave while uploading?',
+      message: 'The upload in progress will be cancelled.',
+      confirmLabel: 'Leave',
+      cancelLabel: 'Stay',
+      type: 'warning',
+    });
   }
 }
 

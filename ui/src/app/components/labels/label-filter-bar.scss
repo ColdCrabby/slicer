@@ -4,14 +4,23 @@
 
 .fb {
   display: flex;
-  align-items: center;
+  // `flex-start`, not `center`: once the chips wrap to a second row, centring
+  // floats the filter icon to the middle of the block instead of leaving it
+  // beside the first row it belongs to.
+  align-items: flex-start;
   gap: var(--spacing-sm);
-  flex-wrap: wrap;
+  // Deliberately NOT wrapping here. The row has two children — the icon and the
+  // chip block — so wrapping at this level moved the whole block to the next
+  // line and left the icon stranded on its own. The chips wrap among
+  // themselves instead, in the space beside the icon.
+  flex-wrap: nowrap;
 }
 
 .fb__lead {
   position: relative;
   flex: none;
+  // Lines the icon up with the first row of chips, which are 24px tall.
+  margin-top: 0;
   display: inline-grid;
   place-items: center;
   width: 24px;
@@ -63,6 +72,10 @@
   display: flex;
   flex-wrap: wrap;
   gap: var(--spacing-xs);
+  // Takes the rest of the row and wraps inside it; `min-width: 0` is what lets
+  // it shrink below its content instead of pushing the icon out.
+  flex: 1 1 auto;
+  min-width: 0;
 }
 
 .fb__chip {
