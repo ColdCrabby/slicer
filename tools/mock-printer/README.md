@@ -6,28 +6,46 @@ machine on the LAN.
 
 ## Why
 
-The wizard probes a URL server-side and prefills a printer profile from what it
-finds. For Klipper it reads:
+The wizard probes a URL server-side and builds a whole printer profile out of
+what the machine says about itself. For Klipper it asks, in this order:
 
-- `GET /printer/info` — identity (`state`, `hostname`)
-- `GET /printer/objects/query?configfile&toolhead` — bed volume (toolhead axis
-  limits), kinematics (delta ⇒ circular / center-origin), and nozzle diameter
+| Endpoint | Answers |
+| --- | --- |
+| `GET /printer/info` | identity (`state`, `hostname`) |
+| `GET /printer/objects/query?toolhead` | build volume, from the axis limits |
+| `GET /printer/objects/list` | which modules and start macros exist |
+| `GET /printer/objects/query?bed_mesh` | saved mesh profiles |
+| `GET /printer/objects/query?configfile` | the configured values themselves |
 
-These scripts answer exactly those endpoints with canned JSON, so you can click
-through detection end to end.
+The script answers each one separately, the way a real Moonraker does — which
+matters, because the wizard is built to survive losing any of them but the
+first.
 
 ## Moonraker (Klipper)
 
 ```bash
-# Cartesian 350³ Voron on :7199 (defaults)
+# Voron-ish CoreXY 350³ with every optional module, on :7199
 python3 tools/mock-printer/moonraker.py
+
+# A machine with nothing optional — the wizard has to ask about macros
+python3 tools/mock-printer/moonraker.py --preset bare
+
+# Both macro conventions defined — the one case the config can't settle
+python3 tools/mock-printer/moonraker.py --preset ambiguous
 
 # A delta → detected as circular bed, center origin
 python3 tools/mock-printer/moonraker.py --kinematics delta --name my-delta
 
 # Custom bed / nozzle / port
 python3 tools/mock-printer/moonraker.py --port 8080 --width 250 --depth 210 --nozzle 0.6
+
+# Pretend the big config payload times out — detection should degrade, not fail
+python3 tools/mock-printer/moonraker.py --drop configfile
 ```
+
+`--preset` picks which optional modules and macros the fake host advertises:
+`full` (the default), `standard` (`PRINT_START`), `ambiguous` (both
+conventions), `bare` (none).
 
 Then enter `http://127.0.0.1:7199` in the wizard's **Detect** field and run it.
 

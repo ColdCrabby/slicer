@@ -203,6 +203,17 @@ Options that only apply in certain configurations hide themselves. Choosing the
 classic wall generator, for example, reveals options the Arachne generator
 doesn't use — so the panel never offers you a control that would do nothing.
 
+### Speeds are in mm/s
+
+Every speed in the panel reads in **mm/s**, travel and retraction included.
+G-code measures those two in mm/min, and that is still what gets written to the
+file — you just don't have to do the arithmetic to compare travel against your
+print speed.
+
+If you think in mm/min, press the unit beside any speed box. Every speed in the
+app switches together, the choice is remembered, and nothing about the saved
+value changes — only how it is written.
+
 ### The thumbnail in your G-code
 
 Most printers show a preview of the print on their screen, and that picture is

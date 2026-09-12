@@ -70,11 +70,15 @@ pub mod cli;
 #[cfg(all(not(target_arch = "wasm32"), not(target_os = "ios")))]
 pub mod db;
 
-/// Outbound printer transports (Moonraker/Klipper, …). Native only — a browser
-/// wasm build talks to printers directly over `fetch` instead (CORS-permitting).
-/// Kept on iOS: sending G-code to a printer from an iPad goes through this same
-/// native path, which is what keeps it clear of the browser's CORS restrictions.
-#[cfg(not(target_arch = "wasm32"))]
+/// Printers: identifying one from its own configuration, and talking to it.
+/// The *transport* half is native only — a browser wasm build talks to printers
+/// directly over `fetch` instead (CORS-permitting) — but the interpretation of
+/// what a printer reports compiles everywhere, so every runtime reaches the
+/// same conclusions. Kept on iOS: sending G-code to a printer from an iPad goes
+/// through the same native path, which is what keeps it clear of the browser's
+/// CORS restrictions. Follows `profiles` on wasm — a printer profile is what
+/// detection produces, so the two are in or out together.
+#[cfg(any(not(target_arch = "wasm32"), feature = "web-slicer"))]
 pub mod printer;
 
 #[cfg(all(not(target_arch = "wasm32"), not(target_os = "ios")))]

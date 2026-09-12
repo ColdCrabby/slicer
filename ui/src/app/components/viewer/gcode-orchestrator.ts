@@ -156,8 +156,6 @@ export class GcodeOrchestrator {
       return;
     }
     applyHiddenRoles(this.model, hidden);
-    // Role visibility owns the joint meshes too, so re-assert the LOD state.
-    setDetailLevel(this.model, this.detail);
   }
 
   /**

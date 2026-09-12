@@ -1537,18 +1537,23 @@ a different machine. Empty = omit the line.", extend("x-group" = "Hardware"))]
     #[serde(default)]
     pub printer_model: String,
 
-    #[schemars(description = "Non-print (travel) move speed in **mm/min**.
+    #[schemars(description = "Speed of non-print (travel) moves.
 
-Convert from mm/s by multiplying by 60. Fast travel reduces print time without affecting print quality.
-**Example:** 9000 mm/min = 150 mm/s.", extend("x-group" = "Speed", "x-unit" = "mm_min", "x-tier" = "advanced"))]
+Fast travel reduces print time without affecting print quality; too fast risks \
+skipped steps or ringing on a machine that cannot keep up. **Typical:** \
+150–250 mm/s.
+
+Stored in mm/min — the unit a G-code `F` word carries.", extend("x-group" = "Speed", "x-unit" = "mm_min", "x-tier" = "advanced"))]
     #[serde(default = "SlicingParams::default_travel_speed_mm_min")]
     pub travel_speed_mm_min: f64,
 
     #[schemars(
-        description = "Retraction speed in **mm/min**.
+        description = "Speed at which filament is pulled back and pushed out again.
 
-Convert from mm/s by multiplying by 60.
-**Example:** 2400 mm/min = 40 mm/s.",
+Faster retraction cuts the time the nozzle sits idle; too fast can grind the \
+filament in a Bowden setup or a soft material. **Typical:** 25–45 mm/s.
+
+Stored in mm/min — the unit a G-code `F` word carries.",
         extend("x-group" = "Retraction", "x-unit" = "mm_min", "x-step" = 60, "x-tier" = "advanced")
     )]
     #[serde(default = "SlicingParams::default_retract_speed_mm_min")]
