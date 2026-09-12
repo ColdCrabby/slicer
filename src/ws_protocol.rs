@@ -469,6 +469,18 @@ pub enum ServerMessage {
         /// Nozzle diameter (mm), when known.
         #[serde(skip_serializing_if = "Option::is_none")]
         nozzle_diameter_mm: Option<f64>,
+        /// Sparse `SlicingParams` overlay read off the machine's own config.
+        /// Merged into the printer profile's `params` bag.
+        #[serde(default, skip_serializing_if = "serde_json::Value::is_null")]
+        params: serde_json::Value,
+        /// Where each applied value came from, so the wizard can show its work.
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        findings: Vec<crate::printer::DetectionFinding>,
+        /// Setup decisions the config could not make for us. Each carries a
+        /// suggested answer, so they refine a finished profile rather than
+        /// blocking one.
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        questions: Vec<crate::printer::DetectionQuestion>,
     },
     /// The engine's profile library changed on disk (another client/tab edited
     /// a category). Clients should refetch `GET /api/profiles` for `kind`.

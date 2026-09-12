@@ -66,6 +66,19 @@ issue/PR numbers or repo links in the notes. See the tone rules in
 
 ### Added
 
+- **Your Klipper printer sets itself up.** Detection now reads the machine's own
+  configuration instead of two fields of it: build volume and kinematics, nozzle
+  and filament diameter, velocity and acceleration limits, pressure advance,
+  firmware retraction, object cancellation, and which start macros it uses — so
+  the right `PRINT_START` or Klippain G-code is written for you. Open **What we
+  read from your printer** to see every value and the `printer.cfg` section it
+  came from.
+- **The wizard only asks what your printer can't answer.** After a detection it
+  drops the setup form for a short question or two — an extra fan's purpose, bed
+  levelling, plate orientation — each with an answer already picked and a line
+  saying why. You can add the printer from the first screen and skip all of
+  them. Common machines are recognised by name, and the vendor field finally
+  holds the machine's maker rather than "Klipper".
 - **Settings start calm and open all the way.** Every section shows the handful
   of settings a print actually depends on, then an `Advanced 10` row that
   expands it in place; a second press reveals Expert. Sections holding nothing

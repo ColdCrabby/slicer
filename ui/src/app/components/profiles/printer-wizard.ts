@@ -14,9 +14,21 @@ import { PrintersStore } from '../../services/profiles/printers-store';
 import { NotificationService } from '../../services/notifications';
 import {
   PrinterConnectionService,
+  type DetectionQuestion,
   type PrinterDetectionResult,
 } from '../../services/printer-connection';
-import { defaultGcodeTemplateIdForFlavor, gcodeTemplatePatch } from '../../models/gcode-templates';
+import {
+  customGcodeTemplatePatch,
+  defaultGcodeTemplateIdForFlavor,
+  gcodeTemplatePatch,
+} from '../../models/gcode-templates';
+import {
+  optionDescription,
+  optionLabel,
+  optionProfilePatch,
+  optionTemplateId,
+  questionCopy,
+} from './detection-questions';
 import {
   Icon,
   Button,
@@ -30,11 +42,26 @@ import {
 import { CatalogPicker, type CatalogEntryVm } from './catalog-picker';
 import { paramNum, paramStr } from '../../models/params-access';
 
-const STEPS = ['Start', 'Basics', 'Build volume', 'Hardware'] as const;
-const KLIPPAIN_TEMPLATE_ID = 'klippain';
-const KLIPPAIN_README_URL = 'https://github.com/Frix-x/klippain/blob/main/README.md';
+/** Display names for the G-code dialects detection reports. */
+const FIRMWARE_LABELS: Readonly<Record<string, string>> = {
+  klipper: 'Klipper',
+  marlin: 'Marlin',
+};
 
-type KlipperMacroChoice = 'standard' | 'klippain';
+/** Steps for a printer entered by hand or seeded from a catalog preset. */
+const MANUAL_STEPS = ['Start', 'Basics', 'Build volume', 'Hardware'] as const;
+
+/**
+ * A question the wizard is showing, paired with the wording for it.
+ *
+ * Questions whose copy this build doesn't recognise are dropped rather than
+ * rendered as raw ids — their suggested answer is still applied, so an older UI
+ * against a newer engine produces a correct profile, just without the prompt.
+ */
+interface WizardQuestion {
+  readonly question: DetectionQuestion;
+  readonly copy: NonNullable<ReturnType<typeof questionCopy>>;
+}
 
 function normalizedFlavor(value: string | undefined): PrinterGcodeFlavor | undefined {
   const normalized = value?.trim().toLowerCase();
@@ -76,7 +103,6 @@ export class PrinterWizard {
   private readonly notifications = inject(NotificationService);
   private readonly router = inject(Router);
 
-  protected readonly steps = STEPS;
   protected readonly index = signal(0);
   protected readonly draft = signal<PrinterProfile>(makePrinter());
 
@@ -84,7 +110,43 @@ export class PrinterWizard {
   protected readonly detectHost = signal('');
   protected readonly detecting = signal(false);
   protected readonly detectResult = signal<PrinterDetectionResult | null>(null);
-  protected readonly klipperMacroChoice = signal<KlipperMacroChoice | null>(null);
+  /** Chosen option id per question id. Seeded with every suggestion. */
+  protected readonly answers = signal<Record<string, string>>({});
+
+  /**
+   * Questions worth putting to the user: the ones the config did not settle,
+   * and that this build has wording for.
+   */
+  protected readonly openQuestions = computed<WizardQuestion[]>(() => {
+    const result = this.detectResult();
+    if (!result?.reachable) {
+      return [];
+    }
+    return (result.questions ?? [])
+      .filter((question) => !question.certain)
+      .map((question) => ({ question, copy: questionCopy(question.id) }))
+      .filter((entry): entry is WizardQuestion => entry.copy != null);
+  });
+
+  /**
+   * After a detection the wizard asks only what it could not work out: a
+   * review of what it read, a step per open question, and a finish. A printer
+   * entered by hand keeps the full manual form.
+   */
+  protected readonly steps = computed<readonly string[]>(() => {
+    if (!this.detectResult()?.reachable) {
+      return MANUAL_STEPS;
+    }
+    return ['Detected', ...this.openQuestions().map((entry) => entry.copy.step), 'Ready'];
+  });
+
+  /** The question shown on the current step, if the current step is one. */
+  protected readonly currentQuestion = computed<WizardQuestion | null>(
+    () => this.openQuestions()[this.index() - 1] ?? null,
+  );
+
+  /** Everything detection read off the printer, for the "what we read" panel. */
+  protected readonly findings = computed(() => this.detectResult()?.findings ?? []);
 
   /** Human-readable summary of a successful detection, for the review card. */
   protected readonly detectionRows = computed<{ label: string; value: string }[]>(() => {
@@ -97,8 +159,12 @@ export class PrinterWizard {
     if (r.name) {
       rows.push({ label: 'Name', value: r.name });
     }
-    if (r.vendor) {
-      rows.push({ label: 'Firmware', value: r.vendor });
+    // Vendor is the machine's maker; the firmware it runs is its own row.
+    if (r.model || r.vendor) {
+      rows.push({ label: 'Machine', value: r.model || (r.vendor as string) });
+    }
+    if (r.firmware) {
+      rows.push({ label: 'Firmware', value: FIRMWARE_LABELS[r.firmware] ?? r.firmware });
     }
     if (r.bedWidth != null) {
       const bed =
@@ -119,43 +185,19 @@ export class PrinterWizard {
     return rows;
   });
 
-  /** True when a reachable printer left some hardware fields unknown. */
+  /**
+   * True when a reachable printer left the two settings a profile is useless
+   * without at their defaults, so the manual steps are worth walking.
+   */
   protected readonly detectionMissing = computed(() => {
     const r = this.detectResult();
     return !!r?.reachable && (r.bedWidth == null || r.nozzleDiameterMm == null);
   });
 
-  /** True when detection identified a Klipper host. */
-  protected readonly detectedKlipper = computed(() => {
-    const result = this.detectResult();
-    if (!result?.reachable) {
-      return false;
-    }
-    return normalizedFlavor(result.firmware) === 'klipper';
-  });
-
-  /** Block adding until a Klipper profile (standard/Klippain) is chosen. */
-  protected readonly needsKlipperFlavorChoice = computed(
-    () => this.detectedKlipper() && this.klipperMacroChoice() == null,
-  );
-
   protected readonly bedShapeOptions = [
     { value: 'rectangular', label: 'Rectangular' },
     { value: 'circular', label: 'Circular (delta)' },
   ];
-  protected readonly klipperMacroOptions = [
-    {
-      value: 'standard',
-      label: 'Standard Klipper',
-      description: 'PRINT_START / PRINT_END macros.',
-    },
-    {
-      value: 'klippain',
-      label: 'Klippain',
-      description: 'START_PRINT / END_PRINT + _ON_LAYER_CHANGE macros.',
-    },
-  ];
-  protected readonly klippainReadmeUrl = KLIPPAIN_README_URL;
   protected readonly flavorOptions = PRINTER_GCODE_FLAVORS;
 
   protected readonly catalogStatus = this.catalog.printersStatus;
@@ -177,8 +219,9 @@ export class PrinterWizard {
   );
 
   protected readonly canProceed = computed(() => {
-    if (this.index() === 0) {
-      return false; // Step 0 advances via an explicit choice, not Next.
+    // The manual flow's first step advances via an explicit choice, not Next.
+    if (this.index() === 0 && !this.detectResult()?.reachable) {
+      return false;
     }
     return this.draft().name.trim().length > 0;
   });
@@ -255,9 +298,9 @@ export class PrinterWizard {
   }
 
   /**
-   * Probe the typed URL, then — on a reachable printer — prefill the draft from
-   * whatever the engine could learn (kind, bed volume, nozzle, kinematics) and
-   * show a review card summarising the findings. An unreachable host stays on
+   * Probe the typed URL and, on a reachable printer, build a finished profile
+   * from everything the engine could read off it — then rebuild the wizard's
+   * steps around whatever the config left open. An unreachable host stays on
    * the Start step with an explanatory message.
    */
   protected async detect(): Promise<void> {
@@ -267,7 +310,7 @@ export class PrinterWizard {
     }
     this.detecting.set(true);
     this.detectResult.set(null);
-    this.klipperMacroChoice.set(null);
+    this.answers.set({});
     try {
       const result = await this.printerConn.detectPrinter(host);
       this.detectResult.set(result);
@@ -279,67 +322,91 @@ export class PrinterWizard {
     }
   }
 
-  /** Accept the detected settings and move on to review the Basics step. */
+  /** Walk the detected printer through whatever is still open. */
   protected continueFromDetection(): void {
-    if (this.needsKlipperFlavorChoice()) {
-      return;
-    }
     this.index.set(1);
+  }
+
+  /** Skip the questions and add the printer as detection left it. */
+  protected addDetected(): void {
+    this.finish();
   }
 
   /** Add the detected printer and open its editor scrolled to the G-code block. */
   protected finishAndConfigureGcode(): void {
-    if (this.needsKlipperFlavorChoice()) {
-      return;
-    }
     const printer = this.persist();
     void this.router.navigate(['/settings/printers'], {
       queryParams: { configure: printer.id, focus: 'gcode' },
     });
   }
 
+  /** Fall back to the manual steps for a printer we could only half read. */
+  protected reviewManually(): void {
+    this.detectResult.set(null);
+    this.index.set(1);
+  }
+
   /** Discard the detection and return to the manual "start" options. */
   protected startOver(): void {
     this.detectResult.set(null);
     this.detectHost.set('');
-    this.klipperMacroChoice.set(null);
+    this.answers.set({});
     this.draft.set(makePrinter());
+    this.index.set(0);
   }
 
-  /** Pick the macro convention for detected Klipper hosts. */
-  protected setKlipperMacroChoice(value: string): void {
-    if (value !== 'standard' && value !== 'klippain') {
+  /** The option currently chosen for a question. */
+  protected answerFor(questionId: string): string | null {
+    return this.answers()[questionId] ?? null;
+  }
+
+  /** Options for a question, in the shape the segmented control takes. */
+  protected optionsFor(
+    entry: WizardQuestion,
+  ): { value: string; label: string; description?: string }[] {
+    return entry.question.options.map((option) => ({
+      value: option.id,
+      label: optionLabel(entry.question, option),
+      description: optionDescription(entry.question, option),
+    }));
+  }
+
+  /** Record an answer and apply what it implies. */
+  protected answer(questionId: string, optionId: string): void {
+    const entry = this.openQuestions().find((q) => q.question.id === questionId);
+    if (!entry) {
       return;
     }
-    this.klipperMacroChoice.set(value);
-    this.applyDetectedKlipperTemplate(value);
+    this.answers.update((answers) => ({ ...answers, [questionId]: optionId }));
+    this.applyAnswer(entry.question, optionId);
   }
 
-  /** Merge a successful detection into a fresh draft, keeping sane defaults. */
+  /**
+   * Merge a successful detection into a fresh draft.
+   *
+   * The draft is left **finished**: every fact the printer reported is applied,
+   * and so is the suggested answer to every open question. The question steps
+   * that follow refine a profile the user could already add, which is what lets
+   * the wizard offer "Add printer" from the first step on.
+   */
   private applyDetection(result: PrinterDetectionResult, host: string): void {
     const base = makePrinter();
-    const params = { ...((base.params as Record<string, unknown>) ?? {}) };
     const flavor = normalizedFlavor(result.firmware);
-    this.klipperMacroChoice.set(null);
+    const params: Record<string, unknown> = {
+      ...((base.params as Record<string, unknown>) ?? {}),
+      // Non-Klipper printers get the firmware-appropriate template outright;
+      // for Klipper the macro convention decides it, and the engine reports
+      // that as a question — settled or not.
+      ...(flavor === 'klipper'
+        ? { gcode_flavor: 'klipper' }
+        : (gcodeTemplatePatch(defaultGcodeTemplateIdForFlavor(flavor)) ?? {})),
+      // Everything read off the machine's own config.
+      ...(result.params ?? {}),
+    };
 
-    if (flavor === 'klipper') {
-      // Do not assume a Klipper macro convention: ask whether this host uses
-      // Klippain before choosing the template.
-      params['gcode_flavor'] = 'klipper';
-    } else {
-      // Non-Klipper printers can keep the automatic firmware-appropriate
-      // defaults (Marlin M-codes, etc.).
-      const templatePatch = gcodeTemplatePatch(defaultGcodeTemplateIdForFlavor(flavor));
-      if (templatePatch) {
-        Object.assign(params, templatePatch);
-      }
-    }
-    if (result.nozzleDiameterMm != null) {
-      params['nozzle_diameter_mm'] = result.nozzleDiameterMm;
-    }
     this.draft.set({
       ...base,
-      name: result.name?.trim() || result.vendor || base.name,
+      name: result.name?.trim() || result.model || base.name,
       vendor: result.vendor ?? base.vendor,
       model: result.model ?? base.model,
       bed_shape: result.bedShape ?? base.bed_shape,
@@ -350,14 +417,53 @@ export class PrinterWizard {
       connection: { kind: result.kind, host, connected: false },
       params,
     });
+
+    // Apply every suggestion — including the ones the config settled outright,
+    // which never become steps.
+    const answers: Record<string, string> = {};
+    for (const question of result.questions ?? []) {
+      answers[question.id] = question.suggested;
+      this.applyAnswer(question, question.suggested);
+    }
+    this.answers.set(answers);
+    this.index.set(0);
   }
 
-  private applyDetectedKlipperTemplate(choice: KlipperMacroChoice): void {
-    const templateId =
-      choice === 'klippain' ? KLIPPAIN_TEMPLATE_ID : defaultGcodeTemplateIdForFlavor('klipper');
-    const templatePatch = gcodeTemplatePatch(templateId);
-    if (templatePatch) {
-      this.patchParams(templatePatch);
+  /**
+   * Apply one answer: its slicing params, plus the profile-level effects a
+   * params bag cannot carry (a machine's identity, its plate orientation, the
+   * G-code its start macros expect).
+   */
+  private applyAnswer(question: DetectionQuestion, optionId: string): void {
+    const option = question.options.find((candidate) => candidate.id === optionId);
+    if (option?.params) {
+      this.patchParams(option.params);
+    }
+
+    const templateId = optionTemplateId(question.id, optionId);
+    if (templateId) {
+      const patch = gcodeTemplatePatch(templateId);
+      if (patch) {
+        this.patchParams(patch);
+      }
+    } else if (question.id === 'macro_convention') {
+      // "Leave it to me" — write no start/end G-code rather than commands this
+      // printer has no macro for.
+      this.patchParams({
+        ...customGcodeTemplatePatch(),
+        start_gcode: '',
+        end_gcode: '',
+        layer_gcode: '',
+      });
+    }
+
+    if (question.id === 'machine_identity' && optionId === 'other') {
+      this.patch({ vendor: '', model: '' });
+    }
+
+    const profilePatch = optionProfilePatch(question.id, optionId);
+    if (profilePatch) {
+      this.patch(profilePatch);
     }
   }
 
@@ -374,7 +480,7 @@ export class PrinterWizard {
   }
 
   protected next(): void {
-    this.index.update((i) => Math.min(this.steps.length - 1, i + 1));
+    this.index.update((i) => Math.min(this.steps().length - 1, i + 1));
   }
 
   protected goto(index: number): void {
