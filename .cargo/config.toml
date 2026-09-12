@@ -1,5 +1,4 @@
-# Machine-specific cargo configuration.
-# This file is intentionally NOT committed to git.
+# Cargo configuration for cross-target builds.
 #
 # WASM Build Requirements (wasm32-unknown-unknown):
 #   WASI SDK must be installed. Download from:
@@ -18,8 +17,14 @@
 [env]
 # CXX_wasm32_unknown_unknown points to a wrapper script that strips
 # --target=wasm32-unknown-unknown (added by cc-rs) and delegates to the WASI
-# SDK's wasm32-wasip1-clang++.exe which has the correct sysroot and C++ headers.
+# SDK's wasm32-wasip1-clang++ which has the correct sysroot and C++ headers.
 # See tools/wasm32-clang++.js for details.
+#
+# The wrapper has two spellings and the right one depends on the *host*, which
+# cargo's `[env]` cannot branch on: the batch file below only runs on Windows.
+# scripts/build-wasm.mjs picks the host's wrapper and exports it, and a real
+# environment variable wins over this entry — so build wasm through
+# `pnpm run build:wasm[:web-slicer]` rather than calling cargo directly.
 CXX_wasm32_unknown_unknown = { value = "tools/wasm32-clang++.cmd", relative = true }
 # CXXSTDLIB_wasm32_unknown_unknown="" tells cc-rs not to auto-link stdc++ for WASM.
 # The C++ stdlib is already compiled into libclipper2c.a by the WASI SDK toolchain.
