@@ -1,0 +1,57 @@
+<nav class="settings-outline" aria-label="Settings outline">
+  @for (section of sections(); track section.name) {
+    <div class="settings-outline-section">
+      <button
+        type="button"
+        class="settings-outline-section-header"
+        [class.is-current]="section.name === currentSection()"
+        (click)="jumpSection.emit(section.name)"
+      >
+        @if (section.icon; as icon) {
+          <nexus-icon [name]="icon" aria-hidden="true" />
+        }
+        <span class="settings-outline-section-name">{{ section.name }}</span>
+        @if (section.modifiedCount) {
+          <span
+            class="settings-outline-modified"
+            role="img"
+            [attr.aria-label]="
+              section.modifiedCount +
+              (section.modifiedCount === 1 ? ' setting differs' : ' settings differ') +
+              ' from the presets'
+            "
+          ></span>
+        }
+        <span class="settings-outline-count">{{ section.entries.length }}</span>
+      </button>
+
+      <ul class="settings-outline-entries">
+        @for (entry of section.entries; track entry.key; let i = $index) {
+          @if (startsTier(section.entries, i); as tier) {
+            <!-- Says what the rows below it will open up, so a jump that
+                 reveals a folded-away tier is never a surprise. -->
+            <li class="settings-outline-tier" aria-hidden="true">{{ tierLabel(tier) }}</li>
+          }
+          <li>
+            <button
+              type="button"
+              class="settings-outline-entry"
+              [class.is-modified]="entry.modified"
+              (click)="jumpField.emit({ group: section.name, key: entry.key })"
+            >
+              <span class="settings-outline-entry-title">{{ entry.title }}</span>
+            </button>
+          </li>
+        }
+      </ul>
+    </div>
+  } @empty {
+    <p class="settings-outline-empty">
+      @if (query()) {
+        No settings match "{{ query() }}"
+      } @else {
+        Nothing to outline here
+      }
+    </p>
+  }
+</nav>

@@ -1,145 +1,3 @@
-@use 'breakpoints' as *;
-
-.schema-form-search {
-  position: sticky;
-  top: 0;
-  z-index: 10;
-  padding: var(--spacing-sm) var(--spacing-sm) 0;
-  // Seamless panel-coloured backing so scrolled content never peeks through the
-  // sticky search; the ::after fades the following content out smoothly.
-  background: var(--color-bg-secondary);
-}
-
-.schema-form-search::after {
-  content: '';
-  position: absolute;
-  left: 0;
-  right: 0;
-  top: 100%;
-  height: var(--spacing-md);
-  background: linear-gradient(
-    to bottom,
-    var(--color-bg-secondary),
-    color-mix(in srgb, var(--color-bg-secondary) 40%, transparent) 55%,
-    transparent
-  );
-  pointer-events: none;
-}
-
-.schema-form-search-field {
-  display: flex;
-  align-items: center;
-  gap: var(--spacing-xs);
-  padding: var(--spacing-sm) var(--spacing-md);
-  background: var(--color-surface);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-md);
-  transition:
-    border-color var(--duration-fast) var(--ease-standard),
-    box-shadow var(--duration-fast) var(--ease-standard);
-
-  &:focus-within {
-    border-color: var(--color-focus-ring);
-    box-shadow: inset 0 0 0 1px var(--color-focus-ring);
-  }
-}
-
-.schema-form-search-icon {
-  flex-shrink: 0;
-  color: var(--color-text-tertiary);
-  font-size: 14px;
-  pointer-events: none;
-}
-
-.schema-form-search-input {
-  flex: 1;
-  background: none;
-  border: none;
-  outline: none;
-  color: var(--color-text-primary);
-  font-size: 13px;
-  line-height: 1.4;
-  padding: 0;
-  min-width: 0;
-
-  // The field's :focus-within border is the focus indicator; suppress the
-  // global input focus outline/box-shadow so we don't get a second inner ring.
-  &:focus,
-  &:focus-visible {
-    outline: none;
-    box-shadow: none;
-  }
-
-  &::placeholder {
-    color: var(--color-text-tertiary);
-  }
-
-  // Remove native search cancel button — we provide our own.
-  &::-webkit-search-cancel-button {
-    display: none;
-  }
-}
-
-.schema-form-search-clear {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  flex-shrink: 0;
-  background: none;
-  border: none;
-  cursor: pointer;
-  color: var(--color-text-tertiary);
-  padding: 2px;
-  border-radius: var(--radius-sm);
-  transition: color var(--transition-fast);
-
-  &:hover {
-    color: var(--color-text-primary);
-  }
-}
-
-.schema-form-search-results {
-  display: flex;
-  flex-direction: column;
-  gap: var(--spacing-md);
-  padding: var(--spacing-md);
-  margin-top: var(--spacing-md);
-}
-
-.schema-form-search-result {
-  display: flex;
-  flex-direction: column;
-  gap: var(--spacing-xs);
-  transition: opacity var(--transition-fast);
-
-  &:hover {
-    opacity: 1 !important;
-    filter: none !important;
-  }
-}
-
-.schema-form-search-result-group {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  font-size: 10px;
-  font-weight: 600;
-  color: var(--color-text-tertiary);
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
-
-  nexus-icon {
-    --icon-size: 12px;
-  }
-}
-
-.schema-form-no-results {
-  padding: var(--spacing-lg);
-  text-align: center;
-  color: var(--color-text-tertiary);
-  font-size: 13px;
-}
-
 .schema-form-accordion {
   display: flex;
   flex-direction: column;
@@ -167,6 +25,11 @@
   background: var(--color-bg-secondary);
 }
 
+/** Height of a section header, which pins below the search bar. */
+:host {
+  --schema-form-group-header-h: 36px;
+}
+
 .schema-form-group-trigger {
   // A press with no acknowledgement reads as a press that missed, and there is
   // no hover to fall back on under a fingertip.
@@ -178,7 +41,7 @@
   align-items: center;
   justify-content: space-between;
   width: 100%;
-  min-height: 36px;
+  min-height: var(--schema-form-group-header-h);
   padding: 8px 12px;
   background: none;
   border: none;
@@ -416,29 +279,52 @@
   transition: transform var(--duration-slow) var(--ease-standard);
 }
 
-// The field inside grows to 44px for touch, so the block's own padding and its
-// fade-out below it stop being breathing room and start being a third of the
-// panel's first screen.
-@include coarse-pointer {
-  .schema-form-search {
-    padding: var(--spacing-xs) var(--spacing-xs) 0;
-  }
+/**
+ * An outline jump aims at `block: start`; without a scroll margin the row would
+ * land behind the chrome pinned above it.
+ *
+ * A section clears the search bar and its fade. A *field* has to clear its own
+ * section header too — that header is sticky, so scrolling a field to the top
+ * of the panel parked its label directly underneath it and the jump appeared to
+ * land one row late.
+ */
+.schema-form-group {
+  scroll-margin-top: calc(var(--schema-form-search-h, 44px) + var(--spacing-lg));
+}
 
-  .schema-form-search::after {
-    height: var(--spacing-sm);
-  }
+.schema-form-field {
+  scroll-margin-top: calc(
+    var(--schema-form-search-h, 44px) + var(--spacing-lg) + var(--schema-form-group-header-h)
+  );
+}
 
-  // The pill is the 44px target, not the input inside it. The global touch rule
-  // raises every bare `input` to 44px, which here stacked on top of the pill's
-  // own 8px padding and made a 60px-tall search box. Sizing the wrapper and
-  // releasing the input is the idiom `_field-focus.scss` already describes for
-  // these wrapper pills.
-  .schema-form-search-field {
-    min-height: 44px;
-    padding: 0 var(--spacing-md);
-  }
+/**
+ * Where an outline jump landed.
+ *
+ * A smooth scroll ends with the target amongst a column of near-identical rows,
+ * so the row the user asked for is marked for a moment and then left alone. It
+ * fades rather than blinks — this fires on a deliberate navigation, not on an
+ * error, and has nothing to interrupt.
+ */
+.schema-form-field.is-jump-target,
+.schema-form-group.is-jump-target {
+  animation: schema-form-jump-flash var(--duration-slow) var(--ease-decelerate) 2 alternate;
+  border-radius: var(--radius-md);
+}
 
-  .schema-form-search-field .schema-form-search-input {
-    min-height: 0;
+@keyframes schema-form-jump-flash {
+  from {
+    background: transparent;
+  }
+  to {
+    background: var(--accent-softer);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .schema-form-field.is-jump-target,
+  .schema-form-group.is-jump-target {
+    animation: none;
+    background: var(--accent-softer);
   }
 }
