@@ -37,6 +37,13 @@ import type { FieldWidget } from '../base-field';
         color: var(--color-text-secondary);
         user-select: none;
       }
+
+      /* The group's own host is flex: 0 1 auto, so it fills only where its
+         parent happens to be a column. Say it here instead of relying on that:
+         a card list that does not span the panel reads as a stray control. */
+      nexus-radio-group {
+        flex: 1;
+      }
     `,
   ],
   template: `

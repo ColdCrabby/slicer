@@ -171,6 +171,12 @@ import { FieldShell } from './field-shell';
         margin-bottom: var(--spacing-sm);
       }
 
+      /* Projected into the shell's stacked row, where the flex direction is the
+         shell's business and not something this control should depend on. */
+      nexus-radio-group {
+        flex: 1;
+      }
+
       .param-field-text {
         min-width: 0;
         padding: var(--spacing-sm) var(--spacing-md);
