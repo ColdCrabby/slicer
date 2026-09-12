@@ -1,0 +1,60 @@
+<div class="profile-outline">
+  <div class="profile-outline__filter">
+    <nexus-icon name="search" aria-hidden="true" />
+    <input
+      type="search"
+      placeholder="Filter settings"
+      aria-label="Filter settings"
+      autocomplete="off"
+      [(ngModel)]="query"
+    />
+    @if (query()) {
+      <button type="button" aria-label="Clear filter" (click)="query.set('')">
+        <nexus-icon name="xmark" aria-hidden="true" />
+      </button>
+    }
+  </div>
+
+  <nav class="profile-outline__body" aria-label="Settings outline">
+    @for (section of visible(); track section.id) {
+      <button
+        type="button"
+        class="profile-outline__section"
+        [class.is-current]="section.id === currentId()"
+        (click)="jump(section.el)"
+      >
+        <span>{{ section.title }}</span>
+        <!-- A section with no named rows — the G-code editor is one — would
+             otherwise advertise a count of zero. -->
+        @if (section.entries.length) {
+          <span class="profile-outline__count">{{ section.entries.length }}</span>
+        }
+      </button>
+
+      <ul class="profile-outline__entries">
+        @for (entry of section.entries; track entry.id) {
+          <li>
+            <!-- The rail is narrow and some names are long, so the full one
+                 is always available without widening the column. -->
+            <button
+              type="button"
+              class="profile-outline__entry"
+              [title]="entry.title"
+              (click)="jump(entry.el)"
+            >
+              {{ entry.title }}
+            </button>
+          </li>
+        }
+      </ul>
+    } @empty {
+      <p class="profile-outline__empty">
+        @if (query()) {
+          No settings match "{{ query() }}"
+        } @else {
+          Nothing to outline yet
+        }
+      </p>
+    }
+  </nav>
+</div>

@@ -87,6 +87,28 @@ weeks ago — that is the point of a profile. The exception is a setting you
 changed on a particular plate, which stays as you left it. See
 [Changes belong to the plate](/use/settings#changes-belong-to-the-plate).
 
+## Finding a setting in the editor
+
+These three pages are the one place that shows **every** parameter the slicer
+has — nothing folded away, nothing behind an *Advanced* step. That is what they
+are for, and it is also what makes them long: a printer's editor runs to sixty
+settings, a print profile past two hundred.
+
+The **outline** down the right-hand side is the map. It lists every section of
+the editor and, under each, every setting by name — a whole section in a glance.
+Click a line and the editor jumps to that control and marks where you landed.
+The section you are currently scrolled to is highlighted, so you never lose your
+place.
+
+Above it, **Filter settings** narrows the outline as you type. Matches stay
+grouped under their own sections, which is the part that helps: typing `gap`
+shows you that there is one in Walls, one in Infill, one in Support and two in
+Speed — *where* each lives, not just that it exists. It is the fastest way to a
+setting you can picture but cannot name.
+
+The outline needs a window wide enough for a third column; below that the list
+and the editor keep the room.
+
 ## Labels
 
 Labels are a flat set of tags — `PLA`, `prototype`, `customer-work`, whatever

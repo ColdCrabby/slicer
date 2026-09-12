@@ -71,12 +71,11 @@ issue/PR numbers or repo links in the notes. See the tone rules in
 
 ### Added
 
-- **An outline for the settings panel.** Press the list button beside the search
-  box — or `Ctrl`/`⌘ + Shift + O` — and the panel becomes a table of contents:
-  every section, and under it every setting by name. Click a line to land on the
-  control, in its section. It lists what the panel folds away too, marked with
-  the tier it sits behind, for the case search cannot help with: you know the
-  setting exists, you just can't name it.
+- **An outline for the printer, filament and profile editors.** These pages show
+  every parameter there is, in one long column with no way to search it. A
+  contents rail now sits beside them: every section, and under it every setting
+  by name, with a filter box — so a setting you can picture but cannot name is
+  one glance away, and one click takes you to it.
 - **Your Klipper printer sets itself up.** Detection now reads the machine's own
   configuration instead of two fields of it: build volume and kinematics, nozzle
   and filament diameter, velocity and acceleration limits, pressure advance,

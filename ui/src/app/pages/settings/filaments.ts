@@ -48,6 +48,7 @@ import {
 } from '@coldcrabby/ui';
 import { CatalogPicker, type CatalogEntryVm } from '../../components/profiles/catalog-picker';
 import { ParamField } from '../../components/profiles/param-field';
+import { ProfileOutline } from '../../components/profiles/profile-outline';
 import { controlFor } from '../../schema-form/models/field-control';
 import { LabelFilterBar } from '../../components/labels/label-filter-bar';
 import { LabelPicker } from '../../components/labels/label-picker';
@@ -132,6 +133,7 @@ const PARAM_GROUPS: SchemaGroup[] = (() => {
     LabelFilterBar,
     LabelPicker,
     ContextMenuTrigger,
+    ProfileOutline,
   ],
   templateUrl: './filaments.html',
   styleUrl: './filaments.scss',

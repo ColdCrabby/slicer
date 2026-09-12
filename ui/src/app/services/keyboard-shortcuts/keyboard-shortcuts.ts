@@ -205,17 +205,10 @@ export class KeyboardShortcuts {
       canMatch: () => this.schemaFormRef !== null,
       handleAction: () => this.schemaFormRef!.focusSearch(),
     },
-    {
-      actionId: 'toggle-settings-outline',
-      shortcut: '$mod+Shift+o',
-      displayDescription: 'Toggle the settings outline',
-      canMatch: () => this.schemaFormRef !== null,
-      handleAction: () => this.schemaFormRef!.toggleOutline(),
-    },
   ].map((s) => ({ ...s, _parsed: parseKeybinding(s.shortcut) }));
 
   /** Set by SchemaForm on mount/destroy so the shortcut knows when search is available. */
-  schemaFormRef: { focusSearch(): void; toggleOutline(): void } | null = null;
+  schemaFormRef: { focusSearch(): void } | null = null;
 
   constructor() {
     fromEvent<KeyboardEvent>(document, 'keydown')

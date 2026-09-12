@@ -1,7 +1,7 @@
-// The panel's chrome: the sticky search bar, the outline toggle beside it, and
-// the flat result list a query swaps in. Split from the accordion it sits above
-// because the two change for different reasons — and because one component
-// stylesheet holding both had outgrown the size budget.
+// The panel's chrome: the sticky search bar and the flat result list a query
+// swaps in. Split from the accordion it sits above because the two change for
+// different reasons — and because one component stylesheet holding both was a
+// rule or two away from the size budget.
 @use 'breakpoints' as *;
 
 .schema-form-search {
@@ -30,15 +30,7 @@
   pointer-events: none;
 }
 
-.schema-form-search-row {
-  display: flex;
-  align-items: center;
-  gap: var(--spacing-xs);
-}
-
 .schema-form-search-field {
-  flex: 1 1 auto;
-  min-width: 0;
   display: flex;
   align-items: center;
   gap: var(--spacing-xs);
@@ -110,46 +102,6 @@
   }
 }
 
-// Sits outside the field so it reads as a second way to look at the settings
-// rather than as a control belonging to the search itself.
-.schema-form-outline-toggle {
-  display: grid;
-  place-items: center;
-  flex-shrink: 0;
-  width: 32px;
-  height: 32px;
-  padding: 0;
-  border: none;
-  border-radius: var(--radius-md);
-  background: transparent;
-  color: var(--color-text-tertiary);
-  cursor: pointer;
-  transition:
-    background-color var(--duration-fast) var(--ease-standard),
-    color var(--duration-fast) var(--ease-standard);
-
-  --icon-size: 17px;
-
-  &:hover {
-    background: var(--color-surface-hover);
-    color: var(--color-text-primary);
-  }
-
-  &:active {
-    background: var(--color-surface-active);
-  }
-
-  &:focus-visible {
-    outline: 2px solid var(--color-focus-ring);
-    outline-offset: -2px;
-  }
-
-  &.is-active {
-    background: var(--accent-soft);
-    color: var(--accent);
-  }
-}
-
 .schema-form-search-results {
   display: flex;
   flex-direction: column;
@@ -216,10 +168,5 @@
 
   .schema-form-search-field .schema-form-search-input {
     min-height: 0;
-  }
-
-  .schema-form-outline-toggle {
-    width: 44px;
-    height: 44px;
   }
 }

@@ -1,56 +1,28 @@
 <div class="schema-form-search" #searchBar>
-  <div class="schema-form-search-row">
-    <div class="schema-form-search-field">
-      <nexus-icon name="search" class="schema-form-search-icon" aria-hidden="true" />
-      <input
-        #searchInput
-        class="schema-form-search-input"
-        type="search"
-        [placeholder]="searchPlaceholder()"
-        autocomplete="off"
-        [(ngModel)]="searchQuery"
-      />
-      @if (searchQuery()) {
-        <button
-          class="schema-form-search-clear"
-          type="button"
-          aria-label="Clear search"
-          (click)="searchQuery.set('')"
-        >
-          <nexus-icon name="xmark" aria-hidden="true" />
-        </button>
-      }
-    </div>
-
-    <!-- The outline is a peer of search, not a setting, so it sits on the same
-         row as the box it shares its filter with. -->
-    <button
-      type="button"
-      class="schema-form-outline-toggle"
-      [class.is-active]="outlineOpen()"
-      [attr.aria-pressed]="outlineOpen()"
-      aria-label="Outline"
-      [title]="
-        'Outline — every section and setting by name (' +
-        keyboardShortcuts.shortcutFor('toggle-settings-outline') +
-        ')'
-      "
-      (click)="toggleOutline()"
-    >
-      <nexus-icon name="list" aria-hidden="true" />
-    </button>
+  <div class="schema-form-search-field">
+    <nexus-icon name="search" class="schema-form-search-icon" aria-hidden="true" />
+    <input
+      #searchInput
+      class="schema-form-search-input"
+      type="search"
+      [placeholder]="searchPlaceholder()"
+      autocomplete="off"
+      [(ngModel)]="searchQuery"
+    />
+    @if (searchQuery()) {
+      <button
+        class="schema-form-search-clear"
+        type="button"
+        aria-label="Clear search"
+        (click)="searchQuery.set('')"
+      >
+        <nexus-icon name="xmark" aria-hidden="true" />
+      </button>
+    }
   </div>
 </div>
 
-@if (outlineOpen()) {
-  <se-settings-outline
-    [sections]="outlineSections()"
-    [currentSection]="currentOutlineSection()"
-    [query]="searchQuery()"
-    (jumpSection)="jumpToSection($event)"
-    (jumpField)="jumpToField($event)"
-  />
-} @else if (searchQuery().trim()) {
+@if (searchQuery().trim()) {
   <div class="schema-form-search-results" role="list" aria-label="Search results">
     @for (f of searchResults(); track f.key) {
       <div
@@ -81,7 +53,7 @@
   <div ngAccordionGroup [multiExpandable]="true" class="schema-form-accordion">
     @for (group of groups(); track group.name; let groupIndex = $index) {
       @let expandedSig = getExpandedSignal(group.name);
-      <div class="schema-form-group" [attr.data-group]="group.name" #groupEl>
+      <div class="schema-form-group" #groupEl>
         <h3 class="schema-form-group-heading" role="heading" aria-level="3">
           <button
             ngAccordionTrigger
@@ -145,11 +117,7 @@
             <div class="schema-form-group-fields">
               <div class="schema-form-group-fields-inner">
                 @for (f of visibleFields(group); track f.key) {
-                  <div
-                    class="schema-form-field"
-                    [attr.data-field]="f.key"
-                    [class.is-modified]="modifiedKeys().has(f.key)"
-                  >
+                  <div class="schema-form-field" [class.is-modified]="modifiedKeys().has(f.key)">
                     <se-field-host
                       [field]="f"
                       [value]="valueFor(f)"

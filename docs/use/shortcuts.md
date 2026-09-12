@@ -50,12 +50,11 @@ Every numeric field takes more than typing:
 
 Hover-scrolling is the fast one — you don't have to click into the field first.
 
-## Settings
+## Search
 
 | Action | Key |
 | --- | --- |
 | Focus settings search | `⌘/Ctrl + F` |
-| Toggle the settings outline | `⌘/Ctrl + Shift + O` |
 
 ## Mouse
 
