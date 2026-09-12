@@ -162,6 +162,16 @@ export interface GcodeModel {
    * cheap and can afford full detail.
    */
   visibleSegments: number;
+  /**
+   * Roles the legend has switched off, and the current LOD.
+   *
+   * Both decide whether a role's joint balls are drawn, so they are kept on the
+   * model and resolved together in {@link applyRoleVisibility}. Holding only one
+   * of them lets the other silently re-show what it does not own — a hidden
+   * role reduced to a trail of joint dots at every bend.
+   */
+  hiddenRoles: ReadonlySet<RoleName>;
+  detail: GcodeDetail;
 }
 
 // -- Model builder ------------------------------------------------------------
@@ -776,7 +786,15 @@ export function buildGcodeModel(
     }
   }
 
-  return { group, layers, roleSegments, totalSegments, visibleSegments: totalSegments };
+  return {
+    group,
+    layers,
+    roleSegments,
+    totalSegments,
+    visibleSegments: totalSegments,
+    hiddenRoles: new Set<RoleName>(),
+    detail: 'high',
+  };
 }
 
 /** Release every Three.js resource owned by a built model. */
@@ -1046,13 +1064,29 @@ function rs_clampLayer(index: number, layerCount: number): number {
   return Math.max(0, Math.min(layerCount - 1, Math.round(index)));
 }
 
-export function applyHiddenRoles(model: GcodeModel, hiddenRoles: ReadonlySet<RoleName>): void {
+/**
+ * Resolve every role's visibility from the two things that decide it: whether
+ * the legend has the role switched off, and the current LOD.
+ *
+ * Joint balls are corner filler for the tubes, so they must be off whenever
+ * *either* their role is hidden or detail is low. Seam markers only look like
+ * joints — they live in the same slot but are meaningful dots, so they follow
+ * role visibility alone.
+ */
+function applyRoleVisibility(model: GcodeModel): void {
+  const high = model.detail === 'high';
   for (const rs of model.roleSegments) {
-    const visible = !hiddenRoles.has(rs.role);
+    const visible = !model.hiddenRoles.has(rs.role);
     if (rs.mesh) rs.mesh.visible = visible;
-    if (rs.joints) rs.joints.visible = visible;
     if (rs.lines) rs.lines.visible = visible;
+    if (rs.joints) rs.joints.visible = visible && (rs.role === 'seam' || high);
   }
+}
+
+/** Hide all segments belonging to the given roles. */
+export function applyHiddenRoles(model: GcodeModel, hiddenRoles: ReadonlySet<RoleName>): void {
+  model.hiddenRoles = hiddenRoles;
+  applyRoleVisibility(model);
 }
 
 /**
@@ -1069,6 +1103,7 @@ export function applyHiddenRoles(model: GcodeModel, hiddenRoles: ReadonlySet<Rol
  */
 export function setDetailLevel(model: GcodeModel, detail: GcodeDetail): void {
   const high = detail === 'high';
+  model.detail = detail;
   for (const rs of model.roleSegments) {
     if (rs.mesh && rs.meshGeomHigh && rs.meshGeomLow) {
       // Both LODs have identical extents, so the instance bounding sphere
@@ -1076,12 +1111,8 @@ export function setDetailLevel(model: GcodeModel, detail: GcodeDetail): void {
       // invalidated here, since recomputing it walks every instance matrix.
       rs.mesh.geometry = high ? rs.meshGeomHigh : rs.meshGeomLow;
     }
-    // Seam markers live in the `joints` slot but are meaningful dots, not
-    // corner filler — they must keep their own role visibility.
-    if (rs.role !== 'seam' && rs.joints) {
-      rs.joints.visible = high;
-    }
   }
+  applyRoleVisibility(model);
 }
 
 /**
