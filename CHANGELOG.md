@@ -71,6 +71,11 @@ issue/PR numbers or repo links in the notes. See the tone rules in
 
 ### Added
 
+- **The slice dock now says how long the print will take.** An estimate sits
+  beside the slice result, read from the G-code itself. It comes from your
+  process settings — the speeds and accelerations the file commands — not from
+  the printer's own limits, which the slicer has no way to know, so a machine
+  that cannot keep up takes longer than the figure says.
 - **An outline for the settings panel.** Press the list button beside the search
   box — or `Ctrl`/`⌘ + Shift + O` — and the panel becomes a table of contents:
   every section, and under it every setting by name. Click a line to land on the

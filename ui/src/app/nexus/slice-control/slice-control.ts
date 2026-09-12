@@ -128,6 +128,45 @@ export class SliceControl {
     return this.slicer.selectedFile() ? 'Ready to slice' : 'Add a model to begin';
   });
 
+  /**
+   * What the finished file says the print will take, or `null` when there is
+   * nothing to quote.
+   *
+   * Hidden while a slice is running: the number belongs to the G-code the
+   * preview currently holds, and leaving the previous one on screen beside a
+   * progress bar reads as a live figure for the slice in flight.
+   */
+  protected readonly printEstimate = computed<string | null>(() => {
+    if (this.isActive()) {
+      return null;
+    }
+    const seconds = this.preview.estimatedPrintTimeS();
+    if (seconds === null) {
+      return null;
+    }
+    // Rounded to the minute above a minute. The estimator resolves to the
+    // second and the formatter would print it, but a figure that cannot account
+    // for the machine's own limits has no business claiming `49m 19s` — the
+    // spurious precision is exactly what teaches people to distrust it.
+    const ms = seconds < 60 ? seconds * 1000 : Math.round(seconds / 60) * 60_000;
+    return formatDuration(ms);
+  });
+
+  /**
+   * Why the number is approximate, in one line.
+   *
+   * The estimate is built from the process settings — the speeds and
+   * accelerations the G-code actually commands. It is not built from the
+   * machine's own limits, because the slicer does not have them: a printer
+   * profile carries no velocity or jerk ceiling unless detection happened to
+   * read one. A machine that cannot reach a commanded speed simply takes
+   * longer, and saying so is cheaper than a figure the user learns to distrust.
+   */
+  protected readonly printEstimateHint =
+    'Estimated from your process settings — the speeds and accelerations the ' +
+    "G-code asks for. The slicer doesn't know your printer's real limits, so " +
+    'the machine may take longer.';
+
   slice(): void {
     void this.slicer.slice();
   }

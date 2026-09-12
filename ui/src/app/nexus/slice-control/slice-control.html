@@ -58,6 +58,20 @@
       <span class="status-dot" aria-hidden="true"></span>
     }
     {{ statusLine() }}
+
+    <!-- How long the print will take, as the file itself estimates it. The
+         tilde carries the short version of the caveat; the tooltip carries the
+         precise one. -->
+    @if (printEstimate(); as estimate) {
+      <span
+        class="print-estimate"
+        [tooltip]="printEstimateHint"
+        [attr.aria-label]="'Estimated print time ' + estimate"
+      >
+        <nexus-icon name="timer" aria-hidden="true"></nexus-icon>
+        ~{{ estimate }}
+      </span>
+    }
   </div>
 
   <!-- Progress rail pinned flush to the shared card's bottom edge (no layout shift). -->
