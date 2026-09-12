@@ -12,7 +12,9 @@ import {
 } from '../../services/viewer-control';
 import { ProfileExportButton } from '../../components/profiles/profile-export-button';
 import { resolveRuntimeMode } from '../../runtime/domain/runtime-mode.util';
+import { formatDuration } from '../../models/duration';
 import { AppVersion } from '../../services/app-version';
+import { AutoSlice, type AutoSliceMode } from '../../services/auto-slice';
 import {
   HistoryControlsPreference,
   type HistoryControlsMode,
@@ -31,6 +33,7 @@ export class GeneralSettings implements OnInit {
   protected readonly viewer = inject(ViewerControl);
   private readonly appVersion = inject(AppVersion);
   protected readonly historyControls = inject(HistoryControlsPreference);
+  protected readonly autoSlice = inject(AutoSlice);
   protected readonly gesture = this.viewer.trackpadTwoFingerGesture;
   protected readonly statsVisible = this.viewer.statsVisible;
   protected readonly palmRejection = this.viewer.palmRejection;
@@ -57,6 +60,25 @@ export class GeneralSettings implements OnInit {
     resolveRuntimeMode() === 'web'
       ? 'Exports the library kept in this browser.'
       : 'Exports the library saved with the slicer.';
+
+  /**
+   * The evidence `Automatic` is deciding on right now. Quoted live so a plate
+   * that has quietly stopped re-slicing itself says why, instead of looking
+   * like the setting stopped working.
+   */
+  protected readonly autoSliceNote = computed(() => {
+    const last = this.autoSlice.lastSliceMs();
+    if (last === null) {
+      return 'Nothing timed yet — Automatic starts out re-slicing and settles once it has measured a slice.';
+    }
+    const took = `Your last slice took ${formatDuration(last)}`;
+    if (this.autoSlice.mode() !== 'auto') {
+      return `${took}.`;
+    }
+    return this.autoSlice.enabled()
+      ? `${took}, so Automatic is re-slicing on its own.`
+      : `${took}, so Automatic is leaving it to the Slice button.`;
+  });
 
   /** Build-time version metadata read from the WASM bundle (SSOT). */
   protected readonly info = this.appVersion.info;
@@ -146,5 +168,9 @@ export class GeneralSettings implements OnInit {
 
   setHistoryControls(mode: HistoryControlsMode): void {
     this.historyControls.setMode(mode);
+  }
+
+  setAutoSlice(mode: AutoSliceMode): void {
+    this.autoSlice.setMode(mode);
   }
 }

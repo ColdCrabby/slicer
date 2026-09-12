@@ -107,8 +107,39 @@ changed something since the last slice — so a stale preview always looks stale
 Below it, a status line: `Ready to slice` → `Slicing…` → `Sliced · N layers ·
 1h 12m`, or a red failure with the reason.
 
+It doesn't always wait for you. See
+[Re-slicing on its own](#re-slicing-on-its-own).
+
 Once it succeeds, the result button lets you **Download**, **Just upload**, or
 **Upload & print**. It remembers which you used last.
+
+## Re-slicing on its own
+
+Some plates come back in a second; some take a minute. Waiting for the button
+every time is tedious on the first kind and unavoidable on the second, so the
+slicer decides from how long *your* last slice actually took.
+
+Once you've sliced once, a flash button appears next to the model / preview
+toggle. Click it to step through three settings:
+
+| Setting       | What happens                                                      |
+| ------------- | ----------------------------------------------------------------- |
+| **Automatic** | Re-slices by itself while slices stay quick; waits when they don't |
+| **Always**    | Re-slices after every change, however long it takes                |
+| **Off**       | Nothing happens until you press **Slice**                          |
+
+The icon says which: a bolt with an **A** for Automatic, a plain bolt for
+Always, a struck-through bolt for Off. It's lit whenever changes are re-slicing
+themselves, and its tooltip says what it decided and what your last slice cost —
+so a plate that has gone quiet tells you why.
+
+An automatic re-slice waits about a second after you stop, so dragging a model
+across the bed or typing a temperature is one slice, not one per frame. While
+one is queued the status line reads *re-slicing shortly* — press **Re-Slice** if
+you'd rather not wait.
+
+The default is Automatic, and you can change it for good in **Settings →
+General → Slicing**.
 
 ## The G-code inspector (right, after slicing)
 
@@ -183,7 +214,9 @@ Windows — whatever your system accent is set to.
 
 **Settings → General** has the graphics knobs: field of view, anti-aliasing,
 render resolution and preview detail. Turn them down on a weak GPU, up on a good
-one.
+one. It also holds **Re-slice after a change**, the app-wide setting behind the
+flash button — the same three choices, plus a line telling you what your last
+slice took and what Automatic is doing about it.
 
 Two of them are about the thumbnail embedded in sliced G-code, which is shot in
 the 3D view rather than by the slicer. The **screenshot animation** is the flash

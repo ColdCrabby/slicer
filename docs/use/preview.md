@@ -94,3 +94,8 @@ guessing.
 The **Re-Slice** button turns amber the moment you change a setting or move a
 model. The preview you're looking at is from before that change. Re-slice before
 you trust it.
+
+Most of the time it re-slices itself a second later and the amber clears on its
+own — that's the flash button beside the model / preview toggle, and it holds
+off automatically on plates slow enough that you'd rather choose the moment. See
+[Re-slicing on its own](/use/interface#re-slicing-on-its-own).

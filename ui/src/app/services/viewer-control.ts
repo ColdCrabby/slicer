@@ -424,6 +424,15 @@ export class ViewerControl {
   sliceThumbnailCaptureSink:
     ((request: SliceThumbnailRequest) => Promise<SliceThumbnailCapture | null>) | null = null;
 
+  /**
+   * Whether a 3D viewer is mounted right now. False in full-screen Settings,
+   * where nothing can render the slice thumbnail — which is why a slice nobody
+   * pressed should wait rather than publish G-code without a picture.
+   */
+  get hasActiveViewer(): boolean {
+    return this.sliceThumbnailCaptureSink !== null;
+  }
+
   async captureSliceThumbnail(
     request: SliceThumbnailRequest,
   ): Promise<SliceThumbnailCapture | null> {

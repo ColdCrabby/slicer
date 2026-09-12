@@ -41,6 +41,49 @@
     }
   </div>
 
+  <h2 class="subhead">Slicing</h2>
+  <div class="settings-card">
+    <div class="settings-field">
+      <span class="settings-field-label">
+        <span class="settings-field-title">Re-slice after a change</span>
+        <span class="settings-field-desc">
+          Refresh the preview on its own a moment after you move a model or change a setting,
+          instead of waiting for the Slice button. Automatic does it only while slices stay quick,
+          so a heavy plate goes back to slicing on request. {{ autoSliceNote() }}
+        </span>
+      </span>
+      <div class="segmented" role="group" aria-label="Re-slice after a change">
+        <button
+          type="button"
+          class="segmented-btn"
+          [class.is-active]="autoSlice.mode() === 'auto'"
+          [attr.aria-pressed]="autoSlice.mode() === 'auto'"
+          (click)="setAutoSlice('auto')"
+        >
+          Automatic
+        </button>
+        <button
+          type="button"
+          class="segmented-btn"
+          [class.is-active]="autoSlice.mode() === 'on'"
+          [attr.aria-pressed]="autoSlice.mode() === 'on'"
+          (click)="setAutoSlice('on')"
+        >
+          Always
+        </button>
+        <button
+          type="button"
+          class="segmented-btn"
+          [class.is-active]="autoSlice.mode() === 'off'"
+          [attr.aria-pressed]="autoSlice.mode() === 'off'"
+          (click)="setAutoSlice('off')"
+        >
+          Off
+        </button>
+      </div>
+    </div>
+  </div>
+
   <h2 class="subhead">Controls</h2>
   <div class="settings-card">
     <div class="settings-field">
