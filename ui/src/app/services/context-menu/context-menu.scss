@@ -17,6 +17,7 @@
 }
 
 .cm-item {
+  position: relative;
   display: flex;
   align-items: center;
   gap: var(--spacing-sm);
@@ -57,6 +58,48 @@
   place-items: center;
   flex: none;
   --icon-size: 16px;
+}
+
+.cm-check {
+  display: grid;
+  place-items: center;
+  flex: none;
+  // Same box as `.cm-icon`, so a menu mixing actions and toggles keeps one text
+  // column down its left edge.
+  width: 16px;
+  color: var(--accent);
+  --icon-size: 14px;
+}
+
+.cm-arrow {
+  display: grid;
+  place-items: center;
+  flex: none;
+  margin-left: auto;
+  // Nudged into the panel's own padding so the chevron sits at the edge the way
+  // a native submenu marker does.
+  margin-right: calc(var(--spacing-xs) * -1);
+  color: var(--color-text-tertiary);
+  --icon-size: 14px;
+}
+
+// The flyout. Positioned against the parent row, flush with the panel's right
+// edge, and overlapping by the panel border so the pointer can cross between
+// the two without passing over the gap and closing it.
+.cm-sub {
+  position: absolute;
+  top: 0;
+  left: 100%;
+  z-index: 1;
+  margin-left: -2px;
+  // A long shelf of labels scrolls rather than running off the screen.
+  max-height: min(60vh, 420px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.cm-item.is-open {
+  background: var(--color-surface-hover);
 }
 
 .cm-label {

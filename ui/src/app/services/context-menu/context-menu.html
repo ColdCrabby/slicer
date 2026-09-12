@@ -5,17 +5,47 @@
     } @else {
       <button
         type="button"
-        role="menuitem"
+        [attr.role]="roleFor(item)"
+        [attr.aria-checked]="item.checked === undefined ? null : item.checked"
+        [attr.aria-haspopup]="item.submenu ? 'menu' : null"
+        [attr.aria-expanded]="item.submenu ? openSubmenu() === item : null"
         class="cm-item"
         [class.cm-item--danger]="item.danger"
+        [class.is-open]="openSubmenu() === item"
         [disabled]="item.disabled"
         (click)="onItem(item)"
+        (mouseenter)="onHover(item)"
+        (focus)="onHover(item)"
       >
-        @if (item.icon) {
+        @if (item.checked !== undefined) {
+          <!--
+            The slot is rendered ticked or not, so a list of toggles keeps one
+            text column instead of shifting as items check and uncheck.
+          -->
+          <span class="cm-check" aria-hidden="true">
+            @if (item.checked) {
+              <nexus-icon name="check" />
+            }
+          </span>
+        } @else if (item.icon) {
           <span class="cm-icon"><nexus-icon [name]="item.icon" /></span>
         }
         <span class="cm-label">{{ item.label }}</span>
+        @if (item.submenu) {
+          <span class="cm-arrow" aria-hidden="true"><nexus-icon name="nav-arrow-right" /></span>
+        }
       </button>
+
+      @if (item.submenu && openSubmenu() === item) {
+        <!--
+          Nested beside its parent rather than in a detached overlay: the parent
+          menu stays on screen, which is the whole difference between a submenu
+          and a replacement.
+        -->
+        <div class="cm-sub">
+          <nexus-context-menu [items]="item.submenu" (choose)="choose.emit($event)" />
+        </div>
+      }
     }
   }
 </div>

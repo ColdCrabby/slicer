@@ -64,7 +64,6 @@ import { CodeEditor } from '../../components/code-editor/code-editor';
 import { LabelFilterBar } from '../../components/labels/label-filter-bar';
 import { LabelPicker } from '../../components/labels/label-picker';
 import { focusConfigureTarget } from './configure-scroll';
-import { LabelMenuService } from '../../components/labels/label-menu.service';
 
 /**
  * The `SlicingParams` sub-schema extracted from the generated global-settings
@@ -150,7 +149,6 @@ export class PrintersSettings {
   private readonly filterStore = inject(LabelFilterStore);
   private readonly catalog = inject(CloudCatalog);
   private readonly contextMenu = inject(ContextMenuService);
-  private readonly labelMenu = inject(LabelMenuService);
   private readonly dialog = inject(Dialog);
   private readonly notifications = inject(NotificationService);
   private readonly printerConn = inject(PrinterConnectionService);
@@ -393,17 +391,7 @@ export class PrintersSettings {
         action: () => this.testConnection(printer),
       });
     }
-    items.push({ separator: true, label: '' });
-    items.push({
-      label: 'Labels\u2026',
-      icon: 'label',
-      action: () =>
-        this.labelMenu.open(
-          { x: event.clientX, y: event.clientY },
-          () => this.store.getById(printer.id)?.label_ids ?? [],
-          (labelId) => this.toggleLabel(printer.id, labelId),
-        ),
-    });
+    items.push(this.labelSubmenu(printer));
     if (printer.source !== 'builtin') {
       items.push({ separator: true, label: '' });
       items.push({
@@ -414,6 +402,30 @@ export class PrintersSettings {
       });
     }
     void this.contextMenu.open(event, items);
+  }
+
+  /**
+   * The labels, as a submenu of toggles.
+   *
+   * Assigning the same label across a shelf of profiles is what labels are for,
+   * and doing it from the card is one gesture instead of selecting each one and
+   * scrolling to its Labels row. Each entry carries its current state, so the
+   * menu says what is already assigned rather than asking the user to toggle
+   * blind.
+   */
+  private labelSubmenu(item: { id: string; label_ids?: string[] }): ContextMenuItem {
+    const owned = new Set(item.label_ids ?? []);
+    const labels = this.labels.items();
+    return {
+      label: 'Labels',
+      icon: 'label',
+      disabled: labels.length === 0,
+      submenu: labels.map((label) => ({
+        label: label.name,
+        checked: owned.has(label.id),
+        action: () => this.toggleLabel(item.id, label.id),
+      })),
+    };
   }
 
   protected toggleDelete(): void {
