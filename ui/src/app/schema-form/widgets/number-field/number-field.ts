@@ -1,14 +1,23 @@
-import { ChangeDetectionStrategy, Component, EventEmitter, computed, input } from '@angular/core';
+import {
+  ChangeDetectionStrategy,
+  Component,
+  EventEmitter,
+  computed,
+  inject,
+  input,
+} from '@angular/core';
 import { NumberInput, TooltipDirective } from '@coldcrabby/ui';
 import { IconButton } from '../../../shared/icon-button/icon-button';
+import { UnitPreference } from '../../../services/unit-preference';
 import type { FieldDef } from '../../models/field-def';
-import { unitForField } from '../../models/field-units';
+import { displayUnitOf, toDisplay, toStored, unitForField } from '../../models/field-units';
+import { UnitToggle } from '../../unit-toggle/unit-toggle';
 import type { FieldWidget } from '../base-field';
 
 @Component({
   selector: 'se-number-field',
   standalone: true,
-  imports: [IconButton, TooltipDirective, NumberInput],
+  imports: [IconButton, TooltipDirective, NumberInput, UnitToggle],
   changeDetection: ChangeDetectionStrategy.OnPush,
   styles: [
     `
@@ -16,6 +25,12 @@ import type { FieldWidget } from '../base-field';
         display: flex;
         flex-direction: column;
         gap: 6px;
+      }
+
+      .control {
+        display: flex;
+        align-items: center;
+        gap: 2px;
       }
 
       label {
@@ -43,15 +58,24 @@ import type { FieldWidget } from '../base-field';
         />
       }
     </label>
-    <nexus-number-input
-      [value]="displayed()"
-      [min]="min()"
-      [max]="max()"
-      [step]="step()"
-      [unit]="unit()"
-      [label]="field().title ?? field().key"
-      (valueChange)="onValueChange($event)"
-    ></nexus-number-input>
+    <div class="control">
+      <nexus-number-input
+        [value]="displayed()"
+        [min]="min()"
+        [max]="max()"
+        [step]="step()"
+        [unit]="switchable() ? '' : unit()"
+        [label]="field().title ?? field().key"
+        (valueChange)="onValueChange($event)"
+      ></nexus-number-input>
+      @if (switchable(); as family) {
+        <se-unit-toggle
+          [current]="currentUnit()"
+          [options]="resolvedUnit().options ?? []"
+          (cycle)="units.cycle(family)"
+        />
+      }
+    </div>
   `,
 })
 export class NumberField implements FieldWidget {
@@ -74,36 +98,42 @@ export class NumberField implements FieldWidget {
     const n = Number(raw ?? 0);
     return this.field().type === 'integer' ? Math.round(n) : n;
   });
-  /** Unit + step derived from the parameter's name — see `field-units.ts`. */
-  private readonly resolvedUnit = computed(() => unitForField(this.field()));
+  /** Which unit each convertible family is read in — shared across the app. */
+  protected readonly units = inject(UnitPreference);
+  /** Unit, step and conversion for this field — see `field-units.ts`. */
+  protected readonly resolvedUnit = computed(() =>
+    unitForField(this.field(), this.units.display()),
+  );
+  /** The family whose unit the user may switch here, if any. */
+  protected readonly switchable = computed(() => this.resolvedUnit().family);
+  protected readonly currentUnit = computed(() => {
+    const family = this.switchable();
+    return family ? displayUnitOf(family, this.units.display()) : '';
+  });
   protected readonly unit = computed(() => this.resolvedUnit().unit);
   protected readonly step = computed(() => this.resolvedUnit().step);
   /** Factor between what the engine stores and what the control shows. */
-  private readonly scale = computed(() => this.resolvedUnit().scale ?? 1);
+  private readonly scale = computed(() => this.resolvedUnit().scale);
 
   /**
    * The number the user sees. A fraction is shown as a percentage, so
-   * `fan_speed: 1.0` reads as `100 %` rather than as `1 %`.
+   * `fan_speed: 1.0` reads as `100 %` rather than as `1 %`, and a travel speed
+   * the engine holds as `9000` mm/min reads as `150 mm/s`.
    */
-  protected readonly displayed = computed(() => {
-    const value = this.numeric() * this.scale();
-    // A fraction times 100 lands on values like 24.999999999999996.
-    return this.scale() === 1 ? value : Math.round(value * 1e6) / 1e6;
-  });
+  protected readonly displayed = computed(() => toDisplay(this.numeric(), this.scale()));
 
   /** Convert back before emitting: the stored form is what the engine reads. */
   protected onValueChange(shown: number): void {
-    const factor = this.scale();
-    this.valueChange.emit(factor === 1 ? shown : Math.round((shown / factor) * 1e6) / 1e6);
+    this.valueChange.emit(toStored(shown, this.scale()));
   }
 
   // Bounds are stated in the stored scale, so they are converted with the value.
   protected readonly min = computed(() => {
     const min = this.field().minimum;
-    return min === undefined ? Number.NEGATIVE_INFINITY : min * this.scale();
+    return min === undefined ? Number.NEGATIVE_INFINITY : toDisplay(min, this.scale());
   });
   protected readonly max = computed(() => {
     const max = this.field().maximum;
-    return max === undefined ? Number.POSITIVE_INFINITY : max * this.scale();
+    return max === undefined ? Number.POSITIVE_INFINITY : toDisplay(max, this.scale());
   });
 }

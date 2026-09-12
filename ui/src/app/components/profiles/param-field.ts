@@ -1,7 +1,14 @@
-import { ChangeDetectionStrategy, Component, computed, input, output } from '@angular/core';
+import { ChangeDetectionStrategy, Component, computed, inject, input, output } from '@angular/core';
 import type { FieldDef } from '../../schema-form/models/field-def';
 import { controlFor } from '../../schema-form/models/field-control';
-import { unitForField } from '../../schema-form/models/field-units';
+import {
+  displayUnitOf,
+  toDisplay,
+  toStored,
+  unitForField,
+} from '../../schema-form/models/field-units';
+import { UnitPreference } from '../../services/unit-preference';
+import { UnitToggle } from '../../schema-form/unit-toggle/unit-toggle';
 import { filamentTypeOptions } from '../../schema-form/custom-widgets/filament-type-field/filament-types';
 import { noticeForField } from '../../schema-form/field-exceptions/field-exceptions';
 import { FieldNoticeView } from '../../schema-form/field-notice/field-notice';
@@ -65,6 +72,7 @@ import { FieldShell } from './field-shell';
     FieldShell,
     GcodeField,
     FieldNoticeView,
+    UnitToggle,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
@@ -147,9 +155,16 @@ import { FieldShell } from './field-shell';
               [min]="min()"
               [max]="max()"
               [step]="step()"
-              [unit]="unit()"
+              [unit]="switchable() ? '' : unit()"
               (valueChange)="onNumberChange($event)"
             />
+            @if (switchable(); as family) {
+              <se-unit-toggle
+                [current]="currentUnit()"
+                [options]="resolvedUnit().options ?? []"
+                (cycle)="units.cycle(family)"
+              />
+            }
           }
         }
       </nexus-field-shell>
@@ -271,27 +286,35 @@ export class ParamField {
     return typeof v === 'number' ? v : Number(v ?? 0);
   });
 
+  /** Which unit each convertible family is read in — shared across the app. */
+  protected readonly units = inject(UnitPreference);
+
   /**
    * Unit, step and scale from `x-unit` / `x-step` — the same lookup the sidebar
    * uses. Without it this editor showed `fan_speed` as a bare `1`, where the
-   * panel two clicks away read `100 %` for the same stored value.
+   * panel two clicks away read `100 %` for the same stored value. It reads the
+   * same display preference too, so pressing a unit here and pressing one in
+   * the sidebar are the same gesture.
    */
-  private readonly resolvedUnit = computed(() => unitForField(this.field()));
+  protected readonly resolvedUnit = computed(() =>
+    unitForField(this.field(), this.units.display()),
+  );
   protected readonly unit = computed(() => this.resolvedUnit().unit);
   protected readonly step = computed(() => this.resolvedUnit().step);
-  private readonly scale = computed(() => this.resolvedUnit().scale ?? 1);
-
-  /** A fraction is shown as a percentage; everything else as stored. */
-  protected readonly displayed = computed(() => {
-    const value = this.numeric() * this.scale();
-    // A fraction times 100 lands on values like 24.999999999999996.
-    return this.scale() === 1 ? value : Math.round(value * 1e6) / 1e6;
+  private readonly scale = computed(() => this.resolvedUnit().scale);
+  /** The family whose unit the user may switch here, if any. */
+  protected readonly switchable = computed(() => this.resolvedUnit().family);
+  protected readonly currentUnit = computed(() => {
+    const family = this.switchable();
+    return family ? displayUnitOf(family, this.units.display()) : '';
   });
+
+  /** A fraction is shown as a percentage, a travel speed in mm/s, and so on. */
+  protected readonly displayed = computed(() => toDisplay(this.numeric(), this.scale()));
 
   /** Convert back before emitting: the stored form is what the engine reads. */
   protected onNumberChange(shown: number): void {
-    const factor = this.scale();
-    this.valueChange.emit(factor === 1 ? shown : Math.round((shown / factor) * 1e6) / 1e6);
+    this.valueChange.emit(toStored(shown, this.scale()));
   }
 
   protected onTextInput(event: Event): void {
@@ -301,10 +324,10 @@ export class ParamField {
   // Bounds are stated in the stored scale, so they are converted with the value.
   protected readonly min = computed(() => {
     const min = this.field().minimum;
-    return min === undefined ? Number.NEGATIVE_INFINITY : min * this.scale();
+    return min === undefined ? Number.NEGATIVE_INFINITY : toDisplay(min, this.scale());
   });
   protected readonly max = computed(() => {
     const max = this.field().maximum;
-    return max === undefined ? Number.POSITIVE_INFINITY : max * this.scale();
+    return max === undefined ? Number.POSITIVE_INFINITY : toDisplay(max, this.scale());
   });
 }

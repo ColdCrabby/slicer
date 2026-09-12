@@ -29,6 +29,11 @@ issue/PR numbers or repo links in the notes. See the tone rules in
 
 ### Changed
 
+- **Every speed reads in mm/s, including travel and retraction.** Those two are
+  stored in mm/min because that is what a G-code `F` word carries, and the panel
+  used to ask for `9000` beside a print speed of `120`. Press the unit next to
+  any speed box to read them all in mm/min instead — the preference is
+  remembered and the saved value never changes, only how it is written.
 - **Material settings live with the filament.** Flow ratio, maximum volumetric
   speed and pressure advance move from Process to Filament, where they belong:
   they are calibrated per spool, and a print profile carrying them overwrote
