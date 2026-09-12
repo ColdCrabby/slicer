@@ -94,6 +94,8 @@ export class ProfileOutline {
    * the thing you are reading. Lighting the whole visible span turns the rail
    * into a map of the page with your window drawn on it, which is what a reader
    * actually wants from one.
+   *
+   * A row half-cut by the edge of the editor does not count — see `idsInView`.
    */
   protected readonly inView = signal<ReadonlySet<string>>(new Set());
 

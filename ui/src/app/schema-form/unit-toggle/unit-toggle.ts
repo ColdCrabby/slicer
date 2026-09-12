@@ -6,11 +6,13 @@ import type { UnitOption } from '../models/field-units';
  * The unit suffix of a numeric field, when the unit is a choice — press it to
  * read the same value in the next unit the family offers.
  *
- * It sits beside the number input rather than inside it because the design
- * system's in-field suffix is static text. That turns out to be the honest
- * arrangement: a unit the user can press should not look identical to one they
- * cannot, and a chip that lights up under the pointer says so without a label
- * or an icon explaining itself.
+ * It sits **inside** the field, exactly where a static unit suffix sits, so a
+ * field whose unit happens to be switchable is not a differently-shaped control
+ * from one whose unit is fixed. The design system's own suffix is static text,
+ * so the owner renders that suffix for its width and hides it, and this lands
+ * on top of it: same place, same size, same tone at rest. What marks it as
+ * pressable is what happens under a pointer — nothing shouts at a reader who
+ * never needs it.
  *
  * Purely presentational. It renders the unit it is given and emits the next
  * one; which fields share a unit, and where that choice is remembered, is the
@@ -34,44 +36,53 @@ import type { UnitOption } from '../models/field-units';
   `,
   styles: [
     `
+      /*
+       * Parked over the number input's own unit slot. The offset is the
+       * stepper's width plus the slot's right padding — both fixed by the
+       * design system — so it lands on the hidden suffix without anyone
+       * measuring anything at runtime.
+       */
       :host {
+        position: absolute;
+        right: calc(32px + var(--spacing-sm));
+        top: 50%;
+        transform: translateY(-50%);
         display: inline-flex;
-        flex: none;
       }
 
       .unit-toggle {
         display: inline-flex;
         align-items: center;
-        height: 34px;
-        padding: 0 var(--spacing-xs);
-        border: 1px solid transparent;
-        border-radius: var(--radius-md);
+        padding: 0;
+        border: none;
         background: transparent;
         color: var(--color-text-tertiary);
         font: inherit;
         font-size: var(--font-size-xs);
+        line-height: 1;
         white-space: nowrap;
         cursor: pointer;
+        /* Dotted, not solid: the affordance of a definition, not of a link. */
+        text-decoration: underline dotted transparent;
+        text-underline-offset: 3px;
         transition:
-          background-color var(--duration-fast) var(--ease-standard),
-          border-color var(--duration-fast) var(--ease-standard),
-          color var(--duration-fast) var(--ease-standard);
+          color var(--duration-fast) var(--ease-standard),
+          text-decoration-color var(--duration-fast) var(--ease-standard);
       }
 
       .unit-toggle:hover {
-        border-color: var(--color-border);
-        background: var(--color-surface-hover);
         color: var(--color-text-primary);
+        text-decoration-color: currentColor;
       }
 
       .unit-toggle:active {
-        background: var(--accent-soft);
         color: var(--accent);
       }
 
       .unit-toggle:focus-visible {
         outline: 2px solid var(--accent);
-        outline-offset: 1px;
+        outline-offset: 2px;
+        border-radius: var(--radius-sm);
       }
     `,
   ],

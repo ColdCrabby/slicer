@@ -82,7 +82,14 @@ export function measureOutline(
   return spans;
 }
 
-/** Ids whose row overlaps the window `[top, bottom)` of the scroller. */
+/**
+ * Ids whose row lies **entirely** inside the window `[top, bottom]`.
+ *
+ * Fully, not partly: a row clipped by the edge of the editor is one the reader
+ * cannot actually read, and counting it made the marked span consistently claim
+ * a setting or two more than was on screen — which is the one thing a "what can
+ * I see" indicator must not do.
+ */
 export function idsInView(
   spans: ReadonlyMap<string, OutlineSpan>,
   top: number,
@@ -90,7 +97,7 @@ export function idsInView(
 ): Set<string> {
   const visible = new Set<string>();
   for (const [id, span] of spans) {
-    if (span.top < bottom && span.bottom > top) {
+    if (span.top >= top && span.bottom <= bottom) {
       visible.add(id);
     }
   }

@@ -150,21 +150,23 @@ import { FieldShell } from './field-shell';
             />
           }
           @default {
-            <nexus-number-input
-              [value]="displayed()"
-              [min]="min()"
-              [max]="max()"
-              [step]="step()"
-              [unit]="switchable() ? '' : unit()"
-              (valueChange)="onNumberChange($event)"
-            />
-            @if (switchable(); as family) {
-              <se-unit-toggle
-                [current]="currentUnit()"
-                [options]="resolvedUnit().options ?? []"
-                (cycle)="units.cycle(family)"
+            <span class="param-field-number" [class.has-unit-toggle]="switchable()">
+              <nexus-number-input
+                [value]="displayed()"
+                [min]="min()"
+                [max]="max()"
+                [step]="step()"
+                [unit]="unit()"
+                (valueChange)="onNumberChange($event)"
               />
-            }
+              @if (switchable(); as family) {
+                <se-unit-toggle
+                  [current]="currentUnit()"
+                  [options]="resolvedUnit().options ?? []"
+                  (cycle)="units.cycle(family)"
+                />
+              }
+            </span>
           }
         }
       </nexus-field-shell>
@@ -175,6 +177,17 @@ import { FieldShell } from './field-shell';
     `
       :host {
         display: block;
+      }
+      .param-field-number {
+        position: relative;
+        display: flex;
+        align-items: center;
+        width: 100%;
+      }
+      /* The suffix still renders so it reserves the width and shrinks the
+         input; the toggle is drawn over it. See the unit-toggle component. */
+      .param-field-number.has-unit-toggle ::ng-deep .unit {
+        visibility: hidden;
       }
       /* The between-row divider depends on adjacency of *these* hosts — the
          nested shell hosts aren't siblings — so it stays at this level. */

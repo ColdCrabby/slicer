@@ -78,11 +78,15 @@ describe('idsInView', () => {
     ['c', { top: 200, bottom: 300 }],
   ]);
 
-  it('returns every row the window overlaps, not just the first', () => {
-    expect([...idsInView(spans, 50, 250)]).toEqual(['a', 'b', 'c']);
+  it('returns every row wholly inside the window, not just the first', () => {
+    expect([...idsInView(spans, 0, 300)]).toEqual(['a', 'b', 'c']);
   });
 
-  it('excludes a row that only touches the edge', () => {
+  it('leaves out a row the window only partly covers', () => {
+    expect([...idsInView(spans, 50, 250)]).toEqual(['b']);
+  });
+
+  it('counts a row that exactly fills the window', () => {
     expect([...idsInView(spans, 100, 200)]).toEqual(['b']);
   });
 

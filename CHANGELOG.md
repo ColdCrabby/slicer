@@ -71,6 +71,9 @@ issue/PR numbers or repo links in the notes. See the tone rules in
 
 ### Added
 
+- **Hold `+` or `−` to run a number up or down.** It repeats after a moment and
+  accelerates the longer you hold, so a skirt distance near 200 or a bed at
+  100 °C is a press rather than forty clicks.
 - **An outline for the printer, filament and profile editors.** These pages show
   every parameter there is, in one long column with no way to search it. Collapse
   the Settings section list to icons and a contents rail takes its place: every
