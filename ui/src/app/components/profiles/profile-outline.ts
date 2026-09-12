@@ -12,7 +12,14 @@ import {
 import { FormsModule } from '@angular/forms';
 import { Icon } from '@coldcrabby/ui';
 import { SettingsNav } from '../../services/settings-nav';
-import { filterOutline, scanOutline, type OutlineSection } from './outline';
+import {
+  filterOutline,
+  idsInView,
+  measureOutline,
+  scanOutline,
+  type OutlineSection,
+  type OutlineSpan,
+} from './outline';
 
 /** How long the landing mark on a jumped-to row lasts; matches `configure-flash`. */
 const FLASH_MS = 1600;
@@ -77,7 +84,26 @@ export class ProfileOutline {
   /** Section the editor is scrolled to, so the rail can say "you are here". */
   protected readonly currentId = signal<string | null>(null);
 
+  /**
+   * Every row whose target is on screen right now — not just the one at the
+   * top.
+   *
+   * A contents list that marks a single active heading tells you where you are
+   * and nothing about how much you can see; on an editor where a short section
+   * fits entirely in the window, it also keeps pointing at the heading above
+   * the thing you are reading. Lighting the whole visible span turns the rail
+   * into a map of the page with your window drawn on it, which is what a reader
+   * actually wants from one.
+   */
+  protected readonly inView = signal<ReadonlySet<string>>(new Set());
+
   private scroller: HTMLElement | null = null;
+
+  /** Row geometry, measured per scan; see `measureOutline`. */
+  private spans: ReadonlyMap<string, OutlineSpan> = new Map();
+
+  /** Content height the spans were measured against, to notice a reflow. */
+  private measuredHeight = 0;
 
   constructor() {
     afterNextRender(() => this.attach());
@@ -174,20 +200,42 @@ export class ProfileOutline {
     if (!this.scroller || !this.visible()) {
       return;
     }
-    this.sections.set(scanOutline(this.scroller));
+    const sections = scanOutline(this.scroller);
+    this.sections.set(sections);
+    this.measure(sections);
   }
 
-  /** Whichever section has most recently passed under the top of the editor. */
+  private measure(sections: readonly OutlineSection[]): void {
+    const scroller = this.scroller;
+    if (!scroller) {
+      return;
+    }
+    this.spans = measureOutline(sections, scroller);
+    this.measuredHeight = scroller.scrollHeight;
+  }
+
+  /** What is on screen, and which section owns the top of it. */
   private spy(): void {
     const scroller = this.scroller;
     const sections = this.sections();
     if (!scroller || sections.length === 0) {
       return;
     }
-    const top = scroller.getBoundingClientRect().top + 1;
+    // A section expanding, or a lazily-mounted editor arriving, moves every row
+    // below it without touching the node list an observer watches. The content
+    // height is the cheap tell that the measurements are stale.
+    if (scroller.scrollHeight !== this.measuredHeight) {
+      this.measure(sections);
+    }
+
+    const top = scroller.scrollTop;
+    const bottom = top + scroller.clientHeight;
+    this.inView.set(idsInView(this.spans, top, bottom));
+
     let current = sections[0].id;
     for (const section of sections) {
-      if (section.el.getBoundingClientRect().top <= top) {
+      const span = this.spans.get(section.id);
+      if (span && span.top <= top + 1) {
         current = section.id;
       }
     }

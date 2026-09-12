@@ -124,6 +124,13 @@
     outline-offset: -2px;
   }
 
+  // Anywhere in the window. Quieter than `is-current` on purpose — several
+  // sections can be on screen at once, and if each of them shouted, none of
+  // them would say anything.
+  &.is-in-view {
+    color: var(--color-text-primary);
+  }
+
   // Where the editor is scrolled to. A tone shift, not a fill: it reports
   // position, it is not a selection the user made.
   &.is-current {
@@ -144,6 +151,43 @@
   padding: 2px 0 0 var(--spacing-sm);
   border-left: 1px solid var(--color-border-lighter);
   list-style: none;
+
+  li {
+    position: relative;
+  }
+}
+
+/**
+ * The window, drawn on the guide line.
+ *
+ * Each visible row lights its own slice of the rule it is indented against, and
+ * because the visible rows are contiguous the slices join into one unbroken
+ * bar: the rail becomes a map of the whole editor with the part you can
+ * actually see marked on it. A single highlighted heading — the usual
+ * table-of-contents treatment — says where you are but never how much of the
+ * page that is, which on a form of two hundred rows is the more useful half of
+ * the question.
+ *
+ * Drawn over the guide rather than beside it, so nothing moves when it appears.
+ */
+.profile-outline__entries li::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: calc((var(--spacing-sm) + 1px) * -1);
+  width: 2px;
+  border-radius: 999px;
+  background: transparent;
+  transition: background-color var(--duration-fast) var(--ease-standard);
+}
+
+.profile-outline__entries li.is-in-view::before {
+  background: var(--accent);
+}
+
+.profile-outline__entries li.is-in-view .profile-outline__entry {
+  color: var(--color-text-primary);
 }
 
 .profile-outline__entry {

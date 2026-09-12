@@ -19,6 +19,15 @@
  * `field-shell__title` / `field-row__title` label a row.
  */
 
+/**
+ * Where a row's target sits in the editor's scrollable content, in px from the
+ * top of it. Measured once per scan so scrolling only ever compares numbers.
+ */
+export interface OutlineSpan {
+  top: number;
+  bottom: number;
+}
+
 /** One setting in the outline. */
 export interface OutlineEntry {
   /** Unique within the outline; identifies the row across a rescan. */
@@ -46,6 +55,48 @@ function rowFor(title: HTMLElement): HTMLElement {
 }
 
 /** Read the outline of whatever `root` currently renders. */
+/**
+ * Measure every row against the scroller's content box.
+ *
+ * Taken in one pass, right after a scan, so the per-frame question "what is on
+ * screen" is a pair of number comparisons rather than a `getBoundingClientRect`
+ * per row — on a print profile that is two hundred rects every frame of a
+ * scroll, which is exactly the cost a contents list may not add.
+ */
+export function measureOutline(
+  sections: readonly OutlineSection[],
+  scroller: HTMLElement,
+): Map<string, OutlineSpan> {
+  const spans = new Map<string, OutlineSpan>();
+  const origin = scroller.getBoundingClientRect().top - scroller.scrollTop;
+  const put = (id: string, el: HTMLElement) => {
+    const rect = el.getBoundingClientRect();
+    spans.set(id, { top: rect.top - origin, bottom: rect.bottom - origin });
+  };
+  for (const section of sections) {
+    put(section.id, section.el);
+    for (const entry of section.entries) {
+      put(entry.id, entry.el);
+    }
+  }
+  return spans;
+}
+
+/** Ids whose row overlaps the window `[top, bottom)` of the scroller. */
+export function idsInView(
+  spans: ReadonlyMap<string, OutlineSpan>,
+  top: number,
+  bottom: number,
+): Set<string> {
+  const visible = new Set<string>();
+  for (const [id, span] of spans) {
+    if (span.top < bottom && span.bottom > top) {
+      visible.add(id);
+    }
+  }
+  return visible;
+}
+
 export function scanOutline(root: ParentNode): OutlineSection[] {
   const sections: OutlineSection[] = [];
   const seen = new Set<string>();

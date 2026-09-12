@@ -21,6 +21,7 @@
         type="button"
         class="profile-outline__section"
         [class.is-current]="section.id === currentId()"
+        [class.is-in-view]="inView().has(section.id)"
         (click)="jump(section.el)"
       >
         <span>{{ section.title }}</span>
@@ -33,7 +34,7 @@
 
       <ul class="profile-outline__entries">
         @for (entry of section.entries; track entry.id) {
-          <li>
+          <li [class.is-in-view]="inView().has(entry.id)">
             <!-- The rail is narrow and some names are long, so the full one
                  is always available without widening the column. -->
             <button

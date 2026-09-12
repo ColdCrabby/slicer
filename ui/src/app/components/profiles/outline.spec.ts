@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it } from 'vitest';
-import { filterOutline, scanOutline } from './outline';
+import { filterOutline, idsInView, scanOutline, type OutlineSpan } from './outline';
 
 function editor(html: string): HTMLElement {
   const root = document.createElement('div');
@@ -68,5 +68,25 @@ describe('filterOutline', () => {
 
   it('matches regardless of case', () => {
     expect(filterOutline(sections, 'NAME')[0].title).toBe('Identity');
+  });
+});
+
+describe('idsInView', () => {
+  const spans = new Map<string, OutlineSpan>([
+    ['a', { top: 0, bottom: 100 }],
+    ['b', { top: 100, bottom: 200 }],
+    ['c', { top: 200, bottom: 300 }],
+  ]);
+
+  it('returns every row the window overlaps, not just the first', () => {
+    expect([...idsInView(spans, 50, 250)]).toEqual(['a', 'b', 'c']);
+  });
+
+  it('excludes a row that only touches the edge', () => {
+    expect([...idsInView(spans, 100, 200)]).toEqual(['b']);
+  });
+
+  it('is empty past the end of the content', () => {
+    expect(idsInView(spans, 400, 500).size).toBe(0);
   });
 });
