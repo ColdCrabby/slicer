@@ -1,4 +1,5 @@
 import { enumLabel, fieldLabel } from './field-labels';
+import { orderFieldsByTier } from './relevance';
 import { EnumOption, FieldDef, FieldRelevance, FieldType, SchemaGroup } from './field-def';
 
 type RawProp = Record<string, unknown>;
@@ -134,7 +135,7 @@ export function parseSchema(
     return fieldDef;
   });
 
-  // Group fields, preserving insertion order within each group.
+  // Group fields, preserving schema order within each group.
   const groupMap = new Map<string, FieldDef[]>();
   for (const field of fields) {
     const name = field.group ?? UNGROUPED;
@@ -144,9 +145,12 @@ export function parseSchema(
     groupMap.get(name)!.push(field);
   }
 
+  // Simple-to-complex within every group, so a disclosure appends rather than
+  // inserting into what the reader is already looking at. Done here, once, so
+  // the slice sidebar and the profile editors list a group the same way.
   const groups: SchemaGroup[] = Array.from(groupMap.entries()).map(([name, groupFields]) => ({
     name,
-    fields: groupFields,
+    fields: orderFieldsByTier(groupFields),
   }));
 
   return { groups, fields };

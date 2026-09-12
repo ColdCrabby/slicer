@@ -1544,6 +1544,16 @@ Convert from mm/s by multiplying by 60. Fast travel reduces print time without a
     #[serde(default = "SlicingParams::default_travel_speed_mm_min")]
     pub travel_speed_mm_min: f64,
 
+    #[schemars(
+        description = "Retraction speed in **mm/min**.
+
+Convert from mm/s by multiplying by 60.
+**Example:** 2400 mm/min = 40 mm/s.",
+        extend("x-group" = "Retraction", "x-unit" = "mm_min", "x-step" = 60, "x-tier" = "advanced")
+    )]
+    #[serde(default = "SlicingParams::default_retract_speed_mm_min")]
+    pub retract_speed_mm_min: f64,
+
     #[schemars(description = "Z-hop lift height in mm during travel moves.
 
 Lifts the nozzle before travelling to reduce stringing and nozzle drag across the print.
@@ -1832,16 +1842,6 @@ Overrides the width used for sparse-infill paths and their `;TYPE:Sparse infill`
     )]
     #[serde(default = "SlicingParams::default_role_line_width")]
     pub sparse_infill_line_width: f64,
-
-    #[schemars(
-        description = "Retraction speed in **mm/min**.
-
-Convert from mm/s by multiplying by 60.
-**Example:** 2400 mm/min = 40 mm/s.",
-        extend("x-group" = "Retraction", "x-unit" = "mm_min", "x-step" = 60, "x-tier" = "advanced")
-    )]
-    #[serde(default = "SlicingParams::default_retract_speed_mm_min")]
-    pub retract_speed_mm_min: f64,
 
     #[schemars(
         description = "Global extrusion flow multiplier (0.0–2.0).
@@ -2154,6 +2154,16 @@ apply either way.",
     pub support_auto: bool,
 
     #[schemars(
+        description = "How support is built under an overhang.
+
+The threshold angle, density, interface layers and XY/Z clearance below apply
+to both styles.",
+        extend("x-group" = "Support", "x-widget" = "cards", "x-relevant-when" = serde_json::json!({"field": "support_enabled", "equals": true}))
+    )]
+    #[serde(default)]
+    pub support_type: SupportType,
+
+    #[schemars(
         description = "Overhang angle threshold in degrees, measured from vertical (0–89).
 
 Any surface that overhangs more steeply than this gets support beneath it. `45°` is the classic
@@ -2164,16 +2174,6 @@ conservative and supports gentler overhangs, a **larger** angle supports only se
     )]
     #[serde(default = "SlicingParams::default_support_threshold_angle")]
     pub support_threshold_angle: f64,
-
-    #[schemars(
-        description = "How support is built under an overhang.
-
-The threshold angle, density, interface layers and XY/Z clearance below apply
-to both styles.",
-        extend("x-group" = "Support", "x-widget" = "cards", "x-relevant-when" = serde_json::json!({"field": "support_enabled", "equals": true}))
-    )]
-    #[serde(default)]
-    pub support_type: SupportType,
 
     #[schemars(
         description = "Support infill density as a fraction (0.0–1.0).

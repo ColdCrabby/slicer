@@ -274,6 +274,19 @@ Two traps that follow from group tiering, both fixed and both tested:
 A group's own reveal is never shallower than the panel's, or a section listed
 only because the user reached Advanced would render empty.
 
+**A disclosure appends; it never inserts.** Fields are ordered simple-to-complex
+before they are filtered — everyday, then advanced, then expert, keeping the
+schema's own order inside each tier — and sections are ordered the same way by
+the shallowest tier they hold. Filtering alone leaves a revealed field wherever
+the Rust struct happens to declare it, which slid the controls the reader was
+looking at down the panel and cost them their place. `orderFieldsByTier` and
+`orderGroupsByTier` in
+[`relevance.ts`](../../ui/src/app/schema-form/models/relevance.ts) do it, the
+parser applies the first so every surface lists a group alike, and the ordering
+is asserted in `tier.spec.ts`. One consequence to write for: **a field's
+position in `params.rs` only orders it against its own tier**, so put a field
+next to the one it belongs with and let the tier decide the rest.
+
 Three rules the implementation depends on — each has a test in
 [`tier.spec.ts`](../../ui/src/app/schema-form/models/tier.spec.ts):
 
