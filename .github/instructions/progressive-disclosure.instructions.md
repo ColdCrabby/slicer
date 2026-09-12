@@ -329,8 +329,13 @@ does nothing. That is a disclosure failure, and the rules for it are in
 
 - **Not a permissions model.** Tiers change what is *shown by default*. They
   never gate capability, and they never hide a setting from search.
-- **Not a mode the app runs in.** `Settings → General → Settings detail` sets
-  the tier the panels *open* at — a floor, not a mode. The per-section controls
+- **Not a mode the app runs in.** `Settings → General → Settings detail`
+  (Standard / Advanced / Everything) sets the tier the panels *open* at — a
+  floor, not a mode. Note the labels: the first option is **Standard**, not
+  "Simple", and the last is **Everything**, not "Expert". §2 forbids naming the
+  default view after the reader, and a preference is the easiest place to
+  forget it — "Simple" makes the calm view a statement about who is looking at
+  it, which is exactly what a professional working there must not be told. The per-section controls
   still reveal deeper from it, nothing about the app's shape changes, and no
   capability is gated either way. What the tier model rules out is a switch that
   makes the interface a different application: two layouts, two vocabularies,

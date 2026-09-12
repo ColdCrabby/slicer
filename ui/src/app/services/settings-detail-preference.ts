@@ -20,6 +20,13 @@ export type SettingsDetailMode = Tier;
  * controls still reveal deeper from there, and none of it changes the shape of
  * the app, hides a capability, or gates anything. A user on `everyday` sees
  * exactly what they saw before.
+ *
+ * The options are labelled **Standard / Advanced / Everything**, and the first
+ * of those matters: naming the default view "Simple" labels the reader rather
+ * than the view, which is the one thing the tier model rules out — a
+ * professional has to be able to work there without being handed the toy
+ * version. "Everything" describes the result for the same reason "Expert"
+ * would have described the person.
  */
 @Injectable({ providedIn: 'root' })
 export class SettingsDetailPreference {

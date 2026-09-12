@@ -130,9 +130,9 @@ Each section, and the list itself, remembers how far you opened it — so if you
 work in Advanced you only say so once.
 
 If you always want everything in view, **Settings → General → Settings detail**
-sets where the panels open: *Simple*, *Advanced*, or *Expert*. It moves the
-starting point only — the per-section controls still open further, search still
-reaches everything, and nothing is hidden from you at any level.
+sets where the panels open: *Standard*, *Advanced*, or *Everything*. It moves
+the starting point only — the per-section controls still open further, search
+still reaches everything, and nothing is hidden from you at any level.
 
 ## Everything else, by group
 
