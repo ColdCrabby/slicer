@@ -77,7 +77,8 @@ bed size, nozzle and firmware fill themselves in. Details in
 
 Press **Slice**, bottom right. A progress bar walks through the stages
 ("Slicing layers", "Generating walls", …) and finishes with something like
-`Sliced · 218 layers · 1h 12m`.
+`Sliced · 218 layers · 4.9s` — how much it made and how long *slicing* took —
+with the estimated **print** time on the right of the same line, `~1h 12m`.
 
 The view flips to the **G-code preview** so you can check the result before you
 commit plastic to it. Drag the layer slider, or press `↑` and `↓`, to walk up

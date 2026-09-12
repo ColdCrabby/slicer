@@ -1,7 +1,7 @@
 use js_sys::Float32Array;
 use wasm_bindgen::prelude::*;
 
-use super::parser::parse_gcode_bytes;
+use super::parser::{parse_estimated_print_time_s, parse_gcode_bytes};
 use super::types::InternalLayer;
 
 // ── GcodeLayerBuffer ────────────────────────────────────────────────────────
@@ -127,6 +127,7 @@ fn layer_to_buffer(layer: &InternalLayer) -> GcodeLayerBuffer {
 #[wasm_bindgen]
 pub struct GcodeHandle {
     layers: Vec<InternalLayer>,
+    estimated_print_time_s: Option<f32>,
 }
 
 #[wasm_bindgen]
@@ -140,7 +141,18 @@ impl GcodeHandle {
         console_error_panic_hook::set_once();
         GcodeHandle {
             layers: parse_gcode_bytes(bytes),
+            estimated_print_time_s: parse_estimated_print_time_s(bytes),
         }
+    }
+
+    /// Whole-print time estimate from the file's own header, in seconds.
+    ///
+    /// `0.0` when the file carries none — G-code from a source that never
+    /// estimated one, which the caller must present as "unknown" rather than
+    /// as an instant print.
+    #[wasm_bindgen(js_name = estimatedPrintTimeS)]
+    pub fn estimated_print_time_s(&self) -> f32 {
+        self.estimated_print_time_s.unwrap_or(0.0)
     }
 
     /// Total number of layers detected in the file.

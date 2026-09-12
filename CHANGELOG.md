@@ -90,6 +90,17 @@ issue/PR numbers or repo links in the notes. See the tone rules in
   it.
 - **The Settings section list folds to icons**, and the list of printers,
   filaments or profiles beside it can be dragged wider. Both are remembered.
+- **The slice dock now says how long the print will take.** An estimate sits
+  beside the slice result, read from the G-code itself. It comes from your
+  process settings — the speeds and accelerations the file commands — not from
+  the printer's own limits, which the slicer has no way to know, so a machine
+  that cannot keep up takes longer than the figure says.
+- **An outline for the settings panel.** Press the list button beside the search
+  box — or `Ctrl`/`⌘ + Shift + O` — and the panel becomes a table of contents:
+  every section, and under it every setting by name. Click a line to land on the
+  control, in its section. It lists what the panel folds away too, marked with
+  the tier it sits behind, for the case search cannot help with: you know the
+  setting exists, you just can't name it.
 - **Your Klipper printer sets itself up.** Detection now reads the machine's own
   configuration instead of two fields of it: build volume and kinematics, nozzle
   and filament diameter, velocity and acceleration limits, pressure advance,

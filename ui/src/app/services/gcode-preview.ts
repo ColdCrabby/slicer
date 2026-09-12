@@ -659,6 +659,20 @@ export class GcodePreview {
   readonly layerCount = computed(() => this.gcodeHandle()?.layerCount() ?? 0);
 
   /**
+   * Whole-print time estimate the sliced file advertises, in seconds, or `null`
+   * when it carries none.
+   *
+   * Read back out of the G-code rather than carried on the slice reply: the
+   * estimate is computed from the emitted moves, the preview parses those moves
+   * in every runtime already, and a second copy on the wire is a second thing
+   * that can disagree with the file the user actually prints.
+   */
+  readonly estimatedPrintTimeS = computed<number | null>(() => {
+    const seconds = this.gcodeHandle()?.estimatedPrintTimeS() ?? 0;
+    return seconds > 0 ? seconds : null;
+  });
+
+  /**
    * 0-based indices of every layer carrying a pause/color-change/custom
    * trigger, resolved from the parsed G-code's `;TRIGGER`
    * markers rather than re-deriving `at_z` → layer mapping on the frontend.
