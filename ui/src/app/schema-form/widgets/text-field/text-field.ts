@@ -12,7 +12,8 @@ import type { FieldWidget } from '../base-field';
  * remain typable), so this is a shortcut and not a whitelist.
  */
 const SUGGESTIONS: Record<string, readonly string[]> = {
-  filament_type: ['PLA', 'PETG', 'ABS', 'ASA', 'TPU', 'PA', 'PC', 'PVA', 'HIPS', 'PEEK'],
+  // `filament_type` is deliberately absent: it has a dropdown of its own,
+  // because its value is machine-read from the G-code header.
   bed_type: ['Textured PEI', 'Smooth PEI', 'Cool Plate', 'Engineering Plate', 'High Temp Plate'],
 };
 

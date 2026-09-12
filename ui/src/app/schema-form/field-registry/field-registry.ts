@@ -1,5 +1,6 @@
 import { Type } from '@angular/core';
 import { ColorField } from '../custom-widgets/color-field/color-field';
+import { FilamentTypeField } from '../custom-widgets/filament-type-field/filament-type-field';
 import { GcodeField } from '../custom-widgets/gcode-field/gcode-field';
 import { InfillDensitySlider } from '../custom-widgets/infill-density-slider/infill-density-slider';
 import { FieldDef } from '../models/field-def';
@@ -43,6 +44,9 @@ const KEY_REGISTRY: Record<string, Type<FieldWidget>> = {
   // swatch was a text box holding `#RRGGBB` — and before the string fix above,
   // a number spinner.
   filament_color: ColorField,
+  // A closed list, not a text box: the value is written into the G-code header
+  // as `; filament_type = …`, where firmware and other slicers read it back.
+  filament_type: FilamentTypeField,
 };
 
 /**
