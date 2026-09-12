@@ -7,6 +7,7 @@ import {
   type Antialiasing,
   type ModelShading,
   type PreviewDetail,
+  type PreviewFollow,
   type RenderQuality,
   type TwoFingerGesture,
 } from '../../services/viewer-control';
@@ -41,6 +42,7 @@ export class GeneralSettings implements OnInit {
   protected readonly antialiasing = this.viewer.antialiasing;
   protected readonly renderQuality = this.viewer.renderQuality;
   protected readonly previewDetail = this.viewer.previewDetail;
+  protected readonly previewFollow = this.viewer.previewFollow;
   protected readonly useFilamentColor = this.viewer.useFilamentColor;
   protected readonly shadowsEnabled = this.viewer.shadowsEnabled;
   protected readonly modelShading = this.viewer.modelShading;
@@ -172,5 +174,9 @@ export class GeneralSettings implements OnInit {
 
   setAutoSlice(mode: AutoSliceMode): void {
     this.autoSlice.setMode(mode);
+  }
+
+  setPreviewFollow(mode: PreviewFollow): void {
+    this.viewer.setPreviewFollow(mode);
   }
 }

@@ -82,6 +82,46 @@
         </button>
       </div>
     </div>
+
+    <div class="settings-field">
+      <span class="settings-field-label">
+        <span class="settings-field-title">Show the preview after slicing</span>
+        <span class="settings-field-desc">
+          Switch the 3D view to the sliced G-code when a slice finishes. Automatic follows a slice
+          you asked for and leaves an automatic re-slice alone, so an edit in progress doesn't get
+          pulled into a view where the plate tools are hidden.
+        </span>
+      </span>
+      <div class="segmented" role="group" aria-label="Show the preview after slicing">
+        <button
+          type="button"
+          class="segmented-btn"
+          [class.is-active]="previewFollow() === 'auto'"
+          [attr.aria-pressed]="previewFollow() === 'auto'"
+          (click)="setPreviewFollow('auto')"
+        >
+          Automatic
+        </button>
+        <button
+          type="button"
+          class="segmented-btn"
+          [class.is-active]="previewFollow() === 'always'"
+          [attr.aria-pressed]="previewFollow() === 'always'"
+          (click)="setPreviewFollow('always')"
+        >
+          Always
+        </button>
+        <button
+          type="button"
+          class="segmented-btn"
+          [class.is-active]="previewFollow() === 'never'"
+          [attr.aria-pressed]="previewFollow() === 'never'"
+          (click)="setPreviewFollow('never')"
+        >
+          Never
+        </button>
+      </div>
+    </div>
   </div>
 
   <h2 class="subhead">Controls</h2>

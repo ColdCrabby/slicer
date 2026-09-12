@@ -319,6 +319,17 @@ export class Slicer {
     return this.lastSliceElapsedMs();
   });
 
+  /**
+   * Whether the slice now running — or the last one to finish — was started by
+   * the automatic re-slice timer rather than by a press.
+   *
+   * Read by the viewer, which follows a deliberate slice into G-code preview
+   * but leaves an automatic one where the user was: the plate-editing tools are
+   * hidden in preview, so switching mid-edit lands the next drag on a view that
+   * cannot show it.
+   */
+  readonly sliceWasAutomatic = signal(false);
+
   /** Handle of the armed automatic re-slice, or `null` when none is queued. */
   private autoSliceTimer: ReturnType<typeof setTimeout> | null = null;
 
@@ -823,7 +834,7 @@ export class Slicer {
         return;
       }
       this.autoSlicedSignature = signature;
-      void this.slice();
+      void this.slice({ automatic: true });
     }, AUTO_SLICE_DELAY_MS);
   }
 
@@ -842,12 +853,18 @@ export class Slicer {
     this.autoSlice.pending.set(false);
   }
 
-  async slice(): Promise<void> {
+  /**
+   * Slice the current plate. `automatic` marks a run the re-slice timer started
+   * rather than the user, which is the only thing downstream needs in order to
+   * treat the two differently.
+   */
+  async slice(options?: { automatic?: boolean }): Promise<void> {
     // A press (or a timer that just fired) supersedes anything queued — without
     // this, the window between here and `status = 'slicing'` below is long
     // enough for an armed timer to start a second, concurrent job.
     this.cancelAutoSlice();
     this.autoSlice.pending.set(false);
+    this.sliceWasAutomatic.set(options?.automatic === true);
 
     // Guard: prevent concurrent slice operations
     if (

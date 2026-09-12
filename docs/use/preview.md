@@ -3,7 +3,10 @@
 The G-code preview shows exactly what the nozzle will do — not a render of your
 model, but the actual toolpaths. Two minutes here saves a failed print.
 
-Press `P` to switch between the model and the preview.
+Press `P` to switch between the model and the preview. A slice you press brings
+you here by itself; a re-slice the slicer ran on its own leaves you where you
+were. Change that under
+[Whether the view follows the slice](/use/interface#whether-the-view-follows-the-slice).
 
 ## Colour by
 

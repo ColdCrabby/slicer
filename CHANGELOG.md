@@ -49,6 +49,11 @@ issue/PR numbers or repo links in the notes. See the tone rules in
   while slices stay under 5 s — measured from your own last one, so a heavy
   plate goes back to waiting for the button on its own. Set it for good in
   Settings → General → Slicing.
+- **The view no longer always jumps to the G-code preview when a slice
+  finishes.** Settings → General → Slicing → Show the preview after slicing
+  offers Automatic, Always and Never; Automatic follows a slice you pressed and
+  leaves an automatic re-slice alone, so an edit in progress is never pulled
+  into a view where the plate tools are hidden.
 - **Open a model straight from another app.** Cold Crabby now registers as a
   handler for `.stl`, `.obj` and `.3mf`: double-click one on Windows, macOS or
   Linux, or share one to it from Shapr3D, Files, Mail or AirDrop on iPhone and

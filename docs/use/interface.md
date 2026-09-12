@@ -122,8 +122,8 @@ slicer decides from how long *your* last slice actually took.
 Once you've sliced once, a flash button appears next to the model / preview
 toggle. Click it to step through three settings:
 
-| Setting       | What happens                                                      |
-| ------------- | ----------------------------------------------------------------- |
+| Setting       | What happens                                                       |
+| ------------- | ------------------------------------------------------------------ |
 | **Automatic** | Re-slices by itself while slices stay quick; waits when they don't |
 | **Always**    | Re-slices after every change, however long it takes                |
 | **Off**       | Nothing happens until you press **Slice**                          |
@@ -140,6 +140,24 @@ you'd rather not wait.
 
 The default is Automatic, and you can change it for good in **Settings →
 General → Slicing**.
+
+### Whether the view follows the slice
+
+A finished slice normally switches the 3D view to the G-code preview. That's
+what you want when you pressed Slice and were waiting for it — and not what you
+want in the middle of arranging a plate, because the plate-editing tools are
+hidden in preview, so the next drag lands on a view that can't show it.
+
+**Settings → General → Slicing → Show the preview after slicing** decides:
+
+| Setting       | What happens                                                    |
+| ------------- | --------------------------------------------------------------- |
+| **Automatic** | Follows a slice you pressed; leaves an automatic re-slice alone |
+| **Always**    | Every finished slice switches to preview                        |
+| **Never**     | The view never changes on its own — use the toggle or `P`       |
+
+It never switches *away* from the preview, so if you're already inspecting a
+slice you stay there whatever re-sliced it.
 
 ## The G-code inspector (right, after slicing)
 
