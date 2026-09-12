@@ -19,13 +19,14 @@ use serde::{Deserialize, Serialize};
 /// pipeline is decimated.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, JsonSchema)]
 pub enum MeshQuality {
-    /// No decimation. Full input mesh is used for slicing (default).
+    /// Slices the mesh exactly as it arrived (default).
     #[default]
     Normal,
-    /// No decimation. Identical to `normal` in behaviour; signals that the
-    /// caller wants maximum geometric fidelity.
+    /// Also slices the mesh exactly as it arrived — identical to `normal`
+    /// today, and kept so a file asking for maximum fidelity still loads.
     HighQuality,
-    /// Aggressive polygon reduction via vertex clustering.
+    /// Collapses nearby vertices first: quicker on dense models, at the cost of
+    /// fine surface detail.
     ///
     /// Significantly reduces triangle count for faster slicing of
     /// high-density models. Fine surface details may be smoothed away.

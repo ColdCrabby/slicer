@@ -329,6 +329,21 @@ An option's description — on a card, in a segment's tooltip, on a dropdown lin
 — is the variant's **opening sentence only**. The rest of the schema doc reaches
 the reader through the field's own ⓘ.
 
+**That sentence must not restate the option's name.** It is the only line the
+reader gets, and it sits directly under the label, so a variant doc that opens
+by naming itself spends the whole budget saying nothing:
+
+| Don't | Do |
+| --- | --- |
+| **Classic** — Classic fixed-width concentric perimeters | **Classic** — Every wall the same width, so a feature too thin for a whole bead is left to gap fill |
+| **Light** — Light studio background | **Light** — A solid pale backdrop is baked into the image |
+| **Calibrate Before Print** — Recalibrate the mesh before printing | **Calibrate Before Print** — Always current, at a few minutes a job |
+
+The same applies one level up: a field's ⓘ should not re-list the choices the
+control is already showing. Spend it on what the options cannot say for
+themselves — the default, the prerequisite, what else in the panel the choice
+drags with it.
+
 ### Adding a setting
 
 Add the field with an `x-group` and it appears. **A numeric field also needs an

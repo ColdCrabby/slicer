@@ -346,14 +346,16 @@ impl SeamPosition {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum WallGenerator {
-    /// Classic fixed-width concentric perimeters with thin-wall gap fill.
+    /// Every wall the same width — fast and predictable, but a feature too
+    /// thin for a whole bead is left to gap fill.
     ///
     /// Deterministic, fast, and dependency-free.  Produces `wall_count`
     /// constant-width beads per shell plus a variable-width residual bead in
     /// any narrow space that remains.  Matches the approach the mature slicers
     /// ship as their "Classic" wall generator.
     Classic,
-    /// Arachne-style medial-axis variable-width walls.
+    /// Walls that change width as the model does, reaching into engraved text
+    /// and tapering ribs a fixed bead cannot.
     ///
     /// Concentric perimeter loops whose count adapts to the local wall
     /// thickness, plus variable-width beads that follow the medial axis to fill
@@ -394,10 +396,12 @@ impl WallGenerator {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum SupportType {
-    /// Classic vertical / grid supports.
+    /// Straight grid columns dropped from every overhang — predictable, and
+    /// more of it to cut away afterwards.
     #[default]
     Normal,
-    /// Organic tree supports (branching columns).
+    /// Branches that taper and merge on the way down, so they touch the model
+    /// in fewer places and use less material.
     Tree,
 }
 
@@ -414,10 +418,11 @@ pub enum SupportType {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum AdhesionType {
-    /// No adhesion helper.
+    /// The object alone, printed straight onto the plate.
     #[default]
     None,
-    /// A loop of filament traced around the object (priming / draft shield).
+    /// A loop traced around the object without touching it — primes the nozzle,
+    /// and taller ones shield the print from draughts.
     Skirt,
     /// A flat apron fused to the object's first layer for extra bed grip.
     Brim,
@@ -516,15 +521,15 @@ impl PrintSequence {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum BedMeshMode {
-    /// Emit no bed mesh directive; leveling is left entirely to the printer's
-    /// own start macro/config.
+    /// Leveling is left entirely to the printer's own start macro or config.
     #[default]
     Off,
-    /// Load a previously calibrated mesh profile (Klipper
+    /// Reuses a mesh probed earlier, so it costs no print time (Klipper
     /// `BED_MESH_PROFILE LOAD=<name>`, Marlin/RepRap `M420 S1`).
     LoadProfile,
-    /// Recalibrate the mesh before printing (Klipper `BED_MESH_CALIBRATE`,
-    /// Marlin/RepRap `G29`), then load it.
+    /// Probes the bed at the start of every print and loads the result — always
+    /// current, at a few minutes a job (Klipper `BED_MESH_CALIBRATE`,
+    /// Marlin/RepRap `G29`).
     Calibrate,
 }
 
@@ -560,11 +565,12 @@ pub enum ThumbnailView {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum ThumbnailTheme {
-    /// Light studio background.
+    /// A solid pale backdrop is baked into the image.
     Light,
-    /// Dark studio background.
+    /// A solid near-black backdrop is baked into the image.
     Dark,
-    /// No background — a transparent PNG cutout of the model (default).
+    /// No backdrop at all — a PNG cutout, so whatever the printer's screen puts
+    /// behind it shows through (default).
     #[default]
     Transparent,
 }
@@ -573,12 +579,13 @@ pub enum ThumbnailTheme {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum ThumbnailColorMode {
-    /// Neutral grey "grey plastic" look, tuned to the thumbnail theme.
+    /// A neutral grey plastic look, whatever is actually loaded.
     Generic,
-    /// Use the active filament's colour (default) — matches the viewer.
+    /// Takes the colour from the spool you sliced with, so the preview matches
+    /// the viewer (default).
     #[default]
     Filament,
-    /// Use a specific colour picked in `thumbnail_custom_color`.
+    /// One fixed colour you pick yourself, whatever the spool says.
     Custom,
 }
 
@@ -647,9 +654,8 @@ Smaller values produce finer detail but increase print time.
 
     #[schemars(description = "Wall (perimeter) generation algorithm.
 
-Supported values:
-- `classic` — fixed-width concentric perimeters with thin-wall gap fill (fast, robust).
-- `arachne` — medial-axis variable-width walls that better fill thin features (engraved text, tapering ribs).
+This decides the shape of every wall on the print, so wall widths, speeds and
+seam settings tuned against one generator do not transfer exactly to the other.
 
 **Default:** `arachne`.", extend("x-group" = "Walls", "x-tier" = "advanced", "x-widget" = "cards"))]
     #[serde(default = "SlicingParams::default_wall_generator")]
@@ -2191,7 +2197,10 @@ conservative and supports gentler overhangs, a **larger** angle supports only se
     pub support_threshold_angle: f64,
 
     #[schemars(
-        description = "Support style: `normal` (grid columns) or `tree` (organic branches).",
+        description = "How support is built under an overhang.
+
+The threshold angle, density, interface layers and XY/Z clearance below apply
+to both styles.",
         extend("x-group" = "Support", "x-widget" = "cards", "x-relevant-when" = serde_json::json!({"field": "support_enabled", "equals": true}))
     )]
     #[serde(default)]
@@ -2280,7 +2289,9 @@ per unit area but is coarser to break off.",
     pub support_line_width: f64,
 
     #[schemars(
-        description = "Bed-adhesion helper: `none`, `skirt`, `brim`, or `raft`.",
+        description = "What is printed around or under the object to hold it to the build plate.
+
+Each choice reveals its own settings below.",
         extend("x-group" = "Adhesion", "x-widget" = "cards")
     )]
     #[serde(default)]
@@ -2565,7 +2576,11 @@ more effectively than ironing along them.",
     pub thumbnail_png_base64: Option<String>,
 
     #[schemars(
-        description = "How a plate with several objects is printed: all objects together, rising one layer at a time — or each object finished completely before the next begins.",
+        description = "Whether the plate is printed as one job or one object at a time.
+
+Finishing objects one by one keeps a failure from spoiling the rest of the
+plate, but the printhead has to travel over finished parts — so the printhead
+clearance settings on the Printer tab decide which layouts are safe to run.",
         extend("x-group" = "Objects", "x-tier" = "advanced", "x-widget" = "cards")
     )]
     #[serde(default)]
@@ -2600,9 +2615,11 @@ more effectively than ironing along them.",
     pub between_objects_gcode: Option<String>,
 
     #[schemars(
-        description = "Bed mesh leveling directive emitted at print start: off (leave it to the \
-                       printer's own start macro/config), load a previously saved mesh profile, \
-                       or recalibrate before every print.",
+        description = "Whether the slicer emits a bed mesh command at print start.
+
+Off by default: most printers already level inside their own start macro or a
+one-time manual calibration, and a slicer-driven command on top of that would
+duplicate the work or race it.",
         extend("x-group" = "Hardware", "x-tier" = "advanced", "x-widget" = "cards")
     )]
     #[serde(default)]

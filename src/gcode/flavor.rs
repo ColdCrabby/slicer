@@ -12,14 +12,14 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "lowercase")]
 pub enum GcodeFlavor {
-    /// Marlin firmware: standard M-command set, widely compatible with consumer FDM printers.
+    /// The standard M-command set, understood by most consumer FDM printers.
     #[default]
     #[serde(alias = "Marlin")]
     Marlin,
-    /// Klipper firmware: supports `SET_VELOCITY_LIMIT`, `SET_PRESSURE_ADVANCE`, and custom macros.
+    /// Adds `SET_VELOCITY_LIMIT`, `SET_PRESSURE_ADVANCE`, and custom macros.
     #[serde(alias = "Klipper")]
     Klipper,
-    /// RepRapFirmware: Marlin-compatible M-command baseline with a few RRF-specific commands
+    /// A Marlin-compatible baseline plus a few RepRapFirmware-only commands
     /// (e.g. `M226` for pause-on-this-line).
     #[serde(alias = "RepRap")]
     RepRap,

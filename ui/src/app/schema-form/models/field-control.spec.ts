@@ -66,6 +66,21 @@ describe('optionSummary', () => {
     expect(optionSummary(undefined)).toBe('');
     expect(optionSummary('Organic branches')).toBe('Organic branches');
   });
+
+  it('does not end the sentence at an abbreviation', () => {
+    // The RepRap flavour used to read "…a few RRF-specific commands (e.g." —
+    // the word after the stop is capitalised, so nothing but the abbreviation
+    // itself says it is mid-sentence.
+    expect(optionSummary('A baseline plus a few extras (e.g. M226 to pause). And more.')).toBe(
+      'A baseline plus a few extras (e.g. M226 to pause).',
+    );
+  });
+
+  it('does not end the sentence inside a number', () => {
+    expect(optionSummary('Scales the estimate by 1.25 for this machine. Details follow.')).toBe(
+      'Scales the estimate by 1.25 for this machine.',
+    );
+  });
 });
 
 describe('the engine schema', () => {
