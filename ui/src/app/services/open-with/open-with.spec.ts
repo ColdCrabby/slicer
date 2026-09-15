@@ -9,8 +9,9 @@ import { OpenWith } from './open-with';
 
 /**
  * `OpenWith` is the only part of "Open with Cold Crabby" that makes a decision
- * rather than a translation, so what is pinned here is that decision — join the
- * plate on screen, never replace it — and the two routes a model reaches it by.
+ * rather than a translation, so what is pinned here is that decision — always
+ * open a fresh plate, never fold into whatever is already on screen — and the
+ * two routes a model reaches it by.
  */
 type OpenedEvent = { payload: unknown };
 
@@ -116,7 +117,7 @@ describe('OpenWith', () => {
     expect(navigate).toHaveBeenCalledTimes(1);
   });
 
-  it('joins the plate already on screen rather than throwing it away', async () => {
+  it('opens a fresh plate even when one is already on screen', async () => {
     const { openWith, slicer, workplate, navigate } = setup();
     workplate.objects.set([{ id: 1n }]);
     openWith.start();
@@ -124,9 +125,9 @@ describe('OpenWith', () => {
 
     await emit([BENCHY]);
 
-    expect(workplate.addFiles).toHaveBeenCalledTimes(1);
-    expect(slicer.startWorkplate).toHaveBeenCalledTimes(0);
-    expect(navigate).toHaveBeenCalledTimes(0);
+    expect(slicer.startWorkplate).toHaveBeenCalledTimes(1);
+    expect(workplate.addFiles).toHaveBeenCalledTimes(0);
+    expect(navigate).toHaveBeenCalledTimes(1);
   });
 
   it('plates the first of a batch and queues the rest, as a multi-file drop does', async () => {
