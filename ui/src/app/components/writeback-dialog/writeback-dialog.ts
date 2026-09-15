@@ -21,6 +21,11 @@ function formatValue(value: unknown): string {
   return String(value);
 }
 
+/** Whether a value needs the block diff layout rather than one inline row. */
+function isMultiline(value: unknown): boolean {
+  return typeof value === 'string' && value.includes('\n');
+}
+
 /** One contract's section of the review list. */
 interface WritebackSection {
   contract: SettingContractId;
@@ -53,6 +58,7 @@ interface WritebackSection {
 export class WritebackDialog {
   protected readonly writeback = inject(ProfileWriteback);
   protected readonly formatValue = formatValue;
+  protected readonly isMultiline = isMultiline;
 
   /** Rows bucketed into their contract, in the sidebar's own tab order. */
   protected readonly sections = computed<WritebackSection[]>(() => {
@@ -65,11 +71,31 @@ export class WritebackDialog {
     })).filter((section) => section.rows.length > 0);
   });
 
+  /** A multi-line value rendered as unified-diff-style `−`/`+` lines. */
+  protected diffLines(value: unknown, marker: '−' | '+'): string {
+    return formatValue(value)
+      .split('\n')
+      .map((line) => `${marker} ${line}`)
+      .join('\n');
+  }
+
   protected accept(row: WritebackRow): void {
     this.writeback.setAccepted(row.key, true);
   }
 
   protected reject(row: WritebackRow): void {
     this.writeback.setAccepted(row.key, false);
+  }
+
+  /** Accept or reject every row in one contract's section at once. */
+  protected setSection(section: WritebackSection, value: boolean, event: Event): void {
+    // The buttons live inside a <summary>, whose native click toggles the
+    // accordion — stopped here so a bulk choice doesn't also collapse the
+    // section the user is looking at.
+    event.preventDefault();
+    event.stopPropagation();
+    for (const row of section.rows) {
+      this.writeback.setAccepted(row.key, value);
+    }
   }
 }

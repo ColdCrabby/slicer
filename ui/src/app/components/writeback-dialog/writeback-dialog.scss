@@ -55,6 +55,20 @@
   font-weight: 600;
 }
 
+// Bulk accept/reject for the whole section, so a printer profile with ten
+// deviations doesn't need ten individual clicks. Smaller than the per-row
+// pill since it sits in a header already carrying an icon, a label and a
+// count.
+.writeback__section-actions {
+  flex: none;
+
+  .writeback__choice-btn {
+    width: 22px;
+    height: 22px;
+    --icon-size: 12px;
+  }
+}
+
 .writeback__list {
   display: flex;
   flex-direction: column;
@@ -154,6 +168,32 @@
 .writeback__new {
   color: var(--color-success);
   font-weight: 500;
+}
+
+// G-code blocks and other multi-line strings get a stacked, unified-diff-style
+// layout instead — an inline "old → new" row collapses newlines and makes a
+// multi-line script unreadable, which matters here since this is exactly the
+// value someone is trying to check before it overwrites a profile's G-code.
+.writeback__diff--block {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 4px;
+}
+
+.writeback__diff--block .writeback__old,
+.writeback__diff--block .writeback__new {
+  margin: 0;
+  padding: var(--spacing-xs) var(--spacing-sm);
+  border-radius: var(--radius-sm);
+  background: var(--color-bg-primary);
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 11px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 160px;
+  overflow-y: auto;
+  text-decoration: none;
 }
 
 .writeback__hint {

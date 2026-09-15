@@ -180,6 +180,7 @@ export class SettingsPanel {
         title: 'Sync changes to your profiles',
         message: 'Check off which changed settings should become part of their profile.',
         confirmLabel: 'Sync checked settings',
+        cancelLabel: "Don't sync",
         content: WritebackDialog,
         preferredWidth: '560px',
       })
