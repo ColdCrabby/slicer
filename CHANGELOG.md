@@ -274,6 +274,20 @@ issue/PR numbers or repo links in the notes. See the tone rules in
 
 ### Fixed
 
+- **Overhangs are graded by geometry, not by rounding.** A wall's overhang was
+  decided by testing its own centreline against a region whose outer edge *is*
+  that centreline, so the answer came back as floating-point noise: a Benchy
+  funnel rim of uniform 0.34 mm lean was split into four alternating verdicts
+  around one circle. Each segment is now measured against the previous layer's
+  bead envelope, so a rim that leans evenly is classified evenly — and prints as
+  one arc instead of four, with three fewer retracts.
+- **Small layers no longer crawl to a blob.** The minimum-layer-time slowdown
+  scaled every feedrate against the general print speed, so roles already slower
+  than it — bridges, overhang bands, ironing — fell straight through the
+  `min_print_speed` floor. A Benchy chimney rim ran at 1 mm/s against a 10 mm/s
+  floor, where the melt oozes faster than the nozzle moves and the bead lands
+  nozzle-round however little filament is commanded. The floor now applies to the
+  speed actually emitted.
 - **Closing a workplate tab works.** The close button did nothing whenever the
   tab's plate was still loaded, because the list that opens a tab per loaded
   file put it straight back.

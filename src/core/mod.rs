@@ -2468,7 +2468,7 @@ mod tests {
         layer.unsupported_regions = Paths::new(vec![air]);
 
         let mut layers = vec![layer];
-        classify_overhang_perimeters(&mut layers, 0.4, None);
+        classify_overhang_perimeters(&mut layers, 0.4, None, None);
 
         // After splitting there must be at least two separate paths.
         let path_count = layers[0].paths.iter().count();
@@ -2573,7 +2573,7 @@ mod tests {
         );
 
         // Now classify overhang perimeters (uses unsupported_regions set above).
-        classify_overhang_perimeters(&mut layers, 0.4, None);
+        classify_overhang_perimeters(&mut layers, 0.4, None, None);
 
         // After clipping and overhang classification, no OuterWall or InnerWall
         // paths that were *inside the bridge zone* should carry OverhangPerimeter.
@@ -2678,7 +2678,7 @@ mod tests {
             layers[2].path_roles
         );
 
-        classify_overhang_perimeters(&mut layers, 0.4, None);
+        classify_overhang_perimeters(&mut layers, 0.4, None, None);
 
         // CRITICAL: no OverhangPerimeter on the bridge layer.  Any such arc
         // would overlap the bridge infill and produce double extrusion.

@@ -371,12 +371,11 @@ pub fn process_mesh_with_paint(
         vec![]
     };
 
-    // Snapshot pristine OuterWall perimeters for dynamic overhang-degree grading
+    // Snapshot pristine OuterWall perimeters for overhang classification
     // *before* surface generation splits any walls via bridge clipping.  Layer
-    // `i`'s support outline is `snapshot[i-1]`; the snapshot is consumed by
-    // `classify_overhang_perimeters` to grade each wall segment's overhang
-    // degree.  Only taken when the feature is enabled.
-    let overhang_support: Option<Vec<Paths>> = snapshot_overhang_support(&layers, params);
+    // `i`'s support outline is `snapshot[i-1]`; the snapshot is what
+    // `classify_overhang_perimeters` measures each wall segment against.
+    let overhang_support: Vec<Paths> = snapshot_overhang_support(&layers);
 
     // Supports need the same un-split outlines, and for the same reason: the
     // classification pass below retags an overhanging wall as
@@ -444,11 +443,15 @@ pub fn process_mesh_with_paint(
         if !params.spiral_vase {
             logger.log_debug("classifying overhang perimeters");
             let t_overhang = PhaseTimer::start("Overhang Perimeter Classification", logger);
-            let grading = overhang_support.as_deref().map(|support| OverhangGrading {
-                support,
+            let grading = params.enable_overhang_speed.then(|| OverhangGrading {
                 band_class: overhang_band_class(params),
             });
-            classify_overhang_perimeters(&mut layers, params.nozzle_diameter_mm, grading);
+            classify_overhang_perimeters(
+                &mut layers,
+                params.nozzle_diameter_mm,
+                Some(&overhang_support),
+                grading,
+            );
             t_overhang.finish();
         }
 
@@ -914,7 +917,7 @@ pub fn process_mesh_debug(
 
     // Surfaces.
     if params.top_layers > 0 || params.bottom_layers > 0 {
-        let overhang_support = snapshot_overhang_support(&layers, params);
+        let overhang_support = snapshot_overhang_support(&layers);
         generate_top_bottom_surfaces_with_interior(
             &mut layers,
             &SurfaceConfig {
@@ -947,8 +950,8 @@ pub fn process_mesh_debug(
             classify_overhang_perimeters(
                 &mut layers,
                 params.nozzle_diameter_mm,
-                overhang_support.as_deref().map(|support| OverhangGrading {
-                    support,
+                Some(&overhang_support),
+                params.enable_overhang_speed.then(|| OverhangGrading {
                     band_class: overhang_band_class(params),
                 }),
             );
@@ -1270,18 +1273,20 @@ fn ray_cast(probe: (f64, f64), poly: &[(f64, f64)]) -> Containment {
     }
 }
 
-/// Snapshot each layer's pristine OuterWall perimeter outline for dynamic
-/// overhang-degree grading, or `None` when the feature is disabled.
+/// Snapshot each layer's pristine OuterWall perimeter outline for overhang
+/// classification.
+///
+/// Taken unconditionally: layer `i`'s support outline (`snapshot[i-1]`) is what
+/// `classify_overhang_perimeters` measures each wall segment against to decide
+/// whether it hangs in air at all, so it cannot be gated on
+/// `enable_overhang_speed` — that setting only chooses whether the *degrees*
+/// within an overhang are graded.
 ///
 /// Must be called **before** surface generation, which splits walls via bridge
-/// clipping — the grader needs the un-split centrelines so a layer's support
-/// outline (`snapshot[i-1]`) matches the geometry `unsupported_regions` was
-/// built from.
-fn snapshot_overhang_support(layers: &[SliceLayer], params: &SlicingParams) -> Option<Vec<Paths>> {
-    if !params.enable_overhang_speed {
-        return None;
-    }
-    Some(snapshot_perimeters(layers))
+/// clipping: the classifier needs the un-split centrelines so the outline
+/// matches the geometry `unsupported_regions` was built from.
+fn snapshot_overhang_support(layers: &[SliceLayer]) -> Vec<Paths> {
+    snapshot_perimeters(layers)
 }
 
 /// Snapshot every layer's `OuterWall` centreline outline as it stands now.
