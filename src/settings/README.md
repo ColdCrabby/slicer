@@ -103,6 +103,11 @@ is present, since the raft then owns bed contact.
 | Parameter                | Type | Default | Effect                                                                      |
 | ------------------------ | ---- | ------- | --------------------------------------------------------------------------- |
 | `bridge_speed`           | mm/s | 10      | Print speed for bridge / overhang-perimeter extrusions (slow = smooth)      |
+| `enable_overhang_speed`  | bool | `true`  | Grade perimeters by unsupported fraction instead of one flat `bridge_speed` |
+| `overhang_1_4_speed`     | mm/s | 0       | Deg1 (0–25% unsupported); `0` = full `perimeter_speed`                      |
+| `overhang_2_4_speed`     | mm/s | 32      | Deg2 (25–50% unsupported); `0` = full `perimeter_speed`                     |
+| `overhang_3_4_speed`     | mm/s | 0       | Deg3 (50–75% unsupported); `0` = inherit `bridge_speed`                     |
+| `overhang_4_4_speed`     | mm/s | 8       | Deg4 (75–100% unsupported); `0` = inherit `bridge_speed`                    |
 | `bridge_flow_ratio`      | 0–1.5| 1.5     | Flow multiplier for bridge lines (>1 fuses strands into a smooth floor)     |
 | `bridge_anchor_mm`       | mm   | 0.4     | Inflate the bridge region outward to anchor strands into solid material     |
 | `bridge_min_area_mm2`    | mm²  | 0.5     | Drop bridge candidates smaller than this; reclassified as `BottomSurface`   |

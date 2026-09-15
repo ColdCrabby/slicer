@@ -1070,12 +1070,14 @@ slowing it taxes a large share of ordinary walls on curved models for no gain.
     #[schemars(
         description = "Speed for moderately-overhanging perimeters (25–50% unsupported), in mm/s.
 
-`0` = print at the normal `perimeter_speed` (no slowdown).  Half of this bead
-still rests on the layer below, so the default leaves it at full speed.
-**Default:** 0 (no slowdown).",
+`0` = print at the normal `perimeter_speed` (no slowdown). This is the band a
+curved wall (a Benchy hull, a dome) spends many layers passing through on its
+way from vertical to bridging, so leaving it at full speed is where the
+transition shows up as a visible quality dip.
+**Default:** 32 mm/s (40% of the default `perimeter_speed`).",
         extend("x-group" = "Speed", "x-unit" = "mm_s", "x-tier" = "advanced")
     )]
-    #[serde(default = "SlicingParams::default_overhang_degree_speed")]
+    #[serde(default = "SlicingParams::default_overhang_2_4_speed")]
     pub overhang_2_4_speed: f64,
 
     #[schemars(
@@ -2667,7 +2669,7 @@ impl Default for SlicingParams {
             bridge_speed: Self::default_bridge_speed(),
             enable_overhang_speed: Self::default_enable_overhang_speed(),
             overhang_1_4_speed: Self::default_overhang_degree_speed(),
-            overhang_2_4_speed: Self::default_overhang_degree_speed(),
+            overhang_2_4_speed: Self::default_overhang_2_4_speed(),
             overhang_3_4_speed: Self::default_overhang_degree_speed(),
             overhang_4_4_speed: Self::default_overhang_4_4_speed(),
             slowdown_for_curled_perimeters: Self::default_slowdown_for_curled_perimeters(),
@@ -3393,18 +3395,31 @@ impl SlicingParams {
         true
     }
 
-    /// Default for the three milder `overhang_*_speed` bands: `0` = inherit
-    /// (Deg1/Deg2 → `perimeter_speed`, Deg3 → `bridge_speed`).
+    /// Default for `overhang_1_4_speed` and `overhang_3_4_speed`: `0` = inherit
+    /// (Deg1 → `perimeter_speed`, Deg3 → `bridge_speed`).
     ///
-    /// Deg1/Deg2 centrelines lie *within* the previous layer's bead envelope
-    /// (≥ 50 % supported) — the same "slight lean" geometry the overhang
-    /// classifier deliberately refuses to flag. Slowing them would tax a large
-    /// share of ordinary walls on any curved model for no quality gain, and
-    /// would fragment those loops into arcs that print identically. Deg3
+    /// Deg1's centreline still lies mostly *within* the previous layer's bead
+    /// envelope (≥ 75 % supported) — the same "slight lean" geometry the
+    /// overhang classifier deliberately refuses to flag. Slowing it would tax a
+    /// large share of ordinary walls on any curved model for no quality gain,
+    /// and would fragment those loops into arcs that print identically. Deg3
     /// inherits `bridge_speed`, so it tracks that setting instead of pinning a
     /// second number that can drift out of sync with it.
     fn default_overhang_degree_speed() -> f64 {
         0.0
+    }
+
+    /// Deg2 (25–50 % unsupported) in mm/s.
+    ///
+    /// Half of this bead is still on the layer below, but unlike Deg1 it is no
+    /// longer the "ordinary curved wall" case — it is the band a steadily
+    /// leaning surface spends many consecutive layers inside on its way to
+    /// bridging, so leaving it at full speed reads as a quality dip right at
+    /// that transition instead of a smooth ramp down to `bridge_speed`. Scaled
+    /// off `perimeter_speed` rather than given its own flat number, so it stays
+    /// a real midpoint whether the profile cruises at 80 mm/s or 200.
+    fn default_overhang_2_4_speed() -> f64 {
+        0.4 * Self::default_perimeter_speed()
     }
 
     /// Deg4 (75–100 % unsupported) in mm/s.

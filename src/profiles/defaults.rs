@@ -252,6 +252,11 @@ pub fn high_speed_process() -> ProcessProfile {
         "infill_base_angle": 45.0,
         "print_speed": 200.0,
         "perimeter_speed": 120.0,
+        // Kept at the same ~40% of perimeter_speed the base profile uses —
+        // the transitional overhang band needs a real slowdown regardless of
+        // how fast the preset cruises, not a number that quietly stays flat
+        // while the walls around it get faster.
+        "overhang_2_4_speed": 48.0,
         "infill_speed": 250.0,
         "top_surface_speed": 100.0,
         "first_layer_speed": 40.0,
@@ -305,6 +310,7 @@ pub fn maximum_process() -> ProcessProfile {
         "infill_base_angle": 45.0,
         "print_speed": 300.0,
         "perimeter_speed": 200.0,
+        "overhang_2_4_speed": 80.0,
         "infill_speed": 300.0,
         "top_surface_speed": 150.0,
         "first_layer_speed": 50.0,
@@ -348,7 +354,7 @@ mod tests {
     /// The `Speed` group — everything a "go faster" preset is allowed to touch.
     /// Kept in step with the `x-group = "Speed"` annotations in
     /// `settings::params`; a new speed parameter belongs in both.
-    const SPEED_KEYS: [&str; 20] = [
+    const SPEED_KEYS: [&str; 21] = [
         "print_speed",
         "perimeter_speed",
         "infill_speed",
@@ -357,6 +363,7 @@ mod tests {
         "gap_fill_speed",
         "support_speed",
         "bridge_speed",
+        "overhang_2_4_speed",
         "travel_speed_mm_min",
         "acceleration",
         "first_layer_acceleration",
