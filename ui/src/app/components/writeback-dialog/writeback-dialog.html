@@ -1,0 +1,88 @@
+<div class="writeback">
+  @if (sections().length === 0) {
+    <p class="writeback__empty">Nothing to write back — this plate already matches its presets.</p>
+  } @else {
+    @for (section of sections(); track section.contract) {
+      <details class="writeback__section" open>
+        <summary class="writeback__section-head">
+          <nexus-icon [name]="section.icon" />
+          <span class="writeback__section-label">{{ section.label }}</span>
+          <span class="writeback__section-count">{{ section.rows.length }}</span>
+          <div
+            class="writeback__choice writeback__section-actions"
+            role="group"
+            [attr.aria-label]="'Every ' + section.label + ' change'"
+          >
+            <button
+              type="button"
+              class="writeback__choice-btn writeback__choice-accept"
+              [attr.aria-label]="'Sync every ' + section.label + ' change'"
+              (click)="setSection(section, true, $event)"
+            >
+              <nexus-icon name="check" />
+            </button>
+            <button
+              type="button"
+              class="writeback__choice-btn writeback__choice-reject"
+              [attr.aria-label]="'Leave every ' + section.label + ' change on this plate'"
+              (click)="setSection(section, false, $event)"
+            >
+              <nexus-icon name="xmark" />
+            </button>
+          </div>
+        </summary>
+
+        <ul class="writeback__list">
+          @for (row of section.rows; track row.key) {
+            <li class="writeback__row">
+              <div
+                class="writeback__choice"
+                role="group"
+                [attr.aria-label]="'Write back ' + row.label"
+              >
+                <button
+                  type="button"
+                  class="writeback__choice-btn writeback__choice-accept"
+                  [class.is-active]="writeback.isAccepted(row.key)"
+                  aria-label="Write this change back to its profile"
+                  (click)="accept(row)"
+                >
+                  <nexus-icon name="check" />
+                </button>
+                <button
+                  type="button"
+                  class="writeback__choice-btn writeback__choice-reject"
+                  [class.is-active]="!writeback.isAccepted(row.key)"
+                  aria-label="Leave this as a change on this plate"
+                  (click)="reject(row)"
+                >
+                  <nexus-icon name="xmark" />
+                </button>
+              </div>
+              <div class="writeback__body">
+                <span class="writeback__label">{{ row.label }}</span>
+                @if (isMultiline(row.presetValue) || isMultiline(row.overrideValue)) {
+                  <div class="writeback__diff writeback__diff--block">
+                    <pre class="writeback__old">{{ diffLines(row.presetValue, '−') }}</pre>
+                    <pre class="writeback__new">{{ diffLines(row.overrideValue, '+') }}</pre>
+                  </div>
+                } @else {
+                  <div class="writeback__diff">
+                    <span class="writeback__old">{{ formatValue(row.presetValue) }}</span>
+                    <nexus-icon name="nav-arrow-right" class="writeback__arrow" />
+                    <span class="writeback__new">{{ formatValue(row.overrideValue) }}</span>
+                  </div>
+                }
+              </div>
+            </li>
+          }
+        </ul>
+      </details>
+    }
+
+    <p class="writeback__hint">
+      Checked settings are saved into their printer, filament or process profile and stop being a
+      change on this plate. Unchecked ones are left exactly as they are.
+    </p>
+  }
+</div>

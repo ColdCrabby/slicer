@@ -11,6 +11,16 @@
   @if (dialog(); as d) {
     <div class="dialog__header">
       <h2 class="dialog__title" [id]="'dialog-title-' + d.id">{{ d.config.title }}</h2>
+      <button
+        nexusIconButton
+        class="dialog__dismiss"
+        size="sm"
+        aria-label="Dismiss"
+        type="button"
+        (click)="cancel()"
+      >
+        <nexus-icon name="xmark" />
+      </button>
     </div>
 
     @if (d.config.message) {

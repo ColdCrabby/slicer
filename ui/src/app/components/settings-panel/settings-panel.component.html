@@ -7,13 +7,35 @@
       (clear)="labelFilter.clear()"
     />
 
-    <nexus-segmented
-      class="contract-tabs"
-      label="Setting category"
-      [options]="contractTabs"
-      [value]="activeContract()"
-      (valueChange)="setContract($event)"
-    />
+    <div class="contract-row">
+      <nexus-segmented
+        class="contract-tabs"
+        label="Setting category"
+        [options]="contractTabs"
+        [value]="activeContract()"
+        (valueChange)="setContract($event)"
+      />
+
+      @if (modifiedCount() > 0) {
+        <button
+          nexusIconButton
+          class="sync-trigger"
+          variant="outline"
+          [tooltip]="
+            'Sync ' +
+            modifiedCount() +
+            ' changed ' +
+            (modifiedCount() === 1 ? 'setting' : 'settings') +
+            ' to their profiles'
+          "
+          aria-label="Sync changed settings to their profiles"
+          (click)="syncToProfile()"
+        >
+          <nexus-icon name="floppy-disk-arrow-out" />
+          <span class="sync-trigger-count">{{ modifiedCount() }}</span>
+        </button>
+      }
+    </div>
 
     <div class="preset-row">
       @if (presetOptions().length > 0) {
