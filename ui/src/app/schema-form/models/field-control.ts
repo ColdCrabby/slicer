@@ -13,6 +13,7 @@ import type { FieldDef } from './field-def';
  * | `select` | a longer enum, or an open list | a list you pick from, not a set of modes |
  * | `number` | every numeric parameter | the unit and step come from `x-unit` / `x-step` |
  * | `slider` | a number whose *feel* matters more than its digits | infill density |
+ * | `relative-speed` | a speed given as mm/s or as a percentage of another field | overhang band speeds |
  * | `text`, `color`, `gcode`, `filament-type` | the string shapes | a colour is a swatch, G-code is an editor |
  * | `array` | structured lists (fan curves, triggers) | has an editor of its own; the form skips it |
  *
@@ -34,6 +35,7 @@ export type ControlKind =
   | 'select'
   | 'number'
   | 'slider'
+  | 'relative-speed'
   | 'text'
   | 'color'
   | 'gcode'
@@ -58,6 +60,7 @@ const WIDGET_HINTS: Record<string, ControlKind> = {
   segmented: 'segmented',
   select: 'select',
   color: 'color',
+  'relative-speed': 'relative-speed',
 };
 
 /**
@@ -75,6 +78,20 @@ const KEY_CONTROLS: Record<string, ControlKind> = {
   filament_color: 'color',
   thumbnail_custom_color: 'color',
 };
+
+/**
+ * Controls that read a sibling field's live value (e.g. `relative-speed`
+ * resolving the field named by `x-relative-to`). `FieldHost` only wires its
+ * `siblings` input through to these — every other widget is a pure function
+ * of its own `value`, and skipping them avoids handing every widget an input
+ * it doesn't declare.
+ */
+const SIBLING_AWARE_CONTROLS: ReadonlySet<ControlKind> = new Set(['relative-speed']);
+
+/** Whether this field's widget needs the other values in scope. */
+export function wantsSiblings(field: FieldDef): boolean {
+  return SIBLING_AWARE_CONTROLS.has(controlFor(field));
+}
 
 /**
  * The control a field renders as. Precedence: the key's own override, then the

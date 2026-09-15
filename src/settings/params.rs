@@ -6,6 +6,8 @@ pub use crate::mesh::transforms::MeshQuality;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
+use super::relative_speed::RelativeSpeed;
+
 /// Fan index constants for indexed M106 Pn commands.
 pub mod fan_index {
     /// Part-cooling fan (default, P0).
@@ -1068,17 +1070,24 @@ slowing it taxes a large share of ordinary walls on curved models for no gain.
     pub overhang_1_4_speed: f64,
 
     #[schemars(
-        description = "Speed for moderately-overhanging perimeters (25–50% unsupported), in mm/s.
+        description = "Speed for moderately-overhanging perimeters (25–50% unsupported), given
+either as a literal mm/s value or as a percentage of `perimeter_speed` (e.g. `\"40%\"`).
 
-`0` = print at the normal `perimeter_speed` (no slowdown). This is the band a
-curved wall (a Benchy hull, a dome) spends many layers passing through on its
-way from vertical to bridging, so leaving it at full speed is where the
-transition shows up as a visible quality dip.
-**Default:** 32 mm/s (40% of the default `perimeter_speed`).",
-        extend("x-group" = "Speed", "x-unit" = "mm_s", "x-tier" = "advanced")
+This is the band a curved wall (a Benchy hull, a dome) spends many layers
+passing through on its way from vertical to bridging, so leaving it at full
+speed is where the transition shows up as a visible quality dip. Expressed as
+a percentage by default so it stays a real slowdown whatever `perimeter_speed`
+the profile cruises at, instead of one number that only fits one preset.
+**Default:** 40% of `perimeter_speed`.",
+        extend(
+            "x-group" = "Speed",
+            "x-tier" = "advanced",
+            "x-widget" = "relative-speed",
+            "x-relative-to" = "perimeter_speed"
+        )
     )]
     #[serde(default = "SlicingParams::default_overhang_2_4_speed")]
-    pub overhang_2_4_speed: f64,
+    pub overhang_2_4_speed: RelativeSpeed,
 
     #[schemars(
         description = "Speed for steep overhanging perimeters (50–75% unsupported), in mm/s.
@@ -3409,17 +3418,18 @@ impl SlicingParams {
         0.0
     }
 
-    /// Deg2 (25–50 % unsupported) in mm/s.
+    /// Deg2 (25–50 % unsupported).
     ///
     /// Half of this bead is still on the layer below, but unlike Deg1 it is no
     /// longer the "ordinary curved wall" case — it is the band a steadily
     /// leaning surface spends many consecutive layers inside on its way to
     /// bridging, so leaving it at full speed reads as a quality dip right at
-    /// that transition instead of a smooth ramp down to `bridge_speed`. Scaled
-    /// off `perimeter_speed` rather than given its own flat number, so it stays
-    /// a real midpoint whether the profile cruises at 80 mm/s or 200.
-    fn default_overhang_2_4_speed() -> f64 {
-        0.4 * Self::default_perimeter_speed()
+    /// that transition instead of a smooth ramp down to `bridge_speed`. A
+    /// [`RelativeSpeed::Percent`] rather than a flat mm/s number, so it stays a
+    /// real midpoint whether the profile cruises at 80 mm/s or 200 — no preset
+    /// needs to restate it.
+    fn default_overhang_2_4_speed() -> RelativeSpeed {
+        RelativeSpeed::Percent(0.4)
     }
 
     /// Deg4 (75–100 % unsupported) in mm/s.

@@ -274,13 +274,13 @@ fn machine_z(z: f64, params: &SlicingParams) -> f64 {
 /// overhangs when `slowdown_for_curled_perimeters` is on.
 fn slowest_overhang_speed_mm_s(params: &SlicingParams) -> Option<f64> {
     [
-        params.overhang_1_4_speed,
-        params.overhang_2_4_speed,
-        params.overhang_3_4_speed,
-        params.overhang_4_4_speed,
+        Some(params.overhang_1_4_speed).filter(|s| *s > 0.0),
+        params.overhang_2_4_speed.resolve(params.perimeter_speed),
+        Some(params.overhang_3_4_speed).filter(|s| *s > 0.0),
+        Some(params.overhang_4_4_speed).filter(|s| *s > 0.0),
     ]
     .into_iter()
-    .filter(|s| *s > 0.0)
+    .flatten()
     .min_by(|a, b| a.partial_cmp(b).unwrap())
 }
 
@@ -1207,15 +1207,26 @@ impl GcodeGenerator {
 
         // Dynamic overhang speed override.
         if params.enable_overhang_speed && overhang.is_overhang() {
-            let cfg = match overhang {
-                crate::core::OverhangClass::Deg1 => params.overhang_1_4_speed,
-                crate::core::OverhangClass::Deg2 => params.overhang_2_4_speed,
-                crate::core::OverhangClass::Deg3 => params.overhang_3_4_speed,
-                crate::core::OverhangClass::Deg4 => params.overhang_4_4_speed,
-                crate::core::OverhangClass::None => 0.0,
+            // `None` = keep the role's normal speed for this degree.
+            let resolved = match overhang {
+                crate::core::OverhangClass::Deg1 => {
+                    Some(params.overhang_1_4_speed).filter(|s| *s > 0.0)
+                }
+                crate::core::OverhangClass::Deg2 => {
+                    params.overhang_2_4_speed.resolve(params.perimeter_speed)
+                }
+                crate::core::OverhangClass::Deg3 => {
+                    Some(params.overhang_3_4_speed).filter(|s| *s > 0.0)
+                }
+                crate::core::OverhangClass::Deg4 => {
+                    Some(params.overhang_4_4_speed).filter(|s| *s > 0.0)
+                }
+                crate::core::OverhangClass::None => None,
             };
-            // `0` = keep the role's normal speed for this degree.
-            let mut s = if cfg > 0.0 { cfg * 60.0 } else { base };
+            let mut s = match resolved {
+                Some(mm_s) => mm_s * 60.0,
+                None => base,
+            };
             // Slow curl-prone steep overhangs (Deg3/Deg4) to the most
             // conservative configured overhang speed.
             if params.slowdown_for_curled_perimeters && overhang.band() >= 3 {
@@ -3334,6 +3345,7 @@ mod tests {
     use super::*;
     use crate::core::SliceLayer;
     use crate::settings::params::PauseTrigger;
+    use crate::settings::RelativeSpeed;
 
     #[test]
     fn test_generate_gcode_empty_layers_contains_header() {
@@ -6828,7 +6840,7 @@ CHAMBER={chamber_temp} MATERIAL={filament_type}"
             bridge_speed: 25.0,
             enable_overhang_speed: true,
             overhang_1_4_speed: 0.0, // no slowdown → perimeter_speed
-            overhang_2_4_speed: 40.0,
+            overhang_2_4_speed: RelativeSpeed::Absolute(40.0),
             overhang_3_4_speed: 30.0,
             overhang_4_4_speed: 15.0,
             ..SlicingParams::default()
@@ -6901,7 +6913,7 @@ CHAMBER={chamber_temp} MATERIAL={filament_type}"
             print_speed: 60.0,
             enable_overhang_speed: true,
             slowdown_for_curled_perimeters: true,
-            overhang_2_4_speed: 12.0, // slowest positive → the curl clamp
+            overhang_2_4_speed: RelativeSpeed::Absolute(12.0), // slowest positive → the curl clamp
             overhang_3_4_speed: 30.0,
             overhang_4_4_speed: 20.0,
             ..SlicingParams::default()

@@ -129,6 +129,7 @@ export function parseSchema(
       step: prop['x-step'] as number | undefined,
       tier: prop['x-tier'] as FieldDef['tier'],
       widget: prop['x-widget'] as string | undefined,
+      relativeTo: prop['x-relative-to'] as string | undefined,
       enumOptions: resolveEnumOptions(prop, defs),
       relevantWhen: resolveRelevantWhen(prop),
     };
