@@ -230,7 +230,7 @@
               type="button"
               class="step-btn"
               aria-label="Previous extrusion"
-              [disabled]="segmentSliderValue() <= 0"
+              [disabled]="atFirstSegment()"
               (click)="stepSegment(-1)"
             >
               <nexus-icon name="nav-arrow-left" aria-hidden="true" />
@@ -250,7 +250,7 @@
               type="button"
               class="step-btn"
               aria-label="Next extrusion"
-              [disabled]="segmentSliderValue() >= layerSegmentCount()"
+              [disabled]="atLastSegment()"
               (click)="stepSegment(1)"
             >
               <nexus-icon name="nav-arrow-right" aria-hidden="true" />

@@ -296,6 +296,22 @@ export class SliceSegmentBar {
     Math.round(this.preview.segmentProgress() * this.layerSegmentCount()),
   );
 
+  /**
+   * `stepSegment(-1)` rolls onto the previous layer's last segment once
+   * there's nowhere left to step back on this one — only disable the button
+   * where that roll-over has nowhere to go either (the very first layer).
+   */
+  protected readonly atFirstSegment = computed(
+    () => this.segmentSliderValue() <= 0 && this.preview.layerMax() <= 0,
+  );
+
+  /** Mirror of {@link atFirstSegment} for `stepSegment(1)` and the last layer. */
+  protected readonly atLastSegment = computed(
+    () =>
+      this.segmentSliderValue() >= this.layerSegmentCount() &&
+      this.preview.layerMax() >= this.preview.layerCount() - 1,
+  );
+
   // ── Event handlers ───────────────────────────────────────────────────────
 
   /** Layer navigation (top of the inspector). */

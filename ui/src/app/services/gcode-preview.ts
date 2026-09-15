@@ -912,6 +912,12 @@ export class GcodePreview {
    * Reveal or hide exactly one more move-segment of the top layer — arrow
    * keys and the step buttons. Steps by `1 / segmentCount()` so it always
    * advances a single line, never a whole same-role block of them.
+   *
+   * Rolls over the layer boundary instead of stopping dead at 0%/100%: one
+   * more step past the last segment of a layer moves to the next layer's
+   * first segment, and one more step before the first segment of a layer
+   * moves to the previous layer's last — so scrubbing reads as one continuous
+   * walk through the print rather than 251 separate layers to renavigate.
    */
   stepSegment(direction: 1 | -1): void {
     const total = this.segmentCount();
@@ -919,7 +925,26 @@ export class GcodePreview {
       return;
     }
     const current = Math.round(this.segmentProgress() * total);
-    this.setSegmentProgress((current + direction) / total);
+    const next = current + direction;
+    if (next < 0) {
+      if (this.layerMax() > 0) {
+        this.layerMax.set(this.layerMax() - 1);
+        this.segmentProgress.set(1);
+      } else {
+        this.segmentProgress.set(0);
+      }
+      return;
+    }
+    if (next > total) {
+      if (this.layerMax() < this.layerCount() - 1) {
+        this.layerMax.set(this.layerMax() + 1);
+        this.segmentProgress.set(0);
+      } else {
+        this.segmentProgress.set(1);
+      }
+      return;
+    }
+    this.setSegmentProgress(next / total);
   }
 
   toggleRole(role: RoleName): void {
