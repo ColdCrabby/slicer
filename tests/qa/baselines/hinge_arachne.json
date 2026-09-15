@@ -5,15 +5,15 @@
   "z_max": 5.9,
   "bbox_x_mm": 39.6,
   "bbox_y_mm": 31.07,
-  "total_extrusion_mm": 38480.7,
+  "total_extrusion_mm": 39128.4,
   "role_extrusion_mm": {
-    "bottom_surface": 7549.2,
+    "bottom_surface": 7894.7,
     "bridge": 134.4,
     "gap_fill": 482.9,
-    "infill": 3977.5,
+    "infill": 3845.5,
     "inner_wall": 10741.1,
     "outer_wall": 6395.7,
-    "overhang_wall": 238.2,
-    "top_surface": 8961.8
+    "overhang_wall": 238.1,
+    "top_surface": 9395.9
   }
 }
