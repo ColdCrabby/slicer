@@ -112,6 +112,19 @@ export type ModelShading = 'flat' | 'smooth';
  */
 export type PreviewFollow = 'auto' | 'always' | 'never';
 
+/**
+ * Whether the G-code preview's layer/extrusion step buttons are offered
+ * alongside their sliders.
+ *
+ * - `auto` — shown wherever there is no keyboard to press the arrow-key
+ *   equivalent (every touch device), hidden on a mouse/trackpad desktop where
+ *   the shortcut already reaches the same action.
+ * - `on` / `off` — always show them, or never — for a power user who wants
+ *   the click target regardless of input, or who wants the rail as compact as
+ *   the arrow keys allow.
+ */
+export type GcodeStepButtons = 'auto' | 'on' | 'off';
+
 export interface SliceThumbnailCapture {
   pngBase64: string;
   sizePx: number;
@@ -171,6 +184,23 @@ export function resolveAntialias(mode: Antialiasing): boolean {
   return !(typeof window !== 'undefined' && window.devicePixelRatio >= 2);
 }
 
+/**
+ * Resolve a {@link GcodeStepButtons} preference to whether the buttons should
+ * actually render, given the device's own pointer. `coarsePointer` is
+ * {@link Viewport.isCoarsePointer} — true wherever a finger or pencil is the
+ * primary pointer, which is exactly the population with no arrow keys to
+ * fall back on.
+ */
+export function resolveGcodeStepButtons(mode: GcodeStepButtons, coarsePointer: boolean): boolean {
+  if (mode === 'on') {
+    return true;
+  }
+  if (mode === 'off') {
+    return false;
+  }
+  return coarsePointer;
+}
+
 const TWO_FINGER_GESTURE_KEY = 'nexus.viewer.trackpadTwoFingerGesture';
 const STATS_VISIBLE_KEY = 'nexus.viewer.statsVisible';
 const FIELD_OF_VIEW_KEY = 'nexus.viewer.fieldOfView';
@@ -186,6 +216,7 @@ const GLOSS_ENABLED_KEY = 'nexus.viewer.glossEnabled';
 const THUMBNAIL_CAPTURE_FX_KEY = 'nexus.viewer.thumbnailCaptureFx';
 const THUMBNAIL_SCENE_EFFECTS_KEY = 'nexus.viewer.thumbnailSceneEffects';
 const PREVIEW_FOLLOW_KEY = 'nexus.viewer.previewFollow';
+const GCODE_STEP_BUTTONS_KEY = 'nexus.viewer.gcodeStepButtons';
 
 /**
  * Shared state between the 3D-view toolbar and the viewer component.
@@ -224,6 +255,9 @@ export class ViewerControl {
 
   /** When a finished slice switches the view to G-code preview. Persisted. */
   readonly previewFollow = signal<PreviewFollow>(this.readPreviewFollow());
+
+  /** Whether the G-code preview offers layer/extrusion step buttons. Persisted. */
+  readonly gcodeStepButtons = signal<GcodeStepButtons>(this.readGcodeStepButtons());
 
   /**
    * Perspective field-of-view in degrees. Persisted. The viewer pushes it
@@ -477,6 +511,12 @@ export class ViewerControl {
     this.storage.write(PREVIEW_FOLLOW_KEY, mode);
   }
 
+  /** Update the G-code step-button preference and persist it. */
+  setGcodeStepButtons(mode: GcodeStepButtons): void {
+    this.gcodeStepButtons.set(mode);
+    this.storage.write(GCODE_STEP_BUTTONS_KEY, mode);
+  }
+
   /** Update telemetry visibility and persist the preference. */
   setStatsVisible(value: boolean): void {
     this.statsVisible.set(value);
@@ -597,6 +637,11 @@ export class ViewerControl {
   private readPreviewFollow(): PreviewFollow {
     const raw = this.storage.get(PREVIEW_FOLLOW_KEY)();
     return raw === 'always' || raw === 'never' ? raw : 'auto';
+  }
+
+  private readGcodeStepButtons(): GcodeStepButtons {
+    const raw = this.storage.get(GCODE_STEP_BUTTONS_KEY)();
+    return raw === 'on' || raw === 'off' ? raw : 'auto';
   }
 
   private readPreviewDetail(): PreviewDetail {

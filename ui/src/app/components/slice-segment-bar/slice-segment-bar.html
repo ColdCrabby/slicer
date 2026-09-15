@@ -179,15 +179,17 @@
         </button>
       </header>
       <div class="stepper-row">
-        <button
-          type="button"
-          class="step-btn"
-          aria-label="Previous layer"
-          [disabled]="preview.layerMax() <= 0"
-          (click)="stepLayer(-1)"
-        >
-          <nexus-icon name="nav-arrow-down" aria-hidden="true" />
-        </button>
+        @if (showStepButtons()) {
+          <button
+            type="button"
+            class="step-btn"
+            aria-label="Previous layer"
+            [disabled]="preview.layerMax() <= 0"
+            (click)="stepLayer(-1)"
+          >
+            <nexus-icon name="nav-arrow-down" aria-hidden="true" />
+          </button>
+        }
         <nexus-slider
           class="stepper-field"
           [min]="0"
@@ -197,29 +199,33 @@
           label="Layer"
           (valueChange)="setLayer($event)"
         />
-        <button
-          type="button"
-          class="step-btn"
-          aria-label="Next layer"
-          [disabled]="preview.layerMax() >= layerMaxIndex()"
-          (click)="stepLayer(1)"
-        >
-          <nexus-icon name="nav-arrow-up" aria-hidden="true" />
-        </button>
+        @if (showStepButtons()) {
+          <button
+            type="button"
+            class="step-btn"
+            aria-label="Next layer"
+            [disabled]="preview.layerMax() >= layerMaxIndex()"
+            (click)="stepLayer(1)"
+          >
+            <nexus-icon name="nav-arrow-up" aria-hidden="true" />
+          </button>
+        }
       </div>
 
       <div class="ctl-row" (wheel)="onWheelSegment($event)">
         <label class="ctl-label">Progress</label>
         <div class="stepper-row">
-          <button
-            type="button"
-            class="step-btn"
-            aria-label="Previous extrusion"
-            [disabled]="segmentSliderValue() <= 0"
-            (click)="stepSegment(-1)"
-          >
-            <nexus-icon name="nav-arrow-left" aria-hidden="true" />
-          </button>
+          @if (showStepButtons()) {
+            <button
+              type="button"
+              class="step-btn"
+              aria-label="Previous extrusion"
+              [disabled]="segmentSliderValue() <= 0"
+              (click)="stepSegment(-1)"
+            >
+              <nexus-icon name="nav-arrow-left" aria-hidden="true" />
+            </button>
+          }
           <nexus-slider
             class="ctl-field stepper-field"
             [min]="0"
@@ -229,15 +235,17 @@
             label="Layer progress"
             (valueChange)="onSegmentValue($event)"
           />
-          <button
-            type="button"
-            class="step-btn"
-            aria-label="Next extrusion"
-            [disabled]="segmentSliderValue() >= layerSegmentCount()"
-            (click)="stepSegment(1)"
-          >
-            <nexus-icon name="nav-arrow-right" aria-hidden="true" />
-          </button>
+          @if (showStepButtons()) {
+            <button
+              type="button"
+              class="step-btn"
+              aria-label="Next extrusion"
+              [disabled]="segmentSliderValue() >= layerSegmentCount()"
+              (click)="stepSegment(1)"
+            >
+              <nexus-icon name="nav-arrow-right" aria-hidden="true" />
+            </button>
+          }
         </div>
       </div>
     </section>

@@ -7,26 +7,28 @@
     </div>
 
     <!-- ── Step up (touch equivalent of ArrowUp) ── -->
-    <button
-      type="button"
-      class="step-btn"
-      aria-label="Next layer"
-      [disabled]="preview.layerMax() >= preview.layerCount() - 1"
-      (click)="preview.stepLayer(1)"
-    >
-      <svg
-        width="12"
-        height="12"
-        viewBox="0 0 24 24"
-        fill="none"
-        stroke="currentColor"
-        stroke-width="2.5"
-        stroke-linecap="round"
-        stroke-linejoin="round"
+    @if (showStepButtons()) {
+      <button
+        type="button"
+        class="step-btn"
+        aria-label="Next layer"
+        [disabled]="preview.layerMax() >= preview.layerCount() - 1"
+        (click)="preview.stepLayer(1)"
       >
-        <polyline points="18 15 12 9 6 15" />
-      </svg>
-    </button>
+        <svg
+          width="12"
+          height="12"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="2.5"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+        >
+          <polyline points="18 15 12 9 6 15" />
+        </svg>
+      </button>
+    }
 
     <!-- ── Vertical layer slider ──
          The native input is fully transparent and only ever used as the
@@ -63,26 +65,28 @@
     </div>
 
     <!-- ── Step down (touch equivalent of ArrowDown) ── -->
-    <button
-      type="button"
-      class="step-btn"
-      aria-label="Previous layer"
-      [disabled]="preview.layerMax() <= 0"
-      (click)="preview.stepLayer(-1)"
-    >
-      <svg
-        width="12"
-        height="12"
-        viewBox="0 0 24 24"
-        fill="none"
-        stroke="currentColor"
-        stroke-width="2.5"
-        stroke-linecap="round"
-        stroke-linejoin="round"
+    @if (showStepButtons()) {
+      <button
+        type="button"
+        class="step-btn"
+        aria-label="Previous layer"
+        [disabled]="preview.layerMax() <= 0"
+        (click)="preview.stepLayer(-1)"
       >
-        <polyline points="6 9 12 15 18 9" />
-      </svg>
-    </button>
+        <svg
+          width="12"
+          height="12"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="2.5"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+        >
+          <polyline points="6 9 12 15 18 9" />
+        </svg>
+      </button>
+    }
 
     <!-- ── Pause / color-change triggers ── -->
     <div class="trigger-controls">

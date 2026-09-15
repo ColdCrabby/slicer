@@ -23,7 +23,7 @@ import {
   VIEW_MODE_LABELS,
 } from '../../services/gcode-preview';
 import { Icon, Select, type SelectOption, Slider } from '@coldcrabby/ui';
-import { ViewerControl } from '../../services/viewer-control';
+import { resolveGcodeStepButtons, ViewerControl } from '../../services/viewer-control';
 import { Viewport } from '../../services/viewport';
 
 /** Where the user's fold preference for the inspector is remembered. */
@@ -49,6 +49,11 @@ export class SliceSegmentBar {
   protected readonly roleCss = this.preview.roleCss;
   protected readonly roleLabels = ROLE_LABELS;
   protected readonly roleGroups: readonly RoleGroup[] = ROLE_GROUPS;
+
+  /** Whether to render the touch step buttons beside the layer/progress sliders. */
+  protected readonly showStepButtons = computed(() =>
+    resolveGcodeStepButtons(this.viewerControl.gcodeStepButtons(), this.viewport.isCoarsePointer()),
+  );
 
   /**
    * Drives the card's reveal animation. Flipped true only once the preview

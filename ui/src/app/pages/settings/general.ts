@@ -5,12 +5,14 @@ import {
   MIN_FIELD_OF_VIEW,
   ViewerControl,
   type Antialiasing,
+  type GcodeStepButtons,
   type ModelShading,
   type PreviewDetail,
   type PreviewFollow,
   type RenderQuality,
   type TwoFingerGesture,
 } from '../../services/viewer-control';
+import { Viewport } from '../../services/viewport';
 import { ProfileExportButton } from '../../components/profiles/profile-export-button';
 import {
   isTauriDesktop,
@@ -40,6 +42,7 @@ import {
 })
 export class GeneralSettings implements OnInit {
   protected readonly viewer = inject(ViewerControl);
+  private readonly viewport = inject(Viewport);
   private readonly appVersion = inject(AppVersion);
   protected readonly historyControls = inject(HistoryControlsPreference);
   protected readonly settingsDetail = inject(SettingsDetailPreference);
@@ -52,6 +55,7 @@ export class GeneralSettings implements OnInit {
   protected readonly renderQuality = this.viewer.renderQuality;
   protected readonly previewDetail = this.viewer.previewDetail;
   protected readonly previewFollow = this.viewer.previewFollow;
+  protected readonly gcodeStepButtons = this.viewer.gcodeStepButtons;
   protected readonly useFilamentColor = this.viewer.useFilamentColor;
   protected readonly shadowsEnabled = this.viewer.shadowsEnabled;
   protected readonly modelShading = this.viewer.modelShading;
@@ -90,6 +94,19 @@ export class GeneralSettings implements OnInit {
       ? `${took}, so Automatic is re-slicing it on its own.`
       : `${took}, so Automatic is leaving it to the Slice button.`;
   });
+
+  /**
+   * What `Automatic` is currently doing for the step buttons, on this device.
+   * Quoted live so someone on a touchscreen laptop — where the pointer, not
+   * the machine type, decides — can see why the buttons are (or aren't) there.
+   */
+  protected readonly gcodeStepButtonsNote = computed(() =>
+    this.gcodeStepButtons() !== 'auto'
+      ? ''
+      : this.viewport.isCoarsePointer()
+        ? 'Automatic is showing them — this pointer is a finger or a pencil.'
+        : 'Automatic is hiding them — this pointer is a mouse or trackpad, and the arrow keys already reach the same steps.',
+  );
 
   /** Build-time version metadata read from the WASM bundle (SSOT). */
   protected readonly info = this.appVersion.info;
@@ -196,5 +213,9 @@ export class GeneralSettings implements OnInit {
 
   setPreviewFollow(mode: PreviewFollow): void {
     this.viewer.setPreviewFollow(mode);
+  }
+
+  setGcodeStepButtons(mode: GcodeStepButtons): void {
+    this.viewer.setGcodeStepButtons(mode);
   }
 }
