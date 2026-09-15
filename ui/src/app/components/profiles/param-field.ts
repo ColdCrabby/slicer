@@ -14,6 +14,11 @@ import { noticeForField } from '../../schema-form/field-exceptions/field-excepti
 import { FieldNoticeView } from '../../schema-form/field-notice/field-notice';
 import { GcodeField } from '../../schema-form/custom-widgets/gcode-field/gcode-field';
 import {
+  parseRelativeSpeed,
+  RELATIVE_SPEED_MODES,
+  roundRelative,
+} from '../../schema-form/models/relative-speed';
+import {
   ColorPicker,
   NumberInput,
   RadioGroup,
@@ -139,6 +144,22 @@ import { FieldShell } from './field-shell';
               [ariaLabel]="field().title ?? field().key"
               (valueChange)="valueChange.emit($event)"
             />
+          }
+          @case ('relative-speed') {
+            <span class="param-field-number has-unit-toggle">
+              <nexus-number-input
+                [value]="relativeDisplayed()"
+                [min]="0"
+                [step]="5"
+                [unit]="relativeUnit()"
+                (valueChange)="onRelativeChange($event)"
+              />
+              <se-unit-toggle
+                [current]="relativeMode()"
+                [options]="relativeSpeedModes"
+                (cycle)="onRelativeToggle()"
+              />
+            </span>
           }
           @case ('text') {
             <input
@@ -332,6 +353,47 @@ export class ParamField {
 
   protected onTextInput(event: Event): void {
     this.valueChange.emit((event.target as HTMLInputElement).value);
+  }
+
+  protected readonly relativeSpeedModes = RELATIVE_SPEED_MODES;
+
+  private readonly parsedRelative = computed(() =>
+    parseRelativeSpeed(this.value(), this.field().default),
+  );
+
+  /** The source field's current speed, in mm/s — `0` when it isn't set yet. */
+  private readonly relativeSource = computed(() => {
+    const key = this.field().relativeTo;
+    const raw = key ? this.siblings()[key] : undefined;
+    const n = Number(raw);
+    return Number.isFinite(n) ? n : 0;
+  });
+
+  protected readonly relativeMode = computed(() =>
+    this.parsedRelative().kind === 'percent' ? 'percent' : 'mm_s',
+  );
+  protected readonly relativeUnit = computed(() =>
+    this.relativeMode() === 'percent' ? '%' : 'mm/s',
+  );
+
+  protected readonly relativeDisplayed = computed(() => {
+    const p = this.parsedRelative();
+    return p.kind === 'percent' ? roundRelative(p.fraction * 100) : p.mmS;
+  });
+
+  protected onRelativeChange(shown: number): void {
+    this.valueChange.emit(this.relativeMode() === 'percent' ? `${shown}%` : shown);
+  }
+
+  /** Convert the current value into the other shape and emit it. */
+  protected onRelativeToggle(): void {
+    const p = this.parsedRelative();
+    const source = this.relativeSource();
+    if (p.kind === 'percent') {
+      this.valueChange.emit(roundRelative(p.fraction * source));
+    } else {
+      this.valueChange.emit(`${roundRelative(source > 0 ? (p.mmS / source) * 100 : 0)}%`);
+    }
   }
 
   // Bounds are stated in the stored scale, so they are converted with the value.

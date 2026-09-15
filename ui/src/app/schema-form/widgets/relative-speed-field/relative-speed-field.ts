@@ -1,44 +1,14 @@
 import { ChangeDetectionStrategy, Component, EventEmitter, computed, input } from '@angular/core';
 import { NumberInput, TooltipDirective } from '@coldcrabby/ui';
 import { IconButton } from '../../../shared/icon-button/icon-button';
-import type { UnitOption } from '../../models/field-units';
 import type { FieldDef } from '../../models/field-def';
+import {
+  parseRelativeSpeed,
+  RELATIVE_SPEED_MODES,
+  roundRelative,
+} from '../../models/relative-speed';
 import { UnitToggle } from '../../unit-toggle/unit-toggle';
 import type { FieldWidget } from '../base-field';
-
-/** The two shapes a `RelativeSpeed` value takes on the wire. */
-type ParsedRelativeSpeed =
-  { kind: 'absolute'; mmS: number } | { kind: 'percent'; fraction: number };
-
-const MODES: readonly UnitOption[] = [
-  { id: 'mm_s', label: 'mm/s' },
-  { id: 'percent', label: '%' },
-];
-
-/**
- * Read a `RelativeSpeed`'s wire form: a bare number is absolute mm/s, a
- * string ending in `%` is a fraction of the source field. Mirrors
- * `RelativeSpeed`'s own `Serialize`/`Deserialize` in `src/settings/relative_speed.rs`.
- */
-function parse(raw: unknown, fallback: unknown): ParsedRelativeSpeed {
-  const value = raw === null || raw === undefined || raw === '' ? fallback : raw;
-  if (typeof value === 'string') {
-    const trimmed = value.trim();
-    if (trimmed.endsWith('%')) {
-      const n = Number(trimmed.slice(0, -1));
-      return { kind: 'percent', fraction: (Number.isFinite(n) ? n : 0) / 100 };
-    }
-    const n = Number(trimmed);
-    return { kind: 'absolute', mmS: Number.isFinite(n) ? n : 0 };
-  }
-  const n = Number(value ?? 0);
-  return { kind: 'absolute', mmS: Number.isFinite(n) ? n : 0 };
-}
-
-/** Round to a couple of decimals — enough precision, no float noise. */
-function round(n: number): number {
-  return Math.round(n * 100) / 100;
-}
 
 /**
  * A speed given either as a literal mm/s value or as a percentage of another
@@ -51,6 +21,10 @@ function round(n: number): number {
  * *current* value and emits that, so what's on screen never silently means
  * something else after a click; it just stops tracking the source from that
  * point, exactly like typing a literal number always did.
+ *
+ * The slice sidebar's own widget — the profile editor renders the same
+ * control inline (its `FieldShell` already carries the label), sharing the
+ * parsing in `models/relative-speed.ts` rather than this component.
  */
 @Component({
   selector: 'se-relative-speed-field',
@@ -119,9 +93,9 @@ export class RelativeSpeedField implements FieldWidget {
   readonly siblings = input<Readonly<Record<string, unknown>>>({});
   readonly valueChange = new EventEmitter<unknown>();
 
-  protected readonly modes = MODES;
+  protected readonly modes = RELATIVE_SPEED_MODES;
 
-  private readonly parsed = computed(() => parse(this.value(), this.field().default));
+  private readonly parsed = computed(() => parseRelativeSpeed(this.value(), this.field().default));
 
   /** The source field's current speed, in mm/s — `0` when it isn't set yet. */
   private readonly source = computed(() => {
@@ -138,7 +112,7 @@ export class RelativeSpeedField implements FieldWidget {
   /** The number shown in whichever mode the stored value is currently in. */
   protected readonly displayed = computed(() => {
     const p = this.parsed();
-    return p.kind === 'percent' ? round(p.fraction * 100) : p.mmS;
+    return p.kind === 'percent' ? roundRelative(p.fraction * 100) : p.mmS;
   });
 
   protected onValueChange(shown: number): void {
@@ -150,9 +124,9 @@ export class RelativeSpeedField implements FieldWidget {
     const p = this.parsed();
     const source = this.source();
     if (p.kind === 'percent') {
-      this.valueChange.emit(round(p.fraction * source));
+      this.valueChange.emit(roundRelative(p.fraction * source));
     } else {
-      this.valueChange.emit(`${round(source > 0 ? (p.mmS / source) * 100 : 0)}%`);
+      this.valueChange.emit(`${roundRelative(source > 0 ? (p.mmS / source) * 100 : 0)}%`);
     }
   }
 }
