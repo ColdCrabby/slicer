@@ -183,6 +183,8 @@ const DEFAULT_HIDDEN_ROLES: ReadonlySet<RoleName> = new Set<RoleName>(['travel',
  */
 export const FLOATS_PER_SEGMENT = 10;
 
+/** Float offset of the segment's end point (x1, y1, z1). */
+export const END_POINT_OFFSET = 3;
 /** Float offset of the per-segment extrusion width (mm). */
 export const WIDTH_OFFSET = 6;
 /** Float offset of the per-segment layer height (mm). */
@@ -706,6 +708,77 @@ export class GcodePreview {
    */
   readonly segmentProgress = signal(1);
 
+  /**
+   * Non-empty move-segment blocks of the current top layer, in path order.
+   * Cached per layer (not per scrub tick) so dragging the progress slider
+   * or nozzle-stepping doesn't re-cross the WASM boundary on every frame —
+   * only a layer change does.
+   */
+  readonly #currentLayerBlocks = computed<Float32Array[]>(() => {
+    const handle = this.gcodeHandle();
+    if (!handle) {
+      return [];
+    }
+    const layer = handle.getLayer(this.layerMax());
+    const blocksCount = layer.blocksCount();
+    const blocks: Float32Array[] = [];
+    for (let b = 0; b < blocksCount; b++) {
+      const data = layer.blockData(b);
+      if (data.length > 0) {
+        blocks.push(data);
+      }
+    }
+    return blocks;
+  });
+
+  /**
+   * Total move-segment count of the current top layer.
+   *
+   * A block is a contiguous run of same-role segments, not one segment — a
+   * caller that stepped `1 / blocksCount()` per keypress used to advance a
+   * whole block's worth of moves instead of one, which is what made
+   * arrow-key scrubbing skip lines. This is the single place that count is
+   * computed, so the segment slider, the keyboard shortcuts, the step
+   * buttons and the nozzle marker can never disagree about what "one
+   * segment" means.
+   */
+  readonly segmentCount = computed(() =>
+    this.#currentLayerBlocks().reduce((sum, data) => sum + data.length / FLOATS_PER_SEGMENT, 0),
+  );
+
+  /**
+   * World position of the toolhead at the current scrub position — the
+   * endpoint of the last segment `segmentProgress` reveals — or `null` when
+   * nothing is loaded or revealed yet.
+   *
+   * Walks the same cached blocks, in the same path order and with the same
+   * `round(progress * total)` cutoff as {@link GcodeOrchestrator.applyProgress},
+   * so the marker always sits exactly where the visible geometry ends.
+   */
+  readonly nozzlePosition = computed<readonly [number, number, number] | null>(() => {
+    const blocks = this.#currentLayerBlocks();
+    const total = this.segmentCount();
+    if (total === 0) {
+      return null;
+    }
+    let remaining = Math.round(Math.max(0, Math.min(1, this.segmentProgress())) * total);
+    if (remaining <= 0) {
+      const first = blocks[0];
+      return [first[0], first[1], first[2]];
+    }
+    for (const data of blocks) {
+      const count = data.length / FLOATS_PER_SEGMENT;
+      if (remaining <= count) {
+        const off = (remaining - 1) * FLOATS_PER_SEGMENT + END_POINT_OFFSET;
+        return [data[off], data[off + 1], data[off + 2]];
+      }
+      remaining -= count;
+    }
+    const last = blocks[blocks.length - 1];
+    const off = last.length - FLOATS_PER_SEGMENT + END_POINT_OFFSET;
+    return [last[off], last[off + 1], last[off + 2]];
+  });
+
   /** Set of roles to hide in the viewer. */
   readonly hiddenRoles = signal<ReadonlySet<RoleName>>(new Set(DEFAULT_HIDDEN_ROLES));
 
@@ -828,6 +901,25 @@ export class GcodePreview {
 
   setSegmentProgress(value: number): void {
     this.segmentProgress.set(Math.max(0, Math.min(1, value)));
+  }
+
+  /** Move the layer bound by one layer, up or down — arrow keys and the step buttons. */
+  stepLayer(direction: 1 | -1): void {
+    this.setLayerMax(this.layerMax() + direction);
+  }
+
+  /**
+   * Reveal or hide exactly one more move-segment of the top layer — arrow
+   * keys and the step buttons. Steps by `1 / segmentCount()` so it always
+   * advances a single line, never a whole same-role block of them.
+   */
+  stepSegment(direction: 1 | -1): void {
+    const total = this.segmentCount();
+    if (total === 0) {
+      return;
+    }
+    const current = Math.round(this.segmentProgress() * total);
+    this.setSegmentProgress((current + direction) / total);
   }
 
   toggleRole(role: RoleName): void {

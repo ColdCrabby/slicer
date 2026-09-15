@@ -11,7 +11,6 @@ import {
   viewChild,
 } from '@angular/core';
 import {
-  FLOATS_PER_SEGMENT,
   GcodePreview,
   type GcodeViewMode,
   ROLE_GROUPS,
@@ -23,7 +22,7 @@ import {
   speedGradientCss,
   VIEW_MODE_LABELS,
 } from '../../services/gcode-preview';
-import { Select, type SelectOption, Slider } from '@coldcrabby/ui';
+import { Icon, Select, type SelectOption, Slider } from '@coldcrabby/ui';
 import { ViewerControl } from '../../services/viewer-control';
 import { Viewport } from '../../services/viewport';
 
@@ -33,7 +32,7 @@ const STORAGE_EXPANDED_KEY = 'nexus.inspector.expanded';
 @Component({
   selector: 'nexus-slice-segment-bar',
   standalone: true,
-  imports: [Select, Slider],
+  imports: [Icon, Select, Slider],
   templateUrl: './slice-segment-bar.html',
   styleUrl: './slice-segment-bar.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -285,19 +284,7 @@ export class SliceSegmentBar {
   private pendingScrubT: number | null = null;
 
   /** Total move segments in the current top layer derived from its geometry buffers. */
-  protected readonly layerSegmentCount = computed(() => {
-    const handle = this.preview.gcodeHandle();
-    if (!handle) {
-      return 0;
-    }
-    const layer = handle.getLayer(this.preview.layerMax());
-    let totalFloats = 0;
-    const blocksCount = layer.blocksCount();
-    for (let i = 0; i < blocksCount; i++) {
-      totalFloats += layer.blockData(i).length;
-    }
-    return totalFloats / FLOATS_PER_SEGMENT;
-  });
+  protected readonly layerSegmentCount = this.preview.segmentCount;
 
   /** Segment slider integer value derived from the fractional signal and real segment count. */
   protected readonly segmentSliderValue = computed(() =>
@@ -313,8 +300,7 @@ export class SliceSegmentBar {
 
   protected onWheelLayer(event: WheelEvent): void {
     event.preventDefault();
-    const step = event.deltaY < 0 ? 1 : -1;
-    this.preview.setLayerMax(this.preview.layerMax() + step);
+    this.preview.stepLayer(event.deltaY < 0 ? 1 : -1);
   }
 
   protected toggleShowAll(): void {
@@ -329,13 +315,17 @@ export class SliceSegmentBar {
 
   protected onWheelSegment(event: WheelEvent): void {
     event.preventDefault();
-    const total = this.layerSegmentCount();
-    if (total === 0) {
-      return;
-    }
-    const step = event.deltaY < 0 ? 1 : -1;
-    const current = Math.round(this.preview.segmentProgress() * total);
-    this.preview.setSegmentProgress((current + step) / total);
+    this.preview.stepSegment(event.deltaY < 0 ? 1 : -1);
+  }
+
+  /** Touch-friendly step buttons: one layer at a time. */
+  protected stepLayer(direction: 1 | -1): void {
+    this.preview.stepLayer(direction);
+  }
+
+  /** Touch-friendly step buttons: one move-segment at a time. */
+  protected stepSegment(direction: 1 | -1): void {
+    this.preview.stepSegment(direction);
   }
 
   protected toggleRole(role: RoleName): void {

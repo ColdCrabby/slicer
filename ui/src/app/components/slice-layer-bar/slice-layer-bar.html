@@ -6,10 +6,40 @@
       <span class="total">/ {{ preview.layerCount() }}</span>
     </div>
 
-    <!-- ── Vertical layer slider ── -->
+    <!-- ── Step up (touch equivalent of ArrowUp) ── -->
+    <button
+      type="button"
+      class="step-btn"
+      aria-label="Next layer"
+      [disabled]="preview.layerMax() >= preview.layerCount() - 1"
+      (click)="preview.stepLayer(1)"
+    >
+      <svg
+        width="12"
+        height="12"
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        stroke-width="2.5"
+        stroke-linecap="round"
+        stroke-linejoin="round"
+      >
+        <polyline points="18 15 12 9 6 15" />
+      </svg>
+    </button>
+
+    <!-- ── Vertical layer slider ──
+         The native input is fully transparent and only ever used as the
+         drag/keyboard hit target — its own thumb is never drawn. Every
+         browser positions a vertical range's native thumb slightly
+         differently (thumb geometry, `orient="vertical"` support), which
+         used to leave the visible thumb a few pixels off from the fill it
+         was supposed to track. Both the fill and the dot below are driven by
+         the exact same `fillPercent()`, so they can never disagree. -->
     <div class="slider-wrap" (wheel)="onWheel($event)">
       <div class="track-bg">
         <div class="track-fill" [style.height.%]="fillPercent()"></div>
+        <div class="track-thumb" [style.bottom.%]="fillPercent()" aria-hidden="true"></div>
         @for (marker of triggerMarkers(); track marker.layerIndex) {
           <button
             type="button"
@@ -31,6 +61,28 @@
         orient="vertical"
       />
     </div>
+
+    <!-- ── Step down (touch equivalent of ArrowDown) ── -->
+    <button
+      type="button"
+      class="step-btn"
+      aria-label="Previous layer"
+      [disabled]="preview.layerMax() <= 0"
+      (click)="preview.stepLayer(-1)"
+    >
+      <svg
+        width="12"
+        height="12"
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        stroke-width="2.5"
+        stroke-linecap="round"
+        stroke-linejoin="round"
+      >
+        <polyline points="6 9 12 15 18 9" />
+      </svg>
+    </button>
 
     <!-- ── Pause / color-change triggers ── -->
     <div class="trigger-controls">
