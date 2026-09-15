@@ -1634,8 +1634,9 @@ G-code / macros that leave the extruder in an unknown state.
     #[schemars(
         description = "Wipe the nozzle along the just-printed path while retracting.
 
-Retraces the tail of the previous path before travelling, smearing any ooze
-onto already-printed material instead of leaving a blob at the seam.
+Retraces the tail of the previous path before travelling, biased toward the
+path's interior so the ooze lands half a nozzle width into the part instead of
+on the visible boundary it just printed.
 **Recommended:** off; enable to reduce stringing on some materials.",
         extend("x-group" = "Retraction", "x-tier" = "advanced")
     )]

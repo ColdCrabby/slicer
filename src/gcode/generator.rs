@@ -884,14 +884,21 @@ impl GcodeGenerator {
     }
 
     /// Emit the wipe move: retrace `points` (the previous path's trajectory, in
-    /// print order) backward from its end for up to `wipe_distance` mm.
+    /// print order) backward from its end for up to `wipe_distance` mm, biased
+    /// toward the path's own centroid.
+    ///
+    /// A pure backward retrace drags the nozzle exactly along the boundary it
+    /// just printed — on a wall loop that boundary *is* the visible surface, so
+    /// smearing ooze onto it leaves a scar worse than not wiping. Nudging each
+    /// wipe waypoint toward the path's centroid moves the drag half a nozzle
+    /// width into the part instead, onto whatever is already solid there (the
+    /// next wall in, or infill), which is exactly what a wipe move is for.
     ///
     /// When `retract_during > 0` the retraction is distributed proportionally
-    /// across the wiped length (a combined move-and-retract), smearing ooze onto
-    /// already-printed material; when it is `0` the wipe is a pure travel drag
-    /// (used with firmware retraction, or when the whole retraction happens
-    /// before the wipe). Returns the retraction length actually applied during
-    /// the wipe.
+    /// across the wiped length (a combined move-and-retract); when it is `0`
+    /// the wipe is a pure travel drag (used with firmware retraction, or when
+    /// the whole retraction happens before the wipe). Returns the retraction
+    /// length actually applied during the wipe.
     fn emit_wipe(
         &self,
         out: &mut String,
@@ -919,6 +926,22 @@ impl GcodeGenerator {
         if wipe_len <= 1e-9 {
             return 0.0;
         }
+
+        // Centroid of the whole path (not just the wiped tail) approximates its
+        // interior well enough to bias against — a loop's centroid always lies
+        // inside it, and for an open polyline it still points away from the
+        // boundary the nozzle is dragging along. Two points (a single segment)
+        // carry no interior to bias toward, so those are left un-nudged.
+        let inward = if points.len() > 2 {
+            let (sx, sy) = points
+                .iter()
+                .fold((0.0, 0.0), |(sx, sy), (x, y)| (sx + x, sy + y));
+            let n = points.len() as f64;
+            let bias_mm = params.nozzle_diameter_mm.max(0.1) * 0.5;
+            Some((sx / n, sy / n, bias_mm))
+        } else {
+            None
+        };
 
         let extruding = retract_during > 1e-9;
         let e_per_mm = if extruding {
@@ -953,6 +976,20 @@ impl GcodeGenerator {
             } else {
                 let t = step / seg;
                 (ax + t * dx, ay + t * dy)
+            };
+            let (tx, ty) = match inward {
+                Some((cx, cy, bias_mm)) => {
+                    let dcx = cx - tx;
+                    let dcy = cy - ty;
+                    let dist = (dcx * dcx + dcy * dcy).sqrt();
+                    if dist > 1e-6 {
+                        let d = bias_mm.min(dist * 0.9);
+                        (tx + dcx / dist * d, ty + dcy / dist * d)
+                    } else {
+                        (tx, ty)
+                    }
+                }
+                None => (tx, ty),
             };
             if extruding {
                 let de = -e_per_mm * step;
@@ -3581,6 +3618,41 @@ mod tests {
                 .any(|l| l.contains("; wipe") && l.contains(" X") && l.contains("E-")),
             "wipe move must retract while moving: {on}"
         );
+    }
+
+    #[test]
+    fn wipe_biases_inward_off_the_printed_boundary() {
+        // A single 10x10 square: the wipe after its own closing retract must not
+        // land exactly on the perimeter it just printed (x/y in {0, 10}) — it
+        // should be nudged toward the square's interior instead.
+        let params = SlicingParams {
+            wipe: true,
+            wipe_distance_mm: 2.0,
+            retract_on_layer_change: true,
+            use_relative_e_distances: true,
+            ..SlicingParams::default()
+        };
+        let gcode = generate_gcode(&[one_square_layer(), one_square_layer()], &params);
+
+        let wipe_lines: Vec<&str> = gcode.lines().filter(|l| l.contains("; wipe")).collect();
+        assert!(!wipe_lines.is_empty(), "expected wipe moves: {gcode}");
+
+        for line in wipe_lines {
+            let x: f64 = line
+                .split_whitespace()
+                .find_map(|tok| tok.strip_prefix('X'))
+                .and_then(|v| v.parse().ok())
+                .expect("wipe move must carry an X coordinate");
+            let y: f64 = line
+                .split_whitespace()
+                .find_map(|tok| tok.strip_prefix('Y'))
+                .and_then(|v| v.parse().ok())
+                .expect("wipe move must carry a Y coordinate");
+            assert!(
+                (0.1..9.9).contains(&x) && (0.1..9.9).contains(&y),
+                "wipe target ({x}, {y}) sits on the printed boundary instead of biased inward: {line}"
+            );
+        }
     }
 
     #[test]
