@@ -86,17 +86,17 @@ pub fn base_process(meta: ProfileMeta) -> ProcessProfile {
             "top_layers": 4,
             "bottom_layers": 3,
             "seam_position": "aligned",
-            "infill_density": 0.15,
+            "infill_density": 0.2,
             "infill_pattern": "TpmsD",
             "infill_base_angle": 45.0,
             "print_speed": 120.0,
             "perimeter_speed": 80.0,
             "infill_speed": 150.0,
             "top_surface_speed": 60.0,
-            "first_layer_speed": 30.0,
+            "first_layer_speed": 25.0,
             "support_threshold_angle": 45.0,
-            "adhesion_type": "skirt",
-            "skirt_loops": 1,
+            "adhesion_type": "none",
+            "bridge_flow": 0.95,
         }),
     }
 }
@@ -184,7 +184,7 @@ pub fn default_petg() -> FilamentProfile {
         FilamentMaterial::PETG,
     );
     f.vendor = "Generic".to_string();
-    f.color = "#2f7fb8".to_string();
+    f.color = "#4CAF50".to_string();
     f
 }
 
