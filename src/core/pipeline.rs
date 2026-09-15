@@ -1318,7 +1318,11 @@ fn overhang_band_class(params: &SlicingParams) -> [OverhangClass; 5] {
         params.overhang_fan_speed > 0.0
             && upper_fraction > params.overhang_fan_threshold + f64::EPSILON
     };
-    let deg1 = if params.overhang_1_4_speed > 0.0 || fan_targets(0.25) {
+    let deg1_configured = params
+        .overhang_1_4_speed
+        .resolve(params.perimeter_speed)
+        .is_some();
+    let deg1 = if deg1_configured || fan_targets(0.25) {
         OverhangClass::Deg1
     } else {
         OverhangClass::None

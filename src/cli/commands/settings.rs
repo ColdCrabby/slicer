@@ -542,10 +542,10 @@ impl EmitPayload for ShowResult<'_> {
             format!("  infill_speed: {} mm/s", p.infill_speed),
             format!("  bridge_speed: {} mm/s", p.bridge_speed),
             format!("  enable_overhang_speed: {}", p.enable_overhang_speed),
-            format!("  overhang_1_4_speed: {} mm/s", p.overhang_1_4_speed),
+            format!("  overhang_1_4_speed: {}", p.overhang_1_4_speed),
             format!("  overhang_2_4_speed: {}", p.overhang_2_4_speed),
-            format!("  overhang_3_4_speed: {} mm/s", p.overhang_3_4_speed),
-            format!("  overhang_4_4_speed: {} mm/s", p.overhang_4_4_speed),
+            format!("  overhang_3_4_speed: {}", p.overhang_3_4_speed),
+            format!("  overhang_4_4_speed: {}", p.overhang_4_4_speed),
             format!(
                 "  slowdown_for_curled_perimeters: {}",
                 p.slowdown_for_curled_perimeters

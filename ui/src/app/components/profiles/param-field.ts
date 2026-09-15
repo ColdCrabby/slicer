@@ -1,4 +1,12 @@
-import { ChangeDetectionStrategy, Component, computed, inject, input, output } from '@angular/core';
+import {
+  ChangeDetectionStrategy,
+  Component,
+  computed,
+  inject,
+  input,
+  output,
+  signal,
+} from '@angular/core';
 import type { FieldDef } from '../../schema-form/models/field-def';
 import { controlFor } from '../../schema-form/models/field-control';
 import {
@@ -15,6 +23,9 @@ import { FieldNoticeView } from '../../schema-form/field-notice/field-notice';
 import { GcodeField } from '../../schema-form/custom-widgets/gcode-field/gcode-field';
 import {
   parseRelativeSpeed,
+  relativeSpeedScale,
+  relativeSpeedStep,
+  relativeSpeedUnit,
   RELATIVE_SPEED_MODES,
   roundRelative,
 } from '../../schema-form/models/relative-speed';
@@ -150,7 +161,7 @@ import { FieldShell } from './field-shell';
               <nexus-number-input
                 [value]="relativeDisplayed()"
                 [min]="0"
-                [step]="5"
+                [step]="relativeStep()"
                 [unit]="relativeUnit()"
                 (valueChange)="onRelativeChange($event)"
               />
@@ -369,31 +380,52 @@ export class ParamField {
     return Number.isFinite(n) ? n : 0;
   });
 
+  /** Which absolute unit to read/show in, while the value isn't `%`. Local to
+   * this field — see `RelativeSpeedField`'s class doc for why it isn't the
+   * shared `UnitPreference` an ordinary number field's toggle uses. */
+  private readonly relativeAbsoluteUnit = signal<'mm_s' | 'mm_min'>('mm_s');
+
+  /** Which of the three stops (`mm_s` / `mm_min` / `percent`) it's on now. */
   protected readonly relativeMode = computed(() =>
-    this.parsedRelative().kind === 'percent' ? 'percent' : 'mm_s',
+    this.parsedRelative().kind === 'percent' ? 'percent' : this.relativeAbsoluteUnit(),
   );
-  protected readonly relativeUnit = computed(() =>
-    this.relativeMode() === 'percent' ? '%' : 'mm/s',
-  );
+  protected readonly relativeUnit = computed(() => relativeSpeedUnit(this.relativeMode()));
+  protected readonly relativeStep = computed(() => relativeSpeedStep(this.relativeMode()));
 
   protected readonly relativeDisplayed = computed(() => {
     const p = this.parsedRelative();
-    return p.kind === 'percent' ? roundRelative(p.fraction * 100) : p.mmS;
+    if (p.kind === 'percent') return roundRelative(p.fraction * 100);
+    return roundRelative(p.mmS * relativeSpeedScale(this.relativeMode()));
   });
 
   protected onRelativeChange(shown: number): void {
-    this.valueChange.emit(this.relativeMode() === 'percent' ? `${shown}%` : shown);
+    const m = this.relativeMode();
+    if (m === 'percent') {
+      this.valueChange.emit(`${shown}%`);
+      return;
+    }
+    this.valueChange.emit(roundRelative(shown / relativeSpeedScale(m)));
   }
 
-  /** Convert the current value into the other shape and emit it. */
+  /** Advance to the next of the three stops, converting the value as needed. */
   protected onRelativeToggle(): void {
-    const p = this.parsedRelative();
-    const source = this.relativeSource();
-    if (p.kind === 'percent') {
-      this.valueChange.emit(roundRelative(p.fraction * source));
-    } else {
-      this.valueChange.emit(`${roundRelative(source > 0 ? (p.mmS / source) * 100 : 0)}%`);
+    const m = this.relativeMode();
+    if (m === 'mm_s') {
+      this.relativeAbsoluteUnit.set('mm_min'); // pure display flip, value unchanged
+      return;
     }
+    const source = this.relativeSource();
+    if (m === 'mm_min') {
+      const p = this.parsedRelative();
+      const mmS = p.kind === 'absolute' ? p.mmS : 0;
+      this.valueChange.emit(`${roundRelative(source > 0 ? (mmS / source) * 100 : 0)}%`);
+      return;
+    }
+    // percent → back to mm/s
+    const p = this.parsedRelative();
+    const fraction = p.kind === 'percent' ? p.fraction : 0;
+    this.relativeAbsoluteUnit.set('mm_s');
+    this.valueChange.emit(roundRelative(fraction * source));
   }
 
   // Bounds are stated in the stored scale, so they are converted with the value.

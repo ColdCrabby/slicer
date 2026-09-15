@@ -1,9 +1,19 @@
-import { ChangeDetectionStrategy, Component, EventEmitter, computed, input } from '@angular/core';
+import {
+  ChangeDetectionStrategy,
+  Component,
+  EventEmitter,
+  computed,
+  input,
+  signal,
+} from '@angular/core';
 import { NumberInput, TooltipDirective } from '@coldcrabby/ui';
 import { IconButton } from '../../../shared/icon-button/icon-button';
 import type { FieldDef } from '../../models/field-def';
 import {
   parseRelativeSpeed,
+  relativeSpeedScale,
+  relativeSpeedStep,
+  relativeSpeedUnit,
   RELATIVE_SPEED_MODES,
   roundRelative,
 } from '../../models/relative-speed';
@@ -15,12 +25,16 @@ import type { FieldWidget } from '../base-field';
  * field named by the schema's `x-relative-to` extension (e.g.
  * `overhang_2_4_speed`, a fraction of `perimeter_speed`).
  *
- * The mode shown is whichever shape the stored value currently is — there is
- * no separate "display unit" state to drift out of sync with it. Pressing the
- * toggle converts the value into the other shape against the source field's
- * *current* value and emits that, so what's on screen never silently means
- * something else after a click; it just stops tracking the source from that
- * point, exactly like typing a literal number always did.
+ * The control cycles three states — `mm/s`, `mm/min`, `%` — entirely local to
+ * *this* field, unlike an ordinary number field's unit toggle (which flips the
+ * shared `UnitPreference` and so moves every speed field on the page at once).
+ * That global behaviour doesn't fit here: `%` is a genuinely different
+ * *stored* shape, only this field's own, so making the mm/s↔mm/min leg global
+ * while `%` stayed local would mean the same button sometimes moves the whole
+ * page and sometimes just one control — the confusing half of "pick one".
+ * Converting is what stops the number on screen from silently meaning
+ * something else after a click: leaving `%` re-enters at mm/s, exactly like
+ * typing a literal number always did.
  *
  * The slice sidebar's own widget — the profile editor renders the same
  * control inline (its `FieldShell` already carries the label), sharing the
@@ -97,6 +111,10 @@ export class RelativeSpeedField implements FieldWidget {
 
   private readonly parsed = computed(() => parseRelativeSpeed(this.value(), this.field().default));
 
+  /** Which absolute unit to read/show in, while the value isn't `%`. Local to
+   * this field — see the class doc for why it isn't the shared preference. */
+  private readonly absoluteUnit = signal<'mm_s' | 'mm_min'>('mm_s');
+
   /** The source field's current speed, in mm/s — `0` when it isn't set yet. */
   private readonly source = computed(() => {
     const key = this.field().relativeTo;
@@ -105,28 +123,47 @@ export class RelativeSpeedField implements FieldWidget {
     return Number.isFinite(n) ? n : 0;
   });
 
-  protected readonly mode = computed(() => (this.parsed().kind === 'percent' ? 'percent' : 'mm_s'));
-  protected readonly unit = computed(() => (this.mode() === 'percent' ? '%' : 'mm/s'));
-  protected readonly step = computed(() => (this.mode() === 'percent' ? 5 : 5));
+  /** Which of the three stops the control is on right now. */
+  protected readonly mode = computed(() =>
+    this.parsed().kind === 'percent' ? 'percent' : this.absoluteUnit(),
+  );
+  protected readonly unit = computed(() => relativeSpeedUnit(this.mode()));
+  protected readonly step = computed(() => relativeSpeedStep(this.mode()));
 
   /** The number shown in whichever mode the stored value is currently in. */
   protected readonly displayed = computed(() => {
     const p = this.parsed();
-    return p.kind === 'percent' ? roundRelative(p.fraction * 100) : p.mmS;
+    if (p.kind === 'percent') return roundRelative(p.fraction * 100);
+    return roundRelative(p.mmS * relativeSpeedScale(this.mode()));
   });
 
   protected onValueChange(shown: number): void {
-    this.valueChange.emit(this.mode() === 'percent' ? `${shown}%` : shown);
+    const m = this.mode();
+    if (m === 'percent') {
+      this.valueChange.emit(`${shown}%`);
+      return;
+    }
+    this.valueChange.emit(roundRelative(shown / relativeSpeedScale(m)));
   }
 
-  /** Convert the current value into the other shape and emit it. */
+  /** Advance to the next of the three stops, converting the value as needed. */
   protected onToggle(): void {
-    const p = this.parsed();
-    const source = this.source();
-    if (p.kind === 'percent') {
-      this.valueChange.emit(roundRelative(p.fraction * source));
-    } else {
-      this.valueChange.emit(`${roundRelative(source > 0 ? (p.mmS / source) * 100 : 0)}%`);
+    const m = this.mode();
+    if (m === 'mm_s') {
+      this.absoluteUnit.set('mm_min'); // pure display flip, value unchanged
+      return;
     }
+    const source = this.source();
+    if (m === 'mm_min') {
+      const p = this.parsed(); // still 'absolute' here
+      const mmS = p.kind === 'absolute' ? p.mmS : 0;
+      this.valueChange.emit(`${roundRelative(source > 0 ? (mmS / source) * 100 : 0)}%`);
+      return;
+    }
+    // percent → back to mm/s
+    const p = this.parsed();
+    const fraction = p.kind === 'percent' ? p.fraction : 0;
+    this.absoluteUnit.set('mm_s');
+    this.valueChange.emit(roundRelative(fraction * source));
   }
 }
