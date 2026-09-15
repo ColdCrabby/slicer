@@ -3446,12 +3446,12 @@ impl SlicingParams {
     }
 
     fn default_bridge_flow_ratio() -> f64 {
-        // Deliberately over 1.0. Bridge lines are laid one nozzle-diameter apart,
-        // so a 1.5× bead (0.6 mm at a 0.4 mm nozzle) overlaps its neighbours ~0.2 mm
+        // Slightly over 1.0. Bridge lines are laid one nozzle-diameter apart,
+        // so a 1.05× bead (0.6 mm at a 0.4 mm nozzle) overlaps its neighbours
         // and fuses them into a continuous, smooth floor instead of thin, gappy,
         // sag-prone strands. Paired with the slow `bridge_speed` and full
         // `bridge_fan_speed`, this is the "smooth unsupported bridge" recipe.
-        1.5
+        1.05
     }
 
     fn default_bridge_min_area_mm2() -> f64 {
