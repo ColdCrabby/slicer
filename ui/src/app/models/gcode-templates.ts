@@ -96,7 +96,7 @@ const KLIPPAIN: GcodeTemplate = {
   label: 'Klippain',
   description: 'START_PRINT / END_PRINT with temperature, chamber and material parameters.',
   flavor: 'klipper',
-  startGcode: `START_PRINT EXTRUDER={nozzle_temp_first_layer} BED={bed_temp_first_layer} CHAMBER={chamber_temp} MATERIAL={filament_type}`,
+  startGcode: `START_PRINT EXTRUDER_TEMP={nozzle_temp_first_layer} BED_TEMP={bed_temp_first_layer} CHAMBER_TEMP={chamber_temp} MATERIAL={filament_type}`,
   endGcode: `END_PRINT`,
   layerGcode: `_ON_LAYER_CHANGE LAYER={layer_num} Z={z}`,
 };
