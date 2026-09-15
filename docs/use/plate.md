@@ -39,10 +39,10 @@ plate without going through the file picker.
   or AirDrop, or long-press it in Files and choose **Open With**. In the share
   sheet the entry reads **Copy to Cold Crabby**.
 
-A model opened this way **joins the plate you are looking at** if there is one,
-exactly as dropping it on the window would. It only starts a fresh plate when
-there is nothing on the bed — opening a file never throws away an arrangement
-you have already made.
+A model opened this way **always starts a fresh plate**, whatever is on the
+bed already — it came from outside the app, so there is no arrangement on
+screen for it to join. To add a model to the plate you are already working
+on, drop it on the window instead.
 
 ::: details Advanced — making Cold Crabby the default
 Cold Crabby registers as an *alternate* handler, so a machine that already has

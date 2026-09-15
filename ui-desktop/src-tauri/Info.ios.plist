@@ -63,38 +63,35 @@
 
 	  The iOS file picker filters by **UTType**, not by extension: Tauri maps
 	  each `open()` filter through `UTType(filenameExtension:)`, which only
-	  resolves for types the system knows. iOS knows `stl`, but not `obj` or
-	  `3mf` — so without these declarations those files render greyed-out and
-	  unselectable in Files, and the model cannot be imported at all.
-	  Declaring them also makes the app a target for "Open with…" and for the
-	  share sheet's "Copy to Cold Crabby" — how a model reaches the plate from
-	  Shapr3D, Files, Mail or AirDrop. `src/open_with.rs` receives it.
+	  resolves for types the system knows. iOS knows `stl` — ModelIO exports
+	  `public.standard-tesselated-geometry-format` itself, system-wide, since
+	  iOS 9 — but not `obj` or `3mf`, so without a declaration for those two,
+	  those files render greyed-out and unselectable in Files, and the model
+	  cannot be imported at all.
+
+	  STL must **not** be redeclared here alongside them.
+	  `UTImportedTypeDeclarations` claims ownership of a type identifier, and
+	  doing that for one the system already exports fights the OS's own
+	  registration for it: Launch Services then treats Cold Crabby as an
+	  inconsistent handler and drops it from the "Open with…" list, so an
+	  `.stl` opened from Files only reaches the app after manually browsing to
+	  it through "Choose another app" instead of showing up directly.
+	  Referencing the system's own identifier below, in
+	  `CFBundleDocumentTypes`, is enough to make the app a target for it.
+
+	  Declaring OBJ and 3MF here also makes the app a target for "Open with…"
+	  and for the share sheet's "Copy to Cold Crabby" — how a model reaches
+	  the plate from Shapr3D, Files, Mail or AirDrop. `src/open_with.rs`
+	  receives it.
 
 	  `bundle.fileAssociations` in tauri.conf.json says the same thing for the
 	  desktop bundles, and `tauri ios init` writes a `CFBundleDocumentTypes`
 	  from it too — which the richer one below replaces on merge. It cannot
 	  replace `UTImportedTypeDeclarations`: that config key only describes types
-	  an app *exports* (its own formats), and STL/OBJ/3MF are nobody's to own.
+	  an app *exports* (its own formats), and OBJ/3MF are nobody's to own.
 	-->
 	<key>UTImportedTypeDeclarations</key>
 	<array>
-		<dict>
-			<key>UTTypeIdentifier</key>
-			<string>public.standard-tesselated-geometry-format</string>
-			<key>UTTypeDescription</key>
-			<string>STL Model</string>
-			<key>UTTypeConformsTo</key>
-			<array>
-				<string>public.data</string>
-			</array>
-			<key>UTTypeTagSpecification</key>
-			<dict>
-				<key>public.filename-extension</key>
-				<array>
-					<string>stl</string>
-				</array>
-			</dict>
-		</dict>
 		<dict>
 			<key>UTTypeIdentifier</key>
 			<string>public.geometry-definition-format</string>
