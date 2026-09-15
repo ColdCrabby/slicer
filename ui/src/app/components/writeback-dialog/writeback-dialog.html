@@ -1,0 +1,59 @@
+<div class="writeback">
+  @if (sections().length === 0) {
+    <p class="writeback__empty">Nothing to write back — this plate already matches its presets.</p>
+  } @else {
+    @for (section of sections(); track section.contract) {
+      <details class="writeback__section" open>
+        <summary class="writeback__section-head">
+          <nexus-icon [name]="section.icon" />
+          <span class="writeback__section-label">{{ section.label }}</span>
+          <span class="writeback__section-count">{{ section.rows.length }}</span>
+        </summary>
+
+        <ul class="writeback__list">
+          @for (row of section.rows; track row.key) {
+            <li class="writeback__row">
+              <div
+                class="writeback__choice"
+                role="group"
+                [attr.aria-label]="'Write back ' + row.label"
+              >
+                <button
+                  type="button"
+                  class="writeback__choice-btn writeback__choice-accept"
+                  [class.is-active]="writeback.isAccepted(row.key)"
+                  aria-label="Write this change back to its profile"
+                  (click)="accept(row)"
+                >
+                  <nexus-icon name="check" />
+                </button>
+                <button
+                  type="button"
+                  class="writeback__choice-btn writeback__choice-reject"
+                  [class.is-active]="!writeback.isAccepted(row.key)"
+                  aria-label="Leave this as a change on this plate"
+                  (click)="reject(row)"
+                >
+                  <nexus-icon name="xmark" />
+                </button>
+              </div>
+              <div class="writeback__body">
+                <span class="writeback__label">{{ row.label }}</span>
+                <div class="writeback__diff">
+                  <span class="writeback__old">{{ formatValue(row.presetValue) }}</span>
+                  <nexus-icon name="nav-arrow-right" class="writeback__arrow" />
+                  <span class="writeback__new">{{ formatValue(row.overrideValue) }}</span>
+                </div>
+              </div>
+            </li>
+          }
+        </ul>
+      </details>
+    }
+
+    <p class="writeback__hint">
+      Checked settings are saved into their printer, filament or process profile and stop being a
+      change on this plate. Unchecked ones are left exactly as they are.
+    </p>
+  }
+</div>

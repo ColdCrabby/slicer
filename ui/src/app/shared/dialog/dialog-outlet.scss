@@ -55,8 +55,12 @@ nexus-dialog-outlet {
   }
 
   .dialog__header {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: var(--spacing-sm);
     flex-shrink: 0;
-    padding: 18px 22px 8px;
+    padding: 18px 14px 8px 22px;
     border-bottom: none;
     background: transparent;
   }
@@ -68,6 +72,11 @@ nexus-dialog-outlet {
     color: var(--color-text-primary, #f5f6f8);
     letter-spacing: 0.01em;
     line-height: 1.3;
+  }
+
+  .dialog__dismiss {
+    flex: none;
+    margin-top: -4px;
   }
 
   .dialog__message {

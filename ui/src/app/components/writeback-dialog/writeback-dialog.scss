@@ -1,0 +1,164 @@
+:host {
+  display: block;
+  max-height: 70vh;
+  overflow-y: auto;
+}
+
+.writeback__empty {
+  margin: 0;
+  font-size: 13px;
+  color: var(--color-text-tertiary);
+}
+
+.writeback__section {
+  border: 1px solid var(--color-border-light);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+
+  & + & {
+    margin-top: var(--spacing-sm);
+  }
+}
+
+.writeback__section-head {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-xs);
+  padding: var(--spacing-sm) var(--spacing-md);
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--color-text-primary);
+  cursor: pointer;
+  list-style: none;
+  --icon-size: 15px;
+
+  &::-webkit-details-marker {
+    display: none;
+  }
+}
+
+.writeback__section-label {
+  flex: 1 1 auto;
+}
+
+.writeback__section-count {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  border-radius: 999px;
+  background: var(--color-bg-primary);
+  color: var(--color-text-secondary);
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.writeback__list {
+  display: flex;
+  flex-direction: column;
+  margin: 0;
+  padding: 0 var(--spacing-md) var(--spacing-sm);
+  list-style: none;
+}
+
+.writeback__row {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  padding: var(--spacing-xs) 0;
+
+  & + & {
+    border-top: 1px solid var(--color-border-light);
+  }
+}
+
+// A two-way pill rather than a single switch: this is a decision between two
+// named outcomes (keep the change on the plate, or promote it to the
+// profile), not an on/off setting, so the control shows both options at once
+// instead of one state the reader has to interpret.
+.writeback__choice {
+  display: inline-flex;
+  flex: none;
+  border: 1px solid var(--color-border-light);
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+}
+
+.writeback__choice-btn {
+  display: inline-grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border: 0;
+  background: var(--color-bg-primary);
+  color: var(--color-text-tertiary);
+  cursor: pointer;
+  --icon-size: 14px;
+  transition:
+    color var(--duration-fast) var(--ease-standard),
+    background-color var(--duration-fast) var(--ease-standard);
+
+  & + & {
+    border-left: 1px solid var(--color-border-light);
+  }
+
+  &:hover {
+    color: var(--color-text-primary);
+  }
+}
+
+.writeback__choice-accept.is-active {
+  background: color-mix(in srgb, var(--color-success) 18%, transparent);
+  color: var(--color-success);
+}
+
+.writeback__choice-reject.is-active {
+  background: color-mix(in srgb, var(--color-danger) 14%, transparent);
+  color: var(--color-danger);
+}
+
+.writeback__body {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  flex: 1;
+}
+
+.writeback__label {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--color-text-primary);
+}
+
+.writeback__diff {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-xs);
+  font-size: 12px;
+  --icon-size: 13px;
+}
+
+.writeback__old {
+  color: var(--color-text-tertiary);
+  text-decoration: line-through;
+}
+
+.writeback__arrow {
+  color: var(--color-text-tertiary);
+}
+
+.writeback__new {
+  color: var(--color-success);
+  font-weight: 500;
+}
+
+.writeback__hint {
+  margin: var(--spacing-sm) 0 0;
+  font-size: 12px;
+  color: var(--color-text-tertiary);
+  line-height: 1.4;
+}

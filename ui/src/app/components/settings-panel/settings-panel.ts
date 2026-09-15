@@ -21,14 +21,24 @@ import { FieldChangeEvent, SchemaForm } from '../../schema-form/schema-form';
 import { BrowserStorage } from '../../services/browser-storage';
 import { ActivePresets } from '../../services/profiles/active-presets';
 import { LabelFilterStore } from '../../services/profiles/label-filter-store';
+import { ProfileWriteback } from '../../services/profiles/profile-writeback';
 import { LabelFilterBar } from '../labels/label-filter-bar';
+import { WritebackDialog } from '../writeback-dialog/writeback-dialog';
+import { Dialog } from '../../services/dialog';
 import { Slicer } from '../../services/slicer';
 import {
   WORKPLATE_SAVE_DEBOUNCE_MS,
   WorkplateSettingsStore,
   type WorkplateSaveStatus,
 } from '../../services/workplate-settings';
-import { Icon, IconButton, Segmented, type SegmentOption, Select } from '@coldcrabby/ui';
+import {
+  Icon,
+  IconButton,
+  Segmented,
+  type SegmentOption,
+  Select,
+  TooltipDirective,
+} from '@coldcrabby/ui';
 
 // Extract the SlicingParams sub-schema so the form renders all slicer settings.
 // (`SlicingParams` is now the wire-format type — the legacy `WsSlicingParams`
@@ -54,7 +64,16 @@ const CONFIRM_TIMEOUT_MS = 4000;
 @Component({
   selector: 'nexus-settings-panel',
   standalone: true,
-  imports: [SchemaForm, Segmented, Select, Icon, IconButton, RouterLink, LabelFilterBar],
+  imports: [
+    SchemaForm,
+    Segmented,
+    Select,
+    Icon,
+    IconButton,
+    RouterLink,
+    LabelFilterBar,
+    TooltipDirective,
+  ],
   templateUrl: './settings-panel.component.html',
   styleUrl: './settings-panel.component.scss',
 })
@@ -62,6 +81,8 @@ export class SettingsPanel {
   private readonly slicer = inject(Slicer);
   private readonly storage = inject(BrowserStorage);
   private readonly workplateSettings = inject(WorkplateSettingsStore);
+  private readonly dialog = inject(Dialog);
+  private readonly writeback = inject(ProfileWriteback);
   protected readonly presets = inject(ActivePresets);
   protected readonly labelFilter = inject(LabelFilterStore);
 
@@ -145,6 +166,28 @@ export class SettingsPanel {
       this.resetTimer = null;
     }
     this.resetConfirming.set(false);
+  }
+
+  /**
+   * Review every changed setting against a git-diff-style dialog and write the
+   * accepted ones back into the printer / filament / process profile that owns
+   * them — without leaving the slice page to open the profile editors.
+   */
+  syncToProfile(): void {
+    this.writeback.open();
+    this.dialog
+      .confirm({
+        title: 'Sync changes to your profiles',
+        message: 'Check off which changed settings should become part of their profile.',
+        confirmLabel: 'Sync checked settings',
+        content: WritebackDialog,
+        preferredWidth: '560px',
+      })
+      .subscribe((confirmed) => {
+        if (confirmed) {
+          this.writeback.apply();
+        }
+      });
   }
 
   // --- Save indicator ----------------------------------------------------
