@@ -1,6 +1,8 @@
 import { ChangeDetectionStrategy, Component, computed, inject } from '@angular/core';
 import { GcodePreview } from '../../services/gcode-preview';
 import { Slicer } from '../../services/slicer';
+import { resolveGcodeStepButtons, ViewerControl } from '../../services/viewer-control';
+import { Viewport } from '../../services/viewport';
 
 @Component({
   selector: 'nexus-slice-layer-bar',
@@ -12,6 +14,13 @@ import { Slicer } from '../../services/slicer';
 export class SliceLayerBar {
   protected readonly preview = inject(GcodePreview);
   private readonly slicer = inject(Slicer);
+  private readonly viewerControl = inject(ViewerControl);
+  private readonly viewport = inject(Viewport);
+
+  /** Whether to render the touch step buttons flanking the vertical slider. */
+  protected readonly showStepButtons = computed(() =>
+    resolveGcodeStepButtons(this.viewerControl.gcodeStepButtons(), this.viewport.isCoarsePointer()),
+  );
 
   /**
    * Percentage positions (bottom-up, matching `fillPercent`) of every layer

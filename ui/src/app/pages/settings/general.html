@@ -456,6 +456,47 @@
 
     <div class="settings-field">
       <span class="settings-field-label">
+        <span class="settings-field-title">G-code step buttons</span>
+        <span class="settings-field-desc">
+          Buttons beside the layer and progress sliders that step exactly one at a time, the same as
+          the arrow keys. Auto shows them wherever there is no keyboard to press those with — every
+          touchscreen — and hides them on a mouse or trackpad, where the shortcut already does the
+          job. {{ gcodeStepButtonsNote() }}
+        </span>
+      </span>
+      <div class="segmented" role="group" aria-label="G-code step buttons">
+        <button
+          type="button"
+          class="segmented-btn"
+          [class.is-active]="gcodeStepButtons() === 'auto'"
+          [attr.aria-pressed]="gcodeStepButtons() === 'auto'"
+          (click)="setGcodeStepButtons('auto')"
+        >
+          Auto
+        </button>
+        <button
+          type="button"
+          class="segmented-btn"
+          [class.is-active]="gcodeStepButtons() === 'on'"
+          [attr.aria-pressed]="gcodeStepButtons() === 'on'"
+          (click)="setGcodeStepButtons('on')"
+        >
+          On
+        </button>
+        <button
+          type="button"
+          class="segmented-btn"
+          [class.is-active]="gcodeStepButtons() === 'off'"
+          [attr.aria-pressed]="gcodeStepButtons() === 'off'"
+          (click)="setGcodeStepButtons('off')"
+        >
+          Off
+        </button>
+      </div>
+    </div>
+
+    <div class="settings-field">
+      <span class="settings-field-label">
         <span class="settings-field-title">Use filament color for models</span>
         <span class="settings-field-desc">
           Color model meshes with the active filament profile color instead of the neutral viewer

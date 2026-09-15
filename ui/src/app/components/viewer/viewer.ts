@@ -41,6 +41,7 @@ import {
 } from '../../services/viewer-control';
 
 import { GcodeHoverProbe, type GcodeHoverHit } from './gcode-hover';
+import { NozzleMarker } from './gcode-nozzle-marker';
 import { GcodeOrchestrator } from './gcode-orchestrator';
 import { preferredHoverPlacement } from './hover-placement';
 import type { GizmoDelta } from './gizmo';
@@ -236,6 +237,7 @@ export class Viewer {
   private cameraOriginatedView: ViewerView | null = null;
   private gcode: GcodeOrchestrator | null = null;
   private gcodeHover: GcodeHoverProbe | null = null;
+  private nozzleMarker: NozzleMarker | null = null;
   private currentAbort: AbortController | null = null;
   private loadToken = 0;
   /** SceneObject ids registered for the currently-loaded source. */
@@ -303,6 +305,8 @@ export class Viewer {
       this.gcodeHover = null;
       this.gcode?.dispose();
       this.gcode = null;
+      this.nozzleMarker?.dispose();
+      this.nozzleMarker = null;
       this.scene?.dispose();
       this.scene = null;
       this.viewerControl.orbitSink = null;
@@ -636,6 +640,15 @@ export class Viewer {
       const max = this.gcodePreview.layerMax();
       this.gcode?.applyProgress(max, progress);
       this.refreshGcodeDetail();
+      this.scene?.invalidate();
+    });
+
+    // Move the imaginary-nozzle marker to wherever the scrub position ends,
+    // and hide it outside the G-code view — it has nothing to point at there.
+    effect(() => {
+      const inGcodeView = this.mode() === 'gcode';
+      const pos = this.gcodePreview.nozzlePosition();
+      this.nozzleMarker?.setPosition(inGcodeView ? pos : null);
       this.scene?.invalidate();
     });
 
@@ -1105,6 +1118,8 @@ export class Viewer {
     this.gcodeHover = null;
     this.gcode?.dispose();
     this.gcode = null;
+    this.nozzleMarker?.dispose();
+    this.nozzleMarker = null;
     this.scene.dispose();
     this.scene = null;
     this.wasmMeshes.clear();
@@ -1198,6 +1213,8 @@ export class Viewer {
     // (the first slice load) starts with the user's current setting instead
     // of the class's own default.
     this.gcode.setGloss(this.viewerControl.glossEnabled());
+    this.nozzleMarker = new NozzleMarker();
+    this.scene.contentRoot.add(this.nozzleMarker.group);
     // Hover-inspect probe for the G-code scalar views: raycasts the visible
     // layer meshes and reports the extrusion value under the cursor.
     this.gcodeHover = new GcodeHoverProbe(
@@ -1524,6 +1541,15 @@ export class Viewer {
     this.cancelInFlightLoad();
     const colors = untracked(() => this.gcodePreview.roleColors());
     const { totalSegments } = gcode.buildFromHandle(handle, colors);
+    // `scene.clearContent()` (run just before this by the `applySource` effect
+    // that led here) wipes every child of `contentRoot`, the marker included —
+    // re-attach it alongside the freshly built model and resync its position,
+    // since re-adding to the same parent is a no-op otherwise but the earlier
+    // removal already dropped it from the scene graph.
+    if (this.nozzleMarker) {
+      scene.contentRoot.add(this.nozzleMarker.group);
+      this.nozzleMarker.setPosition(untracked(() => this.gcodePreview.nozzlePosition()));
+    }
 
     const min = untracked(() => this.gcodePreview.layerMin());
     const max = untracked(() => this.gcodePreview.layerMax());

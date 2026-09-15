@@ -91,6 +91,23 @@
   transition: height 40ms linear;
 }
 
+// Visible thumb — a plain dot positioned at the same `fillPercent()` as
+// `.track-fill`, so the two can never drift apart. The native input's own
+// thumb is never drawn (see `.layer-input` below); this is the only one.
+.track-thumb {
+  position: absolute;
+  left: 50%;
+  width: 16px;
+  height: 16px;
+  transform: translate(-50%, 50%);
+  border-radius: 50%;
+  background: var(--color-surface);
+  border: 2px solid var(--accent);
+  box-shadow: var(--shadow-sm);
+  pointer-events: none;
+  transition: bottom 40ms linear;
+}
+
 // Pause / color-change trigger marker — sits on top of the
 // track, offset to the side so it never blocks dragging the native input.
 .trigger-marker {
@@ -138,26 +155,55 @@
     width: 4px;
   }
 
+  // The native thumb is invisible but still occupies its normal hit area, so
+  // dragging and keyboard focus keep working — `.track-thumb` is the only
+  // thumb actually drawn (see above).
   &::-webkit-slider-thumb {
     -webkit-appearance: none;
     appearance: none;
     width: 16px;
     height: 16px;
-    border-radius: 50%;
-    background: var(--color-surface);
-    border: 2px solid var(--accent);
-    box-shadow: var(--shadow-sm);
+    opacity: 0;
     cursor: pointer;
   }
 
   &::-moz-range-thumb {
-    width: 14px;
-    height: 14px;
-    border-radius: 50%;
-    background: var(--color-surface);
-    border: 2px solid var(--accent);
-    box-shadow: var(--shadow-sm);
+    width: 16px;
+    height: 16px;
+    opacity: 0;
+    border: none;
     cursor: pointer;
+  }
+}
+
+// Touch equivalent of the ArrowUp/ArrowDown layer shortcuts, flanking the
+// slider — there is no keyboard on a tablet.
+.step-btn {
+  flex-shrink: 0;
+  display: inline-grid;
+  place-items: center;
+  width: 24px;
+  height: 20px;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: var(--color-text-tertiary);
+  cursor: pointer;
+  touch-action: manipulation;
+
+  &:hover:not(:disabled) {
+    color: var(--color-text-primary);
+  }
+
+  &:focus-visible {
+    outline: none;
+    border-radius: var(--radius-sm);
+    box-shadow: inset 0 0 0 1px var(--color-focus-ring);
+  }
+
+  &:disabled {
+    opacity: 0.35;
+    cursor: default;
   }
 }
 

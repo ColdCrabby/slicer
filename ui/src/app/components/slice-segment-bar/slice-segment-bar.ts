@@ -11,7 +11,6 @@ import {
   viewChild,
 } from '@angular/core';
 import {
-  FLOATS_PER_SEGMENT,
   GcodePreview,
   type GcodeViewMode,
   ROLE_GROUPS,
@@ -23,8 +22,8 @@ import {
   speedGradientCss,
   VIEW_MODE_LABELS,
 } from '../../services/gcode-preview';
-import { Select, type SelectOption, Slider } from '@coldcrabby/ui';
-import { ViewerControl } from '../../services/viewer-control';
+import { Icon, Select, type SelectOption, Slider } from '@coldcrabby/ui';
+import { resolveGcodeStepButtons, ViewerControl } from '../../services/viewer-control';
 import { Viewport } from '../../services/viewport';
 
 /** Where the user's fold preference for the inspector is remembered. */
@@ -33,7 +32,7 @@ const STORAGE_EXPANDED_KEY = 'nexus.inspector.expanded';
 @Component({
   selector: 'nexus-slice-segment-bar',
   standalone: true,
-  imports: [Select, Slider],
+  imports: [Icon, Select, Slider],
   templateUrl: './slice-segment-bar.html',
   styleUrl: './slice-segment-bar.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -50,6 +49,11 @@ export class SliceSegmentBar {
   protected readonly roleCss = this.preview.roleCss;
   protected readonly roleLabels = ROLE_LABELS;
   protected readonly roleGroups: readonly RoleGroup[] = ROLE_GROUPS;
+
+  /** Whether to render the touch step buttons beside the layer/progress sliders. */
+  protected readonly showStepButtons = computed(() =>
+    resolveGcodeStepButtons(this.viewerControl.gcodeStepButtons(), this.viewport.isCoarsePointer()),
+  );
 
   /**
    * Drives the card's reveal animation. Flipped true only once the preview
@@ -285,23 +289,27 @@ export class SliceSegmentBar {
   private pendingScrubT: number | null = null;
 
   /** Total move segments in the current top layer derived from its geometry buffers. */
-  protected readonly layerSegmentCount = computed(() => {
-    const handle = this.preview.gcodeHandle();
-    if (!handle) {
-      return 0;
-    }
-    const layer = handle.getLayer(this.preview.layerMax());
-    let totalFloats = 0;
-    const blocksCount = layer.blocksCount();
-    for (let i = 0; i < blocksCount; i++) {
-      totalFloats += layer.blockData(i).length;
-    }
-    return totalFloats / FLOATS_PER_SEGMENT;
-  });
+  protected readonly layerSegmentCount = this.preview.segmentCount;
 
   /** Segment slider integer value derived from the fractional signal and real segment count. */
   protected readonly segmentSliderValue = computed(() =>
     Math.round(this.preview.segmentProgress() * this.layerSegmentCount()),
+  );
+
+  /**
+   * `stepSegment(-1)` rolls onto the previous layer's last segment once
+   * there's nowhere left to step back on this one — only disable the button
+   * where that roll-over has nowhere to go either (the very first layer).
+   */
+  protected readonly atFirstSegment = computed(
+    () => this.segmentSliderValue() <= 0 && this.preview.layerMax() <= 0,
+  );
+
+  /** Mirror of {@link atFirstSegment} for `stepSegment(1)` and the last layer. */
+  protected readonly atLastSegment = computed(
+    () =>
+      this.segmentSliderValue() >= this.layerSegmentCount() &&
+      this.preview.layerMax() >= this.preview.layerCount() - 1,
   );
 
   // ── Event handlers ───────────────────────────────────────────────────────
@@ -313,8 +321,7 @@ export class SliceSegmentBar {
 
   protected onWheelLayer(event: WheelEvent): void {
     event.preventDefault();
-    const step = event.deltaY < 0 ? 1 : -1;
-    this.preview.setLayerMax(this.preview.layerMax() + step);
+    this.preview.stepLayer(event.deltaY < 0 ? 1 : -1);
   }
 
   protected toggleShowAll(): void {
@@ -329,13 +336,17 @@ export class SliceSegmentBar {
 
   protected onWheelSegment(event: WheelEvent): void {
     event.preventDefault();
-    const total = this.layerSegmentCount();
-    if (total === 0) {
-      return;
-    }
-    const step = event.deltaY < 0 ? 1 : -1;
-    const current = Math.round(this.preview.segmentProgress() * total);
-    this.preview.setSegmentProgress((current + step) / total);
+    this.preview.stepSegment(event.deltaY < 0 ? 1 : -1);
+  }
+
+  /** Touch-friendly step buttons: one layer at a time. */
+  protected stepLayer(direction: 1 | -1): void {
+    this.preview.stepLayer(direction);
+  }
+
+  /** Touch-friendly step buttons: one move-segment at a time. */
+  protected stepSegment(direction: 1 | -1): void {
+    this.preview.stepSegment(direction);
   }
 
   protected toggleRole(role: RoleName): void {
