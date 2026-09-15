@@ -932,6 +932,9 @@ impl GcodeGenerator {
         // inside it, and for an open polyline it still points away from the
         // boundary the nozzle is dragging along. Two points (a single segment)
         // carry no interior to bias toward, so those are left un-nudged.
+        // Callers only reach here for roles with a real interior to wipe into
+        // (see `do_retract`'s `has_interior`) — a skirt or sparse support
+        // island skips the wipe before it can call this.
         let inward = if points.len() > 2 {
             let (sx, sy) = points
                 .iter()
@@ -1022,19 +1025,27 @@ impl GcodeGenerator {
     /// retract, and a wipe-while-retracting sequence, per the retraction
     /// settings. `last_path_points` is the previous path's trajectory used for
     /// the wipe; pass `None` to suppress wiping (e.g. the first path of a layer).
+    ///
+    /// `has_interior` says whether that path's role bounds solid part material
+    /// worth wiping into. When `false` (a skirt or a support island — nothing
+    /// but air at their centroid) wiping is skipped entirely in favour of a
+    /// plain retract: dragging back along a boundary with no interior to aim
+    /// at just re-coats the same exposed line, which looks worse than not
+    /// wiping at all.
     fn do_retract(
         &self,
         out: &mut String,
         e_total: &mut f64,
         retracted: &mut bool,
         last_path_points: Option<&[(f64, f64)]>,
+        has_interior: bool,
         params: &SlicingParams,
     ) {
         if *retracted {
             return;
         }
 
-        let wipe_enabled = params.wipe && params.wipe_distance_mm > 0.0;
+        let wipe_enabled = params.wipe && params.wipe_distance_mm > 0.0 && has_interior;
 
         if params.use_firmware_retraction {
             // Firmware retraction is atomic — the wipe can only precede it, as a
@@ -1794,6 +1805,10 @@ impl GcodeGenerator {
         // wiping is enabled, so a retract can retrace it. Reset at each layer so
         // the first path never wipes across the layer-change Z move.
         let mut last_path_points: Option<Vec<(f64, f64)>> = None;
+        // Whether that path's role bounds solid part material worth wiping
+        // into (false for a skirt or support island, which have only air at
+        // their centroid).
+        let mut last_path_has_interior = false;
         // Track previous fan speed per config index for rate limiting (aux overrides).
         let mut prev_fan_speeds: Vec<Option<f64>> = vec![None; params.fan_configs.len()];
         // Track the last emitted acceleration so we only emit a firmware
@@ -1862,6 +1877,7 @@ impl GcodeGenerator {
                     &mut e_total,
                     &mut retracted,
                     last_path_points.as_deref(),
+                    last_path_has_interior,
                     params,
                 );
                 // `max_printed_z` tracks the model Z of the tallest finished
@@ -1917,6 +1933,7 @@ impl GcodeGenerator {
                     &mut e_total,
                     &mut retracted,
                     last_path_points.as_deref(),
+                    last_path_has_interior,
                     params,
                 );
             }
@@ -1924,6 +1941,7 @@ impl GcodeGenerator {
             // against the previous layer's geometry (that would drag at the new,
             // higher Z over material the nozzle is no longer touching).
             last_path_points = None;
+            last_path_has_interior = false;
 
             // Emitted (machine) Z carries the `z_offset_mm` compensation; the
             // model Z does not.  Lifecycle markers describe where the nozzle
@@ -2712,6 +2730,7 @@ impl GcodeGenerator {
                         &mut e_total,
                         &mut retracted,
                         last_path_points.as_deref(),
+                        last_path_has_interior,
                         params,
                     );
                     out.push_str(&format!(
@@ -3105,6 +3124,14 @@ impl GcodeGenerator {
                         traj.push(points[0]);
                     }
                     last_path_points = Some(traj);
+                    // Skirt and support have no guaranteed solid interior — a
+                    // skirt encircles bare bed, and a sparse support island can
+                    // be mostly air — so their wipe stays a plain backward
+                    // retrace instead of aiming at an empty centroid.
+                    last_path_has_interior = !matches!(
+                        role,
+                        crate::core::ExtrusionRole::Skirt | crate::core::ExtrusionRole::Support
+                    );
                 }
             }
 
@@ -3653,6 +3680,39 @@ mod tests {
                 "wipe target ({x}, {y}) sits on the printed boundary instead of biased inward: {line}"
             );
         }
+    }
+
+    #[test]
+    fn wipe_skips_paths_with_no_interior_to_aim_at() {
+        // A skirt loop followed by a second, far-away square: the travel
+        // between them must retract with no wipe at all, because a skirt
+        // encircles bare bed and there is nothing solid at its centroid to
+        // wipe into — dragging back along its own boundary would just
+        // re-coat the same exposed line.
+        let mut layer = SliceLayer::new(0.2);
+        layer.paths.push(square_at(0.0, 0.0));
+        layer.paths.push(square_at(0.0, 5.0));
+        layer.path_roles = vec![
+            crate::core::ExtrusionRole::Skirt,
+            crate::core::ExtrusionRole::OuterWall,
+        ];
+
+        let params = SlicingParams {
+            wipe: true,
+            wipe_distance_mm: 2.0,
+            use_relative_e_distances: true,
+            ..SlicingParams::default()
+        };
+        let gcode = generate_gcode(&[layer], &params);
+
+        assert!(
+            !gcode.contains("; wipe"),
+            "a skirt has no interior to wipe into, so no wipe move should be emitted: {gcode}"
+        );
+        assert!(
+            gcode.contains("; retract"),
+            "the travel to the next path must still retract: {gcode}"
+        );
     }
 
     #[test]

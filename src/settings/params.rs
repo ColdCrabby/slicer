@@ -1636,7 +1636,8 @@ G-code / macros that leave the extruder in an unknown state.
 
 Retraces the tail of the previous path before travelling, biased toward the
 path's interior so the ooze lands half a nozzle width into the part instead of
-on the visible boundary it just printed.
+on the visible boundary it just printed. Skipped for a skirt or a support
+island, which have no interior to aim at — those retract without wiping.
 **Recommended:** off; enable to reduce stringing on some materials.",
         extend("x-group" = "Retraction", "x-tier" = "advanced")
     )]
