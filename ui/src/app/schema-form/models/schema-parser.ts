@@ -29,6 +29,26 @@ function resolveRelevantWhen(prop: RawProp): FieldRelevance | undefined {
 }
 
 /**
+ * Build enum options from a `oneOf` array, but only when it actually is one —
+ * every branch names a `const` value. A `oneOf` used to describe alternative
+ * *shapes* instead (e.g. `RelativeSpeed`'s "a number, or a percent string")
+ * has no `const` on any branch, and mapping it the same way produced a fake
+ * enum choice literally named `"undefined"`.
+ */
+function enumOptionsFromOneOf(
+  oneOf: Array<{ const?: unknown; description?: string }>,
+): EnumOption[] | undefined {
+  if (!oneOf.every((v) => 'const' in v)) {
+    return undefined;
+  }
+  return oneOf.map((v) => ({
+    value: String(v.const),
+    label: enumLabel(String(v.const)),
+    description: v.description,
+  }));
+}
+
+/**
  * Resolve enum options from a property that either has a direct `oneOf` array
  * or references a `$defs` entry via `$ref`.
  */
@@ -38,21 +58,13 @@ function resolveEnumOptions(prop: RawProp, defs: RawDefs): EnumOption[] | undefi
     const defName = ref.replace('#/$defs/', '');
     const def = defs[defName];
     if (def?.oneOf) {
-      return def.oneOf.map((v) => ({
-        value: String(v.const),
-        label: enumLabel(String(v.const)),
-        description: v.description,
-      }));
+      return enumOptionsFromOneOf(def.oneOf);
     }
   }
 
   if ('oneOf' in prop) {
     const oneOf = prop['oneOf'] as Array<{ const?: unknown; description?: string }>;
-    return oneOf.map((v) => ({
-      value: String(v.const),
-      label: enumLabel(String(v.const)),
-      description: v.description,
-    }));
+    return enumOptionsFromOneOf(oneOf);
   }
 
   return undefined;
@@ -129,6 +141,7 @@ export function parseSchema(
       step: prop['x-step'] as number | undefined,
       tier: prop['x-tier'] as FieldDef['tier'],
       widget: prop['x-widget'] as string | undefined,
+      relativeTo: prop['x-relative-to'] as string | undefined,
       enumOptions: resolveEnumOptions(prop, defs),
       relevantWhen: resolveRelevantWhen(prop),
     };

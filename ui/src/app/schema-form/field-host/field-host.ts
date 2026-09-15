@@ -17,6 +17,7 @@ import { noticeForField } from '../field-exceptions/field-exceptions';
 import { FieldNoticeView } from '../field-notice/field-notice';
 import { resolveWidget } from '../field-registry/field-registry';
 import { FieldDef } from '../models/field-def';
+import { wantsSiblings } from '../models/field-control';
 import { FieldWidget } from '../widgets/base-field';
 
 /**
@@ -85,6 +86,15 @@ export class FieldHost {
       });
     });
 
+    effect(() => {
+      const siblings = this.siblings(); // tracked — update input when siblings change
+      untracked(() => {
+        if (wantsSiblings(this.field())) {
+          this.componentRef?.setInput('siblings', siblings);
+        }
+      });
+    });
+
     this.destroyRef.onDestroy(() => this.destroyWidget());
   }
 
@@ -94,6 +104,9 @@ export class FieldHost {
     this.componentRef = this.vcr().createComponent(componentClass);
     this.componentRef.setInput('field', this.field());
     this.componentRef.setInput('value', this.value());
+    if (wantsSiblings(this.field())) {
+      this.componentRef.setInput('siblings', this.siblings());
+    }
 
     this.changeSubscription = this.componentRef.instance.valueChange.subscribe((val) => {
       this.fieldChange.emit(val);

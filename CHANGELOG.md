@@ -75,6 +75,15 @@ issue/PR numbers or repo links in the notes. See the tone rules in
   part-cooling freezes them before they sag — the community "smooth unsupported
   bridge" recipe, out of the box. The most-airborne overhang band drops to
   8 mm/s to stay below the new bridge speed.
+- **Dynamic overhang speed now actually slows the transition down.** The
+  25–50 % band a curved wall — a Benchy hull's bow — spends many layers inside
+  on its way to bridging used to print at full speed on every preset; **High
+  Speed** and **Maximum** now state it as a percentage of their own wall
+  speed (50 % / 35 %) instead, landing near the same safe speed despite
+  cruising very differently. Any of the four overhang bands can be set as a
+  percentage of another speed instead of a fixed number, and **Slow down
+  curled perimeters** now engages even when nothing has been hand-tuned —
+  it previously only clamped bands with an explicit override.
 
 ### Added
 

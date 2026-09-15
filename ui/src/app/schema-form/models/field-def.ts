@@ -91,6 +91,13 @@ export interface FieldDef {
    * to a plain text/number input.
    */
   widget?: string;
+  /**
+   * `x-relative-to` schema extension: the sibling field key a `relative-speed`
+   * widget's percentage is a fraction *of*. E.g. `overhang_2_4_speed` names
+   * `perimeter_speed`, so "40%" there means "40% of whatever this profile's
+   * `perimeter_speed` currently is", not a fixed number.
+   */
+  relativeTo?: string;
   /** Populated when the field is an enum type. */
   enumOptions?: EnumOption[];
   /**

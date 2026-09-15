@@ -6,6 +6,8 @@ pub use crate::mesh::transforms::MeshQuality;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
+use super::relative_speed::RelativeSpeed;
+
 /// Fan index constants for indexed M106 Pn commands.
 pub mod fan_index {
     /// Part-cooling fan (default, P0).
@@ -1056,50 +1058,78 @@ for overhangs* feature.  Set to `false` to print every overhang wall at a single
     pub enable_overhang_speed: bool,
 
     #[schemars(
-        description = "Speed for lightly-overhanging perimeters (0–25% of the line unsupported), in mm/s.
+        description = "Speed for lightly-overhanging perimeters (0–25% of the line unsupported),
+given either as a literal mm/s value or as a percentage of `perimeter_speed` (e.g. `\"40%\"`).
 
-`0` = print at the normal `perimeter_speed` (no slowdown).  This band still sits
-almost entirely on the layer below, so the default leaves it at full speed —
-slowing it taxes a large share of ordinary walls on curved models for no gain.
-**Default:** 0 (no slowdown).",
-        extend("x-group" = "Speed", "x-unit" = "mm_s", "x-tier" = "advanced")
+This band still sits almost entirely on the layer below, so the default leaves
+it at full speed — slowing it taxes a large share of ordinary walls on curved
+models for no gain.
+**Default:** no override (prints at `perimeter_speed`).",
+        extend(
+            "x-group" = "Speed",
+            "x-tier" = "advanced",
+            "x-widget" = "relative-speed",
+            "x-relative-to" = "perimeter_speed"
+        )
     )]
-    #[serde(default = "SlicingParams::default_overhang_degree_speed")]
-    pub overhang_1_4_speed: f64,
+    #[serde(default = "SlicingParams::default_overhang_inherit_speed")]
+    pub overhang_1_4_speed: RelativeSpeed,
 
     #[schemars(
-        description = "Speed for moderately-overhanging perimeters (25–50% unsupported), in mm/s.
+        description = "Speed for moderately-overhanging perimeters (25–50% unsupported), given
+either as a literal mm/s value or as a percentage of `perimeter_speed` (e.g. `\"40%\"`).
 
-`0` = print at the normal `perimeter_speed` (no slowdown).  Half of this bead
-still rests on the layer below, so the default leaves it at full speed.
-**Default:** 0 (no slowdown).",
-        extend("x-group" = "Speed", "x-unit" = "mm_s", "x-tier" = "advanced")
+This is the band a curved wall (a Benchy hull, a dome) spends many layers
+passing through on its way from vertical to bridging. On a profile whose walls
+already run slow it costs nothing to leave alone; on a fast preset it is where
+the transition shows up as a visible quality dip, which is why the fast
+presets state an explicit percentage here rather than this baseline.
+**Default:** no override (prints at `perimeter_speed`).",
+        extend(
+            "x-group" = "Speed",
+            "x-tier" = "advanced",
+            "x-widget" = "relative-speed",
+            "x-relative-to" = "perimeter_speed"
+        )
     )]
-    #[serde(default = "SlicingParams::default_overhang_degree_speed")]
-    pub overhang_2_4_speed: f64,
+    #[serde(default = "SlicingParams::default_overhang_inherit_speed")]
+    pub overhang_2_4_speed: RelativeSpeed,
 
     #[schemars(
-        description = "Speed for steep overhanging perimeters (50–75% unsupported), in mm/s.
+        description = "Speed for steep overhanging perimeters (50–75% unsupported), given either
+as a literal mm/s value or as a percentage of `bridge_speed` (e.g. `\"150%\"`).
 
-`0` = inherit `bridge_speed`, so this band tracks that setting instead of
-pinning a second number that can drift out of sync with it.
-**Typical:** 20–35 mm/s.",
-        extend("x-group" = "Speed", "x-unit" = "mm_s", "x-tier" = "advanced")
+No override tracks `bridge_speed` unconditionally, so this band moves with
+that setting instead of pinning a second number that can drift out of sync
+with it.
+**Default:** no override (prints at `bridge_speed`). **Typical:** 20–35 mm/s.",
+        extend(
+            "x-group" = "Speed",
+            "x-tier" = "advanced",
+            "x-widget" = "relative-speed",
+            "x-relative-to" = "bridge_speed"
+        )
     )]
-    #[serde(default = "SlicingParams::default_overhang_degree_speed")]
-    pub overhang_3_4_speed: f64,
+    #[serde(default = "SlicingParams::default_overhang_inherit_speed")]
+    pub overhang_3_4_speed: RelativeSpeed,
 
     #[schemars(
-        description = "Speed for near-fully-unsupported perimeters (75–100% unsupported), in mm/s.
+        description = "Speed for near-fully-unsupported perimeters (75–100% unsupported), given
+either as a literal mm/s value or as a percentage of `bridge_speed` (e.g. `\"80%\"`).
 
 The steepest, most sag-prone band — effectively extruding into air, but without
 a bridge's anchored far end to tension against, so it wants to run slower than
-`bridge_speed`.  `0` = inherit `bridge_speed`.
-**Default:** 8 mm/s.",
-        extend("x-group" = "Speed", "x-unit" = "mm_s", "x-tier" = "advanced")
+`bridge_speed` itself.
+**Default:** 80% of `bridge_speed`.",
+        extend(
+            "x-group" = "Speed",
+            "x-tier" = "advanced",
+            "x-widget" = "relative-speed",
+            "x-relative-to" = "bridge_speed"
+        )
     )]
     #[serde(default = "SlicingParams::default_overhang_4_4_speed")]
-    pub overhang_4_4_speed: f64,
+    pub overhang_4_4_speed: RelativeSpeed,
 
     #[schemars(
         description = "Slow down perimeters that are likely to curl upward.
@@ -2671,9 +2701,9 @@ impl Default for SlicingParams {
             infill_speed: Self::default_infill_speed(),
             bridge_speed: Self::default_bridge_speed(),
             enable_overhang_speed: Self::default_enable_overhang_speed(),
-            overhang_1_4_speed: Self::default_overhang_degree_speed(),
-            overhang_2_4_speed: Self::default_overhang_degree_speed(),
-            overhang_3_4_speed: Self::default_overhang_degree_speed(),
+            overhang_1_4_speed: Self::default_overhang_inherit_speed(),
+            overhang_2_4_speed: Self::default_overhang_inherit_speed(),
+            overhang_3_4_speed: Self::default_overhang_inherit_speed(),
             overhang_4_4_speed: Self::default_overhang_4_4_speed(),
             slowdown_for_curled_perimeters: Self::default_slowdown_for_curled_perimeters(),
             bridge_flow_ratio: Self::default_bridge_flow_ratio(),
@@ -3398,30 +3428,35 @@ impl SlicingParams {
         true
     }
 
-    /// Default for the three milder `overhang_*_speed` bands: `0` = inherit
-    /// (Deg1/Deg2 → `perimeter_speed`, Deg3 → `bridge_speed`).
+    /// Default for `overhang_1_4_speed`, `overhang_2_4_speed` and
+    /// `overhang_3_4_speed`: no override — Deg1/Deg2 print at `perimeter_speed`,
+    /// Deg3 at `bridge_speed`.
     ///
-    /// Deg1/Deg2 centrelines lie *within* the previous layer's bead envelope
-    /// (≥ 50 % supported) — the same "slight lean" geometry the overhang
-    /// classifier deliberately refuses to flag. Slowing them would tax a large
-    /// share of ordinary walls on any curved model for no quality gain, and
-    /// would fragment those loops into arcs that print identically. Deg3
-    /// inherits `bridge_speed`, so it tracks that setting instead of pinning a
-    /// second number that can drift out of sync with it.
-    fn default_overhang_degree_speed() -> f64 {
-        0.0
+    /// Deg1/Deg2 centrelines still lie mostly *within* the previous layer's bead
+    /// envelope — the same "ordinary curved wall" geometry a slow, careful
+    /// profile like the shipped default already prints at a speed low enough
+    /// that this band buys nothing. It is a real, visible correction only once
+    /// a profile is cruising fast enough that its normal wall speed actually is
+    /// too fast for a steadily leaning surface — which is a property of the
+    /// *preset*, not of the geometry, so it belongs on the fast presets
+    /// (`overhang_2_4_speed` on `high_speed_process`/`maximum_process` in
+    /// `profiles::defaults`) rather than on this shared baseline. Deg3 inherits
+    /// `bridge_speed` unconditionally, so it tracks that setting instead of
+    /// pinning a second number that can drift out of sync with it.
+    fn default_overhang_inherit_speed() -> RelativeSpeed {
+        RelativeSpeed::Absolute(0.0)
     }
 
-    /// Deg4 (75–100 % unsupported) in mm/s.
+    /// Deg4 (75–100 % unsupported): 80 % of `bridge_speed`.
     ///
     /// This band is effectively extruding into air, but unlike a bridge it has
-    /// no anchored far end to tension against — so it must stay the *slowest* of
-    /// all, below `bridge_speed`. With the smooth-bridge default putting
-    /// `bridge_speed` (which Deg3 inherits) at 10 mm/s, 8 mm/s keeps the grade
-    /// strictly monotonic (perimeter → Deg3 → Deg4) instead of letting the most
-    /// airborne band outrun the merely-steep one.
-    fn default_overhang_4_4_speed() -> f64 {
-        8.0
+    /// no anchored far end to tension against — so it must stay the *slowest*
+    /// of all, below `bridge_speed` itself. A percentage rather than a flat mm/s
+    /// number, so it stays strictly below `bridge_speed` — and the grade
+    /// (perimeter → Deg3 → Deg4) stays monotonic — however that setting is
+    /// tuned, instead of silently drifting past it if `bridge_speed` is lowered.
+    fn default_overhang_4_4_speed() -> RelativeSpeed {
+        RelativeSpeed::Percent(0.8)
     }
 
     fn default_slowdown_for_curled_perimeters() -> bool {

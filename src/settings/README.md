@@ -103,6 +103,13 @@ is present, since the raft then owns bed contact.
 | Parameter                | Type | Default | Effect                                                                      |
 | ------------------------ | ---- | ------- | --------------------------------------------------------------------------- |
 | `bridge_speed`           | mm/s | 10      | Print speed for bridge / overhang-perimeter extrusions (slow = smooth)      |
+| `enable_overhang_speed`  | bool | `true`  | Grade perimeters by unsupported fraction instead of one flat `bridge_speed` |
+| `overhang_1_4_speed`     | `RelativeSpeed` | no override | Deg1 (0–25% unsupported); % of `perimeter_speed`, or a literal mm/s        |
+| `overhang_2_4_speed`     | `RelativeSpeed` | no override; `"50%"`/`"35%"` on the high-speed/maximum presets | Deg2 (25–50% unsupported); % of `perimeter_speed` |
+| `overhang_3_4_speed`     | `RelativeSpeed` | no override | Deg3 (50–75% unsupported); % of `bridge_speed`, or a literal mm/s          |
+| `overhang_4_4_speed`     | `RelativeSpeed` | `"80%"` | Deg4 (75–100% unsupported); % of `bridge_speed`, or a literal mm/s              |
+
+`RelativeSpeed` (`src/settings/relative_speed.rs`) is a bare number (absolute mm/s) or a `"NN%"` string (a fraction of the field named by that property's `x-relative-to` schema extension) — "no override" means the literal legacy `0` sentinel, which still resolves to the source field's own speed.
 | `bridge_flow_ratio`      | 0–1.5| 1.5     | Flow multiplier for bridge lines (>1 fuses strands into a smooth floor)     |
 | `bridge_anchor_mm`       | mm   | 0.4     | Inflate the bridge region outward to anchor strands into solid material     |
 | `bridge_min_area_mm2`    | mm²  | 0.5     | Drop bridge candidates smaller than this; reclassified as `BottomSurface`   |
