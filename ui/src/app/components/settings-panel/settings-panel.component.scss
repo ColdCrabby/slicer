@@ -14,8 +14,48 @@
   padding: var(--spacing-sm) var(--spacing-sm) var(--spacing-sm);
 }
 
+.contract-row {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-xs);
+}
+
 .contract-tabs {
-  width: 100%;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+// Deliberately louder than the footer's text-only "Reset all": this is the
+// one action that reaches out of the plate and into a profile everything else
+// uses, so it earns a standing, always-visible control rather than living at
+// the bottom of a scrolled list.
+.sync-trigger {
+  position: relative;
+  flex: none;
+  color: var(--accent);
+  border-color: color-mix(in srgb, var(--accent) 40%, transparent);
+
+  &:hover {
+    background: color-mix(in srgb, var(--accent) 12%, transparent);
+  }
+}
+
+.sync-trigger-count {
+  position: absolute;
+  top: -4px;
+  right: -4px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 15px;
+  height: 15px;
+  padding: 0 3px;
+  border-radius: 999px;
+  background: var(--accent);
+  color: var(--color-on-accent, #fff);
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 1;
 }
 
 .preset-row {

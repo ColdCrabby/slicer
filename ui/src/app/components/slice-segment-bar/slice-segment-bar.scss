@@ -117,24 +117,14 @@
 
 /* Animated reveal: JS measures the inspector's natural scrollHeight before
    opening and sets --inspector-height so max-height animates over the exact
-   pixel range — the easing curve maps 1:1 to the visible motion. The mask
-   pins a soft fade to the bottom edge at every frame. */
+   pixel range — the easing curve maps 1:1 to the visible motion. */
 .insp-shell {
-  --inspector-fade: 16px;
-
   overflow: hidden;
   max-height: 0;
   /* Lets flexbox squeeze the shell when the card runs out of room. Without it a
      flex item refuses to shrink below its content, and the overflow lands on
      the card instead — clipping the Slice button off the bottom. */
   min-height: 0;
-
-  -webkit-mask-image: linear-gradient(
-    to bottom,
-    #000 calc(100% - var(--inspector-fade)),
-    transparent
-  );
-  mask-image: linear-gradient(to bottom, #000 calc(100% - var(--inspector-fade)), transparent);
 
   transition: max-height var(--inspector-duration, 440ms)
     var(--inspector-ease, cubic-bezier(0.16, 1, 0.3, 1));
@@ -145,11 +135,9 @@
        declare --inspector-height locally here — a local declaration would shadow
        the inherited host value and always win. */
     max-height: var(--inspector-height, 600px);
-    /* Only bites where the card's bound is tighter than the natural height —
-       a short window, or a phone. The scrollbar itself stays hidden: this is a
-       small panel floating over the scene, the mask already fades the cut edge
-       to say "more below", and a stripe would show through the whole reveal
-       animation, when the content is mid-way out by definition. */
+    /* Last-resort safety net for a window so short even the pinned Layer
+       section (`.layer-section`, never scrolls on its own) doesn't fit.
+       `.insp-scroll` below is what actually gives up room first. */
     overflow-y: auto;
     scrollbar-width: none;
 
@@ -183,13 +171,27 @@
   display: flex;
   flex-direction: column;
   gap: 10px;
+}
 
-  /* Clearance for the mask's fade, so the last slider is never drawn into it.
-     Kept equal to --inspector-fade: any more is dead space at the bottom of the
-     tallest panel on screen. */
-  &:last-child {
-    padding-bottom: var(--inspector-fade, 16px);
-  }
+/* ── Legend + coloring controls: the part that scrolls behind the sliders ──
+   `display: contents` — this wrapper exists to name the region in the
+   template; it takes no box of its own; `.legend`, the dividers and the
+   coloring section stay direct flex children of `.inspector`, gap and all. */
+.insp-scroll {
+  display: contents;
+}
+
+/* ── Layer controls: pinned to the bottom of `.insp-shell`'s scrollport ──────
+   `.insp-shell` (the nearest scrolling ancestor, `overflow-y: auto` when
+   open) is what actually gives up room on a short window — not by shrinking
+   this section, but by scrolling the legend above it out of view while this
+   one stays stuck to the visible bottom edge. A solid background keeps the
+   scrolled-behind legend from showing through. */
+.layer-section {
+  position: sticky;
+  bottom: 0;
+  z-index: 1;
+  background: var(--color-surface);
 }
 
 .insp-divider {
@@ -294,6 +296,58 @@
 .ctl-field {
   flex: 1;
   min-width: 0;
+}
+
+/* ── Layer / segment steppers ──────────────────────────────────────────────
+   Touch has no keyboard, so the arrow-key nudge (one layer, one extrusion)
+   needs an on-screen equivalent — buttons flanking the slider they step. */
+
+.stepper-row {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  flex: 1;
+  min-width: 0;
+}
+
+.stepper-field {
+  flex: 1;
+  min-width: 0;
+}
+
+.step-btn {
+  flex-shrink: 0;
+  display: inline-grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: var(--color-text-tertiary);
+  cursor: pointer;
+  touch-action: manipulation;
+  transition:
+    background-color var(--duration-fast) var(--ease-standard),
+    color var(--duration-fast) var(--ease-standard);
+
+  &:hover:not(:disabled) {
+    background: var(--color-surface-hover);
+    color: var(--color-text-primary);
+  }
+
+  &:focus-visible {
+    outline: none;
+    border-color: var(--color-focus-ring);
+    box-shadow: inset 0 0 0 1px var(--color-focus-ring);
+  }
+
+  &:disabled {
+    color: var(--color-text-tertiary);
+    opacity: 0.4;
+    cursor: default;
+  }
 }
 
 /* ── Role legend ────────────────────────────────────────────────────────── */
@@ -469,12 +523,12 @@
 }
 
 /* A tablet has room for the whole inspector — the card above now bounds it by
-   the space actually available, so the only job left here is to let it shrink
-   and scroll on the rare viewport where that space runs out. No `vh` cap: it
-   would either waste room in portrait or force scrolling in landscape. */
+   the space actually available, and the legend is what scrolls behind the
+   pinned `.layer-section` on the rare viewport where that space runs out. No
+   `vh` cap: it would either waste room in portrait or force scrolling in
+   landscape. */
 @include compact {
   .insp-shell.is-open {
-    overflow-y: auto;
     overscroll-behavior: contain;
     -webkit-overflow-scrolling: touch;
   }
@@ -483,7 +537,9 @@
 /* ── Phone ────────────────────────────────────────────────────────────────
    In the bottom sheet the inspector shares a card with the Slice button, and
    the button must never be the thing that scrolls out of reach. A phone has
-   genuinely too little height for both, so here the fixed share is right. */
+   genuinely too little height for both, so here the fixed share is right —
+   `.layer-section` still never scrolls away; the legend above it alone pays
+   for it. */
 @include handheld {
   .insp-shell.is-open {
     max-height: min(var(--inspector-height, 600px), 34vh);

@@ -214,7 +214,8 @@ What the shape is defending:
 - **A second launch must not become a second window.** `tauri-plugin-single-
   instance` is registered *before* every other plugin and forwards the new
   argv to the running app, which is the whole reason double-clicking a model on
-  Windows adds it to the plate you are looking at.
+  Windows opens it in the window you already have, on a fresh plate, instead of
+  spawning another instance.
 
 The declarations that make the app a candidate at all live in two places, and
 both are needed: `bundle.fileAssociations` in
@@ -226,8 +227,10 @@ types an app *exports*, and STL/OBJ/3MF are nobody's to own.
 
 The webview half is
 [`OpenWith`](../ui/src/app/services/open-with/open-with.ts), which owns the one
-decision the OS cannot make: an opened model **joins** the plate on screen and
-only **opens** a new one when the bed is empty.
+decision the OS cannot make: an opened model always **opens a fresh plate**,
+whatever is already on the bed — the tap that started this happened in another
+app, with no view of the arrangement here, so it can only mean "open this
+model".
 
 ### Native menus
 

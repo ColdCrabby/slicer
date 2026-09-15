@@ -342,52 +342,19 @@ export class KeyboardShortcuts {
   }
 
   private gcodeNextExtrusion(): void {
-    const handle = this.gcodePreview.gcodeHandle();
-    const layerIndex = this.gcodePreview.layerMax();
-    if (!handle) {
-      return;
-    }
-    const layer = handle.getLayer(layerIndex);
-    const blockCount = layer.blocksCount();
-    if (blockCount === 0) {
-      return;
-    }
-    const current = this.gcodePreview.segmentProgress();
-    const step = 1 / blockCount;
-    const next = Math.min(1, current + step);
-    this.gcodePreview.setSegmentProgress(next);
+    this.gcodePreview.stepSegment(1);
   }
 
   private gcodePrevExtrusion(): void {
-    const handle = this.gcodePreview.gcodeHandle();
-    const layerIndex = this.gcodePreview.layerMax();
-    if (!handle) {
-      return;
-    }
-    const layer = handle.getLayer(layerIndex);
-    const blockCount = layer.blocksCount();
-    if (blockCount === 0) {
-      return;
-    }
-    const current = this.gcodePreview.segmentProgress();
-    const step = 1 / blockCount;
-    const prev = Math.max(0, current - step);
-    this.gcodePreview.setSegmentProgress(prev);
+    this.gcodePreview.stepSegment(-1);
   }
 
   private gcodeNextLayer(): void {
-    const current = this.gcodePreview.layerMax();
-    const count = this.gcodePreview.layerCount();
-    if (current < count - 1) {
-      this.gcodePreview.setLayerMax(current + 1);
-    }
+    this.gcodePreview.stepLayer(1);
   }
 
   private gcodePrevLayer(): void {
-    const current = this.gcodePreview.layerMax();
-    if (current > 0) {
-      this.gcodePreview.setLayerMax(current - 1);
-    }
+    this.gcodePreview.stepLayer(-1);
   }
 }
 

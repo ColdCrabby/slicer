@@ -1348,9 +1348,10 @@ Typically disabled on the first layer to improve bed adhesion.
 
 When a layer's estimated print time falls below this floor, its feedrates are
 scaled down (never below `min_print_speed`) so the layer takes at least this
-long — giving each layer time to cool before the next one lands. Any shortfall
-still remaining once `min_print_speed` is reached is made up with a dwell.
-`0` = disabled.
+long — giving each layer time to cool before the next one lands. This is
+best-effort: the nozzle never idles to make up a shortfall, so a layer that is
+still too fast at `min_print_speed` simply prints at that floor speed. `0` =
+disabled.
 **Typical:** 5–15 s for small/detailed parts, `0` to disable.",
         extend("x-group" = "Cooling", "x-unit" = "s", "x-tier" = "advanced")
     )]
@@ -1360,9 +1361,11 @@ still remaining once `min_print_speed` is reached is made up with a dwell.
     #[schemars(
         description = "Slowest print speed the minimum-layer-time slowdown may drop to, in mm/s.
 
-Once a layer's feedrates are scaled down to this floor, any remaining time
-needed to reach `min_layer_time_s` is made up with a dwell instead of slowing
-further — keeping extrusion fast enough to avoid heat-creep or grinding.
+Once a layer's feedrates are scaled down to this floor, no further slowdown is
+applied — the layer prints at this speed even if that leaves it short of
+`min_layer_time_s`. The nozzle never dwells idle to make up the difference: a
+stationary hot nozzle causes heat creep and ooze, which is worse than a layer
+that cools slightly less than requested.
 Ignored when `min_layer_time_s` is `0`.
 **Typical:** 10 mm/s.",
         extend(
@@ -1661,8 +1664,10 @@ G-code / macros that leave the extruder in an unknown state.
     #[schemars(
         description = "Wipe the nozzle along the just-printed path while retracting.
 
-Retraces the tail of the previous path before travelling, smearing any ooze
-onto already-printed material instead of leaving a blob at the seam.
+Retraces the tail of the previous path before travelling, biased toward the
+path's interior so the ooze lands half a nozzle width into the part instead of
+on the visible boundary it just printed. Skipped for a skirt or a support
+island, which have no interior to aim at — those retract without wiping.
 **Recommended:** off; enable to reduce stringing on some materials.",
         extend("x-group" = "Retraction", "x-tier" = "advanced")
     )]
@@ -3476,12 +3481,12 @@ impl SlicingParams {
     }
 
     fn default_bridge_flow_ratio() -> f64 {
-        // Deliberately over 1.0. Bridge lines are laid one nozzle-diameter apart,
-        // so a 1.5× bead (0.6 mm at a 0.4 mm nozzle) overlaps its neighbours ~0.2 mm
+        // Slightly over 1.0. Bridge lines are laid one nozzle-diameter apart,
+        // so a 1.05× bead (0.6 mm at a 0.4 mm nozzle) overlaps its neighbours
         // and fuses them into a continuous, smooth floor instead of thin, gappy,
         // sag-prone strands. Paired with the slow `bridge_speed` and full
         // `bridge_fan_speed`, this is the "smooth unsupported bridge" recipe.
-        1.5
+        1.05
     }
 
     fn default_bridge_min_area_mm2() -> f64 {

@@ -898,14 +898,21 @@ impl GcodeGenerator {
     }
 
     /// Emit the wipe move: retrace `points` (the previous path's trajectory, in
-    /// print order) backward from its end for up to `wipe_distance` mm.
+    /// print order) backward from its end for up to `wipe_distance` mm, biased
+    /// toward the path's own centroid.
+    ///
+    /// A pure backward retrace drags the nozzle exactly along the boundary it
+    /// just printed — on a wall loop that boundary *is* the visible surface, so
+    /// smearing ooze onto it leaves a scar worse than not wiping. Nudging each
+    /// wipe waypoint toward the path's centroid moves the drag half a nozzle
+    /// width into the part instead, onto whatever is already solid there (the
+    /// next wall in, or infill), which is exactly what a wipe move is for.
     ///
     /// When `retract_during > 0` the retraction is distributed proportionally
-    /// across the wiped length (a combined move-and-retract), smearing ooze onto
-    /// already-printed material; when it is `0` the wipe is a pure travel drag
-    /// (used with firmware retraction, or when the whole retraction happens
-    /// before the wipe). Returns the retraction length actually applied during
-    /// the wipe.
+    /// across the wiped length (a combined move-and-retract); when it is `0`
+    /// the wipe is a pure travel drag (used with firmware retraction, or when
+    /// the whole retraction happens before the wipe). Returns the retraction
+    /// length actually applied during the wipe.
     fn emit_wipe(
         &self,
         out: &mut String,
@@ -933,6 +940,25 @@ impl GcodeGenerator {
         if wipe_len <= 1e-9 {
             return 0.0;
         }
+
+        // Centroid of the whole path (not just the wiped tail) approximates its
+        // interior well enough to bias against — a loop's centroid always lies
+        // inside it, and for an open polyline it still points away from the
+        // boundary the nozzle is dragging along. Two points (a single segment)
+        // carry no interior to bias toward, so those are left un-nudged.
+        // Callers only reach here for roles with a real interior to wipe into
+        // (see `do_retract`'s `has_interior`) — a skirt or sparse support
+        // island skips the wipe before it can call this.
+        let inward = if points.len() > 2 {
+            let (sx, sy) = points
+                .iter()
+                .fold((0.0, 0.0), |(sx, sy), (x, y)| (sx + x, sy + y));
+            let n = points.len() as f64;
+            let bias_mm = params.nozzle_diameter_mm.max(0.1) * 0.5;
+            Some((sx / n, sy / n, bias_mm))
+        } else {
+            None
+        };
 
         let extruding = retract_during > 1e-9;
         let e_per_mm = if extruding {
@@ -968,6 +994,20 @@ impl GcodeGenerator {
                 let t = step / seg;
                 (ax + t * dx, ay + t * dy)
             };
+            let (tx, ty) = match inward {
+                Some((cx, cy, bias_mm)) => {
+                    let dcx = cx - tx;
+                    let dcy = cy - ty;
+                    let dist = (dcx * dcx + dcy * dcy).sqrt();
+                    if dist > 1e-6 {
+                        let d = bias_mm.min(dist * 0.9);
+                        (tx + dcx / dist * d, ty + dcy / dist * d)
+                    } else {
+                        (tx, ty)
+                    }
+                }
+                None => (tx, ty),
+            };
             if extruding {
                 let de = -e_per_mm * step;
                 *e_total += de;
@@ -999,19 +1039,27 @@ impl GcodeGenerator {
     /// retract, and a wipe-while-retracting sequence, per the retraction
     /// settings. `last_path_points` is the previous path's trajectory used for
     /// the wipe; pass `None` to suppress wiping (e.g. the first path of a layer).
+    ///
+    /// `has_interior` says whether that path's role bounds solid part material
+    /// worth wiping into. When `false` (a skirt or a support island — nothing
+    /// but air at their centroid) wiping is skipped entirely in favour of a
+    /// plain retract: dragging back along a boundary with no interior to aim
+    /// at just re-coats the same exposed line, which looks worse than not
+    /// wiping at all.
     fn do_retract(
         &self,
         out: &mut String,
         e_total: &mut f64,
         retracted: &mut bool,
         last_path_points: Option<&[(f64, f64)]>,
+        has_interior: bool,
         params: &SlicingParams,
     ) {
         if *retracted {
             return;
         }
 
-        let wipe_enabled = params.wipe && params.wipe_distance_mm > 0.0;
+        let wipe_enabled = params.wipe && params.wipe_distance_mm > 0.0 && has_interior;
 
         if params.use_firmware_retraction {
             // Firmware retraction is atomic — the wipe can only precede it, as a
@@ -1780,6 +1828,10 @@ impl GcodeGenerator {
         // wiping is enabled, so a retract can retrace it. Reset at each layer so
         // the first path never wipes across the layer-change Z move.
         let mut last_path_points: Option<Vec<(f64, f64)>> = None;
+        // Whether that path's role bounds solid part material worth wiping
+        // into (false for a skirt or support island, which have only air at
+        // their centroid).
+        let mut last_path_has_interior = false;
         // Track previous fan speed per config index for rate limiting (aux overrides).
         let mut prev_fan_speeds: Vec<Option<f64>> = vec![None; params.fan_configs.len()];
         // Track the last emitted acceleration so we only emit a firmware
@@ -1848,6 +1900,7 @@ impl GcodeGenerator {
                     &mut e_total,
                     &mut retracted,
                     last_path_points.as_deref(),
+                    last_path_has_interior,
                     params,
                 );
                 // `max_printed_z` tracks the model Z of the tallest finished
@@ -1903,6 +1956,7 @@ impl GcodeGenerator {
                     &mut e_total,
                     &mut retracted,
                     last_path_points.as_deref(),
+                    last_path_has_interior,
                     params,
                 );
             }
@@ -1910,6 +1964,7 @@ impl GcodeGenerator {
             // against the previous layer's geometry (that would drag at the new,
             // higher Z over material the nozzle is no longer touching).
             last_path_points = None;
+            last_path_has_interior = false;
 
             // Emitted (machine) Z carries the `z_offset_mm` compensation; the
             // model Z does not.  Lifecycle markers describe where the nozzle
@@ -2112,9 +2167,16 @@ impl GcodeGenerator {
             // off this proxy. Slowing happens first; the fan curve below
             // reacts to the *resulting* (longer) layer time, matching real
             // slicers pairing cooling with print-speed reduction.
+            //
+            // Best-effort only: the nozzle never sits idle over the print to
+            // make up a remaining shortfall. A stationary hot nozzle keeps
+            // radiating heat into the last-deposited plastic (and can ooze),
+            // which is worse for cooling than simply accepting a layer that
+            // is a little too fast. If `min_print_speed` isn't enough to
+            // reach `min_layer_time_s`, the layer just prints at that floor
+            // speed and takes whatever time results.
             let raw_layer_time = estimate_layer_time(layer, params.print_speed);
             let mut speed_scale = 1.0_f64;
-            let mut dwell_deficit_s = 0.0_f64;
             if !is_first_layer
                 && params.min_layer_time_s > 0.0
                 && raw_layer_time > 0.0
@@ -2127,8 +2189,6 @@ impl GcodeGenerator {
                     0.0
                 };
                 speed_scale = desired_scale.max(min_scale).min(1.0);
-                let effective_layer_time = raw_layer_time / speed_scale;
-                dwell_deficit_s = (params.min_layer_time_s - effective_layer_time).max(0.0);
             }
             let adjusted_layer_time = if speed_scale < 1.0 {
                 raw_layer_time / speed_scale
@@ -2693,6 +2753,7 @@ impl GcodeGenerator {
                         &mut e_total,
                         &mut retracted,
                         last_path_points.as_deref(),
+                        last_path_has_interior,
                         params,
                     );
                     out.push_str(&format!(
@@ -3086,18 +3147,15 @@ impl GcodeGenerator {
                         traj.push(points[0]);
                     }
                     last_path_points = Some(traj);
+                    // Skirt and support have no guaranteed solid interior — a
+                    // skirt encircles bare bed, and a sparse support island can
+                    // be mostly air — so their wipe stays a plain backward
+                    // retrace instead of aiming at an empty centroid.
+                    last_path_has_interior = !matches!(
+                        role,
+                        crate::core::ExtrusionRole::Skirt | crate::core::ExtrusionRole::Support
+                    );
                 }
-            }
-
-            // ── Minimum layer time dwell ───────────────────────────────────────
-            // Feedrates are already clamped at `min_print_speed`; whatever
-            // shortfall remains against `min_layer_time_s` is made up here
-            // with a pause rather than slowing extrusion further.
-            if dwell_deficit_s > 0.0 {
-                out.push_str(&format!(
-                    "{} ; min layer time\n",
-                    self.dialect.dwell(dwell_deficit_s * 1000.0)
-                ));
             }
 
             // Remember where this (non-spiral) layer left the nozzle so a
@@ -3610,6 +3668,74 @@ mod tests {
             on.lines()
                 .any(|l| l.contains("; wipe") && l.contains(" X") && l.contains("E-")),
             "wipe move must retract while moving: {on}"
+        );
+    }
+
+    #[test]
+    fn wipe_biases_inward_off_the_printed_boundary() {
+        // A single 10x10 square: the wipe after its own closing retract must not
+        // land exactly on the perimeter it just printed (x/y in {0, 10}) — it
+        // should be nudged toward the square's interior instead.
+        let params = SlicingParams {
+            wipe: true,
+            wipe_distance_mm: 2.0,
+            retract_on_layer_change: true,
+            use_relative_e_distances: true,
+            ..SlicingParams::default()
+        };
+        let gcode = generate_gcode(&[one_square_layer(), one_square_layer()], &params);
+
+        let wipe_lines: Vec<&str> = gcode.lines().filter(|l| l.contains("; wipe")).collect();
+        assert!(!wipe_lines.is_empty(), "expected wipe moves: {gcode}");
+
+        for line in wipe_lines {
+            let x: f64 = line
+                .split_whitespace()
+                .find_map(|tok| tok.strip_prefix('X'))
+                .and_then(|v| v.parse().ok())
+                .expect("wipe move must carry an X coordinate");
+            let y: f64 = line
+                .split_whitespace()
+                .find_map(|tok| tok.strip_prefix('Y'))
+                .and_then(|v| v.parse().ok())
+                .expect("wipe move must carry a Y coordinate");
+            assert!(
+                (0.1..9.9).contains(&x) && (0.1..9.9).contains(&y),
+                "wipe target ({x}, {y}) sits on the printed boundary instead of biased inward: {line}"
+            );
+        }
+    }
+
+    #[test]
+    fn wipe_skips_paths_with_no_interior_to_aim_at() {
+        // A skirt loop followed by a second, far-away square: the travel
+        // between them must retract with no wipe at all, because a skirt
+        // encircles bare bed and there is nothing solid at its centroid to
+        // wipe into — dragging back along its own boundary would just
+        // re-coat the same exposed line.
+        let mut layer = SliceLayer::new(0.2);
+        layer.paths.push(square_at(0.0, 0.0));
+        layer.paths.push(square_at(0.0, 5.0));
+        layer.path_roles = vec![
+            crate::core::ExtrusionRole::Skirt,
+            crate::core::ExtrusionRole::OuterWall,
+        ];
+
+        let params = SlicingParams {
+            wipe: true,
+            wipe_distance_mm: 2.0,
+            use_relative_e_distances: true,
+            ..SlicingParams::default()
+        };
+        let gcode = generate_gcode(&[layer], &params);
+
+        assert!(
+            !gcode.contains("; wipe"),
+            "a skirt has no interior to wipe into, so no wipe move should be emitted: {gcode}"
+        );
+        assert!(
+            gcode.contains("; retract"),
+            "the travel to the next path must still retract: {gcode}"
         );
     }
 
@@ -7206,11 +7332,12 @@ CHAMBER={chamber_temp} MATERIAL={filament_type}"
     }
 
     #[test]
-    fn test_min_layer_time_slows_feedrate_and_dwells() {
+    fn test_min_layer_time_slows_feedrate_never_dwells() {
         // 30mm perimeter at the default 60 mm/s print_speed proxy ≈ 0.5s raw —
         // far below the 5s floor. Scaling is capped at the min_print_speed
-        // floor (10 / 60 mm/s), so the layer still falls short and a dwell
-        // tops up the remainder.
+        // floor (10 / 60 mm/s); even though the layer still falls short of
+        // the 5s floor at that speed, the nozzle must never sit idle to make
+        // up the remainder — it just accepts the shorter layer time.
         let params = SlicingParams {
             min_layer_time_s: 5.0,
             min_print_speed: 10.0,
@@ -7233,10 +7360,11 @@ CHAMBER={chamber_temp} MATERIAL={filament_type}"
             gcode.contains("F450"),
             "expected the perimeter feedrate scaled to the min-speed floor:\n{gcode}"
         );
-        // Remaining shortfall (5s floor − 3s achieved) made up with a dwell.
+        // No dwell, even though the layer is still short of the floor: the
+        // nozzle must never idle over the print.
         assert!(
-            gcode.contains("G4 P2000"),
-            "expected a dwell to make up the remaining shortfall:\n{gcode}"
+            !gcode.contains("G4"),
+            "must never dwell to make up a min-layer-time shortfall:\n{gcode}"
         );
     }
 

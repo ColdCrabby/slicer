@@ -25,14 +25,13 @@ const OPENED_EVENT = 'open-with://files';
  *
  * The native half ([`open_with.rs`](../../../../../ui-desktop/src-tauri/src/open_with.rs))
  * has already turned a Windows `argv`, a macOS Apple Event and an iOS
- * security-scoped document into the same thing: a readable path. What is left
- * here is the only decision the OS cannot make for us — whether the model
- * *opens* a plate or *joins* one.
+ * security-scoped document into the same thing: a readable path.
  *
- * **It joins whenever a plate is already up.** Opening a file is not a request
- * to throw away the arrangement on screen, and there is no way to ask: the tap
- * happened in another app. Starting a fresh plate is what the home screen's
- * drop zone is for, and it is one navigation away.
+ * **A model handed over by the OS always opens a fresh plate**, whatever is
+ * already on screen. The tap that started this happened in another app, with
+ * no view of the arrangement here, so it can only ever mean "open this
+ * model" — never "add this to whatever I was doing". Joining an existing
+ * plate is what dropping a file onto the window itself is for.
  *
  * This service is reached through a dynamic `import()` in
  * [`App`](../../app.ts), so neither it nor the slicing runtime behind
@@ -94,11 +93,6 @@ export class OpenWith {
     try {
       const models = await Promise.all(files.map((file) => this.#read(file)));
 
-      if (this.#workplate.objects().length > 0) {
-        await this.#joinPlate(notifId, models);
-        return;
-      }
-
       const [first, ...rest] = models;
       const started = await this.#slicer.startWorkplate(first);
       // Queued only after the plate exists — `startWorkplate` resets the scene.
@@ -112,25 +106,6 @@ export class OpenWith {
       this.#log.error('could not open model', message ?? String(error));
       this.#notifications.failProgress(notifId, 'Could not open model', message);
     }
-  }
-
-  /** Add to the plate already on screen, exactly as a drop onto it would. */
-  async #joinPlate(notifId: string, models: readonly File[]): Promise<void> {
-    const results = await this.#workplate.addFiles(models);
-    const added = results.filter((r) => r.objectIds !== undefined);
-    if (added.length === 0) {
-      this.#notifications.failProgress(
-        notifId,
-        'Could not open model',
-        results.find((r) => r.error)?.error ?? 'Use an STL, OBJ or 3MF model.',
-      );
-      return;
-    }
-    this.#notifications.completeProgress(
-      notifId,
-      added.length === 1 ? 'Model added' : `${added.length} models added`,
-      added.map((r) => r.file.name).join(', '),
-    );
   }
 
   /**

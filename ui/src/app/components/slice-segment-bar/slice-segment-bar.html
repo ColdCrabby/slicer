@@ -42,93 +42,103 @@
     [class.is-updating]="preview.loading()"
     (pointerdown)="$event.stopPropagation()"
   >
-    <!-- ── Legend (dynamic — grows upward; core controls below stay put) ── -->
-    @if (activeChannel(); as channel) {
-      @if (isUniform()) {
-        <!-- ── Uniform value (span ≈ 0): no misleading gradient ── -->
-        <div class="scalar-legend uniform">
-          <span class="scalar-swatch" [style.background]="uniformSwatchCss"></span>
-          <span class="scalar-label">{{ uniformLabel() }} · constant</span>
-        </div>
-      } @else {
-        <!-- ── Scalar legend ── -->
-        <div class="scalar-legend">
-          <span class="scalar-label">{{ scalarMinLabel() }}</span>
-          <div
-            class="scalar-gradient"
-            [style.background]="scalarGradient"
-            (pointermove)="onGradientMove($event)"
-            (pointerleave)="onGradientLeave()"
-          >
-            @if (hoverTickPct() !== null) {
-              <span class="scalar-tick" [style.left.%]="hoverTickPct() ?? 0"></span>
-            }
-            @if (scrub(); as s) {
-              <span class="scalar-scrub-tick" [style.left.%]="s.pct"></span>
-              <span class="scalar-scrub-readout" [style.left.%]="s.pct">{{ s.label }}</span>
-            }
+    <!-- ── Legend (dynamic — grows upward; core controls below stay put) ──
+         Scrolls on its own once the card runs out of room, so a short window
+         takes the legend away first and never the Layer/Progress controls
+         underneath — see `.insp-scroll` below. -->
+    <div class="insp-scroll">
+      @if (activeChannel(); as channel) {
+        @if (isUniform()) {
+          <!-- ── Uniform value (span ≈ 0): no misleading gradient ── -->
+          <div class="scalar-legend uniform">
+            <span class="scalar-swatch" [style.background]="uniformSwatchCss"></span>
+            <span class="scalar-label">{{ uniformLabel() }} · constant</span>
           </div>
-          <span class="scalar-label">{{ scalarMaxLabel() }}</span>
-        </div>
-      }
-    } @else {
-      <!-- ── Role legend ── -->
-      <div class="legend">
-        @for (group of roleGroups; track group.id) {
-          <section class="legend-group">
-            <div class="legend-group-title">{{ group.label }}</div>
-            <div class="legend-group-grid">
-              @for (role of group.roles; track role) {
-                <button
-                  type="button"
-                  class="role-badge"
-                  [class.hidden]="preview.hiddenRoles().has(role)"
-                  [style.--role-color]="roleCss()[role]"
-                  [attr.aria-pressed]="!preview.hiddenRoles().has(role)"
-                  (click)="toggleRole(role)"
-                  [title]="(preview.hiddenRoles().has(role) ? 'Show ' : 'Hide ') + roleLabels[role]"
-                >
-                  <span class="role-swatch"></span>
-                  <span class="role-name">{{ roleLabels[role] }}</span>
-                </button>
+        } @else {
+          <!-- ── Scalar legend ── -->
+          <div class="scalar-legend">
+            <span class="scalar-label">{{ scalarMinLabel() }}</span>
+            <div
+              class="scalar-gradient"
+              [style.background]="scalarGradient"
+              (pointermove)="onGradientMove($event)"
+              (pointerleave)="onGradientLeave()"
+            >
+              @if (hoverTickPct() !== null) {
+                <span class="scalar-tick" [style.left.%]="hoverTickPct() ?? 0"></span>
+              }
+              @if (scrub(); as s) {
+                <span class="scalar-scrub-tick" [style.left.%]="s.pct"></span>
+                <span class="scalar-scrub-readout" [style.left.%]="s.pct">{{ s.label }}</span>
               }
             </div>
-          </section>
+            <span class="scalar-label">{{ scalarMaxLabel() }}</span>
+          </div>
         }
-      </div>
-    }
-
-    <div class="insp-divider"></div>
-
-    <!-- ── Coloring controls (kept nearest to legend) ── -->
-    <section class="insp-section">
-      <div class="ctl-row">
-        <label class="ctl-label">Color by</label>
-        <nexus-select
-          class="ctl-field"
-          [options]="viewModeOptions()"
-          [value]="preview.effectiveViewMode()"
-          (valueChange)="onModeValue($event)"
-        />
-      </div>
-
-      @if (showFanSelector()) {
-        <div class="ctl-row">
-          <label class="ctl-label">Fan</label>
-          <nexus-select
-            class="ctl-field"
-            [options]="fanOptions()"
-            [value]="preview.selectedFan()"
-            (valueChange)="onFanValue($event)"
-          />
+      } @else {
+        <!-- ── Role legend ── -->
+        <div class="legend">
+          @for (group of roleGroups; track group.id) {
+            <section class="legend-group">
+              <div class="legend-group-title">{{ group.label }}</div>
+              <div class="legend-group-grid">
+                @for (role of group.roles; track role) {
+                  <button
+                    type="button"
+                    class="role-badge"
+                    [class.hidden]="preview.hiddenRoles().has(role)"
+                    [style.--role-color]="roleCss()[role]"
+                    [attr.aria-pressed]="!preview.hiddenRoles().has(role)"
+                    (click)="toggleRole(role)"
+                    [title]="
+                      (preview.hiddenRoles().has(role) ? 'Show ' : 'Hide ') + roleLabels[role]
+                    "
+                  >
+                    <span class="role-swatch"></span>
+                    <span class="role-name">{{ roleLabels[role] }}</span>
+                  </button>
+                }
+              </div>
+            </section>
+          }
         </div>
       }
-    </section>
+
+      <div class="insp-divider"></div>
+
+      <!-- ── Coloring controls (kept nearest to legend) ── -->
+      <section class="insp-section">
+        <div class="ctl-row">
+          <label class="ctl-label">Color by</label>
+          <nexus-select
+            class="ctl-field"
+            [options]="viewModeOptions()"
+            [value]="preview.effectiveViewMode()"
+            (valueChange)="onModeValue($event)"
+          />
+        </div>
+
+        @if (showFanSelector()) {
+          <div class="ctl-row">
+            <label class="ctl-label">Fan</label>
+            <nexus-select
+              class="ctl-field"
+              [options]="fanOptions()"
+              [value]="preview.selectedFan()"
+              (valueChange)="onFanValue($event)"
+            />
+          </div>
+        }
+      </section>
+    </div>
 
     <div class="insp-divider"></div>
 
-    <!-- ── Layer controls (layer + progress stay together) ── -->
-    <section class="insp-section" (wheel)="onWheelLayer($event)">
+    <!-- ── Layer controls (layer + progress stay together) ──
+         Outside `.insp-scroll`: these are the controls someone is actively
+         dragging, so they never scroll out of view, whatever the legend above
+         does. -->
+    <section class="insp-section layer-section" (wheel)="onWheelLayer($event)">
       <header class="insp-head">
         <span class="insp-title">Layer</span>
         <span class="layer-readout">
@@ -178,26 +188,75 @@
           }
         </button>
       </header>
-      <nexus-slider
-        [min]="0"
-        [max]="layerMaxIndex()"
-        [value]="preview.layerMax()"
-        [showValue]="false"
-        label="Layer"
-        (valueChange)="setLayer($event)"
-      />
+      <div class="stepper-row">
+        @if (showStepButtons()) {
+          <button
+            type="button"
+            class="step-btn"
+            aria-label="Previous layer"
+            [disabled]="preview.layerMax() <= 0"
+            (click)="stepLayer(-1)"
+          >
+            <nexus-icon name="nav-arrow-down" aria-hidden="true" />
+          </button>
+        }
+        <nexus-slider
+          class="stepper-field"
+          [min]="0"
+          [max]="layerMaxIndex()"
+          [value]="preview.layerMax()"
+          [showValue]="false"
+          label="Layer"
+          (valueChange)="setLayer($event)"
+        />
+        @if (showStepButtons()) {
+          <button
+            type="button"
+            class="step-btn"
+            aria-label="Next layer"
+            [disabled]="preview.layerMax() >= layerMaxIndex()"
+            (click)="stepLayer(1)"
+          >
+            <nexus-icon name="nav-arrow-up" aria-hidden="true" />
+          </button>
+        }
+      </div>
 
       <div class="ctl-row" (wheel)="onWheelSegment($event)">
         <label class="ctl-label">Progress</label>
-        <nexus-slider
-          class="ctl-field"
-          [min]="0"
-          [max]="layerSegmentCount()"
-          [value]="segmentSliderValue()"
-          [showValue]="false"
-          label="Layer progress"
-          (valueChange)="onSegmentValue($event)"
-        />
+        <div class="stepper-row">
+          @if (showStepButtons()) {
+            <button
+              type="button"
+              class="step-btn"
+              aria-label="Previous extrusion"
+              [disabled]="atFirstSegment()"
+              (click)="stepSegment(-1)"
+            >
+              <nexus-icon name="nav-arrow-left" aria-hidden="true" />
+            </button>
+          }
+          <nexus-slider
+            class="ctl-field stepper-field"
+            [min]="0"
+            [max]="layerSegmentCount()"
+            [value]="segmentSliderValue()"
+            [showValue]="false"
+            label="Layer progress"
+            (valueChange)="onSegmentValue($event)"
+          />
+          @if (showStepButtons()) {
+            <button
+              type="button"
+              class="step-btn"
+              aria-label="Next extrusion"
+              [disabled]="atLastSegment()"
+              (click)="stepSegment(1)"
+            >
+              <nexus-icon name="nav-arrow-right" aria-hidden="true" />
+            </button>
+          }
+        </div>
       </div>
     </section>
   </div>
