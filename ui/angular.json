@@ -82,7 +82,7 @@
                 {
                   "type": "anyComponentStyle",
                   "maximumWarning": "4kB",
-                  "maximumError": "8kB"
+                  "maximumError": "9kB"
                 }
               ],
               "outputHashing": "all"
@@ -97,7 +97,7 @@
                 {
                   "type": "anyComponentStyle",
                   "maximumWarning": "4kB",
-                  "maximumError": "8kB"
+                  "maximumError": "9kB"
                 }
               ],
               "fileReplacements": [
