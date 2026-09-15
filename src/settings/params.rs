@@ -1318,9 +1318,10 @@ Typically disabled on the first layer to improve bed adhesion.
 
 When a layer's estimated print time falls below this floor, its feedrates are
 scaled down (never below `min_print_speed`) so the layer takes at least this
-long — giving each layer time to cool before the next one lands. Any shortfall
-still remaining once `min_print_speed` is reached is made up with a dwell.
-`0` = disabled.
+long — giving each layer time to cool before the next one lands. This is
+best-effort: the nozzle never idles to make up a shortfall, so a layer that is
+still too fast at `min_print_speed` simply prints at that floor speed. `0` =
+disabled.
 **Typical:** 5–15 s for small/detailed parts, `0` to disable.",
         extend("x-group" = "Cooling", "x-unit" = "s", "x-tier" = "advanced")
     )]
@@ -1330,9 +1331,11 @@ still remaining once `min_print_speed` is reached is made up with a dwell.
     #[schemars(
         description = "Slowest print speed the minimum-layer-time slowdown may drop to, in mm/s.
 
-Once a layer's feedrates are scaled down to this floor, any remaining time
-needed to reach `min_layer_time_s` is made up with a dwell instead of slowing
-further — keeping extrusion fast enough to avoid heat-creep or grinding.
+Once a layer's feedrates are scaled down to this floor, no further slowdown is
+applied — the layer prints at this speed even if that leaves it short of
+`min_layer_time_s`. The nozzle never dwells idle to make up the difference: a
+stationary hot nozzle causes heat creep and ooze, which is worse than a layer
+that cools slightly less than requested.
 Ignored when `min_layer_time_s` is `0`.
 **Typical:** 10 mm/s.",
         extend(
