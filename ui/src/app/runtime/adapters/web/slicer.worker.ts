@@ -1,6 +1,7 @@
 /// <reference lib="webworker" />
 
 import init, { SceneHandle } from '../../../../generated/scene-wasm/scene_engine';
+import * as sceneWasmModule from '../../../../generated/scene-wasm/scene_engine';
 import type {
   SlicerWorkerRequest,
   WasmSliceEvent,
@@ -33,14 +34,23 @@ let wasmReady: Promise<void> | null = null;
 /**
  * The engine's own profile resolver, claimed when the module is initialised.
  *
- * Looked up dynamically rather than imported by name — the same idiom
- * `BrowserProfilePersistence` uses for `exportProfileLibrary`. Only the
- * `web-slicer` build exports it, so a static import would be a name the
- * checked-in scene-only declarations do not have. That is also the build which
- * exports `sliceGcodeWithEvents`: a bundle that can slice can always resolve.
+ * Read off the module namespace rather than imported by name: only the
+ * `web-slicer` build exports it, so a named static import would be a name the
+ * checked-in scene-only declarations do not have. A *namespace* import is
+ * still static (and so bundles into the same chunk as the `init`/`SceneHandle`
+ * import above) — a `import()` of the same specifier here previously forced
+ * the worker's bundle to split the module into a second, separately-hashed
+ * chunk that only the worker's own build pass emitted, which went missing
+ * from the deployed site and broke every browser slice. That is also the
+ * build which exports `sliceGcodeWithEvents`: a bundle that can slice can
+ * always resolve.
  */
-let resolveSliceParams: ((selection: WorkerProfileSelection) => Record<string, unknown>) | null =
-  null;
+const resolveSliceParams =
+  (
+    sceneWasmModule as unknown as {
+      resolveSliceParams?: (selection: WorkerProfileSelection) => Record<string, unknown>;
+    }
+  ).resolveSliceParams ?? null;
 
 self.addEventListener('message', (event: MessageEvent<SlicerWorkerRequest>) => {
   void handleMessage(event.data);
@@ -73,13 +83,7 @@ async function ensureWasm(nextUrl?: string): Promise<void> {
   }
 
   if (!wasmReady) {
-    wasmReady = (async () => {
-      const wasm = (await import('../../../../generated/scene-wasm/scene_engine')) as unknown as {
-        resolveSliceParams?: (selection: WorkerProfileSelection) => Record<string, unknown>;
-      };
-      await init({ module_or_path: wasmUrl });
-      resolveSliceParams = wasm.resolveSliceParams ?? null;
-    })();
+    wasmReady = init({ module_or_path: wasmUrl }).then(() => undefined);
   }
 
   return wasmReady;

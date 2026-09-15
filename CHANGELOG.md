@@ -78,6 +78,12 @@ issue/PR numbers or repo links in the notes. See the tone rules in
 
 ### Added
 
+- **Sync to profile.** Next to **Reset all**, review every setting a plate has
+  changed against its printer, filament and process profiles — side by side,
+  like a diff — and switch off the ones you don't want. Confirming writes the
+  rest straight into the profile that owns them and clears them from the
+  plate, so a change you liked doesn't need a trip through the profile editors
+  to keep.
 - **Two faster print presets, and a CoreXY printer to run them on.** Standard is
   written for a machine that may be a decade old; **High Speed** (200 mm/s) and
   **Maximum** (300 mm/s, 30 000 mm/s²) ask for what a commissioned CoreXY is

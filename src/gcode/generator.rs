@@ -2089,9 +2089,16 @@ impl GcodeGenerator {
             // off this proxy. Slowing happens first; the fan curve below
             // reacts to the *resulting* (longer) layer time, matching real
             // slicers pairing cooling with print-speed reduction.
+            //
+            // Best-effort only: the nozzle never sits idle over the print to
+            // make up a remaining shortfall. A stationary hot nozzle keeps
+            // radiating heat into the last-deposited plastic (and can ooze),
+            // which is worse for cooling than simply accepting a layer that
+            // is a little too fast. If `min_print_speed` isn't enough to
+            // reach `min_layer_time_s`, the layer just prints at that floor
+            // speed and takes whatever time results.
             let raw_layer_time = estimate_layer_time(layer, params.print_speed);
             let mut speed_scale = 1.0_f64;
-            let mut dwell_deficit_s = 0.0_f64;
             if !is_first_layer
                 && params.min_layer_time_s > 0.0
                 && raw_layer_time > 0.0
@@ -2104,8 +2111,6 @@ impl GcodeGenerator {
                     0.0
                 };
                 speed_scale = desired_scale.max(min_scale).min(1.0);
-                let effective_layer_time = raw_layer_time / speed_scale;
-                dwell_deficit_s = (params.min_layer_time_s - effective_layer_time).max(0.0);
             }
             let adjusted_layer_time = if speed_scale < 1.0 {
                 raw_layer_time / speed_scale
@@ -3064,17 +3069,6 @@ impl GcodeGenerator {
                     }
                     last_path_points = Some(traj);
                 }
-            }
-
-            // ── Minimum layer time dwell ───────────────────────────────────────
-            // Feedrates are already clamped at `min_print_speed`; whatever
-            // shortfall remains against `min_layer_time_s` is made up here
-            // with a pause rather than slowing extrusion further.
-            if dwell_deficit_s > 0.0 {
-                out.push_str(&format!(
-                    "{} ; min layer time\n",
-                    self.dialect.dwell(dwell_deficit_s * 1000.0)
-                ));
             }
 
             // Remember where this (non-spiral) layer left the nozzle so a
@@ -7154,11 +7148,12 @@ CHAMBER={chamber_temp} MATERIAL={filament_type}"
     }
 
     #[test]
-    fn test_min_layer_time_slows_feedrate_and_dwells() {
+    fn test_min_layer_time_slows_feedrate_never_dwells() {
         // 30mm perimeter at the default 60 mm/s print_speed proxy ≈ 0.5s raw —
         // far below the 5s floor. Scaling is capped at the min_print_speed
-        // floor (10 / 60 mm/s), so the layer still falls short and a dwell
-        // tops up the remainder.
+        // floor (10 / 60 mm/s); even though the layer still falls short of
+        // the 5s floor at that speed, the nozzle must never sit idle to make
+        // up the remainder — it just accepts the shorter layer time.
         let params = SlicingParams {
             min_layer_time_s: 5.0,
             min_print_speed: 10.0,
@@ -7181,10 +7176,11 @@ CHAMBER={chamber_temp} MATERIAL={filament_type}"
             gcode.contains("F450"),
             "expected the perimeter feedrate scaled to the min-speed floor:\n{gcode}"
         );
-        // Remaining shortfall (5s floor − 3s achieved) made up with a dwell.
+        // No dwell, even though the layer is still short of the floor: the
+        // nozzle must never idle over the print.
         assert!(
-            gcode.contains("G4 P2000"),
-            "expected a dwell to make up the remaining shortfall:\n{gcode}"
+            !gcode.contains("G4"),
+            "must never dwell to make up a min-layer-time shortfall:\n{gcode}"
         );
     }
 

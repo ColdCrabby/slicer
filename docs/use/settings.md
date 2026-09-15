@@ -37,6 +37,17 @@ you decide 4 walls, not 3 — and every plate using it prints with 4 walls,
 including the ones you already tuned. The only settings that stay put are the
 ones you deliberately changed on that plate.
 
+## Making a plate's changes permanent
+
+Sometimes a change you made on one plate turns out to be one you want on every
+plate — the nozzle temperature you nudged for this spool, the wall count you
+settled on for this printer. **Sync to profile**, next to **Reset all**, opens
+a review of every changed setting: what the profile says next to what you
+changed it to. Switch off the ones you don't want carried over, then confirm.
+Accepted settings are written into the printer, filament or process profile
+they belong to and stop being a change on this plate — they are now what the
+profile says, same as if you had opened its editor and typed them in yourself.
+
 Your changes are saved to the plate as you make them; the panel says so briefly
 underneath. Come back to a plate a week later, from the tab bar or your history,
 and it opens with the printer, filament and profile it was set up with, where
