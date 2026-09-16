@@ -1,9 +1,22 @@
-//! The G-code preset catalog — one definition, shared by every runtime.
+//! The built-in start / end / layer G-code presets — one definition, shared by
+//! every runtime.
 //!
-//! A **template** is the ready-made start / end / layer-change G-code for a
-//! common firmware setup: plain Marlin, mainline Klipper, Klippain. It exists so
-//! a user can populate a printer's G-code blocks in one click instead of
-//! hand-writing macros.
+//! A **template** is the ready-made G-code for one *firmware macro convention*:
+//! plain Marlin's raw M-commands, mainline Klipper's `PRINT_START`, Klippain's
+//! `START_PRINT`. It exists so a user on one of those conventions can populate a
+//! printer's G-code blocks in one click instead of hand-writing macros.
+//!
+//! # A closed set, not a catalog
+//!
+//! These are **not** the [profile catalog](super) — that is a separate feature
+//! for importing profiles, and it grows. This set does not. An entry earns its
+//! place by being a convention several machines share, so it only changes when
+//! Marlin, Klipper or Klippain themselves change.
+//!
+//! A vendor shipping its own start G-code is therefore **not** a new entry.
+//! There is no "Prusa template": that is custom start G-code, which the user
+//! pastes in, and which the `custom` sentinel already covers. The choice the UI
+//! offers is a preset *or* custom — nothing in between, and nothing per-vendor.
 //!
 //! # Why this lives in the engine
 //!
@@ -13,11 +26,11 @@
 //! on the UI side with the wrong argument names, so a Klippain user's bed
 //! temperature was silently dropped by the macro.
 //!
-//! So the catalog is engine-owned, like every other piece of profile knowledge
+//! So the presets are engine-owned, like every other piece of profile knowledge
 //! ([`super`]): the UI's copy is generated from this one (`gen-gcode-templates`)
 //! rather than maintained beside it. The UI still owns everything *about*
-//! choosing a template — the dropdown, the "modified from …" tracking — because
-//! that is presentation, not copy.
+//! choosing one — the dropdown, the "modified from …" tracking — because that is
+//! presentation, not copy.
 //!
 //! # A template's arguments are the macro's, not ours
 //!
@@ -115,18 +128,18 @@ pub fn template_by_id(id: &str) -> Option<&'static GcodeTemplate> {
     GCODE_TEMPLATES.iter().find(|t| t.id == id)
 }
 
-/// The whole catalog in the shape the UI reads it: the presets plus which one a
-/// from-scratch printer starts on, so one file answers both questions.
+/// The presets in the shape the UI reads them, plus which one a from-scratch
+/// printer starts on, so one file answers both questions.
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
-pub struct GcodeTemplateCatalog {
+pub struct GcodeTemplatePresets {
     pub default_template_id: &'static str,
     pub templates: &'static [GcodeTemplate],
 }
 
-/// The catalog, ready to serialise.
-pub fn catalog() -> GcodeTemplateCatalog {
-    GcodeTemplateCatalog {
+/// The presets, ready to serialise.
+pub fn presets() -> GcodeTemplatePresets {
+    GcodeTemplatePresets {
         default_template_id: DEFAULT_TEMPLATE_ID,
         templates: GCODE_TEMPLATES,
     }

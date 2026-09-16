@@ -137,7 +137,7 @@ native bindings do not declare.
 
 ---
 
-## The G-code preset catalog
+## The built-in G-code presets
 
 The ready-made start / end / layer blocks for Marlin, mainline Klipper and
 Klippain live in [gcode_templates.rs](gcode_templates.rs), and the UI's copy is
@@ -147,11 +147,17 @@ the UI as the selectable presets — and the two drifted: the Klipper blocks
 disagreed, and Klippain existed only UI-side with the wrong argument names, so a
 Klippain user's bed temperature was dropped by the macro.
 
-That failure is quiet by construction, which is why the catalog is worth
+That failure is quiet by construction, which is why the presets are worth
 centralising: **the text left of each `=` is the receiving macro's parameter
 name**, and Klipper discards an argument its macro never declared without
 raising an error. `BED=` where the macro reads `BED_TEMP=` prints the plate at
 the macro's default temperature instead of failing.
+
+**This is a closed set, and not the profile catalog.** An entry is a
+*firmware macro convention* several machines share, so the list only changes when
+Marlin, Klipper or Klippain do. A vendor shipping its own start G-code does not
+earn one: that is custom start G-code, which the `custom` sentinel already
+covers. The choice is a preset or custom — nothing per-vendor in between.
 
 ---
 

@@ -1,18 +1,18 @@
-//! Emit the G-code preset catalog as JSON for the UI.
+//! Emit the built-in G-code presets as JSON for the UI.
 //!
-//! The catalog itself lives in [`crate::profiles::gcode_templates`]; this only
-//! serialises it. Keeping one definition is the point: the Klipper blocks used
-//! to be written out twice and had already drifted apart.
+//! The presets themselves live in [`crate::profiles::gcode_templates`]; this
+//! only serialises them. Keeping one definition is the point: the Klipper blocks
+//! used to be written out twice and had already drifted apart.
 
 use clap::Parser;
 use std::path::PathBuf;
 
-use crate::profiles::gcode_templates::catalog;
+use crate::profiles::gcode_templates::presets;
 
-/// Generate the UI's G-code template catalog from the engine's definitions.
+/// Generate the UI's built-in G-code presets from the engine's definitions.
 #[derive(Parser, Debug)]
 pub struct GenGcodeTemplatesCommand {
-    /// Output file for the generated JSON catalog.
+    /// Output file for the generated JSON presets.
     #[arg(short, long, default_value = "ui/src/generated/gcode-templates.json")]
     pub output: PathBuf,
 }
@@ -24,12 +24,12 @@ impl GenGcodeTemplatesCommand {
             std::fs::create_dir_all(parent)?;
         }
 
-        let catalog = catalog();
-        std::fs::write(&self.output, serde_json::to_string_pretty(&catalog)?)?;
+        let presets = presets();
+        std::fs::write(&self.output, serde_json::to_string_pretty(&presets)?)?;
 
         println!(
             "Generated {} G-code templates -> {}",
-            catalog.templates.len(),
+            presets.templates.len(),
             self.output.display()
         );
         Ok(())
@@ -44,7 +44,7 @@ mod tests {
     /// the ones its `GcodeTemplate` interface declares.
     #[test]
     fn serialises_with_the_field_names_the_ui_expects() {
-        let json = serde_json::to_value(catalog()).expect("catalog serialises");
+        let json = serde_json::to_value(presets()).expect("presets serialise");
         assert!(json["defaultTemplateId"].is_string());
 
         let first = &json["templates"][0];
