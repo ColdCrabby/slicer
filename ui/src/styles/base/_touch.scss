@@ -1,119 +1,161 @@
-/// Coarse-pointer adaptations of the shared `@coldcrabby/ui` components.
+/// Pointer-precision adaptations of the shared `@coldcrabby/ui` components.
 /// @group base
 ///
 /// The sibling `_handheld.scss` asks "is this a phone?", which is a question
-/// about *room*. This file asks "is the pointer a fingertip?", which is a
-/// question about *precision* — and on a tablet the two answers differ. An iPad
-/// has a desktop's width, so it takes the desktop layout and every one of these
-/// shared controls at its 34px cursor size: a Color-by dropdown, a layer slider
-/// with an 18px thumb, a select option row. Under a fingertip those are a
-/// coin-flip, and the layer slider is the single most-used control in the whole
-/// G-code preview.
+/// about *room*. This file asks how precisely the user can aim — and on a
+/// tablet that is not one question but two, because `pointer: coarse` is the
+/// most the platform will say. iPadOS reports coarse whether the glass is being
+/// touched by a fingertip or by a Pencil, and the two want opposite things: a
+/// fingertip needs a target it cannot miss, a Pencil is more accurate than a
+/// mouse and only loses screen to one.
 ///
-/// Apple's HIG floor is 44pt, so that is the number here rather than the 40px
-/// the phone rules previously used — one value, applied wherever there is no
-/// cursor, instead of two that drift.
+/// So sizing is not a media query. It is **five tokens**, declared here and read
+/// from inside each component's own `coarse-pointer()` block. `Viewport` marks
+/// `<html>` while a stylus is the pointer in use, and the one rule below reverts
+/// every token to the value the shared component ships with — no component
+/// learns a second set of numbers, and none can be missed when the set changes.
+/// Tokens rather than a class because a component's stylesheet cannot see an
+/// `<html>` class at all: emulated encapsulation rewrites the ancestor selector
+/// too, and `<html>` never carries the attribute. A custom property inherits.
 ///
-/// Keyed to `html.is-coarse-pointer` rather than a bare `@media (pointer: coarse)`
-/// for the same reason `_handheld.scss` uses its class: a component's `:host`
-/// block compiles to an attribute selector, which a plain element selector loses
-/// to. The class buys exactly that specificity without `!important`. It is set
-/// before first paint by the inline script in `index.html` and kept live by the
-/// `Viewport` service.
+/// **Two target sizes, because a miss does not always cost the same.** An
+/// isolated control — a titlebar button, a menu row, Slice — has nothing around
+/// it, so missing means nothing happens and the user aims again: it gets
+/// `--touch-target`. A settings-form row has neighbours above and below that are
+/// equally harmless to land on, and there are roughly 140 of them in one scroll,
+/// so the generous floor buys nothing here and costs a screen and a half of
+/// scrolling: it gets `--touch-row`.
+///
+/// Both numbers are the shared components' own presets rather than invented
+/// ones — 40px is what `nexusIconButton` calls large, with its 20px glyph, and
+/// 34px is the height every one of these controls is at rest. Apple's 44pt HIG
+/// floor is written for a phone held in one hand; applied to every control on a
+/// 13" iPad it reads as a kiosk, so do not restore it as a blanket value.
+///
+/// Sizing a target is the whole job here. Affordances that exist because there
+/// is **no hover** — row actions that would otherwise reveal on hover, a tab's
+/// close button — stay keyed to `coarse-pointer()` plain, since a stylus has no
+/// hover either.
+
+:root {
+  /// An isolated control, or one where a miss picks the wrong thing rather than
+  /// nothing at all.
+  --touch-target: 40px;
+
+  /// A row in a dense form or list, where the rows either side are harmless.
+  --touch-row: 36px;
+
+  /// The glyph inside a grown button — a small icon marooned in a large box
+  /// reads as *less* pressable than it did at cursor size.
+  --touch-icon: 20px;
+
+  /// Slider geometry. Scrubbing layers in the G-code preview is a drag gesture,
+  /// the one interaction that fails outright at cursor sizes under a fingertip.
+  --touch-thumb: 22px;
+  --touch-track: 7px;
+}
+
+/// A stylus is the most precise pointer the app ever sees. Hand every token
+/// back its cursor-size value; the rules below then resolve to what the shared
+/// components already do, and the interface stops spending screen on a
+/// precision problem the user does not have.
+html.is-stylus {
+  --touch-target: 34px;
+  --touch-row: 34px;
+  --touch-icon: 18px;
+  --touch-thumb: 18px;
+  --touch-track: 6px;
+}
 
 html.is-coarse-pointer {
-  // Fixed-height chrome has to grow before anything inside it can reach 44px.
-  // The titlebar carries the workplate tabs, which are the densest targets in
-  // the app; at the 40px desktop height a tab cannot be more than 28px tall.
-  --titlebar-height: 52px;
-
-  // ── Touch targets ───────────────────────────────────────────────────────
+  // ── Form controls ───────────────────────────────────────────────────────
+  // `min-height`, never `height`: a minimum outranks the component's own height
+  // without restating it, which is what lets the stylus revert be a token swap
+  // rather than a second copy of every rule.
   nexus-select .trigger,
-  nexus-number-input .field {
-    height: 44px;
+  nexus-number-input .field,
+  input:not([type='checkbox']):not([type='radio']):not([type='range']),
+  select {
+    min-height: var(--touch-row);
   }
 
   // The steppers beside a number field are the most numerous control in the
-  // settings form — roughly 140 on a single page — and among the smallest.
-  // They are not reachable through the selectors above, so they stayed at
-  // cursor size on every tablet.
+  // settings form — roughly 140 on a single page. They already take the field's
+  // height, so only the narrow axis needs squaring up.
   nexus-number-input .step {
-    min-width: 44px;
-    min-height: 44px;
+    min-width: var(--touch-row);
   }
 
   // Deliberately NOT `.icon-btn`: that is the "more info" question mark sitting
   // inside a field's label, and it is the one control that must stay small.
-  // Growing it to 44px set the height of every label row in the sidebar, so a
-  // form of forty settings gained forty rows of padding for an affordance
-  // nobody aims at — the label text beside it is the target that matters, and
-  // the tooltip it opens is reachable from the description either way.
+  // Growing it set the height of every label row in the sidebar, so a form of
+  // forty settings gained forty rows of padding for an affordance nobody aims
+  // at — the label text beside it is the target that matters, and the tooltip it
+  // opens is reachable from the description either way.
 
-  // A 20px-tall switch is a toggle you aim at rather than flick.
+  // A 20px-tall switch is a toggle you aim at rather than flick. Left at a flat
+  // value: the switch is shorter than the row it sits in either way, so it is
+  // never what sets the form's rhythm.
   nexus-switch .switch,
   .switch {
     min-height: 28px;
   }
 
-  // Accordion headers and the legend's role chips: full-width rows that were
-  // still only 26–36px of vertical target.
+  // Accordion headers and the legend's role chips: full-width rows that are
+  // otherwise only 26–34px of vertical target.
   .schema-form-group-trigger,
   .role-badge {
-    min-height: 44px;
+    min-height: var(--touch-row);
   }
 
-  // A segmented control in its horizontal form has a fixed-height host with the
-  // segments stretched inside it, so growing the *segment* just pushes it out
-  // through the container's own border. The host is what has to grow: 44px of
-  // target plus its 3px padding either side.
-  nexus-segmented:not(.stacked) {
-    height: 50px;
-  }
-
-  // `StackWhenCramped` turns it into a vertical list when the labels will not
-  // fit. There the host is `height: auto` and each segment already spans the
-  // full width, so the segment is the right thing to size — but giving those the
-  // same 44px floor made a three-way switcher 144px tall and read as a menu
-  // rather than a control.
+  // `StackWhenCramped` turns a segmented control into a vertical list when the
+  // labels will not fit. There the host is `height: auto` and each segment spans
+  // the full width, so the segment is the right thing to size.
   nexus-segmented.stacked .segment {
-    min-height: 36px;
+    min-height: var(--touch-row);
   }
 
+  // ── Isolated targets ────────────────────────────────────────────────────
   // Icon-only buttons in the chrome (titlebar links, viewport tools, the
   // objects-panel row actions) inherit the shared component's cursor sizes.
+  // Grow the glyph with the box, or the control looks less pressable than it
+  // did before it grew.
   button[nexusIconButton],
   a[nexusIconButton] {
-    min-width: 44px;
-    min-height: 44px;
+    min-width: var(--touch-target);
+    min-height: var(--touch-target);
+    --icon-size: var(--touch-icon);
   }
 
-  // Grow the glyph with the target. A 44px button around an 18px icon reads as
-  // a small icon marooned in empty space — the control looks *less* pressable
-  // than it did at cursor size, which is the opposite of the point.
-  button[nexusIconButton],
-  a[nexusIconButton] {
-    --icon-size: 20px;
-  }
-
-  input:not([type='checkbox']):not([type='radio']):not([type='range']),
-  select {
-    min-height: 44px;
-  }
-
-  // A dropdown's own options are the same problem one level down.
+  // A dropdown's own options take the isolated size despite being a list: here
+  // a miss commits the wrong value instead of landing somewhere harmless.
   nexus-select .option {
-    min-height: 44px;
+    min-height: var(--touch-target);
   }
 
   // ── Sliders ─────────────────────────────────────────────────────────────
   // The component exposes its geometry as custom properties, so this is a
-  // re-tune rather than an override: a thumb a finger can actually catch, on a
-  // track thick enough to aim at, with a taller hit area around both. Scrubbing
-  // layers in the G-code preview is a drag gesture — the one interaction that
-  // fails outright at cursor sizes.
+  // re-tune rather than an override.
   nexus-slider .range,
   nexus-range-slider .range {
-    --thumb: 26px;
-    --track-h: 8px;
+    --thumb: var(--touch-thumb);
+    --track-h: var(--touch-track);
+  }
+}
+
+/// The two places a fingertip needs chrome reshaped around a target rather than
+/// a floor under one, so neither decomposes into a token.
+html.is-coarse-pointer:not(.is-stylus) {
+  // Fixed-height chrome has to grow before anything inside it can reach the
+  // target size. The titlebar carries the workplate tabs, the densest targets in
+  // the app; at the 40px desktop height a tab cannot be more than 28px tall.
+  --titlebar-height: 46px;
+
+  // A segmented control in its horizontal form has a fixed-height host with the
+  // segments stretched inside it, so growing the *segment* just pushes it out
+  // through the container's own border. The host is what has to grow: a row's
+  // worth of target plus its 3px padding either side.
+  nexus-segmented:not(.stacked) {
+    height: 42px;
   }
 }

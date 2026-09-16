@@ -297,8 +297,11 @@ on its own.
   rather than being dimmed out.
 - **Panels use the room they have.** Unfolded, the G-code inspector shows its
   whole legend and both sliders without scrolling.
-- **Everything is finger-sized.** Buttons, dropdowns, the layer slider and the
-  legend chips are all sized for a fingertip rather than a cursor.
+- **Everything is finger-sized — until you pick up a pen.** Buttons, dropdowns,
+  the layer slider and the legend chips grow for a fingertip. An Apple Pencil is
+  more accurate than a mouse, so as soon as one touches the screen the interface
+  goes back to its compact sizes and gives the room to your model instead. Put
+  the pen down and touch the glass, and it comes back. Nothing to set.
 
 Split View and Slide Over shrink the window, and the layout follows: below about
 1024 points wide you get the folded arrangement on any device, including a
@@ -323,6 +326,10 @@ narrow window on a desktop.
 - **Palm rejection** is on by default. While a pen is in use, the hand resting on
   the glass is ignored, so the view doesn't lurch mid-stroke. Turn it off in
   **Settings → General → Controls** if you never use a stylus.
+- **The sidebar's edge resizes at the same width as on a desktop.** It's a thin
+  line on purpose: a fat invisible grab zone hanging over the plate turned taps
+  near the panel into accidental resizes, and resizing is a slow, deliberate drag
+  you were never going to start by mistake.
 
 Two fingers pinch to zoom, drag to pan and twist to roll, anywhere on the plate.
 

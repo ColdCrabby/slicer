@@ -454,23 +454,17 @@
 
 /* ── Phone ────────────────────────────────────────────────────────────────
    In the bottom sheet this row is the primary action bar, so the model name
-   yields space, since it is already named in the title bar above. Height comes
-   from the coarse-pointer rule below, which covers phones too. */
+   yields space, since it is already named in the title bar above. */
 @include handheld {
   .slice-btn {
     min-width: 96px;
   }
 }
 
-/* Slice is the reason the app exists and Download is what you do next; on a
-   tablet both sat at the 40px cursor size. */
-@include coarse-pointer {
-  .slice-btn,
-  .download-btn,
-  .send-split {
-    height: 44px;
-  }
-}
+/* No coarse-pointer rule, deliberately: these buttons are already 40px, which is
+   what `--touch-target` in styles/base/_touch.scss asks of an isolated control.
+   Slice is the reason the app exists — if that floor ever moves, this row is the
+   first place to check, not a place to restate the number. */
 
 /* Sideways the sheet is competing with a 180px-tall scene: give the row back
    whatever height is not load-bearing. */

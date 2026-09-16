@@ -77,6 +77,28 @@ select {
   user-select: none;
 }
 
+// Hold-to-repeat steppers, for the same reason one step further on: here the
+// long press is not a request for a menu, it *is* the gesture — holding `+` or
+// an arrow is how a value far from the current one is reached. iOS answers the
+// hold with the callout bar and the selection magnifier, which land on top of
+// the button being held and take the press with them.
+//
+// `touch-action: manipulation` as well, so the browser never waits out its
+// double-tap delay before delivering the press, and never reclassifies a hold
+// in a scrollable panel as the start of a pan.
+//
+// **Keep this selector in sync with `REPEAT_BUTTON_SELECTOR`** in
+// `app/services/stepper-repeat.ts`, which is what gives these buttons the
+// repeat in the first place. A rule here without an entry there is a button
+// that suppresses the OS gesture and offers nothing in its place.
+nexus-number-input .step,
+nexus-slice-segment-bar .step-btn {
+  -webkit-touch-callout: none;
+  -webkit-user-select: none;
+  user-select: none;
+  touch-action: manipulation;
+}
+
 [hidden] {
   display: none !important;
 }

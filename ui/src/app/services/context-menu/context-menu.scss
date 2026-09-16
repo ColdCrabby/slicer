@@ -148,14 +148,14 @@
   }
 
   .cm-item {
-    min-height: 44px;
+    min-height: var(--touch-target);
     padding: var(--spacing-xs) var(--spacing-md);
     font-size: var(--font-size-md);
     gap: var(--spacing-md);
   }
 
   .cm-icon {
-    --icon-size: 20px;
+    --icon-size: var(--touch-icon);
   }
 
   .cm-sep {

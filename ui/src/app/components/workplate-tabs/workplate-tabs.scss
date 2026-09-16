@@ -180,16 +180,19 @@
 //
 // A 28px chip with a 26px close button is a coin-flip under a fingertip, and
 // the titlebar is fixed-height chrome, so the bar itself has to grow to make
-// room for targets worth aiming at — `--titlebar-height` is raised for touch in
+// room for targets worth aiming at — `--titlebar-height` is raised to match in
 // styles/base/_touch.scss.
 //
-// Uses the media query, NOT the `html.is-coarse-pointer` class. That class is
-// for the *global* stylesheets only: inside a component, emulated encapsulation
-// rewrites the selector to `html.is-coarse-pointer[_ngcontent-x]`, and <html>
-// carries no such attribute, so the rule silently never matches.
+// Uses the media query, NOT the `html.is-coarse-pointer` class, and takes its
+// size from a token rather than a number. That class is for the *global*
+// stylesheets only: inside a component, emulated encapsulation rewrites the
+// selector to `html.is-coarse-pointer[_ngcontent-x]`, and <html> carries no such
+// attribute, so the rule silently never matches. The token is how a component
+// still gets the stylus size, since `html.is-stylus` is out of reach for the
+// same reason but a custom property set on it inherits.
 @include coarse-pointer {
   .wp-tab {
-    height: 44px;
+    height: var(--touch-target);
     padding: 0 4px 0 12px;
     // Roomier than the cursor cap: the text is larger here and a fingertip has
     // no tooltip to fall back on when a name is cut off.
@@ -209,8 +212,9 @@
     font-size: var(--font-size-lg);
   }
 
-  // There is no hover to reveal it, so it is simply always there. Its 44px box
-  // comes from the shared icon-button rule in styles/base/_touch.scss.
+  // There is no hover to reveal it, so it is simply always there — for a stylus
+  // too, which has no hover either. Its box comes from the shared icon-button
+  // rule in styles/base/_touch.scss.
   .wp-tab-close {
     opacity: 1;
     visibility: visible;
