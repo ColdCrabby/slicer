@@ -34,7 +34,7 @@ engine runs, for the same reason [profiles](../profiles/README.md) do:
 
 | Field | Holds |
 | --- | --- |
-| `name` | The user's name for the plate, when they renamed it |
+| `name` | The user's name for the plate, when they renamed it — what the tab strip shows, so it follows the plate rather than the browser |
 | `presets` | `printer` / `filament` / `process` profile ids |
 | `overrides` | Sparse `SlicingParams` — only what the user changed |
 | `objects` | `file_id`, part index, transform, support paint |
@@ -74,7 +74,10 @@ webview, and a path separator in it would otherwise write outside the store.
 ## Non-goals
 
 - **No mesh bytes.** Same rule as [`db`](../db/README.md): the filesystem is the
-  storage, this is the index.
+  storage, this is the index. Where there is no filesystem to be the storage —
+  the browser and iPad builds, which *are* the engine — the webview keeps its own
+  copy of the model beside the plate; see `ui/README.md`'s tab section. The
+  document still records only the `file_id`.
 - **No merge resolution.** Whole-document, last writer wins — matching the
   profile library's sync unit.
 - **No history.** Previous versions of a plate are not kept; that is what the

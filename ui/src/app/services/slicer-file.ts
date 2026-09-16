@@ -183,16 +183,20 @@ export class SlicerFile {
   }
 
   /**
-   * Adopt the result of a previous upload (e.g. carried in route data) so the
-   * slice flow can pick up where the user left off without re-fetching.
+   * Adopt a plate whose scene has already been rebuilt.
+   *
+   * The uuid is set **last**, on purpose: it is what everything downstream
+   * watches to mean "the plate changed", so setting it before the files it
+   * names are registered would announce a plate that cannot yet resolve its own
+   * objects. See {@link WorkplateSession}, the only caller.
    */
-  adopt(meta: RequestMeta): void {
-    this.requestUuid.set(meta.ruuid);
-    // Adopt every file on the plate, not just the first — a multi-object
-    // workplate must come back with all of its objects.
-    this.files.set(meta.ofids.map((f) => ({ fileId: f.file_uuid, filename: f.original_filename })));
-    const firstFilename = meta.ofids[0]?.original_filename?.trim();
-    this.sourceFilename.set(firstFilename || null);
+  adoptRestored(requestUuid: string, files: readonly WorkplateFile[], primary: File | null): void {
+    this.files.set([...files]);
+    this.sourceFilename.set(files[0]?.filename?.trim() || null);
+    this.selectedFile.set(primary);
+    this.uploadProgress.set(0);
+    this.uploadError.set(null);
+    this.requestUuid.set(requestUuid);
   }
 
   /**
@@ -216,14 +220,14 @@ export class SlicerFile {
   }
 
   /**
-   * Download an uploaded file by its `file_uuid` and register it with the
-   * active workplate, **without** making it the primary displayed model.
+   * Fetch one uploaded model by its `file_uuid`.
    *
-   * Restoring a multi-object plate downloads each file in turn, so this must
-   * not touch `selectedFile` — doing so would retarget the viewer's model
-   * input at every file and leave only the last one on screen.
+   * Deliberately free of side effects. Restoring a plate downloads each of its
+   * files in turn, and a fetch that also adopted what it fetched would announce
+   * a half-built plate once per file — and leave the viewer pointed at whichever
+   * model happened to come last.
    */
-  downloadFile(requestUuid: string, fileUuid: string, filename: string): Promise<File> {
+  fetchModel(fileUuid: string, filename: string): Promise<File> {
     this.uploadProgress.set(0);
     this.uploadError.set(null);
 
@@ -240,27 +244,15 @@ export class SlicerFile {
               const progress = event.total ? Math.round((event.loaded / event.total) * 100) : 0;
               this.uploadProgress.set(progress);
             } else if (event.type === HttpEventType.Response) {
-              try {
-                const blob = event.body;
-                if (!blob || !(blob instanceof Blob)) {
-                  throw new Error('Invalid response: expected Blob');
-                }
-                const file = new File([blob], filename, {
-                  type: 'application/octet-stream',
-                });
-                this.sourceFilename.set(this.sourceFilename() ?? filename);
-                this.requestUuid.set(requestUuid);
-                // Append rather than replace: every file on the plate must
-                // stay registered so each object can resolve its own bytes.
-                this.addFiles([{ fileId: fileUuid, filename }]);
-                this.uploadProgress.set(100);
-                resolve(file);
-              } catch (err) {
-                const message = err instanceof Error ? err.message : 'Failed to process file';
+              const blob = event.body;
+              if (!blob || !(blob instanceof Blob)) {
+                const message = 'Invalid response: expected Blob';
                 this.uploadError.set(message);
-                console.error('[SlicerFile] downloadFile processing error:', message);
                 reject(new Error(message));
+                return;
               }
+              this.uploadProgress.set(100);
+              resolve(new File([blob], filename, { type: 'application/octet-stream' }));
             }
           },
           error: (error: unknown) => {
@@ -273,22 +265,10 @@ export class SlicerFile {
             }
             this.uploadError.set(message);
             this.uploadProgress.set(0);
-            console.error('[SlicerFile] downloadFile error:', message);
+            console.error('[SlicerFile] fetchModel error:', message);
             reject(new Error(message));
           },
         });
     });
-  }
-
-  /**
-   * Download a file and adopt it as the workplate's primary displayed model.
-   *
-   * Use this for the plate's first object only; additional objects go through
-   * {@link downloadFile}.
-   */
-  async fetchFile(requestUuid: string, fileUuid: string, filename: string): Promise<File> {
-    const file = await this.downloadFile(requestUuid, fileUuid, filename);
-    this.selectedFile.set(file);
-    return file;
   }
 }

@@ -8,13 +8,14 @@ import {
   untracked,
 } from '@angular/core';
 import { toSignal } from '@angular/core/rxjs-interop';
-import { ActivatedRoute, Router } from '@angular/router';
+import { ActivatedRoute } from '@angular/router';
 import { map } from 'rxjs';
 import { Viewer } from '../../components/viewer';
 import { NotificationService } from '../../services/notifications';
 import { Slicer } from '../../services/slicer';
-import { SlicerFile, type RequestMeta, type UploadResponse } from '../../services/slicer-file';
+import { SlicerFile } from '../../services/slicer-file';
 import { ViewerControl } from '../../services/viewer-control';
+import { WorkplateSession } from '../../services/workplate-session';
 import { WorkplateObjects } from '../../services/workplate-objects';
 import { Icon } from '@coldcrabby/ui';
 
@@ -28,11 +29,11 @@ import { Icon } from '@coldcrabby/ui';
 })
 export class SliceViewer {
   readonly #activatedRoute = inject(ActivatedRoute);
-  readonly #router = inject(Router);
   readonly #slicer = inject(Slicer);
   readonly #slicerFile = inject(SlicerFile);
   readonly #notifications = inject(NotificationService);
   readonly #viewerControl = inject(ViewerControl);
+  readonly #session = inject(WorkplateSession);
   readonly #workplate = inject(WorkplateObjects);
 
   readonly requestUuid = toSignal(
@@ -51,7 +52,8 @@ export class SliceViewer {
   /** Driven by the toolbar toggle; auto-advances to 'gcode' when a slice completes. */
   readonly viewerMode = this.#viewerControl.viewMode;
 
-  #lastFetchedUuid: string | null = null;
+  /** True while the plate on screen is being rebuilt from what it remembers. */
+  readonly restoring = this.#session.restoring;
 
   /** Highlight the viewport while a file drag is over it. */
   readonly dragActive = signal(false);
@@ -196,101 +198,17 @@ export class SliceViewer {
       });
     });
 
-    // Always reload the file whenever the route UUID changes — the in-memory
-    // file may belong to a different request (e.g. navigating between history
-    // entries) or may be absent entirely (reload / deep-link).
-    // Guard against double-fire (toSignal init + first emission for same UUID).
+    // Every route change is a plate change, and a plate change is one
+    // operation that belongs to one owner. `WorkplateSession` is that owner:
+    // it tears the old plate down, restores the new one's files, objects,
+    // placements and presets, and does so identically in all four runtimes.
+    // Asking for the plate already on screen costs nothing, so the effect can
+    // simply state the intent on every emission.
     effect(() => {
       const uuid = this.requestUuid();
-      if (!uuid || uuid === this.#lastFetchedUuid) {
-        return;
+      if (uuid) {
+        untracked(() => void this.#session.open(uuid));
       }
-
-      this.#lastFetchedUuid = uuid;
-      if (this.#slicerFile.selectedFile() && this.#slicerFile.requestUuid() === uuid) {
-        return;
-      }
-
-      if (uuid.startsWith('local-')) {
-        return;
-      }
-
-      void this.#restoreModelFromBackend(uuid);
     });
-  }
-
-  async #restoreModelFromBackend(requestUuid: string): Promise<void> {
-    let notifId: string | null = null;
-
-    try {
-      // If we just navigated here from `slice-new` we already have the upload
-      // response in router state — skip the meta fetch entirely.
-      const navState = this.#router.getCurrentNavigation()?.extras?.state as
-        { uploadMeta?: UploadResponse } | undefined;
-      const stateUpload =
-        navState?.uploadMeta ?? (history.state?.uploadMeta as UploadResponse | undefined);
-
-      let meta: RequestMeta;
-      if (stateUpload && stateUpload.ruuid === requestUuid) {
-        // Adopt the upload result immediately, then hydrate it with canonical
-        // request metadata (file IDs + original filename) from the backend.
-        this.#slicerFile.adopt({
-          ruuid: stateUpload.ruuid,
-          status: 'upload_complete',
-          has_gcode: false,
-          ofids: stateUpload.ofids.map((id) => ({ file_uuid: id, original_filename: 'model' })),
-        });
-        meta = await this.#slicerFile.getRequestMeta(requestUuid);
-        this.#slicerFile.adopt(meta);
-      } else {
-        meta = await this.#slicerFile.getRequestMeta(requestUuid);
-        this.#slicerFile.adopt(meta);
-      }
-
-      const [firstFile, ...extraFiles] = meta.ofids;
-      if (!firstFile) {
-        return;
-      }
-
-      notifId = this.#notifications.progress(
-        'Loading model…',
-        `Fetching ${firstFile.original_filename} from server`,
-      );
-
-      // The first file seeds the viewer through its `model` input; the rest
-      // are added straight to the scene so a plate saved with several objects
-      // comes back whole instead of losing everything after the first.
-      const primary = await this.#slicerFile.fetchFile(
-        requestUuid,
-        firstFile.file_uuid,
-        firstFile.original_filename,
-      );
-      // The viewer adds that first object itself, so register its file here or
-      // it would be the one object on the plate that cannot name its source.
-      await this.#workplate.registerExistingFile(primary, firstFile.file_uuid);
-
-      for (const extra of extraFiles) {
-        const file = await this.#slicerFile.downloadFile(
-          requestUuid,
-          extra.file_uuid,
-          extra.original_filename,
-        );
-        await this.#workplate.addUploadedFile(file, extra.file_uuid);
-      }
-
-      const loadedLabel =
-        extraFiles.length > 0
-          ? `${meta.ofids.length} models restored`
-          : firstFile.original_filename;
-      this.#notifications.completeProgress(notifId, 'Model loaded', loadedLabel);
-    } catch {
-      if (notifId) {
-        this.#notifications.failProgress(
-          notifId,
-          'Failed to load model',
-          'The model file could not be retrieved from the server.',
-        );
-      }
-    }
   }
 }

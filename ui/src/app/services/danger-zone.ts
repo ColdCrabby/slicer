@@ -6,6 +6,7 @@ import { DEFAULT_PRINTERS } from '../models/printer.model';
 import { resolveRuntimeMode } from '../runtime/domain/runtime-mode.util';
 import { ProfilePersistence } from './profiles/profile-persistence';
 import { Slicer } from './slicer';
+import { modelVault } from './model-source';
 import { WORKPLATE_SETTINGS_STORAGE_KEY } from './workplate-settings';
 
 /**
@@ -97,6 +98,10 @@ export class DangerZone {
     }
     await this.writeDefaultProfiles().catch(() => undefined);
     localStorage.clear();
+    // The models the open plates were built from do not live in localStorage —
+    // they are megabytes, so they live in IndexedDB. A factory reset that left
+    // them behind would not be one.
+    await modelVault.clear().catch(() => undefined);
     this.reload();
   }
 

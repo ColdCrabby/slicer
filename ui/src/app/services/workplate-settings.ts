@@ -23,6 +23,8 @@ export type PlatePresetIds = Partial<Record<SettingContractId, string>>;
 
 /** One plate's remembered slice setup. */
 export interface WorkplateSettings {
+  /** The user's name for the plate, or `null` while it goes by its model's. */
+  name: string | null;
   /**
    * Sparse deviation from the resolved preset stack — the same shape the engine
    * takes as `ProfileSelection.overrides`. Only keys the user actually changed.
@@ -39,7 +41,12 @@ export interface WorkplateSettings {
   objects: WorkplateSetup['objects'];
 }
 
-const EMPTY: WorkplateSettings = Object.freeze({ overrides: {}, presets: {}, objects: [] });
+const EMPTY: WorkplateSettings = Object.freeze({
+  name: null,
+  overrides: {},
+  presets: {},
+  objects: [],
+});
 
 /**
  * Remembers each workplate's slice setup: which printer / filament / process it
@@ -86,8 +93,25 @@ export class WorkplateSettingsStore {
 
   private readonly persistence = inject(WorkplatePersistence);
 
-  /** Plates already pulled from the engine, so each is fetched at most once. */
-  private readonly hydrated = new Set<string>();
+  /**
+   * Plates already pulled from the engine, so each is fetched at most once.
+   *
+   * The *promise* is kept, not just the fact of it: opening a plate has to wait
+   * for its document before it can rebuild the scene from it, and a second
+   * caller that arrived while the first fetch was still in flight must wait on
+   * the same fetch rather than be told the plate is ready.
+   */
+  private readonly hydrated = new Map<string, Promise<void>>();
+
+  /**
+   * True while a plate is being rebuilt from its own document.
+   *
+   * Restoring puts objects into the scene one at a time, and the recorder that
+   * watches the scene would write each of those half-built states straight back
+   * over the document being read — losing the objects still to come if anything
+   * interrupts it. Nothing is recorded until the plate is whole again.
+   */
+  private restoring = false;
 
   private debounce: ReturnType<typeof setTimeout> | null = null;
   private settle: ReturnType<typeof setTimeout> | null = null;
@@ -128,6 +152,21 @@ export class WorkplateSettingsStore {
    */
   setOverrides(uuid: string | null | undefined, overrides: Record<string, unknown>): void {
     this.#update(uuid, (current) => ({ ...current, overrides }));
+  }
+
+  /**
+   * Rename the plate, or clear the name to go back to the model's own.
+   *
+   * The name belongs to the plate's document rather than to this browser: a
+   * plate renamed on the desktop should still be that plate when it is opened
+   * from a phone, and a cleared browser should not take every name with it.
+   * Written silently — the user can see what they just typed.
+   */
+  setName(uuid: string | null | undefined, name: string | null): void {
+    if (this.settingsFor(uuid).name === name) {
+      return;
+    }
+    this.#update(uuid, (plate) => ({ ...plate, name }), false);
   }
 
   /**
@@ -173,17 +212,27 @@ export class WorkplateSettingsStore {
    * opens with the settings this browser remembers beats one that refuses to
    * open at all.
    */
-  async hydrate(uuid: string | null | undefined): Promise<void> {
+  hydrate(uuid: string | null | undefined): Promise<void> {
     const key = this.#key(uuid);
-    if (!this.persistence.isEngineBacked || key === DRAFT_KEY || this.hydrated.has(key)) {
-      return;
+    if (!this.persistence.isEngineBacked || key === DRAFT_KEY) {
+      return Promise.resolve();
     }
-    this.hydrated.add(key);
+    const inFlight = this.hydrated.get(key);
+    if (inFlight) {
+      return inFlight;
+    }
+    const pull = this.#pull(key);
+    this.hydrated.set(key, pull);
+    return pull;
+  }
+
+  async #pull(key: string): Promise<void> {
     try {
       // "Nothing saved" arrives two ways: the REST route answers with an empty
       // document rather than a 404, the Tauri command answers with null.
       const remote = await this.persistence.load(key);
       const adopted: WorkplateSettings = {
+        name: remote?.name ?? null,
         overrides: (remote?.overrides as Record<string, unknown>) ?? {},
         presets: {
           printer: remote?.presets?.printer ?? undefined,
@@ -226,6 +275,18 @@ export class WorkplateSettingsStore {
     this.#schedule(false);
   }
 
+  /**
+   * Stop recording while a plate is rebuilt from its document, and resume when
+   * it is whole. Returns the release, so a failed restore cannot leave the
+   * store deaf for the rest of the session.
+   */
+  beginRestore(): () => void {
+    this.restoring = true;
+    return () => {
+      this.restoring = false;
+    };
+  }
+
   /** Write any pending change now, bypassing the debounce. */
   flush(): void {
     if (this.debounce === null) {
@@ -241,6 +302,9 @@ export class WorkplateSettingsStore {
     change: (current: WorkplateSettings) => WorkplateSettings,
     announce = true,
   ): void {
+    if (this.restoring) {
+      return;
+    }
     const key = this.#key(uuid);
     this.plates.update((plates) => ({ ...plates, [key]: change(plates[key] ?? EMPTY) }));
     this.touched.add(key);
@@ -258,6 +322,7 @@ export class WorkplateSettingsStore {
     }
     try {
       await this.persistence.save(key, {
+        name: plate.name,
         presets: plate.presets,
         overrides: plate.overrides,
         objects: plate.objects ?? [],
@@ -272,6 +337,7 @@ export class WorkplateSettingsStore {
   /** Whether a document carries anything the defaults would not supply. */
   #isEmpty(plate: WorkplateSettings): boolean {
     return (
+      !plate.name &&
       Object.keys(plate.overrides ?? {}).length === 0 &&
       !plate.presets?.printer &&
       !plate.presets?.filament &&

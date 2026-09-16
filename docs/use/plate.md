@@ -62,6 +62,20 @@ profile later reaches every plate using it, while the settings you changed on a
 particular plate stay as you left them. See
 [Changes belong to the plate](/use/settings#changes-belong-to-the-plate).
 
+This survives closing the app. On the desktop app, the iPad and in the browser
+slicer, your models are kept on the device alongside the plate, so quitting — or
+iPadOS closing the app in the background to free memory — costs you nothing:
+reopen it, click the tab, and the plate comes back. Where the slicer runs on a
+server, the models are already there and the same is true from any device you
+sign in from.
+
+::: details When a model can't come back
+Models kept on the device are given a generous but finite amount of room. If you
+work through a great many large models, the ones you haven't opened in longest
+are eventually cleared to make space, and a plate that needed one tells you so
+when you open it. Add the model again and the plate is whole.
+:::
+
 ## Moving things around
 
 Pick a tool (or press its key), then drag the handles in the 3D view or type

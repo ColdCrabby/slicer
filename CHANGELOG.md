@@ -27,6 +27,27 @@ issue/PR numbers or repo links in the notes. See the tone rules in
 
 ## [Unreleased]
 
+### Fixed
+
+#### Workplate tabs
+
+- **Switching tabs actually switches plates.** On the desktop app, the iPad and
+  the browser slicer, clicking another tab changed the address bar and nothing
+  else — the same models, the same settings panel, the same title. Every runtime
+  now opens a plate the same way, and the viewport says so while it does.
+- **A plate comes back arranged.** Reopening one restores each model's position,
+  rotation, scale and support paint instead of dropping everything back on the
+  bed as if it had just been imported.
+- **Your plates survive closing the app.** Models are kept on the device
+  alongside the plate, so quitting the desktop app — or iPadOS reclaiming the app
+  in the background — no longer empties every tab. Room for them is bounded, and
+  the models you have not opened in longest are the ones cleared.
+- **`+` starts a plate instead of throwing one away.** It now takes you Home,
+  where a model, a drop or a recent project is one click away, and leaves the
+  plate you were on open in its tab.
+- **A renamed tab keeps its name everywhere.** The name is part of the plate, so
+  it reaches other devices and outlives a cleared browser.
+
 ### Changed
 
 - **Better infill and surface defaults out of the box.** Sparse infill is now

@@ -17,6 +17,16 @@
     </div>
   </div>
 
+  @if (restoring()) {
+    <div class="drop-overlay restore-overlay" aria-live="polite">
+      <div class="drop-card">
+        <nexus-icon name="refresh-double"></nexus-icon>
+        <p class="drop-title">Opening workplate…</p>
+        <p class="drop-hint">Putting the models back where you left them</p>
+      </div>
+    </div>
+  }
+
   @if (dragActive()) {
     <div class="drop-overlay" aria-hidden="true">
       <div class="drop-card">

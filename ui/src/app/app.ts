@@ -5,6 +5,8 @@ import { NotificationCenter } from './components/notification-center/notificatio
 import { UpdateBanner } from './components/update-banner/update-banner';
 import { isTauriDesktop, isTauriHost } from './runtime/domain/runtime-mode.util';
 import { AppVersion } from './services/app-version';
+import { onIdle } from './services/idle';
+import { modelVault } from './services/model-source';
 import { DialogOutlet } from './shared/dialog/dialog-outlet';
 
 @Component({
@@ -47,6 +49,12 @@ export class App {
     // the start; the desktop shell also arms a Rust-side fallback in case this
     // never runs.
     afterNextRender(() => void this.revealDesktopWindow());
+
+    // Bound the stored models once per launch, when nothing else wants the main
+    // thread. A plate keeps its files for as long as there is room for them, so
+    // this is the only thing standing between "every plate reopens" and a quota
+    // error on the write that mattered.
+    onIdle(() => void modelVault.trim());
   }
 
   private async startOpenWith(): Promise<void> {
