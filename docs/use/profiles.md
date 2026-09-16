@@ -148,14 +148,21 @@ settings instead of one.
 
 ## What your machine cannot do
 
-A printer profile records two limits read straight off your machine:
-**Hotend temperature limit** and **Bed temperature limit**. Neither is a
-temperature anything prints at — nothing is tuned here.
+A printer profile records three limits read straight off your machine:
+**Hotend temperature limit**, **Bed temperature limit** and **Machine
+acceleration limit**. None of them is a value anything prints at — nothing is
+tuned here, and none of them is written into your G-code.
 
-They exist because asking for heat a machine cannot reach does not fail. The
-print simply waits for a temperature that never arrives, and the printer sits
-hot until you notice. So if you load ABS on a machine whose bed stops at 80 °C,
-the slicer says so before it writes the file.
+The two temperature limits exist because asking for heat a machine cannot reach
+does not fail. The print simply waits for a temperature that never arrives, and
+the printer sits hot until you notice. So if you load ABS on a machine whose bed
+stops at 80 °C, the slicer says so before it writes the file.
+
+The acceleration limit exists for the **print-time estimate**. A fast print
+profile asking for 25 000 mm/s² on a printer commissioned at 3 000 is fine — the
+file carries the higher number, the firmware clamps it, and the part comes out
+correctly. What is not fine is an ETA calculated as though the machine reached
+it. The estimate is held to whichever is lower, and a note says so.
 
 Detection fills both in from your printer's own configuration. A machine you
 entered by hand leaves them at `0`, which means "unknown" and warns about

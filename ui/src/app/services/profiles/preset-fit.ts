@@ -44,7 +44,10 @@ function round(value: number): string {
  *
  * Both comparisons are against limits the printer profile already holds:
  * `max_velocity` is the cap the slicer emits to the firmware and estimates
- * from, and `acceleration` is what the machine reported it is commissioned at.
+ * from, and `max_acceleration` is what the machine is commissioned for. The
+ * machine's own `acceleration` stands in when no ceiling was declared — on a
+ * detected printer the two are the same number anyway, and on a hand-entered
+ * one it is the only figure there is.
  */
 export function processFitWarning(process: ProcessProfile, printer: PrinterProfile): string | null {
   const machineVelocity = num(printer.params, 'max_velocity');
@@ -53,7 +56,8 @@ export function processFitWarning(process: ProcessProfile, printer: PrinterProfi
     return `Asks ${round(asksSpeed)} mm/s; ${printer.name} tops out at ${round(machineVelocity)}`;
   }
 
-  const machineAccel = num(printer.params, 'acceleration');
+  const machineAccel =
+    num(printer.params, 'max_acceleration') ?? num(printer.params, 'acceleration');
   const asksAccel = num(process.params, 'acceleration');
   if (machineAccel && asksAccel && asksAccel > machineAccel) {
     return `Asks ${round(asksAccel)} mm/s²; ${printer.name} is set up for ${round(machineAccel)}`;

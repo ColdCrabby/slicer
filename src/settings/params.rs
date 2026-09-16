@@ -1592,6 +1592,25 @@ the machine sits hot until someone notices. Klipper reports it as \
     #[serde(default = "SlicingParams::default_max_bed_temp")]
     pub max_bed_temp: f64,
 
+    #[schemars(
+        description = "Highest acceleration this machine is commissioned for, in mm/s². `0` = no \
+limit known.
+
+A hardware **fact**, not a second acceleration: nothing is printed at this value \
+and it is never written into the G-code. `acceleration` is what the print asks \
+for and the firmware clamps it — that division is deliberate, and this does not \
+change it.
+
+What it does change is the **print-time estimate**, which would otherwise be \
+computed from an acceleration the machine will never reach: a preset asking for \
+25 000 mm/s² on a printer set up for 3 000 produces an ETA that is fiction. \
+Klipper reports it as `[printer] max_accel`.
+**Typical:** 3 000–20 000.",
+        extend("x-group" = "Hardware", "x-unit" = "mm_s2", "x-tier" = "expert")
+    )]
+    #[serde(default = "SlicingParams::default_max_acceleration")]
+    pub max_acceleration: f64,
+
     #[schemars(description = "Printer manufacturer recorded in the G-code metadata footer as \
 `printer_vendor`.
 
@@ -2880,6 +2899,7 @@ impl Default for SlicingParams {
             heated_chamber: Self::default_heated_chamber(),
             max_hotend_temp: Self::default_max_hotend_temp(),
             max_bed_temp: Self::default_max_bed_temp(),
+            max_acceleration: Self::default_max_acceleration(),
             printer_vendor: String::new(),
             printer_model: String::new(),
             travel_speed_mm_min: Self::default_travel_speed_mm_min(),
@@ -3089,6 +3109,9 @@ impl SlicingParams {
         0.0
     }
     fn default_max_bed_temp() -> f64 {
+        0.0
+    }
+    fn default_max_acceleration() -> f64 {
         0.0
     }
     fn default_pressure_advance() -> f64 {
@@ -3338,6 +3361,17 @@ into a wide base or route around obstacles"
                  for — the print will wait for a temperature it never reaches. Lower it for this \
                  machine, or correct the bed limit on the printer profile",
                 self.max_bed_temp
+            ));
+        }
+        // Not a failure — the firmware clamps and the print comes out fine, just
+        // slower than asked. Said out loud because the *file* still carries the
+        // number, so anyone reading it later would otherwise conclude the
+        // machine ran at it.
+        if self.max_acceleration > 0.0 && self.acceleration > self.max_acceleration {
+            w.push(format!(
+                "this print asks for {:.0} mm/s² but the machine is commissioned for {:.0} — it \
+                 will run at the lower figure, and the time estimate accounts for that",
+                self.acceleration, self.max_acceleration
             ));
         }
         w
@@ -3995,6 +4029,22 @@ mod tests {
         );
     }
 
+    /// The fast preset on the old machine: worth one line, never an error. The
+    /// print is fine; what would be wrong is nobody saying the number in the
+    /// file is not the number the machine ran at.
+    #[test]
+    fn asking_past_the_machines_acceleration_is_reported_not_refused() {
+        let params = SlicingParams {
+            acceleration: 25000.0,
+            max_acceleration: 3000.0,
+            ..SlicingParams::default()
+        };
+        assert!(params
+            .unsupported_feature_warnings()
+            .iter()
+            .any(|w| w.contains("25000") && w.contains("3000")));
+    }
+
     /// A machine nobody has described states no ceiling, and an unstated
     /// ceiling must never read as a limit of zero.
     #[test]
@@ -4002,12 +4052,13 @@ mod tests {
         let params = SlicingParams {
             nozzle_temp: 300.0,
             bed_temp: 120.0,
+            acceleration: 25000.0,
             ..SlicingParams::default()
         };
         assert!(params
             .unsupported_feature_warnings()
             .iter()
-            .all(|w| !w.contains("rated for")));
+            .all(|w| !w.contains("rated for") && !w.contains("commissioned for")));
     }
 
     #[test]

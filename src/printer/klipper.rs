@@ -292,7 +292,13 @@ impl KlipperProbe {
             ));
         }
         if let Some(accel) = self.positive("printer", "max_accel") {
+            // Twice, for two different jobs. As `acceleration` it is the value
+            // this machine prints at when no process profile asks for another —
+            // a usable default. As `max_acceleration` it is the ceiling, which a
+            // process *may* ask past (the firmware clamps, as it should) but the
+            // print-time estimate must not believe it exceeded.
             params.insert("acceleration".into(), json!(mm(accel)));
+            params.insert("max_acceleration".into(), json!(mm(accel)));
             detection.findings.push(DetectionFinding::new(
                 "Max acceleration",
                 format!("{} mm/s²", mm(accel)),
@@ -781,6 +787,7 @@ mod tests {
         assert_eq!(params["pressure_advance"], json!(0.032));
         assert_eq!(params["max_velocity"], json!(300.0));
         assert_eq!(params["acceleration"], json!(6000.0));
+        assert_eq!(params["max_acceleration"], json!(6000.0));
         assert_eq!(params["square_corner_velocity"], json!(8.0));
         assert_eq!(params["use_firmware_retraction"], json!(true));
         assert_eq!(params["retract_mm"], json!(0.8));
