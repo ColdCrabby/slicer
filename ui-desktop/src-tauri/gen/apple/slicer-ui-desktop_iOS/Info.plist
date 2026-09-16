@@ -61,23 +61,6 @@
 	<array>
 		<dict>
 			<key>UTTypeIdentifier</key>
-			<string>public.standard-tesselated-geometry-format</string>
-			<key>UTTypeDescription</key>
-			<string>STL Model</string>
-			<key>UTTypeConformsTo</key>
-			<array>
-				<string>public.data</string>
-			</array>
-			<key>UTTypeTagSpecification</key>
-			<dict>
-				<key>public.filename-extension</key>
-				<array>
-					<string>stl</string>
-				</array>
-			</dict>
-		</dict>
-		<dict>
-			<key>UTTypeIdentifier</key>
 			<string>public.geometry-definition-format</string>
 			<key>UTTypeDescription</key>
 			<string>Wavefront OBJ Model</string>
