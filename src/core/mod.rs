@@ -227,6 +227,7 @@ mod tests {
         assert_eq!(ExtrusionRole::TopSurface.type_name(), "Top surface");
         assert_eq!(ExtrusionRole::BottomSurface.type_name(), "Bottom surface");
         assert_eq!(ExtrusionRole::GapFill.type_name(), "Gap infill");
+        assert_eq!(ExtrusionRole::ThinWall.type_name(), "Thin wall");
         assert_eq!(ExtrusionRole::Support.type_name(), "Support material");
         assert_eq!(ExtrusionRole::Skirt.type_name(), "Skirt");
     }

@@ -29,6 +29,11 @@ issue/PR numbers or repo links in the notes. See the tone rules in
 
 ### Changed
 
+- **Thin ribs are told apart from gap fill.** A rib, fin or divider too thin to
+  carry a perimeter used to be tagged as filler between walls, which printed it
+  at the deliberately gentle gap-fill acceleration. It is now a **Thin wall**:
+  wall acceleration, its own colour in the preview, and its own entry in the
+  Shell legend group. The beads themselves are unchanged.
 - **Short hops inside a part no longer retract.** A travel that crosses no wall
   and stays under 5 mm within the part skips the retract, Z-hop and prime — what
   it drools lands where nothing shows. Parts with a field of thin ribs, like a

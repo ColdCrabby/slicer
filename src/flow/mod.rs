@@ -65,11 +65,8 @@ const MIN_SHED_MM: f64 = 0.04;
 fn is_wall_role(role: ExtrusionRole) -> bool {
     matches!(
         role,
-        ExtrusionRole::OuterWall
-            | ExtrusionRole::InnerWall
-            | ExtrusionRole::OverhangPerimeter
-            | ExtrusionRole::GapFill
-    )
+        ExtrusionRole::OuterWall | ExtrusionRole::InnerWall | ExtrusionRole::OverhangPerimeter
+    ) || role.is_medial_bead()
 }
 
 /// Reduce wall extrusion where beads overlap, across every layer.

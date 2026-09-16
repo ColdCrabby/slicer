@@ -216,8 +216,7 @@ fn reduce_first_layer_to_single_wall(layer: &mut SliceLayer, strip_gap_fill: boo
 
     for (i, path) in layer.paths.iter().enumerate() {
         let role = layer.role_for_path(i);
-        let drop =
-            role == ExtrusionRole::InnerWall || (strip_gap_fill && role == ExtrusionRole::GapFill);
+        let drop = role == ExtrusionRole::InnerWall || (strip_gap_fill && role.is_medial_bead());
         if !drop {
             new_paths.push(path.clone());
             new_roles.push(role);
