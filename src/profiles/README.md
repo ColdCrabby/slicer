@@ -137,6 +137,24 @@ native bindings do not declare.
 
 ---
 
+## The G-code preset catalog
+
+The ready-made start / end / layer blocks for Marlin, mainline Klipper and
+Klippain live in [gcode_templates.rs](gcode_templates.rs), and the UI's copy is
+**generated** from them (`pnpm run gen-gcode-templates`). They used to be
+written out twice — once here as the blocks a blank profile starts with, once in
+the UI as the selectable presets — and the two drifted: the Klipper blocks
+disagreed, and Klippain existed only UI-side with the wrong argument names, so a
+Klippain user's bed temperature was dropped by the macro.
+
+That failure is quiet by construction, which is why the catalog is worth
+centralising: **the text left of each `=` is the receiving macro's parameter
+name**, and Klipper discards an argument its macro never declared without
+raising an error. `BED=` where the macro reads `BED_TEMP=` prints the plate at
+the macro's default temperature instead of failing.
+
+---
+
 ## What this module deliberately does _not_ do
 
 - **No networking.** `reqwest` would break the wasm build; outbound printer
@@ -149,6 +167,7 @@ native bindings do not declare.
 ## See also
 
 - [store.rs](store.rs) · [library.rs](library.rs) · [export.rs](export.rs) ·
-  [toml_bridge.rs](toml_bridge.rs) · [resolve.rs](resolve.rs)
+  [toml_bridge.rs](toml_bridge.rs) · [resolve.rs](resolve.rs) ·
+  [gcode_templates.rs](gcode_templates.rs)
 - [../config/README.md](../config/README.md) — where `config_dir()` points
 - [../server/README.md](../server/README.md) — the REST endpoints and the WS nudge

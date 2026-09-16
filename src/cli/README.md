@@ -13,6 +13,7 @@ User-friendly commands for slicing, configuration, and build info.
 | `info` | Version and build information |
 | `changelog` | Release notes embedded in this build |
 | `gen-schemas` | Regenerate the JSON schemas the UI consumes |
+| `gen-gcode-templates` | Regenerate the UI's G-code preset catalog |
 
 ```mermaid
 graph TB

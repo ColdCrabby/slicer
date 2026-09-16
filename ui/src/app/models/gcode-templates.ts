@@ -1,4 +1,8 @@
 import type { PrinterGcodeFlavor } from './printer.model';
+import {
+  GENERATED_DEFAULT_TEMPLATE_ID,
+  GENERATED_GCODE_TEMPLATES,
+} from '../../generated/gcode-templates.data';
 
 /**
  * A ready-made G-code preset for a printer's start / end / layer-change blocks.
@@ -54,66 +58,24 @@ export const GCODE_PLACEHOLDER_HINT =
   '{chamber_temp} · {filament_type} · {layer_height} · {first_layer_height}; ' +
   'layer G-code also has {z} · {height} · {layer_num}';
 
-const STANDARD_MARLIN: GcodeTemplate = {
-  id: 'marlin-standard',
-  label: 'Standard Marlin',
-  description: 'Home, heat and wait using raw M-commands.',
-  flavor: 'marlin',
-  startGcode: `; Cold Crabby standard Marlin start
-G21 ; millimetres
-G90 ; absolute positioning
-M82 ; extruder absolute mode
-M140 S{bed_temp_first_layer} ; set bed temperature
-M104 S{nozzle_temp_first_layer} ; set nozzle temperature
-G28 ; home all axes
-M190 S{bed_temp_first_layer} ; wait for bed temperature
-M109 S{nozzle_temp_first_layer} ; wait for nozzle temperature
-G92 E0 ; reset extruder
-G1 Z2.0 F3000 ; lift nozzle`,
-  endGcode: `; Cold Crabby standard Marlin end
-G91 ; relative positioning
-G1 E-2 F2700 ; retract
-G1 Z10 F3000 ; lift
-G90 ; absolute positioning
-M104 S0 ; nozzle off
-M140 S0 ; bed off
-M84 ; disable steppers`,
-  layerGcode: '',
-};
-
-const STANDARD_KLIPPER: GcodeTemplate = {
-  id: 'klipper-standard',
-  label: 'Standard Klipper',
-  description: 'PRINT_START / PRINT_END macros (mainline convention).',
-  flavor: 'klipper',
-  startGcode: `PRINT_START EXTRUDER={nozzle_temp_first_layer} BED={bed_temp_first_layer}`,
-  endGcode: `PRINT_END`,
-  layerGcode: '',
-};
-
-const KLIPPAIN: GcodeTemplate = {
-  id: 'klippain',
-  label: 'Klippain',
-  description: 'START_PRINT / END_PRINT with temperature, chamber and material parameters.',
-  flavor: 'klipper',
-  startGcode: `START_PRINT EXTRUDER={nozzle_temp_first_layer} BED={bed_temp_first_layer} CHAMBER={chamber_temp} MATERIAL={filament_type}`,
-  endGcode: `END_PRINT`,
-  layerGcode: `_ON_LAYER_CHANGE LAYER={layer_num} Z={z}`,
-};
-
-/** All selectable presets, in dropdown order. `custom` is appended by the UI. */
-export const GCODE_TEMPLATES: readonly GcodeTemplate[] = [
-  STANDARD_MARLIN,
-  STANDARD_KLIPPER,
-  KLIPPAIN,
-];
+/**
+ * All selectable presets, in dropdown order. `custom` is appended by the UI.
+ *
+ * Generated from `src/profiles/gcode_templates.rs` — edit the catalog there and
+ * re-run `pnpm run gen-gcode-templates`. The blocks used to be maintained here
+ * *and* in the engine's profile defaults, and the two drifted.
+ */
+export const GCODE_TEMPLATES: readonly GcodeTemplate[] = GENERATED_GCODE_TEMPLATES;
 
 /** Template a from-scratch printer starts attached to. */
-export const DEFAULT_GCODE_TEMPLATE_ID = STANDARD_MARLIN.id;
+export const DEFAULT_GCODE_TEMPLATE_ID = GENERATED_DEFAULT_TEMPLATE_ID;
 
 /** The best default template id for a printer of the given firmware flavor. */
 export function defaultGcodeTemplateIdForFlavor(flavor: PrinterGcodeFlavor | undefined): string {
-  return flavor === 'klipper' ? STANDARD_KLIPPER.id : STANDARD_MARLIN.id;
+  if (!flavor) {
+    return DEFAULT_GCODE_TEMPLATE_ID;
+  }
+  return GCODE_TEMPLATES.find((t) => t.flavor === flavor)?.id ?? DEFAULT_GCODE_TEMPLATE_ID;
 }
 
 /** Dropdown options including the trailing "Custom" entry. */

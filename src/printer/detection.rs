@@ -151,11 +151,13 @@ pub struct DetectionQuestion {
     /// ask.
     ///
     /// A decided question is still a question rather than a bare fact because
-    /// its *effect* is UI-owned: which start-macro convention a host follows is
-    /// something only the config knows, but the G-code that convention implies
-    /// is template copy the engine has no business carrying. So the engine
-    /// reports the conclusion and the wizard applies it, listing it among the
-    /// things it read rather than the things it needs.
+    /// its *effect* is UI-applied: which start-macro convention a host follows
+    /// is something only the config knows, so the engine reports the conclusion
+    /// and the wizard writes the matching preset into the profile, listing it
+    /// among the things it read rather than the things it needs.
+    ///
+    /// The preset itself is engine-owned, in
+    /// [`crate::profiles::gcode_templates`]; the wizard only picks which one.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub certain: bool,
 }
