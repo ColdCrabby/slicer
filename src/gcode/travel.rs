@@ -70,10 +70,6 @@ type Pt = (f64, f64);
 pub struct TravelPlanner {
     /// Closed obstacle loops (outer-wall contours and hole boundaries).
     loops: Vec<Vec<Pt>>,
-    /// Per-loop flag: this loop is an island **outline** — it is not contained
-    /// in any other loop, so its interior is the part's footprint rather than a
-    /// hole. Parallel to `loops`.
-    outline: Vec<bool>,
     /// Flattened obstacle vertices, used as visibility-graph waypoints.
     verts: Vec<Pt>,
     /// Axis-aligned bounds of all obstacles `(min_x, min_y, max_x, max_y)`.
@@ -116,23 +112,8 @@ impl TravelPlanner {
                 max_y = max_y.max(y);
             }
         }
-        // Outermost = whose first vertex lies inside no other loop. A hole's
-        // boundary sits inside its island outline; separate islands are
-        // disjoint, so neither contains the other.
-        let outline: Vec<bool> = loops
-            .iter()
-            .enumerate()
-            .map(|(i, l)| {
-                !loops
-                    .iter()
-                    .enumerate()
-                    .any(|(j, other)| j != i && point_in_loop(l[0], other))
-            })
-            .collect();
-
         Some(Self {
             loops,
-            outline,
             verts,
             bounds: (min_x, min_y, max_x, max_y),
         })
@@ -158,14 +139,20 @@ impl TravelPlanner {
     }
 
     /// True when the hop `a`→`b` is **interior** to the part: it crosses no
-    /// wall and runs inside one island's outline.
+    /// wall and runs over the island's own cross-section.
     ///
     /// The G-code generator uses this to decide whether a hop can skip the
     /// retract → z-hop → travel → lower → un-retract ceremony. Whatever such a
-    /// hop oozes lands inside the part — in a pocket, over infill, or on the
-    /// wall it just printed — where the ceremony costs more time than the ooze
-    /// costs quality. A hop that crosses a wall, leaves the footprint, or runs
+    /// hop oozes lands inside the part — over infill, or on the wall it just
+    /// printed — where the ceremony costs more time than the ooze costs
+    /// quality. A hop that crosses a wall, leaves the footprint, or runs
     /// between two islands fails the test and retracts as usual.
+    ///
+    /// Containment is by **parity over every loop**, outlines and holes alike.
+    /// Inside an outline is not the same as over the part: the cavity of a box,
+    /// the slot between two card dividers, the bore of a tube are all inside
+    /// some outline and all open air, and a strand hung across one is exactly
+    /// the defect the ceremony exists to prevent.
     ///
     /// Testing the segment's midpoint is sufficient: a segment that crosses no
     /// loop lies wholly on one side of every loop.
@@ -174,10 +161,7 @@ impl TravelPlanner {
             return false;
         }
         let mid = ((a.0 + b.0) / 2.0, (a.1 + b.1) / 2.0);
-        self.loops
-            .iter()
-            .zip(&self.outline)
-            .any(|(l, &is_outline)| is_outline && point_in_loop(mid, l))
+        self.loops.iter().filter(|l| point_in_loop(mid, l)).count() % 2 == 1
     }
 
     /// Visibility-graph shortest path from `from` to `to` avoiding wall crossings.
@@ -366,6 +350,29 @@ impl MaterialRouter {
             return None;
         }
         visibility_route(&local, from, to, max_len, &|a, b| self.covers(a, b))
+    }
+
+    /// The route to `far`, when an open bead should be entered from that end
+    /// rather than from `near`.
+    ///
+    /// An open bead has no seam — either end may be its start — and the path
+    /// orderer picks whichever is nearer in a straight line. For a field of
+    /// ribs off a shared body that is the pair of free tips, so the hop between
+    /// two ribs runs tip to tip, straight across the slot they stick into.
+    /// Entering from the rooted end instead is a longer hop but one the layer's
+    /// own material can carry: back down the bead just laid, along the body,
+    /// and out the next rib.
+    ///
+    /// The far end only wins when the near end has no route at all. A longer
+    /// hop is worth paying to stop crossing air, and worth nothing otherwise.
+    ///
+    /// The route comes back with the answer because the caller needs exactly it
+    /// next, and a visibility search is the expensive part of planning a hop.
+    pub fn far_entry_route(&self, from: Pt, near: Pt, far: Pt, slack: f64) -> Option<Vec<Pt>> {
+        if self.covers(from, near) || self.route(from, near, dist(from, near) * slack).is_some() {
+            return None;
+        }
+        self.route(from, far, dist(from, far) * slack)
     }
 }
 
@@ -642,9 +649,11 @@ mod tests {
     }
 
     #[test]
-    fn hop_across_a_hole_stays_interior() {
-        // A rib field lives in a pocket: the hop from one rib to the next runs
-        // through the hole, crossing no wall, still inside the island outline.
+    fn hop_across_a_hole_is_not_interior() {
+        // A rib field lives in a pocket, and the hop from one rib to the next
+        // runs through it, crossing no wall. Inside the island outline it may
+        // be, but it is over the cavity — bare air, where a drool becomes a
+        // strand across the slot rather than material landing on the part.
         let mut layer = layer_with_outer_square(20.0);
         let hole: Path = vec![(-5.0, -5.0), (-5.0, 5.0), (5.0, 5.0), (5.0, -5.0)].into();
         layer.paths.push(hole);
@@ -653,7 +662,9 @@ mod tests {
         layer.path_is_open.push(false);
 
         let planner = TravelPlanner::for_layer(&layer).unwrap();
-        assert!(planner.hop_is_interior((-3.0, 0.0), (3.0, 0.0)));
+        assert!(!planner.hop_is_interior((-3.0, 0.0), (3.0, 0.0)));
+        // The wall band around that hole still is interior.
+        assert!(planner.hop_is_interior((-8.0, 0.0), (-7.0, 3.0)));
     }
 
     /// Two ribs off a shared spine, the card-divider shape. The hop between
@@ -713,6 +724,30 @@ mod tests {
             );
             from = wp;
         }
+    }
+
+    #[test]
+    fn a_rib_is_entered_from_its_root_when_its_tip_is_across_air() {
+        let layer = rib_field_layer();
+        let router = MaterialRouter::for_layer(&layer, 0.4).unwrap();
+        // Standing at the first rib's tip, the next rib's tip is the nearer end
+        // but only reachable across the slot; its root is further and reachable
+        // down the spine.
+        let route = router
+            .far_entry_route((6.0, 5.0), (6.0, 8.0), (10.0, 8.0), 2.0)
+            .expect("the root end is reachable down the spine");
+        assert_eq!(route.last().copied(), Some((10.0, 8.0)));
+    }
+
+    #[test]
+    fn a_bead_already_reachable_over_material_is_not_flipped() {
+        let layer = rib_field_layer();
+        let router = MaterialRouter::for_layer(&layer, 0.4).unwrap();
+        // From the spine, the rib's root is straight along material — there is
+        // nothing to fix, and turning the bead round would only lengthen the hop.
+        assert!(router
+            .far_entry_route((10.0, 2.0), (10.0, 5.0), (6.0, 5.0), 2.0)
+            .is_none());
     }
 
     #[test]

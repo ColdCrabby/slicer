@@ -35,6 +35,16 @@ const WIDTH_SIMPLIFY_TOL_MM: f64 = 0.02;
 /// as part of it.  A configured Z-hop larger than this wins.
 const SEQUENTIAL_LIFT_MM: f64 = 1.0;
 
+/// Ceiling for the interior-hop retraction exemption.  Beyond this the hop is
+/// long enough to drool a visible strand even inside the part, and the
+/// retract → z-hop → travel → lower → un-retract ceremony earns its keep again.
+const INTERIOR_HOP_MAX_MM: f64 = 5.0;
+
+/// How much longer than the straight line a re-route over material may be. Past
+/// this the detour costs more time than the retraction it saves, and drags the
+/// nozzle further across finished beads than a strand is worth.
+const MATERIAL_ROUTE_SLACK: f64 = 2.0;
+
 /// Width step (mm) at which a variable-width bead re-emits a `;WIDTH:` marker
 /// mid-path, so viewers/post-processors render the actual (flow-compensated)
 /// bead width rather than the nominal scalar.  Coarse enough (0.05 mm) to keep
@@ -2703,7 +2713,7 @@ impl GcodeGenerator {
                 // beads use the width-aware pass so `points` and their widths stay
                 // aligned (and long constant-width runs still collapse), instead
                 // of being emitted at full resolution.
-                let (points, vertex_widths): (Vec<(f64, f64)>, Option<Vec<f64>>) =
+                let (mut points, mut vertex_widths): (Vec<(f64, f64)>, Option<Vec<f64>>) =
                     match raw_vertex_widths {
                         Some(vw)
                             if params.path_tolerance > 0.0
@@ -2734,6 +2744,35 @@ impl GcodeGenerator {
                     points.len() >= 2,
                     "path should have >= 2 points after simplification"
                 );
+
+                // ── Enter an open bead from the end the body can reach ────────
+                // An open bead has no seam, so the orderer starts it at whichever
+                // end is nearer in a straight line. Between two ribs off a shared
+                // body that is the pair of free tips, and the hop from one to the
+                // next crosses the slot they stick into — where it hangs a strand
+                // rather than drooling on material. Reversing the bead turns that
+                // into a hop the router can carry back through the body, so every
+                // rib is entered at its root and left at its tip.
+                let mut flipped_route: Option<Vec<(f64, f64)>> = None;
+                if role.forms_closed_loops() && layer.is_path_open(path_idx) {
+                    let near = points[0];
+                    let far = *points.last().expect("path has at least two points");
+                    flipped_route = match (material_router, last_pos) {
+                        (Some(router), Some(lp))
+                            if (lp.0 - near.0).hypot(lp.1 - near.1) <= INTERIOR_HOP_MAX_MM
+                                && (lp.0 - far.0).hypot(lp.1 - far.1) <= INTERIOR_HOP_MAX_MM =>
+                        {
+                            router.far_entry_route(lp, near, far, MATERIAL_ROUTE_SLACK)
+                        }
+                        _ => None,
+                    };
+                    if flipped_route.is_some() {
+                        points.reverse();
+                        if let Some(widths) = vertex_widths.as_mut() {
+                            widths.reverse();
+                        }
+                    }
+                }
 
                 // Emit ;TYPE: / ;WIDTH: annotation when the role OR extrusion
                 // width changes.  This ensures slicers / post-processors always
@@ -2823,23 +2862,17 @@ impl GcodeGenerator {
                 //     layer's own extrusions is, and then it drools on material
                 //     rather than into the void it would have crossed.
                 const ALWAYS_RETRACT_TRAVEL_MM: f64 = 2.0;
-                /// Ceiling for the interior-hop exemption.  Beyond this the hop
-                /// is long enough to drool a visible strand even inside the
-                /// part, and the ceremony earns its keep again.
-                const INTERIOR_HOP_MAX_MM: f64 = 5.0;
-                /// How much longer than the straight line a re-route over
-                /// material may be. Past this the detour costs more time than the
-                /// retraction it saves, and drags the nozzle further across
-                /// finished beads than a strand is worth.
-                const MATERIAL_ROUTE_SLACK: f64 = 2.0;
                 let min_travel = params.retract_before_travel_mm.max(0.0);
                 let always_retract = min_travel.max(ALWAYS_RETRACT_TRAVEL_MM);
 
                 let short_same_role = !role_changed && travel_dist <= INTERIOR_HOP_MAX_MM;
+                // A flipped bead already had its route planned, to the very end
+                // the hop now arrives at — the search is the costly part, so it
+                // is not run twice.
                 let material_route = match (short_same_role, material_router, last_pos) {
-                    (true, Some(router), Some(lp)) => {
+                    (true, Some(router), Some(lp)) => flipped_route.take().or_else(|| {
                         router.route(lp, (start_x, start_y), travel_dist * MATERIAL_ROUTE_SLACK)
-                    }
+                    }),
                     _ => None,
                 };
                 // A single waypoint means the straight line was already on
