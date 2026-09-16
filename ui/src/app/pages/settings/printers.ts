@@ -61,7 +61,6 @@ import {
   IconButton,
   ModalShell,
   NumberInput,
-  SectionHeader,
   Segmented,
   Select,
   Switch,
@@ -167,7 +166,6 @@ const PARAM_GROUPS: SchemaGroup[] = (() => {
 @Component({
   selector: 'nexus-settings-printers',
   imports: [
-    SectionHeader,
     EmptyState,
     Button,
     IconButton,

@@ -41,7 +41,6 @@ import {
   IconButton,
   ModalShell,
   NumberInput,
-  SectionHeader,
   Segmented,
   Select,
   ColorPicker,
@@ -116,7 +115,6 @@ const PARAM_GROUPS: SchemaGroup[] = (() => {
 @Component({
   selector: 'nexus-settings-filaments',
   imports: [
-    SectionHeader,
     EmptyState,
     Button,
     IconButton,

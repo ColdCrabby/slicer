@@ -33,7 +33,6 @@ import {
   FieldRow,
   IconButton,
   ModalShell,
-  SectionHeader,
   Segmented,
 } from '@coldcrabby/ui';
 import { CatalogPicker, type CatalogEntryVm } from '../../components/profiles/catalog-picker';
@@ -78,7 +77,6 @@ const PARAM_GROUPS: SchemaGroup[] = (() => {
 @Component({
   selector: 'nexus-settings-profiles',
   imports: [
-    SectionHeader,
     EmptyState,
     Button,
     IconButton,

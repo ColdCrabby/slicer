@@ -20,23 +20,56 @@
   min-height: 0;
   display: grid;
   // The list column is draggable; `--mgr-list-w` is what the resizer writes.
-  grid-template-columns: var(--mgr-list-w, minmax(280px, 340px)) 1fr;
+  // The third track is the aside: the page's own actions, and beneath them the
+  // contents rail when it is showing. `auto` so a page with only two buttons
+  // costs two buttons' width and one with the rail open costs the rail's.
+  grid-template-columns: var(--mgr-list-w, minmax(280px, 340px)) 1fr auto;
   gap: var(--spacing-xl);
 }
 
-// The contents rail takes a column of its own rather than floating inside the
-// editor's scroll: as a grid child it is given the full height for free, and
-// scrolls a long outline independently of the form it describes.
+// ── Aside column ────────────────────────────────────────────────────────────
 //
-.mgr__body:has(nexus-profile-outline:not(.is-off)) {
-  grid-template-columns: var(--mgr-list-w, minmax(280px, 340px)) 1fr auto;
+// What used to be a full-width header bar. A heading on the left and its
+// actions pinned to the far right left a band of empty page between them that
+// grew with the window, and the heading described the list while the buttons
+// acted on it — two different scopes sharing one row for no reason but habit.
+//
+// Now each column starts with what belongs to it: the list says what it is, and
+// the aside holds the things you *do* here. The contents rail was already a
+// column of its own, so the actions join it rather than inventing a second one.
+.mgr__aside {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  gap: var(--spacing-md);
 }
 
-// Below the width where a docked column stops fitting the rail takes itself off
-// screen (see its own stylesheet); the grid has to give its track back.
-@media (max-width: #{$compact-max-width}) {
-  .mgr__body:has(nexus-profile-outline:not(.is-off)) {
-    grid-template-columns: var(--mgr-list-w, minmax(280px, 340px)) 1fr;
+.mgr__actions {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-sm);
+
+  // Stretch to the rail's width when it is open, so the buttons and the
+  // contents list read as one column rather than two things stacked.
+  > * {
+    justify-content: center;
+    width: 100%;
+  }
+}
+
+// The list column's own start content, in place of the page-wide header.
+.mgr__heading {
+  h2 {
+    margin: 0;
+    font-size: var(--font-size-lg);
+    font-weight: var(--font-weight-semibold);
+    line-height: 1.2;
+  }
+
+  p {
+    margin: 2px 0 0;
+    color: var(--color-text-secondary);
+    font-size: var(--font-size-sm);
   }
 }
 
@@ -475,8 +508,18 @@
   .mgr__body,
   .mgr__body:has(nexus-profile-outline) {
     grid-template-columns: 1fr;
-    grid-template-rows: minmax(0, 2fr) minmax(0, 3fr);
+    // The aside comes first on a phone: its actions are what the page is for,
+    // and the contents rail hides itself at this width anyway.
+    grid-template-rows: auto minmax(0, 2fr) minmax(0, 3fr);
     gap: var(--spacing-md);
+  }
+
+  .mgr__aside {
+    order: -1;
+  }
+
+  .mgr__actions {
+    flex-direction: row;
   }
 
   .mgr__body:not(:has(.mgr__detail-inner)) {

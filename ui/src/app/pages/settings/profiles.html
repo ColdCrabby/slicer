@@ -1,19 +1,13 @@
 <div class="mgr">
-  <nexus-section-header heading="Print Profiles" description="Reusable bundles of print settings">
-    <button nexusButton variant="secondary" size="sm" (click)="openCatalog()">
-      <nexus-icon name="cloud-upload" />
-      Catalog
-    </button>
-    <a nexusButton variant="primary" size="sm" routerLink="new">
-      <nexus-icon name="plus" />
-      Add profile
-    </a>
-  </nexus-section-header>
-
   @if (store.items().length > 0) {
     <div class="mgr__body">
       <!-- ── List column ──────────────────────────────────────────────────── -->
       <div class="mgr__list">
+        <header class="mgr__heading">
+          <h2>Print Profiles</h2>
+          <p>Reusable bundles of print settings</p>
+        </header>
+
         <div class="mgr__tools">
           <div class="mgr__search">
             <nexus-icon name="search" />
@@ -193,11 +187,27 @@
         }
       </div>
 
-      <!-- The contents rail reads the editor beside it, so it needs nothing
-           from this page but a place to stand. -->
-      @if (selected()) {
-        <nexus-profile-outline />
-      }
+      <!-- ── Aside column ─────────────────────────────────────────────────── -->
+      <!-- What the page is *for* sits here, beside the contents rail rather
+           than across a header bar the width of the window. -->
+      <aside class="mgr__aside">
+        <div class="mgr__actions">
+          <button nexusButton variant="secondary" size="sm" (click)="openCatalog()">
+            <nexus-icon name="cloud-upload" />
+            Catalog
+          </button>
+          <a nexusButton variant="primary" size="sm" routerLink="new">
+            <nexus-icon name="plus" />
+            Add profile
+          </a>
+        </div>
+
+        <!-- The rail reads the editor beside it, so it needs nothing from this
+             page but a place to stand. -->
+        @if (selected()) {
+          <nexus-profile-outline />
+        }
+      </aside>
     </div>
   } @else {
     <nexus-empty-state
