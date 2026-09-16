@@ -12,6 +12,7 @@ import {
 import { Router } from '@angular/router';
 import { OpenWorkplateTab, OpenWorkplates } from '../../services/open-workplates';
 import { Slicer } from '../../services/slicer';
+import { WorkplateSession } from '../../services/workplate-session';
 import { WorkplateNames } from '../../services/workplate-names';
 import { ContextMenuService } from '../../services/context-menu/context-menu.service';
 import { ContextMenuTrigger } from '../../services/context-menu/context-menu-trigger';
@@ -39,6 +40,7 @@ export class WorkplateTabs {
   private readonly slicer = inject(Slicer);
   private readonly names = inject(WorkplateNames);
   private readonly openWorkplates = inject(OpenWorkplates);
+  private readonly session = inject(WorkplateSession);
   private readonly contextMenu = inject(ContextMenuService);
   private readonly cdr = inject(ChangeDetectorRef);
 
@@ -185,18 +187,33 @@ export class WorkplateTabs {
     }
   }
 
-  /** Discard the current workplate (file + scene) and open a fresh tab. */
-  async addTab(): Promise<void> {
-    await this.slicer.resetWorkplate();
-    await this.router.navigate(['/slice', 'new']);
+  /**
+   * Start a new plate.
+   *
+   * Lands on the dashboard rather than on a bare bed: "new plate" is a question
+   * — which model, from where — and the dashboard is where every answer already
+   * lives (open a file, drop one, pick up a recent plate, load the demo model).
+   * A bare empty bed could only answer one of them.
+   *
+   * The plate that was on screen is put down, not thrown away: it keeps its tab,
+   * and everything it remembers comes back when that tab is clicked.
+   */
+  addTab(): Promise<void> {
+    return this.session.newPlate();
+  }
+
+  /** Return to the draft the `+` opened. */
+  activateDraft(): void {
+    void this.router.navigate(['/']);
   }
 
   async closeTab(uuid: string, event?: Event): Promise<void> {
     event?.stopPropagation();
     if (uuid === this.activeUuid() && this.tabs().length === 1) {
-      // Closing the only open tab is the same as discarding the plate: there
-      // is nothing left to switch to, so clear the scene before navigating
-      // away rather than leaving it to bleed into the "empty" plate.
+      // Closing the only open tab leaves nothing to switch to, so the scene is
+      // cleared before navigating away rather than bleeding into the dashboard.
+      // The plate itself is untouched — it is still in the history list, and
+      // reopening it from there brings its objects back.
       await this.slicer.resetWorkplate();
     }
     this.openWorkplates.close(uuid);
@@ -204,23 +221,16 @@ export class WorkplateTabs {
 
   /** Close every tab except `uuid`. */
   closeOthers(uuid: string): void {
-    for (const tab of this.tabs()) {
-      if (tab.uuid !== uuid) {
-        this.openWorkplates.close(tab.uuid);
-      }
-    }
+    this.openWorkplates.closeAllExcept(uuid);
   }
 
   /** Close every open tab, clearing the scene since nothing is left on screen. */
   async closeAll(): Promise<void> {
-    const all = this.tabs();
-    if (all.length === 0) {
+    if (this.tabs().length === 0) {
       return;
     }
     await this.slicer.resetWorkplate();
-    for (const tab of all) {
-      this.openWorkplates.close(tab.uuid);
-    }
+    this.openWorkplates.closeAllExcept();
   }
 
   /**

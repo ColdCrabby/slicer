@@ -27,6 +27,41 @@ issue/PR numbers or repo links in the notes. See the tone rules in
 
 ## [Unreleased]
 
+### Fixed
+
+#### Workplate tabs
+
+- **Switching tabs actually switches plates.** On the desktop app, the iPad and
+  the browser slicer, clicking another tab changed the address bar and nothing
+  else — the same models, the same settings panel, the same title. Every runtime
+  now opens a plate the same way, and the viewport says so while it does.
+- **A plate comes back arranged.** Reopening one restores each model's position,
+  rotation, scale and support paint instead of dropping everything back on the
+  bed as if it had just been imported.
+- **Your plates survive closing the app.** Models are kept on the device
+  alongside the plate, so quitting the desktop app — or iPadOS reclaiming the app
+  in the background — no longer empties every tab. Room for them is bounded, and
+  the models you have not opened in longest are the ones cleared.
+- **`+` starts a plate instead of throwing one away.** It now takes you Home,
+  where a model, a drop or a recent project is one click away, and leaves the
+  plate you were on open in its tab.
+- **A renamed tab keeps its name everywhere.** The name is part of the plate, so
+  it reaches other devices and outlives a cleared browser.
+- **Switching back to a plate no longer re-downloads its models.** A hosted
+  slicer now serves an uploaded model as what it is — immutable under its own id
+  — so the browser answers the second visit from its own cache. A plate's saved
+  setup stays `no-store`, because that is the part someone else may have changed.
+- **Reloading always gets the current build.** The app shell and the WebAssembly
+  engine revalidate; only files whose names carry a build hash are kept.
+
+### Added
+
+- **See when a colleague changes the plate you are on.** On a shared server,
+  saving a plate tells everyone else looking at it: they get a **This workplate
+  was changed elsewhere** notice offering to reload. Nothing reloads by itself,
+  nobody is locked out, and whoever saves last still wins — you just stop finding
+  out afterwards. Nobody is told about their own edits.
+
 ### Changed
 
 - **Thin ribs are told apart from gap fill.** A rib, fin or divider too thin to

@@ -21,7 +21,44 @@ pub struct AppState {
     /// Broadcasts a profile-category token whenever the on-disk profile library
     /// changes, so every open WebSocket session can tell its client to refetch.
     pub profiles_changed: tokio::sync::broadcast::Sender<String>,
+    /// Broadcasts a plate whenever one is written, so a second person working
+    /// on the same plate is *told* rather than silently overwritten.
+    pub workplates_changed: tokio::sync::broadcast::Sender<WorkplateChange>,
 }
+
+/// One plate having been written, on its way to every other open session.
+#[derive(Clone, Debug)]
+pub struct WorkplateChange {
+    /// The plate's `request_uuid`.
+    pub request_uuid: String,
+    /// When the change was recorded, RFC 3339.
+    pub updated_at: Option<String>,
+    /// The client that made it, from `X-Client-Id`.
+    ///
+    /// Carried so a session can skip its own writes. Without it every save
+    /// would bounce straight back as "someone changed this plate" — which is
+    /// exactly the prompt the feature exists to make meaningful.
+    pub client: Option<String>,
+}
+
+/// The `X-Client-Id` a request identified itself with, when it sent one.
+///
+/// Opaque and self-assigned: it exists only to tell "this browser tab" from
+/// "some other browser tab", never to say who anyone is.
+pub fn client_id_of(req: &actix_web::HttpRequest) -> Option<String> {
+    req.headers()
+        .get("X-Client-Id")
+        .and_then(|value| value.to_str().ok())
+        .map(str::trim)
+        .filter(|value| !value.is_empty() && value.len() <= 128)
+        .map(str::to_string)
+}
+
+/// `Cache-Control` for a body that can never change under its own URL.
+///
+/// A year is the conventional "forever"; `immutable` is what stops the browser
+/// revalidating on a plain reload, which is the case that matters here.
+pub const IMMUTABLE_CACHE: &str = "private, max-age=31536000, immutable";
 
 // ── Config handlers ───────────────────────────────────────────────────────────
 
@@ -141,6 +178,10 @@ pub async fn get_workplate_handler(
     };
     match state.db.get_workplate_setup(uuid).await {
         Ok(setup) => actix_web::HttpResponse::Ok()
+            // Never cached. This is the document a plate is rebuilt from, and
+            // it changes whenever anyone touches the plate — a cached copy is
+            // how one person's arrangement quietly replaces another's.
+            .insert_header((actix_web::http::header::CACHE_CONTROL, "no-store"))
             .json(setup.unwrap_or_else(crate::workplate::WorkplateSetup::default)),
         Err(e) => actix_web::HttpResponse::InternalServerError()
             .json(serde_json::json!({ "error": e.to_string() })),
@@ -154,6 +195,7 @@ pub async fn get_workplate_handler(
 /// three profile ids, the user's sparse override diff, and where each object
 /// sits. Never mesh bytes, and never a copy of a profile.
 pub async fn put_workplate_handler(
+    req: actix_web::HttpRequest,
     path: web::Path<String>,
     body: web::Json<crate::workplate::WorkplateSetup>,
     state: web::Data<AppState>,
@@ -166,7 +208,16 @@ pub async fn put_workplate_handler(
     setup.updated_at = Some(chrono::Utc::now().to_rfc3339());
 
     match state.db.save_workplate_setup(uuid, &setup).await {
-        Ok(()) => actix_web::HttpResponse::Ok().json(setup),
+        Ok(()) => {
+            // Tell everyone else looking at this plate. `send` errors only when
+            // there are no subscribers, which is the ordinary single-user case.
+            let _ = state.workplates_changed.send(WorkplateChange {
+                request_uuid: uuid.to_string(),
+                updated_at: setup.updated_at.clone(),
+                client: client_id_of(&req),
+            });
+            actix_web::HttpResponse::Ok().json(setup)
+        }
         Err(e) => actix_web::HttpResponse::InternalServerError()
             .json(serde_json::json!({ "error": e.to_string() })),
     }
@@ -263,6 +314,7 @@ pub async fn delete_history_handler(state: web::Data<AppState>) -> actix_web::Ht
 /// every object rather than just the one it started from. Clients must send
 /// `ruuid` *before* the `file` field, since multipart fields stream in order.
 pub async fn upload_handler(
+    req: actix_web::HttpRequest,
     state: web::Data<AppState>,
     mut multipart: actix_multipart::Multipart,
 ) -> Result<actix_web::HttpResponse, actix_web::Error> {
@@ -387,6 +439,16 @@ pub async fn upload_handler(
         .await
         .map_err(actix_web::error::ErrorInternalServerError)?;
 
+    // A model landing on a plate someone else has open is a change to that
+    // plate, same as moving one. A brand-new plate has nobody to tell.
+    if existing_request.is_some() {
+        let _ = state.workplates_changed.send(WorkplateChange {
+            request_uuid: request_uuid.to_string(),
+            updated_at: Some(chrono::Utc::now().to_rfc3339()),
+            client: client_id_of(&req),
+        });
+    }
+
     Ok(actix_web::HttpResponse::Ok().json(UploadResponse {
         ruuid: request_uuid.to_string(),
         ofids: vec![file_uuid.to_string()],
@@ -497,18 +559,22 @@ pub async fn get_request_handler(
 
     let status_str = format!("{:?}", session.status).to_lowercase();
 
-    Ok(actix_web::HttpResponse::Ok().json(RequestMetaResponse {
-        ruuid: session.request_uuid.to_string(),
-        status: status_str,
-        has_gcode,
-        ofids: files
-            .into_iter()
-            .map(|f| RequestFileSummary {
-                file_uuid: f.file_uuid.to_string(),
-                original_filename: f.original_filename,
-            })
-            .collect(),
-    }))
+    Ok(actix_web::HttpResponse::Ok()
+        // Which files are on the plate changes whenever anyone adds one, and
+        // it is what a restore iterates. Small, and never worth a stale copy.
+        .insert_header((actix_web::http::header::CACHE_CONTROL, "no-store"))
+        .json(RequestMetaResponse {
+            ruuid: session.request_uuid.to_string(),
+            status: status_str,
+            has_gcode,
+            ofids: files
+                .into_iter()
+                .map(|f| RequestFileSummary {
+                    file_uuid: f.file_uuid.to_string(),
+                    original_filename: f.original_filename,
+                })
+                .collect(),
+        }))
 }
 
 /// `GET /api/file/:file_uuid` — stream an uploaded file back to the browser.
@@ -517,6 +583,7 @@ pub async fn get_request_handler(
 /// extension is preserved in `original_filename` so the browser sees the
 /// right name regardless of format.
 pub async fn download_file_handler(
+    req: actix_web::HttpRequest,
     state: web::Data<AppState>,
     file_uuid: web::Path<String>,
 ) -> Result<actix_web::HttpResponse, actix_web::Error> {
@@ -535,12 +602,34 @@ pub async fn download_file_handler(
         return Err(actix_web::error::ErrorNotFound("File not found on disk"));
     }
 
+    // An uploaded model never changes: a second upload of the same file is a
+    // second `file_uuid`. So the id *is* the validator, and the browser may
+    // keep the bytes for as long as it likes — which is what makes switching
+    // back to a plate instant instead of a fresh megabyte download.
+    //
+    // `private`, not `public`: these are one person's models, and a shared
+    // proxy has no business holding them.
+    let etag = format!("\"{}\"", uuid);
+    if req
+        .headers()
+        .get(actix_web::http::header::IF_NONE_MATCH)
+        .and_then(|value| value.to_str().ok())
+        .is_some_and(|value| value.split(',').any(|tag| tag.trim() == etag))
+    {
+        return Ok(actix_web::HttpResponse::NotModified()
+            .insert_header((actix_web::http::header::ETAG, etag))
+            .insert_header((actix_web::http::header::CACHE_CONTROL, IMMUTABLE_CACHE))
+            .finish());
+    }
+
     let content = tokio::fs::read(&entry.file_path)
         .await
         .map_err(|_| actix_web::error::ErrorNotFound("File could not be read"))?;
 
     Ok(actix_web::HttpResponse::Ok()
         .content_type("application/octet-stream")
+        .insert_header((actix_web::http::header::ETAG, etag))
+        .insert_header((actix_web::http::header::CACHE_CONTROL, IMMUTABLE_CACHE))
         .insert_header((
             "Content-Disposition",
             format!("attachment; filename=\"{}\"", entry.original_filename),

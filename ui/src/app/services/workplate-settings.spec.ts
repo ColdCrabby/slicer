@@ -53,6 +53,7 @@ describe('WorkplateSettingsStore', () => {
 
   it('reads an untouched plate as inheriting everything', () => {
     expect(store().settingsFor('never-opened')).toEqual({
+      name: null,
       overrides: {},
       presets: {},
       objects: [],
@@ -216,6 +217,53 @@ describe('WorkplateSettingsStore', () => {
     await plates.hydrate(PLATE_A);
     await plates.hydrate(PLATE_A);
     expect(spy.mock.calls.length).toBe(1);
+  });
+
+  it('makes a second caller wait on the fetch already in flight', async () => {
+    const plates = store();
+    engine.remote.set(PLATE_A, { overrides: { layer_height: 0.3 }, presets: {}, objects: [] });
+    let release = (): void => undefined;
+    vi.spyOn(engine, 'load').mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          release = () => resolve(engine.remote.get(PLATE_A) ?? null);
+        }),
+    );
+
+    // Opening a plate rebuilds its scene from this document, so a caller told
+    // "already hydrated" while the fetch is still out would build from nothing.
+    const first = plates.hydrate(PLATE_A);
+    const second = plates.hydrate(PLATE_A);
+    release();
+    await Promise.all([first, second]);
+
+    expect(plates.settingsFor(PLATE_A).overrides).toEqual({ layer_height: 0.3 });
+  });
+
+  it('records nothing while a plate is being rebuilt from its document', () => {
+    const plates = store();
+    plates.setOverrides(PLATE_A, { layer_height: 0.12 });
+
+    const done = plates.beginRestore();
+    plates.setObjects(PLATE_A, []);
+    plates.setOverrides(PLATE_A, { layer_height: 0.9 });
+    expect(plates.settingsFor(PLATE_A).overrides).toEqual({ layer_height: 0.12 });
+
+    done();
+    plates.setOverrides(PLATE_A, { layer_height: 0.9 });
+    expect(plates.settingsFor(PLATE_A).overrides).toEqual({ layer_height: 0.9 });
+  });
+
+  it('carries the plate name in the document, so it survives a cleared browser', async () => {
+    const plates = store();
+    plates.setName(PLATE_A, 'Bracket v3');
+    plates.flush();
+    await Promise.resolve();
+
+    expect(engine.saved.get(PLATE_A)?.name).toBe('Bracket v3');
+
+    plates.setName(PLATE_A, null);
+    expect(plates.settingsFor(PLATE_A).name).toBeNull();
   });
 
   it('never sends the unsaved draft plate anywhere', async () => {

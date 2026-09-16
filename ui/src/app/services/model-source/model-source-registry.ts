@@ -1,4 +1,5 @@
 import { Injectable } from '@angular/core';
+import { modelVault } from './model-vault';
 
 /** Model file formats the scene engine can load. */
 export const MODEL_EXTENSIONS = ['stl', 'obj', '3mf'] as const;
@@ -76,6 +77,11 @@ export interface ModelSource {
  *
  * Storage is keyed by **file**, not by object, so a 3MF holding five parts and
  * a model duplicated ten times each cost exactly one copy of the bytes.
+ *
+ * The map is this tab's working set and nothing more; what survives a reload —
+ * and, on iPadOS, the system reclaiming the webview — is the copy written
+ * through to the {@link modelVault}. {@link hydrate} is how a plate reopened in
+ * a later session gets its files back.
  */
 @Injectable({ providedIn: 'root' })
 export class ModelSourceRegistry {
@@ -108,7 +114,29 @@ export class ModelSourceRegistry {
       filePath: input.filePath ?? existing?.filePath,
     };
     this.#sources.set(sourceId, source);
+    // Fire and forget: the plate is usable the moment the map holds the file,
+    // and a user dragging a model must not wait on a database write.
+    void modelVault.put(source);
     return source;
+  }
+
+  /**
+   * Pull files back out of the vault and into this tab's working set.
+   *
+   * Resolves to the ids that are now resolvable — an id the vault never held,
+   * or whose bytes it could not keep, is simply absent from the result, which
+   * is what lets a restore report honestly on what it could not bring back.
+   */
+  async hydrate(sourceIds: readonly string[]): Promise<Set<string>> {
+    const missing = sourceIds.filter((id) => id && !this.#sources.has(id));
+    for (const source of await modelVault.read(missing)) {
+      // A concurrent `register` for the same id wins: it holds bytes the user
+      // just handed us, which are at least as fresh as the stored copy.
+      if (!this.#sources.has(source.sourceId)) {
+        this.#sources.set(source.sourceId, source);
+      }
+    }
+    return new Set(sourceIds.filter((id) => this.#sources.has(id)));
   }
 
   /** Look up a file by the handle its objects carry. */
@@ -134,16 +162,40 @@ export class ModelSourceRegistry {
     }
   }
 
-  /** Forget a file once no object on the plate still points at it. */
+  /**
+   * Forget a file once no object on the plate still points at it.
+   *
+   * Memory only, deliberately. Removing an object is undoable, and an undo that
+   * restores the object but not the file it slices from would be worse than the
+   * disk the copy costs. {@link trim} is what eventually reclaims it.
+   */
   forget(sourceId: string | null | undefined): void {
     if (sourceId) {
       this.#sources.delete(sourceId);
     }
   }
 
-  /** Drop every registered file — the plate was cleared. */
+  /**
+   * Release this tab's working set.
+   *
+   * Memory only. The vault is keyed to the plates that are *open*, not to the
+   * one on screen, so switching away from a plate must not forget the files the
+   * plate behind it is still made of. The stored copy is bounded by age
+   * instead — see {@link trim}.
+   */
   clear(): void {
     this.#sources.clear();
+  }
+
+  /** Bound what is stored, dropping the files nobody has opened in longest. */
+  async trim(): Promise<void> {
+    await modelVault.trim();
+  }
+
+  /** Drop the working set *and* everything stored — wiping local data. */
+  async clearPersisted(): Promise<void> {
+    this.#sources.clear();
+    await modelVault.clear();
   }
 }
 

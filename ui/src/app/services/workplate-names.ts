@@ -1,36 +1,37 @@
-import { Injectable, inject, signal } from '@angular/core';
+import { Injectable, inject } from '@angular/core';
 import { BrowserStorage } from './browser-storage';
+import { WorkplateSettingsStore } from './workplate-settings';
 
-const STORAGE_KEY = 'workplate.names';
+/** Where names used to live, before they became part of the plate's document. */
+const LEGACY_STORAGE_KEY = 'workplate.names';
 const DEFAULT_WORKPLATE_NAME = 'Untitled workplate';
 const DEFAULT_GCODE_FILENAME = 'output.gcode';
 const INVALID_FILENAME_CHARS = /[<>:"/\\|?*\u0000-\u001F]/g;
 const GCODE_EXTENSION = /\.(gcode|gco|g)$/i;
 
 /**
- * Remembers the user-chosen display name for each workplate, keyed by its
- * `request_uuid`. Backend scenes are ephemeral per WS connection, so — like the
- * printer and filament profiles — names live in localStorage and survive
- * reloads. Editing a name here is the single source of truth the scene title
- * and history list both read from.
+ * What each workplate is called, and everything derived from it — the tab
+ * label, the scene title, the history row, the G-code filename.
+ *
+ * The name itself is **not stored here.** It is a field of the plate's own
+ * document ({@link WorkplateSettingsStore}), so a tab renamed on the desktop is
+ * still that tab when the plate is opened on an iPad, and clearing a browser
+ * does not take every name with it. What lives here is the rest of the answer:
+ * which fallback to use when a plate was never renamed, and how to turn a name
+ * into something a filesystem will accept.
  */
 @Injectable({ providedIn: 'root' })
 export class WorkplateNames {
   private readonly storage = inject(BrowserStorage);
+  private readonly plates = inject(WorkplateSettingsStore);
 
-  private readonly _names = signal<Record<string, string>>(
-    this.storage.getJson<Record<string, string>>(STORAGE_KEY, 'local') ?? {},
-  );
-
-  /** Reactive map of `request_uuid` → custom name. */
-  readonly names = this._names.asReadonly();
+  constructor() {
+    this.#migrateLegacyNames();
+  }
 
   /** The custom name for a workplate, or `null` if it was never renamed. */
   nameFor(uuid: string | null | undefined): string | null {
-    if (!uuid) {
-      return null;
-    }
-    return this._names()[uuid] ?? null;
+    return uuid ? (this.plates.settingsFor(uuid).name ?? null) : null;
   }
 
   /**
@@ -84,17 +85,28 @@ export class WorkplateNames {
 
   /** Store (or, when blank, clear) the custom name for a workplate. */
   setName(uuid: string, name: string): void {
-    const trimmed = name.trim();
-    this._names.update((map) => {
-      const next = { ...map };
-      if (trimmed) {
-        next[uuid] = trimmed;
-      } else {
-        delete next[uuid];
+    this.plates.setName(uuid, name.trim() || null);
+  }
+
+  /**
+   * Fold names written before they were part of the plate's document into it,
+   * once, then drop the old map so this cannot run twice.
+   *
+   * A build that has names in the old place and nothing in the new one would
+   * otherwise look, to the user, exactly like every plate they ever renamed
+   * having forgotten its name.
+   */
+  #migrateLegacyNames(): void {
+    const legacy = this.storage.getJson<Record<string, string>>(LEGACY_STORAGE_KEY, 'local');
+    if (!legacy) {
+      return;
+    }
+    for (const [uuid, name] of Object.entries(legacy)) {
+      if (name && !this.plates.settingsFor(uuid).name) {
+        this.plates.setName(uuid, name);
       }
-      return next;
-    });
-    this.storage.writeJson(STORAGE_KEY, this._names(), 'local');
+    }
+    this.storage.write(LEGACY_STORAGE_KEY, null, 'local');
   }
 
   #sanitizeFilenameBase(name: string): string {

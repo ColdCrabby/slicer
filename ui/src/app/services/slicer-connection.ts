@@ -4,6 +4,7 @@ import { EMPTY, Observable, Subject, timer } from 'rxjs';
 import { catchError, share, switchMap, tap } from 'rxjs/operators';
 import { WebSocketSubject, webSocket } from 'rxjs/webSocket';
 import { environment } from '../../environments/environment';
+import { clientId } from './client-id';
 import { ClientMessage } from '../../generated/slicer-engine-ws-client-message-v1';
 import { ServerMessage } from '../../generated/slicer-engine-ws-server-message-v1';
 
@@ -135,7 +136,10 @@ export class SlicerConnection {
     this.#subject?.complete();
 
     this.#subject = webSocket<ServerMessage>({
-      url: environment.wsUrl,
+      // The engine echoes plate changes to every session but this one — see
+      // `clientId`. A socket without it is told about its own writes too, which
+      // is noisy rather than wrong.
+      url: `${environment.wsUrl}?client=${encodeURIComponent(clientId())}`,
       openObserver: {
         next: () => {
           this.#retryCount = 0;

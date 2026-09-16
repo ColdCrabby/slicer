@@ -66,7 +66,9 @@ ui/src/app/
 │   ├── slicer-connection.ts          WebSocket transport (typed messages)
 │   ├── slicer-file.ts                mesh upload (REST), download
 │   ├── workplate-objects/            the one way an object gets onto a plate
+│   ├── workplate-session/            the one way a plate becomes the plate on screen
 │   ├── model-source/                 object `source_id` → the file it slices from
+│   │                                 (`model-vault.ts` is the IndexedDB copy that outlives the tab)
 │   ├── upload-guard.ts               CanDeactivate guard for in-flight uploads
 │   ├── viewer-control.ts             camera / framing helpers
 │   ├── object-tracker/               per-object UI state
@@ -156,11 +158,12 @@ accept more, so responsibilities are split strictly.
   clear does.
 - **[`SlicerFile`](src/app/services/slicer-file.ts) holds a list, not a file.**
   `files` accumulates `{fileId, filename}` and `upload(file)` appends, attaching
-  to the open workplate. `fetchFile` adopts a file as the *primary displayed*
-  model — it sets `selectedFile`, which retargets the viewer's `model` input — so
-  additional objects must use **`downloadFile`**, which registers without
-  touching `selectedFile`. Otherwise restoring an N-object plate leaves only the
-  last file on screen.
+  to the open workplate. Fetching a model is deliberately free of side effects
+  (`fetchModel`); a plate is adopted **once**, whole, through `adoptRestored`,
+  and the `request_uuid` is set last because that is the signal everything
+  downstream treats as "the plate changed". A fetch that adopted what it fetched
+  would announce a half-built plate once per file and leave the viewer pointed at
+  whichever model happened to come last.
 - **[`toSliceDtos`](src/app/runtime/adapters/cloud/scene-slice-dto.ts) resolves
   each object to its file via `source_id` and throws rather than guessing.** It
   is a pure function with tests pinning the regression; keep the mapping there,
@@ -170,6 +173,53 @@ accept more, so responsibilities are split strictly.
   match, so an object created by *anyone* — the add button, `Duplicate`, undo —
   renders without the viewer being told. Do not add a second place that
   constructs display meshes.
+
+### Tabs: one way to open a plate, in every runtime
+
+Several plates can be open at once ([`OpenWorkplates`](src/app/services/open-workplates.ts)
+is the list in the titlebar), but only one is ever *loaded* — the scene engine is
+a singleton and the server's scene is per-connection. So a tab is a navigation,
+and **[`WorkplateSession`](src/app/services/workplate-session/workplate-session.ts)
+is the only thing that performs one.** It flushes the outgoing plate, waits for
+the incoming plate's document, tears the old scene down, resolves the files,
+rebuilds the objects with the transforms and support paint they were saved with,
+and only then adopts the plate.
+
+Three rules it exists to hold:
+
+- **One path, all four runtimes.** Opening a plate used to mean "refetch its
+  uploads" in cloud mode and *nothing at all* for a `local-…` plate — which is
+  every plate in the desktop, iPad and browser builds. Switching tabs changed the
+  address bar and left the previous plate's scene, settings and title on screen.
+  Never special-case a runtime here; resolve the files differently, open the
+  plate the same.
+- **The document is fetched before the scene is built, and recording is
+  suspended while it is.** `WorkplateSettingsStore.hydrate` returns the in-flight
+  promise rather than "already hydrated", and `beginRestore()` stops the recorder
+  writing each half-built state back over the document it is reading.
+- **A plate's files outlive the page.** The [`modelVault`](src/app/services/model-source/model-vault.ts)
+  is an IndexedDB copy of every model the local runtimes hold, because there the
+  browser *is* the engine and there is nothing else to ask. Without it a plate
+  could only be reopened while the tab that made it was still alive — which is
+  what "the iPad forgot everything" was. It is bounded by age, not by which tabs
+  are open: closing a tab must not make the plate unreopenable from history.
+
+Which saved object gets which parsed part is decided up front by the pure
+[`planPlacements`](src/app/services/workplate-session/placement-plan.ts), so
+duplicates, multi-part 3MFs and a deleted part are settled in one tested place
+rather than inside the engine calls.
+
+**Switching back to a plate re-fetches nothing it already has.** In cloud mode an
+uploaded model is served immutable with an `ETag`, so the browser answers the
+second visit out of its own cache; the plate's *document* is `no-store`, because
+that is the part someone else may have changed. Both live in
+[`src/server/README.md`](../src/server/README.md#what-may-be-cached-and-for-how-long).
+
+**And when someone else does change it**, the engine says so over the
+WebSocket and [`WorkplateSession`](src/app/services/workplate-session/workplate-session.ts) raises `changedElsewhere` for the plate on
+screen. It is a prompt, never a reload: two people on one plate is ordinary, and
+taking the scene away from whoever typed second is worse than letting them pick
+the moment. Ignoring it leaves last-writer-wins exactly as it was.
 
 ### Placing objects is one command, not two
 

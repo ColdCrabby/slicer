@@ -2,6 +2,7 @@ import { Provider } from '@angular/core';
 import { environment } from '../../environments/environment';
 import type { WorkplateSetup } from '../../generated/slicer-engine-workplate-setup-v1';
 import { resolveRuntimeMode } from '../runtime/domain/runtime-mode.util';
+import { CLIENT_ID_HEADER, clientId } from './client-id';
 
 export type { WorkplateSetup };
 
@@ -65,7 +66,9 @@ export class RemoteWorkplatePersistence extends WorkplatePersistence {
   async save(requestUuid: string, setup: WorkplateSetup): Promise<void> {
     const response = await fetch(`${this.base}/workplates/${encodeURIComponent(requestUuid)}`, {
       method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
+      // Names this view as the author, so the engine's "someone changed this
+      // plate" broadcast skips the person who made the change.
+      headers: { 'Content-Type': 'application/json', [CLIENT_ID_HEADER]: clientId() },
       body: JSON.stringify(setup),
       // A plate configured moments before the tab closes still reaches the
       // server: the request outlives the page that started it.

@@ -220,11 +220,17 @@ a link into a plate all open a tab; clicking one switches to that plate.
   automatic name back. The same name is used for the downloaded G-code file.
 - **Move between tabs from the keyboard** with `←` and `→` once a tab has
   focus — `Home` and `End` jump to the ends, `Enter` switches, `F2` renames.
-- **Open a new, empty plate** with the `+` at the end of the strip.
+- **Start a new plate** with the `+` at the end of the strip. It takes you Home,
+  where you can open a model, drop one in, or pick up a recent project — the
+  plate you were on keeps its tab and is exactly where you left it.
 - **Close a tab** with its `×`. Closing the plate you're looking at switches you
-  to the next tab over, or back to a fresh plate if it was the last one open.
-  Closing a tab only removes it from the strip — the plate itself isn't
-  deleted, and you can always get back to it from **Home → Recent projects**.
+  to the next tab over, or Home if it was the last one open. Closing a tab only
+  removes it from the strip — the plate itself isn't deleted, and you can always
+  get back to it from **Home → Recent projects**.
+
+Switching tabs reloads that plate: its models, where you put them, the profiles
+it was set up with and the settings you changed on it. That takes a moment for a
+large plate, and the viewport says so while it happens.
 
 ## Undo
 

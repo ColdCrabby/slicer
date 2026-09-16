@@ -51,12 +51,21 @@
   }
 
   <!--
-    The plate on screen before it has a `request_uuid` of its own. Without it the
+    The plate on screen before it has a `request_uuid` of its own — the
+    dashboard the `+` opens, or the empty-plate drop screen. Without it the
     strip renders a tablist with nothing selected while the user is plainly
     working somewhere; it is replaced by a real tab the moment a model lands.
   -->
   @if (isNewPlate()) {
-    <div class="wp-tab wp-tab--draft active" role="tab" aria-selected="true" tabindex="0">
+    <div
+      class="wp-tab wp-tab--draft active"
+      role="tab"
+      aria-selected="true"
+      tabindex="0"
+      (click)="activateDraft()"
+      (keydown.enter)="activateDraft()"
+      (keydown.space)="activateDraft()"
+    >
       <span class="wp-tab-label">New plate</span>
     </div>
   }

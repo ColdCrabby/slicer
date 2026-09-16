@@ -7,3 +7,4 @@ export {
   type ModelFormat,
   type ModelSource,
 } from './model-source-registry';
+export { modelVault } from './model-vault';
