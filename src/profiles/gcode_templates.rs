@@ -30,13 +30,13 @@
 //! macro reads `BED_TEMP=` does not error — it just prints at the macro's
 //! default temperature.
 
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 
 /// The firmware dialect a template targets, as the printer profile spells it.
 ///
 /// Applying a template also switches the printer to this flavor, so a Klipper
 /// preset cannot be left sitting on a Marlin printer.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "lowercase")]
 pub enum TemplateFlavor {
     Marlin,
@@ -44,7 +44,11 @@ pub enum TemplateFlavor {
 }
 
 /// One selectable preset: its identity, and the three blocks it writes.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+///
+/// Serialised in camelCase because the UI consumes the generated JSON directly
+/// as its own `GcodeTemplate`, rather than through a mapping layer.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct GcodeTemplate {
     /// Stable identifier, used as the dropdown value and stored on the profile.
     pub id: &'static str,
@@ -109,6 +113,23 @@ pub const DEFAULT_TEMPLATE_ID: &str = STANDARD_MARLIN.id;
 /// The preset with this id, or `None` when nothing matches.
 pub fn template_by_id(id: &str) -> Option<&'static GcodeTemplate> {
     GCODE_TEMPLATES.iter().find(|t| t.id == id)
+}
+
+/// The whole catalog in the shape the UI reads it: the presets plus which one a
+/// from-scratch printer starts on, so one file answers both questions.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GcodeTemplateCatalog {
+    pub default_template_id: &'static str,
+    pub templates: &'static [GcodeTemplate],
+}
+
+/// The catalog, ready to serialise.
+pub fn catalog() -> GcodeTemplateCatalog {
+    GcodeTemplateCatalog {
+        default_template_id: DEFAULT_TEMPLATE_ID,
+        templates: GCODE_TEMPLATES,
+    }
 }
 
 #[cfg(test)]

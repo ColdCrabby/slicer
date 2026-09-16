@@ -1,8 +1,5 @@
 import type { PrinterGcodeFlavor } from './printer.model';
-import {
-  GENERATED_DEFAULT_TEMPLATE_ID,
-  GENERATED_GCODE_TEMPLATES,
-} from '../../generated/gcode-templates.data';
+import catalogJson from '../../generated/gcode-templates.json';
 
 /**
  * A ready-made G-code preset for a printer's start / end / layer-change blocks.
@@ -29,6 +26,18 @@ export interface GcodeTemplate {
   readonly endGcode: string;
   readonly layerGcode: string;
 }
+
+/**
+ * The generated catalog, narrowed once here.
+ *
+ * A JSON import widens every string literal, so `flavor` arrives as `string`
+ * rather than the union. The closed set is guaranteed on the engine side by the
+ * `TemplateFlavor` enum, so this is the one place that has to say so.
+ */
+const catalog = catalogJson as {
+  readonly defaultTemplateId: string;
+  readonly templates: readonly GcodeTemplate[];
+};
 
 /** Sentinel id for "leave the fields as the user typed them". */
 export const CUSTOM_TEMPLATE_ID = 'custom';
@@ -65,10 +74,10 @@ export const GCODE_PLACEHOLDER_HINT =
  * re-run `pnpm run gen-gcode-templates`. The blocks used to be maintained here
  * *and* in the engine's profile defaults, and the two drifted.
  */
-export const GCODE_TEMPLATES: readonly GcodeTemplate[] = GENERATED_GCODE_TEMPLATES;
+export const GCODE_TEMPLATES: readonly GcodeTemplate[] = catalog.templates;
 
 /** Template a from-scratch printer starts attached to. */
-export const DEFAULT_GCODE_TEMPLATE_ID = GENERATED_DEFAULT_TEMPLATE_ID;
+export const DEFAULT_GCODE_TEMPLATE_ID = catalog.defaultTemplateId;
 
 /** The best default template id for a printer of the given firmware flavor. */
 export function defaultGcodeTemplateIdForFlavor(flavor: PrinterGcodeFlavor | undefined): string {
