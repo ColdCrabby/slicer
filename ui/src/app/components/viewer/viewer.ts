@@ -739,6 +739,29 @@ export class Viewer {
     });
   }
 
+  /**
+   * Hand the keyboard to the scene when the pointer is brought to it.
+   *
+   * A canvas takes no focus of its own, so whatever the user last typed in
+   * keeps it — a settings field in the drawer, a layer slider in the G-code
+   * inspector. Every scene shortcut stands down while a field is focused, so
+   * after one detour into the settings the plate stops answering to `p`, `g`
+   * and the tool letters, and those letters go on landing in a field that may
+   * not even be on screen any more. Reaching for the plate is the clearest
+   * possible statement that the detour is over.
+   *
+   * Focus moves *to the host* rather than merely off the field, because
+   * `document.body` is not a position: Tab from there restarts at the top of
+   * the window, several screens away from the tool card the user is working
+   * with. Parked on the scene, Tab reaches that card in one press.
+   */
+  protected releaseKeyboardFocus(): void {
+    const host = this.hostRef().nativeElement;
+    if (document.activeElement !== host) {
+      host.focus({ preventScroll: true });
+    }
+  }
+
   // ---------------------------------------------------------------------------
   // Selection / gizmo handlers
   //

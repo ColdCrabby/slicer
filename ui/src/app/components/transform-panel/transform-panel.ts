@@ -61,10 +61,9 @@ function unionAabb(objects: readonly SceneObjectSnapshot[]): [number[], number[]
 /**
  * Contextual transform sub-settings for the current selection.
  *
- * Hangs under the 3D toolbar's object-mode selector and mirrors the
- * OrcaSlicer transform toolbar: whichever manipulation mode is active
- * (translate / rotate / scale) reveals precise numeric fields for that
- * operation. Values are read live from the WASM scene engine snapshot (so
+ * Docked down the left edge of the scene by the shell: whichever
+ * manipulation tool is active (translate / rotate / scale) reveals precise
+ * numeric fields for that operation. Values are read live from the WASM scene engine snapshot (so
  * gizmo drags update the fields), and every edit is dispatched as an absolute
  * `SetTransform` op through {@link SceneCommand} so it participates in
  * undo/redo exactly like a gizmo gesture.
@@ -126,11 +125,43 @@ export class TransformPanel {
   /** How many objects the fields are editing. */
   protected readonly count = computed(() => this.selection().length);
 
-  /** Label naming the batch, or empty for a single object. */
-  protected readonly title = computed(() => (this.count() > 1 ? `${this.count()} objects` : ''));
+  /** What each manipulation tool is called, in the words the card header uses. */
+  private readonly modeLabels: Record<'translate' | 'rotate' | 'scale', string> = {
+    translate: 'Move',
+    rotate: 'Rotate',
+    scale: 'Scale',
+  };
 
-  /** Whether the panel should be shown at all. */
-  protected readonly visible = computed(() => this.mode() !== null && this.count() > 0);
+  /**
+   * The card's own name: the active tool, plus how many objects it will act on
+   * once that is more than one.
+   *
+   * It used to be the batch size alone, so a single selection left the header
+   * blank — the card swapped its fields under you as you changed tool and never
+   * said which tool you had landed on. The only other cue is a highlighted 34px
+   * icon at the top of the window; the words belong here, where the eye already
+   * is. Its siblings already name themselves ("Paint support", "Place objects").
+   */
+  protected readonly title = computed(() => {
+    const mode = this.mode();
+    if (mode === null) {
+      return '';
+    }
+    const label = this.modeLabels[mode];
+    return this.count() > 1 ? `${label} · ${this.count()} objects` : label;
+  });
+
+  /**
+   * Whether the panel should be shown at all.
+   *
+   * The G-code check is not redundant: this card used to sit inside the
+   * toolbar's plate-tools block and inherit that gate from its parent. Docked to
+   * the scene by the shell it has no such parent, and a transform card floating
+   * over a set of toolpaths offers to move something the view cannot show.
+   */
+  protected readonly visible = computed(
+    () => this.mode() !== null && this.count() > 0 && this.viewerControl.viewMode() === 'model',
+  );
 
   /** Which unit the scale mode edits (percent of original vs. absolute mm). */
   protected readonly scaleUnit = signal<ScaleUnit>('percent');

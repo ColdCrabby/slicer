@@ -34,13 +34,23 @@ function normalized(v: Vec3): Vec3 {
 
 export type ViewerView = 'perspective' | 'ortho';
 /**
- * Object-manipulation mode. Drives the on-canvas gizmo for the current
- * selection. `'none'` is the default — no gizmo is shown, clicks select.
- * `'pullToFloor'` and `'paint'` are sticky face/surface-picking modes: the
- * user can pick or paint repeatedly across different objects without
- * re-entering the mode each time.
+ * The one active tool.
+ *
+ * Drives the on-canvas gizmo for the current selection *and* which contextual
+ * card the toolbar shows — deliberately the same signal, because they are the
+ * same question. A second flag beside it let the placement card stay open
+ * underneath the rotate card, which says the user is placing and rotating at
+ * once; there is no such state.
+ *
+ * `'none'` shows no gizmo and leaves clicks to select. `'pullToFloor'` and
+ * `'paint'` are sticky face/surface-picking modes: the user can pick or paint
+ * repeatedly across different objects without re-entering the mode each time.
+ * `'place'` acts on the whole plate rather than the selection, so it shows no
+ * gizmo — its card holds the auto-arrange settings and the button that runs
+ * them.
  */
-export type ObjectMode = 'none' | 'translate' | 'rotate' | 'scale' | 'pullToFloor' | 'paint';
+export type ObjectMode =
+  'none' | 'translate' | 'rotate' | 'scale' | 'pullToFloor' | 'paint' | 'place';
 
 /** What a paint-support brush stroke marks the facets underneath it as. */
 export type PaintBrushMode = 'enforcer' | 'blocker' | 'erase';

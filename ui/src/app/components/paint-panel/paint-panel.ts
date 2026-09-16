@@ -15,9 +15,13 @@ const BRUSH_MODE_OPTIONS: readonly SegmentOption[] = [
 ];
 
 /**
- * Contextual paint-brush sub-settings for the 3D toolbar's `'paint'` object
- * mode. Mirrors the transform panel's pattern — hangs under the toolbar,
- * gated on the active object mode.
+ * Contextual paint-brush sub-settings for the `'paint'` tool. Mirrors the
+ * transform panel's pattern — docked to the scene's left edge by the shell,
+ * gated on the active tool.
+ *
+ * Reaching it still means leaving the model mid-stroke, which is what the
+ * quick-adjust popout (Shift+B) exists for; this card is where the brush is
+ * set up, not where it is nudged.
  *
  * A brush stroke itself is dispatched from `SceneSelection`'s pointer
  * handling (via `Viewer.handlePaintDab`), not from this panel — this panel
@@ -39,7 +43,14 @@ export class PaintPanel {
 
   protected readonly brushModeOptions = BRUSH_MODE_OPTIONS;
 
-  protected readonly visible = computed(() => this.viewerControl.objectMode() === 'paint');
+  /**
+   * Showing while the brush is the active tool, on the plate only. The G-code
+   * check is not redundant: this card used to inherit it from the toolbar block
+   * it lived in, and the shell that docks it now is not so selective.
+   */
+  protected readonly visible = computed(
+    () => this.viewerControl.objectMode() === 'paint' && this.viewerControl.viewMode() === 'model',
+  );
   protected readonly brushMode = computed(() => this.viewerControl.paintBrushMode());
   protected readonly brushRadius = computed(() => this.viewerControl.paintBrushRadius());
 

@@ -88,8 +88,8 @@ export class Sidebar {
   protected readonly isOverlay = computed(
     () => this.collapsed() && (this.overlayOpen() || this.hoverPreview()),
   );
-  /** A tap/click peek that warrants a dismissable scrim (hover previews don't). */
-  protected readonly isScrimOpen = computed(() => this.collapsed() && this.overlayOpen());
+  /** A tap/click peek, which is the kind that needs dismissing (hover ones close themselves). */
+  private readonly isPinnedPeek = computed(() => this.collapsed() && this.overlayOpen());
 
   private dragStartX = 0;
   private dragStartWidth = 0;
@@ -106,6 +106,7 @@ export class Sidebar {
     });
 
     this.armEdgeHover();
+    this.armOutsideDismiss();
 
     this.destroyRef.onDestroy(() => {
       this.clearHoverTimers();
@@ -173,8 +174,23 @@ export class Sidebar {
         return;
       }
       const onMove = (event: PointerEvent): void => {
-        const left = this.el.nativeElement.getBoundingClientRect().left;
-        const atEdge = event.clientX >= left && event.clientX <= left + EDGE_ARM_PX;
+        // A held button means a gesture is already in flight. Orbiting the plate
+        // and dragging past the rail is not a request for the settings panel —
+        // and having it slide out mid-drag is the one way the peek can cover
+        // the very thing the hand is working on.
+        if (event.buttons !== 0) {
+          this.clearOpenTimer();
+          return;
+        }
+        // The band is the panel's own edge, bounded by the panel's own height:
+        // the titlebar and the nav rail's bottom padding sit in the same column
+        // of pixels and have nothing to do with the settings drawer.
+        const rect = this.el.nativeElement.getBoundingClientRect();
+        const atEdge =
+          event.clientX >= rect.left &&
+          event.clientX <= rect.left + EDGE_ARM_PX &&
+          event.clientY >= rect.top &&
+          event.clientY <= rect.bottom;
         // The tab overlaps the arming band, and it is a button: aiming at it
         // should arm a click, not a reveal.
         const overTab =
@@ -197,6 +213,47 @@ export class Sidebar {
         this.document.removeEventListener('pointermove', onMove);
         this.clearOpenTimer();
       });
+    });
+  }
+
+  /**
+   * Close a tap/click peek when the next press lands somewhere else — without
+   * consuming that press.
+   *
+   * The obvious implementation is a transparent full-screen button, and it is
+   * the wrong one: invisible or not, it is still a button over the entire
+   * window, so the press that dismissed the drawer never reached the plate
+   * behind it and every select, move or camera drag after a peek cost two
+   * gestures. A passive listener closes the panel and lets the same press land
+   * on whatever it was aimed at.
+   *
+   * Two things count as inside. The host covers the panel, its dock nub and
+   * the reveal tab. The floating container covers the popovers the panel's own
+   * selects and tooltips open, which the floating service renders at body level
+   * and which are therefore "outside" by DOM position while being the panel by
+   * every other measure.
+   *
+   * Capture phase, because the G-code inspector stops `pointerdown` from
+   * bubbling; without it, reaching for the legend would leave the drawer open
+   * over the plate.
+   */
+  private armOutsideDismiss(): void {
+    effect((onCleanup) => {
+      if (!this.isPinnedPeek()) {
+        return;
+      }
+      const onDown = (event: PointerEvent): void => {
+        const target = event.target;
+        if (!(target instanceof Node) || this.el.nativeElement.contains(target)) {
+          return;
+        }
+        if (target instanceof Element && target.closest('.nexus-floating-container') !== null) {
+          return;
+        }
+        this.dismissOverlay();
+      };
+      this.document.addEventListener('pointerdown', onDown, { capture: true });
+      onCleanup(() => this.document.removeEventListener('pointerdown', onDown, { capture: true }));
     });
   }
 
@@ -276,8 +333,8 @@ export class Sidebar {
     this.overlayOpen.set(true);
   }
 
-  /** Tap/click the scrim behind an overlay peek to dismiss it (stays hidden). */
-  protected dismissOverlay(): void {
+  /** Put a peek away, whichever kind it was, and stop anything that could reopen it. */
+  private dismissOverlay(): void {
     this.clearHoverTimers();
     this.stopPointerWatch();
     this.overlayOpen.set(false);
@@ -289,10 +346,7 @@ export class Sidebar {
     if (!this.collapsed()) {
       return;
     }
-    this.clearHoverTimers();
-    this.stopPointerWatch();
-    this.overlayOpen.set(false);
-    this.hoverPreview.set(false);
+    this.dismissOverlay();
   }
 
   private clearOpenTimer(): void {

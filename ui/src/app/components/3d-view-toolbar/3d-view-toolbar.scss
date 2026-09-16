@@ -25,6 +25,24 @@
   min-width: 0;
 }
 
+/* Anchor the outer groups to the edges so neither one moves when the middle
+   changes. Centring the toolbar as one block meant that hiding the plate tools
+   — which is what entering G-code preview does — re-centred whatever was left,
+   sliding the button just pressed out from under the pointer: a model ⇄ preview
+   round trip could not be done without re-aiming between clicks.
+
+   Auto margins rather than a three-column grid, because the wrap above is
+   load-bearing — an iPad beside a docked settings column has no room for one
+   row of 44px targets, and grid tracks would squeeze the pills instead of
+   breaking the row. */
+.view-group--start {
+  margin-right: auto;
+}
+
+.view-group--end {
+  margin-left: auto;
+}
+
 /* ── Floating pill groups ───────────────────────────────────────────────── */
 
 /* `:host` is load-bearing, not decoration. `nexus-card` styles itself with
@@ -122,40 +140,24 @@
   background: var(--color-border-lighter);
 }
 
-/* ── Contextual tool cards ──────────────────────────────────────────────── */
-
-/* Anchor for the cards the tools open. */
+/* The pill that holds the object tools. The cards they open are docked by the
+   shell, not hung from here — see `.tool-dock` in slicing-shell.scss. */
 .tool-cluster {
-  position: relative;
   display: inline-flex;
   flex-wrap: wrap;
   justify-content: center;
   min-width: 0;
 }
 
+/* The radio semantics wrap only the modes, so the multi-select toggle can share
+   the pill without sitting inside a `role="radiogroup"`. */
 .tool-modes {
   display: flex;
+  align-items: center;
   flex-wrap: wrap;
   justify-content: center;
+  gap: 2px;
   min-width: 0;
-}
-
-/* Hangs the open cards directly under the buttons that reveal them, centred on
-   the group. Absolute, so it adds no height to the toolbar; a column, so a
-   transform card and a placement card can be open at once without overlapping.
-   Only the cards themselves take pointer events — the gaps stay click-through
-   to the 3D scene behind. */
-.tool-panels {
-  position: absolute;
-  top: calc(100% + var(--spacing-sm));
-  left: 50%;
-  transform: translateX(-50%);
-  z-index: 3;
-
-  display: flex;
-  flex-direction: column;
-  gap: var(--spacing-sm);
-  pointer-events: none;
 }
 
 /* The picker is driven by the add-object button; keep it out of the layout
@@ -185,10 +187,13 @@
     display: none;
   }
 
-  /* The tool cards are centred on a cluster that can now sit anywhere along a
-     wrapped row, so cap them to the screen rather than to their own content. */
-  .tool-panels {
-    max-width: calc(100vw - 2 * var(--spacing-sm));
+  /* Anchoring the ends is for a toolbar that fits on one row. Here it wraps to
+     two or three, and pushing one row's single group to an edge while the next
+     sits at the other just reads as ragged — each row re-centres itself. */
+  .view-group--start,
+  .view-group--end {
+    margin-left: 0;
+    margin-right: 0;
   }
 }
 
@@ -218,13 +223,5 @@
     width: 34px;
     height: 34px;
     --icon-size: 17px;
-  }
-
-  /* A stacked transform card is taller than the whole scene band here, so it
-     scrolls rather than running off the bottom of the screen. */
-  .tool-panels {
-    max-height: 46vh;
-    overflow-y: auto;
-    overscroll-behavior: contain;
   }
 }

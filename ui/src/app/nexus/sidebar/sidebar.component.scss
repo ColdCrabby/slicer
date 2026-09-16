@@ -80,22 +80,6 @@ $edge-control-top: calc(var(--main-scene-inset, 48px) + var(--spacing-sm));
   }
 }
 
-// Dismiss layer for an overlay peek. Deliberately **invisible**: it exists only
-// to give touch (and mouse) a plain tap-outside-to-close gesture, which is what
-// iPad had no way to do. Dimming the scene behind it was the wrong call — the
-// panel is a peek, not a modal, and the whole point of peeking is to keep
-// looking at the plate while you adjust it.
-.sidebar-scrim {
-  position: fixed;
-  inset: 0;
-  z-index: -1;
-  border: none;
-  padding: 0;
-  margin: 0;
-  background: transparent;
-  cursor: default;
-}
-
 // Dock/undock affordance rendered as a tab that sits *behind* the panel: its
 // inner edge tucks under the panel so the panel masks the seam and any shadow
 // bleed, leaving only a rounded nub peeking out on the right.

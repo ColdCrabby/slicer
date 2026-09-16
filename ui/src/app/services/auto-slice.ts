@@ -31,11 +31,18 @@ export const AUTO_SLICE_DELAY_MS = 1200;
  * Below this the wait is shorter than the trip to the Slice button, so doing it
  * unasked is pure gain. Above it the machine would be busy for longer than the
  * user is likely to stay still, and an automatic slice starts costing more than
- * it saves — it competes with the next edit for the same cores. Five seconds is
- * roughly where a re-slice stops reading as "the preview updated" and starts
- * reading as "something is running".
+ * it saves — it competes with the next edit for the same cores.
+ *
+ * **The headroom is the point, not the absolute number.** The decision is made
+ * from a single measurement, and the same plate on the same machine varies by a
+ * third between runs. A threshold set near where plates actually land therefore
+ * does not read as "cheap plates auto-slice" — it reads as auto-slice turning
+ * itself on and off at random, which is worse than either answer. Ten seconds
+ * keeps an ordinary plate decisively on one side of the line; do not lower it
+ * towards typical slice times without giving the measurement some hysteresis
+ * first.
  */
-export const AUTO_SLICE_BUDGET_MS = 5000;
+export const AUTO_SLICE_BUDGET_MS = 10_000;
 
 /**
  * Owns the app-wide policy for re-slicing after a change, and the measurements

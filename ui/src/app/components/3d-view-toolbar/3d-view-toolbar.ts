@@ -151,9 +151,6 @@ export class ThreeDViewToolbar {
   /** True while models are being added, so the button can show progress. */
   protected readonly addingObjects = signal(false);
 
-  /** Whether the placement tool's sub-settings card is showing. */
-  protected readonly placementOpen = this.arrange.optionsOpen;
-
   /** One-line recap of what placing will do, for the button's tooltip. */
   protected readonly placementSummary = computed(() => {
     const { autoOrient, spacingMm, preferredOrientationDeg } = this.arrange.settings();
@@ -163,10 +160,6 @@ export class ThreeDViewToolbar {
     }
     return parts.join(' · ');
   });
-
-  protected togglePlacement(): void {
-    this.arrange.toggleOptions();
-  }
 
   toggleGravity(): void {
     this.viewerControl.setGravityEnabled(!this.gravityEnabled());

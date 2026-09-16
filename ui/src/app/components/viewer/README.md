@@ -36,10 +36,18 @@ the user interacts with a selected mesh:
 | `rotate`      | Three arc rotation handles                      | Emits `Rotate` ops per frame             |
 | `scale`       | Three-axis scale handles (no planar handles)    | Emits `Scale` ops per frame              |
 | `pullToFloor` | Face-highlight cursor; no handles on the canvas | Single face-pick → `AlignFaceToFloor` op |
+| `paint`       | Brush cursor; no handles on the canvas           | Dabs → `SetSupportPaint` ops           |
+| `place`       | No gizmo — it acts on the plate, not a selection | Clicks select; its card runs auto-arrange |
 
 The toolbar (`3d-view-toolbar`) exposes one button per mode in a radio group
 that writes to `ViewerControl.objectMode`. The viewer reacts via an Angular
 `effect()` and calls `ViewerScene.setObjectMode()`.
+
+**This signal is also what decides which contextual card the toolbar shows**, and
+that is not a coincidence to be tidied away: the active tool and the open card
+are one question, so they get one answer. When placement kept its own open flag
+beside this union, its card could sit under the rotate card — a state that
+claims the user is placing and rotating at the same time.
 
 ```mermaid
 flowchart LR

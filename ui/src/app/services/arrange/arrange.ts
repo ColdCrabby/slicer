@@ -72,25 +72,6 @@ export class Arrange {
   /** How many objects a "place all" would move. */
   readonly objectCount = computed(() => this.sceneEngine.objects().length);
 
-  /**
-   * Whether the contextual placement card is showing.
-   *
-   * Lives here rather than in the toolbar button because the button and the
-   * card are separate components docked in different parts of the shell —
-   * exactly like the object-mode buttons and the transform card they open.
-   */
-  readonly optionsOpen = signal(false);
-
-  /** Toggle the contextual placement card. */
-  toggleOptions(): void {
-    this.optionsOpen.update((open) => !open);
-  }
-
-  /** Close the contextual placement card. */
-  closeOptions(): void {
-    this.optionsOpen.set(false);
-  }
-
   /** The resolved settings a run would use. */
   readonly settings = computed<ArrangeSettings>(() => ({
     spacingMm: this.spacingMm(),

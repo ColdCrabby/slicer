@@ -11,9 +11,12 @@ import { RouterOutlet } from '@angular/router';
 import { ThreeDViewToolbar } from '../../../components/3d-view-toolbar/3d-view-toolbar';
 import { Card } from '../../../components/card/card';
 import { ObjectsPanel } from '../../../components/objects-panel/objects-panel';
+import { PaintPanel } from '../../../components/paint-panel/paint-panel';
+import { PlacementPanel } from '../../../components/placement-panel/placement-panel';
 import { SettingsPanel } from '../../../components/settings-panel/settings-panel';
 import { SliceSegmentBar } from '../../../components/slice-segment-bar/slice-segment-bar';
 import { TaskProgressBar } from '../../../components/task-progress-bar/task-progress-bar';
+import { TransformPanel } from '../../../components/transform-panel/transform-panel';
 import { ViewportCube } from '../../../components/viewport-cube/viewport-cube';
 import { PrintArea } from '../../../services/print-area';
 import { ActiveSelection } from '../../../services/profiles/active-selection';
@@ -30,6 +33,9 @@ import { SliceControl } from '../../slice-control/slice-control';
     TaskProgressBar,
     ThreeDViewToolbar,
     ObjectsPanel,
+    TransformPanel,
+    PlacementPanel,
+    PaintPanel,
     ViewportCube,
     RouterOutlet,
     SettingsPanel,
@@ -95,7 +101,12 @@ export class NexusSlicingShell {
         if (!el) return;
 
         obs = new ResizeObserver((entries) => {
-          const h = entries[0]?.contentRect.height ?? 0;
+          // Border box, not `contentRect`. The toolbar carries its own vertical
+          // padding, so the content box is ~24px shorter than the space it
+          // actually occupies — and everything keyed to this variable sat that
+          // much too high, which is how the settings drawer's pull tab ended up
+          // underneath the toolbar's own buttons.
+          const h = entries[0]?.borderBoxSize?.[0]?.blockSize ?? el.offsetHeight;
           if (h > 0) document.documentElement.style.setProperty('--main-scene-inset', `${h}px`);
         });
         obs.observe(el);

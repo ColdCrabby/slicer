@@ -17,6 +17,13 @@
 .viewer-host {
   position: absolute;
   inset: 0;
+  // Focusable (see viewer.html) but deliberately unringed. This is the one
+  // place the design language's focus rule gives way: the host fills the whole
+  // viewport, so any ring is a border drawn around the entire workspace rather
+  // than around a control, and it reads as a window state rather than as
+  // "the keyboard is here". The gizmo and the selection tint say where focus
+  // is instead.
+  outline: none;
 }
 
 :host {
