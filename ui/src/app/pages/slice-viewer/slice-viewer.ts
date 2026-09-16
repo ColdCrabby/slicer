@@ -17,12 +17,12 @@ import { SlicerFile } from '../../services/slicer-file';
 import { ViewerControl } from '../../services/viewer-control';
 import { WorkplateSession } from '../../services/workplate-session';
 import { WorkplateObjects } from '../../services/workplate-objects';
-import { Icon, IconButton, TooltipDirective } from '@coldcrabby/ui';
+import { Icon } from '@coldcrabby/ui';
 
 @Component({
   selector: 'nexus-slice-viewer',
   standalone: true,
-  imports: [Viewer, Icon, IconButton, TooltipDirective],
+  imports: [Viewer, Icon],
   templateUrl: './slice-viewer.component.html',
   styleUrl: './slice-viewer.component.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -54,19 +54,6 @@ export class SliceViewer {
 
   /** True while the plate on screen is being rebuilt from what it remembers. */
   readonly restoring = this.#session.restoring;
-
-  /** Set when someone else changed this plate on a shared engine. */
-  readonly changedElsewhere = this.#session.changedElsewhere;
-
-  /** Take their version of the plate. */
-  refreshPlate(uuid: string): void {
-    void this.#session.refresh(uuid);
-  }
-
-  /** Keep working on mine; the next save still wins. */
-  keepMine(): void {
-    this.#session.keepMine();
-  }
 
   /** Highlight the viewport while a file drag is over it. */
   readonly dragActive = signal(false);
@@ -118,7 +105,7 @@ export class SliceViewer {
   }
 
   async #addDroppedFiles(files: File[]): Promise<void> {
-    const notifId = this.#notifications.progress(
+    const notifId = this.#notifications.task(
       files.length === 1 ? 'Adding model…' : `Adding ${files.length} models…`,
       files.map((f) => f.name).join(', '),
     );
@@ -128,16 +115,18 @@ export class SliceViewer {
       const failed = results.filter((r) => r.error);
 
       if (added.length === 0) {
-        this.#notifications.failProgress(
+        this.#notifications.resolveTask(
           notifId,
+          'danger',
           'Could not add model',
           failed[0]?.error ?? 'Use an STL, OBJ or 3MF model.',
         );
         return;
       }
 
-      this.#notifications.completeProgress(
+      this.#notifications.resolveTask(
         notifId,
+        'success',
         added.length === 1 ? 'Model added' : `${added.length} models added`,
         added.map((r) => r.file.name).join(', '),
       );
@@ -145,8 +134,9 @@ export class SliceViewer {
         this.#notifications.error(`Could not add ${failure.file.name}`, failure.error);
       }
     } catch (error) {
-      this.#notifications.failProgress(
+      this.#notifications.resolveTask(
         notifId,
+        'danger',
         'Could not add model',
         error instanceof Error ? error.message : undefined,
       );
@@ -188,6 +178,35 @@ export class SliceViewer {
   }
 
   constructor() {
+    // Someone else changed this plate on a shared engine.
+    //
+    // A prompt rather than a reload: two people on one plate is ordinary, and
+    // taking the scene away from whoever typed second is worse than letting
+    // them choose the moment. It goes through the scene strip like everything
+    // else the plate has to say — as its own floating card it claimed the
+    // top-centre band the view toolbar already owns, and read as a different
+    // kind of object than the notices appearing a few pixels below it.
+    //
+    // Dismissing it *is* the second answer ("keep mine"), which is why it
+    // needs only one button.
+    effect(() => {
+      const change = this.#session.changedElsewhere();
+      if (!change) {
+        return;
+      }
+      untracked(() =>
+        this.#notifications.prompt(
+          'This workplate was changed elsewhere',
+          { label: 'Reload plate', run: () => void this.#session.refresh(change.uuid) },
+          {
+            icon: 'cloud',
+            message: 'Or keep working on your version.',
+            onDismiss: () => this.#session.keepMine(),
+          },
+        ),
+      );
+    });
+
     // Follow a finished slice into G-code preview, as far as the preference
     // allows. `auto` follows a slice the user pressed and leaves an automatic
     // re-slice alone: the plate-editing tools are hidden in preview, so being

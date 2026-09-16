@@ -1,0 +1,30 @@
+@if (notice().progress !== null) {
+  <div class="notice__fill" [style.width.%]="notice().progress" aria-hidden="true"></div>
+}
+
+<nexus-icon class="notice__icon" [name]="icon()" aria-hidden="true" />
+
+<span class="notice__label" #label [tooltip]="clamped() ? fullText() : ''" tooltipMode="block">
+  {{ notice().title }}
+  @if (notice().message; as message) {
+    <span class="notice__message">&nbsp;· {{ message }}</span>
+  }
+</span>
+
+@if (notice().action; as action) {
+  <button class="notice__action" type="button" (click)="act.emit()">{{ action.label }}</button>
+}
+
+@if (notice().dismissible) {
+  <button
+    nexusIconButton
+    size="sm"
+    class="notice__close"
+    type="button"
+    aria-label="Dismiss"
+    tooltip="Dismiss"
+    (click)="dismiss.emit()"
+  >
+    <nexus-icon name="xmark" aria-hidden="true" />
+  </button>
+}

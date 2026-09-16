@@ -1,0 +1,152 @@
+@use 'breakpoints' as *;
+
+// One pill, every tone. Tone drives a single --notice-tone custom property that
+// the rules below mix into the icon, the border and the progress fill — the
+// same idiom `nexus-inline-notice` uses, so a floating notice and an inline
+// caution are recognisably the same object.
+:host {
+  --notice-tone: var(--color-border);
+
+  pointer-events: auto;
+  position: relative;
+  isolation: isolate;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--spacing-xs);
+  // Wide enough that an ordinary sentence — a repair summary, an engine error
+  // — fits without being cut. The old cap truncated around 55 characters, which
+  // is shorter than most of the things worth saying.
+  max-width: min(78vw, 720px);
+  padding: 5px 6px 5px 12px;
+  background: var(--color-surface);
+  border: 1px solid color-mix(in oklab, var(--notice-tone) 34%, var(--color-border-light));
+  // A capsule while the text is one line; a rounded card once it wraps, since
+  // a two-line capsule's ends bow away from the text and waste the width the
+  // message just asked for. `is-wrapped` is set by the component, which is the
+  // only party that can know — CSS cannot ask whether a line broke.
+  border-radius: 999px;
+  box-shadow: var(--shadow-sm);
+  overflow: hidden;
+}
+
+:host(.is-wrapped) {
+  align-items: flex-start;
+  border-radius: var(--radius-lg);
+  padding: 8px 6px 8px 12px;
+
+  .notice__icon,
+  .notice__action,
+  .notice__close {
+    // Sit with the first line rather than the middle of the block.
+    margin-top: 1px;
+  }
+}
+
+:host(.notice--info) {
+  --notice-tone: var(--accent);
+}
+
+:host(.notice--success) {
+  --notice-tone: var(--color-success);
+}
+
+:host(.notice--warning) {
+  --notice-tone: var(--color-warning);
+}
+
+:host(.notice--danger) {
+  --notice-tone: var(--color-danger);
+}
+
+// Determinate progress = a tone-coloured sweep filling the pill behind the
+// label. It is also how a job *finishes*: the fill completes and the tone
+// changes in place, rather than the result reappearing somewhere else.
+.notice__fill {
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 0;
+  z-index: -1;
+  background: color-mix(in oklab, var(--notice-tone) 22%, transparent);
+  transition:
+    width 800ms cubic-bezier(0.57, 1.1, 0.41, 0.98),
+    background var(--duration-normal) var(--ease-standard);
+}
+
+.notice__icon {
+  flex: none;
+  --icon-size: 15px;
+  color: var(--notice-tone);
+}
+
+.notice__label {
+  min-width: 0;
+  font-size: var(--font-size-xs);
+  color: var(--color-text-secondary);
+  line-height: 1.35;
+  // Up to two lines, then ellipsis. Wrapping is what keeps a real sentence
+  // readable; the clamp is what stops a pathological message — a stack trace,
+  // an absolute path — from growing a card over the plate.
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+}
+
+.notice__message {
+  color: var(--color-text-tertiary);
+}
+
+// Behind a progress fill the pill is no longer neutral graphite, and the
+// tertiary tone does not clear AA over a tinted surface. Step the supporting
+// text up wherever a fill exists.
+:host(:has(.notice__fill)) .notice__message {
+  color: var(--color-text-secondary);
+}
+
+// The one thing the notice offers to do. Tone-coloured so it reads as the
+// answer to the sentence beside it, not as generic chrome.
+.notice__action {
+  flex: none;
+  appearance: none;
+  cursor: pointer;
+  padding: 3px 10px;
+  border: 1px solid color-mix(in oklab, var(--notice-tone) 40%, transparent);
+  border-radius: 999px;
+  background: color-mix(in oklab, var(--notice-tone) 12%, transparent);
+  color: var(--color-text-primary);
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-medium);
+  transition:
+    background var(--duration-fast) var(--ease-standard),
+    border-color var(--duration-fast) var(--ease-standard);
+
+  &:hover {
+    background: color-mix(in oklab, var(--notice-tone) 22%, transparent);
+    border-color: color-mix(in oklab, var(--notice-tone) 60%, transparent);
+  }
+}
+
+.notice__close {
+  flex: none;
+  --icon-size: 14px;
+}
+
+// Putting a notice away is the one thing a user reliably wants to do to one,
+// and at cursor size the target sat well under a fingertip.
+@include coarse-pointer {
+  .notice__close {
+    min-width: 36px;
+    min-height: 36px;
+  }
+}
+
+// Measured against the viewport, not the parent: the scene strip is a grid
+// item in a track that a phone-width window lets overflow, so `100%` there is
+// wider than the screen and the pill runs off the right edge.
+@include handheld {
+  :host {
+    max-width: calc(100vw - 2 * var(--spacing-md));
+  }
+}

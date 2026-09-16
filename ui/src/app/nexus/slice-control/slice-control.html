@@ -53,7 +53,14 @@
   </div>
 
   <!-- Always rendered with a reserved height so the card never reflows. -->
-  <div class="slice-status" [attr.data-state]="statusState()">
+  <!-- The line ellipsizes in a narrow rail, so a long engine message is also
+       available in full on hover. Empty for every other state. -->
+  <div
+    class="slice-status"
+    [attr.data-state]="statusState()"
+    [tooltip]="isError() ? statusLine() : ''"
+    tooltipMode="block"
+  >
     @if (isStale()) {
       <span class="status-dot" aria-hidden="true"></span>
     }

@@ -12,7 +12,6 @@ import {
 import { CloudCatalog, catalogSpecOf, toUserCopy } from '../../services/catalog/cloud-catalog';
 import { ActiveSelection } from '../../services/profiles/active-selection';
 import { FilamentsStore } from '../../services/profiles/filaments-store';
-import { NotificationService } from '../../services/notifications';
 import { Icon, NumberInput, Select, ColorPicker, FieldRow, WizardShell } from '@coldcrabby/ui';
 import { CatalogPicker, type CatalogEntryVm } from './catalog-picker';
 import { paramNum } from '../../models/params-access';
@@ -36,7 +35,6 @@ export class FilamentWizard {
   private readonly catalog = inject(CloudCatalog);
   private readonly store = inject(FilamentsStore);
   private readonly active = inject(ActiveSelection);
-  private readonly notifications = inject(NotificationService);
   private readonly router = inject(Router);
 
   protected readonly steps = STEPS;
@@ -53,6 +51,13 @@ export class FilamentWizard {
   protected readonly catalogLoadingMore = this.catalog.filamentsLoadingMore;
   /** Id of the catalog entry currently being fetched for import, if any. */
   protected readonly importingId = signal<string | null>(null);
+
+  /**
+   * Why the last catalog import failed. Rendered by the picker, beside the
+   * button that was pressed — an error about a control the user is looking at
+   * does not belong in a floating message somewhere else.
+   */
+  protected readonly importError = signal<string | null>(null);
   protected readonly catalogEntries = computed<CatalogEntryVm[]>(() =>
     this.catalog.filaments().map((f) => ({
       id: f.id,
@@ -132,13 +137,13 @@ export class FilamentWizard {
       return;
     }
     this.importingId.set(id);
+    this.importError.set(null);
     try {
       const full = await this.catalog.filamentDetail(base);
       this.draft.set(toUserCopy(full));
       this.index.set(1);
     } catch (error) {
-      this.notifications.error(
-        'Could not load preset',
+      this.importError.set(
         error instanceof Error ? error.message : 'The preset details could not be fetched.',
       );
     } finally {

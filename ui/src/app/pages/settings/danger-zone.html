@@ -33,6 +33,15 @@
         </button>
       }
     </div>
+
+    @if (historyResult(); as result) {
+      <nexus-inline-notice
+        [tone]="result.tone"
+        [title]="result.tone === 'danger' ? 'Could not clear history' : 'History cleared'"
+      >
+        {{ result.text }}
+      </nexus-inline-notice>
+    }
   </div>
 
   <!-- Reset profiles ------------------------------------------------------->
@@ -86,6 +95,10 @@
             Reset profiles
           </button>
         </div>
+
+        @if (resetError(); as why) {
+          <nexus-inline-notice tone="danger" title="Reset failed">{{ why }}</nexus-inline-notice>
+        }
       </div>
     }
   </div>
@@ -143,6 +156,10 @@
             Reset everything
           </button>
         </div>
+
+        @if (resetError(); as why) {
+          <nexus-inline-notice tone="danger" title="Reset failed">{{ why }}</nexus-inline-notice>
+        }
       </div>
     }
   </div>

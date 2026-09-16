@@ -25,7 +25,6 @@ import { ContextMenuService } from '../../services/context-menu/context-menu.ser
 import { ContextMenuTrigger } from '../../services/context-menu/context-menu-trigger';
 import type { ContextMenuItem } from '../../services/context-menu/context-menu.model';
 import { Dialog } from '../../services/dialog';
-import { NotificationService } from '../../services/notifications';
 import { ActiveSelection } from '../../services/profiles/active-selection';
 import { matchesAnyLabel, toggledLabelIds } from '../../services/profiles/label-filtering';
 import { paramNum } from '../../models/params-access';
@@ -149,7 +148,6 @@ export class FilamentsSettings {
   private readonly catalog = inject(CloudCatalog);
   private readonly contextMenu = inject(ContextMenuService);
   private readonly dialog = inject(Dialog);
-  private readonly notifications = inject(NotificationService);
   private readonly route = inject(ActivatedRoute);
 
   protected readonly sourceLabels = PROFILE_SOURCE_LABELS;
@@ -275,6 +273,13 @@ export class FilamentsSettings {
   protected readonly catalogLoadingMore = this.catalog.filamentsLoadingMore;
   /** Id of the catalog entry currently being fetched for import, if any. */
   protected readonly importingId = signal<string | null>(null);
+
+  /**
+   * Why the last catalog import failed. Rendered by the picker, beside the
+   * button that was pressed — an error about a control the user is looking at
+   * does not belong in a floating message somewhere else.
+   */
+  protected readonly importError = signal<string | null>(null);
   protected readonly catalogEntries = computed<CatalogEntryVm[]>(() =>
     this.catalog.filaments().map((f) => ({
       id: f.id,
@@ -316,14 +321,14 @@ export class FilamentsSettings {
       return;
     }
     this.importingId.set(id);
+    this.importError.set(null);
     try {
       const full = await this.catalog.filamentDetail(base);
       const copy = this.store.importFromCatalog(full);
       this.active.selectFilament(copy.id);
       this.select(copy.id);
     } catch (error) {
-      this.notifications.error(
-        'Import failed',
+      this.importError.set(
         error instanceof Error ? error.message : 'The preset details could not be fetched.',
       );
     } finally {

@@ -27,6 +27,21 @@ issue/PR numbers or repo links in the notes. See the tone rules in
 
 ## [Unreleased]
 
+### Changed
+
+- **One place for the app to talk to you** — anything about the plate now
+  appears as a pill at the top of the scene, next to the work it describes. A
+  running job fills its own pill and finishes in it, instead of handing the
+  result to a message in the opposite corner.
+- **The bottom-left corner is yours again** — the floating message stack no
+  longer covers the object list or the "outside the build area" warning.
+- **Errors say their piece where they happened** — a preset that will not
+  import says so in the picker, a reset that fails says so on its own card, and
+  a slice reports the reason it failed on the Slice button's status line
+  instead of repeating the whole event somewhere else.
+- **The celebration is for a print actually starting**, not for every upload it
+  used to play alongside an identically worded message.
+
 ## [0.5.0] - 2026-09-16
 
 Support structures grow up, thin features finally print, and a plate stops being

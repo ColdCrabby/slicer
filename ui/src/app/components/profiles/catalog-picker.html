@@ -29,6 +29,10 @@
     </a>
   </div>
 
+  @if (importError(); as why) {
+    <nexus-inline-notice tone="danger" title="Import failed">{{ why }}</nexus-inline-notice>
+  }
+
   @if (unavailable()) {
     <div class="catalog__state">
       <nexus-icon name="warning-triangle" />

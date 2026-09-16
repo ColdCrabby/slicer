@@ -112,8 +112,10 @@ $default-inset: 40px;
     pointer-events: none;
   }
 
-  // Scene notifications: centered pill in the scene row (always below the
+  // The scene's voice: centred pills in the scene row (always below the
   // toolbar, no magic offsets), sliding down from behind it (lower z-index).
+  // Everything the plate has to say arrives here — progress, outcomes and
+  // the occasional prompt — so no second surface competes for the reading.
   .scene-notify {
     grid-column: 1 / -1;
     grid-row: 2;

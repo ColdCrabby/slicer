@@ -70,9 +70,10 @@ talking and the browser never has to.
 
 ## While it uploads
 
-A progress bar appears under the slice button. Success gets a notification (and
-a brief celebration). Failure gets a notification with the reason from the
-printer — a bad API key and an unreachable host read differently, on purpose.
+A pill at the top of the scene fills as the upload runs, then turns green or red
+in place. Failure carries the reason from the printer — a bad API key and an
+unreachable host read differently, on purpose. If you chose to start the print
+rather than just send it, the app marks the moment with a brief celebration.
 
 ## Filenames
 

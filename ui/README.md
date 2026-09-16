@@ -54,7 +54,7 @@ ui/src/app/
 │   ├── settings-panel/    schema-driven forms
 │   ├── file-upload/       drag-and-drop, progress, upload-guard hook
 │   ├── history-panel/     past slice runs from the server's SQLite ledger
-│   ├── status-panel/ connection-state/ notification-center/ logo/
+│   ├── status-panel/ connection-state/ notices/ logo/
 │   └── …                  card, list-history, viewport-cube
 ├── services/
 │   ├── scene-engine.service.ts       wraps the WASM SceneHandle (single instance)
@@ -74,7 +74,7 @@ ui/src/app/
 │   ├── object-tracker/               per-object UI state
 │   ├── print-area/                   build-volume + bed config from server
 │   ├── history.ts                    slice history client
-│   ├── notifications.ts              toast layer
+│   ├── notifications.ts              the app's one voice (see below)
 │   ├── browser-storage.ts            localStorage wrapper
 │   ├── logger.service.ts             structured logger (mirrors server logs in console)
 │   └── app-theme.ts                  light / dark token switcher
@@ -289,6 +289,54 @@ way. Preview shows toolpaths, so an edit made from it changes something the user
 cannot see change.
 
 ---
+
+## Telling the user something
+
+The app has **one voice, in three places**, and which place a message lands in
+is decided by what the message is *about* — never by the call site's convenience.
+
+| Tier | Surface | For |
+| --- | --- | --- |
+| Inline | `nexus-inline-notice`, beside the control | anything anchored to something the user can see |
+| Scene | `nexus-scene-notices`, centred under the view toolbar | the plate, the models, the slice, the printer |
+| Window | `nexus-app-notices`, docked bottom-centre | the app itself, and anything raised with no scene on screen |
+
+Four rules hold it together.
+
+**A message that has a place on screen goes to that place.** A failed catalog
+import belongs in the picker the user is looking at — often inside a wizard
+*over* the page — not in a corner of the window behind it. This is why
+`CatalogPicker` takes an `importError` input rather than every caller reaching
+for the notification service, and why the Danger Zone and the home drop target
+carry their own outcomes.
+
+**The caller never picks a dock.** `NotificationService` routes by whether a
+scene host is mounted (`registerSceneHost`, claimed by `NexusSlicingShell`), so
+a model the OS hands us during a cold launch is announced in the window and the
+same code slicing on a plate is announced over it. Only `scope: 'app'` overrides
+that, and only the reload prompt uses it.
+
+**A job resolves where it ran.** `task()` → `updateTask()` → `resolveTask()`
+fills, recolours and retires *one* pill. Handing a finished job to a second
+surface in another corner made the user find the result somewhere other than
+where they had been watching it.
+
+**One event, one surface.** The slice dock states a slice's outcome for as long
+as it stands — including the reason it failed, via `Slicer.lastError` — so no
+notice repeats it. The celebration overlay is the single exception, and only for
+a print actually starting on a machine, which is something the notice does not
+say.
+
+**A notice is never cut off in the ordinary case.** The pill is a capsule while
+the text fits on one line and becomes a rounded card once it wraps — `NoticePill`
+observes its own label to know which, because whether a line breaks depends on
+the text, the font the host resolved and the width the dock has left, none of
+which CSS can ask about. Two lines is the ceiling, so a stack trace cannot grow
+a card over the plate; past it the text ellipsises and hover carries the rest.
+
+The floating docks are deliberately **not** bottom-left: that corner belongs to
+the object list and the build-area warning, and a stack of messages over them
+covered the two things most worth reading.
 
 ## Phones and tablets
 
