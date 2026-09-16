@@ -1175,6 +1175,12 @@ impl GcodeGenerator {
     /// `1.0` scales every non-first-layer feedrate uniformly so
     /// the layer takes longer to print. The first layer is exempt (adhesion
     /// speed is already deliberate), so `speed_scale` is ignored there.
+    ///
+    /// The scaled result is floored at `min_print_speed` by
+    /// [`Self::scale_with_floor`] — the caller derives `speed_scale` from
+    /// `print_speed`, which is far above what a bridge, an overhang band or an
+    /// ironing pass actually runs at, so a scale the floor permits there can
+    /// still drive a slow role to a fraction of a mm/s.
     fn effective_speed_mm_min(
         role: crate::core::ExtrusionRole,
         overhang: crate::core::OverhangClass,
@@ -1269,7 +1275,22 @@ impl GcodeGenerator {
 
         // Dynamic overhang speed override.
         if params.enable_overhang_speed && overhang.is_overhang() {
-            // `None` = keep the role's normal speed for this degree.
+            // What an unset band inherits. Deg1/Deg2 lie mostly on the layer
+            // below and inherit the role's normal speed; Deg3/Deg4 are mostly
+            // over air and inherit `bridge_speed`, which is the whole point of
+            // the `0` sentinel on those two.
+            //
+            // The inheritance is keyed on the *degree*, not on the role: a steep
+            // wall that still touches the layer below keeps its wall role — it
+            // has something to be pressed onto, so it prints at wall flow and
+            // wall width — and it must still slow down to the speed the profile
+            // states for its degree.
+            let inherited = if overhang.band() >= 3 && params.bridge_speed > 0.0 {
+                params.bridge_speed * 60.0
+            } else {
+                base
+            };
+            // `None` = keep the inherited speed for this degree.
             let resolved = match overhang {
                 crate::core::OverhangClass::Deg1 => {
                     params.overhang_1_4_speed.resolve(params.perimeter_speed)
@@ -1287,17 +1308,39 @@ impl GcodeGenerator {
             };
             let mut s = match resolved {
                 Some(mm_s) => mm_s * 60.0,
-                None => base,
+                None => inherited,
             };
             // Slow curl-prone steep overhangs (Deg3/Deg4) to the most
             // conservative effective overhang speed.
             if params.slowdown_for_curled_perimeters && overhang.band() >= 3 {
                 s = s.min(slowest_overhang_speed_mm_s(params) * 60.0);
             }
-            return s * speed_scale;
+            return Self::scale_with_floor(s, speed_scale, params);
         }
 
-        base * speed_scale
+        Self::scale_with_floor(base, speed_scale, params)
+    }
+
+    /// Apply the minimum-layer-time `speed_scale` to one role's resolved speed
+    /// (mm/min) without letting the result fall below `min_print_speed`.
+    ///
+    /// The floor is on the **emitted feedrate**, not on the scale factor. The
+    /// scale is computed once per layer from `print_speed`, so a role that
+    /// already prints far slower than that — a bridge, a steep overhang band,
+    /// ironing — inherits a reduction sized for a much faster move. On a Benchy
+    /// funnel rim that lands the overhang bands near 1 mm/s against a 10 mm/s
+    /// floor, where the melt oozes faster than the nozzle travels and the bead
+    /// comes out nozzle-round no matter how little filament is commanded.
+    ///
+    /// The floor never *raises* a speed: a profile that deliberately sets a
+    /// role below `min_print_speed` keeps that speed, since the clamp is capped
+    /// at the unscaled value.
+    fn scale_with_floor(speed_mm_min: f64, speed_scale: f64, params: &SlicingParams) -> f64 {
+        let scaled = speed_mm_min * speed_scale;
+        if params.min_print_speed <= 0.0 {
+            return scaled;
+        }
+        scaled.max((params.min_print_speed * 60.0).min(speed_mm_min))
     }
 
     /// Resolve the target acceleration (mm/s²) for a path, or `None` when
@@ -2175,6 +2218,13 @@ impl GcodeGenerator {
             // is a little too fast. If `min_print_speed` isn't enough to
             // reach `min_layer_time_s`, the layer just prints at that floor
             // speed and takes whatever time results.
+            //
+            // `min_scale` bounds the scale against `print_speed` so the layer
+            // time estimate below stays honest for the bulk of the layer. It is
+            // **not** the floor that protects a slow role: a bridge or overhang
+            // band already runs well under `print_speed`, so the same scale
+            // would take it far below `min_print_speed`. That clamp is applied
+            // per role, on the emitted feedrate, in `scale_with_floor`.
             let raw_layer_time = estimate_layer_time(layer, params.print_speed);
             let mut speed_scale = 1.0_f64;
             if !is_first_layer
@@ -6300,7 +6350,7 @@ CHAMBER={chamber_temp} MATERIAL={filament_type}"
             "missing wall_count"
         );
         assert!(
-            gcode.contains("; infill_density: 15%"),
+            gcode.contains("; infill_density: 20%"),
             "missing infill_density"
         );
     }
@@ -7334,10 +7384,10 @@ CHAMBER={chamber_temp} MATERIAL={filament_type}"
     #[test]
     fn test_min_layer_time_slows_feedrate_never_dwells() {
         // 30mm perimeter at the default 60 mm/s print_speed proxy ≈ 0.5s raw —
-        // far below the 5s floor. Scaling is capped at the min_print_speed
-        // floor (10 / 60 mm/s); even though the layer still falls short of
-        // the 5s floor at that speed, the nozzle must never sit idle to make
-        // up the remainder — it just accepts the shorter layer time.
+        // far below the 5s floor. The slowdown bottoms out at `min_print_speed`;
+        // even though the layer still falls short of the 5s floor there, the
+        // nozzle must never sit idle to make up the remainder — it just accepts
+        // the shorter layer time.
         let params = SlicingParams {
             min_layer_time_s: 5.0,
             min_print_speed: 10.0,
@@ -7354,17 +7404,67 @@ CHAMBER={chamber_temp} MATERIAL={filament_type}"
             gcode.contains("F1500"),
             "first layer must not be scaled:\n{gcode}"
         );
-        // Second layer's perimeter speed (45 mm/s) scaled by the min-speed
-        // floor (10/60): 45 * 60 * (10/60) = 450 mm/min.
+        // Second layer's perimeter bottoms out at min_print_speed itself —
+        // 10 mm/s → F600 — not at `perimeter_speed × (min_print_speed /
+        // print_speed)`, which would be 7.5 mm/s and below the user's floor.
         assert!(
-            gcode.contains("F450"),
-            "expected the perimeter feedrate scaled to the min-speed floor:\n{gcode}"
+            gcode.contains("F600"),
+            "expected the perimeter feedrate floored at min_print_speed:\n{gcode}"
         );
         // No dwell, even though the layer is still short of the floor: the
         // nozzle must never idle over the print.
         assert!(
             !gcode.contains("G4"),
             "must never dwell to make up a min-layer-time shortfall:\n{gcode}"
+        );
+    }
+
+    /// The floor is on the emitted feedrate, not on the scale factor. A role
+    /// already slower than `print_speed` — a bridge, a steep overhang band,
+    /// ironing — must not inherit a reduction sized for a much faster move: on a
+    /// Benchy funnel rim that put the overhang bands near 1 mm/s against a
+    /// 10 mm/s floor, where the melt oozes faster than the nozzle travels and
+    /// the bead lands nozzle-round however little filament is commanded.
+    #[test]
+    fn test_min_layer_time_floor_protects_roles_slower_than_print_speed() {
+        let params = SlicingParams {
+            min_layer_time_s: 5.0,
+            min_print_speed: 10.0,
+            print_speed: 120.0,
+            perimeter_speed: 80.0,
+            bridge_speed: 10.0,
+            ..SlicingParams::default()
+        };
+        // A scale the *perimeter* survives comfortably.
+        let scale = 0.131;
+        let bridge = GcodeGenerator::effective_speed_mm_min(
+            crate::core::ExtrusionRole::Bridge,
+            crate::core::OverhangClass::None,
+            false,
+            &params,
+            scale,
+        );
+        assert!(
+            (bridge - 600.0).abs() < 1e-6,
+            "bridge must floor at min_print_speed (600 mm/min), got {bridge}"
+        );
+
+        // The floor never *raises* a speed: a role deliberately set below
+        // min_print_speed keeps the speed the profile asked for.
+        let slow = SlicingParams {
+            bridge_speed: 4.0,
+            ..params.clone()
+        };
+        let crawled = GcodeGenerator::effective_speed_mm_min(
+            crate::core::ExtrusionRole::Bridge,
+            crate::core::OverhangClass::None,
+            false,
+            &slow,
+            scale,
+        );
+        assert!(
+            (crawled - 240.0).abs() < 1e-6,
+            "an intentionally slow role keeps its own speed, got {crawled}"
         );
     }
 

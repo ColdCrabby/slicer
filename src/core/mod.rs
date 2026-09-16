@@ -92,6 +92,113 @@ mod tests {
         }
     }
 
+    /// A solid cylinder that steps outward once, part-way up: radius `r_low`
+    /// from the plate to `z_step`, a horizontal annular ledge there, then
+    /// `r_high` to the top.  The ledge is the whole point — one layer of
+    /// abrupt outward lean, which is the shape a funnel rim or a chamfered lip
+    /// slices into.
+    fn make_stepped_cylinder(r_low: f64, r_high: f64, z_step: f64, z_top: f64) -> Mesh {
+        const N: usize = 64;
+        let ring = |r: f64, z: f64| -> Vec<Vertex> {
+            (0..N)
+                .map(|k| {
+                    let a = std::f64::consts::TAU * k as f64 / N as f64;
+                    Vertex::new(r * a.cos(), r * a.sin(), z)
+                })
+                .collect()
+        };
+        let bottom = ring(r_low, 0.0);
+        let ledge_in = ring(r_low, z_step);
+        let ledge_out = ring(r_high, z_step);
+        let top = ring(r_high, z_top);
+
+        let centre_bottom = Vertex::new(0.0, 0.0, 0.0);
+        let centre_top = Vertex::new(0.0, 0.0, z_top);
+
+        let mut faces: Vec<Face> = Vec::new();
+        let mut quad = |a: &[Vertex], b: &[Vertex]| {
+            for k in 0..N {
+                let j = (k + 1) % N;
+                faces.push(Face::new([a[k], b[k], b[j]]));
+                faces.push(Face::new([a[k], b[j], a[j]]));
+            }
+        };
+        quad(&bottom, &ledge_in); // lower wall
+        quad(&ledge_in, &ledge_out); // the ledge
+        quad(&ledge_out, &top); // upper wall
+        for k in 0..N {
+            let j = (k + 1) % N;
+            faces.push(Face::new([centre_bottom, bottom[j], bottom[k]]));
+            faces.push(Face::new([centre_top, top[k], top[j]]));
+        }
+
+        let mut vertices = vec![centre_bottom, centre_top];
+        for r in [&bottom, &ledge_in, &ledge_out, &top] {
+            vertices.extend_from_slice(r);
+        }
+        Mesh {
+            vertices,
+            faces,
+            aabb: None,
+        }
+    }
+
+    /// Slice a stepped cylinder and report how much `OverhangPerimeter` came out.
+    fn overhang_paths_on_stepped_cylinder(r_low: f64, r_high: f64) -> usize {
+        use crate::logging::NullLogger;
+        let mesh = make_stepped_cylinder(r_low, r_high, 1.0, 2.0);
+        let params = crate::settings::params::SlicingParams {
+            layer_height: 0.2,
+            nozzle_diameter_mm: 0.4,
+            wall_count: 2,
+            ..crate::settings::params::SlicingParams::default()
+        };
+        process_mesh(&mesh, &params, &NullLogger)
+            .iter()
+            .map(|l| {
+                (0..l.paths.len())
+                    .filter(|&i| l.role_for_path(i) == ExtrusionRole::OverhangPerimeter)
+                    .count()
+            })
+            .sum()
+    }
+
+    /// **End-to-end**: a one-layer ledge that still lands on the material below
+    /// must not be tagged as an overhang, all the way through the real pipeline.
+    ///
+    /// The step is 0.336 mm — the Benchy funnel rim, to the number. Measured
+    /// centreline to centreline that reads as 84 % unsupported and, against the
+    /// previous layer's *centreline*, as a fully detached bead. But the layer
+    /// below is half a bead wider than its centreline, so the new bead still
+    /// catches 0.064 mm of solid plastic: a wall with a steep degree, not a
+    /// bridge.
+    ///
+    /// This is the wiring the unit tests cannot see — that the classifier is
+    /// handed each layer's **slice outline** rather than its wall centrelines,
+    /// and is handed it from before elephant-foot compensation, which draws the
+    /// first layers narrower on purpose and would otherwise invent a step of the
+    /// full compensation between layer 1 and layer 2.
+    #[test]
+    fn test_gentle_ledge_is_not_an_overhang_end_to_end() {
+        let flagged = overhang_paths_on_stepped_cylinder(3.0, 3.336);
+        assert_eq!(
+            flagged, 0,
+            "a bead still touching the layer below must stay a wall, got {flagged} \
+             overhang paths"
+        );
+    }
+
+    /// The converse, so the test above cannot pass by never flagging anything:
+    /// a ledge wide enough to put the whole bead in mid-air is still an overhang.
+    #[test]
+    fn test_ledge_clear_of_the_layer_below_is_an_overhang_end_to_end() {
+        let flagged = overhang_paths_on_stepped_cylinder(3.0, 4.0);
+        assert!(
+            flagged > 0,
+            "a 1 mm ledge leaves the bead in mid-air and must be flagged"
+        );
+    }
+
     #[test]
     fn test_slice_layer_creation() {
         let layer = SliceLayer::new(1.0);
@@ -2468,7 +2575,7 @@ mod tests {
         layer.unsupported_regions = Paths::new(vec![air]);
 
         let mut layers = vec![layer];
-        classify_overhang_perimeters(&mut layers, 0.4, None);
+        classify_overhang_perimeters(&mut layers, 0.4, None, None);
 
         // After splitting there must be at least two separate paths.
         let path_count = layers[0].paths.iter().count();
@@ -2573,7 +2680,7 @@ mod tests {
         );
 
         // Now classify overhang perimeters (uses unsupported_regions set above).
-        classify_overhang_perimeters(&mut layers, 0.4, None);
+        classify_overhang_perimeters(&mut layers, 0.4, None, None);
 
         // After clipping and overhang classification, no OuterWall or InnerWall
         // paths that were *inside the bridge zone* should carry OverhangPerimeter.
@@ -2678,7 +2785,7 @@ mod tests {
             layers[2].path_roles
         );
 
-        classify_overhang_perimeters(&mut layers, 0.4, None);
+        classify_overhang_perimeters(&mut layers, 0.4, None, None);
 
         // CRITICAL: no OverhangPerimeter on the bridge layer.  Any such arc
         // would overlap the bridge infill and produce double extrusion.

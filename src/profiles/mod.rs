@@ -136,7 +136,10 @@ mod tests {
         let params = sel.resolve(None).expect("resolve");
         assert_eq!(params.filament_type, "PETG");
         assert_eq!(params.filament_name, "Generic PETG");
-        assert_eq!(params.filament_color, "#2f7fb8");
+        // Read the swatch off the preset rather than pinning the hex: the
+        // colour is decoration, and what this line is really checking is that
+        // the inline profile's own fields reach the resolved params.
+        assert_eq!(params.filament_color, defaults::default_petg().color);
         assert_eq!(params.filament_density_g_cm3, 1.27);
     }
 

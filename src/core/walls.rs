@@ -234,38 +234,97 @@ fn reduce_first_layer_to_single_wall(layer: &mut SliceLayer, strip_gap_fill: boo
     layer.path_is_open = new_is_open;
 }
 
-/// Nested previous-layer perimeter inflations used to grade a wall segment's
-/// overhang *degree* for dynamic overhang speed (see
+/// How far [`unsupported_regions`](SliceLayer::unsupported_regions) is dilated
+/// before it is used as the bridge-zone veto mask.
+///
+/// The strip's outer contour **is** the wall centreline — it is built as
+/// `perimeters[i] − inflate(perimeters[i-1], d/2)` — so testing a wall's own
+/// edge midpoints against it asks whether a point lies exactly on the polygon
+/// it is being tested against.  Once the boolean difference has resampled that
+/// contour (an order of magnitude more vertices than the wall) and `Centi`
+/// quantisation has rounded it, the answer flickers edge to edge along
+/// geometry that is uniform, and the parity test flips outright wherever the
+/// strip pinches thin enough for a point to read `IsOn` against *both* of its
+/// contours.  The dilation lifts the mask clear of the query points so it can
+/// only ever veto, never decide.
+///
+/// Sized well above the 0.01 mm coordinate grid and far below any bridge the
+/// veto has to keep excluding.
+const AIR_MASK_DILATION_MM: f64 = 0.05;
+
+/// The band index that means "no contact with the layer below" — the one that
+/// carries the [`ExtrusionRole::OverhangPerimeter`] tag.
+///
+/// It sits one past `Deg4` so a single `u8` per edge orders the whole scale, and
+/// so a run that crosses from a barely-touching wall into open air is still
+/// split even though both sides grade as `Deg4`.
+const BAND_AIR: u8 = 5;
+
+/// Per-layer regions used to decide *whether* a wall segment hangs in air and
+/// to grade its overhang *degree* for dynamic overhang speed (see
 /// [`classify_overhang_perimeters`]).  Each region is an even-odd polygon set;
 /// a segment midpoint's band is the innermost region it falls inside.
+///
+/// Every one is an offset of `below` — the previous layer's material footprint
+/// — by the amount that puts the boundary at a given unsupported fraction of
+/// the current bead.  See [`classify_overhang_perimeters`] for the table.
 struct OverhangBands {
-    /// `perimeters[i-1]` (centreline inside → fully supported, band 0).
+    /// `unsupported_regions` dilated by [`AIR_MASK_DILATION_MM`].  A veto only:
+    /// an edge outside it is never overhang, which is what keeps walls along a
+    /// bridge boundary (already handled by `clip_walls_against_bridge_region`,
+    /// and subtracted out of `unsupported_regions` for that reason) from being
+    /// re-flagged and double-extruded.
+    air_mask: Paths,
+    /// `unsupported_regions` grown by a full nozzle diameter — the
+    /// neighbourhood outside which nothing can be anything but fully supported,
+    /// and the window every other region here is clipped to.
+    ///
+    /// An edge outside it is band 0 without another test, which is most edges
+    /// on most layers.  The clip is what keeps the rest of these regions thin
+    /// rings rather than whole-model polygons: the densifier and every point
+    /// test scale with their edge count.
+    near: Paths,
+    /// `inflate(below, +d/2)` — 100 % unsupported.  A centreline outside it is
+    /// a full bead-width past the material below, so the bead touches nothing
+    /// at all: that, and only that, is what earns the overhang role and its
+    /// bridge speed, flow and fan.
+    ///
+    /// Always built.  Its boundary sits `d/2` *outside* the last supported
+    /// centreline position, clear of every wall it is asked about, so the
+    /// point-in-polygon answer is decided by geometry rather than by which side
+    /// of a rounding a boolean output happened to land on.
+    air: Paths,
+    /// `erode(below, d/2)` — 0 % unsupported (band 0/1 boundary).
     /// `None` when bands 0 and 1 map to the same class, so the test is skipped.
-    b0: Option<Paths>,
-    /// `inflate(prev, d/4)` — the 25% (band 1/2) boundary.
+    f0: Option<Paths>,
+    /// `erode(below, d/4)` — the 25 % (band 1/2) boundary.
     /// `None` when bands 1 and 2 map to the same class.
-    b1: Option<Paths>,
-    /// `inflate(prev, 3d/4)` — the 75% (band 3/4) boundary.
+    f25: Option<Paths>,
+    /// `below` itself — the 50 % (band 2/3) boundary: the bead's centre sits
+    /// exactly on the material edge.  `None` when bands 2 and 3 map to the same
+    /// class.
+    f50: Option<Paths>,
+    /// `inflate(below, +d/4)` — the 75 % (band 3/4) boundary.
     /// `None` when bands 3 and 4 map to the same class.
-    b3: Option<Paths>,
+    f75: Option<Paths>,
 }
 
 /// Inputs for dynamic overhang-degree grading passed to
 /// [`classify_overhang_perimeters`] when `enable_overhang_speed` is on.
+///
+/// Only the *degrees* are opt-in.  The material footprint the bands are built
+/// from is passed separately and unconditionally, because whether a wall hangs
+/// in air is a geometric question that must not change with a speed setting.
 #[derive(Clone, Copy)]
-pub(crate) struct OverhangGrading<'a> {
-    /// Pristine per-layer OuterWall outlines; layer `i`'s support is
-    /// `support[i-1]` (snapshotted before any wall splitting).
-    pub support: &'a [Paths],
+pub(crate) struct OverhangGrading {
     /// Raw band `0..=4` → the [`OverhangClass`] to emit.  The pipeline folds
     /// bands whose speed & fan behaviour equals a plain wall down to a lower
     /// class so grading only splits walls where it actually changes output.
-    /// Supported-side entries (indices 0–2) must stay `≤ Deg2` and air-side
-    /// entries (3–4) `≥ Deg3` so the role tag stays consistent.
+    /// [`BAND_AIR`] is not folded: it carries the role tag.
     pub band_class: [OverhangClass; 5],
 }
 
-impl OverhangGrading<'_> {
+impl OverhangGrading {
     /// Grade every band to its own degree (used by tests).
     pub(crate) const IDENTITY_BAND_CLASS: [OverhangClass; 5] = [
         OverhangClass::None,
@@ -275,16 +334,20 @@ impl OverhangGrading<'_> {
         OverhangClass::Deg4,
     ];
 
-    /// Which band boundaries actually separate two *different* emitted classes.
+    /// Which degree boundaries actually separate two *different* emitted
+    /// classes, in the order `(0 %, 25 %, 50 %, 75 %)`.
     ///
     /// A boundary between bands that map to the same class is pure cost: the
     /// polygon offset, the extra densification edges, and the per-edge
-    /// point-in-polygon test all produce a split that prints identically.  With
-    /// the shipped defaults (Deg1/Deg2 folded to `None`) only the 75% boundary
-    /// survives, which is what keeps grading affordable enough to leave on.
-    fn needed_boundaries(&self) -> (bool, bool, bool) {
+    /// point-in-polygon test all produce a split that prints identically.
+    /// Folding the ones a profile leaves at their inherited speed is what keeps
+    /// grading affordable enough to leave on.
+    ///
+    /// The 100 % boundary is not listed: it carries the role tag, so it is
+    /// always built.
+    fn needed_boundaries(&self) -> [bool; 4] {
         let c = &self.band_class;
-        (c[0] != c[1], c[1] != c[2], c[3] != c[4])
+        [c[0] != c[1], c[1] != c[2], c[2] != c[3], c[3] != c[4]]
     }
 }
 
@@ -321,31 +384,57 @@ impl OverhangGrading<'_> {
 ///
 /// ## Geometry contract — read before changing the boundary policy
 ///
-/// `unsupported_regions` is computed in
-/// [`generate_top_bottom_surfaces_with_interior`] as
+/// Support is **material**, and the material of layer `i-1` fills its slice
+/// outline: the outer bead is laid half its own width inside that boundary, so
+/// the plastic reaches the boundary itself.  Write `E` for that outline
+/// (`below`) and `c` for the centreline of the bead being classified.  The bead
+/// is `d` wide about `c`, so it spans `c ± d/2` and the fraction of it hanging
+/// past the material below is
 ///
 /// ```text
-/// perimeters[i] − inflate(perimeters[i-1], +nozzle_diameter / 2)
+/// unsupported = (c + d/2 − E) / d          clamped to 0..=1
 /// ```
 ///
-/// The `+d/2` inflation encodes the physical bead width: the previous layer's
-/// bead extends `d/2` beyond its centerline.  Consequences:
+/// Every boundary in this pass is that one relation solved for `c`:
 ///
-/// * Slight outward lean (`S < d/2`): inflated envelope fully covers the new
-///   area → `unsupported_regions` is empty → nothing flagged.
-/// * Real overhang (`S > d/2`, ≈ 45°): a meaningful air strip appears.  Wall
-///   vertices lie on the **outer boundary** of that strip, so the parity test
-///   **must** count `IsOn` as inside — do not change this policy.
+/// | Region | Offset from `below` | Unsupported fraction |
+/// | --- | --- | --- |
+/// | `f0`  | `−d/2` | 0 %   — the whole bead lands on material |
+/// | `f25` | `−d/4` | 25 %  |
+/// | `f50` | `0`    | 50 %  — the bead's centre sits on the material edge |
+/// | `f75` | `+d/4` | 75 %  |
+/// | `air` | `+d/2` | 100 % — the bead touches nothing at all |
 ///
-/// **Do not pre-erode `unsupported_regions`.**  An earlier version eroded by
-/// `0.6 × d`, which moves the strip's outer boundary past the wall centerline
-/// and suppresses all detection.
+/// **An edge earns the overhang role only outside `air`.** Anything still
+/// touching the layer below is a wall: it has something to be pressed onto and
+/// prints at wall flow and wall width, however little of it is supported. The
+/// *degrees* are what slow a barely-supported wall down, and they grade the
+/// whole 0–100 % range — so a steep lean is handled by speed and cooling
+/// without also being given bridge flow it cannot use. Measuring instead from
+/// the previous layer's wall **centreline** understates `E` by half a bead
+/// everywhere, which is enough on its own to tag a near-vertical funnel or a
+/// gently flaring hull as bridged.
+///
+/// Do not test against `unsupported_regions` directly: that region is
+/// `perimeters[i] − inflate(perimeters[i-1], d/2)`, so its outer contour *is*
+/// the wall centreline, and asking a point-in-polygon test about a point lying
+/// on its own subject polygon answers with rounding noise rather than geometry
+/// — a uniform ledge comes back as a coin flip, edge by edge, and the
+/// run-length hysteresis then freezes whichever arcs the noise happened to
+/// clump into.  Every boundary above is offset clear of the walls it is asked
+/// about, which is what makes the tests stable.
+///
+/// `unsupported_regions` still has one job here: dilated to `air_mask`, it
+/// vetoes edges the bridge pass already owns (see [`AIR_MASK_DILATION_MM`]).
+/// It is built from a *looser* threshold than `air`, so it always contains what
+/// this pass flags and can only ever subtract.  Layers where it is empty are
+/// skipped outright — no strip, no overhang.
 pub(crate) fn classify_overhang_perimeters(
     layers: &mut [SliceLayer],
     nozzle_diameter_mm: f64,
-    grading: Option<OverhangGrading<'_>>,
+    below_outlines: Option<&[Paths]>,
+    grading: Option<OverhangGrading>,
 ) {
-    let overhang_support = grading.map(|g| g.support);
     // Per raw band 0..=4 → the class the classifier emits for it.  Bands whose
     // speed & fan behaviour is identical to a plain wall are folded to a lower
     // class (down to `None`) by the pipeline, so a supported wall is not
@@ -354,88 +443,80 @@ pub(crate) fn classify_overhang_perimeters(
     let band_class: [OverhangClass; 5] = grading
         .map(|g| g.band_class)
         .unwrap_or(OverhangGrading::IDENTITY_BAND_CLASS);
-    // Which band boundaries separate two different emitted classes.  A boundary
-    // between bands that print identically is skipped entirely — no offset, no
-    // densification against it, no per-edge test.
-    let (need_b0, need_b1, need_b3) = grading
-        .map(|g| g.needed_boundaries())
-        .unwrap_or((false, false, false));
-    // Precompute the per-layer overhang *degree* band boundaries when dynamic
-    // overhang speed is enabled.  `overhang_support[i]` is the pristine
-    // OuterWall centreline outline of layer `i` (snapshotted by the pipeline
-    // before any wall splitting), so layer `i`'s support is
-    // `overhang_support[i-1]`.  The bead is `nozzle_diameter_mm` wide about its
-    // centreline, so the unsupported fraction bands map to inflations of the
-    // previous perimeter:
-    //   b0 = prev              (centreline inside prev  → 0% unsupported)
-    //   b1 = inflate(prev,d/4) (→ 25% boundary)
-    //   b3 = inflate(prev,3d/4)(→ 75% boundary)
-    // The 50% boundary is `inflate(prev,d/2)`, which is exactly the envelope
-    // `unsupported_regions` is built from — so the air test (majority in air)
-    // already sits on the Deg2/Deg3 seam and the bands stay consistent with the
-    // binary OverhangPerimeter role.
-    let band_regions: Option<Vec<Option<OverhangBands>>> = overhang_support
-        .filter(|_| need_b0 || need_b1 || need_b3)
-        .map(|support| {
-            let d = nozzle_diameter_mm;
-            let offset = |prev: &Paths, delta: f64| {
-                inflate(prev.clone(), delta, JoinType::Round, EndType::Polygon, 2.0)
-            };
-            // `b3` is clipped to the neighbourhood of the air strip — the only
-            // place it is ever queried.  A raw offset of the previous perimeter
-            // is a whole-model-sized polygon, while the region that can actually
-            // *discriminate* is the thin ring between the d/2 and 3d/4 offsets;
-            // both the densifier and the point tests scale with that polygon's
-            // edge count.  On a Benchy this is the difference between the
-            // grading pass costing ~750 ms and ~100 ms.
+    // Which degree boundaries separate two different emitted classes, at 0 %,
+    // 25 %, 50 % and 75 % unsupported.  A boundary between bands that print
+    // identically is skipped entirely — no offset, no densification against it,
+    // no per-edge test.  The 100 % boundary is not in this list: it carries the
+    // role tag, so it is always built.
+    let need = grading.map(|g| g.needed_boundaries()).unwrap_or([false; 4]);
+    // Precompute the per-layer boundaries.  `below_outlines[i]` is layer `i`'s
+    // material footprint — its slice outline, snapshotted by the pipeline
+    // before the wall generator replaced it with centrelines — so layer `i`'s
+    // support is `below_outlines[i-1]` and every boundary is an offset of it,
+    // per the table in this function's doc comment.  `air` (the role threshold)
+    // and `air_mask` (the bridge veto) are always built; the degree boundaries
+    // only when they separate two classes that actually print differently.
+    let band_regions: Option<Vec<Option<OverhangBands>>> = below_outlines.map(|outlines| {
+        let d = nozzle_diameter_mm;
+        let offset = |from: &Paths, delta: f64| {
+            inflate(from.clone(), delta, JoinType::Round, EndType::Polygon, 2.0)
+        };
+        let build = |i: usize| -> Option<OverhangBands> {
+            if i == 0 {
+                return None;
+            }
+            // No strip, no overhang — `process_layer` skips these layers too.
+            let strip = &layers[i].unsupported_regions;
+            if strip.is_empty() {
+                return None;
+            }
+            let below = outlines.get(i - 1)?;
+            if below.is_empty() {
+                return None;
+            }
+            // Every boundary is clipped to `near` — the strip grown by a full
+            // nozzle diameter.  A raw offset of a layer outline is a
+            // whole-model-sized polygon, while the region that can actually
+            // *discriminate* is the thin ring around the strip; both the
+            // densifier and the point tests scale with that polygon's edge
+            // count.  On a Benchy this is the difference between the grading
+            // pass costing ~750 ms and ~100 ms.
             //
-            // The clip is grown by a full nozzle diameter first: query points
-            // are edge midpoints lying *on* the air boundary (the wall
-            // centreline forms part of it) and `point_inside_or_on_paths_eo`
-            // counts `IsOn` as inside, so a cut edge running through them would
-            // answer "inside" for points outside the real band.  The margin
-            // keeps every cut edge clear of the query set, leaving `b3`'s own
-            // boundary as the sole discriminator.
-            //
-            // `b0`/`b1` are left unclipped: they are only built when the user
-            // opts into grading the two mild degrees, where correctness is
-            // worth more than the offset they would save.
-            let clip_to_air = |region: Paths, air: &Paths| -> Paths {
-                if region.is_empty() || air.is_empty() {
+            // The clip is exact where it is used.  Intersecting with `near`
+            // changes no answer for a point inside `near`, and a point outside
+            // it is never asked: the ladder short-circuits to band 0 there, and
+            // `air_mask` (0.05 mm around the strip) is far inside it.  A margin
+            // of a whole diameter also keeps the cut edges away from the query
+            // points, which matters because `point_inside_or_on_paths_eo` counts
+            // `IsOn` as inside.
+            let near = offset(strip, d);
+            let clip_to_near = |region: Paths| -> Paths {
+                if region.is_empty() || near.is_empty() {
                     return region;
                 }
-                let grown = inflate(air.clone(), d, JoinType::Round, EndType::Polygon, 2.0);
-                if grown.is_empty() {
-                    return region;
-                }
-                intersect(region, grown, FillRule::EvenOdd).unwrap_or_default()
+                intersect(region, near.clone(), FillRule::EvenOdd).unwrap_or_default()
             };
-            let build = |i: usize| -> Option<OverhangBands> {
-                if i == 0 {
-                    return None;
-                }
-                let prev = support.get(i - 1)?;
-                if prev.is_empty() {
-                    return None;
-                }
-                Some(OverhangBands {
-                    b0: need_b0.then(|| prev.clone()),
-                    b1: need_b1.then(|| offset(prev, d * 0.25)),
-                    b3: need_b3.then(|| {
-                        clip_to_air(offset(prev, d * 0.75), &layers[i].unsupported_regions)
-                    }),
-                })
-            };
-            #[cfg(not(target_arch = "wasm32"))]
-            {
-                use rayon::prelude::*;
-                (0..layers.len()).into_par_iter().map(build).collect()
-            }
-            #[cfg(target_arch = "wasm32")]
-            {
-                (0..layers.len()).map(build).collect()
-            }
-        });
+            let [need_f0, need_f25, need_f50, need_f75] = need;
+            Some(OverhangBands {
+                air_mask: offset(strip, AIR_MASK_DILATION_MM),
+                air: clip_to_near(offset(below, d * 0.5)),
+                f0: need_f0.then(|| clip_to_near(offset(below, -d * 0.5))),
+                f25: need_f25.then(|| clip_to_near(offset(below, -d * 0.25))),
+                f50: need_f50.then(|| clip_to_near(below.clone())),
+                f75: need_f75.then(|| clip_to_near(offset(below, d * 0.25))),
+                near,
+            })
+        };
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            use rayon::prelude::*;
+            (0..layers.len()).into_par_iter().map(build).collect()
+        }
+        #[cfg(target_arch = "wasm32")]
+        {
+            (0..layers.len()).map(build).collect()
+        }
+    });
 
     // Per-layer work is read-only on the layer's own data (we clone
     // `unsupported_regions` up front) and writes back into a freshly built
@@ -459,31 +540,39 @@ pub(crate) fn classify_overhang_perimeters(
         if layer.unsupported_regions.is_empty() {
             return None;
         }
-        // Local copy of the air region for boundary tests.
-        let air = layer.unsupported_regions.clone();
+        // Local copy of the raw unsupported strip, used as the fallback test
+        // when no layer outline was supplied.
+        let strip = layer.unsupported_regions.clone();
 
-        // Degree bands for this layer (present only when dynamic overhang
-        // speed is enabled and the previous layer has a perimeter).  When
-        // absent the classifier reduces to the historical binary split.
+        // Boundaries for this layer (absent on the first layer, or when the one
+        // below has no outline).  Without them the classifier falls back to the
+        // raw strip.
         let bands: Option<&OverhangBands> = band_regions
             .as_ref()
             .and_then(|b| b.get(layer_idx))
             .and_then(|o| o.as_ref());
-        let grade = bands.is_some();
+        let grade = grading.is_some();
 
-        // Combined densification boundaries: the air boundary always, plus only
-        // those degree-band boundaries that separate two different classes, so
-        // every densified sub-edge lies cleanly on one side of every boundary it
-        // is actually tested against.
+        // Combined densification boundaries: every boundary this layer's edges
+        // are actually tested against, so each densified sub-edge lies cleanly
+        // on one side of all of them.
+        //
+        // `unsupported_regions` itself is deliberately absent once bands are
+        // available.  Its outer contour is the wall centreline, so densifying a
+        // wall against it inserts a vertex at every one of the hundreds of
+        // spurious self-intersections that coincidence produces — on the Benchy
+        // funnel a 42-vertex loop came back with 418 — for a boundary no longer
+        // consulted.  `air_mask` stands in, offset clear of the wall.
         let densify_bounds: Paths = match bands {
             Some(b) => {
-                let mut acc: Vec<Path> = air.iter().cloned().collect();
-                for region in [&b.b0, &b.b1, &b.b3].into_iter().flatten() {
+                let mut acc: Vec<Path> = b.air_mask.iter().cloned().collect();
+                acc.extend(b.air.iter().cloned());
+                for region in [&b.f0, &b.f25, &b.f50, &b.f75].into_iter().flatten() {
                     acc.extend(region.iter().cloned());
                 }
                 Paths::new(acc)
             }
-            None => air.clone(),
+            None => strip.clone(),
         };
 
         // Pad roles/widths so indices are always valid.  We can't mutate
@@ -564,13 +653,30 @@ pub(crate) fn classify_overhang_perimeters(
             }
 
             let edge_count = if is_already_open { nd - 1 } else { nd };
-            // Per-edge in-air status (midpoint test against `air`).
+            // Per-edge in-air status, from the midpoint.  An edge is in air when
+            // its centreline is a full half-bead past the material below
+            // (outside `air`, i.e. nothing of the bead overlaps it) *and* the
+            // bridge pass has not already claimed it (`air_mask`).  The second
+            // test only ever vetoes — a point outside `air` is inside
+            // `perimeters[i]` and past a looser threshold than the strip was
+            // built with, so it is in the raw strip by construction, and the
+            // mask can subtract bridge zones but never add anything.
+            //
+            // Without a layer outline below there is nothing to measure against
+            // and the strip is all we have; see the doc comment for why that is
+            // a fallback and not the contract.
             let mut edge_air: Vec<bool> = (0..edge_count)
                 .map(|i| {
                     let j = if is_already_open { i + 1 } else { (i + 1) % nd };
                     let mx = (dense_pts[i].0 + dense_pts[j].0) * 0.5;
                     let my = (dense_pts[i].1 + dense_pts[j].1) * 0.5;
-                    point_inside_or_on_paths_eo(mx, my, &air)
+                    match bands {
+                        Some(b) => {
+                            point_inside_or_on_paths_eo(mx, my, &b.air_mask)
+                                && !point_inside_or_on_paths_eo(mx, my, &b.air)
+                        }
+                        None => point_inside_or_on_paths_eo(mx, my, &strip),
+                    }
                 })
                 .collect();
 
@@ -587,72 +693,92 @@ pub(crate) fn classify_overhang_perimeters(
             let min_run_len_mm = (2.0 * nozzle_diameter_mm).max(1.5);
             collapse_short_runs(&mut edge_air, &dense_pts, is_already_open, min_run_len_mm);
 
-            // Per-edge overhang *degree* band (0..=4).  When grading, each
-            // edge is graded against the previous layer's perimeter
-            // inflations (with the collapsed air flag as the ≥Deg3 gate, so
-            // role and degree stay consistent); band hysteresis then
-            // suppresses tiny degree flickers, and a final clamp keeps
-            // `band ≥ 3` exactly equivalent to "in air".  When not grading,
-            // the band is derived purely from the air flag (0 or 3), so the
-            // run split below reduces to the historical binary behaviour.
+            // Per-edge band: a degree `0..=4` for a wall that still touches the
+            // layer below, or [`BAND_AIR`] for one that does not.  The degrees
+            // grade the whole 0–100 % range against the offsets of `below`;
+            // `BAND_AIR` sits one past `Deg4` so an edge that leaves the last
+            // sliver of contact is still split off, even though both sides
+            // grade as `Deg4`.  Band hysteresis then suppresses tiny degree
+            // flickers, and a final pass restores the air flag the collapse may
+            // have smeared, so the role tag stays exact.  Without bands the
+            // band is derived purely from the air flag, and the run split below
+            // reduces to the historical binary behaviour.
             let edge_band: Vec<u8> = if let Some(b) = bands {
                 let mut band: Vec<u8> = (0..edge_count)
                     .map(|i| {
+                        if edge_air[i] {
+                            return BAND_AIR;
+                        }
                         let j = if is_already_open { i + 1 } else { (i + 1) % nd };
                         let mx = (dense_pts[i].0 + dense_pts[j].0) * 0.5;
                         let my = (dense_pts[i].1 + dense_pts[j].1) * 0.5;
+                        // Outside the strip's neighbourhood nothing can be
+                        // anything but fully supported, and this is where most
+                        // edges on most layers land — so answer without touching
+                        // the boundary polygons, which are only valid here
+                        // anyway (they are clipped to it).
+                        if !point_inside_or_on_paths_eo(mx, my, &b.near) {
+                            return band_class[0].band();
+                        }
                         // Only boundaries kept in `bands` are tested; a skipped
                         // one means the bands it separates share a class, so any
                         // representative on that side maps to the same result.
+                        // Walking outwards, the first boundary the midpoint is
+                        // inside names its band; falling through every one of
+                        // them leaves the outermost band that was asked about.
                         let inside = |region: &Option<Paths>| {
                             region
                                 .as_ref()
                                 .is_some_and(|r| point_inside_or_on_paths_eo(mx, my, r))
                         };
-                        let raw = if edge_air[i] {
-                            if b.b3.is_none() || inside(&b.b3) {
-                                3
-                            } else {
-                                4
-                            }
-                        } else if inside(&b.b0) {
+                        let raw = if inside(&b.f0) {
                             0
-                        } else if inside(&b.b1) {
+                        } else if inside(&b.f25) {
                             1
-                        } else if b.b0.is_some() || b.b1.is_some() {
+                        } else if inside(&b.f50) {
                             2
+                        } else if inside(&b.f75) {
+                            3
                         } else {
-                            0
+                            // Every boundary inside this point was skipped, so
+                            // the bands they separate share a class: report the
+                            // outermost one that was actually built, or band 0
+                            // when none were.
+                            [&b.f75, &b.f50, &b.f25, &b.f0]
+                                .iter()
+                                .position(|r| r.is_some())
+                                .map_or(0, |k| 4 - k as u8)
                         };
                         // Fold to the emitted class (a band the pipeline deemed
                         // behaviourally equal to a plainer wall collapses to a
                         // lower degree, so we never split where output is
-                        // unchanged).  Supported↔air sides are preserved by
-                        // construction, so this never re-tags the role.
+                        // unchanged).  `BAND_AIR` is never folded.
                         band_class[raw as usize].band()
                     })
                     .collect();
                 collapse_short_runs_u8(&mut band, &dense_pts, is_already_open, min_run_len_mm);
                 for (i, bd) in band.iter_mut().enumerate() {
-                    // Neutralise any cross-air-boundary flip the collapse
-                    // made so the ≥Deg3 ⇔ in-air invariant (hence the role
-                    // tag) is exact.
-                    *bd = if edge_air[i] {
-                        (*bd).max(3)
+                    // Neutralise any cross-air-boundary flip the collapse made,
+                    // so `BAND_AIR ⇔ in air` — hence the role tag — is exact.
+                    if edge_air[i] {
+                        *bd = BAND_AIR;
                     } else {
-                        (*bd).min(2)
-                    };
+                        *bd = (*bd).min(OverhangClass::Deg4.band());
+                    }
                 }
                 band
             } else {
-                edge_air.iter().map(|&a| if a { 3 } else { 0 }).collect()
+                edge_air
+                    .iter()
+                    .map(|&a| if a { BAND_AIR } else { 0 })
+                    .collect()
             };
 
             // Uniform band → keep the path unsplit (covers both historical
-            // fast paths: all-supported = band 0, all-in-air = band 3/4).
+            // fast paths: all-supported = band 0, all-in-air = BAND_AIR).
             let first_band = edge_band[0];
             if edge_band.iter().all(|&b| b == first_band) {
-                let seg_role = if first_band >= 3 {
+                let seg_role = if first_band >= BAND_AIR {
                     ExtrusionRole::OverhangPerimeter
                 } else {
                     role
@@ -750,7 +876,7 @@ pub(crate) fn classify_overhang_perimeters(
                 if verts.len() < 2 {
                     continue;
                 }
-                let seg_role = if seg_band >= 3 {
+                let seg_role = if seg_band >= BAND_AIR {
                     ExtrusionRole::OverhangPerimeter
                 } else {
                     role
@@ -1156,7 +1282,7 @@ mod tests {
         layer.unsupported_regions = Paths::new(vec![air]);
 
         let mut layers = vec![layer];
-        classify_overhang_perimeters(&mut layers, 0.4, None);
+        classify_overhang_perimeters(&mut layers, 0.4, None, None);
 
         assert_eq!(
             layers[0].path_roles[0],
@@ -1180,7 +1306,7 @@ mod tests {
         layer.unsupported_regions = Paths::new(vec![air]);
 
         let mut layers = vec![layer];
-        classify_overhang_perimeters(&mut layers, 0.4, None);
+        classify_overhang_perimeters(&mut layers, 0.4, None, None);
 
         assert_eq!(
             layers[0].path_roles[0],
@@ -1202,7 +1328,7 @@ mod tests {
         layer.unsupported_regions = Paths::new(vec![air]);
 
         let mut layers = vec![layer];
-        classify_overhang_perimeters(&mut layers, 0.4, None);
+        classify_overhang_perimeters(&mut layers, 0.4, None, None);
 
         assert_eq!(
             layers[0].path_roles[0],
@@ -1222,13 +1348,17 @@ mod tests {
     }
 
     /// With dynamic overhang speed enabled, wall segments must be graded into
-    /// the four overhang degrees by how far past the previous-layer support edge
-    /// their centreline sits (`nozzle = 0.4` → band seams at +0.1 / +0.2 / +0.3
-    /// mm above the top edge at y = 100).
+    /// the four degrees by what fraction of the bead hangs past the **material**
+    /// below, and only a bead clear of it altogether may take the overhang role.
+    ///
+    /// The layer below is a square whose material edge is `y = 100`; at
+    /// `nozzle = 0.4` the bead spans `y ± 0.2`, so the seams land at
+    /// `y = 99.8 / 99.9 / 100.0 / 100.1 / 100.2` for 0 / 25 / 50 / 75 / 100 %
+    /// unsupported.
     #[test]
     fn test_classify_overhang_degrees_grades_bands() {
-        // Support: a 100×100 square whose top edge is y = 100.
-        let prev: Paths = Paths::new(vec![vec![
+        // The layer below: a 100×100 square whose top material edge is y = 100.
+        let below: Paths = Paths::new(vec![vec![
             (0.0, 0.0),
             (100.0, 0.0),
             (100.0, 100.0),
@@ -1238,64 +1368,55 @@ mod tests {
 
         let support_layer = SliceLayer::new(0.2);
         let mut wall_layer = SliceLayer::new(0.4);
-        // Four long walls, each uniform in one degree band.
-        push_open_wall_y(
-            &mut wall_layer,
-            100.05,
-            10.0,
-            90.0,
-            ExtrusionRole::InnerWall,
-        ); // Deg1
-        push_open_wall_y(
-            &mut wall_layer,
-            100.15,
-            10.0,
-            90.0,
-            ExtrusionRole::InnerWall,
-        ); // Deg2
-        push_open_wall_y(
-            &mut wall_layer,
-            100.25,
-            10.0,
-            90.0,
-            ExtrusionRole::InnerWall,
-        ); // Deg3
-        push_open_wall_y(&mut wall_layer, 100.5, 10.0, 90.0, ExtrusionRole::InnerWall); // Deg4
+        // One long wall per band, each uniform.
+        for y in [99.85, 99.95, 100.05, 100.15, 100.5] {
+            push_open_wall_y(&mut wall_layer, y, 10.0, 90.0, ExtrusionRole::InnerWall);
+        }
 
-        // Air = everything above the +d/2 (= 0.2 mm) support envelope.
-        let air: Path = vec![
+        // The veto mask, built as the surface pass builds it — a looser
+        // threshold than the 100 % boundary, so it contains everything the
+        // classifier may flag.
+        let strip: Path = vec![
             (-10.0, 100.2),
             (110.0, 100.2),
             (110.0, 200.0),
             (-10.0, 200.0),
         ]
         .into();
-        wall_layer.unsupported_regions = Paths::new(vec![air]);
+        wall_layer.unsupported_regions = Paths::new(vec![strip]);
 
-        // Support at index 0 is the layer below the wall layer (layer 1).
+        // Outline at index 0 is the layer below the wall layer (layer 1).
         let mut layers = vec![support_layer, wall_layer];
-        let support = vec![prev, Paths::default()];
+        let outlines = vec![below, Paths::default()];
         classify_overhang_perimeters(
             &mut layers,
             0.4,
+            Some(&outlines),
             Some(OverhangGrading {
-                support: &support,
                 band_class: OverhangGrading::IDENTITY_BAND_CLASS,
             }),
         );
 
         let l = &layers[1];
-        // Four inputs stayed four outputs (each wall is uniform → not split).
-        assert_eq!(l.paths.len(), 4, "no split expected for uniform-band walls");
+        // Five inputs stayed five outputs (each wall is uniform → not split).
+        assert_eq!(l.paths.len(), 5, "no split expected for uniform-band walls");
         assert_eq!(l.overhang_for_path(0), OverhangClass::Deg1);
         assert_eq!(l.overhang_for_path(1), OverhangClass::Deg2);
         assert_eq!(l.overhang_for_path(2), OverhangClass::Deg3);
         assert_eq!(l.overhang_for_path(3), OverhangClass::Deg4);
-        // Deg3/Deg4 are in air → OverhangPerimeter role; Deg1/Deg2 stay walls.
-        assert_eq!(l.role_for_path(0), ExtrusionRole::InnerWall);
-        assert_eq!(l.role_for_path(1), ExtrusionRole::InnerWall);
-        assert_eq!(l.role_for_path(2), ExtrusionRole::OverhangPerimeter);
-        assert_eq!(l.role_for_path(3), ExtrusionRole::OverhangPerimeter);
+        assert_eq!(l.overhang_for_path(4), OverhangClass::Deg4);
+        // Only the bead clear of the material below takes the overhang role.
+        // The 75–100 % one is graded Deg4 — it prints at the Deg4 speed and
+        // takes the overhang fan — but it still touches, so it keeps wall role,
+        // wall flow and wall width.
+        for i in 0..4 {
+            assert_eq!(
+                l.role_for_path(i),
+                ExtrusionRole::InnerWall,
+                "path {i} still touches the layer below and must stay a wall"
+            );
+        }
+        assert_eq!(l.role_for_path(4), ExtrusionRole::OverhangPerimeter);
     }
 
     /// A fully-unsupported wall far from any support is Deg4, and the role
@@ -1323,8 +1444,8 @@ mod tests {
         classify_overhang_perimeters(
             &mut layers,
             0.4,
+            Some(&support),
             Some(OverhangGrading {
-                support: &support,
                 band_class: OverhangGrading::IDENTITY_BAND_CLASS,
             }),
         );
@@ -1346,7 +1467,7 @@ mod tests {
         layer.unsupported_regions = Paths::new(vec![air]);
 
         let mut layers = vec![layer];
-        classify_overhang_perimeters(&mut layers, 0.4, None);
+        classify_overhang_perimeters(&mut layers, 0.4, None, None);
 
         assert!(
             layers[0].path_overhang.is_empty(),
@@ -1384,7 +1505,7 @@ mod tests {
         layer.unsupported_regions = Paths::new(vec![cur_outer, prev_outer]);
 
         let mut layers = vec![layer];
-        classify_overhang_perimeters(&mut layers, 0.4, None);
+        classify_overhang_perimeters(&mut layers, 0.4, None, None);
 
         assert_eq!(
             layers[0].path_roles[0],
@@ -1417,7 +1538,7 @@ mod tests {
         layer.unsupported_regions = Paths::new(vec![cur_outer, prev_outer]);
 
         let mut layers = vec![layer];
-        classify_overhang_perimeters(&mut layers, 0.4, None);
+        classify_overhang_perimeters(&mut layers, 0.4, None, None);
 
         assert_eq!(
             layers[0].path_roles[0],
@@ -1451,7 +1572,7 @@ mod tests {
         layer.unsupported_regions = Paths::new(vec![air]);
 
         let mut layers = vec![layer];
-        classify_overhang_perimeters(&mut layers, 0.4, None);
+        classify_overhang_perimeters(&mut layers, 0.4, None, None);
 
         // Find the OverhangPerimeter sub-segment.
         let layer0 = &layers[0];
@@ -1517,7 +1638,7 @@ mod tests {
 
         let mut layers = vec![layer0, layer1];
         generate_top_bottom_surfaces(&mut layers, 0, 1, 0.2, 45.0);
-        classify_overhang_perimeters(&mut layers, 0.4, None);
+        classify_overhang_perimeters(&mut layers, 0.4, None, None);
 
         assert_eq!(
             layers[1].path_roles[0],
@@ -1564,7 +1685,7 @@ mod tests {
         let dup = layers[0].clone();
         layers.insert(0, dup);
         generate_top_bottom_surfaces(&mut layers, 0, 1, 0.2, 45.0);
-        classify_overhang_perimeters(&mut layers, 0.4, None);
+        classify_overhang_perimeters(&mut layers, 0.4, None, None);
 
         // Bridge infill must exist: the unsupported ring is filled with bridge lines.
         assert!(
@@ -1585,6 +1706,120 @@ mod tests {
              with the bridge zone boundary — double-extrusion prevention; \
              roles={:?}",
             layers[2].path_roles
+        );
+    }
+
+    /// A circular rim, sampled the way a real sliced funnel is, with the air
+    /// strip built exactly as `generate_top_bottom_surfaces_with_interior`
+    /// builds it — so the strip's outer contour *is* the wall path, which is the
+    /// coincidence the whole boundary policy turns on.
+    ///
+    /// `step` is how far the rim leans out per layer; `d` the nozzle diameter.
+    /// Returns the classified layer.
+    fn classify_circular_rim(step: f64, d: f64) -> SliceLayer {
+        use clipper2::Path;
+
+        let ring = |r: f64| -> Path {
+            // A vertex count and radius that put most coordinates off the Centi
+            // grid, as sliced geometry does — rounding them is what used to make
+            // the boundary test answer at random.
+            (0..96)
+                .map(|k| {
+                    let a = std::f64::consts::TAU * f64::from(k) / 96.0;
+                    (2.917 + r).mul_add(a.cos(), 0.83) // centre offset, odd radius
+                })
+                .zip((0..96).map(|k| {
+                    let a = std::f64::consts::TAU * f64::from(k) / 96.0;
+                    (2.917 + r).mul_add(a.sin(), 4.8)
+                }))
+                .collect::<Vec<(f64, f64)>>()
+                .into()
+        };
+
+        let prev_ring = ring(0.0);
+        let cur_ring = ring(step);
+        let prev = Paths::new(vec![prev_ring]);
+        let cur = Paths::new(vec![cur_ring.clone()]);
+
+        // `perimeters[i] − inflate(perimeters[i-1], d/2)`, verbatim.
+        let envelope = inflate(
+            prev.clone(),
+            d * 0.5,
+            JoinType::Round,
+            EndType::Polygon,
+            2.0,
+        );
+        let air = difference(cur.clone(), envelope, FillRule::EvenOdd).unwrap_or_default();
+
+        let mut layer0 = SliceLayer::new(0.2);
+        layer0.paths.push(prev.iter().next().unwrap().clone());
+        layer0.path_roles.push(ExtrusionRole::OuterWall);
+
+        let mut layer1 = SliceLayer::new(0.2);
+        layer1.paths.push(cur_ring);
+        layer1.path_roles.push(ExtrusionRole::OuterWall);
+        layer1.unsupported_regions = air;
+
+        let support = vec![prev, cur];
+        let mut layers = vec![layer0, layer1];
+        classify_overhang_perimeters(&mut layers, d, Some(&support), None);
+        layers.pop().unwrap()
+    }
+
+    /// A rim that leans out uniformly must be classified uniformly.
+    ///
+    /// The air strip's outer contour is the wall path itself, so testing a
+    /// wall's own edge midpoints against the strip asks a point-in-polygon
+    /// question about points lying on their subject polygon — and the answer
+    /// comes back as rounding noise. On a Benchy funnel rim that turned one
+    /// 0.34 mm ledge into four alternating verdicts around a single circle,
+    /// each fragment paying its own retract, travel and seam. Measuring against
+    /// `b2` instead — whose boundary sits `d/2` inboard of the wall — is what
+    /// makes the answer geometric.
+    #[test]
+    fn test_classify_overhang_uniform_rim_is_not_fragmented() {
+        // 0.35 mm past a 0.4 mm bead's centreline: 87 % unsupported, an
+        // unambiguous overhang, and the step the Benchy funnel rim actually has.
+        let layer = classify_circular_rim(0.35, 0.4);
+
+        assert_eq!(
+            layer.paths.len(),
+            1,
+            "a uniform rim must stay one path, not be split into arcs; roles={:?}",
+            layer.path_roles
+        );
+        assert_eq!(
+            layer.path_roles[0],
+            ExtrusionRole::OverhangPerimeter,
+            "a rim clear of the layer below is an overhang"
+        );
+        assert!(
+            !layer.is_path_open(0),
+            "an unsplit loop must stay closed so the generator still closes the contour"
+        );
+    }
+
+    /// The other side of the threshold, and the case that started this: a bead
+    /// that still catches the layer below is a wall, not a bridge.
+    ///
+    /// The Benchy funnel rim leans 0.336 mm per layer measured centreline to
+    /// centreline — which reads as an 84 % overhang, and, measured from the wall
+    /// centreline rather than the material edge, as a fully detached one.  But
+    /// the layer below is half a bead wider than its centreline, so the new bead
+    /// still lands 0.064 mm onto solid plastic.  It earns a steep *degree*; it
+    /// does not earn bridge flow and bridge speed.
+    #[test]
+    fn test_classify_overhang_rim_still_touching_is_not_flagged() {
+        // 0.136 mm past the material edge — the funnel rim, to the number.
+        let layer = classify_circular_rim(0.136, 0.4);
+
+        assert!(
+            layer
+                .path_roles
+                .iter()
+                .all(|r| *r == ExtrusionRole::OuterWall),
+            "a bead still touching the layer below must stay a wall; roles={:?}",
+            layer.path_roles
         );
     }
 
