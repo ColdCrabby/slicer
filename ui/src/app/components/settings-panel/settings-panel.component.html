@@ -13,6 +13,37 @@
         Always here and quiet at zero, so it never arrives under a cursor that
         was reaching for something else.
       -->
+      <!--
+        Saving is the one thing here with no action attached, so it is a dot
+        rather than a sentence: present while it has something to report, and
+        holding its space so the buttons beside it never shift.
+      -->
+      <span
+        class="save-dot"
+        [class.is-active]="saveVisible()"
+        [class.is-error]="saveIsError()"
+        [title]="footerTitle()"
+      ></span>
+
+      <!--
+        Reverting and syncing are the same subject — what this plate has changed
+        — so they sit together, and next to the count that says how much there
+        is. They used to live in a strip at the very bottom of the panel, a
+        scroll away from the settings that caused them.
+      -->
+      <button
+        type="button"
+        class="revert-trigger"
+        [class.is-confirming]="resetConfirming()"
+        [disabled]="modifiedCount() === 0"
+        [tooltip]="revertTooltip()"
+        [attr.aria-label]="revertTooltip()"
+        (click)="resetOverrides()"
+        (blur)="cancelReset()"
+      >
+        <nexus-icon [name]="resetConfirming() ? 'warning-triangle' : 'undo'" />
+      </button>
+
       <button
         nexusIconButton
         class="sync-trigger"
@@ -22,7 +53,7 @@
         [attr.aria-label]="syncTooltip()"
         (click)="syncToProfile()"
       >
-        <nexus-icon name="floppy-disk-arrow-out" />
+        <nexus-icon name="upload" />
         @if (modifiedCount() > 0) {
           <span class="sync-trigger-count">{{ modifiedCount() }}</span>
         }
@@ -64,13 +95,16 @@
           @if (presetOptionsFor(contract.id).length > 0) {
             <!-- Trigger label is clipped, not removed: the caret is all that
                  shows, and a screen reader still hears which preset it holds. -->
-            <nexus-select
-              class="recipe-swap"
-              [options]="presetOptionsFor(contract.id)"
-              [value]="selectedIdFor(contract.id)"
-              [placeholder]="'Select ' + contract.label.toLowerCase()"
-              (valueChange)="selectPresetFor(contract.id, $event)"
-            />
+            <span class="recipe-swap-wrap">
+              <nexus-select
+                class="recipe-swap"
+                [options]="presetOptionsFor(contract.id)"
+                [value]="selectedIdFor(contract.id)"
+                [placeholder]="'Select ' + contract.label.toLowerCase()"
+                (valueChange)="selectPresetFor(contract.id, $event)"
+              />
+              <nexus-icon class="recipe-swap-icon" name="list-select" aria-hidden="true" />
+            </span>
           }
 
           <a
@@ -81,7 +115,7 @@
             [attr.aria-label]="editLabelFor(contract.id)"
             [tooltip]="editLabelFor(contract.id)"
           >
-            <nexus-icon name="settings" />
+            <nexus-icon name="edit-pencil" />
           </a>
         </div>
       }
@@ -100,29 +134,9 @@
     (fieldChange)="update($event)"
   />
 
-  @if (footerVisible()) {
-    <footer #footer class="settings-footer" [class.is-error]="saveIsError()">
-      <!-- The dot keeps its space whether or not it is showing: this strip sits
-           under the user's cursor while they drag a slider, and a dot that
-           appears mid-save would shove the text sideways on every edit. -->
-      <span class="settings-footer-dot" [class.is-active]="saveVisible()"></span>
-      <span class="settings-footer-text" [title]="footerTitle()">{{ footerLabel() }}</span>
-      @if (modifiedCount()) {
-        <button
-          type="button"
-          class="settings-footer-reset"
-          [class.is-confirming]="resetConfirming()"
-          (click)="resetOverrides()"
-          (blur)="cancelReset()"
-        >
-          {{ resetConfirming() ? 'Confirm?' : 'Reset all' }}
-        </button>
-      }
-      <!-- Only the save result is announced. The change count updates on every
-           keystroke and would turn a screen reader into a metronome. -->
-      <span class="settings-footer-announce" role="status" aria-live="polite">{{
-        saveVisible() ? saveLabel() : ''
-      }}</span>
-    </footer>
-  }
+  <!-- Only the save result is announced. The change count updates on every
+       keystroke and would turn a screen reader into a metronome. -->
+  <span class="settings-announce" role="status" aria-live="polite">{{
+    saveVisible() ? saveLabel() : ''
+  }}</span>
 </section>

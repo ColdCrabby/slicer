@@ -107,6 +107,18 @@ export class SettingsPanel {
   });
   protected readonly machineMaterialLabel = this.activeSelection.materialOverlayLabel;
 
+  /** What the revert button says, armed and disarmed. */
+  protected readonly revertTooltip = computed(() => {
+    if (this.resetConfirming()) {
+      return 'Press again to discard every change on this plate';
+    }
+    const count = this.modifiedCount();
+    if (count === 0) {
+      return 'No changed settings to discard';
+    }
+    return `Discard ${count} changed ${count === 1 ? 'setting' : 'settings'} on this plate`;
+  });
+
   /**
    * What the sync button says, in both states.
    *

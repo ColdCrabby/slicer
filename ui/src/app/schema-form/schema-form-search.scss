@@ -40,7 +40,9 @@
   // and the offset every pinned section header below is measured against — just
   // as the user started typing.
   height: 38px;
-  padding: 0 var(--spacing-md);
+  // A pixel less than the shared inset, because the border takes one — so the
+  // magnifier lands on the same line as every other leading icon.
+  padding: 0 calc(var(--spacing-md) - 1px);
   background: var(--color-surface);
   border: 1px solid var(--color-border);
   border-radius: var(--radius-md);
