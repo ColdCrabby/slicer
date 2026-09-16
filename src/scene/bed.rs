@@ -73,46 +73,60 @@ impl BedConfig {
         }
     }
 
-    /// Does the whole box fit inside the printable volume?
+    /// Is this XY point on the printable bed?
     ///
-    /// Height is checked against `height` and the floor (a model sunk below
-    /// z = 0 cannot print). The XY test follows the bed `shape`: a circular
-    /// bed accepts a box only when all four of its footprint corners fall
-    /// within the inscribed disk, so an object hanging off the curved edge is
-    /// still caught.
+    /// The one place the bed outline is turned into a yes/no answer. Object
+    /// placement asks it through [`contains_aabb`]; the G-code preview
+    /// asks it per extrusion endpoint, so a skirt or brim that wanders off the
+    /// plate is flagged by the same outline the viewer draws.
     ///
-    /// A small epsilon absorbs float noise, so an object sitting exactly on
-    /// the bed edge or floor is not reported as out of bounds.
-    pub fn contains_aabb(&self, aabb: &crate::mesh::types::AABB) -> bool {
-        // 1 µm — below any printable resolution, but wide enough to absorb the
-        // f32 noise real mesh files carry: STL stores coordinates as f32, so a
-        // model authored flat on z = 0 routinely reports a min z of a few
-        // nanometres either side of it (3DBenchy: −2.7e-6 mm). A tighter
-        // epsilon flags such models as out of bounds on every plate.
-        const EPS: f64 = 1e-3;
-
-        if aabb.min.z < -EPS || aabb.max.z > self.height + EPS {
-            return false;
-        }
-
+    /// A small epsilon absorbs float noise, so a point sitting exactly on the
+    /// bed edge is inside.
+    pub fn contains_xy(&self, x: f64, y: f64) -> bool {
         match self.shape {
             BedShape::Rectangular => {
-                aabb.min.x >= self.origin_offset_x - EPS
-                    && aabb.min.y >= self.origin_offset_y - EPS
-                    && aabb.max.x <= self.origin_offset_x + self.width + EPS
-                    && aabb.max.y <= self.origin_offset_y + self.depth + EPS
+                x >= self.origin_offset_x - EPS
+                    && y >= self.origin_offset_y - EPS
+                    && x <= self.origin_offset_x + self.width + EPS
+                    && y <= self.origin_offset_y + self.depth + EPS
             }
             BedShape::Circular => {
                 let (cx, cy) = self.center_xy();
                 let radius = self.width.min(self.depth) / 2.0 + EPS;
-                // The farthest footprint corner from the centre decides it.
-                let dx = (aabb.min.x - cx).abs().max((aabb.max.x - cx).abs());
-                let dy = (aabb.min.y - cy).abs().max((aabb.max.y - cy).abs());
+                let dx = x - cx;
+                let dy = y - cy;
                 dx * dx + dy * dy <= radius * radius
             }
         }
     }
+
+    /// Does the whole box fit inside the printable volume?
+    ///
+    /// Height is checked against `height` and the floor (a model sunk below
+    /// z = 0 cannot print). The XY test is [`contains_xy`] over all four
+    /// footprint corners, so an object hanging off a circular bed's curved
+    /// edge is caught as surely as one off a rectangular bed's straight one.
+    ///
+    /// A small epsilon absorbs float noise, so an object sitting exactly on
+    /// the bed edge or floor is not reported as out of bounds.
+    pub fn contains_aabb(&self, aabb: &crate::mesh::types::AABB) -> bool {
+        if aabb.min.z < -EPS || aabb.max.z > self.height + EPS {
+            return false;
+        }
+
+        self.contains_xy(aabb.min.x, aabb.min.y)
+            && self.contains_xy(aabb.max.x, aabb.min.y)
+            && self.contains_xy(aabb.min.x, aabb.max.y)
+            && self.contains_xy(aabb.max.x, aabb.max.y)
+    }
 }
+
+/// Tolerance on every bed-containment test: 1 µm, below any printable
+/// resolution but wide enough to absorb the f32 noise real mesh files carry.
+/// STL stores coordinates as f32, so a model authored flat on z = 0 routinely
+/// reports a min z a few nanometres either side of it (3DBenchy: −2.7e-6 mm).
+/// A tighter epsilon flags such models as out of bounds on every plate.
+const EPS: f64 = 1e-3;
 
 #[cfg(not(target_arch = "wasm32"))]
 impl From<&MachineConfig> for BedConfig {
@@ -204,6 +218,26 @@ mod tests {
         // min z a few nanometres either side of it (3DBenchy: -2.7e-6 mm).
         let bed = BedConfig::default();
         assert!(bed.contains_aabb(&box_aabb((10.0, 10.0, -2.7e-6), (40.0, 40.0, 48.0))));
+    }
+
+    #[test]
+    fn contains_xy_follows_the_bed_shape() {
+        let round = BedConfig {
+            width: 200.0,
+            depth: 200.0,
+            height: 250.0,
+            origin_offset_x: 0.0,
+            origin_offset_y: 0.0,
+            shape: BedShape::Circular,
+        };
+        // The corner of the bounding box is off the disk even though a
+        // rectangular bed of the same extents would accept it.
+        assert!(round.contains_xy(100.0, 100.0));
+        assert!(!round.contains_xy(190.0, 190.0));
+        assert!(BedConfig::default().contains_xy(190.0, 190.0));
+        // Exactly on the edge counts as on the bed.
+        assert!(BedConfig::default().contains_xy(220.0, 0.0));
+        assert!(!BedConfig::default().contains_xy(220.5, 0.0));
     }
 
     #[test]

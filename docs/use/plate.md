@@ -194,6 +194,10 @@ Two badges can appear on an object:
 - **Overlaps another object** — its footprint intersects another part's. Parts
   touching edge-to-edge don't count, so a tight auto-arrangement stays clean.
 
+An object outside the build area also turns **red on the plate**, and goes back
+to its normal colour the moment you move it back on, so you can drag it into
+place without watching the panel.
+
 Both are warnings. Slicing still runs — the check is an estimate and refusing
 would be more annoying than useful — but you should look before you print.
 

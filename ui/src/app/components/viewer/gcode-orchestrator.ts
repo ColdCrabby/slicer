@@ -9,6 +9,7 @@ import {
 import {
   applyHiddenRoles,
   applyLayerVisibility,
+  type BedOutline,
   buildGcodeModel,
   disposeGcodeModel,
   type GcodeDetail,
@@ -57,6 +58,11 @@ export class GcodeOrchestrator {
     return this.model?.totalSegments ?? 0;
   }
 
+  /** Extrusion segments the printer cannot reach — `0` on a healthy plate. */
+  get offBedSegments(): number {
+    return this.model?.offBedSegments ?? 0;
+  }
+
   /** Segments submitted for the current layer range — what a frame costs. */
   get visibleSegments(): number {
     return this.model?.visibleSegments ?? 0;
@@ -87,10 +93,11 @@ export class GcodeOrchestrator {
   buildFromHandle(
     handle: GcodeSource,
     colors: RoleColorPalette = ROLE_COLORS_DARK,
-  ): { totalSegments: number } {
+    bed: BedOutline | null = null,
+  ): { totalSegments: number; offBedSegments: number } {
     this.dispose();
 
-    const model = buildGcodeModel(handle, colors, this.gloss);
+    const model = buildGcodeModel(handle, colors, this.gloss, bed);
     tagInstanceRefs(model);
     this.contentRoot.add(model.group);
     this.model = model;
@@ -101,7 +108,7 @@ export class GcodeOrchestrator {
     // is small enough to afford it.
     this.detail = 'low';
     setDetailLevel(model, 'low');
-    return { totalSegments: model.totalSegments };
+    return { totalSegments: model.totalSegments, offBedSegments: model.offBedSegments };
   }
 
   /**

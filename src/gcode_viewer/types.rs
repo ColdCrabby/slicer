@@ -158,6 +158,13 @@ impl Role {
 
 // ── Internal layer representation ──────────────────────────────────────────
 
+/// Floats a single segment occupies in a block's flat buffer:
+/// `[x0, y0, z0, x1, y1, z1, width, height, speed, accel]`.
+///
+/// This is the wire format the TypeScript viewer decodes (`FLOATS_PER_SEGMENT`
+/// there), so a field may be appended but never reordered.
+pub(super) const FLOATS_PER_SEGMENT: usize = 10;
+
 #[derive(Debug, Clone)]
 pub(super) struct Block {
     pub(super) role: Role,
@@ -229,7 +236,8 @@ impl InternalLayer {
         speed: f32,
         accel: f32,
     ) {
-        let segment_data = [x0, y0, z0, x1, y1, z1, width, height, speed, accel];
+        let segment_data: [f32; FLOATS_PER_SEGMENT] =
+            [x0, y0, z0, x1, y1, z1, width, height, speed, accel];
         if let Some(last) = self.blocks.last_mut() {
             if last.role == role {
                 last.data.extend_from_slice(&segment_data);

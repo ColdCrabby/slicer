@@ -92,6 +92,18 @@ guessing.
 - Poor overhangs → check **fan speed** and **layer time** on those layers.
 - Ringing → check **acceleration** and **speed** around corners.
 
+## Moves that leave the bed
+
+Anything the preview draws in **bright red** is a move the printer cannot make,
+because one end of it is off the bed. It stays red in every colour mode, so
+switching to Speed or Fan won't hide it, and a note at the top of the viewer
+counts how many there are.
+
+The usual culprit is not the model at all — it's a skirt, a brim or a prime
+line with enough distance or loops to push it over the edge of a full plate.
+Reduce the skirt distance or loop count, shrink the brim, or move the model
+inwards.
+
 ## The stale-preview rule
 
 The **Re-Slice** button turns amber the moment you change a setting or move a

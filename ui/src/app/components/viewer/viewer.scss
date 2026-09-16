@@ -125,7 +125,17 @@
   left: var(--spacing-md);
   max-width: 42%;
   display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--spacing-sm);
   pointer-events: none;
+}
+
+/* Bottom-left rather than over the scene: the red beads on the plate are the
+   signal, this only says how many there are. Top-centre belongs to the view
+   toolbar and the cards it opens beneath itself. */
+.viewer-alert {
+  max-width: 100%;
 }
 
 .viewer-metrics {
