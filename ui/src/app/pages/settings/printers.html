@@ -154,33 +154,36 @@
             }
 
             <!--
-              An entry point, near the top, that says what the feature is. The
-              corrections themselves live further down beside the settings they
-              adjust — but nobody scrolls past sixty controls to discover a
-              feature they have not heard of, so the way in is here.
+              The way in, near the top rather than below sixty settings: nobody
+              scrolls past the whole editor to discover a feature they have not
+              heard of. Built from the page's own labelled row, so it explains
+              itself through the same info affordance every other setting uses
+              and the outline lists it without being told.
             -->
-            <div class="mgr__corrections-entry">
-              <button
-                type="button"
-                nexusButton
-                variant="secondary"
-                size="sm"
-                (click)="openAddMaterial($event, printer.id)"
-                [disabled]="!addableMaterials(printer).length"
+            <div class="profile-editor__group">
+              <label class="profile-editor__group-title">Material corrections</label>
+              <nexus-field-row
+                label="Correct a material"
+                description="What this machine does differently with one material — the flow its hotend can melt, the pressure advance its extruder needs, how much retraction it wants — whichever spool of that material is loaded. Your other printers are untouched."
               >
-                <nexus-icon name="droplet" aria-hidden="true" />
-                Correct a material
-              </button>
-              @if (correctedCount(printer); as count) {
-                <button type="button" class="mgr__corrections-jump" (click)="jumpToCorrections()">
-                  {{ count }} {{ count === 1 ? 'material corrected' : 'materials corrected' }}
-                </button>
-              } @else {
-                <span class="mgr__corrections-hint">
-                  For what this machine does differently with one material — flow, pressure advance,
-                  retraction — whichever spool of it is loaded.
-                </span>
-              }
+                <div class="mgr__corrections-control">
+                  <nexus-select
+                    [options]="addableMaterials(printer)"
+                    [value]="null"
+                    placeholder="Choose a material…"
+                    (valueChange)="startMaterialCorrection(printer.id, $event)"
+                  />
+                  @if (correctedCount(printer); as count) {
+                    <button
+                      type="button"
+                      class="mgr__corrections-jump"
+                      (click)="jumpToCorrections()"
+                    >
+                      {{ count }} already corrected
+                    </button>
+                  }
+                </div>
+              </nexus-field-row>
             </div>
 
             <div class="profile-editor__group">
@@ -389,17 +392,13 @@
                 }
 
                 @if (correction.addable.length) {
-                  <button
-                    type="button"
-                    nexusButton
-                    variant="ghost"
-                    size="sm"
+                  <nexus-select
                     class="mgr__correction-add"
-                    (click)="openAddSetting($event, printer.id, correction.material)"
-                  >
-                    <nexus-icon name="plus" aria-hidden="true" />
-                    Correct another setting
-                  </button>
+                    [options]="correction.addable"
+                    [value]="null"
+                    placeholder="Correct another setting…"
+                    (valueChange)="addCorrection(printer.id, correction.material, $event)"
+                  />
                 }
               </div>
             }

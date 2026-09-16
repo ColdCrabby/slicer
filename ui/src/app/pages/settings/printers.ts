@@ -145,6 +145,15 @@ const CORRECTABLE_FIELDS: FieldDef[] = parseSchema(SLICING_PARAMS_SCHEMA).fields
  */
 const FIRST_CORRECTION_KEY = 'max_volumetric_speed';
 
+/**
+ * Heading of the entry row's own section.
+ *
+ * Named because every material's section is titled "<Material> corrections" and
+ * this one would otherwise match the same suffix — jumping to the corrections
+ * would land on the control that asked to jump.
+ */
+const ENTRY_SECTION_TITLE = 'Material corrections';
+
 const PARAM_GROUPS: SchemaGroup[] = (() => {
   const order = new Map<string, number>(PRINTER_PARAM_GROUPS.map((name, index) => [name, index]));
   return parseSchema(SLICING_PARAMS_SCHEMA)
@@ -578,37 +587,13 @@ export class PrintersSettings {
     return correctedMaterials(printer).length;
   }
 
-  /**
-   * Pick a material to start correcting. A menu rather than a select: it is an
-   * action that adds a section, not a value the printer holds.
-   */
-  protected openAddMaterial(event: MouseEvent, id: string): void {
-    const printer = this.store.items().find((p) => p.id === id);
-    if (!printer) {
+  /** Begin correcting a material, and take the user to the section it creates. */
+  protected startMaterialCorrection(id: string, material: string): void {
+    if (!material) {
       return;
     }
-    const items: ContextMenuItem[] = this.addableMaterials(printer).map((option) => ({
-      label: option.label,
-      action: () => {
-        this.addMaterialCorrection(id, option.value);
-        this.jumpToCorrections();
-      },
-    }));
-    void this.contextMenu.open(event, items);
-  }
-
-  /** Pick one more setting to correct for a material already being corrected. */
-  protected openAddSetting(event: MouseEvent, id: string, material: string): void {
-    const printer = this.store.items().find((p) => p.id === id);
-    if (!printer) {
-      return;
-    }
-    const correction = this.materialCorrections(printer).find((c) => c.material === material);
-    const items: ContextMenuItem[] = (correction?.addable ?? []).map((option) => ({
-      label: option.label,
-      action: () => this.addCorrection(id, material, option.value),
-    }));
-    void this.contextMenu.open(event, items);
+    this.addMaterialCorrection(id, material);
+    this.jumpToCorrections(material);
   }
 
   /**
@@ -616,12 +601,23 @@ export class PrintersSettings {
    * count. Read off the DOM for the same reason the outline is: the sections
    * are generated per material, so there is no fixed anchor to name.
    */
-  protected jumpToCorrections(): void {
+  protected jumpToCorrections(material?: string): void {
+    const wanted = material
+      ? `${FILAMENT_MATERIAL_LABELS[material as FilamentMaterial] ?? material} corrections`
+      : null;
     setTimeout(() => {
-      const title = [
+      // Every material's section ends in " corrections" — and so does the entry
+      // row above, which is the one place this must never land.
+      const titles = [
         ...document.querySelectorAll<HTMLElement>('.profile-editor__group-title'),
-      ].find((el) => el.textContent?.trim().endsWith('corrections'));
-      title
+      ].filter((el) => {
+        const text = el.textContent?.trim() ?? '';
+        return text.endsWith(' corrections') && text !== ENTRY_SECTION_TITLE;
+      });
+      const target = wanted
+        ? (titles.find((el) => el.textContent?.trim() === wanted) ?? titles[0])
+        : titles[0];
+      target
         ?.closest('.profile-editor__group')
         ?.scrollIntoView({ behavior: 'smooth', block: 'start' });
     });
