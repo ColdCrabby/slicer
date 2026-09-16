@@ -1046,11 +1046,14 @@ Set to `0` to fall back to `print_speed`.
         description = "Enable dynamic overhang speed & cooling.
 
 Classifies perimeter segments by *overhang degree* — how much of the extrusion
-width hangs over unsupported air below it — so each degree can print at its own
+width hangs past the material below it — so each degree can print at its own
 speed (`overhang_1_4_speed`…`overhang_4_4_speed`) and with extra part-cooling
-airflow (`overhang_fan_speed`).  Mirrors the OrcaSlicer / PrusaSlicer *slow down
-for overhangs* feature.  Set to `false` to print every overhang wall at a single
-`bridge_speed` instead.
+airflow (`overhang_fan_speed`).  Set to `false` to print every overhang wall at
+a single `bridge_speed` instead.
+
+The degree is `layer_height × tan(lean) / nozzle_diameter`, so the angles each
+band covers move with your layer height: thinner layers push every band steeper.
+The per-degree angles quoted below assume 0.2 mm layers on a 0.4 mm nozzle.
 **Default:** true.",
         extend("x-group" = "Speed", "x-tier" = "advanced")
     )]
@@ -1061,9 +1064,10 @@ for overhangs* feature.  Set to `false` to print every overhang wall at a single
         description = "Speed for lightly-overhanging perimeters (0–25% of the line unsupported),
 given either as a literal mm/s value or as a percentage of `perimeter_speed` (e.g. `\"40%\"`).
 
-This band still sits almost entirely on the layer below, so the default leaves
-it at full speed — slowing it taxes a large share of ordinary walls on curved
-models for no gain.
+Up to ~27° from vertical: the gentle part of any curved wall — a hull side, the
+upper half of a dome. It still sits almost entirely on the layer below, so the
+default leaves it at full speed; slowing it taxes a large share of ordinary
+walls for no gain. Reach for it only if a very fast profile scuffs curves.
 **Default:** no override (prints at `perimeter_speed`).",
         extend(
             "x-group" = "Speed",
@@ -1079,11 +1083,11 @@ models for no gain.
         description = "Speed for moderately-overhanging perimeters (25–50% unsupported), given
 either as a literal mm/s value or as a percentage of `perimeter_speed` (e.g. `\"40%\"`).
 
-This is the band a curved wall (a Benchy hull, a dome) spends many layers
-passing through on its way from vertical to bridging. On a profile whose walls
-already run slow it costs nothing to leave alone; on a fast preset it is where
-the transition shows up as a visible quality dip, which is why the fast
-presets state an explicit percentage here rather than this baseline.
+~27–45° from vertical: a hull's midsection, the fillet under a boss — the band
+a curved wall spends the most layers in. On a profile whose walls already run
+slow it costs nothing to leave alone; on a fast preset it is where the
+transition shows up as a visible quality dip, which is why the fast presets
+state an explicit percentage here rather than this baseline.
 **Default:** no override (prints at `perimeter_speed`).",
         extend(
             "x-group" = "Speed",
@@ -1099,9 +1103,11 @@ presets state an explicit percentage here rather than this baseline.
         description = "Speed for steep overhanging perimeters (50–75% unsupported), given either
 as a literal mm/s value or as a percentage of `bridge_speed` (e.g. `\"150%\"`).
 
-No override tracks `bridge_speed` unconditionally, so this band moves with
-that setting instead of pinning a second number that can drift out of sync
-with it.
+~45–56° from vertical: a chamfered lip, a countersink wall, the shoulder of a
+cone. Still pressed onto material, so it prints at wall width — raise it if
+these come out rough and over-cooled, lower it if they sag. No override tracks
+`bridge_speed` unconditionally, so the band moves with that setting instead of
+pinning a second number that can drift out of sync with it.
 **Default:** no override (prints at `bridge_speed`). **Typical:** 20–35 mm/s.",
         extend(
             "x-group" = "Speed",
@@ -1117,9 +1123,11 @@ with it.
         description = "Speed for near-fully-unsupported perimeters (75–100% unsupported), given
 either as a literal mm/s value or as a percentage of `bridge_speed` (e.g. `\"80%\"`).
 
-The steepest, most sag-prone band — effectively extruding into air, but without
-a bridge's anchored far end to tension against, so it wants to run slower than
-`bridge_speed` itself.
+~56–63° from vertical: the last band before the bead leaves the layer below
+altogether — a funnel rim, the underside of a sphere, the flare at a hull bow.
+The most sag-prone one, catching only a sliver of material and with no bridge's
+anchored far end to tension against, so it wants to run slower than
+`bridge_speed` itself. Lower it if the top of a steep curve droops or curls.
 **Default:** 80% of `bridge_speed`.",
         extend(
             "x-group" = "Speed",
