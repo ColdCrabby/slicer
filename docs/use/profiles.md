@@ -123,13 +123,13 @@ filament. You correct them where you notice them:
 own. Every other spool of the same material inherits the correction
 automatically, so buying more PLA never costs you a new profile.
 
-They are also managed like anything else, in **Settings → Printers**. Each
-corrected material gets its own section in the printer's editor — and its own
-entry in the outline — with every corrected setting as a normal control. From
-there you can change a value, stop correcting one setting, correct another, or
-drop the material entirely. **Correct a material on this printer…** at the
-bottom starts a new one, opening at the value it is a correction *of*, so you
-can see what you are adjusting away from.
+They are also managed like anything else, in **Settings → Printers**.
+**Correct a material** sits at the top of every printer's editor, and each
+corrected material gets its own section further down — and its own entry in the
+outline — with every corrected setting as a normal control. From there you can
+change a value, stop correcting one setting, correct another, or drop the
+material entirely. A new correction opens at the value it is a correction *of*,
+so you can see what you are adjusting away from.
 
 Afterwards, the setting shows where its value came from:
 
@@ -225,17 +225,22 @@ has — nothing folded away, nothing behind an *Advanced* step. That is what the
 are for, and it is also what makes them long: a printer's editor runs to sixty
 settings, a print profile past two hundred.
 
-The **outline** down the right-hand side is the map. It lists every section of
-the editor and, under each, every setting by name — a whole section in a glance.
-Click a line and the editor jumps to that control and marks where you landed.
-The section you are currently scrolled to is highlighted, so you never lose your
-place.
+The **outline** down the right-hand side is the map. Every section starts
+folded, so the whole editor fits on screen as a dozen lines. Open one with the
+chevron beside it — that keeps you where you are — or click its name to be taken
+there and have it open. **Expand all** at the top does the lot. The section you
+are currently scrolled to is highlighted, so you never lose your place.
 
-Above it, **Filter settings** narrows the outline as you type. Matches stay
-grouped under their own sections, which is the part that helps: typing `gap`
-shows you that there is one in Walls, one in Infill, one in Support and two in
-Speed — *where* each lives, not just that it exists. It is the fastest way to a
-setting you can picture but cannot name.
+Above it, **Filter settings** narrows the outline as you type, and `Ctrl`/`Cmd`
++ `F` puts the cursor there from anywhere on the page. Matches stay grouped
+under their own sections, which is the part that helps: typing `gap` shows you
+that there is one in Walls, one in Infill, one in Support and two in Speed —
+*where* each lives, not just that it exists. It is the fastest way to a setting
+you can picture but cannot name.
+
+**A search ignores the folding.** Asking where a setting is and being handed a
+closed section would be no answer, so every match is listed whatever state its
+section was in.
 
 **Fold the section list to see it.** Settings is already three columns wide, so
 the outline only appears once you collapse the section list on the far left to

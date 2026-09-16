@@ -215,8 +215,12 @@ export class SchemaForm {
   );
 
   constructor() {
-    this.keyboardShortcuts.schemaFormRef = this;
-    inject(DestroyRef).onDestroy(() => (this.keyboardShortcuts.schemaFormRef = null));
+    this.keyboardShortcuts.settingsSearchRef = this;
+    inject(DestroyRef).onDestroy(() => {
+      if (this.keyboardShortcuts.settingsSearchRef === this) {
+        this.keyboardShortcuts.settingsSearchRef = null;
+      }
+    });
 
     // Keep --schema-form-search-h in sync with the sticky search bar's height so
     // the sticky group headers can pin directly beneath it regardless of its

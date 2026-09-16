@@ -202,13 +202,20 @@ export class KeyboardShortcuts {
       actionId: 'focus-settings-search',
       shortcut: '$mod+f',
       displayDescription: 'Focus settings search',
-      canMatch: () => this.schemaFormRef !== null,
-      handleAction: () => this.schemaFormRef!.focusSearch(),
+      canMatch: () => this.settingsSearchRef !== null,
+      handleAction: () => this.settingsSearchRef!.focusSearch(),
     },
   ].map((s) => ({ ...s, _parsed: parseKeybinding(s.shortcut) }));
 
-  /** Set by SchemaForm on mount/destroy so the shortcut knows when search is available. */
-  schemaFormRef: { focusSearch(): void } | null = null;
+  /**
+   * Whichever settings search is currently on screen — the slice sidebar's
+   * schema form, or a profile editor's outline filter.
+   *
+   * Set on mount and cleared on destroy. The two are never mounted together
+   * (one is the slice page, the other the settings pages), so a single slot
+   * serves both and `$mod+f` means the same thing wherever the user is.
+   */
+  settingsSearchRef: { focusSearch(): void } | null = null;
 
   constructor() {
     fromEvent<KeyboardEvent>(document, 'keydown')

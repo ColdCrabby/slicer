@@ -2,8 +2,9 @@
   <div class="profile-outline__filter">
     <nexus-icon name="search" aria-hidden="true" />
     <input
+      #searchInput
       type="search"
-      placeholder="Filter settings"
+      [placeholder]="filterPlaceholder()"
       aria-label="Filter settings"
       autocomplete="off"
       [(ngModel)]="query"
@@ -15,24 +16,64 @@
     }
   </div>
 
+  <!--
+    Bulk fold, not a per-section convenience: an editor of a dozen sections is
+    read one section at a time, and the reason to touch every one at once is to
+    get back to the map after following it somewhere.
+  -->
+  @if (rows().length > 1) {
+    <button
+      type="button"
+      class="profile-outline__fold-all"
+      [attr.aria-expanded]="anyExpanded()"
+      (click)="toggleAll()"
+    >
+      <nexus-icon
+        [name]="anyExpanded() ? 'nav-arrow-down' : 'nav-arrow-right'"
+        aria-hidden="true"
+      />
+      <span>{{ anyExpanded() ? 'Collapse all' : 'Expand all' }}</span>
+    </button>
+  }
+
   <nav class="profile-outline__body" aria-label="Settings outline">
     @for (section of rows(); track section.id) {
-      <button
-        type="button"
-        class="profile-outline__section"
+      <div
+        class="profile-outline__section-row"
         [class.is-current]="section.id === currentId()"
         [class.is-in-view]="inView().has(section.id)"
-        (click)="jump(section.el)"
       >
-        <span>{{ section.title }}</span>
-        <!-- A section with no named rows — the G-code editor is one — would
-             otherwise advertise a count of zero. -->
-        @if (section.entries.length) {
-          <span class="profile-outline__count">{{ section.entries.length }}</span>
-        }
-      </button>
+        <!--
+          Two targets, because they are two intentions: the chevron opens the
+          section where you are, the name takes you to it. One control doing
+          both means you cannot fold a section without also being moved to it.
+        -->
+        <button
+          type="button"
+          class="profile-outline__twisty"
+          [attr.aria-expanded]="isExpanded(section.id)"
+          [attr.aria-label]="(isExpanded(section.id) ? 'Collapse ' : 'Expand ') + section.title"
+          [disabled]="!section.entries.length || !!query()"
+          (click)="toggle(section.id)"
+        >
+          @if (section.entries.length) {
+            <nexus-icon
+              [name]="isExpanded(section.id) ? 'nav-arrow-down' : 'nav-arrow-right'"
+              aria-hidden="true"
+            />
+          }
+        </button>
+        <button type="button" class="profile-outline__section" (click)="reveal(section)">
+          <span>{{ section.title }}</span>
+          <!-- A section with no named rows — the G-code editor is one — would
+               otherwise advertise a count of zero. -->
+          @if (section.entries.length) {
+            <span class="profile-outline__count">{{ section.entries.length }}</span>
+          }
+        </button>
+      </div>
 
-      <ul class="profile-outline__entries">
+      <ul class="profile-outline__entries" [hidden]="!isExpanded(section.id)">
         @for (entry of section.entries; track entry.id) {
           <li [class.is-in-view]="inView().has(entry.id)">
             <!-- The rail is narrow and some names are long, so the full one

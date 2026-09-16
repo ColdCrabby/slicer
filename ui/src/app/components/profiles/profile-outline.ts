@@ -8,10 +8,13 @@ import {
   effect,
   inject,
   signal,
+  viewChild,
 } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { Icon } from '@coldcrabby/ui';
 import { SettingsNav } from '../../services/settings-nav';
+import { Viewport } from '../../services/viewport';
+import { KeyboardShortcuts } from '../../services/keyboard-shortcuts/keyboard-shortcuts';
 import {
   filterOutline,
   idsInView,
@@ -60,6 +63,8 @@ const RESCAN_QUIET_MS = 200;
 export class ProfileOutline {
   private readonly host = inject<ElementRef<HTMLElement>>(ElementRef);
   private readonly settingsNav = inject(SettingsNav);
+  private readonly shortcuts = inject(KeyboardShortcuts);
+  private readonly viewport = inject(Viewport);
 
   /**
    * The rail appears only once the Settings section list has been folded to
@@ -74,6 +79,69 @@ export class ProfileOutline {
   protected readonly visible = this.settingsNav.collapsed;
 
   protected readonly query = signal('');
+
+  /**
+   * Sections the user has opened. Empty by default — every section starts
+   * folded.
+   *
+   * A printer's editor runs to sixty settings and a print profile past two
+   * hundred; listing all of them at once produces a rail as long as the page it
+   * is meant to summarise, which is no longer a map. Folded, the rail is a dozen
+   * lines and the whole editor fits on screen at once.
+   */
+  private readonly expanded = signal<ReadonlySet<string>>(new Set());
+
+  /**
+   * Whether a section's settings are listed.
+   *
+   * **A search ignores the folding entirely.** Someone typing a setting's name
+   * is asking where it is, and answering with a collapsed section they must
+   * then open is refusing to answer. Folding is for reading the outline, not
+   * for searching it.
+   */
+  protected isExpanded(id: string): boolean {
+    return !!this.query().trim() || this.expanded().has(id);
+  }
+
+  protected toggle(id: string): void {
+    this.expanded.update((current) => {
+      const next = new Set(current);
+      if (!next.delete(id)) {
+        next.add(id);
+      }
+      return next;
+    });
+  }
+
+  /** Whether the bulk control currently offers to collapse rather than expand. */
+  protected readonly anyExpanded = computed(() => this.expanded().size > 0);
+
+  protected toggleAll(): void {
+    this.expanded.set(
+      this.anyExpanded() ? new Set() : new Set(this.sections().map((section) => section.id)),
+    );
+  }
+
+  /** Go to a section and open it, since arriving somewhere folded is no arrival. */
+  protected reveal(section: OutlineSection): void {
+    this.expanded.update((current) => new Set(current).add(section.id));
+    this.jump(section.el);
+  }
+
+  /**
+   * Placeholder for the filter box, carrying the shortcut where there is a
+   * keyboard to press it — the same judgement the slice sidebar's search makes.
+   */
+  protected readonly filterPlaceholder = computed(() =>
+    this.viewport.isHandheld()
+      ? 'Filter settings'
+      : `Filter settings (${this.shortcuts.shortcutFor('focus-settings-search')})`,
+  );
+
+  /** Put the cursor in the filter box — the `$mod+f` the slice sidebar uses. */
+  focusSearch(): void {
+    this.searchInputRef()?.nativeElement.focus({ preventScroll: true });
+  }
 
   /** The editor as it currently stands, rescanned whenever it changes. */
   private readonly sections = signal<OutlineSection[]>([]);
@@ -107,7 +175,18 @@ export class ProfileOutline {
   /** Content height the spans were measured against, to notice a reflow. */
   private measuredHeight = 0;
 
+  private readonly searchInputRef = viewChild<ElementRef<HTMLInputElement>>('searchInput');
+
   constructor() {
+    // The same `$mod+f` the slice sidebar's settings search claims. The two are
+    // never on screen together — one is the slice page, the other the settings
+    // pages — so whichever is mounted answers it.
+    this.shortcuts.settingsSearchRef = this;
+    inject(DestroyRef).onDestroy(() => {
+      if (this.shortcuts.settingsSearchRef === this) {
+        this.shortcuts.settingsSearchRef = null;
+      }
+    });
     afterNextRender(() => this.attach());
     // Unfolding the rail has to read an editor the hidden rail never scanned.
     effect(() => {

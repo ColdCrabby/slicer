@@ -51,7 +51,11 @@ import { paramNum, paramStr } from '../../models/params-access';
 import { LabelFilterStore } from '../../services/profiles/label-filter-store';
 import { LabelsStore } from '../../services/profiles/labels-store';
 import { PrintersStore } from '../../services/profiles/printers-store';
-import { correctionsFor, withCorrections } from '../../services/profiles/material-corrections';
+import {
+  correctedMaterials,
+  correctionsFor,
+  withCorrections,
+} from '../../services/profiles/material-corrections';
 import {
   Icon,
   Badge,
@@ -567,6 +571,60 @@ export class PrintersSettings {
           label: field.title ?? field.key,
         })),
       }));
+  }
+
+  /** How many materials this machine corrects, for the entry point's count. */
+  protected correctedCount(printer: PrinterProfile): number {
+    return correctedMaterials(printer).length;
+  }
+
+  /**
+   * Pick a material to start correcting. A menu rather than a select: it is an
+   * action that adds a section, not a value the printer holds.
+   */
+  protected openAddMaterial(event: MouseEvent, id: string): void {
+    const printer = this.store.items().find((p) => p.id === id);
+    if (!printer) {
+      return;
+    }
+    const items: ContextMenuItem[] = this.addableMaterials(printer).map((option) => ({
+      label: option.label,
+      action: () => {
+        this.addMaterialCorrection(id, option.value);
+        this.jumpToCorrections();
+      },
+    }));
+    void this.contextMenu.open(event, items);
+  }
+
+  /** Pick one more setting to correct for a material already being corrected. */
+  protected openAddSetting(event: MouseEvent, id: string, material: string): void {
+    const printer = this.store.items().find((p) => p.id === id);
+    if (!printer) {
+      return;
+    }
+    const correction = this.materialCorrections(printer).find((c) => c.material === material);
+    const items: ContextMenuItem[] = (correction?.addable ?? []).map((option) => ({
+      label: option.label,
+      action: () => this.addCorrection(id, material, option.value),
+    }));
+    void this.contextMenu.open(event, items);
+  }
+
+  /**
+   * Scroll to the corrections, after adding one or from the entry point's
+   * count. Read off the DOM for the same reason the outline is: the sections
+   * are generated per material, so there is no fixed anchor to name.
+   */
+  protected jumpToCorrections(): void {
+    setTimeout(() => {
+      const title = [
+        ...document.querySelectorAll<HTMLElement>('.profile-editor__group-title'),
+      ].find((el) => el.textContent?.trim().endsWith('corrections'));
+      title
+        ?.closest('.profile-editor__group')
+        ?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    });
   }
 
   /** Material families this machine has no correction for yet. */

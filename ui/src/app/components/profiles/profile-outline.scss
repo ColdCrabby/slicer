@@ -83,18 +83,77 @@
   scrollbar-gutter: stable;
 }
 
-.profile-outline__section {
+/* The row owns what used to be the section button's job: sticking to the top,
+   carrying the background, and reporting where the editor is. The two buttons
+   inside it are just targets. */
+.profile-outline__section-row {
   position: sticky;
   top: 0;
   z-index: 1;
   display: flex;
   align-items: center;
+  border-radius: var(--radius-sm);
+  background: var(--color-bg-primary);
+
+  &:hover {
+    background: var(--color-surface-hover);
+  }
+
+  // Anywhere in the window. Quieter than `is-current` on purpose — several
+  // sections can be on screen at once, and if each of them shouted, none of
+  // them would say anything.
+  &.is-in-view .profile-outline__section {
+    color: var(--color-text-primary);
+  }
+
+  // Where the editor is scrolled to. A tone shift, not a fill: it reports
+  // position, it is not a selection the user made.
+  &.is-current .profile-outline__section {
+    color: var(--accent);
+  }
+}
+
+/* Opens the section where the reader is, without moving them to it. */
+.profile-outline__twisty {
+  display: inline-grid;
+  flex: none;
+  place-items: center;
+  width: 18px;
+  height: 18px;
+  margin-left: var(--spacing-xs);
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: var(--color-text-tertiary);
+  cursor: pointer;
+  --icon-size: 12px;
+
+  &:disabled {
+    cursor: default;
+    opacity: 0;
+  }
+
+  &:hover:not(:disabled) {
+    color: var(--color-text-primary);
+  }
+
+  &:focus-visible {
+    outline: 2px solid var(--color-focus-ring);
+    outline-offset: -2px;
+    border-radius: var(--radius-sm);
+  }
+}
+
+.profile-outline__section {
+  display: flex;
+  flex: 1;
+  align-items: center;
   gap: var(--spacing-sm);
-  width: 100%;
+  min-width: 0;
   padding: var(--spacing-xs) var(--spacing-sm);
   border: none;
   border-radius: var(--radius-sm);
-  background: var(--color-bg-primary);
+  background: transparent;
   color: var(--color-text-secondary);
   font-size: var(--font-size-xs);
   font-weight: var(--font-weight-semibold);
@@ -115,26 +174,12 @@
   }
 
   &:hover {
-    background: var(--color-surface-hover);
     color: var(--color-text-primary);
   }
 
   &:focus-visible {
     outline: 2px solid var(--color-focus-ring);
     outline-offset: -2px;
-  }
-
-  // Anywhere in the window. Quieter than `is-current` on purpose — several
-  // sections can be on screen at once, and if each of them shouted, none of
-  // them would say anything.
-  &.is-in-view {
-    color: var(--color-text-primary);
-  }
-
-  // Where the editor is scrolled to. A tone shift, not a fill: it reports
-  // position, it is not a selection the user made.
-  &.is-current {
-    color: var(--accent);
   }
 }
 
@@ -237,5 +282,30 @@
 @media (max-width: #{$compact-max-width}) {
   :host {
     display: none;
+  }
+}
+
+/* Bulk fold. Sits between the filter and the list, reading as a control on the
+   list rather than an entry in it. */
+.profile-outline__fold-all {
+  display: flex;
+  gap: var(--spacing-xs);
+  align-items: center;
+  padding: var(--spacing-xs) var(--spacing-sm);
+  border: none;
+  background: transparent;
+  color: var(--color-text-tertiary);
+  font-size: var(--font-size-xs);
+  cursor: pointer;
+  --icon-size: 12px;
+
+  &:hover {
+    color: var(--color-text-primary);
+  }
+
+  &:focus-visible {
+    outline: 2px solid var(--color-focus-ring);
+    outline-offset: -2px;
+    border-radius: var(--radius-sm);
   }
 }

@@ -153,6 +153,36 @@
               </div>
             }
 
+            <!--
+              An entry point, near the top, that says what the feature is. The
+              corrections themselves live further down beside the settings they
+              adjust — but nobody scrolls past sixty controls to discover a
+              feature they have not heard of, so the way in is here.
+            -->
+            <div class="mgr__corrections-entry">
+              <button
+                type="button"
+                nexusButton
+                variant="secondary"
+                size="sm"
+                (click)="openAddMaterial($event, printer.id)"
+                [disabled]="!addableMaterials(printer).length"
+              >
+                <nexus-icon name="droplet" aria-hidden="true" />
+                Correct a material
+              </button>
+              @if (correctedCount(printer); as count) {
+                <button type="button" class="mgr__corrections-jump" (click)="jumpToCorrections()">
+                  {{ count }} {{ count === 1 ? 'material corrected' : 'materials corrected' }}
+                </button>
+              } @else {
+                <span class="mgr__corrections-hint">
+                  For what this machine does differently with one material — flow, pressure advance,
+                  retraction — whichever spool of it is loaded.
+                </span>
+              }
+            </div>
+
             <div class="profile-editor__group">
               <label class="profile-editor__group-title">Labels</label>
               <nexus-label-picker
@@ -359,32 +389,20 @@
                 }
 
                 @if (correction.addable.length) {
-                  <nexus-select
+                  <button
+                    type="button"
+                    nexusButton
+                    variant="ghost"
+                    size="sm"
                     class="mgr__correction-add"
-                    [options]="correction.addable"
-                    [value]="null"
-                    placeholder="Correct another setting…"
-                    (valueChange)="addCorrection(printer.id, correction.material, $event)"
-                  />
+                    (click)="openAddSetting($event, printer.id, correction.material)"
+                  >
+                    <nexus-icon name="plus" aria-hidden="true" />
+                    Correct another setting
+                  </button>
                 }
               </div>
             }
-
-            <div class="profile-editor__group">
-              <label class="profile-editor__group-title">Material corrections</label>
-              <p class="mgr__corrections-lede">
-                What this machine does differently with a material — what its hotend can melt, what
-                its extruder needs — whichever spool of that material is loaded. Every printer you
-                own keeps its own, and nothing here touches the filament profile.
-              </p>
-              <nexus-select
-                class="mgr__correction-add"
-                [options]="addableMaterials(printer)"
-                [value]="null"
-                placeholder="Correct a material on this printer…"
-                (valueChange)="addMaterialCorrection(printer.id, $event)"
-              />
-            </div>
 
             <div class="profile-editor__group" id="gcode-target">
               <label class="profile-editor__group-title">G-code</label>
