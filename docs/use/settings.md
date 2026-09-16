@@ -18,6 +18,19 @@ Press `Ctrl`/`⌘ + F` and type. The search spans all three tabs, so you don't
 have to guess which one owns it.
 :::
 
+## A warning is never hidden
+
+Settings are tiered: the everyday ones are shown, and *Advanced* and *Expert*
+reveal the rest when you go looking. A tier decides what is worth **offering**
+you — it never decides what you are told.
+
+So a setting the slicer has something to warn you about is shown whatever tier
+it normally sits in, with the warning attached, for as long as the warning
+holds. Load ABS on a printer with no chamber heater and **Chamber Temperature**
+appears in the Filament tab with a note saying no chamber command will be
+emitted, even though it is an advanced setting you never asked to see. Change
+the filament and it folds away again.
+
 ## Changes belong to the plate
 
 Everything you see in the panel comes from the three profiles you picked. When

@@ -350,14 +350,37 @@ export class SchemaForm {
     return this.relevantGroups().filter((g) => allowed.has(g.name));
   });
 
+  /**
+   * Keys whose {@link noticeForField} exception is firing right now.
+   *
+   * A tier decides what is worth *offering*; a notice reports something that is
+   * true about this print. A warning the user cannot reach is worse than no
+   * warning, so a field with a live notice is shown whatever tier it sits in —
+   * the same escape a modified key already gets, and the same reasoning: the
+   * setting has stopped being hypothetical.
+   */
+  private readonly noticedKeys = computed<ReadonlySet<string>>(() => {
+    const values = this.value();
+    const keys = new Set<string>();
+    for (const group of this.relevantGroups()) {
+      for (const field of group.fields) {
+        if (noticeForField(field, values[field.key], values) !== null) {
+          keys.add(field.key);
+        }
+      }
+    }
+    return keys;
+  });
+
   /** Contract groups, minus the ones whose whole contents sit deeper than asked. */
   private readonly tieredGroups = computed<SchemaGroup[]>(() => {
     const revealed = this.revealedPanelTier();
     const modified = this.modifiedKeys();
+    const noticed = this.noticedKeys();
     return this.contractGroups().filter(
       (group) =>
         isTierAtMost(shallowestTier(group.fields), revealed) ||
-        group.fields.some((f) => modified.has(f.key)),
+        group.fields.some((f) => modified.has(f.key) || noticed.has(f.key)),
     );
   });
 
@@ -448,10 +471,10 @@ export class SchemaForm {
    * Only relevant (visible) fields are considered.
    */
   protected readonly groupsWithNotice = computed<ReadonlySet<string>>(() => {
-    const values = this.value();
+    const noticed = this.noticedKeys();
     const names = new Set<string>();
     for (const group of this.relevantGroups()) {
-      if (group.fields.some((f) => noticeForField(f, values[f.key], values) !== null)) {
+      if (group.fields.some((f) => noticed.has(f.key))) {
         names.add(group.name);
       }
     }
@@ -519,7 +542,10 @@ export class SchemaForm {
   protected visibleFields(group: SchemaGroup): FieldDef[] {
     const revealed = this.revealedTier(group.name);
     const modified = this.modifiedKeys();
-    return group.fields.filter((f) => isFieldInTier(f, revealed) || modified.has(f.key));
+    const noticed = this.noticedKeys();
+    return group.fields.filter(
+      (f) => isFieldInTier(f, revealed) || modified.has(f.key) || noticed.has(f.key),
+    );
   }
 
   /**

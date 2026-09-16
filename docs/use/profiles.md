@@ -124,7 +124,8 @@ own. Every other spool of the same material inherits the correction
 automatically, so buying more PLA never costs you a new profile.
 
 They are also managed like anything else, in **Settings → Printers**.
-**Material corrections** is the first section of every printer's editor: pick a
+**Material corrections** sits below the machine's own details in every
+printer's editor: pick a
 material from the dropdown and a card for it appears, holding every setting that
 material corrects. Change a value, stop correcting one setting, correct another,
 or **Remove all** to drop the material — that one asks twice, since there is no
