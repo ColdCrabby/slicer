@@ -425,7 +425,7 @@ fn morphological_open(paths: Paths, radius_mm: f64) -> Paths {
 /// OverhangPerimeter / GapFill) — the build-plate area those extrusions consume.
 /// Bridge detection and solid top/bottom surfaces subtract this so nothing is
 /// deposited on top of an existing wall or gap-fill bead.
-pub(super) fn compute_wall_bead_footprint(layer: &SliceLayer, nozzle_diameter_mm: f64) -> Paths {
+pub fn compute_wall_bead_footprint(layer: &SliceLayer, nozzle_diameter_mm: f64) -> Paths {
     compute_wall_bead_footprint_filtered(layer, nozzle_diameter_mm, true)
 }
 
@@ -471,7 +471,7 @@ pub(super) fn compute_wall_bead_footprint_filtered(
         let role_included = matches!(
             role,
             ExtrusionRole::OuterWall | ExtrusionRole::InnerWall | ExtrusionRole::OverhangPerimeter
-        ) || (include_gap_fill && role == ExtrusionRole::GapFill);
+        ) || (include_gap_fill && role.is_medial_bead());
         if !role_included {
             continue;
         }
@@ -572,7 +572,7 @@ fn compute_gap_fill_footprint_filtered(
     let default_radius = nozzle_diameter_mm * 0.5;
     let mut acc = Paths::new(vec![]);
     for (i, path) in layer.paths.iter().enumerate() {
-        if layer.role_for_path(i) != ExtrusionRole::GapFill {
+        if !layer.role_for_path(i).is_medial_bead() {
             continue;
         }
         if let Some(region) = skip_sandwiched {
@@ -726,7 +726,7 @@ fn gap_fill_sandwiched_by_surface(
 /// after surface generation, before sparse infill.
 pub(super) fn prune_redundant_gap_fill(layers: &mut [SliceLayer], nozzle_diameter_mm: f64) {
     for layer in layers.iter_mut() {
-        if layer.solid_regions.is_empty() || !layer.path_roles.contains(&ExtrusionRole::GapFill) {
+        if layer.solid_regions.is_empty() || !layer.path_roles.iter().any(|r| r.is_medial_bead()) {
             continue;
         }
 
@@ -742,7 +742,7 @@ pub(super) fn prune_redundant_gap_fill(layers: &mut [SliceLayer], nozzle_diamete
 
         for (i, path) in layer.paths.iter().enumerate() {
             let role = layer.role_for_path(i);
-            let redundant = role == ExtrusionRole::GapFill && {
+            let redundant = role.is_medial_bead() && {
                 let mut total = 0_usize;
                 let mut inside = 0_usize;
                 for p in path.iter() {

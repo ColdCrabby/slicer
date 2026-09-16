@@ -29,6 +29,23 @@ issue/PR numbers or repo links in the notes. See the tone rules in
 
 ### Changed
 
+- **Thin ribs are told apart from gap fill.** A rib, fin or divider too thin to
+  carry a perimeter used to be tagged as filler between walls, which printed it
+  at the deliberately gentle gap-fill acceleration. It is now a **Thin wall**:
+  wall acceleration, its own colour in the preview, and its own entry in the
+  Shell legend group. The beads themselves are unchanged.
+- **Short hops inside a part no longer retract.** A travel that crosses no wall
+  and stays under 5 mm within the part skips the retract, Z-hop and prime — what
+  it drools lands where nothing shows. Parts with a field of thin ribs, like a
+  card caddy or a fan grille, were spending more time on the ceremony than on
+  the ribs: one such model loses 85 % of its retractions.
+- **Short hops are steered over material where there is a way round.** Rather
+  than cutting across an open slot, a hop of a few millimetres now travels back
+  over the beads it came from — lifting clear of them, but without retracting —
+  so what it drools lands on the part instead of hanging in the gap. It only
+  takes a way round up to twice as long as the straight line, which on the card
+  caddy covers about half the hops between dividers and costs 1.5 % of print
+  time.
 - **Better infill and surface defaults out of the box.** Sparse infill is now
   **TPMS-D** at 20 % instead of rectilinear: a minimal surface carries load in
   every direction, so the part comes out stiffer for the material it uses. Top

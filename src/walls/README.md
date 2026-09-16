@@ -140,15 +140,32 @@ them and ignores the flag, matching PrusaSlicer/OrcaSlicer where the equivalent
 option is likewise classic-only. `emit_residual_medial_fill` is therefore
 unconditional.
 
-This matters because that pass emits the same `GapFill` role for two physically
-different things: a bead that **is** the model geometry (a feature too thin for
-one perimeter) and ordinary gap fill in the sliver **between** the innermost
-loops. Gating the whole pass on `thin_walls` — the first implementation — deleted
-both: on the Filament Card Caddy it removed all 37.7 m of gap fill, wiping out
-~50 card-slot fins, opening a void along every wall, and letting sparse infill
-leak into the freed wall band (8.2 → 12.8 m). Keeping the pass unconditional and
-gating the *option* to classic removes that whole class of bug for the default
-generator.
+This matters because that pass fills two physically different things: a bead
+that **is** the model geometry (a feature too thin for one perimeter) and
+ordinary filler in the sliver **between** the innermost loops. Gating the whole
+pass on `thin_walls` — the first implementation — deleted both: on the Filament
+Card Caddy it removed all 37.7 m of gap fill, wiping out ~50 card-slot fins,
+opening a void along every wall, and letting sparse infill leak into the freed
+wall band (8.2 → 12.8 m). Keeping the pass unconditional and gating the *option*
+to classic removes that whole class of bug for the default generator.
+
+### Thin wall vs. gap fill
+
+The two are now told apart and carry different roles. A loop is placed `d/2` in
+from the boundary and lays a `d`-wide band, so wherever a loop went the residual
+it leaves starts a full `d` from the model surface. A residual that instead
+reaches **into** the surface band — within `d/2` of the boundary — is one no loop
+could cover: a rib, fin, divider or neck too thin for a perimeter.
+
+| Residual reaches the surface | Role | Prints like |
+| --- | --- | --- |
+| yes — the bead *is* the feature | `ThinWall` (`;TYPE:Thin wall`) | a wall: outer-wall acceleration |
+| no — filler between perimeters | `GapFill` (`;TYPE:Gap infill`) | gap fill: the gentle limit that suits short jittery beads |
+
+They are the same geometry from the same generator, so every area test — bead
+footprint, surface trim, redundancy pruning — asks
+[`ExtrusionRole::is_medial_bead`](../core/types.rs) rather than naming one. The
+split changes no bead, only how it is printed and coloured.
 
 ---
 

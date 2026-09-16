@@ -378,12 +378,36 @@ fn emit_residual_medial_fill(
     let min_len = gap_fill_min_run_len_mm(params);
     let min_area = params.wall_line_width_min_mm * min_len;
 
+    // Band of the island within half a bead of its own surface. A loop is
+    // placed `d/2` in from the boundary and lays a `d`-wide band, so wherever a
+    // loop went the residual starts a full `d` from the surface: a residual that
+    // reaches into this band is one no loop could cover — a rib, fin or neck
+    // too thin for a perimeter. That is a feature of the model, not filler
+    // between walls, so its bead is a thin wall.
+    let surface_band = inflate(
+        island.clone(),
+        -0.5 * d,
+        JoinType::Miter,
+        EndType::Polygon,
+        2.0,
+    );
+    let surface_band = difference(island.clone(), surface_band, FillRule::NonZero)
+        .unwrap_or_else(|_| island.clone());
+
     for sub in split_islands(&uncovered) {
         let area = sub.iter().map(|p| p.signed_area()).sum::<f64>().abs();
         if area < min_area {
             continue;
         }
-        medial_fill(&sub, params, paths, roles, widths, vwidths, open);
+        let at_surface = intersect(sub.clone(), surface_band.clone(), FillRule::NonZero)
+            .map(|hit| hit.iter().map(|p| p.signed_area()).sum::<f64>().abs() >= min_area)
+            .unwrap_or(false);
+        let role = if at_surface {
+            ExtrusionRole::ThinWall
+        } else {
+            ExtrusionRole::GapFill
+        };
+        medial_fill(&sub, role, params, paths, roles, widths, vwidths, open);
     }
 }
 
@@ -502,6 +526,7 @@ fn gap_fill_min_run_len_mm(params: &WallParams) -> f64 {
 #[allow(clippy::too_many_arguments)]
 fn medial_fill(
     region: &Paths,
+    role: ExtrusionRole,
     params: &WallParams,
     paths: &mut Paths,
     roles: &mut Vec<ExtrusionRole>,
@@ -542,6 +567,7 @@ fn medial_fill(
         emit_medial_beads(
             &chain,
             &skel.nodes,
+            role,
             params,
             paths,
             roles,
@@ -566,6 +592,7 @@ fn medial_fill(
 fn emit_medial_beads(
     chain: &[usize],
     nodes: &[super::skeleton::SkeletonNode],
+    role: ExtrusionRole,
     params: &WallParams,
     paths: &mut Paths,
     roles: &mut Vec<ExtrusionRole>,
@@ -598,7 +625,7 @@ fn emit_medial_beads(
             let mean = vw.iter().sum::<f64>() / vw.len() as f64;
             let path: Path = std::mem::take(run).into();
             paths.push(path);
-            roles.push(ExtrusionRole::GapFill);
+            roles.push(role);
             widths.push(Some(mean));
             vwidths.push(Some(vw));
             open.push(true);
@@ -662,6 +689,82 @@ mod tests {
         assert!(
             center_beads >= 1,
             "hollow box wall center gap must be filled with a medial bead, got {center_beads}"
+        );
+    }
+
+    /// A rib too thin for a perimeter is a feature of the model, not filler
+    /// between walls — it reaches the surface on both flanks, so it is tagged
+    /// `ThinWall` and can print with wall acceleration.
+    #[test]
+    fn a_thin_rib_on_a_solid_body_is_a_thin_wall() {
+        let mut layer = SliceLayer::new(0.2);
+        // 20 mm square with a 0.4 mm × 5 mm rib off its right face.
+        let body: Path = vec![
+            (0.0, 0.0),
+            (20.0, 0.0),
+            (20.0, 9.8),
+            (25.0, 9.8),
+            (25.0, 10.2),
+            (20.0, 10.2),
+            (20.0, 20.0),
+            (0.0, 20.0),
+        ]
+        .into();
+        layer.paths.push(body);
+        layer.path_roles.push(ExtrusionRole::OuterWall);
+        layer.path_widths.push(None);
+
+        generate_arachne_walls_for_layer(&mut layer, &wall_params());
+
+        let roles: Vec<ExtrusionRole> = (0..layer.paths.len())
+            .map(|i| layer.role_for_path(i))
+            .collect();
+        let rib = roles
+            .iter()
+            .position(|&r| r == ExtrusionRole::ThinWall)
+            .unwrap_or_else(|| panic!("the rib should be a thin-wall bead, got {roles:?}"));
+        assert!(layer.is_path_open(rib), "a medial bead is an open polyline");
+        let xs: Vec<f64> = layer
+            .paths
+            .iter()
+            .nth(rib)
+            .unwrap()
+            .iter()
+            .map(|p| p.x())
+            .collect();
+        assert!(
+            xs.iter().cloned().fold(f64::MIN, f64::max) > 20.0,
+            "the thin-wall bead should run out along the rib, got {xs:?}"
+        );
+    }
+
+    /// The counterpart: the sliver left between the perimeters of a wall band
+    /// never reaches the surface, so it stays gap fill.
+    #[test]
+    fn a_wall_band_residual_stays_gap_fill() {
+        let mut layer = SliceLayer::new(0.2);
+        let outer: Path = vec![(-10.0, -10.0), (10.0, -10.0), (10.0, 10.0), (-10.0, 10.0)].into();
+        let hi = 10.0 - 1.2;
+        let inner: Path = vec![(-hi, -hi), (-hi, hi), (hi, hi), (hi, -hi)].into();
+        layer.paths.push(outer);
+        layer.path_roles.push(ExtrusionRole::OuterWall);
+        layer.path_widths.push(None);
+        layer.paths.push(inner);
+        layer.path_roles.push(ExtrusionRole::OuterWall);
+        layer.path_widths.push(None);
+
+        generate_arachne_walls_for_layer(&mut layer, &wall_params());
+
+        let roles: Vec<ExtrusionRole> = (0..layer.paths.len())
+            .map(|i| layer.role_for_path(i))
+            .collect();
+        assert!(
+            roles.contains(&ExtrusionRole::GapFill),
+            "the wall-band sliver is filler between perimeters: {roles:?}"
+        );
+        assert!(
+            !roles.contains(&ExtrusionRole::ThinWall),
+            "nothing here reaches the surface uncovered: {roles:?}"
         );
     }
 

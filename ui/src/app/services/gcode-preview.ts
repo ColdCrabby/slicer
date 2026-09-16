@@ -10,6 +10,7 @@ export type RoleName =
   | 'outerWall'
   | 'innerWall'
   | 'overhangPerimeter'
+  | 'thinWall'
   | 'infill'
   | 'solidInfill'
   | 'gapFill'
@@ -34,6 +35,7 @@ export const ROLE_COLORS_DARK: RoleColorPalette = {
   outerWall: 0xff8800,
   innerWall: 0xffcc00,
   overhangPerimeter: 0x00a86b,
+  thinWall: 0x6a5cff,
   infill: 0xcc44ff,
   solidInfill: 0xa56eff,
   gapFill: 0xff5ea8,
@@ -56,6 +58,7 @@ export const ROLE_COLORS_LIGHT: RoleColorPalette = {
   outerWall: 0xe0620c,
   innerWall: 0xc08800,
   overhangPerimeter: 0x1e9e62,
+  thinWall: 0x4a3fb8,
   infill: 0x8e3fc4,
   solidInfill: 0x7642b2,
   gapFill: 0xd95291,
@@ -86,6 +89,7 @@ export const ROLE_LABELS: Record<RoleName, string> = {
   outerWall: 'Outer Wall',
   innerWall: 'Inner Wall',
   overhangPerimeter: 'Overhang Wall',
+  thinWall: 'Thin Wall',
   infill: 'Infill',
   solidInfill: 'Solid Infill',
   gapFill: 'Gap Infill',
@@ -120,6 +124,7 @@ export const ROLE_ORDER: readonly RoleName[] = [
   'outerWall',
   'innerWall',
   'overhangPerimeter',
+  'thinWall',
   'infill',
   'solidInfill',
   'gapFill',
@@ -145,7 +150,11 @@ export interface RoleGroup {
 }
 
 export const ROLE_GROUPS: readonly RoleGroup[] = [
-  { id: 'shell', label: 'Shell', roles: ['outerWall', 'innerWall', 'overhangPerimeter'] },
+  {
+    id: 'shell',
+    label: 'Shell',
+    roles: ['outerWall', 'innerWall', 'overhangPerimeter', 'thinWall'],
+  },
   {
     id: 'fill',
     label: 'Fill & Surfaces',
