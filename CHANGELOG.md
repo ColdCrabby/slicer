@@ -27,388 +27,205 @@ issue/PR numbers or repo links in the notes. See the tone rules in
 
 ## [Unreleased]
 
-### Fixed
+## [0.5.0] - 2026-09-16
 
-#### Workplate tabs
+Support structures grow up, thin features finally print, and a plate stops being
+a file. This release makes overhangs printable without hand-holding, fixes the
+walls that quietly vanished on anything rotated or narrow, and turns workplates
+into real tabs that survive closing the app.
 
-- **Switching tabs actually switches plates.** On the desktop app, the iPad and
-  the browser slicer, clicking another tab changed the address bar and nothing
-  else — the same models, the same settings panel, the same title. Every runtime
-  now opens a plate the same way, and the viewport says so while it does.
-- **A plate comes back arranged.** Reopening one restores each model's position,
-  rotation, scale and support paint instead of dropping everything back on the
-  bed as if it had just been imported.
-- **Your plates survive closing the app.** Models are kept on the device
-  alongside the plate, so quitting the desktop app — or iPadOS reclaiming the app
-  in the background — no longer empties every tab. Room for them is bounded, and
-  the models you have not opened in longest are the ones cleared.
-- **`+` starts a plate instead of throwing one away.** It now takes you Home,
-  where a model, a drop or a recent project is one click away, and leaves the
-  plate you were on open in its tab.
-- **A renamed tab keeps its name everywhere.** The name is part of the plate, so
-  it reaches other devices and outlives a cleared browser.
-- **Switching back to a plate no longer re-downloads its models.** A hosted
-  slicer now serves an uploaded model as what it is — immutable under its own id
-  — so the browser answers the second visit from its own cache. A plate's saved
-  setup stays `no-store`, because that is the part someone else may have changed.
-- **Reloading always gets the current build.** The app shell and the WebAssembly
-  engine revalidate; only files whose names carry a build hash are kept.
+### Highlights
 
-#### Travel moves
-
-- **No more strands between thin ribs.** The hop from one card divider to the
-  next crossed the open slot between them without retracting: "inside the part"
-  was measured against the outer contour alone, which counts a box's cavity as
-  solid. A cavity is now air like any other.
-- **A rib is entered from its root and left at its tip.** Its two ends are
-  interchangeable to the path orderer, which picked the nearer one — the free tip,
-  the one end nothing can be routed to. Reaching for the other end instead lets
-  every hop between ribs dive back through the body. On a 25-slot card caddy,
-  travel crossing open air without a retraction falls from 5.5 m to 0.8 m, for
-  3 % of the print estimate and not one extrusion moved.
-
-#### Walls
-
-- **Turning a model on the plate no longer changes how it slices.** Thin features
-  were being reconstructed from geometry the 0.01 mm coordinate grid had turned
-  into a staircase, so a rib that sliced cleanly square to the axes came apart at
-  any other angle. A card caddy turned 45° laid 42 % of its dividers and extruded
-  the rest twice, for 3.5 % more filament than the same caddy flat. It now lays
-  the same length of divider at 0° and at 45°, to within 1 %, at both a 0.4 mm and
-  a 0.6 mm nozzle.
-- **A thin feature survives a wide nozzle.** Anything narrower than the minimum
-  bead width was dropped outright, so a 0.6 mm nozzle deleted all 48 card
-  dividers of a caddy on every layer and printed a solid block. A feature is now
-  printed at the minimum bead width instead — slightly fat — down to half of it.
-- **Thin features print end to end.** A rib's bead stopped a fraction short of
-  both its root and its tip, because the pass that cleans spurs off the medial
-  axis could not tell a spur from the taper every feature has at its own end.
-- **Fewer isolated dabs.** A bead no longer stops and restarts where the material
-  it follows dips below a printable width for less than one bead — on a tapering
-  chamfer that turned a single line into a file of millimetre dabs, each paying a
-  full travel to reach. The card caddy turned 45° drops from 834 sub-1.5 mm
-  extrusions to 345, with no measurable change in what is left unfilled.
-- **A tapering bead keeps its taper over a bridge or an overhang.** Splitting
-  walls at a bridge or air boundary discarded the per-vertex widths of every path
-  in the layer, not just the arcs it re-cut, so gap fill and thin features printed
-  at their average width rather than the width the space actually has.
+- **Supports that hold, not hint** — sloped overhangs get real columns, the gap
+  closes to 0.35 mm, islands print as continuous loops, and a brush lets you
+  enforce or block support anywhere the automatic rule guesses wrong.
+- **Thin features print, at any angle** — ribs, fins and dividers survive a wide
+  nozzle and slice identically turned 45° as flat. A card caddy that lost 42 % of
+  its dividers when rotated now lays the same length at every angle.
+- **Workplates are tabs** — open several plates at once, switch between them in
+  any runtime, and find them arranged exactly as you left them after a restart.
 
 ### Added
 
-- **See when a colleague changes the plate you are on.** On a shared server,
-  saving a plate tells everyone else looking at it: they get a **This workplate
-  was changed elsewhere** notice offering to reload. Nothing reloads by itself,
-  nobody is locked out, and whoever saves last still wins — you just stop finding
-  out afterwards. Nobody is told about their own edits.
+#### Supports
+
+- **Paint support where you want it** — `B` picks up a brush to **enforce**
+  support regardless of angle or **block** it entirely. **Support Auto** turns
+  the angle rule off, for plates supported only where painted.
+- **Support line width** joins the other per-role widths, without dragging the
+  raft's deliberately coarser bead along with it.
+
+#### Printing and output
+
+- **Fuzzy skin** — an outer-wall texture that roughs the surface with a small
+  random jitter. Tunable thickness and spacing, off by default, purely cosmetic.
+- **Pause and colour change at a layer** — mark any layer in the preview to stop
+  for an insert or a filament swap. Emits Marlin `M0`/`M600`, Klipper `PAUSE` or
+  RepRap `M226`.
+- **Bed mesh levelling** — `bed_mesh_mode` emits `BED_MESH_CALIBRATE` or
+  `G29`/`M420 S1` at print start, off by default. `bed_mesh_adaptive` bounds
+  recalibration to the print's own footprint.
+- **Minimum layer time** — `min_layer_time_s` slows a short layer so it has time
+  to cool, clamped at `min_print_speed` (10 mm/s). First layer exempt, off by
+  default.
+- **Acceleration for every role** — inner wall, sparse and solid infill, gap
+  fill, support and travel each carry their own limit, all shipping with
+  non-zero defaults (10 000 mm/s² baseline, 15 000 for travel, 1 000 for first
+  layer and bridges). Set any to `0` for the old defer-to-firmware behaviour.
+
+#### Printers and plates
+
+- **Your Klipper printer sets itself up** — detection reads the machine's own
+  configuration: build volume, kinematics, nozzle, velocity and acceleration
+  limits, pressure advance, firmware retraction, object cancellation and which
+  start macros it uses. **What we read from your printer** shows every value and
+  the `printer.cfg` section it came from.
+- **The wizard only asks what your printer can't answer** — a short question or
+  two after detection, each with an answer already picked and a line saying why.
+- **Two faster presets, and a CoreXY to run them on** — **High Speed** (200 mm/s)
+  and **Maximum** (300 mm/s, 30 000 mm/s²), both holding the outer wall and top
+  surface back. A **Generic CoreXY 350 mm** preset carries the machine side.
+- **Sync to profile** — review every setting a plate has changed against its
+  profiles, side by side like a diff, and write the ones you keep straight back.
+- **See when a colleague changes the plate you are on** — on a shared server,
+  saving tells everyone else looking at it. Nothing reloads by itself.
+- **Open a model straight from another app** — Cold Crabby registers for `.stl`,
+  `.obj` and `.3mf` on Windows, macOS, Linux, iPhone and iPad. The model joins
+  the plate you have open rather than replacing it.
+
+#### The app
+
+- **An outline for the settings panel** — press the list button or
+  `Ctrl`/`⌘ + Shift + O` for a table of contents: every section and every
+  setting by name, including what the panel folds away. The profile editors get
+  the same rail with a filter box.
+- **Settings start calm and open all the way** — each section shows what a print
+  depends on, then an `Advanced` row that expands in place; a second press
+  reveals Expert. Process drops from eleven sections to seven. Search still
+  reaches everything.
+- **Every setting says what it measures** — units, sensible steps and fractions
+  read as percentages, so a nozzle steps by 5 °C rather than to 210.01.
+- **The preview re-slices itself, when that's worth doing** — Automatic
+  re-slices a second after you stop, but only while slices stay under 5 s, timed
+  per plate.
+- **The slice dock says how long the print will take**, read from the G-code's
+  own commanded speeds.
+- **Hold `+` or `−` to run a number up or down**, accelerating the longer you hold.
+- **Thumbnails can match the 3D view's look** — Settings → General → Thumbnail
+  look renders with the viewport's shading and shadow. Plain by default.
 
 ### Changed
 
-- **A thin rib prints as the wall it is.** A rib, fin or divider too thin to
-  carry a perimeter used to be tagged as filler between walls and printed at the
-  deliberately gentle gap-fill acceleration. It is now the outer wall of that
-  feature — wall speed, wall acceleration, wall colour — with no feature type of
-  its own, because covering it is what the Arachne generator is for.
-- **Short hops inside a part no longer retract.** A travel that crosses no wall
-  and stays under 5 mm within the part skips the retract, Z-hop and prime — what
-  it drools lands where nothing shows. Parts with a field of thin ribs, like a
-  card caddy or a fan grille, were spending more time on the ceremony than on
-  the ribs: one such model loses 85 % of its retractions.
-- **Short hops are steered over material where there is a way round.** Rather
-  than cutting across an open slot, a hop of a few millimetres now travels back
-  over the beads it came from — lifting clear of them, but without retracting —
-  so what it drools lands on the part instead of hanging in the gap. It only
-  takes a way round up to twice as long as the straight line.
-- **Better infill and surface defaults out of the box.** Sparse infill is now
-  **TPMS-D** at 20 % instead of rectilinear: a minimal surface carries load in
-  every direction, so the part comes out stiffer for the material it uses. Top
-  and bottom solid surfaces are **rectilinear**, one continuous serpentine pass
-  rather than the one-way monotonic sweeps, which leaves an even, evenly-pressed
-  face. The first layer slows to 25 mm/s. The shipped presets move with the
-  engine, so a slice from the app and one from the command line still agree.
-- **Every speed reads in mm/s, including travel and retraction.** Those two are
-  stored in mm/min because that is what a G-code `F` word carries, and the panel
-  used to ask for `9000` beside a print speed of `120`. Press the unit next to
-  any speed box to read them all in mm/min instead — the preference is
-  remembered and the saved value never changes, only how it is written.
-- **Material settings live with the filament.** Flow ratio, maximum volumetric
-  speed and pressure advance move from Process to Filament, where they belong:
-  they are calibrated per spool, and a print profile carrying them overwrote
-  that calibration on every profile switch. A new **Material** group collects
-  what the spool is — type, name, colour, diameter, density, cost — which had
-  been split between the printer's hardware page and its temperatures.
-- **Deleting a printer, filament or process no longer asks you to type its
-  name.** A profile is a handful of settings you can recreate, so it confirms
-  inline like every other destructive action; the typed challenge is kept for
-  things that are genuinely unrecoverable.
-- **Gravity is on by default, and remembered.** A part left floating above the
-  plate is not printable, so dropping to the bed after every move is the
-  starting point; turn it off and it stays off.
-- **Filament type is a list, not a text box.** The value goes into the G-code
-  header where firmware and other slicers read it back, so it offers the
-  materials they understand — while keeping whatever a vendor profile already
-  carries, `PLA+` included.
-- **The G-code editor follows the app theme** instead of staying dark in a light
-  window.
-- **Touch targets across the app** now meet the 44pt floor — workplate tabs,
-  number steppers, context menus, the viewport cube — and the page no longer
-  zooms out from under a pinch on the plate.
-
-- **Auto-orient now goes for the biggest face that actually touches the bed.**
-  It measures real bed contact instead of counting every downward-facing
-  surface, and weights an overhang by how far it leans, so parts made of flat
-  undersides — overhang tests, card caddies — stop being tipped onto a corner.
-  A part already exported the right way up is left alone, and a pose too tall
-  for the machine is ranked behind every one that fits.
-- **Smooth-bridge defaults.** Bridges now print at **10 mm/s** with a **1.5×**
-  flow ratio by default, so their strands fuse into a continuous floor and full
-  part-cooling freezes them before they sag — the community "smooth unsupported
-  bridge" recipe, out of the box. The most-airborne overhang band drops to
-  8 mm/s to stay below the new bridge speed.
-- **Dynamic overhang speed now actually slows the transition down.** The
-  25–50 % band a curved wall — a Benchy hull's bow — spends many layers inside
-  on its way to bridging used to print at full speed on every preset; **High
-  Speed** and **Maximum** now state it as a percentage of their own wall
-  speed (50 % / 35 %) instead, landing near the same safe speed despite
-  cruising very differently. Any of the four overhang bands can be set as a
-  percentage of another speed instead of a fixed number, and **Slow down
-  curled perimeters** now engages even when nothing has been hand-tuned —
-  it previously only clamped bands with an explicit override.
-
-### Added
-
-- **Sync to profile.** Next to **Reset all**, review every setting a plate has
-  changed against its printer, filament and process profiles — side by side,
-  like a diff — and switch off the ones you don't want. Confirming writes the
-  rest straight into the profile that owns them and clears them from the
-  plate, so a change you liked doesn't need a trip through the profile editors
-  to keep.
-- **Two faster print presets, and a CoreXY printer to run them on.** Standard is
-  written for a machine that may be a decade old; **High Speed** (200 mm/s) and
-  **Maximum** (300 mm/s, 30 000 mm/s²) ask for what a commissioned CoreXY is
-  actually built to do, both holding the outer wall and top surface back so the
-  speed comes out of the inside of the print. A **Generic CoreXY 350 mm** printer
-  preset carries the machine side — 0.6 nozzle, firmware retraction, object
-  exclusion. No preset sets pressure advance: it is tuned on your machine and
-  none of the slicer's business.
-- **Hold `+` or `−` to run a number up or down.** It repeats after a moment and
-  accelerates the longer you hold, so a skirt distance near 200 or a bed at
-  100 °C is a press rather than forty clicks.
-- **An outline for the printer, filament and profile editors.** These pages show
-  every parameter there is, in one long column with no way to search it. Collapse
-  the Settings section list to icons and a contents rail takes its place: every
-  section, and under it every setting by name, with a filter box — so a setting
-  you can picture but cannot name is one glance away, and one click takes you to
-  it.
-- **The Settings section list folds to icons**, and the list of printers,
-  filaments or profiles beside it can be dragged wider. Both are remembered.
-- **The slice dock now says how long the print will take.** An estimate sits
-  beside the slice result, read from the G-code itself. It comes from your
-  process settings — the speeds and accelerations the file commands — not from
-  the printer's own limits, which the slicer has no way to know, so a machine
-  that cannot keep up takes longer than the figure says.
-- **An outline for the settings panel.** Press the list button beside the search
-  box — or `Ctrl`/`⌘ + Shift + O` — and the panel becomes a table of contents:
-  every section, and under it every setting by name. Click a line to land on the
-  control, in its section. It lists what the panel folds away too, marked with
-  the tier it sits behind, for the case search cannot help with: you know the
-  setting exists, you just can't name it.
-- **Your Klipper printer sets itself up.** Detection now reads the machine's own
-  configuration instead of two fields of it: build volume and kinematics, nozzle
-  and filament diameter, velocity and acceleration limits, pressure advance,
-  firmware retraction, object cancellation, and which start macros it uses — so
-  the right `PRINT_START` or Klippain G-code is written for you. Open **What we
-  read from your printer** to see every value and the `printer.cfg` section it
-  came from.
-- **The wizard only asks what your printer can't answer.** After a detection it
-  drops the setup form for a short question or two — an extra fan's purpose, bed
-  levelling, plate orientation — each with an answer already picked and a line
-  saying why. You can add the printer from the first screen and skip all of
-  them. Common machines are recognised by name, and the vendor field finally
-  holds the machine's maker rather than "Klipper".
-- **Settings start calm and open all the way.** Every section shows the handful
-  of settings a print actually depends on, then an `Advanced 10` row that
-  expands it in place; a second press reveals Expert. Sections holding nothing
-  but advanced settings stay out of the list until you ask for them, taking
-  Process from eleven down to seven. Search still reaches every setting at every
-  level, and anything you have changed stays visible wherever it lives. Set
-  where the panels open for good in Settings → General → Settings detail.
-- **Every setting says what it measures.** The slice sidebar shows units and
-  steps — °C, mm/s, mm³/s, `×` — and nudges by something sensible instead of
-  0.01, so a nozzle temperature steps by 5 °C rather than to 210.01.
-  Proportions the engine stores as a fraction read as percentages, so full fan
-  speed shows as `100 %` and not `1`.
-- **Right-click a model in the objects list** for Duplicate, Drop to floor,
-  Centre on bed and Remove — the same menu the model already had on the plate.
-
-- **The preview re-slices itself, when that is worth doing.** A flash button
-  beside the model / preview toggle steps through Automatic, Always and Off;
-  Automatic re-slices about a second after you stop changing things, but only
-  while slices stay under 5 s — timed per plate, so a heavy one goes back to
-  waiting for the button while a light one keeps up. Set it for good in
-  Settings → General → Slicing.
-- **The view no longer always jumps to the G-code preview when a slice
-  finishes.** Settings → General → Slicing → Show the preview after slicing
-  offers Automatic, Always and Never; Automatic follows a slice you pressed and
-  leaves an automatic re-slice alone, so an edit in progress is never pulled
-  into a view where the plate tools are hidden.
-- **Open a model straight from another app.** Cold Crabby now registers as a
-  handler for `.stl`, `.obj` and `.3mf`: double-click one on Windows, macOS or
-  Linux, or share one to it from Shapr3D, Files, Mail or AirDrop on iPhone and
-  iPad. The model joins the plate you already have open rather than replacing
-  it, and a second double-click reuses the running window instead of starting a
-  new one.
-- **Pause and colour change at a layer.** Mark any layer in the preview to stop
-  the print for an insert or a filament swap; markers on the layer slider add and
-  remove them. Emits the right directive per firmware — Marlin `M0`/`M600`,
-  Klipper `PAUSE`, RepRap `M226`.
-- **Supports now work on sloped overhangs** — a cone or chamfer steeper than the
-  threshold angle used to come out with essentially no support, because the
-  overhang-classification pass had already retagged its walls and left nothing
-  for the support stage to measure. The threshold angle was inert as a result;
-  it now does what it says. A 60° cone goes from nothing to full support, while
-  a self-supporting 30° one is still left alone.
-- **Paint support where you want it** — a brush for marking overhangs the
-  automatic rule gets wrong: **enforce** where support is wanted regardless of
-  angle, **block** where it must never go. `B` picks up the brush (from the
-  G-code preview too), scrolling over the model resizes it, and `Shift`+`B`
-  opens size and mode at the pointer. **Support Auto** turns the overhang rule
-  off entirely, for plates supported only where painted.
-- **Support sits closer to the part** — the gap between support and model
-  drops from `0.8 mm` to **`0.35 mm`**, matching mainstream slicers. The old
-  figure left a visible moat and let steep overhangs sag before they reached
-  the column meant to be holding them up.
-- **Support islands print whole instead of missing an edge** — each island's
-  perimeter is a closed loop, but the segment closing it back to its start was
-  never extruded, leaving every island open on one side (about a fifth of all
-  support contour length on a test overhang, with individual gaps over 25 mm).
-  The same fix closes a wall loop that overhangs along its **entire** length —
-  a hard 90° ledge, for instance — which was silently missing its closing edge
-  for the same reason.
-- **Support prints as continuous loops instead of dabs** — each support island
-  gets a perimeter, and runs shorter than two nozzle widths are dropped. On a
-  3DBenchy that took degenerate sub-millimetre extrusions from 37% of tree
-  support runs to 1.5%, for the same amount of material.
-- **Support no longer over-extrudes** — it is charged at its flow spacing like
-  every other fill role, rather than a full nozzle-width bead (about 12% too
-  much, and a density that drifted with nozzle size). A new **support line
-  width** setting sits alongside the other per-role widths, without pulling the
-  raft's own (deliberately coarser) bead width along with it.
-- **Rafts and skirts account for supports** — a raft built only from the object
-  left support columns starting in mid-air just above the plate.
-- **Supports no longer print in spiral (vase) mode** — a vase is one continuous
-  wall climbing through Z with retraction disabled, so a column dropped into it
-  had no way to be reached. Support is now switched off with the other
-  vase-incompatible settings.
-- **The slice progress bar tracks real work** — its phase weights came from a
-  single guess and mis-ranked everything: mesh slicing counted for nearly half
-  the bar despite taking a few percent of the time, while wall generation, the
-  most expensive phase, counted for a tenth. Four phases had no weight at all
-  and froze the bar completely while they ran.
-- **Tapping a model on a tablet now selects it** — two separate faults made touch
-  and Pencil selection fail. An invisible transform-gizmo hit area sat parked at
-  the centre of the bed whenever nothing was selected, and swallowed any tap that
-  landed on it; that check runs only for touch and pen, so a mouse never saw it.
-  Selection was also judged by a mouse-sized 4px tolerance, and a fingertip is a
-  ~10mm disc whose reported centre wanders as the skin flattens, so most real
-  taps were discarded as drags. Taps are now judged per pointer — 4px for a
-  mouse, 9 for a pen, 16 for a finger — and a hidden gizmo no longer intercepts
-  anything.
-- **Plates holding several models now slice correctly everywhere** — a workplate
-  is a build plate, not a file, but only the hosted slicer treated it that way.
-  The desktop app sliced every object out of the *first* model, so a second one
-  came out as a copy of the first; the in-browser slicer refused outright with
-  "Missing mesh bytes". Each object now resolves to the file it was actually
-  loaded from, in every runtime.
-- **Screenshot animation is now optional.** The shutter flash and the preview
-  card that flies off after each slice can be turned off in **Settings →
-  General**. On by default; the thumbnail is still captured either way.
-- **Thumbnails can match the 3D view's look.** **Settings → General →
-  Thumbnail look** renders the embedded preview with the viewport's own shading,
-  gloss and contact shadow instead of the plain studio render. Plain by default,
-  so the same plate still previews identically wherever it is sliced.
-- **Workplate tabs.** The title bar's single plate-name field is now a tab
-  strip, so several workplates can stay open at once — upload, open a recent
-  project, or follow a deep link and it opens in its own tab. Switch, rename,
-  or close tabs independently; closing one only removes it from the strip,
-  the plate itself is still reachable from Home.
-- **Fuzzy skin.** A new outer-wall texture option roughs the surface with a
-  small random perpendicular jitter instead of a smooth wall — useful for
-  hiding layer lines or giving a part a deliberately organic look. Tunable
-  thickness and point spacing; off by default, and purely cosmetic — inner
-  walls, infill and every other pass print exactly as they would otherwise.
-- **Bed mesh leveling directives.** A new `bed_mesh_mode` setting emits
-  `BED_MESH_CALIBRATE`/`BED_MESH_PROFILE LOAD` (Klipper) or `G29`/`M420 S1`
-  (Marlin/RepRap) at print start — off by default, so existing output is
-  unchanged. `bed_mesh_adaptive` bounds recalibration to the print's own
-  footprint instead of the whole bed, and a custom start script that already
-  handles leveling takes priority over the slicer's own directive.
-- **Minimum layer time (slow-down for cooling)** — `min_layer_time_s` scales a
-  short layer's feedrates down so it takes at least that long to print,
-  giving thin walls and small details time to cool before the next layer
-  lands. Slowing is clamped at `min_print_speed` (default 10 mm/s) to avoid
-  heat-creep or grinding; any remaining shortfall is made up with a dwell.
-  The first layer is exempt. Disabled by default (`0`).
-- **Full role coverage for acceleration, on by default** — `inner_wall_acceleration`,
-  `sparse_infill_acceleration`, `solid_infill_acceleration`,
-  `gap_fill_acceleration` and `support_acceleration` round out the role table
-  started by `outer_wall_acceleration`/`bridge_acceleration`, so every printing
-  role can carry its own firmware acceleration limit. A new
-  `travel_acceleration` lets non-printing hops ramp at their own (usually
-  higher) rate, switching back to the printing value before the next
-  extrusion. Every acceleration setting now ships with a non-zero default
-  tuned for a fast, well-built machine (10000 mm/s² baseline, up to 15000 for
-  travel, down to 1000 for the first layer and bridges) instead of silently
-  deferring to firmware defaults — a slower or untuned printer should dial
-  these down. Set any of them to `0` to fall back to the previous behaviour.
+- **Better infill and surface defaults** — sparse infill is now **TPMS-D** at
+  20 %, which carries load in every direction, and top and bottom surfaces are
+  **rectilinear** for an even, evenly-pressed face. First layer slows to 25 mm/s.
+- **Smooth-bridge defaults** — bridges print at **10 mm/s** with **1.5×** flow so
+  their strands fuse into a continuous floor before they sag.
+- **Dynamic overhang speed actually slows the transition** — the 25–50 % band a
+  curved hull spends many layers inside is now stated as a percentage of the
+  preset's own wall speed, and any band can be expressed that way. **Slow down
+  curled perimeters** no longer needs a hand-tuned override to engage.
+- **Auto-orient goes for the biggest face that actually touches the bed** — real
+  bed contact instead of every downward-facing surface, so flat-bottomed parts
+  stop being tipped onto a corner. A pose too tall for the machine ranks last.
+- **A thin rib prints as the wall it is** — wall speed, wall acceleration, wall
+  colour, instead of the gentle gap-fill treatment.
+- **Short hops inside a part no longer retract** — under 5 mm and crossing no
+  wall, the retract, Z-hop and prime are skipped; where there is a way round, the
+  hop travels back over its own beads so what it drools lands on the part. One
+  rib-heavy model loses 85 % of its retractions.
+- **Material settings live with the filament** — flow ratio, maximum volumetric
+  speed and pressure advance move from Process, where a profile switch used to
+  overwrite your per-spool calibration. A new **Material** group collects what
+  the spool is.
+- **Every speed reads in mm/s**, travel and retraction included; press the unit
+  to switch the whole panel to mm/min. The stored value never changes.
+- **Gravity is on by default, and remembered.**
+- **Filament type is a list**, offering the materials firmware and other slicers
+  read back — while keeping whatever a vendor profile already carries.
+- **Deleting a profile confirms inline** instead of asking you to type its name.
+- **Touch targets meet the 44 pt floor** across tabs, steppers, menus and the
+  viewport cube, and the page no longer zooms out from under a pinch.
+- **The G-code editor follows the app theme.**
 
 ### Fixed
 
-- **Overhang detection measures material, not centrelines.** A wall counted as
-  an overhang once it leaned half a bead past the *centreline* of the wall below
-  — but the layer below is half a bead wider than its centreline, so near-vertical
-  funnels, chamfered lips and gently flaring hulls were being given bridge speed
-  and bridge cooling for surfaces that still land on solid plastic. Support is now
-  measured from the material edge, and a wall earns the overhang role only once
-  the bead clears the layer below entirely. Steep-but-touching walls are still
-  slowed and cooled, by overhang *degree* — they just keep wall flow and stay one
-  continuous loop instead of being cut into arcs.
-- **Overhangs are classified by geometry, not by rounding.** The test asked a
-  point-in-polygon question about points lying exactly on their own subject
-  polygon, so the answer came back as floating-point noise: a uniform 0.34 mm
-  ledge was split into four alternating verdicts around one circle. Every
-  boundary now sits clear of the wall it is asked about, so a rim that leans
-  evenly is classified evenly.
-- **Small layers no longer crawl to a blob.** The minimum-layer-time slowdown
-  scaled every feedrate against the general print speed, so roles already slower
-  than it — bridges, overhang bands, ironing — fell straight through the
-  `min_print_speed` floor. A Benchy chimney rim ran at 1 mm/s against a 10 mm/s
-  floor, where the melt oozes faster than the nozzle moves and the bead lands
-  nozzle-round however little filament is commanded. The floor now applies to the
-  speed actually emitted.
-- **Closing a workplate tab works.** The close button did nothing whenever the
-  tab's plate was still loaded, because the list that opens a tab per loaded
-  file put it straight back.
-- **The app notices when the engine goes away.** It kept reporting "Connected"
-  to a slicer that was no longer running, and an ordinary server restart left it
-  disconnected until you reloaded. A heartbeat spots a dead connection within
-  seconds and reconnects on its own; scene edits made while it is down now
-  report the problem instead of vanishing.
-- **Renaming a workplate tab.** Renaming is a double-click, so a single click no
-  longer drops a text box in your path; the box opens focused with the name
-  selected, accepts spaces, and grows as you type. Tabs are reachable from the
-  keyboard with the arrow keys, `Enter` and `F2`.
-- **"Use filament colour" honours the colour you set.** It read only the
-  filament profile, so changing the colour for a plate repainted nothing — and
-  the thumbnail embedded in the G-code was wrong for the same reason.
-- **Undo while typing undoes your typing**, not the last thing you did to the
-  plate.
-- **Notifications no longer pile up.** They are capped, errors clear themselves,
-  hovering one holds it open long enough to read, and a repeated message
-  replaces itself instead of stacking.
-- **Dialogs fit on iPhone and iPad.** A tall one ran past the bottom of the
-  screen on a page that cannot scroll, putting its buttons out of reach.
-- **A finished slice reports its own layer count**, rather than however much of
-  the preview had loaded.
+#### Walls and travel
+
+- **Turning a model no longer changes how it slices** — thin features were
+  rebuilt from geometry the 0.01 mm coordinate grid had turned into a staircase.
+  A caddy now lays the same divider length at 0° and 45°, to within 1 %.
+- **A thin feature survives a wide nozzle** — anything under the minimum bead
+  width was dropped outright, so a 0.6 mm nozzle printed a caddy as a solid
+  block. It now prints at the minimum width, down to half of it.
+- **Thin features print end to end**, and a bead no longer breaks into a file of
+  millimetre dabs where the material it follows briefly narrows.
+- **A tapering bead keeps its taper over a bridge or overhang** — splitting walls
+  there used to discard per-vertex widths for the whole layer.
+- **No more strands between thin ribs** — a cavity now counts as air, and every
+  hop between ribs dives back through the body rather than reaching for the free
+  tip. On a 25-slot caddy, unretracted travel across open air falls from 5.5 m to
+  0.8 m.
+
+#### Overhangs and layers
+
+- **Overhang detection measures material, not centrelines** — near-vertical
+  funnels, chamfered lips and flaring hulls were getting bridge speed and bridge
+  cooling for surfaces landing on solid plastic. Steep-but-touching walls are
+  still slowed and cooled, but keep wall flow and stay one continuous loop.
+- **Overhangs are classified by geometry, not by rounding** — a uniform 0.34 mm
+  ledge used to come back with four alternating verdicts around one circle.
+- **Small layers no longer crawl to a blob** — the minimum-layer-time slowdown
+  scaled against the general print speed, so bridges, overhang bands and ironing
+  fell straight through the `min_print_speed` floor. The floor now applies to the
+  speed actually emitted, and nothing dwells to make up a shortfall.
+- **Supports work on sloped overhangs** — the threshold angle was inert because
+  overhang classification had already retagged the walls the support stage
+  measures. A 60° cone goes from nothing to full support; a 30° one is still left
+  alone.
+- **Support islands print whole** — the segment closing each perimeter loop was
+  never extruded, leaving every island open on one side. The same fix closes a
+  wall loop that overhangs along its entire length.
+- **Support prints as loops, not dabs, and no longer over-extrudes** — it is
+  charged at its flow spacing like every other fill role, about 12 % less than a
+  full nozzle-width bead.
+- **Rafts and skirts account for supports**, which used to start in mid-air just
+  above the plate.
+- **Supports are switched off in spiral (vase) mode**, where nothing could reach
+  them anyway.
+
+#### Workplates and the app
+
+- **Switching tabs actually switches plates** in every runtime, and a plate comes
+  back with each model's position, rotation, scale and support paint intact.
+- **Your plates survive closing the app** — models are kept on the device beside
+  the plate. Room for them is bounded, oldest-unopened first.
+- **`+` starts a plate instead of throwing one away**, and a renamed tab keeps
+  its name everywhere. Renaming is a double-click; tabs work from the keyboard.
+- **Switching back to a plate no longer re-downloads its models**, and reloading
+  always gets the current build.
+- **Plates holding several models slice correctly everywhere** — the desktop app
+  sliced every object out of the first model, and the browser slicer refused
+  outright.
+- **The app notices when the engine goes away** — a heartbeat spots a dead
+  connection within seconds and reconnects; edits made while it is down report
+  the problem instead of vanishing.
+- **Tapping a model on a tablet selects it** — a parked invisible gizmo hit area
+  swallowed taps, and a mouse-sized 4 px tolerance discarded a fingertip's wander
+  as a drag. Tolerance is now judged per pointer.
+- **The slice progress bar tracks real work** — four phases carried no weight at
+  all and froze the bar while they ran.
+- **"Use filament colour" honours the colour you set**, in the viewport and in
+  the embedded thumbnail.
+- **Undo while typing undoes your typing**, not the last thing you did to the plate.
+- **Notifications no longer pile up**, dialogs fit on iPhone and iPad, and a
+  finished slice reports its own layer count.
+- **Closing a workplate tab works.**
+
+### Contributors
+
+Thanks to @max-scopp, who shipped this release end to end — supports, walls,
+workplate tabs and the printer wizard all landed in this cycle.
 
 ## [0.4.0] - 2026-08-31
 
