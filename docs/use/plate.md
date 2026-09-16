@@ -69,6 +69,17 @@ reopen it, click the tab, and the plate comes back. Where the slicer runs on a
 server, the models are already there and the same is true from any device you
 sign in from.
 
+### When someone else is on the same plate
+
+Where the slicer runs on a shared server, two people can have one plate open at
+once. If they save while you are looking at it — moving a model, changing a
+setting, adding a part — a small **This workplate was changed elsewhere** notice
+appears above the plate.
+
+Nothing happens to your plate until you say so. **Reload plate** takes their
+version; **Keep mine** dismisses the notice and leaves you where you are, and
+whichever of you saves next is the version the plate keeps.
+
 ::: details When a model can't come back
 Models kept on the device are given a generous but finite amount of room. If you
 work through a great many large models, the ones you haven't opened in longest

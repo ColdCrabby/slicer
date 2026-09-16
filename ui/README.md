@@ -209,6 +209,18 @@ Which saved object gets which parsed part is decided up front by the pure
 duplicates, multi-part 3MFs and a deleted part are settled in one tested place
 rather than inside the engine calls.
 
+**Switching back to a plate re-fetches nothing it already has.** In cloud mode an
+uploaded model is served immutable with an `ETag`, so the browser answers the
+second visit out of its own cache; the plate's *document* is `no-store`, because
+that is the part someone else may have changed. Both live in
+[`src/server/README.md`](../src/server/README.md#what-may-be-cached-and-for-how-long).
+
+**And when someone else does change it**, the engine says so over the
+WebSocket and [`WorkplateSession`](src/app/services/workplate-session/workplate-session.ts) raises `changedElsewhere` for the plate on
+screen. It is a prompt, never a reload: two people on one plate is ordinary, and
+taking the scene away from whoever typed second is worse than letting them pick
+the moment. Ignoring it leaves last-writer-wins exactly as it was.
+
 ### Placing objects is one command, not two
 
 "Auto-orient" and "arrange all" used to be rival buttons that undid each other's

@@ -1,6 +1,7 @@
 import { HttpClient, HttpEventType } from '@angular/common/http';
 import { Injectable, computed, inject, signal } from '@angular/core';
 import { environment } from '../../environments/environment';
+import { CLIENT_ID_HEADER, clientId } from './client-id';
 
 /**
  * Metadata for a workplate, returned by `GET /api/request/:request_uuid`.
@@ -94,6 +95,9 @@ export class SlicerFile {
     return new Promise((resolve, reject) => {
       this.#http
         .post<UploadResponse>(`${environment.apiUrl}/upload`, formData, {
+          // A model landing on a plate is a change to it; naming the author
+          // keeps the engine from announcing it back to this view.
+          headers: { [CLIENT_ID_HEADER]: clientId() },
           reportProgress: true,
           observe: 'events',
         })

@@ -107,6 +107,7 @@ async fn run_server(
 ) -> Result<(), Box<dyn std::error::Error>> {
     use actix_cors::Cors;
     use actix_files::Files;
+    use actix_web::dev::Service as _;
     use actix_web::{http, web, App, HttpServer};
 
     // Initialize work directory
@@ -130,6 +131,7 @@ async fn run_server(
         work_dir: work_path.clone(),
         // Retained for the server's lifetime; sessions each hold a subscriber.
         profiles_changed: tokio::sync::broadcast::channel(16).0,
+        workplates_changed: tokio::sync::broadcast::channel(64).0,
     });
 
     HttpServer::new(move || {
@@ -150,6 +152,10 @@ async fn run_server(
             .allowed_headers(vec![
                 http::header::CONTENT_TYPE,
                 http::header::AUTHORIZATION,
+                // Self-assigned, opaque, and only ever compared for equality:
+                // it is how a client's own edit is kept out of the "someone
+                // else changed this plate" prompt it would otherwise trigger.
+                http::header::HeaderName::from_static("x-client-id"),
             ])
             // `Content-Disposition` is not CORS-safelisted, so a cross-origin
             // client — any UI served from another origin — cannot read the
@@ -161,6 +167,27 @@ async fn run_server(
 
         App::new()
             .app_data(app_state.clone())
+            // Decide how long the browser may keep each static asset. Handlers
+            // set their own `Cache-Control`, so this only ever fills in the
+            // blank the file server leaves — see `static_cache_control`.
+            .wrap_fn(|req, srv| {
+                let policy = static_cache_control(req.path());
+                let fut = srv.call(req);
+                async move {
+                    let mut res = fut.await?;
+                    let headers = res.headers_mut();
+                    match policy {
+                        Some(value) if !headers.contains_key(http::header::CACHE_CONTROL) => {
+                            headers.insert(
+                                http::header::CACHE_CONTROL,
+                                http::header::HeaderValue::from_static(value),
+                            );
+                        }
+                        _ => {}
+                    }
+                    Ok(res)
+                }
+            })
             // Apply CORS only to API scope, not to WebSocket
             .service(
                 web::scope("/api")
@@ -226,9 +253,99 @@ async fn run_server(
     Ok(())
 }
 
+/// How long the browser may keep the asset at `path`.
+///
+/// `None` leaves the decision to whoever produced the response — every `/api`
+/// handler answers for itself, because only it knows whether its body is a
+/// plate that someone else may already have changed.
+///
+/// For the app's own files the rule is the usual one, and the reason to state
+/// it explicitly is that the default — no header at all — lets the browser
+/// guess, and a browser that guesses wrong about `index.html` serves a build
+/// the user cannot get rid of by reloading:
+///
+/// - **A file whose name carries a build hash never changes**, because a new
+///   build gives it a new name. Keep it for a year.
+/// - **Everything else revalidates.** `index.html` is the one file that names
+///   the current build, and `scene_engine_bg.wasm` ships under a fixed name
+///   beside content-hashed glue — a browser reusing a stale copy of either
+///   pairs the wrong halves of the app together.
+fn static_cache_control(path: &str) -> Option<&'static str> {
+    if path.starts_with("/api") || path == "/ws" {
+        return None;
+    }
+    if is_build_hashed(path) {
+        return Some(handlers::IMMUTABLE_CACHE);
+    }
+    Some("no-cache")
+}
+
+/// Whether a filename carries a build hash — `main-6T6X7SIP.js`, not `main.js`.
+///
+/// Matches the bundler's `<name>-<hash>.<ext>` shape: at least eight characters
+/// of base64url after the last dash, and at least one digit, so an ordinary
+/// hyphenated name (`apple-touch-icon.png`) is never mistaken for one.
+fn is_build_hashed(path: &str) -> bool {
+    let name = path.rsplit('/').next().unwrap_or(path);
+    let Some((stem, ext)) = name.rsplit_once('.') else {
+        return false;
+    };
+    if !matches!(ext, "js" | "css" | "mjs") {
+        return false;
+    }
+    let Some((_, hash)) = stem.rsplit_once('-') else {
+        return false;
+    };
+    hash.len() >= 8
+        && hash.chars().any(|c| c.is_ascii_digit())
+        && hash
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-')
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn hashed_bundles_are_kept_forever() {
+        assert_eq!(
+            static_cache_control("/main-6T6X7SIP.js"),
+            Some(handlers::IMMUTABLE_CACHE)
+        );
+        assert_eq!(
+            static_cache_control("/media/chunk-3MtePz_z.css"),
+            Some(handlers::IMMUTABLE_CACHE)
+        );
+    }
+
+    #[test]
+    fn the_shell_and_the_wasm_always_revalidate() {
+        // These two name the current build; a stale copy of either is a user
+        // stuck on an old app with no way to reload out of it.
+        assert_eq!(static_cache_control("/"), Some("no-cache"));
+        assert_eq!(static_cache_control("/index.html"), Some("no-cache"));
+        assert_eq!(
+            static_cache_control("/scene_engine_bg.wasm"),
+            Some("no-cache")
+        );
+    }
+
+    #[test]
+    fn an_ordinary_hyphenated_name_is_not_a_hash() {
+        assert_eq!(
+            static_cache_control("/apple-touch-icon.png"),
+            Some("no-cache")
+        );
+        assert_eq!(static_cache_control("/proxy-conf.js"), Some("no-cache"));
+    }
+
+    #[test]
+    fn handlers_answer_for_their_own_bodies() {
+        assert_eq!(static_cache_control("/api/workplates/abc"), None);
+        assert_eq!(static_cache_control("/api/file/abc"), None);
+        assert_eq!(static_cache_control("/ws"), None);
+    }
 
     #[test]
     fn test_serve_command_defaults() {

@@ -1,4 +1,5 @@
 import { Injectable, inject, signal } from '@angular/core';
+import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { Router } from '@angular/router';
 import { resolveRuntimeMode } from '../../runtime/domain/runtime-mode.util';
 import { Logger } from '../logger';
@@ -6,6 +7,7 @@ import { ModelSourceRegistry, type ModelSource } from '../model-source';
 import { NotificationService } from '../notifications';
 import { SceneEngine, type SceneOp } from '../scene-engine';
 import { Slicer } from '../slicer';
+import { SlicerConnection } from '../slicer-connection';
 import { SlicerFile } from '../slicer-file';
 import { WorkplateObjects } from '../workplate-objects';
 import { WorkplateSettingsStore } from '../workplate-settings';
@@ -64,9 +66,21 @@ export class WorkplateSession {
   private readonly plates = inject(WorkplateSettingsStore);
   private readonly workplateObjects = inject(WorkplateObjects);
   private readonly notifications = inject(NotificationService);
+  private readonly connection = inject(SlicerConnection);
 
   /** True while a plate is being brought back, for the viewport's overlay. */
   readonly restoring = signal(false);
+
+  /**
+   * Set when the engine reports that the plate on screen was changed by someone
+   * else, and cleared when the user acts on it.
+   *
+   * Deliberately a prompt and not a reload. Two people on one plate is ordinary
+   * — someone tuning settings while someone else arranges models — and pulling
+   * the scene out from under whichever of them typed second is worse than
+   * letting them pick the moment. Last writer still wins if they ignore it.
+   */
+  readonly changedElsewhere = signal<{ uuid: string; at: string | null } | null>(null);
 
   /** Plates with an open queued or in flight, so a repeat click is free. */
   readonly #queued = new Set<string>();
@@ -74,6 +88,46 @@ export class WorkplateSession {
   #latest: string | null = null;
   /** Tail of the serialised open queue. */
   #queue: Promise<void> = Promise.resolve();
+
+  constructor() {
+    // Only relevant where there is a second client to diverge from. In the
+    // native and web runtimes `messages$` is `EMPTY`, so this is inert.
+    this.connection.messages$.pipe(takeUntilDestroyed()).subscribe((msg) => {
+      if (msg.type !== 'WorkplateChanged') {
+        return;
+      }
+      // Only the plate the user is actually looking at. A notice about a plate
+      // in another tab is something they cannot act on from here, and a strip
+      // of them is how a useful prompt becomes one people click past.
+      if (msg.request_uuid === this.slicerFile.requestUuid()) {
+        this.changedElsewhere.set({ uuid: msg.request_uuid, at: msg.updated_at ?? null });
+      }
+    });
+  }
+
+  /** Dismiss the "changed elsewhere" prompt without reloading. */
+  keepMine(): void {
+    this.changedElsewhere.set(null);
+  }
+
+  /**
+   * Fetch the plate again from the engine, discarding what this browser holds.
+   *
+   * The answer to the prompt above, and the one path that deliberately reopens
+   * a plate that is already open.
+   */
+  async refresh(uuid: string): Promise<void> {
+    this.changedElsewhere.set(null);
+    this.plates.forget(uuid);
+    this.#latest = uuid;
+    this.#queued.add(uuid);
+    this.#queue = this.#queue
+      .catch(() => undefined)
+      .then(() => this.#open(uuid, true))
+      .catch((error: unknown) => this.#reportOpenFailure(uuid, error))
+      .finally(() => this.#queued.delete(uuid));
+    return this.#queue;
+  }
 
   /**
    * Make `uuid` the plate on screen, restoring everything it remembers.
@@ -94,15 +148,17 @@ export class WorkplateSession {
     this.#queue = this.#queue
       .catch(() => undefined)
       .then(() => this.#open(uuid))
-      .catch((error: unknown) => {
-        this.log.error(`could not open plate '${uuid}'`, String(error));
-        this.notifications.error(
-          'Could not open workplate',
-          error instanceof Error ? error.message : undefined,
-        );
-      })
+      .catch((error: unknown) => this.#reportOpenFailure(uuid, error))
       .finally(() => this.#queued.delete(uuid));
     return this.#queue;
+  }
+
+  #reportOpenFailure(uuid: string, error: unknown): void {
+    this.log.error(`could not open plate '${uuid}'`, String(error));
+    this.notifications.error(
+      'Could not open workplate',
+      error instanceof Error ? error.message : undefined,
+    );
   }
 
   /**
@@ -115,16 +171,18 @@ export class WorkplateSession {
    */
   async newPlate(): Promise<void> {
     this.#latest = null;
+    this.changedElsewhere.set(null);
     this.plates.flush();
     await this.slicer.resetWorkplate();
     await this.router.navigate(['/']);
   }
 
-  async #open(uuid: string): Promise<void> {
+  async #open(uuid: string, force = false): Promise<void> {
     // Clicking along a row of tabs queues one of these per tab. Only the last
     // one is worth doing: the others would each tear a plate down and rebuild
-    // it for nobody.
-    if (this.#latest !== uuid || this.slicerFile.requestUuid() === uuid) {
+    // it for nobody. `force` is the deliberate exception — {@link refresh}
+    // reopens the plate that is already open, on purpose.
+    if (this.#latest !== uuid || (!force && this.slicerFile.requestUuid() === uuid)) {
       return;
     }
     this.restoring.set(true);

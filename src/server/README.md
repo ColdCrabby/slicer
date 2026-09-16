@@ -58,6 +58,52 @@ flowchart LR
 6. **The protocol is the source of truth, not the transport.** Message
    shapes live in [`crate::ws_protocol`](../ws_protocol.rs) with `JsonSchema`
    derives so the UI generates types from them.
+7. **An uploaded file is immutable; everything about a plate is not.** See
+   below — it is the whole of this server's caching policy.
+
+---
+
+## What may be cached, and for how long
+
+Two answers, and the line between them is whether the URL can ever return
+different bytes.
+
+- **`GET /api/file/:file_uuid` is immutable.** A second upload of the same model
+  is a second `file_uuid`, so the id *is* the validator: the response carries an
+  `ETag`, `private, max-age=1y, immutable`, and answers `If-None-Match` with a
+  304. This is what makes switching back to a plate instant rather than a fresh
+  download of every model on it. `private` because these are one person's
+  models and a shared proxy has no business holding them.
+- **Everything describing a plate is `no-store`** — `/api/workplates/:uuid` and
+  `/api/request/:uuid`. Both are small, both change whenever anyone touches the
+  plate, and a cached copy of either is how one person's arrangement quietly
+  replaces another's.
+
+The Angular bundle is served under the same rule, decided by
+[`static_cache_control`](mod.rs): a filename carrying a build hash is kept for a
+year, and everything else revalidates. The two that must revalidate are
+`index.html`, which names the current build, and `scene_engine_bg.wasm`, which
+ships under a fixed name beside content-hashed glue — a browser reusing a stale
+copy of either pairs the wrong halves of the app together, and the failure
+surfaces deep inside generated code.
+
+## Two people on one plate
+
+A hosted slicer has more than one client, and nothing stopped two of them
+editing the same plate with neither told. `PUT /api/workplates/:uuid` — and an
+upload that joins an existing plate — now broadcasts a `WorkplateChange` to
+every open WebSocket session, which relays it as `ServerMessage::WorkplateChanged`.
+
+Two properties are the whole design:
+
+- **It is advisory.** The client offers a refresh; it never takes the scene away
+  from whoever typed second. Ignoring it leaves last-writer-wins exactly as it
+  was — which is what [`workplate`](../workplate/README.md) already promised.
+- **Nobody hears their own writes.** A client identifies itself with an opaque,
+  self-assigned `X-Client-Id` header and repeats it as `?client=` on `/ws`; a
+  session skips a change whose author matches. Without that, every save would
+  bounce straight back as "someone changed this plate" and the prompt would mean
+  nothing. A client that sends no id is simply told about everything.
 
 ---
 
@@ -148,6 +194,8 @@ without anyone having to re-encode the format hint.
 | `SliceComplete` | Layer count + `download_url`                           |
 | `SessionsList`  | Result of `ListSessions`                               |
 | `SceneState`    | Snapshot reply for `Scene` / `SceneSnapshot`           |
+| `ProfilesChanged` | Someone wrote the profile library; refetch that category |
+| `WorkplateChanged` | Someone wrote a plate; the client offers a refresh   |
 | `Error`         | Fatal error during processing                          |
 
 Full schemas: [src/ws_protocol.rs](../ws_protocol.rs).

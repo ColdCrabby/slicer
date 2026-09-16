@@ -128,6 +128,13 @@ impl ProcessLogger for WsLogger {
     }
 }
 
+/// Query string of `GET /ws`.
+#[derive(serde::Deserialize)]
+struct ClientQuery {
+    /// Opaque per-tab id, echoed back by this client's own HTTP writes.
+    client: Option<String>,
+}
+
 /// Upgrade an HTTP GET to a WebSocket connection and hand off to the session handler.
 pub async fn ws_handler(
     req: actix_web::HttpRequest,
@@ -145,20 +152,41 @@ pub async fn ws_handler(
 
     let (response, session, msg_stream) = actix_ws::handle(&req, stream)?;
 
-    let db = state.db.clone();
-    let work_dir = state.work_dir.clone();
-    let profiles_changed = state.profiles_changed.subscribe();
+    // Who this socket belongs to, self-assigned by the client as `?client=…`.
+    // Only ever compared for equality, and only so a client is not told about
+    // its own writes. Absent — an older client, or a direct connection — simply
+    // means every change is reported, which is the safe direction to be wrong in.
+    let client_id = actix_web::web::Query::<ClientQuery>::from_query(req.query_string())
+        .ok()
+        .and_then(|q| q.into_inner().client);
 
     actix_web::rt::spawn(handle_ws_session(
         session,
         msg_stream,
-        db,
-        work_dir,
-        base_url,
-        profiles_changed,
+        SessionContext {
+            db: state.db.clone(),
+            work_dir: state.work_dir.clone(),
+            base_url,
+            client_id,
+            profiles_changed: state.profiles_changed.subscribe(),
+            workplates_changed: state.workplates_changed.subscribe(),
+        },
     ));
 
     Ok(response)
+}
+
+/// Everything one WebSocket session is handed at birth: what it slices with,
+/// who it belongs to, and the two server-wide change feeds it relays.
+struct SessionContext {
+    db: Arc<crate::db::Database>,
+    work_dir: std::path::PathBuf,
+    base_url: String,
+    /// This socket's self-assigned client id, so its own writes are not
+    /// announced back to it.
+    client_id: Option<String>,
+    profiles_changed: tokio::sync::broadcast::Receiver<String>,
+    workplates_changed: tokio::sync::broadcast::Receiver<super::handlers::WorkplateChange>,
 }
 
 /// Drive a single WebSocket session: send the initial handshake message then
@@ -166,11 +194,16 @@ pub async fn ws_handler(
 async fn handle_ws_session(
     mut session: actix_ws::Session,
     msg_stream: actix_ws::MessageStream,
-    db: Arc<crate::db::Database>,
-    work_dir: std::path::PathBuf,
-    base_url: String,
-    mut profiles_changed: tokio::sync::broadcast::Receiver<String>,
+    ctx: SessionContext,
 ) {
+    let SessionContext {
+        db,
+        work_dir,
+        base_url,
+        client_id,
+        mut profiles_changed,
+        mut workplates_changed,
+    } = ctx;
     let logger = StderrLogger;
     logger.log_info("[WS] New session started");
 
@@ -207,6 +240,24 @@ async fn handle_ws_session(
                 // A `Closed` sender is unreachable (AppState holds it for the
                 // server's lifetime); a `Lagged` receiver merely drops missed
                 // notifications — clients refetch the whole category anyway.
+                continue;
+            },
+            changed = workplates_changed.recv() => {
+                if let Ok(change) = changed {
+                    // Not our own write. A client that was told about its own
+                    // save would offer to refresh away from what the user just
+                    // did, every single time they did it.
+                    let ours = matches!(
+                        (&client_id, &change.client),
+                        (Some(mine), Some(theirs)) if mine == theirs
+                    );
+                    if !ours {
+                        let _ = send_msg(&mut session, &ServerMessage::WorkplateChanged {
+                            request_uuid: change.request_uuid,
+                            updated_at: change.updated_at,
+                        }).await;
+                    }
+                }
                 continue;
             },
         };

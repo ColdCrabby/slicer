@@ -111,6 +111,25 @@ location / {
 
 Model uploads are large — raise `client_max_body_size` to at least 500 MB.
 
+**Pass the server's `Cache-Control` through untouched.** It is deliberate on
+every route: uploaded models are marked immutable so a browser reuses them
+instead of re-downloading a plate's models each time someone switches to it,
+while anything describing a plate is marked `no-store` so two people never see
+each other's stale arrangement. A proxy that overrides either — many add a blanket
+`Cache-Control` — trades one of those away.
+
+## Working on the same plate
+
+Two people can open the same workplate. Neither is locked out, and the last save
+is the one the plate keeps; what the server adds is that the *other* person is
+told. When someone saves, everyone else looking at that plate sees a notice
+offering to reload it — they choose when, and no one's work disappears under
+them mid-edit.
+
+This needs the WebSocket, so it is one more thing the `/ws` upgrade above buys
+you. Nothing is shared between plates, and nothing is shared between users
+beyond the plates themselves.
+
 ## What lives where
 
 | | Where | Note |

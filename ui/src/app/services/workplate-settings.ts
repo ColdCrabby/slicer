@@ -255,6 +255,18 @@ export class WorkplateSettingsStore {
   }
 
   /**
+   * Forget that a plate was ever pulled, so the next {@link hydrate} goes back
+   * to the engine.
+   *
+   * Used when the engine says someone else changed the plate: the copy this
+   * browser holds is now the older one, and the whole point of the prompt is to
+   * fetch what they wrote.
+   */
+  forget(uuid: string | null | undefined): void {
+    this.hydrated.delete(this.#key(uuid));
+  }
+
+  /**
    * Move the draft plate's settings onto the uuid the engine just assigned.
    *
    * A plate is configured before it is uploaded — settings changed on the drop

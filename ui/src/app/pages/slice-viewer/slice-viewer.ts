@@ -17,12 +17,12 @@ import { SlicerFile } from '../../services/slicer-file';
 import { ViewerControl } from '../../services/viewer-control';
 import { WorkplateSession } from '../../services/workplate-session';
 import { WorkplateObjects } from '../../services/workplate-objects';
-import { Icon } from '@coldcrabby/ui';
+import { Icon, IconButton, TooltipDirective } from '@coldcrabby/ui';
 
 @Component({
   selector: 'nexus-slice-viewer',
   standalone: true,
-  imports: [Viewer, Icon],
+  imports: [Viewer, Icon, IconButton, TooltipDirective],
   templateUrl: './slice-viewer.component.html',
   styleUrl: './slice-viewer.component.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -54,6 +54,19 @@ export class SliceViewer {
 
   /** True while the plate on screen is being rebuilt from what it remembers. */
   readonly restoring = this.#session.restoring;
+
+  /** Set when someone else changed this plate on a shared engine. */
+  readonly changedElsewhere = this.#session.changedElsewhere;
+
+  /** Take their version of the plate. */
+  refreshPlate(uuid: string): void {
+    void this.#session.refresh(uuid);
+  }
+
+  /** Keep working on mine; the next save still wins. */
+  keepMine(): void {
+    this.#session.keepMine();
+  }
 
   /** Highlight the viewport while a file drag is over it. */
   readonly dragActive = signal(false);

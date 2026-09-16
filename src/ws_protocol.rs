@@ -488,6 +488,23 @@ pub enum ServerMessage {
     /// `kind` is the lowercase category token (`printers`, `filaments`,
     /// `processes`, `labels`) — matches [`crate::profiles::ProfileKind::as_str`].
     ProfilesChanged { kind: String },
+    /// Someone else changed a workplate this server holds — its presets, its
+    /// override diff, where its objects sit, or the files on it.
+    ///
+    /// Advisory only. The client is **not** told to reload: two people editing
+    /// one plate is ordinary, and yanking the scene out from under whichever of
+    /// them typed second is worse than letting them choose. A client showing
+    /// this plate offers a refresh; one that is not simply ignores it.
+    ///
+    /// Not sent back to the client that made the change — see the `client`
+    /// query parameter on `/ws`.
+    WorkplateChanged {
+        /// The plate's `request_uuid`.
+        request_uuid: String,
+        /// RFC 3339 timestamp the change was recorded with, when known.
+        #[serde(skip_serializing_if = "Option::is_none")]
+        updated_at: Option<String>,
+    },
     /// A fatal error occurred during processing.
     Error { message: String },
 }
