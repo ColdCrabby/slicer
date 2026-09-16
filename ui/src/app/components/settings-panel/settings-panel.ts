@@ -32,14 +32,7 @@ import {
   WorkplateSettingsStore,
   type WorkplateSaveStatus,
 } from '../../services/workplate-settings';
-import {
-  Icon,
-  IconButton,
-  Segmented,
-  type SegmentOption,
-  Select,
-  TooltipDirective,
-} from '@coldcrabby/ui';
+import { Icon, IconButton, Select, TooltipDirective } from '@coldcrabby/ui';
 
 // Extract the SlicingParams sub-schema so the form renders all slicer settings.
 // (`SlicingParams` is now the wire-format type — the legacy `WsSlicingParams`
@@ -65,16 +58,7 @@ const CONFIRM_TIMEOUT_MS = 4000;
 @Component({
   selector: 'nexus-settings-panel',
   standalone: true,
-  imports: [
-    SchemaForm,
-    Segmented,
-    Select,
-    Icon,
-    IconButton,
-    RouterLink,
-    LabelFilterBar,
-    TooltipDirective,
-  ],
+  imports: [SchemaForm, Select, Icon, IconButton, RouterLink, LabelFilterBar, TooltipDirective],
   templateUrl: './settings-panel.component.html',
   styleUrl: './settings-panel.component.scss',
 })
@@ -123,25 +107,6 @@ export class SettingsPanel {
   protected readonly machineMaterialLabel = this.activeSelection.materialOverlayLabel;
 
   /**
-   * Open the active preset's own editor rather than its list.
-   *
-   * `configure` is the same hand-off a wizard's "Add & configure" uses, so the
-   * editor opens on that profile. Absent when nothing is selected — there is
-   * then nothing to open, and the link falls back to the list.
-   */
-  protected readonly editPresetParams = computed(() => {
-    const id = this.activePresetId();
-    return id ? { configure: id } : {};
-  });
-
-  protected readonly editPresetLabel = computed(() => {
-    const name = this.presets
-      .options(this.activeContract())
-      .find((option) => option.value === this.activePresetId())?.label;
-    return name ? `Edit ${name}` : `Manage ${this.activeContractMeta().label} presets`;
-  });
-
-  /**
    * What the sync button says, in both states.
    *
    * It is always on screen, so it has to explain its own quiet state rather
@@ -155,12 +120,37 @@ export class SettingsPanel {
     return `Sync ${count} changed ${count === 1 ? 'setting' : 'settings'} to their profiles`;
   });
 
-  protected readonly contractTabs: SegmentOption[] = SETTING_CONTRACTS.map((contract) => ({
-    value: contract.id,
-    label: contract.label,
-    icon: contract.icon,
-    description: `${contract.label} settings`,
-  }));
+  /** All three contracts, in tab order — the plate's recipe, top to bottom. */
+  protected readonly contracts = SETTING_CONTRACTS;
+
+  protected presetOptionsFor(contract: SettingContractId) {
+    return this.presets.options(contract);
+  }
+
+  protected selectedIdFor(contract: SettingContractId): string | null {
+    return this.presets.selectedId(contract);
+  }
+
+  protected selectPresetFor(contract: SettingContractId, id: string): void {
+    this.presets.select(contract, id);
+  }
+
+  /**
+   * Open that row's preset in its own editor, scrolled to it — the same
+   * hand-off a wizard's "Add & configure" uses.
+   */
+  protected editParamsFor(contract: SettingContractId): Record<string, string> {
+    const id = this.presets.selectedId(contract);
+    return id ? { configure: id } : {};
+  }
+
+  protected editLabelFor(contract: SettingContractId): string {
+    const meta = SETTING_CONTRACTS.find((c) => c.id === contract)!;
+    const name = this.presets
+      .options(contract)
+      .find((option) => option.value === this.presets.selectedId(contract))?.label;
+    return name ? `Edit ${name}` : `Manage ${meta.label} presets`;
+  }
 
   protected readonly activeContract = signal<SettingContractId>(
     this.storage.getJson<SettingContractId>(CONTRACT_STORAGE_KEY, 'local') ?? 'process',
@@ -177,19 +167,9 @@ export class SettingsPanel {
   /** Group names shown for the active contract. */
   protected readonly activeGroups = computed(() => this.groupsByContract()[this.activeContract()]);
 
-  /** Preset dropdown options + current selection for the active contract. */
-  protected readonly presetOptions = computed(() => this.presets.options(this.activeContract()));
-  protected readonly activePresetId = computed(() =>
-    this.presets.selectedId(this.activeContract()),
-  );
-
   setContract(id: string): void {
     this.activeContract.set(id as SettingContractId);
     this.storage.writeJson(CONTRACT_STORAGE_KEY, id, 'local');
-  }
-
-  selectPreset(id: string): void {
-    this.presets.select(this.activeContract(), id);
   }
 
   update(event: FieldChangeEvent): void {

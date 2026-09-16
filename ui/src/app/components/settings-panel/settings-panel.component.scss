@@ -14,63 +14,82 @@
   padding: var(--spacing-sm) var(--spacing-sm) var(--spacing-sm);
 }
 
-// No layout of its own: `nexus-segmented` is already `display: flex` at full
-// width with `flex: 1 1 0` segments, and anything set here lands on the host
-// and overrides that. A `display: block` was enough to stop the segments
-// dividing the row and leave them bunched at its left edge.
+/**
+ * The plate's recipe: printer, filament and process, all three legible at once.
+ *
+ * Grouped by a surface shift rather than a border — the block reads as one
+ * thing because it sits on its own tone, not because a line is drawn round it.
+ */
+.recipe {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: var(--spacing-xs);
+  border-radius: var(--radius-md);
+  background: var(--color-bg-secondary);
+}
 
-.preset-row {
+.recipe-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--spacing-sm);
+  padding: 2px var(--spacing-xs) var(--spacing-xs);
+}
+
+.recipe-title {
+  color: var(--color-text-tertiary);
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-semibold);
+  line-height: 1.5;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.recipe-row {
+  position: relative;
   display: flex;
   align-items: center;
   gap: var(--spacing-xs);
-}
+  padding-left: var(--spacing-xs);
+  border-radius: var(--radius-sm);
+  transition: background-color var(--duration-fast) var(--ease-standard);
 
-// The two things you can do to the preset beside them. One gutter, one size,
-// so the row has a stable right edge whatever state the panel is in.
-.preset-action {
-  flex: none;
-}
-
-// Deliberately louder than the footer's text-only "Reset all": this is the one
-// action that reaches out of the plate and into a profile everything else
-// shares. Quiet — not absent — when there is nothing to sync.
-.sync-trigger {
-  position: relative;
-  color: var(--accent);
-  border-color: color-mix(in srgb, var(--accent) 40%, transparent);
-
-  &:hover:not(:disabled) {
-    background: color-mix(in srgb, var(--accent) 12%, transparent);
+  // Which row the settings below belong to. A rail and a tone, not a fill: it
+  // reports where you are working, it is not a thing you selected.
+  &::before {
+    content: '';
+    position: absolute;
+    left: 0;
+    top: 50%;
+    width: 2px;
+    height: 0;
+    border-radius: 999px;
+    background: var(--accent);
+    transform: translateY(-50%);
+    transition:
+      height var(--duration-fast) var(--ease-standard),
+      opacity var(--duration-fast) var(--ease-standard);
+    opacity: 0;
   }
 
-  &:disabled {
-    color: var(--color-text-tertiary);
-    border-color: var(--color-border-light);
-    cursor: default;
+  &.is-active {
+    background: var(--color-surface);
+
+    &::before {
+      height: 60%;
+      opacity: 1;
+    }
   }
 }
 
-.sync-trigger-count {
-  position: absolute;
-  top: -4px;
-  right: -4px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  min-width: 15px;
-  height: 15px;
-  padding: 0 3px;
-  border-radius: 999px;
-  background: var(--accent);
-  color: var(--color-on-accent, #fff);
-  font-size: 10px;
-  font-weight: 600;
-  line-height: 1;
-}
-
-.preset-select {
+.recipe-select {
   flex: 1 1 auto;
   min-width: 0;
+}
+
+.recipe-edit {
+  flex: none;
 }
 
 // Empty state stand-in that doubles as a shortcut into the manage page.

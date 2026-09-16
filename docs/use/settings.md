@@ -18,6 +18,17 @@ Press `Ctrl`/`⌘ + F` and type. The search spans all three tabs, so you don't
 have to guess which one owns it.
 :::
 
+## The three presets, all at once
+
+The top of the slice sidebar lists what this plate is made of — its printer, its
+filament and its print profile, one row each. Every row names the preset it is
+using, changes it from the same dropdown, and has a cog that opens that preset's
+own editor.
+
+There is no tab to press. Reaching for a row is what points the settings below
+at it, so the one you are working in is simply the one you last touched, and the
+other two stay readable above and below it instead of hiding behind it.
+
 ## Links take you to the knob
 
 Where a setting depends on something on another profile, the note under it links
