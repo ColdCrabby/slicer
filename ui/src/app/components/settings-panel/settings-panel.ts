@@ -122,6 +122,20 @@ export class SettingsPanel {
   });
   protected readonly machineMaterialLabel = this.activeSelection.materialOverlayLabel;
 
+  /**
+   * What the sync button says, in both states.
+   *
+   * It is always on screen, so it has to explain its own quiet state rather
+   * than leaving a dimmed icon to be guessed at.
+   */
+  protected readonly syncTooltip = computed(() => {
+    const count = this.modifiedCount();
+    if (count === 0) {
+      return 'No changed settings to sync into your profiles';
+    }
+    return `Sync ${count} changed ${count === 1 ? 'setting' : 'settings'} to their profiles`;
+  });
+
   protected readonly contractTabs: SegmentOption[] = SETTING_CONTRACTS.map((contract) => ({
     value: contract.id,
     label: contract.label,

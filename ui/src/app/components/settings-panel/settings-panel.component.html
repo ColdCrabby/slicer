@@ -1,41 +1,25 @@
 <section class="settings-panel">
   <div class="preset-bar">
+    <!--
+      One job per row, top to bottom: which contract you are looking at, which
+      presets are worth listing, which one is active and what you can do to it.
+      The label filter used to sit above the tabs, a row away from the list it
+      narrows.
+    -->
+    <nexus-segmented
+      class="contract-tabs"
+      label="Setting category"
+      [options]="contractTabs"
+      [value]="activeContract()"
+      (valueChange)="setContract($event)"
+    />
+
     <nexus-label-filter-bar
       class="preset-filter"
       [selectedIds]="labelFilter.selectedIds()"
       (toggle)="labelFilter.toggle($event)"
       (clear)="labelFilter.clear()"
     />
-
-    <div class="contract-row">
-      <nexus-segmented
-        class="contract-tabs"
-        label="Setting category"
-        [options]="contractTabs"
-        [value]="activeContract()"
-        (valueChange)="setContract($event)"
-      />
-
-      @if (modifiedCount() > 0) {
-        <button
-          nexusIconButton
-          class="sync-trigger"
-          variant="outline"
-          [tooltip]="
-            'Sync ' +
-            modifiedCount() +
-            ' changed ' +
-            (modifiedCount() === 1 ? 'setting' : 'settings') +
-            ' to their profiles'
-          "
-          aria-label="Sync changed settings to their profiles"
-          (click)="syncToProfile()"
-        >
-          <nexus-icon name="floppy-disk-arrow-out" />
-          <span class="sync-trigger-count">{{ modifiedCount() }}</span>
-        </button>
-      }
-    </div>
 
     <div class="preset-row">
       @if (presetOptions().length > 0) {
@@ -54,14 +38,41 @@
         </a>
       }
 
+      <!--
+        Both buttons act on the preset beside them — one edits it in the manage
+        page, the other folds this plate's changes into it — so they share its
+        row and a single right-hand gutter.
+
+        The sync button is always here and goes quiet when there is nothing to
+        sync. It used to appear only once a setting had been changed, which
+        moved the controls beside it at the moment the user was reaching for
+        them, and made the most consequential action on the panel the one that
+        arrived unannounced.
+      -->
       <a
         nexusIconButton
-        class="preset-manage"
+        class="preset-action"
         [routerLink]="activeContractMeta().managePath"
         [attr.aria-label]="'Manage ' + activeContractMeta().label + ' presets'"
+        [tooltip]="'Manage ' + activeContractMeta().label + ' presets'"
       >
         <nexus-icon name="settings" />
       </a>
+
+      <button
+        nexusIconButton
+        class="preset-action sync-trigger"
+        variant="outline"
+        [disabled]="modifiedCount() === 0"
+        [tooltip]="syncTooltip()"
+        [attr.aria-label]="syncTooltip()"
+        (click)="syncToProfile()"
+      >
+        <nexus-icon name="floppy-disk-arrow-out" />
+        @if (modifiedCount() > 0) {
+          <span class="sync-trigger-count">{{ modifiedCount() }}</span>
+        }
+      </button>
     </div>
   </div>
 

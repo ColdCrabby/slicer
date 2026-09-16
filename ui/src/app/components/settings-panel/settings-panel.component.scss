@@ -14,29 +14,43 @@
   padding: var(--spacing-sm) var(--spacing-sm) var(--spacing-sm);
 }
 
-.contract-row {
+.contract-tabs {
+  display: block;
+}
+
+// Directly above the list it narrows, rather than a row away above the tabs.
+.preset-filter {
+  display: block;
+}
+
+.preset-row {
   display: flex;
   align-items: center;
   gap: var(--spacing-xs);
 }
 
-.contract-tabs {
-  flex: 1 1 auto;
-  min-width: 0;
+// The two things you can do to the preset beside them. One gutter, one size,
+// so the row has a stable right edge whatever state the panel is in.
+.preset-action {
+  flex: none;
 }
 
-// Deliberately louder than the footer's text-only "Reset all": this is the
-// one action that reaches out of the plate and into a profile everything else
-// uses, so it earns a standing, always-visible control rather than living at
-// the bottom of a scrolled list.
+// Deliberately louder than the footer's text-only "Reset all": this is the one
+// action that reaches out of the plate and into a profile everything else
+// shares. Quiet — not absent — when there is nothing to sync.
 .sync-trigger {
   position: relative;
-  flex: none;
   color: var(--accent);
   border-color: color-mix(in srgb, var(--accent) 40%, transparent);
 
-  &:hover {
+  &:hover:not(:disabled) {
     background: color-mix(in srgb, var(--accent) 12%, transparent);
+  }
+
+  &:disabled {
+    color: var(--color-text-tertiary);
+    border-color: var(--color-border-light);
+    cursor: default;
   }
 }
 
@@ -56,12 +70,6 @@
   font-size: 10px;
   font-weight: 600;
   line-height: 1;
-}
-
-.preset-row {
-  display: flex;
-  align-items: center;
-  gap: var(--spacing-xs);
 }
 
 .preset-select {
