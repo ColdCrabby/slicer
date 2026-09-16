@@ -205,9 +205,9 @@
 @include coarse-pointer {
   .reset-view-button,
   .button-radio-group button {
-    width: 44px;
-    height: 44px;
-    --icon-size: 20px;
+    width: var(--touch-target);
+    height: var(--touch-target);
+    --icon-size: var(--touch-icon);
   }
 }
 

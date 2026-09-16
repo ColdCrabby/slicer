@@ -270,11 +270,11 @@
 // most likely to hit the wrong row.
 @include coarse-pointer {
   .op-head-toggle {
-    min-height: 44px;
+    min-height: var(--touch-row);
   }
 
   .op-row {
-    min-height: 44px;
+    min-height: var(--touch-row);
   }
 
   // Row actions reveal on hover, which a finger cannot do. Selecting the row
@@ -285,8 +285,8 @@
   }
 
   .op-action {
-    height: 36px;
-    min-width: 36px;
+    height: var(--touch-row);
+    min-width: var(--touch-row);
 
     --icon-size: 17px;
   }
