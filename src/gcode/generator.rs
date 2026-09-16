@@ -1271,10 +1271,9 @@ impl GcodeGenerator {
                     fallback
                 }
             }
-            ExtrusionRole::GapFill | ExtrusionRole::ThinWall => {
+            ExtrusionRole::GapFill => {
                 // Gap fill is a wall-family feature: fall back to perimeter
-                // speed, then print speed. A thin wall is the same bead laid on
-                // a feature of its own, so it reads the same speed.
+                // speed, then print speed.
                 let s = if params.gap_fill_speed > 0.0 {
                     params.gap_fill_speed
                 } else {
@@ -1431,10 +1430,6 @@ impl GcodeGenerator {
                 or_normal(params.solid_infill_acceleration)
             }
             ExtrusionRole::GapFill => or_normal(params.gap_fill_acceleration),
-            // A thin wall is a wall: the gentle gap-fill limit exists for the
-            // short jittery beads that close a wall band's residual, and a rib
-            // or divider several millimetres long is accelerationstarved by it.
-            ExtrusionRole::ThinWall => or_normal(params.outer_wall_acceleration),
             ExtrusionRole::Support => or_normal(params.support_acceleration),
             _ => normal,
         };

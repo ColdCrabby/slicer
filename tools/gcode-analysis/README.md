@@ -37,6 +37,7 @@ printf '[slicing]\nwall_generator = "classic"\n' > /tmp/classic.toml
 | `zoom.py` | Zoomed region drawing every bead as a filled capsule at its **actual `;WIDTH:`**, so you can see whether gap-fill beads truly span their gap. | `zoom.py <gcode> [layer] [cx] [cy] [half] [out.png]` |
 | `overlap.py` | **Cross-role double-extrusion**: pairwise footprint intersection between every role pair, with a ¼-nozzle-eroded **BODY** column that strips the expected boundary seam and leaves genuine bead-on-bead overlap (e.g. sparse infill re-extruding over a gap-fill bead). | `overlap.py <gcode> [layer\|all]` |
 | `beaddiff.py` | **Before/after visual diff** of one layer from two gcode files, every bead a capsule at its true `;WIDTH:`, role-coloured on a shared scale, with isolated short paths highlighted and counted. The image to attach to a PR. | `beaddiff.py <before> <after> [layer] [out.png] [cx cy half] [--short=0.8]` |
+| `layerplot.py` | **The model's cross-section against the beads laid into it** — the one question G-code cannot answer on its own. Needs the JSON `dump_layer` writes (below). | `layerplot.py <layer.json> <out.png> [cx cy half]` |
 | `wallbands.py` | **Wall-band anatomy of one island**: labels every island on a layer, then zooms one and draws its wall loops in print order (outer, inner-1, inner-2, …) as separate colours, so "between the two inner walls" is unambiguous. | `wallbands.py <gcode> <layer> [island] [out.png]` |
 
 ### Examples
@@ -65,6 +66,24 @@ python3 tools/gcode-analysis/overlap.py /tmp/classic.gcode all
 python3 tools/gcode-analysis/beaddiff.py /tmp/before.gcode /tmp/after.gcode 41 /tmp/diff.png
 python3 tools/gcode-analysis/beaddiff.py /tmp/before.gcode /tmp/after.gcode 201 /tmp/rail.png 0.9 -12 2.2 --short=1.5
 ```
+
+### Seeing the model, not just the toolpath
+
+Every script above reads G-code, so none of them can show what the *model* had
+there — and a bead that stops short of a rib's tip, or a thin feature that got no
+bead at all, looks perfectly healthy in a plot of the toolpath alone.
+[`tests/dump_layer.rs`](../../tests/dump_layer.rs) writes one layer's island
+contours and beads (with per-vertex widths) as JSON straight out of the
+generator, and `layerplot.py` draws the two together:
+
+```bash
+DUMP_MODEL=Filament_Card_Caddy_25.stl DUMP_LAYER=21 DUMP_ROT=45 DUMP_NOZZLE=0.4 \
+  DUMP_OUT=/tmp/layer.json cargo test --test dump_layer -- --ignored
+python3 tools/gcode-analysis/layerplot.py /tmp/layer.json /tmp/layer.png 81 95 5
+```
+
+`DUMP_ROT` turns the plate, which is the cheapest way to tell a property of the
+model from a property of its angle to the coordinate grid.
 
 > **Attach the picture to the PR.** Slicing changes are geometry; a diff and a
 > table do not let a reviewer see whether the toolpaths are right. See

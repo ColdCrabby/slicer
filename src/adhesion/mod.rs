@@ -78,7 +78,11 @@ fn object_footprint(layer: &SliceLayer, d: f64) -> Paths {
             .paths
             .iter()
             .enumerate()
-            .filter(|(i, _)| layer.role_for_path(*i) == ExtrusionRole::OuterWall)
+            .filter(|(i, _)| {
+                // Closed loops only: the open medial bead of a thin rib is also
+                // an `OuterWall`, but it is a line, not an outline.
+                layer.role_for_path(*i) == ExtrusionRole::OuterWall && !layer.is_path_open(*i)
+            })
             .map(|(_, p)| p.clone())
             .collect(),
     );
@@ -99,7 +103,11 @@ fn object_footprint_sharp(layer: &SliceLayer, d: f64) -> Paths {
             .paths
             .iter()
             .enumerate()
-            .filter(|(i, _)| layer.role_for_path(*i) == ExtrusionRole::OuterWall)
+            .filter(|(i, _)| {
+                // Closed loops only: the open medial bead of a thin rib is also
+                // an `OuterWall`, but it is a line, not an outline.
+                layer.role_for_path(*i) == ExtrusionRole::OuterWall && !layer.is_path_open(*i)
+            })
             .map(|(_, p)| p.clone())
             .collect(),
     );

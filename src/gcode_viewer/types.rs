@@ -23,7 +23,6 @@
 /// - 16 PrimeTower
 /// - 17 InternalBridge
 /// - 18 Ironing
-/// - 19 ThinWall
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) enum Role {
     OuterWall,
@@ -59,9 +58,6 @@ pub(super) enum Role {
     InternalBridge,
     /// Near-dry smoothing pass over a finished top surface.
     Ironing,
-    /// A medial bead that is the feature itself — a rib, fin or divider too thin
-    /// to carry a perimeter.
-    ThinWall,
 }
 
 impl Role {
@@ -89,11 +85,6 @@ impl Role {
         }
         if lower.contains("gap infill") || lower.contains("gap fill") {
             return Self::GapFill;
-        }
-        // Ahead of the wall tests below, which would not match "thin wall" at
-        // all and would drop it into `Other`.
-        if lower.contains("thin wall") {
-            return Self::ThinWall;
         }
         if lower.contains("support interface")
             || lower.contains("support roof")
@@ -161,7 +152,6 @@ impl Role {
             // TypeScript viewer decodes, so renumbering would recolour every
             // previously-rendered role.
             Role::Ironing => 18,
-            Role::ThinWall => 19,
         }
     }
 }

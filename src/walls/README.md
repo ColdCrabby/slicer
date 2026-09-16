@@ -32,7 +32,10 @@ This module ships both, selected per slice:
   opened* remaining region (`open(region, d)`), so a loop can never trace a
   sub-`2d` neck on top of itself — the coincident-bead seam that reads as
   over-extrusion. Those necks fall through to the variable-width medial gap fill
-  instead. Overlap is resolved by geometry, not by post-hoc flow compensation
+  instead, and [`cut_sliver_parts`](arachne/generate.rs) takes the same care of
+  the **outer** ring, which cannot be opened without bevelling the model's own
+  corners — see invariant #7. Overlap is resolved by geometry, not by post-hoc
+  flow compensation
   (`wall_overlap_compensation` is **off by default**; see
   [flow](../flow/mod.rs)). The residual **medial skeleton is de-noised**
   (short facet spurs pruned) before the gap beads are walked, so a curved
@@ -149,23 +152,46 @@ opening a void along every wall, and letting sparse infill leak into the freed
 wall band (8.2 → 12.8 m). Keeping the pass unconditional and gating the *option*
 to classic removes that whole class of bug for the default generator.
 
-### Thin wall vs. gap fill
+### A thin feature is a wall, not a feature type of its own
 
-The two are now told apart and carry different roles. A loop is placed `d/2` in
-from the boundary and lays a `d`-wide band, so wherever a loop went the residual
-it leaves starts a full `d` from the model surface. A residual that instead
-reaches **into** the surface band — within `d/2` of the boundary — is one no loop
-could cover: a rib, fin, divider or neck too thin for a perimeter.
+The residual pass fills two physically different things, and the generator tells
+them apart by asking where the residual reaches. A loop lays its band from the
+model surface to `d` inward, so anything the loops covered leaves a residual that
+starts a full `d` in. A residual that instead reaches **within `d/4` of the
+surface** is one no loop could cover: a rib, fin, divider or neck too thin for a
+perimeter — the model itself.
 
-| Residual reaches the surface | Role | Prints like |
+| Residual reaches the surface | It is | Emitted as |
 | --- | --- | --- |
-| yes — the bead *is* the feature | `ThinWall` (`;TYPE:Thin wall`) | a wall: outer-wall acceleration |
-| no — filler between perimeters | `GapFill` (`;TYPE:Gap infill`) | gap fill: the gentle limit that suits short jittery beads |
+| yes — the bead *is* the feature | the wall, there | an **open `OuterWall`** bead, `;TYPE:Outer wall` |
+| no — filler between perimeters | filler | `GapFill`, `;TYPE:Gap infill` |
 
-They are the same geometry from the same generator, so every area test — bead
-footprint, surface trim, redundancy pruning — asks
-[`ExtrusionRole::is_medial_bead`](../core/types.rs) rather than naming one. The
-split changes no bead, only how it is printed and coloured.
+There is deliberately **no separate thin-wall feature type**. Covering a
+sub-perimeter feature from the medial axis is what this generator is for, and the
+bead it lays there is the outer wall of that feature — it prints at wall speed
+and acceleration because it is a wall, not because a role was invented to say so.
+An earlier attempt added a `ThinWall` role and was removed: it labelled
+quantisation artefacts rather than features, and a pure 45° turn of the card
+caddy moved two thirds of its dividers out of it.
+
+The `d/4` margin is the point. Three quarters of a bead separates the two
+answers, so neither rotation, re-facetting nor a different nozzle moves a bead
+across the line.
+
+**The distinction decides the width floor, not just the label.** A gap thinner
+than the minimum bead is left empty — the flanking beads squish into it (see
+invariant #6) — while a feature thinner than the minimum bead is *widened* to it,
+down to half the minimum, and only dropped below that. Dropping it instead is
+what the generator used to do, and it deleted every slot of the card caddy the
+moment the nozzle was wider than its 0.4 mm dividers.
+
+Which region each pass walks, and why neither is clipped against the other, is
+invariant #8.
+
+Because the two roles are now different, no geometric test may name one. Bead
+footprint, surface trim and redundancy pruning all ask
+[`SliceLayer::is_medial_bead`](../core/types.rs), which asks the *path* — an open
+polyline carrying per-vertex widths — rather than its role.
 
 ---
 
@@ -290,6 +316,82 @@ leaves the same curved and tapering wall corners bead-free with **no** measurabl
 wall-zone void (`voids.py`). Matching the spur floor is deliberate: a run below
 the same `2d` that separates a real gap spine from facet noise *is* facet noise
 once isolated as its own bead.
+
+**A dip is not an end.** The floor applies to a *run*, and a run no longer breaks
+at every node whose thickness leaves the printable band: a dip shorter than one
+bead is carried (`BRIDGE_DIP_FACTOR`), because an interruption shorter than the
+line being drawn cannot be drawn — the two ends squeeze into it anyway, and all
+the break achieves is a pair of loose ends and a travel between them. A tapering
+chamfer is where this shows: its thickness crosses the minimum width back and
+forth as the facets under it change. A dip *above* the maximum is never bridged —
+that one is the chain leaving the thin material for a cavity, which infill fills.
+
+### 7. Quantisation noise is removed where it enters, not where it hurts
+
+Clipper works on a `Centi` (0.01 mm) integer grid, so every boundary that is not
+axis-aligned arrives as a staircase of 0.01 mm steps. A segment Voronoi answers a
+staircase with a spur per step and a spine that zigzags between them: a 5 mm rib
+that gives one straight medial edge at 0° gave a ten-millimetre chain of
+junctions at 45°. Everything downstream — spur pruning, chain assembly, the run
+length floor — was then being asked to tell the model's shape from the grid's,
+one consequence at a time, and it could not. That is the whole of this
+generator's old rotation-dependence: the card caddy printed 42 % of its dividers
+at 45° and doubled the rest, and no threshold anywhere could have fixed it.
+
+[`medial_fill`](arachne/generate.rs) therefore `simplify`s its region by two grid
+steps before the Voronoi sees it. That is far below anything printable — the
+minimum bead is seventeen times it at a 0.4 mm nozzle — and just above the noise
+it exists to erase. With it in place the prunes are back to doing the job they
+were written for, on geometry that is the model's.
+
+**Test a change here at more than one rotation, and on a *field* of ribs.** One
+rib in isolation is not the failure mode: what a rotation breaks is a few ribs on
+a few layers, which a single rib never samples and an aggregate filament figure
+hides. `a_rib_is_sliced_the_same_at_every_angle` covers three widths at 0° and
+45°; `a_field_of_ribs_survives_being_turned` covers twelve ribs at 15°, 30°, 45°
+and 60°. Measure rib-bead length **per layer**, never a total.
+
+### 8. One definition of thin, and neither residual region carved out of the other
+
+`thin` — the island's material narrower than `1.5·d`, from one morphological
+opening — is computed once per island and read by both passes.
+[`emit_offset_loops`](arachne/generate.rs) subtracts it from the outer ring,
+because a ring in material that thin runs down both flanks and lays `2·d` into
+`t + d` of space; [`emit_residual_medial_fill`](arachne/generate.rs) uses it to
+tell a feature from a gap. When the two answered that question separately — the
+ring by measuring its own sliver, the medial pass by asking how close the
+residual came to the surface — they disagreed, and a rib would be traced by one
+and skipped by the other depending on the layer.
+
+The two residual regions **overlap and are never clipped against each other**:
+
+| Pass | Region | Discards |
+| --- | --- | --- |
+| feature | `thin`, from the model | a run mostly under a ring's band — the crumb an opening leaves at a convex corner |
+| gap | `uncovered`, from the deposition | a run mostly inside `thin` — that is the feature pass's work |
+
+Each discards the overlap at the level of a finished **run**, so every surviving
+bead is exactly what the medial axis drew. Clipping first is what broke this: a
+rib is a clean rectangle in the model, and intersecting it with the complement of
+some ring's band replaces two of its sides with that ring's offset curve, which
+shortens the spine and studs the boundary with vertices the Voronoi answers with
+spurs.
+
+*Mostly*, by length, and not *wholly*, because the regions genuinely meet at the
+ends: a rib's collar where it joins the wall is covered, and the bead wants to
+reach the wall it stands on.
+
+### 9. A pass that rewrites a layer's paths carries the per-vertex widths along
+
+[`classify_overhang_perimeters`](../core/walls.rs) and
+[`clip_walls_against_bridge_region`](../core/surfaces.rs) both rebuild a layer's
+parallel path arrays, and both used to clear `path_vertex_widths` wholesale —
+correct for the arcs they re-cut, wrong for every other path in the layer. A
+medial bead that passed through untouched lost the taper the generator had just
+computed for it, and, since a medial bead is now recognised *by* that taper, also
+lost its place in the gap-fill footprint: sparse infill was laid straight over it
+(12 mm² of bead-on-bead on one hinge layer, `overlap.py`). Clear them for the
+split arcs only.
 
 ---
 

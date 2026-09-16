@@ -86,7 +86,11 @@ fn compute_per_island_strip_masks(
             .paths
             .iter()
             .enumerate()
-            .filter(|(i, _)| layer.role_for_path(*i) == ExtrusionRole::OuterWall)
+            .filter(|(i, _)| {
+                // An island outline is a closed loop; the open medial bead of a
+                // thin rib shares the role but encloses nothing to expose.
+                layer.role_for_path(*i) == ExtrusionRole::OuterWall && !layer.is_path_open(*i)
+            })
             .filter_map(|(path_idx, outer_path)| {
                 let p_paths = Paths::new(vec![outer_path.clone()]);
 
@@ -216,7 +220,7 @@ fn reduce_first_layer_to_single_wall(layer: &mut SliceLayer, strip_gap_fill: boo
 
     for (i, path) in layer.paths.iter().enumerate() {
         let role = layer.role_for_path(i);
-        let drop = role == ExtrusionRole::InnerWall || (strip_gap_fill && role.is_medial_bead());
+        let drop = role == ExtrusionRole::InnerWall || (strip_gap_fill && layer.is_medial_bead(i));
         if !drop {
             new_paths.push(path.clone());
             new_roles.push(role);
@@ -533,6 +537,7 @@ pub(crate) fn classify_overhang_perimeters(
         Paths,
         Vec<ExtrusionRole>,
         Vec<Option<f64>>,
+        Vec<Option<Vec<f64>>>,
         Vec<bool>,
         Vec<OverhangClass>,
     )> {
@@ -590,6 +595,7 @@ pub(crate) fn classify_overhang_perimeters(
         let mut new_paths = Paths::new(vec![]);
         let mut new_roles: Vec<ExtrusionRole> = Vec::new();
         let mut new_widths: Vec<Option<f64>> = Vec::new();
+        let mut new_vwidths: Vec<Option<Vec<f64>>> = Vec::new();
         let mut new_is_open: Vec<bool> = Vec::new();
         // Populated only when grading (dynamic overhang speed on); left
         // empty otherwise so `path_overhang` stays absent and the generator
@@ -615,6 +621,7 @@ pub(crate) fn classify_overhang_perimeters(
                 new_paths.push(path.clone());
                 new_roles.push(role);
                 new_widths.push(width);
+                new_vwidths.push(layer.vertex_widths_for_path(path_idx));
                 new_is_open.push(is_already_open);
                 push_class(&mut new_overhang, OverhangClass::None);
                 continue;
@@ -625,6 +632,7 @@ pub(crate) fn classify_overhang_perimeters(
                 new_paths.push(path.clone());
                 new_roles.push(role);
                 new_widths.push(width);
+                new_vwidths.push(layer.vertex_widths_for_path(path_idx));
                 new_is_open.push(is_already_open);
                 push_class(&mut new_overhang, OverhangClass::None);
                 continue;
@@ -646,6 +654,7 @@ pub(crate) fn classify_overhang_perimeters(
                 new_paths.push(path.clone());
                 new_roles.push(role);
                 new_widths.push(width);
+                new_vwidths.push(layer.vertex_widths_for_path(path_idx));
                 new_is_open.push(is_already_open);
                 push_class(&mut new_overhang, OverhangClass::None);
                 continue;
@@ -785,6 +794,7 @@ pub(crate) fn classify_overhang_perimeters(
                 new_paths.push(path.clone());
                 new_roles.push(seg_role);
                 new_widths.push(width);
+                new_vwidths.push(layer.vertex_widths_for_path(path_idx));
                 new_is_open.push(is_already_open);
                 push_class(&mut new_overhang, OverhangClass::from_band(first_band));
                 continue;
@@ -884,6 +894,10 @@ pub(crate) fn classify_overhang_perimeters(
                 new_paths.push(seg_path);
                 new_roles.push(seg_role);
                 new_widths.push(width);
+                // A split arc is resampled at the boundary crossings, so the
+                // per-vertex widths no longer line up with its vertices; the
+                // scalar width stands in.
+                new_vwidths.push(None);
                 // All sub-segments from a split are open arcs — the original
                 // closed loop was broken into polyline fragments.  The G-code
                 // generator must NOT append a "close contour" move for these.
@@ -892,7 +906,14 @@ pub(crate) fn classify_overhang_perimeters(
             }
         }
 
-        Some((new_paths, new_roles, new_widths, new_is_open, new_overhang))
+        Some((
+            new_paths,
+            new_roles,
+            new_widths,
+            new_vwidths,
+            new_is_open,
+            new_overhang,
+        ))
     };
 
     #[cfg(not(target_arch = "wasm32"))]
@@ -912,16 +933,17 @@ pub(crate) fn classify_overhang_perimeters(
         .collect();
 
     for (layer, result) in layers.iter_mut().zip(results) {
-        if let Some((new_paths, new_roles, new_widths, new_is_open, new_overhang)) = result {
+        if let Some((new_paths, new_roles, new_widths, new_vwidths, new_is_open, new_overhang)) =
+            result
+        {
             layer.paths = new_paths;
             layer.path_roles = new_roles;
             layer.path_widths = new_widths;
+            layer.path_vertex_widths = new_vwidths;
             layer.path_is_open = new_is_open;
             // Empty when not grading (feature off / no previous perimeter), so
             // `overhang_for_path` keeps returning `None`.
             layer.path_overhang = new_overhang;
-            // Overhang-split arcs drop per-vertex widths; scalar width is used.
-            layer.path_vertex_widths = Vec::new();
         }
     }
 }
@@ -1830,14 +1852,19 @@ mod tests {
         let gap: Path = vec![(4.0, 4.0), (6.0, 4.0)].into();
         let surface: Path = vec![(2.0, 2.0), (8.0, 2.0), (8.0, 8.0), (2.0, 8.0)].into();
         let mut layer = SliceLayer::new(0.2);
-        for (p, role) in [
-            (outer, ExtrusionRole::OuterWall),
-            (inner, ExtrusionRole::InnerWall),
-            (gap, ExtrusionRole::GapFill),
-            (surface, ExtrusionRole::BottomSurface),
+        // The gap bead is shaped the way the generator emits one — an open
+        // polyline carrying per-vertex widths — because that pair is what marks
+        // a medial bead downstream.
+        for (p, role, vwidths) in [
+            (outer, ExtrusionRole::OuterWall, None),
+            (inner, ExtrusionRole::InnerWall, None),
+            (gap, ExtrusionRole::GapFill, Some(vec![0.4, 0.4])),
+            (surface, ExtrusionRole::BottomSurface, None),
         ] {
             layer.paths.push(p);
             layer.path_roles.push(role);
+            layer.path_is_open.push(vwidths.is_some());
+            layer.path_vertex_widths.push(vwidths);
         }
         layer
     }

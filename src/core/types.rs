@@ -32,21 +32,15 @@ pub enum ExtrusionRole {
     /// inserts to brace tall sparse regions. Not a visible surface, so it is
     /// tagged separately from top/bottom.
     InternalSolid,
-    /// Variable-width gap fill: medial beads laid into spaces too narrow for a
-    /// full perimeter, **between** the perimeters of a wall band. Emitted as
-    /// OrcaSlicer `;TYPE:Gap infill`.
-    GapFill,
-    /// A medial bead that *is* the feature rather than filler between walls: a
-    /// rib, fin, divider or neck too thin to carry even one perimeter, so its
-    /// centerline reaches the model surface on both flanks.
+    /// Variable-width gap fill: medial beads laid into the sliver **between**
+    /// the perimeters of a wall band, too narrow for a full perimeter.
     ///
-    /// Geometrically identical to [`Self::GapFill`] — same generator, same
-    /// footprint, same open polyline — and every area test treats the two alike
-    /// ([`Self::is_medial_bead`]). It is a role of its own because it prints
-    /// like a wall, not like filler: a long straight rib deserves wall
-    /// acceleration rather than the deliberately gentle gap-fill limit, and a
-    /// preview should colour it as structure.
-    ThinWall,
+    /// A medial bead that *is* the model's own geometry — a rib or divider too
+    /// thin to carry a perimeter — is not this: it is an open
+    /// [`Self::OuterWall`], because there it is the wall. Both come from the
+    /// same generator and occupy area the same way, so geometric tests ask
+    /// [`SliceLayer::is_medial_bead`] rather than naming a role.
+    GapFill,
     /// Support structure material.
     Support,
     /// Skirt or brim line.
@@ -78,7 +72,6 @@ impl ExtrusionRole {
             Self::BottomSurface => "Bottom surface",
             Self::InternalSolid => "Internal solid infill",
             Self::GapFill => "Gap infill",
-            Self::ThinWall => "Thin wall",
             Self::Support => "Support material",
             Self::Skirt => "Skirt",
             Self::Ironing => "Ironing",
@@ -123,17 +116,6 @@ impl ExtrusionRole {
         self.forms_closed_loops() && !matches!(self, Self::Support)
     }
 
-    /// Whether this role is a **medial bead** — a variable-width open polyline
-    /// walked down the medial axis of something too thin for a perimeter.
-    ///
-    /// [`Self::GapFill`] and [`Self::ThinWall`] come from the same generator and
-    /// occupy area the same way, so every footprint, surface-trim and pruning
-    /// test asks this rather than naming one of them. The two part company only
-    /// where *printing* is concerned — speed, acceleration, the `;TYPE:` label.
-    pub fn is_medial_bead(self) -> bool {
-        matches!(self, Self::GapFill | Self::ThinWall)
-    }
-
     /// Default extrusion width in mm for this role.
     ///
     /// Used to populate the `;WIDTH:` annotation in the G-code output.
@@ -147,7 +129,7 @@ impl ExtrusionRole {
             | Self::TopSurface
             | Self::BottomSurface
             | Self::InternalSolid => 0.4,
-            Self::GapFill | Self::ThinWall => 0.4,
+            Self::GapFill => 0.4,
             Self::Support => 0.4,
             Self::Skirt => 0.4,
             Self::Ironing => 0.4,
@@ -364,6 +346,21 @@ impl SliceLayer {
         self.path_is_open.get(i).copied().unwrap_or(false)
     }
 
+    /// Returns `true` when path index `i` is a **medial bead** — the open,
+    /// variable-width polyline the Arachne generator walks down the medial axis
+    /// of something too thin to carry a perimeter.
+    ///
+    /// Asked of the path rather than of its role, because the role says how a
+    /// bead *prints* and not what it is: a medial bead that is the model's own
+    /// geometry is an [`ExtrusionRole::OuterWall`] while one that only fills the
+    /// sliver between two loops is [`ExtrusionRole::GapFill`], and every
+    /// footprint, surface-trim and pruning test wants both. The pair of an open
+    /// path and per-vertex widths is unique to this generator's output — an
+    /// overhang-split wall arc is open but carries a single width.
+    pub fn is_medial_bead(&self, i: usize) -> bool {
+        self.is_path_open(i) && self.path_vertex_widths.get(i).is_some_and(Option::is_some)
+    }
+
     /// Return the overhang severity class for path index `i`.
     ///
     /// Falls back to [`OverhangClass::None`] (fully supported, no dynamic
@@ -433,7 +430,6 @@ mod tests {
             ExtrusionRole::InternalSolid,
             ExtrusionRole::Bridge,
             ExtrusionRole::GapFill,
-            ExtrusionRole::ThinWall,
             ExtrusionRole::Ironing,
         ] {
             assert!(

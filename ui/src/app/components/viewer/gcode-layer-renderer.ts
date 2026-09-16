@@ -341,7 +341,6 @@ const ROLE_ID_TO_NAME: Record<number, RoleName> = {
   16: 'primeTower',
   17: 'internalBridge',
   18: 'ironing',
-  19: 'thinWall',
 };
 
 const _dummy = new Object3D();
@@ -448,7 +447,6 @@ function emptyRoleCounts(): Record<RoleName, number> {
     outerWall: 0,
     innerWall: 0,
     overhangPerimeter: 0,
-    thinWall: 0,
     infill: 0,
     solidInfill: 0,
     gapFill: 0,

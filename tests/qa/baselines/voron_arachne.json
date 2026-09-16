@@ -3,17 +3,17 @@
   "generator": "arachne",
   "layer_count": 150,
   "z_max": 29.9,
-  "bbox_x_mm": 29.6,
+  "bbox_x_mm": 29.65,
   "bbox_y_mm": 29.6,
-  "total_extrusion_mm": 140907.6,
+  "total_extrusion_mm": 140893.5,
   "role_extrusion_mm": {
-    "bottom_surface": 5439.5,
+    "bottom_surface": 5441.2,
     "bridge": 242.1,
-    "gap_fill": 431.5,
-    "infill": 45361.0,
+    "gap_fill": 396.1,
+    "infill": 45382.5,
     "inner_wall": 53524.0,
-    "outer_wall": 28060.5,
+    "outer_wall": 28053.5,
     "overhang_wall": 319.6,
-    "top_surface": 7529.6
+    "top_surface": 7534.5
   }
 }
