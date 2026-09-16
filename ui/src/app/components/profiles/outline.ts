@@ -47,7 +47,26 @@ export interface OutlineSection {
 
 const SECTION_SELECTOR = '.profile-editor__group';
 const SECTION_TITLE_SELECTOR = '.profile-editor__group-title';
-const ENTRY_TITLE_SELECTOR = '.field-shell__title, .field-row__title';
+
+/**
+ * What counts as a row.
+ *
+ * The first two are the shared field primitives, which is why a hand-written
+ * block and a schema-driven one both list correctly. `.outline-entry-title` is
+ * the opt-in for a heading that is a row but not a field — a material inside the
+ * corrections section names a group of settings, not a setting.
+ */
+const ENTRY_TITLE_SELECTOR = '.field-shell__title, .field-row__title, .outline-entry-title';
+
+/**
+ * A subtree whose rows the outline does not list.
+ *
+ * For a section that is a list of *things* rather than a list of settings: the
+ * corrections section is read as "PLA, ABS, PETG", and listing each material's
+ * settings under it would bury those three names in a dozen entries — several of
+ * them the same words, because two machines' materials correct the same setting.
+ */
+const SKIP_SELECTOR = '[data-outline-skip]';
 
 /** The element a jump should scroll to for a given row title. */
 function rowFor(title: HTMLElement): HTMLElement {
@@ -117,7 +136,7 @@ export function scanOutline(root: ParentNode): OutlineSection[] {
     const entries: OutlineEntry[] = [];
     for (const row of Array.from(el.querySelectorAll<HTMLElement>(ENTRY_TITLE_SELECTOR))) {
       const rowTitle = row.textContent?.trim();
-      if (!rowTitle) {
+      if (!rowTitle || row.closest(SKIP_SELECTOR)) {
         continue;
       }
       entries.push({ id: unique(`${id}/${rowTitle}`, seen), title: rowTitle, el: rowFor(row) });

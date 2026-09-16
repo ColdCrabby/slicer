@@ -82,26 +82,33 @@
 /**
  * Per-material corrections.
  *
- * One section per material, so the outline maps them like any other part of
- * the editor and each setting is a real control rather than a summary of one.
+ * One boxed card per material inside a single section, rather than a run of
+ * sections: these are settings that belong to one material, and without an
+ * edge the reader cannot tell where PLA stops and ABS starts.
  */
-.mgr__corrections-lede {
-  margin: 0 0 var(--spacing-sm);
-  color: var(--color-text-secondary);
-  font-size: var(--font-size-sm);
+.mgr__correction-card {
+  margin-top: var(--spacing-md);
+  padding: var(--spacing-sm) var(--spacing-md) var(--spacing-md);
+  border: 1px solid var(--color-border-light);
+  border-radius: var(--radius-md);
+  background: var(--color-bg-secondary);
 }
 
-/* The heading owns the row; "Remove all" trails it rather than leading the
-   section as though it were the thing to do here. */
-.mgr__correction-head {
+.mgr__correction-card-head {
   display: flex;
   gap: var(--spacing-sm);
-  align-items: baseline;
+  align-items: center;
   justify-content: space-between;
+  margin-bottom: var(--spacing-xs);
+}
 
-  .profile-editor__group-title {
-    margin-bottom: 0;
-  }
+.mgr__correction-material {
+  margin: 0;
+  color: var(--color-text-primary);
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-semibold);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
 }
 
 .mgr__correction-row {
@@ -116,6 +123,7 @@
 }
 
 .mgr__correction-add {
+  display: block;
   margin-top: var(--spacing-sm);
 }
 
@@ -127,10 +135,14 @@
   align-self: center;
   padding: var(--spacing-xs);
   border: 0;
+  border-radius: var(--radius-sm);
   background: transparent;
   color: var(--color-text-tertiary);
   font-size: var(--font-size-xs);
   cursor: pointer;
+  transition:
+    color var(--duration-fast) var(--ease-standard),
+    background-color var(--duration-fast) var(--ease-standard);
 
   &:hover {
     color: var(--color-danger);
@@ -140,33 +152,10 @@
     outline: 2px solid var(--accent);
     outline-offset: 2px;
   }
-}
 
-/* The adder and, once there are any, a way to the corrections themselves. */
-.mgr__corrections-control {
-  display: flex;
-  gap: var(--spacing-sm);
-  align-items: center;
-}
-
-.mgr__corrections-jump {
-  flex: none;
-  padding: 0;
-  border: 0;
-  background: transparent;
-  color: var(--color-text-tertiary);
-  font-size: var(--font-size-xs);
-  white-space: nowrap;
-  cursor: pointer;
-
-  &:hover {
-    color: var(--accent);
-    text-decoration: underline;
-  }
-
-  &:focus-visible {
-    outline: 2px solid var(--accent);
-    outline-offset: 2px;
-    border-radius: var(--radius-sm);
+  /* Armed. The colour is the whole signal — the next press acts. */
+  &.is-confirming {
+    background: color-mix(in srgb, var(--color-danger) 14%, transparent);
+    color: var(--color-danger);
   }
 }

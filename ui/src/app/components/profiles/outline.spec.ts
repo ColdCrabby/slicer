@@ -42,6 +42,34 @@ describe('scanOutline', () => {
     expect(scanOutline(root)).toHaveLength(2);
   });
 
+  // The corrections section: a list of materials, each holding settings that
+  // must not be listed under it. Two materials correcting the same setting
+  // would otherwise put the same words in the rail twice, and bury the three
+  // names the section is actually read by.
+  it('lists an opted-in heading as a row and skips a subtree marked to skip', () => {
+    root = editor(`
+      <div class="profile-editor__group">
+        <label class="profile-editor__group-title">Material corrections</label>
+        <nexus-field-row><span class="field-row__title">Correct a material</span></nexus-field-row>
+        <section>
+          <h4 class="outline-entry-title">PLA</h4>
+          <div data-outline-skip>
+            <nexus-field-shell><span class="field-shell__title">Max Volumetric Speed</span></nexus-field-shell>
+          </div>
+        </section>
+        <section>
+          <h4 class="outline-entry-title">ABS</h4>
+          <div data-outline-skip>
+            <nexus-field-shell><span class="field-shell__title">Max Volumetric Speed</span></nexus-field-shell>
+          </div>
+        </section>
+      </div>
+    `);
+
+    const [corrections] = scanOutline(root);
+    expect(corrections.entries.map((e) => e.title)).toEqual(['Correct a material', 'PLA', 'ABS']);
+  });
+
   it('keeps repeated titles distinguishable', () => {
     root = editor(EDITOR + EDITOR);
     const ids = scanOutline(root).map((s) => s.id);

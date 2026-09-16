@@ -51,11 +51,7 @@ import { paramNum, paramStr } from '../../models/params-access';
 import { LabelFilterStore } from '../../services/profiles/label-filter-store';
 import { LabelsStore } from '../../services/profiles/labels-store';
 import { PrintersStore } from '../../services/profiles/printers-store';
-import {
-  correctedMaterials,
-  correctionsFor,
-  withCorrections,
-} from '../../services/profiles/material-corrections';
+import { correctionsFor, withCorrections } from '../../services/profiles/material-corrections';
 import {
   Icon,
   Badge,
@@ -152,7 +148,8 @@ const FIRST_CORRECTION_KEY = 'max_volumetric_speed';
  * this one would otherwise match the same suffix — jumping to the corrections
  * would land on the control that asked to jump.
  */
-const ENTRY_SECTION_TITLE = 'Material corrections';
+/** How long an armed "Remove all" waits before disarming itself. */
+const REMOVE_CONFIRM_MS = 4000;
 
 const PARAM_GROUPS: SchemaGroup[] = (() => {
   const order = new Map<string, number>(PRINTER_PARAM_GROUPS.map((name, index) => [name, index]));
@@ -582,44 +579,27 @@ export class PrintersSettings {
       }));
   }
 
-  /** How many materials this machine corrects, for the entry point's count. */
-  protected correctedCount(printer: PrinterProfile): number {
-    return correctedMaterials(printer).length;
-  }
-
   /** Begin correcting a material, and take the user to the section it creates. */
   protected startMaterialCorrection(id: string, material: string): void {
     if (!material) {
       return;
     }
     this.addMaterialCorrection(id, material);
-    this.jumpToCorrections(material);
+    this.revealMaterial(material);
   }
 
   /**
-   * Scroll to the corrections, after adding one or from the entry point's
-   * count. Read off the DOM for the same reason the outline is: the sections
-   * are generated per material, so there is no fixed anchor to name.
+   * Bring a material's card into view after adding it.
+   *
+   * Found by the card's own `data-material` rather than by its heading text:
+   * the heading is a translated label and the attribute is the key, and reading
+   * the key is what keeps this from breaking the day a label is reworded.
    */
-  protected jumpToCorrections(material?: string): void {
-    const wanted = material
-      ? `${FILAMENT_MATERIAL_LABELS[material as FilamentMaterial] ?? material} corrections`
-      : null;
+  private revealMaterial(material: string): void {
     setTimeout(() => {
-      // Every material's section ends in " corrections" — and so does the entry
-      // row above, which is the one place this must never land.
-      const titles = [
-        ...document.querySelectorAll<HTMLElement>('.profile-editor__group-title'),
-      ].filter((el) => {
-        const text = el.textContent?.trim() ?? '';
-        return text.endsWith(' corrections') && text !== ENTRY_SECTION_TITLE;
-      });
-      const target = wanted
-        ? (titles.find((el) => el.textContent?.trim() === wanted) ?? titles[0])
-        : titles[0];
-      target
-        ?.closest('.profile-editor__group')
-        ?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      document
+        .querySelector(`.mgr__correction-card[data-material="${material}"]`)
+        ?.scrollIntoView({ behavior: 'smooth', block: 'center' });
     });
   }
 
@@ -718,9 +698,37 @@ export class PrintersSettings {
     } as Partial<PrinterProfile>);
   }
 
-  /** Drop every correction this machine holds for one material family. */
-  protected clearMaterialCorrection(id: string, material: string): void {
+  /**
+   * The material whose "Remove all" is armed, if any.
+   *
+   * Dropping a material's corrections throws away measurements — a flow rate
+   * somebody found by printing the thing badly first — and there is no undo
+   * behind it. Cheap to redo is not the same as cheap to lose, so it arms on the
+   * first press and acts on the second, the same two-step the profile delete and
+   * the slice panel's "Reset all" use.
+   */
+  protected readonly removeArmed = signal<string | null>(null);
+  private removeTimer: ReturnType<typeof setTimeout> | null = null;
+
+  /** Arm on the first press, drop the material's corrections on the second. */
+  protected removeAll(id: string, material: string): void {
+    if (this.removeArmed() !== material) {
+      this.disarmRemove();
+      this.removeArmed.set(material);
+      this.removeTimer = setTimeout(() => this.disarmRemove(), REMOVE_CONFIRM_MS);
+      return;
+    }
+    this.disarmRemove();
     this.patchCorrection(id, material, () => ({}));
+  }
+
+  /** Disarm — on blur, or when the armed button has sat untouched long enough. */
+  protected disarmRemove(): void {
+    if (this.removeTimer !== null) {
+      clearTimeout(this.removeTimer);
+      this.removeTimer = null;
+    }
+    this.removeArmed.set(null);
   }
 
   protected rename(id: string, event: Event): void {

@@ -154,11 +154,10 @@
             }
 
             <!--
-              The way in, near the top rather than below sixty settings: nobody
-              scrolls past the whole editor to discover a feature they have not
-              heard of. Built from the page's own labelled row, so it explains
-              itself through the same info affordance every other setting uses
-              and the outline lists it without being told.
+              One section, not one per material: the outline is a map, and a
+              machine that corrects four materials should cost it one line with
+              four names under it, not four sections indistinguishable from
+              Hardware and Retraction.
             -->
             <div class="profile-editor__group">
               <label class="profile-editor__group-title">Material corrections</label>
@@ -166,24 +165,86 @@
                 label="Correct a material"
                 description="What this machine does differently with one material — the flow its hotend can melt, the pressure advance its extruder needs, how much retraction it wants — whichever spool of that material is loaded. Your other printers are untouched."
               >
-                <div class="mgr__corrections-control">
-                  <nexus-select
-                    [options]="addableMaterials(printer)"
-                    [value]="null"
-                    placeholder="Choose a material…"
-                    (valueChange)="startMaterialCorrection(printer.id, $event)"
-                  />
-                  @if (correctedCount(printer); as count) {
+                <nexus-select
+                  [options]="addableMaterials(printer)"
+                  [value]="null"
+                  placeholder="Choose a material…"
+                  (valueChange)="startMaterialCorrection(printer.id, $event)"
+                />
+              </nexus-field-row>
+
+              @for (correction of materialCorrections(printer); track correction.material) {
+                <!--
+                  Boxed, because it is a group of settings that belong to one
+                  material rather than the next few rows of the editor. Without
+                  the border the reader cannot tell where PLA stops and ABS starts.
+                -->
+                <section class="mgr__correction-card" [attr.data-material]="correction.material">
+                  <header class="mgr__correction-card-head">
+                    <h4 class="outline-entry-title mgr__correction-material">
+                      {{ correction.label }}
+                    </h4>
                     <button
                       type="button"
-                      class="mgr__corrections-jump"
-                      (click)="jumpToCorrections()"
+                      class="mgr__correction-clear"
+                      [class.is-confirming]="removeArmed() === correction.material"
+                      [attr.aria-label]="
+                        removeArmed() === correction.material
+                          ? 'Confirm removing every ' + correction.label + ' correction'
+                          : 'Remove every ' + correction.label + ' correction'
+                      "
+                      (click)="removeAll(printer.id, correction.material)"
+                      (blur)="disarmRemove()"
                     >
-                      {{ count }} already corrected
+                      <nexus-icon name="trash" aria-hidden="true" />
+                      <span>{{
+                        removeArmed() === correction.material ? 'Remove them?' : 'Remove all'
+                      }}</span>
                     </button>
-                  }
-                </div>
-              </nexus-field-row>
+                  </header>
+
+                  <!--
+                    The settings themselves stay out of the outline: the section
+                    is read as the materials it holds, and two of them correcting
+                    the same setting would list the same words twice.
+                  -->
+                  <div data-outline-skip>
+                    @for (field of correction.fields; track field.key) {
+                      <div class="mgr__correction-row">
+                        <nexus-param-field
+                          class="mgr__correction-field"
+                          [field]="field"
+                          [value]="correctionValue(printer, correction.material, field.key)"
+                          [siblings]="correctionSiblings(printer, correction.material)"
+                          (valueChange)="
+                            setCorrection(printer.id, correction.material, field.key, $event)
+                          "
+                        />
+                        <button
+                          type="button"
+                          class="mgr__correction-clear"
+                          [attr.aria-label]="
+                            'Stop correcting ' + field.title + ' for ' + correction.label
+                          "
+                          (click)="removeCorrection(printer.id, correction.material, field.key)"
+                        >
+                          <nexus-icon name="xmark" aria-hidden="true" />
+                        </button>
+                      </div>
+                    }
+
+                    @if (correction.addable.length) {
+                      <nexus-select
+                        class="mgr__correction-add"
+                        [options]="correction.addable"
+                        [value]="null"
+                        placeholder="Correct another setting…"
+                        (valueChange)="addCorrection(printer.id, correction.material, $event)"
+                      />
+                    }
+                  </div>
+                </section>
+              }
             </div>
 
             <div class="profile-editor__group">
@@ -339,65 +400,6 @@
                     [value]="paramsOf(printer)[field.key]"
                     [siblings]="paramsOf(printer)"
                     (valueChange)="setParam(printer.id, field.key, $event)"
-                  />
-                }
-              </div>
-            }
-
-            <!--
-              Corrections are captured from a plate that printed wrong — but
-              these pages are the surface that manages everything, so every one
-              is editable here too, one section per material so the outline maps
-              it like any other part of the editor.
-            -->
-            @for (correction of materialCorrections(printer); track correction.material) {
-              <div class="profile-editor__group">
-                <div class="mgr__correction-head">
-                  <label class="profile-editor__group-title">
-                    {{ correction.label }} corrections
-                  </label>
-                  <button
-                    type="button"
-                    class="mgr__correction-clear"
-                    [attr.aria-label]="'Remove every ' + correction.label + ' correction'"
-                    (click)="clearMaterialCorrection(printer.id, correction.material)"
-                  >
-                    <nexus-icon name="trash" aria-hidden="true" />
-                    <span>Remove all</span>
-                  </button>
-                </div>
-
-                @for (field of correction.fields; track field.key) {
-                  <div class="mgr__correction-row">
-                    <nexus-param-field
-                      class="mgr__correction-field"
-                      [field]="field"
-                      [value]="correctionValue(printer, correction.material, field.key)"
-                      [siblings]="correctionSiblings(printer, correction.material)"
-                      (valueChange)="
-                        setCorrection(printer.id, correction.material, field.key, $event)
-                      "
-                    />
-                    <button
-                      type="button"
-                      class="mgr__correction-clear"
-                      [attr.aria-label]="
-                        'Stop correcting ' + field.title + ' for ' + correction.label
-                      "
-                      (click)="removeCorrection(printer.id, correction.material, field.key)"
-                    >
-                      <nexus-icon name="xmark" aria-hidden="true" />
-                    </button>
-                  </div>
-                }
-
-                @if (correction.addable.length) {
-                  <nexus-select
-                    class="mgr__correction-add"
-                    [options]="correction.addable"
-                    [value]="null"
-                    placeholder="Correct another setting…"
-                    (valueChange)="addCorrection(printer.id, correction.material, $event)"
                   />
                 }
               </div>
