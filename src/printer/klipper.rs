@@ -375,6 +375,27 @@ impl KlipperProbe {
                 "[heater_generic chamber]",
             ));
         }
+
+        // The two ceilings the firmware states plainly and nobody enjoys being
+        // asked for. Neither is a temperature the slicer prints at — they are
+        // what lets a material the machine cannot run be caught before the file
+        // is written, instead of by a heater that waits forever.
+        if let Some(max) = self.positive("extruder", "max_temp") {
+            params.insert("max_hotend_temp".into(), json!(mm(max)));
+            detection.findings.push(DetectionFinding::new(
+                "Hotend limit",
+                format!("{} °C", mm(max)),
+                "[extruder]",
+            ));
+        }
+        if let Some(max) = self.positive("heater_bed", "max_temp") {
+            params.insert("max_bed_temp".into(), json!(mm(max)));
+            detection.findings.push(DetectionFinding::new(
+                "Bed limit",
+                format!("{} °C", mm(max)),
+                "[heater_bed]",
+            ));
+        }
     }
 
     /// Name the machine, when its configuration is distinctive enough.
@@ -701,6 +722,10 @@ mod tests {
                     "nozzle_diameter": 0.4,
                     "filament_diameter": 1.75,
                     "pressure_advance": 0.032,
+                    "max_temp": 300.0,
+                },
+                "heater_bed": {
+                    "max_temp": 120.0,
                 },
                 "firmware_retraction": {
                     "retract_length": 0.8,
@@ -761,6 +786,30 @@ mod tests {
         assert_eq!(params["retract_mm"], json!(0.8));
         assert_eq!(params["retract_speed_mm_min"], json!(2100.0));
         assert_eq!(params["exclude_object"], json!(true));
+        // The two ceilings, read rather than asked for: this machine runs an
+        // all-metal hotend and a bed that reaches 120 °C, so nothing a filament
+        // preset carries will stall it.
+        assert_eq!(params["max_hotend_temp"], json!(300.0));
+        assert_eq!(params["max_bed_temp"], json!(120.0));
+    }
+
+    /// The wizard's cost for the new hardware facts must be zero: they are read
+    /// off the config like every other fact, never put to the user.
+    #[test]
+    fn the_machine_ceilings_are_read_not_asked() {
+        let detection = corexy_probe().into_detection();
+        assert!(
+            detection
+                .questions
+                .iter()
+                .all(|q| !q.id.contains("temp") && !q.id.contains("hotend")),
+            "a machine ceiling became a wizard question: {:?}",
+            detection
+                .questions
+                .iter()
+                .map(|q| &q.id)
+                .collect::<Vec<_>>()
+        );
     }
 
     #[test]

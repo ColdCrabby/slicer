@@ -273,3 +273,24 @@
   transform: scale(1);
   transition: transform var(--duration-slow) var(--ease-standard);
 }
+
+/**
+ * Where a value came from, when that is not the preset on screen.
+ *
+ * An attribution, not a caution — nothing is wrong, the machine simply knows
+ * something about this material that the filament profile cannot. So it reads as
+ * quietly as a hint and never borrows a notice's tone colour.
+ */
+.schema-form-field-source {
+  display: flex;
+  gap: var(--spacing-xs);
+  align-items: center;
+  margin: var(--spacing-xs) 0 0;
+  font-size: var(--font-size-xs);
+  color: var(--color-text-secondary);
+
+  nexus-icon {
+    flex-shrink: 0;
+    font-size: var(--font-size-sm);
+  }
+}

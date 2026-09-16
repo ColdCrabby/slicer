@@ -20,6 +20,7 @@ import { parseSchema } from '../../schema-form/models/schema-parser';
 import { FieldChangeEvent, SchemaForm } from '../../schema-form/schema-form';
 import { BrowserStorage } from '../../services/browser-storage';
 import { ActivePresets } from '../../services/profiles/active-presets';
+import { ActiveSelection } from '../../services/profiles/active-selection';
 import { LabelFilterStore } from '../../services/profiles/label-filter-store';
 import { ProfileWriteback } from '../../services/profiles/profile-writeback';
 import { LabelFilterBar } from '../labels/label-filter-bar';
@@ -84,6 +85,7 @@ export class SettingsPanel {
   private readonly dialog = inject(Dialog);
   private readonly writeback = inject(ProfileWriteback);
   protected readonly presets = inject(ActivePresets);
+  private readonly activeSelection = inject(ActiveSelection);
   protected readonly labelFilter = inject(LabelFilterStore);
 
   readonly settings = this.slicer.settings;
@@ -98,6 +100,27 @@ export class SettingsPanel {
    */
   protected readonly modifiedKeys = this.slicer.overriddenKeys;
   protected readonly modifiedCount = computed(() => this.modifiedKeys().size);
+
+  /**
+   * Settings this machine corrects for the active material, and the sentence
+   * naming that correction ("Voron 2.4 · PLA").
+   *
+   * These are the one layer that can disagree with the profile the user picked
+   * while still being right, so they are the one layer worth pointing at. The
+   * other four are visible in the panel already: a modified key is marked, and
+   * everything else is whatever the selected presets say.
+   */
+  protected readonly machineMaterialKeys = computed(() => {
+    const origins = this.activeSelection.paramOrigins();
+    const keys = new Set<string>();
+    for (const [key, origin] of origins) {
+      if (origin === 'machine_material' && !this.modifiedKeys().has(key)) {
+        keys.add(key);
+      }
+    }
+    return keys as ReadonlySet<string>;
+  });
+  protected readonly machineMaterialLabel = this.activeSelection.materialOverlayLabel;
 
   protected readonly contractTabs: SegmentOption[] = SETTING_CONTRACTS.map((contract) => ({
     value: contract.id,

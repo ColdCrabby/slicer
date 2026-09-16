@@ -1303,7 +1303,7 @@ Set to `0` to fall back to `print_speed`.
 - `0.0` = fan off
 - `1.0` = full speed
 **Typical:** 1.0 (100%).",
-        extend("x-group" = "Cooling", "x-unit" = "fraction")
+        extend("x-group" = "Cooling", "x-unit" = "fraction", "x-per-machine-material" = true)
     )]
     #[serde(default = "SlicingParams::default_fan_speed")]
     pub fan_speed: f64,
@@ -1405,7 +1405,7 @@ Set to `0.0` to disable.
 Material guidelines:
 - **PLA:** 200–210 °C
 - **PETG:** 230–250 °C
-- **ABS:** 240–260 °C", extend("x-group" = "Temperature", "x-unit" = "celsius"))]
+- **ABS:** 240–260 °C", extend("x-group" = "Temperature", "x-unit" = "celsius", "x-per-machine-material" = true))]
     pub nozzle_temp: f64,
 
     #[schemars(description = "Heated bed temperature in °C.
@@ -1415,7 +1415,7 @@ Material guidelines:
 - **PETG:** 80–100 °C
 - **ABS:** 100–120 °C
 
-Set to `0` for an unheated bed.", extend("x-group" = "Temperature", "x-unit" = "celsius"))]
+Set to `0` for an unheated bed.", extend("x-group" = "Temperature", "x-unit" = "celsius", "x-per-machine-material" = true))]
     pub bed_temp: f64,
 
     #[schemars(
@@ -1563,6 +1563,35 @@ aborts the print on Klipper.
     #[serde(default = "SlicingParams::default_heated_chamber")]
     pub heated_chamber: bool,
 
+    #[schemars(
+        description = "Highest temperature this hotend may be asked to reach, in °C. `0` = no \
+limit known.
+
+A hardware **fact**, not a second nozzle temperature: nothing prints at this \
+value. It exists so a material hotter than the machine can safely run is caught \
+before the file is written rather than after — a PTFE-lined hotend tops out \
+around 240 °C and degrades above it, while an all-metal one does not care. \
+Klipper reports it as `[extruder] max_temp`.
+**Typical:** 240 (PTFE-lined) or 300 (all-metal).",
+        extend("x-group" = "Hardware", "x-unit" = "celsius", "x-tier" = "advanced")
+    )]
+    #[serde(default = "SlicingParams::default_max_hotend_temp")]
+    pub max_hotend_temp: f64,
+
+    #[schemars(
+        description = "Highest temperature this bed may be asked to reach, in °C. `0` = no limit \
+known.
+
+A hardware **fact**, not a second bed temperature. Asking for more than the bed \
+can reach does not fail — the wait for temperature simply never returns, and \
+the machine sits hot until someone notices. Klipper reports it as \
+`[heater_bed] max_temp`.
+**Typical:** 100–120.",
+        extend("x-group" = "Hardware", "x-unit" = "celsius", "x-tier" = "advanced")
+    )]
+    #[serde(default = "SlicingParams::default_max_bed_temp")]
+    pub max_bed_temp: f64,
+
     #[schemars(description = "Printer manufacturer recorded in the G-code metadata footer as \
 `printer_vendor`.
 
@@ -1599,7 +1628,7 @@ Faster retraction cuts the time the nozzle sits idle; too fast can grind the \
 filament in a Bowden setup or a soft material. **Typical:** 25–45 mm/s.
 
 Stored in mm/min — the unit a G-code `F` word carries.",
-        extend("x-group" = "Retraction", "x-unit" = "mm_min", "x-step" = 60, "x-tier" = "advanced")
+        extend("x-group" = "Retraction", "x-unit" = "mm_min", "x-step" = 60, "x-tier" = "advanced", "x-per-machine-material" = true)
     )]
     #[serde(default = "SlicingParams::default_retract_speed_mm_min")]
     pub retract_speed_mm_min: f64,
@@ -1607,14 +1636,14 @@ Stored in mm/min — the unit a G-code `F` word carries.",
     #[schemars(description = "Z-hop lift height in mm during travel moves.
 
 Lifts the nozzle before travelling to reduce stringing and nozzle drag across the print.
-**Typical:** 0.2–0.5 mm. Set to `0` to disable.", extend("x-group" = "Retraction", "x-unit" = "mm", "x-step" = 0.01, "x-tier" = "advanced"))]
+**Typical:** 0.2–0.5 mm. Set to `0` to disable.", extend("x-group" = "Retraction", "x-unit" = "mm", "x-step" = 0.01, "x-tier" = "advanced", "x-per-machine-material" = true))]
     #[serde(default = "SlicingParams::default_z_hop_mm")]
     pub z_hop_mm: f64,
 
     #[schemars(description = "Retraction distance in mm on travel moves.
 
 Pulls filament back into the nozzle to reduce oozing and stringing.
-**Typical:** 0.5–2 mm (direct drive) or 3–7 mm (Bowden).", extend("x-group" = "Retraction", "x-unit" = "mm", "x-step" = 0.05))]
+**Typical:** 0.5–2 mm (direct drive) or 3–7 mm (Bowden).", extend("x-group" = "Retraction", "x-unit" = "mm", "x-step" = 0.05, "x-per-machine-material" = true))]
     #[serde(default = "SlicingParams::default_retract_mm")]
     pub retract_mm: f64,
 
@@ -1902,21 +1931,21 @@ Overrides the width used for sparse-infill paths and their `;TYPE:Sparse infill`
 
 Scales every extrusion volume. `1.0` = nominal. Tune per-material to correct
 under/over-extrusion.",
-        extend("x-group" = "Extrusion", "x-unit" = "ratio")
+        extend("x-group" = "Extrusion", "x-unit" = "ratio", "x-per-machine-material" = true)
     )]
     #[serde(default = "SlicingParams::default_flow_ratio")]
     pub flow_ratio: f64,
 
     #[schemars(
         description = "First-layer nozzle temperature in °C. `0` = use `nozzle_temp`.",
-        extend("x-group" = "Temperature", "x-unit" = "celsius", "x-tier" = "advanced")
+        extend("x-group" = "Temperature", "x-unit" = "celsius", "x-tier" = "advanced", "x-per-machine-material" = true)
     )]
     #[serde(default = "SlicingParams::default_nozzle_temp_first_layer")]
     pub nozzle_temp_first_layer: f64,
 
     #[schemars(
         description = "First-layer bed temperature in °C. `0` = use `bed_temp`.",
-        extend("x-group" = "Temperature", "x-unit" = "celsius", "x-tier" = "advanced")
+        extend("x-group" = "Temperature", "x-unit" = "celsius", "x-tier" = "advanced", "x-per-machine-material" = true)
     )]
     #[serde(default = "SlicingParams::default_bed_temp_first_layer")]
     pub bed_temp_first_layer: f64,
@@ -1982,7 +2011,7 @@ time so printer front-ends can render a swatch for the file. Empty = omit the li
 
 `0` disables. Compensates for pressure lag at corners.
 **Typical:** 0.02–0.08.",
-        extend("x-group" = "Extrusion", "x-unit" = "s", "x-step" = 0.01, "x-tier" = "advanced")
+        extend("x-group" = "Extrusion", "x-unit" = "s", "x-step" = 0.01, "x-tier" = "advanced", "x-per-machine-material" = true)
     )]
     #[serde(default = "SlicingParams::default_pressure_advance")]
     pub pressure_advance: f64,
@@ -2176,7 +2205,7 @@ Improves adhesion of the first few layers.
 
 Caps print speed so the hotend can keep up with the flow.
 **Typical:** 8–24 mm³/s depending on material and hotend.",
-        extend("x-group" = "Extrusion", "x-unit" = "mm3_s", "x-tier" = "advanced")
+        extend("x-group" = "Extrusion", "x-unit" = "mm3_s", "x-tier" = "advanced", "x-per-machine-material" = true)
     )]
     #[serde(default = "SlicingParams::default_max_volumetric_speed")]
     pub max_volumetric_speed: f64,
@@ -2675,6 +2704,37 @@ pub fn slicing_params_schema(generator: &mut schemars::SchemaGenerator) -> schem
     generator.subschema_for::<SlicingParams>()
 }
 
+/// The settings a machine may correct per material family — the closed set a
+/// [`material overlay`] is allowed to carry.
+///
+/// Each of these is a property of an extruder *and* a material together, so no
+/// single value on the filament is right across a user's machines: what a hotend
+/// can melt, what an extruder's pressure advance is, how much retraction an
+/// elastic filament wants out of this drive, what a given build plate needs
+/// under this material.
+///
+/// **This list is closed on purpose.** A machine correction that could name any
+/// setting would be a second override system with a different scope, and the
+/// user would have to hold both. Anything outside it belongs in the profile that
+/// owns it. Kept in step with the `x-per-machine-material` schema annotations by
+/// `the_per_machine_material_keys_match_the_schema`, so the UI can read the same
+/// set out of the schema rather than carrying a copy.
+///
+/// [`material overlay`]: crate::profiles::PrinterProfile::material_overlays
+pub const PER_MACHINE_MATERIAL_KEYS: [&str; 11] = [
+    "bed_temp",
+    "bed_temp_first_layer",
+    "fan_speed",
+    "flow_ratio",
+    "max_volumetric_speed",
+    "nozzle_temp",
+    "nozzle_temp_first_layer",
+    "pressure_advance",
+    "retract_mm",
+    "retract_speed_mm_min",
+    "z_hop_mm",
+];
+
 impl Default for SlicingParams {
     /// Sensible defaults for a standard PLA print.
     fn default() -> Self {
@@ -2753,6 +2813,8 @@ impl Default for SlicingParams {
             z_offset_mm: Self::default_z_offset_mm(),
             bed_type: String::new(),
             heated_chamber: Self::default_heated_chamber(),
+            max_hotend_temp: Self::default_max_hotend_temp(),
+            max_bed_temp: Self::default_max_bed_temp(),
             printer_vendor: String::new(),
             printer_model: String::new(),
             travel_speed_mm_min: Self::default_travel_speed_mm_min(),
@@ -2955,6 +3017,14 @@ impl SlicingParams {
     }
     fn default_heated_chamber() -> bool {
         false
+    }
+    /// `0` = unknown, which is the honest answer for a machine nobody has
+    /// described. A shipped number would be a guess presented as a limit.
+    fn default_max_hotend_temp() -> f64 {
+        0.0
+    }
+    fn default_max_bed_temp() -> f64 {
+        0.0
     }
     fn default_pressure_advance() -> f64 {
         0.0
@@ -3181,6 +3251,28 @@ into a wide base or route around obstacles"
                  `heated_chamber` — no chamber command will be emitted; enable it on the printer \
                  if the machine has a chamber heater",
                 self.chamber_temp_first_layer_resolved()
+            ));
+        }
+        // A target the machine cannot reach does not fail — `M190`/`M109` simply
+        // never return, and the printer sits hot until someone walks past it.
+        // The ceilings are `0` on any machine nobody has described, which is why
+        // each check needs the machine to have stated one.
+        let hottest_nozzle = self.nozzle_temp.max(self.nozzle_temp_first_layer);
+        if self.max_hotend_temp > 0.0 && hottest_nozzle > self.max_hotend_temp {
+            w.push(format!(
+                "nozzle temperature of {hottest_nozzle:.0} °C is above the {:.0} °C this hotend is \
+                 rated for — the print will wait for a temperature it never reaches. Use a cooler \
+                 material, or correct the hotend limit on the printer profile",
+                self.max_hotend_temp
+            ));
+        }
+        let hottest_bed = self.bed_temp.max(self.bed_temp_first_layer);
+        if self.max_bed_temp > 0.0 && hottest_bed > self.max_bed_temp {
+            w.push(format!(
+                "bed temperature of {hottest_bed:.0} °C is above the {:.0} °C this bed is rated \
+                 for — the print will wait for a temperature it never reaches. Lower it for this \
+                 machine, or correct the bed limit on the printer profile",
+                self.max_bed_temp
             ));
         }
         w
@@ -3808,6 +3900,51 @@ pub struct ObjectSettings {
 mod tests {
     use super::*;
 
+    /// The scenario: ABS on the old machine whose hotend is PTFE-lined and
+    /// whose bed stops at 80 °C. Neither failure announces itself — the print
+    /// just waits forever — so the slicer has to.
+    #[test]
+    fn a_material_hotter_than_the_machine_is_reported_before_slicing() {
+        let params = SlicingParams {
+            nozzle_temp: 250.0,
+            nozzle_temp_first_layer: 255.0,
+            max_hotend_temp: 240.0,
+            bed_temp: 100.0,
+            bed_temp_first_layer: 105.0,
+            max_bed_temp: 80.0,
+            ..SlicingParams::default()
+        };
+        let warnings = params.unsupported_feature_warnings();
+
+        assert!(
+            warnings
+                .iter()
+                .any(|w| w.contains("255") && w.contains("240")),
+            "the hotend ceiling was not reported: {warnings:?}"
+        );
+        assert!(
+            warnings
+                .iter()
+                .any(|w| w.contains("105") && w.contains("80")),
+            "the bed ceiling was not reported: {warnings:?}"
+        );
+    }
+
+    /// A machine nobody has described states no ceiling, and an unstated
+    /// ceiling must never read as a limit of zero.
+    #[test]
+    fn an_undeclared_machine_ceiling_warns_about_nothing() {
+        let params = SlicingParams {
+            nozzle_temp: 300.0,
+            bed_temp: 120.0,
+            ..SlicingParams::default()
+        };
+        assert!(params
+            .unsupported_feature_warnings()
+            .iter()
+            .all(|w| !w.contains("rated for")));
+    }
+
     #[test]
     fn chamber_target_without_a_heated_chamber_is_reported() {
         // The filament asks for a chamber; the printer never said it has one.
@@ -3869,6 +4006,50 @@ mod tests {
             .get(field)?
             .get("x-relevant-when")
             .cloned()
+    }
+
+    /// The Rust constant and the schema annotations must name the same set.
+    ///
+    /// The engine reads the constant; a client reads the annotation out of the
+    /// generated schema. If they drift, a machine correction the UI offers to
+    /// capture is one the engine will not apply — a setting that silently does
+    /// nothing, which is the failure this whole set exists to avoid.
+    #[test]
+    fn the_per_machine_material_keys_match_the_schema() {
+        let schema = schemars::schema_for!(SlicingParams);
+        let json = serde_json::to_value(&schema).expect("schema to json");
+        let properties = json
+            .get("properties")
+            .and_then(|p| p.as_object())
+            .expect("the schema has properties");
+
+        let mut annotated: Vec<&str> = properties
+            .iter()
+            .filter(|(_, spec)| {
+                spec.get("x-per-machine-material") == Some(&serde_json::json!(true))
+            })
+            .map(|(key, _)| key.as_str())
+            .collect();
+        annotated.sort_unstable();
+
+        assert_eq!(
+            annotated, PER_MACHINE_MATERIAL_KEYS,
+            "`PER_MACHINE_MATERIAL_KEYS` and the `x-per-machine-material` annotations disagree"
+        );
+    }
+
+    /// Every eligible key must be one a *profile* could have set, or the
+    /// correction has nothing to correct.
+    #[test]
+    fn every_per_machine_material_key_is_a_real_slicing_parameter() {
+        let defaults = serde_json::to_value(SlicingParams::default()).expect("params serialize");
+        let defaults = defaults.as_object().expect("params are an object");
+        for key in PER_MACHINE_MATERIAL_KEYS {
+            assert!(
+                defaults.contains_key(key),
+                "`{key}` is eligible for a machine correction but is not a slicing parameter"
+            );
+        }
     }
 
     #[test]

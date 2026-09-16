@@ -1,8 +1,17 @@
 import { Injectable, computed, inject } from '@angular/core';
 import type { SlicingParams } from '../../../generated/slicer-engine-ws-client-message-v1';
 import { ENGINE_DEFAULTS } from '../../models/slice-settings.model';
-import { MATERIAL_WIRE_NAME } from '../../models/filament.model';
-import { printerBedConfig, printerSceneBedConfig } from '../../models/printer.model';
+import {
+  FILAMENT_MATERIAL_LABELS,
+  MATERIAL_WIRE_NAME,
+  type FilamentMaterial,
+} from '../../models/filament.model';
+import {
+  materialOverlayOf,
+  printerBedConfig,
+  printerSceneBedConfig,
+  type ParamOrigin,
+} from '../../models/printer.model';
 import type { SceneBedSnapshot } from '../scene-engine';
 import { ActivePresets } from './active-presets';
 import { FilamentsStore } from './filaments-store';
@@ -84,12 +93,76 @@ export class ActiveSelection {
       ...((printer.params as Record<string, unknown>) ?? {}),
       ...((filament.params as Record<string, unknown>) ?? {}),
       ...((profile.params as Record<string, unknown>) ?? {}),
+      ...materialOverlayOf(printer, filament.material),
       filament_type: MATERIAL_WIRE_NAME[filament.material],
       filament_name: filament.name,
       filament_color: filament.color,
       printer_vendor: printer.vendor,
       printer_model: printer.model,
     } as Partial<SlicingParams>;
+  });
+
+  /**
+   * Which layer of the stack supplied each resolved setting — the same single
+   * pass, in the same precedence, as {@link sliceParams}.
+   *
+   * Five layers are only comprehensible if the interface can say which one won.
+   * Without this, a machine's correction for a material reads as a number that
+   * disagrees with the filament the user picked, and looks like a defect.
+   *
+   * The user's own overrides are not folded in here: the panel already knows
+   * them (they are what `modifiedKeys` is), and they are applied on top of this
+   * baseline rather than being part of it.
+   */
+  readonly paramOrigins = computed<ReadonlyMap<string, ParamOrigin>>(() => {
+    const printer = this.printer();
+    const filament = this.filament();
+    const profile = this.profile();
+    const origins = new Map<string, ParamOrigin>();
+    if (!printer || !filament || !profile) {
+      return origins;
+    }
+
+    const layers: [Record<string, unknown>, ParamOrigin][] = [
+      [ENGINE_DEFAULTS as Record<string, unknown>, 'default'],
+      [(printer.params as Record<string, unknown>) ?? {}, 'printer'],
+      [(filament.params as Record<string, unknown>) ?? {}, 'filament'],
+      [(profile.params as Record<string, unknown>) ?? {}, 'process'],
+      [materialOverlayOf(printer, filament.material), 'machine_material'],
+    ];
+    for (const [params, origin] of layers) {
+      for (const key of Object.keys(params)) {
+        origins.set(key, origin);
+      }
+    }
+
+    // Identity fields are stamped from the chosen profiles last, exactly as
+    // `resolve.rs` does, so they are attributed to the profile that names them
+    // rather than to whichever layer happened to carry the key.
+    for (const key of ['filament_type', 'filament_name', 'filament_color']) {
+      origins.set(key, 'filament');
+    }
+    for (const key of ['printer_vendor', 'printer_model']) {
+      origins.set(key, 'printer');
+    }
+    return origins;
+  });
+
+  /**
+   * How a machine's correction for the active material is described where it
+   * shows up — "Voron 2.4 · PLA". `null` when this machine has nothing to say
+   * about this material, which is the ordinary case.
+   */
+  readonly materialOverlayLabel = computed<string | null>(() => {
+    const printer = this.printer();
+    const filament = this.filament();
+    if (!printer || !filament) {
+      return null;
+    }
+    const overlay = materialOverlayOf(printer, filament.material);
+    return Object.keys(overlay).length
+      ? `${printer.name} · ${FILAMENT_MATERIAL_LABELS[filament.material]}`
+      : null;
   });
 
   /**

@@ -37,6 +37,10 @@ pub fn base_printer(meta: ProfileMeta) -> PrinterProfile {
         origin_at_center: false,
         preferred_orientation_deg: 0.0,
         connection: PrinterConnection::default(),
+        // Empty on purpose: a blank-slate machine has no *measured* difference
+        // from what the materials already say, and a shipped guess here would
+        // read as a calibration.
+        material_overlays: Default::default(),
         params: json!({
             "nozzle_diameter_mm": 0.4,
             "filament_diameter_mm": 1.75,

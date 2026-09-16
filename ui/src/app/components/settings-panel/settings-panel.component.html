@@ -70,6 +70,8 @@
     [schema]="schema"
     [value]="settings()"
     [modifiedKeys]="modifiedKeys()"
+    [machineCorrectedKeys]="machineMaterialKeys()"
+    [machineCorrectionLabel]="machineMaterialLabel()"
     [visibleGroups]="activeGroups()"
     [groupIcons]="groupIcons"
     (fieldChange)="update($event)"

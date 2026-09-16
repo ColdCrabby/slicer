@@ -8,11 +8,16 @@
 //!
 //! ```text
 //! SlicingParams::default()
-//!   → printer.params      (hardware)
-//!   → filament.params     (material)
-//!   → process.params      (quality)   ← wins on shared keys (e.g. print_speed)
-//!   → overrides           ← the user's explicit deviations win over everything
+//!   → printer.params              (hardware)
+//!   → filament.params             (material)
+//!   → process.params              (quality)   ← wins on shared keys (e.g. print_speed)
+//!   → printer.material_overlays[] (this machine, this material family)
+//!   → overrides                   ← the user's explicit deviations win over everything
 //! ```
+//!
+//! The machine's material correction lands **after** the recipe and **before**
+//! the user: a quality preset cannot undo what the hardware does with a
+//! material, and the user can undo both.
 
 use serde::{Deserialize, Serialize};
 
@@ -164,6 +169,32 @@ impl ProfileSelection {
     }
 }
 
+/// Which layer of the profile stack supplied a resolved value.
+///
+/// The stack is five deep, which is only comprehensible if the user can see
+/// which layer won a given setting. This is what a client shows next to a field
+/// so a number that disagrees with the filament profile explains itself on the
+/// spot instead of looking like a bug.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum ParamOrigin {
+    /// The engine's own default — no profile named this setting.
+    Default,
+    /// The printer profile's `params`.
+    Printer,
+    /// The filament profile's `params` (or its typed domain fields).
+    Filament,
+    /// The process profile's `params`.
+    Process,
+    /// This machine's correction for the chosen material family.
+    MachineMaterial,
+    /// The user's own override diff.
+    Override,
+}
+
+/// Where every resolved setting came from, keyed by `SlicingParams` field name.
+pub type ParamOrigins = std::collections::BTreeMap<String, ParamOrigin>;
+
 /// Compose the profile `params` bundles + overrides into a flat
 /// [`SlicingParams`].
 pub fn resolve(
@@ -172,7 +203,21 @@ pub fn resolve(
     process: &ProcessProfile,
     overrides: &serde_json::Value,
 ) -> Result<SlicingParams, serde_json::Error> {
+    resolve_with_origins(printer, filament, process, overrides).map(|(params, _)| params)
+}
+
+/// [`resolve`], also reporting which layer supplied each setting.
+///
+/// The origins are a by-product of the same single merge — there is no second
+/// pass and no second precedence table to keep in step.
+pub fn resolve_with_origins(
+    printer: &PrinterProfile,
+    filament: &FilamentProfile,
+    process: &ProcessProfile,
+    overrides: &serde_json::Value,
+) -> Result<(SlicingParams, ParamOrigins), serde_json::Error> {
     let mut base = serde_json::to_value(SlicingParams::default())?;
+    let mut origins = ParamOrigins::new();
 
     // Fold the filament profile's typed *domain* density into its sparse
     // `params` overlay so it resolves at the **filament** precedence layer —
@@ -192,15 +237,33 @@ pub fn resolve(
             .or_insert_with(|| serde_json::Value::from(filament.cost_per_kg));
     }
 
-    for overlay in [
-        &printer.params,
-        &filament_overlay,
-        &process.params,
-        overrides,
+    // What this machine does differently with this *family* of material. It
+    // lands after the recipe and before the user: a process profile must not be
+    // able to undo a hardware fact, and the user must always be able to.
+    let machine_material = printer
+        .material_overlays
+        .get(&filament.material)
+        .cloned()
+        .unwrap_or(serde_json::Value::Null);
+
+    for (overlay, origin) in [
+        (&printer.params, ParamOrigin::Printer),
+        (&filament_overlay, ParamOrigin::Filament),
+        (&process.params, ParamOrigin::Process),
+        (&machine_material, ParamOrigin::MachineMaterial),
+        (overrides, ParamOrigin::Override),
     ] {
-        if overlay.is_object() {
-            deep_merge(&mut base, overlay);
+        let Some(map) = overlay.as_object() else {
+            continue;
+        };
+        // Origins are tracked per top-level key — the granularity a client
+        // renders a field at. A nested merge still attributes the whole field
+        // to the layer that last named it, which is what "who decided this"
+        // means to someone looking at one input box.
+        for key in map.keys() {
+            origins.insert(key.clone(), origin);
         }
+        deep_merge(&mut base, overlay);
     }
     // Identity / display fields tied to the *chosen* profiles. These are
     // definitional (they name the active filament and machine), so they always
@@ -231,7 +294,26 @@ pub fn resolve(
             serde_json::Value::String(printer.model.clone()),
         );
     }
-    serde_json::from_value(base)
+    for (key, origin) in [
+        ("filament_type", ParamOrigin::Filament),
+        ("filament_name", ParamOrigin::Filament),
+        ("filament_color", ParamOrigin::Filament),
+        ("printer_vendor", ParamOrigin::Printer),
+        ("printer_model", ParamOrigin::Printer),
+    ] {
+        origins.insert(key.to_string(), origin);
+    }
+
+    // Every setting no layer named is the engine's own default, and saying so
+    // is the point: a client that only knew the overridden keys would leave the
+    // rest unexplained.
+    if let Some(map) = base.as_object() {
+        for key in map.keys() {
+            origins.entry(key.clone()).or_insert(ParamOrigin::Default);
+        }
+    }
+
+    serde_json::from_value(base).map(|params| (params, origins))
 }
 
 /// Recursively merge `overlay` into `base`, mutating `base` in place.

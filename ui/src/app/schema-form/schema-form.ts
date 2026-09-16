@@ -178,6 +178,20 @@ export class SchemaForm {
    */
   readonly modifiedKeys = input<ReadonlySet<string>>(new Set());
 
+  /**
+   * Keys whose value comes from a correction the *machine* makes for the active
+   * material rather than from the presets on screen.
+   *
+   * Such a field disagrees with the filament profile the user selected and is
+   * still right, which without a word of explanation reads as a defect. Each one
+   * gets a quiet attribution naming {@link machineCorrectionLabel}. Empty by
+   * default — the ordinary case is a machine with nothing to correct.
+   */
+  readonly machineCorrectedKeys = input<ReadonlySet<string>>(new Set());
+
+  /** How that correction is named, e.g. `Voron 2.4 · PLA`. */
+  readonly machineCorrectionLabel = input<string | null>(null);
+
   /** Emitted whenever the user changes a single field. */
   readonly fieldChange = output<FieldChangeEvent>();
 

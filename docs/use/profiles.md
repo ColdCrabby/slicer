@@ -20,8 +20,9 @@ error-prone option, and usually there is nothing left to fill in.
 
 Your printer's own configuration answers most of the setup, so the slicer reads
 it rather than asking you: build volume and kinematics, nozzle and filament
-diameter, the machine's velocity and acceleration limits, pressure advance, and
-whether it has firmware retraction or can cancel individual objects. It also
+diameter, the machine's velocity and acceleration limits, pressure advance, how
+hot its hotend and bed are allowed to get, and whether it has firmware
+retraction or can cancel individual objects. It also
 works out which start and end macros your printer uses (`PRINT_START` or
 Klippain's `START_PRINT`) and writes the matching G-code. Open **What we read
 from your printer** on the first screen to see every value and which section of
@@ -94,6 +95,65 @@ in your firmware; a profile that shipped a number would overwrite a calibration
 it knows nothing about. Same for retraction on a Klipper machine — the CoreXY
 preset turns **firmware retraction** on so the printer's own values win.
 :::
+
+## When one printer disagrees with the others
+
+Most settings are true wherever you print. A few are not: how fast a hotend can
+melt a material, what pressure advance an extruder needs for it, how much
+retraction an elastic filament wants out of that particular drive. These belong
+to a **machine and a material together**, so no single number on the filament is
+right across three printers.
+
+You do not set these up in advance, and you never make a second copy of a
+filament. You correct them where you notice them:
+
+1. On the slice page, change the setting — **Max Volumetric Speed**, say.
+2. Press **Sync changes to your profiles**.
+3. The row offers two scopes. **This printer only** saves it as that machine's
+   correction for the material you have loaded. **Every printer** edits the
+   shared filament.
+
+"This printer only" is the default, because it cannot affect anything else you
+own. Every other spool of the same material inherits the correction
+automatically, so buying more PLA never costs you a new profile.
+
+Afterwards, the setting shows where its value came from:
+
+```
+Max volumetric speed   24 mm³/s
+⚙ Corrected for Voron 2.4 · PLA
+```
+
+That line is there so a number disagreeing with the filament profile you picked
+explains itself instead of looking like a fault. It appears only when a
+correction is actually in play — switch to PETG, or to another printer, and the
+filament's own value comes back.
+
+::: details Which settings can be corrected this way
+Temperatures (nozzle and bed, including first layer), maximum volumetric speed,
+flow ratio, pressure advance, retraction length and speed, Z hop, and the fan
+ceiling.
+
+The list is deliberately short. Anything else is true wherever you print it, so
+it belongs in the printer, filament or print profile that owns it — and offering
+a per-machine copy of everything would leave you holding two overlapping sets of
+settings instead of one.
+:::
+
+## What your machine cannot do
+
+A printer profile records two limits read straight off your machine:
+**Hotend temperature limit** and **Bed temperature limit**. Neither is a
+temperature anything prints at — nothing is tuned here.
+
+They exist because asking for heat a machine cannot reach does not fail. The
+print simply waits for a temperature that never arrives, and the printer sits
+hot until you notice. So if you load ABS on a machine whose bed stops at 80 °C,
+the slicer says so before it writes the file.
+
+Detection fills both in from your printer's own configuration. A machine you
+entered by hand leaves them at `0`, which means "unknown" and warns about
+nothing.
 
 ## Everyday management
 

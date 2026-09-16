@@ -142,6 +142,7 @@ export function parseSchema(
       tier: prop['x-tier'] as FieldDef['tier'],
       widget: prop['x-widget'] as string | undefined,
       relativeTo: prop['x-relative-to'] as string | undefined,
+      perMachineMaterial: prop['x-per-machine-material'] === true,
       enumOptions: resolveEnumOptions(prop, defs),
       relevantWhen: resolveRelevantWhen(prop),
     };
