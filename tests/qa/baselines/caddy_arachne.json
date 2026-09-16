@@ -8,10 +8,11 @@
   "total_extrusion_mm": 295809.6,
   "role_extrusion_mm": {
     "bottom_surface": 42185.1,
-    "gap_fill": 37723.1,
+    "gap_fill": 23398.9,
     "infill": 8210.0,
     "inner_wall": 105379.6,
     "outer_wall": 54359.0,
+    "thin_wall": 14324.2,
     "top_surface": 47952.8
   }
 }
