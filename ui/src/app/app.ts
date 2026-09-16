@@ -1,8 +1,7 @@
 import { afterNextRender, Component, Injector, inject } from '@angular/core';
 import { RouterOutlet } from '@angular/router';
 import { CelebrationOverlay } from './components/celebration-overlay/celebration-overlay';
-import { NotificationCenter } from './components/notification-center/notification-center';
-import { UpdateBanner } from './components/update-banner/update-banner';
+import { AppNotices } from './components/notices/app-notices/app-notices';
 import { isTauriDesktop, isTauriHost } from './runtime/domain/runtime-mode.util';
 import { AppVersion } from './services/app-version';
 import { onIdle } from './services/idle';
@@ -12,7 +11,7 @@ import { DialogOutlet } from './shared/dialog/dialog-outlet';
 @Component({
   selector: 'nexus-root',
   standalone: true,
-  imports: [RouterOutlet, NotificationCenter, CelebrationOverlay, UpdateBanner, DialogOutlet],
+  imports: [RouterOutlet, AppNotices, CelebrationOverlay, DialogOutlet],
   templateUrl: './app.html',
   styleUrl: './app.scss',
 })

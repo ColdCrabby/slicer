@@ -314,6 +314,17 @@ export class Slicer {
    */
   readonly lastLayerCount = signal<number | null>(null);
 
+  /**
+   * Why the last slice failed, or `null` when it did not.
+   *
+   * The slice dock is the only thing that reports a slice's outcome — it sits
+   * beside the button that started it and says so for as long as the result
+   * stands. It therefore has to carry the reason as well; without this it could
+   * only point elsewhere ("check the status panel") and a floating notice had
+   * to repeat the whole event to deliver the one useful sentence.
+   */
+  readonly lastError = signal<string | null>(null);
+
   /** Timestamp (performance.now) when the active slice job began. */
   private sliceStartedAt: number | null = null;
 
@@ -886,10 +897,6 @@ export class Slicer {
       console.warn(
         `[Slicer] Cannot slice while ${this.status()}. Wait for current operation to complete.`,
       );
-      this.notifications.warning(
-        'Slice already in progress',
-        'Wait for the current slice to finish',
-      );
       return;
     }
 
@@ -906,6 +913,7 @@ export class Slicer {
     this.progressFloor.set(0);
     this.lastSliceElapsedMs.set(null);
     this.lastLayerCount.set(null);
+    this.lastError.set(null);
     this.sliceStartedAt = null;
     this.setDownloadUrl(null);
 
@@ -978,10 +986,7 @@ export class Slicer {
             ...log,
             `[error] Slice operation timed out after ${SLICE_TIMEOUT_MS / 1000 / 60} minutes`,
           ]);
-          this.notifications.error(
-            'Slice timeout',
-            'Operation took too long. Runtime may be overloaded.',
-          );
+          this.lastError.set('Timed out — the runtime may be overloaded.');
           this.sliceAbort?.abort();
         }
       }, SLICE_TIMEOUT_MS);
@@ -1039,11 +1044,6 @@ export class Slicer {
       // decision, and it is only knowable here — so every slice, however it was
       // started, updates it.
       this.autoSlice.recordSliceDuration(this.totalElapsedMs());
-      this.notifications.success(
-        'Slice complete',
-        `${result.layerCount} layers — click Download to save G-code`,
-        6000,
-      );
       this.outputLog.update((log) => [
         ...log,
         `Slice complete — ${result.layerCount} layers generated.`,
@@ -1059,7 +1059,7 @@ export class Slicer {
       this.status.set('error');
       const errorMsg = error instanceof Error ? error.message : String(error);
       this.outputLog.update((log) => [...log, `[error] Slice failed: ${errorMsg}`]);
-      this.notifications.error('Slice failed', errorMsg);
+      this.lastError.set(errorMsg);
       this.activeSliceId = null;
     }
   }
@@ -1087,6 +1087,7 @@ export class Slicer {
     this.sliceStartedAt = null;
     this.lastSliceElapsedMs.set(null);
     this.lastLayerCount.set(null);
+    this.lastError.set(null);
     this.setDownloadUrl(null);
     this.slicedObjectIds.set([]);
     this.slicedSignature.set(null);

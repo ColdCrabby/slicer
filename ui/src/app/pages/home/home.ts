@@ -3,7 +3,6 @@ import type { ElementRef, OnDestroy } from '@angular/core';
 import { Router, RouterLink } from '@angular/router';
 import type { PrinterProfile } from '../../models/printer.model';
 import { ListHistory } from '../../components/list-history/list-history';
-import { NotificationService } from '../../services/notifications';
 import {
   PrinterConnectionService,
   type PrinterProbeState,
@@ -11,7 +10,14 @@ import {
 import { PrintersStore } from '../../services/profiles/printers-store';
 import { Slicer } from '../../services/slicer';
 import { WorkplateObjects } from '../../services/workplate-objects';
-import { Icon, Button, EmptyState, SectionHeader } from '@coldcrabby/ui';
+import {
+  Icon,
+  Button,
+  EmptyState,
+  InlineNotice,
+  type InlineNoticeTone,
+  SectionHeader,
+} from '@coldcrabby/ui';
 
 interface DashboardPrinter {
   id: string;
@@ -27,7 +33,7 @@ interface DashboardPrinter {
 @Component({
   selector: 'nexus-home-dashboard',
   standalone: true,
-  imports: [RouterLink, ListHistory, Icon, Button, EmptyState, SectionHeader],
+  imports: [RouterLink, ListHistory, Icon, Button, EmptyState, InlineNotice, SectionHeader],
   templateUrl: './home.component.html',
   styleUrl: './home.component.scss',
 })
@@ -36,7 +42,6 @@ export class HomeDashboard implements OnDestroy {
   private readonly printersStore = inject(PrintersStore);
   private readonly printerConn = inject(PrinterConnectionService);
   private readonly slicer = inject(Slicer);
-  private readonly notifications = inject(NotificationService);
   private readonly workplate = inject(WorkplateObjects);
 
   /** Re-probe printers periodically so the dashboard reflects live status. */
@@ -51,6 +56,20 @@ export class HomeDashboard implements OnDestroy {
 
   /** True while the demo model is being fetched over the network. */
   protected readonly benchyLoading = signal(false);
+
+  /**
+   * Why the last attempt to open something did not work, shown under the tiles
+   * that start one.
+   *
+   * There is no scene here to speak over, and the corner of the window is a
+   * long way from the button that was just pressed — so the page answers where
+   * it was asked.
+   */
+  protected readonly openError = signal<{
+    tone: InlineNoticeTone;
+    title: string;
+    text: string;
+  } | null>(null);
 
   /** True while a file is being dragged over the dashboard (shows the drop overlay). */
   protected readonly dragActive = signal(false);
@@ -154,16 +173,24 @@ export class HomeDashboard implements OnDestroy {
    * plates all of them instead of silently keeping one.
    */
   private async openWorkplateFromFiles(files: readonly File[]): Promise<void> {
+    this.openError.set(null);
     const models = files.filter((f) => /\.(stl|obj|3mf)$/i.test(f.name));
     if (models.length === 0) {
-      this.notifications.error('Unsupported file', 'Use an STL, OBJ, or 3MF model.');
+      this.openError.set({
+        tone: 'danger',
+        title: 'Unsupported file',
+        text: 'Use an STL, OBJ, or 3MF model.',
+      });
       return;
     }
     if (models.length < files.length) {
-      this.notifications.error(
-        'Some files were skipped',
-        'Only STL, OBJ, and 3MF models can be plated.',
-      );
+      // A warning, not a failure: the plate still opens with what could be
+      // used. Calling it an error overstated what happened.
+      this.openError.set({
+        tone: 'warning',
+        title: 'Some files were skipped',
+        text: 'Only STL, OBJ, and 3MF models can be plated.',
+      });
     }
 
     const [first, ...rest] = models;
@@ -189,6 +216,7 @@ export class HomeDashboard implements OnDestroy {
       return;
     }
     this.benchyLoading.set(true);
+    this.openError.set(null);
     try {
       const response = await fetch(HomeDashboard.BENCHY_URL);
       if (!response.ok) {
@@ -201,7 +229,11 @@ export class HomeDashboard implements OnDestroy {
         state: workplate.uploadMeta ? { uploadMeta: workplate.uploadMeta } : undefined,
       });
     } catch {
-      this.notifications.error('Could not load 3DBenchy', 'Check your connection and try again.');
+      this.openError.set({
+        tone: 'danger',
+        title: 'Could not load 3DBenchy',
+        text: 'Check your connection and try again.',
+      });
     } finally {
       this.benchyLoading.set(false);
     }

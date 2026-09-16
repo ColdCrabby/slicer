@@ -196,10 +196,19 @@ the slicer remembers what you chose.
 
 ## Notifications
 
-Messages appear bottom-left — top of the screen on a phone, where the sheet
-isn't. Info and success fade after a few seconds; errors stay until you dismiss
-them. Longer jobs get a progress strip at the top that turns into a notification
-when it's done.
+Anything about the plate — a model being added, a job going to a printer, a
+change someone else made — appears as a pill at the top of the scene, just under
+the view toolbar. A longer job fills its pill as it runs and finishes in the
+same one, so you never have to look somewhere else for the result. Most fade
+after a few seconds; hovering one holds it while you read.
+
+Messages about the app itself, like a new version waiting to be loaded, dock at
+the bottom of the window instead — the top of the screen on a phone, where the
+sheet isn't.
+
+Everything else says its piece where it happened: a preset that would not import
+says so in the picker, and a slice reports its result — including why it failed
+— on the Slice button's own status line.
 
 ## Moving between Home, Slice and Settings
 
@@ -297,8 +306,11 @@ on its own.
   rather than being dimmed out.
 - **Panels use the room they have.** Unfolded, the G-code inspector shows its
   whole legend and both sliders without scrolling.
-- **Everything is finger-sized.** Buttons, dropdowns, the layer slider and the
-  legend chips are all sized for a fingertip rather than a cursor.
+- **Everything is finger-sized — until you pick up a pen.** Buttons, dropdowns,
+  the layer slider and the legend chips grow for a fingertip. An Apple Pencil is
+  more accurate than a mouse, so as soon as one touches the screen the interface
+  goes back to its compact sizes and gives the room to your model instead. Put
+  the pen down and touch the glass, and it comes back. Nothing to set.
 
 Split View and Slide Over shrink the window, and the layout follows: below about
 1024 points wide you get the folded arrangement on any device, including a
@@ -323,6 +335,10 @@ narrow window on a desktop.
 - **Palm rejection** is on by default. While a pen is in use, the hand resting on
   the glass is ignored, so the view doesn't lurch mid-stroke. Turn it off in
   **Settings → General → Controls** if you never use a stylus.
+- **The sidebar's edge resizes at the same width as on a desktop.** It's a thin
+  line on purpose: a fat invisible grab zone hanging over the plate turned taps
+  near the panel into accidental resizes, and resizing is a slow, deliberate drag
+  you were never going to start by mistake.
 
 Two fingers pinch to zoom, drag to pan and twist to roll, anywhere on the plate.
 

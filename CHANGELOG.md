@@ -27,6 +27,46 @@ issue/PR numbers or repo links in the notes. See the tone rules in
 
 ## [Unreleased]
 
+### Changed
+
+- **Touch targets are sized for the pointer in your hand** — controls grow for a
+  fingertip and go straight back to their compact sizes the moment an Apple
+  Pencil or other stylus touches the glass, so a tablet stops spending screen on
+  a precision problem it does not have.
+- **Tablet chrome is calmer** — the blanket 44 pt floor is now two numbers: 40 px
+  for an isolated control and 36 px for a settings row, which takes roughly a
+  screen and a half of scrolling out of the settings panel on an iPad.
+- **The sidebar's resize edge behaves like it does on a desktop** — its enlarged
+  touch strip overhung the plate and turned taps beside the panel into accidental
+  resizes.
+- **G-code Layer and Progress read as one pair** — Progress gains its own header
+  and a `137 / 138` readout of where you are inside the layer, so both sliders
+  line up instead of one sitting indented behind a label.
+- **The preview's step arrows are 32 px and no longer stacked** — forward-a-layer
+  and forward-an-extrusion sat a few pixels apart at the same spot, and they now
+  carry a resting surface so a touchscreen can see they are buttons.
+- **Holding a preview arrow runs through the layers**, accelerating as it goes,
+  the same way holding a number field's `+` already did.
+- **One place for the app to talk to you** — anything about the plate now
+  appears as a pill at the top of the scene, next to the work it describes. A
+  running job fills its own pill and finishes in it, instead of handing the
+  result to a message in the opposite corner.
+- **The bottom-left corner is yours again** — the floating message stack no
+  longer covers the object list or the "outside the build area" warning.
+- **Errors say their piece where they happened** — a preset that will not
+  import says so in the picker, a reset that fails says so on its own card, and
+  a slice reports the reason it failed on the Slice button's status line
+  instead of repeating the whole event somewhere else.
+- **The celebration is for a print actually starting**, not for every upload it
+  used to play alongside an identically worded message.
+
+### Fixed
+
+- **Held steppers no longer die under a fingertip.** A touchscreen reads a long
+  press as a request for a context menu about half a second in — right after the
+  repeat started — which stopped `+` / `−` from running at all on a phone or
+  tablet, and popped the system callout on top of the button being held.
+
 ## [0.5.0] - 2026-09-16
 
 Support structures grow up, thin features finally print, and a plate stops being

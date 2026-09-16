@@ -15,7 +15,7 @@ import { PaintPanel } from '../../../components/paint-panel/paint-panel';
 import { PlacementPanel } from '../../../components/placement-panel/placement-panel';
 import { SettingsPanel } from '../../../components/settings-panel/settings-panel';
 import { SliceSegmentBar } from '../../../components/slice-segment-bar/slice-segment-bar';
-import { TaskProgressBar } from '../../../components/task-progress-bar/task-progress-bar';
+import { SceneNotices } from '../../../components/notices/scene-notices/scene-notices';
 import { TransformPanel } from '../../../components/transform-panel/transform-panel';
 import { ViewportCube } from '../../../components/viewport-cube/viewport-cube';
 import { PrintArea } from '../../../services/print-area';
@@ -30,7 +30,7 @@ import { SliceControl } from '../../slice-control/slice-control';
     Sidebar,
     SliceControl,
     SliceSegmentBar,
-    TaskProgressBar,
+    SceneNotices,
     ThreeDViewToolbar,
     ObjectsPanel,
     TransformPanel,
@@ -80,15 +80,15 @@ export class NexusSlicingShell {
           try {
             this.sceneEngine.setBed(sceneBed);
           } catch {
-            /* update-banner already prompts a reload */
+            /* the reload prompt in the window dock already covers this */
           }
         }
       });
     });
 
     // Keep --main-scene-inset on :root in sync with the toolbar's rendered
-    // height so all floating panels (layer bar, segment bar, notification
-    // center, etc.) stay inset below it regardless of its actual size.
+    // height so all floating panels (layer bar, segment bar, scene notices,
+    // etc.) stay inset below it regardless of its actual size.
     let obs: ResizeObserver | null = null;
 
     afterRenderEffect({

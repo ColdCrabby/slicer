@@ -7,7 +7,7 @@ import {
   output,
   signal,
 } from '@angular/core';
-import { Icon, IconButton } from '@coldcrabby/ui';
+import { Icon, IconButton, InlineNotice } from '@coldcrabby/ui';
 
 /**
  * View-model for one catalog entry, decoupled from the concrete profile type so
@@ -43,7 +43,7 @@ const SEARCH_DEBOUNCE_MS = 250;
 @Component({
   selector: 'nexus-catalog-picker',
   standalone: true,
-  imports: [Icon, IconButton],
+  imports: [Icon, IconButton, InlineNotice],
   templateUrl: './catalog-picker.html',
   styleUrl: './catalog-picker.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -56,6 +56,15 @@ export class CatalogPicker {
   readonly actionLabel = input('Import');
   /** Id of the entry currently being imported, if any; shows a busy pick button. */
   readonly importingId = input<string | null>(null);
+  /**
+   * Why the last import did not land, shown above the list.
+   *
+   * Here rather than as a floating message: the user is inside a picker — often
+   * inside a wizard over the page — looking at the button they just pressed,
+   * and the far corner of the window is the one place they are not. Every
+   * caller of this picker gets the behaviour from the one input.
+   */
+  readonly importError = input<string | null>(null);
   /** True when another page of results can be fetched via {@link loadMore}. */
   readonly hasMore = input(false);
   /** True while a "load more" fetch is in flight. */

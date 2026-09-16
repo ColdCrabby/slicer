@@ -86,7 +86,7 @@ export class OpenWith {
   }
 
   async #plate(files: readonly OpenedFile[]): Promise<void> {
-    const notifId = this.#notifications.progress(
+    const notifId = this.#notifications.task(
       files.length === 1 ? 'Opening model…' : `Opening ${files.length} models…`,
       files.map((f) => f.file_name).join(', '),
     );
@@ -100,11 +100,11 @@ export class OpenWith {
       await this.#router.navigate(['/slice', started.requestUuid], {
         state: started.uploadMeta ? { uploadMeta: started.uploadMeta } : undefined,
       });
-      this.#notifications.completeProgress(notifId, 'Model opened', first.name);
+      this.#notifications.resolveTask(notifId, 'success', 'Model opened', first.name);
     } catch (error) {
       const message = error instanceof Error ? error.message : undefined;
       this.#log.error('could not open model', message ?? String(error));
-      this.#notifications.failProgress(notifId, 'Could not open model', message);
+      this.#notifications.resolveTask(notifId, 'danger', 'Could not open model', message);
     }
   }
 

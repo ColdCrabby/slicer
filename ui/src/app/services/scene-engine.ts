@@ -475,7 +475,10 @@ export class SceneEngine {
 
     const fixed = describeMeshRepairs(report.actions);
     if (fixed) {
-      this.notifications.warning(`Repaired ${name}`, `${fixed}. The model is now watertight.`);
+      // Informational, not a caution: the import worked and the model is now
+      // sound. Raising it as a warning made a routine, successful repair look
+      // like something the user had to deal with, once per model.
+      this.notifications.info(`Repaired ${name}`, `${fixed}. The model is now watertight.`);
     }
   }
 

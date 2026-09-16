@@ -67,6 +67,12 @@
       />
     </section>
 
+    @if (openError(); as problem) {
+      <nexus-inline-notice [tone]="problem.tone" [title]="problem.title">
+        {{ problem.text }}
+      </nexus-inline-notice>
+    }
+
     <section class="dash-section">
       <nexus-section-header heading="Printers" description="Your machines at a glance">
         <a nexusButton variant="ghost" size="sm" routerLink="/settings/printers">Manage</a>

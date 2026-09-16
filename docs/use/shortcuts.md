@@ -68,6 +68,8 @@ Every numeric field takes more than typing:
 | Run up or down | Hold `+` or `−` — it repeats, and speeds up as you hold |
 
 Hover-scrolling is the fast one — you don't have to click into the field first.
+Holding works on a touchscreen too, and the preview's layer and progress arrows
+run the same way.
 
 ## Search
 
