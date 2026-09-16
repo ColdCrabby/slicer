@@ -328,16 +328,15 @@
               Hardware and Retraction.
             -->
             <div class="profile-editor__group">
-              <label class="profile-editor__group-title">Material corrections</label>
+              <label class="profile-editor__group-title">Corrections</label>
               <nexus-field-shell
                 title="Correct a material"
                 description="What this machine does differently with one material, whichever spool of it is loaded. Your other printers are untouched."
               >
                 <nexus-select
-                  startIcon="plus"
                   [options]="addableMaterials(printer)"
                   [value]="null"
-                  placeholder="Choose a material…"
+                  placeholder="Add correction for…"
                   (valueChange)="startMaterialCorrection(printer.id, $event)"
                 />
               </nexus-field-shell>

@@ -86,20 +86,38 @@
   scrollbar-gutter: stable;
 }
 
-/* The row owns what used to be the section button's job: sticking to the top,
-   carrying the background, and reporting where the editor is. The two buttons
-   inside it are just targets. */
+/* The row is the target: it folds its section, and nothing else. It keeps the
+   sticky top and the "you are here" tone that used to live on the button
+   inside it. */
 .profile-outline__section-row {
   position: sticky;
   top: 0;
   z-index: 1;
   display: flex;
   align-items: center;
+  width: 100%;
+  padding: 0;
+  border: none;
   border-radius: var(--radius-sm);
   background: var(--color-bg-primary);
+  cursor: pointer;
+  transition: background-color var(--duration-fast) var(--ease-standard);
 
-  &:hover {
+  &:disabled {
+    cursor: default;
+  }
+
+  &:hover:not(:disabled) {
     background: var(--color-surface-hover);
+
+    .profile-outline__section {
+      color: var(--color-text-primary);
+    }
+  }
+
+  &:focus-visible {
+    outline: 2px solid var(--color-focus-ring);
+    outline-offset: -2px;
   }
 
   // Anywhere in the window. Quieter than `is-current` on purpose — several
@@ -116,7 +134,6 @@
   }
 }
 
-/* Opens the section where the reader is, without moving them to it. */
 .profile-outline__twisty {
   display: inline-grid;
   flex: none;
@@ -124,27 +141,8 @@
   width: 18px;
   height: 18px;
   margin-left: var(--spacing-xs);
-  padding: 0;
-  border: none;
-  background: transparent;
   color: var(--color-text-tertiary);
-  cursor: pointer;
   --icon-size: 12px;
-
-  &:disabled {
-    cursor: default;
-    opacity: 0;
-  }
-
-  &:hover:not(:disabled) {
-    color: var(--color-text-primary);
-  }
-
-  &:focus-visible {
-    outline: 2px solid var(--color-focus-ring);
-    outline-offset: -2px;
-    border-radius: var(--radius-sm);
-  }
 }
 
 .profile-outline__section {
@@ -154,23 +152,14 @@
   gap: var(--spacing-sm);
   min-width: 0;
   padding: var(--spacing-xs) var(--spacing-sm);
-  border: none;
-  border-radius: var(--radius-sm);
-  background: transparent;
   color: var(--color-text-secondary);
-  // The same treatment the editor's own section titles carry, line-height
-  // included — the rail names those sections, so it should not restate them in
-  // a second size.
   font-size: var(--font-size-xs);
   font-weight: var(--font-weight-semibold);
   line-height: 1.5;
   text-transform: uppercase;
   letter-spacing: 0.04em;
   text-align: left;
-  cursor: pointer;
-  transition:
-    background-color var(--duration-fast) var(--ease-standard),
-    color var(--duration-fast) var(--ease-standard);
+  transition: color var(--duration-fast) var(--ease-standard);
 
   span:first-child {
     flex: 1;
@@ -178,15 +167,6 @@
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
-  }
-
-  &:hover {
-    color: var(--color-text-primary);
-  }
-
-  &:focus-visible {
-    outline: 2px solid var(--color-focus-ring);
-    outline-offset: -2px;
   }
 }
 

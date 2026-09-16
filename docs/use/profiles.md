@@ -124,7 +124,7 @@ own. Every other spool of the same material inherits the correction
 automatically, so buying more PLA never costs you a new profile.
 
 They are also managed like anything else, in **Settings → Printers**.
-**Material corrections** sits below the machine's own details in every
+**Corrections** sits below the machine's own details in every
 printer's editor: pick a
 material from the dropdown and a card for it appears, holding every setting that
 material corrects. Change a value, stop correcting one setting, correct another,
@@ -230,9 +230,10 @@ are for, and it is also what makes them long: a printer's editor runs to sixty
 settings, a print profile past two hundred.
 
 The **outline** down the right-hand side is the map. Every section starts
-folded, so the whole editor fits on screen as a dozen lines. Open one with the
-chevron beside it — that keeps you where you are — or click its name to be taken
-there and have it open. **Expand all** at the top does the lot. The section you
+folded, so the whole editor fits on screen as a dozen lines. Click one to
+open it; that only opens it, and never moves the editor — it is the settings
+listed underneath that take you somewhere. **Expand all** at the top does the
+lot. The section you
 are currently scrolled to is highlighted, so you never lose your place.
 
 Above it, **Filter settings** narrows the outline as you type, and `Ctrl`/`Cmd`

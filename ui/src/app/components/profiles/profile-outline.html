@@ -38,40 +38,38 @@
 
   <nav class="profile-outline__body" aria-label="Settings outline">
     @for (section of rows(); track section.id) {
-      <div
+      <!--
+        One target, and it folds. The section row used to also scroll the editor
+        to itself, which made reading the map and moving about it the same
+        gesture — you could not open a section to see what was in it without
+        being taken there. The settings under it are what navigate.
+      -->
+      <button
+        type="button"
         class="profile-outline__section-row"
         [class.is-current]="section.id === currentId()"
         [class.is-in-view]="inView().has(section.id)"
+        [attr.aria-expanded]="isExpanded(section.id)"
+        [disabled]="!section.entries.length || !!query()"
+        (click)="toggle(section.id)"
       >
-        <!--
-          Two targets, because they are two intentions: the chevron opens the
-          section where you are, the name takes you to it. One control doing
-          both means you cannot fold a section without also being moved to it.
-        -->
-        <button
-          type="button"
-          class="profile-outline__twisty"
-          [attr.aria-expanded]="isExpanded(section.id)"
-          [attr.aria-label]="(isExpanded(section.id) ? 'Collapse ' : 'Expand ') + section.title"
-          [disabled]="!section.entries.length || !!query()"
-          (click)="toggle(section.id)"
-        >
+        <span class="profile-outline__twisty">
           @if (section.entries.length) {
             <nexus-icon
               [name]="isExpanded(section.id) ? 'nav-arrow-down' : 'nav-arrow-right'"
               aria-hidden="true"
             />
           }
-        </button>
-        <button type="button" class="profile-outline__section" (click)="reveal(section)">
+        </span>
+        <span class="profile-outline__section">
           <span>{{ section.title }}</span>
           <!-- A section with no named rows — the G-code editor is one — would
                otherwise advertise a count of zero. -->
           @if (section.entries.length) {
             <span class="profile-outline__count">{{ section.entries.length }}</span>
           }
-        </button>
-      </div>
+        </span>
+      </button>
 
       <ul class="profile-outline__entries" [hidden]="!isExpanded(section.id)">
         @for (entry of section.entries; track entry.id) {

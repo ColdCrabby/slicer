@@ -127,12 +127,6 @@ export class ProfileOutline {
     );
   }
 
-  /** Go to a section and open it, since arriving somewhere folded is no arrival. */
-  protected reveal(section: OutlineSection): void {
-    this.expanded.update((current) => new Set(current).add(section.id));
-    this.jump(section.el);
-  }
-
   /**
    * Placeholder for the filter box, carrying the shortcut where there is a
    * keyboard to press it — the same judgement the slice sidebar's search makes.

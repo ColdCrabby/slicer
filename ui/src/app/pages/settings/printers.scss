@@ -117,6 +117,12 @@
   display: flex;
   gap: var(--spacing-xs);
   align-items: flex-start;
+
+  // The height `field-shell` renders its label-and-control line at. Every
+  // correctable setting is a number input, so it is the same for all of them —
+  // and the shell centres the label within that line, which is why matching the
+  // line rather than the input is what puts the button on the label.
+  --mgr-correction-row-h: 42px;
 }
 
 .mgr__correction-field {
@@ -130,13 +136,17 @@
 }
 
 /* Stop correcting one setting. Sits at the row's top-left, beside the label it
-   acts on rather than trailing a control that may be several lines tall. */
+   acts on rather than trailing a control that may be several lines tall.
+   
+   Its box is the field row's, not the icon's: the shell's own top padding, then
+   that row's height. Centring the glyph inside that box puts it on the label's
+   line without anyone having to guess an offset. */
 .mgr__correction-drop {
   display: inline-grid;
   flex: none;
   place-items: center;
   width: 18px;
-  height: 18px;
+  height: var(--mgr-correction-row-h);
   margin-top: var(--spacing-md);
   padding: 0;
   border: 0;
