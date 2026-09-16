@@ -12,7 +12,6 @@ import {
 } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { Icon } from '@coldcrabby/ui';
-import { SettingsNav } from '../../services/settings-nav';
 import { Viewport } from '../../services/viewport';
 import { KeyboardShortcuts } from '../../services/keyboard-shortcuts/keyboard-shortcuts';
 import {
@@ -38,6 +37,20 @@ const FLASH_MS = 1600;
  */
 const RESCAN_QUIET_MS = 200;
 
+/** The rail's own width, as its stylesheet sets it. */
+const RAIL_WIDTH = 220;
+
+/**
+ * The narrowest the editor may be squeezed to before the rail gives up its
+ * column.
+ *
+ * The rail is the third thing asking for room on this page and the least
+ * important of the three: a contents list is worth nothing beside a form whose
+ * labels and controls have stopped fitting on one line. Below this the list and
+ * the editor keep it all.
+ */
+const EDITOR_MIN_WIDTH = 520;
+
 /**
  * The contents rail beside a profile editor: every section of the page, and
  * under each one every setting by name, with a filter box above it.
@@ -62,21 +75,26 @@ const RESCAN_QUIET_MS = 200;
 })
 export class ProfileOutline {
   private readonly host = inject<ElementRef<HTMLElement>>(ElementRef);
-  private readonly settingsNav = inject(SettingsNav);
   private readonly shortcuts = inject(KeyboardShortcuts);
   private readonly viewport = inject(Viewport);
 
   /**
-   * The rail appears only once the Settings section list has been folded to
-   * icons.
+   * The rail appears when there is genuinely room for it.
    *
-   * Settings is already sections + list + editor before the outline asks for
-   * anything, and a fourth column at once is what made the page feel crowded.
-   * Tying the two together makes it a trade the user makes deliberately —
-   * fold the sections, gain the contents — rather than a column that turns up
-   * uninvited.
+   * It used to be tied to folding the Settings section list — a trade the user
+   * made deliberately, because a fourth column at once made the page feel
+   * crowded. The page has since given a column back, so the trade is no longer
+   * the real question; the room is. Asking it directly also answers something
+   * neither a viewport media query nor a folded-nav flag could: the nav, the
+   * window and the dragged list width all take from the same budget, and only a
+   * measurement of what is left knows about all three.
+   *
+   * Measured on [`.mgr__body`], whose own width does not depend on whether the
+   * rail is showing — so revealing the rail can never be what takes the room
+   * away that revealed it.
    */
-  protected readonly visible = this.settingsNav.collapsed;
+  protected readonly visible = computed(() => this.roomForRail());
+  private readonly roomForRail = signal(false);
 
   protected readonly query = signal('');
 
@@ -200,18 +218,19 @@ export class ProfileOutline {
   // --- Wiring ------------------------------------------------------------
 
   private observer: MutationObserver | null = null;
+  private roomObserver: ResizeObserver | null = null;
   private scrollHandler: (() => void) | null = null;
   private rescanTimer: ReturnType<typeof setTimeout> | null = null;
   private spyFrame = 0;
 
   private attach(): void {
-    const scroller = this.host.nativeElement
-      .closest('.mgr__body')
-      ?.querySelector<HTMLElement>('.mgr__detail');
-    if (!scroller) {
+    const body = this.host.nativeElement.closest<HTMLElement>('.mgr__body');
+    const scroller = body?.querySelector<HTMLElement>('.mgr__detail');
+    if (!body || !scroller) {
       return;
     }
     this.scroller = scroller;
+    this.watchRoom(body);
     this.rescan();
 
     // The editor is not static: selecting another profile replaces it wholesale,
@@ -229,9 +248,32 @@ export class ProfileOutline {
     scroller.addEventListener('scroll', this.scrollHandler, { passive: true });
   }
 
+  /**
+   * Keep {@link roomForRail} in step with the space the page actually has.
+   *
+   * The sum is what the grid would do: take the list track and the two gaps off
+   * the body, then the rail itself, and see whether the editor still clears
+   * [`EDITOR_MIN_WIDTH`]. Both inputs are read from the live layout rather than
+   * assumed, because the list column is draggable and the gap is a token.
+   */
+  private watchRoom(body: HTMLElement): void {
+    const measure = () => {
+      const list = body.querySelector<HTMLElement>('.mgr__list');
+      const gap = parseFloat(getComputedStyle(body).columnGap) || 0;
+      const listWidth = list?.getBoundingClientRect().width ?? 0;
+      const editorIfShown = body.getBoundingClientRect().width - listWidth - gap * 2 - RAIL_WIDTH;
+      this.roomForRail.set(editorIfShown >= EDITOR_MIN_WIDTH);
+    };
+    measure();
+    this.roomObserver = new ResizeObserver(measure);
+    this.roomObserver.observe(body);
+  }
+
   private detach(): void {
     this.observer?.disconnect();
     this.observer = null;
+    this.roomObserver?.disconnect();
+    this.roomObserver = null;
     if (this.scroller && this.scrollHandler) {
       this.scroller.removeEventListener('scroll', this.scrollHandler);
     }

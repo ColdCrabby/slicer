@@ -5,8 +5,11 @@
   min-height: 0;
 }
 
-// Hidden because the Settings section list is not folded. The page's grid keys
-// off the same class, so the track goes with it.
+// Hidden because the page has not got the room for it — see `roomForRail`. The
+// grid keys off the same class, so the track goes with it. The whole question
+// is answered there rather than half here in a media query: a viewport width
+// cannot see the Settings nav or a dragged list column, and those spend from
+// the same budget.
 :host(.is-off) {
   display: none;
 }
@@ -270,19 +273,6 @@
   padding: var(--spacing-md) var(--spacing-sm);
   color: var(--color-text-tertiary);
   font-size: var(--font-size-sm);
-}
-
-// The rail is the third thing asking for horizontal room on this page, and the
-// least important of the three: below the width where a docked column stops
-// fitting, the list and the editor keep it all.
-//
-// Purely a width question, which is why this is not `compact()` — a 1366pt
-// tablet has the room even though it has no cursor. It lives here rather than
-// in the page's own stylesheet so it outranks the `:host` display above it.
-@media (max-width: #{$compact-max-width}) {
-  :host {
-    display: none;
-  }
 }
 
 /* Bulk fold. Sits between the filter and the list, reading as a control on the

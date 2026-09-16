@@ -246,10 +246,10 @@ you can picture but cannot name.
 closed section would be no answer, so every match is listed whatever state its
 section was in.
 
-**Fold the section list to see it.** Settings is already three columns wide, so
-the outline only appears once you collapse the section list on the far left to
-icons — the button beside the word *Settings*. It also needs a window wide
-enough for the extra column; below that the list and the editor keep the room.
+**It appears when there is room for it**, and steps aside when there is not —
+the editor always gets enough width to lay a setting out on one line first. If
+you want it on a narrower window, collapsing the section list on the far left to
+icons (the button beside the word *Settings*) frees about as much as it needs.
 
 The list column itself is draggable: pull the edge between the list and the
 editor to give long profile names the width they need. It stays where you put
