@@ -54,6 +54,19 @@ issue/PR numbers or repo links in the notes. See the tone rules in
 - **Reloading always gets the current build.** The app shell and the WebAssembly
   engine revalidate; only files whose names carry a build hash are kept.
 
+#### Travel moves
+
+- **No more strands between thin ribs.** The hop from one card divider to the
+  next crossed the open slot between them without retracting: "inside the part"
+  was measured against the outer contour alone, which counts a box's cavity as
+  solid. A cavity is now air like any other.
+- **A rib is entered from its root and left at its tip.** Its two ends are
+  interchangeable to the path orderer, which picked the nearer one — the free tip,
+  the one end nothing can be routed to. Reaching for the other end instead lets
+  every hop between ribs dive back through the body. On a 25-slot card caddy,
+  travel crossing open air without a retraction falls from 5.5 m to 0.8 m, for
+  3 % of the print estimate and not one extrusion moved.
+
 #### Walls
 
 - **Turning a model on the plate no longer changes how it slices.** Thin features
@@ -104,9 +117,7 @@ issue/PR numbers or repo links in the notes. See the tone rules in
   than cutting across an open slot, a hop of a few millimetres now travels back
   over the beads it came from — lifting clear of them, but without retracting —
   so what it drools lands on the part instead of hanging in the gap. It only
-  takes a way round up to twice as long as the straight line, which on the card
-  caddy covers about half the hops between dividers and costs 1.5 % of print
-  time.
+  takes a way round up to twice as long as the straight line.
 - **Better infill and surface defaults out of the box.** Sparse infill is now
   **TPMS-D** at 20 % instead of rectilinear: a minimal surface carries load in
   every direction, so the part comes out stiffer for the material it uses. Top

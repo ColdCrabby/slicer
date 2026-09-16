@@ -542,11 +542,16 @@ surface from oozing.
 ### Interior hops
 
 The last row is the exception that outranks the distance ceiling. A hop is
-**interior** when it crosses no outer wall and its midpoint lies inside an
-island's outline — [`TravelPlanner::hop_is_interior`](travel.rs) answers this,
+**interior** when it crosses no outer wall and its midpoint lies on the island's
+own cross-section — [`TravelPlanner::hop_is_interior`](travel.rs) answers this,
 and the planner is built for every layer whether or not `avoid_crossing_perimeters`
 is on. A hop over a solid (top/bottom) region is excluded, because that region
 may be the visible top surface.
+
+Containment counts **every** loop, holes included, not just the outlines. Inside
+an outline is not the same as over the part: a box's cavity, the slot between two
+card dividers and the bore of a tube all sit inside an outline and are all open
+air, and a strand hung across one is the very defect the ceremony prevents.
 
 This matters for a part with a **field of thin features** — card dividers, fins,
 a lattice web. Each rib is one short bead, so a rib field is dozens of
@@ -564,7 +569,10 @@ too, by re-routing the hop so it never leaves material in the first place.
 
 ```mermaid
 flowchart LR
-  H[short same-role hop] --> C{already on material?}
+  H[short same-role hop] --> F{open bead,<br/>far end routable<br/>and near end not?}
+  F -->|yes| V[reverse the bead,<br/>enter from the far end]
+  F -->|no| C
+  V --> C{already on material?}
   C -->|yes| S[straight, no retract]
   C -->|no| R{route within 2x?}
   R -->|yes| M[lift · travel over material · lower<br/>no retract]
@@ -595,10 +603,27 @@ Routers are built for every layer **in parallel**, ahead of the strictly
 sequential G-code walk: each is a chain of Clipper offset and union calls over
 every bead on its layer, and building them inline dominated the phase.
 
-Half a rib field's hops are re-routable in practice. On the card caddy the hops
-at the *root* end run back into the wall band the ribs share; the ones at the
-*tip* end have nothing to travel over but the slot, and stay straight — the way
-round, down one rib and out the next, is more than twice the direct line.
+### Entering an open bead from the end the body can reach
+
+An open bead has no seam, so the path orderer may start it at either end and
+picks whichever is nearer in a straight line. In a rib field that is the wrong
+answer for every second rib: the nearest end is the free *tip*, so the hop runs
+tip to tip across the slot, and the way round from one tip to the next — down a
+whole rib, along the body and out another whole rib — is far past the budget.
+Entering at the *root* instead is a longer straight line but a much shorter way
+round, comfortably inside it.
+
+So the generator reverses an open bead when the near end has no route over
+material and the far end has one
+([`MaterialRouter::prefers_far_entry`](travel.rs)). Every rib then prints root to
+tip, and every hop between them dives back into the body. The flip is
+self-limiting: it needs the near end to be genuinely unreachable, which the
+consecutive arcs of one split wall loop never are.
+
+Nothing about the bead changes but its direction — same vertices, same widths,
+same flow. On the card caddy this cuts travel that crosses open air without a
+retraction from 5.5 m to 0.8 m, and the moves that do it from 2441 to 440, for
+3 % on the print estimate and no change to a single extrusion.
 
 When a retract _is_ emitted, the sequence is:
 
