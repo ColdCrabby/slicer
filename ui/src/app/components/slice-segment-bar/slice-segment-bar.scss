@@ -208,6 +208,9 @@
 }
 
 .insp-title {
+  /* Wide enough for the longer of the two titles, so Layer's readout and
+     Progress's start at the same x and the pair reads as one control. */
+  min-width: 62px;
   font-size: var(--font-size-2xs);
   font-weight: var(--font-weight-semibold);
   letter-spacing: 0.04em;
@@ -300,12 +303,33 @@
 
 /* ── Layer / segment steppers ──────────────────────────────────────────────
    Touch has no keyboard, so the arrow-key nudge (one layer, one extrusion)
-   needs an on-screen equivalent — buttons flanking the slider they step. */
+   needs an on-screen equivalent — buttons flanking the slider they step.
+
+   Progress repeats Layer's shape one axis down: header, then a full-width
+   stepper row. It carried an inline label instead, which indented its slider
+   out of line with the one above and left the two rows of arrows a few pixels
+   apart at the same x — forward-a-layer and forward-an-extrusion do very
+   different things to the picture, and picking the wrong one by a thumb's width
+   is the mistake this layout invited. */
+
+.ctl-group {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  /* On top of the section's own 10px, so the gap between the two stepper rows
+     is wider than the gap inside either block. This is the separation, not
+     decoration — trimming it back puts the arrows within a thumb of each
+     other again. */
+  margin-top: var(--spacing-xs);
+}
 
 .stepper-row {
   display: flex;
   align-items: center;
-  gap: var(--spacing-sm);
+  /* Wider than the section's rhythm: the slider between the arrows is a drag
+     target that happily takes a stray tap, so the air belongs around the
+     buttons. */
+  gap: var(--spacing-md);
   flex: 1;
   min-width: 0;
 }
@@ -315,26 +339,43 @@
   min-width: 0;
 }
 
+/* These render only where there is no keyboard to nudge with, so 32px is their
+   one size rather than a cursor size with a touch variant stacked on it. Below
+   the form-row floor on purpose: they sit in a tight cluster with a slider that
+   is harmless to land on instead. */
 .step-btn {
   flex-shrink: 0;
   display: inline-grid;
   place-items: center;
-  width: 24px;
-  height: 24px;
+  width: 32px;
+  height: 32px;
   padding: 0;
+  --icon-size: 18px;
   border: 1px solid transparent;
   border-radius: var(--radius-md);
-  background: transparent;
-  color: var(--color-text-tertiary);
+  /* A resting surface rather than a bare glyph. These live on a touch device,
+     where no hover ever arrives to reveal that the arrow is a button — so the
+     tone ladder does it instead: a step up from the card at rest, another on
+     press. Tone, not a hairline, per the design language. */
+  background: var(--color-surface-hover);
+  color: var(--color-text-secondary);
   cursor: pointer;
   touch-action: manipulation;
   transition:
     background-color var(--duration-fast) var(--ease-standard),
-    color var(--duration-fast) var(--ease-standard);
+    color var(--duration-fast) var(--ease-standard),
+    transform var(--duration-fast) var(--ease-standard);
 
   &:hover:not(:disabled) {
-    background: var(--color-surface-hover);
+    background: var(--color-surface-active);
     color: var(--color-text-primary);
+  }
+
+  /* The only press feedback a fingertip gets — there is no cursor to change
+     and no hover state that preceded the tap. */
+  &:active:not(:disabled) {
+    background: var(--color-surface-active);
+    transform: scale(0.92);
   }
 
   &:focus-visible {
@@ -343,10 +384,19 @@
     box-shadow: inset 0 0 0 1px var(--color-focus-ring);
   }
 
+  /* End of the range: drop the fill so it stops reading as pressable at all,
+     rather than dimming a chip that still looks like one. */
   &:disabled {
+    background: transparent;
     color: var(--color-text-tertiary);
     opacity: 0.4;
     cursor: default;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .step-btn:active:not(:disabled) {
+    transform: none;
   }
 }
 
@@ -551,21 +601,22 @@
    phone and on a 12.9" iPad, and only the latter was missing the treatment. */
 @include coarse-pointer {
   .insp-toggle {
-    min-height: 44px;
+    min-height: var(--touch-target);
   }
 
-  /* 36px rather than the 44px floor: the legend is ~15 chips in a wrap grid, and
-     44 would add ~150px of card for a control used far less than the sliders
-     below it. This clears the 26px cursor size by enough to stop being a
-     coin-flip while keeping the legend scannable in one glance. */
+  /* Height comes from the shared `--touch-row` floor in styles/base/_touch.scss;
+     the legend is ~15 chips in a wrap grid, so it wants the row size rather than
+     the isolated one. Only the chip's own horizontal shape is set here. */
   .role-badge {
-    min-height: 36px;
     padding: 0 12px 0 10px;
   }
 
+  /* Matches `.step-btn` rather than the isolated-target floor: it is part of
+     the same tight cluster, and a 40px toggle beside 32px arrows reads as a
+     different class of control than it is. */
   .stack-toggle {
-    width: 40px;
-    height: 40px;
+    width: 32px;
+    height: 32px;
   }
 
   /* The gradient doubles as a scrub track, so it is a drag target — 12px of it
@@ -575,6 +626,6 @@
   }
 
   .scalar-legend {
-    min-height: 40px;
+    min-height: var(--touch-target);
   }
 }

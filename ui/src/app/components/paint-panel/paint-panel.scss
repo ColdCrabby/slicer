@@ -134,8 +134,8 @@
 
 @include coarse-pointer {
   .pp-action {
-    width: 36px;
-    height: 36px;
+    width: var(--touch-row);
+    height: var(--touch-row);
     --icon-size: 17px;
   }
 }

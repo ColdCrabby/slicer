@@ -171,8 +171,8 @@ $axis-z: #3498db;
    already the widest thing floating over the plate. */
 @include coarse-pointer {
   .tp-action {
-    width: 36px;
-    height: 36px;
+    width: var(--touch-row);
+    height: var(--touch-row);
     --icon-size: 17px;
   }
 }

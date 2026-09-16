@@ -39,7 +39,13 @@ Roles are grouped so you can toggle a whole family at once: **Shell**,
 - **Show all layers** vs **current layer only** — the stack, or one slice in
   isolation. Isolation is better for looking at a specific problem.
 - **Progress slider** — scrub within a layer. `→` / `←` step move by move, so
-  you can follow the nozzle through a tricky bit.
+  you can follow the nozzle through a tricky bit. The count beside it is how far
+  into the layer you are — move 137 of 138, say — so you can tell whether the
+  bit you're looking at is near the start of the layer or the end of it.
+- **On a touchscreen**, arrow buttons flank both sliders, since there are no
+  arrow keys to press. They step by exactly the same amount, and holding one
+  runs through the layers — faster the longer you hold — the same way holding
+  `+` on a number field does.
 - **Hover** any line for its role, layer, Z height, width, height and speed.
 
 ## Pausing mid-print

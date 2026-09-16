@@ -130,16 +130,11 @@
 
 .notice__close {
   flex: none;
+  // Resting glyph size only. Growing the target for a fingertip is
+  // `styles/base/_touch.scss`'s job — it sizes every `nexusIconButton` from
+  // `--touch-target`, and a local floor here would fight it and would not hand
+  // the size back for a stylus.
   --icon-size: 14px;
-}
-
-// Putting a notice away is the one thing a user reliably wants to do to one,
-// and at cursor size the target sat well under a fingertip.
-@include coarse-pointer {
-  .notice__close {
-    min-width: 36px;
-    min-height: 36px;
-  }
 }
 
 // Measured against the viewport, not the parent: the scene strip is a grid
