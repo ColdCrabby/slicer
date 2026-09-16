@@ -67,6 +67,7 @@ import {
   Switch,
 } from '@coldcrabby/ui';
 import { CatalogPicker, type CatalogEntryVm } from '../../components/profiles/catalog-picker';
+import { FieldShell } from '../../components/profiles/field-shell';
 import { ParamField } from '../../components/profiles/param-field';
 import { ColumnResizer } from '../../components/profiles/column-resizer';
 import { ProfileOutline } from '../../components/profiles/profile-outline';
@@ -175,6 +176,7 @@ const PARAM_GROUPS: SchemaGroup[] = (() => {
     RouterLink,
     CatalogPicker,
     ParamField,
+    FieldShell,
     CodeEditor,
     ModalShell,
     FieldRow,

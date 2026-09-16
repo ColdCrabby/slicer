@@ -161,9 +161,9 @@
             -->
             <div class="profile-editor__group">
               <label class="profile-editor__group-title">Material corrections</label>
-              <nexus-field-row
-                label="Correct a material"
-                description="What this machine does differently with one material — the flow its hotend can melt, the pressure advance its extruder needs, how much retraction it wants — whichever spool of that material is loaded. Your other printers are untouched."
+              <nexus-field-shell
+                title="Correct a material"
+                description="What this machine does differently with one material, whichever spool of it is loaded. Your other printers are untouched."
               >
                 <nexus-select
                   [options]="addableMaterials(printer)"
@@ -171,7 +171,7 @@
                   placeholder="Choose a material…"
                   (valueChange)="startMaterialCorrection(printer.id, $event)"
                 />
-              </nexus-field-row>
+              </nexus-field-shell>
 
               @for (correction of materialCorrections(printer); track correction.material) {
                 <!--
@@ -188,18 +188,15 @@
                       type="button"
                       class="mgr__correction-clear"
                       [class.is-confirming]="removeArmed() === correction.material"
-                      [attr.aria-label]="
-                        removeArmed() === correction.material
-                          ? 'Confirm removing every ' + correction.label + ' correction'
-                          : 'Remove every ' + correction.label + ' correction'
-                      "
                       (click)="removeAll(printer.id, correction.material)"
                       (blur)="disarmRemove()"
                     >
-                      <nexus-icon name="trash" aria-hidden="true" />
                       <span>{{
-                        removeArmed() === correction.material ? 'Remove them?' : 'Remove all'
+                        removeArmed() === correction.material
+                          ? 'Remove them?'
+                          : 'Remove ' + correction.label + ' corrections'
                       }}</span>
+                      <nexus-icon name="trash" aria-hidden="true" />
                     </button>
                   </header>
 
@@ -211,6 +208,16 @@
                   <div data-outline-skip>
                     @for (field of correction.fields; track field.key) {
                       <div class="mgr__correction-row">
+                        <button
+                          type="button"
+                          class="mgr__correction-drop"
+                          [attr.aria-label]="
+                            'Stop correcting ' + field.title + ' for ' + correction.label
+                          "
+                          (click)="removeCorrection(printer.id, correction.material, field.key)"
+                        >
+                          <nexus-icon name="xmark" aria-hidden="true" />
+                        </button>
                         <nexus-param-field
                           class="mgr__correction-field"
                           [field]="field"
@@ -220,16 +227,6 @@
                             setCorrection(printer.id, correction.material, field.key, $event)
                           "
                         />
-                        <button
-                          type="button"
-                          class="mgr__correction-clear"
-                          [attr.aria-label]="
-                            'Stop correcting ' + field.title + ' for ' + correction.label
-                          "
-                          (click)="removeCorrection(printer.id, correction.material, field.key)"
-                        >
-                          <nexus-icon name="xmark" aria-hidden="true" />
-                        </button>
                       </div>
                     }
 
