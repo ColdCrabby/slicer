@@ -2,6 +2,7 @@
 
 pub mod changelog;
 pub mod config;
+pub mod gen_gcode_templates;
 pub mod gen_schemas;
 pub mod info;
 pub mod mesh_check;
@@ -11,6 +12,7 @@ pub mod slice;
 pub use crate::server::ServeCommand;
 pub use changelog::ChangelogCommand;
 pub use config::ConfigCommand;
+pub use gen_gcode_templates::GenGcodeTemplatesCommand;
 pub use gen_schemas::GenSchemasCommand;
 pub use info::InfoCommand;
 pub use mesh_check::MeshCheckCommand;

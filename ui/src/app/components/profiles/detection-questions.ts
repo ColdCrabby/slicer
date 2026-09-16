@@ -156,8 +156,9 @@ export function optionProfilePatch(
  * G-code template id an answer selects, or `null` when the answer is "leave my
  * macros alone" or the question isn't about macros.
  *
- * Template *copy* stays in `gcode-templates.ts`; the engine only ever reports
- * which macros a printer defines.
+ * Template *copy* is engine-owned (`src/profiles/gcode_templates.rs`, surfaced
+ * through `gcode-templates.ts`); the engine only ever reports which macros a
+ * printer defines, and this maps that answer to a preset id.
  */
 export function optionTemplateId(questionId: string, optionId: string): string | null {
   if (questionId !== 'macro_convention') {

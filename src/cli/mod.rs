@@ -12,8 +12,8 @@ pub mod schemas;
 
 use clap::Parser;
 use commands::{
-    ChangelogCommand, ConfigCommand, GenSchemasCommand, InfoCommand, MeshCheckCommand,
-    ServeCommand, SettingsCommand, SliceCommand,
+    ChangelogCommand, ConfigCommand, GenGcodeTemplatesCommand, GenSchemasCommand, InfoCommand,
+    MeshCheckCommand, ServeCommand, SettingsCommand, SliceCommand,
 };
 
 /// Cold Crabby CLI
@@ -56,6 +56,10 @@ pub enum Commands {
     /// Generate JSON schemas for all emit payloads
     #[command(name = "gen-schemas")]
     GenSchemas(GenSchemasCommand),
+
+    /// Generate the UI's G-code template catalog from the engine's definitions
+    #[command(name = "gen-gcode-templates")]
+    GenGcodeTemplates(GenGcodeTemplatesCommand),
 }
 
 impl CliArgs {
@@ -76,6 +80,7 @@ impl CliArgs {
             Commands::Config(cmd) => cmd.execute(),
             Commands::Serve(cmd) => cmd.execute(),
             Commands::GenSchemas(cmd) => cmd.execute(),
+            Commands::GenGcodeTemplates(cmd) => cmd.execute(),
         }
     }
 }

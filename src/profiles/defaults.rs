@@ -19,8 +19,10 @@ use super::meta::ProfileMeta;
 use super::printer::{BedShape, PrinterConnection, PrinterProfile};
 use super::process::{PrintQuality, ProcessProfile};
 
-const DEFAULT_START_GCODE: &str = "; Cold Crabby standard Marlin start\nG21 ; millimetres\nG90 ; absolute positioning\nM82 ; extruder absolute mode\nM140 S{bed_temp_first_layer} ; set bed temperature\nM104 S{nozzle_temp_first_layer} ; set nozzle temperature\nG28 ; home all axes\nM190 S{bed_temp_first_layer} ; wait for bed temperature\nM109 S{nozzle_temp_first_layer} ; wait for nozzle temperature\nG92 E0 ; reset extruder\nG1 Z2.0 F3000 ; lift nozzle";
-const DEFAULT_END_GCODE: &str = "; Cold Crabby standard Marlin end\nG91 ; relative positioning\nG1 E-2 F2700 ; retract\nG1 Z10 F3000 ; lift\nG90 ; absolute positioning\nM104 S0 ; nozzle off\nM140 S0 ; bed off\nM84 ; disable steppers";
+use super::gcode_templates::{STANDARD_KLIPPER, STANDARD_MARLIN};
+
+const DEFAULT_START_GCODE: &str = STANDARD_MARLIN.start_gcode;
+const DEFAULT_END_GCODE: &str = STANDARD_MARLIN.end_gcode;
 
 /// A blank-slate printer with sensible defaults, tagged with `meta`.
 pub fn base_printer(meta: ProfileMeta) -> PrinterProfile {
@@ -100,8 +102,8 @@ pub fn base_process(meta: ProfileMeta) -> ProcessProfile {
     }
 }
 
-const KLIPPER_START_GCODE: &str = "; Cold Crabby Klipper start\nPRINT_START BED={bed_temp_first_layer} EXTRUDER={nozzle_temp_first_layer}";
-const KLIPPER_END_GCODE: &str = "; Cold Crabby Klipper end\nPRINT_END";
+const KLIPPER_START_GCODE: &str = STANDARD_KLIPPER.start_gcode;
+const KLIPPER_END_GCODE: &str = STANDARD_KLIPPER.end_gcode;
 
 /// The offline default printer.
 pub fn default_printer() -> PrinterProfile {

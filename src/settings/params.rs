@@ -1929,7 +1929,7 @@ Emitted as a real heat directive — the bed target is armed, then `M141`/`M191`
 soak the chamber, all before the start G-code so the nozzle is still cold — but
 **only when the printer profile sets `heated_chamber`**. Always available to
 custom start G-code as `{chamber_temp}` (e.g. Klippain
-`START_PRINT … CHAMBER={chamber_temp}`); a start script that heats the chamber
+`START_PRINT … CHAMBER_TEMP={chamber_temp}`); a start script that heats the chamber
 itself suppresses the automatic directives so the chamber is never heated twice.
 **Typical:** 0 for PLA/PETG, 50–60 for ABS/ASA/PC.",
         extend("x-group" = "Temperature", "x-unit" = "celsius", "x-tier" = "advanced")
