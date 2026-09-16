@@ -531,12 +531,29 @@ _smart retract_ policy that mirrors PrusaSlicer / OrcaSlicer / Cura:
 | `min – 2 mm`             | yes          | **yes**  | Crossing role boundaries (e.g. infill → outer wall) shows seams without retract |
 | `min – 2 mm`             | no           | no       | Same-role short hops oozing is invisible inside infill                          |
 | `≤ min`                  | any          | no       | Retract ceremony costs more time than the hop itself                            |
+| `≤ 5 mm`, **interior**   | no           | no       | The hop never leaves the part, so what it drools lands where nothing shows      |
 
 The minimum (`min`) is the configurable `retract_before_travel_mm`
 (default 1.0 mm); travels longer than 2 mm always retract. The role-aware
 branch eliminates the 99 %+ of pointless retracts that occurred on every
 wall-loop end on dense benchmarks, while still protecting the visible outer
 surface from oozing.
+
+### Interior hops
+
+The last row is the exception that outranks the distance ceiling. A hop is
+**interior** when it crosses no outer wall and its midpoint lies inside an
+island's outline — [`TravelPlanner::hop_is_interior`](travel.rs) answers this,
+and the planner is built for every layer whether or not `avoid_crossing_perimeters`
+is on. A hop over a solid (top/bottom) region is excluded, because that region
+may be the visible top surface.
+
+This matters for a part with a **field of thin features** — card dividers, fins,
+a lattice web. Each rib is one short bead, so a rib field is dozens of
+extrusions per layer joined by hops of a few millimetres, and the ceremony
+between them costs more wall-clock than the hops it guards while pumping the
+extruder thousands of times over a print. On a 25-slot card caddy the exemption
+removes roughly 85 % of the print's retractions.
 
 When a retract _is_ emitted, the sequence is:
 

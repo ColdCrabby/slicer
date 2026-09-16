@@ -75,6 +75,31 @@ fn point_in_polygon(pt: (f64, f64), poly: &[(f64, f64)]) -> bool {
     inside
 }
 
+/// True when the midpoint of hop `a`→`b` lies in one of the layer's solid
+/// (top/bottom) regions.
+///
+/// A hop over solid is not eligible for the interior-hop retraction exemption:
+/// the region under it may be the part's visible top surface, where a drool
+/// mark shows. Only the midpoint is tested — the exemption only applies to hops
+/// a few millimetres long, so a sample at the middle is representative.
+fn hop_crosses_solid(a: (f64, f64), b: (f64, f64), layer: &SliceLayer) -> bool {
+    if layer.solid_regions.is_empty() {
+        return false;
+    }
+    let mid = ((a.0 + b.0) / 2.0, (a.1 + b.1) / 2.0);
+    // Even-odd across every path so a point in a region's hole reads as outside.
+    layer
+        .solid_regions
+        .iter()
+        .filter(|region| {
+            let pts: Vec<(f64, f64)> = region.iter().map(|p| (p.x(), p.y())).collect();
+            point_in_polygon(mid, &pts)
+        })
+        .count()
+        % 2
+        == 1
+}
+
 /// Scan a layer for the single outermost closed outer-wall contour to
 /// spiralize.
 ///
@@ -1994,13 +2019,12 @@ impl GcodeGenerator {
             // sweep the second layer in with it.
             let is_first_layer = layer.z <= crate::core::resolved_first_layer_height(params) + 1e-6;
 
-            // Per-layer travel router (opt-in).  Built once per layer so travel
-            // hops can detour around outer walls instead of scarring the surface.
-            let travel_planner = if params.avoid_crossing_perimeters {
-                crate::gcode::travel::TravelPlanner::for_layer(layer)
-            } else {
-                None
-            };
+            // Per-layer travel router.  Built once per layer for two jobs:
+            // detouring hops around outer walls (opt-in, `avoid_crossing_perimeters`)
+            // and classifying a hop as *interior* so it can skip the retraction
+            // ceremony (always on — see the retract policy below).
+            let travel_planner = crate::gcode::travel::TravelPlanner::for_layer(layer);
+            let route_around_walls = params.avoid_crossing_perimeters;
 
             // Spiral (vase) layer? If so, the single outer contour is emitted
             // with a continuous Z ramp and the usual discrete Z move is skipped
@@ -2714,18 +2738,42 @@ impl GcodeGenerator {
                 //   - Travels between the minimum and that ceiling retract only
                 //     when the extrusion role changes (e.g. infill → outer wall),
                 //     where oozing would show on a visible surface.
+                //   - Exception: a short *interior* hop — one that crosses no
+                //     wall and stays inside an island's outline, within the same
+                //     role — never retracts. A field of thin ribs (card dividers,
+                //     fins, lattice webs) is one short bead per rib, and the
+                //     ceremony between them costs more wall-clock than the hops
+                //     it guards while pumping the extruder thousands of times
+                //     over a print. Whatever such a hop oozes lands inside the
+                //     part. A hop over a solid region is excluded: that surface
+                //     may be the visible top.
                 const ALWAYS_RETRACT_TRAVEL_MM: f64 = 2.0;
+                /// Ceiling for the interior-hop exemption.  Beyond this the hop
+                /// is long enough to drool a visible strand even inside the
+                /// part, and the ceremony earns its keep again.
+                const INTERIOR_HOP_MAX_MM: f64 = 5.0;
                 let min_travel = params.retract_before_travel_mm.max(0.0);
                 let always_retract = min_travel.max(ALWAYS_RETRACT_TRAVEL_MM);
-                let needs_retract =
-                    travel_dist > always_retract || (role_changed && travel_dist > min_travel);
+                let interior_hop = !role_changed
+                    && travel_dist <= INTERIOR_HOP_MAX_MM
+                    && match (&travel_planner, last_pos) {
+                        (Some(planner), Some(lp)) => {
+                            planner.hop_is_interior(lp, (start_x, start_y))
+                                && !hop_crosses_solid(lp, (start_x, start_y), layer)
+                        }
+                        _ => false,
+                    };
+                let needs_retract = !interior_hop
+                    && (travel_dist > always_retract || (role_changed && travel_dist > min_travel));
 
                 // Plan the travel path.  With `avoid_crossing_perimeters` the
                 // planner may return intermediate waypoints that detour around
                 // outer walls; otherwise this is a single straight hop to the
                 // destination.  `from` is never included.
                 let travel_route: Vec<(f64, f64)> = match (&travel_planner, last_pos) {
-                    (Some(planner), Some(lp)) => planner.route(lp, (start_x, start_y)),
+                    (Some(planner), Some(lp)) if route_around_walls => {
+                        planner.route(lp, (start_x, start_y))
+                    }
                     _ => vec![(start_x, start_y)],
                 };
 
@@ -3638,10 +3686,11 @@ mod tests {
     #[test]
     fn wipe_emits_wipe_moves_that_retract() {
         // Two squares 5 mm apart in one layer: the second path's retract wipes
-        // along the first path's trajectory.
+        // along the first path's trajectory. The gap between them matters — a
+        // hop that stayed inside one island would skip the retraction entirely.
         let mut layer = SliceLayer::new(0.2);
         layer.paths.push(square_at(0.0, 0.0));
-        layer.paths.push(square_at(0.0, 5.0));
+        layer.paths.push(square_at(0.0, 15.0));
 
         let off = generate_gcode(
             &[layer.clone()],
@@ -3741,12 +3790,13 @@ mod tests {
 
     #[test]
     fn retract_before_travel_threshold_suppresses_short_hops() {
-        // Two squares 5 mm apart. The default retracts on that 5 mm hop; a large
-        // `retract_before_travel_mm` suppresses it (only the always-retract first
-        // path of the layer remains).
+        // Two squares with a 5 mm gap between them, so the hop from one to the
+        // other leaves the part and is not an interior hop. The default retracts
+        // on it; a large `retract_before_travel_mm` suppresses it (only the
+        // always-retract first path of the layer remains).
         let mut layer = SliceLayer::new(0.2);
         layer.paths.push(square_at(0.0, 0.0));
-        layer.paths.push(square_at(0.0, 5.0));
+        layer.paths.push(square_at(0.0, 15.0));
 
         let count = |g: &str| g.lines().filter(|l| l.ends_with("; retract")).count();
 
@@ -3765,12 +3815,12 @@ mod tests {
         assert_eq!(
             count(&default),
             2,
-            "default retracts on the 5 mm hop: {default}"
+            "default retracts on the hop between the squares: {default}"
         );
         assert_eq!(
             count(&high),
             1,
-            "a 20 mm minimum suppresses the 5 mm hop retract: {high}"
+            "a 20 mm minimum suppresses that retract: {high}"
         );
     }
 
@@ -4889,6 +4939,48 @@ mod tests {
                 "solid-infill acceleration not applied to {role:?}:\n{gcode}"
             );
         }
+    }
+
+    /// Two thin ribs inside a pocket — the card-divider case. The
+    /// hop between them is longer than `ALWAYS_RETRACT_TRAVEL_MM` but stays
+    /// inside the island, so it must not pay the retraction ceremony.
+    #[test]
+    fn interior_rib_hop_skips_the_retraction_ceremony() {
+        use crate::core::ExtrusionRole;
+        let mut layer = SliceLayer::new(0.2);
+        // Island outline.
+        let outline: clipper2::Path =
+            vec![(0.0, 0.0), (20.0, 0.0), (20.0, 20.0), (0.0, 20.0)].into();
+        layer.paths.push(outline);
+        layer.path_roles.push(ExtrusionRole::OuterWall);
+        layer.path_widths.push(Some(0.4));
+        layer.path_is_open.push(false);
+        // Two ribs, 2 mm apart in Y, reaching in from the left wall.
+        for y in [8.0, 10.0] {
+            let rib: clipper2::Path = vec![(1.0, y), (4.0, y)].into();
+            layer.paths.push(rib);
+            layer.path_roles.push(ExtrusionRole::GapFill);
+            layer.path_widths.push(Some(0.4));
+            layer.path_is_open.push(true);
+        }
+
+        let gcode =
+            GcodeGenerator::new(GcodeFlavor::Marlin).generate(&[layer], &SlicingParams::default());
+        let ribs = gcode
+            .split_once(";TYPE:Gap infill")
+            .expect("gap-fill block")
+            .1;
+        // One retraction to enter the block (the role change from the wall),
+        // and none between the ribs.
+        assert_eq!(
+            ribs.matches("un-retract").count(),
+            1,
+            "rib-to-rib hop retracted; it stays inside the part:\n{ribs}"
+        );
+        assert!(
+            ribs.contains("short travel"),
+            "rib-to-rib hop should be a plain travel:\n{ribs}"
+        );
     }
 
     #[test]

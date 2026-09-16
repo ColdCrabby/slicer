@@ -29,6 +29,11 @@ issue/PR numbers or repo links in the notes. See the tone rules in
 
 ### Changed
 
+- **Short hops inside a part no longer retract.** A travel that crosses no wall
+  and stays under 5 mm within the part skips the retract, Z-hop and prime — what
+  it drools lands where nothing shows. Parts with a field of thin ribs, like a
+  card caddy or a fan grille, were spending more time on the ceremony than on
+  the ribs: one such model loses 85 % of its retractions.
 - **Better infill and surface defaults out of the box.** Sparse infill is now
   **TPMS-D** instead of rectilinear: a minimal surface carries load in every
   direction, so 15 % density buys a stiffer part without printing more. Top and

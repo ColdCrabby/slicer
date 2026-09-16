@@ -58,6 +58,10 @@ type Pt = (f64, f64);
 pub struct TravelPlanner {
     /// Closed obstacle loops (outer-wall contours and hole boundaries).
     loops: Vec<Vec<Pt>>,
+    /// Per-loop flag: this loop is an island **outline** — it is not contained
+    /// in any other loop, so its interior is the part's footprint rather than a
+    /// hole. Parallel to `loops`.
+    outline: Vec<bool>,
     /// Flattened obstacle vertices, used as visibility-graph waypoints.
     verts: Vec<Pt>,
     /// Axis-aligned bounds of all obstacles `(min_x, min_y, max_x, max_y)`.
@@ -100,8 +104,23 @@ impl TravelPlanner {
                 max_y = max_y.max(y);
             }
         }
+        // Outermost = whose first vertex lies inside no other loop. A hole's
+        // boundary sits inside its island outline; separate islands are
+        // disjoint, so neither contains the other.
+        let outline: Vec<bool> = loops
+            .iter()
+            .enumerate()
+            .map(|(i, l)| {
+                !loops
+                    .iter()
+                    .enumerate()
+                    .any(|(j, other)| j != i && point_in_loop(l[0], other))
+            })
+            .collect();
+
         Some(Self {
             loops,
+            outline,
             verts,
             bounds: (min_x, min_y, max_x, max_y),
         })
@@ -124,6 +143,29 @@ impl TravelPlanner {
             return vec![to];
         }
         self.route_around(from, to).unwrap_or_else(|| vec![to])
+    }
+
+    /// True when the hop `a`→`b` is **interior** to the part: it crosses no
+    /// wall and runs inside one island's outline.
+    ///
+    /// The G-code generator uses this to decide whether a hop can skip the
+    /// retract → z-hop → travel → lower → un-retract ceremony. Whatever such a
+    /// hop oozes lands inside the part — in a pocket, over infill, or on the
+    /// wall it just printed — where the ceremony costs more time than the ooze
+    /// costs quality. A hop that crosses a wall, leaves the footprint, or runs
+    /// between two islands fails the test and retracts as usual.
+    ///
+    /// Testing the segment's midpoint is sufficient: a segment that crosses no
+    /// loop lies wholly on one side of every loop.
+    pub fn hop_is_interior(&self, a: Pt, b: Pt) -> bool {
+        if self.crosses_any_wall(a, b) {
+            return false;
+        }
+        let mid = ((a.0 + b.0) / 2.0, (a.1 + b.1) / 2.0);
+        self.loops
+            .iter()
+            .zip(&self.outline)
+            .any(|(l, &is_outline)| is_outline && point_in_loop(mid, l))
     }
 
     /// Visibility-graph shortest path from `from` to `to` avoiding wall crossings.
@@ -226,6 +268,26 @@ impl TravelPlanner {
         let seg_max_y = a.1.max(b.1);
         seg_max_x >= min_x && seg_min_x <= max_x && seg_max_y >= min_y && seg_min_y <= max_y
     }
+}
+
+/// Even-odd ray-cast point-in-polygon test (winding-independent).
+fn point_in_loop(p: Pt, poly: &[Pt]) -> bool {
+    let n = poly.len();
+    if n < 3 {
+        return false;
+    }
+    let (px, py) = p;
+    let mut inside = false;
+    let mut j = n - 1;
+    for i in 0..n {
+        let (xi, yi) = poly[i];
+        let (xj, yj) = poly[j];
+        if ((yi > py) != (yj > py)) && (px < (xj - xi) * (py - yi) / (yj - yi) + xi) {
+            inside = !inside;
+        }
+        j = i;
+    }
+    inside
 }
 
 fn dist(a: Pt, b: Pt) -> f64 {
@@ -364,6 +426,44 @@ mod tests {
         // hidden and allowed.
         let route = planner.route((-5.0, -5.0), (5.0, 5.0));
         assert_eq!(route, vec![(5.0, 5.0)]);
+    }
+
+    #[test]
+    fn interior_hop_inside_an_island_is_interior() {
+        let layer = layer_with_outer_square(10.0);
+        let planner = TravelPlanner::for_layer(&layer).unwrap();
+        assert!(planner.hop_is_interior((-2.0, -2.0), (2.0, 2.0)));
+    }
+
+    #[test]
+    fn hop_outside_every_island_is_not_interior() {
+        let layer = layer_with_outer_square(10.0);
+        let planner = TravelPlanner::for_layer(&layer).unwrap();
+        // Alongside the square, crossing nothing — but over bare bed, where a
+        // drool is a loose strand rather than material landing on the part.
+        assert!(!planner.hop_is_interior((-20.0, -20.0), (-20.0, 20.0)));
+    }
+
+    #[test]
+    fn hop_that_leaves_through_a_wall_is_not_interior() {
+        let layer = layer_with_outer_square(10.0);
+        let planner = TravelPlanner::for_layer(&layer).unwrap();
+        assert!(!planner.hop_is_interior((0.0, 0.0), (20.0, 0.0)));
+    }
+
+    #[test]
+    fn hop_across_a_hole_stays_interior() {
+        // A rib field lives in a pocket: the hop from one rib to the next runs
+        // through the hole, crossing no wall, still inside the island outline.
+        let mut layer = layer_with_outer_square(20.0);
+        let hole: Path = vec![(-5.0, -5.0), (-5.0, 5.0), (5.0, 5.0), (5.0, -5.0)].into();
+        layer.paths.push(hole);
+        layer.path_roles.push(ExtrusionRole::OuterWall);
+        layer.path_widths.push(Some(0.4));
+        layer.path_is_open.push(false);
+
+        let planner = TravelPlanner::for_layer(&layer).unwrap();
+        assert!(planner.hop_is_interior((-3.0, 0.0), (3.0, 0.0)));
     }
 
     #[test]
