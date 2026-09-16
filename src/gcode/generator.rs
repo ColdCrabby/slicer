@@ -6350,7 +6350,7 @@ CHAMBER={chamber_temp} MATERIAL={filament_type}"
             "missing wall_count"
         );
         assert!(
-            gcode.contains("; infill_density: 15%"),
+            gcode.contains("; infill_density: 20%"),
             "missing infill_density"
         );
     }

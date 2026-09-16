@@ -2695,7 +2695,7 @@ impl Default for SlicingParams {
             fuzzy_skin: Self::default_fuzzy_skin(),
             fuzzy_skin_thickness_mm: Self::default_fuzzy_skin_thickness_mm(),
             fuzzy_skin_point_dist_mm: Self::default_fuzzy_skin_point_dist_mm(),
-            infill_density: 0.15,
+            infill_density: 0.2,
             infill_pattern: Self::default_infill_pattern(),
             infill_base_angle: Self::default_infill_base_angle(),
             infill_anchor_percent: Self::default_infill_anchor_percent(),
@@ -3544,7 +3544,7 @@ impl SlicingParams {
     /// Slow, and deliberately not scaled with the rest: the first layer is an
     /// adhesion problem, not a speed one.
     fn default_first_layer_speed() -> f64 {
-        30.0
+        25.0
     }
 
     fn default_fan_speed() -> f64 {
