@@ -71,7 +71,7 @@ import { ProfileOutline } from '../../components/profiles/profile-outline';
 import { CodeEditor } from '../../components/code-editor/code-editor';
 import { LabelFilterBar } from '../../components/labels/label-filter-bar';
 import { LabelPicker } from '../../components/labels/label-picker';
-import { focusConfigureTarget } from './configure-scroll';
+import { configureTargetSelector, focusConfigureTarget } from './configure-scroll';
 import { LabelPickerPanel } from '../../components/labels/label-picker-panel';
 
 /**
@@ -294,11 +294,8 @@ export class PrintersSettings {
     const configureId = this.route.snapshot.queryParamMap.get('configure');
     if (configureId && this.store.getById(configureId)) {
       this.select(configureId);
-      const anchor =
-        this.route.snapshot.queryParamMap.get('focus') === 'gcode'
-          ? 'gcode-target'
-          : 'configure-target';
-      afterNextRender(() => focusConfigureTarget(anchor));
+      const target = configureTargetSelector(this.route.snapshot.queryParamMap.get('focus'));
+      afterNextRender(() => focusConfigureTarget(target));
     }
   }
 

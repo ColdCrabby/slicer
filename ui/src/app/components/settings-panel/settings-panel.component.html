@@ -49,12 +49,18 @@
         them, and made the most consequential action on the panel the one that
         arrived unannounced.
       -->
+      <!--
+        Opens the preset named beside it, not the list it came from. Landing on
+        the list and asking the user to find the row they were already looking
+        at is a step the app can take for them.
+      -->
       <a
         nexusIconButton
         class="preset-action"
         [routerLink]="activeContractMeta().managePath"
-        [attr.aria-label]="'Manage ' + activeContractMeta().label + ' presets'"
-        [tooltip]="'Manage ' + activeContractMeta().label + ' presets'"
+        [queryParams]="editPresetParams()"
+        [attr.aria-label]="editPresetLabel()"
+        [tooltip]="editPresetLabel()"
       >
         <nexus-icon name="settings" />
       </a>

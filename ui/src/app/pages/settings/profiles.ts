@@ -40,7 +40,7 @@ import { ProfileOutline } from '../../components/profiles/profile-outline';
 import { controlFor } from '../../schema-form/models/field-control';
 import { LabelFilterBar } from '../../components/labels/label-filter-bar';
 import { LabelPicker } from '../../components/labels/label-picker';
-import { focusConfigureTarget } from './configure-scroll';
+import { configureTargetSelector, focusConfigureTarget } from './configure-scroll';
 import { LabelPickerPanel } from '../../components/labels/label-picker-panel';
 
 /**
@@ -174,7 +174,8 @@ export class ProfilesSettings {
     const configureId = this.route.snapshot.queryParamMap.get('configure');
     if (configureId && this.store.getById(configureId)) {
       this.select(configureId);
-      afterNextRender(() => focusConfigureTarget('configure-target'));
+      const target = configureTargetSelector(this.route.snapshot.queryParamMap.get('focus'));
+      afterNextRender(() => focusConfigureTarget(target));
     }
   }
 

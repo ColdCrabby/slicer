@@ -216,6 +216,7 @@
                 <label class="profile-editor__group-title">{{ group.name }}</label>
                 @for (field of group.fields; track field.key) {
                   <nexus-param-field
+                    [attr.data-setting]="field.key"
                     [field]="field"
                     [value]="paramsOf(filament)[field.key]"
                     [siblings]="siblingsFor(filament)"

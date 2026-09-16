@@ -18,6 +18,14 @@ Press `Ctrl`/`⌘ + F` and type. The search spans all three tabs, so you don't
 have to guess which one owns it.
 :::
 
+## Links take you to the knob
+
+Where a setting depends on something on another profile, the note under it links
+straight to that control — the right profile opened, scrolled to, and flashed —
+not to the top of a page of sixty settings with the rest left to you. The cog
+beside the preset picker works the same way: it opens the preset named next to
+it rather than the list it came from.
+
 ## A warning is never hidden
 
 Settings are tiered: the everyday ones are shown, and *Advanced* and *Expert*

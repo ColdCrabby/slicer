@@ -312,6 +312,7 @@
                 <label class="profile-editor__group-title">{{ group.name }}</label>
                 @for (field of group.fields; track field.key) {
                   <nexus-param-field
+                    [attr.data-setting]="field.key"
                     [field]="field"
                     [value]="paramsOf(printer)[field.key]"
                     [siblings]="paramsOf(printer)"
@@ -388,6 +389,7 @@
                         </button>
                         <nexus-param-field
                           class="mgr__correction-field"
+                          [attr.data-setting]="field.key"
                           [field]="field"
                           [value]="correctionValue(printer, correction.material, field.key)"
                           [siblings]="correctionSiblings(printer, correction.material)"

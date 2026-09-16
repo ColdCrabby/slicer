@@ -123,6 +123,25 @@ export class SettingsPanel {
   protected readonly machineMaterialLabel = this.activeSelection.materialOverlayLabel;
 
   /**
+   * Open the active preset's own editor rather than its list.
+   *
+   * `configure` is the same hand-off a wizard's "Add & configure" uses, so the
+   * editor opens on that profile. Absent when nothing is selected — there is
+   * then nothing to open, and the link falls back to the list.
+   */
+  protected readonly editPresetParams = computed(() => {
+    const id = this.activePresetId();
+    return id ? { configure: id } : {};
+  });
+
+  protected readonly editPresetLabel = computed(() => {
+    const name = this.presets
+      .options(this.activeContract())
+      .find((option) => option.value === this.activePresetId())?.label;
+    return name ? `Edit ${name}` : `Manage ${this.activeContractMeta().label} presets`;
+  });
+
+  /**
    * What the sync button says, in both states.
    *
    * It is always on screen, so it has to explain its own quiet state rather

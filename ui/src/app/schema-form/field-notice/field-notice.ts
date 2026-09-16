@@ -1,7 +1,8 @@
-import { ChangeDetectionStrategy, Component, input } from '@angular/core';
+import { ChangeDetectionStrategy, Component, inject, input } from '@angular/core';
 import { RouterLink } from '@angular/router';
 import { InlineNotice } from '@coldcrabby/ui';
-import type { FieldNotice } from '../field-exceptions/field-exceptions';
+import type { FieldNotice, FieldNoticeLink } from '../field-exceptions/field-exceptions';
+import { ActivePresets } from '../../services/profiles/active-presets';
 
 /**
  * Renders one {@link FieldNotice} — the tone-coloured caution a field's
@@ -27,7 +28,12 @@ import type { FieldNotice } from '../field-exceptions/field-exceptions';
       <nexus-inline-notice [tone]="n.tone ?? 'info'" [icon]="n.icon" [title]="n.title">
         {{ n.text }}
         @if (n.link; as link) {
-          <a class="field-notice-link" [routerLink]="link.routerLink">{{ link.text }}</a>
+          <a
+            class="field-notice-link"
+            [routerLink]="link.routerLink"
+            [queryParams]="queryParamsFor(link)"
+            >{{ link.text }}</a
+          >
         }
       </nexus-inline-notice>
     }
@@ -56,6 +62,32 @@ import type { FieldNotice } from '../field-exceptions/field-exceptions';
   `,
 })
 export class FieldNoticeView {
-  /** The notice to render; `null` renders nothing. */
+  private readonly presets = inject(ActivePresets);
+
   readonly notice = input<FieldNotice | null>(null);
+
+  /**
+   * Where the link lands, beyond the page.
+   *
+   * A notice exists because something elsewhere needs attention, so stopping at
+   * the page and leaving the user to find one control among sixty is most of
+   * the job undone. `configure` opens the profile the setting actually lives on
+   * — the one active on this plate, not whichever the editor last showed — and
+   * `focus` scrolls to the control and flashes it.
+   *
+   * Resolving the profile here rather than in the exception table keeps that
+   * table declarative: an entry names a contract and a setting, and never has
+   * to know what is selected.
+   */
+  protected queryParamsFor(link: FieldNoticeLink): Record<string, string> | null {
+    if (!link.setting) {
+      return null;
+    }
+    const params: Record<string, string> = { focus: link.setting };
+    const id = link.contract ? this.presets.selectedId(link.contract) : null;
+    if (id) {
+      params['configure'] = id;
+    }
+    return params;
+  }
 }
