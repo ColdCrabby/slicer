@@ -152,10 +152,12 @@ fn apply_compensation(
 
 /// Shrink the layers at the bed to undo the first layer's squish.
 ///
-/// Runs immediately after [`apply_compensation`], in the same raw-contour
-/// window. A no-op unless the user configured a shrink — and, unlike the XY
-/// deltas, it is also skipped on a raft, where the first layer never meets the
-/// plate.
+/// Runs in the same raw-contour window as [`apply_compensation`], but *after*
+/// [`snapshot_slice_outlines`] — the shrink is there so the squashed bead
+/// spreads back out to the model's own width, so it must not be mistaken for a
+/// step in the material. A no-op unless the user configured a shrink — and,
+/// unlike the XY deltas, it is also skipped on a raft, where the first layer
+/// never meets the plate.
 fn apply_elephant_foot(
     layers: &mut [SliceLayer],
     params: &SlicingParams,
@@ -246,6 +248,12 @@ pub fn process_mesh_with_paint(
     // later stage measures from the contour the wall generator consumed, so
     // correcting it here leaves all of those relations intact.
     apply_compensation(&mut layers, params, logger);
+
+    // Snapshot each layer's material footprint — what overhang classification
+    // measures support against.  Taken *between* the two compensations on
+    // purpose; see `snapshot_slice_outlines`.
+    let slice_outlines: Vec<Paths> = snapshot_slice_outlines(&layers);
+
     apply_elephant_foot(&mut layers, params, logger);
 
     // Generate walls FIRST from the raw mesh contours
@@ -371,13 +379,6 @@ pub fn process_mesh_with_paint(
         vec![]
     };
 
-    // Snapshot pristine OuterWall perimeters for dynamic overhang-degree grading
-    // *before* surface generation splits any walls via bridge clipping.  Layer
-    // `i`'s support outline is `snapshot[i-1]`; the snapshot is consumed by
-    // `classify_overhang_perimeters` to grade each wall segment's overhang
-    // degree.  Only taken when the feature is enabled.
-    let overhang_support: Option<Vec<Paths>> = snapshot_overhang_support(&layers, params);
-
     // Supports need the same un-split outlines, and for the same reason: the
     // classification pass below retags an overhanging wall as
     // `OverhangPerimeter` and splits its loop, so a steep slope keeps no
@@ -444,11 +445,15 @@ pub fn process_mesh_with_paint(
         if !params.spiral_vase {
             logger.log_debug("classifying overhang perimeters");
             let t_overhang = PhaseTimer::start("Overhang Perimeter Classification", logger);
-            let grading = overhang_support.as_deref().map(|support| OverhangGrading {
-                support,
+            let grading = params.enable_overhang_speed.then(|| OverhangGrading {
                 band_class: overhang_band_class(params),
             });
-            classify_overhang_perimeters(&mut layers, params.nozzle_diameter_mm, grading);
+            classify_overhang_perimeters(
+                &mut layers,
+                params.nozzle_diameter_mm,
+                Some(&slice_outlines),
+                grading,
+            );
             t_overhang.finish();
         }
 
@@ -837,6 +842,11 @@ pub fn process_mesh_debug(
     // Both compensation passes run before the snapshot, so `RawContours` shows
     // exactly the shapes the wall generator is about to receive.
     apply_compensation(&mut layers, params, logger);
+
+    // Material footprint for overhang classification — see
+    // `snapshot_slice_outlines` for why it is taken before elephant foot.
+    let slice_outlines: Vec<Paths> = snapshot_slice_outlines(&layers);
+
     apply_elephant_foot(&mut layers, params, logger);
 
     // Snapshot raw contours.
@@ -914,7 +924,6 @@ pub fn process_mesh_debug(
 
     // Surfaces.
     if params.top_layers > 0 || params.bottom_layers > 0 {
-        let overhang_support = snapshot_overhang_support(&layers, params);
         generate_top_bottom_surfaces_with_interior(
             &mut layers,
             &SurfaceConfig {
@@ -947,8 +956,8 @@ pub fn process_mesh_debug(
             classify_overhang_perimeters(
                 &mut layers,
                 params.nozzle_diameter_mm,
-                overhang_support.as_deref().map(|support| OverhangGrading {
-                    support,
+                Some(&slice_outlines),
+                params.enable_overhang_speed.then(|| OverhangGrading {
                     band_class: overhang_band_class(params),
                 }),
             );
@@ -1270,18 +1279,30 @@ fn ray_cast(probe: (f64, f64), poly: &[(f64, f64)]) -> Containment {
     }
 }
 
-/// Snapshot each layer's pristine OuterWall perimeter outline for dynamic
-/// overhang-degree grading, or `None` when the feature is disabled.
+/// Snapshot each layer's **material footprint** — the model cross-section the
+/// layer will be filled out to — for overhang classification.
 ///
-/// Must be called **before** surface generation, which splits walls via bridge
-/// clipping — the grader needs the un-split centrelines so a layer's support
-/// outline (`snapshot[i-1]`) matches the geometry `unsupported_regions` was
-/// built from.
-fn snapshot_overhang_support(layers: &[SliceLayer], params: &SlicingParams) -> Option<Vec<Paths>> {
-    if !params.enable_overhang_speed {
-        return None;
-    }
-    Some(snapshot_perimeters(layers))
+/// A wall's support is the *material* below it, and material reaches the slice
+/// boundary: the outer bead is laid half its own width inside it. Measuring
+/// against the previous layer's wall *centreline* instead understates support by
+/// that half-width everywhere — enough on its own to tag a near-vertical funnel
+/// or a gently flaring hull as an overhang.
+///
+/// Hence the timing, which is the whole subtlety here. It must be taken
+/// **before the wall generator replaces `paths` with centrelines**; after
+/// dimensional compensation, a deliberate resize the printed part really has;
+/// and **before elephant foot**, which is not one — that shrinks the first
+/// layers precisely so the squashed bead spreads back out to the model's width,
+/// so the material still reaches the uncompensated outline. Measuring from the
+/// shrunken one invents a step of the full compensation (0.2 mm by default)
+/// between layer 1 and layer 2, which on a flaring hull is the difference
+/// between a wall and a bridge.
+///
+/// Taken unconditionally: whether a wall hangs in air is geometry and cannot
+/// depend on `enable_overhang_speed`, which only chooses whether the degrees
+/// within one are graded.
+fn snapshot_slice_outlines(layers: &[SliceLayer]) -> Vec<Paths> {
+    layers.iter().map(|layer| layer.paths.clone()).collect()
 }
 
 /// Snapshot every layer's `OuterWall` centreline outline as it stands now.

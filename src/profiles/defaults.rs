@@ -96,7 +96,6 @@ pub fn base_process(meta: ProfileMeta) -> ProcessProfile {
             "first_layer_speed": 25.0,
             "support_threshold_angle": 45.0,
             "adhesion_type": "none",
-            "bridge_flow": 0.95,
         }),
     }
 }
@@ -248,7 +247,6 @@ pub fn high_speed_process() -> ProcessProfile {
         "bottom_layers": 3,
         "seam_position": "aligned",
         "bridge_speed": 15.0,
-        "infill_density": 0.15,
         "infill_pattern": "TpmsD",
         "infill_base_angle": 45.0,
         "print_speed": 200.0,
@@ -306,7 +304,6 @@ pub fn maximum_process() -> ProcessProfile {
         "bottom_layers": 3,
         "seam_position": "aligned",
         "bridge_speed": 30.0,
-        "infill_density": 0.15,
         "infill_pattern": "TpmsD",
         "infill_base_angle": 45.0,
         "print_speed": 300.0,
@@ -484,18 +481,27 @@ mod tests {
         let profile = default_process().params;
         let profile = profile.as_object().expect("profile params are an object");
 
+        // Collected rather than asserted one at a time: when a default moves,
+        // several fields usually move with it, and a run that names only the
+        // first sends you round the loop once per field.
+        let mut drifted: Vec<String> = Vec::new();
         for (key, value) in profile {
             if PRESET_KEYS.contains(&key.as_str()) {
                 continue;
             }
-            let default = defaults
-                .get(key)
-                .unwrap_or_else(|| panic!("`{key}` is not a slicing parameter"));
-            assert_eq!(
-                value, default,
-                "the shipped profile sets `{key}` to {value}, but the engine defaults to {default}\
-                 — a slice from the app and one from the CLI would print differently"
-            );
+            let Some(default) = defaults.get(key) else {
+                drifted.push(format!("  {key}: not a slicing parameter at all"));
+                continue;
+            };
+            if value != default {
+                drifted.push(format!("  {key}: profile {value}, engine {default}"));
+            }
         }
+        assert!(
+            drifted.is_empty(),
+            "the shipped process profile disagrees with the engine defaults, so a slice \
+             from the app and one from the CLI would print differently:\n{}",
+            drifted.join("\n")
+        );
     }
 }

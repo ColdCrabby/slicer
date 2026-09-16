@@ -40,12 +40,12 @@ issue/PR numbers or repo links in the notes. See the tone rules in
   card caddy or a fan grille, were spending more time on the ceremony than on
   the ribs: one such model loses 85 % of its retractions.
 - **Better infill and surface defaults out of the box.** Sparse infill is now
-  **TPMS-D** instead of rectilinear: a minimal surface carries load in every
-  direction, so 15 % density buys a stiffer part without printing more. Top and
-  bottom solid surfaces are **rectilinear**, one continuous serpentine pass
+  **TPMS-D** at 20 % instead of rectilinear: a minimal surface carries load in
+  every direction, so the part comes out stiffer for the material it uses. Top
+  and bottom solid surfaces are **rectilinear**, one continuous serpentine pass
   rather than the one-way monotonic sweeps, which leaves an even, evenly-pressed
-  face. The shipped presets move with the engine, so a slice from the app and
-  one from the command line still agree.
+  face. The first layer slows to 25 mm/s. The shipped presets move with the
+  engine, so a slice from the app and one from the command line still agree.
 - **Every speed reads in mm/s, including travel and retraction.** Those two are
   stored in mm/min because that is what a G-code `F` word carries, and the panel
   used to ask for `9000` beside a print speed of `120`. Press the unit next to
@@ -284,6 +284,28 @@ issue/PR numbers or repo links in the notes. See the tone rules in
 
 ### Fixed
 
+- **Overhang detection measures material, not centrelines.** A wall counted as
+  an overhang once it leaned half a bead past the *centreline* of the wall below
+  — but the layer below is half a bead wider than its centreline, so near-vertical
+  funnels, chamfered lips and gently flaring hulls were being given bridge speed
+  and bridge cooling for surfaces that still land on solid plastic. Support is now
+  measured from the material edge, and a wall earns the overhang role only once
+  the bead clears the layer below entirely. Steep-but-touching walls are still
+  slowed and cooled, by overhang *degree* — they just keep wall flow and stay one
+  continuous loop instead of being cut into arcs.
+- **Overhangs are classified by geometry, not by rounding.** The test asked a
+  point-in-polygon question about points lying exactly on their own subject
+  polygon, so the answer came back as floating-point noise: a uniform 0.34 mm
+  ledge was split into four alternating verdicts around one circle. Every
+  boundary now sits clear of the wall it is asked about, so a rim that leans
+  evenly is classified evenly.
+- **Small layers no longer crawl to a blob.** The minimum-layer-time slowdown
+  scaled every feedrate against the general print speed, so roles already slower
+  than it — bridges, overhang bands, ironing — fell straight through the
+  `min_print_speed` floor. A Benchy chimney rim ran at 1 mm/s against a 10 mm/s
+  floor, where the melt oozes faster than the nozzle moves and the bead lands
+  nozzle-round however little filament is commanded. The floor now applies to the
+  speed actually emitted.
 - **Closing a workplate tab works.** The close button did nothing whenever the
   tab's plate was still loaded, because the list that opens a tab per loaded
   file put it straight back.
