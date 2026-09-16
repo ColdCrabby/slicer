@@ -17,16 +17,23 @@ use crate::settings::params::{IroningType, SlicingParams};
 /// there are surfaces between the beads and incorrectly labelling infill paths
 /// as `BottomSurface` / `TopSurface`.
 ///
-/// For a correctly sliced model the union of all `OuterWall` paths faithfully
-/// represents the solid cross-section of the layer, which is exactly what
-/// surface detection needs.
+/// For a correctly sliced model the union of all closed `OuterWall` paths
+/// faithfully represents the solid cross-section of the layer, which is exactly
+/// what surface detection needs.
+///
+/// **Closed** is the operative word. An island outline is a loop; the other
+/// thing tagged `OuterWall` is the open medial bead of a rib too thin to carry
+/// a perimeter, which is material but not an outline — feeding its two-ended
+/// polyline to a fill rule asks what a line encloses, and the answer is noise.
 pub(crate) fn perimeter_paths_of(layer: &SliceLayer) -> Paths {
     Paths::new(
         layer
             .paths
             .iter()
             .enumerate()
-            .filter(|(i, _)| layer.role_for_path(*i) == ExtrusionRole::OuterWall)
+            .filter(|(i, _)| {
+                layer.role_for_path(*i) == ExtrusionRole::OuterWall && !layer.is_path_open(*i)
+            })
             .map(|(_, p)| p.clone())
             .collect(),
     )
@@ -464,14 +471,22 @@ pub(super) fn compute_wall_bead_footprint_filtered(
         // Only true wall extrusions consume area we'd otherwise want to
         // bridge over.  `OverhangPerimeter` is included because the
         // overhang post-pass relabels in-air wall arcs, and bridges still
-        // must not overlap them; `GapFill` deposits material inside the wall
-        // band and must likewise not be bridged over — but the surface trim
-        // passes `include_gap_fill = false` because it accounts for gap fill
-        // separately (and drops beads redundant with the surface).
-        let role_included = matches!(
-            role,
-            ExtrusionRole::OuterWall | ExtrusionRole::InnerWall | ExtrusionRole::OverhangPerimeter
-        ) || (include_gap_fill && role.is_medial_bead());
+        // must not overlap them.  A medial bead deposits material inside the
+        // wall band and must likewise not be bridged over — but the surface
+        // trim passes `include_gap_fill = false` because it accounts for those
+        // separately (and drops beads redundant with the surface), and that
+        // holds however the bead is *labelled*: a thin rib is an `OuterWall`
+        // and still belongs on the medial side of this question.
+        let role_included = if layer.is_medial_bead(i) {
+            include_gap_fill
+        } else {
+            matches!(
+                role,
+                ExtrusionRole::OuterWall
+                    | ExtrusionRole::InnerWall
+                    | ExtrusionRole::OverhangPerimeter
+            )
+        };
         if !role_included {
             continue;
         }
@@ -572,7 +587,7 @@ fn compute_gap_fill_footprint_filtered(
     let default_radius = nozzle_diameter_mm * 0.5;
     let mut acc = Paths::new(vec![]);
     for (i, path) in layer.paths.iter().enumerate() {
-        if !layer.role_for_path(i).is_medial_bead() {
+        if !layer.is_medial_bead(i) {
             continue;
         }
         if let Some(region) = skip_sandwiched {
@@ -726,7 +741,9 @@ fn gap_fill_sandwiched_by_surface(
 /// after surface generation, before sparse infill.
 pub(super) fn prune_redundant_gap_fill(layers: &mut [SliceLayer], nozzle_diameter_mm: f64) {
     for layer in layers.iter_mut() {
-        if layer.solid_regions.is_empty() || !layer.path_roles.iter().any(|r| r.is_medial_bead()) {
+        if layer.solid_regions.is_empty()
+            || !(0..layer.paths.len()).any(|i| layer.is_medial_bead(i))
+        {
             continue;
         }
 
@@ -742,7 +759,7 @@ pub(super) fn prune_redundant_gap_fill(layers: &mut [SliceLayer], nozzle_diamete
 
         for (i, path) in layer.paths.iter().enumerate() {
             let role = layer.role_for_path(i);
-            let redundant = role.is_medial_bead() && {
+            let redundant = layer.is_medial_bead(i) && {
                 let mut total = 0_usize;
                 let mut inside = 0_usize;
                 for p in path.iter() {
@@ -972,11 +989,13 @@ pub(crate) fn clip_walls_against_bridge_region(layer: &mut SliceLayer, bridge_re
     let mut new_paths = Paths::new(vec![]);
     let mut new_roles: Vec<ExtrusionRole> = Vec::new();
     let mut new_widths: Vec<Option<f64>> = Vec::new();
+    let mut new_vwidths: Vec<Option<Vec<f64>>> = Vec::new();
     let mut new_is_open: Vec<bool> = Vec::new();
 
     for (path_idx, path) in layer.paths.iter().enumerate() {
         let role = layer.role_for_path(path_idx);
         let width = layer.width_for_path(path_idx);
+        let vwidths = layer.vertex_widths_for_path(path_idx);
         let is_open = layer.is_path_open(path_idx);
 
         // Only wall paths need bridge-zone clipping.
@@ -984,6 +1003,7 @@ pub(crate) fn clip_walls_against_bridge_region(layer: &mut SliceLayer, bridge_re
             new_paths.push(path.clone());
             new_roles.push(role);
             new_widths.push(width);
+            new_vwidths.push(vwidths);
             new_is_open.push(is_open);
             continue;
         }
@@ -994,6 +1014,7 @@ pub(crate) fn clip_walls_against_bridge_region(layer: &mut SliceLayer, bridge_re
             new_paths.push(path.clone());
             new_roles.push(role);
             new_widths.push(width);
+            new_vwidths.push(vwidths);
             new_is_open.push(is_open);
             continue;
         }
@@ -1023,6 +1044,7 @@ pub(crate) fn clip_walls_against_bridge_region(layer: &mut SliceLayer, bridge_re
             new_paths.push(path.clone());
             new_roles.push(role);
             new_widths.push(width);
+            new_vwidths.push(vwidths);
             new_is_open.push(is_open);
             continue;
         }
@@ -1080,6 +1102,12 @@ pub(crate) fn clip_walls_against_bridge_region(layer: &mut SliceLayer, bridge_re
             new_paths.push(seg_path);
             new_roles.push(role);
             new_widths.push(width);
+            // A split arc is re-cut at the bridge boundary, so the per-vertex
+            // widths no longer line up with its vertices; the scalar width
+            // stands in.  Only the arc loses them — a path this pass hands
+            // through keeps its own, or every medial bead on a bridge layer
+            // would forget how wide it is.
+            new_vwidths.push(None);
             new_is_open.push(true); // results are open arcs
         }
     }
@@ -1087,9 +1115,8 @@ pub(crate) fn clip_walls_against_bridge_region(layer: &mut SliceLayer, bridge_re
     layer.paths = new_paths;
     layer.path_roles = new_roles;
     layer.path_widths = new_widths;
+    layer.path_vertex_widths = new_vwidths;
     layer.path_is_open = new_is_open;
-    // Bridge-split arcs drop per-vertex widths; scalar width is used.
-    layer.path_vertex_widths = Vec::new();
 }
 
 /// Add bridge infill for an unsupported `region` to a layer.

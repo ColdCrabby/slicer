@@ -54,6 +54,32 @@ issue/PR numbers or repo links in the notes. See the tone rules in
 - **Reloading always gets the current build.** The app shell and the WebAssembly
   engine revalidate; only files whose names carry a build hash are kept.
 
+#### Walls
+
+- **Turning a model on the plate no longer changes how it slices.** Thin features
+  were being reconstructed from geometry the 0.01 mm coordinate grid had turned
+  into a staircase, so a rib that sliced cleanly square to the axes came apart at
+  any other angle. A card caddy turned 45° laid 42 % of its dividers and extruded
+  the rest twice, for 3.5 % more filament than the same caddy flat. It now lays
+  the same length of divider at 0° and at 45°, to within 1 %, at both a 0.4 mm and
+  a 0.6 mm nozzle.
+- **A thin feature survives a wide nozzle.** Anything narrower than the minimum
+  bead width was dropped outright, so a 0.6 mm nozzle deleted all 48 card
+  dividers of a caddy on every layer and printed a solid block. A feature is now
+  printed at the minimum bead width instead — slightly fat — down to half of it.
+- **Thin features print end to end.** A rib's bead stopped a fraction short of
+  both its root and its tip, because the pass that cleans spurs off the medial
+  axis could not tell a spur from the taper every feature has at its own end.
+- **Fewer isolated dabs.** A bead no longer stops and restarts where the material
+  it follows dips below a printable width for less than one bead — on a tapering
+  chamfer that turned a single line into a file of millimetre dabs, each paying a
+  full travel to reach. The card caddy turned 45° drops from 834 sub-1.5 mm
+  extrusions to 345, with no measurable change in what is left unfilled.
+- **A tapering bead keeps its taper over a bridge or an overhang.** Splitting
+  walls at a bridge or air boundary discarded the per-vertex widths of every path
+  in the layer, not just the arcs it re-cut, so gap fill and thin features printed
+  at their average width rather than the width the space actually has.
+
 ### Added
 
 - **See when a colleague changes the plate you are on.** On a shared server,
@@ -64,11 +90,11 @@ issue/PR numbers or repo links in the notes. See the tone rules in
 
 ### Changed
 
-- **Thin ribs are told apart from gap fill.** A rib, fin or divider too thin to
-  carry a perimeter used to be tagged as filler between walls, which printed it
-  at the deliberately gentle gap-fill acceleration. It is now a **Thin wall**:
-  wall acceleration, its own colour in the preview, and its own entry in the
-  Shell legend group. The beads themselves are unchanged.
+- **A thin rib prints as the wall it is.** A rib, fin or divider too thin to
+  carry a perimeter used to be tagged as filler between walls and printed at the
+  deliberately gentle gap-fill acceleration. It is now the outer wall of that
+  feature — wall speed, wall acceleration, wall colour — with no feature type of
+  its own, because covering it is what the Arachne generator is for.
 - **Short hops inside a part no longer retract.** A travel that crosses no wall
   and stays under 5 mm within the part skips the retract, Z-hop and prime — what
   it drools lands where nothing shows. Parts with a field of thin ribs, like a

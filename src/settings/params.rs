@@ -643,7 +643,10 @@ The innermost bead may have variable width when narrow space remains.
     #[schemars(
         description = "Minimum allowed bead width as a fraction of nozzle diameter.
 
-Beads narrower than `wall_line_width_min × nozzle_diameter_mm` are skipped entirely.
+The narrowest line the nozzle is asked to lay. A gap between walls thinner than this is
+left for the neighbouring beads to squish into; a *feature* thinner than this — a rib or
+divider the model actually has — is printed at this width instead, slightly fat, down to
+half of it. Below that it is dropped.
 **Range:** 0.5–1.0.",
         extend("x-group" = "Walls", "x-tier" = "expert", "x-unit" = "ratio")
     )]

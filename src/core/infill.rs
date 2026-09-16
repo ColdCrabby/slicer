@@ -197,7 +197,11 @@ pub(crate) fn calculate_interior_region(
             .iter()
             .enumerate()
             .filter_map(|(i, p)| {
-                if layer.role_for_path(i) == ExtrusionRole::OuterWall {
+                // Closed loops only.  A rib too thin for a perimeter is an open
+                // `OuterWall` bead: real material, but not the outline of
+                // anything, and deflating a two-ended polyline inward yields
+                // nonsense rather than an interior.
+                if layer.role_for_path(i) == ExtrusionRole::OuterWall && !layer.is_path_open(i) {
                     Some(p.clone())
                 } else {
                     None
@@ -220,7 +224,7 @@ pub(crate) fn calculate_interior_region(
             matches!(
                 layer.role_for_path(*i),
                 ExtrusionRole::OuterWall | ExtrusionRole::InnerWall
-            )
+            ) && !layer.is_path_open(*i)
         })
         .count();
     let outer_count = outer_paths.len().max(1);
