@@ -131,6 +131,16 @@ export class SettingsPanel {
     return this.presets.selectedId(contract);
   }
 
+  /** The preset a row is showing, or an invitation to make one. */
+  protected presetNameFor(contract: SettingContractId): string {
+    const id = this.presets.selectedId(contract);
+    const meta = SETTING_CONTRACTS.find((c) => c.id === contract)!;
+    return (
+      this.presets.options(contract).find((option) => option.value === id)?.label ??
+      `Add a ${meta.label.toLowerCase()} preset…`
+    );
+  }
+
   protected selectPresetFor(contract: SettingContractId, id: string): void {
     this.presets.select(contract, id);
   }

@@ -25,9 +25,11 @@ filament and its print profile, one row each. Every row names the preset it is
 using, changes it from the same dropdown, and has a cog that opens that preset's
 own editor.
 
-There is no tab to press. Reaching for a row is what points the settings below
-at it, so the one you are working in is simply the one you last touched, and the
-other two stay readable above and below it instead of hiding behind it.
+There is no tab to press. Click a row and the settings below are that row's —
+the caret beside it changes which preset the row is using, and the cog opens
+that preset's own editor. Pointing the settings somewhere is what you do most,
+so it takes the whole row; the other two sit beside it and never get in the way
+of it.
 
 ## Links take you to the knob
 

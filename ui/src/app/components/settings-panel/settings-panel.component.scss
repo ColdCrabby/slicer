@@ -83,9 +83,75 @@
   }
 }
 
-.recipe-select {
+/* The row itself: points the settings below at this contract. The frequent
+   action, so it takes the width. */
+.recipe-scope {
+  display: flex;
   flex: 1 1 auto;
+  align-items: center;
+  gap: var(--spacing-sm);
   min-width: 0;
+  padding: var(--spacing-xs) var(--spacing-xs);
+  border: none;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-sm);
+  line-height: 1.5;
+  text-align: left;
+  cursor: pointer;
+  transition: color var(--duration-fast) var(--ease-standard);
+  --icon-size: 14px;
+
+  &:hover {
+    color: var(--color-text-primary);
+  }
+
+  &:focus-visible {
+    outline: 2px solid var(--color-focus-ring);
+    outline-offset: -2px;
+  }
+}
+
+.recipe-row.is-active .recipe-scope {
+  color: var(--color-text-primary);
+}
+
+.recipe-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Swaps the preset. Rare next to scoping, so it is the caret alone — the
+   trigger's label is clipped rather than dropped, so the control still tells a
+   screen reader which preset it is holding. */
+.recipe-swap {
+  // The host carries the width, not just the trigger inside it: `nexus-select`
+  // is full-width by default, and styling only its inner button left the host
+  // still claiming the whole row and collapsing the scope button beside it.
+  flex: none;
+  width: 30px;
+
+  ::ng-deep .trigger {
+    width: 100%;
+    padding-inline: 0;
+    justify-content: center;
+    border-color: transparent;
+    background: transparent;
+  }
+
+  ::ng-deep .trigger-label,
+  ::ng-deep .trigger-swatches {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
 }
 
 .recipe-edit {

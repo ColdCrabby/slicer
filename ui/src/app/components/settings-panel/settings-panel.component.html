@@ -44,29 +44,36 @@
 
       @for (contract of contracts; track contract.id) {
         <!--
-          Reaching for a row is what scopes the settings to it — one gesture,
-          not a tab press and then a pick. `mousedown` so the scope has already
-          changed by the time the preset list opens over it.
+          Two intentions, two targets. Pointing the settings at a row is the
+          frequent one, so it gets the whole row; swapping the preset is rarer
+          and gets the caret beside it.
+
+          They were one control for a while — the row was the picker, and
+          scoping meant opening a preset list you then had to dismiss. Switching
+          between printer and process settings is something you do constantly,
+          and it should not cost a menu every time.
         -->
-        <div
-          class="recipe-row"
-          [class.is-active]="activeContract() === contract.id"
-          (mousedown)="setContract(contract.id)"
-        >
+        <div class="recipe-row" [class.is-active]="activeContract() === contract.id">
+          <button
+            type="button"
+            class="recipe-scope"
+            [attr.aria-pressed]="activeContract() === contract.id"
+            (click)="setContract(contract.id)"
+          >
+            <nexus-icon [name]="contract.icon" aria-hidden="true" />
+            <span class="recipe-name">{{ presetNameFor(contract.id) }}</span>
+          </button>
+
           @if (presetOptionsFor(contract.id).length > 0) {
+            <!-- Trigger label is clipped, not removed: the caret is all that
+                 shows, and a screen reader still hears which preset it holds. -->
             <nexus-select
-              class="recipe-select"
+              class="recipe-swap"
               [options]="presetOptionsFor(contract.id)"
               [value]="selectedIdFor(contract.id)"
-              [startIcon]="contract.icon"
               [placeholder]="'Select ' + contract.label.toLowerCase()"
               (valueChange)="selectPresetFor(contract.id, $event)"
             />
-          } @else {
-            <a class="preset-empty" [routerLink]="contract.managePath">
-              <nexus-icon [name]="contract.icon" aria-hidden="true" />
-              Add a {{ contract.label.toLowerCase() }} preset…
-            </a>
           }
 
           <a
