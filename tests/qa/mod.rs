@@ -34,6 +34,7 @@ pub const ROLE_ORDER: &[&str] = &[
     "outer_wall",
     "inner_wall",
     "overhang_wall",
+    "thin_wall",
     "gap_fill",
     "infill",
     "top_surface",
@@ -242,6 +243,10 @@ pub fn canon_role(t: &str) -> String {
         "support"
     } else if l.contains("gap") {
         "gap_fill"
+    } else if l.contains("thin") {
+        // Ahead of the wall tests, which do not match "thin wall" at all and
+        // would drop the model's own thin ribs into `other`.
+        "thin_wall"
     } else if l.contains("outer") {
         "outer_wall"
     } else if l.contains("inner") {

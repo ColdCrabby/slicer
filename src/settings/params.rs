@@ -1619,7 +1619,9 @@ Pulls filament back into the nozzle to reduce oozing and stringing.
 
 Short hops between adjacent paths do not ooze enough to justify the
 retract → travel → un-retract cycle (which itself takes longer than the hop).
-Travels longer than 2 mm always retract regardless of this value.
+Travels longer than 2 mm always retract regardless of this value, unless the hop
+stays inside the part and under 5 mm — a short interior hop drools where nothing
+shows, so it skips the cycle.
 **Typical:** 1.0–2.0 mm. Set to `0` to retract on every travel.", extend("x-group" = "Retraction", "x-unit" = "mm", "x-step" = 0.05, "x-tier" = "advanced"))]
     #[serde(default = "SlicingParams::default_retract_before_travel_mm")]
     pub retract_before_travel_mm: f64,

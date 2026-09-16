@@ -783,6 +783,7 @@ G1 X10 Y0 Z0.2 E1.0
             Role::SolidInfill
         );
         assert_eq!(Role::from_type_comment("Gap infill"), Role::GapFill);
+        assert_eq!(Role::from_type_comment("Thin wall"), Role::ThinWall);
         assert_eq!(Role::from_type_comment("Top surface"), Role::TopSurface);
         assert_eq!(
             Role::from_type_comment("Bottom surface"),

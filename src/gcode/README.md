@@ -531,12 +531,74 @@ _smart retract_ policy that mirrors PrusaSlicer / OrcaSlicer / Cura:
 | `min – 2 mm`             | yes          | **yes**  | Crossing role boundaries (e.g. infill → outer wall) shows seams without retract |
 | `min – 2 mm`             | no           | no       | Same-role short hops oozing is invisible inside infill                          |
 | `≤ min`                  | any          | no       | Retract ceremony costs more time than the hop itself                            |
+| `≤ 5 mm`, **interior**   | no           | no       | The hop never leaves the part, so what it drools lands where nothing shows      |
 
 The minimum (`min`) is the configurable `retract_before_travel_mm`
 (default 1.0 mm); travels longer than 2 mm always retract. The role-aware
 branch eliminates the 99 %+ of pointless retracts that occurred on every
 wall-loop end on dense benchmarks, while still protecting the visible outer
 surface from oozing.
+
+### Interior hops
+
+The last row is the exception that outranks the distance ceiling. A hop is
+**interior** when it crosses no outer wall and its midpoint lies inside an
+island's outline — [`TravelPlanner::hop_is_interior`](travel.rs) answers this,
+and the planner is built for every layer whether or not `avoid_crossing_perimeters`
+is on. A hop over a solid (top/bottom) region is excluded, because that region
+may be the visible top surface.
+
+This matters for a part with a **field of thin features** — card dividers, fins,
+a lattice web. Each rib is one short bead, so a rib field is dozens of
+extrusions per layer joined by hops of a few millimetres, and the ceremony
+between them costs more wall-clock than the hops it guards while pumping the
+extruder thousands of times over a print. On a 25-slot card caddy the exemption
+removes roughly 85 % of the print's retractions.
+
+### Routing a hop over material
+
+An interior hop still crosses whatever is between its ends, and between two
+dividers that is an open slot — so the ooze the retraction no longer catches
+becomes a strand hanging in the slot. [`MaterialRouter`](travel.rs) removes that
+too, by re-routing the hop so it never leaves material in the first place.
+
+```mermaid
+flowchart LR
+  H[short same-role hop] --> C{already on material?}
+  C -->|yes| S[straight, no retract]
+  C -->|no| R{route within 2x?}
+  R -->|yes| M[lift · travel over material · lower<br/>no retract]
+  R -->|no| I{interior?}
+  I -->|yes| S
+  I -->|no| P[full retract ceremony]
+```
+
+- **What "material" is**: the layer's extrusion footprint — every wall and medial
+  bead's physical area, the same measure surface trimming uses. Fill roles are
+  excluded: a top surface is the last thing to drag a nozzle across.
+- **Where a route may turn**: vertices of that footprint *eroded by half a bead*,
+  plus the two ends of every open bead. Eroding keeps a route in the middle of
+  the beads it crosses rather than along the outer edge of the wall just printed,
+  and keeps the waypoint count an order of magnitude below the raw centerlines —
+  which is what makes the `O(V²)` visibility search affordable. The bead ends are
+  there because erosion deletes a one-nozzle-wide rib entirely, and without them
+  a rib meeting a wall offers nowhere to turn.
+- **The budget** is twice the straight-line distance. A longer way round costs
+  more time than the retraction it saves and drags the nozzle further across
+  finished beads than one strand is worth.
+- **A re-routed hop lifts** by `z_hop_mm` before it travels and lowers after. It
+  runs across beads this layer already laid, and grazing them at print Z is the
+  scar the re-route exists to avoid. The lift is the only part of the ceremony it
+  pays — no retraction, no prime.
+
+Routers are built for every layer **in parallel**, ahead of the strictly
+sequential G-code walk: each is a chain of Clipper offset and union calls over
+every bead on its layer, and building them inline dominated the phase.
+
+Half a rib field's hops are re-routable in practice. On the card caddy the hops
+at the *root* end run back into the wall band the ribs share; the ones at the
+*tip* end have nothing to travel over but the slot, and stay straight — the way
+round, down one rib and out the next, is more than twice the direct line.
 
 When a retract _is_ emitted, the sequence is:
 
