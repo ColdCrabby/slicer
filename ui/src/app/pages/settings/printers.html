@@ -312,35 +312,79 @@
             }
 
             <!--
-              Only when this machine has corrections. A section that were always
-              present would be an empty form inviting values nobody measured;
-              corrections are captured from a plate that printed wrong, not
-              authored here.
+              Corrections are captured from a plate that printed wrong — but
+              these pages are the surface that manages everything, so every one
+              is editable here too, one section per material so the outline maps
+              it like any other part of the editor.
             -->
-            @if (materialCorrections(printer); as corrections) {
+            @for (correction of materialCorrections(printer); track correction.material) {
               <div class="profile-editor__group">
-                <label class="profile-editor__group-title">Material corrections</label>
-                <p class="mgr__corrections-lede">
-                  What this machine does differently with a material, whichever spool of it is
-                  loaded. Add one by changing the setting on a plate and choosing
-                  <em>this printer only</em> when you sync.
-                </p>
-                @for (correction of corrections; track correction.material) {
-                  <div class="mgr__correction">
-                    <span class="mgr__correction-material">{{ correction.label }}</span>
-                    <span class="mgr__correction-settings">{{ correction.summary }}</span>
+                <div class="mgr__correction-head">
+                  <label class="profile-editor__group-title">
+                    {{ correction.label }} corrections
+                  </label>
+                  <button
+                    type="button"
+                    class="mgr__correction-clear"
+                    [attr.aria-label]="'Remove every ' + correction.label + ' correction'"
+                    (click)="clearMaterialCorrection(printer.id, correction.material)"
+                  >
+                    <nexus-icon name="trash" aria-hidden="true" />
+                    <span>Remove all</span>
+                  </button>
+                </div>
+
+                @for (field of correction.fields; track field.key) {
+                  <div class="mgr__correction-row">
+                    <nexus-param-field
+                      class="mgr__correction-field"
+                      [field]="field"
+                      [value]="correctionValue(printer, correction.material, field.key)"
+                      [siblings]="correctionSiblings(printer, correction.material)"
+                      (valueChange)="
+                        setCorrection(printer.id, correction.material, field.key, $event)
+                      "
+                    />
                     <button
                       type="button"
                       class="mgr__correction-clear"
-                      [attr.aria-label]="'Remove the ' + correction.label + ' correction'"
-                      (click)="clearMaterialCorrection(printer.id, correction.material)"
+                      [attr.aria-label]="
+                        'Stop correcting ' + field.title + ' for ' + correction.label
+                      "
+                      (click)="removeCorrection(printer.id, correction.material, field.key)"
                     >
                       <nexus-icon name="xmark" aria-hidden="true" />
                     </button>
                   </div>
                 }
+
+                @if (correction.addable.length) {
+                  <nexus-select
+                    class="mgr__correction-add"
+                    [options]="correction.addable"
+                    [value]="null"
+                    placeholder="Correct another setting…"
+                    (valueChange)="addCorrection(printer.id, correction.material, $event)"
+                  />
+                }
               </div>
             }
+
+            <div class="profile-editor__group">
+              <label class="profile-editor__group-title">Material corrections</label>
+              <p class="mgr__corrections-lede">
+                What this machine does differently with a material — what its hotend can melt, what
+                its extruder needs — whichever spool of that material is loaded. Every printer you
+                own keeps its own, and nothing here touches the filament profile.
+              </p>
+              <nexus-select
+                class="mgr__correction-add"
+                [options]="addableMaterials(printer)"
+                [value]="null"
+                placeholder="Correct a material on this printer…"
+                (valueChange)="addMaterialCorrection(printer.id, $event)"
+              />
+            </div>
 
             <div class="profile-editor__group" id="gcode-target">
               <label class="profile-editor__group-title">G-code</label>

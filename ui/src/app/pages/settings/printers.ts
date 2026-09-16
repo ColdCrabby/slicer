@@ -22,7 +22,7 @@ import { SETTING_CONTRACTS } from '../../models/setting-contract';
 import globalSettingsSchema from '../../../schemas/slicer-engine-global-settings-v1.json';
 import { controlFor } from '../../schema-form/models/field-control';
 import { parseSchema } from '../../schema-form/models/schema-parser';
-import type { SchemaGroup } from '../../schema-form/models/field-def';
+import type { FieldDef, SchemaGroup } from '../../schema-form/models/field-def';
 import {
   CUSTOM_TEMPLATE_ID,
   GCODE_PLACEHOLDER_HINT,
@@ -39,14 +39,19 @@ import type { ContextMenuItem } from '../../services/context-menu/context-menu.m
 import { Dialog } from '../../services/dialog';
 import { NotificationService } from '../../services/notifications';
 import { PrinterConnectionService } from '../../services/printer-connection';
-import { FILAMENT_MATERIAL_LABELS, type FilamentMaterial } from '../../models/filament.model';
-import { fieldLabel } from '../../schema-form/models/field-labels';
+import {
+  FILAMENT_MATERIALS,
+  FILAMENT_MATERIAL_LABELS,
+  MATERIAL_PARAMS,
+  type FilamentMaterial,
+} from '../../models/filament.model';
 import { ActiveSelection } from '../../services/profiles/active-selection';
 import { matchesAnyLabel, toggledLabelIds } from '../../services/profiles/label-filtering';
 import { paramNum, paramStr } from '../../models/params-access';
 import { LabelFilterStore } from '../../services/profiles/label-filter-store';
 import { LabelsStore } from '../../services/profiles/labels-store';
 import { PrintersStore } from '../../services/profiles/printers-store';
+import { correctionsFor, withCorrections } from '../../services/profiles/material-corrections';
 import {
   Icon,
   Badge,
@@ -114,6 +119,28 @@ const DERIVED_PARAM_KEYS = new Set(['printer_vendor', 'printer_model']);
  * and {@link DERIVED_PARAM_KEYS} are all that is filtered out. Groups left with
  * no renderable field are dropped entirely.
  */
+/**
+ * The settings a machine may correct per material, in schema order.
+ *
+ * Read from the schema's `x-per-machine-material` annotations, so the engine's
+ * `PER_MACHINE_MATERIAL_KEYS` stays the only list of them and a new one appears
+ * here with no change.
+ */
+const CORRECTABLE_FIELDS: FieldDef[] = parseSchema(SLICING_PARAMS_SCHEMA).fields.filter(
+  (field) => field.perMachineMaterial,
+);
+
+/**
+ * The setting a brand-new material correction starts on.
+ *
+ * Named rather than taken from the head of the list: schema order is the right
+ * order for the *picker*, but it is arbitrary as a starting point, and landing
+ * someone on a fan ceiling when what they came to correct is flow makes the
+ * feature read as the wrong thing. Melt rate is the reason most machines need a
+ * correction at all.
+ */
+const FIRST_CORRECTION_KEY = 'max_volumetric_speed';
+
 const PARAM_GROUPS: SchemaGroup[] = (() => {
   const order = new Map<string, number>(PRINTER_PARAM_GROUPS.map((name, index) => [name, index]));
   return parseSchema(SLICING_PARAMS_SCHEMA)
@@ -509,37 +536,137 @@ export class PrintersSettings {
   }
 
   /**
-   * This machine's per-material corrections, one flat line each, or `null` when
-   * it has none.
+   * This machine's per-material corrections, one section per material family.
    *
-   * A read-out rather than an editor. Each line names the material and the
-   * settings corrected, because that is what the user needs to recognise — the
-   * numbers themselves are visible on the slice page, against the material they
-   * apply to, where they mean something.
+   * A correction is normally *captured* — changed on a plate that printed
+   * wrong, then synced with "this printer only" — but these pages are the
+   * surface that manages everything the slicer has, so each one is fully
+   * editable here: change a value, stop correcting one setting, correct
+   * another, or drop the material entirely.
+   *
+   * `fields` holds only the settings this material actually corrects, and
+   * `addable` the rest of the eligible set. An empty correction is not a
+   * setting left blank — it is a measurement nobody took, and the material's
+   * own value standing is the right answer until they do.
    */
-  protected materialCorrections(
-    printer: PrinterProfile,
-  ): { material: string; label: string; summary: string }[] | null {
+  protected materialCorrections(printer: PrinterProfile): {
+    material: string;
+    label: string;
+    fields: FieldDef[];
+    addable: { value: string; label: string }[];
+  }[] {
     const overlays = (printer.material_overlays ?? {}) as Record<string, Record<string, unknown>>;
-    const rows = Object.entries(overlays)
+    return Object.entries(overlays)
       .filter(([, params]) => Object.keys(params ?? {}).length > 0)
       .map(([material, params]) => ({
         material,
         label: FILAMENT_MATERIAL_LABELS[material as FilamentMaterial] ?? material,
-        summary: Object.keys(params).map(fieldLabel).join(' · '),
+        fields: CORRECTABLE_FIELDS.filter((field) => field.key in params),
+        addable: CORRECTABLE_FIELDS.filter((field) => !(field.key in params)).map((field) => ({
+          value: field.key,
+          label: field.title ?? field.key,
+        })),
       }));
-    return rows.length > 0 ? rows : null;
   }
 
-  /** Drop every correction this machine holds for one material family. */
-  protected clearMaterialCorrection(id: string, material: string): void {
+  /** Material families this machine has no correction for yet. */
+  protected addableMaterials(printer: PrinterProfile): { value: string; label: string }[] {
+    const overlays = (printer.material_overlays ?? {}) as Record<string, Record<string, unknown>>;
+    return FILAMENT_MATERIALS.filter(
+      (material) => Object.keys(overlays[material] ?? {}).length === 0,
+    ).map((material) => ({ value: material, label: FILAMENT_MATERIAL_LABELS[material] }));
+  }
+
+  protected correctionValue(printer: PrinterProfile, material: string, key: string): unknown {
+    return correctionsFor(printer, material)[key];
+  }
+
+  /**
+   * What a correction's controls read their neighbours from: the machine's own
+   * params with the correction laid over them, which is the order they resolve
+   * in. A unit toggle asking what the nozzle is must get the printer's answer,
+   * not nothing.
+   */
+  protected correctionSiblings(printer: PrinterProfile, material: string): Record<string, unknown> {
+    return { ...this.paramsOf(printer), ...correctionsFor(printer, material) };
+  }
+
+  protected setCorrection(id: string, material: string, key: string, value: unknown): void {
+    this.patchCorrection(id, material, (params) => ({ ...params, [key]: value }));
+  }
+
+  /** Start correcting one more setting, from the value it is a deviation from. */
+  protected addCorrection(id: string, material: string, key: string): void {
+    if (!key) {
+      return;
+    }
+    this.patchCorrection(id, material, (params) => ({
+      ...params,
+      [key]: this.seedFor(id, material, key),
+    }));
+  }
+
+  /**
+   * What a fresh correction starts at: the value it is a correction *of*.
+   *
+   * The material's own generic figure first — a PETG correction opening at
+   * PETG's 12 mm³/s says plainly what is being adjusted — then whatever the
+   * machine itself carries, then the engine's default. Starting at zero would
+   * be a correction that means "none" in most of these fields, which is a
+   * worse first impression than a number that is merely not yours yet.
+   */
+  private seedFor(id: string, material: string, key: string): unknown {
+    const fromMaterial = MATERIAL_PARAMS[material as FilamentMaterial]?.[key];
+    if (fromMaterial !== undefined) {
+      return fromMaterial;
+    }
+    const printer = this.store.items().find((p) => p.id === id);
+    const fromPrinter = printer ? this.paramsOf(printer)[key] : undefined;
+    return fromPrinter ?? CORRECTABLE_FIELDS.find((f) => f.key === key)?.default ?? 0;
+  }
+
+  /** Stop correcting one setting — the material's own value stands again. */
+  protected removeCorrection(id: string, material: string, key: string): void {
+    this.patchCorrection(id, material, (params) => {
+      const next = { ...params };
+      delete next[key];
+      return next;
+    });
+  }
+
+  /** Begin correcting a material this machine had nothing to say about. */
+  protected addMaterialCorrection(id: string, material: string): void {
+    if (!material) {
+      return;
+    }
+    this.patchCorrection(id, material, () => ({
+      [FIRST_CORRECTION_KEY]: this.seedFor(id, material, FIRST_CORRECTION_KEY),
+    }));
+  }
+
+  /**
+   * Rewrite one material's corrections, leaving every other material alone and
+   * dropping a material left with nothing. Both rules live in
+   * `material-corrections`, shared with the write-back dialog.
+   */
+  private patchCorrection(
+    id: string,
+    material: string,
+    edit: (params: Record<string, unknown>) => Record<string, unknown>,
+  ): void {
     const printer = this.store.items().find((p) => p.id === id);
     if (!printer) {
       return;
     }
-    const overlays = { ...((printer.material_overlays ?? {}) as Record<string, unknown>) };
-    delete overlays[material];
-    this.store.update(id, { material_overlays: overlays } as Partial<PrinterProfile>);
+    const next = edit(correctionsFor(printer, material));
+    this.store.update(id, {
+      material_overlays: withCorrections(printer, material, next),
+    } as Partial<PrinterProfile>);
+  }
+
+  /** Drop every correction this machine holds for one material family. */
+  protected clearMaterialCorrection(id: string, material: string): void {
+    this.patchCorrection(id, material, () => ({}));
   }
 
   protected rename(id: string, event: Event): void {

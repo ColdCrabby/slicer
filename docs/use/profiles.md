@@ -123,6 +123,14 @@ filament. You correct them where you notice them:
 own. Every other spool of the same material inherits the correction
 automatically, so buying more PLA never costs you a new profile.
 
+They are also managed like anything else, in **Settings → Printers**. Each
+corrected material gets its own section in the printer's editor — and its own
+entry in the outline — with every corrected setting as a normal control. From
+there you can change a value, stop correcting one setting, correct another, or
+drop the material entirely. **Correct a material on this printer…** at the
+bottom starts a new one, opening at the value it is a correction *of*, so you
+can see what you are adjusting away from.
+
 Afterwards, the setting shows where its value came from:
 
 ```

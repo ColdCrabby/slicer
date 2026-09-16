@@ -15,6 +15,7 @@ import { ActiveSelection } from './active-selection';
 import { FilamentsStore } from './filaments-store';
 import { PrintProfilesStore } from './print-profiles-store';
 import { PrintersStore } from './printers-store';
+import { mergedCorrections, withCorrections } from './material-corrections';
 
 const SLICING_PARAMS_SCHEMA = {
   ...(globalSettingsSchema.$defs.SlicingParams as Record<string, unknown>),
@@ -228,23 +229,16 @@ export class ProfileWriteback {
 
   /**
    * This printer's corrections with `rows` folded into the active material's
-   * entry — the other material families untouched.
-   *
-   * Merged rather than replaced: a machine usually has more than one material
-   * corrected, and a user fixing PLA's flow must not lose what they already
-   * recorded about ABS.
+   * entry. The merge rules — every other material untouched, an emptied one
+   * dropped — live in `material-corrections`, shared with the printer editor.
    */
   private buildOverlays(
     rows: WritebackRow[],
     printer: PrinterProfile,
     material: FilamentMaterial,
-  ): Record<string, Record<string, unknown>> {
-    const existing = (printer.material_overlays ?? {}) as Record<string, Record<string, unknown>>;
-    const forMaterial = { ...(existing[material] ?? {}) };
-    for (const row of rows) {
-      forMaterial[row.key] = row.overrideValue;
-    }
-    return { ...existing, [material]: forMaterial };
+  ): Record<string, unknown> {
+    const patch = Object.fromEntries(rows.map((row) => [row.key, row.overrideValue]));
+    return withCorrections(printer, material, mergedCorrections(printer, material, patch));
   }
 
   /** Merge the accepted rows for one contract onto its profile's existing `params`. */
