@@ -259,7 +259,7 @@ export class PrinterConnectionService {
 
   /**
    * Send the G-code sliced for `requestUuid` to a printer, optionally starting
-   * the print. Result is surfaced via a notification.
+   * the print. Progress and the result are surfaced in one scene notice.
    */
   sendToPrinter(
     printer: PrinterProfile,
@@ -322,25 +322,26 @@ export class PrinterConnectionService {
   }
 
   /**
-   * Show upload progress in the docked scene strip. The backend streams no
-   * byte-level progress (a single multipart POST, one terminal result), so the
-   * bar eases toward 90 % to feel alive, then {@link finishSend} snaps it to
-   * 100 % when the result lands.
+   * Show upload progress in the scene strip. The backend streams no byte-level
+   * progress (a single multipart POST, one terminal result), so the bar eases
+   * toward 90 % to feel alive, then {@link finishSend} snaps it to 100 % when
+   * the result lands — in the same notice, which is also where the outcome is
+   * announced.
    */
   private beginSendProgress(printer: PrinterProfile, requestUuid: string): void {
     const key = this.sendKey(printer.id, requestUuid);
     this.clearSend(key);
 
     const verb = 'Uploading';
-    const taskId = this.notifications.progress('Sending to printer', `${verb} to ${printer.name}…`);
+    const taskId = this.notifications.task('Sending to printer', `${verb} to ${printer.name}…`);
     const timer = setInterval(() => {
-      const task = this.notifications.tasks().find((t) => t.id === taskId);
-      if (!task) {
+      const task = this.notifications.notices().find((n) => n.id === taskId);
+      if (task?.progress == null) {
         clearInterval(timer);
         return;
       }
       const next = task.progress + (90 - task.progress) * 0.12;
-      this.notifications.updateProgress(taskId, Math.min(90, Math.round(next)));
+      this.notifications.updateTask(taskId, Math.min(90, Math.round(next)));
     }, 140);
 
     this.sends.set(key, { taskId, timer });
@@ -349,27 +350,27 @@ export class PrinterConnectionService {
   private finishSend(msg: Extract<ServerMessage, { type: 'PrinterSendResult' }>): void {
     const key = this.sendKey(msg.printer_id, msg.request_uuid);
     const entry = this.sends.get(key);
+    const title = msg.started ? 'Print started' : 'Sent to printer';
     if (entry) {
       clearInterval(entry.timer);
       this.sends.delete(key);
       if (msg.ok) {
-        this.notifications.updateProgress(entry.taskId, 100);
-        this.notifications.completeProgress(entry.taskId, 'Sent to printer', msg.message);
+        this.notifications.resolveTask(entry.taskId, 'success', title, msg.message);
       } else {
-        this.notifications.failProgress(entry.taskId, 'Send failed', msg.message);
+        this.notifications.resolveTask(entry.taskId, 'danger', 'Send failed', msg.message);
       }
     } else if (msg.ok) {
-      this.notifications.success('Sent to printer', msg.message);
+      this.notifications.success(title, msg.message);
     } else {
       this.notifications.error('Send failed', msg.message);
     }
 
-    if (msg.ok) {
-      this.notifications.celebrate(
-        msg.started ? 'Print started' : 'Sent to printer',
-        msg.message,
-        msg.started ? 'printer' : 'cloud-upload',
-      );
+    // The flourish is reserved for the job actually starting on the machine —
+    // that is the moment worth marking, and it says something the notice does
+    // not. A plain upload gets the notice alone: playing both for one event
+    // meant the same sentence arriving twice, in two places.
+    if (msg.ok && msg.started) {
+      this.notifications.celebrate('Print started', msg.message, 'printer');
     }
   }
 
@@ -381,7 +382,7 @@ export class PrinterConnectionService {
     const entry = this.sends.get(key);
     if (entry) {
       clearInterval(entry.timer);
-      this.notifications.dismissTask(entry.taskId);
+      this.notifications.dismiss(entry.taskId);
       this.sends.delete(key);
     }
   }

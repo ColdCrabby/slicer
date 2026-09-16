@@ -1,0 +1,13 @@
+<div class="app-notices" aria-live="polite" aria-atomic="false">
+  @for (notice of notices(); track trackById($index, notice)) {
+    <nexus-notice-pill
+      animate.enter="notice-enter"
+      animate.leave="notice-leave"
+      [notice]="notice"
+      (act)="act(notice)"
+      (dismiss)="dismiss(notice)"
+      (hold)="hold(notice)"
+      (release)="release(notice)"
+    />
+  }
+</div>

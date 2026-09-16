@@ -1,4 +1,4 @@
-import { computed, inject, Injectable, signal } from '@angular/core';
+import { computed, effect, inject, Injectable, signal, untracked } from '@angular/core';
 import { DOCUMENT } from '@angular/common';
 import { Router } from '@angular/router';
 import { firstValueFrom } from 'rxjs';
@@ -7,6 +7,7 @@ import { AppInfo, ChangelogEntry, SceneEngine } from './scene-engine';
 import { BrowserStorage } from './browser-storage';
 import { Dialog } from './dialog';
 import { Logger } from './logger';
+import { NotificationService } from './notifications';
 
 /** localStorage key holding the last release version the user has seen. */
 const LAST_SEEN_KEY = 'slicer:last-seen-version';
@@ -59,6 +60,7 @@ export class AppVersion {
   private readonly router = inject(Router);
   private readonly log = inject(Logger).scope('AppVersion');
   private readonly document = inject(DOCUMENT);
+  private readonly notifications = inject(NotificationService);
 
   /** Guards {@link startUpdateWatch} against installing duplicate listeners. */
   private watchStarted = false;
@@ -109,6 +111,35 @@ export class AppVersion {
    * difference is the git SHA, not a version string).
    */
   readonly serverVersion = signal<string | null>(null);
+
+  constructor() {
+    // The reload prompt is a notice like any other, docked at the bottom of
+    // the window rather than drawn by a component of its own: an app that has
+    // one voice cannot have a second surface that only ever says one thing.
+    //
+    // Deliberately not dismissible — a stale bundle can misbehave in ways the
+    // user cannot diagnose, so reloading is the only resolution on offer. It
+    // is `scope: 'app'` because it is the one message here that is genuinely
+    // about the app and not about the plate in front of it.
+    effect(() => {
+      if (!this.updateAvailable()) {
+        return;
+      }
+      const version = untracked(() => this.serverVersion());
+      untracked(() =>
+        this.notifications.prompt(
+          'A new version is available',
+          { label: 'Reload', run: () => this.reloadForUpdate() },
+          {
+            message: version ? `Version ${version} is ready` : undefined,
+            icon: 'restart',
+            scope: 'app',
+            dismissible: false,
+          },
+        ),
+      );
+    });
+  }
 
   /**
    * Ensure {@link info} is populated, loading it from the WASM bundle on first

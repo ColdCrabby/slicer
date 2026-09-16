@@ -196,10 +196,19 @@ the slicer remembers what you chose.
 
 ## Notifications
 
-Messages appear bottom-left — top of the screen on a phone, where the sheet
-isn't. Info and success fade after a few seconds; errors stay until you dismiss
-them. Longer jobs get a progress strip at the top that turns into a notification
-when it's done.
+Anything about the plate — a model being added, a job going to a printer, a
+change someone else made — appears as a pill at the top of the scene, just under
+the view toolbar. A longer job fills its pill as it runs and finishes in the
+same one, so you never have to look somewhere else for the result. Most fade
+after a few seconds; hovering one holds it while you read.
+
+Messages about the app itself, like a new version waiting to be loaded, dock at
+the bottom of the window instead — the top of the screen on a phone, where the
+sheet isn't.
+
+Everything else says its piece where it happened: a preset that would not import
+says so in the picker, and a slice reports its result — including why it failed
+— on the Slice button's own status line.
 
 ## Moving between Home, Slice and Settings
 
