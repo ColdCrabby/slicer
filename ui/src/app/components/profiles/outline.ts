@@ -194,3 +194,33 @@ export function filterOutline(
   }
   return matches;
 }
+
+/** The contents rail's own width, as its stylesheet sets it. */
+export const RAIL_WIDTH = 220;
+
+/**
+ * The narrowest the editor may be squeezed to before the rail gives up its
+ * column.
+ *
+ * It is the editor's own content width (`.mgr__detail-inner`'s 560 px cap) plus
+ * its gutter on each side, rather than a round number — so the rail appears
+ * only once the form has everything it wanted anyway, and never by taking the
+ * padding back off it.
+ */
+export const EDITOR_MIN_WIDTH = 560 + 24 * 2;
+
+/**
+ * Whether the page can afford the contents rail.
+ *
+ * The sum is what the grid would do: take the list track and the two gaps off
+ * the body, then the rail itself, and see whether the editor still clears
+ * {@link EDITOR_MIN_WIDTH}.
+ *
+ * `bodyWidth` must be measured on an element whose width does not depend on
+ * whether the rail is showing — `.mgr__body`, whose size its parent decides —
+ * or revealing the rail would take away the room that revealed it, and the
+ * answer would oscillate.
+ */
+export function hasRoomForRail(bodyWidth: number, listWidth: number, gap: number): boolean {
+  return bodyWidth - listWidth - gap * 2 - RAIL_WIDTH >= EDITOR_MIN_WIDTH;
+}

@@ -16,6 +16,7 @@ import { Viewport } from '../../services/viewport';
 import { KeyboardShortcuts } from '../../services/keyboard-shortcuts/keyboard-shortcuts';
 import {
   filterOutline,
+  hasRoomForRail,
   idsInView,
   measureOutline,
   scanOutline,
@@ -36,20 +37,6 @@ const FLASH_MS = 1600;
  * to be right by the time they look at it.
  */
 const RESCAN_QUIET_MS = 200;
-
-/** The rail's own width, as its stylesheet sets it. */
-const RAIL_WIDTH = 220;
-
-/**
- * The narrowest the editor may be squeezed to before the rail gives up its
- * column.
- *
- * The rail is the third thing asking for room on this page and the least
- * important of the three: a contents list is worth nothing beside a form whose
- * labels and controls have stopped fitting on one line. Below this the list and
- * the editor keep it all.
- */
-const EDITOR_MIN_WIDTH = 520;
 
 /**
  * The contents rail beside a profile editor: every section of the page, and
@@ -219,6 +206,7 @@ export class ProfileOutline {
 
   private observer: MutationObserver | null = null;
   private roomObserver: ResizeObserver | null = null;
+  private roomTimer: ReturnType<typeof setTimeout> | null = null;
   private scrollHandler: (() => void) | null = null;
   private rescanTimer: ReturnType<typeof setTimeout> | null = null;
   private spyFrame = 0;
@@ -251,21 +239,38 @@ export class ProfileOutline {
   /**
    * Keep {@link roomForRail} in step with the space the page actually has.
    *
-   * The sum is what the grid would do: take the list track and the two gaps off
-   * the body, then the rail itself, and see whether the editor still clears
-   * [`EDITOR_MIN_WIDTH`]. Both inputs are read from the live layout rather than
-   * assumed, because the list column is draggable and the gap is a token.
+   * The rule itself is [`hasRoomForRail`]; both of its inputs are read from the
+   * live layout rather than assumed, because the list column is draggable and
+   * the gap is a token.
    */
   private watchRoom(body: HTMLElement): void {
     const measure = () => {
       const list = body.querySelector<HTMLElement>('.mgr__list');
       const gap = parseFloat(getComputedStyle(body).columnGap) || 0;
       const listWidth = list?.getBoundingClientRect().width ?? 0;
-      const editorIfShown = body.getBoundingClientRect().width - listWidth - gap * 2 - RAIL_WIDTH;
-      this.roomForRail.set(editorIfShown >= EDITOR_MIN_WIDTH);
+      this.roomForRail.set(hasRoomForRail(body.getBoundingClientRect().width, listWidth, gap));
     };
     measure();
-    this.roomObserver = new ResizeObserver(measure);
+
+    // Answered after the callback returns, not inside it. The answer adds or
+    // removes a grid track, so writing it synchronously resizes the observed
+    // subtree from within its own delivery — which the browser cuts short
+    // ("ResizeObserver loop completed with undelivered notifications"), dropping
+    // the very notification that would have corrected the result. That left the
+    // rail showing at widths it had already outgrown.
+    //
+    // A timeout rather than a frame: `requestAnimationFrame` does not run in a
+    // hidden tab, so a window resized while Settings sat in the background
+    // stayed wrong until something painted.
+    this.roomObserver = new ResizeObserver(() => {
+      if (this.roomTimer !== null) {
+        return;
+      }
+      this.roomTimer = setTimeout(() => {
+        this.roomTimer = null;
+        measure();
+      });
+    });
     this.roomObserver.observe(body);
   }
 
@@ -274,6 +279,10 @@ export class ProfileOutline {
     this.observer = null;
     this.roomObserver?.disconnect();
     this.roomObserver = null;
+    if (this.roomTimer !== null) {
+      clearTimeout(this.roomTimer);
+      this.roomTimer = null;
+    }
     if (this.scroller && this.scrollHandler) {
       this.scroller.removeEventListener('scroll', this.scrollHandler);
     }

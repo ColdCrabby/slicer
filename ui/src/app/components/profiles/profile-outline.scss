@@ -158,8 +158,12 @@
   border-radius: var(--radius-sm);
   background: transparent;
   color: var(--color-text-secondary);
+  // The same treatment the editor's own section titles carry, line-height
+  // included — the rail names those sections, so it should not restate them in
+  // a second size.
   font-size: var(--font-size-xs);
   font-weight: var(--font-weight-semibold);
+  line-height: 1.5;
   text-transform: uppercase;
   letter-spacing: 0.04em;
   text-align: left;
@@ -249,6 +253,7 @@
   background: none;
   color: var(--color-text-secondary);
   font-size: var(--font-size-sm);
+  line-height: 1.5;
   text-align: left;
   overflow: hidden;
   text-overflow: ellipsis;
