@@ -12,7 +12,25 @@ All of this is also in the app under **Settings → Keyboard shortcuts**.
 | Redo | `⌘/Ctrl + Y` or `⌘/Ctrl + Shift + Z` |
 | Place objects on the bed | `A` |
 | Select all objects | `⌘/Ctrl + A` |
-| Clear the selection | `Esc` |
+| Put away a card, or clear the selection | `Esc` |
+
+`Esc` closes whatever floats over the plate — the placement card, the brush
+popout, the print-settings drawer — and clears the selection.
+
+Shortcuts stand down while you are typing in a field, so they can't reach past
+your caret. Clicking the plate hands the keyboard back.
+
+## The tool panel
+
+| Action | Key |
+| --- | --- |
+| Jump into the open tool panel | `Tab` |
+| Back out to the plate | `Esc` |
+
+`Tab` from the plate lands on the part of the card you actually came for — the
+**X** field with Move, Rotate or Scale, the **brush mode** with Paint, the
+**Place** button with Place objects, where `Enter` then runs it. From there `Tab`
+walks the rest of the card as usual, and `Esc` puts you back on the plate.
 
 ## Object tools
 

@@ -1,4 +1,4 @@
-import { ChangeDetectionStrategy, Component, computed, inject } from '@angular/core';
+import { ChangeDetectionStrategy, Component, computed, HostListener, inject } from '@angular/core';
 import { RouterLink } from '@angular/router';
 import { Arrange, MAX_ARRANGE_SPACING_MM, MIN_ARRANGE_SPACING_MM } from '../../services/arrange';
 import { ActiveSelection } from '../../services/profiles/active-selection';
@@ -8,11 +8,11 @@ import { Icon, TooltipDirective, NumberInput, Switch } from '@coldcrabby/ui';
 /**
  * Contextual placement settings, hanging off the placement tool.
  *
- * The object-mode buttons each reveal a card of sub-settings for the tool they
- * turn on ({@link TransformPanel}); the placement button is in that same group
- * and behaves the same way — this is its card. Both are rendered by the
- * toolbar, anchored under the buttons that open them, so the card is visibly
- * attached to the control that produced it rather than parked in a corner.
+ * The object tools each reveal a card of sub-settings for the tool they turn
+ * on ({@link TransformPanel}); placing is one of those tools and this is its
+ * card. All of them are docked together down the left edge of the scene by
+ * the shell, and each names its own tool in its header — which is what ties
+ * it back to the button, now that it no longer hangs underneath one.
  *
  * The machine's preferred print angle is **shown but not edited here** — it
  * belongs to the printer profile, so Settings owns it and this card links
@@ -40,9 +40,12 @@ export class PlacementPanel {
   protected readonly preferredOrientationDeg = this.arrange.preferredOrientationDeg;
   protected readonly objectCount = this.arrange.objectCount;
 
-  /** Hidden in G-code preview for the same reason the toolbar's plate tools are. */
+  /**
+   * Showing exactly while placing is the active tool. Hidden in G-code preview
+   * for the same reason the toolbar's plate tools are.
+   */
   protected readonly visible = computed(
-    () => this.arrange.optionsOpen() && this.viewerControl.viewMode() === 'model',
+    () => this.viewerControl.objectMode() === 'place' && this.viewerControl.viewMode() === 'model',
   );
 
   /** Printer the preferred angle is stored on. */
@@ -86,7 +89,20 @@ export class PlacementPanel {
     this.arrange.setAutoOrient(value);
   }
 
+  /**
+   * Leave the placing tool for the harmless one.
+   *
+   * There is no "no tool" to fall back to, so closing this card means picking
+   * another — and select-and-move is the one that changes nothing on its own.
+   * Escape reaches it as well, like every other thing floating over the plate
+   * (the brush popout, the settings peek); guarded, or Escape while rotating
+   * would quietly switch tools on the way to clearing the selection.
+   */
+  @HostListener('document:keydown.escape')
   protected close(): void {
-    this.arrange.closeOptions();
+    if (!this.visible()) {
+      return;
+    }
+    this.viewerControl.objectMode.set('translate');
   }
 }

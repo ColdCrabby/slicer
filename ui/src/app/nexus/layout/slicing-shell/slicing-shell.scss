@@ -56,10 +56,50 @@ $default-inset: 40px;
     min-width: 100%;
   }
 
-  // The contextual tool cards (transform, placement) live inside the toolbar,
-  // anchored under the buttons that open them — see 3d-view-toolbar.css. They
-  // are absolutely positioned there, so they add no toolbar height and leave
-  // --main-scene-inset (and hence the viewport-cube and slice rail) alone.
+  // The contextual tool cards — transform, placement, paint.
+  //
+  // They used to hang off the buttons that open them, centred under the
+  // toolbar. That is the most connected place to put them and the worst place
+  // on the screen: a plate's models sit in the middle of the viewport, so the
+  // card landed squarely on the thing the tool was for. Painting was the proof
+  // — the brush card covered the model it was meant to be used on.
+  //
+  // The left edge is the only tall strip the scene keeps free (the cube owns
+  // the top right, the rail the bottom right, the objects list the bottom
+  // left), so the cards dock here and the middle stays clear at every zoom.
+  // The connection to the toolbar survives because each card now names its own
+  // tool in its header.
+  .tool-dock {
+    grid-area: scene;
+    place-self: start start;
+    z-index: 3;
+
+    display: flex;
+    flex-direction: column;
+    gap: var(--spacing-sm);
+    // Clear of the settings drawer's pull tab, which hangs at this same corner
+    // whenever the sidebar is collapsed: the tab starts one `--spacing-sm` below
+    // the toolbar, so this is that gap plus the tab plus one more. Sized for the
+    // tab's *touch* height (44px; it is 34px with a cursor) so the cards sit in
+    // the same place whatever is pointing at them, and docking or hiding the
+    // drawer never shifts them. Kept in step with `.sidebar-reveal-hint` in
+    // sidebar.component.scss, which owns those heights.
+    margin: calc(44px + 2 * var(--spacing-sm)) var(--spacing-lg) var(--spacing-lg);
+    // Only the cards take the pointer; the gaps between them stay
+    // click-through to the plate behind.
+    pointer-events: none;
+
+    // Never taller than the scene it floats over — a stacked transform card on
+    // a short window would otherwise run off the bottom.
+    max-height: calc(100% - 2 * var(--spacing-lg));
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    scrollbar-width: none;
+
+    &::-webkit-scrollbar {
+      display: none;
+    }
+  }
 
   // The plate's object list. Anchored bottom-left of the scene so it never
   // collides with the tool cards (top-centre) or the right rail, and so a
@@ -108,8 +148,10 @@ $default-inset: 40px;
     // wider than that — the card, the viewport cube above it and the whole
     // gizmo column were pushed off the right of the window.
     width: min(380px, 100%);
-    margin: var(--spacing-md) var(--main-scene-inset, #{$default-inset})
-      var(--main-scene-inset, #{$default-inset});
+    // A flat inset, not the toolbar's height. This card sits in the opposite
+    // corner and has nothing to do with how tall the toolbar grew — borrowing
+    // that number only meant a second row of tools narrowed the card.
+    margin: var(--spacing-md) $default-inset $default-inset;
 
     position: relative;
     display: flex;
@@ -118,18 +160,19 @@ $default-inset: 40px;
     padding: var(--spacing-md);
     min-height: 0;
 
-    // Bound the card by the room actually above it — titlebar, toolbar and its
-    // own margins — rather than letting the inspector guess with a `vh`
-    // fraction. Guessing is what made a 500px inspector scroll on a landscape
-    // iPad while leaving space unused in portrait: the same fraction is too
-    // small on a short viewport and too large on a tall one. With the card
-    // bounded, the inspector can simply open to its natural height and only
-    // ever scrolls when the space genuinely is not there.
+    // Bound the card by the room actually above it — titlebar, notch and toolbar
+    // — plus its own two margins, rather than letting the inspector guess with a
+    // `vh` fraction. Guessing is what made a 500px inspector scroll on a
+    // landscape iPad while leaving space unused in portrait: the same fraction
+    // is too small on a short viewport and too large on a tall one. With the
+    // card bounded, the inspector can simply open to its natural height and
+    // only ever scrolls when the space genuinely is not there.
     max-height: calc(
       100dvh - var(--titlebar-height, 44px) - env(safe-area-inset-top, 0px) - var(
           --main-scene-inset,
           #{$default-inset}
-        ) - var(--spacing-md) - var(--main-scene-inset, #{$default-inset})
+        ) - var(--spacing-md) -
+        #{$default-inset}
     );
 
     // Once the G-code inspector is present, give the slice-control row a clear
@@ -199,10 +242,18 @@ $default-inset: 40px;
       display: none;
     }
 
-    // The top of the scene belongs to the tools and the cards they open, and
-    // the left edge to the drawer's pull tab. The object list keeps the desktop
-    // arrangement's intent instead — anchored to the far corner of the scene so
-    // a long list grows away from the toolbar, not under it.
+    // Tighter side margins for a narrow screen, but a *larger* top clearance:
+    // the pull tab drops to its glyph alone here and grows to 60px.
+    .tool-dock {
+      margin: calc(60px + 2 * var(--spacing-sm)) var(--spacing-sm) var(--spacing-sm);
+      margin-left: calc(var(--spacing-sm) + env(safe-area-inset-left, 0px));
+      max-width: calc(100vw - 2 * var(--spacing-sm));
+    }
+
+    // The left edge belongs to the drawer's pull tab and the tool cards. The
+    // object list keeps the desktop arrangement's intent instead — anchored to
+    // the far corner of the scene so a long list grows away from the toolbar,
+    // not under it.
     .objects-dock {
       grid-area: scene;
       place-self: end end;

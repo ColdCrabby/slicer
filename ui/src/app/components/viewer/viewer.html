@@ -1,4 +1,13 @@
-<div class="viewer-host" #host></div>
+<!-- Focusable so the scene is a place the keyboard can be, not just a hole in
+     the tab order: Tab from here reaches the active tool card, Shift+Tab from
+     that card comes back. -->
+<div
+  class="viewer-host"
+  #host
+  tabindex="0"
+  aria-label="3D scene"
+  (pointerdown)="releaseKeyboardFocus()"
+></div>
 <nexus-brush-popout />
 
 <div class="capture-shutter" [class.is-active]="thumbnailShutterActive()" aria-hidden="true"></div>

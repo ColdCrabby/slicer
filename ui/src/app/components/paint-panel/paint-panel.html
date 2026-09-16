@@ -10,13 +10,14 @@
           [disabled]="paintedFacetTotal() === 0"
           (click)="clearAllPaint()"
         >
-          <nexus-icon name="trash"></nexus-icon>
+          <nexus-icon name="erase"></nexus-icon>
         </button>
       </div>
     </header>
 
     <div class="pp-body">
       <nexus-segmented
+        data-tool-focus
         [options]="brushModeOptions"
         [value]="brushMode()"
         (valueChange)="setBrushMode($event)"

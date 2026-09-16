@@ -53,7 +53,13 @@
         <a class="pp-link" routerLink="/settings/printers">Change it in printer settings</a>
       </p>
 
-      <button class="pp-run" type="button" [disabled]="objectCount() === 0" (click)="run()">
+      <button
+        class="pp-run"
+        data-tool-focus
+        type="button"
+        [disabled]="objectCount() === 0"
+        (click)="run()"
+      >
         {{ actionLabel() }}
       </button>
     </div>

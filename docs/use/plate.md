@@ -126,8 +126,9 @@ Select more than one and the card keeps working:
 - **Size in mm** measures each object separately, so a mixed batch all reaches
   the size you asked for.
 
-The header reads `3 objects` for a batch, and shows nothing for a single one —
-every duplicate shares a filename, so naming it wouldn't tell you which.
+The header names the tool you are holding — `Move`, `Rotate`, `Scale` — and adds
+the batch size for a multiple selection (`Rotate · 3 objects`). It doesn't name
+the object: every duplicate shares a filename, so that wouldn't tell you which.
 
 ## Placing everything automatically
 

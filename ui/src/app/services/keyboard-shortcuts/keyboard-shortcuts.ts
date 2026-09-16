@@ -100,6 +100,17 @@ export class KeyboardShortcuts {
         this.viewerControl.selectedObjectIds.set(this.sceneEngine.objects().map((o) => o.id)),
     },
     {
+      // Before `deselect-all`, which shares the key: the first press should peel
+      // the keyboard off the card, not act on the plate behind it. Tab goes in,
+      // Escape comes out — Shift+Tab would work too, but only after walking back
+      // through whatever header actions the card puts before its fields.
+      actionId: 'leave-tool-panel',
+      shortcut: 'Escape',
+      displayDescription: 'Leave the tool panel, back to the plate',
+      canMatch: () => document.activeElement?.closest('.tool-dock') != null,
+      handleAction: () => sceneHost()?.focus({ preventScroll: true }),
+    },
+    {
       actionId: 'deselect-all',
       shortcut: 'Escape',
       displayDescription: 'Clear the selection',
@@ -197,6 +208,15 @@ export class KeyboardShortcuts {
       displayDescription: 'Previous layer (G-code viewer)',
       canMatch: () => this.viewerControl.viewMode() === 'gcode',
       handleAction: () => this.gcodePrevLayer(),
+    },
+    {
+      actionId: 'focus-tool-panel',
+      shortcut: 'Tab',
+      displayDescription: 'Jump into the active tool panel',
+      // Only from the scene, and only when there is a card to jump into, so
+      // every other Tab in the app stays the browser's own.
+      canMatch: () => this.focusIsOnTheScene() && toolPanelTarget() !== null,
+      handleAction: () => toolPanelTarget()?.focus(),
     },
     {
       actionId: 'focus-settings-search',
@@ -301,6 +321,21 @@ export class KeyboardShortcuts {
     );
   }
 
+  /**
+   * Whether the keyboard is "on the plate" rather than in a control.
+   *
+   * The viewer host carries `tabindex="0"` so the scene can hold focus; `body`
+   * counts too, for the moment before anything has been clicked.
+   */
+  private focusIsOnTheScene(): boolean {
+    const active = document.activeElement;
+    return (
+      active === null ||
+      active === document.body ||
+      (active instanceof Element && active.classList.contains('viewer-host'))
+    );
+  }
+
   private isTextInputFocused(): boolean {
     const target = document.activeElement as HTMLElement | null;
     if (!target) {
@@ -308,7 +343,7 @@ export class KeyboardShortcuts {
     }
     const tag = target.tagName.toUpperCase();
     return (
-      tag === 'INPUT' ||
+      (tag === 'INPUT' && !NON_TYPING_INPUT_TYPES.has(inputTypeOf(target))) ||
       tag === 'TEXTAREA' ||
       tag === 'SELECT' ||
       target.isContentEditable ||
@@ -356,6 +391,71 @@ export class KeyboardShortcuts {
   private gcodePrevLayer(): void {
     this.gcodePreview.stepLayer(-1);
   }
+}
+
+/**
+ * Controls the tab order can land on. `tabindex="-1"` is excluded on purpose:
+ * a roving radiogroup parks it on every option but the selected one, and
+ * jumping into the unselected first segment would move the selection with the
+ * next arrow key.
+ */
+const FOCUSABLE_SELECTOR =
+  'button:not([disabled]):not([tabindex="-1"]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex="0"]';
+
+/** The 3D scene's own focusable host, which is where the keyboard belongs by default. */
+function sceneHost(): HTMLElement | null {
+  return document.querySelector<HTMLElement>('.viewer-host');
+}
+
+/**
+ * Where `Tab` from the scene should land inside the open tool card.
+ *
+ * Each card marks its own entry with `data-tool-focus` — the first coordinate
+ * field, the brush mode, the button that runs a placement — because "the first
+ * thing that can be focused" is a header action on every one of them, and
+ * landing on "reset rotation" is not what anyone meant by tabbing into the
+ * panel. The fallbacks keep it working if a card ever forgets to say.
+ */
+function toolPanelTarget(): HTMLElement | null {
+  const dock = document.querySelector('.tool-dock');
+  if (!dock) {
+    return null;
+  }
+  const marked = dock.querySelector<HTMLElement>('[data-tool-focus]');
+  if (marked?.matches(FOCUSABLE_SELECTOR)) {
+    return marked;
+  }
+  return (
+    marked?.querySelector<HTMLElement>(FOCUSABLE_SELECTOR) ??
+    dock.querySelector<HTMLElement>(FOCUSABLE_SELECTOR)
+  );
+}
+
+/**
+ * `<input>` types that swallow no letter keys, so focusing one is not a reason
+ * to hold the whole scene shortcut set.
+ *
+ * The gate exists so that correcting a typo in a settings field cannot reach
+ * past the caret and undo the last scene operation. A slider is the opposite
+ * case: it has no text to protect, so treating it as one only left every
+ * letter shortcut dead — `p` could not get back out of G-code preview after a
+ * touch of the layer slider, which is the control that view is worked from.
+ */
+const NON_TYPING_INPUT_TYPES = new Set([
+  'range',
+  'checkbox',
+  'radio',
+  'color',
+  'button',
+  'submit',
+  'reset',
+  'image',
+  'file',
+]);
+
+/** An `<input>`'s effective type, lower-cased; missing or unknown reads as text. */
+function inputTypeOf(element: HTMLElement): string {
+  return ((element as HTMLInputElement).type || 'text').toLowerCase();
 }
 
 /**

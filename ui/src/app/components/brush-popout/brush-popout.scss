@@ -11,7 +11,8 @@
   position: fixed;
   transform: translateX(-50%);
   pointer-events: auto;
-  width: 216px;
+  // Matches the docked paint card, so the brush reads the same in both places.
+  width: 264px;
   padding: var(--spacing-sm);
   display: flex;
   flex-direction: column;
