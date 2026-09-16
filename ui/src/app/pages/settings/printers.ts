@@ -39,6 +39,8 @@ import type { ContextMenuItem } from '../../services/context-menu/context-menu.m
 import { Dialog } from '../../services/dialog';
 import { NotificationService } from '../../services/notifications';
 import { PrinterConnectionService } from '../../services/printer-connection';
+import { FILAMENT_MATERIAL_LABELS, type FilamentMaterial } from '../../models/filament.model';
+import { fieldLabel } from '../../schema-form/models/field-labels';
 import { ActiveSelection } from '../../services/profiles/active-selection';
 import { matchesAnyLabel, toggledLabelIds } from '../../services/profiles/label-filtering';
 import { paramNum, paramStr } from '../../models/params-access';
@@ -504,6 +506,40 @@ export class PrintersSettings {
   /** Apply a single param field edit (templates can't build computed keys). */
   protected setParam(id: string, key: string, value: unknown): void {
     this.updateParams(id, { [key]: value });
+  }
+
+  /**
+   * This machine's per-material corrections, one flat line each, or `null` when
+   * it has none.
+   *
+   * A read-out rather than an editor. Each line names the material and the
+   * settings corrected, because that is what the user needs to recognise — the
+   * numbers themselves are visible on the slice page, against the material they
+   * apply to, where they mean something.
+   */
+  protected materialCorrections(
+    printer: PrinterProfile,
+  ): { material: string; label: string; summary: string }[] | null {
+    const overlays = (printer.material_overlays ?? {}) as Record<string, Record<string, unknown>>;
+    const rows = Object.entries(overlays)
+      .filter(([, params]) => Object.keys(params ?? {}).length > 0)
+      .map(([material, params]) => ({
+        material,
+        label: FILAMENT_MATERIAL_LABELS[material as FilamentMaterial] ?? material,
+        summary: Object.keys(params).map(fieldLabel).join(' · '),
+      }));
+    return rows.length > 0 ? rows : null;
+  }
+
+  /** Drop every correction this machine holds for one material family. */
+  protected clearMaterialCorrection(id: string, material: string): void {
+    const printer = this.store.items().find((p) => p.id === id);
+    if (!printer) {
+      return;
+    }
+    const overlays = { ...((printer.material_overlays ?? {}) as Record<string, unknown>) };
+    delete overlays[material];
+    this.store.update(id, { material_overlays: overlays } as Partial<PrinterProfile>);
   }
 
   protected rename(id: string, event: Event): void {

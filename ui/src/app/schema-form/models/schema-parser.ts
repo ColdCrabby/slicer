@@ -141,7 +141,7 @@ export function parseSchema(
       step: prop['x-step'] as number | undefined,
       tier: prop['x-tier'] as FieldDef['tier'],
       widget: prop['x-widget'] as string | undefined,
-      relativeTo: prop['x-relative-to'] as string | undefined,
+      relativeTo: (prop['x-relative-to'] ?? prop['x-derived-from']) as string | undefined,
       perMachineMaterial: prop['x-per-machine-material'] === true,
       enumOptions: resolveEnumOptions(prop, defs),
       relevantWhen: resolveRelevantWhen(prop),

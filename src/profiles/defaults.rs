@@ -85,8 +85,11 @@ pub fn base_process(meta: ProfileMeta) -> ProcessProfile {
         quality: PrintQuality::Standard,
         params: json!({
             "layer_height": 0.2,
-            "first_layer_height": 0.24,
-            "line_width": 0.44,
+            // Proportions, not millimetres: this preset is shared across every
+            // machine the user owns, and a pinned 0.44 mm bead under-fills a
+            // 0.6 mm nozzle by a quarter.
+            "first_layer_height": "120%",
+            "line_width": "110%",
             "wall_generator": "arachne",
             "wall_count": 3,
             "top_layers": 4,
@@ -242,11 +245,8 @@ pub fn high_speed_process() -> ProcessProfile {
     p.quality = PrintQuality::Draft;
     p.params = json!({
         "layer_height": 0.2,
-        "first_layer_height": 0.24,
-        // Derived from the nozzle rather than pinned: this preset is for
-        // machines that are often not on a 0.4, and a hard 0.44 would under-fill
-        // a 0.6 by a third.
-        "line_width": 0.0,
+        "first_layer_height": "120%",
+        "line_width": "110%",
         "wall_generator": "arachne",
         "wall_count": 3,
         "top_layers": 4,
@@ -302,8 +302,8 @@ pub fn maximum_process() -> ProcessProfile {
     p.quality = PrintQuality::Draft;
     p.params = json!({
         "layer_height": 0.2,
-        "first_layer_height": 0.24,
-        "line_width": 0.0,
+        "first_layer_height": "120%",
+        "line_width": "110%",
         "wall_generator": "arachne",
         "wall_count": 3,
         "top_layers": 4,

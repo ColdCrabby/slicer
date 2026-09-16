@@ -78,3 +78,58 @@
     opacity: 0.4;
   }
 }
+
+/**
+ * Per-material corrections — a read-out, not an editor.
+ *
+ * One flat line each. The numbers are deliberately absent: they are shown on
+ * the slice page against the material they apply to, where they mean something,
+ * and repeating them here would invite editing a calibration away from the
+ * print that produced it.
+ */
+.mgr__corrections-lede {
+  margin: 0 0 var(--spacing-sm);
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-sm);
+}
+
+.mgr__correction {
+  display: flex;
+  gap: var(--spacing-sm);
+  align-items: baseline;
+  padding: var(--spacing-xs) 0;
+
+  & + & {
+    border-top: 1px solid var(--color-border-light);
+  }
+}
+
+.mgr__correction-material {
+  flex-shrink: 0;
+  min-width: 4rem;
+  font-weight: 600;
+}
+
+.mgr__correction-settings {
+  flex: 1;
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-sm);
+}
+
+.mgr__correction-clear {
+  flex-shrink: 0;
+  padding: 2px;
+  border: 0;
+  background: transparent;
+  color: var(--color-text-tertiary);
+  cursor: pointer;
+
+  &:hover {
+    color: var(--color-danger);
+  }
+
+  &:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+  }
+}

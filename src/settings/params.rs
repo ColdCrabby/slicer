@@ -1862,7 +1862,7 @@ Supported values:
 
 A thicker first layer improves bed adhesion.
 **Typical:** 0.20–0.28 mm.",
-        extend("x-group" = "Layer", "x-unit" = "mm", "x-step" = 0.01)
+        extend("x-group" = "Layer", "x-unit" = "mm", "x-step" = 0.01, "x-derived-from" = "layer_height")
     )]
     #[serde(default = "SlicingParams::default_first_layer_height")]
     pub first_layer_height: f64,
@@ -1872,7 +1872,7 @@ A thicker first layer improves bed adhesion.
 
 Overrides the nozzle-derived default for solid infill and surfaces.
 **Typical:** 100–120% of nozzle diameter.",
-        extend("x-group" = "Walls", "x-unit" = "mm", "x-step" = 0.01)
+        extend("x-group" = "Walls", "x-unit" = "mm", "x-step" = 0.01, "x-derived-from" = "nozzle_diameter_mm")
     )]
     #[serde(default = "SlicingParams::default_line_width")]
     pub line_width: f64,
@@ -1885,7 +1885,7 @@ Overrides the width used for outer-wall paths and their `;TYPE:Outer wall` /
 `;WIDTH:` G-code annotations. Ignored for variable-width Arachne beads, which
 carry their own per-segment width.
 **Typical:** 100–105% of nozzle diameter for dimensional accuracy.",
-        extend("x-group" = "Walls", "x-unit" = "mm", "x-step" = 0.01, "x-tier" = "advanced")
+        extend("x-group" = "Walls", "x-unit" = "mm", "x-step" = 0.01, "x-tier" = "advanced", "x-derived-from" = "nozzle_diameter_mm")
     )]
     #[serde(default = "SlicingParams::default_role_line_width")]
     pub outer_wall_line_width: f64,
@@ -1897,7 +1897,7 @@ carry their own per-segment width.
 Overrides the width used for inner-wall paths and their `;TYPE:Inner wall` /
 `;WIDTH:` G-code annotations. Ignored for variable-width Arachne beads.
 **Typical:** 110–120% of nozzle diameter for faster, stronger walls.",
-        extend("x-group" = "Walls", "x-unit" = "mm", "x-step" = 0.01, "x-tier" = "advanced")
+        extend("x-group" = "Walls", "x-unit" = "mm", "x-step" = 0.01, "x-tier" = "advanced", "x-derived-from" = "nozzle_diameter_mm")
     )]
     #[serde(default = "SlicingParams::default_role_line_width")]
     pub inner_wall_line_width: f64,
@@ -1909,7 +1909,7 @@ derive from `line_width` / nozzle diameter.
 Overrides the width used for top and bottom surface paths and their
 `;TYPE:Top surface` / `;TYPE:Bottom surface` and `;WIDTH:` annotations.
 **Typical:** 100% of nozzle diameter for a fine finish.",
-        extend("x-group" = "Surfaces", "x-unit" = "mm", "x-step" = 0.01, "x-tier" = "advanced")
+        extend("x-group" = "Surfaces", "x-unit" = "mm", "x-step" = 0.01, "x-tier" = "advanced", "x-derived-from" = "nozzle_diameter_mm")
     )]
     #[serde(default = "SlicingParams::default_role_line_width")]
     pub top_surface_line_width: f64,
@@ -1921,7 +1921,7 @@ Overrides the width used for top and bottom surface paths and their
 Overrides the width used for sparse-infill paths and their `;TYPE:Sparse infill`
 / `;WIDTH:` annotations.
 **Typical:** 100–150% of nozzle diameter; wider infill prints faster.",
-        extend("x-group" = "Infill", "x-unit" = "mm", "x-step" = 0.01, "x-tier" = "advanced")
+        extend("x-group" = "Infill", "x-unit" = "mm", "x-step" = 0.01, "x-tier" = "advanced", "x-derived-from" = "nozzle_diameter_mm")
     )]
     #[serde(default = "SlicingParams::default_role_line_width")]
     pub sparse_infill_line_width: f64,
@@ -2335,7 +2335,7 @@ support even if the column has to rest on the model instead of reaching the plat
 Overrides the width used for support strands and their `;WIDTH:` annotations. Support is laid at
 `spacing / density`, so this sets the pitch and the flow together — a wider bead spends less time
 per unit area but is coarser to break off.",
-        extend("x-group" = "Support", "x-unit" = "mm", "x-step" = 0.01, "x-tier" = "expert", "x-relevant-when" = serde_json::json!({"field": "support_enabled", "equals": true}))
+        extend("x-group" = "Support", "x-unit" = "mm", "x-step" = 0.01, "x-tier" = "expert", "x-relevant-when" = serde_json::json!({"field": "support_enabled", "equals": true}), "x-derived-from" = "nozzle_diameter_mm")
     )]
     #[serde(default = "SlicingParams::default_role_line_width")]
     pub support_line_width: f64,
@@ -2702,6 +2702,71 @@ duplicate the work or race it.",
 /// the UI can discover valid keys, groups, and relevance metadata.
 pub fn slicing_params_schema(generator: &mut schemars::SchemaGenerator) -> schemars::Schema {
     generator.subschema_for::<SlicingParams>()
+}
+
+/// Settings a profile may state as a **percentage of another setting**, and the
+/// setting each one is a percentage of.
+///
+/// A bead width pinned to `0.44` mm is right on a 0.4 mm nozzle and under-fills
+/// a 0.6 by a quarter, so a process profile shared across machines cannot hold
+/// one. Stating `"110%"` instead lets the same recipe be correct on every
+/// nozzle the user owns — which is the whole reason a process profile is
+/// separate from a printer profile.
+///
+/// The base of a derived setting must itself be absolute, so one pass resolves
+/// everything; `no_derived_setting_is_the_base_of_another` holds that.
+///
+/// This is deliberately **not** [`RelativeSpeed`]: that type carries a
+/// percentage all the way to the point of use, because the speed it is a
+/// fraction of is chosen per *segment* (by overhang degree) and is not known
+/// until then. These are resolved once, against a sibling in the same document,
+/// and every consumer keeps reading a plain `f64`.
+pub const DERIVED_FROM: [(&str, &str); 7] = [
+    ("first_layer_height", "layer_height"),
+    ("inner_wall_line_width", "nozzle_diameter_mm"),
+    ("line_width", "nozzle_diameter_mm"),
+    ("outer_wall_line_width", "nozzle_diameter_mm"),
+    ("sparse_infill_line_width", "nozzle_diameter_mm"),
+    ("support_line_width", "nozzle_diameter_mm"),
+    ("top_surface_line_width", "nozzle_diameter_mm"),
+];
+
+/// Replace every `"NN%"` in `document` with its resolved number, in place.
+///
+/// Runs on the **merged** document, after every profile layer and the user's
+/// overrides, so a percentage always resolves against the nozzle (or layer
+/// height) that actually won — not the one the profile stating it happened to
+/// be written beside.
+///
+/// A percentage whose base is missing or not a number is left alone rather than
+/// guessed at; `SlicingParams` deserialization then rejects it, which is the
+/// honest outcome for a document that asks for a fraction of nothing.
+pub fn resolve_derived_values(document: &mut serde_json::Value) {
+    let Some(map) = document.as_object() else {
+        return;
+    };
+    let mut resolved: Vec<(String, f64)> = Vec::new();
+    for (field, base_field) in DERIVED_FROM {
+        let Some(percent) = map.get(field).and_then(parse_percent) else {
+            continue;
+        };
+        let Some(base) = map.get(base_field).and_then(serde_json::Value::as_f64) else {
+            continue;
+        };
+        resolved.push((field.to_string(), percent * base));
+    }
+    let Some(map) = document.as_object_mut() else {
+        return;
+    };
+    for (field, value) in resolved {
+        map.insert(field, serde_json::Value::from(value));
+    }
+}
+
+/// `"110%"` → `Some(1.1)`. Anything else — including a plain number — is `None`.
+fn parse_percent(value: &serde_json::Value) -> Option<f64> {
+    let text = value.as_str()?.trim().strip_suffix('%')?;
+    text.trim().parse::<f64>().ok().map(|n| n / 100.0)
 }
 
 /// The settings a machine may correct per material family — the closed set a
@@ -4006,6 +4071,85 @@ mod tests {
             .get(field)?
             .get("x-relevant-when")
             .cloned()
+    }
+
+    /// The defect this whole mechanism exists for: one shared recipe, two
+    /// nozzles, a correct bead on each.
+    #[test]
+    fn a_proportional_width_follows_the_nozzle_it_resolves_against() {
+        for (nozzle, expected) in [(0.4, 0.44), (0.6, 0.66)] {
+            let mut document = serde_json::json!({
+                "nozzle_diameter_mm": nozzle,
+                "line_width": "110%",
+                "layer_height": 0.2,
+                "first_layer_height": "120%",
+            });
+            resolve_derived_values(&mut document);
+            assert!(
+                (document["line_width"].as_f64().unwrap() - expected).abs() < 1e-9,
+                "a 110% bead on a {nozzle} mm nozzle should be {expected} mm, got {}",
+                document["line_width"]
+            );
+            assert!((document["first_layer_height"].as_f64().unwrap() - 0.24).abs() < 1e-9);
+        }
+    }
+
+    #[test]
+    fn an_absolute_value_is_left_exactly_as_written() {
+        let mut document = serde_json::json!({
+            "nozzle_diameter_mm": 0.6,
+            "line_width": 0.44,
+        });
+        resolve_derived_values(&mut document);
+        assert_eq!(document["line_width"], serde_json::json!(0.44));
+    }
+
+    /// A percentage of a setting that is not there resolves to nothing rather
+    /// than to a guess — deserialization then rejects the document, which is the
+    /// honest outcome for a fraction of nothing.
+    #[test]
+    fn a_proportion_with_no_base_is_left_for_deserialization_to_reject() {
+        let mut document = serde_json::json!({ "line_width": "110%" });
+        resolve_derived_values(&mut document);
+        assert_eq!(document["line_width"], serde_json::json!("110%"));
+        assert!(serde_json::from_value::<SlicingParams>(document).is_err());
+    }
+
+    /// One pass resolves everything only while no base is itself derived.
+    #[test]
+    fn no_derived_setting_is_the_base_of_another() {
+        let derived: Vec<&str> = DERIVED_FROM.iter().map(|(field, _)| *field).collect();
+        for (field, base) in DERIVED_FROM {
+            assert!(
+                !derived.contains(&base),
+                "`{field}` is a proportion of `{base}`, which is itself a proportion — \
+                 one pass would resolve them in an order nobody chose"
+            );
+        }
+    }
+
+    #[test]
+    fn the_derived_settings_match_the_schema() {
+        let schema = schemars::schema_for!(SlicingParams);
+        let json = serde_json::to_value(&schema).expect("schema to json");
+        let properties = json
+            .get("properties")
+            .and_then(|p| p.as_object())
+            .expect("the schema has properties");
+
+        let mut annotated: Vec<(&str, &str)> = properties
+            .iter()
+            .filter_map(|(key, spec)| {
+                let base = spec.get("x-derived-from")?.as_str()?;
+                Some((key.as_str(), base))
+            })
+            .collect();
+        annotated.sort_unstable();
+
+        assert_eq!(
+            annotated, DERIVED_FROM,
+            "`DERIVED_FROM` and the `x-derived-from` annotations disagree"
+        );
     }
 
     /// The Rust constant and the schema annotations must name the same set.

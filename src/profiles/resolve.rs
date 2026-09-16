@@ -304,6 +304,11 @@ pub fn resolve_with_origins(
         origins.insert(key.to_string(), origin);
     }
 
+    // Percentages resolve last, against the merged document — so `"110%"` of the
+    // nozzle means the nozzle this stack actually chose, not the one the profile
+    // stating it was written beside.
+    crate::settings::params::resolve_derived_values(&mut base);
+
     // Every setting no layer named is the engine's own default, and saying so
     // is the point: a client that only knew the overridden keys would leave the
     // rest unexplained.

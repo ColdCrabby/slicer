@@ -272,6 +272,38 @@ mod tests {
         assert_eq!(sel.resolve(None).expect("resolve").pressure_advance, 0.032);
     }
 
+    /// The same shipped recipe on two different machines, each getting the bead
+    /// its own nozzle wants. A width pinned in millimetres could only ever be
+    /// right on one of them.
+    #[test]
+    fn a_shipped_preset_fits_the_nozzle_of_whichever_machine_it_lands_on() {
+        for (printer, nozzle, expected) in [
+            (defaults::default_printer(), 0.4, 0.44),
+            (defaults::corexy_printer(), 0.6, 0.66),
+        ] {
+            let mut sel = selection();
+            sel.printer = resolve::ProfileRef::Inline(Box::new(printer));
+            let params = sel.resolve(None).expect("resolve");
+
+            assert_eq!(params.nozzle_diameter_mm, nozzle);
+            assert!(
+                (params.line_width - expected).abs() < 1e-9,
+                "a {nozzle} mm nozzle should get a {expected} mm bead, got {}",
+                params.line_width
+            );
+        }
+    }
+
+    /// A proportion is a starting point, not a cage.
+    #[test]
+    fn an_explicit_width_still_wins_over_the_presets_proportion() {
+        let mut sel = selection();
+        sel.printer = resolve::ProfileRef::Inline(Box::new(defaults::corexy_printer()));
+        sel.overrides = serde_json::json!({ "line_width": 0.5 });
+
+        assert_eq!(sel.resolve(None).expect("resolve").line_width, 0.5);
+    }
+
     /// Five layers are only comprehensible if a client can say which one won.
     #[test]
     fn resolution_reports_where_each_setting_came_from() {

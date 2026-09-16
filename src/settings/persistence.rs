@@ -151,6 +151,12 @@ pub fn load_and_merge_settings(
         merged = merge_json_configs(merged, project_val);
     }
 
+    // The same percentages a profile may state are valid in `slicer.json` and
+    // the user config, so both roads into `SlicingParams` resolve them.
+    let mut merged = merged;
+    if let Some(params) = merged.get_mut("params") {
+        crate::settings::params::resolve_derived_values(params);
+    }
     let settings: GlobalSettings = serde_json::from_value(merged)
         .map_err(|e| format!("Merged settings are invalid: {}", e))?;
     Ok(settings)
@@ -298,11 +304,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         // Project config sets layer_height = 0.15
         let project_path = dir.path().join("slicer.json");
-        fs::write(
-            &project_path,
-            r#"{"params":{"layer_height":0.15}}"#,
-        )
-        .unwrap();
+        fs::write(&project_path, r#"{"params":{"layer_height":0.15}}"#).unwrap();
         let settings = load_and_merge_settings(Some(&project_path)).unwrap();
         // Project value wins over default (0.2)
         assert_eq!(settings.params.layer_height, 0.15);

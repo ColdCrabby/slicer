@@ -80,6 +80,12 @@ All three hold the **outer wall and the top surface back**, because those are
 what the print is judged by and neither is where the time goes. Going fast on
 the inside is what pays for going slowly on the outside.
 
+They fit whatever nozzle they land on. Bead width and first-layer height are
+stated as a proportion — `110%` of the nozzle, `120%` of the layer height —
+rather than in millimetres, so the same preset lays a 0.44 mm bead on a 0.4 mm
+nozzle and a 0.66 mm bead on a 0.6 mm one. Type a number over it and it stays a
+number; the `%` button on the field switches between the two.
+
 Two things decide whether the fast ones are honest on your machine:
 
 - **Your printer profile has to carry the speed.** A process asking for
@@ -154,6 +160,30 @@ the slicer says so before it writes the file.
 Detection fills both in from your printer's own configuration. A machine you
 entered by hand leaves them at `0`, which means "unknown" and warns about
 nothing.
+
+## When a preset asks more than a machine can give
+
+Pick a printer and the filament and print-profile dropdowns say, under any
+preset that is a stretch for it, what the problem is:
+
+```
+Maximum — 0.20 mm
+Asks 300 mm/s; Ender 3 tops out at 150
+```
+
+```
+Generic ABS
+Needs 255 °C; this hotend is rated for 240
+```
+
+Nothing is ever disabled. Plenty of printers are configured conservatively and
+run happily above it, and a print profile asking for speed is exactly what a
+print profile is for — the machine simply does what it can. The note is there so
+you find out before the print, not during it.
+
+The temperature ones are worth taking seriously, though: unlike a speed the
+machine quietly won't reach, a heat target it cannot reach never arrives at all,
+and the print waits on it indefinitely.
 
 ## Everyday management
 

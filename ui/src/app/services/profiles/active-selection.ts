@@ -1,6 +1,7 @@
 import { Injectable, computed, inject } from '@angular/core';
 import type { SlicingParams } from '../../../generated/slicer-engine-ws-client-message-v1';
 import { ENGINE_DEFAULTS } from '../../models/slice-settings.model';
+import { resolveDerivedValues } from '../../models/derived-values';
 import {
   FILAMENT_MATERIAL_LABELS,
   MATERIAL_WIRE_NAME,
@@ -88,7 +89,9 @@ export class ActiveSelection {
     if (!printer || !filament || !profile) {
       return null;
     }
-    return {
+    // Proportions resolve last, against the merged document — `"110%"` of the
+    // nozzle means the nozzle this stack chose, exactly as `resolve.rs` does it.
+    return resolveDerivedValues({
       ...ENGINE_DEFAULTS,
       ...((printer.params as Record<string, unknown>) ?? {}),
       ...((filament.params as Record<string, unknown>) ?? {}),
@@ -99,7 +102,7 @@ export class ActiveSelection {
       filament_color: filament.color,
       printer_vendor: printer.vendor,
       printer_model: printer.model,
-    } as Partial<SlicingParams>;
+    }) as Partial<SlicingParams>;
   });
 
   /**
