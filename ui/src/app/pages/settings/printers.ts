@@ -32,7 +32,6 @@ import {
   gcodeTemplateStatus,
   type GcodeTemplateStatus,
 } from '../../models/gcode-templates';
-import { CloudCatalog, catalogSpecOf } from '../../services/catalog/cloud-catalog';
 import { ContextMenuService } from '../../services/context-menu/context-menu.service';
 import { ContextMenuTrigger } from '../../services/context-menu/context-menu-trigger';
 import type { ContextMenuItem } from '../../services/context-menu/context-menu.model';
@@ -59,13 +58,12 @@ import {
   EmptyState,
   FieldRow,
   IconButton,
-  ModalShell,
+  TooltipDirective,
   NumberInput,
   Segmented,
   Select,
   Switch,
 } from '@coldcrabby/ui';
-import { CatalogPicker, type CatalogEntryVm } from '../../components/profiles/catalog-picker';
 import { FieldShell } from '../../components/profiles/field-shell';
 import { ParamField } from '../../components/profiles/param-field';
 import { ColumnResizer } from '../../components/profiles/column-resizer';
@@ -169,14 +167,13 @@ const PARAM_GROUPS: SchemaGroup[] = (() => {
     EmptyState,
     Button,
     IconButton,
+    TooltipDirective,
     Icon,
     Badge,
     RouterLink,
-    CatalogPicker,
     ParamField,
     FieldShell,
     CodeEditor,
-    ModalShell,
     FieldRow,
     NumberInput,
     Select,
@@ -197,7 +194,6 @@ export class PrintersSettings {
   protected readonly active = inject(ActiveSelection);
   protected readonly labels = inject(LabelsStore);
   private readonly filterStore = inject(LabelFilterStore);
-  private readonly catalog = inject(CloudCatalog);
   private readonly contextMenu = inject(ContextMenuService);
   private readonly dialog = inject(Dialog);
   private readonly notifications = inject(NotificationService);
@@ -222,7 +218,6 @@ export class PrintersSettings {
     { value: 'none', label: 'None' },
   ];
 
-  protected readonly catalogOpen = signal(false);
   /** Which printer's editor is open in the detail pane. */
   protected readonly selectedId = signal<string | null>(this.active.printer()?.id ?? null);
   protected readonly search = signal('');
@@ -338,68 +333,7 @@ export class PrintersSettings {
     }
   }
 
-  protected readonly catalogStatus = this.catalog.printersStatus;
-  protected readonly catalogHasMore = this.catalog.printersHasMore;
-  protected readonly catalogLoadingMore = this.catalog.printersLoadingMore;
-  /** Id of the catalog entry currently being fetched for import, if any. */
-  protected readonly importingId = signal<string | null>(null);
-  protected readonly catalogEntries = computed<CatalogEntryVm[]>(() =>
-    this.catalog.printers().map((p) => ({
-      id: p.id,
-      name: p.name,
-      vendor: p.vendor,
-      meta:
-        catalogSpecOf(p) ??
-        `${p.bed_width}×${p.bed_depth} mm · ${(p.params as Record<string, unknown>)?.['nozzle_diameter_mm']} mm`,
-      icon: 'printer',
-      imported: this.store.items().some((item) => item.based_on === p.id),
-    })),
-  );
-
   protected readonly editing = computed(() => this.selected());
-
-  protected openCatalog(): void {
-    void this.catalog.loadPrinters();
-    this.catalogOpen.set(true);
-  }
-
-  protected onCatalogSearch(query: string): void {
-    void this.catalog.searchPrinters(query);
-  }
-
-  protected retryCatalog(): void {
-    void this.catalog.loadPrinters(true, this.catalog.printersQuery());
-  }
-
-  protected loadMoreCatalog(): void {
-    void this.catalog.loadMorePrinters();
-  }
-
-  /**
-   * Fetch the full preset behind `id` (real slicing params, not just the
-   * browsed summary) and import it. The catalog picker shows a busy state on
-   * this entry's pick button for the duration.
-   */
-  protected async importFromCatalog(id: string): Promise<void> {
-    const base = this.catalog.printers().find((p) => p.id === id);
-    if (!base || this.importingId()) {
-      return;
-    }
-    this.importingId.set(id);
-    try {
-      const full = await this.catalog.printerDetail(base);
-      const copy = this.store.importFromCatalog(full);
-      this.active.selectPrinter(copy.id);
-      this.select(copy.id);
-    } catch (error) {
-      this.notifications.error(
-        'Import failed',
-        error instanceof Error ? error.message : 'The preset details could not be fetched.',
-      );
-    } finally {
-      this.importingId.set(null);
-    }
-  }
 
   /** Open a printer in the detail pane and refresh its live status. */
   protected select(id: string): void {

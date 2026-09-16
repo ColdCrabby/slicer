@@ -13,7 +13,6 @@ import { SETTING_CONTRACTS } from '../../models/setting-contract';
 import globalSettingsSchema from '../../../schemas/slicer-engine-global-settings-v1.json';
 import { parseSchema } from '../../schema-form/models/schema-parser';
 import type { SchemaGroup } from '../../schema-form/models/field-def';
-import { CloudCatalog, catalogSpecOf } from '../../services/catalog/cloud-catalog';
 import { ContextMenuService } from '../../services/context-menu/context-menu.service';
 import { ContextMenuTrigger } from '../../services/context-menu/context-menu-trigger';
 import type { ContextMenuItem } from '../../services/context-menu/context-menu.model';
@@ -32,10 +31,9 @@ import {
   EmptyState,
   FieldRow,
   IconButton,
-  ModalShell,
   Segmented,
+  TooltipDirective,
 } from '@coldcrabby/ui';
-import { CatalogPicker, type CatalogEntryVm } from '../../components/profiles/catalog-picker';
 import { ParamField } from '../../components/profiles/param-field';
 import { ColumnResizer } from '../../components/profiles/column-resizer';
 import { ProfileOutline } from '../../components/profiles/profile-outline';
@@ -80,11 +78,10 @@ const PARAM_GROUPS: SchemaGroup[] = (() => {
     EmptyState,
     Button,
     IconButton,
+    TooltipDirective,
     Icon,
     Badge,
     RouterLink,
-    CatalogPicker,
-    ModalShell,
     FieldRow,
     ParamField,
     Segmented,
@@ -103,7 +100,6 @@ export class ProfilesSettings {
   protected readonly active = inject(ActiveSelection);
   protected readonly labels = inject(LabelsStore);
   private readonly filterStore = inject(LabelFilterStore);
-  private readonly catalog = inject(CloudCatalog);
   private readonly contextMenu = inject(ContextMenuService);
   private readonly dialog = inject(Dialog);
   private readonly notifications = inject(NotificationService);
@@ -124,7 +120,6 @@ export class ProfilesSettings {
     { value: 'none', label: 'None' },
   ];
 
-  protected readonly catalogOpen = signal(false);
   /** Which profile's editor is open in the detail pane. */
   protected readonly selectedId = signal<string | null>(this.active.profile()?.id ?? null);
   protected readonly search = signal('');
@@ -214,72 +209,8 @@ export class ProfilesSettings {
     }
   }
 
-  protected readonly catalogStatus = this.catalog.profilesStatus;
-  protected readonly catalogHasMore = this.catalog.profilesHasMore;
-  protected readonly catalogLoadingMore = this.catalog.profilesLoadingMore;
-  /** Id of the catalog entry currently being fetched for import, if any. */
-  protected readonly importingId = signal<string | null>(null);
-  protected readonly catalogEntries = computed<CatalogEntryVm[]>(() =>
-    this.catalog.profiles().map((p) => {
-      const params = (p.params as Record<string, unknown>) ?? {};
-      const layer = Number(params['layer_height'] ?? 0);
-      const infill = Number(params['infill_density'] ?? 0);
-      return {
-        id: p.id,
-        name: p.name,
-        vendor: p.quality ?? 'standard',
-        meta: catalogSpecOf(p) ?? `${layer} mm · ${Math.round(infill * 100)}% infill`,
-        icon: 'menu-scale',
-        imported: this.store.items().some((item) => item.based_on === p.id),
-      };
-    }),
-  );
-
   protected infillPct(fraction: number): number {
     return Math.round(fraction * 100);
-  }
-
-  protected openCatalog(): void {
-    void this.catalog.loadProfiles();
-    this.catalogOpen.set(true);
-  }
-
-  protected onCatalogSearch(query: string): void {
-    void this.catalog.searchProfiles(query);
-  }
-
-  protected retryCatalog(): void {
-    void this.catalog.loadProfiles(true, this.catalog.profilesQuery());
-  }
-
-  protected loadMoreCatalog(): void {
-    void this.catalog.loadMoreProfiles();
-  }
-
-  /**
-   * Fetch the full preset behind `id` (real slicing params, not just the
-   * browsed summary) and import it. The catalog picker shows a busy state on
-   * this entry's pick button for the duration.
-   */
-  protected async importFromCatalog(id: string): Promise<void> {
-    const base = this.catalog.profiles().find((p) => p.id === id);
-    if (!base || this.importingId()) {
-      return;
-    }
-    this.importingId.set(id);
-    try {
-      const full = await this.catalog.profileDetail(base);
-      const copy = this.store.importFromCatalog(full);
-      this.active.selectProfile(copy.id);
-      this.select(copy.id);
-    } catch (error) {
-      this.notifications.error(
-        'Import failed',
-        error instanceof Error ? error.message : 'The preset details could not be fetched.',
-      );
-    } finally {
-      this.importingId.set(null);
-    }
   }
 
   /** Open a profile in the detail pane. */
