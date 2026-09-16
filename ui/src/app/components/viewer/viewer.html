@@ -27,6 +27,12 @@
   </div>
 }
 <div class="viewer-bottom">
+  @if (mode() === 'gcode' && offBedSegments() > 0) {
+    <nexus-inline-notice class="viewer-alert" tone="danger" title="Outside the build area">
+      {{ offBedSegments() }} extrusion{{ offBedSegments() === 1 ? '' : 's' }} leave the bed and are
+      shown in red. The printer cannot reach them.
+    </nexus-inline-notice>
+  }
   @if (statsVisible()) {
     <div class="viewer-metrics" role="status" aria-live="polite" aria-label="Scene diagnostics">
       @if (fps() > 0) {

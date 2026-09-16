@@ -617,6 +617,38 @@ Detail is re-evaluated whenever the view settles, the layer range or scrub chang
 layer slider is a draw-range prefix, so isolating a layer genuinely shrinks the frame and
 can earn full detail back), or the user changes the preference.
 
+## Off the bed, in both modes
+
+An object or a move the printer cannot reach is the one fault that is invisible
+until the print fails, so the viewer says so in the picture rather than only in
+a panel — and says it the same way in both modes, because the answer comes from
+the same rule.
+
+**Which rule.** `BedConfig::contains_xy` in
+[src/scene/bed.rs](../../../../../src/scene/bed.rs) owns the bed outline. The
+model view reads the verdict per object off the scene snapshot
+(`SceneObjectSnapshot.out_of_bounds`, from `SceneState::placement_report`); the
+G-code preview hands the parsed handle a bed (`GcodeHandle::set_bed`) and gets a
+byte per segment back with each layer buffer. Neither asks TypeScript to decide
+what "on the bed" means, so the two cannot drift, and a circular bed is a disk
+in both.
+
+**Model view** repaints the object in the theme's `--color-danger`, through
+`Viewer.paintObjectMesh` — the single place an object's colour is chosen, so a
+theme or filament change cannot quietly paint a misplaced object back to grey.
+It tracks a drag live, because `out_of_bounds` flips in the same snapshot that
+moves the object.
+
+**G-code preview** repaints the offending extrusions bright red. That happens in
+the *shader* (`aOffBed` → `installInstanceShaderHooks`), not through the
+per-instance colour, because the view modes own that colour outright: a speed
+ramp or a legend dim would wash the warning straight back out. Applying it last,
+to the final fragment colour, is what makes it survive every view mode — and
+what makes the flag free to keep, since nothing recomputes per frame.
+
+The flags are baked at build time, so a bed change has to rebuild the preview;
+the viewer's print-area effect does exactly that.
+
 ---
 
 ## What this module deliberately does _not_ do

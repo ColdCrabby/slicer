@@ -2,10 +2,10 @@
 
 ## The model
 
-**"Outside the build area"** — part of the model is beyond the print volume.
-Use **Centre on bed**, or scale it down, or check your printer profile's bed
-size is right. The check uses your bed's actual shape, so a round bed isn't
-treated as a square.
+**"Outside the build area"** — part of the model is beyond the print volume,
+and it is drawn red on the plate. Use **Centre on bed**, or scale it down, or
+check your printer profile's bed size is right. The check uses your bed's
+actual shape, so a round bed isn't treated as a square.
 
 **"Overlaps another object"** — two parts intersect. Press `A` to re-arrange, or
 move one by hand. Parts that merely touch edge-to-edge don't trigger this.
