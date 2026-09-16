@@ -1,11 +1,33 @@
 <section class="settings-panel">
-  <div class="preset-bar">
-    <nexus-label-filter-bar
-      class="preset-filter"
-      [selectedIds]="labelFilter.selectedIds()"
-      (toggle)="labelFilter.toggle($event)"
-      (clear)="labelFilter.clear()"
-    />
+  <div class="preset-bar" #presetBar>
+    <div class="preset-tools">
+      <nexus-label-filter-bar
+        class="preset-filter"
+        [selectedIds]="labelFilter.selectedIds()"
+        (toggle)="labelFilter.toggle($event)"
+        (clear)="labelFilter.clear()"
+      />
+
+      <!--
+        Plate-wide, so it shares the plate-wide row rather than owning one.
+        Always here and quiet at zero, so it never arrives under a cursor that
+        was reaching for something else.
+      -->
+      <button
+        nexusIconButton
+        class="sync-trigger"
+        variant="outline"
+        [disabled]="modifiedCount() === 0"
+        [tooltip]="syncTooltip()"
+        [attr.aria-label]="syncTooltip()"
+        (click)="syncToProfile()"
+      >
+        <nexus-icon name="floppy-disk-arrow-out" />
+        @if (modifiedCount() > 0) {
+          <span class="sync-trigger-count">{{ modifiedCount() }}</span>
+        }
+      </button>
+    </div>
 
     <!--
       What this plate is made of, all three at once.
@@ -17,31 +39,6 @@
       stay legible above and below it rather than hiding behind it.
     -->
     <div class="recipe">
-      <div class="recipe-head">
-        <span class="recipe-title">This plate</span>
-
-        <!--
-          Plate-wide, which is why it sits with the plate's own label rather
-          than on any one row. Always here, quiet when there is nothing to sync,
-          so it never arrives under a cursor that was reaching for something
-          else.
-        -->
-        <button
-          nexusIconButton
-          class="sync-trigger"
-          variant="outline"
-          [disabled]="modifiedCount() === 0"
-          [tooltip]="syncTooltip()"
-          [attr.aria-label]="syncTooltip()"
-          (click)="syncToProfile()"
-        >
-          <nexus-icon name="floppy-disk-arrow-out" />
-          @if (modifiedCount() > 0) {
-            <span class="sync-trigger-count">{{ modifiedCount() }}</span>
-          }
-        </button>
-      </div>
-
       @for (contract of contracts; track contract.id) {
         <!--
           Two intentions, two targets. Pointing the settings at a row is the

@@ -7,11 +7,40 @@
 // field's horizontal padding so the sidebar reads as one continuous column.
 // The bottom padding gives the dropdown's 2px focus ring room to breathe so it
 // isn't clipped by the sticky search bar that follows.
+/**
+ * Pinned to the top of the sidebar's scroll.
+ *
+ * It used to scroll away with everything else, on a panel whose whole job is
+ * "change this setting, for this preset" — you lost sight of which preset the
+ * moment you went looking for the setting. Sticky rather than a flex row over
+ * a scrolling form, because the sidebar shell that owns the scroll is shared
+ * and has no definite height to hand down.
+ *
+ * Opaque, and above the content it covers but below the form's own search,
+ * which pins directly beneath it — see `--preset-bar-h`.
+ */
 .preset-bar {
+  position: sticky;
+  top: 0;
+  z-index: 9;
+  background: var(--color-bg-secondary);
+  flex: none;
   display: flex;
   flex-direction: column;
-  gap: var(--spacing-sm);
-  padding: var(--spacing-sm) var(--spacing-sm) var(--spacing-sm);
+  gap: var(--spacing-xs);
+  padding: var(--spacing-sm) var(--spacing-sm) var(--spacing-xs);
+}
+
+// Everything that acts on the plate as a whole, on one line.
+.preset-tools {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-xs);
+}
+
+.preset-filter {
+  flex: 1 1 auto;
+  min-width: 0;
 }
 
 /**
@@ -20,9 +49,14 @@
  * Grouped by a surface shift rather than a border — the block reads as one
  * thing because it sits on its own tone, not because a line is drawn round it.
  */
+// As many across as the sidebar can show without cutting the names, stacked
+// when it can only manage one. A plain `auto-fit` rather than a measured
+// breakpoint: the sidebar is draggable, so the only honest threshold is "does a
+// name still fit", and the minimum track is that answer — the caret and the cog
+// take ~64px of it, so the track has to carry a preset name plus those.
 .recipe {
-  display: flex;
-  flex-direction: column;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
   gap: 2px;
   padding: var(--spacing-xs);
   border-radius: var(--radius-md);
@@ -299,4 +333,11 @@
   overflow: hidden;
   clip-path: inset(50%);
   white-space: nowrap;
+}
+
+// The form's search pins under the lead rather than over it. `--preset-bar-h` is
+// published by the panel because the lead's height depends on how many presets
+// fit across, which only the rendered layout knows.
+.settings-form ::ng-deep .schema-form-search {
+  top: var(--preset-bar-h, 0px);
 }

@@ -1,7 +1,7 @@
 import {
   Component,
-  ElementRef,
   afterRenderEffect,
+  ElementRef,
   computed,
   effect,
   inject,
@@ -67,6 +67,7 @@ export class SettingsPanel {
   private readonly storage = inject(BrowserStorage);
   private readonly workplateSettings = inject(WorkplateSettingsStore);
   private readonly dialog = inject(Dialog);
+  private readonly hostEl = inject<ElementRef<HTMLElement>>(ElementRef);
   private readonly writeback = inject(ProfileWriteback);
   protected readonly presets = inject(ActivePresets);
   private readonly activeSelection = inject(ActiveSelection);
@@ -130,6 +131,35 @@ export class SettingsPanel {
   protected selectedIdFor(contract: SettingContractId): string | null {
     return this.presets.selectedId(contract);
   }
+
+  private readonly presetBarRef = viewChild<ElementRef<HTMLElement>>('presetBar');
+
+  /**
+   * Publish the lead's height so the form's own sticky search can pin directly
+   * beneath it.
+   *
+   * The same idiom the schema form already uses for `--schema-form-search-h`,
+   * and for the same reason: the height is not a constant. The recipe lays out
+   * one, two or three across depending on how wide the sidebar has been dragged,
+   * so the offset the search needs is whatever it happens to be right now.
+   */
+  private readonly watchPresetBarHeight = afterRenderEffect({
+    read: (onCleanup) => {
+      const el = this.presetBarRef()?.nativeElement;
+      if (!el) {
+        return;
+      }
+      const publish = () =>
+        this.hostEl.nativeElement.style.setProperty(
+          '--preset-bar-h',
+          `${Math.round(el.offsetHeight)}px`,
+        );
+      publish();
+      const obs = new ResizeObserver(publish);
+      obs.observe(el);
+      onCleanup(() => obs.disconnect());
+    },
+  });
 
   /** The preset a row is showing, or an invitation to make one. */
   protected presetNameFor(contract: SettingContractId): string {

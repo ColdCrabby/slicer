@@ -21,9 +21,13 @@ have to guess which one owns it.
 ## The three presets, all at once
 
 The top of the slice sidebar lists what this plate is made of — its printer, its
-filament and its print profile, one row each. Every row names the preset it is
-using, changes it from the same dropdown, and has a cog that opens that preset's
-own editor.
+filament and its print profile. Every one names the preset it is using, changes
+it from the caret beside it, and has a cog that opens that preset's own editor.
+
+They sit side by side when the sidebar is wide enough to read them and stack
+when it is not, so widening the sidebar buys you a shorter header rather than
+just longer names. The whole lot stays put while the settings scroll, along with
+the search — you never lose sight of which preset you are editing.
 
 There is no tab to press. Click a row and the settings below are that row's —
 the caret beside it changes which preset the row is using, and the cog opens
