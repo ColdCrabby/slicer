@@ -555,6 +555,51 @@ between them costs more wall-clock than the hops it guards while pumping the
 extruder thousands of times over a print. On a 25-slot card caddy the exemption
 removes roughly 85 % of the print's retractions.
 
+### Routing a hop over material
+
+An interior hop still crosses whatever is between its ends, and between two
+dividers that is an open slot — so the ooze the retraction no longer catches
+becomes a strand hanging in the slot. [`MaterialRouter`](travel.rs) removes that
+too, by re-routing the hop so it never leaves material in the first place.
+
+```mermaid
+flowchart LR
+  H[short same-role hop] --> C{already on material?}
+  C -->|yes| S[straight, no retract]
+  C -->|no| R{route within 2x?}
+  R -->|yes| M[lift · travel over material · lower<br/>no retract]
+  R -->|no| I{interior?}
+  I -->|yes| S
+  I -->|no| P[full retract ceremony]
+```
+
+- **What "material" is**: the layer's extrusion footprint — every wall and medial
+  bead's physical area, the same measure surface trimming uses. Fill roles are
+  excluded: a top surface is the last thing to drag a nozzle across.
+- **Where a route may turn**: vertices of that footprint *eroded by half a bead*,
+  plus the two ends of every open bead. Eroding keeps a route in the middle of
+  the beads it crosses rather than along the outer edge of the wall just printed,
+  and keeps the waypoint count an order of magnitude below the raw centerlines —
+  which is what makes the `O(V²)` visibility search affordable. The bead ends are
+  there because erosion deletes a one-nozzle-wide rib entirely, and without them
+  a rib meeting a wall offers nowhere to turn.
+- **The budget** is twice the straight-line distance. A longer way round costs
+  more time than the retraction it saves and drags the nozzle further across
+  finished beads than one strand is worth.
+- **A re-routed hop lifts** by `z_hop_mm` before it travels and lowers after. It
+  runs across beads this layer already laid, and grazing them at print Z is the
+  scar the re-route exists to avoid. The lift is the only part of the ceremony it
+  pays — no retraction, no prime.
+
+Routers are built for every layer **in parallel**, ahead of the strictly
+sequential G-code walk: each is a chain of Clipper offset and union calls over
+every bead on its layer, and building them inline dominated the phase.
+
+Half a rib field's hops are re-routable in practice. On the card caddy the hops
+at the *root* end run back into the wall band the ribs share; the ones at the
+*tip* end have nothing to travel over but the slot, and stay straight — the way
+round, down one rib and out the next, is more than twice the direct line.
+
 When a retract _is_ emitted, the sequence is:
 
 ```mermaid

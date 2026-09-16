@@ -25,8 +25,8 @@ pub use slicer::{slice_mesh, slice_mesh_with_first_layer};
 pub use support_paint::{project_support_paint, SupportPaintMasks};
 pub use supports::{generate_supports, generate_supports_with_paint};
 pub use surfaces::{
-    generate_top_bottom_surfaces, generate_top_bottom_surfaces_with_interior, SurfaceConfig,
-    SurfaceSubTimings,
+    compute_wall_bead_footprint, generate_top_bottom_surfaces,
+    generate_top_bottom_surfaces_with_interior, SurfaceConfig, SurfaceSubTimings,
 };
 // Solid-surface line pitch + its nominal-width basis, shared with the G-code
 // generator so the flow it charges for each top/bottom fill line matches the

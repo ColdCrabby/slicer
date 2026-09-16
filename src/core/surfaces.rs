@@ -425,7 +425,7 @@ fn morphological_open(paths: Paths, radius_mm: f64) -> Paths {
 /// OverhangPerimeter / GapFill) — the build-plate area those extrusions consume.
 /// Bridge detection and solid top/bottom surfaces subtract this so nothing is
 /// deposited on top of an existing wall or gap-fill bead.
-pub(super) fn compute_wall_bead_footprint(layer: &SliceLayer, nozzle_diameter_mm: f64) -> Paths {
+pub fn compute_wall_bead_footprint(layer: &SliceLayer, nozzle_diameter_mm: f64) -> Paths {
     compute_wall_bead_footprint_filtered(layer, nozzle_diameter_mm, true)
 }
 

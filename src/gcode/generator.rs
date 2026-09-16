@@ -1946,6 +1946,26 @@ impl GcodeGenerator {
             && params.chamber_temp_first_layer > 0.0
             && (chamber_first_target - params.chamber_temp).abs() > 1e-9;
 
+        // Material routers, one per layer. Each is a chain of Clipper offset and
+        // union calls over every bead on the layer — 5-10 ms apiece — so they are
+        // built in parallel ahead of the strictly sequential G-code walk rather
+        // than inline, where they dominated the whole phase.
+        #[cfg(not(target_arch = "wasm32"))]
+        let material_routers: Vec<Option<crate::gcode::travel::MaterialRouter>> = {
+            use rayon::prelude::*;
+            layers
+                .par_iter()
+                .map(|l| {
+                    crate::gcode::travel::MaterialRouter::for_layer(l, params.nozzle_diameter_mm)
+                })
+                .collect()
+        };
+        #[cfg(target_arch = "wasm32")]
+        let material_routers: Vec<Option<crate::gcode::travel::MaterialRouter>> = layers
+            .iter()
+            .map(|l| crate::gcode::travel::MaterialRouter::for_layer(l, params.nozzle_diameter_mm))
+            .collect();
+
         for (layer_index, layer) in layers.iter().enumerate() {
             // ── Sequential printing: hand over to the next object (#112) ─────
             // Everything here has to happen *before* the layer's own Z move,
@@ -2073,6 +2093,9 @@ impl GcodeGenerator {
             // ceremony (always on — see the retract policy below).
             let travel_planner = crate::gcode::travel::TravelPlanner::for_layer(layer);
             let route_around_walls = params.avoid_crossing_perimeters;
+
+            // Per-layer material router, built up front (see `material_routers`).
+            let material_router = material_routers.get(layer_index).and_then(|r| r.as_ref());
 
             // Spiral (vase) layer? If so, the single outer contour is emitted
             // with a continuous Z ramp and the usual discrete Z move is skipped
@@ -2793,40 +2816,66 @@ impl GcodeGenerator {
                 //   - Travels between the minimum and that ceiling retract only
                 //     when the extrusion role changes (e.g. infill → outer wall),
                 //     where oozing would show on a visible surface.
-                //   - Exception: a short *interior* hop — one that crosses no
-                //     wall and stays inside an island's outline, within the same
-                //     role — never retracts. A field of thin ribs (card dividers,
-                //     fins, lattice webs) is one short bead per rib, and the
-                //     ceremony between them costs more wall-clock than the hops
-                //     it guards while pumping the extruder thousands of times
-                //     over a print. Whatever such a hop oozes lands inside the
-                //     part. A hop over a solid region is excluded: that surface
-                //     may be the visible top.
+                //   - Exception: a short *interior* hop — one that stays on or
+                //     inside the part, within the same role — never retracts. A
+                //     field of thin ribs (card dividers, fins, lattice webs) is
+                //     one short bead per rib, and the ceremony between them costs
+                //     more wall-clock than the hops it guards while pumping the
+                //     extruder thousands of times over a print. Such a hop drools
+                //     where nothing shows. A hop over a solid region is excluded:
+                //     that surface may be the visible top.
+                //   - Better still, a hop that *can* be re-routed to stay on this
+                //     layer's own extrusions is, and then it drools on material
+                //     rather than into the void it would have crossed.
                 const ALWAYS_RETRACT_TRAVEL_MM: f64 = 2.0;
                 /// Ceiling for the interior-hop exemption.  Beyond this the hop
                 /// is long enough to drool a visible strand even inside the
                 /// part, and the ceremony earns its keep again.
                 const INTERIOR_HOP_MAX_MM: f64 = 5.0;
+                /// How much longer than the straight line a re-route over
+                /// material may be. Past this the detour costs more time than the
+                /// retraction it saves, and drags the nozzle further across
+                /// finished beads than a strand is worth.
+                const MATERIAL_ROUTE_SLACK: f64 = 2.0;
                 let min_travel = params.retract_before_travel_mm.max(0.0);
                 let always_retract = min_travel.max(ALWAYS_RETRACT_TRAVEL_MM);
-                let interior_hop = !role_changed
-                    && travel_dist <= INTERIOR_HOP_MAX_MM
-                    && match (&travel_planner, last_pos) {
-                        (Some(planner), Some(lp)) => {
-                            planner.hop_is_interior(lp, (start_x, start_y))
-                                && !hop_crosses_solid(lp, (start_x, start_y), layer)
-                        }
-                        _ => false,
-                    };
+
+                let short_same_role = !role_changed && travel_dist <= INTERIOR_HOP_MAX_MM;
+                let material_route = match (short_same_role, material_router, last_pos) {
+                    (true, Some(router), Some(lp)) => {
+                        router.route(lp, (start_x, start_y), travel_dist * MATERIAL_ROUTE_SLACK)
+                    }
+                    _ => None,
+                };
+                // A single waypoint means the straight line was already on
+                // material; only a genuine detour changes how the hop is emitted.
+                let detoured_over_material = material_route.as_ref().is_some_and(|r| r.len() > 1);
+
+                let interior_hop = short_same_role
+                    && (material_route.is_some()
+                        || match (&travel_planner, last_pos) {
+                            (Some(planner), Some(lp)) => {
+                                planner.hop_is_interior(lp, (start_x, start_y))
+                                    && !hop_crosses_solid(lp, (start_x, start_y), layer)
+                            }
+                            _ => false,
+                        });
                 let needs_retract = !interior_hop
                     && (travel_dist > always_retract || (role_changed && travel_dist > min_travel));
 
-                // Plan the travel path.  With `avoid_crossing_perimeters` the
-                // planner may return intermediate waypoints that detour around
-                // outer walls; otherwise this is a single straight hop to the
-                // destination.  `from` is never included.
-                let travel_route: Vec<(f64, f64)> = match (&travel_planner, last_pos) {
-                    (Some(planner), Some(lp)) if route_around_walls => {
+                // Plan the travel path.  A re-route over material wins outright;
+                // otherwise, with `avoid_crossing_perimeters`, the planner may
+                // return intermediate waypoints that detour around outer walls.
+                // Failing both, this is a single straight hop to the destination.
+                // `from` is never included.
+                let travel_route: Vec<(f64, f64)> = match (
+                    detoured_over_material
+                        .then(|| material_route.clone())
+                        .flatten(),
+                    (&travel_planner, last_pos),
+                ) {
+                    (Some(route), _) => route,
+                    (None, (Some(planner), Some(lp))) if route_around_walls => {
                         planner.route(lp, (start_x, start_y))
                     }
                     _ => vec![(start_x, start_y)],
@@ -2895,8 +2944,26 @@ impl GcodeGenerator {
                     // path simplification) and are skipped entirely — emitting a
                     // G1 line for a sub-quantum hop just bloats the file and
                     // confuses motion planners on some firmwares.
+                    //
+                    // A hop re-routed over material lifts first: it runs across
+                    // beads this layer has already laid, and grazing them at print
+                    // Z is exactly the scar the re-route exists to avoid. The lift
+                    // is the only part of the ceremony it pays — no retraction,
+                    // no prime.
+                    let lift = detoured_over_material && params.z_hop_mm > 0.0;
+                    if lift {
+                        out.push_str(&format!(
+                            "{} ; z-hop\n",
+                            self.dialect.move_z(
+                                machine_z(layer.z + params.z_hop_mm, params),
+                                params.travel_speed_mm_min
+                            )
+                        ));
+                    }
                     for (wi, &(wx, wy)) in travel_route.iter().enumerate() {
-                        let tag = if wi + 1 == travel_route.len() {
+                        let tag = if detoured_over_material {
+                            "travel (over material)"
+                        } else if wi + 1 == travel_route.len() {
                             "short travel"
                         } else {
                             "short travel (avoid crossing)"
@@ -2904,6 +2971,13 @@ impl GcodeGenerator {
                         out.push_str(&format!(
                             "{} ; {tag}\n",
                             self.dialect.travel_xy(wx, wy, params.travel_speed_mm_min)
+                        ));
+                    }
+                    if lift {
+                        out.push_str(&format!(
+                            "{} ; lower\n",
+                            self.dialect
+                                .move_z(machine_z(layer.z, params), params.travel_speed_mm_min)
                         ));
                     }
                 }

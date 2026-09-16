@@ -39,6 +39,13 @@ issue/PR numbers or repo links in the notes. See the tone rules in
   it drools lands where nothing shows. Parts with a field of thin ribs, like a
   card caddy or a fan grille, were spending more time on the ceremony than on
   the ribs: one such model loses 85 % of its retractions.
+- **Short hops are steered over material where there is a way round.** Rather
+  than cutting across an open slot, a hop of a few millimetres now travels back
+  over the beads it came from — lifting clear of them, but without retracting —
+  so what it drools lands on the part instead of hanging in the gap. It only
+  takes a way round up to twice as long as the straight line, which on the card
+  caddy covers about half the hops between dividers and costs 1.5 % of print
+  time.
 - **Better infill and surface defaults out of the box.** Sparse infill is now
   **TPMS-D** at 20 % instead of rectilinear: a minimal surface carries load in
   every direction, so the part comes out stiffer for the material it uses. Top
