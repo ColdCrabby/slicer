@@ -1,0 +1,39 @@
+{
+  "name": "Cold Crabby Slicer",
+  "short_name": "Cold Crabby",
+  "description": "A fast, open-source 3D printing slicer. Drop in an STL, OBJ or 3MF and slice it right in your browser.",
+  "start_url": "/",
+  "display": "standalone",
+  "related_applications": [
+    {
+      "name": "Web Application",
+      "id": "http://slicer.example.com/",
+      "platforms": ["iOS"],
+      "minimumOSVersion": "14.0"
+    },
+    {
+      "name": "Web Application",
+      "id": "https://slicer.example.com/",
+      "platforms": ["Android"]
+    }
+  ],
+  "background_color": "#f4f5f8",
+  "theme_color": "#e0730f",
+  "icons": [
+    {
+      "src": "favicon-32x32.png",
+      "sizes": "32x32",
+      "type": "image/png"
+    },
+    {
+      "src": "favicon-16x16.png",
+      "sizes": "16x16",
+      "type": "image/png"
+    },
+    {
+      "src": "apple-touch-icon.png",
+      "sizes": "180x180",
+      "type": "image/png"
+    }
+  ]
+}
