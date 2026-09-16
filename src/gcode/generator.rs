@@ -1275,7 +1275,22 @@ impl GcodeGenerator {
 
         // Dynamic overhang speed override.
         if params.enable_overhang_speed && overhang.is_overhang() {
-            // `None` = keep the role's normal speed for this degree.
+            // What an unset band inherits. Deg1/Deg2 lie mostly on the layer
+            // below and inherit the role's normal speed; Deg3/Deg4 are mostly
+            // over air and inherit `bridge_speed`, which is the whole point of
+            // the `0` sentinel on those two.
+            //
+            // The inheritance is keyed on the *degree*, not on the role: a steep
+            // wall that still touches the layer below keeps its wall role — it
+            // has something to be pressed onto, so it prints at wall flow and
+            // wall width — and it must still slow down to the speed the profile
+            // states for its degree.
+            let inherited = if overhang.band() >= 3 && params.bridge_speed > 0.0 {
+                params.bridge_speed * 60.0
+            } else {
+                base
+            };
+            // `None` = keep the inherited speed for this degree.
             let resolved = match overhang {
                 crate::core::OverhangClass::Deg1 => {
                     params.overhang_1_4_speed.resolve(params.perimeter_speed)
@@ -1293,7 +1308,7 @@ impl GcodeGenerator {
             };
             let mut s = match resolved {
                 Some(mm_s) => mm_s * 60.0,
-                None => base,
+                None => inherited,
             };
             // Slow curl-prone steep overhangs (Deg3/Deg4) to the most
             // conservative effective overhang speed.

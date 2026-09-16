@@ -274,13 +274,21 @@ issue/PR numbers or repo links in the notes. See the tone rules in
 
 ### Fixed
 
-- **Overhangs are graded by geometry, not by rounding.** A wall's overhang was
-  decided by testing its own centreline against a region whose outer edge *is*
-  that centreline, so the answer came back as floating-point noise: a Benchy
-  funnel rim of uniform 0.34 mm lean was split into four alternating verdicts
-  around one circle. Each segment is now measured against the previous layer's
-  bead envelope, so a rim that leans evenly is classified evenly — and prints as
-  one arc instead of four, with three fewer retracts.
+- **Overhang detection measures material, not centrelines.** A wall counted as
+  an overhang once it leaned half a bead past the *centreline* of the wall below
+  — but the layer below is half a bead wider than its centreline, so near-vertical
+  funnels, chamfered lips and gently flaring hulls were being given bridge speed
+  and bridge cooling for surfaces that still land on solid plastic. Support is now
+  measured from the material edge, and a wall earns the overhang role only once
+  the bead clears the layer below entirely. Steep-but-touching walls are still
+  slowed and cooled, by overhang *degree* — they just keep wall flow and stay one
+  continuous loop instead of being cut into arcs.
+- **Overhangs are classified by geometry, not by rounding.** The test asked a
+  point-in-polygon question about points lying exactly on their own subject
+  polygon, so the answer came back as floating-point noise: a uniform 0.34 mm
+  ledge was split into four alternating verdicts around one circle. Every
+  boundary now sits clear of the wall it is asked about, so a rim that leans
+  evenly is classified evenly.
 - **Small layers no longer crawl to a blob.** The minimum-layer-time slowdown
   scaled every feedrate against the general print speed, so roles already slower
   than it — bridges, overhang bands, ironing — fell straight through the

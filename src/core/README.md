@@ -233,32 +233,52 @@ After surfaces are assigned, `classify_overhang_perimeters` re-tags each
 `OuterWall` / `InnerWall` segment that hangs in air as `OverhangPerimeter`,
 splitting the loop at the exact crossing so only the airborne arc is retagged.
 
-Everything rests on one relation. A current-layer wall is supported by the
-previous-layer **bead**, not by its centerline: that bead is `d` wide about
-`perimeters[i-1]`, so it reaches `d/2` past it. Writing `S` for how far this
-layer's centerline sits outside the previous one, the fraction of this layer's
-bead left hanging is exactly `S / d`. Every boundary in the pass is that one
-relation inflated:
+Everything rests on one relation, and on getting one input right.
 
-| Region | Offset from `perimeters[i-1]` | Unsupported fraction |
+Support is **material**, and the material of a layer fills its slice outline —
+the outer bead is laid half its own width inside that boundary, so the plastic
+reaches the boundary itself. Write `E` for the outline of the layer below and
+`c` for the centerline being classified. The bead spans `c ± d/2`, so
+
+```text
+unsupported = (c + d/2 − E) / d          clamped to 0..=1
+```
+
+Every boundary in the pass is that relation solved for `c`:
+
+| Region | Offset from `E` | Unsupported fraction |
 | --- | --- | --- |
-| `b0` | `0`    | 0 % |
-| `b1` | `d/4`  | 25 % |
-| `b2` | `d/2`  | 50 % — the air threshold (≈ 45° lean at 0.2 mm / 0.4 mm) |
-| `b3` | `3d/4` | 75 % |
+| `f0`  | `−d/2` | 0 % — the whole bead lands on material |
+| `f25` | `−d/4` | 25 % |
+| `f50` | `0`    | 50 % — the bead's centre sits on the material edge |
+| `f75` | `+d/4` | 75 % |
+| `air` | `+d/2` | 100 % — the bead touches nothing at all |
 
-**A segment is in air when its midpoint falls outside `b2`.** A slight outward
-lean (`S < d/2`) stays inside it and is never flagged, which is what keeps
-"80 % of the Benchy is overhang" from coming back without any vertex-fraction
-tuning.
+**A segment earns the overhang role only outside `air`.** Anything still
+touching the layer below is a wall: it has something to be pressed onto, and it
+prints at wall flow and wall width however little of it is supported. The
+degrees are what slow a barely-supported wall down, and they grade the whole
+0–100 % range — so a steep lean is handled by speed and cooling without also
+being given bridge treatment it cannot use.
+
+`E` is the layer's **slice outline**, snapshotted before the wall generator
+replaces `paths` with centerlines. Measuring from the previous layer's wall
+centerline instead understates `E` by half a bead everywhere — on its own enough
+to tag a near-vertical funnel or a gently flaring hull as bridged. The snapshot
+is also taken **before elephant-foot compensation**: that shrinks the first
+layers precisely so the squashed bead spreads back out to the model's width, so
+the material still reaches the uncompensated outline, and measuring from the
+shrunken one invents a step of the full compensation between layer 1 and layer 2.
+Dimensional compensation, by contrast, is a resize the printed part really has,
+and is kept.
 
 ### Why the test is not against `unsupported_regions`
 
-`unsupported_regions` is `perimeters[i] − b2`, and `perimeter_paths_of(layer)`
-returns the very OuterWall centerlines the classifier iterates over. So the
-strip's outer contour **is** the wall path: asking a point-in-polygon test about
-a wall's own edge midpoints asks about points lying exactly on their subject
-polygon.
+`unsupported_regions` is `perimeters[i] − inflate(perimeters[i-1], d/2)`, and
+`perimeter_paths_of(layer)` returns the very OuterWall centerlines the classifier
+iterates over. So the strip's outer contour **is** the wall path: asking a
+point-in-polygon test about a wall's own edge midpoints asks about points lying
+exactly on their subject polygon.
 
 That test cannot answer. Counting `IsOn` as outside flags nothing, ever.
 Counting it as inside flags by coincidence: once the boolean difference has
@@ -270,43 +290,48 @@ outright. A geometrically uniform 0.34 mm ledge came back as a coin flip edge by
 edge, and the run-length hysteresis then froze whichever arcs the noise had
 clumped into: four alternating verdicts around one circular rim.
 
-`b2`'s boundary sits `d/2` inboard of the wall, so it is decided by geometry.
-`unsupported_regions` keeps one job here — dilated by `AIR_MASK_DILATION_MM` it
-vetoes edges the bridge pass already owns, and a layer without a strip is
-skipped outright.
+Every boundary in the table above is offset clear of the walls it is asked
+about, so each is decided by geometry. `unsupported_regions` keeps one job here
+— dilated by `AIR_MASK_DILATION_MM` it vetoes edges the bridge pass already
+owns, and a layer without a strip is skipped outright. It is built from a looser
+threshold than `air`, so it always contains what the pass flags and can only
+ever subtract.
 
 **Don't** go back to testing the strip directly, and don't restore the raw
 centerline difference or the `0.6 × nozzle_diameter` "safety" erosion that was
 tried at one point — either of the latter suppresses _all_ detection. See
-`test_classify_overhang_e2e_*` in `walls.rs` for the production-geometry
-lockdown tests.
+`test_classify_overhang_*` in `walls.rs` for the geometry lockdown tests, and
+`test_gentle_ledge_is_not_an_overhang_end_to_end` in `mod.rs` for the wiring
+ones — that pair is what catches a snapshot taken from the wrong geometry, or
+from the wrong side of elephant foot.
 
-Reclassified paths inherit the bridge speed (`bridge_speed`) and the fused-flow
-width (`nozzle_diameter_mm × bridge_flow_ratio`, > 1× by default) in the G-code
+Reclassified paths inherit the bridge speed (`bridge_speed`) in the G-code
 generator and trigger the bridge fan boost via `has_bridges`. This eliminates
-sagging walls printed across windows, slots, and similar mid-air features.
+sagging walls printed across windows, slots and similar mid-air features.
 
 ### Dynamic overhang speed & cooling
 
 When `enable_overhang_speed` is set, the same pass grades each wall segment by
-**overhang degree** — where it falls among the `b0`…`b3` offsets above — and
-records an `OverhangClass` (`None`/`Deg1`…`Deg4`) per path. `Deg3`/`Deg4` are
-exactly "outside `b2`", so they coincide with the binary `OverhangPerimeter`
-region and the role tag stays consistent.
+**overhang degree** — where it falls among the `f0`…`f75` offsets above — and
+records an `OverhangClass` (`None`/`Deg1`…`Deg4`) per path. A degree is not a
+role: `Deg4` covers 75–100 % unsupported and is mostly *walls*, since the role
+only flips past 100 %. An unset `Deg3`/`Deg4` therefore inherits `bridge_speed`
+by **degree** rather than by role, which is what the `0` sentinel on those two
+settings has always meant; the overhang fan is likewise keyed on the degree.
 
 Two invariants:
 
 - **Off ⇒ no degrees.** With grading off the classifier reduces to the binary
   air/support split and `path_overhang` stays empty. It does **not** change which
-  segments are in air: that is geometry, and `b2` is built either way. The
-  previous-layer snapshot is therefore taken unconditionally, not behind
+  segments are in air: that is geometry, and `air` is built either way. The
+  layer-outline snapshot is therefore taken unconditionally, not behind
   `enable_overhang_speed`.
 - **Split only where output changes.** `overhang_band_class` folds any degree
   whose speed and fan match a plainer wall down to that class, so a wall is never
   fragmented into arcs that print identically — no wasted retracts.
 
-The bands need the **pristine** previous-layer perimeter, snapshotted before
-bridge clipping splits any walls.
+The bands need the layer outline from before the wall generator ran, which is
+also before bridge clipping splits any walls.
 
 Two things to note:
 
@@ -334,7 +359,7 @@ Two things to note:
 | Single-wall strip             | [`walls::apply_single_wall_restrictions`](walls.rs)                           | `paths`, `path_roles`                       | `paths`, `path_roles` (inner walls + first-layer gap fill removed) |
 | Interior regions for surfaces | [`infill::calculate_interior_region`](infill.rs)                              | `paths` (post-strip)                        | `interior_regions` local                     |
 | Top / bottom surfaces         | [`surfaces::generate_top_bottom_surfaces_with_interior`](surfaces.rs)         | `paths`, `interior_regions`                 | `paths`, `path_roles`, `solid_regions`       |
-| Overhang classification       | [`walls::classify_overhang_perimeters`](walls.rs)                             | `paths`, `unsupported_regions`, previous-layer perimeter snapshot, `OverhangGrading` (opt) | `path_roles` (some `OverhangPerimeter`), `path_overhang` (when grading) |
+| Overhang classification       | [`walls::classify_overhang_perimeters`](walls.rs)                             | `paths`, `unsupported_regions`, layer-outline snapshot, `OverhangGrading` (opt) | `path_roles` (some `OverhangPerimeter`), `path_overhang` (when grading) |
 | Sparse infill                 | [`infill::add_infill_to_layers`](infill.rs)                                   | `pre_strip_infill_regions`, `solid_regions` | `paths`, `path_roles`, `path_heights`        |
 | Path ordering & seams         | inline in [`pipeline::process_mesh`](pipeline.rs) (uses `choose_seam_vertex`) | `paths`, `path_roles`, `seam_position`      | `paths` (rotated/reordered)                  |
 
