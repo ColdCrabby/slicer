@@ -14,14 +14,10 @@
   padding: var(--spacing-sm) var(--spacing-sm) var(--spacing-sm);
 }
 
-.contract-tabs {
-  display: block;
-}
-
-// Directly above the list it narrows, rather than a row away above the tabs.
-.preset-filter {
-  display: block;
-}
+// No layout of its own: `nexus-segmented` is already `display: flex` at full
+// width with `flex: 1 1 0` segments, and anything set here lands on the host
+// and overrides that. A `display: block` was enough to stop the segments
+// dividing the row and leave them bunched at its left edge.
 
 .preset-row {
   display: flex;
