@@ -46,7 +46,7 @@ pub fn base_printer(meta: ProfileMeta) -> PrinterProfile {
             "filament_diameter_mm": 1.75,
             "extruder_count": 1,
             "print_speed": 150.0,
-            "travel_speed_mm_min": 15000.0,
+            "travel_speed_mm_min": 18000.0,
             "retract_mm": 0.8,
             "retract_speed_mm_min": 2400.0,
             "z_hop_mm": 0.2,
@@ -99,9 +99,9 @@ pub fn base_process(meta: ProfileMeta) -> ProcessProfile {
             "infill_pattern": "TpmsD",
             "infill_base_angle": 45.0,
             "print_speed": 120.0,
-            "perimeter_speed": 80.0,
+            "perimeter_speed": 120.0,
             "infill_speed": 150.0,
-            "top_surface_speed": 60.0,
+            "top_surface_speed": 100.0,
             "first_layer_speed": 25.0,
             "support_threshold_angle": 45.0,
             "adhesion_type": "none",
@@ -252,17 +252,20 @@ pub fn high_speed_process() -> ProcessProfile {
         "top_layers": 4,
         "bottom_layers": 3,
         "seam_position": "aligned",
-        "bridge_speed": 15.0,
+        "bridge_speed": 40.0,
         "infill_pattern": "TpmsD",
         "infill_base_angle": 45.0,
         "print_speed": 200.0,
-        "perimeter_speed": 120.0,
+        "perimeter_speed": 180.0,
         // A modest correction: at 120 mm/s the transitional overhang band is
         // fast enough to show up, but this machine class isn't pushed hard
         // enough to need the bigger cut `maximum_process` takes.
         "overhang_2_4_speed": "50%",
         "infill_speed": 250.0,
         "top_surface_speed": 100.0,
+        // Lands on this preset's own infill speed, the way the engine default
+        // lands on the engine's.
+        "solid_infill_speed": "250%",
         "first_layer_speed": 40.0,
         "travel_speed_mm_min": 24000.0,
         "acceleration": 15000.0,
@@ -309,11 +312,17 @@ pub fn maximum_process() -> ProcessProfile {
         "top_layers": 4,
         "bottom_layers": 3,
         "seam_position": "aligned",
-        "bridge_speed": 30.0,
+        "bridge_speed": 50.0,
         "infill_pattern": "TpmsD",
         "infill_base_angle": 45.0,
         "print_speed": 300.0,
-        "perimeter_speed": 200.0,
+        // Still held back below this preset's own infill: the point of going
+        // fast on the inside is to afford not going flat out on the outside.
+        "perimeter_speed": 250.0,
+        // The inherited 125% would put the hidden wall past the 300 mm/s this
+        // preset calls the top of the sensible range. Held to that ceiling.
+        "inner_wall_speed": "120%",
+        "solid_infill_speed": "200%",
         // A bigger proportional cut than the high-speed preset's — at 200 mm/s
         // the transitional band needs to give up more of it to stay in the
         // same safe absolute range (70 mm/s here vs. 60 mm/s above).
@@ -361,9 +370,11 @@ mod tests {
     /// The `Speed` group — everything a "go faster" preset is allowed to touch.
     /// Kept in step with the `x-group = "Speed"` annotations in
     /// `settings::params`; a new speed parameter belongs in both.
-    const SPEED_KEYS: [&str; 21] = [
+    const SPEED_KEYS: [&str; 23] = [
         "print_speed",
         "perimeter_speed",
+        "inner_wall_speed",
+        "solid_infill_speed",
         "infill_speed",
         "top_surface_speed",
         "first_layer_speed",

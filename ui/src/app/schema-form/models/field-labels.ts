@@ -66,7 +66,8 @@ export const FIELD_LABELS: Record<string, string> = {
   solid_infill_every_layers: 'Solid Layer Every',
   // Speed
   print_speed: 'Print Speed',
-  perimeter_speed: 'Perimeter Speed',
+  perimeter_speed: 'Outer Wall Speed',
+  inner_wall_speed: 'Inner Wall Speed',
   infill_speed: 'Infill Speed',
   bridge_speed: 'Bridge Speed',
   enable_overhang_speed: 'Dynamic Overhang Speed',
@@ -77,6 +78,7 @@ export const FIELD_LABELS: Record<string, string> = {
   slowdown_for_curled_perimeters: 'Slow Down Curled Perimeters',
   bridge_flow_ratio: 'Bridge Flow Ratio',
   top_surface_speed: 'Top Surface Speed',
+  solid_infill_speed: 'Internal Solid Speed',
   gap_fill_speed: 'Gap Fill Speed',
   support_speed: 'Support Speed',
   first_layer_speed: 'First Layer Speed',

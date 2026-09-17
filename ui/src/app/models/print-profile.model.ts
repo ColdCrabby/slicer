@@ -111,9 +111,9 @@ export function defaultProcessParams(): Record<string, unknown> {
     infill_pattern: 'TpmsD',
     infill_base_angle: 45,
     print_speed: 120,
-    perimeter_speed: 80,
+    perimeter_speed: 120,
     infill_speed: 150,
-    top_surface_speed: 60,
+    top_surface_speed: 100,
     first_layer_speed: 30,
     support_threshold_angle: 45,
     adhesion_type: 'skirt',
@@ -177,9 +177,12 @@ export const HIGH_SPEED_PRINT_PROFILE: PrintProfile = makePrintProfile({
   quality: 'standard',
   params: fastParams({
     print_speed: 200,
-    perimeter_speed: 120,
+    perimeter_speed: 180,
     infill_speed: 250,
     top_surface_speed: 100,
+    // Lands on this preset's own infill speed, the way the engine default lands
+    // on the engine's.
+    solid_infill_speed: '250%',
     first_layer_speed: 40,
     travel_speed_mm_min: 24000,
     acceleration: 15000,
@@ -204,7 +207,13 @@ export const MAXIMUM_PRINT_PROFILE: PrintProfile = makePrintProfile({
   quality: 'standard',
   params: fastParams({
     print_speed: 300,
-    perimeter_speed: 200,
+    // Still held back below this preset's own infill: the point of going fast
+    // on the inside is to afford not going flat out on the outside.
+    perimeter_speed: 250,
+    // The inherited 125% would put the hidden wall past the 300 mm/s this
+    // preset calls the top of the sensible range.
+    inner_wall_speed: '120%',
+    solid_infill_speed: '200%',
     infill_speed: 300,
     top_surface_speed: 150,
     first_layer_speed: 50,

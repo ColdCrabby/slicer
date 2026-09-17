@@ -1011,15 +1011,43 @@ positive value.
     pub print_speed: f64,
 
     #[schemars(
-        description = "Speed for outer and inner perimeter (wall) extrusions in mm/s.
+        description = "Speed for perimeter (wall) extrusions in mm/s.
 
-Lower speeds improve surface quality and layer adhesion on perimeters.
+This is the speed of the **outer** wall — the one the print is judged by, and
+the one worth spending time on. Inner walls follow `inner_wall_speed`, which is
+a multiple of this by default, so lowering this for a better surface finish does
+not also slow down the hidden walls behind it.
 Set to `0` to fall back to `print_speed`.
-**Typical:** 40–50 mm/s.",
+**Typical:** 45–170 mm/s — the range shipped profiles actually span, from a
+quality-first preset to a resonance-tested machine.",
         extend("x-group" = "Speed", "x-unit" = "mm_s", "x-tier" = "advanced")
     )]
     #[serde(default = "SlicingParams::default_perimeter_speed")]
     pub perimeter_speed: f64,
+
+    #[schemars(
+        description = "Speed for inner (hidden) wall extrusions, given either as a literal mm/s
+value or as a percentage of `perimeter_speed` (e.g. `\"175%\"`).
+
+Nothing sees an inner wall. It is buried under the outer wall, so ringing and
+seam artefacts on it never reach the surface, and on a typical part the inner
+walls carry more extrusion length than anything else — which makes them the
+cheapest print time there is to buy back. The only real ceiling is flow: an
+inner wall is a full-width bead, so it asks as much of the hotend as sparse
+infill at the same speed.
+
+Stated as a percentage by default so that lowering `perimeter_speed` for surface
+finish keeps the hidden walls fast, instead of dragging them down with it.
+**Default:** 125% of `perimeter_speed`.",
+        extend(
+            "x-group" = "Speed",
+            "x-tier" = "advanced",
+            "x-widget" = "relative-speed",
+            "x-relative-to" = "perimeter_speed"
+        )
+    )]
+    #[serde(default = "SlicingParams::default_inner_wall_speed")]
+    pub inner_wall_speed: RelativeSpeed,
 
     #[schemars(
         description = "Speed for sparse infill extrusions in mm/s.
@@ -1036,10 +1064,13 @@ Set to `0` to fall back to `print_speed`.
         description = "Speed for bridge extrusions spanning unsupported gaps in mm/s.
 
 Bridges print in mid-air, so the strand is not squished onto a layer below like
-every other extrusion.  Crawling across the gap gives full part-cooling
-(`bridge_fan_speed`) time to freeze the strand in place before it can sag.
+every other extrusion — it is pulled taut between its two anchors, and that
+tension is what holds it straight while full part-cooling (`bridge_fan_speed`)
+freezes it. Crossing too slowly gives it more time to sag, not less; crossing
+too fast snaps it thin. This is also the speed the two steep overhang bands
+inherit, so it sets the pace of a curved underside as well as a flat span.
 Set to `0` to fall back to `print_speed`.
-**Typical:** 10–25 mm/s. **Default:** 10 mm/s.",
+**Typical:** 20–50 mm/s. **Default:** 25 mm/s.",
         extend("x-group" = "Speed", "x-unit" = "mm_s", "x-tier" = "advanced")
     )]
     #[serde(default = "SlicingParams::default_bridge_speed")]
@@ -1242,6 +1273,27 @@ Set to `0` to fall back to `print_speed`.
     )]
     #[serde(default = "SlicingParams::default_top_surface_speed")]
     pub top_surface_speed: f64,
+
+    #[schemars(
+        description = "Speed for internal solid infill — the solid layers buried between the top
+and bottom skins — given either as a literal mm/s value or as a percentage of
+`top_surface_speed` (e.g. `\"250%\"`).
+
+These layers are sealed inside the part: they exist to give the top skin
+something flat to land on, and nothing ever looks at them. Running them at the
+visible top surface's speed is time spent on a finish no one sees, so by default
+they track sparse infill instead.
+Set to `0` to fall back to `top_surface_speed`.
+**Default:** 150% of `top_surface_speed`.",
+        extend(
+            "x-group" = "Speed",
+            "x-tier" = "advanced",
+            "x-widget" = "relative-speed",
+            "x-relative-to" = "top_surface_speed"
+        )
+    )]
+    #[serde(default = "SlicingParams::default_solid_infill_speed")]
+    pub solid_infill_speed: RelativeSpeed,
 
     #[schemars(
         description = "Speed for gap-fill (thin-wall medial) extrusions in mm/s.
@@ -1634,7 +1686,7 @@ a different machine. Empty = omit the line.", extend("x-group" = "Hardware"))]
 
 Fast travel reduces print time without affecting print quality; too fast risks \
 skipped steps or ringing on a machine that cannot keep up. **Typical:** \
-150–250 mm/s.
+250–400 mm/s.
 
 Stored in mm/min — the unit a G-code `F` word carries.", extend("x-group" = "Speed", "x-unit" = "mm_min", "x-tier" = "advanced"))]
     #[serde(default = "SlicingParams::default_travel_speed_mm_min")]
@@ -2855,6 +2907,7 @@ impl Default for SlicingParams {
             solid_infill_every_layers: Self::default_solid_infill_every_layers(),
             print_speed: 120.0,
             perimeter_speed: Self::default_perimeter_speed(),
+            inner_wall_speed: Self::default_inner_wall_speed(),
             infill_speed: Self::default_infill_speed(),
             bridge_speed: Self::default_bridge_speed(),
             enable_overhang_speed: Self::default_enable_overhang_speed(),
@@ -2869,6 +2922,7 @@ impl Default for SlicingParams {
             bridge_anchor_mm: Self::default_bridge_anchor_mm(),
             bridge_angle: Self::default_bridge_angle(),
             top_surface_speed: Self::default_top_surface_speed(),
+            solid_infill_speed: Self::default_solid_infill_speed(),
             gap_fill_speed: Self::default_gap_fill_speed(),
             support_speed: Self::default_support_speed(),
             gap_fill_min_length_mm: Self::default_gap_fill_min_length_mm(),
@@ -3608,7 +3662,17 @@ impl SlicingParams {
     /// from the app produce the same print. Walls run slower than infill because
     /// they are the surface anyone looks at.
     fn default_perimeter_speed() -> f64 {
-        80.0
+        120.0
+    }
+
+    /// 125% — the point where an inner wall's flow lands on exactly what this
+    /// profile already asks of sparse infill at the same bead width. That is the
+    /// honest ceiling for a machine we know nothing about: resonance testing
+    /// buys acceleration, not melt rate, and past this the limit is the hotend.
+    /// A profile that knows its hotend raises it, or lifts the cap properly by
+    /// setting `max_volumetric_speed` on the filament.
+    fn default_inner_wall_speed() -> RelativeSpeed {
+        RelativeSpeed::Percent(1.25)
     }
 
     fn default_infill_speed() -> f64 {
@@ -3616,12 +3680,16 @@ impl SlicingParams {
     }
 
     fn default_bridge_speed() -> f64 {
-        // Community-standard "smooth unsupported bridge" recipe: crawl the strand
-        // across the gap so full part-cooling (`bridge_fan_speed`) freezes it in
-        // place before it can sag, paired with the >1 `bridge_flow_ratio` that
-        // fuses adjacent strands into a solid floor. 10 mm/s at 0.6 mm × 0.2 mm is
-        // ≈ 1.2 mm³/s — well inside every filament's melt rate.
-        10.0
+        // A bridged strand is pulled taut between two anchors, and tension is
+        // what keeps it straight — crawling gives it longer to sag under its own
+        // weight before full part-cooling (`bridge_fan_speed`) can freeze it,
+        // not less. Paired with the >1 `bridge_flow_ratio` that fuses adjacent
+        // strands into a solid floor. 25 mm/s at 0.6 mm × 0.2 mm is ≈ 3 mm³/s —
+        // well inside every filament's melt rate.
+        //
+        // This is also the base the two steep overhang bands inherit, so it sets
+        // the pace of a curved underside as much as of a flat span.
+        25.0
     }
 
     fn default_enable_overhang_speed() -> bool {
@@ -3714,7 +3782,15 @@ impl SlicingParams {
     }
 
     fn default_top_surface_speed() -> f64 {
-        60.0
+        100.0
+    }
+
+    /// 150% of the top surface — which lands on `default_infill_speed`, where a
+    /// buried solid layer belongs: it is interior, and the only thing it shares
+    /// with the visible skin is the word "solid". Keyed to that landing, so a
+    /// profile that moves the top surface should move this with it.
+    fn default_solid_infill_speed() -> RelativeSpeed {
+        RelativeSpeed::Percent(1.5)
     }
 
     fn default_gap_fill_speed() -> f64 {
@@ -3829,8 +3905,11 @@ impl SlicingParams {
         0.0
     }
 
+    /// 300 mm/s. No material is deposited in transit, so the only thing this
+    /// costs is the machine's ability to hold the move — and a travel that
+    /// dawdles is pure print time spent on nothing.
     fn default_travel_speed_mm_min() -> f64 {
-        9000.0
+        18000.0
     }
 
     fn default_z_hop_mm() -> f64 {
@@ -4650,7 +4729,7 @@ mod tests {
         let params = SlicingParams::default();
         assert_eq!(params.filament_diameter_mm, 1.75);
         assert_eq!(params.nozzle_diameter_mm, 0.4);
-        assert_eq!(params.travel_speed_mm_min, 9000.0);
+        assert_eq!(params.travel_speed_mm_min, 18000.0);
         assert_eq!(params.z_hop_mm, 0.2);
         assert_eq!(params.retract_mm, 1.0);
         assert_eq!(params.path_tolerance, 0.05);
@@ -4692,7 +4771,7 @@ mod tests {
             "default filament diameter"
         );
         assert_eq!(params.nozzle_diameter_mm, 0.4, "default nozzle diameter");
-        assert_eq!(params.travel_speed_mm_min, 9000.0, "default travel speed");
+        assert_eq!(params.travel_speed_mm_min, 18000.0, "default travel speed");
         assert_eq!(params.z_hop_mm, 0.2, "default z-hop");
         assert_eq!(params.retract_mm, 1.0, "default retract");
         assert_eq!(params.path_tolerance, 0.05, "default path tolerance");

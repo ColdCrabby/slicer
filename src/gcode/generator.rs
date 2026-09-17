@@ -1233,8 +1233,23 @@ impl GcodeGenerator {
         // degree — perimeter speed for the mild Deg1/Deg2 walls, bridge speed
         // for the steep Deg3/Deg4 walls, which carry the OverhangPerimeter role).
         let base = match role {
-            ExtrusionRole::OuterWall | ExtrusionRole::InnerWall => {
+            ExtrusionRole::OuterWall => {
                 let s = params.perimeter_speed;
+                if s > 0.0 {
+                    s * 60.0
+                } else {
+                    fallback
+                }
+            }
+            // The hidden wall runs off its own setting, which is a multiple of
+            // the outer wall's by default — so a profile that slows the visible
+            // wall down for surface finish does not drag the buried ones with
+            // it. No override falls back to the outer wall's speed.
+            ExtrusionRole::InnerWall => {
+                let s = params
+                    .inner_wall_speed
+                    .resolve(params.perimeter_speed)
+                    .unwrap_or(params.perimeter_speed);
                 if s > 0.0 {
                     s * 60.0
                 } else {
@@ -1257,10 +1272,21 @@ impl GcodeGenerator {
                     fallback
                 }
             }
-            ExtrusionRole::TopSurface
-            | ExtrusionRole::BottomSurface
-            | ExtrusionRole::InternalSolid => {
+            ExtrusionRole::TopSurface | ExtrusionRole::BottomSurface => {
                 let s = params.top_surface_speed;
+                if s > 0.0 {
+                    s * 60.0
+                } else {
+                    fallback
+                }
+            }
+            // Sealed between the skins and never seen, so it is priced like
+            // interior work rather than like the surface it shares a name with.
+            ExtrusionRole::InternalSolid => {
+                let s = params
+                    .solid_infill_speed
+                    .resolve(params.top_surface_speed)
+                    .unwrap_or(params.top_surface_speed);
                 if s > 0.0 {
                     s * 60.0
                 } else {
@@ -7047,6 +7073,26 @@ CHAMBER={chamber_temp} MATERIAL={filament_type}"
             (s - 45.0 * 60.0).abs() < 1e-6,
             "expected perimeter_speed * 60"
         );
+        // The hidden wall runs off its own multiple of that speed.
+        let s = GcodeGenerator::effective_speed_mm_min(
+            ExtrusionRole::InnerWall,
+            crate::core::OverhangClass::None,
+            false,
+            &params,
+            1.0,
+        );
+        assert!(
+            (s - 45.0 * 1.25 * 60.0).abs() < 1e-6,
+            "inner wall should use its own share of perimeter_speed"
+        );
+
+        // `0` on the inner wall is the "no override" sentinel: it falls back to
+        // the outer wall's speed, which is what every profile saved before the
+        // field existed means.
+        let params = SlicingParams {
+            inner_wall_speed: RelativeSpeed::Absolute(0.0),
+            ..params
+        };
         let s = GcodeGenerator::effective_speed_mm_min(
             ExtrusionRole::InnerWall,
             crate::core::OverhangClass::None,
@@ -7056,7 +7102,7 @@ CHAMBER={chamber_temp} MATERIAL={filament_type}"
         );
         assert!(
             (s - 45.0 * 60.0).abs() < 1e-6,
-            "inner wall should also use perimeter_speed"
+            "no inner-wall override → perimeter_speed"
         );
     }
 
@@ -7224,6 +7270,9 @@ CHAMBER={chamber_temp} MATERIAL={filament_type}"
         let params = SlicingParams {
             print_speed: 60.0,
             perimeter_speed: 45.0,
+            // Pinned to the outer wall so this test measures the overhang
+            // ladder and not the inner/outer split.
+            inner_wall_speed: RelativeSpeed::Absolute(0.0),
             bridge_speed: 25.0,
             enable_overhang_speed: true,
             overhang_1_4_speed: RelativeSpeed::Absolute(0.0), // no slowdown → perimeter_speed
@@ -7332,8 +7381,8 @@ CHAMBER={chamber_temp} MATERIAL={filament_type}"
             slowdown_for_curled_perimeters: true,
             ..SlicingParams::default()
         };
-        // bridge_speed defaults to 10 mm/s, so Deg3 (inherit) resolves to 10 and
-        // Deg4 (80% of bridge_speed) to 8 — the slowest of the four bands.
+        // bridge_speed defaults to 25 mm/s, so Deg3 (inherit) resolves to 25 and
+        // Deg4 (80% of bridge_speed) to 20 — the slowest of the four bands.
         let s3 = GcodeGenerator::effective_speed_mm_min(
             ExtrusionRole::OverhangPerimeter,
             OverhangClass::Deg3,
@@ -7342,7 +7391,7 @@ CHAMBER={chamber_temp} MATERIAL={filament_type}"
             1.0,
         );
         assert!(
-            (s3 - 8.0 * 60.0).abs() < 1e-6,
+            (s3 - 20.0 * 60.0).abs() < 1e-6,
             "curl clamp must reach Deg3 even when nothing overrides it: got {s3}"
         );
     }
@@ -7566,6 +7615,9 @@ CHAMBER={chamber_temp} MATERIAL={filament_type}"
         let params = SlicingParams {
             min_layer_time_s: 0.0,
             perimeter_speed: 45.0,
+            // Pinned to the outer wall: this test is about the cooling floor,
+            // not the inner/outer split.
+            inner_wall_speed: RelativeSpeed::Absolute(0.0),
             ..SlicingParams::default()
         };
         let gcode = GcodeGenerator::new(GcodeFlavor::Marlin)
@@ -7592,6 +7644,9 @@ CHAMBER={chamber_temp} MATERIAL={filament_type}"
             min_print_speed: 10.0,
             print_speed: 60.0,
             perimeter_speed: 45.0,
+            // Pinned to the outer wall: this test is about the cooling floor,
+            // not the inner/outer split.
+            inner_wall_speed: RelativeSpeed::Absolute(0.0),
             first_layer_speed: 25.0,
             ..SlicingParams::default()
         };
