@@ -53,9 +53,11 @@
   padding-left: calc(var(--panel-inset) - var(--spacing-xs));
 }
 
-// Last in the row, so it owns the shared right edge.
+// Last in its row, and squared off the same way the edit buttons are: its own
+// padding puts the glyph on the shared line, so it needs no gap beyond the
+// well's inset and border.
 .sync-trigger {
-  margin-right: var(--panel-inset);
+  margin-right: 4px;
 }
 
 // Everything that acts on the plate as a whole, on one line.
@@ -118,10 +120,12 @@
   align-items: center;
   gap: var(--spacing-xs);
   // The scope button carries 4px of its own and the well 4px more (3px inset
-  // plus its border), so the row gives each side only what is left of the
-  // shared inset.
+  // plus its border), so the row gives the leading side only what is left of
+  // the shared inset. The trailing side gets none: the edit button is a square
+  // whose own padding already sets its glyph on the shared line, and a gap
+  // beyond it only detached the button from the row it belongs to.
   padding-left: calc(var(--panel-inset) - var(--spacing-xs) - 4px);
-  padding-right: calc(var(--panel-inset) - 4px);
+  padding-right: 0;
   border-radius: var(--radius-sm);
   transition: background-color var(--duration-fast) var(--ease-standard);
 
