@@ -27,8 +27,28 @@ issue/PR numbers or repo links in the notes. See the tone rules in
 
 ## [Unreleased]
 
+### Added
+
+- **Inner walls have their own speed** — the hidden walls behind the surface no
+  longer inherit the visible one's pace. `Inner Wall Speed` defaults to 125% of
+  the outer wall, stated as a percentage so slowing the outer wall for a better
+  finish keeps the buried ones fast.
+- **Internal solid infill has its own speed** — the solid layers sealed between
+  the skins are no longer priced like the top surface they share a name with.
+  `Internal Solid Speed` defaults to 150% of the top surface, which lands on the
+  same speed as sparse infill.
+
 ### Changed
 
+- **The stock profiles are quicker across the board.** Outer walls run at
+  120 mm/s (was 80), top surfaces at 100 (was 60), bridges and the steep overhang
+  bands that inherit from them at 25 (was 10), and travel at 300 mm/s (was 150).
+  A stock 3DBenchy drops from 46m39s to 36m51s — a fifth of the print — at the
+  same layer height, wall count and infill.
+- **The fast presets moved up with them.** High Speed walls go to 180 mm/s and
+  Maximum to 250, both still held below their own infill speed so there is
+  something left to spend on the surface. Past roughly 20 mm³/s the limit is the
+  hotend rather than the profile — set `Max Volumetric Speed` on the filament.
 - **Touch targets are sized for the pointer in your hand** — controls grow for a
   fingertip and go straight back to their compact sizes the moment an Apple
   Pencil or other stylus touches the glass, so a tablet stops spending screen on

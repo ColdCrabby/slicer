@@ -199,9 +199,13 @@ pub(crate) fn settings_summary_lines(params: &SlicingParams) -> Vec<String> {
     }
     lines.extend([
         format!(
-            "; print_speed: {} mm/s | perimeter: {} | infill: {} | bridge: {} | first_layer: {}",
+            "; print_speed: {} mm/s | outer_wall: {} | inner_wall: {} | infill: {} | bridge: {} | first_layer: {}",
             params.print_speed,
             params.perimeter_speed,
+            params
+                .inner_wall_speed
+                .resolve(params.perimeter_speed)
+                .unwrap_or(params.perimeter_speed),
             params.infill_speed,
             params.bridge_speed,
             params.first_layer_speed,
