@@ -63,10 +63,13 @@
  * the moment a change appeared. The count is taken out of flow here instead, so
  * no number, of any width, can move the thing it is counting for.
  *
- * Sized and toned like the undo beside it. It used to be an outlined chip with
- * an 18px glyph next to two transparent 15px ones, and read as a different
- * class of control rather than the busiest of three peers. Emphasis comes from
- * the badge, which is only there when there is something to press for.
+ * The same 34px box as the undo before it, because an outlined chip around an
+ * 18px glyph beside two transparent 15px ones read as a different class of
+ * control altogether. It is not the same *kind* of button, though, and does not
+ * pretend to be: this one keeps work and that one throws it away, so it takes
+ * the accent whenever it has something to keep, and the undo never takes
+ * anything but danger. Weight goes on the affirmative action, not on the
+ * escape hatch — the two are told apart by role, not by size.
  */
 .sync-trigger {
   position: relative;
@@ -93,9 +96,16 @@
     color var(--duration-fast) var(--ease-standard),
     background-color var(--duration-fast) var(--ease-standard);
 
+  // Lit whenever there is something to sync. Dimming back to nothing when the
+  // plate matches its profiles is the whole signal: no colour here means no
+  // work outstanding, which is also why it needs no "0".
+  &:not(:disabled) {
+    background: var(--accent-softer);
+    color: var(--accent);
+  }
+
   &:hover:not(:disabled) {
-    color: var(--color-text-primary);
-    background: var(--color-surface-hover);
+    background: var(--accent-soft);
   }
 
   &:disabled {
@@ -443,8 +453,15 @@
   top: var(--preset-bar-h, 0px);
 }
 
-/* Discards the plate's changes. Quiet beside the sync button, and louder only
-   while it is armed — it throws work away and the other one keeps it. */
+/**
+ * Discards the plate's changes.
+ *
+ * The pair either side of it are not two of a kind, and they are not drawn as
+ * two of a kind: this one destroys work and the one after it keeps work. So
+ * this stays a bare glyph on nothing — no fill of its own at any point, and the
+ * only colour it ever takes is the danger red it turns while it is armed. The
+ * escape hatch should never be the thing the eye lands on.
+ */
 .revert-trigger {
   display: inline-grid;
   flex: none;
@@ -452,7 +469,7 @@
   width: 34px;
   height: 34px;
   padding: 0;
-  border: 1px solid transparent;
+  border: none;
   border-radius: var(--radius-md);
   background: transparent;
   color: var(--color-text-tertiary);
@@ -464,6 +481,7 @@
 
   &:hover:not(:disabled) {
     color: var(--color-text-primary);
+    background: var(--color-surface-hover);
   }
 
   &:disabled {
@@ -472,7 +490,7 @@
   }
 
   &:focus-visible {
-    outline: 2px solid var(--accent);
+    outline: 2px solid var(--color-focus-ring);
     outline-offset: -2px;
   }
 
