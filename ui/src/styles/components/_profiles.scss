@@ -278,66 +278,18 @@
   }
 }
 
-.wz-start {
-  display: flex;
-  flex-direction: column;
-  gap: var(--spacing-md);
-}
-
-.wz-start__scratch {
-  display: flex;
-  align-items: center;
-  gap: var(--spacing-md);
-  width: 100%;
-  padding: var(--spacing-md) var(--spacing-lg);
-  border: 1px dashed var(--color-border);
-  border-radius: var(--radius-md);
-  background: var(--color-bg-secondary);
-  color: var(--color-text-primary);
-  font-family: inherit;
-  font-size: var(--font-size-md);
-  cursor: pointer;
-  --icon-size: 20px;
-  text-align: left;
-
-  &:hover {
-    border-color: var(--accent-border);
-    background: var(--accent-soft);
-  }
-
-  strong {
-    font-weight: var(--font-weight-medium);
-  }
-
-  small {
-    display: block;
-    font-size: var(--font-size-xs);
-    color: var(--color-text-tertiary);
-  }
-}
-
-.wz-start__divider {
-  display: flex;
-  align-items: center;
-  gap: var(--spacing-md);
-  font-size: var(--font-size-xs);
-  color: var(--color-text-tertiary);
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-
-  &::before,
-  &::after {
-    content: '';
-    flex: 1;
-    height: 1px;
-    background: var(--color-border-light);
-  }
-}
-
-.wz-detect {
-  display: flex;
-  flex-direction: column;
+// The route screen: one question, then a row per way of answering it. No
+// dividers and no second heading — the rows are the list, so labelling them
+// again only adds furniture.
+.wz-routes {
   gap: var(--spacing-sm);
+}
+
+.wz-routes__ask {
+  margin: 0 0 var(--spacing-xs);
+  font-size: var(--font-size-md);
+  font-weight: var(--font-weight-semibold);
+  color: var(--color-text-primary);
 }
 
 .wz-detect__row {
@@ -368,188 +320,137 @@
   }
 }
 
+// One line under the address field, doing the job the paragraph, the hint and
+// the error message used to do between them — only ever one of them at a time.
 .wz-detect__msg {
   display: flex;
   align-items: flex-start;
   gap: var(--spacing-xs);
-  margin: 0;
-  font-size: var(--font-size-sm);
+  margin: var(--spacing-sm) 0 0;
+  font-size: var(--font-size-xs);
+  color: var(--color-text-tertiary);
   line-height: 1.4;
-  --icon-size: 16px;
+  --icon-size: 14px;
 
   &--error {
     color: var(--color-danger, #d9534f);
   }
 }
 
-.wz-detect__hint {
+// What detection concluded. A heading, a line of context, and one list — no
+// card, no tint, no grid, no folded table. The screen *is* this news, so
+// wrapping it in a panel only draws a box around the whole page.
+.wz-found__title {
   margin: 0;
-  font-size: var(--font-size-xs);
-  color: var(--color-text-tertiary);
-  line-height: 1.4;
+  font-size: var(--font-size-lg);
+  font-weight: var(--font-weight-semibold);
+  color: var(--color-text-primary);
 }
 
-.wz-detected {
+.wz-found__lede {
+  margin: 0 0 var(--spacing-sm);
+  font-size: var(--font-size-sm);
+  color: var(--color-text-secondary);
+  line-height: 1.5;
+}
+
+.wz-readings {
+  margin: 0;
+}
+
+// One reading per row: what it is, what it says, and the config section behind
+// it. Laid out as a row rather than a table so a long source can wrap under the
+// value instead of forcing a third column to a width that fits the worst case.
+.wz-reading {
   display: flex;
-  flex-direction: column;
-  gap: var(--spacing-md);
-  padding: var(--spacing-md) var(--spacing-lg);
-  border: 1px solid var(--accent-border);
-  border-radius: var(--radius-md);
-  background: var(--accent-soft);
-}
-
-.wz-detected__head {
-  display: flex;
-  align-items: flex-start;
-  gap: var(--spacing-sm);
-  --icon-size: 20px;
-
-  nexus-icon {
-    color: var(--accent);
-    margin-top: 1px;
-  }
-
-  strong {
-    display: block;
-    font-weight: var(--font-weight-semibold);
-    color: var(--color-text-primary);
-  }
-
-  small {
-    display: block;
-    margin-top: 2px;
-    font-size: var(--font-size-xs);
-    color: var(--color-text-secondary);
-    line-height: 1.4;
-  }
-}
-
-.wz-detected__grid {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  flex-wrap: wrap;
+  align-items: baseline;
   gap: var(--spacing-xs) var(--spacing-md);
-  margin: 0;
-}
-
-.wz-detected__item {
-  display: flex;
-  flex-direction: column;
-  gap: 1px;
   padding: var(--spacing-xs) 0;
-  // Warm divider that harmonises with the amber card, not a grey graphite line.
-  border-top: 1px solid color-mix(in oklab, var(--accent) 20%, transparent);
 
-  dt {
-    font-size: var(--font-size-xs);
-    text-transform: uppercase;
-    letter-spacing: 0.04em;
-    color: var(--color-text-tertiary);
-  }
-
-  dd {
-    margin: 0;
-    font-size: var(--font-size-sm);
-    font-weight: var(--font-weight-medium);
-    color: var(--color-text-primary);
+  & + & {
+    border-top: 1px solid var(--color-border-lighter, var(--color-border-light));
   }
 }
 
-.wz-detected__note {
-  display: flex;
-  align-items: flex-start;
-  gap: var(--spacing-xs);
+.wz-reading__label {
+  flex: 0 0 34%;
+  min-width: 0;
+  font-size: var(--font-size-sm);
+  color: var(--color-text-tertiary);
+}
+
+.wz-reading__value {
+  flex: 1 1 auto;
+  min-width: 0;
   margin: 0;
-  font-size: var(--font-size-xs);
-  color: var(--color-text-secondary);
-  line-height: 1.4;
-  --icon-size: 14px;
-
-  nexus-icon {
-    margin-top: 1px;
-    color: var(--color-text-tertiary);
-  }
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-medium);
+  color: var(--color-text-primary);
 }
 
-.wz-detected__actions {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: var(--spacing-sm);
-}
-
-.wz-detected__actions-end {
-  display: flex;
-  align-items: center;
-  gap: var(--spacing-sm);
-}
-
-// "What we read from your printer" — folded away by default. Detection applies
-// a dozen settings silently, which is only fair if the user can unfold the list
-// and check it against their own printer.cfg. Kept as a plain disclosure with
-// no surface of its own so it reads as a footnote to the card, not a panel.
-.wz-read {
-  padding-top: var(--spacing-md);
-  border-top: 1px solid color-mix(in oklab, var(--accent) 20%, transparent);
-}
-
-.wz-read__summary {
-  display: flex;
-  align-items: center;
-  gap: var(--spacing-xs);
-  font-size: var(--font-size-xs);
-  color: var(--color-text-secondary);
-  cursor: pointer;
-  list-style: none;
-  --icon-size: 14px;
-
-  &::-webkit-details-marker {
-    display: none;
-  }
-
-  &:hover {
-    color: var(--color-text-primary);
-  }
-}
-
-.wz-read__table {
-  width: 100%;
-  margin-top: var(--spacing-sm);
-  border-collapse: collapse;
-  font-size: var(--font-size-xs);
-
-  th,
-  td {
-    padding: var(--spacing-xs) 0;
-    text-align: left;
-    font-weight: var(--font-weight-normal);
-    vertical-align: top;
-  }
-
-  th {
-    width: 40%;
-    color: var(--color-text-tertiary);
-  }
-
-  td {
-    color: var(--color-text-primary);
-  }
-}
-
-.wz-read__source {
-  width: 32%;
-  text-align: right;
+// The provenance, in the same monospace chip the setup questions use for
+// "Read from [fan_generic rscs]" — so the two places that answer "where did
+// this come from?" look like the same answer.
+.wz-reading__source {
+  flex: 0 0 auto;
+  margin: 0;
+  margin-left: auto;
 
   code {
+    padding: 1px var(--spacing-xs);
+    border-radius: var(--radius-sm);
+    background: var(--color-surface);
     font-family: var(--font-family-mono);
     font-size: var(--font-size-2xs);
-    color: var(--color-text-tertiary);
+    color: var(--color-text-secondary);
   }
 }
 
-// One question per step. Deliberately sparse — a heading, the choice, and the
-// reason we leaned the way we did — so a step reads as a single decision rather
-// than a form with one field in it.
+@media (max-width: 560px) {
+  // Two columns is all a phone has room for; the source keeps its own line
+  // rather than squeezing the value it explains.
+  .wz-reading__label {
+    flex-basis: 100%;
+  }
+
+  .wz-reading__source {
+    margin-left: 0;
+    flex-basis: 100%;
+  }
+}
+
+// A quiet inline link for a secondary escape ("start over", "fill them in by
+// hand"): a button's job with a link's weight, so it never competes with the
+// footer's actions.
+.wz-link {
+  padding: 0;
+  border: none;
+  background: none;
+  font: inherit;
+  color: var(--accent);
+  cursor: pointer;
+
+  &:hover {
+    text-decoration: underline;
+  }
+
+  &:focus-visible {
+    outline: 2px solid var(--color-focus-ring);
+    outline-offset: 2px;
+    border-radius: var(--radius-sm);
+  }
+}
+
+.wz-restart {
+  margin: var(--spacing-sm) 0 0;
+  font-size: var(--font-size-xs);
+  color: var(--color-text-tertiary);
+}
+
+// One question per step. Deliberately sparse — the question, why we lean the
+// way we do, and the choice — so a step reads as a single decision rather than
+// a form with one field in it.
 .wz-question {
   gap: var(--spacing-md);
 }
@@ -563,8 +464,9 @@
 
 .wz-question__q {
   margin: 0;
-  font-size: var(--font-size-md);
+  font-size: var(--font-size-lg);
   font-weight: var(--font-weight-semibold);
+  line-height: 1.3;
   color: var(--color-text-primary);
 }
 
@@ -583,26 +485,154 @@
   }
 }
 
-.wz-question__detail,
-.wz-question__why {
+.wz-question__detail {
+  margin: 0;
+  font-size: var(--font-size-sm);
+  color: var(--color-text-secondary);
+  line-height: 1.5;
+}
+
+// Why we lean the way we do, and the config it was read from. Sits *above* the
+// options: it is the thing that makes the question answerable, and a reader who
+// meets it after choosing has already guessed.
+.wz-why {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-xs);
+  padding: var(--spacing-sm) var(--spacing-md);
+  border-left: 2px solid var(--color-border);
+  background: var(--color-bg-secondary);
+  border-radius: 0 var(--radius-md) var(--radius-md) 0;
+}
+
+.wz-why__text {
+  margin: 0;
+  font-size: var(--font-size-sm);
+  color: var(--color-text-secondary);
+  line-height: 1.5;
+}
+
+.wz-why__sources {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--spacing-xs);
   margin: 0;
   font-size: var(--font-size-xs);
-  color: var(--color-text-secondary);
+  color: var(--color-text-tertiary);
+
+  code {
+    padding: 1px var(--spacing-xs);
+    border-radius: var(--radius-sm);
+    background: var(--color-surface);
+    font-family: var(--font-family-mono);
+    font-size: var(--font-size-2xs);
+    color: var(--color-text-secondary);
+  }
+}
+
+.wz-question__reassure {
+  margin: 0;
+  font-size: var(--font-size-xs);
+  color: var(--color-text-tertiary);
   line-height: 1.4;
 }
 
-// The "why we think so" line. Accented icon, quiet text: it explains the
-// pre-selected answer without competing with the question itself.
-.wz-question__why {
-  display: flex;
-  align-items: flex-start;
+// The ending. A kicker, the name at title size, one line of what it is — then
+// the footer. Short, because there is nothing left to decide here.
+.wz-done {
   gap: var(--spacing-xs);
-  color: var(--color-text-tertiary);
-  --icon-size: 14px;
+  padding-top: var(--spacing-lg);
+}
 
-  nexus-icon {
-    margin-top: 1px;
-    color: var(--accent);
+.wz-done__kicker {
+  margin: 0;
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-medium);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--accent);
+}
+
+.wz-done__sub {
+  margin: var(--spacing-xs) 0 0;
+  font-size: var(--font-size-sm);
+  color: var(--color-text-secondary);
+}
+
+// A swatch beside the name, baseline-aligned with it rather than centred on the
+// whole block, so the colour reads as part of the title.
+.wz-done__named {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-md);
+}
+
+// The decisions the user made, folded away: they have just answered these, one
+// per screen, so the recap is for second-guessing rather than for reading.
+.wz-recap {
+  margin-top: var(--spacing-lg);
+  padding-top: var(--spacing-md);
+  border-top: 1px solid var(--color-border-light);
+}
+
+.wz-recap__summary {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  font-size: var(--font-size-xs);
+  color: var(--color-text-secondary);
+  cursor: pointer;
+  list-style: none;
+
+  &::-webkit-details-marker {
+    display: none;
+  }
+
+  &:hover {
+    color: var(--color-text-primary);
+  }
+
+  &::after {
+    content: '⌄';
+    color: var(--color-text-tertiary);
+    transition: transform var(--duration-fast) var(--ease-standard);
+  }
+
+  [open] > &::after {
+    transform: rotate(180deg);
+  }
+}
+
+.wz-recap__count {
+  padding: 0 var(--spacing-xs);
+  border-radius: var(--radius-sm);
+  background: var(--color-bg-secondary);
+  font-variant-numeric: tabular-nums;
+  color: var(--color-text-tertiary);
+}
+
+.wz-recap__list {
+  margin: var(--spacing-sm) 0 0;
+}
+
+.wz-recap__row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--spacing-md);
+  padding: var(--spacing-xs) 0;
+
+  dt {
+    font-size: var(--font-size-sm);
+    color: var(--color-text-tertiary);
+  }
+
+  dd {
+    margin: 0;
+    font-size: var(--font-size-sm);
+    color: var(--color-text-primary);
+    text-align: right;
   }
 }
 

@@ -1854,7 +1854,7 @@ Fan speed is adapted to the estimated layer print time:
 - Between: smooth linear interpolation
 
 **Default:** single part-cooling fan (P0) at 35%–100% speed.",
-        extend("x-group" = "Cooling", "x-tier" = "expert")
+        extend("x-group" = "Fans", "x-tier" = "expert")
     )]
     #[serde(default = "SlicingParams::default_fan_configs")]
     pub fan_configs: Vec<FanConfig>,

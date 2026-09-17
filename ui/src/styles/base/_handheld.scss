@@ -56,24 +56,15 @@ html.is-handheld {
   }
 
   // ── Wizards ─────────────────────────────────────────────────────────────
-  // The wizard already folds its step labels on narrow pages; what is left is
-  // the 24px gutter around a body that has no width to spare, and a footer that
-  // has to clear the tab bar's home indicator.
-  nexus-wizard-shell .wizard__body {
-    padding: var(--spacing-lg) var(--spacing-md);
-  }
-
-  nexus-wizard-shell .wizard__header {
-    padding: var(--spacing-lg) var(--spacing-md) var(--spacing-md);
-    gap: var(--spacing-md);
-  }
-
-  nexus-wizard-shell .wizard__footer {
+  // The chrome narrows its own gutters below 560px; what is left to a handheld
+  // is a footer that has to clear the tab bar's home indicator, and buttons at
+  // a thumb's target size.
+  nexus-wizard-chrome .wzc__footer {
     padding: var(--spacing-sm) var(--spacing-md)
       calc(var(--spacing-sm) + env(safe-area-inset-bottom, 0px));
   }
 
-  nexus-wizard-shell .wizard__btn {
+  nexus-wizard-chrome .nexus-button {
     height: 44px;
   }
 

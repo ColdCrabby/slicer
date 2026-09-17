@@ -15,6 +15,19 @@ export type PrintQuality = NonNullable<ProcessProfile['quality']>;
 export const PRINT_QUALITIES: PrintQuality[] = ['draft', 'standard', 'fine'];
 
 /**
+ * Display names for {@link PRINT_QUALITIES}.
+ *
+ * The enum values are lowercase wire strings; rendering them straight into a
+ * control put `draft · standard · fine` on screen in the middle of otherwise
+ * sentence-cased UI.
+ */
+export const PRINT_QUALITY_LABELS: Record<PrintQuality, string> = {
+  draft: 'Draft',
+  standard: 'Standard',
+  fine: 'Fine',
+};
+
+/**
  * Infill pattern, taken straight from the engine's generated schema type rather
  * than re-declared here — a hand-written union silently omitted every pattern
  * added after it was written.

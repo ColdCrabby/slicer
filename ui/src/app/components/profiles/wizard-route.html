@@ -1,0 +1,31 @@
+<div class="route" [class.is-open]="mode() === 'expand' && open()">
+  <button
+    type="button"
+    class="route__head"
+    [attr.aria-expanded]="mode() === 'expand' ? open() : null"
+    (click)="activate.emit()"
+  >
+    <nexus-icon [name]="icon()" class="route__icon" />
+    <span class="route__body">
+      <span class="route__title">
+        {{ title() }}
+        @if (recommended()) {
+          <span class="route__tag">easiest</span>
+        }
+      </span>
+      @if (description()) {
+        <small class="route__desc">{{ description() }}</small>
+      }
+    </span>
+    <nexus-icon
+      [name]="mode() === 'expand' ? 'nav-arrow-down' : 'nav-arrow-right'"
+      class="route__chevron"
+    />
+  </button>
+
+  @if (mode() === 'expand' && open()) {
+    <div class="route__panel">
+      <ng-content />
+    </div>
+  }
+</div>

@@ -1,0 +1,62 @@
+<div class="wzc">
+  <header class="wzc__header">
+    <h2 class="wzc__title">{{ title() }}</h2>
+
+    @if (showProgress()) {
+      <div
+        class="wzc__progress"
+        role="progressbar"
+        [attr.aria-valuenow]="index() + 1"
+        aria-valuemin="1"
+        [attr.aria-valuemax]="total()"
+        [attr.aria-valuetext]="'Step ' + (index() + 1) + ' of ' + total() + ': ' + stepLabel()"
+      >
+        <span class="wzc__progress-fill" [style.width.%]="percent()"></span>
+      </div>
+
+      <p class="wzc__caption">
+        <span class="wzc__count">Step {{ index() + 1 }} of {{ total() }}</span>
+        @if (stepLabel()) {
+          <span class="wzc__step">{{ stepLabel() }}</span>
+        }
+      </p>
+    }
+  </header>
+
+  <div class="wzc__body">
+    <div class="wzc__content" #body>
+      <ng-content />
+    </div>
+  </div>
+
+  <footer class="wzc__footer">
+    <div class="wzc__footer-inner">
+      @if (canGoBack() && index() > 0) {
+        <button nexusButton variant="ghost" type="button" (click)="back.emit()">
+          <nexus-icon name="nav-arrow-left" />
+          Back
+        </button>
+      } @else {
+        <span></span>
+      }
+
+      <div class="wzc__actions">
+        <button nexusButton variant="ghost" type="button" (click)="cancel.emit()">Cancel</button>
+        @for (action of actions(); track action.id; let last = $last) {
+          <button
+            nexusButton
+            [variant]="last ? 'primary' : 'secondary'"
+            type="button"
+            [disabled]="action.disabled ?? false"
+            (click)="onAction(action)"
+          >
+            {{ action.label }}
+            @if (action.icon) {
+              <nexus-icon [name]="action.icon" />
+            }
+          </button>
+        }
+      </div>
+    </div>
+  </footer>
+</div>

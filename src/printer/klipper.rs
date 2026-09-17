@@ -39,6 +39,7 @@ use serde_json::{json, Map, Value};
 
 use super::detection::{DetectionFinding, DetectionOption, DetectionQuestion, PrinterDetection};
 use crate::profiles::printer::{BedShape, PrinterConnectionKind};
+use crate::settings::params::{fan_index, AuxFanOverrides, FanConfig};
 
 /// Round a millimetre reading to 0.1 mm.
 ///
@@ -456,6 +457,20 @@ impl KlipperProbe {
         }
     }
 
+    /// The config sections [`Self::fingerprint`] read to name the machine, so
+    /// the confirmation question can point at them.
+    fn identity_sources(&self) -> Vec<String> {
+        let levelling = ["quad_gantry_level", "z_tilt", "delta_calibrate"]
+            .into_iter()
+            .find(|section| self.has(section));
+        let mut sources = vec!["[printer] kinematics".to_string()];
+        if let Some(section) = levelling {
+            sources.push(format!("[{section}]"));
+        }
+        sources.push("[stepper_x] position_max".to_string());
+        sources
+    }
+
     /// Everything the config hints at but cannot decide.
     fn derive_questions(&self, detection: &mut PrinterDetection) {
         if let Some(question) = self.macro_question() {
@@ -467,9 +482,7 @@ impl KlipperProbe {
         if let Some(question) = self.bed_mesh_question() {
             detection.questions.push(question);
         }
-        if let Some(question) = self.aux_fan_question() {
-            detection.questions.push(question);
-        }
+        detection.questions.extend(self.aux_fan_questions());
         if let Some(question) = self.orientation_question() {
             detection.questions.push(question);
         }
@@ -489,24 +502,32 @@ impl KlipperProbe {
             (true, false) => (
                 MACRO_STANDARD,
                 true,
-                "This printer defines a PRINT_START macro.",
+                "Your config defines a PRINT_START macro, so we will call it.",
             ),
             (false, true) => (
                 MACRO_KLIPPAIN,
                 true,
-                "This printer defines a START_PRINT macro.",
+                "Your config defines a START_PRINT macro, so we will call it.",
             ),
             (true, true) => (
                 MACRO_STANDARD,
                 false,
-                "This printer defines both PRINT_START and START_PRINT.",
+                "Your config defines both macros, so we cannot tell which one you print with.",
             ),
             (false, false) => (
                 MACRO_KEEP,
                 false,
-                "We couldn't find a PRINT_START or START_PRINT macro on this printer.",
+                "Your config defines neither macro, so we have nothing safe to call.",
             ),
         };
+
+        let mut sources = Vec::new();
+        if standard {
+            sources.push("[gcode_macro PRINT_START]".to_string());
+        }
+        if klippain {
+            sources.push("[gcode_macro START_PRINT]".to_string());
+        }
 
         Some(DetectionQuestion {
             id: "macro_convention".to_string(),
@@ -519,7 +540,9 @@ impl KlipperProbe {
                 ],
             ),
             suggested: suggested.to_string(),
+            subject: None,
             evidence: Some(evidence.to_string()),
+            sources,
             certain,
         })
     }
@@ -536,10 +559,13 @@ impl KlipperProbe {
                 DetectionOption::passive(IDENTITY_OTHER),
             ],
             suggested: IDENTITY_CONFIRM.to_string(),
+            subject: None,
             certain: false,
             evidence: Some(format!(
-                "Its levelling hardware and build volume match a {vendor} configuration."
+                "Its levelling hardware and build volume match a {vendor} configuration, \
+                 but plenty of custom builds borrow the same parts."
             )),
+            sources: self.identity_sources(),
         })
     }
 
@@ -571,10 +597,13 @@ impl KlipperProbe {
         }
 
         let evidence = if self.mesh_profiles.is_empty() {
-            "This printer can probe a bed mesh.".to_string()
+            "Your config has a bed probe, but we cannot see whether your start macro \
+             already uses it."
+                .to_string()
         } else {
             format!(
-                "This printer can probe a bed mesh, and has {} saved.",
+                "Your config has a bed probe and {} saved mesh, but we cannot see whether \
+                 your start macro already loads one.",
                 self.mesh_profiles.len()
             )
         };
@@ -582,8 +611,10 @@ impl KlipperProbe {
             id: "bed_mesh".to_string(),
             options,
             suggested: MESH_LEAVE.to_string(),
+            subject: None,
             certain: false,
             evidence: Some(evidence),
+            sources: vec!["[bed_mesh]".to_string()],
         })
     }
 
@@ -594,41 +625,27 @@ impl KlipperProbe {
     /// filtration, electronics bays and nozzle-side blowers alike. Suggests
     /// leaving it alone, because spinning up an exhaust fan as part cooling
     /// would quietly ruin prints.
-    fn aux_fan_question(&self) -> Option<DetectionQuestion> {
-        let fans = self.named("fan_generic");
-        if fans.is_empty() {
-            return None;
-        }
-        let mut options = vec![DetectionOption::passive(FAN_UNUSED)];
-        for fan in &fans {
-            options.push(
-                DetectionOption::with_params(
-                    format!("cooling:{fan}"),
-                    json!({
-                        "fan_configs": [
-                            { "fan_index": 0, "min_speed": 0.35, "max_speed": 1.0,
-                              "layer_time_fast_s": 10.0, "layer_time_slow_s": 30.0 },
-                            { "fan_index": 3, "klipper_name": fan, "min_speed": 0.0,
-                              "max_speed": 1.0, "layer_time_fast_s": 10.0,
-                              "layer_time_slow_s": 30.0 }
-                        ]
-                    }),
-                )
-                .labelled((*fan).to_string())
-                .detail(format!("[fan_generic {fan}]")),
-            );
-        }
-        Some(DetectionQuestion {
-            id: "aux_fan".to_string(),
-            options,
-            suggested: FAN_UNUSED.to_string(),
-            certain: false,
-            evidence: Some(format!(
-                "This printer has {} that Klipper doesn't drive on its own: {}.",
-                if fans.len() == 1 { "a fan" } else { "fans" },
-                fans.join(", ")
-            )),
-        })
+    fn aux_fan_questions(&self) -> Vec<DetectionQuestion> {
+        self.named("fan_generic")
+            .iter()
+            .map(|fan| DetectionQuestion {
+                id: format!("aux_fan:{fan}"),
+                options: vec![
+                    DetectionOption::passive(FAN_UNUSED),
+                    aux_cooling_option(FAN_COOLING, fan),
+                ],
+                suggested: FAN_UNUSED.to_string(),
+                subject: Some((*fan).to_string()),
+                certain: false,
+                evidence: Some(
+                    "The config declares it as a generic fan, which is what Klipper calls any \
+                     fan it does not drive itself — so it cannot tell us whether this one cools \
+                     prints, filters the air, or vents the electronics bay."
+                        .to_string(),
+                ),
+                sources: vec![format!("[fan_generic {fan}]")],
+            })
+            .collect()
     }
 
     /// Whether to print everything rotated on a CoreXY.
@@ -647,8 +664,14 @@ impl KlipperProbe {
                 DetectionOption::passive(ORIENT_DIAGONAL),
             ],
             suggested: ORIENT_KEEP.to_string(),
+            subject: None,
             certain: false,
-            evidence: Some("This is a CoreXY machine, which moves fastest diagonally.".to_string()),
+            evidence: Some(
+                "Your config describes a CoreXY, which moves fastest along its diagonals. \
+                 This is a preference, not something we read off the machine."
+                    .to_string(),
+            ),
+            sources: vec!["[printer] kinematics".to_string()],
         })
     }
 }
@@ -662,6 +685,38 @@ const IDENTITY_OTHER: &str = "other";
 const MESH_LEAVE: &str = "leave";
 const MESH_CALIBRATE: &str = "calibrate";
 const FAN_UNUSED: &str = "unused";
+const FAN_COOLING: &str = "cooling";
+
+/// An answer that puts a named Klipper fan to work as auxiliary part cooling.
+///
+/// Carries the part-cooling fan as well as the auxiliary one. `fan_configs` is
+/// a whole-array setting, so an answer that named only the aux fan would leave
+/// a printer with no P0 entry at all and silently stop cooling the part — the
+/// serde default only fills an *absent* field, not a present one that happens
+/// to omit it.
+///
+/// `aux_overrides` is what makes this hybrid rather than a second part fan:
+/// the baseline adaptive curve still applies, and bridges and short layers can
+/// raise it within the bounds the overrides set. Every one of those bounds
+/// exists precisely for a fan like this, which is why the answer sets them
+/// instead of leaving the fan on a bare curve.
+fn aux_cooling_option(id: &str, fan: &str) -> DetectionOption {
+    let aux = FanConfig {
+        fan_index: fan_index::AUX,
+        klipper_name: Some(fan.to_string()),
+        // Starts at rest and is driven entirely by layer time and the boosts,
+        // unlike the part fan, which has a stall floor to clear.
+        min_speed: 0.0,
+        max_speed: 1.0,
+        layer_time_fast_s: 10.0,
+        layer_time_slow_s: 30.0,
+        aux_overrides: Some(AuxFanOverrides::default_rscs()),
+    };
+    DetectionOption::with_params(
+        id,
+        json!({ "fan_configs": [FanConfig::default_part_cooling(), aux] }),
+    )
+}
 const ORIENT_KEEP: &str = "keep";
 const ORIENT_DIAGONAL: &str = "diagonal";
 
@@ -878,9 +933,72 @@ mod tests {
     #[test]
     fn a_generic_fan_is_asked_about_never_assumed() {
         let detection = corexy_probe().into_detection();
-        let asked = question(&detection, "aux_fan").expect("fan_generic present");
+        let asked = question(&detection, "aux_fan:rscs").expect("fan_generic present");
         assert_eq!(asked.suggested, FAN_UNUSED);
-        assert!(asked.options.iter().any(|o| o.id == "cooling:rscs"));
+        assert!(asked.options.iter().any(|o| o.id == FAN_COOLING));
+    }
+
+    #[test]
+    fn putting_a_generic_fan_to_work_turns_on_the_hybrid_overrides() {
+        // A bare adaptive curve is what this fan would get from `fan_configs`
+        // alone; the bridge and short-layer boosts, the safety cap and the rate
+        // limit all exist for exactly this fan, so the answer must set them.
+        let detection = corexy_probe().into_detection();
+        let asked = question(&detection, "aux_fan:rscs").expect("rscs asked");
+        let cooling = asked
+            .options
+            .iter()
+            .find(|option| option.id == FAN_COOLING)
+            .expect("cooling offered");
+
+        let fans = cooling.params["fan_configs"].as_array().expect("fan array");
+        let aux = fans
+            .iter()
+            .find(|fan| fan["klipper_name"] == "rscs")
+            .expect("the named fan is configured");
+        assert_eq!(aux["fan_index"], json!(fan_index::AUX));
+        assert!(
+            aux["aux_overrides"].is_object(),
+            "the hybrid overrides must be set, not left to a bare curve"
+        );
+        assert_eq!(aux["aux_overrides"]["bridge_boost"], json!(0.40));
+
+        // Omitting P0 would leave a printer whose array has no part-cooling fan,
+        // which stops cooling the part rather than falling back to the default.
+        assert!(
+            fans.iter()
+                .any(|fan| fan["fan_index"] == json!(fan_index::PART_COOLING)),
+            "the part-cooling fan must ride along"
+        );
+    }
+
+    #[test]
+    fn each_generic_fan_is_asked_about_separately_and_names_its_section() {
+        // One list over every fan can only ever mark a single one as cooling,
+        // and "what is this fan for?" names nothing the user can look up.
+        let mut probe = corexy_probe();
+        probe.absorb_object_list(&json!({ "objects": ["fan_generic exhaust"] }));
+        let detection = probe.into_detection();
+
+        let rscs = question(&detection, "aux_fan:rscs").expect("rscs asked");
+        let exhaust = question(&detection, "aux_fan:exhaust").expect("exhaust asked");
+        assert_eq!(rscs.subject.as_deref(), Some("rscs"));
+        assert_eq!(exhaust.subject.as_deref(), Some("exhaust"));
+        assert_eq!(rscs.sources, vec!["[fan_generic rscs]".to_string()]);
+    }
+
+    #[test]
+    fn every_question_points_at_the_config_it_was_read_from() {
+        // A finding has always carried its provenance; a question needs it
+        // more, because it asks the user to decide something.
+        let detection = corexy_probe().into_detection();
+        for asked in &detection.questions {
+            assert!(
+                !asked.sources.is_empty(),
+                "question {} cites no config section",
+                asked.id
+            );
+        }
     }
 
     #[test]

@@ -1,48 +1,47 @@
 import { ChangeDetectionStrategy, Component, computed, inject, signal } from '@angular/core';
 import { Router } from '@angular/router';
 import {
-  ADHESION_TYPES,
-  INFILL_PATTERNS,
   makePrintProfile,
   PRINT_QUALITIES,
-  SEAM_POSITIONS,
-  type AdhesionType,
-  type InfillPattern,
+  PRINT_QUALITY_LABELS,
   type PrintProfile,
   type PrintQuality,
-  type SeamPosition,
 } from '../../models/print-profile.model';
 import { CloudCatalog, catalogSpecOf, toUserCopy } from '../../services/catalog/cloud-catalog';
 import { ActiveSelection } from '../../services/profiles/active-selection';
 import { PrintProfilesStore } from '../../services/profiles/print-profiles-store';
-import {
-  Icon,
-  NumberInput,
-  RadioGroup,
-  Segmented,
-  Select,
-  Switch,
-  FieldRow,
-  WizardShell,
-} from '@coldcrabby/ui';
+import { Icon, NumberInput, Segmented, FieldRow } from '@coldcrabby/ui';
 import { CatalogPicker, type CatalogEntryVm } from './catalog-picker';
-import { paramBool, paramNum, paramStr } from '../../models/params-access';
+import { WizardChrome, type WizardAction } from './wizard-chrome';
+import { WizardRoute } from './wizard-route';
+import { WizardName } from './wizard-name';
+import { paramNum } from '../../models/params-access';
 
-const STEPS = ['Start', 'Layers & walls', 'Infill', 'Speeds & supports'] as const;
+/**
+ * Two steps, because there are only two things this flow knows that the profile
+ * editor does not: where the profile should start from, and what to call it.
+ *
+ * Everything else is rendered by the editor straight from the `SlicingParams`
+ * schema — grouped, tiered and searchable, so a new parameter appears without a
+ * line of TypeScript. The wizard's four pages of fields were a second,
+ * hand-maintained copy of that list: it drifted from the schema, ignored the
+ * tier model, and asked someone creating their first profile about the infill
+ * angle and the seam position with the same weight as the layer height.
+ */
+const STEPS = ['Where to start', 'Name it'] as const;
 
 /** Guided flow for adding a print (quality/process) profile. */
 @Component({
   selector: 'nexus-profile-wizard',
   standalone: true,
   imports: [
-    WizardShell,
+    WizardChrome,
+    WizardRoute,
+    WizardName,
     CatalogPicker,
     FieldRow,
     NumberInput,
-    Select,
-    Switch,
     Segmented,
-    RadioGroup,
     Icon,
   ],
   templateUrl: './profile-wizard.html',
@@ -59,10 +58,10 @@ export class ProfileWizard {
   protected readonly index = signal(0);
   protected readonly draft = signal<PrintProfile>(makePrintProfile());
 
-  protected readonly qualityOptions = PRINT_QUALITIES.map((q) => ({ value: q, label: q }));
-  protected readonly patternOptions = INFILL_PATTERNS;
-  protected readonly seamOptions = SEAM_POSITIONS;
-  protected readonly adhesionOptions = ADHESION_TYPES;
+  protected readonly qualityOptions = PRINT_QUALITIES.map((quality) => ({
+    value: quality,
+    label: PRINT_QUALITY_LABELS[quality],
+  }));
 
   protected readonly catalogStatus = this.catalog.profilesStatus;
   protected readonly catalogHasMore = this.catalog.profilesHasMore;
@@ -92,26 +91,42 @@ export class ProfileWizard {
     }),
   );
 
-  protected readonly infillPercent = computed(() =>
-    Math.round(
-      Number((this.draft().params as Record<string, unknown>)?.['infill_density'] ?? 0) * 100,
-    ),
+  /** Whether the catalog route on the first screen is unfolded. */
+  protected readonly presetsOpen = signal(false);
+
+  protected togglePresets(): void {
+    this.presetsOpen.update((open) => !open);
+  }
+
+  protected readonly named = computed(() => this.draft().name.trim().length > 0);
+
+  /**
+   * The footer's actions. The first step advances by choosing a starting point,
+   * so it offers none — a Next there could only be a disabled button with
+   * nothing that would enable it.
+   */
+  protected readonly actions = computed<WizardAction[]>(() =>
+    this.index() === 0
+      ? []
+      : [
+          { id: 'configure', label: 'Add & configure', disabled: !this.named() },
+          { id: 'finish', label: 'Add profile', disabled: !this.named() },
+        ],
   );
 
-  protected readonly canProceed = computed(() => {
-    if (this.index() === 0) {
-      return false;
+  protected onAction(id: string): void {
+    if (id === 'finish') {
+      this.finish();
+    } else if (id === 'configure') {
+      this.finishAndConfigure();
     }
-    return this.draft().name.trim().length > 0;
-  });
+  }
 
   constructor() {
     void this.catalog.loadProfiles();
   }
 
   protected readonly pnum = paramNum;
-  protected readonly pstr = paramStr;
-  protected readonly pbool = paramBool;
 
   protected patch(patch: Partial<PrintProfile>): void {
     this.draft.update((d) => ({ ...d, ...patch }));
@@ -129,24 +144,8 @@ export class ProfileWizard {
     this.patch({ name: (event.target as HTMLInputElement).value });
   }
 
-  protected setInfillPercent(pct: number): void {
-    this.patchParams({ infill_density: Math.max(0, Math.min(100, pct)) / 100 });
-  }
-
   protected setQuality(value: string): void {
     this.patch({ quality: value as PrintQuality });
-  }
-
-  protected setPattern(value: string): void {
-    this.patchParams({ infill_pattern: value as InfillPattern });
-  }
-
-  protected setSeam(value: string): void {
-    this.patchParams({ seam_position: value as SeamPosition });
-  }
-
-  protected setAdhesion(value: string): void {
-    this.patchParams({ adhesion_type: value as AdhesionType });
   }
 
   protected startFromScratch(): void {
@@ -193,14 +192,6 @@ export class ProfileWizard {
 
   protected back(): void {
     this.index.update((i) => Math.max(0, i - 1));
-  }
-
-  protected next(): void {
-    this.index.update((i) => Math.min(this.steps.length - 1, i + 1));
-  }
-
-  protected goto(index: number): void {
-    this.index.set(index);
   }
 
   protected finish(): void {

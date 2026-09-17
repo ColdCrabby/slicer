@@ -320,6 +320,22 @@
             }
 
             <!--
+              The fan table is an array, so the schema-driven groups above skip
+              it and it gets a section of its own. It describes the machine's
+              hardware — which fans exist and what each is called in
+              printer.cfg — so it belongs here rather than on a spool.
+            -->
+            @if (fanTableGroup; as fanGroup) {
+              <div class="profile-editor__group">
+                <label class="profile-editor__group-title">{{ fanGroup }}</label>
+                <nexus-fan-configs-editor
+                  [configs]="fanConfigsOf(printer)"
+                  (configsChange)="setParam(printer.id, 'fan_configs', $event)"
+                />
+              </div>
+            }
+
+            <!--
               One section, not one per material: the outline is a map, and a
               machine that corrects four materials should cost it one line with
               four names under it, not four sections indistinguishable from
