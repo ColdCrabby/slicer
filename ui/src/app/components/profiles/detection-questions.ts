@@ -125,7 +125,13 @@ const QUESTION_COPY: Readonly<Record<string, QuestionCopy>> = {
       },
       cooling: {
         label: 'It blows on the part',
-        description: 'We ramp it with layer time, alongside the main part fan.',
+        description:
+          'Ramps with layer time alongside the main part fan, and lifts further over bridges and short layers.',
+      },
+      cooling_gentle: {
+        label: 'It blows on the part, hard',
+        description:
+          'The same, held to 70%. For a side blast strong enough to curl PETG off the plate at full tilt.',
       },
     },
   },
@@ -238,4 +244,64 @@ export function optionTemplateId(questionId: string, optionId: string): string |
     return null;
   }
   return optionId === 'standard' ? 'klipper-standard' : optionId === 'klippain' ? 'klippain' : null;
+}
+
+/** A `fan_configs` entry, as far as merging answers needs to understand it. */
+interface FanEntry {
+  fan_index?: number;
+  klipper_name?: string | null;
+  [key: string]: unknown;
+}
+
+const FAN_CONFIGS = 'fan_configs';
+
+/** Identity of a fan entry: its index, plus the Klipper object it names. */
+function fanKey(entry: FanEntry): string {
+  return `${entry.fan_index}:${entry.klipper_name ?? ''}`;
+}
+
+/**
+ * Apply one fan question's answer to a params bag, leaving the other fans alone.
+ *
+ * `fan_configs` is the one setting in the bag that a plain key merge gets
+ * wrong. It is a whole array, and a machine with two `[fan_generic]` sections
+ * asks two questions — so the second answer's array would replace the first's,
+ * silently un-assigning the fan the user had just dealt with. Re-answering has
+ * the same problem in reverse: switching a fan back to "not for cooling" has to
+ * *remove* its entry, which no merge of the answer's own params can express.
+ *
+ * So a question owns exactly the entries naming its own fan. Those are dropped,
+ * then whatever the new answer carries is appended, skipping any entry already
+ * present — the part-cooling fan rides along on every cooling answer, and only
+ * one copy of it belongs in the array.
+ *
+ * Returns a new bag; the input is not modified.
+ */
+export function applyFanAnswer(
+  params: Readonly<Record<string, unknown>>,
+  fan: string,
+  patch: Readonly<Record<string, unknown>>,
+): Record<string, unknown> {
+  const { [FAN_CONFIGS]: incoming, ...rest } = patch;
+  const merged: Record<string, unknown> = { ...params, ...rest };
+
+  const current = Array.isArray(params[FAN_CONFIGS]) ? (params[FAN_CONFIGS] as FanEntry[]) : [];
+  const kept = current.filter((entry) => entry.klipper_name !== fan);
+  const seen = new Set(kept.map(fanKey));
+  const next = [...kept];
+
+  for (const entry of Array.isArray(incoming) ? (incoming as FanEntry[]) : []) {
+    const key = fanKey(entry);
+    if (!seen.has(key)) {
+      seen.add(key);
+      next.push(entry);
+    }
+  }
+
+  if (next.length) {
+    merged[FAN_CONFIGS] = next;
+  } else {
+    delete merged[FAN_CONFIGS];
+  }
+  return merged;
 }

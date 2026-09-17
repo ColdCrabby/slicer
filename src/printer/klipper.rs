@@ -39,6 +39,7 @@ use serde_json::{json, Map, Value};
 
 use super::detection::{DetectionFinding, DetectionOption, DetectionQuestion, PrinterDetection};
 use crate::profiles::printer::{BedShape, PrinterConnectionKind};
+use crate::settings::params::{fan_index, AuxFanOverrides, FanConfig};
 
 /// Round a millimetre reading to 0.1 mm.
 ///
@@ -631,17 +632,18 @@ impl KlipperProbe {
                 id: format!("aux_fan:{fan}"),
                 options: vec![
                     DetectionOption::passive(FAN_UNUSED),
-                    DetectionOption::with_params(
-                        FAN_COOLING,
-                        json!({
-                            "fan_configs": [
-                                { "fan_index": 0, "min_speed": 0.35, "max_speed": 1.0,
-                                  "layer_time_fast_s": 10.0, "layer_time_slow_s": 30.0 },
-                                { "fan_index": 3, "klipper_name": fan, "min_speed": 0.0,
-                                  "max_speed": 1.0, "layer_time_fast_s": 10.0,
-                                  "layer_time_slow_s": 30.0 }
-                            ]
-                        }),
+                    aux_cooling_option(FAN_COOLING, fan, AuxFanOverrides::default_rscs()),
+                    aux_cooling_option(
+                        FAN_COOLING_GENTLE,
+                        fan,
+                        AuxFanOverrides {
+                            // What `speed_scale` exists for: a side blast moves
+                            // far more air than the part fan it sits beside, and
+                            // at full tilt it curls PETG off the plate.
+                            speed_scale: 0.6,
+                            max_speed_limit: 0.7,
+                            ..AuxFanOverrides::default_rscs()
+                        },
                     ),
                 ],
                 suggested: FAN_UNUSED.to_string(),
@@ -696,6 +698,38 @@ const MESH_LEAVE: &str = "leave";
 const MESH_CALIBRATE: &str = "calibrate";
 const FAN_UNUSED: &str = "unused";
 const FAN_COOLING: &str = "cooling";
+const FAN_COOLING_GENTLE: &str = "cooling_gentle";
+
+/// An answer that puts a named Klipper fan to work as auxiliary part cooling.
+///
+/// Carries the part-cooling fan as well as the auxiliary one. `fan_configs` is
+/// a whole-array setting, so an answer that named only the aux fan would leave
+/// a printer with no P0 entry at all and silently stop cooling the part — the
+/// serde default only fills an *absent* field, not a present one that happens
+/// to omit it.
+///
+/// `aux_overrides` is what makes this hybrid rather than a second part fan:
+/// the baseline adaptive curve still applies, and bridges and short layers can
+/// raise it within the bounds the overrides set. Every one of those bounds
+/// exists precisely for a fan like this, which is why the answer sets them
+/// instead of leaving the fan on a bare curve.
+fn aux_cooling_option(id: &str, fan: &str, overrides: AuxFanOverrides) -> DetectionOption {
+    let aux = FanConfig {
+        fan_index: fan_index::AUX,
+        klipper_name: Some(fan.to_string()),
+        // Starts at rest and is driven entirely by layer time and the boosts,
+        // unlike the part fan, which has a stall floor to clear.
+        min_speed: 0.0,
+        max_speed: 1.0,
+        layer_time_fast_s: 10.0,
+        layer_time_slow_s: 30.0,
+        aux_overrides: Some(overrides),
+    };
+    DetectionOption::with_params(
+        id,
+        json!({ "fan_configs": [FanConfig::default_part_cooling(), aux] }),
+    )
+}
 const ORIENT_KEEP: &str = "keep";
 const ORIENT_DIAGONAL: &str = "diagonal";
 
@@ -915,6 +949,62 @@ mod tests {
         let asked = question(&detection, "aux_fan:rscs").expect("fan_generic present");
         assert_eq!(asked.suggested, FAN_UNUSED);
         assert!(asked.options.iter().any(|o| o.id == FAN_COOLING));
+    }
+
+    #[test]
+    fn putting_a_generic_fan_to_work_turns_on_the_hybrid_overrides() {
+        // A bare adaptive curve is what this fan would get from `fan_configs`
+        // alone; the bridge and short-layer boosts, the safety cap and the rate
+        // limit all exist for exactly this fan, so the answer must set them.
+        let detection = corexy_probe().into_detection();
+        let asked = question(&detection, "aux_fan:rscs").expect("rscs asked");
+        let cooling = asked
+            .options
+            .iter()
+            .find(|option| option.id == FAN_COOLING)
+            .expect("cooling offered");
+
+        let fans = cooling.params["fan_configs"].as_array().expect("fan array");
+        let aux = fans
+            .iter()
+            .find(|fan| fan["klipper_name"] == "rscs")
+            .expect("the named fan is configured");
+        assert_eq!(aux["fan_index"], json!(fan_index::AUX));
+        assert!(
+            aux["aux_overrides"].is_object(),
+            "the hybrid overrides must be set, not left to a bare curve"
+        );
+        assert_eq!(aux["aux_overrides"]["bridge_boost"], json!(0.40));
+
+        // Omitting P0 would leave a printer whose array has no part-cooling fan,
+        // which stops cooling the part rather than falling back to the default.
+        assert!(
+            fans.iter()
+                .any(|fan| fan["fan_index"] == json!(fan_index::PART_COOLING)),
+            "the part-cooling fan must ride along"
+        );
+    }
+
+    #[test]
+    fn the_gentle_answer_scales_the_same_fan_down() {
+        let detection = corexy_probe().into_detection();
+        let asked = question(&detection, "aux_fan:rscs").expect("rscs asked");
+        let gentle = asked
+            .options
+            .iter()
+            .find(|option| option.id == FAN_COOLING_GENTLE)
+            .expect("gentle offered");
+        let aux = gentle.params["fan_configs"]
+            .as_array()
+            .expect("fan array")
+            .iter()
+            .find(|fan| fan["klipper_name"] == "rscs")
+            .expect("the named fan is configured");
+
+        assert_eq!(aux["aux_overrides"]["speed_scale"], json!(0.6));
+        assert_eq!(aux["aux_overrides"]["max_speed_limit"], json!(0.7));
+        // Still the same hybrid mode, just bounded lower.
+        assert_eq!(aux["aux_overrides"]["bridge_boost"], json!(0.40));
     }
 
     #[test]

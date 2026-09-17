@@ -22,6 +22,7 @@ import {
   gcodeTemplatePatch,
 } from '../../models/gcode-templates';
 import {
+  applyFanAnswer,
   optionDescription,
   optionLabel,
   optionProfilePatch,
@@ -374,6 +375,19 @@ export class PrinterWizard {
     }));
   }
 
+  /**
+   * Apply a fan question's answer, leaving the other fans' answers alone.
+   *
+   * The merge itself is {@link applyFanAnswer}, which is where the reasoning
+   * and the tests live.
+   */
+  private patchFanParams(fan: string, patch: Record<string, unknown>): void {
+    this.draft.update((d) => ({
+      ...d,
+      params: applyFanAnswer((d.params as Record<string, unknown>) ?? {}, fan, patch),
+    }));
+  }
+
   protected patchName(event: Event): void {
     this.patch({ name: (event.target as HTMLInputElement).value });
   }
@@ -602,7 +616,15 @@ export class PrinterWizard {
   private applyAnswer(question: DetectionQuestion, optionId: string): void {
     const option = question.options.find((candidate) => candidate.id === optionId);
     if (option?.params) {
-      this.patchParams(option.params);
+      if (question.subject) {
+        this.patchFanParams(question.subject, option.params as Record<string, unknown>);
+      } else {
+        this.patchParams(option.params);
+      }
+    } else if (question.subject) {
+      // The answer contributes nothing — "not for cooling prints". Retract
+      // whatever a previous answer to *this* question had configured.
+      this.patchFanParams(question.subject, {});
     }
 
     const templateId = optionTemplateId(question.id, optionId);

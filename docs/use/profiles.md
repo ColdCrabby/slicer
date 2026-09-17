@@ -39,6 +39,14 @@ one cools prints, filters the air, or vents the electronics bay — and the safe
 answer differs per fan. Every answer is an ordinary setting afterwards, so
 changing your mind never means running this again.
 
+Telling us a fan blows on the part does more than switch it on. It joins the
+part-cooling fan on the layer-time curve and gains the boosts that only make
+sense for a second fan: extra airflow over bridges and on very short layers, a
+ceiling so the two boosts together cannot overdo it, and a limit on how much the
+speed may change from one layer to the next, which is what stops a fan slamming
+from off to full and shocking the part. A side blast strong enough to curl PETG
+off the plate has its own answer — the same behaviour, held to 70%.
+
 ::: details When detection can't tell everything
 A printer that answers slowly may not return its full configuration. You still
 get its build volume and connection — listed without a config section, because
