@@ -1,0 +1,14 @@
+<div class="wzn">
+  <span
+    #field
+    class="wzn__field"
+    role="textbox"
+    spellcheck="false"
+    [attr.aria-label]="ariaLabel()"
+    [attr.data-placeholder]="placeholder()"
+    (input)="onInput()"
+    (keydown)="onKeydown($event)"
+    (paste)="onPaste($event)"
+  ></span>
+  <span class="wzn__rule" aria-hidden="true"></span>
+</div>

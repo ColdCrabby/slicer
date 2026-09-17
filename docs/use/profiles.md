@@ -23,21 +23,27 @@ it rather than asking you: build volume and kinematics, nozzle and filament
 diameter, the machine's velocity and acceleration limits, pressure advance, and
 whether it has firmware retraction or can cancel individual objects. It also
 works out which start and end macros your printer uses (`PRINT_START` or
-Klippain's `START_PRINT`) and writes the matching G-code. Open **What we read
-from your printer** on the first screen to see every value and which section of
-`printer.cfg` it came from.
+Klippain's `START_PRINT`) and writes the matching G-code. The first screen lists
+every value it read, each one beside the section of `printer.cfg` it came from,
+so you can check it against your own config without leaving the page.
 
-You can add the printer right there. What the configuration *can't* settle is
-put to you as a short question or two, each with an answer already picked and a
-line explaining why — for example what an extra fan is for, since Klipper can't
-say whether it cools prints or an electronics bay. Skip them with **Just add
-it** and change anything later in the printer's settings.
+The printer is ready to add from that first screen — press **Add as-is**.
+Anything the configuration *can't* settle is put to you afterwards as one short
+question per screen, and none of them are required.
+
+Each question names what it is about, says why we leaned the way we did, and
+shows the config section behind it. A machine with two generic fans is asked
+about each fan separately, by name, because Klipper cannot say whether a given
+one cools prints, filters the air, or vents the electronics bay — and the safe
+answer differs per fan. Every answer is an ordinary setting afterwards, so
+changing your mind never means running this again.
 
 ::: details When detection can't tell everything
 A printer that answers slowly may not return its full configuration. You still
-get its build volume and connection, and the wizard falls back to the manual
-steps for the rest. Machines the slicer doesn't recognise leave the vendor and
-model blank for you to name.
+get its build volume and connection — listed without a config section, because
+nothing named one — and the first screen says which settings are still carrying
+defaults, with a link to fill them in by hand. Machines the
+slicer doesn't recognise leave the vendor and model blank for you to name.
 :::
 
 **Pick it from the catalog.** A library of common machines, pre-filled.
@@ -58,16 +64,26 @@ describe the *machine*, not the print:
 
 ## Adding a filament
 
-**Settings → Filaments → Add filament**. Name, material, colour, nozzle and bed
-temperatures, cooling. The colour is used in the model view if you turn on
-**Settings → General → Use filament color for models** — handy when you have
-several spools and want to see which is which.
+**Settings → Filaments → Add filament**. Pick a vendor preset or start from
+scratch, then give it a name, a colour and a material — that is the whole flow.
+Choosing the material sets the nozzle and bed temperatures and how hard the part
+fan runs, and everything else lives in the filament's own settings, where it is
+grouped and searchable.
+
+The colour is used in the model view if you turn on **Settings → General → Use
+filament color for models** — handy when you have several spools and want to see
+which is which.
 
 ## Adding a print profile
 
-**Settings → Print Profiles → Add profile.** Three come built in, and they are a
-scale rather than three unrelated recipes — all 0.20 mm, differing in how hard
-they drive the machine:
+**Settings → Print Profiles → Add profile.** Pick a tuned preset or start from
+scratch, then name it and set a layer height. Walls, infill, speeds and supports
+are all in the profile's own settings afterwards — the same page that holds
+every other process parameter, grouped and searchable, rather than a shorter
+copy of it inside the wizard.
+
+Three profiles come built in, and they are a scale rather than three unrelated
+recipes — all 0.20 mm, differing in how hard they drive the machine:
 
 | Preset | Walls / infill | For |
 | --- | --- | --- |

@@ -1,0 +1,94 @@
+:host {
+  display: block;
+}
+
+// A tone shift, not a box. Three outlined cards in a column read as a form;
+// three surfaces on the page read as a list of choices.
+.route {
+  border-radius: var(--radius-md);
+  background: var(--color-bg-secondary);
+  transition: background-color var(--duration-fast) var(--ease-standard);
+
+  &:hover:not(.is-open) {
+    background: var(--color-surface-hover);
+  }
+
+  &.is-open {
+    background: var(--color-bg-secondary);
+  }
+}
+
+.route__head {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-md);
+  width: 100%;
+  padding: var(--spacing-md) var(--spacing-lg);
+  border: none;
+  background: none;
+  border-radius: inherit;
+  color: var(--color-text-primary);
+  font-family: inherit;
+  font-size: var(--font-size-md);
+  text-align: left;
+  cursor: pointer;
+  --icon-size: 20px;
+
+  &:focus-visible {
+    outline: 2px solid var(--color-focus-ring);
+    outline-offset: -2px;
+  }
+}
+
+.route__icon {
+  flex: none;
+  color: var(--color-text-secondary);
+}
+
+.route__body {
+  flex: 1;
+  min-width: 0;
+}
+
+.route__title {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  font-weight: var(--font-weight-medium);
+}
+
+// Names the route we would pick, without an accent fill that would make one of
+// three quiet rows shout.
+.route__tag {
+  padding: 1px var(--spacing-xs);
+  border-radius: var(--radius-sm);
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-size: var(--font-size-2xs);
+  font-weight: var(--font-weight-medium);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.route__desc {
+  display: block;
+  margin-top: 2px;
+  font-size: var(--font-size-xs);
+  color: var(--color-text-tertiary);
+  line-height: 1.4;
+}
+
+.route__chevron {
+  flex: none;
+  --icon-size: 16px;
+  color: var(--color-text-tertiary);
+  transition: transform var(--duration-fast) var(--ease-standard);
+
+  .is-open & {
+    transform: rotate(180deg);
+  }
+}
+
+.route__panel {
+  padding: 0 var(--spacing-lg) var(--spacing-lg);
+}

@@ -1,118 +1,51 @@
-<nexus-wizard-shell
+<nexus-wizard-chrome
   title="Add printer"
   [steps]="steps()"
   [index]="index()"
-  [canProceed]="canProceed()"
-  finishLabel="Add printer"
-  secondaryFinishLabel="Add & configure"
+  [actions]="actions()"
+  [showProgress]="index() > 0 || !!detectResult()?.reachable"
   (back)="back()"
-  (next)="next()"
-  (goto)="goto($event)"
-  (finish)="finish()"
-  (finishSecondary)="finishAndConfigure()"
+  (act)="onAction($event)"
   (cancel)="cancel()"
 >
   @if (detectResult()?.reachable) {
     @if (index() === 0) {
       <div class="wz-step">
-        <div class="wz-detected" role="status">
-          <header class="wz-detected__head">
-            <nexus-icon name="check-circle" />
-            <div>
-              <strong>{{ draft().name }} is ready to add</strong>
-              <small>
-                We read its settings from the printer itself — nothing below needs filling in.
-              </small>
-            </div>
-          </header>
+        <h3 class="wz-found__title" role="status">{{ draft().name }} is ready to add</h3>
+        <p class="wz-found__lede">
+          Read off the printer itself. Each line shows the config it came from.
+        </p>
 
-          <dl class="wz-detected__grid">
-            @for (row of detectionRows(); track row.label) {
-              <div class="wz-detected__item">
-                <dt>{{ row.label }}</dt>
-                <dd>{{ row.value }}</dd>
-              </div>
-            }
-          </dl>
-
-          @if (findings().length) {
-            <details class="wz-read">
-              <summary class="wz-read__summary">
-                <nexus-icon name="list" />
-                <span>What we read from your printer ({{ findings().length }})</span>
-              </summary>
-              <table class="wz-read__table">
-                <tbody>
-                  @for (finding of findings(); track finding.label) {
-                    <tr>
-                      <th scope="row">{{ finding.label }}</th>
-                      <td>{{ finding.value }}</td>
-                      <td class="wz-read__source">
-                        <code>{{ finding.source }}</code>
-                      </td>
-                    </tr>
-                  }
-                </tbody>
-              </table>
-            </details>
-          }
-
-          @if (detectionMissing()) {
-            <p class="wz-detected__note">
-              <nexus-icon name="info-circle" />
-              <span>
-                We couldn't read the bed size or nozzle from this printer — please check those
-                before adding it.
-              </span>
-            </p>
-          }
-
-          <div class="wz-detected__actions">
-            <button nexusButton variant="ghost" type="button" (click)="startOver()">
-              Start over
-            </button>
-            <div class="wz-detected__actions-end">
-              @if (detectionMissing()) {
-                <button nexusButton variant="ghost" type="button" (click)="reviewManually()">
-                  Fill in the rest
-                </button>
-              } @else {
-                <button nexusButton variant="ghost" type="button" (click)="addDetected()">
-                  Just add it
-                </button>
-              }
-              @if (openQuestions().length) {
-                <button
-                  nexusButton
-                  variant="primary"
-                  type="button"
-                  (click)="continueFromDetection()"
-                >
-                  <span>
-                    {{ openQuestions().length }} quick
-                    {{ openQuestions().length === 1 ? 'question' : 'questions' }}
-                  </span>
-                  <nexus-icon name="arrow-right" />
-                </button>
-              } @else {
-                <button
-                  nexusButton
-                  variant="primary"
-                  type="button"
-                  (click)="finishAndConfigureGcode()"
-                >
-                  <span>Add &amp; check G-code</span>
-                  <nexus-icon name="arrow-right" />
-                </button>
+        <dl class="wz-readings">
+          @for (row of readings(); track row.label) {
+            <div class="wz-reading">
+              <dt class="wz-reading__label">{{ row.label }}</dt>
+              <dd class="wz-reading__value">{{ row.value }}</dd>
+              @if (row.source) {
+                <dd class="wz-reading__source">
+                  <code>{{ row.source }}</code>
+                </dd>
               }
             </div>
-          </div>
-        </div>
+          }
+        </dl>
+
+        @if (detectionMissing()) {
+          <nexus-inline-notice tone="warning" title="Bed size and nozzle are guesses">
+            We could not read either one, so the profile carries our defaults.
+            <button type="button" class="wz-link" (click)="reviewManually()">Fill them in</button>
+          </nexus-inline-notice>
+        }
+
+        <p class="wz-restart">
+          Not the right machine?
+          <button type="button" class="wz-link" (click)="startOver()">Start over</button>
+        </p>
       </div>
     } @else if (currentQuestion(); as entry) {
       <div class="wz-step wz-question">
         <div class="wz-question__head">
-          <h3 class="wz-question__q">{{ entry.copy.headline }}</h3>
+          <h3 class="wz-question__q">{{ headlineFor(entry) }}</h3>
           @if (entry.copy.learnMore; as link) {
             <a
               class="wz-question__learn"
@@ -125,117 +58,140 @@
             </a>
           }
         </div>
+
         @if (entry.copy.detail) {
           <p class="wz-question__detail">{{ entry.copy.detail }}</p>
         }
 
-        <nexus-segmented
+        <!--
+          Why we lean the way we do, and the config it came from — above the
+          choice, because it is what makes the choice answerable.
+        -->
+        @if (entry.question.evidence; as evidence) {
+          <div class="wz-why">
+            <p class="wz-why__text">{{ evidence }}</p>
+            @if (sourcesFor(entry).length) {
+              <p class="wz-why__sources">
+                <span>Read from</span>
+                @for (source of sourcesFor(entry); track source) {
+                  <code>{{ source }}</code>
+                }
+              </p>
+            }
+          </div>
+        }
+
+        <nexus-radio-group
           [options]="optionsFor(entry)"
           [value]="answerFor(entry.question.id)"
-          [label]="entry.copy.headline"
+          [label]="headlineFor(entry)"
           (valueChange)="answer(entry.question.id, $event)"
         />
 
-        @if (entry.question.evidence; as evidence) {
-          <p class="wz-question__why">
-            <nexus-icon name="magic-wand" />
-            <span
-              >{{ evidence }} We've picked what usually works — change it if you know better.</span
-            >
-          </p>
-        }
+        <p class="wz-question__reassure">Pre-picked for most setups. You can change it later.</p>
       </div>
     } @else {
-      <div class="wz-step">
-        <p class="wz-intro">
-          That's everything. You can slice with {{ draft().name }} right away, and change any of
-          this later in its settings.
-        </p>
-        <nexus-field-row label="Name" [stacked]="true">
-          <input class="wz-input" [value]="draft().name" (input)="patchName($event)" />
-        </nexus-field-row>
-        <dl class="wz-detected__grid">
-          @for (row of detectionRows(); track row.label) {
-            <div class="wz-detected__item">
-              <dt>{{ row.label }}</dt>
-              <dd>{{ row.value }}</dd>
-            </div>
-          }
-        </dl>
+      <div class="wz-step wz-done">
+        <p class="wz-done__kicker">Ready to slice with</p>
+        <nexus-wizard-name
+          [value]="draft().name"
+          ariaLabel="Printer name"
+          placeholder="Name your printer"
+          (valueChange)="patch({ name: $event })"
+        />
+        @if (machineLine(); as line) {
+          <p class="wz-done__sub">{{ line }}</p>
+        }
+
+        @if (answerSummary().length) {
+          <details class="wz-recap">
+            <summary class="wz-recap__summary">
+              What you chose
+              <span class="wz-recap__count">{{ answerSummary().length }}</span>
+            </summary>
+            <dl class="wz-recap__list">
+              @for (row of answerSummary(); track row.step) {
+                <div class="wz-recap__row">
+                  <dt>{{ row.step }}</dt>
+                  <dd>{{ row.choice }}</dd>
+                </div>
+              }
+            </dl>
+          </details>
+        }
       </div>
     }
   } @else {
     @switch (index()) {
       @case (0) {
-        <div class="wz-step">
-          <p class="wz-intro">
-            Have your printer on the network? Paste its address and we'll detect the type and
-            settings for you. Otherwise, start from a catalog preset or from scratch.
-          </p>
-          <div class="wz-start">
-            <div class="wz-detect">
-              <div class="wz-detect__row">
-                <input
-                  class="wz-input"
-                  type="text"
-                  placeholder="http://mainsailos.local  ·  192.168.1.42"
-                  [value]="detectHost()"
-                  (input)="setDetectHost($event)"
-                  (keydown.enter)="detect()"
-                  [disabled]="detecting()"
-                />
-                <button
-                  nexusButton
-                  variant="primary"
-                  type="button"
-                  class="wz-detect__btn"
-                  [class.wz-detect__btn--busy]="detecting()"
-                  (click)="detect()"
-                  [disabled]="detecting() || !detectHost().trim()"
-                >
-                  <nexus-icon [name]="detecting() ? 'refresh' : 'magic-wand'" />
-                  <span>{{ detecting() ? 'Detecting…' : 'Detect' }}</span>
-                </button>
-              </div>
-              @if (detectResult(); as result) {
-                @if (!result.reachable) {
-                  <p class="wz-detect__msg wz-detect__msg--error">
-                    <nexus-icon name="warning-triangle" />
-                    <span>{{
-                      result.message ?? 'Could not reach a printer at that address.'
-                    }}</span>
-                  </p>
-                }
-              }
-              @if (detecting()) {
-                <p class="wz-detect__msg">
-                  <nexus-icon name="refresh" />
-                  <span>
-                    Querying printer details… this can take up to about a minute on large Klipper /
-                    Klippain setups.
-                  </span>
-                </p>
-              }
-              @if (!detectResult()) {
-                <p class="wz-detect__hint">
-                  Works best with Klipper / Moonraker (bed size, nozzle and kinematics), and
-                  identifies OctoPrint &amp; PrusaLink hosts.
-                </p>
-              }
+        <div class="wz-step wz-routes">
+          <h3 class="wz-routes__ask">How would you like to set this printer up?</h3>
+
+          <nexus-wizard-route
+            icon="magic-wand"
+            title="Find it on my network"
+            description="Reads its bed, nozzle, speeds and macros straight off the machine."
+            mode="expand"
+            [recommended]="true"
+            [open]="openRoute() === 'detect'"
+            (activate)="toggleRoute('detect')"
+          >
+            <div class="wz-detect__row">
+              <input
+                class="wz-input"
+                type="text"
+                placeholder="mainsailos.local  ·  192.168.1.42"
+                [value]="detectHost()"
+                (input)="setDetectHost($event)"
+                (keydown.enter)="detect()"
+                [disabled]="detecting()"
+              />
+              <button
+                nexusButton
+                variant="primary"
+                type="button"
+                class="wz-detect__btn"
+                [class.wz-detect__btn--busy]="detecting()"
+                (click)="detect()"
+                [disabled]="detecting() || !detectHost().trim()"
+              >
+                <nexus-icon [name]="detecting() ? 'refresh' : 'magic-wand'" />
+                <span>{{ detecting() ? 'Detecting…' : 'Detect' }}</span>
+              </button>
             </div>
+            @if (detecting()) {
+              <p class="wz-detect__msg">
+                Reading the configuration… a large Klipper setup can take up to a minute.
+              </p>
+            } @else if (detectResult(); as result) {
+              @if (!result.reachable) {
+                <p class="wz-detect__msg wz-detect__msg--error">
+                  <nexus-icon name="warning-triangle" />
+                  <span>{{ result.message ?? 'Could not reach a printer at that address.' }}</span>
+                </p>
+              }
+            } @else {
+              <p class="wz-detect__msg">
+                Klipper and Moonraker only. Other hosts are recognised by name.
+              </p>
+            }
+          </nexus-wizard-route>
 
-            <div class="wz-start__divider">or start manually</div>
+          <nexus-wizard-route
+            icon="grid-plus"
+            title="Set it up myself"
+            description="A blank 220 mm printer, in four short steps."
+            (activate)="startFromScratch()"
+          />
 
-            <button type="button" class="wz-start__scratch" (click)="startFromScratch()">
-              <nexus-icon name="grid-plus" />
-              <span>
-                <strong>Start from scratch</strong>
-                <small>A blank 220 mm printer you can fully customise</small>
-              </span>
-            </button>
-
-            <div class="wz-start__divider">or pick a preset</div>
-
+          <nexus-wizard-route
+            icon="printer"
+            title="Start from a vendor preset"
+            description="A library of common machines, already filled in."
+            mode="expand"
+            [open]="openRoute() === 'preset'"
+            (activate)="toggleRoute('preset')"
+          >
             <nexus-catalog-picker
               [entries]="catalogEntries()"
               [loading]="catalogStatus() === 'loading'"
@@ -250,7 +206,7 @@
               (search)="onCatalogSearch($event)"
               (loadMore)="loadMoreCatalog()"
             />
-          </div>
+          </nexus-wizard-route>
         </div>
       }
 
@@ -394,4 +350,4 @@
       }
     }
   }
-</nexus-wizard-shell>
+</nexus-wizard-chrome>

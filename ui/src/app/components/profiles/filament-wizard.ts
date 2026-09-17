@@ -12,21 +12,37 @@ import {
 import { CloudCatalog, catalogSpecOf, toUserCopy } from '../../services/catalog/cloud-catalog';
 import { ActiveSelection } from '../../services/profiles/active-selection';
 import { FilamentsStore } from '../../services/profiles/filaments-store';
-import { Icon, NumberInput, Select, ColorPicker, FieldRow, WizardShell } from '@coldcrabby/ui';
+import { Icon, NumberInput, Select, ColorPicker, FieldRow } from '@coldcrabby/ui';
 import { CatalogPicker, type CatalogEntryVm } from './catalog-picker';
+import { WizardChrome, type WizardAction } from './wizard-chrome';
+import { WizardRoute } from './wizard-route';
+import { WizardName } from './wizard-name';
 import { paramNum } from '../../models/params-access';
 
-const STEPS = ['Start', 'Basics', 'Temperatures', 'Cooling & flow'] as const;
-
 /**
- * Guided flow for adding a filament. Picking a material in step 1 pre-fills the
- * temperature/cooling defaults for that material so a from-scratch spool still
- * lands on sane values.
+ * Two steps, because there are only two things this flow knows that the
+ * filament editor does not: where the spool should start from, and what to call
+ * it. Everything else — temperatures, cooling, flow, volumetric limits — is
+ * rendered by the editor straight from the schema, tiered and searchable. A
+ * wizard page per topic was a second, hand-maintained copy of that list, which
+ * drifted from the schema and put Advanced-tier knobs in front of someone who
+ * had not yet named their first spool.
  */
+const STEPS = ['Where to start', 'Name it'] as const;
 @Component({
   selector: 'nexus-filament-wizard',
   standalone: true,
-  imports: [WizardShell, CatalogPicker, FieldRow, NumberInput, Select, ColorPicker, Icon],
+  imports: [
+    WizardChrome,
+    WizardRoute,
+    WizardName,
+    CatalogPicker,
+    FieldRow,
+    NumberInput,
+    Select,
+    ColorPicker,
+    Icon,
+  ],
   templateUrl: './filament-wizard.html',
   styleUrl: './filament-wizard.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -71,12 +87,36 @@ export class FilamentWizard {
     })),
   );
 
-  protected readonly canProceed = computed(() => {
-    if (this.index() === 0) {
-      return false;
+  /** Whether the catalog route on the first screen is unfolded. */
+  protected readonly presetsOpen = signal(false);
+
+  protected togglePresets(): void {
+    this.presetsOpen.update((open) => !open);
+  }
+
+  protected readonly named = computed(() => this.draft().name.trim().length > 0);
+
+  /**
+   * The footer's actions. The first step advances by choosing a starting point,
+   * so it offers none — a Next there could only be a disabled button with
+   * nothing that would enable it.
+   */
+  protected readonly actions = computed<WizardAction[]>(() =>
+    this.index() === 0
+      ? []
+      : [
+          { id: 'configure', label: 'Add & configure', disabled: !this.named() },
+          { id: 'finish', label: 'Add filament', disabled: !this.named() },
+        ],
+  );
+
+  protected onAction(id: string): void {
+    if (id === 'finish') {
+      this.finish();
+    } else if (id === 'configure') {
+      this.finishAndConfigure();
     }
-    return this.draft().name.trim().length > 0;
-  });
+  }
 
   constructor() {
     void this.catalog.loadFilaments();
@@ -165,14 +205,6 @@ export class FilamentWizard {
 
   protected back(): void {
     this.index.update((i) => Math.max(0, i - 1));
-  }
-
-  protected next(): void {
-    this.index.update((i) => Math.min(this.steps.length - 1, i + 1));
-  }
-
-  protected goto(index: number): void {
-    this.index.set(index);
   }
 
   protected finish(): void {

@@ -6,33 +6,48 @@ import type { DetectionOption, DetectionQuestion } from '../../services/printer-
  *
  * The engine reports what a printer's config does and does not settle; it has
  * no opinion on how to phrase that. So the machine-specific half — which
- * options exist, which one the evidence points at — arrives on the
- * {@link DetectionQuestion}, and the plain-language half lives here, keyed by
- * the same ids.
+ * options exist, which one the evidence points at, which config section it was
+ * read from — arrives on the {@link DetectionQuestion}, and the plain-language
+ * half lives here, keyed by the same ids.
+ *
+ * **Every option gets a description.** These questions are asked once, to
+ * someone who has just plugged in a printer, and the option labels are terms
+ * out of a config file. A label alone leaves "rscs" sitting next to "Not for
+ * cooling prints" like a riddle; the sentence under it is the answer. The
+ * wizard renders them as option cards for exactly that reason.
  *
  * Options whose effect is a slicing parameter carry it in `option.params` and
- * need no entry beyond a label. The ones listed in
- * {@link PROFILE_EFFECTS} change a *profile* field instead — a vendor, a model,
- * a preferred plate orientation — which is not something a params bag can
- * express, so the wizard applies those by id.
+ * need no entry beyond wording. The ones listed in {@link PROFILE_EFFECTS}
+ * change a *profile* field instead — a vendor, a model, a preferred plate
+ * orientation — which is not something a params bag can express, so the wizard
+ * applies those by id.
  */
+
+/** Wording for one option. */
+export interface OptionCopy {
+  readonly label: string;
+  readonly description?: string;
+}
 
 /** Wording for one question and its known options. */
 export interface QuestionCopy {
-  /** Step label in the wizard's progress strip. Two words or so. */
-  readonly step: string;
-  /** The question itself, asked plainly. */
-  readonly headline: string;
+  /** Step name in the wizard's progress caption. Two words or so. */
+  readonly step: string | ((subject: string) => string);
+  /**
+   * The question itself, asked plainly — a function when the engine names what
+   * it is about, so the headline can say "What is rscs for?" instead of "What
+   * is this fan for?", which names nothing the user can go and look at.
+   */
+  readonly headline: string | ((subject: string) => string);
   /** Optional sentence under the headline. */
   readonly detail?: string;
   /** Labels and descriptions for options the engine cannot name. */
-  readonly options: Readonly<Record<string, { label: string; description?: string }>>;
+  readonly options: Readonly<Record<string, OptionCopy>>;
   /**
-   * Phrasing for options the engine *did* name — a fan object, a saved mesh
-   * profile. The bare name is data, not an answer: "rscs" next to "Not for
-   * cooling prints" reads as a riddle, "Use rscs for cooling" does not.
+   * Wording for options the engine *did* name — a saved mesh profile. Receives
+   * the engine's label and returns the card's own.
    */
-  readonly nameOption?: (name: string) => string;
+  readonly nameOption?: (name: string) => OptionCopy;
   /** Link out for a term the question cannot avoid using. */
   readonly learnMore?: { readonly label: string; readonly url: string };
 }
@@ -41,70 +56,93 @@ const KLIPPAIN_README_URL = 'https://github.com/Frix-x/klippain/blob/main/README
 
 const QUESTION_COPY: Readonly<Record<string, QuestionCopy>> = {
   machine_identity: {
-    step: 'Your printer',
-    headline: 'Is this your printer?',
-    detail: 'We matched its configuration against machines we know.',
+    step: 'Which machine',
+    headline: 'Is this the printer you have?',
+    detail: 'Sets the make and model. It changes nothing about how your prints slice.',
     options: {
+      confirm: {
+        label: 'Yes, that is it',
+        description: 'Saves the make and model so the profile is easy to spot.',
+      },
       other: {
-        label: 'Something else',
-        description: "A custom build, or a machine we don't recognise. You can name it yourself.",
+        label: 'No, something else',
+        description: 'Keeps every setting we read; you name the machine yourself.',
       },
     },
   },
   macro_convention: {
-    step: 'Start macros',
-    headline: 'How should a print start and end?',
-    detail: 'This decides the commands we put at the top and bottom of every file.',
+    step: 'Start and end macros',
+    headline: 'Which macro should we call to start a print?',
+    detail:
+      'We write one line at the top of every file and one at the bottom. Calling a macro your printer does not have stops the print on line one.',
     options: {
       standard: {
-        label: 'PRINT_START / PRINT_END',
-        description: 'The mainline Klipper convention.',
+        label: 'PRINT_START and PRINT_END',
+        description:
+          'Mainline Klipper, and what most configs use. We pass bed and nozzle temperature.',
       },
       klippain: {
-        label: 'START_PRINT / END_PRINT',
-        description: 'Klippain, which also takes chamber and material.',
+        label: 'START_PRINT and END_PRINT',
+        description:
+          'Klippain. We also pass chamber temperature and material name, which it expects.',
       },
       keep: {
-        label: 'Leave it to me',
-        description: "We'll write nothing, and you can paste in your own.",
+        label: 'Neither — I write my own',
+        description: 'We write nothing. The safe pick if you are unsure.',
       },
     },
-    learnMore: { label: "What's Klippain?", url: KLIPPAIN_README_URL },
+    learnMore: { label: 'What is Klippain?', url: KLIPPAIN_README_URL },
   },
   bed_mesh: {
     step: 'Bed levelling',
     headline: 'Should we level the bed before each print?',
+    detail: 'Your printer can probe. We cannot see whether your start macro already does.',
     options: {
       leave: {
-        label: 'My start macro does it',
-        description: 'Most start macros already probe. Safest, and adds no time.',
+        label: 'My start macro handles it',
+        description: 'We send nothing. Almost every start macro probes already.',
       },
       calibrate: {
-        label: 'Probe every print',
-        description: 'Re-measures only the area the print actually covers.',
+        label: 'Probe before every print',
+        description:
+          'Measures only the area the print covers. Adds a minute or two, and doubles up if your macro probes too.',
       },
     },
-    nameOption: (name) => `Load ${name}`,
+    nameOption: (name) => ({
+      label: `Load the saved mesh “${name}”`,
+      description: 'Instant, but only as fresh as the day you saved it.',
+    }),
   },
   aux_fan: {
-    step: 'Extra fan',
-    headline: 'What is this fan for?',
-    detail: "Klipper can't tell us — it could be cooling, filtration or an electronics bay.",
+    step: (subject) => `The ${subject} fan`,
+    headline: (subject) => `What is the “${subject}” fan for?`,
+    detail:
+      'Klipper names the part-cooling and hotend fans itself. Anything else could be a second part cooler, a filter, or a bay vent.',
     options: {
       unused: {
         label: 'Not for cooling prints',
-        description: "We won't touch it.",
+        description: 'We never touch it. The safe pick if you are unsure.',
+      },
+      cooling: {
+        label: 'It blows on the part',
+        description: 'We ramp it with layer time, alongside the main part fan.',
       },
     },
-    nameOption: (name) => `Cool prints with ${name}`,
   },
   preferred_orientation: {
-    step: 'Orientation',
-    headline: 'Print parts rotated 45°?',
-    detail: 'A CoreXY moves fastest along its diagonals, so turning parts can print quicker.',
+    step: 'Part placement',
+    headline: 'Should we place parts turned 45° on the plate?',
+    detail: 'A preference, not something we read off the machine. It affects every plate.',
     options: {
-      keep: { label: 'No, place parts as they come', description: 'The usual choice.' },
-      diagonal: { label: 'Yes, rotate 45°', description: 'Keeps long walls off the belt axes.' },
+      keep: {
+        label: 'Place parts as they come',
+        description: 'What almost everyone does.',
+      },
+      diagonal: {
+        label: 'Turn every part 45°',
+        description:
+          'A CoreXY moves fastest on its diagonals. Costs usable plate area on a square bed.',
+      },
     },
   },
 };
@@ -119,29 +157,64 @@ const PROFILE_EFFECTS: Readonly<
   },
 };
 
+/**
+ * The copy key for a question id.
+ *
+ * A question about a named object carries the name in its id (`aux_fan:rscs`),
+ * because a machine with two `[fan_generic]` sections asks twice and the two
+ * answers must not collide. The wording is shared, so it is keyed on the part
+ * before the colon.
+ */
+function copyKey(id: string): string {
+  const colon = id.indexOf(':');
+  return colon === -1 ? id : id.slice(0, colon);
+}
+
 /** Wording for a question id, or `null` for one this build doesn't know. */
 export function questionCopy(id: string): QuestionCopy | null {
-  return QUESTION_COPY[id] ?? null;
+  return QUESTION_COPY[copyKey(id)] ?? null;
+}
+
+/** Resolve a headline or step name that may depend on the question's subject. */
+function resolve(
+  value: string | ((subject: string) => string),
+  subject: string | null | undefined,
+): string {
+  return typeof value === 'string' ? value : value(subject ?? 'this one');
+}
+
+/** The question as a sentence, with whatever the engine named filled in. */
+export function questionHeadline(question: DetectionQuestion, copy: QuestionCopy): string {
+  return resolve(copy.headline, question.subject);
+}
+
+/** The step's name for the progress caption. */
+export function questionStep(question: DetectionQuestion, copy: QuestionCopy): string {
+  return resolve(copy.step, question.subject);
 }
 
 /**
- * Label for an option: the engine's own when it named it (a fan object, a saved
- * mesh profile), otherwise this build's copy, otherwise the bare id.
+ * Label for an option: this build's copy, or the engine's own phrasing for one
+ * it named (a saved mesh profile), otherwise the bare id.
  */
 export function optionLabel(question: DetectionQuestion, option: DetectionOption): string {
   const copy = questionCopy(question.id);
   if (option.label) {
-    return copy?.nameOption?.(option.label) ?? option.label;
+    return copy?.nameOption?.(option.label).label ?? option.label;
   }
   return copy?.options[option.id]?.label ?? option.id;
 }
 
-/** One-line description for an option, when there is one worth showing. */
+/** The sentence under an option's label. */
 export function optionDescription(
   question: DetectionQuestion,
   option: DetectionOption,
 ): string | undefined {
-  return option.detail ?? questionCopy(question.id)?.options[option.id]?.description;
+  const copy = questionCopy(question.id);
+  if (option.label) {
+    return copy?.nameOption?.(option.label).description ?? option.detail ?? undefined;
+  }
+  return copy?.options[option.id]?.description ?? option.detail ?? undefined;
 }
 
 /** Profile-field patch an answer implies, if any. */
@@ -149,7 +222,7 @@ export function optionProfilePatch(
   questionId: string,
   optionId: string,
 ): { preferred_orientation_deg?: number } | null {
-  return PROFILE_EFFECTS[questionId]?.[optionId] ?? null;
+  return PROFILE_EFFECTS[copyKey(questionId)]?.[optionId] ?? null;
 }
 
 /**
@@ -161,7 +234,7 @@ export function optionProfilePatch(
  * printer defines, and this maps that answer to a preset id.
  */
 export function optionTemplateId(questionId: string, optionId: string): string | null {
-  if (questionId !== 'macro_convention') {
+  if (copyKey(questionId) !== 'macro_convention') {
     return null;
   }
   return optionId === 'standard' ? 'klipper-standard' : optionId === 'klippain' ? 'klippain' : null;

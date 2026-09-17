@@ -135,8 +135,13 @@ render stay identical.
   the shared reset scrolls), the global `components/` partials, and the
   `drop-aurora` emit.
 - **What stays here.** Slicer-specific UI only: the app shell (`nexus/`), the
-  3D viewer, the schema-driven forms, the `fov-cube`, the `dialog` service, and
-  the local `icon-button`.
+  3D viewer, the schema-driven forms, the `fov-cube`, the `dialog` service, the
+  local `icon-button`, and the profile wizards' chrome
+  ([`wizard-chrome`](src/app/components/profiles/wizard-chrome.ts)). The chrome
+  lives here rather than in the shared library because nothing else in Cold
+  Crabby runs a wizard, and the shape it needs is specific to these three: a
+  step list that is rebuilt around what a printer detection could not settle,
+  and a footer whose actions change per step.
 
 Change a primitive or a token in `ColdCrabby/ui`, open a PR there, and once it
 lands, `pnpm vendor:ui` brings it in.

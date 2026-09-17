@@ -27,17 +27,23 @@ import {
   optionProfilePatch,
   optionTemplateId,
   questionCopy,
+  questionHeadline,
+  questionStep,
 } from './detection-questions';
 import {
   Icon,
   Button,
+  InlineNotice,
   NumberInput,
+  RadioGroup,
   Segmented,
   Select,
   Switch,
   FieldRow,
-  WizardShell,
 } from '@coldcrabby/ui';
+import { WizardChrome, type WizardAction } from './wizard-chrome';
+import { WizardRoute } from './wizard-route';
+import { WizardName } from './wizard-name';
 import { CatalogPicker, type CatalogEntryVm } from './catalog-picker';
 import { paramNum, paramStr } from '../../models/params-access';
 
@@ -48,7 +54,7 @@ const FIRMWARE_LABELS: Readonly<Record<string, string>> = {
 };
 
 /** Steps for a printer entered by hand or seeded from a catalog preset. */
-const MANUAL_STEPS = ['Start', 'Basics', 'Build volume', 'Hardware'] as const;
+const MANUAL_STEPS = ['Where to start', 'Basics', 'Build volume', 'Hardware'] as const;
 
 /**
  * A question the wizard is showing, paired with the wording for it.
@@ -57,6 +63,14 @@ const MANUAL_STEPS = ['Start', 'Basics', 'Build volume', 'Hardware'] as const;
  * rendered as raw ids — their suggested answer is still applied, so an older UI
  * against a newer engine produces a correct profile, just without the prompt.
  */
+/** One thing the detection concluded, and the config section behind it. */
+interface Reading {
+  readonly label: string;
+  readonly value: string;
+  /** Absent for a conclusion no single section states — the model, say. */
+  readonly source?: string;
+}
+
 interface WizardQuestion {
   readonly question: DetectionQuestion;
   readonly copy: NonNullable<ReturnType<typeof questionCopy>>;
@@ -80,10 +94,14 @@ function normalizedFlavor(value: string | undefined): PrinterGcodeFlavor | undef
   selector: 'nexus-printer-wizard',
   standalone: true,
   imports: [
-    WizardShell,
+    WizardChrome,
+    WizardRoute,
+    WizardName,
     CatalogPicker,
     FieldRow,
+    InlineNotice,
     NumberInput,
+    RadioGroup,
     Select,
     Switch,
     Segmented,
@@ -103,6 +121,20 @@ export class PrinterWizard {
 
   protected readonly index = signal(0);
   protected readonly draft = signal<PrinterProfile>(makePrinter());
+
+  /**
+   * Which route on the first screen is unfolded, if any.
+   *
+   * Detection opens by default because it is the recommended path and costs one
+   * input row; the catalog stays folded so its search field, spinner and
+   * unavailable-notice are not the largest thing on a screen that is meant to
+   * pose a single question.
+   */
+  protected readonly openRoute = signal<'detect' | 'preset' | null>('detect');
+
+  protected toggleRoute(route: 'detect' | 'preset'): void {
+    this.openRoute.update((current) => (current === route ? null : route));
+  }
 
   /** “Detect from URL” state for the Start step. */
   protected readonly detectHost = signal('');
@@ -135,7 +167,11 @@ export class PrinterWizard {
     if (!this.detectResult()?.reachable) {
       return MANUAL_STEPS;
     }
-    return ['Detected', ...this.openQuestions().map((entry) => entry.copy.step), 'Ready'];
+    return [
+      'What we found',
+      ...this.openQuestions().map((entry) => questionStep(entry.question, entry.copy)),
+      'Name and add',
+    ];
   });
 
   /** The question shown on the current step, if the current step is one. */
@@ -143,20 +179,27 @@ export class PrinterWizard {
     () => this.openQuestions()[this.index() - 1] ?? null,
   );
 
-  /** Everything detection read off the printer, for the "what we read" panel. */
-  protected readonly findings = computed(() => this.detectResult()?.findings ?? []);
-
-  /** Human-readable summary of a successful detection, for the review card. */
-  protected readonly detectionRows = computed<{ label: string; value: string }[]>(() => {
+  /**
+   * Everything the detection concluded, as one list.
+   *
+   * There used to be two: a summary grid of the headline facts, and a folded
+   * table repeating most of them with their provenance. Same values, twice,
+   * and the one that answered "where did this come from?" was the one hidden
+   * behind a disclosure. So there is now a single list, always open, and a
+   * reading carries its own config section.
+   *
+   * Identity comes first because it is what the user checks — is this the right
+   * machine? — and it has no config section of its own: the connection kind is
+   * how we reached the host, and the model is a fingerprint rather than
+   * something the config states.
+   */
+  protected readonly readings = computed<Reading[]>(() => {
     const r = this.detectResult();
     if (!r?.reachable) {
       return [];
     }
-    const rows: { label: string; value: string }[] = [];
-    rows.push({ label: 'Connection', value: PRINTER_CONNECTION_LABELS[r.kind] });
-    if (r.name) {
-      rows.push({ label: 'Name', value: r.name });
-    }
+
+    const rows: Reading[] = [{ label: 'Connection', value: PRINTER_CONNECTION_LABELS[r.kind] }];
     // Vendor is the machine's maker; the firmware it runs is its own row.
     if (r.model || r.vendor) {
       rows.push({ label: 'Machine', value: r.model || (r.vendor as string) });
@@ -164,18 +207,30 @@ export class PrinterWizard {
     if (r.firmware) {
       rows.push({ label: 'Firmware', value: FIRMWARE_LABELS[r.firmware] ?? r.firmware });
     }
+
+    const findings = r.findings ?? [];
+    if (findings.length) {
+      rows.push(...findings.map((f) => ({ label: f.label, value: f.value, source: f.source })));
+      return rows;
+    }
+
+    // No findings means the heavy `configfile` query never landed. The toolhead
+    // probe still knows the build volume, so state it — sourceless, because
+    // nothing read it out of a named section.
     if (r.bedWidth != null) {
-      const bed =
-        r.bedShape === 'circular'
-          ? `⌀ ${r.bedWidth} mm`
-          : `${r.bedWidth} × ${r.bedDepth ?? r.bedWidth} mm`;
-      rows.push({ label: 'Bed', value: bed });
+      rows.push({
+        label: 'Bed size',
+        value:
+          r.bedShape === 'circular'
+            ? `⌀ ${r.bedWidth} mm`
+            : `${r.bedWidth} × ${r.bedDepth ?? r.bedWidth} mm`,
+      });
     }
     if (r.bedHeight != null) {
       rows.push({ label: 'Max height', value: `${r.bedHeight} mm` });
     }
     if (r.nozzleDiameterMm != null) {
-      rows.push({ label: 'Nozzle', value: `${r.nozzleDiameterMm} mm` });
+      rows.push({ label: 'Nozzle diameter', value: `${r.nozzleDiameterMm} mm` });
     }
     if (r.originAtCenter) {
       rows.push({ label: 'Kinematics', value: 'Delta (center origin)' });
@@ -223,13 +278,79 @@ export class PrinterWizard {
     })),
   );
 
-  protected readonly canProceed = computed(() => {
-    // The manual flow's first step advances via an explicit choice, not Next.
-    if (this.index() === 0 && !this.detectResult()?.reachable) {
-      return false;
+  protected readonly named = computed(() => this.draft().name.trim().length > 0);
+  protected readonly isLast = computed(() => this.index() === this.steps().length - 1);
+
+  /**
+   * The footer's actions for the current step, primary last.
+   *
+   * There is exactly one action row, and it lives in the footer. The detected
+   * card used to carry three buttons of its own while the shell's footer
+   * offered Next beside them — two rows, five buttons, and the two most
+   * prominent did the same thing.
+   *
+   * After a detection the draft is already a finished, addable profile, so
+   * every step from the first offers "Add now" alongside the step that refines
+   * it. That is the honest shape of this flow: nothing below the first screen
+   * is required.
+   */
+  protected readonly actions = computed<WizardAction[]>(() => {
+    const detected = !!this.detectResult()?.reachable;
+
+    if (this.index() === 0 && !detected) {
+      // Every choice on the manual start screen advances by being chosen, so a
+      // Next here could only ever be a disabled button nobody can satisfy.
+      return [];
     }
-    return this.draft().name.trim().length > 0;
+
+    if (this.isLast()) {
+      return [
+        { id: 'configure', label: 'Add & configure', disabled: !this.named() },
+        { id: 'finish', label: 'Add printer', disabled: !this.named() },
+      ];
+    }
+
+    if (!detected) {
+      return [{ id: 'next', label: 'Next', icon: 'nav-arrow-right', disabled: !this.named() }];
+    }
+
+    const open = this.openQuestions().length;
+    if (this.index() === 0) {
+      return [
+        { id: 'finish', label: 'Add as-is' },
+        open > 0
+          ? {
+              id: 'next',
+              label: open === 1 ? 'Answer 1 question' : `Answer ${open} questions`,
+              icon: 'nav-arrow-right',
+            }
+          : { id: 'gcode', label: 'Add & check G-code', icon: 'nav-arrow-right' },
+      ];
+    }
+
+    return [
+      { id: 'finish', label: 'Add now' },
+      { id: 'next', label: 'Next', icon: 'nav-arrow-right' },
+    ];
   });
+
+  /** Route a footer press to the method behind it. */
+  protected onAction(id: string): void {
+    switch (id) {
+      case 'next':
+        this.next();
+        break;
+      case 'finish':
+        this.finish();
+        break;
+      case 'configure':
+        this.finishAndConfigure();
+        break;
+      case 'gcode':
+        this.finishAndConfigureGcode();
+        break;
+    }
+  }
 
   constructor() {
     void this.catalog.loadPrinters();
@@ -327,18 +448,8 @@ export class PrinterWizard {
     }
   }
 
-  /** Walk the detected printer through whatever is still open. */
-  protected continueFromDetection(): void {
-    this.index.set(1);
-  }
-
-  /** Skip the questions and add the printer as detection left it. */
-  protected addDetected(): void {
-    this.finish();
-  }
-
   /** Add the detected printer and open its editor scrolled to the G-code block. */
-  protected finishAndConfigureGcode(): void {
+  private finishAndConfigureGcode(): void {
     const printer = this.persist();
     void this.router.navigate(['/settings/printers'], {
       queryParams: { configure: printer.id, focus: 'gcode' },
@@ -365,7 +476,15 @@ export class PrinterWizard {
     return this.answers()[questionId] ?? null;
   }
 
-  /** Options for a question, in the shape the segmented control takes. */
+  /**
+   * Options for a question, as option cards.
+   *
+   * Cards rather than a segmented control because the labels are terms out of a
+   * config file — `PRINT_START / PRINT_END` against `START_PRINT / END_PRINT`
+   * separates nothing by name — and because a segmented control shows a
+   * description only as a hover tooltip, which is no description at all on a
+   * touchscreen.
+   */
   protected optionsFor(
     entry: WizardQuestion,
   ): { value: string; label: string; description?: string }[] {
@@ -375,6 +494,47 @@ export class PrinterWizard {
       description: optionDescription(entry.question, option),
     }));
   }
+
+  /** The question as a sentence, with whatever the engine named filled in. */
+  protected headlineFor(entry: WizardQuestion): string {
+    return questionHeadline(entry.question, entry.copy);
+  }
+
+  /** The config sections behind a question, for the "where we read this" line. */
+  protected sourcesFor(entry: WizardQuestion): readonly string[] {
+    return entry.question.sources ?? [];
+  }
+
+  /**
+   * One line of what this machine is, under its name on the final step — the
+   * two facts that tell the user they are naming the right thing.
+   */
+  protected readonly machineLine = computed(() => {
+    const r = this.detectResult();
+    if (!r?.reachable) {
+      return '';
+    }
+    const bed =
+      r.bedWidth == null
+        ? null
+        : r.bedShape === 'circular'
+          ? `⌀ ${r.bedWidth} mm`
+          : `${r.bedWidth} × ${r.bedDepth ?? r.bedWidth} mm`;
+    return [r.model || r.vendor, bed].filter(Boolean).join(' · ');
+  });
+
+  /** The decisions the user has made, recapped on the final step. */
+  protected readonly answerSummary = computed<{ step: string; choice: string }[]>(() =>
+    this.openQuestions().map((entry) => {
+      const chosen = entry.question.options.find(
+        (option) => option.id === this.answerFor(entry.question.id),
+      );
+      return {
+        step: questionStep(entry.question, entry.copy),
+        choice: chosen ? optionLabel(entry.question, chosen) : '—',
+      };
+    }),
+  );
 
   /** Record an answer and apply what it implies. */
   protected answer(questionId: string, optionId: string): void {
@@ -486,10 +646,6 @@ export class PrinterWizard {
 
   protected next(): void {
     this.index.update((i) => Math.min(this.steps().length - 1, i + 1));
-  }
-
-  protected goto(index: number): void {
-    this.index.set(index);
   }
 
   protected finish(): void {

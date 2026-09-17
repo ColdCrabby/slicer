@@ -1,0 +1,60 @@
+:host {
+  display: block;
+}
+
+.wzn {
+  position: relative;
+  display: inline-flex;
+  flex-direction: column;
+  max-width: 100%;
+}
+
+// No box. The name reads as a title that happens to be editable, so the only
+// chrome is the rule beneath it — which is also the affordance.
+.wzn__field {
+  display: block;
+  min-width: 2ch;
+  padding: 2px 0;
+  font-size: var(--font-size-2xl, var(--font-size-xl));
+  font-weight: var(--font-weight-semibold);
+  letter-spacing: -0.01em;
+  line-height: 1.2;
+  color: var(--color-text-primary);
+  outline: none;
+  overflow-wrap: anywhere;
+
+  &:empty::before {
+    content: attr(data-placeholder);
+    color: var(--color-text-tertiary);
+  }
+}
+
+// Sits under the name at rest and grows out from the centre on focus, so the
+// field announces itself as editable without carrying a border all the time.
+.wzn__rule {
+  height: 2px;
+  border-radius: 1px;
+  // Derived from the text tone rather than --color-border: this rule is the
+  // only thing saying the title is a field, and the border token sits at about
+  // 1.5:1 on the dark theme, which reads as nothing at all.
+  background: color-mix(in oklab, var(--color-text-tertiary) 40%, transparent);
+  transition:
+    background-color var(--duration-fast) var(--ease-standard),
+    transform var(--duration-normal) var(--ease-decelerate);
+  transform: scaleX(1);
+  transform-origin: center;
+}
+
+.wzn__field:hover + .wzn__rule {
+  background: var(--color-text-tertiary);
+}
+
+.wzn__field:focus + .wzn__rule {
+  background: var(--accent);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .wzn__rule {
+    transition: background-color var(--duration-fast) var(--ease-standard);
+  }
+}
