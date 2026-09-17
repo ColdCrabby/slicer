@@ -200,7 +200,7 @@ export class SettingsPanel {
   /** Which row's menu is open, if any — the rows share one template. */
   protected readonly openPicker = signal<SettingContractId | null>(null);
 
-  /** Keyboard cursor, so the menu answers arrow keys the way a listbox should. */
+  /** Keyboard cursor, so the menu answers arrow keys the way a menu should. */
   protected readonly pickerIndex = signal(-1);
 
   protected readonly pickerOptions = computed(() => {
@@ -243,7 +243,7 @@ export class SettingsPanel {
       this.pickerMenuTpl(),
       {},
       {
-        // Anchored to the caret but sized to the row, so a preset reads at the
+        // Anchored to the menu button but sized to the row, so a preset reads at the
         // width it had in the row that named it. Exactly the row's width, not a
         // minimum: a fit warning is long enough to drag the panel out past the
         // sidebar without ever fitting on one line, so it wraps instead.
@@ -279,7 +279,7 @@ export class SettingsPanel {
     this.closePicker();
   }
 
-  /** Open, move and choose from the keyboard — the caret is the listbox handle. */
+  /** Open, move and choose from the keyboard — the dots are the menu handle. */
   protected onPickerKeydown(contract: SettingContractId, event: KeyboardEvent): void {
     const trigger = event.currentTarget as HTMLElement;
     if (this.openPicker() !== contract) {

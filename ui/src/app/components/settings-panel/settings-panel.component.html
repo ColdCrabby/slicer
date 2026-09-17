@@ -94,8 +94,9 @@
 
           @if (presetOptionsFor(contract.id).length > 0) {
             <!--
-              The caret alone: picking another preset is a dropdown, and the row
-              beside it already names the one in use.
+              Three dots rather than a caret: what opens is a menu, not a value
+              list — each preset in it can be picked or opened for editing, and
+              a caret only promises the first of those.
             -->
             <button
               type="button"
@@ -106,7 +107,7 @@
               (click)="togglePicker(contract.id, $event)"
               (keydown)="onPickerKeydown(contract.id, $event)"
             >
-              <nexus-icon name="nav-arrow-down" aria-hidden="true" />
+              <nexus-icon name="more-horiz" aria-hidden="true" />
             </button>
           }
         </div>
