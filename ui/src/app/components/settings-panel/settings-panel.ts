@@ -1,7 +1,9 @@
 import {
   Component,
   afterRenderEffect,
+  DestroyRef,
   ElementRef,
+  TemplateRef,
   computed,
   effect,
   inject,
@@ -32,7 +34,7 @@ import {
   WorkplateSettingsStore,
   type WorkplateSaveStatus,
 } from '../../services/workplate-settings';
-import { Icon, IconButton, Select, TooltipDirective } from '@coldcrabby/ui';
+import { FloatingRef, FloatingService, Icon, IconButton, TooltipDirective } from '@coldcrabby/ui';
 
 // Extract the SlicingParams sub-schema so the form renders all slicer settings.
 // (`SlicingParams` is now the wire-format type — the legacy `WsSlicingParams`
@@ -58,7 +60,7 @@ const CONFIRM_TIMEOUT_MS = 4000;
 @Component({
   selector: 'nexus-settings-panel',
   standalone: true,
-  imports: [SchemaForm, Select, Icon, IconButton, RouterLink, LabelFilterBar, TooltipDirective],
+  imports: [SchemaForm, Icon, IconButton, RouterLink, LabelFilterBar, TooltipDirective],
   templateUrl: './settings-panel.component.html',
   styleUrl: './settings-panel.component.scss',
 })
@@ -140,10 +142,6 @@ export class SettingsPanel {
     return this.presets.options(contract);
   }
 
-  protected selectedIdFor(contract: SettingContractId): string | null {
-    return this.presets.selectedId(contract);
-  }
-
   private readonly presetBarRef = viewChild<ElementRef<HTMLElement>>('presetBar');
 
   /**
@@ -183,25 +181,145 @@ export class SettingsPanel {
     );
   }
 
-  protected selectPresetFor(contract: SettingContractId, id: string): void {
-    this.presets.select(contract, id);
-  }
+  private readonly closeOnDestroy = inject(DestroyRef).onDestroy(() => this.closePicker());
 
   /**
-   * Open that row's preset in its own editor, scrolled to it — the same
-   * hand-off a wizard's "Add & configure" uses.
+   * The preset picker: a list of presets, each with its own way out to its
+   * editor.
+   *
+   * Built here rather than reached for off the shelf because the shelf's
+   * dropdown renders an option as one button, and this menu needs two targets
+   * per row — pick, which stays on the plate, and edit, which leaves it. The
+   * positioning is still the library's: `FloatingService` puts the panel at
+   * body level, which is the only way out of the sidebar's own `overflow`.
    */
-  protected editParamsFor(contract: SettingContractId): Record<string, string> {
-    const id = this.presets.selectedId(contract);
-    return id ? { configure: id } : {};
+  private readonly pickerMenuTpl = viewChild.required<TemplateRef<unknown>>('pickerMenu');
+  private readonly floating = inject(FloatingService);
+  private floatingRef: FloatingRef | null = null;
+
+  /** Which row's menu is open, if any — the rows share one template. */
+  protected readonly openPicker = signal<SettingContractId | null>(null);
+
+  /** Keyboard cursor, so the menu answers arrow keys the way a listbox should. */
+  protected readonly pickerIndex = signal(-1);
+
+  protected readonly pickerOptions = computed(() => {
+    const contract = this.openPicker();
+    return contract ? this.presets.options(contract) : [];
+  });
+
+  protected readonly pickerValue = computed(() => {
+    const contract = this.openPicker();
+    return contract ? this.presets.selectedId(contract) : null;
+  });
+
+  /** Names the menu for a screen reader — three of them share one template. */
+  protected readonly pickerLabel = computed(() => {
+    const meta = SETTING_CONTRACTS.find((c) => c.id === this.openPicker());
+    return meta ? `${meta.label} presets` : 'Presets';
+  });
+
+  protected readonly pickerManagePath = computed(() => {
+    const contract = this.openPicker();
+    return SETTING_CONTRACTS.find((c) => c.id === contract)?.managePath ?? '/';
+  });
+
+  protected togglePicker(contract: SettingContractId, event: MouseEvent): void {
+    if (this.openPicker() === contract) {
+      this.closePicker();
+      return;
+    }
+    this.openPickerFor(contract, event.currentTarget as HTMLElement);
   }
 
-  protected editLabelFor(contract: SettingContractId): string {
-    const meta = SETTING_CONTRACTS.find((c) => c.id === contract)!;
-    const name = this.presets
+  private openPickerFor(contract: SettingContractId, trigger: HTMLElement): void {
+    this.closePicker();
+    this.openPicker.set(contract);
+    const current = this.presets
       .options(contract)
-      .find((option) => option.value === this.presets.selectedId(contract))?.label;
-    return name ? `Edit ${name}` : `Manage ${meta.label} presets`;
+      .findIndex((option) => option.value === this.presets.selectedId(contract));
+    this.pickerIndex.set(current === -1 ? 0 : current);
+    this.floatingRef = this.floating.openTemplate(
+      this.pickerMenuTpl(),
+      {},
+      {
+        // Anchored to the caret but sized to the row, so a preset reads at the
+        // width it had in the row that named it. Exactly the row's width, not a
+        // minimum: a fit warning is long enough to drag the panel out past the
+        // sidebar without ever fitting on one line, so it wraps instead.
+        reference: trigger.closest<HTMLElement>('.recipe-row') ?? trigger,
+        interactive: true,
+        panelClass: 'nexus-floating--fit',
+        originElement: trigger,
+        options: {
+          placement: 'bottom-end',
+          offset: 4,
+          padding: 8,
+          size: true,
+          matchReferenceWidth: true,
+        },
+        onOutsidePointer: () => this.closePicker(),
+        onEscape: () => this.closePicker(),
+      },
+    );
+  }
+
+  protected closePicker(): void {
+    this.openPicker.set(null);
+    this.pickerIndex.set(-1);
+    this.floatingRef?.close();
+    this.floatingRef = null;
+  }
+
+  protected pickPreset(id: string): void {
+    const contract = this.openPicker();
+    if (contract) {
+      this.presets.select(contract, id);
+    }
+    this.closePicker();
+  }
+
+  /** Open, move and choose from the keyboard — the caret is the listbox handle. */
+  protected onPickerKeydown(contract: SettingContractId, event: KeyboardEvent): void {
+    const trigger = event.currentTarget as HTMLElement;
+    if (this.openPicker() !== contract) {
+      if (event.key === 'Enter' || event.key === ' ' || event.key === 'ArrowDown') {
+        event.preventDefault();
+        this.openPickerFor(contract, trigger);
+      }
+      return;
+    }
+    const options = this.pickerOptions();
+    switch (event.key) {
+      case 'ArrowDown':
+        event.preventDefault();
+        this.pickerIndex.update((i) => Math.min(i + 1, options.length - 1));
+        break;
+      case 'ArrowUp':
+        event.preventDefault();
+        this.pickerIndex.update((i) => Math.max(i - 1, 0));
+        break;
+      case 'Home':
+        event.preventDefault();
+        this.pickerIndex.set(0);
+        break;
+      case 'End':
+        event.preventDefault();
+        this.pickerIndex.set(options.length - 1);
+        break;
+      case 'Enter':
+      case ' ': {
+        event.preventDefault();
+        const option = options[this.pickerIndex()];
+        if (option) {
+          this.pickPreset(option.value);
+        }
+        break;
+      }
+      case 'Tab':
+        this.closePicker();
+        break;
+    }
   }
 
   protected readonly activeContract = signal<SettingContractId>(

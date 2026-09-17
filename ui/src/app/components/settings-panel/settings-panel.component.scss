@@ -22,7 +22,7 @@
 /*
  * One inset, shared. The funnel, the contract icons, the search magnifier and
  * the accordion icons all start on the same vertical line, and the sync button,
- * the pens, the search field and the accordion chevrons all end on another —
+ * the carets, the search field and the accordion chevrons all end on another —
  * they were spread across four different left edges and three right ones.
  */
 .settings-panel {
@@ -81,8 +81,8 @@
 // As many across as the sidebar can show without cutting the names, stacked
 // when it can only manage one. A plain `auto-fit` rather than a measured
 // breakpoint: the sidebar is draggable, so the only honest threshold is "does a
-// name still fit", and the minimum track is that answer — the caret and the cog
-// take ~64px of it, so the track has to carry a preset name plus those.
+// name still fit", and the minimum track is that answer — the caret takes ~34px
+// of it, so the track has to carry a preset name plus that.
 .recipe {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
@@ -121,9 +121,9 @@
   gap: var(--spacing-xs);
   // The scope button carries 4px of its own and the well 4px more (3px inset
   // plus its border), so the row gives the leading side only what is left of
-  // the shared inset. The trailing side gets none: the edit button is a square
-  // whose own padding already sets its glyph on the shared line, and a gap
-  // beyond it only detached the button from the row it belongs to.
+  // the shared inset. The trailing side gets none: the caret is a square whose
+  // own padding already sets its glyph on the shared line, and a gap beyond it
+  // only detached the button from the row it belongs to.
   padding-left: calc(var(--panel-inset) - var(--spacing-xs) - 4px);
   padding-right: 0;
   border-radius: var(--radius-sm);
@@ -184,37 +184,149 @@
   white-space: nowrap;
 }
 
-/* Swaps the preset. Rare next to scoping, so it is the caret alone — the
-   trigger's label is clipped rather than dropped, so the control still tells a
-   screen reader which preset it is holding. */
+/**
+ * Opens that row's preset list. The caret alone, because the row beside it
+ * already names the preset it is holding — the label would only repeat it.
+ */
 .recipe-swap {
-  // The host carries the width, not just the trigger inside it: `nexus-select`
-  // is full-width by default, and styling only its inner button left the host
-  // still claiming the whole row and collapsing the scope button beside it.
+  display: inline-grid;
   flex: none;
-  width: 30px;
+  place-items: center;
+  // The same box the edit button was, so the caret inherits its place on the
+  // shared trailing line rather than starting a fourth one. The 2px goes on the
+  // leading side: it shifts the glyph right onto that line without moving the
+  // button's own edge off the well's inset.
+  width: 34px;
+  height: 30px;
+  padding: 0 0 0 2px;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--color-text-tertiary);
+  cursor: pointer;
+  --icon-size: 16px;
+  transition: color var(--duration-fast) var(--ease-standard);
 
-  ::ng-deep .trigger {
-    width: 100%;
-    padding-inline: 0;
-    justify-content: center;
-    border-color: transparent;
-    background: transparent;
+  &:hover,
+  &[aria-expanded='true'] {
+    color: var(--color-text-primary);
   }
 
-  ::ng-deep .trigger-label,
-  ::ng-deep .trigger-swatches {
-    position: absolute;
-    width: 1px;
-    height: 1px;
-    overflow: hidden;
-    clip-path: inset(50%);
-    white-space: nowrap;
+  &:focus-visible {
+    outline: 2px solid var(--color-focus-ring);
+    outline-offset: -2px;
   }
 }
 
-.recipe-edit {
+/* The preset list itself, positioned at body level so the sidebar's scroll
+   cannot clip it. Same surface as every other menu in the app. */
+.picker {
+  max-height: 100%;
+  overflow-y: auto;
+  padding: var(--spacing-xs);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  background: var(--color-bg-secondary);
+  box-shadow: var(--shadow-lg);
+}
+
+.picker-row {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-xs);
+  border-radius: var(--radius-sm);
+
+  &.is-active {
+    background: var(--color-surface-hover);
+  }
+
+  &.is-selected {
+    color: var(--accent);
+  }
+
+  &.is-selected.is-active {
+    background: var(--accent-soft);
+  }
+}
+
+/* Picks the preset and stays on the plate, so it takes the row's width. */
+.picker-pick {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+  padding: var(--spacing-sm);
+  border: none;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: inherit;
+  font-size: var(--font-size-sm);
+  text-align: left;
+  cursor: pointer;
+
+  &:focus-visible {
+    outline: 2px solid var(--color-focus-ring);
+    outline-offset: -2px;
+  }
+}
+
+.picker-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Where a fit warning lands. Two lines rather than one clipped one — it is the
+   reason to read the menu at all, and half of it says nothing. */
+.picker-desc {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+  font-size: var(--font-size-xs);
+  line-height: 1.35;
+  color: var(--color-text-tertiary);
+  text-wrap: pretty;
+}
+
+.picker-check {
   flex: none;
+  color: var(--accent);
+  --icon-size: 16px;
+}
+
+/* Leaves the plate for that preset's editor. On every row rather than revealed
+   on hover: it is the whole reason the pen moved in here, and an affordance
+   nobody can see until they are already on top of it is not one. Quiet by
+   default so it never competes with the name it sits beside. */
+.picker-edit {
+  display: inline-grid;
+  flex: none;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  margin-right: 2px;
+  border-radius: var(--radius-sm);
+  color: var(--color-text-tertiary);
+  --icon-size: 15px;
+  transition:
+    color var(--duration-fast) var(--ease-standard),
+    background-color var(--duration-fast) var(--ease-standard);
+
+  &:hover {
+    color: var(--color-text-primary);
+    background: var(--color-surface-hover);
+  }
+
+  &:focus-visible {
+    outline: 2px solid var(--color-focus-ring);
+    outline-offset: -2px;
+  }
+}
+
+.picker-row.is-active .picker-edit {
+  color: var(--color-text-secondary);
 }
 
 // Empty state stand-in that doubles as a shortcut into the manage page.
@@ -325,29 +437,4 @@
   height: 1px;
   overflow: hidden;
   clip-path: inset(50%);
-}
-
-/* Only the caret shows: the trigger's label is clipped rather than dropped, so
-   a screen reader still hears which preset it holds. */
-.recipe-swap {
-  flex: none;
-  width: 30px;
-
-  ::ng-deep .trigger {
-    width: 100%;
-    padding-inline: 0;
-    justify-content: center;
-    border-color: transparent;
-    background: transparent;
-  }
-
-  ::ng-deep .trigger-label,
-  ::ng-deep .trigger-swatches {
-    position: absolute;
-    width: 1px;
-    height: 1px;
-    overflow: hidden;
-    clip-path: inset(50%);
-    white-space: nowrap;
-  }
 }

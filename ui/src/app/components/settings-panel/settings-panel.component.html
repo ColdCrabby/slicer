@@ -93,27 +93,22 @@
           </button>
 
           @if (presetOptionsFor(contract.id).length > 0) {
-            <!-- Trigger label is clipped, not removed: the caret is all that
-                 shows, and a screen reader still hears which preset it holds. -->
-            <nexus-select
+            <!--
+              The caret alone: picking another preset is a dropdown, and the row
+              beside it already names the one in use.
+            -->
+            <button
+              type="button"
               class="recipe-swap"
-              [options]="presetOptionsFor(contract.id)"
-              [value]="selectedIdFor(contract.id)"
-              [placeholder]="'Select ' + contract.label.toLowerCase()"
-              (valueChange)="selectPresetFor(contract.id, $event)"
-            />
+              [attr.aria-label]="'Change ' + contract.label.toLowerCase()"
+              [attr.aria-expanded]="openPicker() === contract.id"
+              aria-haspopup="menu"
+              (click)="togglePicker(contract.id, $event)"
+              (keydown)="onPickerKeydown(contract.id, $event)"
+            >
+              <nexus-icon name="nav-arrow-down" aria-hidden="true" />
+            </button>
           }
-
-          <a
-            nexusIconButton
-            class="recipe-edit"
-            [routerLink]="contract.managePath"
-            [queryParams]="editParamsFor(contract.id)"
-            [attr.aria-label]="editLabelFor(contract.id)"
-            [tooltip]="editLabelFor(contract.id)"
-          >
-            <nexus-icon name="page-edit" />
-          </a>
         </div>
       }
     </div>
@@ -130,6 +125,56 @@
     [groupIcons]="groupIcons"
     (fieldChange)="update($event)"
   />
+
+  <ng-template #pickerMenu>
+    <div class="picker" role="menu" [attr.aria-label]="pickerLabel()">
+      @for (option of pickerOptions(); track option.value; let i = $index) {
+        <!--
+          Two things per row, because they lead to two different places: the
+          name picks the preset and keeps you here, the pen opens that preset's
+          editor and takes you off the plate. In the menu the pen reads as what
+          it is, and sits where it cannot be pressed in place of the control
+          you actually reach for.
+        -->
+        <div
+          class="picker-row"
+          role="none"
+          [class.is-active]="i === pickerIndex()"
+          [class.is-selected]="option.value === pickerValue()"
+          (mouseenter)="pickerIndex.set(i)"
+        >
+          <button
+            type="button"
+            class="picker-pick"
+            role="menuitemradio"
+            [attr.aria-checked]="option.value === pickerValue()"
+            (click)="pickPreset(option.value)"
+          >
+            <span class="picker-label">{{ option.label }}</span>
+            @if (option.description) {
+              <span class="picker-desc">{{ option.description }}</span>
+            }
+          </button>
+
+          @if (option.value === pickerValue()) {
+            <nexus-icon class="picker-check" name="check" aria-hidden="true" />
+          }
+
+          <a
+            class="picker-edit"
+            role="menuitem"
+            [routerLink]="pickerManagePath()"
+            [queryParams]="{ configure: option.value }"
+            [attr.aria-label]="'Edit ' + option.label + ' in settings'"
+            [tooltip]="'Edit ' + option.label + ' in settings'"
+            (click)="closePicker()"
+          >
+            <nexus-icon name="page-edit" aria-hidden="true" />
+          </a>
+        </div>
+      }
+    </div>
+  </ng-template>
 
   <!-- Only the save result is announced. The change count updates on every
        keystroke and would turn a screen reader into a metronome. -->

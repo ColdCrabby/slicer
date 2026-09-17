@@ -21,27 +21,31 @@ have to guess which one owns it.
 ## The three presets, all at once
 
 The top of the slice sidebar lists what this plate is made of — its printer, its
-filament and its print profile. Every one names the preset it is using, changes
-it from the caret beside it, and has a cog that opens that preset's own editor.
+filament and its print profile. Every one names the preset it is using, and the
+caret beside it opens the list of the others.
 
 They sit side by side when the sidebar is wide enough to read them and stack
 when it is not, so widening the sidebar buys you a shorter header rather than
 just longer names. The whole lot stays put while the settings scroll, along with
 the search — you never lose sight of which preset you are editing.
 
-There is no tab to press. Click a row and the settings below are that row's —
-the caret beside it changes which preset the row is using, and the cog opens
-that preset's own editor. Pointing the settings somewhere is what you do most,
-so it takes the whole row; the other two sit beside it and never get in the way
-of it.
+There is no tab to press. Click a row and the settings below are that row's; the
+caret beside it changes which preset the row is using. Pointing the settings
+somewhere is what you do most, so it takes the whole row, and the caret sits
+beside it without ever getting in the way of it.
+
+In that list, every preset carries a **pen** on the right that opens *that*
+preset's own editor — not just the one in use. Editing takes you off the plate
+and picking does not, so the two are kept apart: the list is where you choose,
+and the pen is the way out of it.
 
 ## Links take you to the knob
 
 Where a setting depends on something on another profile, the note under it links
 straight to that control — the right profile opened, scrolled to, and flashed —
-not to the top of a page of sixty settings with the rest left to you. The cog
-beside the preset picker works the same way: it opens the preset named next to
-it rather than the list it came from.
+not to the top of a page of sixty settings with the rest left to you. The pen in
+the preset list works the same way: it opens the preset named beside it rather
+than the list it came from.
 
 ## A warning is never hidden
 
