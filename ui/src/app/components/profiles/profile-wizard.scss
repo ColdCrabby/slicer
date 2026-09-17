@@ -2,3 +2,9 @@
   display: block;
   height: 100%;
 }
+
+/* Same nudge the schema form's card widget makes: the group's host is
+   `flex: 0 1 auto` and would otherwise sit short of the stacked row's width. */
+nexus-radio-group {
+  flex: 1;
+}

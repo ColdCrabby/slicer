@@ -6,8 +6,8 @@ import {
   IconButton,
   FieldRow,
   NumberInput,
-  Select,
-  type SelectOption,
+  Segmented,
+  type SegmentOption,
 } from '@coldcrabby/ui';
 
 /**
@@ -58,7 +58,7 @@ function defaultFan(index: number): FanConfig {
 @Component({
   selector: 'nexus-fan-configs-editor',
   standalone: true,
-  imports: [Icon, Button, IconButton, FieldRow, NumberInput, Select],
+  imports: [Icon, Button, IconButton, FieldRow, NumberInput, Segmented],
   templateUrl: './fan-configs-editor.html',
   styleUrl: './fan-configs-editor.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -67,7 +67,7 @@ export class FanConfigsEditor {
   readonly configs = input<readonly FanConfig[]>([]);
   readonly configsChange = output<FanConfig[]>();
 
-  protected readonly roleOptions: readonly SelectOption[] = FAN_ROLE_PRESETS.map((r) => ({
+  protected readonly roleOptions: SegmentOption[] = FAN_ROLE_PRESETS.map((r) => ({
     value: String(r.index),
     label: r.label,
   }));
@@ -76,7 +76,7 @@ export class FanConfigsEditor {
   protected readonly confirmRemoveIndex = signal<number | null>(null);
   private removeConfirmTimer: ReturnType<typeof setTimeout> | null = null;
 
-  /** The `<nexus-select>` value for a role index (options are string-keyed). */
+  /** The segmented control's value for a role index (options are string-keyed). */
   protected roleValue(index: number): string {
     return String(index);
   }

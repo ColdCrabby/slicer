@@ -223,6 +223,14 @@
                     (valueChange)="setParam(filament.id, field.key, $event)"
                   />
                 }
+                <!-- `fan_configs` is an array, so the schema-driven fields above
+                     skip it; its own editor closes the group it belongs to. -->
+                @if (group.name === fanTableGroup) {
+                  <nexus-fan-configs-editor
+                    [configs]="fanConfigsOf(filament)"
+                    (configsChange)="setParam(filament.id, 'fan_configs', $event)"
+                  />
+                }
               </div>
             }
           </div>

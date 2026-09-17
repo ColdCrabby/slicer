@@ -133,6 +133,10 @@ const QUESTION_COPY: Readonly<Record<string, QuestionCopy>> = {
         description:
           'The same, held to 70%. For a side blast strong enough to curl PETG off the plate at full tilt.',
       },
+      chamber: {
+        label: 'It moves chamber air',
+        description: 'Runs steadily at half speed rather than reacting to each layer.',
+      },
     },
   },
   preferred_orientation: {

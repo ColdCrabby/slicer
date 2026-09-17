@@ -221,10 +221,15 @@
           <nexus-field-row label="Model" [stacked]="true">
             <input class="wz-input" [value]="draft().model" (input)="patchModel($event)" />
           </nexus-field-row>
-          <nexus-field-row label="Firmware" description="G-code dialect the printer speaks">
-            <nexus-select
+          <nexus-field-row
+            label="Firmware"
+            description="G-code dialect the printer speaks"
+            [stacked]="true"
+          >
+            <nexus-segmented
               [options]="flavorOptions"
               [value]="pstr(draft().params, 'gcode_flavor')"
+              label="Firmware"
               (valueChange)="setFlavor($event)"
             />
           </nexus-field-row>

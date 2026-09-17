@@ -38,7 +38,6 @@ import {
   NumberInput,
   RadioGroup,
   Segmented,
-  Select,
   Switch,
   FieldRow,
 } from '@coldcrabby/ui';
@@ -103,7 +102,6 @@ function normalizedFlavor(value: string | undefined): PrinterGcodeFlavor | undef
     InlineNotice,
     NumberInput,
     RadioGroup,
-    Select,
     Switch,
     Segmented,
     Icon,

@@ -180,10 +180,11 @@
                   (change)="rename(printer.id, $event)"
                 />
               </nexus-field-row>
-              <nexus-field-row label="Firmware">
-                <nexus-select
+              <nexus-field-row label="Firmware" [stacked]="true">
+                <nexus-segmented
                   [options]="flavorOptions"
                   [value]="pstr(printer.params, 'gcode_flavor')"
+                  label="Firmware"
                   (valueChange)="setFlavor(printer.id, $event)"
                 />
               </nexus-field-row>
@@ -191,22 +192,15 @@
 
             <div class="profile-editor__group" id="configure-target">
               <label class="profile-editor__group-title">Connection</label>
-              <nexus-field-row label="Type">
-                <nexus-select
-                  [options]="connectionKindOptions"
-                  [value]="printer.connection?.kind ?? 'none'"
-                  (valueChange)="setConnectionKind(printer.id, $event)"
+              <nexus-field-row label="Host / IP" [stacked]="true">
+                <input
+                  class="wz-input"
+                  placeholder="192.168.1.50 or printer.local"
+                  [value]="printer.connection?.host ?? ''"
+                  (change)="setConnectionHost(printer.id, $event)"
                 />
               </nexus-field-row>
-              @if ((printer.connection?.kind ?? 'none') !== 'none') {
-                <nexus-field-row label="Host / IP" [stacked]="true">
-                  <input
-                    class="wz-input"
-                    placeholder="192.168.1.50 or printer.local"
-                    [value]="printer.connection?.host ?? ''"
-                    (change)="setConnectionHost(printer.id, $event)"
-                  />
-                </nexus-field-row>
+              @if (printer.connection?.host) {
                 <nexus-field-row label="Port">
                   <input
                     class="wz-input"
@@ -214,7 +208,7 @@
                     min="1"
                     max="65535"
                     placeholder="default"
-                    [value]="printer.connection?.port ?? ''"
+                    [value]="printer.connection.port ?? ''"
                     (change)="setConnectionPort(printer.id, $event)"
                   />
                 </nexus-field-row>
@@ -224,7 +218,7 @@
                     type="password"
                     autocomplete="off"
                     placeholder="optional (Moonraker/OctoPrint)"
-                    [value]="printer.connection?.api_key ?? ''"
+                    [value]="printer.connection.api_key ?? ''"
                     (change)="setConnectionApiKey(printer.id, $event)"
                   />
                 </nexus-field-row>
@@ -238,6 +232,9 @@
                       "
                     ></span>
                     <span class="conn-label">{{ connectionStatus(printer.id).label }}</span>
+                    @if (connectionKindLabel(printer); as kind) {
+                      <span class="conn-kind">{{ kind }}</span>
+                    }
                     <button nexusButton variant="ghost" size="sm" (click)="testConnection(printer)">
                       Test
                     </button>

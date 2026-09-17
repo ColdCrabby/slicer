@@ -45,7 +45,9 @@ sense for a second fan: extra airflow over bridges and on very short layers, a
 ceiling so the two boosts together cannot overdo it, and a limit on how much the
 speed may change from one layer to the next, which is what stops a fan slamming
 from off to full and shocking the part. A side blast strong enough to curl PETG
-off the plate has its own answer — the same behaviour, held to 70%.
+off the plate has its own answer — the same behaviour, held to 70%. A fan that
+moves chamber air rather than cooling the part has one too: it runs steadily
+instead of reacting to each layer.
 
 ::: details When detection can't tell everything
 A printer that answers slowly may not return its full configuration. You still
@@ -82,6 +84,19 @@ grouped and searchable.
 The colour is used in the model view if you turn on **Settings → General → Use
 filament color for models** — handy when you have several spools and want to see
 which is which.
+
+### Fan curves
+
+The **Cooling** group ends with a fan table. Each row is one physical fan and
+the curve it follows: a minimum and maximum speed, and the two layer times they
+sit between. Layers that print quickly get the maximum, slow ones the minimum,
+and anything between is interpolated.
+
+With no rows the filament uses the printer's part-cooling fan at the engine's
+defaults, which is what most spools want. Add a row when you need a second fan
+driven — a chamber fan for ABS, or an auxiliary one for a big PLA part. On
+Klipper you can also give a row the object's own name from `printer.cfg`
+(`rscs`, `exhaust_filter`); leave it blank for the default name for that role.
 
 ## Adding a print profile
 
