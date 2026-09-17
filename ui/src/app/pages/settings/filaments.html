@@ -1,19 +1,29 @@
 <div class="mgr">
-  <nexus-section-header heading="Filaments" description="Materials and their temperatures">
-    <button nexusButton variant="secondary" size="sm" (click)="openCatalog()">
-      <nexus-icon name="cloud-upload" />
-      Catalog
-    </button>
-    <a nexusButton variant="primary" size="sm" routerLink="new">
-      <nexus-icon name="plus" />
-      Add filament
-    </a>
-  </nexus-section-header>
-
   @if (store.items().length > 0) {
     <div class="mgr__body">
       <!-- ── List column ──────────────────────────────────────────────────── -->
       <div class="mgr__list">
+        <header class="mgr__heading">
+          <div class="mgr__heading-text">
+            <h2>Filaments</h2>
+            <p>Materials and their temperatures</p>
+          </div>
+          <!--
+            The heading beside it already names what is being added, so the
+            word would be said twice. The tooltip carries it for anyone who
+            wants it spelled out, and the label is what a screen reader hears.
+          -->
+          <a
+            nexusIconButton
+            variant="solid"
+            routerLink="new"
+            aria-label="Add filament"
+            tooltip="Add filament"
+          >
+            <nexus-icon name="plus" />
+          </a>
+        </header>
+
         <div class="mgr__tools">
           <div class="mgr__search">
             <nexus-icon name="search" />
@@ -206,6 +216,7 @@
                 <label class="profile-editor__group-title">{{ group.name }}</label>
                 @for (field of group.fields; track field.key) {
                   <nexus-param-field
+                    [attr.data-setting]="field.key"
                     [field]="field"
                     [value]="paramsOf(filament)[field.key]"
                     [siblings]="siblingsFor(filament)"
@@ -240,22 +251,3 @@
     </nexus-empty-state>
   }
 </div>
-
-@if (catalogOpen()) {
-  <nexus-modal-shell title="Filament catalog" (close)="catalogOpen.set(false)">
-    <nexus-catalog-picker
-      [entries]="catalogEntries()"
-      [loading]="catalogStatus() === 'loading'"
-      [unavailable]="catalogStatus() === 'unavailable'"
-      [importingId]="importingId()"
-      [importError]="importError()"
-      [hasMore]="catalogHasMore()"
-      [loadingMore]="catalogLoadingMore()"
-      actionLabel="Import"
-      (pick)="importFromCatalog($event)"
-      (retry)="retryCatalog()"
-      (search)="onCatalogSearch($event)"
-      (loadMore)="loadMoreCatalog()"
-    />
-  </nexus-modal-shell>
-}

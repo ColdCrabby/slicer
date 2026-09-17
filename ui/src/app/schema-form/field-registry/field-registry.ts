@@ -11,7 +11,7 @@ import { EnumCards } from '../widgets/enum-cards/enum-cards';
 import { EnumSegmented } from '../widgets/enum-segmented/enum-segmented';
 import { EnumSelect } from '../widgets/enum-select/enum-select';
 import { NumberField } from '../widgets/number-field/number-field';
-import { RelativeSpeedField } from '../widgets/relative-speed-field/relative-speed-field';
+import { RelativeValueField } from '../widgets/relative-value-field/relative-value-field';
 import { TextField } from '../widgets/text-field/text-field';
 
 /**
@@ -38,7 +38,7 @@ const WIDGETS: Partial<Record<ControlKind, Type<FieldWidget>>> = {
   select: EnumSelect,
   number: NumberField,
   slider: InfillDensitySlider,
-  'relative-speed': RelativeSpeedField,
+  'relative-value': RelativeValueField,
   text: TextField,
   color: ColorField,
   gcode: GcodeField,

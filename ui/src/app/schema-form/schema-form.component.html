@@ -117,13 +117,27 @@
             <div class="schema-form-group-fields">
               <div class="schema-form-group-fields-inner">
                 @for (f of visibleFields(group); track f.key) {
-                  <div class="schema-form-field" [class.is-modified]="modifiedKeys().has(f.key)">
+                  <div
+                    class="schema-form-field"
+                    [class.is-modified]="modifiedKeys().has(f.key)"
+                    [class.is-machine-corrected]="machineCorrectedKeys().has(f.key)"
+                  >
                     <se-field-host
                       [field]="f"
                       [value]="valueFor(f)"
                       [siblings]="value()"
                       (fieldChange)="onFieldChange(f.key, $event)"
                     />
+                    @if (machineCorrectedKeys().has(f.key) && machineCorrectionLabel(); as source) {
+                      <!--
+                      The one layer that can disagree with the preset on screen
+                      and still be right, so it is the one layer that says so.
+                    -->
+                      <p class="schema-form-field-source">
+                        <nexus-icon name="printer" aria-hidden="true" />
+                        <span>Corrected for {{ source }}</span>
+                      </p>
+                    }
                   </div>
                 }
 

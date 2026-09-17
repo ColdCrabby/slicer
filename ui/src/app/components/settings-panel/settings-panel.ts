@@ -1,7 +1,9 @@
 import {
   Component,
-  ElementRef,
   afterRenderEffect,
+  DestroyRef,
+  ElementRef,
+  TemplateRef,
   computed,
   effect,
   inject,
@@ -20,6 +22,7 @@ import { parseSchema } from '../../schema-form/models/schema-parser';
 import { FieldChangeEvent, SchemaForm } from '../../schema-form/schema-form';
 import { BrowserStorage } from '../../services/browser-storage';
 import { ActivePresets } from '../../services/profiles/active-presets';
+import { ActiveSelection } from '../../services/profiles/active-selection';
 import { LabelFilterStore } from '../../services/profiles/label-filter-store';
 import { ProfileWriteback } from '../../services/profiles/profile-writeback';
 import { LabelFilterBar } from '../labels/label-filter-bar';
@@ -31,14 +34,7 @@ import {
   WorkplateSettingsStore,
   type WorkplateSaveStatus,
 } from '../../services/workplate-settings';
-import {
-  Icon,
-  IconButton,
-  Segmented,
-  type SegmentOption,
-  Select,
-  TooltipDirective,
-} from '@coldcrabby/ui';
+import { FloatingRef, FloatingService, Icon, TooltipDirective } from '@coldcrabby/ui';
 
 // Extract the SlicingParams sub-schema so the form renders all slicer settings.
 // (`SlicingParams` is now the wire-format type — the legacy `WsSlicingParams`
@@ -64,16 +60,7 @@ const CONFIRM_TIMEOUT_MS = 4000;
 @Component({
   selector: 'nexus-settings-panel',
   standalone: true,
-  imports: [
-    SchemaForm,
-    Segmented,
-    Select,
-    Icon,
-    IconButton,
-    RouterLink,
-    LabelFilterBar,
-    TooltipDirective,
-  ],
+  imports: [SchemaForm, Icon, RouterLink, LabelFilterBar, TooltipDirective],
   templateUrl: './settings-panel.component.html',
   styleUrl: './settings-panel.component.scss',
 })
@@ -82,8 +69,10 @@ export class SettingsPanel {
   private readonly storage = inject(BrowserStorage);
   private readonly workplateSettings = inject(WorkplateSettingsStore);
   private readonly dialog = inject(Dialog);
+  private readonly hostEl = inject<ElementRef<HTMLElement>>(ElementRef);
   private readonly writeback = inject(ProfileWriteback);
   protected readonly presets = inject(ActivePresets);
+  private readonly activeSelection = inject(ActiveSelection);
   protected readonly labelFilter = inject(LabelFilterStore);
 
   readonly settings = this.slicer.settings;
@@ -99,12 +88,239 @@ export class SettingsPanel {
   protected readonly modifiedKeys = this.slicer.overriddenKeys;
   protected readonly modifiedCount = computed(() => this.modifiedKeys().size);
 
-  protected readonly contractTabs: SegmentOption[] = SETTING_CONTRACTS.map((contract) => ({
-    value: contract.id,
-    label: contract.label,
-    icon: contract.icon,
-    description: `${contract.label} settings`,
-  }));
+  /**
+   * Settings this machine corrects for the active material, and the sentence
+   * naming that correction ("Voron 2.4 · PLA").
+   *
+   * These are the one layer that can disagree with the profile the user picked
+   * while still being right, so they are the one layer worth pointing at. The
+   * other four are visible in the panel already: a modified key is marked, and
+   * everything else is whatever the selected presets say.
+   */
+  protected readonly machineMaterialKeys = computed(() => {
+    const origins = this.activeSelection.paramOrigins();
+    const keys = new Set<string>();
+    for (const [key, origin] of origins) {
+      if (origin === 'machine_material' && !this.modifiedKeys().has(key)) {
+        keys.add(key);
+      }
+    }
+    return keys as ReadonlySet<string>;
+  });
+  protected readonly machineMaterialLabel = this.activeSelection.materialOverlayLabel;
+
+  /** What the revert button says, armed and disarmed. */
+  protected readonly revertTooltip = computed(() => {
+    if (this.resetConfirming()) {
+      return 'Press again to discard every change on this plate';
+    }
+    const count = this.modifiedCount();
+    if (count === 0) {
+      return 'No changed settings to discard';
+    }
+    return `Discard ${count} changed ${count === 1 ? 'setting' : 'settings'} on this plate`;
+  });
+
+  /**
+   * What the sync button says, in both states.
+   *
+   * It is always on screen, so it has to explain its own quiet state rather
+   * than leaving a dimmed icon to be guessed at.
+   */
+  protected readonly syncTooltip = computed(() => {
+    const count = this.modifiedCount();
+    if (count === 0) {
+      return 'No changed settings to sync into your profiles';
+    }
+    return `Sync ${count} changed ${count === 1 ? 'setting' : 'settings'} to their profiles`;
+  });
+
+  /** All three contracts, in tab order — the plate's recipe, top to bottom. */
+  protected readonly contracts = SETTING_CONTRACTS;
+
+  protected presetOptionsFor(contract: SettingContractId) {
+    return this.presets.options(contract);
+  }
+
+  private readonly presetBarRef = viewChild<ElementRef<HTMLElement>>('presetBar');
+
+  /**
+   * Publish the lead's height so the form's own sticky search can pin directly
+   * beneath it.
+   *
+   * The same idiom the schema form already uses for `--schema-form-search-h`,
+   * and for the same reason: the height is not a constant. The recipe lays out
+   * one, two or three across depending on how wide the sidebar has been dragged,
+   * so the offset the search needs is whatever it happens to be right now.
+   */
+  private readonly watchPresetBarHeight = afterRenderEffect({
+    read: (onCleanup) => {
+      const el = this.presetBarRef()?.nativeElement;
+      if (!el) {
+        return;
+      }
+      const publish = () =>
+        this.hostEl.nativeElement.style.setProperty(
+          '--preset-bar-h',
+          `${Math.round(el.offsetHeight)}px`,
+        );
+      publish();
+      const obs = new ResizeObserver(publish);
+      obs.observe(el);
+      onCleanup(() => obs.disconnect());
+    },
+  });
+
+  /** The preset a row is showing, or an invitation to make one. */
+  protected presetNameFor(contract: SettingContractId): string {
+    const id = this.presets.selectedId(contract);
+    const meta = SETTING_CONTRACTS.find((c) => c.id === contract)!;
+    return (
+      this.presets.options(contract).find((option) => option.value === id)?.label ??
+      `Add a ${meta.label.toLowerCase()} preset…`
+    );
+  }
+
+  private readonly closeOnDestroy = inject(DestroyRef).onDestroy(() => this.closePicker());
+
+  /**
+   * The preset picker: a list of presets, each with its own way out to its
+   * editor.
+   *
+   * Built here rather than reached for off the shelf because the shelf's
+   * dropdown renders an option as one button, and this menu needs two targets
+   * per row — pick, which stays on the plate, and edit, which leaves it. The
+   * positioning is still the library's: `FloatingService` puts the panel at
+   * body level, which is the only way out of the sidebar's own `overflow`.
+   */
+  private readonly pickerMenuTpl = viewChild.required<TemplateRef<unknown>>('pickerMenu');
+  private readonly floating = inject(FloatingService);
+  private floatingRef: FloatingRef | null = null;
+
+  /** Which row's menu is open, if any — the rows share one template. */
+  protected readonly openPicker = signal<SettingContractId | null>(null);
+
+  /** Keyboard cursor, so the menu answers arrow keys the way a menu should. */
+  protected readonly pickerIndex = signal(-1);
+
+  protected readonly pickerOptions = computed(() => {
+    const contract = this.openPicker();
+    return contract ? this.presets.options(contract) : [];
+  });
+
+  protected readonly pickerValue = computed(() => {
+    const contract = this.openPicker();
+    return contract ? this.presets.selectedId(contract) : null;
+  });
+
+  /** Names the menu for a screen reader — three of them share one template. */
+  protected readonly pickerLabel = computed(() => {
+    const meta = SETTING_CONTRACTS.find((c) => c.id === this.openPicker());
+    return meta ? `${meta.label} presets` : 'Presets';
+  });
+
+  protected readonly pickerManagePath = computed(() => {
+    const contract = this.openPicker();
+    return SETTING_CONTRACTS.find((c) => c.id === contract)?.managePath ?? '/';
+  });
+
+  protected togglePicker(contract: SettingContractId, event: MouseEvent): void {
+    if (this.openPicker() === contract) {
+      this.closePicker();
+      return;
+    }
+    this.openPickerFor(contract, event.currentTarget as HTMLElement);
+  }
+
+  private openPickerFor(contract: SettingContractId, trigger: HTMLElement): void {
+    this.closePicker();
+    this.openPicker.set(contract);
+    const current = this.presets
+      .options(contract)
+      .findIndex((option) => option.value === this.presets.selectedId(contract));
+    this.pickerIndex.set(current === -1 ? 0 : current);
+    this.floatingRef = this.floating.openTemplate(
+      this.pickerMenuTpl(),
+      {},
+      {
+        // Anchored to the menu button but sized to the row, so a preset reads at the
+        // width it had in the row that named it. Exactly the row's width, not a
+        // minimum: a fit warning is long enough to drag the panel out past the
+        // sidebar without ever fitting on one line, so it wraps instead.
+        reference: trigger.closest<HTMLElement>('.recipe-row') ?? trigger,
+        interactive: true,
+        panelClass: 'nexus-floating--fit',
+        originElement: trigger,
+        options: {
+          placement: 'bottom-end',
+          offset: 4,
+          padding: 8,
+          size: true,
+          matchReferenceWidth: true,
+        },
+        onOutsidePointer: () => this.closePicker(),
+        onEscape: () => this.closePicker(),
+      },
+    );
+  }
+
+  protected closePicker(): void {
+    this.openPicker.set(null);
+    this.pickerIndex.set(-1);
+    this.floatingRef?.close();
+    this.floatingRef = null;
+  }
+
+  protected pickPreset(id: string): void {
+    const contract = this.openPicker();
+    if (contract) {
+      this.presets.select(contract, id);
+    }
+    this.closePicker();
+  }
+
+  /** Open, move and choose from the keyboard — the dots are the menu handle. */
+  protected onPickerKeydown(contract: SettingContractId, event: KeyboardEvent): void {
+    const trigger = event.currentTarget as HTMLElement;
+    if (this.openPicker() !== contract) {
+      if (event.key === 'Enter' || event.key === ' ' || event.key === 'ArrowDown') {
+        event.preventDefault();
+        this.openPickerFor(contract, trigger);
+      }
+      return;
+    }
+    const options = this.pickerOptions();
+    switch (event.key) {
+      case 'ArrowDown':
+        event.preventDefault();
+        this.pickerIndex.update((i) => Math.min(i + 1, options.length - 1));
+        break;
+      case 'ArrowUp':
+        event.preventDefault();
+        this.pickerIndex.update((i) => Math.max(i - 1, 0));
+        break;
+      case 'Home':
+        event.preventDefault();
+        this.pickerIndex.set(0);
+        break;
+      case 'End':
+        event.preventDefault();
+        this.pickerIndex.set(options.length - 1);
+        break;
+      case 'Enter':
+      case ' ': {
+        event.preventDefault();
+        const option = options[this.pickerIndex()];
+        if (option) {
+          this.pickPreset(option.value);
+        }
+        break;
+      }
+      case 'Tab':
+        this.closePicker();
+        break;
+    }
+  }
 
   protected readonly activeContract = signal<SettingContractId>(
     this.storage.getJson<SettingContractId>(CONTRACT_STORAGE_KEY, 'local') ?? 'process',
@@ -121,19 +337,9 @@ export class SettingsPanel {
   /** Group names shown for the active contract. */
   protected readonly activeGroups = computed(() => this.groupsByContract()[this.activeContract()]);
 
-  /** Preset dropdown options + current selection for the active contract. */
-  protected readonly presetOptions = computed(() => this.presets.options(this.activeContract()));
-  protected readonly activePresetId = computed(() =>
-    this.presets.selectedId(this.activeContract()),
-  );
-
   setContract(id: string): void {
     this.activeContract.set(id as SettingContractId);
     this.storage.writeJson(CONTRACT_STORAGE_KEY, id, 'local');
-  }
-
-  selectPreset(id: string): void {
-    this.presets.select(this.activeContract(), id);
   }
 
   update(event: FieldChangeEvent): void {

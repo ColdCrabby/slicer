@@ -108,3 +108,88 @@ describe('ProfileWriteback', () => {
     expect(printers.getById(activePrinter.id)!.params).toEqual(before);
   });
 });
+
+describe('ProfileWriteback — machine corrections', () => {
+  let writeback: ProfileWriteback;
+
+  beforeEach(() => {
+    writeback = setUp();
+  });
+
+  it('offers a machine scope only for settings that describe a machine and a material', () => {
+    TestBed.inject(WorkplateSettingsStore).setOverrides(PLATE, {
+      max_volumetric_speed: 24,
+      layer_height: 0.12,
+    });
+
+    const byKey = Object.fromEntries(writeback.rows().map((row) => [row.key, row]));
+    expect(byKey['max_volumetric_speed'].machineEligible).toBe(true);
+    // A layer height is true wherever it is printed — offering a per-machine
+    // scope for it would turn this into a second override system.
+    expect(byKey['layer_height'].machineEligible).toBe(false);
+  });
+
+  it('defaults an eligible row to this machine, since that write cannot break another one', () => {
+    TestBed.inject(WorkplateSettingsStore).setOverrides(PLATE, {
+      max_volumetric_speed: 24,
+      layer_height: 0.12,
+    });
+    writeback.open();
+
+    expect(writeback.targetFor('max_volumetric_speed')).toBe('machine');
+    expect(writeback.targetFor('layer_height')).toBe('profile');
+  });
+
+  it('writes a machine-scoped row onto the printer, leaving the shared filament alone', () => {
+    const printers = TestBed.inject(PrintersStore);
+    const filaments = TestBed.inject(FilamentsStore);
+    const printerId = printers.items()[0].id;
+    const filamentId = filaments.items()[0].id;
+    const filamentBefore = filaments.items()[0].params;
+
+    TestBed.inject(WorkplateSettingsStore).setOverrides(PLATE, { max_volumetric_speed: 24 });
+    writeback.open();
+    writeback.apply();
+
+    const overlays = printers.items().find((p) => p.id === printerId)!.material_overlays as Record<
+      string,
+      Record<string, unknown>
+    >;
+    expect(overlays['PLA']).toEqual({ max_volumetric_speed: 24 });
+    expect(filaments.items().find((f) => f.id === filamentId)!.params).toEqual(filamentBefore);
+  });
+
+  it('writes to the shared filament when the user widens the scope', () => {
+    const printers = TestBed.inject(PrintersStore);
+    const filaments = TestBed.inject(FilamentsStore);
+
+    TestBed.inject(WorkplateSettingsStore).setOverrides(PLATE, { max_volumetric_speed: 24 });
+    writeback.open();
+    writeback.setTarget('max_volumetric_speed', 'profile');
+    writeback.apply();
+
+    expect(printers.items()[0].material_overlays ?? {}).toEqual({});
+    expect((filaments.items()[0].params as Record<string, unknown>)['max_volumetric_speed']).toBe(
+      24,
+    );
+  });
+
+  it('keeps corrections already recorded for other materials', () => {
+    const printers = TestBed.inject(PrintersStore);
+    const printerId = printers.items()[0].id;
+    printers.update(printerId, {
+      material_overlays: { ABS: { fan_speed: 0.15 } },
+    } as never);
+
+    TestBed.inject(WorkplateSettingsStore).setOverrides(PLATE, { max_volumetric_speed: 24 });
+    writeback.open();
+    writeback.apply();
+
+    const overlays = printers.items().find((p) => p.id === printerId)!.material_overlays as Record<
+      string,
+      Record<string, unknown>
+    >;
+    expect(overlays['ABS']).toEqual({ fan_speed: 0.15 });
+    expect(overlays['PLA']).toEqual({ max_volumetric_speed: 24 });
+  });
+});

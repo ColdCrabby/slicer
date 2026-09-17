@@ -15,7 +15,13 @@ use serde::{Deserialize, Serialize};
 use super::meta::ProfileMeta;
 
 /// Supported material families.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, JsonSchema)]
+///
+/// `Ord` so a machine's material overlays can be held in a `BTreeMap` keyed by
+/// family — which is what makes them render in a stable order and export
+/// byte-identically.
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Default, Serialize, Deserialize, JsonSchema,
+)]
 pub enum FilamentMaterial {
     /// Polylactic acid — easy, low-temp.
     #[default]
@@ -61,6 +67,14 @@ impl FilamentMaterial {
     /// chamber is trying to hold temperature. `first_layer_fan_speed` is `0.0`
     /// for every material — part cooling on the bed-contact layer costs adhesion
     /// and buys nothing.
+    ///
+    /// **Pressure advance is deliberately absent.** It is a property of an
+    /// extruder *and* a material, not of a spool, so there is no value here that
+    /// is right on two machines — and because the filament layer resolves above
+    /// the printer's, any number written here overwrites the tuned one the
+    /// printer reports. The engine's own default is `0.0`, which emits nothing;
+    /// a machine-wide value belongs on the printer profile and a per-material
+    /// correction on its material overlay.
     pub fn default_params(self) -> serde_json::Value {
         // The last column is the cooling floor: the shortest a layer may take
         // before the slicer slows it down, so a small cross-section is not laid
@@ -91,7 +105,6 @@ impl FilamentMaterial {
             "disable_fan_first_layers": 1,
             "min_layer_time_s": min_layer_s,
             "flow_ratio": 1.0,
-            "pressure_advance": 0.04,
             "filament_diameter_mm": 1.75,
         })
     }

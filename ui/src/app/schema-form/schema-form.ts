@@ -178,6 +178,20 @@ export class SchemaForm {
    */
   readonly modifiedKeys = input<ReadonlySet<string>>(new Set());
 
+  /**
+   * Keys whose value comes from a correction the *machine* makes for the active
+   * material rather than from the presets on screen.
+   *
+   * Such a field disagrees with the filament profile the user selected and is
+   * still right, which without a word of explanation reads as a defect. Each one
+   * gets a quiet attribution naming {@link machineCorrectionLabel}. Empty by
+   * default — the ordinary case is a machine with nothing to correct.
+   */
+  readonly machineCorrectedKeys = input<ReadonlySet<string>>(new Set());
+
+  /** How that correction is named, e.g. `Voron 2.4 · PLA`. */
+  readonly machineCorrectionLabel = input<string | null>(null);
+
   /** Emitted whenever the user changes a single field. */
   readonly fieldChange = output<FieldChangeEvent>();
 
@@ -201,8 +215,12 @@ export class SchemaForm {
   );
 
   constructor() {
-    this.keyboardShortcuts.schemaFormRef = this;
-    inject(DestroyRef).onDestroy(() => (this.keyboardShortcuts.schemaFormRef = null));
+    this.keyboardShortcuts.settingsSearchRef = this;
+    inject(DestroyRef).onDestroy(() => {
+      if (this.keyboardShortcuts.settingsSearchRef === this) {
+        this.keyboardShortcuts.settingsSearchRef = null;
+      }
+    });
 
     // Keep --schema-form-search-h in sync with the sticky search bar's height so
     // the sticky group headers can pin directly beneath it regardless of its
@@ -332,14 +350,37 @@ export class SchemaForm {
     return this.relevantGroups().filter((g) => allowed.has(g.name));
   });
 
+  /**
+   * Keys whose {@link noticeForField} exception is firing right now.
+   *
+   * A tier decides what is worth *offering*; a notice reports something that is
+   * true about this print. A warning the user cannot reach is worse than no
+   * warning, so a field with a live notice is shown whatever tier it sits in —
+   * the same escape a modified key already gets, and the same reasoning: the
+   * setting has stopped being hypothetical.
+   */
+  private readonly noticedKeys = computed<ReadonlySet<string>>(() => {
+    const values = this.value();
+    const keys = new Set<string>();
+    for (const group of this.relevantGroups()) {
+      for (const field of group.fields) {
+        if (noticeForField(field, values[field.key], values) !== null) {
+          keys.add(field.key);
+        }
+      }
+    }
+    return keys;
+  });
+
   /** Contract groups, minus the ones whose whole contents sit deeper than asked. */
   private readonly tieredGroups = computed<SchemaGroup[]>(() => {
     const revealed = this.revealedPanelTier();
     const modified = this.modifiedKeys();
+    const noticed = this.noticedKeys();
     return this.contractGroups().filter(
       (group) =>
         isTierAtMost(shallowestTier(group.fields), revealed) ||
-        group.fields.some((f) => modified.has(f.key)),
+        group.fields.some((f) => modified.has(f.key) || noticed.has(f.key)),
     );
   });
 
@@ -430,10 +471,10 @@ export class SchemaForm {
    * Only relevant (visible) fields are considered.
    */
   protected readonly groupsWithNotice = computed<ReadonlySet<string>>(() => {
-    const values = this.value();
+    const noticed = this.noticedKeys();
     const names = new Set<string>();
     for (const group of this.relevantGroups()) {
-      if (group.fields.some((f) => noticeForField(f, values[f.key], values) !== null)) {
+      if (group.fields.some((f) => noticed.has(f.key))) {
         names.add(group.name);
       }
     }
@@ -501,7 +542,10 @@ export class SchemaForm {
   protected visibleFields(group: SchemaGroup): FieldDef[] {
     const revealed = this.revealedTier(group.name);
     const modified = this.modifiedKeys();
-    return group.fields.filter((f) => isFieldInTier(f, revealed) || modified.has(f.key));
+    const noticed = this.noticedKeys();
+    return group.fields.filter(
+      (f) => isFieldInTier(f, revealed) || modified.has(f.key) || noticed.has(f.key),
+    );
   }
 
   /**

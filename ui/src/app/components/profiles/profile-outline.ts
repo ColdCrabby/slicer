@@ -8,12 +8,15 @@ import {
   effect,
   inject,
   signal,
+  viewChild,
 } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { Icon } from '@coldcrabby/ui';
-import { SettingsNav } from '../../services/settings-nav';
+import { Viewport } from '../../services/viewport';
+import { KeyboardShortcuts } from '../../services/keyboard-shortcuts/keyboard-shortcuts';
 import {
   filterOutline,
+  hasRoomForRail,
   idsInView,
   measureOutline,
   scanOutline,
@@ -59,21 +62,85 @@ const RESCAN_QUIET_MS = 200;
 })
 export class ProfileOutline {
   private readonly host = inject<ElementRef<HTMLElement>>(ElementRef);
-  private readonly settingsNav = inject(SettingsNav);
+  private readonly shortcuts = inject(KeyboardShortcuts);
+  private readonly viewport = inject(Viewport);
 
   /**
-   * The rail appears only once the Settings section list has been folded to
-   * icons.
+   * The rail appears when there is genuinely room for it.
    *
-   * Settings is already sections + list + editor before the outline asks for
-   * anything, and a fourth column at once is what made the page feel crowded.
-   * Tying the two together makes it a trade the user makes deliberately —
-   * fold the sections, gain the contents — rather than a column that turns up
-   * uninvited.
+   * It used to be tied to folding the Settings section list — a trade the user
+   * made deliberately, because a fourth column at once made the page feel
+   * crowded. The page has since given a column back, so the trade is no longer
+   * the real question; the room is. Asking it directly also answers something
+   * neither a viewport media query nor a folded-nav flag could: the nav, the
+   * window and the dragged list width all take from the same budget, and only a
+   * measurement of what is left knows about all three.
+   *
+   * Measured on [`.mgr__body`], whose own width does not depend on whether the
+   * rail is showing — so revealing the rail can never be what takes the room
+   * away that revealed it.
    */
-  protected readonly visible = this.settingsNav.collapsed;
+  protected readonly visible = computed(() => this.roomForRail());
+  private readonly roomForRail = signal(false);
 
   protected readonly query = signal('');
+
+  /**
+   * Sections the user has opened. Empty by default — every section starts
+   * folded.
+   *
+   * A printer's editor runs to sixty settings and a print profile past two
+   * hundred; listing all of them at once produces a rail as long as the page it
+   * is meant to summarise, which is no longer a map. Folded, the rail is a dozen
+   * lines and the whole editor fits on screen at once.
+   */
+  private readonly expanded = signal<ReadonlySet<string>>(new Set());
+
+  /**
+   * Whether a section's settings are listed.
+   *
+   * **A search ignores the folding entirely.** Someone typing a setting's name
+   * is asking where it is, and answering with a collapsed section they must
+   * then open is refusing to answer. Folding is for reading the outline, not
+   * for searching it.
+   */
+  protected isExpanded(id: string): boolean {
+    return !!this.query().trim() || this.expanded().has(id);
+  }
+
+  protected toggle(id: string): void {
+    this.expanded.update((current) => {
+      const next = new Set(current);
+      if (!next.delete(id)) {
+        next.add(id);
+      }
+      return next;
+    });
+  }
+
+  /** Whether the bulk control currently offers to collapse rather than expand. */
+  protected readonly anyExpanded = computed(() => this.expanded().size > 0);
+
+  protected toggleAll(): void {
+    this.expanded.set(
+      this.anyExpanded() ? new Set() : new Set(this.sections().map((section) => section.id)),
+    );
+  }
+
+  /**
+   * Placeholder for the filter box, carrying the shortcut where there is a
+   * keyboard to press it — the same judgement the slice sidebar's search makes.
+   */
+  protected readonly filterPlaceholder = computed(() =>
+    this.viewport.isHandheld()
+      ? 'Filter settings'
+      : `Filter settings (${this.shortcuts.shortcutFor('focus-settings-search')})`,
+  );
+
+  /** Put the cursor in the filter box — the `$mod+f` the slice sidebar uses. */
+  focusSearch(): void {
+    this.searchInputRef()?.nativeElement.focus({ preventScroll: true });
+  }
 
   /** The editor as it currently stands, rescanned whenever it changes. */
   private readonly sections = signal<OutlineSection[]>([]);
@@ -107,7 +174,18 @@ export class ProfileOutline {
   /** Content height the spans were measured against, to notice a reflow. */
   private measuredHeight = 0;
 
+  private readonly searchInputRef = viewChild<ElementRef<HTMLInputElement>>('searchInput');
+
   constructor() {
+    // The same `$mod+f` the slice sidebar's settings search claims. The two are
+    // never on screen together — one is the slice page, the other the settings
+    // pages — so whichever is mounted answers it.
+    this.shortcuts.settingsSearchRef = this;
+    inject(DestroyRef).onDestroy(() => {
+      if (this.shortcuts.settingsSearchRef === this) {
+        this.shortcuts.settingsSearchRef = null;
+      }
+    });
     afterNextRender(() => this.attach());
     // Unfolding the rail has to read an editor the hidden rail never scanned.
     effect(() => {
@@ -121,18 +199,20 @@ export class ProfileOutline {
   // --- Wiring ------------------------------------------------------------
 
   private observer: MutationObserver | null = null;
+  private roomObserver: ResizeObserver | null = null;
+  private roomTimer: ReturnType<typeof setTimeout> | null = null;
   private scrollHandler: (() => void) | null = null;
   private rescanTimer: ReturnType<typeof setTimeout> | null = null;
   private spyFrame = 0;
 
   private attach(): void {
-    const scroller = this.host.nativeElement
-      .closest('.mgr__body')
-      ?.querySelector<HTMLElement>('.mgr__detail');
-    if (!scroller) {
+    const body = this.host.nativeElement.closest<HTMLElement>('.mgr__body');
+    const scroller = body?.querySelector<HTMLElement>('.mgr__detail');
+    if (!body || !scroller) {
       return;
     }
     this.scroller = scroller;
+    this.watchRoom(body);
     this.rescan();
 
     // The editor is not static: selecting another profile replaces it wholesale,
@@ -150,9 +230,53 @@ export class ProfileOutline {
     scroller.addEventListener('scroll', this.scrollHandler, { passive: true });
   }
 
+  /**
+   * Keep {@link roomForRail} in step with the space the page actually has.
+   *
+   * The rule itself is [`hasRoomForRail`]; both of its inputs are read from the
+   * live layout rather than assumed, because the list column is draggable and
+   * the gap is a token.
+   */
+  private watchRoom(body: HTMLElement): void {
+    const measure = () => {
+      const list = body.querySelector<HTMLElement>('.mgr__list');
+      const gap = parseFloat(getComputedStyle(body).columnGap) || 0;
+      const listWidth = list?.getBoundingClientRect().width ?? 0;
+      this.roomForRail.set(hasRoomForRail(body.getBoundingClientRect().width, listWidth, gap));
+    };
+    measure();
+
+    // Answered after the callback returns, not inside it. The answer adds or
+    // removes a grid track, so writing it synchronously resizes the observed
+    // subtree from within its own delivery — which the browser cuts short
+    // ("ResizeObserver loop completed with undelivered notifications"), dropping
+    // the very notification that would have corrected the result. That left the
+    // rail showing at widths it had already outgrown.
+    //
+    // A timeout rather than a frame: `requestAnimationFrame` does not run in a
+    // hidden tab, so a window resized while Settings sat in the background
+    // stayed wrong until something painted.
+    this.roomObserver = new ResizeObserver(() => {
+      if (this.roomTimer !== null) {
+        return;
+      }
+      this.roomTimer = setTimeout(() => {
+        this.roomTimer = null;
+        measure();
+      });
+    });
+    this.roomObserver.observe(body);
+  }
+
   private detach(): void {
     this.observer?.disconnect();
     this.observer = null;
+    this.roomObserver?.disconnect();
+    this.roomObserver = null;
+    if (this.roomTimer !== null) {
+      clearTimeout(this.roomTimer);
+      this.roomTimer = null;
+    }
     if (this.scroller && this.scrollHandler) {
       this.scroller.removeEventListener('scroll', this.scrollHandler);
     }

@@ -1,67 +1,116 @@
 <section class="settings-panel">
-  <div class="preset-bar">
-    <nexus-label-filter-bar
-      class="preset-filter"
-      [selectedIds]="labelFilter.selectedIds()"
-      (toggle)="labelFilter.toggle($event)"
-      (clear)="labelFilter.clear()"
-    />
-
-    <div class="contract-row">
-      <nexus-segmented
-        class="contract-tabs"
-        label="Setting category"
-        [options]="contractTabs"
-        [value]="activeContract()"
-        (valueChange)="setContract($event)"
+  <div class="preset-bar" #presetBar>
+    <div class="preset-tools">
+      <nexus-label-filter-bar
+        class="preset-filter"
+        [selectedIds]="labelFilter.selectedIds()"
+        (toggle)="labelFilter.toggle($event)"
+        (clear)="labelFilter.clear()"
       />
 
-      @if (modifiedCount() > 0) {
-        <button
-          nexusIconButton
-          class="sync-trigger"
-          variant="outline"
-          [tooltip]="
-            'Sync ' +
-            modifiedCount() +
-            ' changed ' +
-            (modifiedCount() === 1 ? 'setting' : 'settings') +
-            ' to their profiles'
-          "
-          aria-label="Sync changed settings to their profiles"
-          (click)="syncToProfile()"
-        >
-          <nexus-icon name="floppy-disk-arrow-out" />
-          <span class="sync-trigger-count">{{ modifiedCount() }}</span>
-        </button>
-      }
+      <!--
+        Plate-wide, so it shares the plate-wide row rather than owning one.
+        Always here and quiet at zero, so it never arrives under a cursor that
+        was reaching for something else.
+      -->
+      <!--
+        Saving is the one thing here with no action attached, so it is a dot
+        rather than a sentence: present while it has something to report, and
+        holding its space so the buttons beside it never shift.
+      -->
+      <span
+        class="save-dot"
+        [class.is-active]="saveVisible()"
+        [class.is-error]="saveIsError()"
+        [title]="footerTitle()"
+      ></span>
+
+      <!--
+        Reverting and syncing are the same subject — what this plate has changed
+        — so they sit together, and next to the count that says how much there
+        is. They used to live in a strip at the very bottom of the panel, a
+        scroll away from the settings that caused them.
+      -->
+      <button
+        type="button"
+        class="revert-trigger"
+        [class.is-confirming]="resetConfirming()"
+        [disabled]="modifiedCount() === 0"
+        [tooltip]="revertTooltip()"
+        [attr.aria-label]="revertTooltip()"
+        (click)="resetOverrides()"
+        (blur)="cancelReset()"
+      >
+        <nexus-icon [name]="resetConfirming() ? 'warning-triangle' : 'undo'" />
+      </button>
+
+      <button
+        type="button"
+        class="sync-trigger"
+        [disabled]="modifiedCount() === 0"
+        [tooltip]="syncTooltip()"
+        [attr.aria-label]="syncTooltip()"
+        (click)="syncToProfile()"
+      >
+        <nexus-icon name="refresh-double" aria-hidden="true" />
+        @if (modifiedCount() > 0) {
+          <span class="sync-trigger-count" aria-hidden="true">{{ modifiedCount() }}</span>
+        }
+      </button>
     </div>
 
-    <div class="preset-row">
-      @if (presetOptions().length > 0) {
-        <nexus-select
-          class="preset-select"
-          [options]="presetOptions()"
-          [value]="activePresetId()"
-          [startIcon]="activeContractMeta().icon"
-          [placeholder]="'Select ' + activeContractMeta().label.toLowerCase()"
-          (valueChange)="selectPreset($event)"
-        />
-      } @else {
-        <a class="preset-empty" [routerLink]="activeContractMeta().managePath">
-          <nexus-icon [name]="activeContractMeta().icon" aria-hidden="true" />
-          Add a {{ activeContractMeta().label.toLowerCase() }} preset…
-        </a>
-      }
+    <!--
+      What this plate is made of, all three at once.
+      
+      It used to be a row of tabs over a single preset picker, which showed one
+      third of the answer and made you click to see the rest — on a page whose
+      first question is "what am I printing this with?". The tabs are gone: the
+      row you are working in *is* the one you last touched, and the other two
+      stay legible above and below it rather than hiding behind it.
+    -->
+    <div class="recipe">
+      @for (contract of contracts; track contract.id) {
+        <!--
+          Two intentions, two targets. Pointing the settings at a row is the
+          frequent one, so it gets the whole row; swapping the preset is rarer
+          and gets the caret beside it.
 
-      <a
-        nexusIconButton
-        class="preset-manage"
-        [routerLink]="activeContractMeta().managePath"
-        [attr.aria-label]="'Manage ' + activeContractMeta().label + ' presets'"
-      >
-        <nexus-icon name="settings" />
-      </a>
+          They were one control for a while — the row was the picker, and
+          scoping meant opening a preset list you then had to dismiss. Switching
+          between printer and process settings is something you do constantly,
+          and it should not cost a menu every time.
+        -->
+        <div class="recipe-row" [class.is-active]="activeContract() === contract.id">
+          <button
+            type="button"
+            class="recipe-scope"
+            [attr.aria-pressed]="activeContract() === contract.id"
+            (click)="setContract(contract.id)"
+          >
+            <nexus-icon [name]="contract.icon" aria-hidden="true" />
+            <span class="recipe-name">{{ presetNameFor(contract.id) }}</span>
+          </button>
+
+          @if (presetOptionsFor(contract.id).length > 0) {
+            <!--
+              Three dots rather than a caret: what opens is a menu, not a value
+              list — each preset in it can be picked or opened for editing, and
+              a caret only promises the first of those.
+            -->
+            <button
+              type="button"
+              class="recipe-swap"
+              [attr.aria-label]="'Change ' + contract.label.toLowerCase()"
+              [attr.aria-expanded]="openPicker() === contract.id"
+              aria-haspopup="menu"
+              (click)="togglePicker(contract.id, $event)"
+              (keydown)="onPickerKeydown(contract.id, $event)"
+            >
+              <nexus-icon name="more-horiz" aria-hidden="true" />
+            </button>
+          }
+        </div>
+      }
     </div>
   </div>
 
@@ -70,34 +119,66 @@
     [schema]="schema"
     [value]="settings()"
     [modifiedKeys]="modifiedKeys()"
+    [machineCorrectedKeys]="machineMaterialKeys()"
+    [machineCorrectionLabel]="machineMaterialLabel()"
     [visibleGroups]="activeGroups()"
     [groupIcons]="groupIcons"
     (fieldChange)="update($event)"
   />
 
-  @if (footerVisible()) {
-    <footer #footer class="settings-footer" [class.is-error]="saveIsError()">
-      <!-- The dot keeps its space whether or not it is showing: this strip sits
-           under the user's cursor while they drag a slider, and a dot that
-           appears mid-save would shove the text sideways on every edit. -->
-      <span class="settings-footer-dot" [class.is-active]="saveVisible()"></span>
-      <span class="settings-footer-text" [title]="footerTitle()">{{ footerLabel() }}</span>
-      @if (modifiedCount()) {
-        <button
-          type="button"
-          class="settings-footer-reset"
-          [class.is-confirming]="resetConfirming()"
-          (click)="resetOverrides()"
-          (blur)="cancelReset()"
+  <ng-template #pickerMenu>
+    <div class="picker" role="menu" [attr.aria-label]="pickerLabel()">
+      @for (option of pickerOptions(); track option.value; let i = $index) {
+        <!--
+          Two things per row, because they lead to two different places: the
+          name picks the preset and keeps you here, the pen opens that preset's
+          editor and takes you off the plate. In the menu the pen reads as what
+          it is, and sits where it cannot be pressed in place of the control
+          you actually reach for.
+        -->
+        <div
+          class="picker-row"
+          role="none"
+          [class.is-active]="i === pickerIndex()"
+          [class.is-selected]="option.value === pickerValue()"
+          (mouseenter)="pickerIndex.set(i)"
         >
-          {{ resetConfirming() ? 'Confirm?' : 'Reset all' }}
-        </button>
+          <button
+            type="button"
+            class="picker-pick"
+            role="menuitemradio"
+            [attr.aria-checked]="option.value === pickerValue()"
+            (click)="pickPreset(option.value)"
+          >
+            <span class="picker-label">{{ option.label }}</span>
+            @if (option.description) {
+              <span class="picker-desc">{{ option.description }}</span>
+            }
+          </button>
+
+          @if (option.value === pickerValue()) {
+            <nexus-icon class="picker-check" name="check" aria-hidden="true" />
+          }
+
+          <a
+            class="picker-edit"
+            role="menuitem"
+            [routerLink]="pickerManagePath()"
+            [queryParams]="{ configure: option.value }"
+            [attr.aria-label]="'Edit ' + option.label + ' in settings'"
+            [tooltip]="'Edit ' + option.label + ' in settings'"
+            (click)="closePicker()"
+          >
+            <nexus-icon name="page-edit" aria-hidden="true" />
+          </a>
+        </div>
       }
-      <!-- Only the save result is announced. The change count updates on every
-           keystroke and would turn a screen reader into a metronome. -->
-      <span class="settings-footer-announce" role="status" aria-live="polite">{{
-        saveVisible() ? saveLabel() : ''
-      }}</span>
-    </footer>
-  }
+    </div>
+  </ng-template>
+
+  <!-- Only the save result is announced. The change count updates on every
+       keystroke and would turn a screen reader into a metronome. -->
+  <span class="settings-announce" role="status" aria-live="polite">{{
+    saveVisible() ? saveLabel() : ''
+  }}</span>
 </section>
