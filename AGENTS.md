@@ -263,6 +263,12 @@ space, or the nav keeps a gap above it.
   exists there.
 - **Cross-compilation needs the target toolchains installed.** CI verifies them.
 - **LTO makes release builds slow.** Use debug builds while iterating.
+- **`cpp_map` is vendored, patched, in `vendor/`.** Its skip list drew node
+  levels from an OS-seeded RNG, and `boostvoronoi` walks that list as its beach
+  line — so the randomness reached the Voronoi diagram and every wall derived
+  from it. Do not drop the `[patch.crates-io]` entry without reading
+  [vendor/cpp_map/PATCH.md](vendor/cpp_map/PATCH.md); `tests/determinism.rs`
+  fails if you do.
 - **`sudo xcode-select -s /Applications/Xcode.app` is unavoidable** for iOS.
   `DEVELOPER_DIR` fixes the helper scripts but **`tauri ios dev` builds with a
   sanitized environment and never forwards it**, so do not "fix" this with an

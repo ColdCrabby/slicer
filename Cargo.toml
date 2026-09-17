@@ -127,5 +127,12 @@ lto = true
 # The fork adds a `("unknown", _) => {}` arm to skip stdlib linking on WASM,
 # since the C++ stdlib is compiled into libclipper2c.a by the WASI SDK toolchain.
 # Fork: https://github.com/max-scopp/clipper2c-sys branch fix/wasm-build
+# `cpp_map`'s skip list drew its node levels from an OS-seeded RNG, and
+# `boostvoronoi` walks that list as its beach line — so the randomness reached
+# the Voronoi diagram, the medial axis, and every wall derived from them: the
+# same model sliced twice produced different G-code. The vendored copy seeds the
+# generator from a constant and re-seeds it per list.
+# Patch: vendor/cpp_map/PATCH.md
 [patch.crates-io]
 clipper2c-sys = { git = "https://github.com/max-scopp/clipper2c-sys", rev = "93cfeb1ec0508158ee2708bd114b678b90c836c7" }
+cpp_map = { path = "vendor/cpp_map" }

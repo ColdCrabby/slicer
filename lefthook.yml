@@ -5,7 +5,7 @@
 # so what you commit already matches CI:
 #
 #   * Prettier — ui/**/*.{ts,html,scss,css}  (mirrors the format gate in ui-ci.yml)
-#   * rustfmt  — **/*.rs                      (mirrors `cargo fmt --check` in build.yml)
+#   * rustfmt  — **/*.rs, minus vendor/       (mirrors `cargo fmt --check` in build.yml)
 #
 # Escape hatches: `git commit --no-verify` (skip once) or `LEFTHOOK=0 git commit`.
 
@@ -21,6 +21,11 @@ pre-commit:
       stage_fixed: true
     rustfmt:
       glob: "**/*.rs"
+      # Vendored third-party crates are carried verbatim apart from a documented
+      # patch, so we do not restyle them — and `cargo fmt` does not see them
+      # either, since they are dependencies rather than workspace members.
+      exclude:
+        - "vendor/**/*.rs"
       # Edition matches Cargo.toml (2021); with no rustfmt.toml this equals what
       # `cargo fmt` enforces in CI.
       run: rustfmt --edition 2021 {staged_files}
