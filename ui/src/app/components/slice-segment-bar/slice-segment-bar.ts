@@ -22,7 +22,14 @@ import {
   speedGradientCss,
   VIEW_MODE_LABELS,
 } from '../../services/gcode-preview';
-import { Icon, Select, type SelectOption, Slider } from '@coldcrabby/ui';
+import {
+  Icon,
+  Segmented,
+  type SegmentOption,
+  Select,
+  type SelectOption,
+  Slider,
+} from '@coldcrabby/ui';
 import { resolveGcodeStepButtons, ViewerControl } from '../../services/viewer-control';
 import { Viewport } from '../../services/viewport';
 
@@ -32,7 +39,7 @@ const STORAGE_EXPANDED_KEY = 'nexus.inspector.expanded';
 @Component({
   selector: 'nexus-slice-segment-bar',
   standalone: true,
-  imports: [Icon, Select, Slider],
+  imports: [Icon, Segmented, Select, Slider],
   templateUrl: './slice-segment-bar.html',
   styleUrl: './slice-segment-bar.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -221,8 +228,13 @@ export class SliceSegmentBar {
   /** Fans discovered in the model, for the secondary fan selector. */
   protected readonly fans = this.preview.discoveredFans;
 
-  /** `nexus-select` options for the fan sub-selector. */
-  protected readonly fanOptions = computed<SelectOption[]>(() =>
+  /**
+   * Segments for the fan sub-selector. A printer exposes a handful of fans at
+   * most and their names are one word each, so they all fit on the track —
+   * switching between them is what this control is for, and a dropdown would
+   * cost two clicks per comparison.
+   */
+  protected readonly fanOptions = computed<SegmentOption[]>(() =>
     this.fans().map((f) => ({ value: f.key, label: f.label })),
   );
 

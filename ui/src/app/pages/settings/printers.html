@@ -170,10 +170,11 @@
                   (change)="rename(printer.id, $event)"
                 />
               </nexus-field-row>
-              <nexus-field-row label="Firmware">
-                <nexus-select
+              <nexus-field-row label="Firmware" [stacked]="true">
+                <nexus-segmented
                   [options]="flavorOptions"
                   [value]="pstr(printer.params, 'gcode_flavor')"
+                  label="Firmware"
                   (valueChange)="setFlavor(printer.id, $event)"
                 />
               </nexus-field-row>
@@ -181,10 +182,11 @@
 
             <div class="profile-editor__group" id="configure-target">
               <label class="profile-editor__group-title">Connection</label>
-              <nexus-field-row label="Type">
-                <nexus-select
+              <nexus-field-row label="Type" [stacked]="true">
+                <nexus-radio-group
                   [options]="connectionKindOptions"
                   [value]="printer.connection?.kind ?? 'none'"
+                  label="Connection type"
                   (valueChange)="setConnectionKind(printer.id, $event)"
                 />
               </nexus-field-row>

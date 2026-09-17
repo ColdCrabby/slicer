@@ -8,6 +8,7 @@ import {
 } from '@angular/core';
 import { ActivatedRoute, RouterLink } from '@angular/router';
 import {
+  PRINTER_CONNECTION_DESCRIPTIONS,
   PRINTER_CONNECTION_KINDS,
   PRINTER_CONNECTION_LABELS,
   PRINTER_GCODE_FLAVORS,
@@ -53,6 +54,7 @@ import {
   IconButton,
   ModalShell,
   NumberInput,
+  RadioGroup,
   SectionHeader,
   Segmented,
   Select,
@@ -83,7 +85,7 @@ const SLICING_PARAMS_SCHEMA = {
  * `x-group` names schema-driven in the printer editor, in display order.
  *
  * The Printer contract owns `['Hardware', 'Retraction', 'Output']`, but `Output`
- * is left out here: its `gcode_flavor` is already the bespoke "Firmware" select
+ * is left out here: its `gcode_flavor` is already the bespoke "Firmware" control
  * and its `*_gcode` fields are multiline strings edited through the dedicated
  * G-code editor block — both need typed widgets `nexus-param-field` can't
  * provide. So the printer only schema-drives `Hardware` and `Retraction`.
@@ -142,6 +144,7 @@ const PARAM_GROUPS: SchemaGroup[] = (() => {
     Select,
     Switch,
     Segmented,
+    RadioGroup,
     LabelFilterBar,
     LabelPicker,
     ContextMenuTrigger,
@@ -170,6 +173,7 @@ export class PrintersSettings {
   protected readonly connectionKindOptions = PRINTER_CONNECTION_KINDS.map((kind) => ({
     value: kind,
     label: PRINTER_CONNECTION_LABELS[kind],
+    description: PRINTER_CONNECTION_DESCRIPTIONS[kind],
   }));
   protected readonly bedShapeOptions = [
     { value: 'rectangular', label: 'Rectangular' },

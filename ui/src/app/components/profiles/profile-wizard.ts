@@ -18,6 +18,7 @@ import { PrintProfilesStore } from '../../services/profiles/print-profiles-store
 import {
   Icon,
   NumberInput,
+  RadioGroup,
   Segmented,
   Select,
   Switch,
@@ -33,7 +34,17 @@ const STEPS = ['Start', 'Layers & walls', 'Infill', 'Speeds & supports'] as cons
 @Component({
   selector: 'nexus-profile-wizard',
   standalone: true,
-  imports: [WizardShell, CatalogPicker, FieldRow, NumberInput, Select, Switch, Segmented, Icon],
+  imports: [
+    WizardShell,
+    CatalogPicker,
+    FieldRow,
+    NumberInput,
+    Select,
+    Switch,
+    Segmented,
+    RadioGroup,
+    Icon,
+  ],
   templateUrl: './profile-wizard.html',
   styleUrl: './profile-wizard.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,

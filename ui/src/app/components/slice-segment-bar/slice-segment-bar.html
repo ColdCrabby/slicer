@@ -121,10 +121,11 @@
         @if (showFanSelector()) {
           <div class="ctl-row">
             <label class="ctl-label">Fan</label>
-            <nexus-select
+            <nexus-segmented
               class="ctl-field"
               [options]="fanOptions()"
               [value]="preview.selectedFan()"
+              label="Fan"
               (valueChange)="onFanValue($event)"
             />
           </div>

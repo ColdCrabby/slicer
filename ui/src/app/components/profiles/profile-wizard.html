@@ -216,11 +216,13 @@
         }
         <nexus-field-row
           label="Bed adhesion"
-          description="Extra first-layer helper (skirt, brim, or raft) for grip."
+          description="Extra first-layer helper for grip."
+          [stacked]="true"
         >
-          <nexus-select
+          <nexus-radio-group
             [options]="adhesionOptions"
             [value]="pstr(draft().params, 'adhesion_type')"
+            label="Bed adhesion"
             (valueChange)="setAdhesion($event)"
           />
         </nexus-field-row>

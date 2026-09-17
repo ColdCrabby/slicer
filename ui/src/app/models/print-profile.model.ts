@@ -54,11 +54,31 @@ export const SEAM_POSITIONS: { value: SeamPosition; label: string }[] = [
 ];
 
 export type AdhesionType = 'none' | 'skirt' | 'brim' | 'raft';
-export const ADHESION_TYPES: { value: AdhesionType; label: string }[] = [
-  { value: 'none', label: 'None' },
-  { value: 'skirt', label: 'Skirt' },
-  { value: 'brim', label: 'Brim' },
-  { value: 'raft', label: 'Raft' },
+/**
+ * The adhesion helpers, each with the sentence that separates it from the next.
+ *
+ * The descriptions are not decoration: `adhesion_type` is declared
+ * `x-widget = "cards"` in the engine schema, so the settings sidebar shows a
+ * line under every choice. The wizard offers the same field, and the two must
+ * not disagree about what a raft is.
+ */
+export const ADHESION_TYPES: { value: AdhesionType; label: string; description: string }[] = [
+  { value: 'none', label: 'None', description: 'Print the object on the bare plate.' },
+  {
+    value: 'skirt',
+    label: 'Skirt',
+    description: 'A loop traced nearby without touching the object; primes the nozzle.',
+  },
+  {
+    value: 'brim',
+    label: 'Brim',
+    description: "A flat apron fused to the object's first layer for extra grip.",
+  },
+  {
+    value: 'raft',
+    label: 'Raft',
+    description: 'A full sacrificial base printed underneath the object.',
+  },
 ];
 
 export type SupportType = 'normal' | 'tree';
