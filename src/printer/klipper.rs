@@ -632,20 +632,7 @@ impl KlipperProbe {
                 id: format!("aux_fan:{fan}"),
                 options: vec![
                     DetectionOption::passive(FAN_UNUSED),
-                    aux_cooling_option(FAN_COOLING, fan, AuxFanOverrides::default_rscs()),
-                    aux_cooling_option(
-                        FAN_COOLING_GENTLE,
-                        fan,
-                        AuxFanOverrides {
-                            // What `speed_scale` exists for: a side blast moves
-                            // far more air than the part fan it sits beside, and
-                            // at full tilt it curls PETG off the plate.
-                            speed_scale: 0.6,
-                            max_speed_limit: 0.7,
-                            ..AuxFanOverrides::default_rscs()
-                        },
-                    ),
-                    chamber_option(FAN_CHAMBER, fan),
+                    aux_cooling_option(FAN_COOLING, fan),
                 ],
                 suggested: FAN_UNUSED.to_string(),
                 subject: Some((*fan).to_string()),
@@ -699,8 +686,6 @@ const MESH_LEAVE: &str = "leave";
 const MESH_CALIBRATE: &str = "calibrate";
 const FAN_UNUSED: &str = "unused";
 const FAN_COOLING: &str = "cooling";
-const FAN_COOLING_GENTLE: &str = "cooling_gentle";
-const FAN_CHAMBER: &str = "chamber";
 
 /// An answer that puts a named Klipper fan to work as auxiliary part cooling.
 ///
@@ -715,33 +700,7 @@ const FAN_CHAMBER: &str = "chamber";
 /// raise it within the bounds the overrides set. Every one of those bounds
 /// exists precisely for a fan like this, which is why the answer sets them
 /// instead of leaving the fan on a bare curve.
-/// An answer that runs a named Klipper fan as chamber circulation.
-///
-/// The fan-configs editor offers this role by name, so the question must be
-/// able to express it too — a setup flow that can say less than the editor it
-/// hands off to just makes work.
-///
-/// Held at one speed rather than put on the layer-time curve: chamber air wants
-/// to keep moving, and the curve exists to cool the part faster when layers are
-/// short, which is not a thing a chamber fan should react to. Equal bounds are
-/// how [`FanConfig::speed_for_layer_time`] expresses a constant.
-fn chamber_option(id: &str, fan: &str) -> DetectionOption {
-    let chamber = FanConfig {
-        fan_index: fan_index::CHAMBER,
-        klipper_name: Some(fan.to_string()),
-        min_speed: 0.5,
-        max_speed: 0.5,
-        layer_time_fast_s: 10.0,
-        layer_time_slow_s: 30.0,
-        aux_overrides: None,
-    };
-    DetectionOption::with_params(
-        id,
-        json!({ "fan_configs": [FanConfig::default_part_cooling(), chamber] }),
-    )
-}
-
-fn aux_cooling_option(id: &str, fan: &str, overrides: AuxFanOverrides) -> DetectionOption {
+fn aux_cooling_option(id: &str, fan: &str) -> DetectionOption {
     let aux = FanConfig {
         fan_index: fan_index::AUX,
         klipper_name: Some(fan.to_string()),
@@ -751,7 +710,7 @@ fn aux_cooling_option(id: &str, fan: &str, overrides: AuxFanOverrides) -> Detect
         max_speed: 1.0,
         layer_time_fast_s: 10.0,
         layer_time_slow_s: 30.0,
-        aux_overrides: Some(overrides),
+        aux_overrides: Some(AuxFanOverrides::default_rscs()),
     };
     DetectionOption::with_params(
         id,
@@ -1011,55 +970,6 @@ mod tests {
                 .any(|fan| fan["fan_index"] == json!(fan_index::PART_COOLING)),
             "the part-cooling fan must ride along"
         );
-    }
-
-    #[test]
-    fn the_chamber_answer_holds_one_speed_instead_of_riding_the_curve() {
-        // The fan-configs editor offers a Chamber role, so the question has to
-        // reach it too. Chamber air wants to keep moving, not to speed up
-        // because a layer happened to be short.
-        let detection = corexy_probe().into_detection();
-        let asked = question(&detection, "aux_fan:rscs").expect("rscs asked");
-        let chamber = asked
-            .options
-            .iter()
-            .find(|option| option.id == FAN_CHAMBER)
-            .expect("chamber offered");
-        let fan = chamber.params["fan_configs"]
-            .as_array()
-            .expect("fan array")
-            .iter()
-            .find(|fan| fan["klipper_name"] == "rscs")
-            .expect("the named fan is configured");
-
-        assert_eq!(fan["fan_index"], json!(fan_index::CHAMBER));
-        assert_eq!(fan["min_speed"], fan["max_speed"], "held at one speed");
-        assert!(
-            fan["aux_overrides"].is_null(),
-            "the part-cooling boosts have no business on a chamber fan"
-        );
-    }
-
-    #[test]
-    fn the_gentle_answer_scales_the_same_fan_down() {
-        let detection = corexy_probe().into_detection();
-        let asked = question(&detection, "aux_fan:rscs").expect("rscs asked");
-        let gentle = asked
-            .options
-            .iter()
-            .find(|option| option.id == FAN_COOLING_GENTLE)
-            .expect("gentle offered");
-        let aux = gentle.params["fan_configs"]
-            .as_array()
-            .expect("fan array")
-            .iter()
-            .find(|fan| fan["klipper_name"] == "rscs")
-            .expect("the named fan is configured");
-
-        assert_eq!(aux["aux_overrides"]["speed_scale"], json!(0.6));
-        assert_eq!(aux["aux_overrides"]["max_speed_limit"], json!(0.7));
-        // Still the same hybrid mode, just bounded lower.
-        assert_eq!(aux["aux_overrides"]["bridge_boost"], json!(0.40));
     }
 
     #[test]

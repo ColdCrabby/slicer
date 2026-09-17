@@ -128,15 +128,6 @@ const QUESTION_COPY: Readonly<Record<string, QuestionCopy>> = {
         description:
           'Ramps with layer time alongside the main part fan, and lifts further over bridges and short layers.',
       },
-      cooling_gentle: {
-        label: 'It blows on the part, hard',
-        description:
-          'The same, held to 70%. For a side blast strong enough to curl PETG off the plate at full tilt.',
-      },
-      chamber: {
-        label: 'It moves chamber air',
-        description: 'Runs steadily at half speed rather than reacting to each layer.',
-      },
     },
   },
   preferred_orientation: {

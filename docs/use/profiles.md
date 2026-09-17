@@ -42,12 +42,16 @@ changing your mind never means running this again.
 Telling us a fan blows on the part does more than switch it on. It joins the
 part-cooling fan on the layer-time curve and gains the boosts that only make
 sense for a second fan: extra airflow over bridges and on very short layers, a
-ceiling so the two boosts together cannot overdo it, and a limit on how much the
-speed may change from one layer to the next, which is what stops a fan slamming
-from off to full and shocking the part. A side blast strong enough to curl PETG
-off the plate has its own answer — the same behaviour, held to 70%. A fan that
-moves chamber air rather than cooling the part has one too: it runs steadily
-instead of reacting to each layer.
+ceiling so the two together cannot overdo it, and a limit on how much the speed
+may change from one layer to the next, which is what stops a fan slamming from
+off to full and shocking the part.
+
+The full table of a machine's fans — which ones it has, what each is called in
+`printer.cfg`, and the speed curve for each — lives under **Fans** in the
+printer's own settings, because that is a description of your hardware rather
+than of a spool. What the *material* contributes is its cooling ceiling, which
+stays on the filament and is one of the settings a single printer can correct
+for itself.
 
 ::: details When detection can't tell everything
 A printer that answers slowly may not return its full configuration. You still

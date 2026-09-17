@@ -62,6 +62,8 @@ import {
   Select,
   Switch,
 } from '@coldcrabby/ui';
+import type { FanConfig } from '../../../generated/slicer-engine-global-settings-v1';
+import { FanConfigsEditor } from '../../components/profiles/fan-configs-editor';
 import { FieldShell } from '../../components/profiles/field-shell';
 import { ParamField } from '../../components/profiles/param-field';
 import { ColumnResizer } from '../../components/profiles/column-resizer';
@@ -147,6 +149,25 @@ const FIRST_CORRECTION_KEY = 'max_volumetric_speed';
 /** How long an armed "Remove all" waits before disarming itself. */
 const REMOVE_CONFIRM_MS = 4000;
 
+/**
+ * The group `fan_configs` declares, and so where its own editor is rendered.
+ *
+ * Read off the schema rather than written down, so the editor follows the field
+ * if `x-group` moves again in `params.rs`. `null` when the field is gone, which
+ * renders nothing rather than an orphan section.
+ *
+ * The fan table is the machine's, not the spool's: it names the physical fans a
+ * printer has and the Klipper object each one is wired to. It lived on the
+ * filament while `fan_configs` sat in `Cooling`, where editing it for one spool
+ * replaced the machine's whole fan list — the filament layer resolves above the
+ * printer's — and where the Klipper name field asked a roll of PLA what a fan on
+ * your gantry is called.
+ */
+const FAN_TABLE_GROUP: string | null =
+  parseSchema(SLICING_PARAMS_SCHEMA).groups.find((g) =>
+    g.fields.some((f) => f.key === 'fan_configs'),
+  )?.name ?? null;
+
 const PARAM_GROUPS: SchemaGroup[] = (() => {
   const order = new Map<string, number>(PRINTER_PARAM_GROUPS.map((name, index) => [name, index]));
   return parseSchema(SLICING_PARAMS_SCHEMA)
@@ -170,6 +191,7 @@ const PARAM_GROUPS: SchemaGroup[] = (() => {
     Badge,
     RouterLink,
     ParamField,
+    FanConfigsEditor,
     FieldShell,
     CodeEditor,
     FieldRow,
@@ -445,6 +467,13 @@ export class PrintersSettings {
    * never hides gated-off fields (unlike the live slice sidebar).
    */
   protected readonly paramGroups = PARAM_GROUPS;
+  protected readonly fanTableGroup = FAN_TABLE_GROUP;
+
+  /** A printer's fan table, defaulting to empty so the editor can start one. */
+  protected fanConfigsOf(printer: PrinterProfile): FanConfig[] {
+    const value = this.paramsOf(printer)['fan_configs'];
+    return Array.isArray(value) ? (value as FanConfig[]) : [];
+  }
 
   protected update(id: string, patch: Partial<PrinterProfile>): void {
     this.store.update(id, patch);

@@ -47,8 +47,6 @@ import {
 import { ParamField } from '../../components/profiles/param-field';
 import { ColumnResizer } from '../../components/profiles/column-resizer';
 import { ProfileOutline } from '../../components/profiles/profile-outline';
-import { FanConfigsEditor } from '../../components/profiles/fan-configs-editor';
-import type { FanConfig } from '../../../generated/slicer-engine-global-settings-v1';
 import { controlFor } from '../../schema-form/models/field-control';
 import { LabelFilterBar } from '../../components/labels/label-filter-bar';
 import { LabelPicker } from '../../components/labels/label-picker';
@@ -114,17 +112,6 @@ const PARAM_GROUPS: SchemaGroup[] = (() => {
     .sort((a, b) => order.get(a.name)! - order.get(b.name)!);
 })();
 
-/**
- * The group `fan_configs` declares, and so where its own editor is rendered.
- *
- * Read off the schema rather than written down here: the field is filtered out
- * of {@link PARAM_GROUPS} for being an `array`, and hardcoding `Cooling` would
- * leave the editor behind the next time `x-group` moves in `params.rs`. `null`
- * when the field is gone, which renders nothing rather than an orphan section.
- */
-const FAN_TABLE_GROUP: string | null =
-  PARSED_GROUPS.find((g) => g.fields.some((f) => f.key === 'fan_configs'))?.name ?? null;
-
 @Component({
   selector: 'nexus-settings-filaments',
   imports: [
@@ -136,7 +123,6 @@ const FAN_TABLE_GROUP: string | null =
     Badge,
     RouterLink,
     ParamField,
-    FanConfigsEditor,
     FieldRow,
     NumberInput,
     Select,
@@ -410,7 +396,6 @@ export class FilamentsSettings {
    * hides gated-off fields (unlike the live slice sidebar).
    */
   protected readonly paramGroups = PARAM_GROUPS;
-  protected readonly fanTableGroup = FAN_TABLE_GROUP;
 
   protected update(id: string, patch: Partial<FilamentProfile>): void {
     this.store.update(id, patch);
@@ -432,11 +417,6 @@ export class FilamentsSettings {
    * Absent means "the engine's default single part-cooling fan", which the
    * editor shows as no rows — adding one is how the user takes it over.
    */
-  protected fanConfigsOf(filament: FilamentProfile): FanConfig[] {
-    const value = this.paramsOf(filament)['fan_configs'];
-    return Array.isArray(value) ? (value as FanConfig[]) : [];
-  }
-
   /** A filament's `params` bag as a plain record for the field controls. */
   protected paramsOf(filament: FilamentProfile): Record<string, unknown> {
     return (filament.params as Record<string, unknown>) ?? {};
