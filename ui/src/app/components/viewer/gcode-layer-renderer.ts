@@ -124,6 +124,13 @@ export interface RoleSegments {
    */
   meshOpacity?: InstancedBufferAttribute;
   jointsOpacity?: InstancedBufferAttribute;
+  /**
+   * Per-instance off-bed flags (segment cylinders and their joints). `1` marks
+   * a move the printer cannot make because an endpoint leaves the bed; the
+   * shader repaints those in {@link OFF_BED_COLOR}.
+   */
+  meshOffBed?: InstancedBufferAttribute;
+  jointsOffBed?: InstancedBufferAttribute;
 }
 
 /**
@@ -172,6 +179,13 @@ export interface GcodeModel {
    */
   hiddenRoles: ReadonlySet<RoleName>;
   detail: GcodeDetail;
+  /**
+   * Extrusion segments flagged as leaving the bed — `0` on a healthy plate.
+   *
+   * Counted once at build time so a caller can warn about a skirt that has
+   * wandered off the plate without walking millions of instances itself.
+   */
+  offBedSegments: number;
 }
 
 // -- Model builder ------------------------------------------------------------
@@ -180,6 +194,33 @@ export interface GcodeModel {
 export interface GcodeLayerSource {
   layerCount(): number;
   getLayer(index: number): GcodeLayerBuffer;
+  /**
+   * Hand the handle the bed the file is destined for, so the layer buffers it
+   * returns afterwards carry their off-bed masks. Must be called *before* the
+   * layers are read — see `GcodeHandle::set_bed`.
+   */
+  setBed(
+    width: number,
+    depth: number,
+    originOffsetX: number,
+    originOffsetY: number,
+    circular: boolean,
+  ): void;
+}
+
+/**
+ * The printable outline the preview measures moves against.
+ *
+ * Mirrors the fields of the Rust `BedConfig` that a 2D containment test needs;
+ * the rule itself stays in `src/scene/bed.rs`, which is what answers per
+ * segment on the WASM side.
+ */
+export interface BedOutline {
+  width: number;
+  depth: number;
+  originOffsetX: number;
+  originOffsetY: number;
+  circular: boolean;
 }
 
 /** Read the per-layer machine-state metadata out of a WASM layer buffer. */
@@ -348,6 +389,17 @@ const _p0 = new Vector3();
 const _p1 = new Vector3();
 const _mid = new Vector3();
 
+/**
+ * Colour every extrusion that leaves the bed is repainted in.
+ *
+ * Deliberately not a role colour and not a theme token: this is the one thing
+ * in the preview that says "this will not print", and it has to win against
+ * whatever the legend, the scalar ramp or the theme has put on screen. A
+ * saturated red no role uses is what makes it unmistakable at a glance, and
+ * the shader applies it last, so it survives every view mode.
+ */
+const OFF_BED_COLOR = '1.0, 0.09, 0.07';
+
 /** Brightness multiplier applied to extrusions outside the legend hover-band. */
 const OUT_OF_BAND_DIM = 0.16;
 
@@ -412,6 +464,12 @@ const seamDotGeometry = new SphereGeometry(0.5, 8, 6);
  * (`aLayer`) and the shader collapses anything below `uLayerMin` to a
  * zero-area point. Switching "show all layers" ↔ "single layer" is then a
  * single uniform write instead of touching thousands of objects.
+ *
+ * It also carries the off-bed flag (`aOffBed`). That repaint has to happen in
+ * the shader rather than through the per-instance colour the view modes use,
+ * because those modes own that colour outright — a scalar ramp or a legend
+ * dim would otherwise wash the warning straight back out. Applying it last,
+ * on the final fragment colour, is what makes it survive every view mode.
  */
 function installInstanceShaderHooks(
   material: MeshPhongMaterial | LineBasicMaterial,
@@ -420,22 +478,32 @@ function installInstanceShaderHooks(
 ): void {
   material.onBeforeCompile = (shader) => {
     shader.uniforms['uLayerMin'] = layerMinUniform;
-    const opacityDecl = instanced ? 'attribute float aOpacity;\nvarying float vOpacity;\n' : '';
-    const opacityAssign = instanced ? '\n  vOpacity = aOpacity;' : '';
+    const perInstanceDecl = instanced
+      ? 'attribute float aOpacity;\nvarying float vOpacity;\nattribute float aOffBed;\nvarying float vOffBed;\n'
+      : '';
+    const perInstanceAssign = instanced ? '\n  vOpacity = aOpacity;\n  vOffBed = aOffBed;' : '';
     shader.vertexShader =
-      `${opacityDecl}attribute float aLayer;\nuniform float uLayerMin;\n` +
+      `${perInstanceDecl}attribute float aLayer;\nuniform float uLayerMin;\n` +
       shader.vertexShader.replace(
         '#include <begin_vertex>',
         '#include <begin_vertex>' +
-          opacityAssign +
+          perInstanceAssign +
           '\n  if (aLayer < uLayerMin) { transformed = vec3(0.0); }',
       );
     if (instanced) {
       shader.fragmentShader =
-        'varying float vOpacity;\n' +
+        'varying float vOpacity;\nvarying float vOffBed;\n' +
         shader.fragmentShader.replace(
           '#include <dithering_fragment>',
-          '#include <dithering_fragment>\n  gl_FragColor.a *= vOpacity;',
+          '#include <dithering_fragment>\n' +
+            '  gl_FragColor.a *= vOpacity;\n' +
+            // Keep a little of the shaded luminance so a solid red region
+            // still reads as individual beads rather than one flat blob, and
+            // force it fully opaque so a legend fade cannot hide it.
+            '  if (vOffBed > 0.5) {\n' +
+            '    float shade = 0.7 + 0.3 * max(max(gl_FragColor.r, gl_FragColor.g), gl_FragColor.b);\n' +
+            `    gl_FragColor = vec4(vec3(${OFF_BED_COLOR}) * shade, 1.0);\n` +
+            '  }',
         );
     }
   };
@@ -480,12 +548,17 @@ export function buildGcodeModel(
   source: GcodeLayerSource,
   colors: RoleColorPalette = ROLE_COLORS_DARK,
   glossEnabled = true,
+  bed: BedOutline | null = null,
 ): GcodeModel {
   const group = new Group();
+  if (bed) {
+    source.setBed(bed.width, bed.depth, bed.originOffsetX, bed.originOffsetY, bed.circular);
+  }
   const layerCount = source.layerCount();
 
   const layers: LayerInfo[] = [];
   const layerBlockData: Float32Array[][] = [];
+  const layerBlockOffBed: Uint8Array[][] = [];
   const layerBlockRoles: RoleName[][] = [];
   const roleTotals = emptyRoleCounts();
   const perLayerRoleCount = new Map<RoleName, Int32Array>();
@@ -498,6 +571,7 @@ export function buildGcodeModel(
     const buf = source.getLayer(i);
     const blocks = buf.blocksCount();
     const datas: Float32Array[] = [];
+    const offBeds: Uint8Array[] = [];
     const roles: RoleName[] = [];
     const blockLayout: { role: RoleName; count: number }[] = [];
     let layerSegments = 0;
@@ -511,6 +585,9 @@ export function buildGcodeModel(
       const role = ROLE_ID_TO_NAME[buf.blockRole(b)] || 'other';
 
       datas.push(data);
+      // Empty whenever the handle was given no bed — nothing is off a bed
+      // that was never named. See `GcodeHandle::set_bed`.
+      offBeds.push(buf.blockOffBed(b));
       roles.push(role);
       blockLayout.push({ role, count });
       roleTotals[role] += count;
@@ -525,6 +602,7 @@ export function buildGcodeModel(
     }
 
     layerBlockData.push(datas);
+    layerBlockOffBed.push(offBeds);
     layerBlockRoles.push(roles);
     layers.push({
       index: i,
@@ -579,7 +657,9 @@ export function buildGcodeModel(
       const geometry = seamDotGeometry.clone();
       const jointsOpacity = new InstancedBufferAttribute(new Float32Array(count).fill(1), 1);
       jointsOpacity.setUsage(35044 /* THREE.DynamicDrawUsage */);
+      const jointsOffBed = new InstancedBufferAttribute(new Float32Array(count), 1);
       geometry.setAttribute('aOpacity', jointsOpacity);
+      geometry.setAttribute('aOffBed', jointsOffBed);
       geometry.setAttribute('aLayer', new InstancedBufferAttribute(new Float32Array(count), 1));
       const dots = new InstancedMesh(geometry, material, count);
       dots.instanceMatrix.setUsage(35044 /* THREE.DynamicDrawUsage */);
@@ -598,6 +678,7 @@ export function buildGcodeModel(
         layerStart,
         layerMinUniform,
         jointsOpacity,
+        jointsOffBed,
       };
       continue;
     }
@@ -630,6 +711,14 @@ export function buildGcodeModel(
     segGeom.setAttribute('aOpacity', meshOpacity);
     segGeomLow.setAttribute('aOpacity', meshOpacity);
     jointGeom.setAttribute('aOpacity', jointsOpacity);
+
+    // Filled in pass 3 from the WASM mask; both tube LODs share the mesh one,
+    // exactly as they share the opacity and layer attributes above.
+    const meshOffBed = new InstancedBufferAttribute(new Float32Array(count), 1);
+    const jointsOffBed = new InstancedBufferAttribute(new Float32Array(count), 1);
+    segGeom.setAttribute('aOffBed', meshOffBed);
+    segGeomLow.setAttribute('aOffBed', meshOffBed);
+    jointGeom.setAttribute('aOffBed', jointsOffBed);
 
     const meshLayers = new InstancedBufferAttribute(new Float32Array(count), 1);
     const jointLayers = new InstancedBufferAttribute(new Float32Array(count), 1);
@@ -668,18 +757,23 @@ export function buildGcodeModel(
       accels: new Float32Array(count),
       meshOpacity,
       jointsOpacity,
+      meshOffBed,
+      jointsOffBed,
     };
   }
 
   // Pass 3 — fill instances, walking layers in order so each role's buffer ends
   // up layer-ascending (the invariant `layerStart` and the `count` prefix rely on).
   const cursors = emptyRoleCounts();
+  let offBedSegments = 0;
   for (let i = 0; i < layerCount; i++) {
     const datas = layerBlockData[i];
+    const offBeds = layerBlockOffBed[i];
     const roles = layerBlockRoles[i];
 
     for (let b = 0; b < datas.length; b++) {
       const data = datas[b];
+      const offBed = offBeds[b];
       const role = roles[b];
       const rs = roleSegmentsMap[role];
       if (!rs) {
@@ -723,6 +817,11 @@ export function buildGcodeModel(
           _dummy.updateMatrix();
           dots.setMatrixAt(globalI, _dummy.matrix);
           tags[globalI] = i;
+          // Painted like any other off-bed geometry, but not counted: a seam
+          // marker rides on an outer-wall segment that is already in the tally.
+          if (offBed?.[k]) {
+            (rs.jointsOffBed!.array as Float32Array)[globalI] = 1;
+          }
         }
       } else {
         const mesh = rs.mesh!;
@@ -763,6 +862,11 @@ export function buildGcodeModel(
 
           meshTags[globalI] = i;
           jointTags[globalI] = i;
+          if (offBed?.[k]) {
+            (rs.meshOffBed!.array as Float32Array)[globalI] = 1;
+            (rs.jointsOffBed!.array as Float32Array)[globalI] = 1;
+            offBedSegments++;
+          }
         }
       }
 
@@ -772,6 +876,8 @@ export function buildGcodeModel(
 
   const roleSegments: RoleSegments[] = Object.values(roleSegmentsMap) as RoleSegments[];
   for (const rs of roleSegments) {
+    if (rs.meshOffBed) rs.meshOffBed.needsUpdate = true;
+    if (rs.jointsOffBed) rs.jointsOffBed.needsUpdate = true;
     if (rs.mesh) {
       rs.mesh.instanceMatrix.needsUpdate = true;
       rs.mesh.geometry.getAttribute('aLayer').needsUpdate = true;
@@ -794,6 +900,7 @@ export function buildGcodeModel(
     visibleSegments: totalSegments,
     hiddenRoles: new Set<RoleName>(),
     detail: 'high',
+    offBedSegments,
   };
 }
 

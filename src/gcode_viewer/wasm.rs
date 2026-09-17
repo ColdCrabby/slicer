@@ -1,8 +1,9 @@
-use js_sys::Float32Array;
+use js_sys::{Float32Array, Uint8Array};
 use wasm_bindgen::prelude::*;
 
 use super::parser::{parse_estimated_print_time_s, parse_gcode_bytes};
-use super::types::InternalLayer;
+use super::types::{InternalLayer, FLOATS_PER_SEGMENT};
+use crate::scene::{BedConfig, BedShape};
 
 // ── GcodeLayerBuffer ────────────────────────────────────────────────────────
 
@@ -11,6 +12,7 @@ pub struct GcodeLayerBuffer {
     z: f32,
     blocks_roles: Vec<u8>,
     blocks_data: Vec<Float32Array>,
+    blocks_off_bed: Vec<Uint8Array>,
     nozzle_temp: f32,
     tool: u32,
     layer_time_s: f32,
@@ -40,6 +42,16 @@ impl GcodeLayerBuffer {
     #[wasm_bindgen(js_name = blockData)]
     pub fn block_data(&self, i: usize) -> Float32Array {
         self.blocks_data[i].clone()
+    }
+
+    /// One byte per segment of block `i`: `1` when the move leaves the bed.
+    ///
+    /// Empty until a bed has been handed to [`GcodeHandle::set_bed`] — a
+    /// G-code file says nothing about the machine it was sliced for, so
+    /// without one there is no outline to be outside of.
+    #[wasm_bindgen(js_name = blockOffBed)]
+    pub fn block_off_bed(&self, i: usize) -> Uint8Array {
+        self.blocks_off_bed[i].clone()
     }
 
     /// Nozzle target temperature (°C) active on this layer; `0.0` when unknown.
@@ -89,12 +101,34 @@ fn into_float32_array(data: &[f32]) -> Float32Array {
     Float32Array::from(data)
 }
 
-fn layer_to_buffer(layer: &InternalLayer) -> GcodeLayerBuffer {
+/// Flag every segment of a block whose start or end point leaves the bed.
+///
+/// Both endpoints are tested because a move that crosses the bed edge is
+/// unprintable for its whole length, and one endpoint alone would leave the
+/// half that is still on the plate looking fine.
+fn off_bed_mask(data: &[f32], bed: &BedConfig) -> Uint8Array {
+    let count = data.len() / FLOATS_PER_SEGMENT;
+    let mut mask = Vec::with_capacity(count);
+    for i in 0..count {
+        let seg = &data[i * FLOATS_PER_SEGMENT..];
+        let inside = bed.contains_xy(seg[0] as f64, seg[1] as f64)
+            && bed.contains_xy(seg[3] as f64, seg[4] as f64);
+        mask.push(u8::from(!inside));
+    }
+    Uint8Array::from(&mask[..])
+}
+
+fn layer_to_buffer(layer: &InternalLayer, bed: Option<&BedConfig>) -> GcodeLayerBuffer {
     let mut roles = Vec::with_capacity(layer.blocks.len());
     let mut data = Vec::with_capacity(layer.blocks.len());
+    let mut off_bed = Vec::with_capacity(layer.blocks.len());
     for b in &layer.blocks {
         roles.push(b.role.id());
         data.push(into_float32_array(&b.data));
+        off_bed.push(match bed {
+            Some(bed) => off_bed_mask(&b.data, bed),
+            None => Uint8Array::new_with_length(0),
+        });
     }
     let mut fan_keys = Vec::with_capacity(layer.meta.fans.len());
     let mut fan_speeds = Vec::with_capacity(layer.meta.fans.len());
@@ -106,6 +140,7 @@ fn layer_to_buffer(layer: &InternalLayer) -> GcodeLayerBuffer {
         z: layer.z,
         blocks_roles: roles,
         blocks_data: data,
+        blocks_off_bed: off_bed,
         nozzle_temp: layer.meta.nozzle_temp.unwrap_or(0.0),
         tool: layer.meta.tool,
         layer_time_s: layer.meta.layer_time_s.unwrap_or(0.0),
@@ -128,6 +163,7 @@ fn layer_to_buffer(layer: &InternalLayer) -> GcodeLayerBuffer {
 pub struct GcodeHandle {
     layers: Vec<InternalLayer>,
     estimated_print_time_s: Option<f32>,
+    bed: Option<BedConfig>,
 }
 
 #[wasm_bindgen]
@@ -142,7 +178,39 @@ impl GcodeHandle {
         GcodeHandle {
             layers: parse_gcode_bytes(bytes),
             estimated_print_time_s: parse_estimated_print_time_s(bytes),
+            bed: None,
         }
+    }
+
+    /// Tell the handle which bed the file is destined for, so every later
+    /// [`GcodeHandle::get_layer`] can mark the moves that leave it.
+    ///
+    /// Separate from [`GcodeHandle::parse`] because the two change on
+    /// different clocks: the file is parsed once, while the bed follows
+    /// whichever printer the user has selected.
+    #[wasm_bindgen(js_name = setBed)]
+    pub fn set_bed(
+        &mut self,
+        width: f64,
+        depth: f64,
+        origin_offset_x: f64,
+        origin_offset_y: f64,
+        circular: bool,
+    ) {
+        self.bed = Some(BedConfig {
+            width,
+            depth,
+            // Height plays no part in a per-move XY test; the preview draws
+            // what the G-code already says the Z is.
+            height: f64::INFINITY,
+            origin_offset_x,
+            origin_offset_y,
+            shape: if circular {
+                BedShape::Circular
+            } else {
+                BedShape::Rectangular
+            },
+        });
     }
 
     /// Whole-print time estimate from the file's own header, in seconds.
@@ -184,11 +252,14 @@ impl GcodeHandle {
     /// Returns a `JsValue` error if `index >= layer_count()`.
     #[wasm_bindgen(js_name = getLayer)]
     pub fn get_layer(&self, index: usize) -> Result<GcodeLayerBuffer, JsValue> {
-        self.layers.get(index).map(layer_to_buffer).ok_or_else(|| {
-            JsValue::from_str(&format!(
-                "layer index {index} out of range (layer_count = {})",
-                self.layers.len()
-            ))
-        })
+        self.layers
+            .get(index)
+            .map(|layer| layer_to_buffer(layer, self.bed.as_ref()))
+            .ok_or_else(|| {
+                JsValue::from_str(&format!(
+                    "layer index {index} out of range (layer_count = {})",
+                    self.layers.len()
+                ))
+            })
     }
 }

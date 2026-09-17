@@ -126,8 +126,9 @@ Select more than one and the card keeps working:
 - **Size in mm** measures each object separately, so a mixed batch all reaches
   the size you asked for.
 
-The header reads `3 objects` for a batch, and shows nothing for a single one —
-every duplicate shares a filename, so naming it wouldn't tell you which.
+The header names the tool you are holding — `Move`, `Rotate`, `Scale` — and adds
+the batch size for a multiple selection (`Rotate · 3 objects`). It doesn't name
+the object: every duplicate shares a filename, so that wouldn't tell you which.
 
 ## Placing everything automatically
 
@@ -193,6 +194,10 @@ Two badges can appear on an object:
   against your printer's actual bed shape, not just a box.
 - **Overlaps another object** — its footprint intersects another part's. Parts
   touching edge-to-edge don't count, so a tight auto-arrangement stays clean.
+
+An object outside the build area also turns **red on the plate**, and goes back
+to its normal colour the moment you move it back on, so you can drag it into
+place without watching the panel.
 
 Both are warnings. Slicing still runs — the check is an estimate and refusing
 would be more annoying than useful — but you should look before you print.

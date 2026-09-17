@@ -1,4 +1,13 @@
-<div class="viewer-host" #host></div>
+<!-- Focusable so the scene is a place the keyboard can be, not just a hole in
+     the tab order: Tab from here reaches the active tool card, Shift+Tab from
+     that card comes back. -->
+<div
+  class="viewer-host"
+  #host
+  tabindex="0"
+  aria-label="3D scene"
+  (pointerdown)="releaseKeyboardFocus()"
+></div>
 <nexus-brush-popout />
 
 <div class="capture-shutter" [class.is-active]="thumbnailShutterActive()" aria-hidden="true"></div>
@@ -27,6 +36,12 @@
   </div>
 }
 <div class="viewer-bottom">
+  @if (mode() === 'gcode' && offBedSegments() > 0) {
+    <nexus-inline-notice class="viewer-alert" tone="danger" title="Outside the build area">
+      {{ offBedSegments() }} extrusion{{ offBedSegments() === 1 ? '' : 's' }} leave the bed and are
+      shown in red. The printer cannot reach them.
+    </nexus-inline-notice>
+  }
   @if (statsVisible()) {
     <div class="viewer-metrics" role="status" aria-live="polite" aria-label="Scene diagnostics">
       @if (fps() > 0) {

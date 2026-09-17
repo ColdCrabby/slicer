@@ -1,15 +1,22 @@
 <!-- Every button here is icon-only, and the `tooltip` directive contributes no
      accessible name — on a tablet there is no hover to reveal it either, so
      each one carries an explicit `aria-label` mirroring its tooltip. -->
-<div class="view-group">
+<div class="view-group view-group--start">
   @if (showSecondaryViewTools()) {
     @let projectionLabel =
       selectedView() === 'ortho'
         ? 'Orthographic projection — switch to perspective'
         : 'Perspective projection — switch to orthographic';
+    <!-- The two grid glyphs differ only in whether their lines converge, and at
+         18px that difference is gone — so the icon alone cannot say which
+         projection is live. Perspective is the default and orthographic the
+         deliberate departure from it, which makes this a pressed state like any
+         other toggle here, and the fill carries what the glyph cannot. -->
     <button
       class="reset-view-button"
       type="button"
+      [class.active]="selectedView() === 'ortho'"
+      [attr.aria-pressed]="selectedView() === 'ortho'"
       [tooltip]="projectionLabel"
       [attr.aria-label]="projectionLabel"
       [tooltipShortcut]="keyboardShortcuts.shortcutFor('toggle-projection')"
@@ -49,7 +56,9 @@
       [attr.aria-pressed]="gravityEnabled()"
       (click)="toggleGravity()"
     >
-      <nexus-icon name="depth"></nexus-icon>
+      <!-- Iconoir names this for the alignment operation; what it draws is a
+           solid object sitting on a baseline, which is what gravity does. -->
+      <nexus-icon name="align-top-box"></nexus-icon>
     </button>
 
     <button
@@ -105,11 +114,9 @@
 </div>
 
 @if (editingPlate()) {
-  <!-- The tools and the cards they open travel together: each card hangs
-       directly off the buttons that reveal it, rather than in a far corner
-       where the connection has to be inferred. Absolutely positioned, so the
-       toolbar's own height (and the --main-scene-inset derived from it) never
-       changes as cards come and go. -->
+  <!-- Only the buttons live here. The cards they open are docked down the left
+       edge of the scene by the shell — see `.tool-dock` in slicing-shell.scss
+       for why they cannot hang underneath these buttons. -->
   <div class="tool-cluster">
     <nexus-card class="button-radio-group icon-group">
       <div class="tool-modes" [(radioGroup)]="selectedObjectMode">
@@ -135,7 +142,7 @@
           aria-label="Scale along axes"
           [tooltipShortcut]="keyboardShortcuts.shortcutFor('object-mode-scale')"
         >
-          <nexus-icon name="enlarge"></nexus-icon>
+          <nexus-icon name="scale-frame-enlarge"></nexus-icon>
         </button>
         <button
           radioButtonValue="pullToFloor"
@@ -143,7 +150,7 @@
           aria-label="Pull a face to the floor"
           [tooltipShortcut]="keyboardShortcuts.shortcutFor('object-mode-pull-to-floor')"
         >
-          <nexus-icon name="constrained-surface"></nexus-icon>
+          <nexus-icon name="select-face-3d"></nexus-icon>
         </button>
         <button
           radioButtonValue="paint"
@@ -153,17 +160,30 @@
         >
           <nexus-icon name="palette"></nexus-icon>
         </button>
+
+        <!-- Placing is a tool like the rest, not a toggle beside them: picking
+             it puts the others away, and picking one of them puts it away. The
+             hairline marks what makes it different — it acts on the whole plate
+             rather than on the selection, so it brings no gizmo with it. -->
+        <span class="tool-divider" aria-hidden="true"></span>
+
+        <button
+          radioButtonValue="place"
+          [tooltip]="'Place objects — ' + placementSummary()"
+          [attr.aria-label]="'Place objects — ' + placementSummary()"
+          [tooltipShortcut]="keyboardShortcuts.shortcutFor('place-objects')"
+        >
+          <nexus-icon name="magic-wand"></nexus-icon>
+        </button>
       </div>
 
-      <!-- Placing is an object operation, so it sits with the object tools.
-           It is an action rather than a mode, hence outside the radio group;
-           like its neighbours it reveals a card of sub-settings below. -->
-      <span class="tool-divider" aria-hidden="true"></span>
-
       <!-- Touch and pen have no ⌘/Ctrl to hold, so building a multi-object
-           selection needs a control of its own. Offered only where there is no
-           modifier key to reach for. -->
+           selection needs a control of its own. A modifier rather than a tool —
+           it changes what the next tap does without replacing what is active —
+           so it sits outside the radio group. -->
       @if (showMultiSelect()) {
+        <span class="tool-divider" aria-hidden="true"></span>
+
         <button
           type="button"
           [class.active]="multiSelect()"
@@ -178,29 +198,11 @@
           <nexus-icon name="frame-select"></nexus-icon>
         </button>
       }
-
-      <button
-        type="button"
-        [class.active]="placementOpen()"
-        [attr.aria-expanded]="placementOpen()"
-        [tooltip]="'Place objects — ' + placementSummary()"
-        [attr.aria-label]="'Place objects — ' + placementSummary()"
-        [tooltipShortcut]="keyboardShortcuts.shortcutFor('place-objects')"
-        (click)="togglePlacement()"
-      >
-        <nexus-icon name="magic-wand"></nexus-icon>
-      </button>
     </nexus-card>
-
-    <div class="tool-panels">
-      <nexus-transform-panel />
-      <nexus-placement-panel />
-      <nexus-paint-panel />
-    </div>
   </div>
 }
 
-<div class="view-group">
+<div class="view-group view-group--end">
   <!-- Only offered once a slice exists: an automatic re-slice is a reaction to
        drift from a previous result, so before the first one there is nothing
        for this to do. -->
@@ -228,7 +230,7 @@
       [tooltipShortcut]="keyboardShortcuts.shortcutFor('toggle-view-mode')"
       (click)="toggleViewMode()"
     >
-      <nexus-icon [name]="viewMode() === 'gcode' ? 'cube' : 'multiple-pages'"></nexus-icon>
+      <nexus-icon [name]="viewMode() === 'gcode' ? 'cube' : 'table-rows'"></nexus-icon>
     </button>
   }
 

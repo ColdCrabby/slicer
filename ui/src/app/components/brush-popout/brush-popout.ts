@@ -21,7 +21,7 @@ const BRUSH_MODE_OPTIONS: readonly SegmentOption[] = [
 ];
 
 /** Half the card's width, used to centre it on the summoning pointer. */
-const CARD_HALF_WIDTH_PX = 108;
+const CARD_HALF_WIDTH_PX = 132;
 /** Gap between the pointer and the card's top edge. */
 const POINTER_OFFSET_PX = 16;
 

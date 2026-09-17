@@ -21,7 +21,9 @@
                 [tooltip]="'Drop to the floor'"
                 (click)="dropToFloor()"
               >
-                <nexus-icon name="arrow-down"></nexus-icon>
+                <!-- Same glyph as the gravity toggle: one is this on demand,
+                     the other is this after every move. -->
+                <nexus-icon name="align-top-box"></nexus-icon>
               </button>
             </div>
           }
@@ -80,12 +82,13 @@
     <div class="tp-body">
       @switch (mode()) {
         @case ('translate') {
-          @for (axis of axes; track axis) {
+          @for (axis of axes; track axis; let first = $first) {
             <div class="tp-row">
               <span class="tp-axis" [attr.data-axis]="axisLabels[axis]">{{
                 axisLabels[axis]
               }}</span>
               <nexus-number-input
+                [attr.data-tool-focus]="first ? '' : null"
                 [value]="position()[axis]"
                 [step]="1"
                 [precision]="2"
@@ -100,12 +103,13 @@
           }
         }
         @case ('rotate') {
-          @for (axis of axes; track axis) {
+          @for (axis of axes; track axis; let first = $first) {
             <div class="tp-row">
               <span class="tp-axis" [attr.data-axis]="axisLabels[axis]">{{
                 axisLabels[axis]
               }}</span>
               <nexus-number-input
+                [attr.data-tool-focus]="first ? '' : null"
                 [value]="rotation()[axis]"
                 [step]="1"
                 [precision]="1"
@@ -127,13 +131,14 @@
             (valueChange)="setScaleUnit($event)"
             label="Scale unit"
           />
-          @for (axis of axes; track axis) {
+          @for (axis of axes; track axis; let first = $first) {
             <div class="tp-row">
               <span class="tp-axis" [attr.data-axis]="axisLabels[axis]">{{
                 axisLabels[axis]
               }}</span>
               @if (scaleUnit() === 'percent') {
                 <nexus-number-input
+                  [attr.data-tool-focus]="first ? '' : null"
                   [value]="scalePercent()[axis]"
                   [step]="1"
                   [precision]="1"
@@ -146,6 +151,7 @@
                 />
               } @else {
                 <nexus-number-input
+                  [attr.data-tool-focus]="first ? '' : null"
                   [value]="size()[axis]"
                   [step]="1"
                   [precision]="2"

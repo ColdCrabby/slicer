@@ -222,8 +222,22 @@
         }
       </div>
 
-      <div class="ctl-row" (wheel)="onWheelSegment($event)">
-        <label class="ctl-label">Progress</label>
+      <!-- ── Progress: the same shape as Layer, one axis down ──
+           A header with its own readout rather than the inline label this used
+           to carry. Two reasons: the label indented the slider, so the two
+           tracks a user drags between never lined up; and "Progress" alone said
+           nothing about where in the layer you were, which is the one number
+           the control is for. The header is also what puts real room between
+           the two rows of arrows — stacked directly, the layer-forward and
+           progress-forward buttons were a few pixels apart at the same x. -->
+      <div class="ctl-group" (wheel)="onWheelSegment($event)">
+        <header class="insp-head">
+          <span class="insp-title">Progress</span>
+          <span class="layer-readout">
+            <span class="cur">{{ segmentSliderValue() }}</span>
+            <span class="tot">/ {{ layerSegmentCount() }}</span>
+          </span>
+        </header>
         <div class="stepper-row">
           @if (showStepButtons()) {
             <button
@@ -237,7 +251,7 @@
             </button>
           }
           <nexus-slider
-            class="ctl-field stepper-field"
+            class="stepper-field"
             [min]="0"
             [max]="layerSegmentCount()"
             [value]="segmentSliderValue()"

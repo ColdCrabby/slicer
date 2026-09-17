@@ -39,7 +39,13 @@ Roles are grouped so you can toggle a whole family at once: **Shell**,
 - **Show all layers** vs **current layer only** — the stack, or one slice in
   isolation. Isolation is better for looking at a specific problem.
 - **Progress slider** — scrub within a layer. `→` / `←` step move by move, so
-  you can follow the nozzle through a tricky bit.
+  you can follow the nozzle through a tricky bit. The count beside it is how far
+  into the layer you are — move 137 of 138, say — so you can tell whether the
+  bit you're looking at is near the start of the layer or the end of it.
+- **On a touchscreen**, arrow buttons flank both sliders, since there are no
+  arrow keys to press. They step by exactly the same amount, and holding one
+  runs through the layers — faster the longer you hold — the same way holding
+  `+` on a number field does.
 - **Hover** any line for its role, layer, Z height, width, height and speed.
 
 ## Pausing mid-print
@@ -91,6 +97,18 @@ guessing.
 - Stringing → turn on **travel** and look for long moves across open space.
 - Poor overhangs → check **fan speed** and **layer time** on those layers.
 - Ringing → check **acceleration** and **speed** around corners.
+
+## Moves that leave the bed
+
+Anything the preview draws in **bright red** is a move the printer cannot make,
+because one end of it is off the bed. It stays red in every colour mode, so
+switching to Speed or Fan won't hide it, and a note at the top of the viewer
+counts how many there are.
+
+The usual culprit is not the model at all — it's a skirt, a brim or a prime
+line with enough distance or loops to push it over the edge of a full plate.
+Reduce the skirt distance or loop count, shrink the brim, or move the model
+inwards.
 
 ## The stale-preview rule
 

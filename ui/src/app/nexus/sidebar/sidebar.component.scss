@@ -80,22 +80,6 @@ $edge-control-top: calc(var(--main-scene-inset, 48px) + var(--spacing-sm));
   }
 }
 
-// Dismiss layer for an overlay peek. Deliberately **invisible**: it exists only
-// to give touch (and mouse) a plain tap-outside-to-close gesture, which is what
-// iPad had no way to do. Dimming the scene behind it was the wrong call — the
-// panel is a peek, not a modal, and the whole point of peeking is to keep
-// looking at the plate while you adjust it.
-.sidebar-scrim {
-  position: fixed;
-  inset: 0;
-  z-index: -1;
-  border: none;
-  padding: 0;
-  margin: 0;
-  background: transparent;
-  cursor: default;
-}
-
 // Dock/undock affordance rendered as a tab that sits *behind* the panel: its
 // inner edge tucks under the panel so the panel masks the seam and any shadow
 // bleed, leaving only a rounded nub peeking out on the right.
@@ -297,16 +281,17 @@ $edge-control-top: calc(var(--main-scene-inset, 48px) + var(--spacing-sm));
   }
 }
 
-// A fingertip needs the full 44px, and there is no hover state to fall back on.
+// Edge affordances with nothing around them to hit by mistake, and no hover
+// state to fall back on, so both take the isolated target size. The pin is
+// already 46px tall — only its narrow axis needs the nudge.
 @include coarse-pointer {
   .sidebar-reveal-hint {
-    min-height: 44px;
+    min-height: var(--touch-target);
     padding-right: var(--spacing-md);
   }
 
   .sidebar-pin {
-    width: 32px;
-    height: 56px;
+    width: 30px;
   }
 }
 
@@ -321,11 +306,11 @@ $edge-control-top: calc(var(--main-scene-inset, 48px) + var(--spacing-sm));
   cursor: col-resize;
   z-index: 200;
 
-  // Expand the tap target on touch devices without affecting the visual width.
-  @media (pointer: coarse) {
-    width: 20px;
-    right: -8px;
-  }
+  // No touch enlargement, deliberately. Widening the strip and hanging it over
+  // the panel edge put an invisible drag zone on top of the scene, so a tap
+  // aimed just outside the sidebar started a resize instead — and resizing is a
+  // slow, deliberate gesture nobody performs by accident at any width. The one
+  // control where growing the target cost more than it bought.
 
   background: transparent;
   transition: background 120ms ease;

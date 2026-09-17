@@ -10,7 +10,11 @@
    indistinguishable as a family. Keep them in step if either changes. */
 .placement-panel {
   pointer-events: auto;
-  width: 216px;
+  // 264px, not the 216 these cards used to be: below ~264 the brush-mode
+  // segmented gives up on one row and stacks its three options into a list, and
+  // the docked column has the width to spare. The three cards move together —
+  // they are siblings and must stay indistinguishable.
+  width: 264px;
   padding: var(--spacing-sm);
   display: flex;
   flex-direction: column;
@@ -192,8 +196,8 @@
 /* Matches the transform card's header actions — same row, same size. */
 @include coarse-pointer {
   .pp-action {
-    width: 36px;
-    height: 36px;
+    width: var(--touch-row);
+    height: var(--touch-row);
     --icon-size: 17px;
   }
 }

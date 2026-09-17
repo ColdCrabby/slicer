@@ -109,7 +109,13 @@ export class SliceControl {
    */
   protected readonly statusLine = computed(() => {
     const s = this.slicer.status();
-    if (s === 'error') return 'Slice failed — check the status panel';
+    if (s === 'error') {
+      // The reason, not a pointer to it. This line is the only place a slice's
+      // outcome is reported, so a failure that says "look elsewhere" forces a
+      // second surface to exist just to deliver the sentence that matters.
+      const why = this.slicer.lastError();
+      return why ? `Slice failed — ${why}` : 'Slice failed — check the status panel';
+    }
     if (s === 'uploading') return 'Uploading model…';
     if (s === 'slicing') {
       return this.slicer.currentPhaseLabel() ?? 'Preparing…';

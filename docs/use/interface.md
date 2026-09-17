@@ -58,15 +58,28 @@ Floating under the model, this is where you manipulate what's on the plate.
 | **Rotate**          | `R` | Spin around an axis                                  |
 | **Scale**           | `S` | Resize, uniformly or per axis                        |
 | **Pull to floor**   | `F` | Click a face; that face becomes the bottom           |
-| **Multi-select**    |     | Touch screens only — each tap adds or removes        |
+| **Paint support**   | `B` | Brush support enforcers and blockers onto a model    |
 | **Place objects**   | `A` | Auto-arrange everything on the bed                   |
+| **Multi-select**    |     | Touch screens only — each tap adds or removes        |
 | **Add a model**     |     | Same as dropping a file in                           |
 | **Gravity**         | `G` | Objects drop to the floor after every move           |
 | **Model / preview** | `P` | Switch between the model and the sliced G-code       |
 
-Picking a tool opens a small card beneath it with numeric fields — exact
-position, rotation in degrees, size in millimetres or percent. Type a number if
-dragging isn't precise enough.
+Picking a tool opens a small card with numeric fields — exact position, rotation
+in degrees, size in millimetres or percent. Type a number if dragging isn't
+precise enough. The card docks down the **left edge of the plate**, not under the
+toolbar: your models sit in the middle of the view, and a card there covers the
+very thing the tool is for — painting a model you can't see is no use.
+
+**One tool at a time, one card at a time.** Picking a tool puts the last one's
+card away, and the card names the tool you are holding.
+
+**You can stay on the keyboard.** `Tab` from the plate jumps straight into the
+open card — onto the X field, the brush mode, or the Place button, whichever the
+tool calls for — and `Esc` hands you back to the plate. Multi-select is the
+exception: it changes what the next tap does rather than replacing the tool, so
+it sits apart from the others and stays on across them. `Esc` drops the placing
+tool back to select-and-move.
 
 The plate-editing tools disappear in G-code preview. There's nothing to edit
 there, and a change you can't see happen is worse than no change.
@@ -183,10 +196,19 @@ the slicer remembers what you chose.
 
 ## Notifications
 
-Messages appear bottom-left — top of the screen on a phone, where the sheet
-isn't. Info and success fade after a few seconds; errors stay until you dismiss
-them. Longer jobs get a progress strip at the top that turns into a notification
-when it's done.
+Anything about the plate — a model being added, a job going to a printer, a
+change someone else made — appears as a pill at the top of the scene, just under
+the view toolbar. A longer job fills its pill as it runs and finishes in the
+same one, so you never have to look somewhere else for the result. Most fade
+after a few seconds; hovering one holds it while you read.
+
+Messages about the app itself, like a new version waiting to be loaded, dock at
+the bottom of the window instead — the top of the screen on a phone, where the
+sheet isn't.
+
+Everything else says its piece where it happened: a preset that would not import
+says so in the picker, and a slice reports its result — including why it failed
+— on the Slice button's own status line.
 
 ## Moving between Home, Slice and Settings
 
@@ -277,13 +299,18 @@ on its own.
   just a header — `G-code · 42 / 180`, `Objects 2`. Tap a header to open it, tap
   again to fold. Your choice sticks from then on.
 - **Print settings are a drawer**, reached from the tab on the left edge just
-  below the toolbar. Tap it to open, tap outside to close. It's out of the middle
-  of the screen on purpose: that's where your model is, and the plate stays
-  visible behind the drawer rather than being dimmed out.
+  below the toolbar. Tap it to open, tap outside to close — and that tap still
+  lands where you aimed it, so selecting a model or spinning the camera closes
+  the drawer in the same move. It's out of the middle of the screen on purpose:
+  that's where your model is, and the plate stays visible behind the drawer
+  rather than being dimmed out.
 - **Panels use the room they have.** Unfolded, the G-code inspector shows its
   whole legend and both sliders without scrolling.
-- **Everything is finger-sized.** Buttons, dropdowns, the layer slider and the
-  legend chips are all sized for a fingertip rather than a cursor.
+- **Everything is finger-sized — until you pick up a pen.** Buttons, dropdowns,
+  the layer slider and the legend chips grow for a fingertip. An Apple Pencil is
+  more accurate than a mouse, so as soon as one touches the screen the interface
+  goes back to its compact sizes and gives the room to your model instead. Put
+  the pen down and touch the glass, and it comes back. Nothing to set.
 
 Split View and Slide Over shrink the window, and the layout follows: below about
 1024 points wide you get the folded arrangement on any device, including a
@@ -308,6 +335,10 @@ narrow window on a desktop.
 - **Palm rejection** is on by default. While a pen is in use, the hand resting on
   the glass is ignored, so the view doesn't lurch mid-stroke. Turn it off in
   **Settings → General → Controls** if you never use a stylus.
+- **The sidebar's edge resizes at the same width as on a desktop.** It's a thin
+  line on purpose: a fat invisible grab zone hanging over the plate turned taps
+  near the panel into accidental resizes, and resizing is a slow, deliberate drag
+  you were never going to start by mistake.
 
 Two fingers pinch to zoom, drag to pan and twist to roll, anywhere on the plate.
 
@@ -339,7 +370,8 @@ nothing to install — open the slicer's address in your phone's browser.
   and the download / send buttons beside it. After slicing, the G-code inspector
   opens inside that sheet and scrolls — Slice stays put.
 - **Print settings are a drawer.** Pull the tab on the left edge, or tap it. Tap
-  anywhere outside to close.
+  anywhere outside to close — the tap reaches the plate as well, so it doubles as
+  your next gesture.
 - **The objects list is folded** to a chip showing how many models are on the
   plate. Tap it to open the list; a warning triangle appears on the chip if
   something can't print where it sits, so a folded list never hides a problem.

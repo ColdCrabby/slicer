@@ -54,7 +54,7 @@ ui/src/app/
 │   ├── settings-panel/    schema-driven forms
 │   ├── file-upload/       drag-and-drop, progress, upload-guard hook
 │   ├── history-panel/     past slice runs from the server's SQLite ledger
-│   ├── status-panel/ connection-state/ notification-center/ logo/
+│   ├── status-panel/ connection-state/ notices/ logo/
 │   └── …                  card, list-history, viewport-cube
 ├── services/
 │   ├── scene-engine.service.ts       wraps the WASM SceneHandle (single instance)
@@ -74,7 +74,7 @@ ui/src/app/
 │   ├── object-tracker/               per-object UI state
 │   ├── print-area/                   build-volume + bed config from server
 │   ├── history.ts                    slice history client
-│   ├── notifications.ts              toast layer
+│   ├── notifications.ts              the app's one voice (see below)
 │   ├── browser-storage.ts            localStorage wrapper
 │   ├── logger.service.ts             structured logger (mirrors server logs in console)
 │   └── app-theme.ts                  light / dark token switcher
@@ -290,6 +290,54 @@ cannot see change.
 
 ---
 
+## Telling the user something
+
+The app has **one voice, in three places**, and which place a message lands in
+is decided by what the message is *about* — never by the call site's convenience.
+
+| Tier | Surface | For |
+| --- | --- | --- |
+| Inline | `nexus-inline-notice`, beside the control | anything anchored to something the user can see |
+| Scene | `nexus-scene-notices`, centred under the view toolbar | the plate, the models, the slice, the printer |
+| Window | `nexus-app-notices`, docked bottom-centre | the app itself, and anything raised with no scene on screen |
+
+Four rules hold it together.
+
+**A message that has a place on screen goes to that place.** A failed catalog
+import belongs in the picker the user is looking at — often inside a wizard
+*over* the page — not in a corner of the window behind it. This is why
+`CatalogPicker` takes an `importError` input rather than every caller reaching
+for the notification service, and why the Danger Zone and the home drop target
+carry their own outcomes.
+
+**The caller never picks a dock.** `NotificationService` routes by whether a
+scene host is mounted (`registerSceneHost`, claimed by `NexusSlicingShell`), so
+a model the OS hands us during a cold launch is announced in the window and the
+same code slicing on a plate is announced over it. Only `scope: 'app'` overrides
+that, and only the reload prompt uses it.
+
+**A job resolves where it ran.** `task()` → `updateTask()` → `resolveTask()`
+fills, recolours and retires *one* pill. Handing a finished job to a second
+surface in another corner made the user find the result somewhere other than
+where they had been watching it.
+
+**One event, one surface.** The slice dock states a slice's outcome for as long
+as it stands — including the reason it failed, via `Slicer.lastError` — so no
+notice repeats it. The celebration overlay is the single exception, and only for
+a print actually starting on a machine, which is something the notice does not
+say.
+
+**A notice is never cut off in the ordinary case.** The pill is a capsule while
+the text fits on one line and becomes a rounded card once it wraps — `NoticePill`
+observes its own label to know which, because whether a line breaks depends on
+the text, the font the host resolved and the width the dock has left, none of
+which CSS can ask about. Two lines is the ceiling, so a stack trace cannot grow
+a card over the plate; past it the text ellipsises and hover carries the rest.
+
+The floating docks are deliberately **not** bottom-left: that corner belongs to
+the object list and the build-area warning, and a stack of messages over them
+covered the two things most worth reading.
+
 ## Phones and tablets
 
 The desktop layout assumes horizontal room the slicer does not have on a
@@ -308,7 +356,8 @@ mouse. So the shell asks three separate questions and answers them independently
 | -------------------------------------- | ------------------ | ------------------- | ----------------------------- |
 | May the layout keep its desktop shape? | `handheld()`       | `isHandheld()`      | phones                        |
 | Must chrome over the scene fold away?  | `compact()`        | `isCompact()`       | phones, tablets, ≤1024px      |
-| How big must a target be?              | `coarse-pointer()` | `isCoarsePointer()` | phones, tablets, touchscreens |
+| Is there a cursor to hover with?       | `coarse-pointer()` | `isCoarsePointer()` | phones, tablets, touchscreens |
+| How big must a target be?              | `--touch-*` tokens | `isFingertip()`     | the same, minus a live stylus |
 
 ```mermaid
 flowchart LR
@@ -344,16 +393,39 @@ flowchart LR
   so where two blocks set the same property at the same specificity the later
   one wins. Order them **compact → handheld → coarse-pointer**, and prefer
   setting a value in exactly one of them.
+- **A pen is coarse and precise at once, and those are separate answers.**
+  `pointer: coarse` is all the platform will say: iPadOS reports it whether the
+  glass is being touched by a fingertip or by a Pencil. The affordances that
+  exist because there is no hover or no modifier key — revealed row actions,
+  the multi-select toggle, the G-code step buttons — belong on screen for both,
+  so they stay on `coarse-pointer()`. **Target size is the narrower question**,
+  and a Pencil aims better than a mouse: `Viewport` watches `pointerType` and
+  marks `html.is-stylus` while a pen is in use, which reverts every `--touch-*`
+  token in [`_touch.scss`](src/styles/base/_touch.scss) to the shared component's
+  own cursor size. A component reads the token rather than the class, because
+  emulated encapsulation rewrites an `<html>` ancestor selector out of reach
+  while a custom property set on one still inherits.
+- **Sizing is two numbers, not one floor.** `--touch-target` (40px) is for an
+  isolated control where a miss does nothing; `--touch-row` (36px) is for a form
+  or list row whose neighbours are harmless to land on, of which the settings
+  panel has ~140 in a single scroll. Apple's 44pt HIG floor is written for a
+  phone held in one hand — applied to every control on a 13" iPad it reads as a
+  kiosk, so it is not the blanket value here.
 - **`html.is-handheld` / `html.is-coarse-pointer` are for the shared components
   only.** [`_handheld.scss`](src/styles/base/_handheld.scss) adapts the layout of
   `@coldcrabby/ui` primitives we do not own (stacking `nexus-field-row`, trimming
   modal gutters); [`_touch.scss`](src/styles/base/_touch.scss) adapts their
-  _size_ (34px controls to 44px, an 18px slider thumb to 26px). A component's own
-  `:host` block compiles to an attribute selector, which a plain element selector
-  loses to; the class buys exactly the specificity needed without `!important`.
-  Both are set before first paint by the inline script in `index.html`, and
-  `Viewport` keeps them live (`AppShell` constructs it, so they exist on every
-  route).
+  _size_. A component's own `:host` block compiles to an attribute selector,
+  which a plain element selector loses to; the class buys exactly the specificity
+  needed without `!important`. Both are set before first paint by the inline
+  script in `index.html`, and `Viewport` keeps them live (`AppShell` constructs
+  it, so they exist on every route).
+- **Not every touch adaptation is worth making.** The sidebar's resize strip is
+  4px wide on every device on purpose: widening it and letting it overhang the
+  panel edge put an invisible drag zone over the scene, so a tap aimed just
+  outside the sidebar started a resize. Resizing is slow and deliberate — nobody
+  performs it by accident at any width — and the enlargement cost more than it
+  bought.
 - **`handheld()` keeps a width-bounded short-landscape arm**, so a docked-but-
   short desktop window is not mistaken for a handset. A height test alone
   reclassifies a perfectly roomy window the moment someone drags it shorter.

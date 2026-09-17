@@ -17,31 +17,6 @@
     </div>
   </div>
 
-  <!--
-    Someone else changed this plate. A prompt rather than a reload: two people
-    on one plate is ordinary, and taking the scene away from whoever typed
-    second is worse than letting them choose the moment.
-  -->
-  @if (changedElsewhere(); as change) {
-    <div class="plate-changed" role="status" aria-live="polite">
-      <nexus-icon class="plate-changed__icon" name="cloud" />
-      <span class="plate-changed__text">This workplate was changed elsewhere.</span>
-      <button type="button" class="plate-changed__action" (click)="refreshPlate(change.uuid)">
-        Reload plate
-      </button>
-      <button
-        nexusIconButton
-        size="sm"
-        type="button"
-        aria-label="Keep working on my version"
-        tooltip="Keep mine"
-        (click)="keepMine()"
-      >
-        <nexus-icon name="xmark" />
-      </button>
-    </div>
-  }
-
   @if (restoring()) {
     <div class="drop-overlay restore-overlay" aria-live="polite">
       <div class="drop-card">

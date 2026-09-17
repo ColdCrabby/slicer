@@ -25,7 +25,7 @@ import { PrintArea } from '../../services/print-area';
 import { ActiveSelection } from '../../services/profiles/active-selection';
 import { SceneCommand } from '../../services/scene-command/scene-command';
 import { SceneEngine } from '../../services/scene-engine';
-import type { SceneOp, SupportPaintState } from '../../services/scene-engine';
+import type { SceneObjectSnapshot, SceneOp, SupportPaintState } from '../../services/scene-engine';
 import { ViewerControl } from '../../services/viewer-control';
 import { Viewport } from '../../services/viewport';
 import { WorkplateObjects } from '../../services/workplate-objects';
@@ -43,11 +43,12 @@ import {
 import { GcodeHoverProbe, type GcodeHoverHit } from './gcode-hover';
 import { NozzleMarker } from './gcode-nozzle-marker';
 import { GcodeOrchestrator } from './gcode-orchestrator';
+import type { BedOutline } from './gcode-layer-renderer';
 import { preferredHoverPlacement } from './hover-placement';
 import type { GizmoDelta } from './gizmo';
 import { ViewerScene } from './scene';
 import type { ViewerView } from './scene';
-import { applyFloating, type FloatingPlacement } from '@coldcrabby/ui';
+import { applyFloating, InlineNotice, type FloatingPlacement } from '@coldcrabby/ui';
 import { Slicer } from '../../services/slicer';
 
 export type ViewerMode = 'model' | 'gcode';
@@ -64,6 +65,21 @@ export type ModelSource = string | URL | File | Blob | ArrayBuffer;
  */
 const MODEL_COLOR_DARK = 0xbcc0c6;
 const MODEL_COLOR_LIGHT = 0xccd0d4;
+
+/**
+ * Colour an object takes while it cannot print where it sits — any part of it
+ * outside the build volume.
+ *
+ * The `--color-danger` token of each theme, so the mesh on the plate and the
+ * warning row in the objects panel are unmistakably about the same object.
+ * Repainting the object itself (rather than adding an outline, a badge or a
+ * pulse) is what makes the fault impossible to miss without adding anything
+ * that keeps moving in the corner of the user's eye while they fix it. Both
+ * shades are chosen to stay clearly red under the selection highlight's warm
+ * emissive, since the object is usually selected while being dragged clear.
+ */
+const OUT_OF_BOUNDS_COLOR_DARK = 0xf16b6b;
+const OUT_OF_BOUNDS_COLOR_LIGHT = 0xdc4b47;
 
 /**
  * Model specular colour when the "Gloss" setting is on — a visible, colour-
@@ -148,7 +164,7 @@ const THUMBNAIL_POLAROID_MS = 3200;
 @Component({
   selector: 'nexus-viewer',
   standalone: true,
-  imports: [BrushPopout],
+  imports: [BrushPopout, InlineNotice],
   templateUrl: './viewer.html',
   styleUrl: './viewer.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -166,6 +182,13 @@ export class Viewer {
 
   readonly loadComplete = output<{ mode: ViewerMode; segments: number }>();
   readonly loadError = output<{ mode: ViewerMode; error: unknown }>();
+
+  /**
+   * Extrusions in the current preview that leave the bed. The beads themselves
+   * are already red; this is the count, for the case where the offender is a
+   * single skirt loop on layer one that the user has scrolled past.
+   */
+  protected readonly offBedSegments = signal(0);
 
   private readonly hostRef = viewChild.required<ElementRef<HTMLElement>>('host');
   /** The G-code inspector tooltip element (present only while hovering). */
@@ -269,6 +292,9 @@ export class Viewer {
    * effect run seeds it; used to detect real changes (which force a rebuild).
    */
   private lastAntialiasing: Antialiasing | null = null;
+  /** Last bed outline pushed to the scene, so a real change can be told apart
+   * from the effect's first run (which the initial build already covers). */
+  private lastBedOutline: string | null = null;
 
   /** Cursor anchor for the G-code tooltip, exposed to Floating UI as a virtual element. */
   private readonly gcodeCursor = { x: 0, y: 0 };
@@ -497,14 +523,11 @@ export class Viewer {
     effect(() => {
       const isDark = this.appTheme.isDarkMode();
       this.scene?.setTheme(isDark);
-      const color = resolveModelColor(
-        isDark,
-        this.viewerControl.useFilamentColor(),
-        this.filamentColor(),
-      );
-      for (const mesh of this.wasmMeshes.values()) {
-        (mesh.material as MeshPhongMaterial).color.setHex(color);
-      }
+      // Read the filament preference here too, so switching it repaints as
+      // promptly as a theme change does.
+      this.viewerControl.useFilamentColor();
+      this.filamentColor();
+      untracked(() => this.repaintObjectMeshes());
     });
 
     // React to reset requests from the toolbar.
@@ -540,9 +563,21 @@ export class Viewer {
 
     // Mirror the print-area configuration into the scene so the bed grid
     // tracks any settings/UI changes (dimensions or movable-area offset).
+    //
+    // The G-code preview bakes the same outline into per-segment off-bed flags
+    // at build time, so switching to a smaller printer has to rebuild it —
+    // otherwise the grid shrinks while the beads now hanging over the edge
+    // stay their old colour.
     effect(() => {
       const config = this.printArea.config();
       this.scene?.setPrintArea(config);
+
+      const outline = JSON.stringify(config);
+      const changed = this.lastBedOutline !== null && this.lastBedOutline !== outline;
+      this.lastBedOutline = outline;
+      if (changed && untracked(() => this.mode()) === 'gcode') {
+        untracked(() => this.startGcodeFromHandle());
+      }
     });
 
     // Mirror the application's selection state into the scene so meshes get
@@ -598,6 +633,9 @@ export class Viewer {
         this.tmpMatrix.fromArray(m);
         mesh.matrix.copy(this.tmpMatrix);
         mesh.matrixWorldNeedsUpdate = true;
+        // Dragging an object over the bed edge flips `out_of_bounds` in the
+        // same snapshot that moves it, so the tint tracks the gesture live.
+        this.paintObjectMesh(mesh, obj.out_of_bounds);
       }
       this.scene?.invalidate();
     });
@@ -699,6 +737,29 @@ export class Viewer {
       }
       this.startGcodeFromHandle();
     });
+  }
+
+  /**
+   * Hand the keyboard to the scene when the pointer is brought to it.
+   *
+   * A canvas takes no focus of its own, so whatever the user last typed in
+   * keeps it — a settings field in the drawer, a layer slider in the G-code
+   * inspector. Every scene shortcut stands down while a field is focused, so
+   * after one detour into the settings the plate stops answering to `p`, `g`
+   * and the tool letters, and those letters go on landing in a field that may
+   * not even be on screen any more. Reaching for the plate is the clearest
+   * possible statement that the detour is over.
+   *
+   * Focus moves *to the host* rather than merely off the field, because
+   * `document.body` is not a position: Tab from there restarts at the top of
+   * the window, several screens away from the tool card the user is working
+   * with. Parked on the scene, Tab reaches that card in one press.
+   */
+  protected releaseKeyboardFocus(): void {
+    const host = this.hostRef().nativeElement;
+    if (document.activeElement !== host) {
+      host.focus({ preventScroll: true });
+    }
   }
 
   // ---------------------------------------------------------------------------
@@ -1415,7 +1476,7 @@ export class Viewer {
       if (this.wasmMeshes.has(obj.id)) {
         continue;
       }
-      const mesh = this.buildDisplayMesh(obj.id, obj.name);
+      const mesh = this.buildDisplayMesh(obj);
       scene.contentRoot.add(mesh);
       this.wasmMeshes.set(obj.id, mesh);
       scene.registerSelectable(String(obj.id), mesh);
@@ -1430,7 +1491,8 @@ export class Viewer {
    * The node is a thin mirror: geometry comes from the WASM render buffer and
    * the matrix is driven by the engine, so `matrixAutoUpdate` stays off.
    */
-  private buildDisplayMesh(id: bigint, name: string): Mesh {
+  private buildDisplayMesh(object: SceneObjectSnapshot): Mesh {
+    const id = object.id;
     const buf = this.sceneEngine.getRenderBuffer(id);
     const geometry = new BufferGeometry();
     geometry.setAttribute('position', new BufferAttribute(buf.positions, 3));
@@ -1439,13 +1501,13 @@ export class Viewer {
     geometry.computeBoundingBox();
     geometry.computeBoundingSphere();
     const material = new MeshPhongMaterial({
-      color: this.currentModelColor(),
       flatShading: this.viewerControl.modelShading() === 'flat',
       shininess: 16,
       specular: this.viewerControl.glossEnabled() ? MODEL_SPECULAR_GLOSS : MODEL_SPECULAR_MATTE,
     });
     const mesh = new Mesh(geometry, material);
-    mesh.name = name;
+    this.paintObjectMesh(mesh, object.out_of_bounds);
+    mesh.name = object.name;
     mesh.matrixAutoUpdate = false;
     // Shadow on/off is toggled at the renderer/light level
     // (ViewerScene.setShadowsEnabled), so these flags can stay unconditional.
@@ -1540,7 +1602,12 @@ export class Viewer {
 
     this.cancelInFlightLoad();
     const colors = untracked(() => this.gcodePreview.roleColors());
-    const { totalSegments } = gcode.buildFromHandle(handle, colors);
+    const { totalSegments, offBedSegments } = gcode.buildFromHandle(
+      handle,
+      colors,
+      this.currentBedOutline(),
+    );
+    this.offBedSegments.set(offBedSegments);
     // `scene.clearContent()` (run just before this by the `applySource` effect
     // that led here) wipes every child of `contentRoot`, the marker included —
     // re-attach it alongside the freshly built model and resync its position,
@@ -1593,6 +1660,57 @@ export class Viewer {
   private filamentColor(): string | null | undefined {
     const override = (this.slicer.settings() as { filament_color?: string }).filament_color;
     return override || this.activeSelection.filament()?.color;
+  }
+
+  /**
+   * The bed the G-code preview measures its moves against — the very outline
+   * the grid draws, so a bead the user sees hanging over the edge is exactly
+   * the one that comes back red.
+   */
+  private currentBedOutline(): BedOutline {
+    const config = untracked(() => this.printArea.config());
+    return {
+      width: config.printableAreaWidth,
+      depth: config.printableAreaHeight,
+      originOffsetX: config.movableAreaX,
+      originOffsetY: config.movableAreaY,
+      circular: config.bedShape === 'circular',
+    };
+  }
+
+  /**
+   * Give one display mesh the colour its placement earns it: the filament /
+   * theme colour when it can print, the danger tint when any part of it is
+   * outside the build volume.
+   *
+   * Every path that colours an object goes through here, so the two can never
+   * be applied in an order that lets a theme change quietly paint a misplaced
+   * object back to normal grey.
+   */
+  private paintObjectMesh(mesh: Mesh, outOfBounds: boolean): void {
+    const material = mesh.material as MeshPhongMaterial;
+    // Diffuse only. `emissive` belongs to the selection highlight, which
+    // snapshots and restores it around a selection — writing it from here as
+    // well would leave the tint half-applied after the object is deselected.
+    material.color.setHex(
+      outOfBounds
+        ? this.appTheme.isDarkMode()
+          ? OUT_OF_BOUNDS_COLOR_DARK
+          : OUT_OF_BOUNDS_COLOR_LIGHT
+        : this.currentModelColor(),
+    );
+  }
+
+  /** Repaint every mirrored object — for a change that affects all of them. */
+  private repaintObjectMeshes(): void {
+    const objects = this.sceneEngine.objects();
+    for (const object of objects) {
+      const mesh = this.wasmMeshes.get(object.id);
+      if (mesh) {
+        this.paintObjectMesh(mesh, object.out_of_bounds);
+      }
+    }
+    this.scene?.invalidate();
   }
 
   private currentModelColor(): number {

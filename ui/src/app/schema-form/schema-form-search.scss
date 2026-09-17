@@ -168,13 +168,13 @@
     height: var(--spacing-sm);
   }
 
-  // The pill is the 44px target, not the input inside it. The global touch rule
-  // raises every bare `input` to 44px, which here stacked on top of the pill's
-  // own 8px padding and made a 60px-tall search box. Sizing the wrapper and
-  // releasing the input is the idiom `_field-focus.scss` already describes for
-  // these wrapper pills.
+  // The pill is the target, not the input inside it. The global touch rule puts
+  // a floor under every bare `input`, which here stacked on top of the pill's
+  // own 8px padding and made the search box half again as tall as a field.
+  // Sizing the wrapper and releasing the input is the idiom `_field-focus.scss`
+  // already describes for these wrapper pills.
   .schema-form-search-field {
-    min-height: 44px;
+    min-height: var(--touch-row);
     padding: 0 var(--spacing-md);
   }
 
