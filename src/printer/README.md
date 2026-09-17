@@ -101,6 +101,19 @@ answered outright is marked `certain` — still reported, because its *effect*
 (the start G-code a macro convention implies) is UI-owned copy the engine has no
 business carrying, but never put to the user.
 
+**A question carries its provenance, like a finding does.** `sources` names the
+config sections behind the lean, spelled the way they appear in `printer.cfg`,
+and the wizard prints them under the reason. Applying a dozen settings silently
+is only fair if the user can check them; asking someone to *decide* something is
+worse without it, because "what is this fan for?" cannot be answered until they
+know which `[fan_generic]` is meant.
+
+**One question per thing decided.** A machine with two `[fan_generic]` sections
+raises two questions — `aux_fan:rscs`, `aux_fan:exhaust` — each naming its fan
+in `subject`. A single list over every fan could only ever mark one of them as
+cooling, which is the wrong answer for the common case of a part cooler beside
+an exhaust.
+
 Derived values ride in a sparse `params` bag rather than a field per reading.
 Adding a field would mean editing this struct, the WS message, the TypeScript
 model and the wizard — four places to learn one number.

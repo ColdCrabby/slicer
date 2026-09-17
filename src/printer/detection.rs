@@ -136,10 +136,21 @@ impl DetectionFinding {
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 pub struct DetectionQuestion {
     /// Stable id the UI keys its copy off: `machine_identity`,
-    /// `macro_convention`, `bed_mesh`, `aux_fan`, `preferred_orientation`.
+    /// `macro_convention`, `bed_mesh`, `preferred_orientation`, and
+    /// `aux_fan:<fan>` — one per `[fan_generic]`, since each fan is its own
+    /// decision. The UI matches copy on the part before the colon.
     pub id: String,
     /// Options, suggested one first.
     pub options: Vec<DetectionOption>,
+    /// What this question is *about*, when the config names it — the fan object
+    /// whose purpose is unknown, for instance.
+    ///
+    /// The UI's headline is a template when a subject is present, because "what
+    /// is this fan for?" names nothing the user can look for. A machine with
+    /// two `[fan_generic]` sections asks twice, once per fan, rather than
+    /// offering one list that can only ever mark a single fan as cooling.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub subject: Option<String>,
     /// Id of the option detection recommends. Always set — a question with no
     /// safe default would stall the wizard, which is exactly what this design
     /// removes.
@@ -147,6 +158,17 @@ pub struct DetectionQuestion {
     /// What in the config produced the lean, shown as "why we think so".
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub evidence: Option<String>,
+    /// The config sections [`Self::evidence`] was read from, written the way
+    /// they appear in `printer.cfg` — `[fan_generic rscs]`, `[printer]
+    /// kinematics`.
+    ///
+    /// A [`DetectionFinding`] has always carried its provenance, because
+    /// applying a dozen settings silently is only fair if the user can check
+    /// them against their own config. A question needs it more, not less: it
+    /// asks the user to decide something, and "what is this fan for?" is
+    /// unanswerable until they know which `[fan_generic]` is meant.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub sources: Vec<String>,
     /// The config answered this outright — apply [`Self::suggested`] and do not
     /// ask.
     ///
