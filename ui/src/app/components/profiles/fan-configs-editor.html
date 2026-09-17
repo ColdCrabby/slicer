@@ -17,10 +17,11 @@
         </button>
       </div>
 
-      <nexus-field-row label="Fan">
-        <nexus-select
+      <nexus-field-row label="Fan" [stacked]="true">
+        <nexus-segmented
           [options]="roleOptions"
           [value]="roleValue(fan.fan_index)"
+          label="Fan"
           (valueChange)="setRole($index, $event)"
         />
       </nexus-field-row>
