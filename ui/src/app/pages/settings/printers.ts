@@ -8,13 +8,10 @@ import {
 } from '@angular/core';
 import { ActivatedRoute, RouterLink } from '@angular/router';
 import {
-  PRINTER_CONNECTION_DESCRIPTIONS,
-  PRINTER_CONNECTION_KINDS,
   PRINTER_CONNECTION_LABELS,
   PRINTER_GCODE_FLAVORS,
   type BedShape,
   type PrinterConnection,
-  type PrinterConnectionKind,
   type PrinterGcodeFlavor,
   type PrinterProfile,
 } from '../../models/printer.model';
@@ -54,7 +51,6 @@ import {
   IconButton,
   ModalShell,
   NumberInput,
-  RadioGroup,
   SectionHeader,
   Segmented,
   Select,
@@ -144,7 +140,6 @@ const PARAM_GROUPS: SchemaGroup[] = (() => {
     Select,
     Switch,
     Segmented,
-    RadioGroup,
     LabelFilterBar,
     LabelPicker,
     ContextMenuTrigger,
@@ -170,11 +165,6 @@ export class PrintersSettings {
   protected readonly flavorOptions = PRINTER_GCODE_FLAVORS;
   protected readonly gcodeTemplateOptions = GCODE_TEMPLATE_OPTIONS;
   protected readonly gcodePlaceholderHint = GCODE_PLACEHOLDER_HINT;
-  protected readonly connectionKindOptions = PRINTER_CONNECTION_KINDS.map((kind) => ({
-    value: kind,
-    label: PRINTER_CONNECTION_LABELS[kind],
-    description: PRINTER_CONNECTION_DESCRIPTIONS[kind],
-  }));
   protected readonly bedShapeOptions = [
     { value: 'rectangular', label: 'Rectangular' },
     { value: 'circular', label: 'Circular (delta)' },
@@ -599,17 +589,35 @@ export class PrintersSettings {
     return this.printerConn.statusFor(id);
   }
 
-  /** Probe the printer now and reflect the result in its status badge. */
-  protected testConnection(printer: PrinterProfile): void {
-    this.printerConn.check(printer);
+  /**
+   * The transport this printer answered as, or `null` before anything has
+   * answered. Shown beside the status pill rather than offered as a choice:
+   * `send_gcode` dispatches on `connection.kind`, and only the probe can know
+   * it — picking it by hand could only ever disagree with the machine.
+   */
+  protected connectionKindLabel(printer: PrinterProfile): string | null {
+    const kind = printer.connection?.kind ?? 'none';
+    return kind === 'none' ? null : PRINTER_CONNECTION_LABELS[kind];
   }
 
-  protected setConnectionKind(id: string, value: string): void {
+  /**
+   * Probe the printer now and reflect the result in its status badge.
+   *
+   * Detect first, then check. `check` dispatches on the stored `kind`, so a
+   * printer whose host was typed in by hand would be judged as "no connection
+   * configured" forever without this — the wizard learns the kind the same way.
+   */
+  protected async testConnection(printer: PrinterProfile): Promise<void> {
+    const host = printer.connection?.host?.trim();
+    if (!host) {
+      return;
+    }
+    const result = await this.printerConn.detectPrinter(host);
     // Reset the stale `connected` flag; live status is owned by the probe.
-    this.updateConnection(id, { kind: value as PrinterConnectionKind, connected: false });
-    const printer = this.store.getById(id);
-    if (printer && value !== 'none') {
-      this.printerConn.check(printer);
+    this.updateConnection(printer.id, { kind: result.kind, connected: false });
+    const probed = this.store.getById(printer.id);
+    if (probed) {
+      this.printerConn.check(probed);
     }
   }
 

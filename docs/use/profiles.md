@@ -63,6 +63,19 @@ temperatures, cooling. The colour is used in the model view if you turn on
 **Settings → General → Use filament color for models** — handy when you have
 several spools and want to see which is which.
 
+### Fan curves
+
+The **Cooling** group ends with a fan table. Each row is one physical fan and
+the curve it follows: a minimum and maximum speed, and the two layer times they
+sit between. Layers that print quickly get the maximum, slow ones the minimum,
+and anything between is interpolated.
+
+With no rows the filament uses the printer's part-cooling fan at the engine's
+defaults, which is what most spools want. Add a row when you need a second fan
+driven — a chamber fan for ABS, or an auxiliary one for a big PLA part. On
+Klipper you can also give a row the object's own name from `printer.cfg`
+(`rscs`, `exhaust_filter`); leave it blank for the default name for that role.
+
 ## Adding a print profile
 
 **Settings → Print Profiles → Add profile.** Three come built in, and they are a

@@ -44,7 +44,9 @@ worktree or teammate already running on this host. **Never hardcode 4213/5201.**
 
   Give the user **that** URL. `node scripts/dev.mjs --print` resolves a free
   seed and prints the ports as JSON without starting anything, and
-  `pnpm run dev -- --seed 742` pins one when you need it stable across restarts.
+  `pnpm run dev --seed 742` pins one when you need it stable across restarts.
+  Pass the flag straight through, with no `--` separator: `pnpm run dev -- --seed
+  742` hands the script a literal `--` and it exits with `unknown argument: --`.
 - **One URL is all they need.** The dev server proxies `/api` and `/ws` to the
   engine, so the engine's port is an internal detail — never ask the user to
   open it.

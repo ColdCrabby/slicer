@@ -34,22 +34,6 @@ export const PRINTER_CONNECTION_LABELS: Record<PrinterConnectionKind, string> = 
   prusalink: 'PrusaLink',
 };
 
-/**
- * One line per connection kind, telling the user which one is theirs.
- *
- * The names alone do not separate these: a Klipper owner has to know that
- * Moonraker is the API their Fluidd or Mainsail install already exposes, and
- * PrusaLink is a thing their printer has rather than something to install. That
- * is what earns the choice a card each instead of a dropdown.
- */
-export const PRINTER_CONNECTION_DESCRIPTIONS: Record<PrinterConnectionKind, string> = {
-  none: 'Save the G-code and carry it over yourself.',
-  octoprint: 'An OctoPrint server on your network.',
-  moonraker: "Klipper's own API — what Fluidd and Mainsail talk to.",
-  bambu: 'A Bambu Lab printer, over your LAN.',
-  prusalink: 'Built into recent Prusa printers.',
-};
-
 export const PRINTER_CONNECTION_KINDS: PrinterConnectionKind[] = [
   'none',
   'octoprint',

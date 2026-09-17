@@ -37,6 +37,13 @@
   color: var(--color-text-secondary);
 }
 
+/* The transport the probe found. A quiet readout, not a second status: the
+   pill beside it already carries the colour. */
+.conn-kind {
+  font-size: var(--font-size-xs);
+  color: var(--color-text-tertiary);
+}
+
 .conn-dot {
   flex: none;
   width: 9px;
@@ -77,11 +84,4 @@
   50% {
     opacity: 0.4;
   }
-}
-
-/* The group's own host is `flex: 0 1 auto`, so it fills only where its parent
-   happens to be a column. Say it here rather than relying on that: a connection
-   card list narrower than the row reads as a stray control. */
-nexus-radio-group {
-  flex: 1;
 }

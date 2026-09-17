@@ -49,6 +49,8 @@ import { CatalogPicker, type CatalogEntryVm } from '../../components/profiles/ca
 import { ParamField } from '../../components/profiles/param-field';
 import { ColumnResizer } from '../../components/profiles/column-resizer';
 import { ProfileOutline } from '../../components/profiles/profile-outline';
+import { FanConfigsEditor } from '../../components/profiles/fan-configs-editor';
+import type { FanConfig } from '../../../generated/slicer-engine-global-settings-v1';
 import { controlFor } from '../../schema-form/models/field-control';
 import { LabelFilterBar } from '../../components/labels/label-filter-bar';
 import { LabelPicker } from '../../components/labels/label-picker';
@@ -89,6 +91,9 @@ const BESPOKE_PARAM_KEYS = new Set([
   'filament_type',
 ]);
 
+/** Every group the schema declares, before this page narrows them. */
+const PARSED_GROUPS = parseSchema(SLICING_PARAMS_SCHEMA).groups;
+
 /**
  * The filament-parameter groups rendered in the editor, in the Filament
  * contract's display order (`Material`, `Temperature`, `Cooling`, `Extrusion`,
@@ -102,8 +107,7 @@ const BESPOKE_PARAM_KEYS = new Set([
  */
 const PARAM_GROUPS: SchemaGroup[] = (() => {
   const order = new Map(FILAMENT_GROUPS.map((name, index) => [name, index]));
-  return parseSchema(SLICING_PARAMS_SCHEMA)
-    .groups.filter((g) => order.has(g.name))
+  return PARSED_GROUPS.filter((g) => order.has(g.name))
     .map((g) => ({
       ...g,
       fields: g.fields.filter((f) => !BESPOKE_PARAM_KEYS.has(f.key) && controlFor(f) !== 'array'),
@@ -111,6 +115,17 @@ const PARAM_GROUPS: SchemaGroup[] = (() => {
     .filter((g) => g.fields.length > 0)
     .sort((a, b) => order.get(a.name)! - order.get(b.name)!);
 })();
+
+/**
+ * The group `fan_configs` declares, and so where its own editor is rendered.
+ *
+ * Read off the schema rather than written down here: the field is filtered out
+ * of {@link PARAM_GROUPS} for being an `array`, and hardcoding `Cooling` would
+ * leave the editor behind the next time `x-group` moves in `params.rs`. `null`
+ * when the field is gone, which renders nothing rather than an orphan section.
+ */
+const FAN_TABLE_GROUP: string | null =
+  PARSED_GROUPS.find((g) => g.fields.some((f) => f.key === 'fan_configs'))?.name ?? null;
 
 @Component({
   selector: 'nexus-settings-filaments',
@@ -124,6 +139,7 @@ const PARAM_GROUPS: SchemaGroup[] = (() => {
     RouterLink,
     CatalogPicker,
     ParamField,
+    FanConfigsEditor,
     ModalShell,
     FieldRow,
     NumberInput,
@@ -466,6 +482,7 @@ export class FilamentsSettings {
    * hides gated-off fields (unlike the live slice sidebar).
    */
   protected readonly paramGroups = PARAM_GROUPS;
+  protected readonly fanTableGroup = FAN_TABLE_GROUP;
 
   protected update(id: string, patch: Partial<FilamentProfile>): void {
     this.store.update(id, patch);
@@ -479,6 +496,17 @@ export class FilamentsSettings {
         params: { ...((item.params as Record<string, unknown>) ?? {}), ...patch },
       });
     }
+  }
+
+  /**
+   * A filament's fan table, or the empty list when it has never been edited.
+   *
+   * Absent means "the engine's default single part-cooling fan", which the
+   * editor shows as no rows — adding one is how the user takes it over.
+   */
+  protected fanConfigsOf(filament: FilamentProfile): FanConfig[] {
+    const value = this.paramsOf(filament)['fan_configs'];
+    return Array.isArray(value) ? (value as FanConfig[]) : [];
   }
 
   /** A filament's `params` bag as a plain record for the field controls. */
