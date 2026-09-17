@@ -273,6 +273,24 @@ export class ThreeDViewToolbar {
       .subscribe();
   }
 
+  /** Whether the sliced file's text is docked beside the scene. */
+  protected readonly textPanelOpen = this.viewerControl.gcodeTextPanel;
+
+  /**
+   * Show or hide the G-code text column.
+   *
+   * Opening it also switches to the preview: the panel's caret tracks the layer
+   * and extrusion sliders, and neither of those means anything while the view
+   * is showing the un-sliced model.
+   */
+  toggleTextPanel(): void {
+    const next = !this.viewerControl.gcodeTextPanel();
+    this.viewerControl.setGcodeTextPanel(next);
+    if (next && this.viewMode() !== 'gcode') {
+      this.toggleViewMode();
+    }
+  }
+
   toggleViewMode(): void {
     if (this.viewMode() === 'gcode') {
       this.viewerControl.viewMode.set('model');

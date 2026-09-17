@@ -232,6 +232,20 @@
     >
       <nexus-icon [name]="viewMode() === 'gcode' ? 'cube' : 'table-rows'"></nexus-icon>
     </button>
+
+    @let textPanelLabel =
+      textPanelOpen() ? 'Hide the G-code text' : 'Read the G-code beside the preview';
+    <button
+      class="reset-view-button"
+      type="button"
+      [class.active]="textPanelOpen()"
+      [attr.aria-pressed]="textPanelOpen()"
+      [tooltip]="textPanelLabel"
+      [attr.aria-label]="textPanelLabel"
+      (click)="toggleTextPanel()"
+    >
+      <nexus-icon name="code"></nexus-icon>
+    </button>
   }
 
   @if (showSecondaryViewTools()) {

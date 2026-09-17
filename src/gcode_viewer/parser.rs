@@ -1,4 +1,4 @@
-use super::types::{FanSample, InternalLayer, Role};
+use super::types::{FanSample, InternalLayer, Role, FLOATS_PER_SEGMENT};
 
 /// Oversize seam dots so they remain readable against overlapping extrusion
 /// paths without having to hide other roles.
@@ -181,7 +181,9 @@ pub(super) fn parse_gcode_bytes(bytes: &[u8]) -> Vec<InternalLayer> {
     // emit our markers).
     let mut seen_layer_change_comment = false;
 
-    for raw_line in text.lines() {
+    for (line_index, raw_line) in text.lines().enumerate() {
+        // 1-based, so it can be handed to an editor's gutter unchanged.
+        let source_line = line_index as u32 + 1;
         let prev_role = role;
         let line = match raw_line.find(';') {
             Some(pos) => {
@@ -226,6 +228,7 @@ pub(super) fn parse_gcode_bytes(bytes: &[u8]) -> Vec<InternalLayer> {
                     seam_radius,
                     feedrate / 60.0,
                     0.0,
+                    source_line,
                 );
             }
         }
@@ -331,6 +334,7 @@ pub(super) fn parse_gcode_bytes(bytes: &[u8]) -> Vec<InternalLayer> {
                         height,
                         speed,
                         acceleration,
+                        source_line,
                     );
                 }
             }
@@ -576,6 +580,53 @@ G1 X20 Y10 Z0.4 E7.0
         layers
             .iter()
             .any(|l| l.blocks.iter().any(|b| b.role == role))
+    }
+
+    /// The line a segment is tagged with must be the line that *commanded* it,
+    /// because the text panel scrolls to it and the user reads the move there.
+    /// Blank lines, comments and non-move commands all count toward the number
+    /// — it indexes the file, not the moves.
+    #[test]
+    fn segments_carry_their_source_line() {
+        let gcode = "\
+;TYPE:Outer wall
+G1 X10 Y10 Z0.2 F1800
+; a comment that emits nothing
+
+G1 X20 Y10 E1.0
+M104 S200
+G1 X20 Y20 E2.0
+";
+        let layers = parse_gcode_bytes(gcode.as_bytes());
+        let lines: Vec<u32> = layers
+            .iter()
+            .flat_map(|l| l.blocks.iter())
+            .flat_map(|b| b.lines.iter().copied())
+            .collect();
+
+        // The seam marker on entering the outer wall (line 1), then the three
+        // moves on lines 2, 5 and 7. The comment, the blank line and the M104
+        // are all counted — the number indexes the file, not the moves.
+        assert_eq!(lines, vec![1, 2, 5, 7], "segments: {lines:?}");
+    }
+
+    /// Every block must carry exactly one line per segment, or the viewer's
+    /// walk through a layer falls out of step with the geometry it is reading.
+    #[test]
+    fn line_count_matches_segment_count() {
+        let layers = parse_gcode_bytes(SAMPLE_GCODE.as_bytes());
+        for layer in &layers {
+            for block in &layer.blocks {
+                assert_eq!(
+                    block.lines.len(),
+                    block.data.len() / FLOATS_PER_SEGMENT,
+                    "block {:?} has {} lines for {} segments",
+                    block.role,
+                    block.lines.len(),
+                    block.data.len() / FLOATS_PER_SEGMENT
+                );
+            }
+        }
     }
 
     #[test]

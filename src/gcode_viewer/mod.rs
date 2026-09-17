@@ -18,6 +18,13 @@
 //! `[x0, y0, z0,  x1, y1, z1,  width, height, speed, accel,  …]`  (10 floats per
 //! segment, where `speed` is the extrusion feedrate in mm/s and `accel` is the
 //! commanded print acceleration in mm/s², `0` when the G-code sets none).
+//!
+//! Beside each block's floats sits a `Uint32Array` of the same length in
+//! *segments*: the 1-based file line each move came from
+//! (`GcodeLayerBuffer::block_lines`). It is what lets the UI show the preview
+//! and the file side by side and keep them on the same move in both
+//! directions — and, like everything else here, it is derived once during the
+//! parse rather than recovered in JavaScript.
 
 // Parsing core compiles everywhere so it can be unit-tested on the host; on
 // native some of its wasm-only accessors are unused, hence the dead_code allow.

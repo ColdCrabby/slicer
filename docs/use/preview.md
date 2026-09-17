@@ -48,6 +48,27 @@ Roles are grouped so you can toggle a whole family at once: **Shell**,
   `+` on a number field does.
 - **Hover** any line for its role, layer, Z height, width, height and speed.
 
+## Reading the file itself
+
+The **`</>`** button in the toolbar docks the sliced file's text beside the
+scene, in a column of its own — the plate narrows rather than being covered.
+
+The two views stay on the same move. Drag the layer or progress slider and the
+text scrolls to the line that emitted the move you are looking at, with that
+line marked. Click a line in the text and the preview jumps to it: the layer
+changes, the progress slider lands on that move, and the nozzle marker moves
+with it. A line that commands no movement — a comment, a temperature change —
+has no move of its own, so the nearest one above it is used.
+
+This is the fastest way to answer "why is it doing _that_": find the
+odd-looking bead in the preview, and read the line that produced it.
+
+The text is read-only. It is the slicer's output, so an edit would be thrown
+away by the next slice.
+
+The column is hidden on a phone, where showing the plate and the file side by
+side leaves no room for either.
+
 ## Pausing mid-print
 
 Insert a nut, drop in a magnet, or swap filament for a two-colour print: pick the

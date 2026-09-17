@@ -27,3 +27,10 @@
     </nexus-card>
   </div>
 </main>
+
+<!-- A sibling of the scene, not an overlay on it: the text is read alongside
+     the toolpath it describes, so it takes width rather than covering the
+     thing the caret is pointing at. -->
+@if (textPanelOpen()) {
+  <nexus-gcode-text-panel class="text-panel" />
+}

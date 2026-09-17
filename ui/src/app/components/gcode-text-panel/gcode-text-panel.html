@@ -1,0 +1,35 @@
+<header class="panel-header">
+  <nexus-icon name="code" class="panel-glyph" aria-hidden="true"></nexus-icon>
+  <h2 class="panel-title">G-code</h2>
+
+  <!-- Where the preview is in the file, so the panel says what it is following
+       even when the caret is scrolled out of sight. -->
+  <span class="panel-readout" role="status" aria-live="off">
+    {{ layerSummary() }} · {{ lineSummary() }}
+  </span>
+
+  <button
+    type="button"
+    class="panel-close"
+    [tooltip]="'Hide the G-code text'"
+    aria-label="Hide the G-code text"
+    (click)="close()"
+  >
+    <nexus-icon name="xmark"></nexus-icon>
+  </button>
+</header>
+
+@if (text(); as source) {
+  <nexus-code-editor
+    class="panel-editor"
+    [content]="source"
+    [language]="language"
+    [readOnly]="true"
+    [highlightLine]="activeLine()"
+    (lineSelect)="onLineSelect($event)"
+  ></nexus-code-editor>
+} @else {
+  <p class="panel-empty">
+    {{ loading() ? 'Reading the sliced file…' : 'Slice the plate to read its G-code here.' }}
+  </p>
+}

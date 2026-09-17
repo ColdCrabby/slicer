@@ -198,6 +198,18 @@ export const SPEED_OFFSET = 8;
 /** Float offset of the per-segment print acceleration (mm/s²); `0` when unset. */
 export const ACCEL_OFFSET = 9;
 
+/**
+ * One block of a layer: a contiguous run of same-role segments, with the source
+ * line each of its segments was emitted from.
+ *
+ * `lines` has one entry per segment, `data` has {@link FLOATS_PER_SEGMENT} — so
+ * segment `i` of a block is `data[i * FLOATS_PER_SEGMENT …]` and `lines[i]`.
+ */
+interface LayerBlock {
+  data: Float32Array;
+  lines: Uint32Array;
+}
+
 // ── View modes + scalar coloring ────────────────────────────────────────────
 
 /**
@@ -456,6 +468,13 @@ export interface ModelScan {
   layerTime: ScalarRange;
   /** Fans discovered across all layers, in first-seen order. */
   fans: FanInfo[];
+  /**
+   * 1-based source line each layer's first move was emitted from, indexed by
+   * layer. Ascending, so a line typed into the text view resolves to a layer
+   * by binary search rather than by re-crossing the WASM boundary per layer —
+   * one `getLayer` call rebuilds every buffer that layer owns.
+   */
+  layerFirstLines: number[];
 }
 
 /** Zeroed scan for an empty / not-yet-loaded model. */
@@ -469,6 +488,7 @@ export function emptyModelScan(): ModelScan {
     temperature: { min: 0, max: 0 },
     layerTime: { min: 0, max: 0 },
     fans: [],
+    layerFirstLines: [],
   };
 }
 
@@ -519,12 +539,25 @@ function scanModel(handle: GcodeHandle): ModelScan {
   const fanMin = new Map<string, number>();
   const fanMax = new Map<string, number>();
 
+  const layerFirstLines: number[] = [];
+
   const layerCount = handle.layerCount();
   for (let li = 0; li < layerCount; li++) {
     const layer = handle.getLayer(li);
 
     // Per-segment scalars.
     const blockCount = layer.blocksCount();
+
+    // Segments are emitted in file order, so the first block's first segment is
+    // the earliest line this layer touches. A layer with no moves at all
+    // inherits the previous layer's line, keeping the array non-decreasing so
+    // the binary search in `layerForLine` stays valid.
+    const firstLines = blockCount > 0 ? layer.blockLines(0) : null;
+    layerFirstLines.push(
+      firstLines && firstLines.length > 0
+        ? firstLines[0]
+        : (layerFirstLines[layerFirstLines.length - 1] ?? 1),
+    );
     for (let b = 0; b < blockCount; b++) {
       const roleId = layer.blockRole(b);
       if (roleId === TRAVEL_ROLE_ID || roleId === SEAM_ROLE_ID) {
@@ -594,6 +627,7 @@ function scanModel(handle: GcodeHandle): ModelScan {
     temperature: Number.isFinite(tempMin) ? { min: tempMin, max: tempMax } : { min: 0, max: 0 },
     layerTime: Number.isFinite(timeMin) ? { min: timeMin, max: timeMax } : { min: 0, max: 0 },
     fans,
+    layerFirstLines,
   };
 }
 
@@ -649,6 +683,15 @@ export class GcodePreview {
 
   /** Parsed handle — `null` until a slice download URL is available. */
   readonly gcodeHandle = signal<GcodeHandle | null>(null);
+
+  /**
+   * The sliced file's own text, `null` until one is loaded.
+   *
+   * Held beside the parsed handle because the text panel shows the very bytes
+   * that were fetched to build it — re-fetching the URL for the panel would
+   * leave two copies that a reslice can put out of step.
+   */
+  readonly gcodeText = signal<string | null>(null);
 
   /** Active role color palette — switches with the current theme. */
   readonly roleColors = computed<RoleColorPalette>(() => getRoleColors(this.appTheme.isDarkMode()));
@@ -713,23 +756,24 @@ export class GcodePreview {
   readonly segmentProgress = signal(1);
 
   /**
-   * Non-empty move-segment blocks of the current top layer, in path order.
+   * Non-empty move-segment blocks of the current top layer, in path order,
+   * each paired with the source lines its segments came from.
    * Cached per layer (not per scrub tick) so dragging the progress slider
    * or nozzle-stepping doesn't re-cross the WASM boundary on every frame —
    * only a layer change does.
    */
-  readonly #currentLayerBlocks = computed<Float32Array[]>(() => {
+  readonly #currentLayerBlocks = computed<LayerBlock[]>(() => {
     const handle = this.gcodeHandle();
     if (!handle) {
       return [];
     }
     const layer = handle.getLayer(this.layerMax());
     const blocksCount = layer.blocksCount();
-    const blocks: Float32Array[] = [];
+    const blocks: LayerBlock[] = [];
     for (let b = 0; b < blocksCount; b++) {
       const data = layer.blockData(b);
       if (data.length > 0) {
-        blocks.push(data);
+        blocks.push({ data, lines: layer.blockLines(b) });
       }
     }
     return blocks;
@@ -747,7 +791,10 @@ export class GcodePreview {
    * segment" means.
    */
   readonly segmentCount = computed(() =>
-    this.#currentLayerBlocks().reduce((sum, data) => sum + data.length / FLOATS_PER_SEGMENT, 0),
+    this.#currentLayerBlocks().reduce(
+      (sum, block) => sum + block.data.length / FLOATS_PER_SEGMENT,
+      0,
+    ),
   );
 
   /**
@@ -767,10 +814,10 @@ export class GcodePreview {
     }
     let remaining = Math.round(Math.max(0, Math.min(1, this.segmentProgress())) * total);
     if (remaining <= 0) {
-      const first = blocks[0];
+      const first = blocks[0].data;
       return [first[0], first[1], first[2]];
     }
-    for (const data of blocks) {
+    for (const { data } of blocks) {
       const count = data.length / FLOATS_PER_SEGMENT;
       if (remaining <= count) {
         const off = (remaining - 1) * FLOATS_PER_SEGMENT + END_POINT_OFFSET;
@@ -778,9 +825,38 @@ export class GcodePreview {
       }
       remaining -= count;
     }
-    const last = blocks[blocks.length - 1];
+    const last = blocks[blocks.length - 1].data;
     const off = last.length - FLOATS_PER_SEGMENT + END_POINT_OFFSET;
     return [last[off], last[off + 1], last[off + 2]];
+  });
+
+  /**
+   * 1-based line of the G-code file the toolhead is currently at — the source
+   * line of the last segment `segmentProgress` reveals — or `null` when nothing
+   * is loaded.
+   *
+   * Derived from the same blocks, the same path order and the same
+   * `round(progress * total)` cutoff as {@link nozzlePosition}, so the caret in
+   * the text view and the marker in the 3D view are never one move apart.
+   */
+  readonly currentLine = computed<number | null>(() => {
+    const blocks = this.#currentLayerBlocks();
+    const total = this.segmentCount();
+    if (total === 0) {
+      return null;
+    }
+    let remaining = Math.round(Math.max(0, Math.min(1, this.segmentProgress())) * total);
+    if (remaining <= 0) {
+      return blocks[0].lines[0];
+    }
+    for (const { lines } of blocks) {
+      if (remaining <= lines.length) {
+        return lines[remaining - 1];
+      }
+      remaining -= lines.length;
+    }
+    const last = blocks[blocks.length - 1].lines;
+    return last[last.length - 1];
   });
 
   /** Set of roles to hide in the viewer. */
@@ -951,6 +1027,68 @@ export class GcodePreview {
     this.setSegmentProgress(next / total);
   }
 
+  /**
+   * Move the preview to the move emitted by 1-based source `line` — the text
+   * view's half of the sync, the inverse of {@link currentLine}.
+   *
+   * A line that commands no movement (a comment, `M104`, a retract) has no
+   * segment of its own; the nearest preceding move wins, which is what makes
+   * clicking anywhere in the file land somewhere sensible rather than nowhere.
+   * Returns `false` when nothing is loaded.
+   */
+  revealLine(line: number): boolean {
+    const layer = this.layerForLine(line);
+    if (layer === null) {
+      return false;
+    }
+    // Before the layer's blocks can be read the layer itself has to move: the
+    // block cache is keyed on `layerMax`.
+    this.layerMax.set(layer);
+
+    const blocks = untracked(() => this.#currentLayerBlocks());
+    const total = untracked(() => this.segmentCount());
+    if (total === 0) {
+      return true;
+    }
+
+    // Segments are in file order, so the count of those at or before `line` is
+    // exactly how much of the layer is revealed at that point in the file.
+    let revealed = 0;
+    outer: for (const { lines } of blocks) {
+      for (let i = 0; i < lines.length; i++) {
+        if (lines[i] > line) {
+          break outer;
+        }
+        revealed++;
+      }
+    }
+    this.segmentProgress.set(revealed / total);
+    return true;
+  }
+
+  /**
+   * Index of the layer that owns 1-based source `line`, or `null` when nothing
+   * is loaded. A line before the first move (the start G-code) resolves to
+   * layer 0; one after the last move to the final layer.
+   */
+  layerForLine(line: number): number | null {
+    const starts = this.modelScan().layerFirstLines;
+    if (starts.length === 0) {
+      return null;
+    }
+    let lo = 0;
+    let hi = starts.length - 1;
+    while (lo < hi) {
+      const mid = (lo + hi + 1) >> 1;
+      if (starts[mid] <= line) {
+        lo = mid;
+      } else {
+        hi = mid - 1;
+      }
+    }
+    return lo;
+  }
+
   toggleRole(role: RoleName): void {
     const current = this.hiddenRoles();
     const next = new Set(current);
@@ -994,6 +1132,7 @@ export class GcodePreview {
    */
   clear(): void {
     this.gcodeHandle.set(null);
+    this.gcodeText.set(null);
     this.hoverInfo.set(null);
     this.hoverBand.set(null);
     this.modelScan.set(emptyModelScan());
@@ -1044,13 +1183,18 @@ export class GcodePreview {
     });
 
     this.gcodeHandle.set(null);
+    this.gcodeText.set(null);
     this.hoverInfo.set(null);
     this.hoverBand.set(null);
     try {
       await init({ module_or_path: 'scene_engine_bg.wasm' });
       const response = await fetch(url);
       const buffer = await response.arrayBuffer();
-      const handle = GcodeHandle.parse(new Uint8Array(buffer));
+      const bytes = new Uint8Array(buffer);
+      const handle = GcodeHandle.parse(bytes);
+      // Decoded from the same bytes the handle was parsed from, so the line
+      // numbers it reports always index this text.
+      this.gcodeText.set(new TextDecoder().decode(bytes));
       const count = handle.layerCount();
       const scan = scanModel(handle);
       this.modelScan.set(scan);
