@@ -27,6 +27,14 @@ issue/PR numbers or repo links in the notes. See the tone rules in
 
 ## [Unreleased]
 
+### Fixed
+
+- **The same model now slices to the same G-code.** Arachne's medial fill built
+  its Voronoi diagram on a skip list whose shape came from an OS-seeded random
+  generator, and the surface trim unioned its bead buckets in hash order — so
+  two runs of one file could differ. Twenty builds of one Benchy region used to
+  return five different diagrams. Classic was never affected.
+
 ### Added
 
 - **Inner walls have their own speed** — the hidden walls behind the surface no
