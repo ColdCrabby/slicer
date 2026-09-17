@@ -3,6 +3,7 @@ import type {
   PrinterConnection,
 } from '../../generated/slicer-engine-ws-client-message-v1';
 import type { SceneBedSnapshot } from '../services/scene-engine';
+import type { FilamentMaterial } from './filament.model';
 import {
   DEFAULT_GCODE_TEMPLATE_ID,
   defaultGcodeTemplateIdForFlavor,
@@ -25,6 +26,31 @@ export type { PrinterProfile, PrinterConnection };
 export type PrinterConnectionKind = NonNullable<PrinterConnection['kind']>;
 export type PrinterGcodeFlavor = 'marlin' | 'klipper';
 export type BedShape = NonNullable<PrinterProfile['bed_shape']>;
+
+/**
+ * Which layer of the profile stack supplied a resolved setting. Mirrors the
+ * engine's `ParamOrigin`.
+ */
+export type ParamOrigin =
+  'default' | 'printer' | 'filament' | 'process' | 'machine_material' | 'override';
+
+/**
+ * What this machine does differently with one family of material — a sparse
+ * `SlicingParams` patch, or an empty object when it has nothing to say.
+ *
+ * Keyed on the material *family* rather than a filament id on purpose: a
+ * correction is stated once per machine and every spool of that material
+ * inherits it, so a new spool never costs one profile per printer. The
+ * settings eligible for one are the closed set the schema marks
+ * `x-per-machine-material`.
+ */
+export function materialOverlayOf(
+  printer: PrinterProfile,
+  material: FilamentMaterial,
+): Record<string, unknown> {
+  const overlays = printer.material_overlays as Record<string, Record<string, unknown>> | undefined;
+  return overlays?.[material] ?? {};
+}
 
 export const PRINTER_CONNECTION_LABELS: Record<PrinterConnectionKind, string> = {
   none: 'Not connected',

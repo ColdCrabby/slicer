@@ -169,6 +169,11 @@ export const FIELD_LABELS: Record<string, string> = {
   filament_diameter_mm: 'Filament Diameter',
   nozzle_diameter_mm: 'Nozzle Diameter',
   heated_chamber: 'Heated Chamber',
+  // "Limit", not "Max Temperature": neither is a temperature anything prints
+  // at, and a label that read like one would invite being tuned.
+  max_hotend_temp: 'Hotend Temperature Limit',
+  max_bed_temp: 'Bed Temperature Limit',
+  max_acceleration: 'Machine Acceleration Limit',
   z_offset_mm: 'Z Offset',
   bed_type: 'Build Plate Type',
   printer_vendor: 'Printer Vendor',

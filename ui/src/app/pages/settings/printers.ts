@@ -20,7 +20,7 @@ import { SETTING_CONTRACTS } from '../../models/setting-contract';
 import globalSettingsSchema from '../../../schemas/slicer-engine-global-settings-v1.json';
 import { controlFor } from '../../schema-form/models/field-control';
 import { parseSchema } from '../../schema-form/models/schema-parser';
-import type { SchemaGroup } from '../../schema-form/models/field-def';
+import type { FieldDef, SchemaGroup } from '../../schema-form/models/field-def';
 import {
   CUSTOM_TEMPLATE_ID,
   GCODE_PLACEHOLDER_HINT,
@@ -30,18 +30,25 @@ import {
   gcodeTemplateStatus,
   type GcodeTemplateStatus,
 } from '../../models/gcode-templates';
-import { CloudCatalog, catalogSpecOf } from '../../services/catalog/cloud-catalog';
 import { ContextMenuService } from '../../services/context-menu/context-menu.service';
 import { ContextMenuTrigger } from '../../services/context-menu/context-menu-trigger';
 import type { ContextMenuItem } from '../../services/context-menu/context-menu.model';
 import { Dialog } from '../../services/dialog';
+import { NotificationService } from '../../services/notifications';
 import { PrinterConnectionService } from '../../services/printer-connection';
+import {
+  FILAMENT_MATERIALS,
+  FILAMENT_MATERIAL_LABELS,
+  MATERIAL_PARAMS,
+  type FilamentMaterial,
+} from '../../models/filament.model';
 import { ActiveSelection } from '../../services/profiles/active-selection';
 import { matchesAnyLabel, toggledLabelIds } from '../../services/profiles/label-filtering';
 import { paramNum, paramStr } from '../../models/params-access';
 import { LabelFilterStore } from '../../services/profiles/label-filter-store';
 import { LabelsStore } from '../../services/profiles/labels-store';
 import { PrintersStore } from '../../services/profiles/printers-store';
+import { correctionsFor, withCorrections } from '../../services/profiles/material-corrections';
 import {
   Icon,
   Badge,
@@ -49,21 +56,20 @@ import {
   EmptyState,
   FieldRow,
   IconButton,
-  ModalShell,
+  TooltipDirective,
   NumberInput,
-  SectionHeader,
   Segmented,
   Select,
   Switch,
 } from '@coldcrabby/ui';
-import { CatalogPicker, type CatalogEntryVm } from '../../components/profiles/catalog-picker';
+import { FieldShell } from '../../components/profiles/field-shell';
 import { ParamField } from '../../components/profiles/param-field';
 import { ColumnResizer } from '../../components/profiles/column-resizer';
 import { ProfileOutline } from '../../components/profiles/profile-outline';
 import { CodeEditor } from '../../components/code-editor/code-editor';
 import { LabelFilterBar } from '../../components/labels/label-filter-bar';
 import { LabelPicker } from '../../components/labels/label-picker';
-import { focusConfigureTarget } from './configure-scroll';
+import { configureTargetSelector, focusConfigureTarget } from './configure-scroll';
 import { LabelPickerPanel } from '../../components/labels/label-picker-panel';
 
 /**
@@ -109,6 +115,38 @@ const DERIVED_PARAM_KEYS = new Set(['printer_vendor', 'printer_model']);
  * and {@link DERIVED_PARAM_KEYS} are all that is filtered out. Groups left with
  * no renderable field are dropped entirely.
  */
+/**
+ * The settings a machine may correct per material, in schema order.
+ *
+ * Read from the schema's `x-per-machine-material` annotations, so the engine's
+ * `PER_MACHINE_MATERIAL_KEYS` stays the only list of them and a new one appears
+ * here with no change.
+ */
+const CORRECTABLE_FIELDS: FieldDef[] = parseSchema(SLICING_PARAMS_SCHEMA).fields.filter(
+  (field) => field.perMachineMaterial,
+);
+
+/**
+ * The setting a brand-new material correction starts on.
+ *
+ * Named rather than taken from the head of the list: schema order is the right
+ * order for the *picker*, but it is arbitrary as a starting point, and landing
+ * someone on a fan ceiling when what they came to correct is flow makes the
+ * feature read as the wrong thing. Melt rate is the reason most machines need a
+ * correction at all.
+ */
+const FIRST_CORRECTION_KEY = 'max_volumetric_speed';
+
+/**
+ * Heading of the entry row's own section.
+ *
+ * Named because every material's section is titled "<Material> corrections" and
+ * this one would otherwise match the same suffix — jumping to the corrections
+ * would land on the control that asked to jump.
+ */
+/** How long an armed "Remove all" waits before disarming itself. */
+const REMOVE_CONFIRM_MS = 4000;
+
 const PARAM_GROUPS: SchemaGroup[] = (() => {
   const order = new Map<string, number>(PRINTER_PARAM_GROUPS.map((name, index) => [name, index]));
   return parseSchema(SLICING_PARAMS_SCHEMA)
@@ -124,17 +162,16 @@ const PARAM_GROUPS: SchemaGroup[] = (() => {
 @Component({
   selector: 'nexus-settings-printers',
   imports: [
-    SectionHeader,
     EmptyState,
     Button,
     IconButton,
+    TooltipDirective,
     Icon,
     Badge,
     RouterLink,
-    CatalogPicker,
     ParamField,
+    FieldShell,
     CodeEditor,
-    ModalShell,
     FieldRow,
     NumberInput,
     Select,
@@ -155,9 +192,9 @@ export class PrintersSettings {
   protected readonly active = inject(ActiveSelection);
   protected readonly labels = inject(LabelsStore);
   private readonly filterStore = inject(LabelFilterStore);
-  private readonly catalog = inject(CloudCatalog);
   private readonly contextMenu = inject(ContextMenuService);
   private readonly dialog = inject(Dialog);
+  private readonly notifications = inject(NotificationService);
   private readonly printerConn = inject(PrinterConnectionService);
   private readonly route = inject(ActivatedRoute);
 
@@ -175,7 +212,6 @@ export class PrintersSettings {
     { value: 'none', label: 'None' },
   ];
 
-  protected readonly catalogOpen = signal(false);
   /** Which printer's editor is open in the detail pane. */
   protected readonly selectedId = signal<string | null>(this.active.printer()?.id ?? null);
   protected readonly search = signal('');
@@ -252,11 +288,8 @@ export class PrintersSettings {
     const configureId = this.route.snapshot.queryParamMap.get('configure');
     if (configureId && this.store.getById(configureId)) {
       this.select(configureId);
-      const anchor =
-        this.route.snapshot.queryParamMap.get('focus') === 'gcode'
-          ? 'gcode-target'
-          : 'configure-target';
-      afterNextRender(() => focusConfigureTarget(anchor));
+      const target = configureTargetSelector(this.route.snapshot.queryParamMap.get('focus'));
+      afterNextRender(() => focusConfigureTarget(target));
     }
   }
 
@@ -291,75 +324,7 @@ export class PrintersSettings {
     }
   }
 
-  protected readonly catalogStatus = this.catalog.printersStatus;
-  protected readonly catalogHasMore = this.catalog.printersHasMore;
-  protected readonly catalogLoadingMore = this.catalog.printersLoadingMore;
-  /** Id of the catalog entry currently being fetched for import, if any. */
-  protected readonly importingId = signal<string | null>(null);
-
-  /**
-   * Why the last catalog import failed. Rendered by the picker, beside the
-   * button that was pressed — an error about a control the user is looking at
-   * does not belong in a floating message somewhere else.
-   */
-  protected readonly importError = signal<string | null>(null);
-  protected readonly catalogEntries = computed<CatalogEntryVm[]>(() =>
-    this.catalog.printers().map((p) => ({
-      id: p.id,
-      name: p.name,
-      vendor: p.vendor,
-      meta:
-        catalogSpecOf(p) ??
-        `${p.bed_width}×${p.bed_depth} mm · ${(p.params as Record<string, unknown>)?.['nozzle_diameter_mm']} mm`,
-      icon: 'printer',
-      imported: this.store.items().some((item) => item.based_on === p.id),
-    })),
-  );
-
   protected readonly editing = computed(() => this.selected());
-
-  protected openCatalog(): void {
-    void this.catalog.loadPrinters();
-    this.catalogOpen.set(true);
-  }
-
-  protected onCatalogSearch(query: string): void {
-    void this.catalog.searchPrinters(query);
-  }
-
-  protected retryCatalog(): void {
-    void this.catalog.loadPrinters(true, this.catalog.printersQuery());
-  }
-
-  protected loadMoreCatalog(): void {
-    void this.catalog.loadMorePrinters();
-  }
-
-  /**
-   * Fetch the full preset behind `id` (real slicing params, not just the
-   * browsed summary) and import it. The catalog picker shows a busy state on
-   * this entry's pick button for the duration.
-   */
-  protected async importFromCatalog(id: string): Promise<void> {
-    const base = this.catalog.printers().find((p) => p.id === id);
-    if (!base || this.importingId()) {
-      return;
-    }
-    this.importingId.set(id);
-    this.importError.set(null);
-    try {
-      const full = await this.catalog.printerDetail(base);
-      const copy = this.store.importFromCatalog(full);
-      this.active.selectPrinter(copy.id);
-      this.select(copy.id);
-    } catch (error) {
-      this.importError.set(
-        error instanceof Error ? error.message : 'The preset details could not be fetched.',
-      );
-    } finally {
-      this.importingId.set(null);
-    }
-  }
 
   /** Open a printer in the detail pane and refresh its live status. */
   protected select(id: string): void {
@@ -503,6 +468,192 @@ export class PrintersSettings {
   /** Apply a single param field edit (templates can't build computed keys). */
   protected setParam(id: string, key: string, value: unknown): void {
     this.updateParams(id, { [key]: value });
+  }
+
+  /**
+   * This machine's per-material corrections, one section per material family.
+   *
+   * A correction is normally *captured* — changed on a plate that printed
+   * wrong, then synced with "this printer only" — but these pages are the
+   * surface that manages everything the slicer has, so each one is fully
+   * editable here: change a value, stop correcting one setting, correct
+   * another, or drop the material entirely.
+   *
+   * `fields` holds only the settings this material actually corrects, and
+   * `addable` the rest of the eligible set. An empty correction is not a
+   * setting left blank — it is a measurement nobody took, and the material's
+   * own value standing is the right answer until they do.
+   */
+  protected materialCorrections(printer: PrinterProfile): {
+    material: string;
+    label: string;
+    fields: FieldDef[];
+    addable: { value: string; label: string }[];
+  }[] {
+    const overlays = (printer.material_overlays ?? {}) as Record<string, Record<string, unknown>>;
+    return Object.entries(overlays)
+      .filter(([, params]) => Object.keys(params ?? {}).length > 0)
+      .map(([material, params]) => ({
+        material,
+        label: FILAMENT_MATERIAL_LABELS[material as FilamentMaterial] ?? material,
+        fields: CORRECTABLE_FIELDS.filter((field) => field.key in params),
+        addable: CORRECTABLE_FIELDS.filter((field) => !(field.key in params)).map((field) => ({
+          value: field.key,
+          label: field.title ?? field.key,
+        })),
+      }));
+  }
+
+  /** Begin correcting a material, and take the user to the section it creates. */
+  protected startMaterialCorrection(id: string, material: string): void {
+    if (!material) {
+      return;
+    }
+    this.addMaterialCorrection(id, material);
+    this.revealMaterial(material);
+  }
+
+  /**
+   * Bring a material's card into view after adding it.
+   *
+   * Found by the card's own `data-material` rather than by its heading text:
+   * the heading is a translated label and the attribute is the key, and reading
+   * the key is what keeps this from breaking the day a label is reworded.
+   */
+  private revealMaterial(material: string): void {
+    setTimeout(() => {
+      document
+        .querySelector(`.mgr__correction-card[data-material="${material}"]`)
+        ?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    });
+  }
+
+  /** Material families this machine has no correction for yet. */
+  protected addableMaterials(printer: PrinterProfile): { value: string; label: string }[] {
+    const overlays = (printer.material_overlays ?? {}) as Record<string, Record<string, unknown>>;
+    return FILAMENT_MATERIALS.filter(
+      (material) => Object.keys(overlays[material] ?? {}).length === 0,
+    ).map((material) => ({ value: material, label: FILAMENT_MATERIAL_LABELS[material] }));
+  }
+
+  protected correctionValue(printer: PrinterProfile, material: string, key: string): unknown {
+    return correctionsFor(printer, material)[key];
+  }
+
+  /**
+   * What a correction's controls read their neighbours from: the machine's own
+   * params with the correction laid over them, which is the order they resolve
+   * in. A unit toggle asking what the nozzle is must get the printer's answer,
+   * not nothing.
+   */
+  protected correctionSiblings(printer: PrinterProfile, material: string): Record<string, unknown> {
+    return { ...this.paramsOf(printer), ...correctionsFor(printer, material) };
+  }
+
+  protected setCorrection(id: string, material: string, key: string, value: unknown): void {
+    this.patchCorrection(id, material, (params) => ({ ...params, [key]: value }));
+  }
+
+  /** Start correcting one more setting, from the value it is a deviation from. */
+  protected addCorrection(id: string, material: string, key: string): void {
+    if (!key) {
+      return;
+    }
+    this.patchCorrection(id, material, (params) => ({
+      ...params,
+      [key]: this.seedFor(id, material, key),
+    }));
+  }
+
+  /**
+   * What a fresh correction starts at: the value it is a correction *of*.
+   *
+   * The material's own generic figure first — a PETG correction opening at
+   * PETG's 12 mm³/s says plainly what is being adjusted — then whatever the
+   * machine itself carries, then the engine's default. Starting at zero would
+   * be a correction that means "none" in most of these fields, which is a
+   * worse first impression than a number that is merely not yours yet.
+   */
+  private seedFor(id: string, material: string, key: string): unknown {
+    const fromMaterial = MATERIAL_PARAMS[material as FilamentMaterial]?.[key];
+    if (fromMaterial !== undefined) {
+      return fromMaterial;
+    }
+    const printer = this.store.items().find((p) => p.id === id);
+    const fromPrinter = printer ? this.paramsOf(printer)[key] : undefined;
+    return fromPrinter ?? CORRECTABLE_FIELDS.find((f) => f.key === key)?.default ?? 0;
+  }
+
+  /** Stop correcting one setting — the material's own value stands again. */
+  protected removeCorrection(id: string, material: string, key: string): void {
+    this.patchCorrection(id, material, (params) => {
+      const next = { ...params };
+      delete next[key];
+      return next;
+    });
+  }
+
+  /** Begin correcting a material this machine had nothing to say about. */
+  protected addMaterialCorrection(id: string, material: string): void {
+    if (!material) {
+      return;
+    }
+    this.patchCorrection(id, material, () => ({
+      [FIRST_CORRECTION_KEY]: this.seedFor(id, material, FIRST_CORRECTION_KEY),
+    }));
+  }
+
+  /**
+   * Rewrite one material's corrections, leaving every other material alone and
+   * dropping a material left with nothing. Both rules live in
+   * `material-corrections`, shared with the write-back dialog.
+   */
+  private patchCorrection(
+    id: string,
+    material: string,
+    edit: (params: Record<string, unknown>) => Record<string, unknown>,
+  ): void {
+    const printer = this.store.items().find((p) => p.id === id);
+    if (!printer) {
+      return;
+    }
+    const next = edit(correctionsFor(printer, material));
+    this.store.update(id, {
+      material_overlays: withCorrections(printer, material, next),
+    } as Partial<PrinterProfile>);
+  }
+
+  /**
+   * The material whose "Remove all" is armed, if any.
+   *
+   * Dropping a material's corrections throws away measurements — a flow rate
+   * somebody found by printing the thing badly first — and there is no undo
+   * behind it. Cheap to redo is not the same as cheap to lose, so it arms on the
+   * first press and acts on the second, the same two-step the profile delete and
+   * the slice panel's "Reset all" use.
+   */
+  protected readonly removeArmed = signal<string | null>(null);
+  private removeTimer: ReturnType<typeof setTimeout> | null = null;
+
+  /** Arm on the first press, drop the material's corrections on the second. */
+  protected removeAll(id: string, material: string): void {
+    if (this.removeArmed() !== material) {
+      this.disarmRemove();
+      this.removeArmed.set(material);
+      this.removeTimer = setTimeout(() => this.disarmRemove(), REMOVE_CONFIRM_MS);
+      return;
+    }
+    this.disarmRemove();
+    this.patchCorrection(id, material, () => ({}));
+  }
+
+  /** Disarm — on blur, or when the armed button has sat untouched long enough. */
+  protected disarmRemove(): void {
+    if (this.removeTimer !== null) {
+      clearTimeout(this.removeTimer);
+      this.removeTimer = null;
+    }
+    this.removeArmed.set(null);
   }
 
   protected rename(id: string, event: Event): void {

@@ -92,6 +92,18 @@ export interface FieldDef {
    */
   widget?: string;
   /**
+   * `x-per-machine-material` schema extension: this setting is a property of a
+   * machine *and* a material together — what a hotend can melt, what an
+   * extruder's pressure advance is — so no one value on the filament is right
+   * across a user's printers.
+   *
+   * It is what lets a changed value be offered as a correction on *this
+   * machine* instead of an edit to a filament every machine shares. The set is
+   * closed and engine-owned (`PER_MACHINE_MATERIAL_KEYS`); this flag is how it
+   * reaches the UI without a second copy of the list.
+   */
+  perMachineMaterial?: boolean;
+  /**
    * `x-relative-to` schema extension: the sibling field key a `relative-speed`
    * widget's percentage is a fraction *of*. E.g. `overhang_2_4_speed` names
    * `perimeter_speed`, so "40%" there means "40% of whatever this profile's

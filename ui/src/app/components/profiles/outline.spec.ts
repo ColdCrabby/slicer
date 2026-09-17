@@ -1,5 +1,13 @@
 import { beforeEach, describe, expect, it } from 'vitest';
-import { filterOutline, idsInView, scanOutline, type OutlineSpan } from './outline';
+import {
+  EDITOR_MIN_WIDTH,
+  RAIL_WIDTH,
+  filterOutline,
+  hasRoomForRail,
+  idsInView,
+  scanOutline,
+  type OutlineSpan,
+} from './outline';
 
 function editor(html: string): HTMLElement {
   const root = document.createElement('div');
@@ -40,6 +48,34 @@ describe('scanOutline', () => {
   it('skips a group that renders no title', () => {
     root = editor('<div class="profile-editor__group"><span>loose</span></div>' + EDITOR);
     expect(scanOutline(root)).toHaveLength(2);
+  });
+
+  // The corrections section: a list of materials, each holding settings that
+  // must not be listed under it. Two materials correcting the same setting
+  // would otherwise put the same words in the rail twice, and bury the three
+  // names the section is actually read by.
+  it('lists an opted-in heading as a row and skips a subtree marked to skip', () => {
+    root = editor(`
+      <div class="profile-editor__group">
+        <label class="profile-editor__group-title">Material corrections</label>
+        <nexus-field-row><span class="field-row__title">Correct a material</span></nexus-field-row>
+        <section>
+          <h4 class="outline-entry-title">PLA</h4>
+          <div data-outline-skip>
+            <nexus-field-shell><span class="field-shell__title">Max Volumetric Speed</span></nexus-field-shell>
+          </div>
+        </section>
+        <section>
+          <h4 class="outline-entry-title">ABS</h4>
+          <div data-outline-skip>
+            <nexus-field-shell><span class="field-shell__title">Max Volumetric Speed</span></nexus-field-shell>
+          </div>
+        </section>
+      </div>
+    `);
+
+    const [corrections] = scanOutline(root);
+    expect(corrections.entries.map((e) => e.title)).toEqual(['Correct a material', 'PLA', 'ABS']);
   });
 
   it('keeps repeated titles distinguishable', () => {
@@ -92,5 +128,39 @@ describe('idsInView', () => {
 
   it('is empty past the end of the content', () => {
     expect(idsInView(spans, 400, 500).size).toBe(0);
+  });
+});
+
+describe('hasRoomForRail', () => {
+  const GAP = 24;
+  const LIST = 340;
+  /** What the body must measure for the editor to land exactly on its minimum. */
+  const EXACT = EDITOR_MIN_WIDTH + LIST + GAP * 2 + RAIL_WIDTH;
+
+  it('gives the rail a column only once the editor has its full width', () => {
+    expect(hasRoomForRail(EXACT, LIST, GAP)).toBe(true);
+    expect(hasRoomForRail(EXACT - 1, LIST, GAP)).toBe(false);
+  });
+
+  // The editor's content caps at 560 and carries a 24 px gutter either side.
+  // Anything less and the rail would be appearing by taking the padding back
+  // off the form it is meant to be a map of.
+  it('counts the editor as its content width plus both gutters', () => {
+    expect(EDITOR_MIN_WIDTH).toBe(560 + 24 * 2);
+  });
+
+  it('gives the column back as the list column is dragged wider', () => {
+    expect(hasRoomForRail(EXACT, LIST, GAP)).toBe(true);
+    expect(hasRoomForRail(EXACT, LIST + 40, GAP)).toBe(false);
+  });
+
+  // The measurement has to be taken on something the rail does not resize, or
+  // showing it would remove the room that showed it. This is the property that
+  // makes the answer stable rather than oscillating: the same body width gives
+  // the same answer whether the rail is currently up or not.
+  it('is a pure function of the space, not of the rail being shown', () => {
+    expect(hasRoomForRail(EXACT, LIST, GAP)).toBe(hasRoomForRail(EXACT, LIST, GAP));
+    expect(hasRoomForRail(1600, LIST, GAP)).toBe(true);
+    expect(hasRoomForRail(900, LIST, GAP)).toBe(false);
   });
 });

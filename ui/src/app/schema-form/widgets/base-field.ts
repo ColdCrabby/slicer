@@ -23,7 +23,7 @@ export interface FieldWidget {
   valueChange: EventEmitter<unknown>;
   /**
    * The other values in scope, for a widget whose own control depends on a
-   * sibling field's live value (e.g. `relative-speed`, reading the field
+   * sibling field's live value (e.g. `relative-value`, reading the field
    * named by `x-relative-to`). Most widgets are pure functions of `value`
    * alone and simply don't declare this input — `FieldHost` sets it
    * regardless, and Angular no-ops a `setInput` for an input a component

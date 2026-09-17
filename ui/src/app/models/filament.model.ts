@@ -69,6 +69,11 @@ export const MATERIAL_DENSITY: Record<FilamentMaterial, number> = {
  * `fanMax` is the material's cooling *ceiling* — the process's adaptive fan
  * curve is clamped to it — and `chamber` only becomes a real heat directive
  * when the selected printer declares `heated_chamber`.
+ *
+ * Pressure advance is deliberately absent, as it is in the engine: it belongs to
+ * an extruder *and* a material, so a value here would be a guess that overwrites
+ * the tuned one the printer reports. It goes on the printer, or on that
+ * printer's correction for this material family.
  */
 export const MATERIAL_PARAMS: Record<FilamentMaterial, Record<string, unknown>> = {
   PLA: mat(210, 215, 60, 60, 1.0, 1.0, 15, 0),
@@ -103,7 +108,6 @@ function mat(
     max_volumetric_speed: vmax,
     disable_fan_first_layers: 1,
     flow_ratio: 1.0,
-    pressure_advance: 0.04,
     filament_diameter_mm: 1.75,
   };
 }

@@ -73,6 +73,43 @@
                     <span class="writeback__new">{{ formatValue(row.overrideValue) }}</span>
                   </div>
                 }
+
+                <!--
+                  Only for the settings that are a property of a machine *and* a
+                  material together. Everywhere else there is nothing to choose,
+                  so nothing is asked: the row simply goes to the profile that
+                  owns it, exactly as it always did.
+                -->
+                @if (row.machineEligible && writeback.isAccepted(row.key)) {
+                  <div
+                    class="writeback__scope"
+                    role="radiogroup"
+                    [attr.aria-label]="'Where to save ' + row.label"
+                  >
+                    <button
+                      type="button"
+                      role="radio"
+                      class="writeback__scope-btn"
+                      [class.is-active]="writeback.targetFor(row.key) === 'machine'"
+                      [attr.aria-checked]="writeback.targetFor(row.key) === 'machine'"
+                      (click)="writeback.setTarget(row.key, 'machine')"
+                    >
+                      {{ writeback.machineTargetLabel() }}
+                      <span class="writeback__scope-detail">this printer only</span>
+                    </button>
+                    <button
+                      type="button"
+                      role="radio"
+                      class="writeback__scope-btn"
+                      [class.is-active]="writeback.targetFor(row.key) === 'profile'"
+                      [attr.aria-checked]="writeback.targetFor(row.key) === 'profile'"
+                      (click)="writeback.setTarget(row.key, 'profile')"
+                    >
+                      {{ profileTargetLabel(row) }}
+                      <span class="writeback__scope-detail">every printer</span>
+                    </button>
+                  </div>
+                }
               </div>
             </li>
           }
@@ -82,7 +119,9 @@
 
     <p class="writeback__hint">
       Checked settings are saved into their printer, filament or process profile and stop being a
-      change on this plate. Unchecked ones are left exactly as they are.
+      change on this plate. Unchecked ones are left exactly as they are. A few describe a machine
+      and a material together — those can be saved for this printer alone, leaving your other
+      printers as they are.
     </p>
   }
 </div>

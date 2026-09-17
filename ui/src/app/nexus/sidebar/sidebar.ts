@@ -18,7 +18,17 @@ import { Viewport } from '../../services/viewport';
 const STORAGE_WIDTH_KEY = 'nexus.sidebar.width';
 const STORAGE_COLLAPSED_KEY = 'nexus.sidebar.collapsed';
 const DEFAULT_WIDTH = 280;
-const MIN_WIDTH = 180;
+/**
+ * Narrow enough to be worth dragging to, wide enough that the panel's own lead
+ * row still fits across.
+ *
+ * That row is a label filter on the left and the plate's undo and sync on the
+ * right. A label chip cannot wrap when it is the only one, so below this the
+ * chip simply grew out of the filter and sat underneath the buttons — at the
+ * old 180 it overhung by some 50px. This leaves the filter its icon plus a chip
+ * of ordinary length; a single very long label can still outgrow it.
+ */
+const MIN_WIDTH = 240;
 const MAX_WIDTH = 480;
 
 // Hover-intent delays so a collapsed sidebar only opens/closes deliberately.

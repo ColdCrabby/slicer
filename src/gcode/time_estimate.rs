@@ -110,6 +110,15 @@ pub(crate) struct EstimatorConfig {
     /// VELOCITY=…` / `M203`): the printer runs no faster than this regardless of
     /// the commanded feedrate, so the estimate honours it too.
     pub max_velocity_mm_s: f64,
+    /// Machine acceleration ceiling (mm/s²) every acceleration is clamped to, or
+    /// `0` for a machine that has not declared one.
+    ///
+    /// Unlike [`max_velocity_mm_s`](Self::max_velocity_mm_s) this is **not**
+    /// emitted: what the print asks for still reaches the firmware unchanged,
+    /// and the firmware still clamps it. This is only how the estimate knows
+    /// that it will. Without it a preset asking 25 000 mm/s² on a machine
+    /// commissioned at 3 000 produces an ETA off by a factor.
+    pub max_accel_mm_s2: f64,
 }
 
 impl Default for EstimatorConfig {
@@ -118,6 +127,7 @@ impl Default for EstimatorConfig {
             default_accel_mm_s2: DEFAULT_ACCELERATION_MM_S2,
             square_corner_velocity_mm_s: DEFAULT_SQUARE_CORNER_VELOCITY_MM_S,
             max_velocity_mm_s: 0.0,
+            max_accel_mm_s2: 0.0,
         }
     }
 }
@@ -142,11 +152,27 @@ impl EstimatorConfig {
         } else {
             DEFAULT_SQUARE_CORNER_VELOCITY_MM_S
         };
+        let max_accel_mm_s2 = params.max_acceleration.max(0.0);
         Self {
-            default_accel_mm_s2,
+            // Clamped here too, so a machine ceiling still applies to a program
+            // that carries no acceleration command at all.
+            default_accel_mm_s2: clamp_accel(default_accel_mm_s2, max_accel_mm_s2),
             square_corner_velocity_mm_s,
             max_velocity_mm_s: params.max_velocity.max(0.0),
+            max_accel_mm_s2,
         }
+    }
+}
+
+/// `accel` held to the machine's ceiling, or unchanged when it declared none.
+///
+/// `0` means "not known", never "no acceleration" — a machine nobody has
+/// described must not have every move clamped to a standstill.
+fn clamp_accel(accel: f64, max_accel_mm_s2: f64) -> f64 {
+    if max_accel_mm_s2 > 0.0 {
+        accel.min(max_accel_mm_s2)
+    } else {
+        accel
     }
 }
 
@@ -286,7 +312,7 @@ pub(crate) fn estimate_print_time(body: &str, cfg: &EstimatorConfig) -> TimeEsti
                 // Printing acceleration: prefer `P`, accept `S` as a fallback.
                 if let Some(a) = axis_value(code, 'P').or_else(|| axis_value(code, 'S')) {
                     if a > 0.0 {
-                        state.accel_mm_s2 = a;
+                        state.accel_mm_s2 = clamp_accel(a, cfg.max_accel_mm_s2);
                     }
                 }
             }
@@ -294,7 +320,7 @@ pub(crate) fn estimate_print_time(body: &str, cfg: &EstimatorConfig) -> TimeEsti
                 // Klipper's runtime acceleration cap: `ACCEL=<value>`.
                 if let Some(a) = keyword_value(code, "ACCEL") {
                     if a > 0.0 {
-                        state.accel_mm_s2 = a;
+                        state.accel_mm_s2 = clamp_accel(a, cfg.max_accel_mm_s2);
                     }
                 }
             }
@@ -587,6 +613,67 @@ mod tests {
         let est = estimate_print_time("", &EstimatorConfig::default());
         assert_eq!(est.total_s, 0.0);
         assert!(est.per_layer_s.is_empty());
+    }
+
+    /// The scenario the ceiling exists for: a fast preset on an old machine.
+    /// The file still asks for 25 000 mm/s² and the firmware still clamps it —
+    /// what must not happen is the *estimate* believing the machine got there.
+    #[test]
+    fn a_machine_ceiling_slows_the_estimate_to_what_the_printer_can_do() {
+        let body = "\
+;LAYER_TIME:0.0
+SET_VELOCITY_LIMIT ACCEL=25000
+G1 X0 Y0 F9000
+G1 X200 Y0 E10 F9000
+";
+        let optimistic = estimate_print_time(
+            body,
+            &EstimatorConfig {
+                default_accel_mm_s2: 25000.0,
+                ..EstimatorConfig::default()
+            },
+        );
+        let honest = estimate_print_time(
+            body,
+            &EstimatorConfig {
+                default_accel_mm_s2: 25000.0,
+                max_accel_mm_s2: 3000.0,
+                ..EstimatorConfig::default()
+            },
+        );
+        assert!(
+            honest.total_s > optimistic.total_s,
+            "a machine held to 3 000 mm/s² should take longer than one at 25 000: \
+             {} vs {}",
+            honest.total_s,
+            optimistic.total_s
+        );
+    }
+
+    /// A machine nobody has described declares no ceiling, and `0` must read as
+    /// "not known" rather than as "no acceleration" — which would clamp every
+    /// move to a standstill.
+    #[test]
+    fn an_undeclared_ceiling_clamps_nothing() {
+        assert_eq!(clamp_accel(25000.0, 0.0), 25000.0);
+        assert_eq!(clamp_accel(25000.0, 3000.0), 3000.0);
+        assert_eq!(clamp_accel(1000.0, 3000.0), 1000.0);
+    }
+
+    /// The ceiling reaches the estimator without the caller wiring it by hand.
+    #[test]
+    fn the_config_takes_the_ceiling_from_the_slice_params() {
+        let params = crate::settings::params::SlicingParams {
+            acceleration: 25000.0,
+            max_acceleration: 3000.0,
+            ..Default::default()
+        };
+        let cfg = EstimatorConfig::from_params(&params);
+        assert_eq!(cfg.max_accel_mm_s2, 3000.0);
+        assert_eq!(
+            cfg.default_accel_mm_s2, 3000.0,
+            "a program with no acceleration command must still be held to the machine"
+        );
     }
 
     #[test]
