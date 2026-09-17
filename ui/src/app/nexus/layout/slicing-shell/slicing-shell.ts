@@ -2,6 +2,7 @@ import {
   Component,
   ElementRef,
   afterRenderEffect,
+  computed,
   effect,
   inject,
   untracked,
@@ -14,13 +15,16 @@ import { ObjectsPanel } from '../../../components/objects-panel/objects-panel';
 import { PaintPanel } from '../../../components/paint-panel/paint-panel';
 import { PlacementPanel } from '../../../components/placement-panel/placement-panel';
 import { SettingsPanel } from '../../../components/settings-panel/settings-panel';
+import { GcodeTextPanel } from '../../../components/gcode-text-panel/gcode-text-panel';
 import { SliceSegmentBar } from '../../../components/slice-segment-bar/slice-segment-bar';
 import { SceneNotices } from '../../../components/notices/scene-notices/scene-notices';
 import { TransformPanel } from '../../../components/transform-panel/transform-panel';
 import { ViewportCube } from '../../../components/viewport-cube/viewport-cube';
+import { GcodePreview } from '../../../services/gcode-preview';
 import { PrintArea } from '../../../services/print-area';
 import { ActiveSelection } from '../../../services/profiles/active-selection';
 import { SceneEngine } from '../../../services/scene-engine';
+import { ViewerControl } from '../../../services/viewer-control';
 import { Sidebar } from '../../sidebar/sidebar';
 import { SliceControl } from '../../slice-control/slice-control';
 
@@ -30,6 +34,7 @@ import { SliceControl } from '../../slice-control/slice-control';
     Sidebar,
     SliceControl,
     SliceSegmentBar,
+    GcodeTextPanel,
     SceneNotices,
     ThreeDViewToolbar,
     ObjectsPanel,
@@ -49,6 +54,17 @@ export class NexusSlicingShell {
   private readonly activeSelection = inject(ActiveSelection);
   private readonly printArea = inject(PrintArea);
   private readonly sceneEngine = inject(SceneEngine);
+  private readonly viewerControl = inject(ViewerControl);
+  private readonly preview = inject(GcodePreview);
+
+  /**
+   * The G-code text column is only docked once there is a file to read. Without
+   * this it would open on an empty panel after a reload — the preference is
+   * remembered but the slice is not.
+   */
+  protected readonly textPanelOpen = computed(
+    () => this.viewerControl.gcodeTextPanel() && this.preview.gcodeText() !== null,
+  );
 
   constructor() {
     // Apply the active printer's bed to the print area and the scene engine.

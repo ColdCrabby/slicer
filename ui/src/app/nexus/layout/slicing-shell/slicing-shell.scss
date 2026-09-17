@@ -15,6 +15,18 @@ $default-inset: 40px;
   overflow: auto;
 }
 
+// The G-code text column. A fixed share of the window rather than a fixed
+// pixel width: the file is read at whatever size the window is, and a 480px
+// column that is half the screen on a laptop is a quarter of it on a desktop.
+// Clamped so it can never squeeze the plate down to nothing.
+.text-panel {
+  flex: none;
+  width: clamp(320px, 32vw, 560px);
+  // Above the scene's floating layer, so the column's own shadow falls across
+  // the plate rather than under the cards floating over it.
+  z-index: 20;
+}
+
 .shell-actions-layer {
   display: grid;
   position: absolute;
@@ -211,6 +223,13 @@ $default-inset: 40px;
 // inspector — sliders, selects, a role legend — room to be operable rather than
 // merely present.
 @include handheld {
+  // Side by side, neither the plate nor the file has room to be read. The plate
+  // is what the toolbar's other controls act on, so it keeps the window and the
+  // text column steps aside until there is width for both.
+  .text-panel {
+    display: none;
+  }
+
   .shell-actions-layer {
     grid-template-columns: 1fr;
     // The scene takes the slack, so anything anchored to its end lands just

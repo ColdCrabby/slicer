@@ -1,4 +1,4 @@
-use js_sys::{Float32Array, Uint8Array};
+use js_sys::{Float32Array, Uint32Array, Uint8Array};
 use wasm_bindgen::prelude::*;
 
 use super::parser::{parse_estimated_print_time_s, parse_gcode_bytes};
@@ -12,6 +12,7 @@ pub struct GcodeLayerBuffer {
     z: f32,
     blocks_roles: Vec<u8>,
     blocks_data: Vec<Float32Array>,
+    blocks_lines: Vec<Uint32Array>,
     blocks_off_bed: Vec<Uint8Array>,
     nozzle_temp: f32,
     tool: u32,
@@ -42,6 +43,18 @@ impl GcodeLayerBuffer {
     #[wasm_bindgen(js_name = blockData)]
     pub fn block_data(&self, i: usize) -> Float32Array {
         self.blocks_data[i].clone()
+    }
+
+    /// One entry per segment of block `i`: the 1-based line of the G-code file
+    /// the move was emitted from.
+    ///
+    /// This is what lets the text view and the 3D view point at the same move —
+    /// scrubbing the preview finds the line, and putting the caret on a line
+    /// finds the move. Derived here rather than re-parsed in TypeScript so the
+    /// two can never disagree about which line a segment came from.
+    #[wasm_bindgen(js_name = blockLines)]
+    pub fn block_lines(&self, i: usize) -> Uint32Array {
+        self.blocks_lines[i].clone()
     }
 
     /// One byte per segment of block `i`: `1` when the move leaves the bed.
@@ -121,10 +134,12 @@ fn off_bed_mask(data: &[f32], bed: &BedConfig) -> Uint8Array {
 fn layer_to_buffer(layer: &InternalLayer, bed: Option<&BedConfig>) -> GcodeLayerBuffer {
     let mut roles = Vec::with_capacity(layer.blocks.len());
     let mut data = Vec::with_capacity(layer.blocks.len());
+    let mut lines = Vec::with_capacity(layer.blocks.len());
     let mut off_bed = Vec::with_capacity(layer.blocks.len());
     for b in &layer.blocks {
         roles.push(b.role.id());
         data.push(into_float32_array(&b.data));
+        lines.push(Uint32Array::from(&b.lines[..]));
         off_bed.push(match bed {
             Some(bed) => off_bed_mask(&b.data, bed),
             None => Uint8Array::new_with_length(0),
@@ -140,6 +155,7 @@ fn layer_to_buffer(layer: &InternalLayer, bed: Option<&BedConfig>) -> GcodeLayer
         z: layer.z,
         blocks_roles: roles,
         blocks_data: data,
+        blocks_lines: lines,
         blocks_off_bed: off_bed,
         nozzle_temp: layer.meta.nozzle_temp.unwrap_or(0.0),
         tool: layer.meta.tool,

@@ -227,6 +227,7 @@ const THUMBNAIL_CAPTURE_FX_KEY = 'nexus.viewer.thumbnailCaptureFx';
 const THUMBNAIL_SCENE_EFFECTS_KEY = 'nexus.viewer.thumbnailSceneEffects';
 const PREVIEW_FOLLOW_KEY = 'nexus.viewer.previewFollow';
 const GCODE_STEP_BUTTONS_KEY = 'nexus.viewer.gcodeStepButtons';
+const GCODE_TEXT_PANEL_KEY = 'nexus.viewer.gcodeTextPanel';
 
 /**
  * Shared state between the 3D-view toolbar and the viewer component.
@@ -268,6 +269,15 @@ export class ViewerControl {
 
   /** Whether the G-code preview offers layer/extrusion step buttons. Persisted. */
   readonly gcodeStepButtons = signal<GcodeStepButtons>(this.readGcodeStepButtons());
+
+  /**
+   * Whether the sliced file's text is docked beside the scene. Persisted.
+   *
+   * Off by default: the preview answers "what will it print" for everybody,
+   * while the text answers "what did it emit" for the few who read G-code. It
+   * is offered only once a slice exists, since before that there is no text.
+   */
+  readonly gcodeTextPanel = signal(this.readGcodeTextPanel());
 
   /**
    * Perspective field-of-view in degrees. Persisted. The viewer pushes it
@@ -521,6 +531,17 @@ export class ViewerControl {
     this.storage.write(PREVIEW_FOLLOW_KEY, mode);
   }
 
+  /** Show or hide the G-code text panel and persist the choice. */
+  setGcodeTextPanel(open: boolean): void {
+    this.gcodeTextPanel.set(open);
+    this.storage.write(GCODE_TEXT_PANEL_KEY, String(open));
+  }
+
+  /** Flip the G-code text panel open or shut. */
+  toggleGcodeTextPanel(): void {
+    this.setGcodeTextPanel(!this.gcodeTextPanel());
+  }
+
   /** Update the G-code step-button preference and persist it. */
   setGcodeStepButtons(mode: GcodeStepButtons): void {
     this.gcodeStepButtons.set(mode);
@@ -652,6 +673,10 @@ export class ViewerControl {
   private readGcodeStepButtons(): GcodeStepButtons {
     const raw = this.storage.get(GCODE_STEP_BUTTONS_KEY)();
     return raw === 'on' || raw === 'off' ? raw : 'auto';
+  }
+
+  private readGcodeTextPanel(): boolean {
+    return this.storage.get(GCODE_TEXT_PANEL_KEY)() === 'true';
   }
 
   private readPreviewDetail(): PreviewDetail {

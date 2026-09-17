@@ -192,6 +192,17 @@ async function loadMonaco(language: string): Promise<MonacoApi> {
         flex: 1;
         min-height: 0;
       }
+
+      /* Monaco owns the line's own background, so the marker is a bar in the
+         gutter plus a wash across the line — the accent at low alpha, which
+         reads in both themes without competing with the token colours. */
+      :host ::ng-deep .code-editor-active-line {
+        background: color-mix(in srgb, var(--color-accent) 16%, transparent);
+      }
+
+      :host ::ng-deep .code-editor-active-line-gutter {
+        border-left: 2px solid var(--color-accent);
+      }
     `,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -205,13 +216,32 @@ export class CodeEditor {
   readonly language = input('plaintext');
   /** When true the editor is read-only. */
   readonly readOnly = input(false);
+  /**
+   * 1-based line to mark as active and scroll into view, or `null` for none.
+   *
+   * Scrolling only happens when the line is not already on screen, so a caller
+   * driving this from a slider does not yank the view on every tick.
+   */
+  readonly highlightLine = input<number | null>(null);
   /** Emits the editor's text whenever the user edits it. */
   readonly contentChange = output<string>();
+  /**
+   * 1-based line the user moved the caret to — clicks, arrow keys, find.
+   *
+   * Never fires for a move this component made itself in response to
+   * {@link highlightLine}, so a parent may bind both without the two chasing
+   * each other.
+   */
+  readonly lineSelect = output<number>();
 
   private readonly mount = viewChild.required<ElementRef<HTMLDivElement>>('mount');
   private editor: Monaco.editor.IStandaloneCodeEditor | null = null;
   /** Guards the change output from firing during programmatic `setValue`. */
   private applyingExternal = false;
+  /** Guards `lineSelect` from firing while `highlightLine` moves the caret. */
+  private applyingHighlight = false;
+  /** The active-line marker, replaced whenever `highlightLine` changes. */
+  private highlight: Monaco.editor.IEditorDecorationsCollection | null = null;
   /** Watches for the editor approaching the viewport; dropped once it fires. */
   private visibility: IntersectionObserver | null = null;
   /** Set on teardown, so a load still in flight does not build a dead editor. */
@@ -248,10 +278,20 @@ export class CodeEditor {
       }
     });
 
+    // Mark and reveal the active line. Reads `content` too so a freshly-set
+    // value gets its marker back — the decoration is lost with the old model.
+    effect(() => {
+      this.content();
+      const line = this.highlightLine();
+      this.applyHighlight(line);
+    });
+
     destroyRef.onDestroy(() => {
       this.destroyed = true;
       this.visibility?.disconnect();
       this.visibility = null;
+      this.highlight?.clear();
+      this.highlight = null;
       this.editor?.dispose();
       this.editor = null;
     });
@@ -359,5 +399,66 @@ export class CodeEditor {
         this.contentChange.emit(this.editor.getValue());
       }
     });
+
+    this.editor.onDidChangeCursorPosition((event) => {
+      if (!this.applyingHighlight) {
+        this.lineSelect.emit(event.position.lineNumber);
+      }
+    });
+
+    // The editor may have been created long after `highlightLine` settled —
+    // it only builds once it nears the viewport — so apply the current one now.
+    this.applyHighlight(this.highlightLine());
+  }
+
+  /**
+   * Put the active-line marker on `line` and bring it into view.
+   *
+   * The caret is deliberately left alone. A parent that answers `lineSelect` by
+   * pushing a *different* `highlightLine` back — the nearest line that means
+   * something to it — would otherwise drag the caret off whatever the user just
+   * clicked. The marker says where the parent is; the caret stays theirs.
+   *
+   * `revealLineInCenterIfOutsideViewport` rather than an unconditional reveal:
+   * a caller stepping through moves one at a time would otherwise re-centre the
+   * text on every step, which makes the lines around the current one impossible
+   * to read.
+   */
+  private applyHighlight(line: number | null): void {
+    const editor = this.editor;
+    if (!editor) {
+      return;
+    }
+
+    if (line === null) {
+      this.highlight?.clear();
+      return;
+    }
+
+    const clamped = Math.max(1, Math.min(line, editor.getModel()?.getLineCount() ?? line));
+    const range = {
+      startLineNumber: clamped,
+      startColumn: 1,
+      endLineNumber: clamped,
+      endColumn: 1,
+    };
+
+    this.applyingHighlight = true;
+    try {
+      this.highlight ??= editor.createDecorationsCollection();
+      this.highlight.set([
+        {
+          range,
+          options: {
+            isWholeLine: true,
+            className: 'code-editor-active-line',
+            linesDecorationsClassName: 'code-editor-active-line-gutter',
+          },
+        },
+      ]);
+      editor.revealLineInCenterIfOutsideViewport(clamped);
+    } finally {
+      this.applyingHighlight = false;
+    }
   }
 }

@@ -169,6 +169,11 @@ pub(super) const FLOATS_PER_SEGMENT: usize = 10;
 pub(super) struct Block {
     pub(super) role: Role,
     pub(super) data: Vec<f32>,
+    /// 1-based source line each segment was emitted from, one entry per
+    /// segment. Kept beside `data` rather than folded into its stride so the
+    /// float wire format stays as documented above, and so the viewer reads
+    /// line numbers as the integers they are.
+    pub(super) lines: Vec<u32>,
 }
 
 /// One layer's geometry, composed of sequential segment blocks to preserve timeline order.
@@ -235,18 +240,21 @@ impl InternalLayer {
         height: f32,
         speed: f32,
         accel: f32,
+        line: u32,
     ) {
         let segment_data: [f32; FLOATS_PER_SEGMENT] =
             [x0, y0, z0, x1, y1, z1, width, height, speed, accel];
         if let Some(last) = self.blocks.last_mut() {
             if last.role == role {
                 last.data.extend_from_slice(&segment_data);
+                last.lines.push(line);
                 return;
             }
         }
         self.blocks.push(Block {
             role,
             data: segment_data.to_vec(),
+            lines: vec![line],
         });
     }
 }
