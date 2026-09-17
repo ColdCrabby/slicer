@@ -25,6 +25,20 @@
       </div>
       <p class="pp-hint">Rests each part on its flattest face to cut overhangs.</p>
 
+      <div class="pp-row">
+        <span class="pp-label">Turn to fit</span>
+        <nexus-switch
+          size="sm"
+          label="Turn to fit"
+          [checked]="turnToFit()"
+          (checkedChange)="setTurnToFit($event)"
+        />
+      </div>
+      <p class="pp-hint">
+        Gives a part a quarter turn where that closes the plate up. Off keeps every part facing the
+        way it does now.
+      </p>
+
       <div class="pp-field">
         <span class="pp-label">Gap between objects</span>
         <nexus-number-input

@@ -50,13 +50,24 @@ pub struct ArrangeOptions {
 
     /// When `true`, auto-orient every object before packing.
     /// Each object is oriented to minimise overhangs before its footprint
-    /// is computed; the result is then fed into the shelf-packing layout.
+    /// is computed; the resulting outlines are then fed to the packer.
     /// **Default: true.**
     pub auto_orient: bool,
 
     /// Options forwarded to [`crate::orient::auto_orient`] when
     /// `auto_orient` is `true`.  Ignored otherwise.
     pub orient_options: AutoOrientOptions,
+
+    /// Rotation step, in degrees, the packer may turn an object by to make it
+    /// fit.  `0.0` (or anything ≥ 360) keeps every object at the angle it
+    /// arrived in.  **Default: 90°.**
+    ///
+    /// Ninety degrees is free: a quarter turn cannot undo an auto-orient
+    /// result, and it preserves
+    /// [`AutoOrientOptions::preferred_z_rotation_deg`] — a CoreXY machine
+    /// asking for 45° still gets a diagonal part afterwards.  Finer steps nest
+    /// tighter but turn parts off whatever angle the user chose.
+    pub rotation_step_deg: f64,
 }
 
 impl Default for ArrangeOptions {
@@ -65,6 +76,7 @@ impl Default for ArrangeOptions {
             spacing_mm: 2.0,
             auto_orient: true,
             orient_options: AutoOrientOptions::default(),
+            rotation_step_deg: 90.0,
         }
     }
 }

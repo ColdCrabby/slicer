@@ -74,6 +74,23 @@ describe('Arrange', () => {
     expect(arrange.spacingMm()).toBe(0);
   });
 
+  it('lets the packer turn parts by default', () => {
+    expect(setup().arrange.turnToFit()).toBe(true);
+  });
+
+  it('remembers a plate laid out by hand, where turning is off', () => {
+    const { arrange } = setup({ stored: { 'nexus.viewer.arrangeTurnToFit': 'false' } });
+    expect(arrange.turnToFit()).toBe(false);
+  });
+
+  it('sends no rotation step once turning is off, so hand-set angles survive', () => {
+    const { arrange, applied, stored } = setup();
+    arrange.setTurnToFit(false);
+    arrange.run();
+    expect(stored.get('nexus.viewer.arrangeTurnToFit')).toBe('false');
+    expect(applied[0]).toMatchObject({ args: { options: { rotation_step_deg: 0 } } });
+  });
+
   it('sends one ArrangeOnBed carrying gap, auto-orient and the printer angle', () => {
     // The whole point of merging the two commands: a single op decides both
     // orientation and layout, so they cannot disagree.
@@ -89,6 +106,7 @@ describe('Arrange', () => {
         options: {
           spacing_mm: 6,
           auto_orient: true,
+          rotation_step_deg: 90,
           orient_options: { preferred_z_rotation_deg: 45 },
         },
       },
