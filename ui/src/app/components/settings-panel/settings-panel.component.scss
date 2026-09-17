@@ -53,11 +53,82 @@
   padding-left: calc(var(--panel-inset) - var(--spacing-xs));
 }
 
-// Last in its row, and squared off the same way the edit buttons are: its own
-// padding puts the glyph on the shared line, so it needs no gap beyond the
-// well's inset and border.
+/**
+ * Writes the plate's changes back into its profiles — the one action in this
+ * row with somewhere to go, so it carries the count.
+ *
+ * A plain button rather than the shared icon button, for the badge's sake: that
+ * primitive is an `inline-grid` with `font-size: 0`, which swallowed the count
+ * whole and would have stacked it under the glyph — shunting the glyph upward
+ * the moment a change appeared. The count is taken out of flow here instead, so
+ * no number, of any width, can move the thing it is counting for.
+ *
+ * Sized and toned like the undo beside it. It used to be an outlined chip with
+ * an 18px glyph next to two transparent 15px ones, and read as a different
+ * class of control rather than the busiest of three peers. Emphasis comes from
+ * the badge, which is only there when there is something to press for.
+ */
 .sync-trigger {
+  position: relative;
+  display: inline-grid;
+  flex: none;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  // Last in its row, and squared off the same way the menu buttons are: its own
+  // padding puts the glyph on the shared line, so it needs no gap beyond the
+  // well's inset and border.
   margin-right: 4px;
+  // The 2px goes on the leading side, exactly as the menu buttons below do it:
+  // it nudges a 16px glyph onto the shared trailing line without moving the
+  // button's own edge off the inset.
+  padding: 0 0 0 2px;
+  border: none;
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: var(--color-text-tertiary);
+  cursor: pointer;
+  --icon-size: 16px;
+  transition:
+    color var(--duration-fast) var(--ease-standard),
+    background-color var(--duration-fast) var(--ease-standard);
+
+  &:hover:not(:disabled) {
+    color: var(--color-text-primary);
+    background: var(--color-surface-hover);
+  }
+
+  &:disabled {
+    opacity: 0.45;
+    cursor: default;
+  }
+
+  &:focus-visible {
+    outline: 2px solid var(--color-focus-ring);
+    outline-offset: -2px;
+  }
+}
+
+/* How many settings are waiting. Out of flow on purpose — see above — and
+   anchored to the corner so two digits grow leftwards into the button's own
+   padding rather than pushing anything. */
+.sync-trigger-count {
+  position: absolute;
+  top: -1px;
+  right: -1px;
+  display: grid;
+  place-items: center;
+  min-width: 15px;
+  height: 15px;
+  padding: 0 4px;
+  border-radius: 999px;
+  background: var(--accent);
+  color: var(--accent-contrast);
+  font-size: 10px;
+  font-weight: var(--font-weight-semibold);
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+  pointer-events: none;
 }
 
 // Everything that acts on the plate as a whole, on one line.

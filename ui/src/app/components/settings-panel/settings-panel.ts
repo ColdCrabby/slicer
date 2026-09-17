@@ -34,7 +34,7 @@ import {
   WorkplateSettingsStore,
   type WorkplateSaveStatus,
 } from '../../services/workplate-settings';
-import { FloatingRef, FloatingService, Icon, IconButton, TooltipDirective } from '@coldcrabby/ui';
+import { FloatingRef, FloatingService, Icon, TooltipDirective } from '@coldcrabby/ui';
 
 // Extract the SlicingParams sub-schema so the form renders all slicer settings.
 // (`SlicingParams` is now the wire-format type — the legacy `WsSlicingParams`
@@ -60,7 +60,7 @@ const CONFIRM_TIMEOUT_MS = 4000;
 @Component({
   selector: 'nexus-settings-panel',
   standalone: true,
-  imports: [SchemaForm, Icon, IconButton, RouterLink, LabelFilterBar, TooltipDirective],
+  imports: [SchemaForm, Icon, RouterLink, LabelFilterBar, TooltipDirective],
   templateUrl: './settings-panel.component.html',
   styleUrl: './settings-panel.component.scss',
 })

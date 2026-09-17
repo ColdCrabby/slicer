@@ -45,17 +45,16 @@
       </button>
 
       <button
-        nexusIconButton
+        type="button"
         class="sync-trigger"
-        variant="outline"
         [disabled]="modifiedCount() === 0"
         [tooltip]="syncTooltip()"
         [attr.aria-label]="syncTooltip()"
         (click)="syncToProfile()"
       >
-        <nexus-icon name="refresh-double" />
+        <nexus-icon name="refresh-double" aria-hidden="true" />
         @if (modifiedCount() > 0) {
-          <span class="sync-trigger-count">{{ modifiedCount() }}</span>
+          <span class="sync-trigger-count" aria-hidden="true">{{ modifiedCount() }}</span>
         }
       </button>
     </div>
