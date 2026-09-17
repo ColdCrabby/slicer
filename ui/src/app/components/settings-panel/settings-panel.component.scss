@@ -85,9 +85,14 @@
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
   gap: 2px;
-  padding: var(--spacing-xs) 0;
+  // The recessed well the segmented control used to draw: a darker fill than
+  // the panel around it, an inset, and a border. The three rows read as one
+  // control that way, rather than as three rows of the sidebar that happen to
+  // sit together.
+  padding: 3px;
+  border: 1px solid var(--color-border);
   border-radius: var(--radius-md);
-  background: var(--color-bg-secondary);
+  background: var(--color-bg-primary);
 }
 
 .recipe-head {
@@ -112,37 +117,23 @@
   display: flex;
   align-items: center;
   gap: var(--spacing-xs);
-  // The scope button carries 4px of its own, so the row gives it the rest.
-  padding-left: calc(var(--panel-inset) - var(--spacing-xs));
-  padding-right: var(--panel-inset);
+  // The scope button carries 4px of its own and the well 4px more (3px inset
+  // plus its border), so the row gives each side only what is left of the
+  // shared inset.
+  padding-left: calc(var(--panel-inset) - var(--spacing-xs) - 4px);
+  padding-right: calc(var(--panel-inset) - 4px);
   border-radius: var(--radius-sm);
   transition: background-color var(--duration-fast) var(--ease-standard);
 
-  // Which row the settings below belong to. A rail and a tone, not a fill: it
-  // reports where you are working, it is not a thing you selected.
-  &::before {
-    content: '';
-    position: absolute;
-    left: 0;
-    top: 50%;
-    width: 2px;
-    height: 0;
-    border-radius: 999px;
-    background: var(--accent);
-    transform: translateY(-50%);
-    transition:
-      height var(--duration-fast) var(--ease-standard),
-      opacity var(--duration-fast) var(--ease-standard);
-    opacity: 0;
+  &:hover:not(.is-active) {
+    background: var(--color-surface-hover);
   }
 
+  // Lifted out of the well, exactly as the selected segment was: its own
+  // surface, a hairline shadow, and the accent on its name.
   &.is-active {
     background: var(--color-surface);
-
-    &::before {
-      height: 60%;
-      opacity: 1;
-    }
+    box-shadow: var(--shadow-xs);
   }
 }
 
@@ -177,7 +168,8 @@
 }
 
 .recipe-row.is-active .recipe-scope {
-  color: var(--color-text-primary);
+  color: var(--accent);
+  font-weight: var(--font-weight-active);
 }
 
 .recipe-name {
