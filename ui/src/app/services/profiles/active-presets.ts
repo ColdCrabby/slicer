@@ -9,6 +9,7 @@ import { matchesAnyLabel } from './label-filtering';
 import { LabelsStore } from './labels-store';
 import { PrintProfilesStore } from './print-profiles-store';
 import { PrintersStore } from './printers-store';
+import { filamentFitWarning, processFitWarning } from './preset-fit';
 
 const STORAGE_KEY = 'profiles.active';
 
@@ -69,12 +70,42 @@ export class ActivePresets {
       .filter((item) => item.id === activeId || matchesAnyLabel(item, selected))
       .map((item) => {
         const swatches = this.labels.resolve(item.label_ids).map((l) => labelDotColor(l));
+        const fit = this.fitWarning(contract, item.id);
         return {
           value: item.id,
           label: item.name,
           ...(swatches.length ? { swatches } : {}),
+          ...(fit ? { description: fit } : {}),
         };
       });
+  }
+
+  /**
+   * One sentence on why a preset is a stretch for the machine currently
+   * selected, or `null` when it is not.
+   *
+   * Shown as the option's description — a word, never a block: the user is
+   * allowed to drive a printer past what it was commissioned for, and plenty
+   * do. The printer contract has nothing to compare against, because the
+   * printer *is* what everything else is compared to.
+   */
+  private fitWarning(contract: SettingContractId, id: string): string | null {
+    const printer = this.printers.items().find((p) => p.id === this.selectedId('printer'));
+    if (!printer) {
+      return null;
+    }
+    switch (contract) {
+      case 'printer':
+        return null;
+      case 'filament': {
+        const filament = this.filaments.items().find((f) => f.id === id);
+        return filament ? filamentFitWarning(filament, printer) : null;
+      }
+      case 'process': {
+        const process = this.profiles.items().find((p) => p.id === id);
+        return process ? processFitWarning(process, printer) : null;
+      }
+    }
   }
 
   /**

@@ -26,11 +26,18 @@
 //! # Resolution order
 //!
 //! ```text
-//! default → printer → filament → process → user overrides
+//! default → printer → filament → process → printer×material → user overrides
 //! ```
 //!
 //! Later stages win on shared keys (e.g. `process` speeds beat the printer's
 //! `max_print_speed`), and the user's explicit overrides win over everything.
+//!
+//! The fourth stage is the machine's own correction for the chosen *material
+//! family* — [`PrinterProfile::material_overlays`]. It sits where it does
+//! because of one rule: a quality recipe must not be able to undo a hardware
+//! fact, and the user must always be able to. See [`printer`] for why some
+//! settings belong to a machine and a material together rather than to either
+//! alone.
 
 pub mod defaults;
 pub mod export;
@@ -60,7 +67,10 @@ pub use library::{Label, LabelTone, ProfileKind, ProfileLibrary};
 pub use meta::{ProfileMeta, ProfileSource};
 pub use printer::{BedShape, PrinterConnection, PrinterConnectionKind, PrinterProfile};
 pub use process::{PrintQuality, ProcessProfile};
-pub use resolve::{resolve, ProfileRef, ProfileSelection, ResolveError, UnknownProfile};
+pub use resolve::{
+    resolve, resolve_with_origins, ParamOrigin, ParamOrigins, ProfileRef, ProfileSelection,
+    ResolveError, UnknownProfile,
+};
 
 #[cfg(not(target_arch = "wasm32"))]
 pub use store::ProfileStore;
@@ -172,6 +182,154 @@ mod tests {
         );
         // Untouched keys keep their resolved values.
         assert_eq!(params.print_speed, 120.0);
+    }
+
+    /// A machine that melts PLA faster than the generic spool value says so on
+    /// the printer, once, and every PLA profile inherits it.
+    #[test]
+    fn a_machine_material_overlay_corrects_the_resolved_material() {
+        let mut printer = defaults::default_printer();
+        printer.material_overlays.insert(
+            FilamentMaterial::PLA,
+            serde_json::json!({ "max_volumetric_speed": 24.0 }),
+        );
+
+        let mut sel = selection();
+        sel.printer = resolve::ProfileRef::Inline(Box::new(printer));
+        let params = sel.resolve(None).expect("resolve");
+
+        assert_eq!(params.max_volumetric_speed, 24.0);
+    }
+
+    /// The overlay is keyed on the *family*, so it must not leak onto a
+    /// different one — that would make it a second global setting.
+    #[test]
+    fn a_machine_material_overlay_only_applies_to_its_own_material() {
+        let mut printer = defaults::default_printer();
+        printer.material_overlays.insert(
+            FilamentMaterial::PLA,
+            serde_json::json!({ "max_volumetric_speed": 24.0 }),
+        );
+
+        let mut sel = selection();
+        sel.printer = resolve::ProfileRef::Inline(Box::new(printer));
+        sel.filament = resolve::ProfileRef::Inline(Box::new(defaults::default_petg()));
+        let params = sel.resolve(None).expect("resolve");
+
+        // PETG's own 12 mm³/s, untouched by the PLA correction.
+        assert_eq!(params.max_volumetric_speed, 12.0);
+    }
+
+    /// The precedence the whole design rests on: a quality recipe cannot undo a
+    /// hardware fact, and the user can always undo both.
+    #[test]
+    fn a_machine_material_overlay_beats_the_process_but_loses_to_the_user() {
+        let mut printer = defaults::default_printer();
+        printer.material_overlays.insert(
+            FilamentMaterial::PLA,
+            serde_json::json!({ "nozzle_temp": 205.0 }),
+        );
+        let mut process = defaults::default_process();
+        process
+            .params
+            .as_object_mut()
+            .expect("params object")
+            .insert("nozzle_temp".to_string(), serde_json::json!(230.0));
+
+        let mut sel = selection();
+        sel.printer = resolve::ProfileRef::Inline(Box::new(printer));
+        sel.process = resolve::ProfileRef::Inline(Box::new(process));
+
+        assert_eq!(
+            sel.resolve(None).expect("resolve").nozzle_temp,
+            205.0,
+            "the machine's correction must win over the recipe"
+        );
+
+        sel.overrides = serde_json::json!({ "nozzle_temp": 212.0 });
+        assert_eq!(
+            sel.resolve(None).expect("resolve").nozzle_temp,
+            212.0,
+            "the user must win over the machine's correction"
+        );
+    }
+
+    /// Pressure advance is tuned on the machine and read off its config. A
+    /// generic value on the filament — which resolves *above* the printer —
+    /// would overwrite that calibration on every slice.
+    #[test]
+    fn a_machines_tuned_pressure_advance_survives_the_filament() {
+        let mut printer = defaults::default_printer();
+        printer
+            .params
+            .as_object_mut()
+            .expect("params object")
+            .insert("pressure_advance".to_string(), serde_json::json!(0.032));
+
+        let mut sel = selection();
+        sel.printer = resolve::ProfileRef::Inline(Box::new(printer));
+
+        assert_eq!(sel.resolve(None).expect("resolve").pressure_advance, 0.032);
+    }
+
+    /// The same shipped recipe on two different machines, each getting the bead
+    /// its own nozzle wants. A width pinned in millimetres could only ever be
+    /// right on one of them.
+    #[test]
+    fn a_shipped_preset_fits_the_nozzle_of_whichever_machine_it_lands_on() {
+        for (printer, nozzle, expected) in [
+            (defaults::default_printer(), 0.4, 0.44),
+            (defaults::corexy_printer(), 0.6, 0.66),
+        ] {
+            let mut sel = selection();
+            sel.printer = resolve::ProfileRef::Inline(Box::new(printer));
+            let params = sel.resolve(None).expect("resolve");
+
+            assert_eq!(params.nozzle_diameter_mm, nozzle);
+            assert!(
+                (params.line_width - expected).abs() < 1e-9,
+                "a {nozzle} mm nozzle should get a {expected} mm bead, got {}",
+                params.line_width
+            );
+        }
+    }
+
+    /// A proportion is a starting point, not a cage.
+    #[test]
+    fn an_explicit_width_still_wins_over_the_presets_proportion() {
+        let mut sel = selection();
+        sel.printer = resolve::ProfileRef::Inline(Box::new(defaults::corexy_printer()));
+        sel.overrides = serde_json::json!({ "line_width": 0.5 });
+
+        assert_eq!(sel.resolve(None).expect("resolve").line_width, 0.5);
+    }
+
+    /// Five layers are only comprehensible if a client can say which one won.
+    #[test]
+    fn resolution_reports_where_each_setting_came_from() {
+        let mut printer = defaults::default_printer();
+        printer.material_overlays.insert(
+            FilamentMaterial::PLA,
+            serde_json::json!({ "max_volumetric_speed": 24.0 }),
+        );
+
+        let (_, origins) = resolve_with_origins(
+            &printer,
+            &defaults::default_filament(),
+            &defaults::default_process(),
+            &serde_json::json!({ "layer_height": 0.15 }),
+        )
+        .expect("resolve");
+
+        let origin = |key: &str| *origins.get(key).expect("every setting has an origin");
+        assert_eq!(origin("nozzle_diameter_mm"), ParamOrigin::Printer);
+        assert_eq!(origin("bed_temp"), ParamOrigin::Filament);
+        assert_eq!(origin("infill_density"), ParamOrigin::Process);
+        assert_eq!(origin("max_volumetric_speed"), ParamOrigin::MachineMaterial);
+        assert_eq!(origin("layer_height"), ParamOrigin::Override);
+        // Nothing names it, so it is the engine's own — and saying so is the
+        // point: an unexplained setting is what the provenance exists to fix.
+        assert_eq!(origin("xy_size_compensation"), ParamOrigin::Default);
     }
 
     #[test]

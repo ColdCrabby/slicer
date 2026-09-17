@@ -47,7 +47,26 @@ export interface OutlineSection {
 
 const SECTION_SELECTOR = '.profile-editor__group';
 const SECTION_TITLE_SELECTOR = '.profile-editor__group-title';
-const ENTRY_TITLE_SELECTOR = '.field-shell__title, .field-row__title';
+
+/**
+ * What counts as a row.
+ *
+ * The first two are the shared field primitives, which is why a hand-written
+ * block and a schema-driven one both list correctly. `.outline-entry-title` is
+ * the opt-in for a heading that is a row but not a field — a material inside the
+ * corrections section names a group of settings, not a setting.
+ */
+const ENTRY_TITLE_SELECTOR = '.field-shell__title, .field-row__title, .outline-entry-title';
+
+/**
+ * A subtree whose rows the outline does not list.
+ *
+ * For a section that is a list of *things* rather than a list of settings: the
+ * corrections section is read as "PLA, ABS, PETG", and listing each material's
+ * settings under it would bury those three names in a dozen entries — several of
+ * them the same words, because two machines' materials correct the same setting.
+ */
+const SKIP_SELECTOR = '[data-outline-skip]';
 
 /** The element a jump should scroll to for a given row title. */
 function rowFor(title: HTMLElement): HTMLElement {
@@ -117,7 +136,7 @@ export function scanOutline(root: ParentNode): OutlineSection[] {
     const entries: OutlineEntry[] = [];
     for (const row of Array.from(el.querySelectorAll<HTMLElement>(ENTRY_TITLE_SELECTOR))) {
       const rowTitle = row.textContent?.trim();
-      if (!rowTitle) {
+      if (!rowTitle || row.closest(SKIP_SELECTOR)) {
         continue;
       }
       entries.push({ id: unique(`${id}/${rowTitle}`, seen), title: rowTitle, el: rowFor(row) });
@@ -174,4 +193,34 @@ export function filterOutline(
     }
   }
   return matches;
+}
+
+/** The contents rail's own width, as its stylesheet sets it. */
+export const RAIL_WIDTH = 220;
+
+/**
+ * The narrowest the editor may be squeezed to before the rail gives up its
+ * column.
+ *
+ * It is the editor's own content width (`.mgr__detail-inner`'s 560 px cap) plus
+ * its gutter on each side, rather than a round number — so the rail appears
+ * only once the form has everything it wanted anyway, and never by taking the
+ * padding back off it.
+ */
+export const EDITOR_MIN_WIDTH = 560 + 24 * 2;
+
+/**
+ * Whether the page can afford the contents rail.
+ *
+ * The sum is what the grid would do: take the list track and the two gaps off
+ * the body, then the rail itself, and see whether the editor still clears
+ * {@link EDITOR_MIN_WIDTH}.
+ *
+ * `bodyWidth` must be measured on an element whose width does not depend on
+ * whether the rail is showing — `.mgr__body`, whose size its parent decides —
+ * or revealing the rail would take away the room that revealed it, and the
+ * answer would oscillate.
+ */
+export function hasRoomForRail(bodyWidth: number, listWidth: number, gap: number): boolean {
+  return bodyWidth - listWidth - gap * 2 - RAIL_WIDTH >= EDITOR_MIN_WIDTH;
 }

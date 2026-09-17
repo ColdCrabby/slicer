@@ -79,6 +79,21 @@ export class WritebackDialog {
       .join('\n');
   }
 
+  /**
+   * The profile a row would be written to if it is not saved for this machine —
+   * named, so the wider choice states what it actually changes.
+   */
+  protected profileTargetLabel(row: WritebackRow): string {
+    switch (row.contract) {
+      case 'printer':
+        return this.writeback.printerName();
+      case 'filament':
+        return this.writeback.filamentName();
+      case 'process':
+        return this.writeback.processName();
+    }
+  }
+
   protected accept(row: WritebackRow): void {
     this.writeback.setAccepted(row.key, true);
   }

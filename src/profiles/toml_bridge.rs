@@ -108,3 +108,50 @@ pub fn toml_to_json(value: toml::Value) -> serde_json::Value {
         ),
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::profiles::{defaults, FilamentMaterial};
+
+    /// A machine's material corrections are a nested table inside a printer's
+    /// array-of-tables entry — the one shape TOML is fussiest about. They must
+    /// survive the round trip the library is persisted and exported through.
+    #[test]
+    fn material_overlays_round_trip_through_toml() {
+        let mut printer = defaults::default_printer();
+        printer.material_overlays.insert(
+            FilamentMaterial::PLA,
+            serde_json::json!({ "max_volumetric_speed": 24.0, "pressure_advance": 0.032 }),
+        );
+        printer.material_overlays.insert(
+            FilamentMaterial::ABS,
+            serde_json::json!({ "fan_speed": 0.15 }),
+        );
+        let library = ProfileLibrary {
+            printers: vec![printer],
+            ..Default::default()
+        };
+
+        let text = render_library_toml(&library).expect("render");
+        let back = parse_library_toml(&text).expect("parse");
+
+        assert_eq!(back, library, "the library did not survive TOML\n{text}");
+    }
+
+    /// A printer with no corrections must not write an empty table — an export
+    /// is diffed and version-controlled, and a key that appears the day the
+    /// feature ships is noise in every one of them.
+    #[test]
+    fn a_printer_without_corrections_writes_no_table() {
+        let library = ProfileLibrary {
+            printers: vec![defaults::default_printer()],
+            ..Default::default()
+        };
+        let text = render_library_toml(&library).expect("render");
+        assert!(
+            !text.contains("material_overlays"),
+            "an empty correction map reached the document:\n{text}"
+        );
+    }
+}

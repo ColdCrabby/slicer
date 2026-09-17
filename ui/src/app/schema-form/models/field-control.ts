@@ -13,7 +13,7 @@ import type { FieldDef } from './field-def';
  * | `select` | a longer enum, or an open list | a list you pick from, not a set of modes |
  * | `number` | every numeric parameter | the unit and step come from `x-unit` / `x-step` |
  * | `slider` | a number whose *feel* matters more than its digits | infill density |
- * | `relative-speed` | a speed given as mm/s or as a percentage of another field | overhang band speeds |
+ * | `relative-value` | a number given absolutely or as a percentage of another field | overhang band speeds, bead widths |
  * | `text`, `color`, `gcode`, `filament-type` | the string shapes | a colour is a swatch, G-code is an editor |
  * | `array` | structured lists (fan curves, triggers) | has an editor of its own; the form skips it |
  *
@@ -35,7 +35,7 @@ export type ControlKind =
   | 'select'
   | 'number'
   | 'slider'
-  | 'relative-speed'
+  | 'relative-value'
   | 'text'
   | 'color'
   | 'gcode'
@@ -60,7 +60,7 @@ const WIDGET_HINTS: Record<string, ControlKind> = {
   segmented: 'segmented',
   select: 'select',
   color: 'color',
-  'relative-speed': 'relative-speed',
+  'relative-speed': 'relative-value',
 };
 
 /**
@@ -80,13 +80,13 @@ const KEY_CONTROLS: Record<string, ControlKind> = {
 };
 
 /**
- * Controls that read a sibling field's live value (e.g. `relative-speed`
+ * Controls that read a sibling field's live value (e.g. `relative-value`
  * resolving the field named by `x-relative-to`). `FieldHost` only wires its
  * `siblings` input through to these — every other widget is a pure function
  * of its own `value`, and skipping them avoids handing every widget an input
  * it doesn't declare.
  */
-const SIBLING_AWARE_CONTROLS: ReadonlySet<ControlKind> = new Set(['relative-speed']);
+const SIBLING_AWARE_CONTROLS: ReadonlySet<ControlKind> = new Set(['relative-value']);
 
 /** Whether this field's widget needs the other values in scope. */
 export function wantsSiblings(field: FieldDef): boolean {
@@ -106,6 +106,14 @@ export function controlFor(field: FieldDef): ControlKind {
     KEY_CONTROLS[field.key] ?? (field.widget ? WIDGET_HINTS[field.widget] : undefined);
   if (explicit) {
     return explicit;
+  }
+
+  // A field that names a sibling it is a fraction of needs the control that can
+  // hold a fraction — whether the schema said so with `x-relative-to` or with
+  // `x-derived-from`. Deriving it here is what keeps a new proportional setting
+  // from needing a second annotation to be rendered correctly.
+  if (field.relativeTo) {
+    return 'relative-value';
   }
 
   if (field.enumOptions?.length) {

@@ -7,66 +7,416 @@
 // field's horizontal padding so the sidebar reads as one continuous column.
 // The bottom padding gives the dropdown's 2px focus ring room to breathe so it
 // isn't clipped by the sticky search bar that follows.
+/**
+ * Pinned to the top of the sidebar's scroll.
+ *
+ * It used to scroll away with everything else, on a panel whose whole job is
+ * "change this setting, for this preset" — you lost sight of which preset the
+ * moment you went looking for the setting. Sticky rather than a flex row over
+ * a scrolling form, because the sidebar shell that owns the scroll is shared
+ * and has no definite height to hand down.
+ *
+ * Opaque, and above the content it covers but below the form's own search,
+ * which pins directly beneath it — see `--preset-bar-h`.
+ */
+/*
+ * One inset, shared. The funnel, the contract icons, the search magnifier and
+ * the accordion icons all start on the same vertical line, and the sync button,
+ * the menu buttons, the search field and the accordion chevrons all end on another —
+ * they were spread across four different left edges and three right ones.
+ */
+.settings-panel {
+  --panel-inset: var(--spacing-md);
+}
+
 .preset-bar {
+  position: sticky;
+  top: 0;
+  z-index: 9;
+  background: var(--color-bg-secondary);
+  flex: none;
   display: flex;
   flex-direction: column;
-  gap: var(--spacing-sm);
-  padding: var(--spacing-sm) var(--spacing-sm) var(--spacing-sm);
-}
-
-.contract-row {
-  display: flex;
-  align-items: center;
   gap: var(--spacing-xs);
+  padding: var(--spacing-sm) var(--spacing-sm) var(--spacing-xs);
 }
 
-.contract-tabs {
-  flex: 1 1 auto;
-  min-width: 0;
+// The inset goes on the children, not the row: the filter bar already carries
+// 8px of its own around its funnel, so a padded row would push it past the line
+// everything else starts on.
+.preset-tools {
+  padding-inline: 0;
 }
 
-// Deliberately louder than the footer's text-only "Reset all": this is the
-// one action that reaches out of the plate and into a profile everything else
-// uses, so it earns a standing, always-visible control rather than living at
-// the bottom of a scrolled list.
+.preset-filter {
+  // The filter bar insets its own funnel by 4px, so it needs the remainder.
+  padding-left: calc(var(--panel-inset) - var(--spacing-xs));
+}
+
+/**
+ * Writes the plate's changes back into its profiles — the one action in this
+ * row with somewhere to go, so it carries the count.
+ *
+ * A plain button rather than the shared icon button, for the badge's sake: that
+ * primitive is an `inline-grid` with `font-size: 0`, which swallowed the count
+ * whole and would have stacked it under the glyph — shunting the glyph upward
+ * the moment a change appeared. The count is taken out of flow here instead, so
+ * no number, of any width, can move the thing it is counting for.
+ *
+ * The same 34px box as the undo before it, because an outlined chip around an
+ * 18px glyph beside two transparent 15px ones read as a different class of
+ * control altogether. It is not the same *kind* of button, though, and does not
+ * pretend to be: this one keeps work and that one throws it away, so it takes
+ * the accent whenever it has something to keep, and the undo never takes
+ * anything but danger. Weight goes on the affirmative action, not on the
+ * escape hatch — the two are told apart by role, not by size.
+ */
 .sync-trigger {
   position: relative;
+  display: inline-grid;
   flex: none;
-  color: var(--accent);
-  border-color: color-mix(in srgb, var(--accent) 40%, transparent);
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  // Last in its row, and squared off the same way the menu buttons are: its own
+  // padding puts the glyph on the shared line, so it needs no gap beyond the
+  // well's inset and border.
+  margin-right: 4px;
+  // The 2px goes on the leading side, exactly as the menu buttons below do it:
+  // it nudges a 16px glyph onto the shared trailing line without moving the
+  // button's own edge off the inset.
+  padding: 0 0 0 2px;
+  border: none;
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: var(--color-text-tertiary);
+  cursor: pointer;
+  --icon-size: 16px;
+  transition:
+    color var(--duration-fast) var(--ease-standard),
+    background-color var(--duration-fast) var(--ease-standard);
 
-  &:hover {
-    background: color-mix(in srgb, var(--accent) 12%, transparent);
+  // Lit whenever there is something to sync. Dimming back to nothing when the
+  // plate matches its profiles is the whole signal: no colour here means no
+  // work outstanding, which is also why it needs no "0".
+  &:not(:disabled) {
+    background: var(--accent-softer);
+    color: var(--accent);
+  }
+
+  &:hover:not(:disabled) {
+    background: var(--accent-soft);
+  }
+
+  &:disabled {
+    opacity: 0.45;
+    cursor: default;
+  }
+
+  &:focus-visible {
+    outline: 2px solid var(--color-focus-ring);
+    outline-offset: -2px;
   }
 }
 
+/* How many settings are waiting. Out of flow on purpose — see above — and
+   anchored to the corner so two digits grow leftwards into the button's own
+   padding rather than pushing anything. */
 .sync-trigger-count {
   position: absolute;
-  top: -4px;
-  right: -4px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
+  top: -1px;
+  right: -1px;
+  display: grid;
+  place-items: center;
   min-width: 15px;
   height: 15px;
-  padding: 0 3px;
+  padding: 0 4px;
   border-radius: 999px;
   background: var(--accent);
-  color: var(--color-on-accent, #fff);
+  color: var(--accent-contrast);
   font-size: 10px;
-  font-weight: 600;
+  font-weight: var(--font-weight-semibold);
+  font-variant-numeric: tabular-nums;
   line-height: 1;
+  pointer-events: none;
 }
 
-.preset-row {
+// Everything that acts on the plate as a whole, on one line.
+.preset-tools {
   display: flex;
   align-items: center;
   gap: var(--spacing-xs);
 }
 
-.preset-select {
+.preset-filter {
   flex: 1 1 auto;
   min-width: 0;
+}
+
+/**
+ * The plate's recipe: printer, filament and process, all three legible at once.
+ *
+ * Grouped by a surface shift rather than a border — the block reads as one
+ * thing because it sits on its own tone, not because a line is drawn round it.
+ */
+// As many across as the sidebar can show without cutting the names, stacked
+// when it can only manage one. A plain `auto-fit` rather than a measured
+// breakpoint: the sidebar is draggable, so the only honest threshold is "does a
+// name still fit", and the minimum track is that answer — the menu button takes
+// ~34px of it, so the track has to carry a preset name plus that.
+//
+// `min(230px, 100%)` and not a bare `230px`: a minimum is a floor the track
+// holds to even when the grid is narrower than it, and a 230px track in a 221px
+// sidebar hangs 11px over the edge — taking the menu button with it, which is
+// the one thing in the row that has to stay reachable. Capping the floor at the
+// grid's own width lets the last column shrink instead of overhanging.
+.recipe {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(230px, 100%), 1fr));
+  gap: 2px;
+  // The recessed well the segmented control used to draw: a darker fill than
+  // the panel around it, an inset, and a border. The three rows read as one
+  // control that way, rather than as three rows of the sidebar that happen to
+  // sit together.
+  padding: 3px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-bg-primary);
+}
+
+.recipe-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--spacing-sm);
+  padding: 2px var(--spacing-xs) var(--spacing-xs);
+}
+
+.recipe-title {
+  color: var(--color-text-tertiary);
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-semibold);
+  line-height: 1.5;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.recipe-row {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-xs);
+  // A grid item's automatic minimum is its min-content width; the name inside
+  // is free to ellipsise, so the row must be free to be narrower than it.
+  min-width: 0;
+  // The scope button carries 4px of its own and the well 4px more (3px inset
+  // plus its border), so the row gives the leading side only what is left of
+  // the shared inset. The trailing side gets none: the menu button is a square
+  // whose own padding already sets its glyph on the shared line, and a gap
+  // beyond it only detached the button from the row it belongs to.
+  padding-left: calc(var(--panel-inset) - var(--spacing-xs) - 4px);
+  padding-right: 0;
+  border-radius: var(--radius-sm);
+  transition: background-color var(--duration-fast) var(--ease-standard);
+
+  &:hover:not(.is-active) {
+    background: var(--color-surface-hover);
+  }
+
+  // Lifted out of the well, exactly as the selected segment was: its own
+  // surface, a hairline shadow, and the accent on its name.
+  &.is-active {
+    background: var(--color-surface);
+    box-shadow: var(--shadow-xs);
+  }
+}
+
+/* The row itself: points the settings below at this contract. The frequent
+   action, so it takes the width. */
+.recipe-scope {
+  display: flex;
+  flex: 1 1 auto;
+  align-items: center;
+  gap: var(--spacing-sm);
+  min-width: 0;
+  padding: var(--spacing-xs) var(--spacing-xs);
+  border: none;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-sm);
+  line-height: 1.5;
+  text-align: left;
+  cursor: pointer;
+  transition: color var(--duration-fast) var(--ease-standard);
+  --icon-size: 14px;
+
+  &:hover {
+    color: var(--color-text-primary);
+  }
+
+  &:focus-visible {
+    outline: 2px solid var(--color-focus-ring);
+    outline-offset: -2px;
+  }
+}
+
+.recipe-row.is-active .recipe-scope {
+  color: var(--accent);
+  font-weight: var(--font-weight-active);
+}
+
+.recipe-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/**
+ * Opens that row's preset menu. The glyph alone, because the row beside it
+ * already names the preset it is holding — a label would only repeat it.
+ */
+.recipe-swap {
+  display: inline-grid;
+  flex: none;
+  place-items: center;
+  // The same box the edit button was, so the glyph inherits its place on the
+  // shared trailing line rather than starting a fourth one. The 2px goes on the
+  // leading side: it shifts the glyph right onto that line without moving the
+  // button's own edge off the well's inset.
+  width: 34px;
+  height: 30px;
+  padding: 0 0 0 2px;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--color-text-tertiary);
+  cursor: pointer;
+  --icon-size: 16px;
+  transition: color var(--duration-fast) var(--ease-standard);
+
+  &:hover,
+  &[aria-expanded='true'] {
+    color: var(--color-text-primary);
+  }
+
+  &:focus-visible {
+    outline: 2px solid var(--color-focus-ring);
+    outline-offset: -2px;
+  }
+}
+
+/* The preset list itself, positioned at body level so the sidebar's scroll
+   cannot clip it. Same surface as every other menu in the app. */
+.picker {
+  max-height: 100%;
+  overflow-y: auto;
+  padding: var(--spacing-xs);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  background: var(--color-bg-secondary);
+  box-shadow: var(--shadow-lg);
+}
+
+.picker-row {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-xs);
+  border-radius: var(--radius-sm);
+
+  &.is-active {
+    background: var(--color-surface-hover);
+  }
+
+  &.is-selected {
+    color: var(--accent);
+  }
+
+  &.is-selected.is-active {
+    background: var(--accent-soft);
+  }
+}
+
+/* Picks the preset and stays on the plate, so it takes the row's width. */
+.picker-pick {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+  padding: var(--spacing-sm);
+  border: none;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: inherit;
+  font-size: var(--font-size-sm);
+  text-align: left;
+  cursor: pointer;
+
+  &:focus-visible {
+    outline: 2px solid var(--color-focus-ring);
+    outline-offset: -2px;
+  }
+}
+
+.picker-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Where a fit warning lands. Two lines rather than one clipped one — it is the
+   reason to read the menu at all, and half of it says nothing. */
+.picker-desc {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+  font-size: var(--font-size-xs);
+  line-height: 1.35;
+  color: var(--color-text-tertiary);
+  text-wrap: pretty;
+}
+
+.picker-check {
+  flex: none;
+  color: var(--accent);
+  --icon-size: 16px;
+}
+
+/* Leaves the plate for that preset's editor. On every row rather than revealed
+   on hover: it is the whole reason the pen moved in here, and an affordance
+   nobody can see until they are already on top of it is not one. Quiet by
+   default so it never competes with the name it sits beside. */
+.picker-edit {
+  display: inline-grid;
+  flex: none;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  margin-right: 2px;
+  border-radius: var(--radius-sm);
+  color: var(--color-text-tertiary);
+  --icon-size: 15px;
+  transition:
+    color var(--duration-fast) var(--ease-standard),
+    background-color var(--duration-fast) var(--ease-standard);
+
+  &:hover {
+    color: var(--color-text-primary);
+    background: var(--color-surface-hover);
+  }
+
+  &:focus-visible {
+    outline: 2px solid var(--color-focus-ring);
+    outline-offset: -2px;
+  }
+}
+
+.picker-row.is-active .picker-edit {
+  color: var(--color-text-secondary);
 }
 
 // Empty state stand-in that doubles as a shortcut into the manage page.
@@ -101,113 +451,88 @@
 // One row, fixed height, no conditional children that resize it: everything it
 // can say swaps in place. It sits directly under the cursor while a slider is
 // being dragged, so anything that reflowed here would be felt, not just seen.
-.settings-footer {
-  position: sticky;
-  bottom: 0;
-  z-index: 10;
-  display: flex;
-  align-items: center;
-  gap: var(--spacing-sm);
-  min-height: 32px;
-  padding: var(--spacing-xs) var(--spacing-sm);
-  background: var(--color-bg-secondary);
-  font-size: var(--font-size-xs);
-  color: var(--color-text-tertiary);
-  user-select: none;
-  -webkit-user-select: none;
-
-  &.is-error {
-    color: var(--color-danger);
-  }
-}
-
-.settings-footer::before {
-  content: '';
-  position: absolute;
-  left: 0;
-  right: 0;
-  bottom: 100%;
-  height: var(--spacing-md);
-  background: linear-gradient(
-    to top,
-    var(--color-bg-secondary),
-    color-mix(in srgb, var(--color-bg-secondary) 40%, transparent) 55%,
-    transparent
-  );
-  pointer-events: none;
-}
-
-.settings-footer-dot {
-  flex: none;
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: var(--accent);
-  // Reserved, not conditional — see the comment in the template.
-  visibility: hidden;
-
-  &.is-active {
-    visibility: visible;
-    animation: settings-footer-pulse 1.4s ease-in-out infinite;
-  }
-
-  .settings-footer.is-error & {
-    background: var(--color-danger);
-    animation: none;
-  }
-}
-
-@keyframes settings-footer-pulse {
-  0%,
-  100% {
-    opacity: 0.35;
-  }
-  50% {
-    opacity: 1;
-  }
-}
-
-.settings-footer-text {
-  min-width: 0;
-  flex: 1 1 auto;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.settings-footer-reset {
-  flex: none;
-  padding: 3px var(--spacing-xs);
-  border: 0;
-  border-radius: var(--radius-sm);
-  background: none;
-  font: inherit;
-  color: var(--color-text-secondary);
-  cursor: pointer;
-  transition:
-    color var(--duration-fast) var(--ease-standard),
-    background var(--duration-fast) var(--ease-standard);
-
-  &:hover {
-    background: var(--color-bg-primary);
-    color: var(--color-text-primary);
-  }
-
-  &.is-confirming {
-    background: var(--color-danger-light);
-    color: var(--color-danger);
-  }
-}
 
 // Announced, never drawn: the save result reaches a screen reader without the
 // change count following it on every keystroke.
-.settings-footer-announce {
+
+// The form's search pins under the lead rather than over it. `--preset-bar-h` is
+// published by the panel because the lead's height depends on how many presets
+// fit across, which only the rendered layout knows.
+.settings-form ::ng-deep .schema-form-search {
+  top: var(--preset-bar-h, 0px);
+}
+
+/**
+ * Discards the plate's changes.
+ *
+ * The pair either side of it are not two of a kind, and they are not drawn as
+ * two of a kind: this one destroys work and the one after it keeps work. So
+ * this stays a bare glyph on nothing — no fill of its own at any point, and the
+ * only colour it ever takes is the danger red it turns while it is armed. The
+ * escape hatch should never be the thing the eye lands on.
+ */
+.revert-trigger {
+  display: inline-grid;
+  flex: none;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  padding: 0;
+  border: none;
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: var(--color-text-tertiary);
+  cursor: pointer;
+  --icon-size: 15px;
+  transition:
+    color var(--duration-fast) var(--ease-standard),
+    background-color var(--duration-fast) var(--ease-standard);
+
+  &:hover:not(:disabled) {
+    color: var(--color-text-primary);
+    background: var(--color-surface-hover);
+  }
+
+  &:disabled {
+    opacity: 0.45;
+    cursor: default;
+  }
+
+  &:focus-visible {
+    outline: 2px solid var(--color-focus-ring);
+    outline-offset: -2px;
+  }
+
+  &.is-confirming {
+    background: color-mix(in srgb, var(--color-danger) 14%, transparent);
+    color: var(--color-danger);
+  }
+}
+
+/* Saving, with nothing to press. Holds its space so the buttons never shift. */
+.save-dot {
+  flex: none;
+  width: 6px;
+  height: 6px;
+  margin-right: var(--spacing-xs);
+  border-radius: 50%;
+  background: var(--color-text-tertiary);
+  opacity: 0;
+  transition: opacity var(--duration-fast) var(--ease-standard);
+
+  &.is-active {
+    opacity: 1;
+  }
+
+  &.is-error {
+    background: var(--color-danger);
+  }
+}
+
+.settings-announce {
   position: absolute;
   width: 1px;
   height: 1px;
-  margin: -1px;
-  padding: 0;
   overflow: hidden;
   clip-path: inset(50%);
-  white-space: nowrap;
 }

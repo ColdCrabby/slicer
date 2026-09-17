@@ -9,9 +9,12 @@
 //!
 //! [`SlicingParams`]: crate::settings::params::SlicingParams
 
+use std::collections::BTreeMap;
+
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
+use super::filament::FilamentMaterial;
 use super::meta::ProfileMeta;
 
 /// Bed geometry. Circular beds (deltas) use `bed_width` as the diameter.
@@ -125,6 +128,26 @@ pub struct PrinterProfile {
     #[schemars(schema_with = "crate::settings::params::slicing_params_schema")]
     #[serde(default)]
     pub params: serde_json::Value,
+
+    /// What this machine does differently with one *family* of material — a
+    /// sparse `SlicingParams` per [`FilamentMaterial`], applied after the
+    /// process profile and before the user's own overrides.
+    ///
+    /// Some settings are genuinely a property of a machine *and* a material
+    /// together, not of either alone: the flow a hotend can melt, the pressure
+    /// advance an extruder needs, how much retraction an elastic filament wants
+    /// out of this particular drive. One value on the filament cannot be right
+    /// on three machines, and the usual escape — a copy of the filament per
+    /// machine — makes every new spool cost one profile per printer.
+    ///
+    /// Keying on the **family** rather than a filament id is what keeps that
+    /// from happening: a correction is stated once per machine and every spool
+    /// of that material inherits it. The eligible settings are a closed set,
+    /// marked `x-per-machine-material` in the schema — see
+    /// [`PER_MACHINE_MATERIAL_KEYS`](crate::settings::params::PER_MACHINE_MATERIAL_KEYS).
+    /// An absent entry is not a gap: it means the material's own value stands.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub material_overlays: BTreeMap<FilamentMaterial, serde_json::Value>,
 }
 
 impl PrinterProfile {

@@ -20,11 +20,11 @@ import { SETTING_CONTRACTS } from '../../models/setting-contract';
 import globalSettingsSchema from '../../../schemas/slicer-engine-global-settings-v1.json';
 import { parseSchema } from '../../schema-form/models/schema-parser';
 import type { SchemaGroup } from '../../schema-form/models/field-def';
-import { CloudCatalog, catalogSpecOf } from '../../services/catalog/cloud-catalog';
 import { ContextMenuService } from '../../services/context-menu/context-menu.service';
 import { ContextMenuTrigger } from '../../services/context-menu/context-menu-trigger';
 import type { ContextMenuItem } from '../../services/context-menu/context-menu.model';
 import { Dialog } from '../../services/dialog';
+import { NotificationService } from '../../services/notifications';
 import { ActiveSelection } from '../../services/profiles/active-selection';
 import { matchesAnyLabel, toggledLabelIds } from '../../services/profiles/label-filtering';
 import { paramNum } from '../../models/params-access';
@@ -38,21 +38,19 @@ import {
   EmptyState,
   FieldRow,
   IconButton,
-  ModalShell,
+  TooltipDirective,
   NumberInput,
-  SectionHeader,
   Segmented,
   Select,
   ColorPicker,
 } from '@coldcrabby/ui';
-import { CatalogPicker, type CatalogEntryVm } from '../../components/profiles/catalog-picker';
 import { ParamField } from '../../components/profiles/param-field';
 import { ColumnResizer } from '../../components/profiles/column-resizer';
 import { ProfileOutline } from '../../components/profiles/profile-outline';
 import { controlFor } from '../../schema-form/models/field-control';
 import { LabelFilterBar } from '../../components/labels/label-filter-bar';
 import { LabelPicker } from '../../components/labels/label-picker';
-import { focusConfigureTarget } from './configure-scroll';
+import { configureTargetSelector, focusConfigureTarget } from './configure-scroll';
 import { LabelPickerPanel } from '../../components/labels/label-picker-panel';
 
 /**
@@ -115,16 +113,14 @@ const PARAM_GROUPS: SchemaGroup[] = (() => {
 @Component({
   selector: 'nexus-settings-filaments',
   imports: [
-    SectionHeader,
     EmptyState,
     Button,
     IconButton,
+    TooltipDirective,
     Icon,
     Badge,
     RouterLink,
-    CatalogPicker,
     ParamField,
-    ModalShell,
     FieldRow,
     NumberInput,
     Select,
@@ -145,9 +141,9 @@ export class FilamentsSettings {
   protected readonly active = inject(ActiveSelection);
   protected readonly labels = inject(LabelsStore);
   private readonly filterStore = inject(LabelFilterStore);
-  private readonly catalog = inject(CloudCatalog);
   private readonly contextMenu = inject(ContextMenuService);
   private readonly dialog = inject(Dialog);
+  private readonly notifications = inject(NotificationService);
   private readonly route = inject(ActivatedRoute);
 
   protected readonly sourceLabels = PROFILE_SOURCE_LABELS;
@@ -161,7 +157,6 @@ export class FilamentsSettings {
     { value: 'none', label: 'None' },
   ];
 
-  protected readonly catalogOpen = signal(false);
   /** Which filament's editor is open in the detail pane. */
   protected readonly selectedId = signal<string | null>(this.active.filament()?.id ?? null);
   protected readonly search = signal('');
@@ -233,7 +228,8 @@ export class FilamentsSettings {
     const configureId = this.route.snapshot.queryParamMap.get('configure');
     if (configureId && this.store.getById(configureId)) {
       this.select(configureId);
-      afterNextRender(() => focusConfigureTarget('configure-target'));
+      const target = configureTargetSelector(this.route.snapshot.queryParamMap.get('focus'));
+      afterNextRender(() => focusConfigureTarget(target));
     }
   }
 
@@ -265,74 +261,6 @@ export class FilamentsSettings {
     const item = this.store.getById(id);
     if (item) {
       this.store.update(id, { label_ids: toggledLabelIds(item.label_ids, labelId) });
-    }
-  }
-
-  protected readonly catalogStatus = this.catalog.filamentsStatus;
-  protected readonly catalogHasMore = this.catalog.filamentsHasMore;
-  protected readonly catalogLoadingMore = this.catalog.filamentsLoadingMore;
-  /** Id of the catalog entry currently being fetched for import, if any. */
-  protected readonly importingId = signal<string | null>(null);
-
-  /**
-   * Why the last catalog import failed. Rendered by the picker, beside the
-   * button that was pressed — an error about a control the user is looking at
-   * does not belong in a floating message somewhere else.
-   */
-  protected readonly importError = signal<string | null>(null);
-  protected readonly catalogEntries = computed<CatalogEntryVm[]>(() =>
-    this.catalog.filaments().map((f) => ({
-      id: f.id,
-      name: f.name,
-      vendor: f.vendor,
-      meta:
-        catalogSpecOf(f) ??
-        `${f.material} · ${(f.params as Record<string, unknown>)?.['nozzle_temp']}°C`,
-      color: f.color,
-      imported: this.store.items().some((item) => item.based_on === f.id),
-    })),
-  );
-
-  protected openCatalog(): void {
-    void this.catalog.loadFilaments();
-    this.catalogOpen.set(true);
-  }
-
-  protected onCatalogSearch(query: string): void {
-    void this.catalog.searchFilaments(query);
-  }
-
-  protected retryCatalog(): void {
-    void this.catalog.loadFilaments(true, this.catalog.filamentsQuery());
-  }
-
-  protected loadMoreCatalog(): void {
-    void this.catalog.loadMoreFilaments();
-  }
-
-  /**
-   * Fetch the full preset behind `id` (real slicing params, not just the
-   * browsed summary) and import it. The catalog picker shows a busy state on
-   * this entry's pick button for the duration.
-   */
-  protected async importFromCatalog(id: string): Promise<void> {
-    const base = this.catalog.filaments().find((f) => f.id === id);
-    if (!base || this.importingId()) {
-      return;
-    }
-    this.importingId.set(id);
-    this.importError.set(null);
-    try {
-      const full = await this.catalog.filamentDetail(base);
-      const copy = this.store.importFromCatalog(full);
-      this.active.selectFilament(copy.id);
-      this.select(copy.id);
-    } catch (error) {
-      this.importError.set(
-        error instanceof Error ? error.message : 'The preset details could not be fetched.',
-      );
-    } finally {
-      this.importingId.set(null);
     }
   }
 

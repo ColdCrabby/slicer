@@ -20,8 +20,9 @@ error-prone option, and usually there is nothing left to fill in.
 
 Your printer's own configuration answers most of the setup, so the slicer reads
 it rather than asking you: build volume and kinematics, nozzle and filament
-diameter, the machine's velocity and acceleration limits, pressure advance, and
-whether it has firmware retraction or can cancel individual objects. It also
+diameter, the machine's velocity and acceleration limits, pressure advance, how
+hot its hotend and bed are allowed to get, and whether it has firmware
+retraction or can cancel individual objects. It also
 works out which start and end macros your printer uses (`PRINT_START` or
 Klippain's `START_PRINT`) and writes the matching G-code. The first screen lists
 every value it read, each one beside the section of `printer.cfg` it came from,
@@ -95,6 +96,12 @@ All three hold the **outer wall and the top surface back**, because those are
 what the print is judged by and neither is where the time goes. Going fast on
 the inside is what pays for going slowly on the outside.
 
+They fit whatever nozzle they land on. Bead width and first-layer height are
+stated as a proportion — `110%` of the nozzle, `120%` of the layer height —
+rather than in millimetres, so the same preset lays a 0.44 mm bead on a 0.4 mm
+nozzle and a 0.66 mm bead on a 0.6 mm one. Type a number over it and it stays a
+number; the `%` button on the field switches between the two.
+
 Two things decide whether the fast ones are honest on your machine:
 
 - **Your printer profile has to carry the speed.** A process asking for
@@ -110,6 +117,108 @@ in your firmware; a profile that shipped a number would overwrite a calibration
 it knows nothing about. Same for retraction on a Klipper machine — the CoreXY
 preset turns **firmware retraction** on so the printer's own values win.
 :::
+
+## When one printer disagrees with the others
+
+Most settings are true wherever you print. A few are not: how fast a hotend can
+melt a material, what pressure advance an extruder needs for it, how much
+retraction an elastic filament wants out of that particular drive. These belong
+to a **machine and a material together**, so no single number on the filament is
+right across three printers.
+
+You do not set these up in advance, and you never make a second copy of a
+filament. You correct them where you notice them:
+
+1. On the slice page, change the setting — **Max Volumetric Speed**, say.
+2. Press **Sync changes to your profiles**.
+3. The row offers two scopes. **This printer only** saves it as that machine's
+   correction for the material you have loaded. **Every printer** edits the
+   shared filament.
+
+"This printer only" is the default, because it cannot affect anything else you
+own. Every other spool of the same material inherits the correction
+automatically, so buying more PLA never costs you a new profile.
+
+They are also managed like anything else, in **Settings → Printers**.
+**Corrections** sits below the machine's own details in every
+printer's editor: pick a
+material from the dropdown and a card for it appears, holding every setting that
+material corrects. Change a value, stop correcting one setting, correct another,
+or **Remove all** to drop the material — that one asks twice, since there is no
+undo behind it. A new correction opens at the value it is a correction *of*, so
+you can see what you are adjusting away from.
+
+In the outline the whole thing is one entry with a material under it, not a
+section per material.
+
+Afterwards, the setting shows where its value came from:
+
+```
+Max volumetric speed   24 mm³/s
+⚙ Corrected for Voron 2.4 · PLA
+```
+
+That line is there so a number disagreeing with the filament profile you picked
+explains itself instead of looking like a fault. It appears only when a
+correction is actually in play — switch to PETG, or to another printer, and the
+filament's own value comes back.
+
+::: details Which settings can be corrected this way
+Temperatures (nozzle and bed, including first layer), maximum volumetric speed,
+flow ratio, pressure advance, retraction length and speed, Z hop, and the fan
+ceiling.
+
+The list is deliberately short. Anything else is true wherever you print it, so
+it belongs in the printer, filament or print profile that owns it — and offering
+a per-machine copy of everything would leave you holding two overlapping sets of
+settings instead of one.
+:::
+
+## What your machine cannot do
+
+A printer profile records three limits read straight off your machine:
+**Hotend temperature limit**, **Bed temperature limit** and **Machine
+acceleration limit**. None of them is a value anything prints at — nothing is
+tuned here, and none of them is written into your G-code.
+
+The two temperature limits exist because asking for heat a machine cannot reach
+does not fail. The print simply waits for a temperature that never arrives, and
+the printer sits hot until you notice. So if you load ABS on a machine whose bed
+stops at 80 °C, the slicer says so before it writes the file.
+
+The acceleration limit exists for the **print-time estimate**. A fast print
+profile asking for 25 000 mm/s² on a printer commissioned at 3 000 is fine — the
+file carries the higher number, the firmware clamps it, and the part comes out
+correctly. What is not fine is an ETA calculated as though the machine reached
+it. The estimate is held to whichever is lower, and a note says so.
+
+Detection fills both in from your printer's own configuration. A machine you
+entered by hand leaves them at `0`, which means "unknown" and warns about
+nothing.
+
+## When a preset asks more than a machine can give
+
+Pick a printer and the filament and print-profile dropdowns say, under any
+preset that is a stretch for it, what the problem is:
+
+```
+Maximum — 0.20 mm
+Asks 300 mm/s; Ender 3 tops out at 150
+```
+
+```
+Generic ABS
+Needs 255 °C; this hotend is rated for 240
+```
+
+Nothing is ever disabled. Plenty of printers are configured conservatively and
+run happily above it, and a print profile asking for speed is exactly what a
+print profile is for — the machine simply does what it can. The note is there so
+you find out before the print, not during it.
+
+The temperature ones are worth taking seriously, though: unlike a speed the
+machine quietly won't reach, a heat target it cannot reach never arrives at all,
+and the print waits on it indefinitely.
 
 ## Everyday management
 
@@ -136,22 +245,28 @@ has — nothing folded away, nothing behind an *Advanced* step. That is what the
 are for, and it is also what makes them long: a printer's editor runs to sixty
 settings, a print profile past two hundred.
 
-The **outline** down the right-hand side is the map. It lists every section of
-the editor and, under each, every setting by name — a whole section in a glance.
-Click a line and the editor jumps to that control and marks where you landed.
-The section you are currently scrolled to is highlighted, so you never lose your
-place.
+The **outline** down the right-hand side is the map. Every section starts
+folded, so the whole editor fits on screen as a dozen lines. Click one to
+open it; that only opens it, and never moves the editor — it is the settings
+listed underneath that take you somewhere. **Expand all** at the top does the
+lot. The section you
+are currently scrolled to is highlighted, so you never lose your place.
 
-Above it, **Filter settings** narrows the outline as you type. Matches stay
-grouped under their own sections, which is the part that helps: typing `gap`
-shows you that there is one in Walls, one in Infill, one in Support and two in
-Speed — *where* each lives, not just that it exists. It is the fastest way to a
-setting you can picture but cannot name.
+Above it, **Filter settings** narrows the outline as you type, and `Ctrl`/`Cmd`
++ `F` puts the cursor there from anywhere on the page. Matches stay grouped
+under their own sections, which is the part that helps: typing `gap` shows you
+that there is one in Walls, one in Infill, one in Support and two in Speed —
+*where* each lives, not just that it exists. It is the fastest way to a setting
+you can picture but cannot name.
 
-**Fold the section list to see it.** Settings is already three columns wide, so
-the outline only appears once you collapse the section list on the far left to
-icons — the button beside the word *Settings*. It also needs a window wide
-enough for the extra column; below that the list and the editor keep the room.
+**A search ignores the folding.** Asking where a setting is and being handed a
+closed section would be no answer, so every match is listed whatever state its
+section was in.
+
+**It appears when there is room for it**, and steps aside when there is not —
+the editor always gets enough width to lay a setting out on one line first. If
+you want it on a narrower window, collapsing the section list on the far left to
+icons (the button beside the word *Settings*) frees about as much as it needs.
 
 The list column itself is draggable: pull the edge between the list and the
 editor to give long profile names the width they need. It stays where you put

@@ -34,7 +34,15 @@
   display: flex;
   align-items: center;
   gap: var(--spacing-xs);
-  padding: var(--spacing-sm) var(--spacing-md);
+  // Fixed, so the field cannot be resized by what is inside it. The clear
+  // button appears on the first keystroke and is taller than the icon and the
+  // input beside it, which grew the field — and with it the sticky bar's height
+  // and the offset every pinned section header below is measured against — just
+  // as the user started typing.
+  height: 38px;
+  // A pixel less than the shared inset, because the border takes one — so the
+  // magnifier lands on the same line as every other leading icon.
+  padding: 0 calc(var(--spacing-md) - 1px);
   background: var(--color-surface);
   border: 1px solid var(--color-border);
   border-radius: var(--radius-md);
@@ -89,6 +97,10 @@
   align-items: center;
   justify-content: center;
   flex-shrink: 0;
+  // Never taller than the row it sits in; the field's height is the field's to
+  // decide.
+  height: 20px;
+  width: 20px;
   background: none;
   border: none;
   cursor: pointer;

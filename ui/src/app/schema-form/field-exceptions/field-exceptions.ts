@@ -1,5 +1,6 @@
 import { type InlineNoticeTone } from '@coldcrabby/ui';
 import type { FieldDef } from '../models/field-def';
+import type { SettingContractId } from '../../models/setting-contract';
 
 /**
  * An in-app link rendered at the end of a {@link FieldNotice}, for pointing the
@@ -11,6 +12,17 @@ export interface FieldNoticeLink {
   text: string;
   /** Angular router path, e.g. `'/settings/printers'`. */
   routerLink: string;
+  /**
+   * Which profile the setting lives on, so the link can open *that* one rather
+   * than whichever the editor happens to show.
+   */
+  contract?: SettingContractId;
+  /**
+   * The setting key to land on. The editor scrolls to that control and flashes
+   * it, instead of dropping the user at the top of a page of sixty settings to
+   * find it themselves — which is most of the reason a notice links anywhere.
+   */
+  setting?: string;
 }
 
 /**
@@ -97,6 +109,8 @@ export const FIELD_EXCEPTIONS: Record<string, FieldException> = {
             link: {
               text: 'Set extruder clearances in printer settings',
               routerLink: '/settings/printers',
+              contract: 'printer',
+              setting: 'extruder_clearance_radius',
             },
           }
         : null,
@@ -142,6 +156,8 @@ function chamberWithoutHeaterNotice(
     link: {
       text: 'Turn on Heated Chamber in printer settings',
       routerLink: '/settings/printers',
+      contract: 'printer',
+      setting: 'heated_chamber',
     },
   };
 }
