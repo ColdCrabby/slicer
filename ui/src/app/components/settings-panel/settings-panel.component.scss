@@ -249,116 +249,9 @@
 // One row, fixed height, no conditional children that resize it: everything it
 // can say swaps in place. It sits directly under the cursor while a slider is
 // being dragged, so anything that reflowed here would be felt, not just seen.
-.settings-footer {
-  position: sticky;
-  bottom: 0;
-  z-index: 10;
-  display: flex;
-  align-items: center;
-  gap: var(--spacing-sm);
-  min-height: 32px;
-  padding: var(--spacing-xs) var(--spacing-sm);
-  background: var(--color-bg-secondary);
-  font-size: var(--font-size-xs);
-  color: var(--color-text-tertiary);
-  user-select: none;
-  -webkit-user-select: none;
-
-  &.is-error {
-    color: var(--color-danger);
-  }
-}
-
-.settings-footer::before {
-  content: '';
-  position: absolute;
-  left: 0;
-  right: 0;
-  bottom: 100%;
-  height: var(--spacing-md);
-  background: linear-gradient(
-    to top,
-    var(--color-bg-secondary),
-    color-mix(in srgb, var(--color-bg-secondary) 40%, transparent) 55%,
-    transparent
-  );
-  pointer-events: none;
-}
-
-.settings-footer-dot {
-  flex: none;
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: var(--accent);
-  // Reserved, not conditional — see the comment in the template.
-  visibility: hidden;
-
-  &.is-active {
-    visibility: visible;
-    animation: settings-footer-pulse 1.4s ease-in-out infinite;
-  }
-
-  .settings-footer.is-error & {
-    background: var(--color-danger);
-    animation: none;
-  }
-}
-
-@keyframes settings-footer-pulse {
-  0%,
-  100% {
-    opacity: 0.35;
-  }
-  50% {
-    opacity: 1;
-  }
-}
-
-.settings-footer-text {
-  min-width: 0;
-  flex: 1 1 auto;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.settings-footer-reset {
-  flex: none;
-  padding: 3px var(--spacing-xs);
-  border: 0;
-  border-radius: var(--radius-sm);
-  background: none;
-  font: inherit;
-  color: var(--color-text-secondary);
-  cursor: pointer;
-  transition:
-    color var(--duration-fast) var(--ease-standard),
-    background var(--duration-fast) var(--ease-standard);
-
-  &:hover {
-    background: var(--color-bg-primary);
-    color: var(--color-text-primary);
-  }
-
-  &.is-confirming {
-    background: var(--color-danger-light);
-    color: var(--color-danger);
-  }
-}
 
 // Announced, never drawn: the save result reaches a screen reader without the
 // change count following it on every keystroke.
-.settings-footer-announce {
-  position: absolute;
-  width: 1px;
-  height: 1px;
-  margin: -1px;
-  padding: 0;
-  overflow: hidden;
-  clip-path: inset(50%);
-  white-space: nowrap;
-}
 
 // The form's search pins under the lead rather than over it. `--preset-bar-h` is
 // published by the panel because the lead's height depends on how many presets
@@ -434,30 +327,27 @@
   clip-path: inset(50%);
 }
 
-/* A chevron reads "this expands". Choosing another preset is a swap, so the
-   select's own chevron is hidden and ours is drawn over the trigger — it is
-   decoration, and the real button underneath still takes the click. */
-.recipe-swap-wrap {
-  position: relative;
+/* Only the caret shows: the trigger's label is clipped rather than dropped, so
+   a screen reader still hears which preset it holds. */
+.recipe-swap {
   flex: none;
-  display: block;
-}
+  width: 30px;
 
-.recipe-swap ::ng-deep .chevron {
-  visibility: hidden;
-}
+  ::ng-deep .trigger {
+    width: 100%;
+    padding-inline: 0;
+    justify-content: center;
+    border-color: transparent;
+    background: transparent;
+  }
 
-.recipe-swap-icon {
-  position: absolute;
-  inset: 0;
-  display: grid;
-  place-items: center;
-  pointer-events: none;
-  color: var(--color-text-tertiary);
-  --icon-size: 15px;
-}
-
-.recipe-row:hover .recipe-swap-icon,
-.recipe-row.is-active .recipe-swap-icon {
-  color: var(--color-text-secondary);
+  ::ng-deep .trigger-label,
+  ::ng-deep .trigger-swatches {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
 }

@@ -53,7 +53,7 @@
         [attr.aria-label]="syncTooltip()"
         (click)="syncToProfile()"
       >
-        <nexus-icon name="upload" />
+        <nexus-icon name="refresh-double" />
         @if (modifiedCount() > 0) {
           <span class="sync-trigger-count">{{ modifiedCount() }}</span>
         }
@@ -95,16 +95,13 @@
           @if (presetOptionsFor(contract.id).length > 0) {
             <!-- Trigger label is clipped, not removed: the caret is all that
                  shows, and a screen reader still hears which preset it holds. -->
-            <span class="recipe-swap-wrap">
-              <nexus-select
-                class="recipe-swap"
-                [options]="presetOptionsFor(contract.id)"
-                [value]="selectedIdFor(contract.id)"
-                [placeholder]="'Select ' + contract.label.toLowerCase()"
-                (valueChange)="selectPresetFor(contract.id, $event)"
-              />
-              <nexus-icon class="recipe-swap-icon" name="list-select" aria-hidden="true" />
-            </span>
+            <nexus-select
+              class="recipe-swap"
+              [options]="presetOptionsFor(contract.id)"
+              [value]="selectedIdFor(contract.id)"
+              [placeholder]="'Select ' + contract.label.toLowerCase()"
+              (valueChange)="selectPresetFor(contract.id, $event)"
+            />
           }
 
           <a
