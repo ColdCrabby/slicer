@@ -162,11 +162,17 @@
 // As many across as the sidebar can show without cutting the names, stacked
 // when it can only manage one. A plain `auto-fit` rather than a measured
 // breakpoint: the sidebar is draggable, so the only honest threshold is "does a
-// name still fit", and the minimum track is that answer — the menu button takes ~34px
-// of it, so the track has to carry a preset name plus that.
+// name still fit", and the minimum track is that answer — the menu button takes
+// ~34px of it, so the track has to carry a preset name plus that.
+//
+// `min(230px, 100%)` and not a bare `230px`: a minimum is a floor the track
+// holds to even when the grid is narrower than it, and a 230px track in a 221px
+// sidebar hangs 11px over the edge — taking the menu button with it, which is
+// the one thing in the row that has to stay reachable. Capping the floor at the
+// grid's own width lets the last column shrink instead of overhanging.
 .recipe {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(230px, 100%), 1fr));
   gap: 2px;
   // The recessed well the segmented control used to draw: a darker fill than
   // the panel around it, an inset, and a border. The three rows read as one
@@ -200,6 +206,9 @@
   display: flex;
   align-items: center;
   gap: var(--spacing-xs);
+  // A grid item's automatic minimum is its min-content width; the name inside
+  // is free to ellipsise, so the row must be free to be narrower than it.
+  min-width: 0;
   // The scope button carries 4px of its own and the well 4px more (3px inset
   // plus its border), so the row gives the leading side only what is left of
   // the shared inset. The trailing side gets none: the menu button is a square
