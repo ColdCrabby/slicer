@@ -139,10 +139,20 @@ the object: every duplicate shares a filename, so that wouldn't tell you which.
   when that pose would leave a lot of the model hanging in the air or wouldn't
   fit under the gantry. A part that already arrived the right way up is left
   alone.
-- **Gap** — how much room to leave between parts, in mm.
+- **Gap** — how much room to leave between parts, in mm. It's measured between
+  the parts' actual outlines, not the boxes around them, so a curved or L-shaped
+  part keeps the gap you asked for without reserving the empty corners it
+  doesn't use.
 - **Preferred angle** — shown read-only, because it belongs to the printer, not
   the plate. Many CoreXY machines print best at 45°. Change it in
   **Settings → Printers**. It's only applied when auto-orient runs.
+
+Parts are nested by their real shape: the app looks at the shadow each one
+casts on the plate and tucks the next part into whatever room the last one left,
+turning parts a quarter turn when that helps them fit. Angled and hollow parts
+overlap each other's empty corners, so a plate that used to need two runs often
+goes in one. Anything that still doesn't fit is parked beside the plate rather
+than dropped, where the out-of-bounds warning picks it up.
 
 This is one command, not two. There's no separate "orient everything" button
 that would fight with the arrangement.

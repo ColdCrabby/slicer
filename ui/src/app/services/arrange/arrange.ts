@@ -6,6 +6,15 @@ import { SceneEngine } from '../scene-engine';
 
 const SPACING_KEY = 'nexus.viewer.arrangeSpacingMm';
 const AUTO_ORIENT_KEY = 'nexus.viewer.arrangeAutoOrient';
+const TURN_TO_FIT_KEY = 'nexus.viewer.arrangeTurnToFit';
+
+/**
+ * Quarter turn the packer may give a part to make it fit, in degrees.
+ *
+ * A quarter turn is the one rotation that costs nothing: it cannot undo an
+ * auto-orient result, and it keeps a printer's preferred 45° diagonal.
+ */
+const TURN_STEP_DEG = 90;
 
 /** Gap left between objects when placing them, in millimetres. */
 export const DEFAULT_ARRANGE_SPACING_MM = 4;
@@ -16,6 +25,8 @@ export const MAX_ARRANGE_SPACING_MM = 50;
 export interface ArrangeSettings {
   spacingMm: number;
   autoOrient: boolean;
+  /** Rotation step the packer may use, in degrees. `0` keeps every angle. */
+  rotationStepDeg: number;
   /** Extra Z-rotation applied after auto-orient, from the active printer. */
   preferredOrientationDeg: number;
 }
@@ -62,6 +73,15 @@ export class Arrange {
   readonly autoOrient = signal<boolean>(this.readAutoOrient());
 
   /**
+   * Whether the packer may give a part a quarter turn to make it fit.
+   *
+   * On by default: parts are nested by their real outline, and being allowed
+   * to turn one is most of what lets an awkward plate close up. Off keeps
+   * every part on the angle it is on, for a plate laid out by hand.
+   */
+  readonly turnToFit = signal<boolean>(this.readTurnToFit());
+
+  /**
    * Extra Z-rotation the active printer prefers, in degrees. `0` when the
    * machine has no preference.
    */
@@ -76,6 +96,7 @@ export class Arrange {
   readonly settings = computed<ArrangeSettings>(() => ({
     spacingMm: this.spacingMm(),
     autoOrient: this.autoOrient(),
+    rotationStepDeg: this.turnToFit() ? TURN_STEP_DEG : 0,
     preferredOrientationDeg: this.preferredOrientationDeg(),
   }));
 
@@ -86,6 +107,12 @@ export class Arrange {
       : DEFAULT_ARRANGE_SPACING_MM;
     this.spacingMm.set(clamped);
     this.storage.write(SPACING_KEY, String(clamped));
+  }
+
+  /** Set whether the packer may turn a part to make it fit, and persist it. */
+  setTurnToFit(value: boolean): void {
+    this.turnToFit.set(value);
+    this.storage.write(TURN_TO_FIT_KEY, String(value));
   }
 
   /** Set whether placing re-orients each part, and persist it. */
@@ -118,6 +145,7 @@ export class Arrange {
         options: {
           spacing_mm: settings.spacingMm,
           auto_orient: settings.autoOrient,
+          rotation_step_deg: settings.rotationStepDeg,
           orient_options: { preferred_z_rotation_deg: settings.preferredOrientationDeg },
         },
       },
@@ -137,6 +165,12 @@ export class Arrange {
       return DEFAULT_ARRANGE_SPACING_MM;
     }
     return Math.max(MIN_ARRANGE_SPACING_MM, Math.min(MAX_ARRANGE_SPACING_MM, parsed));
+  }
+
+  private readTurnToFit(): boolean {
+    // Unset means "on": the packer has always been free to place a part
+    // wherever it fits, and a quarter turn is part of that.
+    return this.storage.get(TURN_TO_FIT_KEY)() !== 'false';
   }
 
   private readAutoOrient(): boolean {

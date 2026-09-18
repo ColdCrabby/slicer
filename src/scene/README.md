@@ -163,7 +163,7 @@ plate as hanging off it.
 | `DropToFloor`       | Translates so world AABB `min.z = 0`                       | `SetTransform` to previous       |
 | `PlaceFaceOnFloor`  | Rotates picked face's normal to `-Z`, then lands that face | `SetTransform` to previous       |
 | `AutoOrient`        | Rotates to minimise overhangs, then drops                  | `SetTransform` to previous       |
-| `ArrangeOnBed`      | Shelf-packs the listed objects, then centers the group     | `BatchSetTransform`              |
+| `ArrangeOnBed`      | Nests the listed objects by outline, then centers the group| `BatchSetTransform`              |
 | `BatchSetTransform` | Restores many transforms atomically                        | `BatchSetTransform` to previous  |
 
 > **Note on `Remove`:** the inverse can't fully restore the mesh bytes from

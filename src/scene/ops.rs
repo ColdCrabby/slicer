@@ -125,9 +125,11 @@ pub enum SceneOp {
     /// For each id in `ids`:
     /// 1. If `options.auto_orient` is `true`, run [`SceneOp::AutoOrient`] on
     ///    the object (preserving individual orientation quality).
-    /// 2. After all objects are oriented, compute each object's XY footprint
-    ///    and run a shelf-first-fit packing algorithm to place them without
-    ///    overlap, separated by `options.spacing_mm`.
+    /// 2. After all objects are oriented, project each object's triangles
+    ///    onto the plate and nest those outlines — not their bounding boxes —
+    ///    so concave parts tuck into each other, separated by
+    ///    `options.spacing_mm`. Objects may be turned in
+    ///    `options.rotation_step_deg` steps to fit.
     /// 3. Center the entire arrangement on the bed.
     ///
     /// The inverse is a [`SceneOp::BatchSetTransform`] that restores every
@@ -571,43 +573,57 @@ impl SceneState {
                 }
 
                 // ----------------------------------------------------------------
-                // Step 2: Collect XY footprints (world-AABB width × depth).
-                // ----------------------------------------------------------------
-                // We pair each footprint with its corresponding id so we can
-                // look up results by index after packing.
-                let footprints: Vec<(ObjectId, (f64, f64))> = ids
-                    .iter()
-                    .filter_map(|&id| {
-                        self.get(id).map(|o| {
-                            let aabb = o.world_aabb();
-                            let w = (aabb.max.x - aabb.min.x).max(0.0);
-                            let d = (aabb.max.y - aabb.min.y).max(0.0);
-                            (id, (w, d))
-                        })
-                    })
-                    .collect();
-
-                let fp_values: Vec<(f64, f64)> = footprints.iter().map(|&(_, fp)| fp).collect();
-                let packed =
-                    crate::orient::pack::pack_footprints(&fp_values, &self.bed, options.spacing_mm);
-
-                // ----------------------------------------------------------------
-                // Step 3: Move each object to its packed position.
+                // Step 2: Project each object's own triangles onto the plate.
                 //
-                // The packing result gives the object's desired min-X / min-Y
-                // in scene coordinates.  We shift the translation so the
-                // world-AABB min-X and min-Y land there.
+                // The outline, not the bounding box: an L-bracket's box is
+                // mostly air, and only a packer that sees the real shadow can
+                // tuck the next part into that air.
+                // ----------------------------------------------------------------
+                let mut owners: Vec<ObjectId> = Vec::with_capacity(ids.len());
+                let mut footprints: Vec<crate::orient::pack::Footprint> =
+                    Vec::with_capacity(ids.len());
+                for &id in &ids {
+                    if let Some(obj) = self.get(id) {
+                        owners.push(id);
+                        footprints.push(crate::orient::pack::Footprint::new(
+                            obj.mesh.as_ref(),
+                            &obj.transform,
+                        ));
+                    }
+                }
+
+                let packed = crate::orient::pack::pack_objects(
+                    &footprints,
+                    &self.bed,
+                    &crate::orient::pack::PackOptions {
+                        spacing_mm: options.spacing_mm,
+                        rotation_step_deg: options.rotation_step_deg,
+                    },
+                );
+
+                // ----------------------------------------------------------------
+                // Step 3: Turn each object about the pivot its footprint was
+                // rasterised around, then move that pivot where the packer put
+                // it.  Rotating about the pivot is what makes the placed part
+                // land exactly on the outline that was tested for collisions.
                 // ----------------------------------------------------------------
                 for item in &packed {
-                    let (obj_id, _) = footprints[item.index];
-                    if let Some(obj) = self.get(obj_id) {
-                        let world = obj.world_aabb();
-                        let dx = item.x - world.min.x;
-                        let dy = item.y - world.min.y;
-                        let t = &mut self.get_mut(obj_id).unwrap().transform;
-                        t.translation[0] += dx as f32;
-                        t.translation[1] += dy as f32;
+                    let obj_id = owners[item.index];
+                    let pivot = footprints[item.index].pivot;
+                    let Some(obj) = self.get(obj_id) else {
+                        continue;
+                    };
+                    let mut transform = obj.transform;
+                    if item.angle_deg != 0.0 {
+                        let pivot3 = glam::Vec3::new(pivot[0] as f32, pivot[1] as f32, 0.0);
+                        let spin = glam::Mat4::from_translation(pivot3)
+                            * glam::Mat4::from_rotation_z((item.angle_deg as f32).to_radians())
+                            * glam::Mat4::from_translation(-pivot3);
+                        transform = Transform::from_matrix(spin * transform.to_matrix());
                     }
+                    transform.translation[0] += (item.pivot[0] - pivot[0]) as f32;
+                    transform.translation[1] += (item.pivot[1] - pivot[1]) as f32;
+                    self.get_mut(obj_id).unwrap().transform = transform;
                 }
 
                 Ok(OpReceipt {
@@ -1087,6 +1103,45 @@ mod tests {
                 );
             }
         }
+    }
+
+    #[test]
+    fn arrange_turns_a_part_that_only_fits_sideways() {
+        // A 90 x 20 bar on a 40 mm wide plate: it fits only across the depth,
+        // which means the packer has to actually apply the quarter turn it
+        // chose to the object's transform, not just to its own bookkeeping.
+        let mut s = SceneState::new(BedConfig {
+            width: 40.0,
+            depth: 120.0,
+            ..small_bed()
+        });
+        let id = s.add_mesh("bar", cube_mesh([0.0, 0.0, 0.0], 10.0));
+        s.apply(SceneOp::Scale {
+            id,
+            factors: [9.0, 2.0, 1.0],
+        })
+        .unwrap();
+
+        s.apply(SceneOp::ArrangeOnBed {
+            ids: vec![id],
+            options: crate::orient::ArrangeOptions {
+                spacing_mm: 2.0,
+                auto_orient: false,
+                ..Default::default()
+            },
+        })
+        .unwrap();
+
+        let placed = s.get(id).unwrap().world_aabb();
+        assert!(
+            s.bed.contains_aabb(&placed),
+            "turned bar should be on the plate: {placed:?}"
+        );
+        assert!(
+            (placed.max.x - placed.min.x - 20.0).abs() < 1.0,
+            "expected the 20 mm side across X after the turn, got {:.1}",
+            placed.max.x - placed.min.x
+        );
     }
 
     #[test]

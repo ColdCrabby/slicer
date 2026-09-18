@@ -37,6 +37,7 @@ export class PlacementPanel {
 
   protected readonly spacingMm = this.arrange.spacingMm;
   protected readonly autoOrient = this.arrange.autoOrient;
+  protected readonly turnToFit = this.arrange.turnToFit;
   protected readonly preferredOrientationDeg = this.arrange.preferredOrientationDeg;
   protected readonly objectCount = this.arrange.objectCount;
 
@@ -87,6 +88,10 @@ export class PlacementPanel {
 
   protected setAutoOrient(value: boolean): void {
     this.arrange.setAutoOrient(value);
+  }
+
+  protected setTurnToFit(value: boolean): void {
+    this.arrange.setTurnToFit(value);
   }
 
   /**

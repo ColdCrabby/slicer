@@ -186,35 +186,74 @@ each other.  `ArrangeOnBed` solves the whole-group placement problem.
 
 ### Algorithm overview (`pack.rs`)
 
+The one rule this section defends: **packing reasons about the object's own
+outline, never about the box around it.** A bounding box is a bad description
+of a printed part — an L-bracket, a bracket arm, anything turned 45° is mostly
+air inside its box, and a box-packer leaves that air unusable. Two such parts
+can sit side by side without touching, and that arrangement is exactly the one
+that fits a plate no box-packer can fill.
+
 ```mermaid
 flowchart TD
   A["ids, ArrangeOptions"] --> B{"auto_orient?"}
   B -- "Yes" --> C["AutoOrient each object<br/>+ DropToFloor"]
   B -- "No" --> D
-  C --> D["Compute XY footprints<br/>world-AABB width x depth"]
-  D --> E["Sort by area descending"]
-  E --> F["Shelf-first-fit packing<br/>O(N^2)"]
-  F --> G["Center arrangement<br/>on bed"]
-  G --> H["Translate each object<br/>to packed position"]
+  C --> D["Project triangles to XY<br/>= the footprint"]
+  D --> E["Sort by footprint area,<br/>largest first"]
+  E --> F["Per object: rasterise<br/>each rotation candidate"]
+  F --> G["Nearest free spot to<br/>the plate's low corner"]
+  G --> H["Commit: dilate by spacing,<br/>OR into occupancy"]
+  H --> F
+  H --> I["Recentre the arrangement<br/>on the bed"]
 ```
 
-#### Shelf-first-fit
+#### The plate is a bitmap
 
-1. Maintain a list of **shelves** — horizontal strips of the bed, each tracking
-   its bottom-Y coordinate and an X cursor pointing to where the next object
-   starts.
-2. For each object (sorted by area descending):
-   - Scan shelves bottom-to-top.  Place the object on the first shelf where it
-     fits (`x_cursor + spacing + width ≤ bed.width`).
-   - If no shelf fits, open a new shelf above the previous highest one.
-3. After all objects are placed, compute the arrangement's bounding box and
-   shift every object so the center matches the bed center.
+The footprint is rasterised into a bitmask over a grid of the bed
+(`cell_size` — 512 cells across the longest axis, floored at 0.4 mm).
+Everything after that is bitwise, which is what makes trying every position
+affordable:
 
-**Spacing** between objects defaults to 2 mm and is controlled by
-`ArrangeOptions::spacing_mm`.
+1. **The bed *is* the occupancy map.** Every cell not fully on the plate starts
+   occupied, so "does it fit on the bed" and "does it hit another part" are one
+   `AND`. A circular bed needs no special case and no inscribed square.
+2. **Largest first**, so the parts with the fewest choices choose first.
+3. **Every rotation, every position.** Candidate positions are visited in rings
+   outwards from the ideal cell, and the search stops once the next ring cannot
+   beat the best hit so far — which makes "nearest" exact rather than
+   first-fit.
+4. **Spacing is applied at commit time**, by dilating the placed mask with a
+   disc of `spacing_mm` before OR-ing it in. The next part is tested with its
+   *true* outline, so the gap is measured between outlines, the honest way.
 
-Objects wider than the bed are placed anyway (extending past the right edge);
-the caller should surface a warning to the user.
+Rasterisation is **conservative**: a cell is occupied if a triangle touches it
+at all, and a bed cell is printable only if the whole cell is on the plate.
+Parts can end up up to one cell further apart than asked — never closer, and
+never off the plate.
+
+#### Why the corner, then a recentre
+
+Packing towards the bed centre sounds right and packs badly: the first big part
+lands squarely on the space every later part needs. Parts are nested into the
+plate's low corner instead, and the finished arrangement is moved back to the
+middle — one shift for the whole group, shortened a cell at a time until every
+part is still on the plate. On a rectangular bed the full shift always
+survives; on a round one that check is the difference between a centred plate
+and parts pushed over the rim.
+
+#### Rotation
+
+`rotation_step_deg` defaults to 90°, which is free: a quarter turn cannot undo
+an auto-orient result, and it preserves a printer's preferred Z-rotation — a
+CoreXY machine asking for 45° still gets a diagonal part afterwards. Finer
+steps nest tighter at the cost of turning parts off the angle the user chose;
+`0` keeps every pose exactly as it arrived.
+
+**Spacing** between outlines defaults to 2 mm (`ArrangeOptions::spacing_mm`).
+
+Objects that fit nowhere are **parked in a column beside the plate**, never
+dropped and never overlapped onto a part that did fit, so the caller can warn
+about a plate that is too full.
 
 ### Undo
 
@@ -242,6 +281,7 @@ time.
 | `spacing_mm` | `2.0` | Gap between objects on the bed (mm). |
 | `auto_orient` | `true` | Orient each object before packing. |
 | `orient_options` | (defaults) | Passed through to `auto_orient` per object. |
+| `rotation_step_deg` | `90.0` | Rotation step the packer may turn an object by. `0` keeps every pose. |
 
 ---
 
@@ -272,12 +312,13 @@ sceneEngine.apply({
 
 ## Non-goals
 
-- **Collision detection** with arbitrary rotations.  The packing is 2-D
-  (XY footprint only); it does not account for objects that overhang their
-  footprint after orientation.  This is correct for the vast majority of FDM
-  models but may produce visual overlaps for extremely concave geometry.
-- **Optimal bin-packing.**  Shelf-first-fit is a fast approximation.  True
-  optimal packing (nesting / polygon decomposition) is out of scope.
+- **Three-dimensional packing.**  The footprint is a shadow: two parts never
+  share plate area, even where one could pass over the other's low shoulder.
+  A gantry sweeps the whole column above a part, so trading that away for
+  density would buy collisions.
+- **Optimal bin-packing.**  Every part is placed once, in size order, and never
+  reconsidered.  Searching permutations (or annealing the result) would pack a
+  little tighter for a cost no arrange button can afford.
 - **Persistence.**  Scene state is ephemeral per WS connection / WASM instance.
   `ArrangeOnBed` does not save its results to a database.
 
@@ -289,7 +330,7 @@ sceneEngine.apply({
 - [`src/orient/candidates.rs`](candidates.rs) — histogram bucketing + Fibonacci sphere
 - [`src/orient/score.rs`](score.rs) — per-candidate contact / overhang / footprint / height
 - [`src/orient/geometry.rs`](geometry.rs) — face normal helpers
-- [`src/orient/pack.rs`](pack.rs) — shelf-first-fit packing algorithm
+- [`src/orient/pack.rs`](pack.rs) — outline rasterisation and the nesting search
 - [`src/orient/types.rs`](types.rs) — `AutoOrientOptions`, `ArrangeOptions`
 - [`src/scene/ops.rs`](../scene/ops.rs) — `SceneOp::AutoOrient`, `SceneOp::ArrangeOnBed`
 - [`tests/auto_orient.rs`](../../tests/auto_orient.rs) — corpus pins for the contact rule

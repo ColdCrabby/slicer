@@ -164,7 +164,7 @@ pub struct SliceCommand {
     /// Pack all models onto the bed without overlap before slicing.
     ///
     /// Dispatches the scene engine's `ArrangeOnBed` op, so a multi-object
-    /// plate uses the same shelf-packing layout as the UI. Runs after the
+    /// plate nests by the same real outlines the UI uses. Runs after the
     /// other transform flags.
     #[arg(long)]
     pub arrange: bool,
@@ -172,6 +172,12 @@ pub struct SliceCommand {
     /// Gap between arranged models in millimeters (used with `--arrange`).
     #[arg(long, value_name = "MM", default_value_t = 2.0)]
     pub arrange_spacing: f64,
+
+    /// Rotation step the packer may turn a model by to make it fit, in
+    /// degrees. `0` keeps every model at the angle it was given; smaller steps
+    /// nest tighter but turn models off the angle `--rotate` chose.
+    #[arg(long, value_name = "DEG", default_value_t = 90.0)]
+    pub arrange_rotate_step: f64,
 
     /// Auto-orient each model to minimize overhangs while arranging.
     ///
@@ -448,6 +454,7 @@ impl SliceCommand {
                 preferred_z_rotation_deg: machine.preferred_print_rotation_deg,
                 ..Default::default()
             },
+            rotation_step_deg: self.arrange_rotate_step,
         }
     }
 

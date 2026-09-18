@@ -40,6 +40,12 @@ issue/PR numbers or repo links in the notes. See the tone rules in
 
 ### Changed
 
+- **Place objects nests by shape, not by bounding box.** Parts are packed by the
+  outline they actually cast on the plate, so angled and hollow parts overlap
+  each other's empty corners instead of reserving them. A plate of parts posed
+  at 45° — what a CoreXY machine asks for — fits up to half again as many. The
+  gap you set is now measured between outlines, and parts may take a quarter
+  turn to fit; `Turn to fit` on the placement card turns that off.
 - **The stock profiles are quicker across the board.** Outer walls run at
   120 mm/s (was 80), top surfaces at 100 (was 60), bridges and the steep overhang
   bands that inherit from them at 25 (was 10), and travel at 300 mm/s (was 150).
