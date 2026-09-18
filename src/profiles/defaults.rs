@@ -156,8 +156,8 @@ pub fn corexy_printer() -> PrinterProfile {
         // The machine's own retraction is the tuned one; these are the fallback
         // for a firmware build that does not answer `G10`/`G11`.
         "use_firmware_retraction": true,
-        "retract_mm": 0.4,
-        "retract_speed_mm_min": 1800.0,
+        "retract_mm": 0.6,
+        "retract_speed_mm_min": 2100.0,
         "z_hop_mm": 0.2,
         // A failed part can be skipped without losing the plate — standard on a
         // Klipper machine with object exclusion built in.
