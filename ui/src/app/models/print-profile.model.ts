@@ -151,7 +151,7 @@ export function makePrintProfile(overrides: Partial<PrintProfile> = {}): PrintPr
  * the print is judged by and neither is where the time goes; going fast on the
  * inside is what pays for going slowly on the outside.
  */
-function fastParams(speeds: Record<string, number>): Record<string, unknown> {
+function fastParams(speeds: Record<string, number | string>): Record<string, unknown> {
   return {
     ...defaultProcessParams(),
     // Derived from the nozzle rather than pinned at 0.44: these are the
