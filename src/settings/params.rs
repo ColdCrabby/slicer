@@ -1865,10 +1865,12 @@ Set to `0.0` to disable the filter entirely.
     pub min_infill_extrusion_mm: f64,
 
     #[schemars(
-        description = "Maximum perpendicular deviation (mm) for path simplification (Ramer–Douglas–Peucker).
+        description = "Maximum perpendicular deviation (mm) for path simplification.
 
-Reduces the number of G-code points without visibly affecting print quality.
-**Typical:** 0.01–0.1 mm. Set to `0.0` to disable.",
+Drops G-code points the printer cannot use — near-collinear vertices and
+sub-0.1 mm micro-segments that make curves stutter — without faceting them.
+Larger values print curves as visible flat facets.
+**Default:** 0.0125 mm. **Typical:** 0.01–0.025 mm. Set to `0.0` to disable.",
         extend("x-group" = "Output", "x-unit" = "mm", "x-step" = 0.01, "x-tier" = "expert")
     )]
     #[serde(default = "SlicingParams::default_path_tolerance")]
@@ -3983,7 +3985,7 @@ impl SlicingParams {
     }
 
     fn default_path_tolerance() -> f64 {
-        0.05
+        0.0125
     }
 
     fn default_gcode_flavor() -> GcodeFlavor {
@@ -4732,7 +4734,7 @@ mod tests {
         assert_eq!(params.travel_speed_mm_min, 18000.0);
         assert_eq!(params.z_hop_mm, 0.2);
         assert_eq!(params.retract_mm, 1.0);
-        assert_eq!(params.path_tolerance, 0.05);
+        assert_eq!(params.path_tolerance, 0.0125);
         assert!(params.thumbnail_enabled);
         assert_eq!(params.thumbnail_size_px, 320);
         assert_eq!(params.thumbnail_view, ThumbnailView::Isometric);
@@ -4774,7 +4776,7 @@ mod tests {
         assert_eq!(params.travel_speed_mm_min, 18000.0, "default travel speed");
         assert_eq!(params.z_hop_mm, 0.2, "default z-hop");
         assert_eq!(params.retract_mm, 1.0, "default retract");
-        assert_eq!(params.path_tolerance, 0.05, "default path tolerance");
+        assert_eq!(params.path_tolerance, 0.0125, "default path tolerance");
         assert!(params.thumbnail_enabled, "default thumbnail enabled");
         assert_eq!(params.thumbnail_size_px, 320, "default thumbnail size");
         assert_eq!(

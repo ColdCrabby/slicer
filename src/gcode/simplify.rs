@@ -1,9 +1,9 @@
-//! Path simplification using the Ramer-Douglas-Peucker algorithm.
+//! Output-stage path simplification.
 //!
-//! Reduces the number of points in a polyline while preserving its overall
-//! shape within a configurable tolerance.  Applied during G-code generation so
-//! that mesh detail is never discarded during geometry calculations — only the
-//! printer-bound output is thinned.
+//! Thins every printer-bound polyline in two passes via [`simplify_path`]:
+//! merge segments shorter than [`MIN_SEGMENT_MM`], then Ramer-Douglas-Peucker. Applied during G-code generation so that mesh detail is
+//! never discarded during geometry calculations — only the printer-bound output
+//! is thinned. Why both passes are needed is in the module README.
 //!
 //! # Algorithm
 //!
@@ -126,6 +126,141 @@ fn max_perpendicular_distance(points: &[(f64, f64)]) -> (f64, usize) {
     }
 
     (max_dist, max_idx)
+}
+
+/// Shortest segment (mm) a printer-bound path should carry.
+///
+/// Sliced geometry lives on Clipper2's 0.01 mm integer grid, so a round-join
+/// offset or a finely tessellated mesh leaves clusters of vertices 0.01–0.03 mm
+/// apart whose directions snap to multiples of 45°. Every one of them is a kink
+/// the motion planner must slow down for — a smooth arc then stutters and the
+/// wall shows the jitter. RDP alone cannot drop them without a tolerance coarse
+/// enough to facet the curve, so [`simplify_path`] merges them first.
+pub const MIN_SEGMENT_MM: f64 = 0.1;
+
+/// Longest run of consecutive vertices one merge may swallow. Bounds the
+/// deviation check to O(n · cap) on long runs of dense, nearly straight points;
+/// a forced keep is harmless because RDP follows.
+const MERGE_RUN_CAP: usize = 32;
+
+/// Simplify a printer-bound polyline: merge sub-[`MIN_SEGMENT_MM`] segments,
+/// then [`douglas_peucker`] at `tolerance`.
+///
+/// A vertex bounding a short segment is dropped only while every vertex merged
+/// into the resulting chord stays within `2 × tolerance` of it, so real corners
+/// survive. On a grid-snapped circle this is both smoother and truer to the
+/// model than either pass alone. `tolerance <= 0` returns the input unchanged.
+///
+/// # Example
+/// ```
+/// use slicer_engine::gcode::simplify::simplify_path;
+///
+/// // A 0.01 mm grid-step kink in a straight run is merged away.
+/// let pts = vec![(0.0_f64, 0.0), (1.0, 0.0), (1.01, 0.01), (2.0, 0.0)];
+/// assert_eq!(simplify_path(&pts, 0.0125), vec![(0.0, 0.0), (2.0, 0.0)]);
+/// ```
+pub fn simplify_path(points: &[(f64, f64)], tolerance: f64) -> Vec<(f64, f64)> {
+    if points.len() < 3 || tolerance <= 0.0 {
+        return points.to_vec();
+    }
+    let merged: Vec<(f64, f64)> = merge_short_segments(points, None, 2.0 * tolerance, 0.0)
+        .into_iter()
+        .map(|i| points[i])
+        .collect();
+    douglas_peucker(&merged, tolerance)
+}
+
+/// Width-aware [`simplify_path`] for variable-width beads: the merge also keeps
+/// any vertex whose width departs from the interpolated width by more than
+/// `width_tolerance`, then [`douglas_peucker_with_widths`] runs. Returns aligned
+/// `(points, widths)`; falls back to the input on mismatched lengths.
+pub fn simplify_path_with_widths(
+    points: &[(f64, f64)],
+    widths: &[f64],
+    tolerance: f64,
+    width_tolerance: f64,
+) -> (Vec<(f64, f64)>, Vec<f64>) {
+    if points.len() < 3 || widths.len() != points.len() || tolerance <= 0.0 {
+        return (points.to_vec(), widths.to_vec());
+    }
+    let (p, w): (Vec<(f64, f64)>, Vec<f64>) = merge_short_segments(
+        points,
+        Some(widths),
+        2.0 * tolerance,
+        width_tolerance.max(1e-6),
+    )
+    .into_iter()
+    .map(|i| (points[i], widths[i]))
+    .unzip();
+    douglas_peucker_with_widths(&p, &w, tolerance, width_tolerance)
+}
+
+/// Indices of the vertices that survive merging segments shorter than
+/// [`MIN_SEGMENT_MM`]. Endpoints are always kept.
+fn merge_short_segments(
+    points: &[(f64, f64)],
+    widths: Option<&[f64]>,
+    max_dev: f64,
+    width_tol: f64,
+) -> Vec<usize> {
+    let n = points.len();
+    let mut keep = Vec::with_capacity(n);
+    keep.push(0);
+    for i in 1..n - 1 {
+        let a = *keep.last().expect("keep starts with index 0");
+        let short = dist(points[a], points[i]) < MIN_SEGMENT_MM
+            || dist(points[i], points[i + 1]) < MIN_SEGMENT_MM;
+        let mergeable = short
+            && i - a < MERGE_RUN_CAP
+            && run_within(points, widths, a, i + 1, max_dev, width_tol);
+        if !mergeable {
+            keep.push(i);
+        }
+    }
+    keep.push(n - 1);
+    keep
+}
+
+/// Whether every vertex strictly between `a` and `b` lies within `max_dev` of
+/// the chord `a → b` and, with widths, within `width_tol` of the width
+/// interpolated along it by arc length.
+fn run_within(
+    points: &[(f64, f64)],
+    widths: Option<&[f64]>,
+    a: usize,
+    b: usize,
+    max_dev: f64,
+    width_tol: f64,
+) -> bool {
+    if (a + 1..b).any(|k| perpendicular_distance(points[k], points[a], points[b]) > max_dev) {
+        return false;
+    }
+    let Some(w) = widths else {
+        return true;
+    };
+    let total: f64 = (a..b).map(|k| dist(points[k], points[k + 1])).sum();
+    let mut along = 0.0;
+    (a + 1..b).all(|k| {
+        along += dist(points[k - 1], points[k]);
+        let t = if total > 1e-12 { along / total } else { 0.0 };
+        (w[k] - (w[a] + (w[b] - w[a]) * t)).abs() <= width_tol
+    })
+}
+
+fn dist(p: (f64, f64), q: (f64, f64)) -> f64 {
+    (q.0 - p.0).hypot(q.1 - p.1)
+}
+
+/// Distance from `p` to the line through `a` and `b` (to `a` itself when the
+/// chord is degenerate).
+fn perpendicular_distance(p: (f64, f64), a: (f64, f64), b: (f64, f64)) -> f64 {
+    let (dx, dy) = (b.0 - a.0, b.1 - a.1);
+    let len = dx.hypot(dy);
+    if len < 1e-6 {
+        dist(p, a)
+    } else {
+        ((a.0 - p.0) * dy - (a.1 - p.1) * dx).abs() / len
+    }
 }
 
 /// Width-aware Ramer-Douglas-Peucker for variable-width beads.
@@ -291,6 +426,92 @@ mod tests {
             "the dip width must be preserved, got {sw:?}"
         );
         assert!(sp.len() < 9, "flat ends should collapse, got {sp:?}");
+    }
+
+    /// A radius-`r` circle as the slicer hands it over: a 720-gon whose every
+    /// vertex is followed by a round-join micro vertex, all snapped to the
+    /// 0.01 mm Clipper2 grid. Closed (last point repeats the first).
+    fn grid_snapped_circle(r: f64) -> Vec<(f64, f64)> {
+        let snap = |v: f64| (v * 100.0).round() / 100.0;
+        let mut pts = Vec::new();
+        for i in 0..720 {
+            let a = std::f64::consts::TAU * i as f64 / 720.0;
+            for da in [0.0, 0.0004] {
+                pts.push((snap(r * (a + da).cos()), snap(r * (a + da).sin())));
+            }
+        }
+        pts.push(pts[0]);
+        pts
+    }
+
+    fn turns_deg(pts: &[(f64, f64)]) -> Vec<f64> {
+        pts.windows(3)
+            .map(|w| {
+                let a1 = (w[1].1 - w[0].1).atan2(w[1].0 - w[0].0);
+                let a2 = (w[2].1 - w[1].1).atan2(w[2].0 - w[1].0);
+                let t = (a2 - a1 + std::f64::consts::PI).rem_euclid(std::f64::consts::TAU)
+                    - std::f64::consts::PI;
+                t.to_degrees()
+            })
+            .collect()
+    }
+
+    #[test]
+    fn simplify_path_turns_a_grid_snapped_circle_into_a_smooth_arc() {
+        let r = 40.0;
+        let raw = grid_snapped_circle(r);
+        assert!(
+            turns_deg(&raw).iter().any(|&t| t < -20.0),
+            "fixture must carry the zig-zag it models"
+        );
+
+        let out = simplify_path(&raw, 0.0125);
+        let turns = turns_deg(&out);
+        // A counter-clockwise circle only ever turns left, gently.
+        assert!(
+            turns.iter().all(|&t| (0.0..10.0).contains(&t)),
+            "every turn must be a small left turn, got {turns:?}"
+        );
+        for w in out.windows(2) {
+            assert!(
+                dist(w[0], w[1]) >= MIN_SEGMENT_MM,
+                "micro-segment survived: {:?} -> {:?}",
+                w[0],
+                w[1]
+            );
+        }
+        // Still true to the model: chord midpoints stay on the circle.
+        for w in out.windows(2) {
+            let mid = ((w[0].0 + w[1].0) / 2.0, (w[0].1 + w[1].1) / 2.0);
+            let dev = (mid.0.hypot(mid.1) - r).abs();
+            assert!(dev < 0.025, "chord sags {dev} mm off the circle");
+        }
+    }
+
+    #[test]
+    fn simplify_path_keeps_a_real_short_step() {
+        // A 0.05 mm step is a feature, not noise: it deviates past 2 × tolerance.
+        let pts = vec![(0.0_f64, 0.0), (10.0, 0.0), (10.0, 0.05), (20.0, 0.05)];
+        assert_eq!(simplify_path(&pts, 0.0125), pts);
+    }
+
+    #[test]
+    fn simplify_path_zero_tolerance_is_a_noop() {
+        let raw = grid_snapped_circle(10.0);
+        assert_eq!(simplify_path(&raw, 0.0), raw);
+    }
+
+    #[test]
+    fn simplify_path_with_widths_keeps_a_width_step_on_a_short_segment() {
+        let pts = vec![(0.0_f64, 0.0), (5.0, 0.0), (5.05, 0.0), (10.0, 0.0)];
+        let w = vec![0.4, 0.4, 0.3, 0.3];
+        let (sp, sw) = simplify_path_with_widths(&pts, &w, 0.0125, 0.02);
+        assert_eq!(sp.len(), sw.len());
+        assert!(
+            sw.iter().any(|&x| (x - 0.3).abs() < 1e-9)
+                && sw.iter().any(|&x| (x - 0.4).abs() < 1e-9),
+            "the width step must survive, got {sw:?}"
+        );
     }
 
     #[test]
