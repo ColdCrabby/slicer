@@ -176,6 +176,26 @@ fn rotate_loop_nearest(pts: &[(f64, f64)], target: (f64, f64)) -> Vec<(f64, f64)
     (0..n).map(|k| pts[(best + k) % n]).collect()
 }
 
+/// Simplify a closed loop whose start vertex is fixed, including the closing
+/// segment back to `pts[0]`.
+///
+/// The spiral loop is one continuous extrusion, so it must go through the same
+/// simplification as every other path: emitted raw, its grid-noise micro
+/// segments make the planner slow down at every vertex, and a vase stutters.
+fn simplify_closed_loop(pts: &[(f64, f64)], tolerance: f64) -> Vec<(f64, f64)> {
+    if pts.len() < 4 || tolerance <= 0.0 {
+        return pts.to_vec();
+    }
+    let mut closed = pts.to_vec();
+    closed.push(pts[0]);
+    let mut simplified = crate::gcode::simplify::simplify_path(&closed, tolerance);
+    simplified.pop();
+    if simplified.len() < 3 {
+        return pts.to_vec();
+    }
+    simplified
+}
+
 /// Estimate the print time for a layer in seconds.
 ///
 /// Sums the total XY move distance for all paths in the layer and divides by
@@ -2518,7 +2538,8 @@ impl GcodeGenerator {
                 );
                 let z_top = machine_z(layer.z, params);
                 let target = cur_xy.unwrap_or(pts[0]);
-                let rotated = rotate_loop_nearest(&pts, target);
+                let rotated =
+                    simplify_closed_loop(&rotate_loop_nearest(&pts, target), params.path_tolerance);
                 let (sx, sy) = rotated[0];
 
                 let need_travel = match cur_xy {
@@ -2734,11 +2755,11 @@ impl GcodeGenerator {
                     }
                 }
 
-                // Apply Ramer-Douglas-Peucker simplification when a tolerance is
-                // set.  Constant-width paths use the plain pass; variable-width
-                // beads use the width-aware pass so `points` and their widths stay
-                // aligned (and long constant-width runs still collapse), instead
-                // of being emitted at full resolution.
+                // Simplify when a tolerance is set: merge grid-noise micro
+                // segments, then Ramer-Douglas-Peucker.  Constant-width paths use
+                // the plain pass; variable-width beads use the width-aware pass so
+                // `points` and their widths stay aligned (and long constant-width
+                // runs still collapse), instead of being emitted at full resolution.
                 let (mut points, mut vertex_widths): (Vec<(f64, f64)>, Option<Vec<f64>>) =
                     match raw_vertex_widths {
                         Some(vw)
@@ -2746,7 +2767,7 @@ impl GcodeGenerator {
                                 && raw_points.len() > 2
                                 && vw.len() == raw_points.len() =>
                         {
-                            let (p, w) = crate::gcode::simplify::douglas_peucker_with_widths(
+                            let (p, w) = crate::gcode::simplify::simplify_path_with_widths(
                                 &raw_points,
                                 &vw,
                                 params.path_tolerance,
@@ -2756,7 +2777,7 @@ impl GcodeGenerator {
                         }
                         Some(vw) => (raw_points, Some(vw)),
                         None if params.path_tolerance > 0.0 && raw_points.len() > 2 => (
-                            crate::gcode::simplify::douglas_peucker(
+                            crate::gcode::simplify::simplify_path(
                                 &raw_points,
                                 params.path_tolerance,
                             ),
@@ -8461,6 +8482,65 @@ CHAMBER={chamber_temp} MATERIAL={filament_type}"
             (zmax - 1.2).abs() < 1e-6,
             "spiral top Z should be 1.2, got {zmax}"
         );
+    }
+
+    #[test]
+    fn spiral_vase_emits_a_grid_snapped_circle_without_micro_segments() {
+        use clipper2::Path;
+        // A 720-facet cylinder as slicing delivers it: each facet vertex is
+        // trailed by a round-join micro vertex on the 0.01 mm grid. Emitted
+        // raw, that loop zig-zags and the firmware stutters through it.
+        let snap = |v: f64| (v * 100.0).round() / 100.0;
+        let mut circle = Vec::new();
+        for i in 0..720 {
+            let a = std::f64::consts::TAU * i as f64 / 720.0;
+            for da in [0.0, 0.0004] {
+                circle.push((
+                    snap(50.0 + 20.0 * (a + da).cos()),
+                    snap(50.0 + 20.0 * (a + da).sin()),
+                ));
+            }
+        }
+        let layers: Vec<SliceLayer> = (0..4)
+            .map(|i| {
+                let mut layer = SliceLayer::new(0.2 * (i as f64 + 1.0));
+                let path: Path = circle.clone().into();
+                layer.paths.push(path);
+                layer.path_roles.push(crate::core::ExtrusionRole::OuterWall);
+                layer
+            })
+            .collect();
+        let params = SlicingParams {
+            spiral_vase: true,
+            bottom_layers: 1,
+            ..SlicingParams::default()
+        };
+        let gcode = GcodeGenerator::new(GcodeFlavor::Marlin).generate(&layers, &params);
+
+        let xy = |line: &str, axis: char| -> Option<f64> {
+            line.split_whitespace()
+                .find_map(|t| t.strip_prefix(axis).and_then(|v| v.parse().ok()))
+        };
+        let spiral: Vec<(f64, f64)> = gcode
+            .lines()
+            .filter(|l| extrude_move_z(l).is_some())
+            .filter_map(|l| Some((xy(l, 'X')?, xy(l, 'Y')?)))
+            .collect();
+        assert!(spiral.len() > 20, "expected a spiral body:\n{gcode}");
+        assert!(
+            spiral.len() < 3 * 720,
+            "spiral should be simplified, got {} moves",
+            spiral.len()
+        );
+        for w in spiral.windows(2) {
+            let d = (w[1].0 - w[0].0).hypot(w[1].1 - w[0].1);
+            assert!(
+                d >= crate::gcode::simplify::MIN_SEGMENT_MM - 0.002,
+                "micro-segment in the spiral: {:?} -> {:?}",
+                w[0],
+                w[1]
+            );
+        }
     }
 
     #[test]
