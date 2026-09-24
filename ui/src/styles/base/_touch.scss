@@ -2,21 +2,19 @@
 /// @group base
 ///
 /// The sibling `_handheld.scss` asks "is this a phone?", which is a question
-/// about *room*. This file asks how precisely the user can aim — and on a
-/// tablet that is not one question but two, because `pointer: coarse` is the
-/// most the platform will say. iPadOS reports coarse whether the glass is being
-/// touched by a fingertip or by a Pencil, and the two want opposite things: a
-/// fingertip needs a target it cannot miss, a Pencil is more accurate than a
-/// mouse and only loses screen to one.
+/// about *room*. This file asks how precisely the user can aim, and answers it
+/// once per device: wherever `pointer: coarse` matches, targets are
+/// fingertip-sized. iPadOS reports coarse for a Pencil too, and that is kept —
+/// sizing by the pointer in hand resizes the whole interface every time the
+/// user swaps pen for finger, which reads as flicker. **One scale, never a
+/// per-`pointerType` one.**
 ///
-/// So sizing is not a media query. It is **five tokens**, declared here and read
-/// from inside each component's own `coarse-pointer()` block. `Viewport` marks
-/// `<html>` while a stylus is the pointer in use, and the one rule below reverts
-/// every token to the value the shared component ships with — no component
-/// learns a second set of numbers, and none can be missed when the set changes.
-/// Tokens rather than a class because a component's stylesheet cannot see an
-/// `<html>` class at all: emulated encapsulation rewrites the ancestor selector
-/// too, and `<html>` never carries the attribute. A custom property inherits.
+/// The sizes are **five tokens**, declared here and read from inside each
+/// component's own `coarse-pointer()` block, so no component learns a second
+/// set of numbers. Tokens rather than a class because a component's stylesheet
+/// cannot see an `<html>` class at all: emulated encapsulation rewrites the
+/// ancestor selector too, and `<html>` never carries the attribute. A custom
+/// property inherits.
 ///
 /// **Two target sizes, because a miss does not always cost the same.** An
 /// isolated control — a titlebar button, a menu row, Slice — has nothing around
@@ -55,23 +53,10 @@
   --touch-track: 7px;
 }
 
-/// A stylus is the most precise pointer the app ever sees. Hand every token
-/// back its cursor-size value; the rules below then resolve to what the shared
-/// components already do, and the interface stops spending screen on a
-/// precision problem the user does not have.
-html.is-stylus {
-  --touch-target: 34px;
-  --touch-row: 34px;
-  --touch-icon: 18px;
-  --touch-thumb: 18px;
-  --touch-track: 6px;
-}
-
 html.is-coarse-pointer {
   // ── Form controls ───────────────────────────────────────────────────────
   // `min-height`, never `height`: a minimum outranks the component's own height
-  // without restating it, which is what lets the stylus revert be a token swap
-  // rather than a second copy of every rule.
+  // without restating it, so the token is the only number in the rule.
   nexus-select .trigger,
   nexus-number-input .field,
   input:not([type='checkbox']):not([type='radio']):not([type='range']),
@@ -145,7 +130,7 @@ html.is-coarse-pointer {
 
 /// The two places a fingertip needs chrome reshaped around a target rather than
 /// a floor under one, so neither decomposes into a token.
-html.is-coarse-pointer:not(.is-stylus) {
+html.is-coarse-pointer {
   // Fixed-height chrome has to grow before anything inside it can reach the
   // target size. The titlebar carries the workplate tabs, the densest targets in
   // the app; at the 40px desktop height a tab cannot be more than 28px tall.

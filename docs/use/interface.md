@@ -306,11 +306,9 @@ on its own.
   rather than being dimmed out.
 - **Panels use the room they have.** Unfolded, the G-code inspector shows its
   whole legend and both sliders without scrolling.
-- **Everything is finger-sized — until you pick up a pen.** Buttons, dropdowns,
-  the layer slider and the legend chips grow for a fingertip. An Apple Pencil is
-  more accurate than a mouse, so as soon as one touches the screen the interface
-  goes back to its compact sizes and gives the room to your model instead. Put
-  the pen down and touch the glass, and it comes back. Nothing to set.
+- **Everything is finger-sized.** Buttons, dropdowns, the layer slider and the
+  legend chips grow for a fingertip, and stay that size when you pick up an
+  Apple Pencil, so switching between pen and finger never shifts the layout.
 
 Split View and Slide Over shrink the window, and the layout follows: below about
 1024 points wide you get the folded arrangement on any device, including a

@@ -7,8 +7,8 @@ type Listener = (event: { pointerType: string; timeStamp: number }) => void;
 /**
  * Stand-in document, so the pointer rules can be exercised without a DOM.
  *
- * Not a real one: the service only wants `matchMedia`, two event listeners and
- * a class list, and a jsdom `PointerEvent` is not guaranteed to exist. `coarse`
+ * Not a real one: the service only wants `matchMedia`, event listeners and a
+ * class list, and a jsdom `PointerEvent` is not guaranteed to exist. `coarse`
  * decides what every media query answers, which is enough — the queries
  * themselves are asserted by the constants, not by a browser.
  */
@@ -47,46 +47,31 @@ function make(coarse: boolean) {
 }
 
 describe('Viewport pointer precision', () => {
-  it('assumes a fingertip until a pen proves otherwise', () => {
-    const { viewport } = make(true);
+  it('marks a coarse pointer for the touch sizes', () => {
+    const { viewport, classes } = make(true);
     expect(viewport.isCoarsePointer()).toBe(true);
-    expect(viewport.isStylus()).toBe(false);
-    expect(viewport.isFingertip()).toBe(true);
+    expect(classes.has('is-coarse-pointer')).toBe(true);
   });
 
-  it('is never a fingertip where there is a cursor', () => {
-    const { viewport } = make(false);
-    expect(viewport.isFingertip()).toBe(false);
+  it('is never coarse where there is a cursor', () => {
+    const { viewport, classes } = make(false);
+    expect(viewport.isCoarsePointer()).toBe(false);
+    expect(classes.has('is-coarse-pointer')).toBe(false);
   });
 
-  it('hands the cursor sizes back while a pen is in use', () => {
+  // Resizing on every pen/finger swap made the whole interface flicker.
+  it('keeps one size however the pointer in hand changes', () => {
     const { viewport, classes, point } = make(true);
-    point('pen', 1000);
-    expect(viewport.isStylus()).toBe(true);
-    expect(viewport.isFingertip()).toBe(false);
-    expect(classes.has('is-stylus')).toBe(true);
-  });
-
-  it('ignores the hand resting on the glass mid-stroke', () => {
-    const { viewport, point } = make(true);
-    point('pen', 1000);
-    point('touch', 1400);
-    expect(viewport.isStylus()).toBe(true);
-  });
-
-  it('goes back to a fingertip once the pen has been away long enough', () => {
-    const { viewport, classes, point } = make(true);
-    point('pen', 1000);
-    point('touch', 3000);
-    expect(viewport.isStylus()).toBe(false);
-    expect(viewport.isFingertip()).toBe(true);
-    expect(classes.has('is-stylus')).toBe(false);
-  });
-
-  it('gives a mouse no grace period — it is not a palm', () => {
-    const { viewport, point } = make(true);
-    point('pen', 1000);
-    point('mouse', 1100);
-    expect(viewport.isStylus()).toBe(false);
+    const before = [...classes].sort();
+    for (const [type, at] of [
+      ['pen', 1000],
+      ['touch', 1100],
+      ['pen', 1200],
+      ['touch', 4000],
+    ] as const) {
+      point(type, at);
+      expect(viewport.isCoarsePointer()).toBe(true);
+      expect([...classes].sort()).toEqual(before);
+    }
   });
 });
