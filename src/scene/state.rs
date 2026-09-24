@@ -72,9 +72,27 @@ impl SceneObject {
         calculate_aabb(self.mesh.as_ref())
     }
 
+    /// The local point rotations and scales turn about: the centre of the
+    /// mesh's own bounding box.
+    ///
+    /// Not the local origin — a CAD export keeps whatever origin the part was
+    /// drawn around, which can sit tens of millimetres outside it, and turning
+    /// about that swings the part across the plate. A fixed local point, rather
+    /// than the centre of the current world box, keeps a gizmo drag delivered
+    /// as many small rotations from drifting.
+    pub fn pivot(&self) -> glam::Vec3 {
+        let c = self.local_aabb().center();
+        glam::Vec3::new(c.x as f32, c.y as f32, c.z as f32)
+    }
+
     /// AABB of the object after applying its current transform.
+    ///
+    /// Exact — measured from the transformed vertices, not the rotated local
+    /// box — so a rotated object drops, centres and packs against its real
+    /// outline.
     pub fn world_aabb(&self) -> AABB {
-        transformed_aabb(&self.local_aabb(), &self.transform)
+        transformed_aabb(self.mesh.as_ref(), &self.transform)
+            .expect("Mesh must have at least one vertex to calculate AABB")
     }
 }
 

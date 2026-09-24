@@ -28,31 +28,6 @@ fn normalise(n: [f64; 3]) -> [f64; 3] {
     }
 }
 
-// Union–find with path compression and union by rank.
-fn uf_find(parent: &mut [u32], mut i: u32) -> u32 {
-    while parent[i as usize] != i {
-        parent[i as usize] = parent[parent[i as usize] as usize]; // path halving
-        i = parent[i as usize];
-    }
-    i
-}
-
-fn uf_union(parent: &mut [u32], rank: &mut [u8], a: u32, b: u32) {
-    let ra = uf_find(parent, a);
-    let rb = uf_find(parent, b);
-    if ra == rb {
-        return;
-    }
-    match rank[ra as usize].cmp(&rank[rb as usize]) {
-        std::cmp::Ordering::Less => parent[ra as usize] = rb,
-        std::cmp::Ordering::Greater => parent[rb as usize] = ra,
-        std::cmp::Ordering::Equal => {
-            parent[rb as usize] = ra;
-            rank[ra as usize] += 1;
-        }
-    }
-}
-
 /// Assign each raw corner (`face_index * 3 + corner`) a canonical vertex id, so
 /// positions within `merge_distance_mm` of each other collapse to one id.
 ///
@@ -209,15 +184,17 @@ pub fn face_adjacency(mesh: &Mesh, vertex_merge_distance_mm: f64) -> FaceAdjacen
 }
 
 /// Assign each face to a coplanar group and return a `Vec<u32>` of length
-/// `mesh.faces.len()` where `result[face_index]` is the canonical group id
-/// (the root of its union–find tree, renumbered 0…N-1).
+/// `mesh.faces.len()` where `result[face_index]` is that face's group id.
 ///
-/// Two triangles are placed in the same group when:
-/// 1. They share an edge (two vertices within `vertex_merge_distance_mm`), **and**
-/// 2. Their geometric normals agree within `angle_threshold_deg`.
+/// A group grows from a seed face across shared edges (endpoints within
+/// `vertex_merge_distance_mm`), taking in every connected face whose normal is
+/// within `angle_threshold_deg` of **the seed's** normal. Comparing each face
+/// only with its neighbour instead lets a finely tessellated curve chain
+/// through, a degree at a time, into one "flat" face that bends right round
+/// the part — and the pull-to-floor highlight then lights up half a model.
 ///
-/// The returned group ids are contiguous starting from 0 and are ordered by
-/// the first face that belongs to each group (i.e. `result[0]` is always 0).
+/// Seeds are taken in face order, so the result is deterministic, and group
+/// ids are contiguous from 0 in that order (`result[0]` is always 0).
 pub fn compute_coplanar_groups(
     mesh: &Mesh,
     angle_threshold_deg: f32,
@@ -228,7 +205,6 @@ pub fn compute_coplanar_groups(
         return Vec::new();
     }
 
-    // --- 1. Compute unit normals for every face. ---------------------------
     let normals: Vec<[f64; 3]> = mesh
         .faces
         .iter()
@@ -240,58 +216,37 @@ pub fn compute_coplanar_groups(
             ))
         })
         .collect();
-
     let cos_threshold = (angle_threshold_deg as f64).to_radians().cos();
+    let adjacency = face_adjacency(mesh, vertex_merge_distance_mm);
 
-    // --- 2. Build an edge → face adjacency map. ----------------------------
-    // Quantise vertex positions so floating-point near-duplicates collapse to
-    // one id, then sort every (edge, face) pair so the faces sharing an edge
-    // are contiguous.
-    let canonical_id = canonical_vertex_ids(mesh, vertex_merge_distance_mm);
-    let half_edges = sorted_half_edges(&canonical_id, n);
-
-    // --- 3. Union-find: merge adjacent coplanar faces. ---------------------
-    let mut parent: Vec<u32> = (0..n as u32).collect();
-    let mut rank: Vec<u8> = vec![0; n];
-
-    let mut i = 0usize;
-    while i < half_edges.len() {
-        let key = half_edges[i].0;
-        // Collect all faces sharing this edge key.
-        let mut j = i;
-        while j < half_edges.len() && half_edges[j].0 == key {
-            j += 1;
+    const UNASSIGNED: u32 = u32::MAX;
+    let mut result: Vec<u32> = vec![UNASSIGNED; n];
+    let mut next_id: u32 = 0;
+    let mut stack: Vec<u32> = Vec::new();
+    for seed in 0..n {
+        if result[seed] != UNASSIGNED {
+            continue;
         }
-        // Pairwise-check every face pair sharing this edge.
-        for a in i..j {
-            for b in (a + 1)..j {
-                let fa = half_edges[a].1 as usize;
-                let fb = half_edges[b].1 as usize;
-                let na = normals[fa];
-                let nb = normals[fb];
-                let dot = na[0] * nb[0] + na[1] * nb[1] + na[2] * nb[2];
+        let id = next_id;
+        next_id += 1;
+        result[seed] = id;
+        let ns = normals[seed];
+        stack.push(seed as u32);
+        while let Some(face) = stack.pop() {
+            for &other in adjacency.neighbours_of(face as usize) {
+                let o = other as usize;
+                if result[o] != UNASSIGNED {
+                    continue;
+                }
+                let no = normals[o];
                 // Dot product of unit normals ≥ cos(threshold) → same plane.
-                if dot >= cos_threshold {
-                    uf_union(&mut parent, &mut rank, fa as u32, fb as u32);
+                // A degenerate face has a zero normal and never joins.
+                if ns[0] * no[0] + ns[1] * no[1] + ns[2] * no[2] >= cos_threshold {
+                    result[o] = id;
+                    stack.push(other);
                 }
             }
         }
-        i = j;
-    }
-
-    // --- 4. Compact group ids so they are contiguous 0…G-1. ---------------
-    let mut root_to_compact: std::collections::HashMap<u32, u32> =
-        std::collections::HashMap::with_capacity(n / 2);
-    let mut next_id: u32 = 0;
-    let mut result: Vec<u32> = Vec::with_capacity(n);
-    for face_idx in 0..n as u32 {
-        let root = uf_find(&mut parent, face_idx);
-        let compact = *root_to_compact.entry(root).or_insert_with(|| {
-            let id = next_id;
-            next_id += 1;
-            id
-        });
-        result.push(compact);
     }
 
     result
@@ -466,6 +421,39 @@ mod tests {
         let groups = compute_coplanar_groups(&mesh, 1.0, 0.001);
         // Bottom (0,1) vs top (2,3): different planes.
         assert_ne!(groups[0], groups[2]);
+    }
+
+    /// A finely faceted arc must not chain into one group: each step turns
+    /// well under the threshold, but the arc as a whole turns 90°.
+    #[test]
+    fn test_coplanar_groups_do_not_chain_round_a_curve() {
+        // A quarter-cylinder strip of 90 one-degree facets, two triangles each.
+        let steps = 90;
+        let point = |i: usize, z: f64| {
+            let a = (i as f64).to_radians();
+            Vertex::new(10.0 * a.cos(), 10.0 * a.sin(), z)
+        };
+        let mut faces = Vec::new();
+        for i in 0..steps {
+            let (p0, p1) = (point(i, 0.0), point(i + 1, 0.0));
+            let (q0, q1) = (point(i, 5.0), point(i + 1, 5.0));
+            faces.push(Face::new([p0, p1, q1]));
+            faces.push(Face::new([p0, q1, q0]));
+        }
+        let mesh = Mesh {
+            vertices: Vec::new(),
+            faces,
+            aabb: None,
+        };
+        let groups = compute_coplanar_groups(&mesh, 1.5, 0.001);
+        let mut unique = groups.clone();
+        unique.sort_unstable();
+        unique.dedup();
+        assert!(
+            unique.len() >= steps / 2,
+            "a 90° arc collapsed into {} group(s)",
+            unique.len()
+        );
     }
 
     /// Empty mesh returns an empty vec without panicking.

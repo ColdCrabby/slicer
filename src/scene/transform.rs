@@ -172,29 +172,29 @@ pub fn apply_transform(mesh: &Mesh, transform: &Transform) -> Mesh {
     }
 }
 
-/// Compute the AABB of a mesh after applying `transform`, without baking
-/// every vertex.
+/// Compute the exact AABB of a mesh after applying `transform`, without
+/// baking a new mesh.
 ///
-/// Transforms the eight corners of the mesh's local AABB and returns the
-/// AABB enclosing them. This is conservative for non-rotated transforms and
-/// exact for axis-aligned rotations; it is sufficient for placement ops
-/// like center-on-bed and drop-to-floor.
-pub fn transformed_aabb(local_aabb: &AABB, transform: &Transform) -> AABB {
+/// Every vertex is transformed, not just the eight corners of the local
+/// AABB: under any rotation that is not a multiple of 90° those corners sit
+/// outside the geometry, so a corner-based box floats a dropped object above
+/// the bed, centres it off-centre and packs it with phantom clearance. The
+/// cost is the same single pass over the vertices that measuring the local
+/// AABB already took.
+///
+/// Returns `None` for a mesh with no vertices.
+pub fn transformed_aabb(mesh: &Mesh, transform: &Transform) -> Option<AABB> {
     let mat = transform.to_matrix();
-    let mn = &local_aabb.min;
-    let mx = &local_aabb.max;
-    let corners = [
-        Vertex::new(mn.x, mn.y, mn.z),
-        Vertex::new(mx.x, mn.y, mn.z),
-        Vertex::new(mn.x, mx.y, mn.z),
-        Vertex::new(mx.x, mx.y, mn.z),
-        Vertex::new(mn.x, mn.y, mx.z),
-        Vertex::new(mx.x, mn.y, mx.z),
-        Vertex::new(mn.x, mx.y, mx.z),
-        Vertex::new(mx.x, mx.y, mx.z),
-    ];
-    let transformed: Vec<Vertex> = corners.iter().map(|c| transform_vertex(&mat, c)).collect();
-    AABB::new_from_vertices(&transformed).expect("eight corners produce a non-empty AABB")
+    let mut points = mesh
+        .vertices
+        .iter()
+        .map(|v| mat.transform_point3(Vec3::new(v.x as f32, v.y as f32, v.z as f32)));
+    let first = points.next()?;
+    let (min, max) = points.fold((first, first), |(lo, hi), p| (lo.min(p), hi.max(p)));
+    Some(AABB {
+        min: Vertex::new(min.x as f64, min.y as f64, min.z as f64),
+        max: Vertex::new(max.x as f64, max.y as f64, max.z as f64),
+    })
 }
 
 /// Helpers for double-precision math at the boundary.
@@ -272,19 +272,37 @@ mod tests {
 
     #[test]
     fn transformed_aabb_matches_baked() {
-        let aabb = AABB {
-            min: Vertex::new(-1.0, -1.0, -1.0),
-            max: Vertex::new(1.0, 1.0, 1.0),
+        let mesh = Mesh {
+            vertices: vec![Vertex::new(-1.0, -1.0, -1.0), Vertex::new(1.0, 1.0, 1.0)],
+            faces: Vec::new(),
+            aabb: None,
         };
         let t = Transform {
             translation: [10.0, 0.0, 0.0],
             scale: [2.0, 2.0, 2.0],
             ..Transform::IDENTITY
         };
-        let out = transformed_aabb(&aabb, &t);
+        let out = transformed_aabb(&mesh, &t).unwrap();
         assert!((out.min.x - 8.0).abs() < 1e-5);
         assert!((out.max.x - 12.0).abs() < 1e-5);
         assert!((out.min.y + 2.0).abs() < 1e-5);
         assert!((out.max.y - 2.0).abs() < 1e-5);
+    }
+
+    #[test]
+    fn transformed_aabb_is_tight_under_an_oblique_rotation() {
+        // A thin rod along X, 20 mm long, tilted 45° about Y. Its local box
+        // is 20 × 0 × 0; rotating that box's corners would claim a 20 mm
+        // wide Z span when the rod only spans 20·sin45° ≈ 14.1 mm.
+        let mesh = Mesh {
+            vertices: vec![Vertex::new(-10.0, 0.0, 0.0), Vertex::new(10.0, 0.0, 0.0)],
+            faces: Vec::new(),
+            aabb: None,
+        };
+        let t = Transform::from_euler_xyz_deg([0.0; 3], [0.0, 45.0, 0.0], [1.0; 3]);
+        let out = transformed_aabb(&mesh, &t).unwrap();
+        let half = 10.0 * std::f64::consts::FRAC_1_SQRT_2;
+        assert!((out.min.z + half).abs() < 1e-4, "{out:?}");
+        assert!((out.max.z - half).abs() < 1e-4, "{out:?}");
     }
 }

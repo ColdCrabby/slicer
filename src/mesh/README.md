@@ -121,40 +121,36 @@ A few things worth knowing:
 | `calculate_aabb`          | `AABB`                         | Scans all vertices; panics on empty mesh                   |
 | `calculate_volume`        | `Result<f64, String>`          | Divergence-theorem signed sum; returns `Err` if no faces   |
 | `calculate_surface_area`  | `f64`                          | Sums `Face::area()` over all triangles                     |
-| `compute_coplanar_groups` | `Vec<u32>` (one id per face)   | Union-find over shared edges; see below                    |
+| `compute_coplanar_groups` | `Vec<u32>` (one id per face)   | Region growing over shared edges; see below                |
 
 ### Coplanar face groups
 
 `compute_coplanar_groups(mesh, angle_threshold_deg, vertex_merge_distance_mm)`
-assigns every triangle to a coplanar group. Two triangles end up in the same
-group when they **share an edge** and their **geometric normals agree** within
-`angle_threshold_deg`. The algorithm runs in three phases:
+assigns every triangle to a coplanar group. A group grows from a seed triangle
+across **shared edges**, taking in each connected triangle whose normal agrees
+with **the seed's** within `angle_threshold_deg`.
 
-1. **Normal computation.** Each face gets a unit geometric normal (cross
-   product, then normalised). Degenerate triangles (zero-length cross product)
-   get the zero vector and never merge with anything.
+Measuring against the seed, not the neighbour, is the rule that matters. A CAD
+export tessellates a curve finely enough that every neighbouring pair is under
+a degree apart, so a neighbour-to-neighbour test chains all the way round the
+part and one "flat face" ends up covering half the model.
 
-2. **Edge adjacency.** Vertex positions are quantised to a
-   `vertex_merge_distance_mm` grid so floating-point near-duplicates collapse
-   to the same integer key. Every directed half-edge is then hashed to a
-   symmetric key `(min_vert, max_vert)`. Half-edges are sorted by key, giving
-   an O(N log N) pass to collect all faces that share each edge.
-
-3. **Union-find merge.** For every set of faces that share an edge, each pair
-   is tested: if `dot(normalA, normalB) ≥ cos(threshold)`, the two faces are
-   joined. Path-halving and union-by-rank keep the structure nearly flat.
+Edge adjacency is the same `face_adjacency` graph the support-paint brush
+walks: vertex positions are quantised to a `vertex_merge_distance_mm` grid so
+floating-point near-duplicates share an edge. Degenerate triangles have a zero
+normal and never join a group.
 
 The returned `Vec<u32>` is contiguous — group ids start at 0 and are assigned
-in the order the first face of each group is encountered. The WASM bridge
-exposes this as `SceneHandle.getFaceGroups(id, angleThresholdDeg)`, which the
+in seed order, which is face order, so the result is deterministic. The WASM
+bridge exposes this as `SceneHandle.getFaceGroups(id, angleThresholdDeg)`, which the
 UI uses for face-highlight in the `pullToFloor` gizmo mode.
 
 ```mermaid
 flowchart LR
     M[Mesh faces] --> N[Compute unit normals]
-    M --> E[Hash half-edges by quantised vertex key]
-    N & E --> UF[Union-find: merge adjacent coplanar faces]
-    UF --> G[group id per face as u32]
+    M --> E[Face adjacency over quantised edges]
+    N & E --> R[Grow from each seed within the angle of its normal]
+    R --> G[group id per face as u32]
     G -->|WASM getFaceGroups| UI[Viewer face-highlight]
 ```
 

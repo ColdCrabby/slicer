@@ -86,6 +86,19 @@ issue/PR numbers or repo links in the notes. See the tone rules in
   press as a request for a context menu about half a second in — right after the
   repeat started — which stopped `+` / `−` from running at all on a phone or
   tablet, and popped the system callout on top of the button being held.
+- **Auto-oriented parts sit on the bed.** A part turned onto an angled face
+  could float tens of millimetres above the plate, land off-centre, or be flagged
+  out of bounds when it fit. Placement now measures the part itself, not a box
+  around it.
+- **Rotate, scale and Pull to floor turn a part where it stands.** Models
+  exported from CAD often carry an origin far from the geometry, and turning
+  about it swung the part across the plate. Pull to floor also no longer sinks
+  the rest of the part into the bed when the picked face isn't the lowest.
+- **Pull to floor highlights the face you'll get.** On finely tessellated
+  curves the highlight could spread round half the model; it now stops where
+  the surface stops being flat.
+- **A model opened with auto-orient off lands on the bed**, centred, rather
+  than wherever its file's origin put it.
 
 ## [0.5.0] - 2026-09-16
 
