@@ -215,7 +215,7 @@ still reaches everything, and nothing is hidden from you at any level.
 | **Walls** | Wall count, wall generator, thin walls, extra perimeters, ordering, seam behaviour, fuzzy skin |
 | **Infill** | Density, pattern, angle |
 | **Support** | On/off, type, density, overhang threshold, interface layers, clearances, whether support may only start from the build plate |
-| **Speed** | Per-role print speeds and travel speed |
+| **Speed** | Per-role print speeds and accelerations, travel speed, and how gently travel arrives at an outer wall |
 | **Quality** | Bridging, dimensional compensation, other accuracy options |
 | **Surfaces** | Top and bottom solid layer counts, surface fill, ironing |
 | **Adhesion** | Skirt, brim, raft |
