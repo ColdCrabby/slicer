@@ -184,15 +184,16 @@
       @if (showMultiSelect()) {
         <span class="tool-divider" aria-hidden="true"></span>
 
+        @let multiSelectLabel =
+          multiSelect()
+            ? 'Multi-select on — each tap adds or removes an object'
+            : 'Multi-select — tap several objects to work on them together';
         <button
           type="button"
           [class.active]="multiSelect()"
           [attr.aria-pressed]="multiSelect()"
-          [tooltip]="
-            multiSelect()
-              ? 'Multi-select on — each tap adds or removes an object'
-              : 'Multi-select — tap several objects to work on them together'
-          "
+          [tooltip]="multiSelectLabel"
+          [attr.aria-label]="multiSelectLabel"
           (click)="toggleMultiSelect()"
         >
           <nexus-icon name="frame-select"></nexus-icon>

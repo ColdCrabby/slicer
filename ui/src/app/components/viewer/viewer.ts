@@ -936,13 +936,62 @@ export class Viewer {
       return;
     }
     const id = stringId === null ? null : parseWasmId(stringId);
-    if (stringId !== null && id !== null && !this.selectedWasmIds.includes(id)) {
+    // A finger or pencil has no ⌘/Ctrl to hold, so the long-press menu is where
+    // it grows or shrinks a selection — which it could not do if the press had
+    // already thrown away the selection it was meant to extend.
+    const pointerType = (event as PointerEvent).pointerType;
+    const direct = pointerType === 'touch' || pointerType === 'pen';
+    const extending =
+      direct &&
+      id !== null &&
+      this.selectedWasmIds.length > 0 &&
+      !this.selectedWasmIds.includes(id);
+    if (stringId !== null && id !== null && !extending && !this.selectedWasmIds.includes(id)) {
       // Act on what the user pointed at. Selecting first also *shows* them
       // which part the menu is about before they pick an item.
       this.handleSelect(stringId, false);
     }
-    const items = id === null ? this.plateMenuItems() : this.objectMenuItems(id);
+    const items =
+      id === null
+        ? this.plateMenuItems()
+        : [...(direct ? this.selectionMenuItems(id) : []), ...this.objectMenuItems(id)];
     void this.contextMenu.open(event, items);
+  }
+
+  /**
+   * The touch stand-in for ⌘/Ctrl-click, leading the menu for a long-press on
+   * a model. Adding also turns multi-select on, so the next taps keep building
+   * the batch the way the toolbar toggle does, and the lit toggle shows how to
+   * leave the mode again.
+   */
+  private selectionMenuItems(id: bigint): ContextMenuItem[] {
+    const multiSelect = this.viewerControl.additiveSelection;
+    let item: ContextMenuItem;
+    if (!this.selectedWasmIds.includes(id)) {
+      item = {
+        label: 'Add to selection',
+        icon: 'plus-circle',
+        action: () => {
+          this.handleSelect(String(id), true);
+          multiSelect.set(true);
+        },
+      };
+    } else if (this.selectedWasmIds.length > 1) {
+      item = {
+        label: 'Remove from selection',
+        icon: 'minus-circle',
+        action: () => this.handleSelect(String(id), true),
+      };
+    } else if (!multiSelect() && this.sceneEngine.objects().length > 1) {
+      item = {
+        label: 'Select more',
+        icon: 'check-circle',
+        action: () => multiSelect.set(true),
+      };
+    } else {
+      return [];
+    }
+    return [item, { label: '', separator: true }];
   }
 
   /** Menu for a press that landed on a model. */

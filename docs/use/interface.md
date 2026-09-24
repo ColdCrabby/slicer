@@ -28,8 +28,9 @@ The bed, the print volume, and your models. Navigate it the way you'd expect:
 - **Drag** to orbit, **scroll** to zoom, **right-drag** (or two fingers on a
   trackpad) to pan.
 - **Click** a model to select it, `Esc` to deselect, `Ctrl`/`⌘ + A` to select all.
-- **`Ctrl`/`⌘` or `Shift` + click** adds to the selection. On a touch screen use
-  the **Multi-select** tool instead — see
+- **`Ctrl`/`⌘` or `Shift` + click** adds to the selection. With a finger or a
+  pen, press and hold a model and choose **Add to selection**, or use the
+  **Multi-select** tool — see
   [Working the plate with a finger or a pen](#working-the-plate-with-a-finger-or-a-pen).
 - **Right-click** (or **press and hold** on a touch screen) a model for
   duplicate, drop to floor, centre and remove, without leaving the plate. On
@@ -60,7 +61,7 @@ Floating under the model, this is where you manipulate what's on the plate.
 | **Pull to floor**   | `F` | Click a face; that face becomes the bottom           |
 | **Paint support**   | `B` | Brush support enforcers and blockers onto a model    |
 | **Place objects**   | `A` | Auto-arrange everything on the bed                   |
-| **Multi-select**    |     | Touch screens only — each tap adds or removes        |
+| **Multi-select**    |     | Touch and pen only — each tap adds or removes        |
 | **Add a model**     |     | Same as dropping a file in                           |
 | **Gravity**         | `G` | Objects drop to the floor after every move           |
 | **Model / preview** | `P` | Switch between the model and the sliced G-code       |
@@ -320,13 +321,18 @@ narrow window on a desktop.
 - **Tap a model to select it.** Tapping is judged generously: a fingertip is a
   wide, soft target that never lands and lifts on the same pixel, so a tap still
   counts as a tap even when it slides a little. Tap empty bed to deselect.
-- **Multi-select**, in the tool cluster, is the stand-in for holding `⌘`/`Ctrl`.
-  Turn it on and each tap adds an object to the selection or takes it back out;
-  turn it off to go back to one-at-a-time. It appears once there are at least two
-  objects to choose between, and only where there's no modifier key to hold.
 - **Press and hold** a model for the same menu a right-click gives: duplicate,
   drop to floor, centre, remove — acting on the whole selection if you have one.
   Hold on empty bed for select all, clear, place objects and reset view.
+- **Build a selection from the same menu.** Hold a model outside the selection
+  and choose **Add to selection**; hold one inside it for **Remove from
+  selection**; hold a lone selected model for **Select more**. Adding keeps the
+  selection you had rather than replacing it.
+- **Multi-select**, in the tool cluster, is the stand-in for holding `⌘`/`Ctrl`.
+  While it's on, each tap adds an object to the selection or takes it back out;
+  turn it off to go back to one-at-a-time. Adding from the menu turns it on for
+  you. It appears once there are at least two objects to choose between, on a
+  touch screen or while a pen is in use.
 - **Drag a selected model to slide it across the bed.** Select it first, then
   drag: one deliberate tap means nothing gets shoved out of place by a stray
   swipe. Dragging anywhere else still orbits the camera, and the move handles
