@@ -13,7 +13,7 @@ gcode/
 ├── dialect.rs      GcodeDialect trait + WarnFn + header()
 ├── generator.rs    GcodeGenerator façade + generate_gcode()
 ├── stats.rs        SliceStatistics + metadata/settings header lines
-├── simplify.rs     Ramer-Douglas-Peucker polyline simplification
+├── simplify.rs     output-stage path simplification (micro-segment merge + RDP)
 ├── time_estimate.rs  acceleration-aware print-time estimator
 ├── source.rs       resolve_gcode_source() file/string resolver
 └── dialects/
@@ -669,23 +669,24 @@ is identical across modes; only the filament pull becomes `G10`/`G11`.
 
 ---
 
-## Path simplification (Ramer-Douglas-Peucker)
+## Path simplification
 
-Sliced contours and infill paths often contain many near-collinear vertices.
-Streaming every one of them as a `G1` move overwhelms firmware buffers
-(OctoPrint, Klipper) and bloats `.gcode` files. To address this, every path is
-thinned just before emission using the [Ramer-Douglas-Peucker][rdp] (RDP)
-algorithm.
-
-[rdp]: https://en.wikipedia.org/wiki/Ramer%E2%80%93Douglas%E2%80%93Peucker_algorithm
+Sliced contours reach the generator far denser than a printer can use, and
+noisy with it. Geometry lives on Clipper2's 0.01 mm integer grid, so an offset
+wall around a finely tessellated curve carries clusters of vertices a hundredth
+of a millimetre apart whose directions snap to multiples of 45°. Streamed as
+`G1` moves, each one is a kink the firmware's planner has to slow down for — a
+smooth arc stutters, and the wall shows it. **The rule: nothing reaches the
+printer unsimplified — the spiral loop included.**
 
 ### Where it sits in the pipeline
 
 ```mermaid
 flowchart LR
-    mesh["Mesh slicing\n(full precision)"] --> walls["Arachne walls\n+ infill"]
-    walls --> raw["Raw paths\n(many vertices)"]
-    raw -->|path_tolerance &gt; 0| rdp["douglas_peucker()\n(simplify.rs)"]
+    mesh["Mesh slicing\n(full precision)"] --> walls["Walls, infill,\nspiral loop"]
+    walls --> raw["Raw paths\n(grid noise)"]
+    raw -->|path_tolerance &gt; 0| merge["merge sub-0.1 mm\nsegments"]
+    merge --> rdp["Ramer-Douglas-Peucker"]
     rdp --> emit["G-code emission\n(generator.rs)"]
     raw -. path_tolerance == 0 .-> emit
 ```
@@ -694,21 +695,36 @@ flowchart LR
 happens _only_ at the output stage, so wall offsets, infill clipping, and
 surface detection are never degraded.
 
-### Algorithm
+### Two passes, and why both
 
-For each polyline, recursively find the vertex with the greatest perpendicular
-distance from the chord between the segment's endpoints. If that distance
-exceeds `tolerance`, split there and recurse on both halves; otherwise discard
-all interior vertices. The first and last point are always preserved.
+[`simplify_path`](simplify.rs) runs them in order; variable-width beads use
+`simplify_path_with_widths`, which also keeps any vertex where the width steps.
+
+1. **Merge short segments.** A vertex bounding a segment shorter than
+   `MIN_SEGMENT_MM` is dropped while everything merged into the resulting chord
+   stays within `2 × path_tolerance`. This clears the grid noise without eroding
+   a real corner or step.
+2. **[Ramer-Douglas-Peucker][rdp]** at `path_tolerance` removes the vertices
+   that are now redundant along straight and gently curved runs.
+
+Neither pass does the job alone. RDP by itself cannot tell grid noise from
+curvature: a tolerance fine enough to keep an arc round keeps the zig-zags, and
+one coarse enough to drop them prints the arc as flat facets. On a
+grid-snapped circle, merging then RDP ends up closer to the true curve than the
+raw contour does.
+
+The spiral loop is a closed contour with a fixed start vertex, so it is
+simplified including its closing segment (`simplify_closed_loop`).
+
+[rdp]: https://en.wikipedia.org/wiki/Ramer%E2%80%93Douglas%E2%80%93Peucker_algorithm
 
 ### Configuration — `SlicingParams::path_tolerance`
 
-| Value     | Effect                                                       |
-| --------- | ------------------------------------------------------------ |
-| `0.0`     | Disabled — all vertices preserved                            |
-| `0.01`    | Conservative — high-quality printers, minimal visible impact |
-| `0.05` ⭐ | Default — good balance of fidelity and move-count reduction  |
-| `0.1+`    | Aggressive — best for slow firmware (legacy OctoPrint)       |
+| Value        | Effect                                                    |
+| ------------ | --------------------------------------------------------- |
+| `0.0`        | Disabled — every vertex, noise included, reaches the printer |
+| `0.0125` ⭐  | Default — arcs stay round; sagitta is invisible at a 0.4 mm nozzle |
+| `0.025–0.05` | Fewer moves, but large arcs print as visible facets       |
 
 ### Future-feature checklist
 
@@ -721,7 +737,7 @@ When adding a new feature that emits paths through `GcodeGenerator`:
   (e.g. arc-fitting / `G2`/`G3` emission, exact-position commands). Either set
   `path_tolerance = 0.0` for that pass or perform the special-case emission
   before the generic generator loop.
-- ⚠️ **Don't simplify upstream of geometry ops.** Calling `douglas_peucker`
+- ⚠️ **Don't simplify upstream of geometry ops.** Calling `simplify_path`
   on Clipper2 paths _before_ offset/clip/intersect operations will cascade
   precision loss into walls and infill. Keep it strictly at the output layer.
 
