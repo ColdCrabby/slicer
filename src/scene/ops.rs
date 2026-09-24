@@ -61,25 +61,30 @@ pub enum SceneOp {
     /// Replace the entire transform.
     SetTransform { id: ObjectId, transform: Transform },
     /// Rotate around `axis` by `radians`, composing with the current rotation.
+    ///
+    /// Pivots on the object's own centre (see [`SceneObject::pivot`]), which
+    /// is where the viewer draws the rotate gizmo — not on the file's origin,
+    /// which a CAD export can leave far outside the part.
     Rotate {
         id: ObjectId,
         axis: [f32; 3],
         radians: f32,
     },
-    /// Multiply the per-axis scale by `factors`.
+    /// Multiply the per-axis scale by `factors`, about the object's own centre.
     Scale { id: ObjectId, factors: [f32; 3] },
     /// Translate so the object's transformed-AABB center matches the bed center
     /// in XY. Z is preserved.
     CenterOnBed { id: ObjectId },
     /// Translate so the object's transformed-AABB sits with min.z = 0.
     DropToFloor { id: ObjectId },
-    /// Rotate so the chosen face's outward normal points along `-Z`, then
-    /// translate so that the **selected face itself** sits on z = 0.
+    /// Rotate so the chosen face's outward normal points along `-Z`, pivoting
+    /// on the object's own centre so it stays where it was on the plate, then
+    /// drop it so its lowest point sits on z = 0.
     ///
-    /// Unlike a plain drop-to-floor, this lands the chosen face on the bed
-    /// even when the face is in the middle of the object (the rest of the
-    /// mesh extends upward from that face). Picking a top or bottom face
-    /// behaves identically to drop-to-floor.
+    /// For a face on the outside of the part — anything the user can click
+    /// from outside — that lowest point *is* the face. A face with geometry
+    /// beyond it (a recess, the inside of a bore) rests the part on that
+    /// geometry instead of pushing it through the bed.
     PlaceFaceOnFloor { id: ObjectId, face_index: usize },
     /// Paint support enforcers or blockers with a spherical brush.
     ///
@@ -331,8 +336,10 @@ impl SceneState {
                 let prev = self.get(id).ok_or(SceneError::NotFound(id))?.transform;
                 let axis_v = Vec3::from(axis).normalize_or_zero();
                 let q = Quat::from_axis_angle(axis_v, radians);
+                let pivot = self.get(id).unwrap().pivot();
                 let mut new_t = prev;
                 new_t.set_quat(q * prev.quat());
+                keep_pivot(&prev, &mut new_t, pivot);
                 self.get_mut(id).unwrap().transform = new_t;
                 Ok(OpReceipt {
                     inverse: SceneOp::SetTransform {
@@ -344,10 +351,12 @@ impl SceneState {
 
             SceneOp::Scale { id, factors } => {
                 let prev = self.get(id).ok_or(SceneError::NotFound(id))?.transform;
+                let pivot = self.get(id).unwrap().pivot();
                 let mut new_t = prev;
                 new_t.scale[0] *= factors[0];
                 new_t.scale[1] *= factors[1];
                 new_t.scale[2] *= factors[2];
+                keep_pivot(&prev, &mut new_t, pivot);
                 self.get_mut(id).unwrap().transform = new_t;
                 Ok(OpReceipt {
                     inverse: SceneOp::SetTransform {
@@ -393,6 +402,7 @@ impl SceneState {
             SceneOp::PlaceFaceOnFloor { id, face_index } => {
                 let obj = self.get(id).ok_or(SceneError::NotFound(id))?;
                 let prev = obj.transform;
+                let pivot = obj.pivot();
                 let mesh = obj.mesh.clone();
                 if face_index >= mesh.faces.len() {
                     return Err(SceneError::FaceOutOfRange {
@@ -413,23 +423,13 @@ impl SceneState {
                 let align = Quat::from_rotation_arc(world_normal, down);
                 let mut new_t = prev;
                 new_t.set_quat(align * prev.quat());
+                keep_pivot(&prev, &mut new_t, pivot);
                 self.get_mut(id).unwrap().transform = new_t;
-                // Land the *selected face itself* on z = 0 (not the AABB min).
-                // For a top/bottom face this is identical to drop-to-floor; for
-                // a mid-object face the rest of the mesh extends upward from
-                // that face instead of clipping through the bed.
-                let matrix = new_t.to_matrix();
-                let face_min_z = face
-                    .vertices
-                    .iter()
-                    .map(|v| {
-                        matrix
-                            .transform_point3(Vec3::new(v.x as f32, v.y as f32, v.z as f32))
-                            .z
-                    })
-                    .fold(f32::INFINITY, f32::min);
-                new_t.translation[2] -= face_min_z;
-                self.get_mut(id).unwrap().transform = new_t;
+                // Rest the part on its lowest point. Landing the picked face
+                // itself at z = 0 instead would sink everything beyond it
+                // through the bed whenever the face is not the lowest one.
+                let world = self.get(id).unwrap().world_aabb();
+                self.get_mut(id).unwrap().transform.translation[2] -= world.min.z as f32;
                 Ok(OpReceipt {
                     inverse: SceneOp::SetTransform {
                         id,
@@ -637,6 +637,18 @@ impl SceneState {
             }
         }
     }
+}
+
+/// Shift `new_t` so the local point `pivot` lands in the world exactly where
+/// `prev` put it — turning a rotation or scale about the local origin into
+/// one about the object itself.
+fn keep_pivot(prev: &Transform, new_t: &mut Transform, pivot: Vec3) {
+    let before = prev.to_matrix().transform_point3(pivot);
+    let after = new_t.to_matrix().transform_point3(pivot);
+    let shift = before - after;
+    new_t.translation[0] += shift.x;
+    new_t.translation[1] += shift.y;
+    new_t.translation[2] += shift.z;
 }
 
 /// Compute a face's geometric normal from its three vertices.
@@ -851,6 +863,7 @@ mod tests_support {
 mod tests {
     use super::tests_support::{cube_mesh, small_bed};
     use super::*;
+    use crate::mesh::types::Mesh;
     use crate::scene::bed::BedConfig;
 
     #[test]
@@ -968,12 +981,9 @@ mod tests {
     }
 
     #[test]
-    fn place_face_on_floor_lands_mid_object_face() {
-        // Build a tall cuboid (10x10x40) and pick a side face that is *not*
-        // the bottom. The selected face must end up at z ≈ 0 — the rest of the
-        // mesh extends upward from there. With the old AABB-based drop, a side
-        // face would not actually touch the bed: the object would be sitting
-        // on its (newly rotated) bottom edge instead.
+    fn place_face_on_floor_lays_a_side_face_flat() {
+        // Pick a side face that is *not* the bottom. The selected face must
+        // end up flat on z ≈ 0, with the rest of the mesh above it.
         let mut s = SceneState::new(small_bed());
         let id = s.add_mesh("c", cube_mesh([0.0, 0.0, 0.0], 10.0));
         // Face 4 is on the -Y side; its three vertices span z = 0..10 in the
@@ -988,6 +998,85 @@ mod tests {
             let p = matrix.transform_point3(Vec3::new(v.x as f32, v.y as f32, v.z as f32));
             assert!(p.z.abs() < 1e-3, "face vertex z = {} (expected 0)", p.z);
         }
+    }
+
+    /// Lowest world-space Z over every vertex, measured independently of
+    /// `world_aabb`.
+    fn true_min_z(state: &SceneState, id: ObjectId) -> f32 {
+        let obj = state.get(id).unwrap();
+        let m = obj.transform.to_matrix();
+        obj.mesh
+            .vertices
+            .iter()
+            .map(|v| m.transform_point3(vertex_to_vec3(v)).z)
+            .fold(f32::INFINITY, f32::min)
+    }
+
+    #[test]
+    fn an_obliquely_rotated_object_drops_onto_the_bed() {
+        // Rotating the local box's corners would have left this cube
+        // floating: the rotated box reaches lower than the cube does.
+        let mut s = SceneState::new(small_bed());
+        let id = s.add_mesh("c", cube_mesh([0.0, 0.0, 0.0], 10.0));
+        s.apply(SceneOp::Rotate {
+            id,
+            axis: [1.0, 1.0, 0.0],
+            radians: 0.5,
+        })
+        .unwrap();
+        s.apply(SceneOp::DropToFloor { id }).unwrap();
+        assert!(true_min_z(&s, id).abs() < 1e-3);
+        assert!(s.get(id).unwrap().world_aabb().min.z.abs() < 1e-3);
+    }
+
+    #[test]
+    fn rotate_pivots_on_the_part_not_its_origin() {
+        // Geometry 60 mm from its own origin, as a CAD export often leaves it.
+        let mut s = SceneState::new(small_bed());
+        let id = s.add_mesh("c", cube_mesh([60.0, 60.0, 0.0], 10.0));
+        let before = s.get(id).unwrap().world_aabb().center();
+        s.apply(SceneOp::Rotate {
+            id,
+            axis: [0.0, 0.0, 1.0],
+            radians: std::f32::consts::FRAC_PI_2,
+        })
+        .unwrap();
+        let after = s.get(id).unwrap().world_aabb().center();
+        assert!((after.x - before.x).abs() < 1e-3, "{before:?} → {after:?}");
+        assert!((after.y - before.y).abs() < 1e-3, "{before:?} → {after:?}");
+        assert!((after.z - before.z).abs() < 1e-3, "{before:?} → {after:?}");
+    }
+
+    #[test]
+    fn place_face_on_floor_keeps_the_part_where_it_was() {
+        let mut s = SceneState::new(small_bed());
+        let id = s.add_mesh("c", cube_mesh([60.0, 60.0, 0.0], 10.0));
+        let before = s.get(id).unwrap().world_aabb().center();
+        s.apply(SceneOp::PlaceFaceOnFloor { id, face_index: 4 })
+            .unwrap();
+        let after = s.get(id).unwrap().world_aabb().center();
+        assert!((after.x - before.x).abs() < 1e-3, "{before:?} → {after:?}");
+        assert!((after.y - before.y).abs() < 1e-3, "{before:?} → {after:?}");
+    }
+
+    #[test]
+    fn place_face_on_floor_never_sinks_the_part_into_the_bed() {
+        // Two blocks in one mesh, the second hovering 20 mm above the first.
+        // Its underside already faces down but is not the lowest face, so
+        // landing *that face* on z = 0 would bury the lower block.
+        let low = cube_mesh([0.0, 0.0, 0.0], 10.0);
+        let high = cube_mesh([20.0, 0.0, 20.0], 10.0);
+        let mesh = Mesh {
+            vertices: [low.vertices.clone(), high.vertices.clone()].concat(),
+            faces: [low.faces.clone(), high.faces.clone()].concat(),
+            aabb: None,
+        };
+        let mut s = SceneState::new(small_bed());
+        let id = s.add_mesh("c", Arc::new(mesh));
+        // Face 12 is the high block's bottom face (the cube's face 0).
+        s.apply(SceneOp::PlaceFaceOnFloor { id, face_index: 12 })
+            .unwrap();
+        assert!(true_min_z(&s, id).abs() < 1e-3, "{}", true_min_z(&s, id));
     }
 
     #[test]

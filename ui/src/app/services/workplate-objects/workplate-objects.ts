@@ -271,10 +271,15 @@ export class WorkplateObjects {
     const { autoOrient, preferredOrientationDeg } = this.arrange.settings();
     for (const id of ids) {
       if (autoOrient) {
+        // Centres on the bed as well as orienting.
         this.sceneEngine.apply({
           op: 'AutoOrient',
           args: { id, options: { preferred_z_rotation_deg: preferredOrientationDeg } },
         });
+      } else {
+        // Keep the file's pose but not its position: a CAD export sits
+        // wherever its origin was drawn, which is often off the bed entirely.
+        this.sceneEngine.apply({ op: 'CenterOnBed', args: { id } });
       }
       this.sceneEngine.apply({ op: 'DropToFloor', args: { id } });
       this.placeClear(id);

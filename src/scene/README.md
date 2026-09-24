@@ -157,14 +157,23 @@ plate as hanging off it.
 | `Duplicate`         | Clones an object (shared mesh + source ref), offset        | `Remove` of the copy             |
 | `Translate`         | Adds delta to `translation`                                | `SetTransform` to previous       |
 | `SetTransform`      | Replaces the entire transform                              | `SetTransform` to previous       |
-| `Rotate`            | Composes `Quat::from_axis_angle` onto current rotation     | `SetTransform` to previous       |
-| `Scale`             | Multiplies per-axis `scale` factors                        | `SetTransform` to previous       |
+| `Rotate`            | Composes a rotation, pivoting on the object's own centre   | `SetTransform` to previous       |
+| `Scale`             | Multiplies per-axis `scale`, about the object's own centre | `SetTransform` to previous       |
 | `CenterOnBed`       | XY-centers the world AABB on the bed; preserves Z          | `SetTransform` to previous       |
 | `DropToFloor`       | Translates so world AABB `min.z = 0`                       | `SetTransform` to previous       |
-| `PlaceFaceOnFloor`  | Rotates picked face's normal to `-Z`, then lands that face | `SetTransform` to previous       |
+| `PlaceFaceOnFloor`  | Turns picked face to `-Z` in place, then drops to floor    | `SetTransform` to previous       |
 | `AutoOrient`        | Rotates to minimise overhangs, then drops                  | `SetTransform` to previous       |
 | `ArrangeOnBed`      | Shelf-packs the listed objects, then centers the group     | `BatchSetTransform`              |
 | `BatchSetTransform` | Restores many transforms atomically                        | `BatchSetTransform` to previous  |
+
+**Placement reads the real outline.** `world_aabb()` transforms every
+vertex, never the eight corners of the local box: under an oblique rotation
+those corners sit well outside the part, so drop, centre, arrange and the
+bounds check all worked against a box that was not there — an auto-oriented
+part floated above the bed. **Rotations pivot on the part, not its origin.**
+`SceneObject::pivot()` is the centre of the mesh's own box; a CAD export's
+origin can sit far outside the geometry, and turning about it swings the part
+across the plate while the gizmo sits still.
 
 > **Note on `Remove`:** the inverse can't fully restore the mesh bytes from
 > the current state alone. The receipt records the last transform so a
