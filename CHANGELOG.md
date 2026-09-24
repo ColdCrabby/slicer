@@ -49,10 +49,9 @@ issue/PR numbers or repo links in the notes. See the tone rules in
   Maximum to 250, both still held below their own infill speed so there is
   something left to spend on the surface. Past roughly 20 mm³/s the limit is the
   hotend rather than the profile — set `Max Volumetric Speed` on the filament.
-- **Touch targets are sized for the pointer in your hand** — controls grow for a
-  fingertip and go straight back to their compact sizes the moment an Apple
-  Pencil or other stylus touches the glass, so a tablet stops spending screen on
-  a precision problem it does not have.
+- **Touch targets are sized for a fingertip on touch devices** — one size for
+  finger and Apple Pencil alike, so switching between them never shifts the
+  layout.
 - **Tablet chrome is calmer** — the blanket 44 pt floor is now two numbers: 40 px
   for an isolated control and 36 px for a settings row, which takes roughly a
   screen and a half of scrolling out of the settings panel on an iPad.
