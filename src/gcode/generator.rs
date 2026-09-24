@@ -1503,6 +1503,31 @@ impl GcodeGenerator {
         (params.travel_acceleration > 0.0).then_some(params.travel_acceleration)
     }
 
+    /// Resolve the acceleration for the travel **into** a path of `role`.
+    ///
+    /// With `gentle_travel_to_outer_wall`, a hop that lands on an outer wall
+    /// runs at the lower of the travel and the wall's printing acceleration: a
+    /// hard stop leaves the toolhead ringing, and the wall laid right after it
+    /// would print that shake beside the seam. Every other destination keeps
+    /// the plain travel acceleration. `None` when no travel acceleration is
+    /// configured, exactly as [`Self::effective_travel_acceleration`].
+    fn travel_acceleration_into(
+        role: crate::core::ExtrusionRole,
+        print_accel: Option<f64>,
+        params: &SlicingParams,
+    ) -> Option<f64> {
+        let travel = Self::effective_travel_acceleration(params)?;
+        match print_accel {
+            Some(wall)
+                if params.gentle_travel_to_outer_wall
+                    && role == crate::core::ExtrusionRole::OuterWall =>
+            {
+                Some(travel.min(wall))
+            }
+            _ => Some(travel),
+        }
+    }
+
     /// Emit one spiralized (vase-mode) outer contour with a continuous Z ramp.
     ///
     /// `pts` is the closed loop rotated so `pts[0]` is the start vertex. The
@@ -2742,7 +2767,7 @@ impl GcodeGenerator {
                 // as before, keeping output byte-identical. Disabled roles
                 // resolve to `None` and leave the previous limit in place.
                 let print_accel = Self::effective_acceleration(role, is_first_layer, params);
-                let travel_accel = Self::effective_travel_acceleration(params);
+                let travel_accel = Self::travel_acceleration_into(role, print_accel, params);
                 if travel_accel.is_none() {
                     if let Some(accel) = print_accel {
                         if last_accel != Some(accel) {
@@ -5251,6 +5276,7 @@ mod tests {
         let params = SlicingParams {
             acceleration: 6000.0,
             travel_acceleration: 9000.0,
+            gentle_travel_to_outer_wall: false,
             ..params_with_no_acceleration()
         };
         // Two outer-wall squares far apart so a real travel hop separates them.
@@ -5287,6 +5313,84 @@ mod tests {
         assert!(
             first_travel < first_restore,
             "travel acceleration must be switched in before the printing value is restored:\n{gcode}"
+        );
+    }
+
+    /// Two squares of `role` far apart, so a real travel hop separates them.
+    fn two_distant_squares(role: crate::core::ExtrusionRole) -> SliceLayer {
+        let mut layer = SliceLayer::new(0.4);
+        let sq1: clipper2::Path = vec![(0.0, 0.0), (10.0, 0.0), (10.0, 10.0), (0.0, 10.0)].into();
+        let sq2: clipper2::Path = vec![
+            (100.0, 100.0),
+            (110.0, 100.0),
+            (110.0, 110.0),
+            (100.0, 110.0),
+        ]
+        .into();
+        layer.paths.push(sq1);
+        layer.path_roles.push(role);
+        layer.paths.push(sq2);
+        layer.path_roles.push(role);
+        layer
+    }
+
+    #[test]
+    fn test_travel_into_outer_wall_brakes_at_the_wall_acceleration() {
+        use crate::core::ExtrusionRole;
+        let params = SlicingParams {
+            acceleration: 8000.0,
+            outer_wall_acceleration: 3000.0,
+            travel_acceleration: 15000.0,
+            ..params_with_no_acceleration()
+        };
+        assert!(params.gentle_travel_to_outer_wall, "on by default");
+        let gcode = GcodeGenerator::new(GcodeFlavor::Marlin)
+            .generate(&[two_distant_squares(ExtrusionRole::OuterWall)], &params);
+        assert!(
+            !gcode.contains("M204 P15000"),
+            "a hop onto an outer wall must not run at the full travel acceleration:\n{gcode}"
+        );
+        assert_eq!(
+            gcode.matches("M204 P3000").count(),
+            1,
+            "travel and wall share one acceleration, so it is set once:\n{gcode}"
+        );
+    }
+
+    #[test]
+    fn test_travel_into_other_roles_keeps_the_travel_acceleration() {
+        use crate::core::ExtrusionRole;
+        let params = SlicingParams {
+            acceleration: 8000.0,
+            outer_wall_acceleration: 3000.0,
+            travel_acceleration: 15000.0,
+            ..params_with_no_acceleration()
+        };
+        let gcode = GcodeGenerator::new(GcodeFlavor::Marlin)
+            .generate(&[two_distant_squares(ExtrusionRole::InnerWall)], &params);
+        assert_eq!(
+            gcode.matches("M204 P15000 ; travel acceleration").count(),
+            2,
+            "only hops onto an outer wall slow down:\n{gcode}"
+        );
+    }
+
+    #[test]
+    fn test_gentle_travel_off_keeps_the_travel_acceleration_into_outer_walls() {
+        use crate::core::ExtrusionRole;
+        let params = SlicingParams {
+            acceleration: 8000.0,
+            outer_wall_acceleration: 3000.0,
+            travel_acceleration: 15000.0,
+            gentle_travel_to_outer_wall: false,
+            ..params_with_no_acceleration()
+        };
+        let gcode = GcodeGenerator::new(GcodeFlavor::Marlin)
+            .generate(&[two_distant_squares(ExtrusionRole::OuterWall)], &params);
+        assert_eq!(
+            gcode.matches("M204 P15000 ; travel acceleration").count(),
+            2,
+            "{gcode}"
         );
     }
 

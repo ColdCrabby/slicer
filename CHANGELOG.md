@@ -37,6 +37,10 @@ issue/PR numbers or repo links in the notes. See the tone rules in
   the skins are no longer priced like the top surface they share a name with.
   `Internal Solid Speed` defaults to 150% of the top surface, which lands on the
   same speed as sparse infill.
+- **Travel brakes gently onto the outer wall** — a hop that lands where a
+  visible wall starts now slows at the outer-wall acceleration instead of the
+  travel one, so the toolhead is not still ringing when the wall begins. On by
+  default; every other hop keeps full travel acceleration.
 
 ### Changed
 

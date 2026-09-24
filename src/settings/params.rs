@@ -2214,6 +2214,16 @@ before extruding, and the print-time estimate follows the same switch.
     pub travel_acceleration: f64,
 
     #[schemars(
+        description = "Arrive gently at the outer wall. When a travel ends where an outer wall begins, it brakes at the outer-wall acceleration instead of `travel_acceleration`.
+
+A hard travel stop leaves the toolhead ringing, and the outer wall that starts right after records that shake as a ripple beside the seam. Travelling to any other role keeps the full travel acceleration, so only the hops that land on a visible wall slow down. Has no effect unless both `travel_acceleration` and an outer-wall acceleration are set.
+**Default:** true.",
+        extend("x-group" = "Speed", "x-tier" = "expert")
+    )]
+    #[serde(default = "SlicingParams::default_gentle_travel_to_outer_wall")]
+    pub gentle_travel_to_outer_wall: bool,
+
+    #[schemars(
         description = "Square-corner velocity in mm/s — the speed the head keeps through a 90° corner (junction-deviation cornering). `0` = use the estimator/firmware default (5 mm/s).
 
 Higher values corner faster (shorter prints, more ringing); lower values slow into corners for cleaner edges. When set, the slicer emits the firmware limit (Klipper `SET_VELOCITY_LIMIT SQUARE_CORNER_VELOCITY=…`, Marlin `M205 J…` junction deviation) and the print-time estimate uses the same value, so the ETA tracks reality.
@@ -3008,6 +3018,7 @@ impl Default for SlicingParams {
             gap_fill_acceleration: Self::default_gap_fill_acceleration(),
             support_acceleration: Self::default_support_acceleration(),
             travel_acceleration: Self::default_travel_acceleration(),
+            gentle_travel_to_outer_wall: Self::default_gentle_travel_to_outer_wall(),
             square_corner_velocity: Self::default_square_corner_velocity(),
             max_velocity: Self::default_max_velocity(),
             time_estimate_warmup_s: Self::default_time_estimate_warmup_s(),
@@ -3222,6 +3233,11 @@ impl SlicingParams {
         // No material is deposited in transit, so travel gets the highest
         // acceleration of all — above even sparse infill.
         15000.0
+    }
+    fn default_gentle_travel_to_outer_wall() -> bool {
+        // On: the only cost is a slower stop on hops that land on a visible
+        // wall, and that stop is exactly where ringing would print.
+        true
     }
     fn default_square_corner_velocity() -> f64 {
         // `0` = defer to the estimator/firmware default (5 mm/s). Kept at 0 so a

@@ -560,6 +560,15 @@ between them costs more wall-clock than the hops it guards while pumping the
 extruder thousands of times over a print. On a 25-slot card caddy the exemption
 removes roughly 85 % of the print's retractions.
 
+### Arriving at an outer wall
+
+A travel runs at `travel_acceleration`, the hardest ramp in the profile. A hop
+that ends where an outer wall begins brakes at the wall's own acceleration
+instead (`gentle_travel_to_outer_wall`, on by default): a hard stop leaves the
+toolhead ringing, and the visible wall laid next would print that shake beside
+the seam. Hops into any other role keep the full travel acceleration. The rule
+lives in `GcodeGenerator::travel_acceleration_into`.
+
 ### Routing a hop over material
 
 An interior hop still crosses whatever is between its ends, and between two
