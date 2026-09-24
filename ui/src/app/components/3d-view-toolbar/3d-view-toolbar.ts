@@ -16,12 +16,12 @@ import { Dialog } from '../../services/dialog';
 import { GcodePreview } from '../../services/gcode-preview';
 import { HistoryControlsPreference } from '../../services/history-controls-preference';
 import { KeyboardShortcuts } from '../../services/keyboard-shortcuts/keyboard-shortcuts';
-import { NotificationService } from '../../services/notifications';
 import { SceneEngine } from '../../services/scene-engine';
 import { SceneHistory } from '../../services/scene-history/scene-history';
 import { Slicer } from '../../services/slicer';
 import { ViewerControl } from '../../services/viewer-control';
 import { Viewport } from '../../services/viewport';
+import { MODEL_FILE_ACCEPT } from '../../services/model-source';
 import { WorkplateObjects } from '../../services/workplate-objects';
 import {
   Icon,
@@ -57,7 +57,6 @@ export class ThreeDViewToolbar {
   private readonly gcodePreview = inject(GcodePreview);
   private readonly dialog = inject(Dialog);
   private readonly workplate = inject(WorkplateObjects);
-  private readonly notifications = inject(NotificationService);
   private readonly arrange = inject(Arrange);
   private readonly history = inject(SceneHistory);
   private readonly viewport = inject(Viewport);
@@ -65,6 +64,8 @@ export class ThreeDViewToolbar {
   protected readonly historyControls = inject(HistoryControlsPreference);
   protected readonly autoSlice = inject(AutoSlice);
   protected readonly keyboardShortcuts = inject(KeyboardShortcuts);
+
+  protected readonly modelFileAccept = MODEL_FILE_ACCEPT;
 
   private readonly addInput = viewChild<ElementRef<HTMLInputElement>>('addObjectInput');
 
@@ -186,19 +187,7 @@ export class ThreeDViewToolbar {
 
     this.addingObjects.set(true);
     try {
-      const results = await this.workplate.addFiles(files);
-      const added = results.filter((r) => r.objectIds !== undefined);
-      const failed = results.filter((r) => r.error);
-
-      if (added.length > 0) {
-        this.notifications.success(
-          added.length === 1 ? 'Model added' : `${added.length} models added`,
-          added.map((r) => r.file.name).join(', '),
-        );
-      }
-      for (const failure of failed) {
-        this.notifications.error(`Could not add ${failure.file.name}`, failure.error);
-      }
+      await this.workplate.addFilesWithFeedback(files);
     } finally {
       this.addingObjects.set(false);
     }

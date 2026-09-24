@@ -108,6 +108,21 @@
           </li>
         }
       </ul>
+
+      <!-- The toolbar's + is an icon among a dozen; the list of what is on the
+           plate is where people look for how to put more on it. -->
+      <button class="op-add" type="button" [disabled]="adding()" (click)="addInput.click()">
+        <nexus-icon name="plus"></nexus-icon>
+        <span>{{ adding() ? 'Adding…' : 'Add models' }}</span>
+      </button>
+      <input
+        #addInput
+        type="file"
+        [accept]="modelFileAccept"
+        multiple
+        hidden
+        (change)="onAddFiles($event)"
+      />
     }
   </div>
 }

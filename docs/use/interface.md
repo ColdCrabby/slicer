@@ -105,7 +105,8 @@ object*. Both are warnings, not blocks — you can still slice, but you probably
 shouldn't.
 
 Each row also has **Duplicate** and **Remove**. Remove asks once ("Click again
-to remove") before it does anything.
+to remove") before it does anything. **Add models** under the list puts more
+files on the plate, alongside what is already there.
 
 On a touch screen the panel starts **folded** to a chip with the object count,
 because it sits on top of the plate it describes and a finger can't hover it out

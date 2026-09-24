@@ -176,6 +176,41 @@
   }
 }
 
+.op-add {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-xs);
+  min-height: 30px;
+  padding: var(--spacing-xs);
+  border: none;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--color-text-secondary);
+  font: inherit;
+  font-size: 0.75rem;
+  cursor: pointer;
+  transition:
+    background var(--duration-fast) var(--ease-standard),
+    color var(--duration-fast) var(--ease-standard);
+
+  --icon-size: 14px;
+
+  &:hover:not(:disabled) {
+    background: var(--color-bg-secondary);
+    color: var(--color-text-primary);
+  }
+
+  &:focus-visible {
+    outline: 2px solid var(--color-accent);
+    outline-offset: 1px;
+  }
+
+  &:disabled {
+    cursor: progress;
+    opacity: 0.6;
+  }
+}
+
 .op-action {
   display: grid;
   place-items: center;
@@ -273,7 +308,8 @@
     min-height: var(--touch-row);
   }
 
-  .op-row {
+  .op-row,
+  .op-add {
     min-height: var(--touch-row);
   }
 

@@ -100,46 +100,7 @@ export class SliceViewer {
     this.dragActive.set(false);
     const files = Array.from(event.dataTransfer?.files ?? []);
     if (files.length > 0) {
-      void this.#addDroppedFiles(files);
-    }
-  }
-
-  async #addDroppedFiles(files: File[]): Promise<void> {
-    const notifId = this.#notifications.task(
-      files.length === 1 ? 'Adding model…' : `Adding ${files.length} models…`,
-      files.map((f) => f.name).join(', '),
-    );
-    try {
-      const results = await this.#workplate.addFiles(files);
-      const added = results.filter((r) => r.objectIds !== undefined);
-      const failed = results.filter((r) => r.error);
-
-      if (added.length === 0) {
-        this.#notifications.resolveTask(
-          notifId,
-          'danger',
-          'Could not add model',
-          failed[0]?.error ?? 'Use an STL, OBJ or 3MF model.',
-        );
-        return;
-      }
-
-      this.#notifications.resolveTask(
-        notifId,
-        'success',
-        added.length === 1 ? 'Model added' : `${added.length} models added`,
-        added.map((r) => r.file.name).join(', '),
-      );
-      for (const failure of failed) {
-        this.#notifications.error(`Could not add ${failure.file.name}`, failure.error);
-      }
-    } catch (error) {
-      this.#notifications.resolveTask(
-        notifId,
-        'danger',
-        'Could not add model',
-        error instanceof Error ? error.message : undefined,
-      );
+      void this.#workplate.addFilesWithFeedback(files);
     }
   }
 

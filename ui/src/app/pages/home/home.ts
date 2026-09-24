@@ -9,6 +9,7 @@ import {
 } from '../../services/printer-connection';
 import { PrintersStore } from '../../services/profiles/printers-store';
 import { Slicer } from '../../services/slicer';
+import { MODEL_FILE_ACCEPT } from '../../services/model-source';
 import { WorkplateObjects } from '../../services/workplate-objects';
 import {
   Icon,
@@ -43,6 +44,7 @@ export class HomeDashboard implements OnDestroy {
   private readonly printerConn = inject(PrinterConnectionService);
   private readonly slicer = inject(Slicer);
   private readonly workplate = inject(WorkplateObjects);
+  protected readonly modelFileAccept = MODEL_FILE_ACCEPT;
 
   /** Re-probe printers periodically so the dashboard reflects live status. */
   private readonly pollTimer = setInterval(
