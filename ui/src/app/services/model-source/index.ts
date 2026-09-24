@@ -1,6 +1,7 @@
 export {
   ModelSourceRegistry,
   MODEL_EXTENSIONS,
+  MODEL_FILE_ACCEPT,
   isSupportedModelFile,
   modelFormatOf,
   nativePathOf,

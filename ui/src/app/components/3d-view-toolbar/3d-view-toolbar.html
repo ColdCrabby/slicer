@@ -107,7 +107,7 @@
     #addObjectInput
     class="add-object-input"
     type="file"
-    accept=".stl,.obj,.3mf"
+    [accept]="modelFileAccept"
     multiple
     (change)="onAddObjects($event)"
   />

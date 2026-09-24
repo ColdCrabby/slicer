@@ -5,6 +5,7 @@ import { Viewer } from '../../components/viewer/viewer';
 import { PrintArea } from '../../services/print-area';
 import { Slicer } from '../../services/slicer';
 import { SlicerFile } from '../../services/slicer-file';
+import { MODEL_FILE_ACCEPT } from '../../services/model-source';
 import { WorkplateObjects } from '../../services/workplate-objects';
 import { EmptyState } from '@coldcrabby/ui';
 
@@ -19,6 +20,7 @@ export class SliceNew {
   private readonly slicer = inject(Slicer);
   private readonly printArea = inject(PrintArea);
   private readonly workplate = inject(WorkplateObjects);
+  protected readonly modelFileAccept = MODEL_FILE_ACCEPT;
   private readonly fileInputRef = viewChild.required<ElementRef<HTMLInputElement>>('fileInput');
   readonly slicerFile = inject(SlicerFile);
   private dragDepth = 0;

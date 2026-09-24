@@ -5,10 +5,11 @@ many more as fit. Everything on it is sliced into one G-code file.
 
 ## Adding models
 
-Five ways, all equivalent:
+Six ways, all equivalent:
 
 - Drag files onto the window
 - The **add model** button in the tool cluster
+- **Add models** at the bottom of the objects panel
 - **Open Model to Slice** on the home screen
 - **Open with Cold Crabby**, from anywhere else on the device — see below
 - Reopening a recent plate, which brings all its models back
@@ -42,7 +43,7 @@ plate without going through the file picker.
 A model opened this way **always starts a fresh plate**, whatever is on the
 bed already — it came from outside the app, so there is no arrangement on
 screen for it to join. To add a model to the plate you are already working
-on, drop it on the window instead.
+on, drop it on the window or use **Add models** instead.
 
 ::: details Advanced — making Cold Crabby the default
 Cold Crabby registers as an *alternate* handler, so a machine that already has
