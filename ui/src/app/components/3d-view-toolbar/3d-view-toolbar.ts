@@ -107,15 +107,14 @@ export class ThreeDViewToolbar {
    *
    * A mouse already has ⌘/Ctrl-click, so the button would be redundant chrome
    * there; a finger and a pencil have no modifier at all, which is what used to
-   * make the objects list the only way to select a batch. A pencil on a laptop
-   * with a trackpad reports a fine pointer, so the pen in hand counts on its
-   * own. And while the mode is on the toggle always stays, because a long-press
-   * menu can turn it on and it must never be on with no way to turn it off.
+   * make the objects list the only way to select a batch. The app keeps one
+   * pointer-size signal for touch and pen alike, so the toggle remains available
+   * on stylus devices without reintroducing a second size mode. And while the
+   * mode is on the toggle always stays, because a long-press menu can turn it on
+   * and it must never be on with no way to turn it off.
    */
   protected readonly showMultiSelect = computed(
-    () =>
-      this.canMultiSelect() &&
-      (this.viewport.isCoarsePointer() || this.viewport.isStylus() || this.multiSelect()),
+    () => this.canMultiSelect() && (this.viewport.isCoarsePointer() || this.multiSelect()),
   );
 
   protected toggleMultiSelect(): void {
