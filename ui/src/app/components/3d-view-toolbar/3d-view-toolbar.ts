@@ -96,20 +96,25 @@ export class ThreeDViewToolbar {
   /** Whether taps add to the selection instead of replacing it. */
   protected readonly multiSelect = this.viewerControl.additiveSelection;
 
+  /** Whether there is a batch to build at all — plate editing, two objects. */
+  private readonly canMultiSelect = computed(
+    () => this.editingPlate() && this.sceneEngine.objects().length > 1,
+  );
+
   /**
    * Whether to offer the multi-select toggle.
    *
    * A mouse already has ⌘/Ctrl-click, so the button would be redundant chrome
    * there; a finger and a pencil have no modifier at all, which is what used to
-   * make the objects list the only way to select a batch. Pointless with fewer
-   * than two objects on the plate, so it only appears once there is something
-   * to add to.
+   * make the objects list the only way to select a batch. A pencil on a laptop
+   * with a trackpad reports a fine pointer, so the pen in hand counts on its
+   * own. And while the mode is on the toggle always stays, because a long-press
+   * menu can turn it on and it must never be on with no way to turn it off.
    */
   protected readonly showMultiSelect = computed(
     () =>
-      this.editingPlate() &&
-      this.viewport.isCoarsePointer() &&
-      this.sceneEngine.objects().length > 1,
+      this.canMultiSelect() &&
+      (this.viewport.isCoarsePointer() || this.viewport.isStylus() || this.multiSelect()),
   );
 
   protected toggleMultiSelect(): void {
@@ -117,11 +122,11 @@ export class ThreeDViewToolbar {
   }
 
   constructor() {
-    // Never leave the mode on with no control to turn it off — dropping to one
-    // object, or switching to G-code preview, would otherwise strand an
-    // invisible setting that quietly changes what the next tap does.
+    // Dropping to one object, or switching to G-code preview, hides the toggle
+    // — so leave the mode too, rather than strand an invisible setting that
+    // quietly changes what the next tap does.
     effect(() => {
-      if (!this.showMultiSelect() && untracked(this.multiSelect)) {
+      if (!this.canMultiSelect() && untracked(this.multiSelect)) {
         this.multiSelect.set(false);
       }
     });

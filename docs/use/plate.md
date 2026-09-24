@@ -115,8 +115,10 @@ orbits, so nothing moves unless you picked it first.
 ### Editing several objects at once
 
 Hold `Ctrl`/`⌘` or `Shift` and click to add models to the selection, or use
-`Ctrl`/`⌘ + A` for all of them. Without a keyboard, turn on **Multi-select** in
-the tool cluster and every tap adds or removes one.
+`Ctrl`/`⌘ + A` for all of them. Without a keyboard, press and hold a model and
+choose **Add to selection** (or **Remove from selection**) — that also turns on
+**Multi-select** in the tool cluster, so every tap after it adds or removes one
+until you turn it off.
 
 Select more than one and the card keeps working:
 
