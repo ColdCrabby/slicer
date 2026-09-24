@@ -81,6 +81,12 @@ issue/PR numbers or repo links in the notes. See the tone rules in
 
 ### Fixed
 
+- **Curves no longer stutter or print as facets.** Spiral (vase) loops used to
+  reach the printer unsimplified, as thousands of 0.01 mm zig-zag moves that
+  made Klipper slow down at nearly every vertex. Every path now merges those
+  micro-segments first, and the default path tolerance drops from 0.05 mm to
+  0.0125 mm so large arcs stay round rather than faceted.
+
 - **Held steppers no longer die under a fingertip.** A touchscreen reads a long
   press as a request for a context menu about half a second in — right after the
   repeat started — which stopped `+` / `−` from running at all on a phone or
