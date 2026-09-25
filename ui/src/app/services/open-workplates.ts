@@ -34,6 +34,13 @@ export class OpenWorkplates {
   private readonly router = inject(Router);
   private readonly slicerFile = inject(SlicerFile);
 
+  /**
+   * Tabs closed in this session, most recent last — what "reopen closed tab"
+   * walks back through. In memory only: it is a convenience for the last few
+   * seconds of a slip, and the history list is the durable way back.
+   */
+  #recentlyClosed: OpenWorkplateTab[] = [];
+
   /** Raw stored list; `BrowserStorage` keeps it in step across windows. */
   private readonly stored = this.storage.get(STORAGE_KEY, 'local');
 
@@ -113,6 +120,7 @@ export class OpenWorkplates {
     if (index === -1) {
       return;
     }
+    this.#remember([tabs[index]]);
     this.#persist(tabs.filter((tab) => tab.uuid !== uuid));
 
     if (this.activeUuid() !== uuid) {
@@ -132,6 +140,7 @@ export class OpenWorkplates {
    */
   closeAllExcept(keep?: string): void {
     const remaining = keep ? this.tabs().filter((tab) => tab.uuid === keep) : [];
+    this.#remember(this.tabs().filter((tab) => tab.uuid !== keep));
     this.#persist(remaining);
 
     const active = this.activeUuid();
@@ -152,6 +161,7 @@ export class OpenWorkplates {
       return;
     }
     const remaining = tabs.slice(0, index + 1);
+    this.#remember(tabs.slice(index + 1));
     this.#persist(remaining);
 
     const active = this.activeUuid();
@@ -159,6 +169,31 @@ export class OpenWorkplates {
       return;
     }
     void this.router.navigate(['/slice', uuid]);
+  }
+
+  /**
+   * Bring back the most recently closed tab that is not already open again,
+   * and switch to it. Returns false when there is nothing to reopen.
+   */
+  reopenLast(): boolean {
+    const open = new Set(this.tabs().map((tab) => tab.uuid));
+    let tab: OpenWorkplateTab | undefined;
+    while ((tab = this.#recentlyClosed.pop()) && open.has(tab.uuid)) {
+      // Reopened some other way since — skip it rather than reopen it twice.
+    }
+    if (!tab) {
+      return false;
+    }
+    this.open(tab.uuid, tab.filename);
+    void this.router.navigate(['/slice', tab.uuid]);
+    return true;
+  }
+
+  #remember(closed: readonly OpenWorkplateTab[]): void {
+    // Closed together, reopened in the order they sat in the strip: the
+    // last one pushed is the first one back.
+    this.#recentlyClosed.push(...[...closed].reverse());
+    this.#recentlyClosed.splice(0, Math.max(0, this.#recentlyClosed.length - 25));
   }
 
   #persist(tabs: readonly OpenWorkplateTab[]): void {

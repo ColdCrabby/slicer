@@ -7,6 +7,9 @@
 //! the builder here (rather than in `main.rs`) is what makes both possible from
 //! one code path, so a desktop-only change can never silently skip mobile.
 
+/// The macOS menu bar, whose File menu carries the workplate commands.
+#[cfg(target_os = "macos")]
+mod app_menu;
 mod bridge;
 mod commands;
 /// Native context menus. iOS has no Tauri menu API, so this is where the
@@ -35,6 +38,12 @@ pub fn run() {
     let builder = builder.plugin(tauri_plugin_single_instance::init(|app, argv, _cwd| {
         open_with::ingest_args(app, argv, true);
     }));
+
+    // `⌘W` closes a workplate, not the window — see `app_menu`.
+    #[cfg(target_os = "macos")]
+    let builder = builder
+        .menu(app_menu::build)
+        .on_menu_event(app_menu::on_event);
 
     let app = builder
         .plugin(tauri_plugin_dialog::init())
