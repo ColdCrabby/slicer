@@ -656,6 +656,35 @@ export class Slicer {
     );
   }
 
+  /**
+   * Save the plate on screen as a 3MF. The scene engine writes it, so every
+   * runtime exports exactly the placement it would slice.
+   */
+  async exportPlate3mf(): Promise<void> {
+    if (this.sceneEngine.objects().length === 0) {
+      return;
+    }
+    let bytes: Uint8Array;
+    try {
+      bytes = this.sceneEngine.export3mf();
+    } catch (error) {
+      this.notifications.error(
+        'Export failed',
+        error instanceof Error ? error.message : String(error),
+      );
+      return;
+    }
+    const filename = this.workplateNames.threeMfFilenameFor(
+      this.currentRequestUuid(),
+      this.slicerFile.sourceFilename() ?? this.selectedFile()?.name,
+    );
+    await this.fileExport.saveBytes(bytes, filename, {
+      mime: 'model/3mf',
+      filters: [{ name: '3MF', extensions: ['3mf'] }],
+      savedLabel: 'Plate',
+    });
+  }
+
   selectFile(file: File): void {
     // Selecting a file via the standard input path clears any native selection.
     this.pendingNativeMeshInput = null;

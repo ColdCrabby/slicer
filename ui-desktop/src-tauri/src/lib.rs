@@ -7,7 +7,7 @@
 //! the builder here (rather than in `main.rs`) is what makes both possible from
 //! one code path, so a desktop-only change can never silently skip mobile.
 
-/// The macOS menu bar.
+/// The macOS menu bar, whose File menu carries the workplate commands.
 #[cfg(target_os = "macos")]
 mod app_menu;
 mod bridge;
@@ -20,6 +20,9 @@ mod native_dialog;
 /// Models the OS hands us — "Open with Cold Crabby".
 mod open_with;
 mod system_accent;
+/// Centres the macOS traffic lights in the web title bar.
+#[cfg(target_os = "macos")]
+mod traffic_lights;
 
 /// Build and run the Tauri application.
 ///
@@ -38,6 +41,12 @@ pub fn run() {
     let builder = builder.plugin(tauri_plugin_single_instance::init(|app, argv, _cwd| {
         open_with::ingest_args(app, argv, true);
     }));
+
+    // `⌘W` closes a workplate, not the window — see `app_menu`.
+    #[cfg(target_os = "macos")]
+    let builder = builder
+        .menu(app_menu::build)
+        .on_menu_event(app_menu::on_event);
 
     // Reopen where the user left the window. Visibility is deliberately not
     // restored: Windows and Linux create the window hidden until the web UI has
@@ -63,6 +72,12 @@ pub fn run() {
             // decorated window to correct.
             #[cfg(desktop)]
             {
+                // macOS builds its window here rather than from config: the
+                // traffic-light offset has to be measured first (see
+                // traffic_lights.rs).
+                #[cfg(target_os = "macos")]
+                traffic_lights::create_main_window(_app)?;
+
                 // macOS keeps native decorations (`titleBarStyle: Overlay`, so
                 // the traffic lights overlay our custom title bar) and shows the
                 // window from the start — WKWebView paints fast enough that there
@@ -95,9 +110,6 @@ pub fn run() {
                         }
                     });
                 }
-
-                #[cfg(target_os = "macos")]
-                app_menu::install(_app.handle())?;
 
                 // Track live OS accent changes and push them to the UI.
                 system_accent::spawn_watcher(_app.handle().clone());

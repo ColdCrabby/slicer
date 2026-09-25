@@ -1080,6 +1080,12 @@ export class Viewer {
         disabled: !hasObjects,
         action: () => this.arrange.run(),
       },
+      {
+        label: 'Export as 3MF…',
+        icon: 'download',
+        disabled: !hasObjects,
+        action: () => void this.slicer.exportPlate3mf(),
+      },
       { label: '', separator: true },
       {
         label: 'Reset view',

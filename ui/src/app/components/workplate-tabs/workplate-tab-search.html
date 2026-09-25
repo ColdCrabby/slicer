@@ -1,0 +1,67 @@
+<div class="ts">
+  <div class="ts-search">
+    <nexus-icon name="search" />
+    <input
+      #search
+      type="text"
+      placeholder="Search open workplates"
+      role="combobox"
+      aria-label="Search open workplates"
+      aria-controls="ts-list"
+      aria-expanded="true"
+      [attr.aria-activedescendant]="filtered().length ? 'ts-row-' + highlighted() : null"
+      [value]="query()"
+      (input)="onInput($event)"
+      (keydown)="onKeydown($event)"
+      spellcheck="false"
+      autocomplete="off"
+    />
+  </div>
+
+  <div class="ts-heading">Open workplates</div>
+
+  <div id="ts-list" class="ts-list" role="listbox" aria-label="Open workplates">
+    @for (entry of filtered(); track entry.uuid; let i = $index) {
+      <div
+        #row
+        [id]="'ts-row-' + i"
+        class="ts-row"
+        role="option"
+        [class.highlighted]="i === highlighted()"
+        [class.current]="entry.uuid === activeUuid()"
+        [attr.aria-selected]="i === highlighted()"
+        (click)="pick.emit(entry.uuid)"
+        (mousedown)="$event.button === 1 && $event.preventDefault()"
+        (auxclick)="$event.button === 1 && onClose(entry.uuid, $event)"
+        (pointermove)="highlighted.set(i)"
+      >
+        <nexus-icon class="ts-row-icon" name="cube" />
+        <span class="ts-row-text">
+          <span class="ts-row-name">{{ entry.name }}</span>
+          @if (entry.filename) {
+            <span class="ts-row-file">{{ entry.filename }}</span>
+          }
+        </span>
+        <button
+          nexusIconButton
+          size="sm"
+          class="ts-row-close"
+          type="button"
+          tabindex="-1"
+          [attr.aria-label]="'Close ' + entry.name"
+          (click)="onClose(entry.uuid, $event)"
+        >
+          <nexus-icon name="xmark" />
+        </button>
+      </div>
+    } @empty {
+      <p class="ts-empty">
+        @if (entries().length) {
+          No open workplate matches “{{ query().trim() }}”.
+        } @else {
+          No workplates are open.
+        }
+      </p>
+    }
+  </div>
+</div>

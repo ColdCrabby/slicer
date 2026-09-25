@@ -218,6 +218,18 @@ bytes are held per plate, which is how a plate with five files reopens with all
 five.
 :::
 
+## Exporting a plate as 3MF
+
+Right-click (or long-press) the plate's tab, or an empty spot on the bed, and
+choose **Export as 3MF…**. Every model is saved where it sits on the plate, so
+the file reopens with the same layout here or in another slicer.
+
+::: details Advanced — what the file holds
+Geometry and placement only. Slicer settings and painted support are not
+written. Copies made with Duplicate share one set of triangles in the file, so
+twenty copies cost little more than one.
+:::
+
 ## Printing parts one at a time
 
 **Process → Objects → Print order** offers two modes:

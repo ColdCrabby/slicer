@@ -49,12 +49,16 @@ issue/PR numbers or repo links in the notes. See the tone rules in
 
 ### Added
 
+- **Export a plate as 3MF.** Right-click the plate's tab, or an empty spot on
+  the bed, and choose **Export as 3MF…** — every model is saved where it sits,
+  ready to reopen here or in another slicer. The CLI gains `--export-3mf`.
 - **Cancel a running slice** — the Slice button reads Cancel while it works.
 - **Filament weight and cost after a slice**, next to the print time.
 - **A Model | G-code switch** at the top right, with names instead of an icon
   that only appeared after the first slice.
-- **Menu bar on macOS** — File › New Plate, Add Model, Slice, Export G-code, and
-  Help. The desktop window also reopens at the size and place you left it.
+- **More in the macOS menu bar** — File › Add Model, Slice and Export G-code,
+  Settings, and a Help menu. The desktop window also reopens at the size and
+  place you left it.
 - **Keyboard: `⌘/Ctrl + D` duplicates, `⌘/Ctrl + Enter` slices.**
 - **A quiet note while slicing for a generic printer**, with a link to add yours.
 

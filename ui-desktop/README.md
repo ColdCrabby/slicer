@@ -294,15 +294,13 @@ does, with three non-obvious requirements:
 
 ### The macOS menu bar
 
-A Mac app answers from its menu bar, so [`src/app_menu.rs`](src-tauri/src/app_menu.rs)
-replaces Tauri's bare default with one that knows the app: **File › New Plate,
-Add Model…, Slice, Export G-code…**, a **Help** menu, and the predefined Edit,
-View and Window menus (the Edit menu is what makes copy and paste work in text
-fields).
+Beside the workplate commands, [`src/app_menu.rs`](src-tauri/src/app_menu.rs)
+carries what a Mac user looks for in the menu bar: **File › Add Model…, Slice,
+Export G-code…**, **Settings…** in the app menu, and a **Help** menu.
 
-- **The menu owns no behaviour.** Each custom item emits its id on the
-  `app-menu` event; [`AppMenu`](../ui/src/app/services/app-menu.ts) maps it onto
-  the code the in-app buttons already run.
+- **The menu owns no behaviour.** These items emit their name on the `app-menu`
+  event (workplate commands keep their own); [`AppMenu`](../ui/src/app/services/app-menu.ts)
+  maps it onto the code the in-app buttons already run.
 - **No key equivalent for anything the web layer binds.** A menu accelerator and
   a web shortcut on the same keys can both fire, so Slice is in the menu without
   ⌘↵ beside it.

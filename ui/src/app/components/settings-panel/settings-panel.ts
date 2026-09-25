@@ -29,6 +29,7 @@ import { LabelFilterBar } from '../labels/label-filter-bar';
 import { WritebackDialog } from '../writeback-dialog/writeback-dialog';
 import { Dialog } from '../../services/dialog';
 import { Slicer } from '../../services/slicer';
+import { ContextMenuTrigger } from '../../services/context-menu/context-menu-trigger';
 import {
   WORKPLATE_SAVE_DEBOUNCE_MS,
   WorkplateSettingsStore,
@@ -60,7 +61,15 @@ const CONFIRM_TIMEOUT_MS = 4000;
 @Component({
   selector: 'nexus-settings-panel',
   standalone: true,
-  imports: [SchemaForm, Icon, RouterLink, LabelFilterBar, TooltipDirective, InlineNotice],
+  imports: [
+    SchemaForm,
+    Icon,
+    RouterLink,
+    LabelFilterBar,
+    TooltipDirective,
+    ContextMenuTrigger,
+    InlineNotice,
+  ],
   templateUrl: './settings-panel.component.html',
   styleUrl: './settings-panel.component.scss',
 })
@@ -237,6 +246,40 @@ export class SettingsPanel {
     return SETTING_CONTRACTS.find((c) => c.id === contract)?.managePath ?? '/';
   });
 
+  /**
+   * A press on the row's name. On a row that is not yet the active one it
+   * points the settings at it; on the row that already is, there is nothing
+   * left to scope, so it does what the dots beside it do and opens the preset
+   * menu — a second click on the obvious target should not be a dead one.
+   */
+  protected onScopeClick(contract: SettingContractId, event: MouseEvent): void {
+    if (this.activeContract() !== contract || this.presetOptionsFor(contract).length === 0) {
+      this.setContract(contract);
+      return;
+    }
+    this.togglePicker(contract, event);
+  }
+
+  /**
+   * Right-click, or a long-press on touch, anywhere on a row opens its preset
+   * menu — the same one as the dots, and the gesture every other list in the
+   * app answers with a menu. It only ever opens: a secondary press is a request
+   * to see the menu, never to dismiss one.
+   */
+  protected onRowContextMenu(contract: SettingContractId, event: MouseEvent): void {
+    if (this.presetOptionsFor(contract).length === 0 || this.openPicker() === contract) {
+      return;
+    }
+    // `target`, not `currentTarget`: a long-press hands over its pointerdown
+    // after dispatch has finished, when `currentTarget` is already null.
+    const row = (event.target as Element).closest<HTMLElement>('.recipe-row');
+    if (!row) {
+      return;
+    }
+    const trigger = row.querySelector<HTMLElement>('.recipe-swap') ?? row;
+    this.openPickerFor(contract, trigger);
+  }
+
   protected togglePicker(contract: SettingContractId, event: MouseEvent): void {
     if (this.openPicker() === contract) {
       this.closePicker();
@@ -263,7 +306,10 @@ export class SettingsPanel {
         reference: trigger.closest<HTMLElement>('.recipe-row') ?? trigger,
         interactive: true,
         panelClass: 'nexus-floating--fit',
-        originElement: trigger,
+        // The whole row, not just the dots: the name opens this menu too, and a
+        // press on either must reach its own toggle rather than first counting
+        // as "outside" — which closed the menu only for the click to reopen it.
+        originElement: trigger.closest<HTMLElement>('.recipe-row') ?? trigger,
         options: {
           placement: 'bottom-end',
           offset: 4,

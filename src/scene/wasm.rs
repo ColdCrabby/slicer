@@ -475,6 +475,13 @@ impl SceneHandle {
         }
     }
 
+    /// The plate as 3MF bytes — every object, placed where it sits now.
+    /// See [`SceneState::export_3mf`].
+    #[wasm_bindgen(js_name = export3mf)]
+    pub fn export_3mf(&self) -> Result<Vec<u8>, JsValue> {
+        self.inner.export_3mf().map_err(|e| JsValue::from_str(&e))
+    }
+
     /// Full scene snapshot suitable for driving Angular signals.
     #[wasm_bindgen]
     pub fn snapshot(&self) -> Result<JsValue, JsValue> {

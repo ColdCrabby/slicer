@@ -82,6 +82,27 @@ run the same way.
 | Action | Key |
 | --- | --- |
 | Focus settings search | `⌘/Ctrl + F` |
+| Search open workplates | `⌘/Ctrl + Shift + A` |
+
+## Workplates
+
+The same keys as tabs in a browser — in the desktop and iPad apps.
+
+| Action | Desktop and iPad app | Browser |
+| --- | --- | --- |
+| New workplate | `⌘/Ctrl + T` | `Alt + T` |
+| Close workplate | `⌘/Ctrl + W` | `Alt + W` |
+| Close all workplates | `⌘/Ctrl + Shift + W` | `Alt + Shift + W` |
+| Reopen a closed workplate | `⌘/Ctrl + Shift + T` | `Alt + Shift + T` |
+| Next / previous workplate | `Ctrl + Tab` / `Ctrl + Shift + Tab` | `Alt + Shift + →` / `←` |
+| Go to workplate 1–8, or the last | `⌘/Ctrl + 1`…`9` | — |
+
+A browser keeps `Ctrl + W`, `Ctrl + T` and the rest for its own tabs, and no
+page can take them over — so in the browser the same actions sit on `Alt`
+(`⌥` on a Mac). Pressing `Ctrl + W` there anyway asks before the page closes
+while you have workplates open.
+
+On a Mac, the desktop app also lists these under **File** in the menu bar.
 
 ## Mouse
 

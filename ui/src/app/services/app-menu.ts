@@ -4,9 +4,9 @@ import { listen } from '@tauri-apps/api/event';
 import { Logger } from './logger';
 import { Slicer } from './slicer';
 import { ViewerControl } from './viewer-control';
-import { WorkplateSession } from './workplate-session/workplate-session';
 
-/** Event the macOS menu bar emits a chosen item's id on (`app_menu.rs`). */
+/** Event the macOS menu bar emits an app command on (`app_menu.rs`); workplate
+ * commands arrive on their own event. */
 const MENU_EVENT = 'app-menu';
 
 const DOCS_URL = 'https://slicer.maxscopp.de/docs/';
@@ -22,7 +22,6 @@ const DOCS_URL = 'https://slicer.maxscopp.de/docs/';
 export class AppMenu {
   readonly #router = inject(Router);
   readonly #slicer = inject(Slicer);
-  readonly #session = inject(WorkplateSession);
   readonly #viewerControl = inject(ViewerControl);
   readonly #log = inject(Logger).scope('AppMenu');
   #started = false;
@@ -42,9 +41,6 @@ export class AppMenu {
     switch (id) {
       case 'settings':
         void this.#router.navigate(['/settings']);
-        return;
-      case 'new-plate':
-        void this.#session.newPlate();
         return;
       case 'add-model':
         // On a plate, the toolbar's own picker adds to it; anywhere else there

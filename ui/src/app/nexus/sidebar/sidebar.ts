@@ -38,8 +38,10 @@ const HOVER_CLOSE_DELAY_MS = 240;
 // Generous enough that the panel sliding in under a stationary pointer never
 // reads as "the pointer left".
 const HOVER_LEAVE_GRACE_PX = 32;
-// How close to the screen edge a pointer must rest to arm a peek.
-const EDGE_ARM_PX = 14;
+// How close to the screen edge a pointer must rest to arm a peek. Wide enough
+// to hit without aiming; the hover delay and the held-button check are what
+// keep a pass across the scene's left edge from opening it.
+const EDGE_ARM_PX = 32;
 
 @Component({
   selector: 'nexus-sidebar',

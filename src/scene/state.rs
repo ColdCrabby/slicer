@@ -286,6 +286,25 @@ impl SceneState {
         self.objects.iter_mut().find(|o| o.id == id)
     }
 
+    /// The plate as a 3MF archive: every object, placed where it sits now.
+    ///
+    /// Each object's transform is written as its build item's transform rather
+    /// than baked into the vertices, so another slicer opens the plate with the
+    /// same objects in the same places, and duplicates share their geometry.
+    /// Support paint is not written — 3MF has no vendor-neutral form for it.
+    pub fn export_3mf(&self) -> Result<Vec<u8>, String> {
+        let items: Vec<crate::mesh::io::ThreeMfItem<'_>> = self
+            .objects
+            .iter()
+            .map(|o| crate::mesh::io::ThreeMfItem {
+                name: &o.name,
+                mesh: o.mesh.as_ref(),
+                transform: o.transform.to_matrix().as_dmat4(),
+            })
+            .collect();
+        crate::mesh::io::write_3mf(&items).map_err(|e| format!("3MF export failed: {e}"))
+    }
+
     /// Placement problems for every object, in `objects` order.
     ///
     /// A plate with several models is easy to get wrong — one object nudged
@@ -384,6 +403,55 @@ mod tests {
         assert_eq!(copy.transform.translation, [5.0, 6.0, 7.0]);
         // Sharing, not deep-copying, is the whole point of the Arc.
         assert!(Arc::ptr_eq(&orig.mesh, &copy.mesh));
+    }
+
+    fn tetra_mesh() -> Arc<Mesh> {
+        use crate::mesh::types::Face;
+        let p = [
+            Vertex::new(0.0, 0.0, 0.0),
+            Vertex::new(10.0, 0.0, 0.0),
+            Vertex::new(0.0, 20.0, 0.0),
+            Vertex::new(0.0, 0.0, 30.0),
+        ];
+        let mut m = Mesh::new();
+        m.vertices = p.to_vec();
+        m.faces = [[0, 2, 1], [0, 1, 3], [1, 2, 3], [0, 3, 2]]
+            .iter()
+            .map(|&[a, b, c]| Face::new([p[a], p[b], p[c]]))
+            .collect();
+        Arc::new(m)
+    }
+
+    #[test]
+    fn exported_3mf_reopens_as_the_same_plate() {
+        let mut s = SceneState::new(BedConfig::default());
+        let a = s.add_mesh("wedge <a&b>", tetra_mesh());
+        s.get_mut(a).unwrap().transform.translation = [50.0, 60.0, 0.0];
+        let b = s.duplicate(a).unwrap();
+        s.get_mut(b).unwrap().transform =
+            Transform::from_euler_xyz_deg([120.0, 80.0, 5.0], [0.0, 0.0, 37.0], [1.5, 1.5, 1.5]);
+
+        let bytes = s.export_3mf().expect("export");
+        let parts = crate::mesh::io::read_3mf_objects_from_bytes(&bytes).expect("re-import");
+
+        assert_eq!(parts.len(), 2);
+        for (part, object) in parts.iter().zip(&s.objects) {
+            assert_eq!(part.name.as_deref(), Some("wedge <a&b>"));
+            assert_eq!(part.mesh.faces.len(), 4);
+            let (got, want) = (calculate_aabb(&part.mesh), object.world_aabb());
+            for (g, w) in [(got.min, want.min), (got.max, want.max)] {
+                assert!(g.distance_to(&w) < 1e-4, "{g:?} != {w:?}");
+            }
+        }
+
+        // The duplicate shares the original's geometry in the file too.
+        let mut archive = zip::ZipArchive::new(std::io::Cursor::new(&bytes)).unwrap();
+        let mut xml = String::new();
+        std::io::Read::read_to_string(&mut archive.by_name("3D/3dmodel.model").unwrap(), &mut xml)
+            .unwrap();
+        assert_eq!(xml.matches("<object ").count(), 1);
+        assert_eq!(xml.matches("<vertex ").count(), 4);
+        assert_eq!(s.export_3mf().unwrap(), bytes, "export is deterministic");
     }
 
     #[test]

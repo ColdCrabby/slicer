@@ -73,19 +73,33 @@
         <!--
           Two intentions, two targets. Pointing the settings at a row is the
           frequent one, so it gets the whole row; swapping the preset is rarer
-          and gets the caret beside it.
+          and gets the dots beside it. Once a row is active the first intention
+          is spent, so its name opens the same menu as the dots.
 
           They were one control for a while — the row was the picker, and
           scoping meant opening a preset list you then had to dismiss. Switching
           between printer and process settings is something you do constantly,
           and it should not cost a menu every time.
         -->
-        <div class="recipe-row" [class.is-active]="activeContract() === contract.id">
+        <div
+          class="recipe-row"
+          [class.is-active]="activeContract() === contract.id"
+          (nexusContextMenu)="onRowContextMenu(contract.id, $event)"
+        >
           <button
             type="button"
             class="recipe-scope"
             [attr.aria-pressed]="activeContract() === contract.id"
-            (click)="setContract(contract.id)"
+            [attr.aria-haspopup]="
+              activeContract() === contract.id && presetOptionsFor(contract.id).length > 0
+                ? 'menu'
+                : null
+            "
+            [attr.aria-expanded]="
+              activeContract() === contract.id ? openPicker() === contract.id : null
+            "
+            (click)="onScopeClick(contract.id, $event)"
+            (keydown)="openPicker() === contract.id && onPickerKeydown(contract.id, $event)"
           >
             <nexus-icon [name]="contract.icon" aria-hidden="true" />
             <span class="recipe-name">{{ presetNameFor(contract.id) }}</span>
