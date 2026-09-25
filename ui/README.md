@@ -581,6 +581,11 @@ The rules worth knowing before editing it:
   attached first. [`gizmo.spec.ts`](src/app/components/viewer/gizmo.spec.ts) pins
   it, and asserts the three.js behaviour so a future release changing it is
   noticed.
+- **Nothing is text-selectable on a coarse pointer** except what the user types
+  and code ([_reset.scss](src/styles/base/_reset.scss)). A selection started by
+  a long press — or by a mouse drag on an iPad — takes the pointer stream with
+  it, so sliders stop tracking and drag handles let go. Opt a surface back in
+  there rather than per component.
 - **Palm rejection sits above all of it** in
   [`scene/pointer-arbiter.ts`](src/app/components/viewer/scene/pointer-arbiter.ts),
   on the host in the capture phase, so a resting wrist never reaches these
