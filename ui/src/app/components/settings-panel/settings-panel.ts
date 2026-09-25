@@ -29,6 +29,7 @@ import { LabelFilterBar } from '../labels/label-filter-bar';
 import { WritebackDialog } from '../writeback-dialog/writeback-dialog';
 import { Dialog } from '../../services/dialog';
 import { Slicer } from '../../services/slicer';
+import { ContextMenuTrigger } from '../../services/context-menu/context-menu-trigger';
 import {
   WORKPLATE_SAVE_DEBOUNCE_MS,
   WorkplateSettingsStore,
@@ -60,7 +61,7 @@ const CONFIRM_TIMEOUT_MS = 4000;
 @Component({
   selector: 'nexus-settings-panel',
   standalone: true,
-  imports: [SchemaForm, Icon, RouterLink, LabelFilterBar, TooltipDirective],
+  imports: [SchemaForm, Icon, RouterLink, LabelFilterBar, TooltipDirective, ContextMenuTrigger],
   templateUrl: './settings-panel.component.html',
   styleUrl: './settings-panel.component.scss',
 })
@@ -236,6 +237,26 @@ export class SettingsPanel {
       return;
     }
     this.togglePicker(contract, event);
+  }
+
+  /**
+   * Right-click, or a long-press on touch, anywhere on a row opens its preset
+   * menu — the same one as the dots, and the gesture every other list in the
+   * app answers with a menu. It only ever opens: a secondary press is a request
+   * to see the menu, never to dismiss one.
+   */
+  protected onRowContextMenu(contract: SettingContractId, event: MouseEvent): void {
+    if (this.presetOptionsFor(contract).length === 0 || this.openPicker() === contract) {
+      return;
+    }
+    // `target`, not `currentTarget`: a long-press hands over its pointerdown
+    // after dispatch has finished, when `currentTarget` is already null.
+    const row = (event.target as Element).closest<HTMLElement>('.recipe-row');
+    if (!row) {
+      return;
+    }
+    const trigger = row.querySelector<HTMLElement>('.recipe-swap') ?? row;
+    this.openPickerFor(contract, trigger);
   }
 
   protected togglePicker(contract: SettingContractId, event: MouseEvent): void {

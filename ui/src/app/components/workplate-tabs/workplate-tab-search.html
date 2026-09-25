@@ -31,6 +31,8 @@
         [class.current]="entry.uuid === activeUuid()"
         [attr.aria-selected]="i === highlighted()"
         (click)="pick.emit(entry.uuid)"
+        (mousedown)="$event.button === 1 && $event.preventDefault()"
+        (auxclick)="$event.button === 1 && onClose(entry.uuid, $event)"
         (pointermove)="highlighted.set(i)"
       >
         <nexus-icon class="ts-row-icon" name="cube" />

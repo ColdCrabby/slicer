@@ -6,6 +6,8 @@ import {
   Component,
   DestroyRef,
   ElementRef,
+  afterNextRender,
+  afterRenderEffect,
   computed,
   effect,
   inject,
@@ -48,6 +50,9 @@ import { TabSearchEntry, WorkplateTabSearch } from './workplate-tab-search';
   changeDetection: ChangeDetectionStrategy.OnPush,
   host: {
     class: 'nexus-workplate-tabs',
+    // The band above the tabs is titlebar too. Tauri only drags from the
+    // element that carries the attribute, so the tabs themselves stay clickable.
+    'data-tauri-drag-region': '',
     '[hidden]': 'tabs().length === 0 && !isNewPlate()',
   },
 })
@@ -66,6 +71,7 @@ export class WorkplateTabs {
   readonly isNewPlate = this.openWorkplates.isNewPlate;
   /** Whether the tab search list is open. */
   readonly searchOpen = signal(false);
+  protected readonly searchShortcut = this.shortcuts.shortcutFor('search-tabs');
 
   /** Every open tab as the search list shows it — by the name the strip shows. */
   protected readonly searchEntries = computed<TabSearchEntry[]>(() =>
@@ -89,6 +95,7 @@ export class WorkplateTabs {
 
   private readonly editInput = viewChild<ElementRef<HTMLInputElement>>('editInput');
   private readonly tabEls = viewChildren<ElementRef<HTMLElement>>('tabEl');
+  private readonly tablist = viewChild.required<ElementRef<HTMLElement>>('tablist');
 
   /**
    * Width the label occupied when editing began, in px.
@@ -125,10 +132,24 @@ export class WorkplateTabs {
       }
     });
 
+    // Once the strip overflows, the plate on screen can sit scrolled out of
+    // sight — switched to from the search list, a deep link or Home. Bring its
+    // tab back into view whenever it changes, once the strip has rendered it,
+    // and again whenever the strip itself changes width: the titlebar settles
+    // after first render, and a narrower strip can push the tab back out.
+    afterRenderEffect(() => {
+      this.activeUuid();
+      this.tabEls();
+      this.revealActiveTab();
+    });
+    const resize = new ResizeObserver(() => this.revealActiveTab());
+    afterNextRender(() => resize.observe(this.tablist().nativeElement));
+
     // `$mod+Shift+a` reaches the list through the shortcut registry, the same
     // single slot the settings search uses for `$mod+f`.
     this.shortcuts.tabSearchRef = this;
     inject(DestroyRef).onDestroy(() => {
+      resize.disconnect();
       if (this.shortcuts.tabSearchRef === this) {
         this.shortcuts.tabSearchRef = null;
       }
@@ -163,6 +184,48 @@ export class WorkplateTabs {
   pickFromSearch(uuid: string): void {
     this.searchOpen.set(false);
     this.activate(uuid);
+  }
+
+  private revealActiveTab(): void {
+    const uuid = this.activeUuid();
+    this.tabEls()
+      .map((ref) => ref.nativeElement)
+      .find((el) => el.getAttribute('data-uuid') === uuid)
+      ?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+  }
+
+  /**
+   * Middle-click closes a tab, as it does in every browser. The `mousedown`
+   * half stops the middle button's autoscroll from starting on Windows/Linux.
+   */
+  onTabMouseDown(event: MouseEvent): void {
+    if (event.button === 1) {
+      event.preventDefault();
+    }
+  }
+
+  onTabAuxClick(uuid: string, event: MouseEvent): void {
+    if (event.button === 1) {
+      event.preventDefault();
+      void this.closeTab(uuid, event);
+    }
+  }
+
+  /**
+   * A mouse wheel only scrolls vertically, and the strip only scrolls
+   * sideways — so without this an overflowing strip could be scrolled by a
+   * trackpad but not by a mouse. Horizontal input is left to the browser.
+   */
+  onStripWheel(event: WheelEvent): void {
+    const strip = this.tablist().nativeElement;
+    if (
+      strip.scrollWidth <= strip.clientWidth ||
+      Math.abs(event.deltaY) <= Math.abs(event.deltaX)
+    ) {
+      return;
+    }
+    event.preventDefault();
+    strip.scrollLeft += event.deltaY;
   }
 
   /** The stored custom name, if the tab was renamed. */
@@ -361,7 +424,19 @@ export class WorkplateTabs {
         action: () => this.closeOthers(uuid),
         disabled: this.tabs().length <= 1,
       },
+      {
+        label: 'Close Tabs to the Right',
+        action: () => this.openWorkplates.closeToTheRightOf(uuid),
+        disabled: this.tabs().at(-1)?.uuid === uuid,
+      },
       { label: 'Close All Tabs', action: () => void this.closeAll() },
+      { separator: true, label: '' },
+      {
+        label: 'Search Open Plates…',
+        icon: 'search',
+        action: () => this.searchOpen.set(true),
+        disabled: this.tabs().length <= 1,
+      },
     ];
     void this.contextMenu.open(event, items);
   }

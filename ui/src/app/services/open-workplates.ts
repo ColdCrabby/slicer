@@ -141,6 +141,26 @@ export class OpenWorkplates {
     void this.router.navigate(remaining[0] ? ['/slice', remaining[0].uuid] : ['/']);
   }
 
+  /**
+   * Close every tab after `uuid`. If the plate on screen was one of them, the
+   * tab the request came from takes over — it is the one the user is pointing at.
+   */
+  closeToTheRightOf(uuid: string): void {
+    const tabs = this.tabs();
+    const index = tabs.findIndex((tab) => tab.uuid === uuid);
+    if (index === -1) {
+      return;
+    }
+    const remaining = tabs.slice(0, index + 1);
+    this.#persist(remaining);
+
+    const active = this.activeUuid();
+    if (!active || remaining.some((tab) => tab.uuid === active)) {
+      return;
+    }
+    void this.router.navigate(['/slice', uuid]);
+  }
+
   #persist(tabs: readonly OpenWorkplateTab[]): void {
     this.storage.writeJson(STORAGE_KEY, tabs, 'local');
   }

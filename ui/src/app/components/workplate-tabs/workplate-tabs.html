@@ -1,4 +1,11 @@
-<div class="wp-tablist" role="tablist" aria-label="Open workplates">
+<div
+  #tablist
+  class="wp-tablist"
+  data-tauri-drag-region
+  role="tablist"
+  aria-label="Open workplates"
+  (wheel)="onStripWheel($event)"
+>
   @for (tab of tabs(); track tab.uuid; let i = $index) {
     <div
       #tabEl
@@ -10,6 +17,8 @@
       [attr.tabindex]="tab.uuid === activeUuid() ? 0 : -1"
       (click)="activate(tab.uuid)"
       (dblclick)="startEditing(tab.uuid, $event)"
+      (mousedown)="onTabMouseDown($event)"
+      (auxclick)="onTabAuxClick(tab.uuid, $event)"
       (keydown)="onTabKeydown($event, tab.uuid, i)"
       (nexusContextMenu)="onContextMenu($event, tab.uuid)"
     >
@@ -100,6 +109,7 @@
     [attr.aria-expanded]="searchOpen()"
     [class.is-open]="searchOpen()"
     tooltip="Search open plates"
+    [tooltipShortcut]="searchShortcut"
     (click)="toggleSearch()"
   >
     <nexus-icon name="nav-arrow-down" />

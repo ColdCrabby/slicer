@@ -81,7 +81,11 @@
           between printer and process settings is something you do constantly,
           and it should not cost a menu every time.
         -->
-        <div class="recipe-row" [class.is-active]="activeContract() === contract.id">
+        <div
+          class="recipe-row"
+          [class.is-active]="activeContract() === contract.id"
+          (nexusContextMenu)="onRowContextMenu(contract.id, $event)"
+        >
           <button
             type="button"
             class="recipe-scope"

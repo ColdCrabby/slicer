@@ -247,13 +247,18 @@ a link into a plate all open a tab; clicking one switches to that plate.
 - **Start a new plate** with the `+` at the end of the strip. It takes you Home,
   where you can open a model, drop one in, or pick up a recent project — the
   plate you were on keeps its tab and is exactly where you left it.
-- **Close a tab** with its `×`. Closing the plate you're looking at switches you
-  to the next tab over, or Home if it was the last one open. Closing a tab only
+- **Close a tab** with its `×`, or by middle-clicking it. Right-click a tab
+  for **Close Other Tabs**, **Close Tabs to the Right** and **Close All Tabs**.
+  Closing the plate you're looking at switches you to the next tab over, or
+  Home if it was the last one open. Closing a tab only
   removes it from the strip — the plate itself isn't deleted, and you can always
   get back to it from **Home → Recent projects**.
-- **Find an open plate** with the `⌄` beside the `+`, or `⌘/Ctrl + Shift + A`.
+- **Find an open plate** with the `⌄` beside the `+`, `⌘/Ctrl + Shift + A`, or
+  **Search Open Plates** in a tab's right-click menu.
   It lists every open plate; type to narrow it down, use `↑` and `↓` to pick
   one, and `Enter` to switch to it. It appears once you have more than one tab.
+- **More tabs than fit** shrink to share the bar, then scroll: use the mouse
+  wheel over them, and the plate you're on always scrolls back into view.
 
 Switching tabs reloads that plate: its models, where you put them, the profiles
 it was set up with and the settings you changed on it. That takes a moment for a
