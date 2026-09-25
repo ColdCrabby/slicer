@@ -16,6 +16,8 @@
 // Local override: raise the shared tertiary text tone to WCAG AA. MUST come
 // after `theme/light` and `theme/dark` so it wins on order.
 @use './theme/contrast';
+// Local: the floating work surface's gutter and radius.
+@use './theme/shell';
 @use 'theme/tokens' as *;
 
 // Mixins (drop-aurora, focus-ring, …)

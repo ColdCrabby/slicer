@@ -44,7 +44,8 @@ $edge-control-top: calc(var(--main-scene-inset, 48px) + var(--spacing-sm));
 
 // The panel is a fixed-width absolute layer. Because it slides via transform
 // (not host width), its content never reflows while the host width animates or
-// is dragged, and it can travel fully back behind the nav rail when hidden.
+// is dragged, and it can travel fully out past the work surface's left edge
+// when hidden.
 .sidebar-panel {
   position: absolute;
   inset: 0;
@@ -63,8 +64,8 @@ $edge-control-top: calc(var(--main-scene-inset, 48px) + var(--spacing-sm));
     transform $transition-duration $transition-easing,
     visibility 0s linear 0s;
 
-  // Slide fully behind the nav rail (which masks it via a higher z-index) so
-  // the reveal always originates at the rail edge, never from mid-panel.
+  // Slide fully past the work surface's left edge, which clips it (shell.scss),
+  // so the reveal always originates at that edge, never from mid-panel.
   :host.is-collapsed:not(.is-expanded) & {
     transform: translateX(-100%);
     visibility: hidden;
