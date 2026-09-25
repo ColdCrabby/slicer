@@ -515,6 +515,14 @@ pub(super) fn compute_wall_bead_footprint_filtered(
     // Inflate each bucket as a single batch, then union the (small) set of
     // bucket results.  For typical Benchy-class geometry this is one or two
     // inflate calls and zero or one union call — vs hundreds of each before.
+    // Sorted, not in hash order: the accumulator below is a *chain* of Clipper
+    // unions, and Clipper's integer grid makes that chain sensitive to the order
+    // it runs in. `HashMap`'s iteration order is seeded per process, so leaving
+    // it unsorted made the same model trim its surfaces differently from one run
+    // to the next — and the walls that trim produces differ with it.
+    let mut buckets: Vec<((bool, i32), Vec<clipper2::Path>)> = buckets.into_iter().collect();
+    buckets.sort_unstable_by_key(|&((is_open, radius_key), _)| (is_open, radius_key));
+
     let mut acc: Paths = Paths::new(vec![]);
     for ((is_open, radius_key), paths_vec) in buckets {
         let radius = (radius_key as f64) / 1000.0;
