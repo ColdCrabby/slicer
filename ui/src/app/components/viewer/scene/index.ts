@@ -512,6 +512,22 @@ export class ViewerScene {
     this._camera.fitToContent(padding);
   }
 
+  /**
+   * Zoom to these objects — or to everything on the plate when `ids` is empty —
+   * from the angle the camera already has. Does nothing when none are found.
+   */
+  frameObjects(ids: readonly string[]): void {
+    const box = new Box3();
+    const targets = ids.length > 0 ? ids : this._selection.allIds();
+    for (const id of targets) {
+      const object = this._selection.getSelectableObject(id);
+      if (object) {
+        box.expandByObject(object);
+      }
+    }
+    this._camera.frameBox(box);
+  }
+
   setView(view: ViewerView): void {
     this._camera.setView(view);
   }
@@ -739,15 +755,6 @@ export class ViewerScene {
    */
   setAdditiveSelection(on: boolean): void {
     this._selection.setAdditiveSelection(on);
-  }
-
-  /**
-   * Allow dragging an already-selected object to slide the whole selection
-   * across the bed. Meant for touch and pen, where the gizmo's thin arrows are
-   * a poor target for a fingertip.
-   */
-  setDirectDragEnabled(on: boolean): void {
-    this._selection.setDirectDragEnabled(on);
   }
 
   /** macOS bare-two-finger-swipe action (orbit or pan). */

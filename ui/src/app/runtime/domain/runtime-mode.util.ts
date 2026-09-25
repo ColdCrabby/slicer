@@ -58,6 +58,23 @@ export function isTauriMobile(): boolean {
 }
 
 /**
+ * True on macOS, iPadOS and iOS, in any runtime.
+ *
+ * Answers "which keyboard conventions apply", not "is this a desktop": an iPad
+ * with a Magic Keyboard follows the Mac's — ⌘ is the command key and ⌃-click is
+ * the secondary click — so the iPad is deliberately included here.
+ */
+export function isApplePlatform(): boolean {
+  const nav = (globalThis as unknown as { navigator?: Navigator }).navigator;
+  if (!nav) {
+    return false;
+  }
+  const uaData = nav as Navigator & { userAgentData?: { platform?: string } };
+  const platform = `${uaData.userAgentData?.platform ?? ''} ${nav.platform ?? ''}`;
+  return /mac|iphone|ipad|ipod/i.test(platform) || /ipad|iphone/i.test(nav.userAgent ?? '');
+}
+
+/**
  * True only for a Tauri host that has desktop OS chrome — a real window and the
  * native menu API.
  *

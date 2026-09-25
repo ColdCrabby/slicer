@@ -18,7 +18,7 @@ Adding never clears what's already there. Only **Empty Workplate** does that.
 
 Each new model is placed clear of the ones already on the bed, using the same
 spacing rules as **Place objects**, so a plate never opens with parts sitting
-inside each other.
+inside each other. It arrives selected, ready to drag or turn.
 
 ::: details Advanced — multi-part 3MF
 A 3MF is a scene, not a model. Cold Crabby expands one into **one object per
@@ -96,7 +96,7 @@ exact numbers into the card that appears underneath.
 | Tool | Key | Card gives you |
 | --- | --- | --- |
 | Select & move | `M` | X / Y position in mm, **Centre on bed**, **Drop to floor** |
-| Rotate | `R` | X / Y / Z in degrees, **Reset rotation** |
+| Rotate | `R` | X / Y / Z in degrees, a **90°** quarter turn per axis, **Reset rotation** |
 | Scale | `S` | Per-axis or linked, as % or as a target size in mm, **Reset scale** |
 | Pull to floor | `F` | Click any face to make it the bottom |
 
@@ -109,17 +109,30 @@ default — a part left floating is not printable — and whichever way you set 
 is remembered for next time. Turn it off if you deliberately want something
 floating, for example when you're checking a support-free overhang.
 
-On a touch screen you can skip the handles for a simple reposition: tap a model
-to select it, then drag it straight across the bed. Dragging anywhere else
-orbits, so nothing moves unless you picked it first.
+You don't need the handles for a simple reposition. With a mouse, just drag a
+model across the bed — pressing one you haven't selected picks it up as you go.
+Dragging empty bed still turns the view. On a touch screen, tap a model first,
+then drag it: a finger crossing the plate to turn the view lands on models all
+the time, so nothing moves unless you picked it first.
+
+For the last millimetre, the arrow keys nudge the selection 1 mm (`Shift` for
+10, `Alt`/`⌥` for 0.1). To lay a part on its side, the **90°** buttons on the
+Rotate card turn it a quarter turn at a time.
+
+`Z` zooms to the selection — or to everything when nothing is selected — and
+double-clicking a model does the same for that one.
 
 ### Editing several objects at once
 
-Hold `Ctrl`/`⌘` or `Shift` and click to add models to the selection, or use
-`Ctrl`/`⌘ + A` for all of them. Without a keyboard, press and hold a model and
-choose **Add to selection** (or **Remove from selection**) — that also turns on
-**Multi-select** in the tool cluster, so every tap after it adds or removes one
-until you turn it off.
+`⌘`-click (on a Mac) or `Ctrl`-click (elsewhere) adds or removes a model;
+`Shift`-click does too. `⌘/Ctrl + A` takes all of them. To gather a group in one
+go, `Shift`-drag a box across them — anything the box touches is added — and
+`Alt`/`⌥`-drag a box to take some back out.
+
+Without a keyboard, press and hold a model and choose **Add to selection** (or
+**Remove from selection**) — that also turns on **Multi-select** in the tool
+cluster, so every tap after it adds or removes one until you turn it off. With
+it on, the pencil can drag a selection box too.
 
 Select more than one and the card keeps working:
 
@@ -190,7 +203,9 @@ to the model for you.
 - **Erase** — take painted marks back off.
 
 Paint with a drag; the view stays still while you do, so a stroke can follow a
-curve. Dragging from empty bed still turns the model, which is how you reach the
+curve. A pen with an eraser end (Surface Pen, Wacom) erases when you turn it
+over, whichever mode the brush is in. Press `B` again, or `Esc`, to put the brush
+down. Dragging from empty bed still turns the model, which is how you reach the
 other side without leaving the brush.
 
 **Size the brush by scrolling** over the model — the ring under the pointer is
@@ -208,13 +223,17 @@ support. Blockers apply either way.
 ## Duplicating and deleting
 
 Right-click a model — or press and hold it on a touch screen — for **Duplicate**,
-**Drop to floor**, **Centre on bed** and **Remove**, right where the model is. If
-you have several selected, the menu acts on all of them.
+**Drop to floor**, **Centre on bed**, **Zoom to** and **Remove**, right where the
+model is. If you have several selected, the menu acts on all of them — the same
+menu whether you open it on the model or on its row in the objects panel.
+
+**Duplicate** lays the copies beside the originals as a group and selects them,
+so they're ready to drag; `⌘/Ctrl + D` again stamps another row. **Centre on
+bed** moves a selection as one piece, keeping how the parts sit relative to each
+other.
 
 The objects panel has the same **Duplicate** and **Remove** as buttons on each
-row — there, Remove asks once before it takes effect — and right-clicking (or
-pressing and holding) a row gives you the full menu, **Drop to floor** and
-**Centre on bed** included, without hunting for the model on the plate.
+row — there, Remove asks once before it takes effect.
 
 Duplicates are cheap — they share the original's geometry.
 

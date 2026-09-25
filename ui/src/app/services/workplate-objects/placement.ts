@@ -53,3 +53,22 @@ export function footprintOf(box: WorldBox): [number, number] {
   const [min, max] = box;
   return [max[0] - min[0], max[1] - min[1]];
 }
+
+/** The box enclosing every one of `objects`. `objects` must not be empty. */
+export function unionAabb(objects: readonly { world_aabb: WorldBox }[]): WorldBox {
+  const min: [number, number, number] = [Infinity, Infinity, Infinity];
+  const max: [number, number, number] = [-Infinity, -Infinity, -Infinity];
+  for (const { world_aabb: box } of objects) {
+    for (let axis = 0; axis < 3; axis++) {
+      min[axis] = Math.min(min[axis], box[0][axis]);
+      max[axis] = Math.max(max[axis], box[1][axis]);
+    }
+  }
+  return [min, max];
+}
+
+/** Centre of a box's footprint. */
+export function centreXY(box: WorldBox): [number, number] {
+  const [min, max] = box;
+  return [(min[0] + max[0]) / 2, (min[1] + max[1]) / 2];
+}

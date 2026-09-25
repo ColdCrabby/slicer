@@ -48,6 +48,7 @@
             role="button"
             [attr.aria-pressed]="row.selected"
             (click)="select(row, $event)"
+            (dblclick)="zoomTo(row)"
             (keydown.enter)="select(row, $event)"
             (nexusContextMenu)="onContextMenu($event, row)"
           >

@@ -141,6 +141,15 @@ $axis-z: #3498db;
   }
 }
 
+// The quarter-turn button sits at the end of each rotation row. A label, not a
+// glyph: "90°" says exactly what it does, where a curved arrow would not.
+.tp-turn {
+  width: auto;
+  padding: 0 var(--spacing-xs);
+  font-size: var(--font-size-xs);
+  font-variant-numeric: tabular-nums;
+}
+
 .tp-axis {
   flex: 0 0 auto;
   display: inline-grid;

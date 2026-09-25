@@ -3,6 +3,7 @@ import { KeyboardShortcuts } from '../../services/keyboard-shortcuts/keyboard-sh
 import { SceneCommand } from '../../services/scene-command/scene-command';
 import { SceneEngine, type SceneObjectSnapshot } from '../../services/scene-engine';
 import { ViewerControl } from '../../services/viewer-control';
+import { WorkplateObjects } from '../../services/workplate-objects';
 import { Icon, TooltipDirective, NumberInput, Segmented, type SegmentOption } from '@coldcrabby/ui';
 
 /** Which numeric readout the scale mode edits. */
@@ -92,6 +93,7 @@ export class TransformPanel {
   private readonly viewerControl = inject(ViewerControl);
   private readonly sceneEngine = inject(SceneEngine);
   private readonly sceneCommand = inject(SceneCommand);
+  private readonly workplate = inject(WorkplateObjects);
 
   protected readonly axes = AXES;
   protected readonly axisLabels = AXIS_LABELS;
@@ -256,18 +258,17 @@ export class TransformPanel {
     }
   }
 
-  /** Centre the selection on the bed (X/Y), keeping Z. */
+  /**
+   * Centre the selection on the bed (X/Y), keeping Z — as a group, so a batch
+   * keeps its layout instead of every part landing on the same spot.
+   */
   protected centerOnBed(): void {
-    for (const o of this.selection()) {
-      this.sceneCommand.apply({ op: 'CenterOnBed', args: { id: o.id } });
-    }
+    this.workplate.centerOnBed(this.selection().map((o) => o.id));
   }
 
   /** Drop the selection so its lowest point rests on the bed. */
   protected dropToFloor(): void {
-    for (const o of this.selection()) {
-      this.sceneCommand.apply({ op: 'DropToFloor', args: { id: o.id } });
-    }
+    this.workplate.dropToFloor(this.selection().map((o) => o.id));
   }
 
   // ---------------------------------------------------------------------------
@@ -280,6 +281,25 @@ export class TransformPanel {
       euler[axis] = value;
       this.commitTransform(o, { euler });
     }
+  }
+
+  /**
+   * A quarter turn about one world axis, each part about its own centre.
+   *
+   * Laying a part on its side is the rotation people make most, and typing 90
+   * into a field that already reads 37.5 is not how anyone thinks about it. The
+   * turn is relative, so pressing it again keeps turning.
+   */
+  protected quarterTurn(axis: Axis): void {
+    const unit: [number, number, number] = [0, 0, 0];
+    unit[axis] = 1;
+    for (const o of this.selection()) {
+      this.sceneCommand.apply({ op: 'Rotate', args: { id: o.id, axis: unit, degrees: 90 } });
+      if (this.viewerControl.gravityEnabled()) {
+        this.sceneCommand.apply({ op: 'DropToFloor', args: { id: o.id } });
+      }
+    }
+    this.sceneCommand.flush();
   }
 
   /** Reset all rotation to zero. */
