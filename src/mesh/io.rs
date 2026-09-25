@@ -1,4 +1,5 @@
-//! Mesh file reading: STL (binary and ASCII), OBJ (Wavefront), and 3MF.
+//! Mesh file reading: STL (binary and ASCII), OBJ (Wavefront), and 3MF — plus
+//! 3MF writing, for exporting a plate.
 //!
 //! The `stl_io` crate handles STL formats transparently.
 //! The `tobj` crate handles OBJ files.
@@ -763,6 +764,130 @@ fn handle_3mf_leaf(
     }
     Ok(())
 }
+
+/// One placed object in a 3MF written by [`write_3mf`].
+pub struct ThreeMfItem<'a> {
+    /// Name written on the `<object>` — what another slicer shows in its list.
+    pub name: &'a str,
+    /// Geometry in the object's own local frame, in millimeters.
+    pub mesh: &'a Mesh,
+    /// Local → world placement, written as the build item's `transform`.
+    pub transform: glam::DMat4,
+}
+
+/// Write a 3MF archive holding one build item per [`ThreeMfItem`].
+///
+/// Geometry is kept in each object's local frame and placed by the build
+/// item's `transform`, so the file opens in any slicer as the plate it was:
+/// same objects, same positions. Items that share one `Mesh` (duplicates of a
+/// model) share one `<object>` resource, so N copies store the triangles once.
+///
+/// Faces are welded back into an indexed mesh on exact vertex positions, in
+/// first-seen order, so the same plate always writes the same bytes.
+///
+/// # Errors
+/// Returns an error if the ZIP archive cannot be written.
+pub fn write_3mf(items: &[ThreeMfItem<'_>]) -> Result<Vec<u8>, Box<dyn std::error::Error>> {
+    use std::fmt::Write as _;
+    use std::io::Write as _;
+
+    // Resource id per distinct mesh, keyed on its address: duplicates share an
+    // `Arc<Mesh>`, and nothing else is cheap enough to compare meshes by.
+    let mut resource_of: Vec<(*const Mesh, usize)> = Vec::new();
+    let mut resources = String::new();
+    let mut build = String::new();
+
+    for item in items {
+        let key = item.mesh as *const Mesh;
+        let id = match resource_of.iter().find(|(k, _)| *k == key) {
+            Some(&(_, id)) => id,
+            None => {
+                let id = resource_of.len() + 1;
+                resource_of.push((key, id));
+                write_3mf_object(&mut resources, id, item.name, item.mesh);
+                id
+            }
+        };
+        let m = item.transform;
+        let _ = writeln!(
+            build,
+            "    <item objectid=\"{id}\" transform=\"{} {} {} {} {} {} {} {} {} {} {} {}\" printable=\"1\"/>",
+            m.x_axis.x, m.x_axis.y, m.x_axis.z,
+            m.y_axis.x, m.y_axis.y, m.y_axis.z,
+            m.z_axis.x, m.z_axis.y, m.z_axis.z,
+            m.w_axis.x, m.w_axis.y, m.w_axis.z,
+        );
+    }
+
+    let model = format!(
+        "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n\
+         <model unit=\"millimeter\" xml:lang=\"en-US\" \
+         xmlns=\"http://schemas.microsoft.com/3dmanufacturing/core/2015/02\">\n  \
+         <metadata name=\"Application\">Cold Crabby {}</metadata>\n  \
+         <resources>\n{resources}  </resources>\n  <build>\n{build}  </build>\n</model>\n",
+        crate::version::VERSION,
+    );
+
+    let mut zip = zip::ZipWriter::new(Cursor::new(Vec::new()));
+    let options = zip::write::SimpleFileOptions::default()
+        .compression_method(zip::CompressionMethod::Deflated);
+    for (name, body) in [
+        ("[Content_Types].xml", THREE_MF_CONTENT_TYPES),
+        ("_rels/.rels", THREE_MF_RELS),
+        ("3D/3dmodel.model", model.as_str()),
+    ] {
+        zip.start_file(name, options)?;
+        zip.write_all(body.as_bytes())?;
+    }
+    Ok(zip.finish()?.into_inner())
+}
+
+/// Append one `<object>` resource: the mesh re-indexed from its inline faces.
+fn write_3mf_object(out: &mut String, id: usize, name: &str, mesh: &Mesh) {
+    use std::collections::HashMap;
+    use std::fmt::Write as _;
+
+    let mut index: HashMap<[u64; 3], usize> = HashMap::new();
+    let mut vertices = String::new();
+    let mut triangles = String::new();
+    for face in &mesh.faces {
+        let [a, b, c] = face.vertices.each_ref().map(|v| {
+            let key = [v.x.to_bits(), v.y.to_bits(), v.z.to_bits()];
+            let next = index.len();
+            *index.entry(key).or_insert_with(|| {
+                let _ = writeln!(
+                    vertices,
+                    "          <vertex x=\"{}\" y=\"{}\" z=\"{}\"/>",
+                    v.x, v.y, v.z
+                );
+                next
+            })
+        });
+        let _ = writeln!(
+            triangles,
+            "          <triangle v1=\"{a}\" v2=\"{b}\" v3=\"{c}\"/>"
+        );
+    }
+    let _ = write!(
+        out,
+        "    <object id=\"{id}\" type=\"model\" name=\"{}\">\n      <mesh>\n        \
+         <vertices>\n{vertices}        </vertices>\n        \
+         <triangles>\n{triangles}        </triangles>\n      </mesh>\n    </object>\n",
+        quick_xml::escape::escape(name),
+    );
+}
+
+const THREE_MF_CONTENT_TYPES: &str = "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n\
+<Types xmlns=\"http://schemas.openxmlformats.org/package/2006/content-types\">\n  \
+<Default Extension=\"rels\" ContentType=\"application/vnd.openxmlformats-package.relationships+xml\"/>\n  \
+<Default Extension=\"model\" ContentType=\"application/vnd.ms-package.3dmanufacturing-3dmodel+xml\"/>\n\
+</Types>\n";
+
+const THREE_MF_RELS: &str = "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n\
+<Relationships xmlns=\"http://schemas.openxmlformats.org/package/2006/relationships\">\n  \
+<Relationship Target=\"/3D/3dmodel.model\" Id=\"rel0\" \
+Type=\"http://schemas.microsoft.com/3dmanufacturing/2013/01/3dmodel\"/>\n\
+</Relationships>\n";
 
 /// Load a mesh from a file, automatically detecting the format from the file
 /// extension.
