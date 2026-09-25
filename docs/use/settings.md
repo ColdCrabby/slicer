@@ -32,7 +32,8 @@ the search — you never lose sight of which preset you are editing.
 There is no tab to press. Click a row and the settings below are that row's; the
 three dots beside it change which preset the row is using. Pointing the settings
 somewhere is what you do most, so it takes the whole row, and the dots sit beside
-it without ever getting in the way of it.
+it without ever getting in the way of it. Clicking a row that is already selected
+opens the same menu as its dots.
 
 In that menu, every preset carries a **pen** on the right that opens *that*
 preset's own editor — not just the one in use. Editing takes you off the plate

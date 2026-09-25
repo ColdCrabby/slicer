@@ -224,6 +224,20 @@ export class SettingsPanel {
     return SETTING_CONTRACTS.find((c) => c.id === contract)?.managePath ?? '/';
   });
 
+  /**
+   * A press on the row's name. On a row that is not yet the active one it
+   * points the settings at it; on the row that already is, there is nothing
+   * left to scope, so it does what the dots beside it do and opens the preset
+   * menu — a second click on the obvious target should not be a dead one.
+   */
+  protected onScopeClick(contract: SettingContractId, event: MouseEvent): void {
+    if (this.activeContract() !== contract || this.presetOptionsFor(contract).length === 0) {
+      this.setContract(contract);
+      return;
+    }
+    this.togglePicker(contract, event);
+  }
+
   protected togglePicker(contract: SettingContractId, event: MouseEvent): void {
     if (this.openPicker() === contract) {
       this.closePicker();
@@ -250,7 +264,10 @@ export class SettingsPanel {
         reference: trigger.closest<HTMLElement>('.recipe-row') ?? trigger,
         interactive: true,
         panelClass: 'nexus-floating--fit',
-        originElement: trigger,
+        // The whole row, not just the dots: the name opens this menu too, and a
+        // press on either must reach its own toggle rather than first counting
+        // as "outside" — which closed the menu only for the click to reopen it.
+        originElement: trigger.closest<HTMLElement>('.recipe-row') ?? trigger,
         options: {
           placement: 'bottom-end',
           offset: 4,
