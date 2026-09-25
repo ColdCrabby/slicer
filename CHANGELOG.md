@@ -27,6 +27,14 @@ issue/PR numbers or repo links in the notes. See the tone rules in
 
 ## [Unreleased]
 
+### Fixed
+
+- **The same model now slices to the same G-code.** Simplifying a region before
+  Arachne's medial fill could leave two of its edges crossing, and the Voronoi
+  diagram of crossing edges is undefined — so two runs of one file could print
+  different walls there. Regions are now made clean again after simplifying, and
+  the surface trim no longer depends on hash order. Classic was never affected.
+
 ### Added
 
 - **Inner walls have their own speed** — the hidden walls behind the surface no
