@@ -1,8 +1,12 @@
+import { CdkConnectedOverlay, CdkOverlayOrigin } from '@angular/cdk/overlay';
+import type { ConnectedPosition } from '@angular/cdk/overlay';
 import {
   ChangeDetectionStrategy,
   ChangeDetectorRef,
   Component,
+  DestroyRef,
   ElementRef,
+  computed,
   effect,
   inject,
   signal,
@@ -15,18 +19,30 @@ import { Slicer } from '../../services/slicer';
 import { WorkplateSession } from '../../services/workplate-session';
 import { WorkplateNames } from '../../services/workplate-names';
 import { ContextMenuService } from '../../services/context-menu/context-menu.service';
+import { KeyboardShortcuts } from '../../services/keyboard-shortcuts/keyboard-shortcuts';
 import { ContextMenuTrigger } from '../../services/context-menu/context-menu-trigger';
 import type { ContextMenuItem } from '../../services/context-menu/context-menu.model';
 import { Icon, IconButton, TooltipDirective } from '@coldcrabby/ui';
+import { TabSearchEntry, WorkplateTabSearch } from './workplate-tab-search';
 
 /**
  * Open-workplate tab strip shown in the titlebar, replacing the single
  * editable plate-name field. Each tab is an independently renamed, switchable
- * workplate (see {@link OpenWorkplates}); the `+` opens a fresh one.
+ * workplate (see {@link OpenWorkplates}); the `+` opens a fresh one, and the
+ * chevron beside it lists every open plate with a search box, for when there
+ * are more than the strip can show.
  */
 @Component({
   selector: 'nexus-workplate-tabs',
-  imports: [Icon, IconButton, TooltipDirective, ContextMenuTrigger],
+  imports: [
+    Icon,
+    IconButton,
+    TooltipDirective,
+    ContextMenuTrigger,
+    CdkOverlayOrigin,
+    CdkConnectedOverlay,
+    WorkplateTabSearch,
+  ],
   templateUrl: './workplate-tabs.html',
   styleUrl: './workplate-tabs.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -43,10 +59,31 @@ export class WorkplateTabs {
   private readonly session = inject(WorkplateSession);
   private readonly contextMenu = inject(ContextMenuService);
   private readonly cdr = inject(ChangeDetectorRef);
+  private readonly shortcuts = inject(KeyboardShortcuts);
 
   readonly tabs = this.openWorkplates.tabs;
   readonly activeUuid = this.openWorkplates.activeUuid;
   readonly isNewPlate = this.openWorkplates.isNewPlate;
+  /** Whether the tab search list is open. */
+  readonly searchOpen = signal(false);
+
+  /** Every open tab as the search list shows it — by the name the strip shows. */
+  protected readonly searchEntries = computed<TabSearchEntry[]>(() =>
+    this.tabs().map((tab) => {
+      const name = this.nameFor(tab) || this.placeholderFor(tab);
+      // The derived name *is* the filename's stem; repeating it under itself
+      // says nothing. It earns the second line once the plate is renamed.
+      const stem = tab.filename?.replace(/\.[^.]+$/, '');
+      return { uuid: tab.uuid, name, filename: stem === name ? null : tab.filename };
+    }),
+  );
+
+  /** Drop below the chevron, right-aligned to it, or above it if there is no room. */
+  protected readonly searchPositions: ConnectedPosition[] = [
+    { originX: 'end', originY: 'bottom', overlayX: 'end', overlayY: 'top', offsetY: 4 },
+    { originX: 'start', originY: 'bottom', overlayX: 'start', overlayY: 'top', offsetY: 4 },
+  ];
+
   /** UUID of the tab whose name is currently being edited, if any. */
   readonly editingUuid = signal<string | null>(null);
 
@@ -87,6 +124,45 @@ export class WorkplateTabs {
         this.focusEditor();
       }
     });
+
+    // `$mod+Shift+a` reaches the list through the shortcut registry, the same
+    // single slot the settings search uses for `$mod+f`.
+    this.shortcuts.tabSearchRef = this;
+    inject(DestroyRef).onDestroy(() => {
+      if (this.shortcuts.tabSearchRef === this) {
+        this.shortcuts.tabSearchRef = null;
+      }
+    });
+  }
+
+  /** Open the tab search list, or close it if it is already open. */
+  toggleSearch(): void {
+    if (this.tabs().length === 0) {
+      return;
+    }
+    this.searchOpen.update((open) => !open);
+  }
+
+  /**
+   * A click anywhere but the list closes it — except on the chevron, whose own
+   * click toggles it. Closing here too would have that click reopen the list.
+   */
+  onSearchOutsideClick(event: MouseEvent, trigger: CdkOverlayOrigin): void {
+    if (!trigger.elementRef.nativeElement.contains(event.target as Node)) {
+      this.searchOpen.set(false);
+    }
+  }
+
+  /** Close the list from the keyboard, handing focus back to the chevron. */
+  dismissSearch(trigger: CdkOverlayOrigin): void {
+    this.searchOpen.set(false);
+    (trigger.elementRef.nativeElement as HTMLElement).focus();
+  }
+
+  /** Switch to the plate picked in the search list. */
+  pickFromSearch(uuid: string): void {
+    this.searchOpen.set(false);
+    this.activate(uuid);
   }
 
   /** The stored custom name, if the tab was renamed. */

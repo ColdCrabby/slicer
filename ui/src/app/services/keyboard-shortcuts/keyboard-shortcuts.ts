@@ -225,6 +225,13 @@ export class KeyboardShortcuts {
       canMatch: () => this.settingsSearchRef !== null,
       handleAction: () => this.settingsSearchRef!.focusSearch(),
     },
+    {
+      actionId: 'search-tabs',
+      shortcut: '$mod+Shift+a',
+      displayDescription: 'Search open plates',
+      canMatch: () => this.tabSearchRef !== null,
+      handleAction: () => this.tabSearchRef!.toggleSearch(),
+    },
   ].map((s) => ({ ...s, _parsed: parseKeybinding(s.shortcut) }));
 
   /**
@@ -236,6 +243,9 @@ export class KeyboardShortcuts {
    * serves both and `$mod+f` means the same thing wherever the user is.
    */
   settingsSearchRef: { focusSearch(): void } | null = null;
+
+  /** The titlebar's tab strip, whose search list `$mod+Shift+a` opens. */
+  tabSearchRef: { toggleSearch(): void } | null = null;
 
   constructor() {
     fromEvent<KeyboardEvent>(document, 'keydown')

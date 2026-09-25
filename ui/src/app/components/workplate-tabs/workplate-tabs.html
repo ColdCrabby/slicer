@@ -82,3 +82,44 @@
 >
   <nexus-icon name="plus" />
 </button>
+
+<!--
+  Only once there is something to search: with a single tab the strip already
+  shows every plate there is.
+-->
+@if (tabs().length > 1 || searchOpen()) {
+  <button
+    nexusIconButton
+    size="sm"
+    class="wp-tab-search"
+    type="button"
+    cdkOverlayOrigin
+    #searchTrigger="cdkOverlayOrigin"
+    aria-label="Search open plates"
+    aria-haspopup="listbox"
+    [attr.aria-expanded]="searchOpen()"
+    [class.is-open]="searchOpen()"
+    tooltip="Search open plates"
+    (click)="toggleSearch()"
+  >
+    <nexus-icon name="nav-arrow-down" />
+  </button>
+
+  <ng-template
+    cdkConnectedOverlay
+    [cdkConnectedOverlayOrigin]="searchTrigger"
+    [cdkConnectedOverlayOpen]="searchOpen()"
+    [cdkConnectedOverlayPositions]="searchPositions"
+    [cdkConnectedOverlayViewportMargin]="8"
+    (overlayOutsideClick)="onSearchOutsideClick($event, searchTrigger)"
+    (detach)="searchOpen.set(false)"
+  >
+    <nexus-workplate-tab-search
+      [entries]="searchEntries()"
+      [activeUuid]="activeUuid()"
+      (pick)="pickFromSearch($event)"
+      (closeTab)="closeTab($event)"
+      (dismiss)="dismissSearch(searchTrigger)"
+    />
+  </ng-template>
+}

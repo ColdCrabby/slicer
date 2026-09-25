@@ -251,6 +251,9 @@ a link into a plate all open a tab; clicking one switches to that plate.
   to the next tab over, or Home if it was the last one open. Closing a tab only
   removes it from the strip — the plate itself isn't deleted, and you can always
   get back to it from **Home → Recent projects**.
+- **Find an open plate** with the `⌄` beside the `+`, or `⌘/Ctrl + Shift + A`.
+  It lists every open plate; type to narrow it down, use `↑` and `↓` to pick
+  one, and `Enter` to switch to it. It appears once you have more than one tab.
 
 Switching tabs reloads that plate: its models, where you put them, the profiles
 it was set up with and the settings you changed on it. That takes a moment for a
