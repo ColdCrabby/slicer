@@ -333,10 +333,18 @@ struct Raw3mfBuildItem {
 }
 
 /// Read a named attribute's value as an owned string, if present.
+///
+/// Entities are unescaped, so an object named `A &amp; B` in the file reads
+/// as `A & B` — which is also what [`write_3mf`] escapes back.
 fn attr_str(e: &quick_xml::events::BytesStart, name: &str) -> Option<String> {
     e.attributes()
         .flatten()
-        .find_map(|a| (a.key.local_name().as_ref() == name).then(|| a.value.as_ref().to_owned()))
+        .find(|a| a.key.local_name().as_ref() == name)
+        .and_then(|a| {
+            a.normalized_value(quick_xml::XmlVersion::Implicit1_0)
+                .ok()
+                .map(|v| v.into_owned())
+        })
 }
 
 /// Parse a 3MF `transform` attribute (12 row-major floats:
