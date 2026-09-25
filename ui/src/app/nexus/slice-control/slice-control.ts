@@ -13,6 +13,7 @@ import { AutoSlice } from '../../services/auto-slice';
 import { BrowserStorage } from '../../services/browser-storage';
 import { GcodePreview } from '../../services/gcode-preview';
 import { PrinterConnectionService } from '../../services/printer-connection';
+import { Dialog } from '../../services/dialog';
 import { ActiveSelection } from '../../services/profiles/active-selection';
 import { Slicer } from '../../services/slicer';
 import { FloatingService, type FloatingRef, Icon, TooltipDirective } from '@coldcrabby/ui';
@@ -38,6 +39,7 @@ export class SliceControl {
   private readonly storage = inject(BrowserStorage);
   protected readonly autoSlice = inject(AutoSlice);
   private readonly floating = inject(FloatingService);
+  private readonly dialog = inject(Dialog);
 
   /** Busy = a job is in flight (upload or slice). */
   protected readonly isActive = computed(() => {
@@ -80,7 +82,7 @@ export class SliceControl {
   protected readonly ctaLabel = computed(() => {
     const s = this.slicer.status();
     if (s === 'uploading') return 'Uploading';
-    if (s === 'slicing') return 'Slicing';
+    if (s === 'slicing') return 'Cancel';
     return this.isDone() ? 'Re-Slice' : 'Slice';
   });
 
@@ -88,7 +90,8 @@ export class SliceControl {
   protected readonly isQueued = computed(() => this.autoSlice.pending() && this.isStale());
 
   protected readonly ctaTooltip = computed(() => {
-    if (this.isActive()) return 'Slicing in progress…';
+    if (this.slicer.status() === 'slicing') return 'Stop this slice';
+    if (this.isActive()) return 'Uploading the model…';
     if (this.isQueued()) return 'Re-slice now instead of waiting';
     if (this.isStale()) return 'Scene changed — re-slice to refresh the preview';
     return this.canSlice() ? 'Slice and generate G-code' : 'Add a model first';
@@ -168,10 +171,39 @@ export class SliceControl {
    * read one. A machine that cannot reach a commanded speed simply takes
    * longer, and saying so is cheaper than a figure the user learns to distrust.
    */
+  /** Filament readout beside the time: weight always, cost when the profile has a price. */
+  protected readonly filamentEstimate = computed<string | null>(() => {
+    if (this.isActive()) {
+      return null;
+    }
+    const usage = this.preview.filamentUsage();
+    if (!usage) {
+      return null;
+    }
+    const weight = `${usage.grams < 10 ? usage.grams.toFixed(1) : Math.round(usage.grams)} g`;
+    return usage.cost === null ? weight : `${weight} · ${usage.cost.toFixed(2)}`;
+  });
+
+  protected readonly filamentHint = computed(() => {
+    const usage = this.preview.filamentUsage();
+    return usage
+      ? `${usage.metres.toFixed(2)} m of filament. The cost uses the price per kg set in the filament profile.`
+      : '';
+  });
+
   protected readonly printEstimateHint =
     'Estimated from your process settings — the speeds and accelerations the ' +
     "G-code asks for. The slicer doesn't know your printer's real limits, so " +
     'the machine may take longer.';
+
+  /** The CTA runs the slice, or stops the one in flight. */
+  protected onCta(): void {
+    if (this.slicer.status() === 'slicing') {
+      this.slicer.cancelSlice();
+      return;
+    }
+    this.slice();
+  }
 
   slice(): void {
     void this.slicer.slice();
@@ -237,6 +269,20 @@ export class SliceControl {
 
   protected readonly showActions = computed(() => this.effectiveAction() !== null);
 
+  /**
+   * A fresh result is waiting to be used. The next step is then handing it on,
+   * not slicing again, so the result action takes the primary weight and
+   * Re-Slice steps back. A stale result flips it back the other way.
+   */
+  protected readonly resultReady = computed(
+    () => this.isDone() && !this.isStale() && this.showActions(),
+  );
+
+  protected readonly primaryLabel = computed(() => {
+    const action = this.effectiveAction();
+    return action === 'print' ? 'Print' : action === 'upload' ? 'Upload' : 'Download';
+  });
+
   protected readonly primaryIcon = computed(() => {
     const action = this.effectiveAction();
     return action ? this.actionMeta[action].icon : 'download';
@@ -259,7 +305,13 @@ export class SliceControl {
     return raw === 'upload' || raw === 'print' ? raw : 'download';
   }
 
+  /**
+   * A stale result is never handed on: it no longer describes the plate on
+   * screen, and sending it to a printer prints something the user has since
+   * changed. The Re-Slice button is the way forward.
+   */
   private isActionAvailable(action: SliceAction): boolean {
+    if (this.isStale()) return false;
     return action === 'download' ? this.downloadAvailable() : this.canSendToPrinter();
   }
 
@@ -285,10 +337,28 @@ export class SliceControl {
     const printer = this.active.printer();
     const uuid = this.slicer.currentRequestUuid();
     if (!printer || !uuid) return;
-    this.printerConn.sendToPrinter(printer, uuid, {
-      start: action === 'print',
-      filename: this.slicer.currentGcodeFilename(),
-    });
+    const send = () =>
+      this.printerConn.sendToPrinter(printer, uuid, {
+        start: action === 'print',
+        filename: this.slicer.currentGcodeFilename(),
+      });
+    if (action !== 'print') {
+      send();
+      return;
+    }
+    // Starting a print moves real hardware, so it is the one action here that
+    // is asked about every time — the remembered default must not turn it into
+    // a single stray click.
+    this.dialog
+      .confirm({
+        title: `Start printing on ${printer.name}?`,
+        message: 'The G-code is uploaded and the printer starts right away.',
+        confirmLabel: 'Upload & print',
+        cancelLabel: 'Cancel',
+      })
+      .subscribe((confirmed) => {
+        if (confirmed) send();
+      });
   }
 
   protected toggleMenu(): void {

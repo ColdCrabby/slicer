@@ -65,6 +65,46 @@ pub(super) fn parse_estimated_print_time_s(bytes: &[u8]) -> Option<f32> {
     None
 }
 
+/// Material the file's header says the print uses. Every field is `None` when
+/// the file does not say — a file from elsewhere may carry any subset.
+#[derive(Debug, Clone, Copy, Default, PartialEq)]
+pub(super) struct FilamentUsage {
+    pub length_mm: Option<f32>,
+    pub weight_g: Option<f32>,
+    pub cost: Option<f32>,
+}
+
+/// Read the filament totals from the header comments the generator writes
+/// (`; filament used [mm] = …`, `[g]`, `; total filament cost = …`).
+///
+/// The first occurrence wins: the header block and the trailing block agree,
+/// and the header is reached without walking the whole file.
+pub(super) fn parse_filament_usage(bytes: &[u8]) -> FilamentUsage {
+    let text = String::from_utf8_lossy(bytes);
+    let mut usage = FilamentUsage::default();
+    for line in text.lines() {
+        let Some(comment) = line.trim_start().strip_prefix(';') else {
+            continue;
+        };
+        let Some((key, value)) = comment.split_once('=') else {
+            continue;
+        };
+        let slot = match key.trim().to_ascii_lowercase().as_str() {
+            "filament used [mm]" => &mut usage.length_mm,
+            "filament used [g]" => &mut usage.weight_g,
+            "total filament cost" => &mut usage.cost,
+            _ => continue,
+        };
+        if slot.is_none() {
+            *slot = parse_leading_f32(value);
+        }
+        if usage.length_mm.is_some() && usage.weight_g.is_some() && usage.cost.is_some() {
+            break;
+        }
+    }
+    usage
+}
+
 /// Parse a `` `1d 2h 3m 4s` `` duration into seconds.
 ///
 /// Every field is optional and the units may be spaced or not, because the
@@ -180,6 +220,9 @@ pub(super) fn parse_gcode_bytes(bytes: &[u8]) -> Vec<InternalLayer> {
     // When false we fall back to Z-change detection (for slicers that don't
     // emit our markers).
     let mut seen_layer_change_comment = false;
+    // Set by `;BEFORE_LAYER_CHANGE` until the `;LAYER_CHANGE` that completes it,
+    // so the pair opens one layer rather than two.
+    let mut opened_by_before_marker = false;
 
     for (line_index, raw_line) in text.lines().enumerate() {
         // 1-based, so it can be handed to an editor's gutter unchanged.
@@ -194,6 +237,7 @@ pub(super) fn parse_gcode_bytes(bytes: &[u8]) -> Vec<InternalLayer> {
                     &mut layers,
                     &mut current,
                     &mut seen_layer_change_comment,
+                    &mut opened_by_before_marker,
                     &mut width,
                     &mut height,
                     z,
@@ -499,6 +543,7 @@ fn process_comment(
     layers: &mut Vec<InternalLayer>,
     current: &mut InternalLayer,
     seen_layer_change_comment: &mut bool,
+    opened_by_before_marker: &mut bool,
     width: &mut f32,
     height: &mut f32,
     current_z: f32,
@@ -506,11 +551,18 @@ fn process_comment(
 ) {
     let trimmed = comment.trim();
 
-    if trimmed.eq_ignore_ascii_case("LAYER_CHANGE")
-        || trimmed.eq_ignore_ascii_case("BEFORE_LAYER_CHANGE")
-    {
+    let before = trimmed.eq_ignore_ascii_case("BEFORE_LAYER_CHANGE");
+    if before || trimmed.eq_ignore_ascii_case("LAYER_CHANGE") {
         *seen_layer_change_comment = true;
-        if !current.is_empty() {
+        // `;BEFORE_LAYER_CHANGE` and `;LAYER_CHANGE` bracket one boundary. The
+        // moves between them (retract, lift, the layer's own G-code) belong to
+        // the layer being opened, so the second marker must not split again —
+        // it used to, and every layer with such moves counted twice.
+        let completes_pair = !before && std::mem::take(opened_by_before_marker);
+        if before {
+            *opened_by_before_marker = true;
+        }
+        if !completes_pair && !current.is_empty() {
             let mut next = InternalLayer::new(current_z);
             sticky.seed(&mut next);
             let finished = std::mem::replace(current, next);
@@ -575,6 +627,40 @@ G0 Z0.400 F9000
 G1 X10 Y10 Z0.4 E6.0 F1800
 G1 X20 Y10 Z0.4 E7.0
 "#;
+
+    #[test]
+    fn filament_usage_reads_the_header() {
+        let gcode = "; filament used [mm] = 4195.73\n; filament used [g] = 12.51\n\
+                     G1 X0\n; total filament cost = 0.31\n; filament used [g] = 99\n";
+        let usage = parse_filament_usage(gcode.as_bytes());
+        assert_eq!(usage.length_mm, Some(4195.73));
+        assert_eq!(usage.weight_g, Some(12.51));
+        assert_eq!(usage.cost, Some(0.31));
+        assert_eq!(parse_filament_usage(b"G1 X0\n"), FilamentUsage::default());
+    }
+
+    /// One boundary is marked twice; moves between the two markers must not
+    /// open a layer of their own.
+    #[test]
+    fn before_and_after_markers_open_one_layer() {
+        let gcode = "\
+;BEFORE_LAYER_CHANGE
+;Z:0.2
+G1 Z0.2 F600
+;LAYER_CHANGE
+;TYPE:Outer wall
+G1 X10 Y10 E1.0 F1800
+;BEFORE_LAYER_CHANGE
+;Z:0.4
+G1 E0.8 F2400
+G1 Z0.4 F600
+;LAYER_CHANGE
+;TYPE:Outer wall
+G1 X20 Y10 E2.0 F1800
+";
+        let layers = parse_gcode_bytes(gcode.as_bytes());
+        assert_eq!(layers.iter().filter(|l| !l.is_empty()).count(), 2);
+    }
 
     fn has_role(layers: &[InternalLayer], role: Role) -> bool {
         layers

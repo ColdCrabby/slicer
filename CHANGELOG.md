@@ -34,8 +34,29 @@ issue/PR numbers or repo links in the notes. See the tone rules in
   diagram of crossing edges is undefined — so two runs of one file could print
   different walls there. Regions are now made clean again after simplifying, and
   the surface trim no longer depends on hash order. Classic was never affected.
+- **Removing a model can be undone.** Undo re-adds it from its file, in place;
+  `Delete` / `Backspace` now remove the selection too.
+- **Upload & print asks first, and never sends a stale file.** Starting a print
+  always confirms, and after any change the result button waits for a re-slice.
+- **The layer counter matches the slice.** The preview no longer counted a
+  layer twice when moves sat between its two layer-change markers.
+- **Arrow keys stay in the field you're typing in.** The G-code preview's arrow
+  shortcuts no longer steal them, and single-key plate shortcuts only work while
+  the plate is on screen.
+- **Dragging the empty plate no longer opens the file picker.**
+- **A printer whose connection type isn't supported says "Not supported"** rather
+  than "Offline", and a switched-off printer is grey rather than red.
 
 ### Added
+
+- **Cancel a running slice** — the Slice button reads Cancel while it works.
+- **Filament weight and cost after a slice**, next to the print time.
+- **A Model | G-code switch** at the top right, with names instead of an icon
+  that only appeared after the first slice.
+- **Menu bar on macOS** — File › New Plate, Add Model, Slice, Export G-code, and
+  Help. The desktop window also reopens at the size and place you left it.
+- **Keyboard: `⌘/Ctrl + D` duplicates, `⌘/Ctrl + Enter` slices.**
+- **A quiet note while slicing for a generic printer**, with a link to add yours.
 
 - **Inner walls have their own speed** — the hidden walls behind the surface no
   longer inherit the visible one's pace. `Inner Wall Speed` defaults to 125% of
@@ -51,6 +72,19 @@ issue/PR numbers or repo links in the notes. See the tone rules in
   default; every other hop keeps full travel acceleration.
 
 ### Changed
+
+- **After a slice, the result action leads.** Download, Upload or Print becomes
+  the main button; Re-Slice steps back until something changes.
+- **One Help menu in the title bar** replaces five link icons, which on a phone
+  left the plate's name two letters wide.
+- **Recent plates come first on Home**, and each printer card opens that printer.
+- **Debug overlays and the thumbnail animation are off by default** — turn them
+  on in Settings → General.
+- **The browser build's performance note is a one-time notice** with a link to
+  the desktop app, not a dialog in front of the model you just opened.
+- **"Save to profiles"** replaces "Sync", and the app says **plate** throughout.
+- **The print-settings drawer has a Done button** on phones and tablets, and the
+  object list no longer covers the Slice card beside a docked panel.
 
 - **The stock profiles are quicker across the board.** Outer walls run at
   120 mm/s (was 80), top surfaces at 100 (was 60), bridges and the steep overhang

@@ -156,7 +156,7 @@ export class WorkplateSession {
   #reportOpenFailure(uuid: string, error: unknown): void {
     this.log.error(`could not open plate '${uuid}'`, String(error));
     this.notifications.error(
-      'Could not open workplate',
+      'Could not open plate',
       error instanceof Error ? error.message : undefined,
     );
   }

@@ -108,16 +108,29 @@ export class ObjectsPanel {
 
   protected readonly rows = computed<ObjectRow[]>(() => {
     const selected = new Set(this.viewerControl.selectedObjectIds());
-    return this.sceneEngine.objects().map((object) => ({
-      id: object.id,
-      key: object.id.toString(),
-      name: object.name,
-      triangleCount: object.triangle_count,
-      size: sizeOf(object),
-      selected: selected.has(object.id),
-      outOfBounds: object.out_of_bounds,
-      collides: object.collides,
-    }));
+    const objects = this.sceneEngine.objects();
+    // Duplicates share their file's name, so a list of three "benchy.stl" rows
+    // told the user nothing about which was which. Number the repeats, in
+    // plate order, so each row names one object.
+    const total = new Map<string, number>();
+    for (const object of objects) {
+      total.set(object.name, (total.get(object.name) ?? 0) + 1);
+    }
+    const seen = new Map<string, number>();
+    return objects.map((object) => {
+      const nth = (seen.get(object.name) ?? 0) + 1;
+      seen.set(object.name, nth);
+      return {
+        id: object.id,
+        key: object.id.toString(),
+        name: (total.get(object.name) ?? 1) > 1 ? `${object.name} (${nth})` : object.name,
+        triangleCount: object.triangle_count,
+        size: sizeOf(object),
+        selected: selected.has(object.id),
+        outOfBounds: object.out_of_bounds,
+        collides: object.collides,
+      };
+    });
   });
 
   protected readonly count = computed(() => this.rows().length);

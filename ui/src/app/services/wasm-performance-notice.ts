@@ -1,28 +1,27 @@
 import { inject, Injectable } from '@angular/core';
 import { environment } from '../../environments/environment';
-import { WasmPerformancePanel } from '../components/wasm-performance-notice/wasm-performance-panel';
 import { BrowserStorage } from './browser-storage';
-import { Dialog } from './dialog';
+import { NotificationService } from './notifications';
 
 /**
- * sessionStorage key recording that the WASM performance notice has been shown
- * in the current browser session. Session-scoped on purpose — the reminder
- * reappears in a fresh tab/session but never nags twice within one.
+ * localStorage key recording that the notice has been seen. Once per browser,
+ * not per session: the advice does not change between visits, and a reminder
+ * on every return visit reads as nagging.
  */
 const NOTICE_SEEN_KEY = 'slicer:wasm-perf-notice-seen';
 
+/** Where the desktop builds are published. */
+const DESKTOP_DOWNLOAD_URL = 'https://github.com/ColdCrabby/slicer/releases/latest';
+
 /**
- * Surfaces a one-time-per-session heads-up on the WebAssembly web build that
- * running the slicer entirely in the browser costs a lot of performance, and
- * points users at the native app for full speed.
+ * Tells a visitor to the WebAssembly web build, once, that the whole slicer is
+ * running in their tab and the desktop app is much faster.
  *
- * Raised when the first model lands on the plate, not when the app starts.
- * That is where the message earns its interruption: the visitor now has
- * something to slice, so "this will be slower than the desktop app" is advice
- * rather than trivia. Shown on arrival it was the first thing a new visitor
- * met, before they had seen the app at all — and, being the largest block of
- * text on screen, it also *was* the page's Largest Contentful Paint, so the
- * whole site measured as loading however long the dialog took to appear.
+ * Raised when the first model lands on the plate, not when the app starts —
+ * with something to slice, "this is slower than the desktop app" is advice
+ * rather than trivia. It is a notice over the plate with a link, not a dialog:
+ * the model the user just dropped is the thing they came to see, and a modal
+ * over it with only "Got it" to press stood between them and it.
  *
  * Only the `web` runtime (the full WASM web bundle) is affected — the native
  * (Tauri) and cloud runtimes never see it.
@@ -30,30 +29,27 @@ const NOTICE_SEEN_KEY = 'slicer:wasm-perf-notice-seen';
 @Injectable({ providedIn: 'root' })
 export class WasmPerformanceNotice {
   private readonly storage = inject(BrowserStorage);
-  private readonly dialog = inject(Dialog);
+  private readonly notifications = inject(NotificationService);
 
-  /**
-   * Show the WASM performance notice once per browser session. Safe to call on
-   * every model load — it's a no-op off the web build or when already shown
-   * this session.
-   */
+  /** Safe to call on every model load — a no-op off the web build or once seen. */
   maybeShow(): void {
     if (environment.runtimeMode !== 'web') {
       return;
     }
-
-    if (this.storage.get(NOTICE_SEEN_KEY, 'session')()) {
+    if (this.storage.get(NOTICE_SEEN_KEY)()) {
       return;
     }
+    this.storage.write(NOTICE_SEEN_KEY, '1');
 
-    // Record before showing so a mid-animation refresh can't reopen it.
-    this.storage.write(NOTICE_SEEN_KEY, '1', 'session');
-
-    this.dialog.alert({
-      title: 'Running in your browser',
-      confirmLabel: 'Got it',
-      content: WasmPerformancePanel,
-      preferredWidth: '560px',
+    this.notifications.note('info', 'Slicing in your browser', {
+      message:
+        'Everything runs in this tab, so big plates are slow. The desktop app is much faster.',
+      icon: 'cpu',
+      autoDismissMs: null,
+      action: {
+        label: 'Get the desktop app',
+        run: () => window.open(DESKTOP_DOWNLOAD_URL, '_blank', 'noopener,noreferrer'),
+      },
     });
   }
 }

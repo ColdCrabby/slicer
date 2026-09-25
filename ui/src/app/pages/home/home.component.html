@@ -42,7 +42,7 @@
       <button type="button" class="action-tile" (click)="openEmptyWorkplate()">
         <span class="tile-icon"><nexus-icon name="grid-plus" /></span>
         <span class="tile-text">
-          <span class="tile-title">Empty Workplate</span>
+          <span class="tile-title">Empty plate</span>
           <span class="tile-desc">Open a clean build plate and add models.</span>
         </span>
         <nexus-icon class="tile-arrow" name="nav-arrow-right" />
@@ -51,7 +51,7 @@
       <button type="button" class="action-tile" (click)="openModel()">
         <span class="tile-icon"><nexus-icon name="cloud-upload" /></span>
         <span class="tile-text">
-          <span class="tile-title">Open Model to Slice</span>
+          <span class="tile-title">Open a model</span>
           <span class="tile-desc">Import an STL, OBJ or 3MF and slice right away.</span>
         </span>
         <nexus-icon class="tile-arrow" name="nav-arrow-right" />
@@ -74,6 +74,11 @@
     }
 
     <section class="dash-section">
+      <nexus-section-header heading="Recent plates" description="Pick up where you left off" />
+      <nexus-list-history />
+    </section>
+
+    <section class="dash-section">
       <nexus-section-header heading="Printers" description="Your machines at a glance">
         <a nexusButton variant="ghost" size="sm" routerLink="/settings/printers">Manage</a>
       </nexus-section-header>
@@ -81,7 +86,12 @@
       @if (printers().length > 0) {
         <div class="printer-grid">
           @for (printer of printers(); track printer.id) {
-            <a class="printer-card" routerLink="/settings/printers">
+            <a
+              class="printer-card"
+              routerLink="/settings/printers"
+              [queryParams]="{ id: printer.id }"
+              [attr.title]="printer.message ?? null"
+            >
               <span
                 class="printer-status"
                 [attr.data-state]="printer.state"
@@ -94,6 +104,9 @@
               </span>
               <span class="printer-state">
                 {{ printer.statusLabel }}
+                @if (printer.message) {
+                  <span class="visually-hidden">— {{ printer.message }}</span>
+                }
               </span>
             </a>
           }
@@ -107,11 +120,6 @@
           <a nexusButton variant="primary" size="sm" routerLink="/settings/printers">Add printer</a>
         </nexus-empty-state>
       }
-    </section>
-
-    <section class="dash-section">
-      <nexus-section-header heading="Recent projects" description="Pick up where you left off" />
-      <nexus-list-history />
     </section>
   </div>
 </div>

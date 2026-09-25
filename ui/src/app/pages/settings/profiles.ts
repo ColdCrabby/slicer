@@ -33,6 +33,7 @@ import {
   IconButton,
   Segmented,
   TooltipDirective,
+  InlineNotice,
 } from '@coldcrabby/ui';
 import { ParamField } from '../../components/profiles/param-field';
 import { ColumnResizer } from '../../components/profiles/column-resizer';
@@ -76,6 +77,7 @@ const PARAM_GROUPS: SchemaGroup[] = (() => {
   selector: 'nexus-settings-profiles',
   imports: [
     EmptyState,
+    InlineNotice,
     Button,
     IconButton,
     TooltipDirective,

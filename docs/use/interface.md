@@ -5,14 +5,13 @@ Nothing is hidden behind menus.
 
 ```
 ┌──────────────┬─────────────────────────────────────┬──────────────┐
-│              │            viewport cube            │  G-code      │
-│   Settings   │                                     │  inspector   │
+│              │  tool cluster        Model | G-code │  viewport    │
+│   Settings   │                                     │  cube        │
 │    panel     │           3D build plate            │              │
-│              │                                     │  Objects     │
-│  Printer     │                                     │  on the      │
-│  Filament    │          ┌───────────────┐          │  plate       │
-│  Process     │          │  tool cluster │          │              │
-│              │          └───────────────┘          │  ▸ Slice     │
+│              │                                     │  G-code      │
+│  Printer     │                                     │  inspector   │
+│  Filament    │                                     │              │
+│  Process     │  Objects                            │  ▸ Slice     │
 └──────────────┴─────────────────────────────────────┴──────────────┘
 ```
 
@@ -87,8 +86,16 @@ there, and a change you can't see happen is worse than no change.
 
 ## The settings panel (left)
 
-Three tabs — **Printer**, **Filament**, **Process** — each with a profile
-dropdown at the top and collapsible groups of options below.
+Three rows at the top name what the plate is made of — **printer**, **filament**
+and **process**. Click a row to show its settings below; the **⋯** beside it
+swaps the profile or opens it for editing.
+
+While the plate uses one of the generic starter printers, a note under those rows
+says so and links to **Add your printer** — its bed size and start G-code are a
+guess until you do. It goes away as soon as a printer of your own is picked.
+
+Changed a setting and want to keep it? The save button in the top row writes the
+changes you tick back into their profiles.
 
 `Ctrl`/`⌘ + F` jumps to the search box. Type "infill", "seam", "brim" and the
 groups filter down. This is usually faster than remembering which tab something
@@ -96,7 +103,7 @@ lives in.
 
 Full tour: [Print settings](/use/settings).
 
-## The objects panel (right)
+## The objects panel (bottom left)
 
 Every model on the plate, with its triangle count and size. Select from here
 when the 3D view gets crowded.
@@ -106,7 +113,9 @@ object*. Both are warnings, not blocks — you can still slice, but you probably
 shouldn't.
 
 Each row also has **Duplicate** and **Remove**. Remove asks once ("Click again
-to remove") before it does anything. **Add models** under the list puts more
+to remove") before it does anything, and **Undo** brings a removed model back.
+Copies of the same model are numbered — `benchy.stl (1)`, `benchy.stl (2)` — so
+each row names one object. **Add models** under the list puts more
 files on the plate, alongside what is already there.
 
 On a touch screen the panel starts **folded** to a chip with the object count,
@@ -116,14 +125,19 @@ triangle appears on the folded chip if something can't print where it sits.
 
 ## The slice button (bottom right)
 
-Press **Slice**. Afterwards it becomes **Re-Slice**, and turns amber when you've
-changed something since the last slice — so a stale preview always looks stale.
+Press **Slice** (or `⌘/Ctrl + Enter`). While it runs the button reads **Cancel**
+and stops the slice. Afterwards the result button — **Download**, **Upload** or
+**Print** — becomes the main button and **Re-Slice** steps back beside it. Change
+something and it turns around again: Re-Slice turns amber, and the result
+button disappears until you re-slice, so a stale file can't be saved or sent.
 
 Below it, a status line: `Ready to slice` → `Slicing…` → `Sliced · N layers ·
 4.9s`, or a red failure with the reason. The time in that line is how long
 *slicing* took.
 
-On the right of the same line sits the estimated **print** time, `~1h 12m`. It
+On the right of the same line sits the filament the print uses — `13 g`, plus
+the cost when the filament profile has a price per kg — and the estimated
+**print** time, `~1h 12m`. It
 is worked out from your process settings — the speeds and accelerations the
 G-code actually asks for. It is not worked out from your printer's limits,
 because the slicer does not have them: a machine that cannot reach a commanded
@@ -134,7 +148,8 @@ It doesn't always wait for you. See
 [Re-slicing on its own](#re-slicing-on-its-own).
 
 Once it succeeds, the result button lets you **Download**, **Just upload**, or
-**Upload & print**. It remembers which you used last.
+**Upload & print**. It remembers which you used last. Upload & print always asks
+before it starts the printer.
 
 ## Re-slicing on its own
 
@@ -143,8 +158,8 @@ every time is tedious on the first kind and unavoidable on the second, so the
 slicer decides from how long *that plate's* last slice actually took. Each plate
 is judged on its own, so a heavy one can sit quiet while a light one keeps up.
 
-Once you've sliced once, a flash button appears next to the model / preview
-toggle. Click it to step through three settings:
+Once you've sliced once, a flash button appears next to the **Model | G-code**
+switch. Click it to step through three settings:
 
 | Setting       | What happens                                                       |
 | ------------- | ------------------------------------------------------------------ |
@@ -181,14 +196,15 @@ hidden in preview, so the next drag lands on a view that can't show it.
 | ------------- | --------------------------------------------------------------- |
 | **Automatic** | Follows a slice you pressed; leaves an automatic re-slice alone |
 | **Always**    | Every finished slice switches to preview                        |
-| **Never**     | The view never changes on its own — use the toggle or `P`       |
+| **Never**     | The view never changes on its own — use the switch or `P`       |
 
 It never switches *away* from the preview, so if you're already inspecting a
 slice you stay there whatever re-sliced it.
 
 ## The G-code inspector (right, after slicing)
 
-Appears when you switch to preview. Colour the toolpaths by role, speed,
+Appears when you switch to **G-code** with the **Model | G-code** switch at the
+top right. Choosing G-code before there is a slice starts one. Colour the toolpaths by role, speed,
 temperature and more; hide path types you don't care about; scrub through layers
 and through individual moves. See [Reading the preview](/use/preview).
 
@@ -260,7 +276,8 @@ large plate, and the viewport says so while it happens.
 
 `Ctrl`/`⌘ + Z` undoes, `Ctrl`/`⌘ + Y` (or `⌘ + Shift + Z`) redoes. This covers
 what you do to the plate — moving, rotating, scaling, adding, deleting,
-arranging. While you're typing in a settings field or a name box the shortcut
+arranging. `Delete` or `Backspace` removes the selected models, and undo brings
+them back. While you're typing in a settings field or a name box the shortcut
 belongs to that field, so it undoes your typing rather than the plate.
 
 On a touch device without a keyboard, undo and redo buttons appear in the 3D

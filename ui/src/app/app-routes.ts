@@ -52,13 +52,13 @@ export const APP_ROUTES: Routes = [
           },
           {
             path: 'new',
-            title: 'New Slice',
+            title: 'New plate',
             loadComponent: () => import('./pages/slice-new/slice-new').then((m) => m.SliceNew),
             canDeactivate: [uploadCanDeactivate],
           },
           {
             path: ':requestUuid',
-            title: 'Slice Preview',
+            title: 'Plate',
             loadComponent: () =>
               import('./pages/slice-viewer/slice-viewer').then((m) => m.SliceViewer),
           },

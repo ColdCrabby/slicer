@@ -7,6 +7,9 @@
 //! the builder here (rather than in `main.rs`) is what makes both possible from
 //! one code path, so a desktop-only change can never silently skip mobile.
 
+/// The macOS menu bar.
+#[cfg(target_os = "macos")]
+mod app_menu;
 mod bridge;
 mod commands;
 /// Native context menus. iOS has no Tauri menu API, so this is where the
@@ -35,6 +38,20 @@ pub fn run() {
     let builder = builder.plugin(tauri_plugin_single_instance::init(|app, argv, _cwd| {
         open_with::ingest_args(app, argv, true);
     }));
+
+    // Reopen where the user left the window. Visibility is deliberately not
+    // restored: Windows and Linux create the window hidden until the web UI has
+    // painted, and restoring "visible" would show the blank WebView2 cold start
+    // that hiding it exists to avoid.
+    #[cfg(desktop)]
+    let builder = builder.plugin(
+        tauri_plugin_window_state::Builder::default()
+            .with_state_flags(
+                tauri_plugin_window_state::StateFlags::all()
+                    & !tauri_plugin_window_state::StateFlags::VISIBLE,
+            )
+            .build(),
+    );
 
     let app = builder
         .plugin(tauri_plugin_dialog::init())
@@ -78,6 +95,9 @@ pub fn run() {
                         }
                     });
                 }
+
+                #[cfg(target_os = "macos")]
+                app_menu::install(_app.handle())?;
 
                 // Track live OS accent changes and push them to the UI.
                 system_accent::spawn_watcher(_app.handle().clone());

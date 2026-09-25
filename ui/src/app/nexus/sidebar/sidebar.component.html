@@ -21,6 +21,14 @@
     </div>
   </div>
 
+  @if (isPinnedPeek()) {
+    <!-- Opened by a tap, the drawer covers most of a phone. Tapping outside
+         closes it, but nothing said so — this says it, where a thumb is. -->
+    <div class="sidebar-done-bar">
+      <button type="button" class="sidebar-done" (click)="onDone()">Done</button>
+    </div>
+  }
+
   <button
     class="sidebar-scrolltop"
     [class.is-visible]="showScrollTop()"
@@ -55,7 +63,7 @@
     aria-label="Show print settings"
     (click)="onOpenPeek($event)"
   >
-    <nexus-icon name="menu-scale" aria-hidden="true" />
+    <nexus-icon name="control-slider" aria-hidden="true" />
     <span>Print settings</span>
     <nexus-icon name="nav-arrow-right" aria-hidden="true" />
   </button>

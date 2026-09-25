@@ -34,7 +34,7 @@ import {
   WorkplateSettingsStore,
   type WorkplateSaveStatus,
 } from '../../services/workplate-settings';
-import { FloatingRef, FloatingService, Icon, TooltipDirective } from '@coldcrabby/ui';
+import { FloatingRef, FloatingService, Icon, InlineNotice, TooltipDirective } from '@coldcrabby/ui';
 
 // Extract the SlicingParams sub-schema so the form renders all slicer settings.
 // (`SlicingParams` is now the wire-format type — the legacy `WsSlicingParams`
@@ -60,7 +60,7 @@ const CONFIRM_TIMEOUT_MS = 4000;
 @Component({
   selector: 'nexus-settings-panel',
   standalone: true,
-  imports: [SchemaForm, Icon, RouterLink, LabelFilterBar, TooltipDirective],
+  imports: [SchemaForm, Icon, RouterLink, LabelFilterBar, TooltipDirective, InlineNotice],
   templateUrl: './settings-panel.component.html',
   styleUrl: './settings-panel.component.scss',
 })
@@ -74,6 +74,19 @@ export class SettingsPanel {
   protected readonly presets = inject(ActivePresets);
   private readonly activeSelection = inject(ActiveSelection);
   protected readonly labelFilter = inject(LabelFilterStore);
+
+  /**
+   * The plate is still sliced for one of the generic starter printers.
+   *
+   * Deliberately not a picker or a prompt: anyone who has used the app for a
+   * minute knows what printer they own. What they may not know is that the
+   * starter profile's bed and start G-code are someone else's guess, so it is
+   * said once, quietly, where the printer is named — and gone the moment a
+   * printer of their own is active.
+   */
+  protected readonly onGenericPrinter = computed(
+    () => this.activeSelection.printer()?.source === 'builtin',
+  );
 
   readonly settings = this.slicer.settings;
   readonly schema = SLICING_PARAMS_SCHEMA;
@@ -130,9 +143,9 @@ export class SettingsPanel {
   protected readonly syncTooltip = computed(() => {
     const count = this.modifiedCount();
     if (count === 0) {
-      return 'No changed settings to sync into your profiles';
+      return 'No changed settings to save to your profiles';
     }
-    return `Sync ${count} changed ${count === 1 ? 'setting' : 'settings'} to their profiles`;
+    return `Save ${count} changed ${count === 1 ? 'setting' : 'settings'} to their profiles`;
   });
 
   /** All three contracts, in tab order — the plate's recipe, top to bottom. */
@@ -383,10 +396,10 @@ export class SettingsPanel {
     this.writeback.open();
     this.dialog
       .confirm({
-        title: 'Sync changes to your profiles',
+        title: 'Save changes to your profiles',
         message: 'Check off which changed settings should become part of their profile.',
-        confirmLabel: 'Sync checked settings',
-        cancelLabel: "Don't sync",
+        confirmLabel: 'Save checked settings',
+        cancelLabel: 'Cancel',
         content: WritebackDialog,
         preferredWidth: '560px',
       })
@@ -415,7 +428,7 @@ export class SettingsPanel {
       case 'saving':
         return 'Saving…';
       case 'saved':
-        return 'Saved to this workplate';
+        return 'Saved to this plate';
       case 'error':
         return "Couldn't save";
       default:

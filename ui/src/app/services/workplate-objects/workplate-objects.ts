@@ -11,7 +11,8 @@ import {
 } from '../model-source';
 import { NotificationService } from '../notifications';
 import { SceneCommand } from '../scene-command/scene-command';
-import { SceneEngine } from '../scene-engine';
+import { SceneHistory } from '../scene-history/scene-history';
+import { SceneEngine, type SceneObjectSnapshot } from '../scene-engine';
 import { SlicerFile } from '../slicer-file';
 import { WasmPerformanceNotice } from '../wasm-performance-notice';
 import { clearOffsetX, footprintOf } from './placement';
@@ -57,6 +58,47 @@ export class WorkplateObjects {
   private readonly wasmPerfNotice = inject(WasmPerformanceNotice);
   private readonly modelSources = inject(ModelSourceRegistry);
   private readonly notifications = inject(NotificationService);
+
+  constructor() {
+    inject(SceneHistory).setReviver((object) => this.revive(object));
+  }
+
+  /**
+   * Bring back an object undo needs, from the file it was loaded from.
+   *
+   * Local runtimes still hold the bytes. Cloud mode keeps none in the tab — the
+   * server has the model — so it downloads it back, which the browser answers
+   * from its own cache for an upload it has already fetched. Only the part the
+   * object was made of is kept; a 3MF re-adds every part it holds. Resolves to
+   * `null` when the file cannot be had.
+   */
+  private async revive(object: SceneObjectSnapshot): Promise<bigint | null> {
+    const source = this.modelSources.get(object.source_id);
+    if (!source) {
+      return null;
+    }
+    const bytes =
+      source.bytes ??
+      (resolveRuntimeMode() === 'cloud'
+        ? new Uint8Array(
+            await (
+              await this.slicerFile.fetchModel(source.sourceId, source.fileName)
+            ).arrayBuffer(),
+          )
+        : null);
+    if (!bytes) {
+      return null;
+    }
+    const ids = this.sceneEngine.addMesh(object.name, source.format, bytes, source.sourceId);
+    const kept = ids[object.source_part] ?? ids[0] ?? null;
+    for (const id of ids) {
+      if (id !== kept) {
+        this.sceneEngine.apply({ op: 'Remove', args: { id } });
+      }
+    }
+    this.slicerFile.addFiles([{ fileId: source.sourceId, filename: source.fileName }]);
+    return kept;
+  }
 
   /** Live list of objects on the plate. */
   readonly objects = this.sceneEngine.objects;
@@ -311,9 +353,10 @@ export class WorkplateObjects {
     // duplicates and a 3MF's sibling parts share one file and the survivors
     // still need it to slice.
     const sourceId = target?.source_id;
+    // The source bytes stay registered, so undo can bring the object back;
+    // they go when the plate itself is released.
     if (sourceId && !this.objects().some((o) => o.source_id === sourceId)) {
       this.slicerFile.removeFile(sourceId);
-      this.modelSources.forget(sourceId);
     }
   }
 

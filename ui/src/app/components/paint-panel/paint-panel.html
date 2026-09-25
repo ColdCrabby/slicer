@@ -7,6 +7,7 @@
           type="button"
           class="pp-action"
           [tooltip]="'Clear every painted region on the plate'"
+          [attr.aria-label]="'Clear every painted region on the plate'"
           [disabled]="paintedFacetTotal() === 0"
           (click)="clearAllPaint()"
         >

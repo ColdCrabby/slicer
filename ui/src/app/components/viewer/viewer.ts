@@ -1245,6 +1245,14 @@ export class Viewer {
       shadowsEnabled: this.viewerControl.shadowsEnabled(),
     });
     this.lastAntialiasing = this.viewerControl.antialiasing();
+    // iPadOS and mobile browsers drop the WebGL context under memory pressure
+    // or after the app has been in the background, which left a blank plate
+    // with no way back but a reload. Claiming the loss asks the browser to
+    // restore the context; when it does, the scene is rebuilt the same way an
+    // anti-aliasing change rebuilds it — the WASM engine still holds the plate.
+    const canvas = this.scene.renderer.domElement;
+    canvas.addEventListener('webglcontextlost', (event) => event.preventDefault());
+    canvas.addEventListener('webglcontextrestored', () => this.rebuildScene(), { once: true });
     // Mirror the live camera direction/up into ViewerControl so external
     // overlays (the viewport-cube gizmo) can read it without going through
     // Angular's change-detection. Copied component-wise because ViewerControl

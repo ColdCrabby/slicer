@@ -40,8 +40,8 @@ WebSocket. Only the _transport_ differs — the geometry does not.
 The home screen gives you three ways in:
 
 - **Try the 3DBenchy demo** — a model is already loaded, nothing to find on disk.
-- **Open Model to Slice** — pick a file and go straight to the build plate.
-- **Empty Workplate** — start with a bare bed and add models yourself.
+- **Open a model** — pick a file and go straight to the build plate.
+- **Empty plate** — start with a bare bed and add models yourself.
 
 You can also just **drag a file onto the window** at any time. In the desktop
 and iPhone/iPad apps you can skip Cold Crabby's own file picker altogether and
@@ -58,15 +58,17 @@ automatically. Both behaviours can be switched off — see
 
 ## 3. Check printer and filament
 
-The settings panel on the left has three tabs:
+The settings panel on the left starts with three rows:
 
 - **Printer** — the machine: bed size, nozzle, firmware.
 - **Filament** — the spool: temperatures, cooling.
 - **Process** — how to print it: layer height, walls, infill, supports.
 
-Each tab has a dropdown at the top for picking a saved profile. Cold Crabby
-ships with sensible defaults, so for a first slice you can usually leave
-everything alone.
+Click a row to see its settings; the **⋯** beside it picks a different saved
+profile. Cold Crabby ships with sensible defaults, so for a first slice you can
+usually leave everything alone — but until you add your own printer, a note
+under the rows reminds you that the generic one's bed size and start G-code are a
+guess.
 
 If your printer isn't set up yet, go to **Settings → Printers → Add printer**.
 For a Klipper machine on your network, paste its address and press **Detect** —

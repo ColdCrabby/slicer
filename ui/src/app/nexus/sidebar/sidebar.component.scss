@@ -388,3 +388,33 @@ $edge-control-top: calc(var(--main-scene-inset, 48px) + var(--spacing-sm));
     }
   }
 }
+
+/* Footer of a tap-opened drawer: the close control, at thumb height. */
+.sidebar-done-bar {
+  flex: none;
+  padding: var(--spacing-sm);
+  padding-bottom: calc(var(--spacing-sm) + env(safe-area-inset-bottom, 0px));
+  background: var(--color-bg-secondary);
+}
+
+.sidebar-done {
+  width: 100%;
+  height: var(--touch-target, 40px);
+  border: none;
+  border-radius: var(--radius-md);
+  background: var(--color-surface-active);
+  color: var(--color-text-primary);
+  font-size: var(--font-size-md);
+  font-weight: var(--font-weight-semibold);
+  cursor: pointer;
+  touch-action: manipulation;
+
+  &:hover {
+    background: var(--color-surface-hover);
+  }
+
+  &:focus-visible {
+    outline: 2px solid var(--color-focus-ring);
+    outline-offset: 2px;
+  }
+}

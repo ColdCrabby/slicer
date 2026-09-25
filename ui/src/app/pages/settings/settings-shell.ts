@@ -54,7 +54,7 @@ export class SettingsShell {
     { path: 'appearance', label: 'Appearance', icon: 'palette' },
     { path: 'printers', label: 'Printers', icon: 'printer' },
     { path: 'filaments', label: 'Filaments', icon: 'droplet' },
-    { path: 'profiles', label: 'Print Profiles', icon: 'reports' },
+    { path: 'profiles', label: 'Processes', icon: 'reports' },
     { path: 'labels', label: 'Labels', icon: 'label' },
     { path: 'shortcuts', label: 'Shortcuts', icon: 'square-cursor' },
     { path: 'changelog', label: "What's New", icon: 'sparks' },

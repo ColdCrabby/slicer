@@ -146,6 +146,17 @@
               </div>
             </div>
 
+            @if (printer.source === 'builtin') {
+              <!-- A built-in is edited in place, so its name keeps describing
+                   values it may no longer hold. Say so, and offer the copy. -->
+              <nexus-inline-notice tone="info" title="Built-in printer">
+                Changes here apply to every plate that uses it, and its name stays as it is.
+                <button nexusButton variant="ghost" size="sm" (click)="duplicate(printer.id)">
+                  Duplicate to customise
+                </button>
+              </nexus-inline-notice>
+            }
+
             @if (deleteArmed()) {
               <div class="mgr__danger">
                 <p>

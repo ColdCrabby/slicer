@@ -13,20 +13,25 @@
     </div>
 
     @if (showActions()) {
-      <div class="send-split" [class.is-open]="menuOpen()">
+      <div class="send-split" [class.is-open]="menuOpen()" [class.is-primary]="resultReady()">
         <button
           class="send-action"
           type="button"
           [tooltip]="primaryTooltip()"
+          [attr.aria-label]="primaryTooltip()"
           (click)="runPrimary()"
         >
-          <nexus-icon [name]="primaryIcon()"></nexus-icon>
+          <nexus-icon [name]="primaryIcon()" aria-hidden="true"></nexus-icon>
+          @if (resultReady()) {
+            <span class="send-label">{{ primaryLabel() }}</span>
+          }
         </button>
         <button
           class="send-caret"
           type="button"
           #caret
           aria-haspopup="menu"
+          aria-label="Choose action"
           [attr.aria-expanded]="menuOpen()"
           tooltip="Choose action"
           (click)="toggleMenu()"
@@ -41,9 +46,10 @@
       type="button"
       [class.is-busy]="isActive()"
       [class.is-stale]="isStale()"
-      [disabled]="!canSlice()"
+      [class.is-quiet]="resultReady()"
+      [disabled]="!canSlice() && slicer.status() !== 'slicing'"
       [tooltip]="ctaTooltip()"
-      (click)="slice()"
+      (click)="onCta()"
     >
       @if (!isActive()) {
         <nexus-icon name="play"></nexus-icon>
@@ -60,6 +66,8 @@
     [attr.data-state]="statusState()"
     [tooltip]="isError() ? statusLine() : ''"
     tooltipMode="block"
+    role="status"
+    aria-live="polite"
   >
     @if (isStale()) {
       <span class="status-dot" aria-hidden="true"></span>
@@ -69,6 +77,17 @@
     <!-- How long the print will take, as the file itself estimates it. The
          tilde carries the short version of the caveat; the tooltip carries the
          precise one. -->
+    @if (filamentEstimate(); as filament) {
+      <span
+        class="print-estimate"
+        [tooltip]="filamentHint()"
+        tooltipMode="block"
+        [attr.aria-label]="'Filament ' + filament"
+      >
+        <nexus-icon name="weight" aria-hidden="true"></nexus-icon>
+        {{ filament }}
+      </span>
+    }
     @if (printEstimate(); as estimate) {
       <span
         class="print-estimate"

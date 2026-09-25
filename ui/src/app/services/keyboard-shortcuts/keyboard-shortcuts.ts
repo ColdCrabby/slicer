@@ -9,6 +9,7 @@ import { SceneEngine } from '../scene-engine';
 import { SceneHistory } from '../scene-history/scene-history';
 import { Slicer } from '../slicer';
 import { ViewerControl } from '../viewer-control';
+import { WorkplateObjects } from '../workplate-objects/workplate-objects';
 
 export interface ShortcutConfig {
   actionId: string;
@@ -39,6 +40,7 @@ export class KeyboardShortcuts {
   private readonly viewerControl = inject(ViewerControl);
   private readonly slicer = inject(Slicer);
   private readonly gcodePreview = inject(GcodePreview);
+  private readonly workplate = inject(WorkplateObjects);
 
   /**
    * True when running on macOS desktop/laptop (not iPadOS). Consumers use
@@ -100,6 +102,42 @@ export class KeyboardShortcuts {
         this.viewerControl.selectedObjectIds.set(this.sceneEngine.objects().map((o) => o.id)),
     },
     {
+      actionId: 'remove-selected',
+      shortcut: 'Delete',
+      displayDescription: 'Remove the selected objects',
+      canMatch: () => this.canEditSelection(),
+      handleAction: () => this.removeSelected(),
+    },
+    {
+      actionId: 'remove-selected-alt',
+      shortcut: 'Backspace',
+      displayDescription: 'Remove the selected objects (alternate)',
+      canMatch: () => this.canEditSelection(),
+      handleAction: () => this.removeSelected(),
+    },
+    {
+      actionId: 'duplicate-selected',
+      shortcut: '$mod+d',
+      displayDescription: 'Duplicate the selected objects',
+      canMatch: () => this.canEditSelection(),
+      handleAction: () => {
+        for (const id of this.viewerControl.selectedObjectIds()) {
+          this.workplate.duplicate(id);
+        }
+      },
+    },
+    {
+      actionId: 'slice',
+      shortcut: '$mod+Enter',
+      displayDescription: 'Slice the plate',
+      canMatch: () =>
+        sceneHost() !== null &&
+        this.sceneEngine.objects().length > 0 &&
+        this.slicer.status() !== 'slicing' &&
+        this.slicer.status() !== 'uploading',
+      handleAction: () => void this.slicer.slice(),
+    },
+    {
       // Before `deselect-all`, which shares the key: the first press should peel
       // the keyboard off the card, not act on the plate behind it. Tab goes in,
       // Escape comes out — Shift+Tab would work too, but only after walking back
@@ -122,91 +160,91 @@ export class KeyboardShortcuts {
       actionId: 'object-mode-translate',
       shortcut: 'm',
       displayDescription: 'Switch to translate mode',
-      canMatch: () => !this.isTextInputFocused(),
+      canMatch: () => this.onPlate(),
       handleAction: () => this.viewerControl.objectMode.set('translate'),
     },
     {
       actionId: 'object-mode-rotate',
       shortcut: 'r',
       displayDescription: 'Switch to rotate mode',
-      canMatch: () => !this.isTextInputFocused(),
+      canMatch: () => this.onPlate(),
       handleAction: () => this.viewerControl.objectMode.set('rotate'),
     },
     {
       actionId: 'object-mode-scale',
       shortcut: 's',
       displayDescription: 'Switch to scale mode',
-      canMatch: () => !this.isTextInputFocused(),
+      canMatch: () => this.onPlate(),
       handleAction: () => this.viewerControl.objectMode.set('scale'),
     },
     {
       actionId: 'object-mode-pull-to-floor',
       shortcut: 'f',
       displayDescription: 'Switch to pull-face-to-floor mode',
-      canMatch: () => !this.isTextInputFocused(),
+      canMatch: () => this.onPlate(),
       handleAction: () => this.viewerControl.objectMode.set('pullToFloor'),
     },
     {
       actionId: 'object-mode-paint',
       shortcut: 'b',
       displayDescription: 'Switch to paint-support mode',
-      canMatch: () => !this.isTextInputFocused(),
+      canMatch: () => this.onPlate(),
       handleAction: () => this.enterPaintMode(),
     },
     {
       actionId: 'brush-quick-adjust',
       shortcut: 'Shift+b',
       displayDescription: 'Brush size and mode, at the pointer',
-      canMatch: () => !this.isTextInputFocused(),
+      canMatch: () => this.onPlate(),
       handleAction: () => this.toggleBrushPopout(),
     },
     {
       actionId: 'toggle-gravity',
       shortcut: 'g',
       displayDescription: 'Toggle gravity',
-      canMatch: () => !this.isTextInputFocused(),
+      canMatch: () => this.onPlate(),
       handleAction: () => this.viewerControl.gravityEnabled.update((v) => !v),
     },
     {
       actionId: 'toggle-view-mode',
       shortcut: 'p',
       displayDescription: 'Toggle G-code preview / model view',
-      canMatch: () => !this.isTextInputFocused(),
+      canMatch: () => this.onPlate(),
       handleAction: () => this.toggleViewMode(),
     },
     {
       actionId: 'toggle-projection',
       shortcut: 'Shift+Space',
       displayDescription: 'Switch between orthographic and perspective views',
-      canMatch: () => !this.isTextInputFocused(),
+      canMatch: () => this.onPlate(),
       handleAction: () => this.toggleProjection(),
     },
     {
       actionId: 'gcode-next-extrusion',
       shortcut: 'ArrowRight',
       displayDescription: 'Next extrusion (G-code viewer)',
-      canMatch: () => this.viewerControl.viewMode() === 'gcode',
+      canMatch: () => this.onPlate() && this.viewerControl.viewMode() === 'gcode',
       handleAction: () => this.gcodeNextExtrusion(),
     },
     {
       actionId: 'gcode-prev-extrusion',
       shortcut: 'ArrowLeft',
       displayDescription: 'Previous extrusion (G-code viewer)',
-      canMatch: () => this.viewerControl.viewMode() === 'gcode',
+      canMatch: () => this.onPlate() && this.viewerControl.viewMode() === 'gcode',
       handleAction: () => this.gcodePrevExtrusion(),
     },
     {
       actionId: 'gcode-next-layer',
       shortcut: 'ArrowUp',
       displayDescription: 'Next layer (G-code viewer)',
-      canMatch: () => this.viewerControl.viewMode() === 'gcode',
+      canMatch: () => this.onPlate() && this.viewerControl.viewMode() === 'gcode',
       handleAction: () => this.gcodeNextLayer(),
     },
     {
       actionId: 'gcode-prev-layer',
       shortcut: 'ArrowDown',
       displayDescription: 'Previous layer (G-code viewer)',
-      canMatch: () => this.viewerControl.viewMode() === 'gcode',
+      canMatch: () => this.onPlate() && this.viewerControl.viewMode() === 'gcode',
       handleAction: () => this.gcodePrevLayer(),
     },
     {
@@ -341,6 +379,35 @@ export class KeyboardShortcuts {
       active === document.body ||
       (active instanceof Element && active.classList.contains('viewer-host'))
     );
+  }
+
+  /**
+   * The plate is on screen and the keyboard is not in a text field.
+   *
+   * Plate shortcuts are single keys; without the first half, pressing `p` on a
+   * settings page started a slice behind it, and without the second the G-code
+   * arrows stole the caret from the settings search.
+   */
+  private onPlate(): boolean {
+    return sceneHost() !== null && !this.isTextInputFocused();
+  }
+
+  /** A selection exists on the plate in model view and can be edited. */
+  private canEditSelection(): boolean {
+    return (
+      this.onPlate() &&
+      this.viewerControl.viewMode() === 'model' &&
+      this.viewerControl.selectedObjectIds().length > 0
+    );
+  }
+
+  /** Remove every selected object; undo brings them back. */
+  private removeSelected(): void {
+    const targets = this.viewerControl.selectedObjectIds();
+    for (const id of targets) {
+      this.workplate.remove(id);
+    }
+    this.viewerControl.selectedObjectIds.set([]);
   }
 
   private isTextInputFocused(): boolean {

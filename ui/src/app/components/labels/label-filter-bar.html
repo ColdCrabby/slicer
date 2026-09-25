@@ -5,7 +5,7 @@
       class="fb__lead"
       [class.is-clearable]="hasSelection()"
       [disabled]="!hasSelection()"
-      [attr.aria-label]="hasSelection() ? 'Clear label filter' : null"
+      [attr.aria-label]="hasSelection() ? 'Clear label filter' : 'Filter by label'"
       (click)="clear.emit()"
     >
       <nexus-icon name="filter" class="fb__lead-filter" />

@@ -1065,6 +1065,30 @@ export class Slicer {
   }
 
   /**
+   * Stop the slice in flight at the user's request.
+   *
+   * The id is dropped before the runtime is told, so the rejection the
+   * cancellation produces is read as "superseded" rather than as a failure —
+   * a stopped slice is not an error the dock should report in red. Any
+   * automatic re-slice waiting behind it is dropped too, or it would start the
+   * work the user just stopped.
+   */
+  cancelSlice(): void {
+    const sliceId = this.activeSliceId;
+    if (!sliceId) {
+      return;
+    }
+    this.activeSliceId = null;
+    this.resetAutoSlice();
+    void this.orchestrator.cancel(sliceId);
+    this.status.set(this.selectedFile() ? 'ready' : 'idle');
+    this.currentPhase.set(null);
+    this.progressFloor.set(0);
+    this.sliceStartedAt = null;
+    this.outputLog.update((log) => [...log, 'Slice cancelled.']);
+  }
+
+  /**
    * Discard the transient results of the current plate — the in-flight job,
    * slice output, progress timings, download URL and the sliced-scene
    * signatures — without touching the selected file's identity. Safe to call
