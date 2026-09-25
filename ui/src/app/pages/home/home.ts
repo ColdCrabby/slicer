@@ -220,11 +220,7 @@ export class HomeDashboard implements OnDestroy {
     this.benchyLoading.set(true);
     this.openError.set(null);
     try {
-      const response = await fetch(HomeDashboard.BENCHY_URL);
-      if (!response.ok) {
-        throw new Error(`HTTP ${response.status}`);
-      }
-      const blob = await response.blob();
+      const blob = await fetchDemoModel(HomeDashboard.BENCHY_URL);
       const file = new File([blob], '3DBenchy.stl', { type: 'model/stl' });
       const workplate = await this.slicer.startWorkplate(file);
       await this.router.navigate(['/slice', workplate.requestUuid], {
@@ -243,7 +239,14 @@ export class HomeDashboard implements OnDestroy {
 
   private toDashboardPrinter(printer: PrinterProfile): DashboardPrinter {
     const connection = printer.connection;
-    const model = `${printer.vendor} ${printer.model}`.trim();
+    // Catalog models often already carry the vendor ("Voron 2.4"), which
+    // prefixing again turned into "Voron Voron 2.4".
+    const vendor = printer.vendor?.trim() ?? '';
+    const name = printer.model?.trim() ?? '';
+    const model =
+      vendor && !name.toLowerCase().startsWith(vendor.toLowerCase())
+        ? `${vendor} ${name}`.trim()
+        : name || vendor;
     if (!connection || connection.kind === 'none') {
       return {
         id: printer.id,
@@ -262,5 +265,30 @@ export class HomeDashboard implements OnDestroy {
       statusLabel: live?.label ?? 'Not checked',
       message: live?.message,
     };
+  }
+}
+
+/**
+ * Fetch the demo model, keeping a copy so the demo still opens offline.
+ *
+ * The model lives on GitHub, which a desktop on a train or a self-hosted slicer
+ * on an air-gapped network cannot reach. The first successful fetch is stored in
+ * the Cache API; afterwards a failed fetch falls back to it.
+ */
+async function fetchDemoModel(url: string): Promise<Blob> {
+  const cache = await globalThis.caches?.open('slicer-demo-models').catch(() => undefined);
+  try {
+    const response = await fetch(url);
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}`);
+    }
+    await cache?.put(url, response.clone()).catch(() => undefined);
+    return await response.blob();
+  } catch (error) {
+    const cached = await cache?.match(url);
+    if (cached) {
+      return cached.blob();
+    }
+    throw error;
   }
 }

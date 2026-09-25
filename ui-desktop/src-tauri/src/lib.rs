@@ -48,6 +48,20 @@ pub fn run() {
         .menu(app_menu::build)
         .on_menu_event(app_menu::on_event);
 
+    // Reopen where the user left the window. Visibility is deliberately not
+    // restored: Windows and Linux create the window hidden until the web UI has
+    // painted, and restoring "visible" would show the blank WebView2 cold start
+    // that hiding it exists to avoid.
+    #[cfg(desktop)]
+    let builder = builder.plugin(
+        tauri_plugin_window_state::Builder::default()
+            .with_state_flags(
+                tauri_plugin_window_state::StateFlags::all()
+                    & !tauri_plugin_window_state::StateFlags::VISIBLE,
+            )
+            .build(),
+    );
+
     let app = builder
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_fs::init())

@@ -1,7 +1,7 @@
 @if (history.loadState() === 'pending') {
   <p class="lh-empty">Loading…</p>
 } @else if (history.isEmpty()) {
-  <p class="lh-empty">No sliced projects yet. Slice a model and it'll show up here.</p>
+  <p class="lh-empty">No plates yet. Slice a model and it'll show up here.</p>
 } @else {
   <ul class="lh-list">
     @for (session of history.sessions(); track session.request_uuid) {

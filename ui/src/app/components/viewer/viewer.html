@@ -43,7 +43,7 @@
     </nexus-inline-notice>
   }
   @if (statsVisible()) {
-    <div class="viewer-metrics" role="status" aria-live="polite" aria-label="Scene diagnostics">
+    <div class="viewer-metrics" aria-hidden="true">
       @if (fps() > 0) {
         <div class="viewer-chip">{{ fps() }} FPS</div>
       }

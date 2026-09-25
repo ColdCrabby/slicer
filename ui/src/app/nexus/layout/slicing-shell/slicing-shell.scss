@@ -215,6 +215,21 @@ $default-inset: 40px;
   }
 }
 
+// ── Compact: the object list moves into the rail column ───────────────────
+//
+// Beside a docked settings column the rail card takes nearly all of the width
+// left, and the scene column shrinks to a sliver. Anchored bottom-left of that
+// sliver, the object list spilled across the slice card's status line. Under
+// the viewport cube, at the top of the rail column, it has its own space — and
+// it starts folded here, so it stays a one-line chip until asked.
+@include compact {
+  .shell-actions-layer .objects-dock {
+    grid-area: rail;
+    place-self: start end;
+    margin: var(--spacing-xs) $default-inset 0;
+  }
+}
+
 // ── Phone: the rail becomes a bottom sheet ────────────────────────────────
 //
 // A 380px card pinned to the bottom-right corner does not fit beside a phone

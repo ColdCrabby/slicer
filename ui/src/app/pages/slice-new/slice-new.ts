@@ -1,5 +1,6 @@
 import { Component, computed, inject, signal, viewChild } from '@angular/core';
 import type { ElementRef } from '@angular/core';
+import { Arrange } from '../../services/arrange';
 import { Router } from '@angular/router';
 import { Viewer } from '../../components/viewer/viewer';
 import { PrintArea } from '../../services/print-area';
@@ -26,6 +27,13 @@ export class SliceNew {
   private dragDepth = 0;
   readonly dragActive = signal(false);
   readonly invalidDropMessage = signal<string | null>(null);
+  private readonly arrange = inject(Arrange);
+
+  /** What happens to a dropped model — read from the same settings placement uses. */
+  readonly placementNote = computed(() =>
+    this.arrange.autoOrient() ? 'Auto-oriented and dropped to the bed' : 'Dropped to the bed',
+  );
+
   readonly bedLabel = computed(() => {
     const config = this.printArea.config();
     if (config.bedShape === 'circular') {

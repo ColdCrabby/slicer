@@ -1,3 +1,4 @@
+@use 'mixins';
 @use 'breakpoints' as *;
 
 :host {
@@ -239,9 +240,11 @@
   }
 
   // Unreachable → red.
+  // A switched-off printer is an ordinary state, not a fault — neutral, like
+  // a printer with no connection. Red is kept for nothing here on purpose.
   &[data-state='offline'] {
-    background: var(--color-danger);
-    box-shadow: 0 0 0 3px var(--color-danger-light);
+    background: var(--color-text-tertiary);
+    box-shadow: 0 0 0 3px var(--color-bg-tertiary);
   }
 
   // Local-only profile or not-yet-checked → neutral (the default above).
@@ -443,4 +446,8 @@
     -webkit-line-clamp: 2;
     -webkit-box-orient: vertical;
   }
+}
+
+.visually-hidden {
+  @include mixins.visually-hidden;
 }

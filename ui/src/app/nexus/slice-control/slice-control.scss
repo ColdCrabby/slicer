@@ -106,6 +106,28 @@
     cursor: default;
   }
 
+  /* Slicing: the busy look stays, but it is the Cancel button now. */
+  &.is-busy:not(:disabled) {
+    cursor: pointer;
+
+    &:hover {
+      background: var(--color-surface-hover);
+      color: var(--color-text-primary);
+    }
+  }
+
+  /* A fresh result is waiting: the result action leads, Re-Slice steps back. */
+  &.is-quiet:not(:disabled) {
+    min-width: 0;
+    background: var(--color-surface-active);
+    color: var(--color-text-primary);
+    box-shadow: none;
+
+    &:hover {
+      background: var(--color-surface-hover);
+    }
+  }
+
   /* Stale: preview no longer matches the scene — invite (never force) a reslice. */
   &.is-stale:not(:disabled) {
     animation: cta-stale-pulse 2s var(--ease-standard) infinite;
@@ -223,6 +245,34 @@
 
     &:hover {
       color: var(--accent-hover);
+    }
+  }
+
+  &.is-primary {
+    border-color: transparent;
+    background: var(--accent);
+    box-shadow: var(--shadow-sm);
+
+    .send-action,
+    .send-caret {
+      color: var(--accent-contrast);
+
+      &:hover,
+      &:focus-visible {
+        background: var(--accent-hover);
+        color: var(--accent-contrast);
+      }
+    }
+
+    .send-action {
+      width: auto;
+      gap: var(--spacing-xs);
+      padding: 0 var(--spacing-md);
+      font-weight: var(--font-weight-semibold);
+    }
+
+    .send-caret {
+      border-left-color: color-mix(in oklab, var(--accent-contrast) 30%, transparent);
     }
   }
 
@@ -387,6 +437,10 @@
   cursor: default;
 
   --icon-size: 12px;
+
+  & + & {
+    margin-left: 0;
+  }
 }
 
 .status-dot {

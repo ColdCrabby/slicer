@@ -1,4 +1,11 @@
-import { ChangeDetectionStrategy, Component, computed, signal, inject } from '@angular/core';
+import {
+  ChangeDetectionStrategy,
+  Component,
+  Injector,
+  computed,
+  signal,
+  inject,
+} from '@angular/core';
 import { ConnectionState } from '../../components/connection-state/connection-state';
 import { Logo } from '../../components/logo/logo';
 import { WorkplateTabs } from '../../components/workplate-tabs/workplate-tabs';
@@ -6,6 +13,7 @@ import { environment } from '../../../environments/environment';
 import type { RuntimeMode } from '../../runtime/domain/runtime-mode';
 import {
   isTauriDesktop,
+  isTauriHost,
   isTauriMobile,
   resolveRuntimeMode,
 } from '../../runtime/domain/runtime-mode.util';
@@ -53,6 +61,34 @@ export function apiDocsUrlFor(mode: RuntimeMode, apiUrl: string): string | null 
 })
 export class NexusTitlebar {
   private readonly viewport = inject(Viewport);
+  private readonly injector = inject(Injector);
+
+  /**
+   * Everything that leaves the app, behind one button.
+   *
+   * These were five icons in a row, which on a phone left the plate tabs 87px
+   * and cut the plate name to two letters. A menu keeps them one click away and
+   * gives each a word instead of a glyph. The service is imported on first use
+   * so it stays out of the initial bundle, which the titlebar belongs to.
+   */
+  protected async openHelpMenu(event: MouseEvent): Promise<void> {
+    const { ContextMenuService } = await import('../../services/context-menu/context-menu.service');
+    const menu = this.injector.get(ContextMenuService);
+    const link = (label: string, icon: string, url: string) => ({
+      label,
+      icon,
+      action: () => openExternal(url),
+    });
+    const apiDocs = this.apiDocsUrl();
+    await menu.open(event, [
+      link('Documentation', 'open-book', 'https://slicer.maxscopp.de/docs/'),
+      ...(apiDocs ? [link('API reference', 'code-brackets', apiDocs)] : []),
+      link('Preset catalog', 'cloud', 'https://cloud-presets.onrender.com/'),
+      { label: '', separator: true },
+      link('Source on GitHub', 'github', 'https://github.com/ColdCrabby/slicer'),
+      link('Support my work', 'heart', 'https://github.com/sponsors/max-scopp'),
+    ]);
+  }
 
   /**
    * Drop the wordmark where the bar is tight.
@@ -127,4 +163,13 @@ export class NexusTitlebar {
     const platform = navigator.platform ?? '';
     return /Mac/i.test(platform) || /Mac OS X/i.test(navigator.userAgent);
   }
+}
+
+/** Open a link outside the app: the OS browser from a native shell, a new tab otherwise. */
+function openExternal(url: string): void {
+  if (isTauriHost()) {
+    void import('@tauri-apps/plugin-shell').then(({ open }) => open(url));
+    return;
+  }
+  window.open(url, '_blank', 'noopener,noreferrer');
 }

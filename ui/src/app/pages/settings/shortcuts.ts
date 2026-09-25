@@ -33,7 +33,20 @@ export class ShortcutsSettings {
     const alt = this.shortcuts.isMac ? '⌥' : 'Alt';
 
     return [
-      { title: 'Editing', rows: pick(['undo', 'redo', 'redo-alt', 'place-objects']) },
+      {
+        title: 'Editing',
+        rows: pick([
+          'undo',
+          'redo',
+          'redo-alt',
+          'slice',
+          'place-objects',
+          'select-all',
+          'duplicate-selected',
+          'remove-selected',
+          'remove-selected-alt',
+        ]),
+      },
       {
         title: 'Object mode',
         rows: pick([
@@ -41,6 +54,8 @@ export class ShortcutsSettings {
           'object-mode-rotate',
           'object-mode-scale',
           'object-mode-pull-to-floor',
+          'object-mode-paint',
+          'brush-quick-adjust',
         ]),
       },
       { title: 'View', rows: pick(['toggle-gravity', 'toggle-view-mode', 'toggle-projection']) },

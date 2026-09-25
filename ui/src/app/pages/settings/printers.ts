@@ -61,6 +61,7 @@ import {
   Segmented,
   Select,
   Switch,
+  InlineNotice,
 } from '@coldcrabby/ui';
 import type { FanConfig } from '../../../generated/slicer-engine-global-settings-v1';
 import { FanConfigsEditor } from '../../components/profiles/fan-configs-editor';
@@ -184,6 +185,7 @@ const PARAM_GROUPS: SchemaGroup[] = (() => {
   selector: 'nexus-settings-printers',
   imports: [
     EmptyState,
+    InlineNotice,
     Button,
     IconButton,
     TooltipDirective,
@@ -312,6 +314,12 @@ export class PrintersSettings {
       this.select(configureId);
       const target = configureTargetSelector(this.route.snapshot.queryParamMap.get('focus'));
       afterNextRender(() => focusConfigureTarget(target));
+      return;
+    }
+    // Arriving from a printer card on Home: open that printer, not the list.
+    const openId = this.route.snapshot.queryParamMap.get('id');
+    if (openId && this.store.getById(openId)) {
+      this.select(openId);
     }
   }
 

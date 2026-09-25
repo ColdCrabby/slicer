@@ -171,6 +171,18 @@ export class ThreeDViewToolbar {
   }
 
   /** Open the file picker to place more models on the current plate. */
+  /** File › Add Model from the menu bar lands here, on the same picker. */
+  private seenAddModelRequests = untracked(this.viewerControl.addModelRequests);
+  private readonly addModelRequest = effect(() => {
+    const requests = this.viewerControl.addModelRequests();
+    // Only requests made while this toolbar is on screen — a count left over
+    // from before it mounted must not pop a file picker on arrival.
+    if (requests > this.seenAddModelRequests) {
+      this.seenAddModelRequests = requests;
+      untracked(() => this.promptAddObjects());
+    }
+  });
+
   protected promptAddObjects(): void {
     this.addInput()?.nativeElement.click();
   }
@@ -203,6 +215,8 @@ export class ThreeDViewToolbar {
   }
 
   /** True once a slice result is available (either loading or fully parsed). */
+  protected readonly hasObjects = computed(() => this.sceneEngine.objects().length > 0);
+
   protected readonly hasSliceResult = computed(
     () => this.gcodePreview.gcodeHandle() !== null || this.gcodePreview.loading(),
   );

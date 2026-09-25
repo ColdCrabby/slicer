@@ -292,6 +292,27 @@ does, with three non-obvious requirements:
   `ui/src/styles/base/_reset.scss`), or its own selection callout hijacks the
   gesture.
 
+### The macOS menu bar
+
+Beside the workplate commands, [`src/app_menu.rs`](src-tauri/src/app_menu.rs)
+carries what a Mac user looks for in the menu bar: **File › Add Model…, Slice,
+Export G-code…**, **Settings…** in the app menu, and a **Help** menu.
+
+- **The menu owns no behaviour.** These items emit their name on the `app-menu`
+  event (workplate commands keep their own); [`AppMenu`](../ui/src/app/services/app-menu.ts)
+  maps it onto the code the in-app buttons already run.
+- **No key equivalent for anything the web layer binds.** A menu accelerator and
+  a web shortcut on the same keys can both fire, so Slice is in the menu without
+  ⌘↵ beside it.
+- **macOS only.** Windows and Linux draw their own frameless title bar, where a
+  native menu bar has nowhere to sit; they keep the web shortcuts and the in-app
+  Help menu.
+
+The window's size, position and maximised state come back on the next launch
+(`tauri-plugin-window-state`). Visibility is deliberately *not* restored — the
+Windows/Linux window starts hidden until the UI paints, and restoring "visible"
+would bring the blank WebView2 frame back.
+
 ### Capabilities are split by platform
 
 `capabilities/default.json` holds what every platform needs (events, dialogs,

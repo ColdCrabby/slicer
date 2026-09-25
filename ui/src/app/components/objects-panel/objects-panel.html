@@ -79,6 +79,7 @@
                 class="op-action"
                 type="button"
                 [tooltip]="'Duplicate'"
+                [attr.aria-label]="'Duplicate'"
                 (click)="duplicate(row, $event)"
               >
                 <nexus-icon name="copy"></nexus-icon>
@@ -99,6 +100,7 @@
                   class="op-action"
                   type="button"
                   [tooltip]="'Remove from plate'"
+                  [attr.aria-label]="'Remove from plate'"
                   (click)="requestDelete(row, $event)"
                 >
                   <nexus-icon name="bin"></nexus-icon>

@@ -52,7 +52,7 @@
         [attr.aria-label]="syncTooltip()"
         (click)="syncToProfile()"
       >
-        <nexus-icon name="refresh-double" aria-hidden="true" />
+        <nexus-icon name="floppy-disk-arrow-in" aria-hidden="true" />
         @if (modifiedCount() > 0) {
           <span class="sync-trigger-count" aria-hidden="true">{{ modifiedCount() }}</span>
         }
@@ -127,6 +127,13 @@
       }
     </div>
   </div>
+
+  @if (onGenericPrinter()) {
+    <nexus-inline-notice class="generic-printer-note" tone="info">
+      Sliced for a generic printer — its bed size and start G-code are a guess.
+      <a routerLink="/settings/printers/new">Add your printer</a>
+    </nexus-inline-notice>
+  }
 
   <se-schema-form
     class="settings-form"

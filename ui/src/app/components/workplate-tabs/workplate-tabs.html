@@ -3,7 +3,7 @@
   class="wp-tablist"
   data-tauri-drag-region
   role="tablist"
-  aria-label="Open workplates"
+  aria-label="Open plates"
   (wheel)="onStripWheel($event)"
 >
   @for (tab of tabs(); track tab.uuid; let i = $index) {
@@ -35,7 +35,7 @@
           (input)="onInputChanged(editInput)"
           (keydown)="onInputKeydown(tab.uuid, $event, editInput)"
           (click)="$event.stopPropagation()"
-          aria-label="Workplate name"
+          aria-label="Plate name"
           spellcheck="false"
           autocomplete="off"
         />
@@ -85,8 +85,8 @@
   size="sm"
   class="wp-tab-add"
   type="button"
-  aria-label="Open a new workplate"
-  tooltip="New workplate"
+  aria-label="Open a new plate"
+  tooltip="New plate"
   (click)="addTab()"
 >
   <nexus-icon name="plus" />

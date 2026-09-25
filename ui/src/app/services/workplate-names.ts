@@ -4,7 +4,7 @@ import { WorkplateSettingsStore } from './workplate-settings';
 
 /** Where names used to live, before they became part of the plate's document. */
 const LEGACY_STORAGE_KEY = 'workplate.names';
-const DEFAULT_WORKPLATE_NAME = 'Untitled workplate';
+const DEFAULT_WORKPLATE_NAME = 'Untitled plate';
 const DEFAULT_GCODE_FILENAME = 'output.gcode';
 const INVALID_FILENAME_CHARS = /[<>:"/\\|?*\u0000-\u001F]/g;
 const GCODE_EXTENSION = /\.(gcode|gco|g)$/i;

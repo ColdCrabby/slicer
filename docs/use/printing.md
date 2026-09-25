@@ -5,10 +5,12 @@ Once a slice succeeds, the result button bottom-right offers three things:
 - **Download G-code** — save the file and move it yourself (SD card, USB, your
   own upload).
 - **Just upload** — copy the file to the printer without starting it.
-- **Upload & print** — copy it and start immediately.
+- **Upload & print** — copy it and start the print, after you confirm.
 
 It remembers which you chose last, so the one you use most becomes the default
-click.
+click. Upload & print still asks every time, because it moves real hardware. And
+once you change anything after slicing, the button steps aside until you
+re-slice, so a file that no longer matches the plate is never sent.
 
 Downloading works everywhere and needs no setup. Uploading needs a connected
 printer.
@@ -45,10 +47,12 @@ periodically.
 | Dot | Meaning | What to do |
 | --- | --- | --- |
 | **Green** | Online | Nothing |
-| **Amber** | Checking, or the host answered with an error | Wait, or check the API key |
-| **Red** | Offline — nothing answered | Check the address, the network, and that the printer is on |
-| **Grey** | Local profile, no connection configured | Nothing, unless you meant to connect it |
-| **Purple** | Connection type not implemented yet | Download and upload manually |
+| **Amber** | Checking, the host answered with an error, or the connection type is **Not supported** yet | Wait, check the API key — or download and upload manually |
+| **Grey** | **Offline** (nothing answered), or a local profile with no connection | Check the address and that the printer is on — or nothing, if it's simply switched off |
+
+Offline is grey rather than red on purpose: a printer that's switched off isn't a
+fault. Hover a card for the reason behind its status, and click it to open that
+printer's settings.
 
 The dot reflects an actual probe, not a saved flag. If it's green, something
 answered just now.

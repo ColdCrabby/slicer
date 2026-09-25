@@ -43,6 +43,10 @@
   margin-left: auto;
 }
 
+.view-mode + .view-group--end {
+  margin-left: 0;
+}
+
 /* ── Floating pill groups ───────────────────────────────────────────────── */
 
 /* `:host` is load-bearing, not decoration. `nexus-card` styles itself with
@@ -67,6 +71,59 @@
   border: 1px solid var(--color-border-light);
   border-radius: 999px;
   box-shadow: var(--shadow-sm);
+}
+
+/* ── Model | G-code: the one control here that carries words ───────────── */
+
+:host .view-mode {
+  margin-left: auto;
+  display: inline-flex;
+  gap: 2px;
+  padding: 3px;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border-light);
+  border-radius: 999px;
+  box-shadow: var(--shadow-sm);
+}
+
+.view-mode-btn {
+  height: 34px;
+  padding: 0 var(--spacing-md);
+  border: 1px solid transparent;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-medium);
+  cursor: pointer;
+  touch-action: manipulation;
+  transition:
+    background-color var(--duration-fast) var(--ease-standard),
+    color var(--duration-fast) var(--ease-standard);
+
+  &:hover:not(:disabled) {
+    background: var(--color-surface-hover);
+    color: var(--color-text-primary);
+  }
+
+  &.active {
+    background: var(--accent-soft);
+    color: var(--accent);
+  }
+
+  &:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+  }
+
+  &:focus-visible {
+    outline: 2px solid var(--color-focus-ring);
+    outline-offset: 1px;
+  }
+
+  @include coarse-pointer {
+    height: var(--touch-target);
+  }
 }
 
 /* ── Unified icon buttons (loose actions + radio segments) ──────────────── */

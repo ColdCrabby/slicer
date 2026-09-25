@@ -690,7 +690,7 @@ Linear stack of complete `SceneSnapshot` values — no deltas, no partial patche
 | `redo()`         | step cursor forward and restore               |
 | `clear()`        | wipe the stack                                |
 
-**Restoration** issues `set_transform` ops for every object in the target snapshot and `remove` ops for objects that no longer exist. Objects that should be re-added but whose mesh bytes are no longer in memory are permanently skipped in the current implementation — re-add support requires a future mesh-byte retention layer.
+**Restoration** issues `set_transform` ops for every object in the target snapshot and `remove` ops for objects that no longer exist. An object the snapshot has but the scene lost — a removal being undone — is re-added through the reviver [`WorkplateObjects`](src/app/services/workplate-objects/workplate-objects.ts) registers, from the bytes the model registry still holds (local runtimes) or a fresh download of the upload (cloud, answered from the browser cache). The engine hands out a new id, so every stored snapshot is re-keyed to it. This is why removing an object no longer forgets its source file: the file goes when the plate is released.
 
 The baseline snapshot (`s0`) is seeded by `SceneCommand` on the very first gesture commit, so the user can always undo back to the state before any edits.
 
@@ -698,15 +698,14 @@ The baseline snapshot (`s0`) is seeded by `SceneCommand` on the very first gestu
 
 ## Keyboard Shortcuts
 
-`KeyboardShortcuts` is eagerly instantiated in `app.config.ts` and adds a single `keydown` listener to `document` for the lifetime of the app.
+`KeyboardShortcuts` is eagerly instantiated in `app.config.ts` and adds a single `keydown` listener to `document` for the lifetime of the app. The full list lives in [keyboard-shortcuts.ts](src/app/services/keyboard-shortcuts/keyboard-shortcuts.ts) and is rendered by Settings → Shortcuts; user-facing copy is [docs/use/shortcuts.md](../docs/use/shortcuts.md).
 
-| Shortcut                  | Action                                     |
-| ------------------------- | ------------------------------------------ |
-| `Ctrl+Z` (or `⌘Z`)        | Undo                                       |
-| `Ctrl+Y` (or `⌘Y`)        | Redo                                       |
-| `Ctrl+Shift+Z` (or `⌘⇧Z`) | Redo (alternate — common on macOS / Linux) |
+Two gates decide whether a shortcut may fire, and every new one should pick the right one:
 
-Shortcuts are no-ops when the corresponding history direction is unavailable (guards `canUndo` / `canRedo`). The `keydown` event is consumed with `preventDefault()` only when the shortcut fires, so browser defaults are unaffected otherwise.
+- **`isTextInputFocused()`** — never reach past a caret. This includes the G-code arrows, which used to steal ←/→ from the settings search.
+- **`onPlate()`** — the plate is on screen *and* the keyboard is not in a field. Single-key plate shortcuts (`m r s f b g p`) use it; without it `p` on a settings page started a slice behind it.
+
+The `keydown` event is consumed with `preventDefault()` only when the shortcut fires, so browser defaults are unaffected otherwise. On macOS the desktop shell also has a menu bar; its items emit ids that [`AppMenu`](src/app/services/app-menu.ts) maps onto the same code paths, and it gives no key equivalent to anything the web layer already binds, so one press never fires twice.
 
 ---
 
@@ -968,7 +967,7 @@ The UI follows the project [`.editorconfig`](.editorconfig) and is formatted wit
 - **No hand-written API types.** If a Rust struct changes, regenerate; do not patch the `.d.ts`.
 - **No bundled meshes.** Test fixtures live in `/stls` and [`/tests/fixtures`](../tests/fixtures/) at the repo root.
 - **No undo across sessions.** The `SceneHistory` stack is in-memory and is cleared on page reload or navigation. Persistence is a future concern.
-- **No undo for mesh uploads / removes.** Re-adding an object requires the original mesh bytes, which are not retained in the history stack. Only transforms are restored on undo.
+- **No undo for mesh uploads.** Adding a model is not an undoable step; removing one is.
 
 ---
 

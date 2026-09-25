@@ -70,9 +70,10 @@
     box-shadow: 0 0 0 3px var(--color-warning-light);
   }
 
+  // Switched off is ordinary, not a fault — same neutral tone as on Home.
   &[data-state='offline'] {
-    background: var(--color-danger);
-    box-shadow: 0 0 0 3px var(--color-danger-light);
+    background: var(--color-text-tertiary);
+    box-shadow: 0 0 0 3px var(--color-bg-tertiary);
   }
 }
 

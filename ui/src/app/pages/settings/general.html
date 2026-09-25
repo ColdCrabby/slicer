@@ -1,45 +1,5 @@
 <div class="settings-page">
-  <nexus-section-header heading="General" description="Application information and defaults" />
-
-  <div class="settings-card">
-    <div class="settings-field">
-      <span class="settings-field-label">
-        <span class="settings-field-title">Application</span>
-        <span class="settings-field-desc">The engine powering previews and prints.</span>
-      </span>
-      <span class="settings-value">Cold Crabby</span>
-    </div>
-    <div class="settings-field">
-      <span class="settings-field-label">
-        <span class="settings-field-title">Interface</span>
-        <span class="settings-field-desc">Where this session is running.</span>
-      </span>
-      <span class="settings-value">{{ platform }}</span>
-    </div>
-    <div class="settings-field">
-      <span class="settings-field-label">
-        <span class="settings-field-title">Version</span>
-        <span class="settings-field-desc">Current build of the app.</span>
-      </span>
-      <span class="settings-version">
-        <span class="settings-value">{{ version() }}</span>
-        <a nexusButton variant="ghost" size="sm" routerLink="/settings/changelog">What's new</a>
-      </span>
-    </div>
-    @if (commit()) {
-      <div class="settings-field">
-        <span class="settings-field-label">
-          <span class="settings-field-title">Commit</span>
-          <span class="settings-field-desc"
-            >Exact source revision this build was compiled from.</span
-          >
-        </span>
-        <a [href]="commitUrl()" target="_blank" class="settings-value settings-value-mono">
-          {{ shortCommit() }}
-        </a>
-      </div>
-    }
-  </div>
+  <nexus-section-header heading="General" description="How the app behaves" />
 
   <h2 class="subhead">Slicing</h2>
   <div class="settings-card">
@@ -47,10 +7,8 @@
       <span class="settings-field-label">
         <span class="settings-field-title">Re-slice after a change</span>
         <span class="settings-field-desc">
-          Refresh the preview on its own a moment after you move a model or change a setting,
-          instead of waiting for the Slice button. Automatic does it only while slices stay quick,
-          judged per plate, so a heavy one goes back to slicing on request while a light one keeps
-          up. {{ autoSliceNote() }}
+          Slice again on its own after a change. Automatic only does so while this plate slices
+          quickly. {{ autoSliceNote() }}
         </span>
       </span>
       <div class="segmented" role="group" aria-label="Re-slice after a change">
@@ -88,9 +46,8 @@
       <span class="settings-field-label">
         <span class="settings-field-title">Show the preview after slicing</span>
         <span class="settings-field-desc">
-          Switch the 3D view to the sliced G-code when a slice finishes. Automatic follows a slice
-          you asked for and leaves an automatic re-slice alone, so an edit in progress doesn't get
-          pulled into a view where the plate tools are hidden.
+          Switch to the G-code view when a slice finishes. Automatic does it for slices you start,
+          not for automatic ones.
         </span>
       </span>
       <div class="segmented" role="group" aria-label="Show the preview after slicing">
@@ -677,5 +634,46 @@
         </button>
       </div>
     </div>
+  </div>
+
+  <h2 class="subhead">About</h2>
+  <div class="settings-card">
+    <div class="settings-field">
+      <span class="settings-field-label">
+        <span class="settings-field-title">Application</span>
+        <span class="settings-field-desc">The engine powering previews and prints.</span>
+      </span>
+      <span class="settings-value">Cold Crabby</span>
+    </div>
+    <div class="settings-field">
+      <span class="settings-field-label">
+        <span class="settings-field-title">Interface</span>
+        <span class="settings-field-desc">Where this session is running.</span>
+      </span>
+      <span class="settings-value">{{ platform }}</span>
+    </div>
+    <div class="settings-field">
+      <span class="settings-field-label">
+        <span class="settings-field-title">Version</span>
+        <span class="settings-field-desc">Current build of the app.</span>
+      </span>
+      <span class="settings-version">
+        <span class="settings-value">{{ version() }}</span>
+        <a nexusButton variant="ghost" size="sm" routerLink="/settings/changelog">What's new</a>
+      </span>
+    </div>
+    @if (commit()) {
+      <div class="settings-field">
+        <span class="settings-field-label">
+          <span class="settings-field-title">Commit</span>
+          <span class="settings-field-desc"
+            >Exact source revision this build was compiled from.</span
+          >
+        </span>
+        <a [href]="commitUrl()" target="_blank" class="settings-value settings-value-mono">
+          {{ shortCommit() }}
+        </a>
+      </div>
+    }
   </div>
 </div>

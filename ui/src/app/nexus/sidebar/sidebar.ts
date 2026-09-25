@@ -101,7 +101,7 @@ export class Sidebar {
     () => this.collapsed() && (this.overlayOpen() || this.hoverPreview()),
   );
   /** A tap/click peek, which is the kind that needs dismissing (hover ones close themselves). */
-  private readonly isPinnedPeek = computed(() => this.collapsed() && this.overlayOpen());
+  protected readonly isPinnedPeek = computed(() => this.collapsed() && this.overlayOpen());
 
   private dragStartX = 0;
   private dragStartWidth = 0;
@@ -343,6 +343,11 @@ export class Sidebar {
     this.stopPointerWatch();
     this.hoverPreview.set(false);
     this.overlayOpen.set(true);
+  }
+
+  /** The drawer's own close button — a tap outside works too, but is not obvious. */
+  protected onDone(): void {
+    this.dismissOverlay();
   }
 
   /** Put a peek away, whichever kind it was, and stop anything that could reopen it. */

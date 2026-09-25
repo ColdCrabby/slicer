@@ -252,9 +252,9 @@ export class ViewerControl {
   /**
    * Whether scene telemetry chips (FPS/WASM/op timings) are visible.
    *
-   * Default is `true` for the beta app so diagnostics stay easy to access.
-   * Persisted to localStorage and can later be flipped to default `false`
-   * for production-focused builds.
+   * Off by default: frame rate and WASM timings are for whoever is working on
+   * the slicer, and on screen they compete with the plate for everyone else.
+   * Settings → General turns them on; the choice is persisted.
    */
   readonly statsVisible = signal(this.readStatsVisible());
 
@@ -347,9 +347,9 @@ export class ViewerControl {
    * Whether capturing the slice thumbnail plays its shutter flash and the
    * polaroid card that flies off to the top of the view.
    *
-   * On by default — it is the only feedback that the preview embedded in the
-   * G-code was actually shot, and it plays at most once per slice. Purely
-   * cosmetic, so it is a client preference and never reaches the engine.
+   * Off by default — it lands in the middle of the view, over the model, on
+   * every slice including automatic ones. Purely cosmetic, so it is a client
+   * preference and never reaches the engine.
    * Persisted.
    */
   readonly thumbnailCaptureFx = signal(this.readThumbnailCaptureFx());
@@ -402,6 +402,12 @@ export class ViewerControl {
    * read which object is selected and drive absolute-value edits against it.
    */
   readonly selectedObjectIds = signal<readonly bigint[]>([]);
+
+  /**
+   * Bumped to ask the plate's toolbar to open its "add a model" picker — the
+   * menu bar's File › Add Model. A counter, so asking twice is two requests.
+   */
+  readonly addModelRequests = signal(0);
 
   /**
    * Whether a tap adds to the selection instead of replacing it.
@@ -644,7 +650,7 @@ export class ViewerControl {
     if (raw === 'true') {
       return true;
     }
-    return true;
+    return false;
   }
 
   private readFieldOfView(): number {
@@ -716,7 +722,7 @@ export class ViewerControl {
   }
 
   private readThumbnailCaptureFx(): boolean {
-    return this.storage.get(THUMBNAIL_CAPTURE_FX_KEY)() !== 'false';
+    return this.storage.get(THUMBNAIL_CAPTURE_FX_KEY)() === 'true';
   }
 
   private readThumbnailSceneEffects(): boolean {
