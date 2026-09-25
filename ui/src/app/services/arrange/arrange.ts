@@ -1,4 +1,4 @@
-import { Injectable, computed, inject, signal } from '@angular/core';
+import { Injectable, Injector, computed, inject, signal } from '@angular/core';
 import { BrowserStorage } from '../browser-storage';
 import { ActiveSelection } from '../profiles/active-selection';
 import { SceneCommand } from '../scene-command/scene-command';
@@ -58,7 +58,19 @@ export class Arrange {
   private readonly sceneCommand = inject(SceneCommand);
   private readonly sceneEngine = inject(SceneEngine);
   private readonly activeSelection = inject(ActiveSelection);
-  private readonly slicer = inject(Slicer);
+  private readonly injector = inject(Injector);
+
+  /**
+   * The slicer, resolved on first read rather than at construction.
+   *
+   * `Slicer` injects `WorkplateObjects`, which injects this service; taking
+   * `Slicer` eagerly closes that loop and Angular refuses to build any of the
+   * three (NG0200), which leaves the whole app blank. Only the two computeds
+   * below read it, and they run long after construction has finished.
+   */
+  private get slicer(): Slicer {
+    return this.injector.get(Slicer);
+  }
 
   /**
    * Gap left between objects (mm).
