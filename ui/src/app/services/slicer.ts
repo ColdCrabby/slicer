@@ -16,6 +16,7 @@ import { RuntimeEvent } from '../runtime/ports/runtime-events';
 import { AUTO_SLICE_DELAY_MS, AutoSlice } from './auto-slice';
 import { FileExport } from './file-export';
 import { onIdle } from './idle';
+import { ObjectLibrary } from './library';
 import { ModelSourceRegistry, nativePathOf } from './model-source';
 import { NotificationService } from './notifications';
 import { ActiveSelection } from './profiles/active-selection';
@@ -92,6 +93,7 @@ export class Slicer {
   private readonly fileExport = inject(FileExport);
   private readonly autoSlice = inject(AutoSlice);
   private readonly modelSources = inject(ModelSourceRegistry);
+  private readonly library = inject(ObjectLibrary);
   private readonly runtimeMode = this.resolveRuntimeMode();
   private readonly runtime = createRuntime({
     mode: this.runtimeMode,
@@ -740,6 +742,9 @@ export class Slicer {
     // object would otherwise ride along into the new workplate.
     await this.resetWorkplate();
     this.selectFile(file);
+    // Every model that opens a plate joins the library. The cloud server
+    // records uploads itself, so this is a no-op there.
+    this.library.remember(file);
 
     if (this.runtimeMode !== 'cloud') {
       const requestUuid = this.createLocalRequestId();

@@ -65,6 +65,11 @@ export const APP_ROUTES: Routes = [
         ],
       },
       {
+        path: 'library',
+        title: 'Library',
+        loadComponent: () => import('./pages/library/library').then((m) => m.LibraryPage),
+      },
+      {
         path: 'settings',
         loadComponent: () => import('./pages/settings/settings-shell').then((m) => m.SettingsShell),
         title: 'Settings',
@@ -116,6 +121,12 @@ export const APP_ROUTES: Routes = [
             title: 'Add Print Profile',
             loadComponent: () =>
               import('./components/profiles/profile-wizard').then((m) => m.ProfileWizard),
+          },
+          {
+            path: 'library',
+            title: 'Library Settings',
+            loadComponent: () =>
+              import('./pages/settings/library').then((m) => m.LibrarySettingsPage),
           },
           {
             path: 'labels',

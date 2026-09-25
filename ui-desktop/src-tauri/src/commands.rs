@@ -193,3 +193,174 @@ pub async fn printer_send(
         Err(e) => Ok(json!({ "ok": false, "message": e, "started": false })),
     }
 }
+
+// ── Object library ────────────────────────────────────────────────────────────
+//
+// Every model that reaches a plate is recorded in the engine's library, next
+// to the profiles and workplates. The heavy commands — hashing, measuring and
+// copying models — run on a blocking thread so the webview never waits on a
+// 200 MB STL being read. Model and thumbnail bytes cross the IPC boundary raw,
+// not as a JSON array of numbers.
+
+fn library() -> slicer_engine::library::LibraryStore {
+    slicer_engine::library::LibraryStore::new()
+}
+
+async fn off_thread<T: Send + 'static>(
+    work: impl FnOnce() -> anyhow::Result<T> + Send + 'static,
+) -> Result<T, String> {
+    tauri::async_runtime::spawn_blocking(work)
+        .await
+        .map_err(|e| e.to_string())?
+        .map_err(|e| e.to_string())
+}
+
+/// The whole library, with missing files and thumbnails marked.
+#[tauri::command]
+pub async fn library_load() -> Result<Value, String> {
+    let library = off_thread(|| library().load()).await?;
+    serde_json::to_value(library).map_err(|e| e.to_string())
+}
+
+/// Replace the library settings.
+///
+/// iOS cannot reopen a path it was handed once — a picked file arrives as a
+/// throwaway copy — so the mode is clamped to `copy` there, whatever was sent.
+#[tauri::command]
+pub async fn library_save_settings(settings: Value) -> Result<Value, String> {
+    #[allow(unused_mut)]
+    let mut parsed: slicer_engine::library::LibrarySettings =
+        serde_json::from_value(settings).map_err(|e| format!("invalid library settings: {e}"))?;
+    #[cfg(target_os = "ios")]
+    {
+        parsed.mode = slicer_engine::library::StorageMode::Copy;
+        parsed.folders.clear();
+    }
+    let library = off_thread(move || library().save_settings(parsed)).await?;
+    serde_json::to_value(library).map_err(|e| e.to_string())
+}
+
+/// Rescan the library's own folder and every watched folder.
+#[tauri::command]
+pub async fn library_scan() -> Result<Value, String> {
+    let report = off_thread(|| library().scan()).await?;
+    serde_json::to_value(report).map_err(|e| e.to_string())
+}
+
+/// Record files the user has on disk. One outcome per path, in order; a file
+/// that could not be recorded answers `{ "error": … }` rather than failing the
+/// rest.
+#[tauri::command]
+pub async fn library_import_paths(paths: Vec<String>) -> Result<Value, String> {
+    off_thread(move || {
+        let store = library();
+        Ok(paths
+            .iter()
+            .map(|path| match store.import_path(std::path::Path::new(path)) {
+                Ok(outcome) => serde_json::to_value(outcome).unwrap_or(Value::Null),
+                Err(e) => json!({ "error": e.to_string() }),
+            })
+            .collect::<Vec<_>>())
+    })
+    .await
+    .map(Value::from)
+}
+
+/// Record a file that arrived as bytes. The body is the raw file; the
+/// `x-file-name` header carries its name.
+#[tauri::command]
+pub async fn library_import_bytes(request: tauri::ipc::Request<'_>) -> Result<Value, String> {
+    let name = header(&request, "x-file-name")?;
+    let tauri::ipc::InvokeBody::Raw(bytes) = request.body().clone() else {
+        return Err("library_import_bytes expects a raw body".into());
+    };
+    let outcome = off_thread(move || library().import_bytes(&name, &bytes)).await?;
+    serde_json::to_value(outcome).map_err(|e| e.to_string())
+}
+
+/// Where to read an entry from: `{ path, name, format }`, or `null` when none of
+/// its files is still there.
+#[tauri::command]
+pub async fn library_resolve(id: String) -> Result<Value, String> {
+    let resolved = off_thread(move || library().resolve(&id)).await?;
+    Ok(match resolved {
+        Some((entry, path)) => json!({
+            "path": path.to_string_lossy(),
+            "name": entry.name,
+            "format": entry.format,
+        }),
+        None => Value::Null,
+    })
+}
+
+/// Note that an entry was put on a plate.
+#[tauri::command]
+pub async fn library_touch(id: String) -> Result<bool, String> {
+    off_thread(move || library().touch(&id)).await
+}
+
+/// Rename an entry.
+#[tauri::command]
+pub async fn library_rename(id: String, name: String) -> Result<bool, String> {
+    off_thread(move || library().rename(&id, &name)).await
+}
+
+/// Forget an entry. The library's own copy goes with it; a referenced file
+/// never does.
+#[tauri::command]
+pub async fn library_remove(id: String) -> Result<bool, String> {
+    off_thread(move || library().remove(&id)).await
+}
+
+/// A stored thumbnail, raw. Empty when there is none.
+#[tauri::command]
+pub fn library_thumbnail(id: String) -> tauri::ipc::Response {
+    tauri::ipc::Response::new(library().thumbnail(&id).unwrap_or_default())
+}
+
+/// Store a thumbnail the webview rendered. The body is the PNG; the
+/// `x-entry-id` header names the entry.
+#[tauri::command]
+pub fn library_set_thumbnail(request: tauri::ipc::Request<'_>) -> Result<(), String> {
+    let id = header(&request, "x-entry-id")?;
+    let tauri::ipc::InvokeBody::Raw(png) = request.body() else {
+        return Err("library_set_thumbnail expects a raw body".into());
+    };
+    library().set_thumbnail(&id, png).map_err(|e| e.to_string())
+}
+
+/// Where the library keeps its copies — shown in settings, and on iPad the
+/// folder the Files app exposes.
+#[tauri::command]
+pub fn library_models_dir() -> String {
+    library().models_path().to_string_lossy().into_owned()
+}
+
+fn header(request: &tauri::ipc::Request<'_>, name: &str) -> Result<String, String> {
+    request
+        .headers()
+        .get(name)
+        .and_then(|v| v.to_str().ok())
+        // Header values are ASCII; the webview percent-encodes the name.
+        .map(percent_decode)
+        .filter(|v| !v.is_empty())
+        .ok_or_else(|| format!("missing '{name}' header"))
+}
+
+fn percent_decode(value: &str) -> String {
+    let bytes = value.as_bytes();
+    let mut out = Vec::with_capacity(bytes.len());
+    let mut i = 0;
+    while i < bytes.len() {
+        if bytes[i] == b'%' && i + 2 < bytes.len() {
+            if let Ok(byte) = u8::from_str_radix(&value[i + 1..i + 3], 16) {
+                out.push(byte);
+                i += 3;
+                continue;
+            }
+        }
+        out.push(bytes[i]);
+        i += 1;
+    }
+    String::from_utf8_lossy(&out).into_owned()
+}

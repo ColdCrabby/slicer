@@ -9,6 +9,15 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 /// Generic success result payload
+/// Every type the object library's surfaces exchange, under one root so a
+/// single generated file declares them all.
+#[derive(Serialize, Deserialize, JsonSchema, Debug, Clone)]
+pub struct LibraryDocument {
+    pub library: crate::library::Library,
+    pub import_outcome: crate::library::ImportOutcome,
+    pub scan_report: crate::library::ScanReport,
+}
+
 #[derive(Serialize, Deserialize, JsonSchema, Debug, Clone)]
 pub struct ResultSchema {
     pub status: String,
@@ -211,6 +220,11 @@ pub fn all_schemas() -> Vec<SchemaDefinition> {
             schema: serde_json::to_value(schemars::schema_for!(crate::workplate::WorkplateSetup))
                 .expect("failed to serialize WorkplateSetup"),
         },
+        SchemaDefinition {
+            schema_id: "slicer-engine/library-v1",
+            schema: serde_json::to_value(schemars::schema_for!(LibraryDocument))
+                .expect("failed to serialize Library"),
+        },
     ]
 }
 
@@ -221,7 +235,7 @@ mod tests {
     #[test]
     fn test_all_schemas_generates_definitions() {
         let schemas = all_schemas();
-        assert_eq!(schemas.len(), 17);
+        assert_eq!(schemas.len(), 18);
     }
 
     #[test]

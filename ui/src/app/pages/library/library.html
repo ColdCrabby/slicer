@@ -1,0 +1,200 @@
+<div
+  class="library"
+  [class.is-drag-active]="dragActive()"
+  (dragenter)="onDragEnter($event)"
+  (dragover)="onDragOver($event)"
+  (dragleave)="onDragLeave($event)"
+  (drop)="onDrop($event)"
+>
+  <div class="library-main">
+    <nexus-section-header heading="Library" description="Every model you have put on a plate">
+      @if (library.capabilities.visibleFolder || library.capabilities.watchFolders) {
+        <button
+          nexusIconButton
+          type="button"
+          aria-label="Look for new models"
+          [disabled]="library.loading()"
+          (click)="rescan()"
+        >
+          <nexus-icon name="refresh" />
+        </button>
+      }
+      <a nexusIconButton routerLink="/settings/library" aria-label="Library settings">
+        <nexus-icon name="settings" />
+      </a>
+      <button nexusButton variant="primary" size="sm" type="button" (click)="pickFiles()">
+        <nexus-icon name="plus" /> Add models
+      </button>
+    </nexus-section-header>
+    <input
+      #fileInput
+      type="file"
+      multiple
+      hidden
+      [accept]="accept"
+      (change)="onFilesPicked($event)"
+    />
+
+    @if (library.entries().length > 0) {
+      <div class="library-toolbar">
+        <label class="search">
+          <nexus-icon name="search" />
+          <input
+            type="search"
+            placeholder="Search"
+            aria-label="Search the library"
+            [value]="query()"
+            (input)="query.set($any($event.target).value)"
+          />
+        </label>
+        <nexus-segmented
+          label="Sort by"
+          [options]="sortOptions"
+          [value]="sort()"
+          (valueChange)="setSort($event)"
+        />
+      </div>
+
+      <div class="library-grid" role="listbox" aria-label="Models">
+        @for (entry of entries(); track entry.id) {
+          <nexus-library-card
+            [entry]="entry"
+            [thumbnail]="library.thumbnails().get(entry.id) ?? null"
+            [rendering]="library.rendering().has(entry.id)"
+            [selected]="selectedId() === entry.id"
+            (visible)="library.ensureThumbnail(entry)"
+            (pick)="select(entry)"
+            (activate)="addToPlate(entry)"
+          />
+        } @empty {
+          <p class="library-none">Nothing matches “{{ query() }}”.</p>
+        }
+      </div>
+    } @else if (library.loaded()) {
+      <nexus-empty-state
+        icon="book-stack"
+        heading="Your library is empty"
+        description="Every model you put on a plate is kept here, once, ready for the next plate."
+      >
+        <button nexusButton variant="primary" type="button" (click)="pickFiles()">
+          Add models
+        </button>
+      </nexus-empty-state>
+    }
+
+    @if (folderHint) {
+      <p class="library-hint">{{ folderHint }}</p>
+    }
+  </div>
+
+  @if (selected(); as entry) {
+    <aside class="library-detail" aria-label="Selected model">
+      @if (selectedMissing()) {
+        <div class="detail-missing">
+          <nexus-icon name="warning-triangle" />
+          <span>The file for this model has been moved or deleted.</span>
+        </div>
+      } @else {
+        <nexus-library-preview [file]="previewFile()" />
+      }
+
+      <input
+        class="detail-name"
+        aria-label="Name"
+        [value]="entry.name"
+        (keydown.enter)="$any($event.target).blur()"
+        (blur)="rename(entry, $event)"
+      />
+
+      <dl class="detail-facts">
+        @if (dimensions(entry); as dims) {
+          <dt>Size</dt>
+          <dd>{{ dims }}</dd>
+        }
+        @if (entry.shape; as shape) {
+          <dt>Triangles</dt>
+          <dd>{{ shape.triangles.toLocaleString() }}</dd>
+          @if (shape.parts > 1) {
+            <dt>Parts</dt>
+            <dd>{{ shape.parts }}</dd>
+          }
+        }
+        <dt>File</dt>
+        <dd>{{ entry.format.toUpperCase() }} · {{ size(entry.size) }}</dd>
+        <dt>Used</dt>
+        <dd>
+          {{
+            entry.use_count
+              ? entry.use_count + (entry.use_count === 1 ? ' time' : ' times')
+              : 'Not yet'
+          }}
+        </dd>
+        <dt>Added</dt>
+        <dd>{{ date(entry.added_at) }}</dd>
+      </dl>
+
+      @if ((entry.locations ?? []).length > 0 && library.capabilities.visibleFolder) {
+        <ul class="detail-locations" aria-label="Where this model is kept">
+          @for (location of entry.locations; track location.path) {
+            <li [class.is-missing]="location.missing">
+              <nexus-icon [name]="location.kind === 'copy' ? 'archive' : 'link'" />
+              <span class="location-text">
+                <span class="location-kind">
+                  {{ location.kind === 'copy' ? 'Copy in the library' : 'Linked file' }}
+                  @if (location.missing) {
+                    · missing
+                  }
+                </span>
+                <span class="location-path" [title]="location.path">{{ location.path }}</span>
+              </span>
+            </li>
+          }
+        </ul>
+      }
+
+      <div class="detail-actions">
+        @if (openPlate()) {
+          <button
+            nexusButton
+            variant="primary"
+            type="button"
+            [disabled]="busy() || selectedMissing()"
+            (click)="addToPlate(entry)"
+          >
+            Add to plate
+          </button>
+          <button
+            nexusButton
+            type="button"
+            [disabled]="busy() || selectedMissing()"
+            (click)="openAsPlate(entry)"
+          >
+            New plate
+          </button>
+        } @else {
+          <button
+            nexusButton
+            variant="primary"
+            type="button"
+            [disabled]="busy() || selectedMissing()"
+            (click)="openAsPlate(entry)"
+          >
+            Put on a new plate
+          </button>
+        }
+        <button
+          nexusButton
+          variant="ghost"
+          type="button"
+          class="detail-remove"
+          [class.is-confirming]="confirmingRemove()"
+          (click)="remove(entry)"
+          (blur)="confirmingRemove.set(false)"
+        >
+          <nexus-icon name="trash" />
+          {{ confirmingRemove() ? 'Confirm?' : removeLabel(entry) }}
+        </button>
+      </div>
+    </aside>
+  }
+</div>

@@ -67,6 +67,8 @@ ui/src/app/
 │   ├── slicer-file.ts                mesh upload (REST), download
 │   ├── workplate-objects/            the one way an object gets onto a plate
 │   ├── workplate-session/            the one way a plate becomes the plate on screen
+│   ├── library/                      the object library — per-runtime backends, thumbnails
+│   │                                 (three.js only through `import()`; see src/library/README.md)
 │   ├── model-source/                 object `source_id` → the file it slices from
 │   │                                 (`model-vault.ts` is the IndexedDB copy that outlives the tab)
 │   ├── upload-guard.ts               CanDeactivate guard for in-flight uploads
