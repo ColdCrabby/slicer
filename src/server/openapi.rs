@@ -224,6 +224,138 @@ const ROUTES: &[Route] = &[
         ],
     },
     Route {
+        path: "/api/library",
+        method: "get",
+        summary: "List the object library",
+        description: "Every model that has reached a plate, once. The same object \
+                      uploaded twice, or re-exported by another program, is one entry \
+                      with several locations. `missing` and `has_thumbnail` are \
+                      measured on every read.",
+        params: &[],
+        request: None,
+        responses: &[("200", "The library", Some("Library"))],
+    },
+    Route {
+        path: "/api/library/settings",
+        method: "put",
+        summary: "Change how the library keeps models",
+        description: "`mode` decides whether an import is copied into the library, \
+                      referenced where it is, or both; `folders` are directories on \
+                      the server scanned for models.",
+        params: &[],
+        request: Some("LibrarySettings"),
+        responses: &[
+            ("200", "The library, with the new settings", Some("Library")),
+            ("400", "The settings could not be stored", None),
+        ],
+    },
+    Route {
+        path: "/api/library/scan",
+        method: "post",
+        summary: "Rescan the library's folders",
+        description: "Walks the library's own folder and every watched folder. \
+                      Unchanged files are skipped unread; an entry whose only copy \
+                      was deleted is dropped.",
+        params: &[],
+        request: None,
+        responses: &[("200", "What the scan found", Some("ScanReport"))],
+    },
+    Route {
+        path: "/api/library/import",
+        method: "post",
+        summary: "Add a model to the library",
+        description: "The body is the file's raw bytes; `name` carries its file name, \
+                      whose extension says what format it is. Nothing is put on a plate.",
+        params: &[("name", "query", "File name, with extension")],
+        request: None,
+        responses: &[
+            ("200", "Which entry the file became", Some("ImportOutcome")),
+            ("400", "Not an STL, OBJ or 3MF file", None),
+        ],
+    },
+    Route {
+        path: "/api/library/{id}",
+        method: "patch",
+        summary: "Rename a library entry",
+        description: "Changes the name the library shows. Files keep their own names.",
+        params: &[("id", "path", "Entry id")],
+        request: Some("LibraryRenameRequest"),
+        responses: &[("204", "Renamed", None), ("404", "No such entry", None)],
+    },
+    Route {
+        path: "/api/library/{id}",
+        method: "delete",
+        summary: "Remove a library entry",
+        description: "Deletes the library's own copy and thumbnail. A referenced file \
+                      in a watched folder is never touched.",
+        params: &[("id", "path", "Entry id")],
+        request: None,
+        responses: &[("204", "Removed", None), ("404", "No such entry", None)],
+    },
+    Route {
+        path: "/api/library/{id}/file",
+        method: "get",
+        summary: "Download a library model",
+        description: "The bytes of the entry's first readable file, copies first.",
+        params: &[("id", "path", "Entry id")],
+        request: None,
+        responses: &[
+            ("200", "The model", None),
+            ("404", "No readable file", None),
+        ],
+    },
+    Route {
+        path: "/api/library/{id}/thumbnail",
+        method: "get",
+        summary: "A library entry's thumbnail",
+        description: "The PNG the browser rendered for this entry.",
+        params: &[("id", "path", "Entry id")],
+        request: None,
+        responses: &[("200", "The PNG", None), ("404", "None stored", None)],
+    },
+    Route {
+        path: "/api/library/{id}/thumbnail",
+        method: "put",
+        summary: "Store a library entry's thumbnail",
+        description: "The body is a PNG under 2 MB. The engine has no renderer: the \
+                      picture is drawn by the browser, from the same viewer the plate \
+                      is shown in.",
+        params: &[("id", "path", "Entry id")],
+        request: None,
+        responses: &[
+            ("204", "Stored", None),
+            ("400", "Not a PNG, too large, or no such entry", None),
+        ],
+    },
+    Route {
+        path: "/api/library/{id}/touch",
+        method: "post",
+        summary: "Count a use of a library model",
+        description: "For a client that put the model on a plate by uploading it \
+                      itself. `place` counts its own uses.",
+        params: &[("id", "path", "Entry id")],
+        request: None,
+        responses: &[("204", "Counted", None), ("404", "No such entry", None)],
+    },
+    Route {
+        path: "/api/library/{id}/place",
+        method: "post",
+        summary: "Put a library model on a plate",
+        description: "Answers exactly as an upload does: the model gets its own file \
+                      id on the plate named by `ruuid`, or on a new plate, without the \
+                      browser sending the bytes again.",
+        params: &[("id", "path", "Entry id")],
+        request: Some("LibraryPlaceRequest"),
+        responses: &[
+            (
+                "200",
+                "The plate and the new file id",
+                Some("UploadResponse"),
+            ),
+            ("404", "No readable file", None),
+        ],
+    },
+    Route {
         path: "/api/openapi.json",
         method: "get",
         summary: "This document",
@@ -343,6 +475,21 @@ fn components() -> Map<String, Value> {
     add(
         "WorkplateSetup",
         schema_for!(crate::workplate::WorkplateSetup),
+    );
+    add("Library", schema_for!(crate::library::Library));
+    add(
+        "LibrarySettings",
+        schema_for!(crate::library::LibrarySettings),
+    );
+    add("ImportOutcome", schema_for!(crate::library::ImportOutcome));
+    add("ScanReport", schema_for!(crate::library::ScanReport));
+    add(
+        "LibraryRenameRequest",
+        schema_for!(super::handlers::LibraryRenameRequest),
+    );
+    add(
+        "LibraryPlaceRequest",
+        schema_for!(super::handlers::LibraryPlaceRequest),
     );
     add(
         "ClientMessage",

@@ -15,12 +15,14 @@ import { ObjectsPanel } from '../../../components/objects-panel/objects-panel';
 import { PaintPanel } from '../../../components/paint-panel/paint-panel';
 import { PlacementPanel } from '../../../components/placement-panel/placement-panel';
 import { SettingsPanel } from '../../../components/settings-panel/settings-panel';
+import { LibraryFlyout } from '../../../components/library/library-flyout';
 import { GcodeTextPanel } from '../../../components/gcode-text-panel/gcode-text-panel';
 import { SliceSegmentBar } from '../../../components/slice-segment-bar/slice-segment-bar';
 import { SceneNotices } from '../../../components/notices/scene-notices/scene-notices';
 import { TransformPanel } from '../../../components/transform-panel/transform-panel';
 import { ViewportCube } from '../../../components/viewport-cube/viewport-cube';
 import { GcodePreview } from '../../../services/gcode-preview';
+import { LibraryFlyout as LibraryFlyoutState } from '../../../services/library/library-flyout';
 import { PrintArea } from '../../../services/print-area';
 import { ActiveSelection } from '../../../services/profiles/active-selection';
 import { SceneEngine } from '../../../services/scene-engine';
@@ -35,6 +37,7 @@ import { SliceControl } from '../../slice-control/slice-control';
     SliceControl,
     SliceSegmentBar,
     GcodeTextPanel,
+    LibraryFlyout,
     SceneNotices,
     ThreeDViewToolbar,
     ObjectsPanel,
@@ -56,6 +59,7 @@ export class NexusSlicingShell {
   private readonly sceneEngine = inject(SceneEngine);
   private readonly viewerControl = inject(ViewerControl);
   private readonly preview = inject(GcodePreview);
+  protected readonly libraryFlyout = inject(LibraryFlyoutState);
 
   /**
    * The G-code text column is only docked once there is a file to read. Without

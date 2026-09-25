@@ -65,6 +65,11 @@ export const APP_ROUTES: Routes = [
         ],
       },
       {
+        path: 'library',
+        title: 'Library',
+        loadComponent: () => import('./pages/library/library').then((m) => m.LibraryPage),
+      },
+      {
         path: 'settings',
         loadComponent: () => import('./pages/settings/settings-shell').then((m) => m.SettingsShell),
         title: 'Settings',

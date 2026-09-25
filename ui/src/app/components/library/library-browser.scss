@@ -1,0 +1,104 @@
+@use 'breakpoints' as *;
+
+:host {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-lg);
+  min-height: 0;
+}
+
+:host(.is-flyout) {
+  gap: var(--spacing-md);
+}
+
+.browser-toolbar {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+}
+
+.browser-search {
+  flex: 1 1 220px;
+  max-width: 360px;
+
+  :host(.is-flyout) & {
+    max-width: none;
+  }
+
+  @include coarse-pointer {
+    height: var(--touch-target);
+  }
+}
+
+// A quiet button that says what the order is, not a row of tabs competing
+// with the grid for attention. The order is chosen once and rarely changed.
+.browser-sort {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--spacing-xs);
+  height: 34px;
+  padding: 0 var(--spacing-sm);
+  border: 0;
+  border-radius: var(--radius-md);
+  background: transparent;
+  font: inherit;
+  font-size: var(--font-size-sm);
+  color: var(--color-text-secondary);
+  cursor: pointer;
+  --icon-size: 16px;
+  transition: background var(--duration-fast) var(--ease-standard);
+
+  &:hover {
+    background: var(--color-surface-hover);
+    color: var(--color-text-primary);
+  }
+
+  &:focus-visible {
+    outline: 2px solid var(--color-focus-ring);
+    outline-offset: 1px;
+  }
+
+  @include coarse-pointer {
+    height: var(--touch-target);
+  }
+}
+
+// Beside a plate there is no room to spell the order out; the icon and the
+// menu's check mark say it.
+:host(.is-flyout) .browser-sort-label {
+  display: none;
+}
+
+.browser-sort-caret {
+  --icon-size: 12px;
+  color: var(--color-text-tertiary);
+}
+
+.browser-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(148px, 1fr));
+  gap: var(--spacing-md);
+
+  :host(.is-flyout) & {
+    grid-template-columns: repeat(auto-fill, minmax(112px, 1fr));
+    gap: var(--spacing-sm);
+  }
+
+  @include handheld {
+    grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+    gap: var(--spacing-sm);
+  }
+}
+
+.browser-none {
+  grid-column: 1 / -1;
+  margin: 0;
+  font-size: var(--font-size-sm);
+  color: var(--color-text-tertiary);
+}
+
+.browser-sentinel {
+  grid-column: 1 / -1;
+  height: 1px;
+}

@@ -1,4 +1,4 @@
-import { Injectable, computed, inject, signal } from '@angular/core';
+import { Injectable, Injector, computed, inject, signal } from '@angular/core';
 import { BrowserStorage } from '../browser-storage';
 import { ActiveSelection } from '../profiles/active-selection';
 import { SceneCommand } from '../scene-command/scene-command';
@@ -58,7 +58,15 @@ export class Arrange {
   private readonly sceneCommand = inject(SceneCommand);
   private readonly sceneEngine = inject(SceneEngine);
   private readonly activeSelection = inject(ActiveSelection);
-  private readonly slicer = inject(Slicer);
+  /**
+   * Resolved on first read, not at construction: `Slicer` injects
+   * `WorkplateObjects`, which injects this, so a field `inject(Slicer)` is a
+   * dependency cycle the moment either is constructed first.
+   */
+  private readonly injector = inject(Injector);
+  private get slicer(): Slicer {
+    return this.injector.get(Slicer);
+  }
 
   /**
    * Gap left between objects (mm).
