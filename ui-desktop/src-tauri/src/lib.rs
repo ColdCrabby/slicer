@@ -20,6 +20,9 @@ mod native_dialog;
 /// Models the OS hands us — "Open with Cold Crabby".
 mod open_with;
 mod system_accent;
+/// Centres the macOS traffic lights in the web title bar.
+#[cfg(target_os = "macos")]
+mod traffic_lights;
 
 /// Build and run the Tauri application.
 ///
@@ -55,6 +58,12 @@ pub fn run() {
             // decorated window to correct.
             #[cfg(desktop)]
             {
+                // macOS builds its window here rather than from config: the
+                // traffic-light offset has to be measured first (see
+                // traffic_lights.rs).
+                #[cfg(target_os = "macos")]
+                traffic_lights::create_main_window(_app)?;
+
                 // macOS keeps native decorations (`titleBarStyle: Overlay`, so
                 // the traffic lights overlay our custom title bar) and shows the
                 // window from the start — WKWebView paints fast enough that there
