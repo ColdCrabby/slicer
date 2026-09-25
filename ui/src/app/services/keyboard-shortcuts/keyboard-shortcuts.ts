@@ -9,6 +9,7 @@ import { SceneEngine } from '../scene-engine';
 import { SceneHistory } from '../scene-history/scene-history';
 import { Slicer } from '../slicer';
 import { ViewerControl } from '../viewer-control';
+import { isTauriHost, isTauriMobile } from '../../runtime/domain/runtime-mode.util';
 
 export interface ShortcutConfig {
   actionId: string;
@@ -225,6 +226,14 @@ export class KeyboardShortcuts {
       canMatch: () => this.settingsSearchRef !== null,
       handleAction: () => this.settingsSearchRef!.focusSearch(),
     },
+    {
+      actionId: 'search-tabs',
+      shortcut: '$mod+Shift+a',
+      displayDescription: 'Search open workplates',
+      canMatch: () => this.tabStripRef !== null,
+      handleAction: () => this.tabStripRef!.toggleSearch(),
+    },
+    ...this.workplateTabShortcuts(),
   ].map((s) => ({ ...s, _parsed: parseKeybinding(s.shortcut) }));
 
   /**
@@ -236,6 +245,9 @@ export class KeyboardShortcuts {
    * serves both and `$mod+f` means the same thing wherever the user is.
    */
   settingsSearchRef: { focusSearch(): void } | null = null;
+
+  /** The titlebar's workplate tab strip, which every tab shortcut drives. */
+  tabStripRef: WorkplateTabStrip | null = null;
 
   constructor() {
     fromEvent<KeyboardEvent>(document, 'keydown')
@@ -251,6 +263,87 @@ export class KeyboardShortcuts {
   }
 
   /**
+   * The browser's own tab keys, wherever the page can actually have them.
+   *
+   * In the desktop and iPad apps `$mod+W`, `$mod+T` and friends reach the
+   * webview like any other key, so they mean what they mean in every tabbed
+   * app. A browser keeps them for its own tabs — `Ctrl+W` closes the *browser*
+   * tab and no page can stop it — so the web build answers the same actions on
+   * `Alt` instead, and warns before the page is left (see `WorkplateTabs`).
+   *
+   * On the Mac desktop app the close/new/reopen keys belong to the native menu
+   * bar (`ui-desktop/src-tauri/src/app_menu.rs`), which forwards them here as
+   * events; answering the keydown too would run each of them twice.
+   */
+  private workplateTabShortcuts(): ShortcutConfig[] {
+    const native = isTauriHost();
+    const menuOwnsKeys = native && !isTauriMobile() && this.isMac;
+    const strip = (): WorkplateTabStrip | null => this.tabStripRef;
+    // The `Alt` fallbacks are letters a text field would otherwise type (⌥W is
+    // "∑" on a Mac), so they stand down while typing; `$mod` chords never type.
+    const whenFree = (): boolean => strip() !== null && (native || !this.isTextInputFocused());
+
+    const configs: (ShortcutConfig | false)[] = [
+      !menuOwnsKeys && {
+        actionId: 'workplate-close',
+        shortcut: native ? '$mod+w' : 'Alt+KeyW',
+        displayDescription: 'Close workplate',
+        canMatch: whenFree,
+        handleAction: () => void strip()!.closeActive(),
+      },
+      !menuOwnsKeys && {
+        actionId: 'workplate-close-all',
+        shortcut: native ? '$mod+Shift+w' : 'Alt+Shift+KeyW',
+        displayDescription: 'Close all workplates',
+        canMatch: whenFree,
+        handleAction: () => void strip()!.closeAll(),
+      },
+      !menuOwnsKeys && {
+        actionId: 'workplate-new',
+        shortcut: native ? '$mod+t' : 'Alt+KeyT',
+        displayDescription: 'New workplate',
+        canMatch: whenFree,
+        handleAction: () => void strip()!.addTab(),
+      },
+      !menuOwnsKeys && {
+        actionId: 'workplate-reopen',
+        shortcut: native ? '$mod+Shift+t' : 'Alt+Shift+KeyT',
+        displayDescription: 'Reopen closed workplate',
+        canMatch: whenFree,
+        handleAction: () => strip()!.reopenClosed(),
+      },
+      {
+        actionId: 'workplate-next',
+        shortcut: native ? 'Control+Tab' : 'Alt+Shift+ArrowRight',
+        displayDescription: 'Next workplate',
+        canMatch: whenFree,
+        handleAction: () => strip()!.cycle(1),
+      },
+      {
+        actionId: 'workplate-previous',
+        shortcut: native ? 'Control+Shift+Tab' : 'Alt+Shift+ArrowLeft',
+        displayDescription: 'Previous workplate',
+        canMatch: whenFree,
+        handleAction: () => strip()!.cycle(-1),
+      },
+    ];
+    // `$mod+1`…`$mod+8` pick a tab by position and `$mod+9` the last, as in a
+    // browser. Desktop only: the browser keeps these for its own tabs too.
+    if (native) {
+      for (let n = 1; n <= 9; n++) {
+        configs.push({
+          actionId: `workplate-select-${n}`,
+          shortcut: `$mod+Digit${n}`,
+          displayDescription: n === 9 ? 'Go to the last workplate' : `Go to workplate ${n}`,
+          canMatch: whenFree,
+          handleAction: () => strip()!.activateIndex(n === 9 ? -1 : n - 1),
+        });
+      }
+    }
+    return configs.filter((config): config is ShortcutConfig => config !== false);
+  }
+
+  /**
    * Returns a human-readable shortcut label for the given action ID,
    * or `'unset'` if no shortcut is registered.
    *
@@ -262,7 +355,15 @@ export class KeyboardShortcuts {
       return 'unset';
     }
     const isApplePlatform = this.isApplePlatform();
-    return config.shortcut.replace(/\$mod/g, isApplePlatform ? '⌘' : 'Ctrl');
+    return (
+      config.shortcut
+        .replace(/\$mod/g, isApplePlatform ? '⌘' : 'Ctrl')
+        // Physical-key names are how a binding survives ⌥ turning W into ∑;
+        // nobody reads a key cap as "KeyW".
+        .replace(/\b(?:Key|Digit)(\w)\b/g, '$1')
+        .replace(/\bAlt\b/g, isApplePlatform ? '⌥' : 'Alt')
+        .replace(/\bControl\b/g, isApplePlatform ? '⌃' : 'Ctrl')
+    );
   }
 
   /** Returns all registered shortcuts as plain data for display in a panel. */
@@ -459,6 +560,19 @@ const NON_TYPING_INPUT_TYPES = new Set([
   'image',
   'file',
 ]);
+
+/** What the tab shortcuts drive — implemented by the titlebar's `WorkplateTabs`. */
+export interface WorkplateTabStrip {
+  toggleSearch(): void;
+  closeActive(): Promise<void>;
+  closeAll(): Promise<void>;
+  addTab(): Promise<void>;
+  reopenClosed(): void;
+  /** Move to the next (`1`) or previous (`-1`) tab, wrapping at the ends. */
+  cycle(step: 1 | -1): void;
+  /** Switch to the tab at `index`; negative counts from the end. */
+  activateIndex(index: number): void;
+}
 
 /** An `<input>`'s effective type, lower-cased; missing or unknown reads as text. */
 function inputTypeOf(element: HTMLElement): string {

@@ -1,8 +1,14 @@
+import { CdkConnectedOverlay, CdkOverlayOrigin } from '@angular/cdk/overlay';
+import type { ConnectedPosition } from '@angular/cdk/overlay';
 import {
   ChangeDetectionStrategy,
   ChangeDetectorRef,
   Component,
+  DestroyRef,
   ElementRef,
+  afterNextRender,
+  afterRenderEffect,
+  computed,
   effect,
   inject,
   signal,
@@ -15,27 +21,46 @@ import { Slicer } from '../../services/slicer';
 import { WorkplateSession } from '../../services/workplate-session';
 import { WorkplateNames } from '../../services/workplate-names';
 import { ContextMenuService } from '../../services/context-menu/context-menu.service';
+import {
+  KeyboardShortcuts,
+  type WorkplateTabStrip,
+} from '../../services/keyboard-shortcuts/keyboard-shortcuts';
+import { isTauriHost } from '../../runtime/domain/runtime-mode.util';
 import { ContextMenuTrigger } from '../../services/context-menu/context-menu-trigger';
 import type { ContextMenuItem } from '../../services/context-menu/context-menu.model';
 import { Icon, IconButton, TooltipDirective } from '@coldcrabby/ui';
+import { TabSearchEntry, WorkplateTabSearch } from './workplate-tab-search';
 
 /**
  * Open-workplate tab strip shown in the titlebar, replacing the single
  * editable plate-name field. Each tab is an independently renamed, switchable
- * workplate (see {@link OpenWorkplates}); the `+` opens a fresh one.
+ * workplate (see {@link OpenWorkplates}); the `+` opens a fresh one, and the
+ * chevron beside it lists every open workplate with a search box, for when there
+ * are more than the strip can show.
  */
 @Component({
   selector: 'nexus-workplate-tabs',
-  imports: [Icon, IconButton, TooltipDirective, ContextMenuTrigger],
+  imports: [
+    Icon,
+    IconButton,
+    TooltipDirective,
+    ContextMenuTrigger,
+    CdkOverlayOrigin,
+    CdkConnectedOverlay,
+    WorkplateTabSearch,
+  ],
   templateUrl: './workplate-tabs.html',
   styleUrl: './workplate-tabs.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
   host: {
     class: 'nexus-workplate-tabs',
+    // The band above the tabs is titlebar too. Tauri only drags from the
+    // element that carries the attribute, so the tabs themselves stay clickable.
+    'data-tauri-drag-region': '',
     '[hidden]': 'tabs().length === 0 && !isNewPlate()',
   },
 })
-export class WorkplateTabs {
+export class WorkplateTabs implements WorkplateTabStrip {
   private readonly router = inject(Router);
   private readonly slicer = inject(Slicer);
   private readonly names = inject(WorkplateNames);
@@ -43,15 +68,38 @@ export class WorkplateTabs {
   private readonly session = inject(WorkplateSession);
   private readonly contextMenu = inject(ContextMenuService);
   private readonly cdr = inject(ChangeDetectorRef);
+  private readonly shortcuts = inject(KeyboardShortcuts);
 
   readonly tabs = this.openWorkplates.tabs;
   readonly activeUuid = this.openWorkplates.activeUuid;
   readonly isNewPlate = this.openWorkplates.isNewPlate;
+  /** Whether the tab search list is open. */
+  readonly searchOpen = signal(false);
+  protected readonly searchShortcut = this.shortcuts.shortcutFor('search-tabs');
+
+  /** Every open tab as the search list shows it — by the name the strip shows. */
+  protected readonly searchEntries = computed<TabSearchEntry[]>(() =>
+    this.tabs().map((tab) => {
+      const name = this.nameFor(tab) || this.placeholderFor(tab);
+      // The derived name *is* the filename's stem; repeating it under itself
+      // says nothing. It earns the second line once the workplate is renamed.
+      const stem = tab.filename?.replace(/\.[^.]+$/, '');
+      return { uuid: tab.uuid, name, filename: stem === name ? null : tab.filename };
+    }),
+  );
+
+  /** Drop below the chevron, right-aligned to it, or above it if there is no room. */
+  protected readonly searchPositions: ConnectedPosition[] = [
+    { originX: 'end', originY: 'bottom', overlayX: 'end', overlayY: 'top', offsetY: 4 },
+    { originX: 'start', originY: 'bottom', overlayX: 'start', overlayY: 'top', offsetY: 4 },
+  ];
+
   /** UUID of the tab whose name is currently being edited, if any. */
   readonly editingUuid = signal<string | null>(null);
 
   private readonly editInput = viewChild<ElementRef<HTMLInputElement>>('editInput');
   private readonly tabEls = viewChildren<ElementRef<HTMLElement>>('tabEl');
+  private readonly tablist = viewChild.required<ElementRef<HTMLElement>>('tablist');
 
   /**
    * Width the label occupied when editing began, in px.
@@ -87,6 +135,196 @@ export class WorkplateTabs {
         this.focusEditor();
       }
     });
+
+    // Once the strip overflows, the workplate on screen can sit scrolled out of
+    // sight — switched to from the search list, a deep link or Home. Bring its
+    // tab back into view whenever it changes, once the strip has rendered it,
+    // and again whenever the strip itself changes width: the titlebar settles
+    // after first render, and a narrower strip can push the tab back out.
+    afterRenderEffect(() => {
+      this.activeUuid();
+      this.tabEls();
+      this.revealActiveTab();
+    });
+    const resize = new ResizeObserver(() => this.revealActiveTab());
+    afterNextRender(() => resize.observe(this.tablist().nativeElement));
+
+    // The tab keys reach the strip through the shortcut registry, the same
+    // single-slot idiom the settings search uses for `$mod+f`.
+    this.shortcuts.tabStripRef = this;
+    const destroyRef = inject(DestroyRef);
+    destroyRef.onDestroy(() => {
+      resize.disconnect();
+      if (this.shortcuts.tabStripRef === this) {
+        this.shortcuts.tabStripRef = null;
+      }
+    });
+
+    if (isTauriHost()) {
+      void this.listenToAppMenu(destroyRef);
+    } else {
+      this.guardLeavingThePage(destroyRef);
+    }
+  }
+
+  /**
+   * On the web, `Ctrl+W` closes the *browser* tab — no page can intercept it —
+   * and muscle memory from the desktop app will press it. While workplates are
+   * open, ask before the page goes, so that slip costs a click rather than the
+   * whole session. The browser words the question itself; a page only gets to
+   * say whether to ask.
+   */
+  private guardLeavingThePage(destroyRef: DestroyRef): void {
+    const onBeforeUnload = (event: BeforeUnloadEvent): void => {
+      if (this.tabs().length > 0) {
+        event.preventDefault();
+      }
+    };
+    window.addEventListener('beforeunload', onBeforeUnload);
+    destroyRef.onDestroy(() => window.removeEventListener('beforeunload', onBeforeUnload));
+  }
+
+  /**
+   * The Mac app's File menu carries New, Close, Close All and Reopen for
+   * workplates — so the keys show up where a Mac user looks for them, and
+   * `⌘W` closes a workplate instead of the window. The menu forwards each
+   * choice here. Elsewhere nothing emits this event and the listener idles.
+   */
+  private async listenToAppMenu(destroyRef: DestroyRef): Promise<void> {
+    try {
+      const { listen } = await import('@tauri-apps/api/event');
+      const unlisten = await listen<string>('workplate-menu', ({ payload }) => {
+        switch (payload) {
+          case 'new':
+            void this.addTab();
+            break;
+          case 'close':
+            void this.closeActive();
+            break;
+          case 'close-all':
+            void this.closeAll();
+            break;
+          case 'reopen':
+            this.reopenClosed();
+            break;
+        }
+      });
+      destroyRef.onDestroy(unlisten);
+    } catch {
+      // No event API (a trimmed-down host) — the keydown shortcuts still work.
+    }
+  }
+
+  /**
+   * Close the workplate on screen. On the draft a `+` opened, "close" means
+   * give up on it and go back to the last real tab, as closing a browser's new
+   * tab does.
+   */
+  async closeActive(): Promise<void> {
+    const uuid = this.activeUuid();
+    if (uuid) {
+      await this.closeTab(uuid);
+      return;
+    }
+    const last = this.tabs().at(-1);
+    if (this.isNewPlate() && last) {
+      this.activate(last.uuid);
+    }
+  }
+
+  reopenClosed(): void {
+    this.openWorkplates.reopenLast();
+  }
+
+  cycle(step: 1 | -1): void {
+    const tabs = this.tabs();
+    if (tabs.length === 0) {
+      return;
+    }
+    const index = tabs.findIndex((tab) => tab.uuid === this.activeUuid());
+    // From the draft (no tab of its own), forward lands on the first tab and
+    // back on the last — it sits past the end of the strip.
+    const next = index === -1 ? (step === 1 ? 0 : tabs.length - 1) : index + step;
+    this.activate(tabs[(next + tabs.length) % tabs.length].uuid);
+  }
+
+  activateIndex(index: number): void {
+    const tab = this.tabs().at(index);
+    if (tab) {
+      this.activate(tab.uuid);
+    }
+  }
+
+  /** Open the tab search list, or close it if it is already open. */
+  toggleSearch(): void {
+    if (this.tabs().length === 0) {
+      return;
+    }
+    this.searchOpen.update((open) => !open);
+  }
+
+  /**
+   * A click anywhere but the list closes it — except on the chevron, whose own
+   * click toggles it. Closing here too would have that click reopen the list.
+   */
+  onSearchOutsideClick(event: MouseEvent, trigger: CdkOverlayOrigin): void {
+    if (!trigger.elementRef.nativeElement.contains(event.target as Node)) {
+      this.searchOpen.set(false);
+    }
+  }
+
+  /** Close the list from the keyboard, handing focus back to the chevron. */
+  dismissSearch(trigger: CdkOverlayOrigin): void {
+    this.searchOpen.set(false);
+    (trigger.elementRef.nativeElement as HTMLElement).focus();
+  }
+
+  /** Switch to the workplate picked in the search list. */
+  pickFromSearch(uuid: string): void {
+    this.searchOpen.set(false);
+    this.activate(uuid);
+  }
+
+  private revealActiveTab(): void {
+    const uuid = this.activeUuid();
+    this.tabEls()
+      .map((ref) => ref.nativeElement)
+      .find((el) => el.getAttribute('data-uuid') === uuid)
+      ?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+  }
+
+  /**
+   * Middle-click closes a tab, as it does in every browser. The `mousedown`
+   * half stops the middle button's autoscroll from starting on Windows/Linux.
+   */
+  onTabMouseDown(event: MouseEvent): void {
+    if (event.button === 1) {
+      event.preventDefault();
+    }
+  }
+
+  onTabAuxClick(uuid: string, event: MouseEvent): void {
+    if (event.button === 1) {
+      event.preventDefault();
+      void this.closeTab(uuid, event);
+    }
+  }
+
+  /**
+   * A mouse wheel only scrolls vertically, and the strip only scrolls
+   * sideways — so without this an overflowing strip could be scrolled by a
+   * trackpad but not by a mouse. Horizontal input is left to the browser.
+   */
+  onStripWheel(event: WheelEvent): void {
+    const strip = this.tablist().nativeElement;
+    if (
+      strip.scrollWidth <= strip.clientWidth ||
+      Math.abs(event.deltaY) <= Math.abs(event.deltaX)
+    ) {
+      return;
+    }
+    event.preventDefault();
+    strip.scrollLeft += event.deltaY;
   }
 
   /** The stored custom name, if the tab was renamed. */
@@ -285,7 +523,19 @@ export class WorkplateTabs {
         action: () => this.closeOthers(uuid),
         disabled: this.tabs().length <= 1,
       },
+      {
+        label: 'Close Tabs to the Right',
+        action: () => this.openWorkplates.closeToTheRightOf(uuid),
+        disabled: this.tabs().at(-1)?.uuid === uuid,
+      },
       { label: 'Close All Tabs', action: () => void this.closeAll() },
+      { separator: true, label: '' },
+      {
+        label: 'Search Open Workplates…',
+        icon: 'search',
+        action: () => this.searchOpen.set(true),
+        disabled: this.tabs().length <= 1,
+      },
     ];
     void this.contextMenu.open(event, items);
   }
