@@ -5,7 +5,9 @@ import {
   ColorPickerPreference,
   type ColorPickerMode,
 } from '../../services/color-picker-preference';
-import { Icon, SectionHeader } from '@coldcrabby/ui';
+import { SectionHeader, Segmented, TooltipDirective, type SegmentOption } from '@coldcrabby/ui';
+import { PrefRow } from './prefs/pref-row';
+import { landOnFragment } from './prefs/land-on-fragment';
 
 type ThemeMode = 'light' | 'dark' | 'system';
 
@@ -16,7 +18,7 @@ interface AccentPreset {
 
 @Component({
   selector: 'nexus-settings-appearance',
-  imports: [SectionHeader, Icon],
+  imports: [SectionHeader, Segmented, TooltipDirective, PrefRow],
   templateUrl: './appearance.html',
   styleUrl: './appearance.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -26,13 +28,13 @@ export class AppearanceSettings {
   protected readonly accent = inject(AccentService);
   protected readonly colorPicker = inject(ColorPickerPreference);
 
-  protected readonly themeModes: { value: ThemeMode; label: string }[] = [
+  protected readonly themeModes: SegmentOption[] = [
     { value: 'light', label: 'Light' },
     { value: 'dark', label: 'Dark' },
     { value: 'system', label: 'System' },
   ];
 
-  protected readonly colorPickerModes: { value: ColorPickerMode; label: string }[] = [
+  protected readonly colorPickerModes: SegmentOption[] = [
     { value: 'app', label: 'Prefer app' },
     { value: 'os', label: 'Prefer OS' },
     { value: 'auto', label: 'Auto' },
@@ -68,7 +70,30 @@ export class AppearanceSettings {
     this.accent.source() === 'custom' ? this.accent.customAccent() : null,
   );
 
-  setTheme(mode: ThemeMode): void {
+  /** The accent in use, by name — the swatches alone cannot say "Brand". */
+  protected readonly accentHint = computed(() => {
+    switch (this.accent.source()) {
+      case 'brand':
+        return 'Molten amber, the brand default.';
+      case 'system':
+        return "Following your system's accent colour.";
+      default: {
+        const preset = this.presets.find((p) => p.hex === this.accent.customAccent());
+        return preset ? `${preset.name}, everywhere the app highlights something.` : '';
+      }
+    }
+  });
+
+  constructor() {
+    landOnFragment();
+  }
+
+  setColorPicker(mode: string): void {
+    this.colorPicker.setMode(mode as ColorPickerMode);
+  }
+
+  setTheme(value: string): void {
+    const mode = value as ThemeMode;
     if (mode === 'system') {
       this.theme.useSystemTheme();
     } else {

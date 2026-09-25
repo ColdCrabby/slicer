@@ -36,65 +36,105 @@
     </button>
   }
 
-  <nav class="profile-outline__body" aria-label="Settings outline">
-    @for (section of rows(); track section.id) {
+  <nav
+    #railBody
+    class="profile-outline__body"
+    aria-label="Settings outline"
+    (wheel)="handsOn()"
+    (pointerdown)="handsOn()"
+    (touchstart)="handsOn()"
+    (focusin)="handsOn()"
+  >
+    <div #railList class="profile-outline__list">
       <!--
-        One target, and it folds. The section row used to also scroll the editor
-        to itself, which made reading the map and moving about it the same
-        gesture — you could not open a section to see what was in it without
-        being taken there. The settings under it are what navigate.
+        The line and the window on it. Decorative: the rows themselves carry
+        every name and every action, so a screen reader loses nothing it needs.
       -->
-      <button
-        type="button"
-        class="profile-outline__section-row"
-        [class.is-current]="section.id === currentId()"
-        [class.is-in-view]="inView().has(section.id)"
-        [attr.aria-expanded]="isExpanded(section.id)"
-        [disabled]="!section.entries.length || !!query()"
-        (click)="toggle(section.id)"
+      <svg
+        class="profile-outline__graph"
+        aria-hidden="true"
+        focusable="false"
+        [attr.width]="graphWidth"
+        [attr.height]="railHeight()"
+        [attr.viewBox]="'0 0 ' + graphWidth + ' ' + railHeight()"
       >
-        <span class="profile-outline__twisty">
-          @if (section.entries.length) {
-            <nexus-icon
-              [name]="isExpanded(section.id) ? 'nav-arrow-down' : 'nav-arrow-right'"
-              aria-hidden="true"
-            />
-          }
-        </span>
-        <span class="profile-outline__section">
-          <span>{{ section.title }}</span>
+        <path class="profile-outline__track" [attr.d]="trackPath()" />
+        @if (windowPath()) {
+          <path class="profile-outline__lens" [attr.d]="windowPath()" />
+          <path class="profile-outline__window" [attr.d]="windowPath()" />
+        }
+        @for (node of nodes(); track node.id) {
+          <circle
+            class="profile-outline__node"
+            [class.is-in-window]="node.inWindow"
+            [class.is-current]="node.current"
+            [attr.cx]="lanes[0]"
+            [attr.cy]="node.cy"
+            r="3.5"
+          />
+        }
+      </svg>
+
+      @for (section of rows(); track section.id) {
+        <!--
+          One target, and it folds. The section row used to also scroll the
+          editor to itself, which made reading the map and moving about it the
+          same gesture — you could not open a section to see what was in it
+          without being taken there. The settings under it are what navigate.
+        -->
+        <button
+          type="button"
+          class="profile-outline__section-row"
+          [attr.data-row]="section.id"
+          data-depth="0"
+          [class.is-current]="section.id === currentId()"
+          [class.is-in-view]="inView().has(section.id)"
+          [attr.aria-expanded]="section.entries.length ? isExpanded(section.id) : null"
+          [disabled]="!section.entries.length || !!query()"
+          (click)="toggle(section.id)"
+        >
+          <span class="profile-outline__section">{{ section.title }}</span>
           <!-- A section with no named rows — the G-code editor is one — would
                otherwise advertise a count of zero. -->
           @if (section.entries.length) {
             <span class="profile-outline__count">{{ section.entries.length }}</span>
+            <nexus-icon
+              class="profile-outline__twisty"
+              [class.is-open]="isExpanded(section.id)"
+              name="nav-arrow-right"
+              aria-hidden="true"
+            />
           }
-        </span>
-      </button>
+        </button>
 
-      <ul class="profile-outline__entries" [hidden]="!isExpanded(section.id)">
-        @for (entry of section.entries; track entry.id) {
-          <li [class.is-in-view]="inView().has(entry.id)">
-            <!-- The rail is narrow and some names are long, so the full one
-                 is always available without widening the column. -->
-            <button
-              type="button"
-              class="profile-outline__entry"
-              [title]="entry.title"
-              (click)="jump(entry.el)"
-            >
-              {{ entry.title }}
-            </button>
-          </li>
-        }
-      </ul>
-    } @empty {
-      <p class="profile-outline__empty">
-        @if (query()) {
-          No settings match "{{ query() }}"
-        } @else {
-          Nothing to outline yet
-        }
-      </p>
-    }
+        <ul class="profile-outline__entries" [hidden]="!isExpanded(section.id)">
+          @for (entry of section.entries; track entry.id) {
+            <li>
+              <!-- The rail is narrow and some names are long, so the full one
+                   is always available without widening the column. -->
+              <button
+                type="button"
+                class="profile-outline__entry"
+                [attr.data-row]="entry.id"
+                data-depth="1"
+                [class.is-in-view]="inView().has(entry.id)"
+                [title]="entry.title"
+                (click)="jump(entry.el)"
+              >
+                {{ entry.title }}
+              </button>
+            </li>
+          }
+        </ul>
+      } @empty {
+        <p class="profile-outline__empty">
+          @if (query()) {
+            No settings match "{{ query() }}"
+          } @else {
+            Nothing to outline yet
+          }
+        </p>
+      }
+    </div>
   </nav>
 </div>

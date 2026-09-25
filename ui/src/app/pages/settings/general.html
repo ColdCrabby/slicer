@@ -1,679 +1,76 @@
 <div class="settings-page">
-  <nexus-section-header heading="General" description="How the app behaves" />
+  <nexus-section-header heading="General" description="Slicing, your library, and this build" />
 
-  <h2 class="subhead">Slicing</h2>
-  <div class="settings-card">
-    <div class="settings-field">
-      <span class="settings-field-label">
-        <span class="settings-field-title">Re-slice after a change</span>
-        <span class="settings-field-desc">
-          Slice again on its own after a change. Automatic only does so while this plate slices
-          quickly. {{ autoSliceNote() }}
-        </span>
-      </span>
-      <div class="segmented" role="group" aria-label="Re-slice after a change">
-        <button
-          type="button"
-          class="segmented-btn"
-          [class.is-active]="autoSlice.mode() === 'auto'"
-          [attr.aria-pressed]="autoSlice.mode() === 'auto'"
-          (click)="setAutoSlice('auto')"
-        >
-          Automatic
-        </button>
-        <button
-          type="button"
-          class="segmented-btn"
-          [class.is-active]="autoSlice.mode() === 'on'"
-          [attr.aria-pressed]="autoSlice.mode() === 'on'"
-          (click)="setAutoSlice('on')"
-        >
-          Always
-        </button>
-        <button
-          type="button"
-          class="segmented-btn"
-          [class.is-active]="autoSlice.mode() === 'off'"
-          [attr.aria-pressed]="autoSlice.mode() === 'off'"
-          (click)="setAutoSlice('off')"
-        >
-          Off
-        </button>
-      </div>
-    </div>
-
-    <div class="settings-field">
-      <span class="settings-field-label">
-        <span class="settings-field-title">Show the preview after slicing</span>
-        <span class="settings-field-desc">
-          Switch to the G-code view when a slice finishes. Automatic does it for slices you start,
-          not for automatic ones.
-        </span>
-      </span>
-      <div class="segmented" role="group" aria-label="Show the preview after slicing">
-        <button
-          type="button"
-          class="segmented-btn"
-          [class.is-active]="previewFollow() === 'auto'"
-          [attr.aria-pressed]="previewFollow() === 'auto'"
-          (click)="setPreviewFollow('auto')"
-        >
-          Automatic
-        </button>
-        <button
-          type="button"
-          class="segmented-btn"
-          [class.is-active]="previewFollow() === 'always'"
-          [attr.aria-pressed]="previewFollow() === 'always'"
-          (click)="setPreviewFollow('always')"
-        >
-          Always
-        </button>
-        <button
-          type="button"
-          class="segmented-btn"
-          [class.is-active]="previewFollow() === 'never'"
-          [attr.aria-pressed]="previewFollow() === 'never'"
-          (click)="setPreviewFollow('never')"
-        >
-          Never
-        </button>
-      </div>
-    </div>
-  </div>
-
-  <h2 class="subhead">Controls</h2>
-  <div class="settings-card">
-    <div class="settings-field">
-      <span class="settings-field-label">
-        <span class="settings-field-title">Two-finger swipe</span>
-        <span class="settings-field-desc">
-          What a trackpad two-finger swipe does in the 3D view.
-        </span>
-      </span>
-      <div class="segmented" role="group" aria-label="Two-finger swipe action">
-        <button
-          type="button"
-          class="segmented-btn"
-          [class.is-active]="gesture() === 'orbit'"
-          [attr.aria-pressed]="gesture() === 'orbit'"
-          (click)="setGesture('orbit')"
-        >
-          Orbit
-        </button>
-        <button
-          type="button"
-          class="segmented-btn"
-          [class.is-active]="gesture() === 'pan'"
-          [attr.aria-pressed]="gesture() === 'pan'"
-          (click)="setGesture('pan')"
-        >
-          Pan
-        </button>
-      </div>
-    </div>
-
-    <div class="settings-field">
-      <span class="settings-field-label">
-        <span class="settings-field-title">Palm rejection</span>
-        <span class="settings-field-desc">
-          Ignore the hand resting on the screen while drawing with an Apple Pencil or stylus, so the
-          palm never orbits or zooms the 3D view. Finger-only gestures are unaffected.
-        </span>
-      </span>
-      <div class="segmented" role="group" aria-label="Palm rejection">
-        <button
-          type="button"
-          class="segmented-btn"
-          [class.is-active]="palmRejection()"
-          [attr.aria-pressed]="palmRejection()"
-          (click)="setPalmRejection(true)"
-        >
-          On
-        </button>
-        <button
-          type="button"
-          class="segmented-btn"
-          [class.is-active]="!palmRejection()"
-          [attr.aria-pressed]="!palmRejection()"
-          (click)="setPalmRejection(false)"
-        >
-          Off
-        </button>
-      </div>
-    </div>
-
-    <div class="settings-field">
-      <span class="settings-field-label">
-        <span class="settings-field-title">Scene diagnostics chips</span>
-        <span class="settings-field-desc">
-          Show FPS and WASM timing chips in the viewer overlay.
-        </span>
-      </span>
-      <div class="segmented" role="group" aria-label="Scene diagnostics chips">
-        <button
-          type="button"
-          class="segmented-btn"
-          [class.is-active]="statsVisible()"
-          [attr.aria-pressed]="statsVisible()"
-          (click)="setStatsVisible(true)"
-        >
-          On
-        </button>
-        <button
-          type="button"
-          class="segmented-btn"
-          [class.is-active]="!statsVisible()"
-          [attr.aria-pressed]="!statsVisible()"
-          (click)="setStatsVisible(false)"
-        >
-          Off
-        </button>
-      </div>
-    </div>
-
-    <div class="settings-field">
-      <span class="settings-field-label">
-        <span class="settings-field-title">Settings detail</span>
-        <span class="settings-field-desc">
-          How much each settings panel shows before you ask for more. Every setting is always
-          reachable from search and from the controls in each section — this only moves where the
-          panels start.
-        </span>
-      </span>
-      <div class="segmented" role="group" aria-label="Settings detail">
-        <button
-          type="button"
-          class="segmented-btn"
-          [class.is-active]="settingsDetail.mode() === 'everyday'"
-          [attr.aria-pressed]="settingsDetail.mode() === 'everyday'"
-          (click)="setSettingsDetail('everyday')"
-        >
-          Standard
-        </button>
-        <button
-          type="button"
-          class="segmented-btn"
-          [class.is-active]="settingsDetail.mode() === 'advanced'"
-          [attr.aria-pressed]="settingsDetail.mode() === 'advanced'"
-          (click)="setSettingsDetail('advanced')"
-        >
-          Advanced
-        </button>
-        <button
-          type="button"
-          class="segmented-btn"
-          [class.is-active]="settingsDetail.mode() === 'expert'"
-          [attr.aria-pressed]="settingsDetail.mode() === 'expert'"
-          (click)="setSettingsDetail('expert')"
-        >
-          Everything
-        </button>
-      </div>
-    </div>
-
-    <div class="settings-field">
-      <span class="settings-field-label">
-        <span class="settings-field-title">Undo / redo buttons</span>
-        <span class="settings-field-desc">
-          Show forward and backward history buttons in the 3D view toolbar. Auto shows them only on
-          touch devices without a keyboard, where the ⌘/Ctrl+Z shortcut is unavailable.
-        </span>
-      </span>
-      <div class="segmented" role="group" aria-label="Undo and redo buttons">
-        <button
-          type="button"
-          class="segmented-btn"
-          [class.is-active]="historyControls.mode() === 'auto'"
-          [attr.aria-pressed]="historyControls.mode() === 'auto'"
-          (click)="setHistoryControls('auto')"
-        >
-          Auto
-        </button>
-        <button
-          type="button"
-          class="segmented-btn"
-          [class.is-active]="historyControls.mode() === 'always'"
-          [attr.aria-pressed]="historyControls.mode() === 'always'"
-          (click)="setHistoryControls('always')"
-        >
-          Always
-        </button>
-        <button
-          type="button"
-          class="segmented-btn"
-          [class.is-active]="historyControls.mode() === 'never'"
-          [attr.aria-pressed]="historyControls.mode() === 'never'"
-          (click)="setHistoryControls('never')"
-        >
-          Never
-        </button>
-      </div>
-    </div>
-  </div>
-
-  <h2 class="subhead">Backup &amp; Export</h2>
-  <div class="settings-card">
-    <div class="settings-field">
-      <span class="settings-field-label">
-        <span class="settings-field-title">Profile library</span>
-        <span class="settings-field-desc">
-          Download your printers, filaments, print profiles and labels as TOML — the same format the
-          slicer reads. Export a bundle of separate files, or one
-          <code>profiles.toml</code> for the command line. {{ exportScopeNote }} Printer API keys
-          are left out, so the file is safe to share.
-        </span>
-      </span>
-      <nexus-profile-export-button />
-    </div>
-  </div>
-
-  <h2 class="subhead">3D View</h2>
-  <div class="settings-card">
-    <div class="settings-field">
-      <span class="settings-field-label">
-        <span class="settings-field-title">Field of view</span>
-        <span class="settings-field-desc">
-          Perspective camera angle. Lower feels flatter and more zoomed-in; higher shows more of the
-          scene with stronger perspective.
-        </span>
-      </span>
-      <div class="fov-control">
-        <nexus-fov-cube [fov]="fieldOfView()" />
-        <nexus-slider
-          class="fov-slider"
-          [value]="fieldOfView()"
-          [min]="minFov"
-          [max]="maxFov"
-          [step]="1"
-          unit="°"
-          label="Field of view"
-          (valueChange)="setFieldOfView($event)"
+  <section class="pref-group" aria-labelledby="general-slicing">
+    <h2 class="pref-group__title" id="general-slicing">Slicing</h2>
+    <div class="settings-card">
+      <nexus-pref-row pref="auto-slice" [hint]="autoSliceNote()">
+        <nexus-segmented
+          label="Re-slice after a change"
+          [options]="autoSliceOptions"
+          [value]="autoSlice.mode()"
+          (valueChange)="setAutoSlice($event)"
         />
-      </div>
+      </nexus-pref-row>
+      <nexus-pref-row pref="preview-follow">
+        <nexus-segmented
+          label="Show the preview after slicing"
+          [options]="previewFollowOptions"
+          [value]="previewFollow()"
+          (valueChange)="setPreviewFollow($event)"
+        />
+      </nexus-pref-row>
     </div>
+  </section>
 
-    <div class="settings-field">
-      <span class="settings-field-label">
-        <span class="settings-field-title">Anti-aliasing</span>
-        <span class="settings-field-desc">
-          Smooths jagged edges. Auto disables it on high-density displays where it barely helps.
-          Changing this reloads the 3D view.
-        </span>
-      </span>
-      <div class="segmented" role="group" aria-label="Anti-aliasing">
-        <button
-          type="button"
-          class="segmented-btn"
-          [class.is-active]="antialiasing() === 'auto'"
-          [attr.aria-pressed]="antialiasing() === 'auto'"
-          (click)="setAntialiasing('auto')"
-        >
-          Auto
-        </button>
-        <button
-          type="button"
-          class="segmented-btn"
-          [class.is-active]="antialiasing() === 'on'"
-          [attr.aria-pressed]="antialiasing() === 'on'"
-          (click)="setAntialiasing('on')"
-        >
-          On
-        </button>
-        <button
-          type="button"
-          class="segmented-btn"
-          [class.is-active]="antialiasing() === 'off'"
-          [attr.aria-pressed]="antialiasing() === 'off'"
-          (click)="setAntialiasing('off')"
-        >
-          Off
-        </button>
-      </div>
+  <section class="pref-group" aria-labelledby="general-panels">
+    <h2 class="pref-group__title" id="general-panels">Settings panels</h2>
+    <div class="settings-card">
+      <nexus-pref-row pref="settings-detail">
+        <nexus-segmented
+          label="Settings detail"
+          [options]="settingsDetailOptions"
+          [value]="settingsDetail.mode()"
+          (valueChange)="setSettingsDetail($event)"
+        />
+      </nexus-pref-row>
     </div>
+  </section>
 
-    <div class="settings-field">
-      <span class="settings-field-label">
-        <span class="settings-field-title">Render resolution</span>
-        <span class="settings-field-desc">
-          Higher renders sharper on high-density displays but costs more GPU; lower favours frame
-          rate.
+  <section class="pref-group" aria-labelledby="general-library">
+    <h2 class="pref-group__title" id="general-library">Your library</h2>
+    <div class="settings-card">
+      <nexus-pref-row pref="library-storage" [hint]="storage.text">
+        <span class="storage-badge" [attr.data-mode]="storage.mode">
+          <nexus-icon [name]="storage.icon" aria-hidden="true" />
+          {{ storage.title }}
         </span>
-      </span>
-      <div class="segmented" role="group" aria-label="Render resolution">
-        <button
-          type="button"
-          class="segmented-btn"
-          [class.is-active]="renderQuality() === 'performance'"
-          [attr.aria-pressed]="renderQuality() === 'performance'"
-          (click)="setRenderQuality('performance')"
-        >
-          Performance
-        </button>
-        <button
-          type="button"
-          class="segmented-btn"
-          [class.is-active]="renderQuality() === 'balanced'"
-          [attr.aria-pressed]="renderQuality() === 'balanced'"
-          (click)="setRenderQuality('balanced')"
-        >
-          Balanced
-        </button>
-        <button
-          type="button"
-          class="segmented-btn"
-          [class.is-active]="renderQuality() === 'quality'"
-          [attr.aria-pressed]="renderQuality() === 'quality'"
-          (click)="setRenderQuality('quality')"
-        >
-          Quality
-        </button>
-      </div>
+      </nexus-pref-row>
+      <nexus-pref-row pref="library-export" [hint]="exportHint">
+        <nexus-profile-export-button />
+      </nexus-pref-row>
     </div>
+  </section>
 
-    <div class="settings-field">
-      <span class="settings-field-label">
-        <span class="settings-field-title">Preview detail</span>
-        <span class="settings-field-desc">
-          How finely sliced extrusions are drawn. Auto keeps the full, rounded bead whenever it runs
-          smoothly &mdash; including every time you stop moving &mdash; and only simplifies while
-          you orbit a heavy plate.
+  <section class="pref-group" aria-labelledby="general-about">
+    <h2 class="pref-group__title" id="general-about">About</h2>
+    <div class="settings-card">
+      <nexus-pref-row pref="about-version" [hint]="aboutLine()">
+        <span class="settings-version">
+          @if (commit()) {
+            <a
+              class="settings-value settings-value-mono"
+              [href]="commitUrl()"
+              target="_blank"
+              rel="noopener"
+              [attr.aria-label]="'Commit ' + shortCommit() + ' on GitHub'"
+            >
+              {{ shortCommit() }}
+            </a>
+          }
+          <a nexusButton variant="ghost" size="sm" routerLink="/settings/changelog"> What's new </a>
         </span>
-      </span>
-      <div class="segmented" role="group" aria-label="Preview detail">
-        <button
-          type="button"
-          class="segmented-btn"
-          [class.is-active]="previewDetail() === 'auto'"
-          [attr.aria-pressed]="previewDetail() === 'auto'"
-          (click)="setPreviewDetail('auto')"
-        >
-          Auto
-        </button>
-        <button
-          type="button"
-          class="segmented-btn"
-          [class.is-active]="previewDetail() === 'performance'"
-          [attr.aria-pressed]="previewDetail() === 'performance'"
-          (click)="setPreviewDetail('performance')"
-        >
-          Performance
-        </button>
-        <button
-          type="button"
-          class="segmented-btn"
-          [class.is-active]="previewDetail() === 'quality'"
-          [attr.aria-pressed]="previewDetail() === 'quality'"
-          (click)="setPreviewDetail('quality')"
-        >
-          Quality
-        </button>
-      </div>
+      </nexus-pref-row>
     </div>
-
-    <div class="settings-field">
-      <span class="settings-field-label">
-        <span class="settings-field-title">G-code step buttons</span>
-        <span class="settings-field-desc">
-          Buttons beside the layer and progress sliders that step exactly one at a time, the same as
-          the arrow keys. Auto shows them wherever there is no keyboard to press those with — every
-          touchscreen — and hides them on a mouse or trackpad, where the shortcut already does the
-          job. {{ gcodeStepButtonsNote() }}
-        </span>
-      </span>
-      <div class="segmented" role="group" aria-label="G-code step buttons">
-        <button
-          type="button"
-          class="segmented-btn"
-          [class.is-active]="gcodeStepButtons() === 'auto'"
-          [attr.aria-pressed]="gcodeStepButtons() === 'auto'"
-          (click)="setGcodeStepButtons('auto')"
-        >
-          Auto
-        </button>
-        <button
-          type="button"
-          class="segmented-btn"
-          [class.is-active]="gcodeStepButtons() === 'on'"
-          [attr.aria-pressed]="gcodeStepButtons() === 'on'"
-          (click)="setGcodeStepButtons('on')"
-        >
-          On
-        </button>
-        <button
-          type="button"
-          class="segmented-btn"
-          [class.is-active]="gcodeStepButtons() === 'off'"
-          [attr.aria-pressed]="gcodeStepButtons() === 'off'"
-          (click)="setGcodeStepButtons('off')"
-        >
-          Off
-        </button>
-      </div>
-    </div>
-
-    <div class="settings-field">
-      <span class="settings-field-label">
-        <span class="settings-field-title">Use filament color for models</span>
-        <span class="settings-field-desc">
-          Color model meshes with the active filament profile color instead of the neutral viewer
-          tone.
-        </span>
-      </span>
-      <div class="segmented" role="group" aria-label="Use filament color for models">
-        <button
-          type="button"
-          class="segmented-btn"
-          [class.is-active]="useFilamentColor()"
-          [attr.aria-pressed]="useFilamentColor()"
-          (click)="setUseFilamentColor(true)"
-        >
-          On
-        </button>
-        <button
-          type="button"
-          class="segmented-btn"
-          [class.is-active]="!useFilamentColor()"
-          [attr.aria-pressed]="!useFilamentColor()"
-          (click)="setUseFilamentColor(false)"
-        >
-          Off
-        </button>
-      </div>
-    </div>
-
-    <div class="settings-field">
-      <span class="settings-field-label">
-        <span class="settings-field-title">Shadows</span>
-        <span class="settings-field-desc">
-          Cast a soft shadow from models onto the build plate for a more grounded, contrasty scene.
-          Turn off on weaker GPUs.
-        </span>
-      </span>
-      <div class="segmented" role="group" aria-label="Shadows">
-        <button
-          type="button"
-          class="segmented-btn"
-          [class.is-active]="shadowsEnabled()"
-          [attr.aria-pressed]="shadowsEnabled()"
-          (click)="setShadowsEnabled(true)"
-        >
-          On
-        </button>
-        <button
-          type="button"
-          class="segmented-btn"
-          [class.is-active]="!shadowsEnabled()"
-          [attr.aria-pressed]="!shadowsEnabled()"
-          (click)="setShadowsEnabled(false)"
-        >
-          Off
-        </button>
-      </div>
-    </div>
-
-    <div class="settings-field">
-      <span class="settings-field-label">
-        <span class="settings-field-title">Model shading</span>
-        <span class="settings-field-desc">
-          Smooth rounds the model's shading across curved surfaces; flat shows each triangle facet
-          distinctly, for a low-poly CAD look.
-        </span>
-      </span>
-      <div class="segmented" role="group" aria-label="Model shading">
-        <button
-          type="button"
-          class="segmented-btn"
-          [class.is-active]="modelShading() === 'smooth'"
-          [attr.aria-pressed]="modelShading() === 'smooth'"
-          (click)="setModelShading('smooth')"
-        >
-          Smooth
-        </button>
-        <button
-          type="button"
-          class="segmented-btn"
-          [class.is-active]="modelShading() === 'flat'"
-          [attr.aria-pressed]="modelShading() === 'flat'"
-          (click)="setModelShading('flat')"
-        >
-          Flat
-        </button>
-      </div>
-    </div>
-
-    <div class="settings-field">
-      <span class="settings-field-label">
-        <span class="settings-field-title">Gloss</span>
-        <span class="settings-field-desc">
-          Adds a specular highlight to models and the G-code preview for a glossy, "wet filament"
-          sheen. Turn off for a flat matte look.
-        </span>
-      </span>
-      <div class="segmented" role="group" aria-label="Gloss">
-        <button
-          type="button"
-          class="segmented-btn"
-          [class.is-active]="glossEnabled()"
-          [attr.aria-pressed]="glossEnabled()"
-          (click)="setGlossEnabled(true)"
-        >
-          On
-        </button>
-        <button
-          type="button"
-          class="segmented-btn"
-          [class.is-active]="!glossEnabled()"
-          [attr.aria-pressed]="!glossEnabled()"
-          (click)="setGlossEnabled(false)"
-        >
-          Off
-        </button>
-      </div>
-    </div>
-
-    <div class="settings-field">
-      <span class="settings-field-label">
-        <span class="settings-field-title">Screenshot animation</span>
-        <span class="settings-field-desc">
-          Flash the view and fly the captured preview off to the top each time a slice embeds its
-          thumbnail. Turn off to shoot it silently. What the thumbnail itself looks like is a print
-          setting.
-        </span>
-      </span>
-      <div class="segmented" role="group" aria-label="Screenshot animation">
-        <button
-          type="button"
-          class="segmented-btn"
-          [class.is-active]="thumbnailCaptureFx()"
-          [attr.aria-pressed]="thumbnailCaptureFx()"
-          (click)="setThumbnailCaptureFx(true)"
-        >
-          On
-        </button>
-        <button
-          type="button"
-          class="segmented-btn"
-          [class.is-active]="!thumbnailCaptureFx()"
-          [attr.aria-pressed]="!thumbnailCaptureFx()"
-          (click)="setThumbnailCaptureFx(false)"
-        >
-          Off
-        </button>
-      </div>
-    </div>
-
-    <div class="settings-field">
-      <span class="settings-field-label">
-        <span class="settings-field-title">Thumbnail look</span>
-        <span class="settings-field-desc">
-          The preview embedded in sliced G-code is shot here, in the 3D view. Plain renders it
-          flatly, so the same plate previews identically on every machine; match this view borrows
-          the shading, gloss and contact shadow above. Its angle, background and colour are print
-          settings, under Process → Thumbnail.
-        </span>
-      </span>
-      <div class="segmented" role="group" aria-label="Thumbnail look">
-        <button
-          type="button"
-          class="segmented-btn"
-          [class.is-active]="!thumbnailSceneEffects()"
-          [attr.aria-pressed]="!thumbnailSceneEffects()"
-          (click)="setThumbnailSceneEffects(false)"
-        >
-          Plain
-        </button>
-        <button
-          type="button"
-          class="segmented-btn"
-          [class.is-active]="thumbnailSceneEffects()"
-          [attr.aria-pressed]="thumbnailSceneEffects()"
-          (click)="setThumbnailSceneEffects(true)"
-        >
-          Match this view
-        </button>
-      </div>
-    </div>
-  </div>
-
-  <h2 class="subhead">About</h2>
-  <div class="settings-card">
-    <div class="settings-field">
-      <span class="settings-field-label">
-        <span class="settings-field-title">Application</span>
-        <span class="settings-field-desc">The engine powering previews and prints.</span>
-      </span>
-      <span class="settings-value">Cold Crabby</span>
-    </div>
-    <div class="settings-field">
-      <span class="settings-field-label">
-        <span class="settings-field-title">Interface</span>
-        <span class="settings-field-desc">Where this session is running.</span>
-      </span>
-      <span class="settings-value">{{ platform }}</span>
-    </div>
-    <div class="settings-field">
-      <span class="settings-field-label">
-        <span class="settings-field-title">Version</span>
-        <span class="settings-field-desc">Current build of the app.</span>
-      </span>
-      <span class="settings-version">
-        <span class="settings-value">{{ version() }}</span>
-        <a nexusButton variant="ghost" size="sm" routerLink="/settings/changelog">What's new</a>
-      </span>
-    </div>
-    @if (commit()) {
-      <div class="settings-field">
-        <span class="settings-field-label">
-          <span class="settings-field-title">Commit</span>
-          <span class="settings-field-desc"
-            >Exact source revision this build was compiled from.</span
-          >
-        </span>
-        <a [href]="commitUrl()" target="_blank" class="settings-value settings-value-mono">
-          {{ shortCommit() }}
-        </a>
-      </div>
-    }
-  </div>
+  </section>
 </div>

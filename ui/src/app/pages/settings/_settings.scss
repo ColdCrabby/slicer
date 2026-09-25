@@ -1,5 +1,6 @@
 // Shared settings-page styling. Each settings section `@use`s this partial so
-// the list/card/field look stays consistent without duplicating rules.
+// the page, card and group look stays consistent without duplicating rules.
+// Preference rows themselves are `nexus-pref-row`, which styles its own.
 
 @use 'breakpoints' as *;
 
@@ -17,68 +18,6 @@
   gap: var(--spacing-xl);
 }
 
-.settings-list {
-  display: flex;
-  flex-direction: column;
-  gap: var(--spacing-sm);
-}
-
-.settings-item {
-  display: flex;
-  align-items: center;
-  gap: var(--spacing-lg);
-  padding: var(--spacing-md) var(--spacing-lg);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-md);
-  background: var(--color-surface);
-}
-
-.settings-item-main {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  min-width: 0;
-  gap: 2px;
-
-  .name-input {
-    flex: none;
-    width: min(100%, 260px);
-    align-self: flex-start;
-  }
-
-  // Indent sub-text to match the 10px left padding inside the name input
-  .settings-item-sub {
-    padding-left: 10px;
-  }
-}
-
-.filament-main {
-  .name-input {
-    flex: none;
-    width: min(100%, 260px);
-    align-self: flex-start;
-  }
-}
-
-.settings-item-title {
-  font-size: var(--font-size-md);
-  font-weight: var(--font-weight-medium);
-  color: var(--color-text-primary);
-}
-
-.settings-item-sub {
-  font-size: var(--font-size-xs);
-  color: var(--color-text-tertiary);
-}
-
-.settings-item-actions {
-  margin-left: auto;
-  display: flex;
-  align-items: center;
-  gap: var(--spacing-md);
-  flex: none;
-}
-
 .settings-card {
   border: 1px solid var(--color-border);
   border-radius: var(--radius-lg);
@@ -86,33 +25,20 @@
   padding: 0 var(--spacing-lg);
 }
 
-.settings-field {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: var(--spacing-lg);
-  padding: var(--spacing-md) 0;
-
-  & + & {
-    border-top: 1px solid var(--color-border-light);
-  }
-}
-
-.settings-field-label {
+// A heading and the card of preferences under it — the unit a preferences page
+// is scanned in. The heading sits outside the card, the way the OS's own
+// settings label a group, so the card holds nothing but rows.
+.pref-group {
   display: flex;
   flex-direction: column;
-  gap: 2px;
-  min-width: 0;
+  gap: var(--spacing-sm);
 }
 
-.settings-field-title {
-  font-size: var(--font-size-md);
-  color: var(--color-text-primary);
-}
-
-.settings-field-desc {
-  font-size: var(--font-size-xs);
-  color: var(--color-text-tertiary);
+.pref-group__title {
+  margin: 0 0 0 var(--spacing-xs);
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-semibold);
+  color: var(--color-text-secondary);
 }
 
 .settings-value {
@@ -121,129 +47,7 @@
   font-variant-numeric: tabular-nums;
 }
 
-.name-input {
-  flex: 1;
-  min-width: 0;
-  box-sizing: border-box;
-  font-size: var(--font-size-md);
-  font-weight: var(--font-weight-medium);
-  height: 36px;
-  padding: 0 10px;
-  line-height: 1.2;
-  background: transparent;
-  border: 1px solid transparent;
-  border-radius: var(--radius-md);
-  color: var(--color-text-primary);
-  transition:
-    border-color var(--duration-fast) var(--ease-standard),
-    box-shadow var(--duration-fast) var(--ease-standard),
-    background-color var(--duration-fast) var(--ease-standard);
-
-  &:hover {
-    background: var(--color-surface);
-    border-color: var(--color-border);
-  }
-
-  &:focus,
-  &:focus-visible {
-    outline: none;
-    border-color: var(--color-focus-ring);
-    box-shadow: inset 0 0 0 1px var(--color-focus-ring);
-    background: var(--color-surface);
-  }
-}
-
-.material-select {
-  box-sizing: border-box;
-  min-height: 36px;
-  padding: 0 30px 0 10px;
-  font-size: var(--font-size-md);
-  font-weight: var(--font-weight-medium);
-  line-height: 1.2;
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-md);
-  background-color: var(--color-bg-secondary);
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 24 24' fill='none' stroke='%23888' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E");
-  background-repeat: no-repeat;
-  background-position: right 9px center;
-  appearance: none;
-  -webkit-appearance: none;
-  color: var(--color-text-primary);
-  cursor: pointer;
-  transition:
-    border-color var(--duration-fast) var(--ease-standard),
-    box-shadow var(--duration-fast) var(--ease-standard),
-    background-color var(--duration-fast) var(--ease-standard);
-
-  &:hover {
-    background-color: var(--color-surface);
-    border-color: var(--color-border-strong);
-  }
-
-  &:focus,
-  &:focus-visible {
-    outline: none;
-    border-color: var(--color-focus-ring);
-    box-shadow: inset 0 0 0 1px var(--color-focus-ring);
-    background-color: var(--color-surface);
-  }
-}
-
-.segmented {
-  display: inline-flex;
-  padding: 3px;
-  gap: 2px;
-  background: var(--color-bg-tertiary);
-  border-radius: var(--radius-md);
-}
-
-.segmented-btn {
-  padding: 5px 14px;
-  border: none;
-  background: transparent;
-  border-radius: var(--radius-sm);
-  color: var(--color-text-secondary);
-  font-size: var(--font-size-sm);
-  font-weight: var(--font-weight-medium);
-  white-space: nowrap;
-  cursor: pointer;
-  user-select: none;
-  -webkit-user-select: none;
-  touch-action: manipulation;
-
-  &:hover {
-    color: var(--color-text-primary);
-    // Pin weight — segmented buttons are free-width pills; a weight bump would
-    // shift their siblings in the group.
-    font-weight: var(--font-weight-medium);
-    font-variation-settings: 'wght' var(--font-weight-medium);
-  }
-
-  &:focus-visible {
-    outline: none;
-    box-shadow: inset 0 0 0 1px var(--color-focus-ring);
-    color: var(--color-text-primary);
-  }
-
-  &.is-active {
-    background: var(--color-surface);
-    color: var(--color-text-primary);
-    box-shadow: var(--shadow-xs);
-  }
-}
-
-.subhead {
-  margin: 0;
-  font-size: var(--font-size-md);
-  font-weight: var(--font-weight-semibold);
-  color: var(--color-text-primary);
-}
-
 // ── Phone ───────────────────────────────────────────────────────────────────
-//
-// Two-column rows are what break first on a narrow screen: the label keeps its
-// natural width and the control is squeezed into whatever is left, so a select
-// ends up narrower than the word inside it. Every row here stacks instead.
 @include handheld {
   .settings-page {
     padding: var(--spacing-lg) var(--spacing-md) var(--spacing-2xl);
@@ -254,35 +58,5 @@
 
   .settings-card {
     padding: 0 var(--spacing-md);
-  }
-
-  .settings-field {
-    flex-direction: column;
-    align-items: stretch;
-    gap: var(--spacing-sm);
-  }
-
-  .settings-item {
-    flex-wrap: wrap;
-    gap: var(--spacing-sm);
-    padding: var(--spacing-md);
-  }
-
-  .settings-item-actions {
-    margin-left: 0;
-    width: 100%;
-    justify-content: flex-end;
-  }
-
-  // Segmented pills are a row of targets; let them share the full width rather
-  // than crowd into an inline group that overflows.
-  .segmented {
-    display: flex;
-    width: 100%;
-  }
-
-  .segmented-btn {
-    flex: 1;
-    padding: 8px 10px;
   }
 }

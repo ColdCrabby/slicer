@@ -1,6 +1,5 @@
 import { ChangeDetectionStrategy, Component, inject } from '@angular/core';
 import { KeyboardShortcuts } from '../../services/keyboard-shortcuts/keyboard-shortcuts';
-import { SectionHeader } from '@coldcrabby/ui';
 
 interface ShortcutRow {
   actionId: string;
@@ -13,14 +12,20 @@ interface ShortcutGroup {
   rows: ShortcutRow[];
 }
 
+/**
+ * Every keyboard shortcut, grouped by where it applies.
+ *
+ * A reference rather than a page of its own: it lives at the foot of Settings →
+ * Controls, beside the trackpad and touch preferences, because "how do I drive
+ * this" is one question whichever hand is answering it.
+ */
 @Component({
-  selector: 'nexus-settings-shortcuts',
-  imports: [SectionHeader],
+  selector: 'nexus-shortcut-reference',
   templateUrl: './shortcuts.html',
   styleUrl: './shortcuts.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
-export class ShortcutsSettings {
+export class ShortcutReference {
   private readonly shortcuts = inject(KeyboardShortcuts);
 
   protected readonly groups: ShortcutGroup[] = this.buildGroups();
