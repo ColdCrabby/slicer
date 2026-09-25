@@ -102,8 +102,9 @@ it.
 | `--config` | path | | auto-discover | Explicit project `slicer.toml` path |
 | `--center` | flag | | false | Center every model horizontally |
 | `--drop-to-floor` | flag | | false | Drop every model to Z=0 |
-| `--arrange` | flag | | false | Pack all models onto the bed without overlap |
-| `--arrange-spacing` | float | | 2.0 | Gap between arranged models (mm) |
+| `--arrange` | flag | | false | Nest all models onto the bed by their outlines, without overlap |
+| `--arrange-spacing` | float | | 2.0 | Gap between arranged models, measured between outlines (mm) |
+| `--arrange-rotate-step` | float | | 90.0 | Rotation step the packer may turn a model by; `0` keeps every angle |
 | `--arrange-auto-orient` | flag | | false | Auto-orient each model while arranging (applies the machine's `preferred_print_rotation_deg`) |
 | `--verbose` | flag | | false | Print mesh stats |
 | `--output-format` | string | | human | `json` or `human` |

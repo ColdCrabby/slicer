@@ -163,6 +163,10 @@ export type SceneOp =
           spacing_mm?: number;
           /** Auto-orient each object before packing (default true). */
           auto_orient?: boolean;
+          /** Rotation step the packer may turn an object by (default 90; 0 keeps every angle). */
+          rotation_step_deg?: number;
+          /** May a part take plate area above or below another (default true)? */
+          vertical_nesting?: boolean;
           orient_options?: {
             allow_rotations?: boolean;
             preferred_z_rotation_deg?: number;
@@ -513,8 +517,8 @@ export class SceneEngine {
    * Convenience method: auto-orient and arrange multiple objects on the bed.
    *
    * Each object is independently oriented to minimise overhangs (when
-   * `options.auto_orient` is `true`), then the group is packed onto the bed
-   * using a shelf-first-fit algorithm and centered.
+   * `options.auto_orient` is `true`), then the group is nested onto the bed by
+   * each part's real outline and centered.
    *
    * Equivalent to:
    * ```ts
@@ -526,6 +530,8 @@ export class SceneEngine {
     options?: {
       spacing_mm?: number;
       auto_orient?: boolean;
+      rotation_step_deg?: number;
+      vertical_nesting?: boolean;
       orient_options?: {
         allow_rotations?: boolean;
         preferred_z_rotation_deg?: number;

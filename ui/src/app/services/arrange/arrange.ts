@@ -3,9 +3,19 @@ import { BrowserStorage } from '../browser-storage';
 import { ActiveSelection } from '../profiles/active-selection';
 import { SceneCommand } from '../scene-command/scene-command';
 import { SceneEngine } from '../scene-engine';
+import { Slicer } from '../slicer';
 
 const SPACING_KEY = 'nexus.viewer.arrangeSpacingMm';
 const AUTO_ORIENT_KEY = 'nexus.viewer.arrangeAutoOrient';
+const TURN_TO_FIT_KEY = 'nexus.viewer.arrangeTurnToFit';
+
+/**
+ * Quarter turn the packer may give a part to make it fit, in degrees.
+ *
+ * A quarter turn is the one rotation that costs nothing: it cannot undo an
+ * auto-orient result, and it keeps a printer's preferred 45° diagonal.
+ */
+const TURN_STEP_DEG = 90;
 
 /** Gap left between objects when placing them, in millimetres. */
 export const DEFAULT_ARRANGE_SPACING_MM = 4;
@@ -16,6 +26,12 @@ export const MAX_ARRANGE_SPACING_MM = 50;
 export interface ArrangeSettings {
   spacingMm: number;
   autoOrient: boolean;
+  /** Rotation step the packer may use, in degrees. `0` keeps every angle. */
+  rotationStepDeg: number;
+  /** May a part take plate area above or below another part? */
+  verticalNesting: boolean;
+  /** Underside angle past which a part is taken to need support (degrees). */
+  overhangThresholdDeg: number;
   /** Extra Z-rotation applied after auto-orient, from the active printer. */
   preferredOrientationDeg: number;
 }
@@ -42,6 +58,7 @@ export class Arrange {
   private readonly sceneCommand = inject(SceneCommand);
   private readonly sceneEngine = inject(SceneEngine);
   private readonly activeSelection = inject(ActiveSelection);
+  private readonly slicer = inject(Slicer);
 
   /**
    * Gap left between objects (mm).
@@ -62,11 +79,41 @@ export class Arrange {
   readonly autoOrient = signal<boolean>(this.readAutoOrient());
 
   /**
+   * Whether the packer may give a part a quarter turn to make it fit.
+   *
+   * On by default: parts are nested by their real outline, and being allowed
+   * to turn one is most of what lets an awkward plate close up. Off keeps
+   * every part on the angle it is on, for a plate laid out by hand.
+   */
+  readonly turnToFit = signal<boolean>(this.readTurnToFit());
+
+  /**
    * Extra Z-rotation the active printer prefers, in degrees. `0` when the
    * machine has no preference.
    */
   readonly preferredOrientationDeg = computed(
     () => this.activeSelection.printer()?.preferred_orientation_deg ?? 0,
+  );
+
+  /**
+   * Whether parts may share plate area at different heights.
+   *
+   * True while the plate rises a layer at a time: the nozzle is always at the
+   * height of the tallest thing printed so far, so a part leaning at 45° may
+   * hang over its neighbour. Printing one part at a time drives the gantry
+   * past finished parts instead, and then every part needs its own column.
+   */
+  readonly verticalNesting = computed(() => this.slicer.settings().print_sequence !== 'by_object');
+
+  /**
+   * The support threshold the plate will actually be sliced with.
+   *
+   * The packer frees the space under an underside steep enough to print over
+   * thin air; taking the angle from the process that will slice the plate is
+   * what keeps that promise true.
+   */
+  readonly overhangThresholdDeg = computed(
+    () => this.slicer.settings().support_threshold_angle ?? 45,
   );
 
   /** How many objects a "place all" would move. */
@@ -76,6 +123,9 @@ export class Arrange {
   readonly settings = computed<ArrangeSettings>(() => ({
     spacingMm: this.spacingMm(),
     autoOrient: this.autoOrient(),
+    rotationStepDeg: this.turnToFit() ? TURN_STEP_DEG : 0,
+    verticalNesting: this.verticalNesting(),
+    overhangThresholdDeg: this.overhangThresholdDeg(),
     preferredOrientationDeg: this.preferredOrientationDeg(),
   }));
 
@@ -86,6 +136,12 @@ export class Arrange {
       : DEFAULT_ARRANGE_SPACING_MM;
     this.spacingMm.set(clamped);
     this.storage.write(SPACING_KEY, String(clamped));
+  }
+
+  /** Set whether the packer may turn a part to make it fit, and persist it. */
+  setTurnToFit(value: boolean): void {
+    this.turnToFit.set(value);
+    this.storage.write(TURN_TO_FIT_KEY, String(value));
   }
 
   /** Set whether placing re-orients each part, and persist it. */
@@ -118,7 +174,12 @@ export class Arrange {
         options: {
           spacing_mm: settings.spacingMm,
           auto_orient: settings.autoOrient,
-          orient_options: { preferred_z_rotation_deg: settings.preferredOrientationDeg },
+          rotation_step_deg: settings.rotationStepDeg,
+          vertical_nesting: settings.verticalNesting,
+          orient_options: {
+            preferred_z_rotation_deg: settings.preferredOrientationDeg,
+            overhang_threshold_deg: settings.overhangThresholdDeg,
+          },
         },
       },
     });
@@ -137,6 +198,12 @@ export class Arrange {
       return DEFAULT_ARRANGE_SPACING_MM;
     }
     return Math.max(MIN_ARRANGE_SPACING_MM, Math.min(MAX_ARRANGE_SPACING_MM, parsed));
+  }
+
+  private readTurnToFit(): boolean {
+    // Unset means "on": the packer has always been free to place a part
+    // wherever it fits, and a quarter turn is part of that.
+    return this.storage.get(TURN_TO_FIT_KEY)() !== 'false';
   }
 
   private readAutoOrient(): boolean {

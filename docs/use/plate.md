@@ -142,10 +142,39 @@ the object: every duplicate shares a filename, so that wouldn't tell you which.
   when that pose would leave a lot of the model hanging in the air or wouldn't
   fit under the gantry. A part that already arrived the right way up is left
   alone.
-- **Gap** — how much room to leave between parts, in mm.
+- **Gap** — how much room to leave between parts, in mm. It's measured between
+  the parts themselves, not the boxes around them, so a curved or L-shaped part
+  keeps the gap you asked for without reserving the empty corners it doesn't
+  use. The same gap applies overhead, where one part passes above another.
 - **Preferred angle** — shown read-only, because it belongs to the printer, not
   the plate. Many CoreXY machines print best at 45°. Change it in
   **Settings → Printers**. It's only applied when auto-orient runs.
+
+Parts are nested by their real shape, and by how tall they are at each point.
+A plate prints a layer at a time, so the nozzle is always at the height of the
+tallest thing printed so far — which means one part can occupy the space above
+or below another as long as the two never want the same height in the same
+place. A part leaning at 45° hangs over its neighbour's roof; a small part
+tucks in under a flared rim. Parts also take a quarter turn where that helps
+them fit, and a plate with room to spare is gathered into one tight group in the
+middle rather than spread across it, which keeps the nozzle's hops between parts
+short.
+
+Three things the app will not do, because the print would fail:
+
+- **Nothing is tucked under an overhang that needs support.** Support material
+  is as solid as the part above it, so a flat shelf keeps the whole column
+  beneath it. Only an underside steep enough to print over thin air — by the
+  same support angle the plate will be sliced with — frees the space below.
+- **No two parts lock together.** Where one part passes over another, it passes
+  over it everywhere they meet, so you can always lift the top one off first.
+- **Nothing overlaps at all when parts print one at a time.** The print head
+  drives past finished parts at full height, so sequential printing gives every
+  part its own space from the plate up. The placement card says so when that's
+  the mode you're in.
+
+Anything that still doesn't fit is parked beside the plate rather than dropped,
+where the out-of-bounds warning picks it up.
 
 This is one command, not two. There's no separate "orient everything" button
 that would fight with the arrangement.
