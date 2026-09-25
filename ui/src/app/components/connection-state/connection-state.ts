@@ -1,6 +1,6 @@
 import { ChangeDetectionStrategy, Component, computed, inject } from '@angular/core';
 import { Slicer } from '../../services/slicer';
-import { Badge, BadgeVariant } from '@coldcrabby/ui';
+import { Badge, BadgeVariant } from '../../ui/shell-primitives';
 
 interface StatusConfig {
   label: string;

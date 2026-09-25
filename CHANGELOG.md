@@ -98,6 +98,10 @@ issue/PR numbers or repo links in the notes. See the tone rules in
 
 ### Changed
 
+- **The app starts faster.** The first screen downloads about a fifth less code
+  (943 kB → 726 kB, 242 kB → 192 kB compressed). The settings schema, unused
+  form controls and a second popover engine no longer load before the home
+  screen.
 - **Place objects nests by shape and by height, not by bounding box.** A plate
   prints a layer at a time, so one part may take the space above or below
   another wherever the two never want the same height in the same place — a part
