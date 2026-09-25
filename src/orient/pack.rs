@@ -25,11 +25,15 @@
 //! 2. **Largest first.** Objects are placed in descending footprint order, so
 //!    the parts with the fewest choices choose first.
 //! 3. **Each object tries every rotation** in `rotation_step_deg` steps and
-//!    every position, and takes the one closest to the bed centre. Positions
-//!    are visited in rings outwards from the ideal spot, and the search stops
-//!    as soon as the next ring cannot beat the best placement found — which
-//!    makes "closest to centre" exact rather than a heuristic.
-//! 4. **Spacing is applied when a part is committed**, by dilating its mask by
+//!    every position, and takes the one closest to the low corner. Positions
+//!    are visited in rings outwards from the corner, and the search stops as
+//!    soon as the next ring cannot beat the best placement found — which makes
+//!    "closest" exact rather than a heuristic.
+//! 4. **The corner is a window's corner.** The whole plate is packed inside
+//!    the smallest copy of its own outline, shrunk about the centre, that
+//!    still takes every part — see [`pack_objects`]. A light plate becomes one
+//!    compact block mid-plate instead of a row along one edge.
+//! 5. **Spacing is applied when a part is committed**, by dilating its mask by
 //!    a disc of `spacing_mm` before OR-ing it into the occupancy map. The next
 //!    part is then tested with its *true* outline, so the gap between any two
 //!    parts is the requested spacing measured the honest way — between the
@@ -263,6 +267,11 @@ impl BitGrid {
     #[inline]
     fn get(&self, x: usize, y: usize) -> bool {
         self.bits[y * self.stride + (x >> 6)] >> (x & 63) & 1 == 1
+    }
+
+    /// Number of set cells.
+    fn count(&self) -> usize {
+        self.bits.iter().map(|w| w.count_ones() as usize).sum()
     }
 
     /// Does `other`, placed with its cell (0,0) at `(ox, oy)`, hit a set bit?
@@ -516,11 +525,18 @@ pub fn cell_size(bed: &BedConfig) -> f64 {
     (longest / MAX_GRID_CELLS as f64).max(MIN_CELL_MM)
 }
 
-/// Build the occupancy map: everything not fully on the plate starts occupied.
-fn bed_occupancy(bed: &BedConfig, cell: f64) -> (BitGrid, [f64; 2]) {
+/// Build the occupancy map: everything not fully inside the plate, shrunk by
+/// `scale` about its centre, starts occupied.
+///
+/// At `scale` 1 that is the plate itself. Below it, it is a smaller plate of
+/// the same shape in the middle of the real one — the window
+/// [`pack_objects`] narrows to keep a light plate in one compact group.
+fn bed_occupancy(bed: &BedConfig, cell: f64, scale: f64) -> (BitGrid, [f64; 2]) {
     let origin = [bed.origin_offset_x, bed.origin_offset_y];
     let cols = ((bed.width / cell).floor() as usize).max(1);
     let rows = ((bed.depth / cell).floor() as usize).max(1);
+    let (bx, by) = bed.center_xy();
+    let inside = |x: f64, y: f64| bed.contains_xy(bx + (x - bx) / scale, by + (y - by) / scale);
     let mut grid = BitGrid::new(cols, rows);
     for y in 0..rows {
         let y0 = origin[1] + y as f64 * cell;
@@ -529,13 +545,32 @@ fn bed_occupancy(bed: &BedConfig, cell: f64) -> (BitGrid, [f64; 2]) {
             let printable = bed.contains_xy(x0, y0)
                 && bed.contains_xy(x0 + cell, y0)
                 && bed.contains_xy(x0, y0 + cell)
-                && bed.contains_xy(x0 + cell, y0 + cell);
+                && bed.contains_xy(x0 + cell, y0 + cell)
+                && inside(x0, y0)
+                && inside(x0 + cell, y0)
+                && inside(x0, y0 + cell)
+                && inside(x0 + cell, y0 + cell);
             if !printable {
                 grid.set(x, y);
             }
         }
     }
     (grid, origin)
+}
+
+/// Bounds of the clear cells of `grid`, as inclusive `[min, max]` per axis.
+fn free_bounds(grid: &BitGrid) -> Option<([usize; 2], [usize; 2])> {
+    let mut lo = [usize::MAX; 2];
+    let mut hi = [0usize; 2];
+    for y in 0..grid.rows {
+        for x in 0..grid.cols {
+            if !grid.get(x, y) {
+                lo = [lo[0].min(x), lo[1].min(y)];
+                hi = [hi[0].max(x), hi[1].max(y)];
+            }
+        }
+    }
+    (lo[0] != usize::MAX).then_some((lo, hi))
 }
 
 /// Angles tried per object, in degrees.
@@ -548,7 +583,23 @@ fn rotation_candidates(step_deg: f64) -> Vec<f64> {
     (0..count.max(1)).map(|i| i as f64 * step).collect()
 }
 
+/// How closely the window search in [`pack_objects`] homes in on the smallest
+/// window that takes every part, as a fraction of the plate.
+///
+/// Two per cent of a 256 mm plate is about 5 mm — less than the gap most
+/// people leave between parts, so a finer search would move nothing anyone
+/// could see, and each halving costs a full packing run.
+const WINDOW_TOLERANCE: f64 = 0.02;
+
 /// Nest `footprints` on `bed` and return where each one goes.
+///
+/// Packing fills a corner of whatever it is given in rows, which on a whole
+/// plate spreads a handful of parts along one edge and up a staircase — a
+/// long tour for the nozzle from part to part on every layer. So a plate is packed inside the
+/// smallest window, the plate's own shape shrunk about its centre, that still
+/// takes every part: a light plate comes out as one compact block in the
+/// middle, and a full one is packed exactly as densely as the whole plate
+/// allows.
 ///
 /// Objects are never dropped: one that cannot fit is parked in a column beside
 /// the plate with `on_bed: false`, so the caller can tell the user rather than
@@ -562,9 +613,78 @@ pub fn pack_objects(
         return Vec::new();
     }
 
+    let mut masks: HashMap<(u64, u64), Mask> = HashMap::new();
+    let Some(whole) = nest(footprints, bed, options, 1.0, false, &mut masks) else {
+        unreachable!("a run that may park parts always finishes");
+    };
+    if whole
+        .iter()
+        .any(|p| !p.on_bed && !footprints[p.index].is_empty())
+    {
+        return whole;
+    }
+
+    // Nothing smaller than the parts' own area can hold them, which puts a
+    // floor under the window before a single run.
     let cell = cell_size(bed);
-    let (bed_mask, origin) = bed_occupancy(bed, cell);
-    let mut occupancy = bed_mask.clone();
+    let (plate, _) = bed_occupancy(bed, cell, 1.0);
+    let free = (plate.cols * plate.rows - plate.count()).max(1) as f64;
+    let needed: f64 = footprints
+        .iter()
+        .filter(|fp| !fp.is_empty())
+        .map(|fp| {
+            let shape = fp.fingerprint();
+            masks
+                .entry((shape, 0f64.to_bits()))
+                .or_insert_with(|| rasterise(fp, 0.0, cell))
+                .grid
+                .count() as f64
+        })
+        .sum();
+
+    // Whether a window fits is not strictly monotone in its size — packing is
+    // greedy — but it nearly is, and every run kept here is a complete,
+    // valid plate, so the worst a wrong turn costs is a slightly larger one.
+    let mut lo = (needed / free).sqrt().min(1.0);
+    let mut hi = 1.0;
+    let mut best = whole;
+    while hi - lo > WINDOW_TOLERANCE {
+        let mid = (lo + hi) / 2.0;
+        match nest(footprints, bed, options, mid, true, &mut masks) {
+            Some(run) => {
+                best = run;
+                hi = mid;
+            }
+            None => lo = mid,
+        }
+    }
+    best
+}
+
+/// One packing run, into the plate shrunk to `scale` about its centre.
+///
+/// With `all_or_nothing` the run gives up — `None` — at the first part that
+/// does not fit, which is all the window search needs to know. Otherwise a
+/// part that does not fit is parked beside the plate and the run goes on.
+fn nest(
+    footprints: &[Footprint],
+    bed: &BedConfig,
+    options: &PackOptions,
+    scale: f64,
+    all_or_nothing: bool,
+    masks: &mut HashMap<(u64, u64), Mask>,
+) -> Option<Vec<Placement>> {
+    let cell = cell_size(bed);
+    let (window, origin) = bed_occupancy(bed, cell, scale);
+    let (plate, _) = bed_occupancy(bed, cell, 1.0);
+    // No free cell at all — a plate smaller than one grid cell. An empty
+    // range turns every part away, so a run that may park parks them all.
+    let (lo, hi) = match free_bounds(&window) {
+        Some(bounds) => bounds,
+        None if all_or_nothing => return None,
+        None => ([1, 1], [0, 0]),
+    };
+    let mut occupancy = window;
     let halo = if options.spacing_mm > 0.0 {
         (options.spacing_mm / cell).ceil() as usize
     } else {
@@ -598,7 +718,6 @@ pub fn pack_objects(
     let mut placed_cells: Vec<(usize, BitGrid, usize, usize)> = Vec::new();
 
     let mut overflow_y = 0.0_f64;
-    let mut masks: HashMap<(u64, u64), Mask> = HashMap::new();
     for &idx in &order {
         let fp = &footprints[idx];
         if fp.is_empty() {
@@ -612,13 +731,12 @@ pub fn pack_objects(
                 .entry((shape, angle.to_bits()))
                 .or_insert_with(|| rasterise(fp, angle, cell))
                 .clone();
-            if mask.grid.cols > occupancy.cols || mask.grid.rows > occupancy.rows {
+            let (w, h) = (mask.grid.cols, mask.grid.rows);
+            if lo[0] + w > hi[0] + 1 || lo[1] + h > hi[1] + 1 {
                 continue;
             }
-            let limit_x = occupancy.cols - mask.grid.cols;
-            let limit_y = occupancy.rows - mask.grid.rows;
 
-            // Pack into the plate's low corner, not its middle. Gravity
+            // Pack into the window's low corner, not its middle. Gravity
             // towards the centre sounds right and packs badly: the first big
             // part lands squarely on the space every later part needs. The
             // whole arrangement is moved back to the centre once it is done,
@@ -626,10 +744,8 @@ pub fn pack_objects(
             if let Some((cost, ix, iy)) = search(
                 &occupancy,
                 &mask.grid,
-                0.0,
-                0.0,
-                limit_x,
-                limit_y,
+                lo,
+                [hi[0] + 1 - w, hi[1] + 1 - h],
                 cell,
                 best.as_ref().map(|b| b.0),
             ) {
@@ -656,6 +772,7 @@ pub fn pack_objects(
                 );
                 placed_cells.push((idx, mask.grid, ix, iy));
             }
+            None if all_or_nothing => return None,
             None => {
                 // Park it to the right of the plate, stacked downwards. The
                 // object stays visible and out of bounds instead of vanishing
@@ -673,14 +790,16 @@ pub fn pack_objects(
         }
     }
 
-    let (shift_x, shift_y) = recentring_shift(&bed_mask, &placed_cells);
+    // Centred on the whole plate, not the window: on a round plate the window
+    // is the smaller disc, and the pile may fit the big one better centred.
+    let (shift_x, shift_y) = recentring_shift(&plate, &placed_cells);
     for (idx, ..) in &placed_cells {
         let placed = &mut placements[*idx];
         placed.pivot[0] += shift_x as f64 * cell;
         placed.pivot[1] += shift_y as f64 * cell;
     }
 
-    placements
+    Some(placements)
 }
 
 /// How far the finished arrangement may move to sit centred on the plate.
@@ -734,30 +853,21 @@ fn recentring_shift(
     }
 }
 
-/// Find the feasible cell offset closest to `(ideal_x, ideal_y)`.
+/// Find the feasible cell offset closest to `lo`, within `lo..=hi`.
 ///
 /// Positions are visited in square rings outwards. A ring `r` cannot hold
 /// anything closer than `r * cell` to the ideal spot, so once that exceeds the
 /// best distance found the search is provably finished — the result is the
 /// true nearest placement, not the first acceptable one.
-#[allow(clippy::too_many_arguments)]
 fn search(
     occupancy: &BitGrid,
     mask: &BitGrid,
-    ideal_x: f64,
-    ideal_y: f64,
-    limit_x: usize,
-    limit_y: usize,
+    lo: [usize; 2],
+    hi: [usize; 2],
     cell: f64,
     ceiling: Option<f64>,
 ) -> Option<(f64, usize, usize)> {
-    let cx = ideal_x.round() as isize;
-    let cy = ideal_y.round() as isize;
-    let max_ring = cx
-        .abs()
-        .max((limit_x as isize - cx).abs())
-        .max(cy.abs())
-        .max((limit_y as isize - cy).abs());
+    let max_ring = (hi[0] - lo[0]).max(hi[1] - lo[1]);
 
     let mut best: Option<(f64, usize, usize)> = None;
     // A placement is only interesting while it beats this. It starts at the
@@ -766,36 +876,28 @@ fn search(
     for r in 0..=max_ring {
         // Nothing in ring `r` can be nearer than this, so once the floor
         // reaches the bound the answer is already in hand — which is what
-        // makes "nearest the centre" exact rather than first-fit.
-        if (r as f64 - 1.0).max(0.0) * cell >= bound {
+        // makes "nearest the corner" exact rather than first-fit.
+        if r as f64 * cell >= bound {
             break;
         }
 
-        for dy in -r..=r {
-            let on_y_edge = dy.abs() == r;
-            let mut dx = -r;
-            while dx <= r {
-                if !on_y_edge && dx.abs() != r {
-                    dx = r; // interior of the ring was covered by earlier rings
-                    continue;
-                }
-                let x = cx + dx;
-                let y = cy + dy;
-                dx += 1;
-                if x < 0 || y < 0 || x as usize > limit_x || y as usize > limit_y {
-                    continue;
-                }
-                let (ux, uy) = (x as usize, y as usize);
-                let ddx = ux as f64 - ideal_x;
-                let ddy = uy as f64 - ideal_y;
-                let cost = (ddx * ddx + ddy * ddy * DEPTH_BIAS * DEPTH_BIAS).sqrt() * cell;
-                if cost >= bound {
-                    continue;
-                }
-                if !occupancy.collides(mask, ux, uy) {
-                    best = Some((cost, ux, uy));
-                    bound = cost;
-                }
+        // Ring `r` from the corner is an L: row `r` and column `r`.
+        for (x, y) in (0..=r)
+            .map(|i| (lo[0] + i, lo[1] + r))
+            .chain((0..r).map(|i| (lo[0] + r, lo[1] + i)))
+        {
+            if x > hi[0] || y > hi[1] {
+                continue;
+            }
+            let ddx = (x - lo[0]) as f64;
+            let ddy = (y - lo[1]) as f64;
+            let cost = (ddx * ddx + ddy * ddy * DEPTH_BIAS * DEPTH_BIAS).sqrt() * cell;
+            if cost >= bound {
+                continue;
+            }
+            if !occupancy.collides(mask, x, y) {
+                best = Some((cost, x, y));
+                bound = cost;
             }
         }
     }
@@ -955,6 +1057,47 @@ mod tests {
         assert!(
             out.iter().all(|p| p.on_bed),
             "two 100 mm Ls must interlock onto a 160 x 110 mm plate: {out:?}"
+        );
+    }
+
+    #[test]
+    fn a_light_plate_gathers_into_a_block() {
+        // Nine parts on a plate with room for far more. Filled from a corner
+        // they spread along the first row and step up in a staircase; the
+        // nozzle then tours the whole spread on every layer. They belong in a
+        // three-by-three block in the middle.
+        let bed = BedConfig {
+            width: 256.0,
+            depth: 256.0,
+            ..default_bed()
+        };
+        let fps: Vec<Footprint> = (0..9).map(|_| footprint(&box_mesh(30.0, 30.0))).collect();
+        let opts = PackOptions {
+            spacing_mm: 4.0,
+            rotation_step_deg: 90.0,
+        };
+        let out = pack_objects(&fps, &bed, &opts);
+        assert!(out.iter().all(|p| p.on_bed));
+
+        let span = |axis: usize| {
+            let v = out.iter().map(|p| p.pivot[axis]);
+            v.clone().fold(f64::MIN, f64::max) - v.fold(f64::MAX, f64::min) + 30.0
+        };
+        // Three boxes and two gaps, plus a cell of rasterisation slack each.
+        let block = 3.0 * 30.0 + 2.0 * opts.spacing_mm + 3.0 * cell_size(&bed);
+        assert!(
+            span(0) <= block && span(1) <= block,
+            "nine boxes spread {:.0} x {:.0} mm, want a {block:.0} mm block",
+            span(0),
+            span(1)
+        );
+        let (cx, cy) = bed.center_xy();
+        let mid = |axis: usize| out.iter().map(|p| p.pivot[axis]).sum::<f64>() / 9.0;
+        assert!(
+            (mid(0) - cx).abs() < 5.0 && (mid(1) - cy).abs() < 5.0,
+            "the block should sit mid-plate, got ({:.0}, {:.0})",
+            mid(0),
+            mid(1)
         );
     }
 

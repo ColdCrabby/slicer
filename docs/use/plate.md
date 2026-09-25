@@ -154,7 +154,9 @@ Parts are nested by their real shape: the app looks at the shadow each one
 casts on the plate and tucks the next part into whatever room the last one left,
 turning parts a quarter turn when that helps them fit. Angled and hollow parts
 overlap each other's empty corners, so a plate that used to need two runs often
-goes in one. Anything that still doesn't fit is parked beside the plate rather
+goes in one. A plate with room to spare is gathered into one tight group in the
+middle rather than spread across it, which keeps the nozzle's hops between parts
+short. Anything that still doesn't fit is parked beside the plate rather
 than dropped, where the out-of-bounds warning picks it up.
 
 This is one command, not two. There's no separate "orient everything" button

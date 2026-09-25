@@ -201,10 +201,14 @@ flowchart TD
   C --> D["Project triangles to XY<br/>= the footprint"]
   D --> E["Sort by footprint area,<br/>largest first"]
   E --> F["Per object: rasterise<br/>each rotation candidate"]
-  F --> G["Nearest free spot to<br/>the plate's low corner"]
+  F --> G["Nearest free spot to<br/>the window's low corner"]
   G --> H["Commit: dilate by spacing,<br/>OR into occupancy"]
   H --> F
   H --> I["Recentre the arrangement<br/>on the bed"]
+  I --> J{"Every part fits?"}
+  J -- "Yes" --> K["Shrink the window,<br/>pack again"]
+  K --> E
+  J -- "No" --> L["Keep the smallest<br/>window that fitted"]
 ```
 
 #### The plate is a bitmap
@@ -240,6 +244,19 @@ middle — one shift for the whole group, shortened a cell at a time until every
 part is still on the plate. On a rectangular bed the full shift always
 survives; on a round one that check is the difference between a centred plate
 and parts pushed over the rim.
+
+#### Why a shrinking window
+
+Filling a corner is dense, but on a light plate it is the wrong shape: the
+parts run along the first row and step up in a staircase, and the nozzle tours
+that whole spread on every layer. So the plate is packed inside a **window** —
+the plate's own outline shrunk about its centre — and a binary search finds the
+smallest window that still takes every part. A handful of parts comes out as
+one compact block in the middle; a full plate needs the whole window and is
+packed exactly as densely as before. The search starts at the parts' combined
+area, so it never tries a window that obviously cannot work, and it keeps only
+runs where every part fitted, so a wrong guess costs a slightly larger block,
+never a lost part.
 
 #### Rotation
 
