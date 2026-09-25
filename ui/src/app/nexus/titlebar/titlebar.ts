@@ -19,6 +19,7 @@ import {
 } from '../../runtime/domain/runtime-mode.util';
 import { Icon, IconButton, TooltipDirective } from '@coldcrabby/ui';
 import { Viewport } from '../../services/viewport';
+import { Feedback } from '../../services/feedback';
 
 /**
  * Where a runtime's API reference lives, or `null` when it has no server.
@@ -62,6 +63,7 @@ export function apiDocsUrlFor(mode: RuntimeMode, apiUrl: string): string | null 
 export class NexusTitlebar {
   private readonly viewport = inject(Viewport);
   private readonly injector = inject(Injector);
+  private readonly feedback = inject(Feedback);
 
   /**
    * Everything that leaves the app, behind one button.
@@ -81,6 +83,8 @@ export class NexusTitlebar {
     });
     const apiDocs = this.apiDocsUrl();
     await menu.open(event, [
+      { label: 'Send feedback', icon: 'chat-lines', action: () => this.feedback.open() },
+      { label: '', separator: true },
       link('Documentation', 'open-book', 'https://slicer.maxscopp.de/docs/'),
       ...(apiDocs ? [link('API reference', 'code-brackets', apiDocs)] : []),
       link('Preset catalog', 'cloud', 'https://cloud-presets.onrender.com/'),
