@@ -722,6 +722,26 @@ export class GcodePreview {
   });
 
   /**
+   * Filament the sliced file says it uses — read from its header, like the
+   * time estimate, so the figure is the file's own. `null` when it carries none.
+   */
+  readonly filamentUsage = computed<{ grams: number; metres: number; cost: number | null } | null>(
+    () => {
+      const handle = this.gcodeHandle();
+      const grams = handle?.filamentUsedG() ?? 0;
+      if (!handle || grams <= 0) {
+        return null;
+      }
+      const cost = handle.filamentCost();
+      return {
+        grams,
+        metres: handle.filamentUsedMm() / 1000,
+        cost: cost > 0 ? cost : null,
+      };
+    },
+  );
+
+  /**
    * 0-based indices of every layer carrying a pause/color-change/custom
    * trigger, resolved from the parsed G-code's `;TRIGGER`
    * markers rather than re-deriving `at_z` → layer mapping on the frontend.

@@ -4,7 +4,7 @@ import { WorkplateSettingsStore } from './workplate-settings';
 
 /** Where names used to live, before they became part of the plate's document. */
 const LEGACY_STORAGE_KEY = 'workplate.names';
-const DEFAULT_WORKPLATE_NAME = 'Untitled workplate';
+const DEFAULT_WORKPLATE_NAME = 'Untitled plate';
 const DEFAULT_GCODE_FILENAME = 'output.gcode';
 const INVALID_FILENAME_CHARS = /[<>:"/\\|?*\u0000-\u001F]/g;
 const GCODE_EXTENSION = /\.(gcode|gco|g)$/i;
@@ -81,6 +81,19 @@ export class WorkplateNames {
 
     const withoutGcodeExt = safeBase.replace(GCODE_EXTENSION, '').trim();
     return withoutGcodeExt ? `${withoutGcodeExt}.gcode` : DEFAULT_GCODE_FILENAME;
+  }
+
+  /**
+   * Canonical `<workplate>.3mf` filename used when exporting the plate.
+   * Falls back to the plate's display name, so an unnamed plate still exports
+   * as something recognisable.
+   */
+  threeMfFilenameFor(
+    uuid: string | null | undefined,
+    sourceFilename: string | null | undefined,
+  ): string {
+    const safeBase = this.#sanitizeFilenameBase(this.displayNameFor(uuid, sourceFilename));
+    return `${safeBase || DEFAULT_WORKPLATE_NAME}.3mf`;
   }
 
   /** Store (or, when blank, clear) the custom name for a workplate. */

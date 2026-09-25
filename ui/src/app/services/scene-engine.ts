@@ -626,6 +626,11 @@ export class SceneEngine {
     return result;
   }
 
+  /** The plate as 3MF bytes — every object, placed where it sits now. */
+  export3mf(): Uint8Array {
+    return this.requireHandle().export3mf();
+  }
+
   /** Slice the current scene locally through the opt-in `web-slicer` wasm build. */
   sliceToGcode(params: SlicingParams): LocalSliceResult {
     const handle = this.requireHandle() as unknown as Partial<SceneHandleWithWebSlicer>;

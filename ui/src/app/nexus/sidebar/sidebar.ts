@@ -38,8 +38,10 @@ const HOVER_CLOSE_DELAY_MS = 240;
 // Generous enough that the panel sliding in under a stationary pointer never
 // reads as "the pointer left".
 const HOVER_LEAVE_GRACE_PX = 32;
-// How close to the screen edge a pointer must rest to arm a peek.
-const EDGE_ARM_PX = 14;
+// How close to the screen edge a pointer must rest to arm a peek. Wide enough
+// to hit without aiming; the hover delay and the held-button check are what
+// keep a pass across the scene's left edge from opening it.
+const EDGE_ARM_PX = 32;
 
 @Component({
   selector: 'nexus-sidebar',
@@ -99,7 +101,7 @@ export class Sidebar {
     () => this.collapsed() && (this.overlayOpen() || this.hoverPreview()),
   );
   /** A tap/click peek, which is the kind that needs dismissing (hover ones close themselves). */
-  private readonly isPinnedPeek = computed(() => this.collapsed() && this.overlayOpen());
+  protected readonly isPinnedPeek = computed(() => this.collapsed() && this.overlayOpen());
 
   private dragStartX = 0;
   private dragStartWidth = 0;
@@ -341,6 +343,11 @@ export class Sidebar {
     this.stopPointerWatch();
     this.hoverPreview.set(false);
     this.overlayOpen.set(true);
+  }
+
+  /** The drawer's own close button — a tap outside works too, but is not obvious. */
+  protected onDone(): void {
+    this.dismissOverlay();
   }
 
   /** Put a peek away, whichever kind it was, and stop anything that could reopen it. */

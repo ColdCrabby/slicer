@@ -656,6 +656,35 @@ export class Slicer {
     );
   }
 
+  /**
+   * Save the plate on screen as a 3MF. The scene engine writes it, so every
+   * runtime exports exactly the placement it would slice.
+   */
+  async exportPlate3mf(): Promise<void> {
+    if (this.sceneEngine.objects().length === 0) {
+      return;
+    }
+    let bytes: Uint8Array;
+    try {
+      bytes = this.sceneEngine.export3mf();
+    } catch (error) {
+      this.notifications.error(
+        'Export failed',
+        error instanceof Error ? error.message : String(error),
+      );
+      return;
+    }
+    const filename = this.workplateNames.threeMfFilenameFor(
+      this.currentRequestUuid(),
+      this.slicerFile.sourceFilename() ?? this.selectedFile()?.name,
+    );
+    await this.fileExport.saveBytes(bytes, filename, {
+      mime: 'model/3mf',
+      filters: [{ name: '3MF', extensions: ['3mf'] }],
+      savedLabel: 'Plate',
+    });
+  }
+
   selectFile(file: File): void {
     // Selecting a file via the standard input path clears any native selection.
     this.pendingNativeMeshInput = null;
@@ -1062,6 +1091,30 @@ export class Slicer {
       this.lastError.set(errorMsg);
       this.activeSliceId = null;
     }
+  }
+
+  /**
+   * Stop the slice in flight at the user's request.
+   *
+   * The id is dropped before the runtime is told, so the rejection the
+   * cancellation produces is read as "superseded" rather than as a failure —
+   * a stopped slice is not an error the dock should report in red. Any
+   * automatic re-slice waiting behind it is dropped too, or it would start the
+   * work the user just stopped.
+   */
+  cancelSlice(): void {
+    const sliceId = this.activeSliceId;
+    if (!sliceId) {
+      return;
+    }
+    this.activeSliceId = null;
+    this.resetAutoSlice();
+    void this.orchestrator.cancel(sliceId);
+    this.status.set(this.selectedFile() ? 'ready' : 'idle');
+    this.currentPhase.set(null);
+    this.progressFloor.set(0);
+    this.sliceStartedAt = null;
+    this.outputLog.update((log) => [...log, 'Slice cancelled.']);
   }
 
   /**

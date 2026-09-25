@@ -1,8 +1,16 @@
 ﻿import { Injectable, computed, inject, signal } from '@angular/core';
 import { Logger } from '../logger';
-import { SceneEngine, SceneSnapshot } from '../scene-engine';
+import { SceneEngine, SceneObjectSnapshot, SceneSnapshot } from '../scene-engine';
 
 const MAX_ENTRIES = 50;
+
+/**
+ * Re-creates a removed object from its source file and resolves to its new id,
+ * or `null` when the file cannot be had. Asynchronous because in cloud mode the
+ * bytes live on the server and are fetched back. Registered by the owner of
+ * object creation, which this service must not import (it sits beneath it).
+ */
+export type ObjectReviver = (object: SceneObjectSnapshot) => Promise<bigint | null>;
 
 /**
  * Linear undo/redo stack where each entry is a complete `SceneSnapshot`.
@@ -17,8 +25,9 @@ const MAX_ENTRIES = 50;
  *
  * Restoration issues `set_transform` ops for every object present in the
  * target snapshot, and `remove` ops for objects that should no longer exist.
- * Re-adding objects whose mesh bytes are no longer in memory is deferred to a
- * future stage.
+ * An object the target has but the scene lost is brought back through the
+ * registered {@link ObjectReviver}, which re-adds it from its source file; the
+ * engine hands out a fresh id, so every stored snapshot is re-keyed to it.
  */
 @Injectable({ providedIn: 'root' })
 export class SceneHistory {
@@ -27,6 +36,12 @@ export class SceneHistory {
 
   private readonly stack = signal<SceneSnapshot[]>([]);
   private readonly cursor = signal(-1);
+  private reviver: ObjectReviver | null = null;
+
+  /** Install the callback that brings a removed object back on undo. */
+  setReviver(reviver: ObjectReviver): void {
+    this.reviver = reviver;
+  }
 
   readonly canUndo = computed(() => this.cursor() > 0);
   readonly canRedo = computed(() => this.cursor() < this.stack().length - 1);
@@ -89,6 +104,16 @@ export class SceneHistory {
     this.cursor.set(-1);
   }
 
+  /** Point every stored snapshot at an object's new id after it was re-added. */
+  private rekey(from: bigint, to: bigint): void {
+    this.stack.update((entries) =>
+      entries.map((entry) => ({
+        ...entry,
+        objects: entry.objects.map((o) => (o.id === from ? { ...o, id: to } : o)),
+      })),
+    );
+  }
+
   private restoreSnapshot(snapshot: SceneSnapshot): void {
     const currentIds = new Set(this.engine.objects().map((o) => String(o.id)));
 
@@ -100,25 +125,41 @@ export class SceneHistory {
 
     for (const obj of snapshot.objects) {
       if (!currentIds.has(String(obj.id))) {
-        // Mesh bytes not available -- skip re-add until file tracking is wired.
+        void this.revive(obj);
         continue;
       }
-      this.engine.apply({
-        op: 'SetTransform',
-        args: {
-          id: obj.id,
-          translation: obj.translation,
-          euler_xyz_deg: obj.euler_xyz_deg,
-          scale: obj.scale,
-        },
-      });
-      // Paint is per-facet, not part of the transform, so it needs its own
-      // replay — otherwise undoing any edit would silently erase every
-      // painted region on the plate.
-      this.engine.apply({
-        op: 'SetSupportPaint',
-        args: { id: obj.id, encoded: obj.support_paint },
-      });
+      this.place(obj);
     }
+  }
+
+  /** Bring back an object the scene lost, then put it where the snapshot had it. */
+  private async revive(obj: SceneObjectSnapshot): Promise<void> {
+    const revived = this.reviver ? await this.reviver(obj).catch(() => null) : null;
+    if (revived === null) {
+      this.log.warn('cannot restore removed object -- source file unavailable', { id: obj.id });
+      return;
+    }
+    this.rekey(obj.id, revived);
+    this.place({ ...obj, id: revived });
+  }
+
+  /** Apply a snapshot object's transform and paint to the live object. */
+  private place(obj: SceneObjectSnapshot): void {
+    this.engine.apply({
+      op: 'SetTransform',
+      args: {
+        id: obj.id,
+        translation: obj.translation,
+        euler_xyz_deg: obj.euler_xyz_deg,
+        scale: obj.scale,
+      },
+    });
+    // Paint is per-facet, not part of the transform, so it needs its own
+    // replay — otherwise undoing any edit would silently erase every
+    // painted region on the plate.
+    this.engine.apply({
+      op: 'SetSupportPaint',
+      args: { id: obj.id, encoded: obj.support_paint },
+    });
   }
 }

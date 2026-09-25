@@ -42,6 +42,8 @@ slicer-engine = { path = "../../" }
 # own `desktop` cfg (`not(mobile)`), which is what gates the plugin in lib.rs.
 [target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dependencies]
 tauri-plugin-single-instance = "2"
+# Remembers the window's size, position and maximised state between launches.
+tauri-plugin-window-state = "2"
 
 # Event-driven OS accent watcher (src/system_accent.rs). Windows reads the DWM
 # accent from the registry and blocks on `RegNotifyChangeKeyValue`; macOS
@@ -55,8 +57,20 @@ windows = { version = "0.61", features = [
 
 [target.'cfg(target_os = "macos")'.dependencies]
 block2 = "0.6"
+# Measuring the traffic-light buttons (src/traffic_lights.rs). Same versions
+# Tauri's own tao/wry already pull in.
+objc2 = "0.6"
+objc2-app-kit = { version = "0.3", features = [
+    "NSButton",
+    "NSControl",
+    "NSGraphics",
+    "NSResponder",
+    "NSView",
+    "NSWindow",
+] }
 objc2-foundation = { version = "0.3", features = [
     "NSDistributedNotificationCenter",
+    "NSGeometry",
     "NSNotification",
     "NSObject",
     "NSOperation",

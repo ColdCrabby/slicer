@@ -11,6 +11,7 @@
                 type="button"
                 class="tp-action"
                 [tooltip]="'Centre on the bed (X / Y)'"
+                [attr.aria-label]="'Centre on the bed (X / Y)'"
                 (click)="centerOnBed()"
               >
                 <nexus-icon name="position-align"></nexus-icon>
@@ -19,6 +20,7 @@
                 type="button"
                 class="tp-action"
                 [tooltip]="'Drop to the floor'"
+                [attr.aria-label]="'Drop to the floor'"
                 (click)="dropToFloor()"
               >
                 <!-- Same glyph as the gravity toggle: one is this on demand,
@@ -33,6 +35,7 @@
                 type="button"
                 class="tp-action"
                 [tooltip]="'Reset rotation to 0°'"
+                [attr.aria-label]="'Reset rotation to 0°'"
                 (click)="resetRotation()"
               >
                 <nexus-icon name="restart"></nexus-icon>
@@ -46,6 +49,7 @@
                 class="tp-action"
                 [class.is-active]="uniform()"
                 [attr.aria-pressed]="uniform()"
+                aria-label="Uniform scaling"
                 [tooltip]="
                   uniform()
                     ? 'Uniform scaling on — axes stay proportional'
@@ -59,6 +63,7 @@
                 type="button"
                 class="tp-action"
                 [tooltip]="'Reset scale to 100%'"
+                [attr.aria-label]="'Reset scale to 100%'"
                 (click)="resetScale()"
               >
                 <nexus-icon name="restart"></nexus-icon>

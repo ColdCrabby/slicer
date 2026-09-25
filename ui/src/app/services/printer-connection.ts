@@ -188,6 +188,17 @@ export class PrinterConnectionService {
       this.setStatus(printer.id, LOCAL_STATUS);
       return;
     }
+    // Only Moonraker has a transport. Probing anything else can only fail, and
+    // a failed probe reads as "Offline" — as if the machine were switched off.
+    if (connection.kind !== 'moonraker') {
+      this.setStatus(printer.id, {
+        state: 'unsupported',
+        label: 'Not supported',
+        message: `Sending to ${connection.kind} printers is not supported yet — download the G-code instead.`,
+        checkedAt: Date.now(),
+      });
+      return;
+    }
 
     this.setStatus(printer.id, { state: 'checking', label: 'Checking…' });
 

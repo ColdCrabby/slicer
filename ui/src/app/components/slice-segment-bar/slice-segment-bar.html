@@ -35,7 +35,13 @@
   </button>
 }
 
-<div class="insp-shell" [class.is-open]="revealed() && expanded()">
+<!-- Folded, the controls are zero-height but still in the DOM; `inert` keeps
+     them out of the tab order and the accessibility tree until they show. -->
+<div
+  class="insp-shell"
+  [class.is-open]="revealed() && expanded()"
+  [inert]="!(revealed() && expanded())"
+>
   <div
     class="inspector"
     #inspector

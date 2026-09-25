@@ -1,20 +1,21 @@
 # Print settings
 
 Cold Crabby splits settings three ways, the same way established slicers do.
-Knowing which tab something is in is most of the battle.
+Knowing which of the three owns something is most of the battle.
 
-| Tab | Describes | Changes when |
+| Row | Describes | Changes when |
 | --- | --- | --- |
 | **Printer** | The machine | You buy a printer or change the nozzle |
 | **Filament** | The spool | You swap material |
 | **Process** | How to print this thing | Every print, potentially |
 
-Each tab has a profile dropdown at the top. Pick a saved profile and every
-option below it fills in. Managing those profiles is covered in
+The three rows at the top of the panel name the profile in use for each. Click a
+row to show its settings; the **⋯** beside it swaps the profile, and every option
+below fills in. Managing those profiles is covered in
 [Printers, filaments and profiles](/use/profiles).
 
 ::: tip Can't find something?
-Press `Ctrl`/`⌘ + F` and type. The search spans all three tabs, so you don't
+Press `Ctrl`/`⌘ + F` and type. The search spans all three, so you don't
 have to guess which one owns it.
 :::
 
@@ -32,7 +33,9 @@ the search — you never lose sight of which preset you are editing.
 There is no tab to press. Click a row and the settings below are that row's; the
 three dots beside it change which preset the row is using. Pointing the settings
 somewhere is what you do most, so it takes the whole row, and the dots sit beside
-it without ever getting in the way of it.
+it without ever getting in the way of it. Clicking a row that is already selected
+opens the same menu as its dots, and so does right-clicking any row — or a
+long-press on a touchscreen.
 
 In that menu, every preset carries a **pen** on the right that opens *that*
 preset's own editor — not just the one in use. Editing takes you off the plate

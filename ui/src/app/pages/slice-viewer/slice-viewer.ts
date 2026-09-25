@@ -157,7 +157,7 @@ export class SliceViewer {
       }
       untracked(() =>
         this.#notifications.prompt(
-          'This workplate was changed elsewhere',
+          'This plate was changed elsewhere',
           { label: 'Reload plate', run: () => void this.#session.refresh(change.uuid) },
           {
             icon: 'cloud',

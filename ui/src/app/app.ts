@@ -40,6 +40,10 @@ export class App {
     if (isTauriHost()) {
       void this.startOpenWith();
     }
+    // The macOS menu bar's commands, loaded the same way and for the same reason.
+    if (isTauriDesktop()) {
+      void import('./services/app-menu').then(({ AppMenu }) => this.injector.get(AppMenu).start());
+    }
 
     // The Windows/Linux desktop window is created hidden so the user never sees
     // WebView2's blank, unresponsive cold-start frame (the "app hangs before it

@@ -203,6 +203,38 @@
   </div>
 }
 
+<!-- The two views of the plate, by name. This used to be one icon that only
+     appeared after a slice, so the main switch in the app was a glyph the
+     user had to discover. G-code before any slice exists starts one, the
+     same as the `P` shortcut. -->
+<div class="view-mode" role="radiogroup" aria-label="View">
+  <button
+    type="button"
+    role="radio"
+    class="view-mode-btn"
+    [class.active]="viewMode() === 'model'"
+    [attr.aria-checked]="viewMode() === 'model'"
+    [tooltipShortcut]="keyboardShortcuts.shortcutFor('toggle-view-mode')"
+    tooltip="Arrange the plate"
+    (click)="viewMode() === 'gcode' && toggleViewMode()"
+  >
+    Model
+  </button>
+  <button
+    type="button"
+    role="radio"
+    class="view-mode-btn"
+    [class.active]="viewMode() === 'gcode'"
+    [attr.aria-checked]="viewMode() === 'gcode'"
+    [disabled]="!hasObjects()"
+    [tooltipShortcut]="keyboardShortcuts.shortcutFor('toggle-view-mode')"
+    tooltip="Preview the sliced toolpaths"
+    (click)="viewMode() === 'model' && toggleViewMode()"
+  >
+    G-code
+  </button>
+</div>
+
 <div class="view-group view-group--end">
   <!-- Only offered once a slice exists: an automatic re-slice is a reaction to
        drift from a previous result, so before the first one there is nothing
@@ -218,20 +250,6 @@
       (click)="cycleAutoSlice()"
     >
       <nexus-icon [name]="autoSliceIcon()"></nexus-icon>
-    </button>
-
-    @let viewLabel = viewMode() === 'gcode' ? 'Switch to model view' : 'Switch to G-code preview';
-    <button
-      class="reset-view-button"
-      type="button"
-      [class.active]="viewMode() === 'gcode'"
-      [attr.aria-pressed]="viewMode() === 'gcode'"
-      [tooltip]="viewLabel"
-      [attr.aria-label]="viewLabel"
-      [tooltipShortcut]="keyboardShortcuts.shortcutFor('toggle-view-mode')"
-      (click)="toggleViewMode()"
-    >
-      <nexus-icon [name]="viewMode() === 'gcode' ? 'cube' : 'table-rows'"></nexus-icon>
     </button>
 
     @let textPanelLabel =

@@ -29,12 +29,13 @@ import { LabelFilterBar } from '../labels/label-filter-bar';
 import { WritebackDialog } from '../writeback-dialog/writeback-dialog';
 import { Dialog } from '../../services/dialog';
 import { Slicer } from '../../services/slicer';
+import { ContextMenuTrigger } from '../../services/context-menu/context-menu-trigger';
 import {
   WORKPLATE_SAVE_DEBOUNCE_MS,
   WorkplateSettingsStore,
   type WorkplateSaveStatus,
 } from '../../services/workplate-settings';
-import { FloatingRef, FloatingService, Icon, TooltipDirective } from '@coldcrabby/ui';
+import { FloatingRef, FloatingService, Icon, InlineNotice, TooltipDirective } from '@coldcrabby/ui';
 
 // Extract the SlicingParams sub-schema so the form renders all slicer settings.
 // (`SlicingParams` is now the wire-format type — the legacy `WsSlicingParams`
@@ -60,7 +61,15 @@ const CONFIRM_TIMEOUT_MS = 4000;
 @Component({
   selector: 'nexus-settings-panel',
   standalone: true,
-  imports: [SchemaForm, Icon, RouterLink, LabelFilterBar, TooltipDirective],
+  imports: [
+    SchemaForm,
+    Icon,
+    RouterLink,
+    LabelFilterBar,
+    TooltipDirective,
+    ContextMenuTrigger,
+    InlineNotice,
+  ],
   templateUrl: './settings-panel.component.html',
   styleUrl: './settings-panel.component.scss',
 })
@@ -74,6 +83,19 @@ export class SettingsPanel {
   protected readonly presets = inject(ActivePresets);
   private readonly activeSelection = inject(ActiveSelection);
   protected readonly labelFilter = inject(LabelFilterStore);
+
+  /**
+   * The plate is still sliced for one of the generic starter printers.
+   *
+   * Deliberately not a picker or a prompt: anyone who has used the app for a
+   * minute knows what printer they own. What they may not know is that the
+   * starter profile's bed and start G-code are someone else's guess, so it is
+   * said once, quietly, where the printer is named — and gone the moment a
+   * printer of their own is active.
+   */
+  protected readonly onGenericPrinter = computed(
+    () => this.activeSelection.printer()?.source === 'builtin',
+  );
 
   readonly settings = this.slicer.settings;
   readonly schema = SLICING_PARAMS_SCHEMA;
@@ -130,9 +152,9 @@ export class SettingsPanel {
   protected readonly syncTooltip = computed(() => {
     const count = this.modifiedCount();
     if (count === 0) {
-      return 'No changed settings to sync into your profiles';
+      return 'No changed settings to save to your profiles';
     }
-    return `Sync ${count} changed ${count === 1 ? 'setting' : 'settings'} to their profiles`;
+    return `Save ${count} changed ${count === 1 ? 'setting' : 'settings'} to their profiles`;
   });
 
   /** All three contracts, in tab order — the plate's recipe, top to bottom. */
@@ -224,6 +246,40 @@ export class SettingsPanel {
     return SETTING_CONTRACTS.find((c) => c.id === contract)?.managePath ?? '/';
   });
 
+  /**
+   * A press on the row's name. On a row that is not yet the active one it
+   * points the settings at it; on the row that already is, there is nothing
+   * left to scope, so it does what the dots beside it do and opens the preset
+   * menu — a second click on the obvious target should not be a dead one.
+   */
+  protected onScopeClick(contract: SettingContractId, event: MouseEvent): void {
+    if (this.activeContract() !== contract || this.presetOptionsFor(contract).length === 0) {
+      this.setContract(contract);
+      return;
+    }
+    this.togglePicker(contract, event);
+  }
+
+  /**
+   * Right-click, or a long-press on touch, anywhere on a row opens its preset
+   * menu — the same one as the dots, and the gesture every other list in the
+   * app answers with a menu. It only ever opens: a secondary press is a request
+   * to see the menu, never to dismiss one.
+   */
+  protected onRowContextMenu(contract: SettingContractId, event: MouseEvent): void {
+    if (this.presetOptionsFor(contract).length === 0 || this.openPicker() === contract) {
+      return;
+    }
+    // `target`, not `currentTarget`: a long-press hands over its pointerdown
+    // after dispatch has finished, when `currentTarget` is already null.
+    const row = (event.target as Element).closest<HTMLElement>('.recipe-row');
+    if (!row) {
+      return;
+    }
+    const trigger = row.querySelector<HTMLElement>('.recipe-swap') ?? row;
+    this.openPickerFor(contract, trigger);
+  }
+
   protected togglePicker(contract: SettingContractId, event: MouseEvent): void {
     if (this.openPicker() === contract) {
       this.closePicker();
@@ -250,7 +306,10 @@ export class SettingsPanel {
         reference: trigger.closest<HTMLElement>('.recipe-row') ?? trigger,
         interactive: true,
         panelClass: 'nexus-floating--fit',
-        originElement: trigger,
+        // The whole row, not just the dots: the name opens this menu too, and a
+        // press on either must reach its own toggle rather than first counting
+        // as "outside" — which closed the menu only for the click to reopen it.
+        originElement: trigger.closest<HTMLElement>('.recipe-row') ?? trigger,
         options: {
           placement: 'bottom-end',
           offset: 4,
@@ -383,10 +442,10 @@ export class SettingsPanel {
     this.writeback.open();
     this.dialog
       .confirm({
-        title: 'Sync changes to your profiles',
+        title: 'Save changes to your profiles',
         message: 'Check off which changed settings should become part of their profile.',
-        confirmLabel: 'Sync checked settings',
-        cancelLabel: "Don't sync",
+        confirmLabel: 'Save checked settings',
+        cancelLabel: 'Cancel',
         content: WritebackDialog,
         preferredWidth: '560px',
       })
@@ -415,7 +474,7 @@ export class SettingsPanel {
       case 'saving':
         return 'Saving…';
       case 'saved':
-        return 'Saved to this workplate';
+        return 'Saved to this plate';
       case 'error':
         return "Couldn't save";
       default:

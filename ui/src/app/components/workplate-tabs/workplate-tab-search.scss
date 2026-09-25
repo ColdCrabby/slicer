@@ -1,0 +1,135 @@
+@use 'breakpoints' as *;
+
+// A menu detached from its surface: solid, bordered, shadowed — no blur.
+.ts {
+  display: flex;
+  flex-direction: column;
+  width: 320px;
+  max-width: calc(100vw - 2 * var(--spacing-sm));
+  padding: var(--spacing-xs);
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-lg);
+}
+
+.ts-search {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  height: 32px;
+  padding: 0 var(--spacing-sm);
+  border-radius: var(--radius-md);
+  background: var(--color-bg-secondary);
+  color: var(--color-text-tertiary);
+  --icon-size: 14px;
+
+  input {
+    flex: 1;
+    min-width: 0;
+    border: none;
+    background: transparent;
+    outline: none;
+    box-shadow: none;
+    padding: 0;
+    font-family: inherit;
+    font-size: var(--font-size-sm);
+    color: var(--color-text-primary);
+  }
+}
+
+.ts-heading {
+  padding: var(--spacing-sm) var(--spacing-sm) var(--spacing-xs);
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-medium);
+  color: var(--color-text-tertiary);
+}
+
+.ts-list {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  max-height: min(360px, 60vh);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.ts-row {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  min-height: 40px;
+  padding: 0 2px 0 var(--spacing-sm);
+  border-radius: var(--radius-md);
+  color: var(--color-text-primary);
+  cursor: pointer;
+  --icon-size: 16px;
+
+  &.highlighted {
+    background: var(--color-surface-hover);
+  }
+
+  // The workplate on screen gets the accent mark the tab strip gives it.
+  &.current .ts-row-icon {
+    color: var(--accent);
+  }
+}
+
+.ts-row-icon {
+  flex: none;
+  color: var(--color-text-tertiary);
+}
+
+.ts-row-text {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-width: 0;
+}
+
+.ts-row-name,
+.ts-row-file {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ts-row-name {
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-medium);
+}
+
+.ts-row-file {
+  font-size: var(--font-size-xs);
+  color: var(--color-text-secondary);
+}
+
+// Same reveal rule as the strip's own close buttons: hidden, not merely
+// transparent, so an unseen button never takes a click meant for the row.
+.ts-row-close {
+  flex: none;
+  color: var(--color-text-tertiary);
+  visibility: hidden;
+}
+
+.ts-row.highlighted .ts-row-close {
+  visibility: visible;
+}
+
+.ts-empty {
+  margin: 0;
+  padding: var(--spacing-sm);
+  font-size: var(--font-size-sm);
+  color: var(--color-text-tertiary);
+}
+
+// No hover to reveal the close button, and a fingertip needs a taller row.
+@include coarse-pointer {
+  .ts-row {
+    min-height: var(--touch-target);
+  }
+
+  .ts-row-close {
+    visibility: visible;
+  }
+}

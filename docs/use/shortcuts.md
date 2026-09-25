@@ -12,13 +12,17 @@ All of this is also in the app under **Settings → Keyboard shortcuts**.
 | Redo | `⌘/Ctrl + Y` or `⌘/Ctrl + Shift + Z` |
 | Place objects on the bed | `A` |
 | Select all objects | `⌘/Ctrl + A` |
+| Duplicate the selection | `⌘/Ctrl + D` |
+| Remove the selection | `Delete` or `Backspace` — undo brings it back |
+| Slice the plate | `⌘/Ctrl + Enter` |
 | Put away a card, or clear the selection | `Esc` |
 
 `Esc` closes whatever floats over the plate — the placement card, the brush
 popout, the print-settings drawer — and clears the selection.
 
 Shortcuts stand down while you are typing in a field, so they can't reach past
-your caret. Clicking the plate hands the keyboard back.
+your caret — that includes the G-code arrows — and the plate shortcuts only work
+while the plate is on screen. Clicking the plate hands the keyboard back.
 
 ## The tool panel
 
@@ -40,6 +44,8 @@ walks the rest of the card as usual, and `Esc` puts you back on the plate.
 | Rotate | `R` |
 | Scale | `S` |
 | Pull a face to the floor | `F` |
+| Paint supports | `B` |
+| Brush size and mode, at the pointer | `Shift + B` |
 
 ## View
 
@@ -76,6 +82,27 @@ run the same way.
 | Action | Key |
 | --- | --- |
 | Focus settings search | `⌘/Ctrl + F` |
+| Search open workplates | `⌘/Ctrl + Shift + A` |
+
+## Workplates
+
+The same keys as tabs in a browser — in the desktop and iPad apps.
+
+| Action | Desktop and iPad app | Browser |
+| --- | --- | --- |
+| New workplate | `⌘/Ctrl + T` | `Alt + T` |
+| Close workplate | `⌘/Ctrl + W` | `Alt + W` |
+| Close all workplates | `⌘/Ctrl + Shift + W` | `Alt + Shift + W` |
+| Reopen a closed workplate | `⌘/Ctrl + Shift + T` | `Alt + Shift + T` |
+| Next / previous workplate | `Ctrl + Tab` / `Ctrl + Shift + Tab` | `Alt + Shift + →` / `←` |
+| Go to workplate 1–8, or the last | `⌘/Ctrl + 1`…`9` | — |
+
+A browser keeps `Ctrl + W`, `Ctrl + T` and the rest for its own tabs, and no
+page can take them over — so in the browser the same actions sit on `Alt`
+(`⌥` on a Mac). Pressing `Ctrl + W` there anyway asks before the page closes
+while you have workplates open.
+
+On a Mac, the desktop app also lists these under **File** in the menu bar.
 
 ## Mouse
 

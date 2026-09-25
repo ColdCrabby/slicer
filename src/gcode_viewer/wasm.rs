@@ -1,7 +1,9 @@
 use js_sys::{Float32Array, Uint32Array, Uint8Array};
 use wasm_bindgen::prelude::*;
 
-use super::parser::{parse_estimated_print_time_s, parse_gcode_bytes};
+use super::parser::{
+    parse_estimated_print_time_s, parse_filament_usage, parse_gcode_bytes, FilamentUsage,
+};
 use super::types::{InternalLayer, FLOATS_PER_SEGMENT};
 use crate::scene::{BedConfig, BedShape};
 
@@ -179,6 +181,7 @@ fn layer_to_buffer(layer: &InternalLayer, bed: Option<&BedConfig>) -> GcodeLayer
 pub struct GcodeHandle {
     layers: Vec<InternalLayer>,
     estimated_print_time_s: Option<f32>,
+    filament: FilamentUsage,
     bed: Option<BedConfig>,
 }
 
@@ -194,6 +197,7 @@ impl GcodeHandle {
         GcodeHandle {
             layers: parse_gcode_bytes(bytes),
             estimated_print_time_s: parse_estimated_print_time_s(bytes),
+            filament: parse_filament_usage(bytes),
             bed: None,
         }
     }
@@ -237,6 +241,25 @@ impl GcodeHandle {
     #[wasm_bindgen(js_name = estimatedPrintTimeS)]
     pub fn estimated_print_time_s(&self) -> f32 {
         self.estimated_print_time_s.unwrap_or(0.0)
+    }
+
+    /// Filament length the file's header reports, in mm; `0.0` when absent.
+    #[wasm_bindgen(js_name = filamentUsedMm)]
+    pub fn filament_used_mm(&self) -> f32 {
+        self.filament.length_mm.unwrap_or(0.0)
+    }
+
+    /// Filament weight the file's header reports, in grams; `0.0` when absent.
+    #[wasm_bindgen(js_name = filamentUsedG)]
+    pub fn filament_used_g(&self) -> f32 {
+        self.filament.weight_g.unwrap_or(0.0)
+    }
+
+    /// Material cost the header reports, in the filament profile's currency;
+    /// `-1.0` when absent, since a free filament honestly costs `0`.
+    #[wasm_bindgen(js_name = filamentCost)]
+    pub fn filament_cost(&self) -> f32 {
+        self.filament.cost.unwrap_or(-1.0)
     }
 
     /// Total number of layers detected in the file.

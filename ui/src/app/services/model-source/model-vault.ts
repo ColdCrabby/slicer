@@ -57,6 +57,7 @@ const BUDGET_BYTES = 512 * 1024 * 1024;
  */
 class ModelVault {
   #db: Promise<IDBDatabase | null> | null = null;
+  #persistRequested = false;
 
   /** Remember one file, replacing any record already under its handle. */
   async put(source: ModelSource): Promise<void> {
@@ -71,6 +72,24 @@ class ModelVault {
       lastUsed: Date.now(),
     };
     await this.#write((store) => store.put(record));
+    this.#requestPersistence();
+  }
+
+  /**
+   * Ask the browser not to evict this origin's storage.
+   *
+   * Without it the vault — and every plate and profile beside it in the local
+   * runtimes — is "best effort" storage, which Safari clears after a week
+   * without a visit. Asked on the first stored model rather than at start-up,
+   * because some browsers weigh engagement when deciding, and a user who has
+   * put a model on a plate has engaged. Asked once; a refusal is not retried.
+   */
+  #requestPersistence(): void {
+    if (this.#persistRequested) {
+      return;
+    }
+    this.#persistRequested = true;
+    void globalThis.navigator?.storage?.persist?.().catch(() => false);
   }
 
   /** Every remembered file among `sourceIds`, in no particular order. */

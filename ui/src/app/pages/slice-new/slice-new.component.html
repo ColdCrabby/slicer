@@ -2,7 +2,6 @@
   class="scene-shell"
   [class.is-drag-active]="dragActive()"
   [class.is-busy]="uploading() || slicerFile.isPending()"
-  (click)="triggerFilePicker()"
   (dragenter)="onDragEnter($event)"
   (dragover)="onDragOver($event)"
   (dragleave)="onDragLeave($event)"
@@ -32,7 +31,7 @@
         <nexus-empty-state
           class="launch-empty"
           icon="cloud-upload"
-          heading="Uploading model..."
+          heading="Uploading model…"
           [description]="slicerFile.uploadProgress() + '%'"
         >
           <div class="progress-track">
@@ -45,7 +44,7 @@
         <nexus-empty-state
           class="launch-empty"
           icon="cloud-upload"
-          heading="Preparing workplate..."
+          heading="Preparing plate…"
           [description]="slicerFile.selectedFile()!.name"
         >
           <div class="progress-track">
@@ -73,7 +72,7 @@
           icon="cloud-upload"
           [heading]="dragActive() ? 'Release to place on bed' : 'Start your first plate'"
           [description]="
-            dragActive() ? 'Drop to start this workplate' : 'Drop STL, OBJ, or 3MF - up to 500 MB'
+            dragActive() ? 'Drop to start this plate' : 'Drop STL, OBJ, or 3MF — up to 500 MB'
           "
         >
           <div class="launch-actions">
@@ -86,7 +85,7 @@
             <div class="meta-footer" aria-hidden="true">
               <span class="meta-item">Bed {{ bedLabel() }}</span>
               <span class="meta-sep">·</span>
-              <span class="meta-item">Auto-oriented and dropped to the bed</span>
+              <span class="meta-item">{{ placementNote() }}</span>
             </div>
           </div>
         </nexus-empty-state>

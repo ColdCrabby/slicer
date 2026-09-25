@@ -68,4 +68,11 @@ print(f"  flattened {flattened} icon(s)")
 PY
 fi
 
+# The web app's install icons (manifest.json). Chrome only offers "Install"
+# once a 192px and a 512px icon are declared.
+echo "Writing web app icons…"
+for size in 192 512; do
+  sips -z "$size" "$size" "ui-desktop/$MASTER" --out "ui/public/icon-$size.png" >/dev/null
+done
+
 echo "Done. Review the diff, then commit the regenerated icons."

@@ -46,7 +46,7 @@ export class ListHistory {
   }
 
   #rename(session: RuntimeHistorySession): void {
-    const next = window.prompt('Workplate name', this.displayName(session));
+    const next = window.prompt('Plate name', this.displayName(session));
     if (next !== null) {
       this.#workplateNames.setName(session.request_uuid, next);
     }
