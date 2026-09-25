@@ -75,7 +75,7 @@
       (keydown.enter)="activateDraft()"
       (keydown.space)="activateDraft()"
     >
-      <span class="wp-tab-label">New plate</span>
+      <span class="wp-tab-label">New workplate</span>
     </div>
   }
 </div>
@@ -94,7 +94,7 @@
 
 <!--
   Only once there is something to search: with a single tab the strip already
-  shows every plate there is.
+  shows every workplate there is.
 -->
 @if (tabs().length > 1 || searchOpen()) {
   <button
@@ -104,11 +104,11 @@
     type="button"
     cdkOverlayOrigin
     #searchTrigger="cdkOverlayOrigin"
-    aria-label="Search open plates"
+    aria-label="Search open workplates"
     aria-haspopup="listbox"
     [attr.aria-expanded]="searchOpen()"
     [class.is-open]="searchOpen()"
-    tooltip="Search open plates"
+    tooltip="Search open workplates"
     [tooltipShortcut]="searchShortcut"
     (click)="toggleSearch()"
   >

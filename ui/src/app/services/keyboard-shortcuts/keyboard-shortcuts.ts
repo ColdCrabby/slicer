@@ -228,7 +228,7 @@ export class KeyboardShortcuts {
     {
       actionId: 'search-tabs',
       shortcut: '$mod+Shift+a',
-      displayDescription: 'Search open plates',
+      displayDescription: 'Search open workplates',
       canMatch: () => this.tabSearchRef !== null,
       handleAction: () => this.tabSearchRef!.toggleSearch(),
     },

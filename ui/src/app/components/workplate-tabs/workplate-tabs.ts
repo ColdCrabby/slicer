@@ -31,7 +31,7 @@ import { TabSearchEntry, WorkplateTabSearch } from './workplate-tab-search';
  * Open-workplate tab strip shown in the titlebar, replacing the single
  * editable plate-name field. Each tab is an independently renamed, switchable
  * workplate (see {@link OpenWorkplates}); the `+` opens a fresh one, and the
- * chevron beside it lists every open plate with a search box, for when there
+ * chevron beside it lists every open workplate with a search box, for when there
  * are more than the strip can show.
  */
 @Component({
@@ -78,7 +78,7 @@ export class WorkplateTabs {
     this.tabs().map((tab) => {
       const name = this.nameFor(tab) || this.placeholderFor(tab);
       // The derived name *is* the filename's stem; repeating it under itself
-      // says nothing. It earns the second line once the plate is renamed.
+      // says nothing. It earns the second line once the workplate is renamed.
       const stem = tab.filename?.replace(/\.[^.]+$/, '');
       return { uuid: tab.uuid, name, filename: stem === name ? null : tab.filename };
     }),
@@ -132,7 +132,7 @@ export class WorkplateTabs {
       }
     });
 
-    // Once the strip overflows, the plate on screen can sit scrolled out of
+    // Once the strip overflows, the workplate on screen can sit scrolled out of
     // sight — switched to from the search list, a deep link or Home. Bring its
     // tab back into view whenever it changes, once the strip has rendered it,
     // and again whenever the strip itself changes width: the titlebar settles
@@ -180,7 +180,7 @@ export class WorkplateTabs {
     (trigger.elementRef.nativeElement as HTMLElement).focus();
   }
 
-  /** Switch to the plate picked in the search list. */
+  /** Switch to the workplate picked in the search list. */
   pickFromSearch(uuid: string): void {
     this.searchOpen.set(false);
     this.activate(uuid);
@@ -432,7 +432,7 @@ export class WorkplateTabs {
       { label: 'Close All Tabs', action: () => void this.closeAll() },
       { separator: true, label: '' },
       {
-        label: 'Search Open Plates…',
+        label: 'Search Open Workplates…',
         icon: 'search',
         action: () => this.searchOpen.set(true),
         disabled: this.tabs().length <= 1,

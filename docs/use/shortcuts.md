@@ -76,7 +76,7 @@ run the same way.
 | Action | Key |
 | --- | --- |
 | Focus settings search | `⌘/Ctrl + F` |
-| Search open plates | `⌘/Ctrl + Shift + A` |
+| Search open workplates | `⌘/Ctrl + Shift + A` |
 
 ## Mouse
 

@@ -142,7 +142,7 @@ export class OpenWorkplates {
   }
 
   /**
-   * Close every tab after `uuid`. If the plate on screen was one of them, the
+   * Close every tab after `uuid`. If the workplate on screen was one of them, the
    * tab the request came from takes over — it is the one the user is pointing at.
    */
   closeToTheRightOf(uuid: string): void {

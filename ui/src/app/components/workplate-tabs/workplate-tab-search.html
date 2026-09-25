@@ -4,9 +4,9 @@
     <input
       #search
       type="text"
-      placeholder="Search open plates"
+      placeholder="Search open workplates"
       role="combobox"
-      aria-label="Search open plates"
+      aria-label="Search open workplates"
       aria-controls="ts-list"
       aria-expanded="true"
       [attr.aria-activedescendant]="filtered().length ? 'ts-row-' + highlighted() : null"
@@ -18,9 +18,9 @@
     />
   </div>
 
-  <div class="ts-heading">Open plates</div>
+  <div class="ts-heading">Open workplates</div>
 
-  <div id="ts-list" class="ts-list" role="listbox" aria-label="Open plates">
+  <div id="ts-list" class="ts-list" role="listbox" aria-label="Open workplates">
     @for (entry of filtered(); track entry.uuid; let i = $index) {
       <div
         #row
@@ -57,9 +57,9 @@
     } @empty {
       <p class="ts-empty">
         @if (entries().length) {
-          No open plate matches “{{ query().trim() }}”.
+          No open workplate matches “{{ query().trim() }}”.
         } @else {
-          No plates are open.
+          No workplates are open.
         }
       </p>
     }
